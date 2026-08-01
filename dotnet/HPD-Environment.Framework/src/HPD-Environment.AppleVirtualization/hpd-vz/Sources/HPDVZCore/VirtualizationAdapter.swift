@@ -12,6 +12,140 @@ import Virtualization
 import Security
 #endif
 
+#if canImport(AppKit)
+import AppKit
+#endif
+
+#if canImport(Darwin)
+@_silgen_name("flock")
+private func hpd_flock(
+    _ descriptor: Int32,
+    _ operation: Int32
+) -> Int32
+
+enum DiskLeaseError: LocalizedError {
+    case invalidPath
+    case duplicatePath
+    case openFailed(String, Int32)
+    case unsafeFile(String)
+    case alreadyOwned(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidPath:
+            return "Every VM disk lease requires one non-empty path."
+        case .duplicatePath:
+            return "A VM configuration cannot attach the same disk path more than once."
+        case .openFailed(let path, let code):
+            return "The VM disk '\(path)' could not be opened for exclusive ownership (errno \(code))."
+        case .unsafeFile(let path):
+            return "The VM disk '\(path)' is not one regular, single-link file."
+        case .alreadyOwned(let path):
+            return "The VM disk '\(path)' is already owned by another helper or VM incarnation."
+        }
+    }
+}
+
+@_spi(Testing)
+public final class ExclusiveDiskLease {
+    private var descriptor: Int32
+
+    public init(path: String) throws {
+        let opened = Darwin.open(
+            path,
+            O_RDWR | O_CLOEXEC | O_NOFOLLOW)
+        guard opened >= 0 else {
+            throw DiskLeaseError.openFailed(
+                path,
+                errno)
+        }
+        descriptor = opened
+        do {
+            var metadata = stat()
+            guard Darwin.fstat(opened, &metadata) == 0 else {
+                throw DiskLeaseError.openFailed(
+                    path,
+                    errno)
+            }
+            guard
+                metadata.st_mode & S_IFMT == S_IFREG,
+                metadata.st_nlink == 1
+            else {
+                throw DiskLeaseError.unsafeFile(path)
+            }
+            guard hpd_flock(
+                opened,
+                LOCK_EX | LOCK_NB) == 0
+            else {
+                throw DiskLeaseError.alreadyOwned(path)
+            }
+        } catch {
+            Darwin.close(opened)
+            descriptor = -1
+            throw error
+        }
+    }
+
+    deinit {
+        if descriptor >= 0 {
+            _ = hpd_flock(descriptor, LOCK_UN)
+            Darwin.close(descriptor)
+        }
+    }
+}
+#endif
+
+public struct GeneratedVirtualMachineIdentity: Codable, Sendable {
+    public let schema: String
+    public let machineIdentifierData: String
+    public let macAddress: String
+
+    public init(
+        schema: String,
+        machineIdentifierData: String,
+        macAddress: String
+    ) {
+        self.schema = schema
+        self.machineIdentifierData = machineIdentifierData
+        self.macAddress = macAddress
+    }
+}
+
+public enum VirtualMachineIdentityFactory {
+    public static func generate() throws
+        -> GeneratedVirtualMachineIdentity
+    {
+        #if canImport(Virtualization)
+        if #available(macOS 13.0, *) {
+            let machineIdentifier = VZGenericMachineIdentifier()
+            let macAddress = VZMACAddress.randomLocallyAdministered()
+            return GeneratedVirtualMachineIdentity(
+                schema:
+                    "hpd.execution.apple-virtualization.machine-identity/v1",
+                machineIdentifierData:
+                    machineIdentifier.dataRepresentation
+                        .base64EncodedString(),
+                macAddress: macAddress.string)
+        }
+        throw NSError(
+            domain: "HPDVZCore",
+            code: 1,
+            userInfo: [
+                NSLocalizedDescriptionKey:
+                    "Persistent generic machine identity requires macOS 13.0 or newer."
+            ])
+        #else
+        throw NSError(
+            domain: "HPDVZCore",
+            code: 2,
+            userInfo: [
+                NSLocalizedDescriptionKey:
+                    "Virtualization.framework is unavailable."
+            ])
+        #endif
+    }
+}
+
 public struct VirtualizationPreflightFact {
     public let name: String
     public let state: PreflightFactState
@@ -103,6 +237,8 @@ public protocol VirtualizationAdapter {
     func requestStopHost(_ request: HostLifecycleRequest) -> HostLifecycleResult
     func stopHost(_ request: HostLifecycleRequest) -> HostLifecycleResult
     func deleteHost(_ request: HostLifecycleRequest) -> HostLifecycleResult
+    func acknowledgeWake(_ request: HostLifecycleRequest) -> HostLifecycleResult
+    func powerObservation() -> HostPowerObservation
     func probeGuestAgentTransport(_ request: GuestAgentTransportProbeRequest) -> GuestAgentTransportProbeResult
     func probeGuestAgentReadiness(_ request: GuestAgentReadinessProbeRequest) -> GuestAgentReadinessProbeResult
     func mountProjection(_ request: ProjectionRequest) -> ProjectionResult
@@ -117,6 +253,7 @@ public protocol VirtualizationAdapter {
     func publishEndpoint(_ request: EndpointPublicationRequest) -> EndpointPublicationResult
     func releaseEndpoint(_ request: EndpointPublicationRequest) -> EndpointPublicationResult
     func engineStatus(_ payload: [String: Any]) -> [String: Any]?
+    func storage(_ payload: [String: Any]) -> [String: Any]?
     func authorityBinding(_ payload: [String: Any], operation: Operation) -> [String: Any]?
     func startProcess(_ request: ProcessRequest) -> ProcessResult
     func processStatus(_ request: ProcessRequest) -> ProcessResult
@@ -688,22 +825,184 @@ public enum EngineResponseIdentityValidator {
     }
 }
 
+public enum HostPowerState: Int, Sendable {
+    case active = 0
+    case sleeping = 1
+    case wakeReconciliationRequired = 2
+    case terminating = 3
+}
+
+public struct HostPowerObservation: Sendable {
+    public let state: HostPowerState
+    public let sleepGeneration: UInt64
+    public let wakeGeneration: UInt64
+    public let requiresWakeReconciliation: Bool
+    public let observedAt: String
+
+    public init(
+        state: HostPowerState,
+        sleepGeneration: UInt64,
+        wakeGeneration: UInt64,
+        requiresWakeReconciliation: Bool,
+        observedAt: String
+    ) {
+        self.state = state
+        self.sleepGeneration = sleepGeneration
+        self.wakeGeneration = wakeGeneration
+        self.requiresWakeReconciliation =
+            requiresWakeReconciliation
+        self.observedAt = observedAt
+    }
+
+    public static let active = HostPowerObservation(
+        state: .active,
+        sleepGeneration: 0,
+        wakeGeneration: 0,
+        requiresWakeReconciliation: false,
+        observedAt: ISO8601DateFormatter()
+            .string(from: Date()))
+}
+
+@_spi(Testing)
+public final class HostPowerMonitor: @unchecked Sendable {
+    private let lock = NSLock()
+    private var state: HostPowerState = .active
+    private var sleepGeneration: UInt64 = 0
+    private var wakeGeneration: UInt64 = 0
+    private var requiresWakeReconciliation = false
+    private var observedAt = ISO8601DateFormatter().string(from: Date())
+    #if canImport(AppKit)
+    private var observers: [NSObjectProtocol] = []
+    #endif
+
+    public init(registerSystemNotifications: Bool = true) {
+        #if canImport(AppKit)
+        guard registerSystemNotifications else {
+            return
+        }
+        let center = NSWorkspace.shared.notificationCenter
+        observers = [
+            center.addObserver(
+                forName: NSWorkspace.willSleepNotification,
+                object: nil,
+                queue: nil
+            ) { [weak self] _ in
+                self?.recordSleep()
+            },
+            center.addObserver(
+                forName: NSWorkspace.didWakeNotification,
+                object: nil,
+                queue: nil
+            ) { [weak self] _ in
+                self?.recordWake()
+            },
+            center.addObserver(
+                forName: NSWorkspace.willPowerOffNotification,
+                object: nil,
+                queue: nil
+            ) { [weak self] _ in
+                self?.recordTermination()
+            }
+        ]
+        #endif
+    }
+
+    deinit {
+        #if canImport(AppKit)
+        let center = NSWorkspace.shared.notificationCenter
+        for observer in observers {
+            center.removeObserver(observer)
+        }
+        #endif
+    }
+
+    public func snapshot() -> HostPowerObservation {
+        lock.lock()
+        defer { lock.unlock() }
+        return HostPowerObservation(
+            state: state,
+            sleepGeneration: sleepGeneration,
+            wakeGeneration: wakeGeneration,
+            requiresWakeReconciliation: requiresWakeReconciliation,
+            observedAt: observedAt)
+    }
+
+    public func acknowledge(wakeGeneration observedGeneration: UInt64) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard state == .wakeReconciliationRequired,
+              requiresWakeReconciliation,
+              observedGeneration == wakeGeneration else {
+            return false
+        }
+        state = .active
+        requiresWakeReconciliation = false
+        observedAt = Self.now()
+        return true
+    }
+
+    public func simulateSleepForTesting() {
+        recordSleep()
+    }
+
+    public func simulateWakeForTesting() {
+        recordWake()
+    }
+
+    public func simulateTerminationForTesting() {
+        recordTermination()
+    }
+
+    private func recordSleep() {
+        lock.lock()
+        defer { lock.unlock() }
+        sleepGeneration &+= 1
+        state = .sleeping
+        requiresWakeReconciliation = true
+        observedAt = Self.now()
+    }
+
+    private func recordWake() {
+        lock.lock()
+        defer { lock.unlock() }
+        wakeGeneration &+= 1
+        state = .wakeReconciliationRequired
+        requiresWakeReconciliation = true
+        observedAt = Self.now()
+    }
+
+    private func recordTermination() {
+        lock.lock()
+        defer { lock.unlock() }
+        state = .terminating
+        requiresWakeReconciliation = true
+        observedAt = Self.now()
+    }
+
+    private static func now() -> String {
+        ISO8601DateFormatter().string(from: Date())
+    }
+}
+
 public struct HostLifecycleResult {
     public let hostId: String
     public let state: HostLifecycleState
     public let accepted: Bool
     public let diagnostics: [VmConfigurationValidationDiagnostic]
+    public let powerObservation: HostPowerObservation
 
     public init(
         hostId: String,
         state: HostLifecycleState,
         accepted: Bool,
-        diagnostics: [VmConfigurationValidationDiagnostic] = []
+        diagnostics: [VmConfigurationValidationDiagnostic] = [],
+        powerObservation: HostPowerObservation = .active
     ) {
         self.hostId = hostId
         self.state = state
         self.accepted = accepted
         self.diagnostics = diagnostics
+        self.powerObservation = powerObservation
     }
 }
 
@@ -714,6 +1013,7 @@ public struct HostLifecycleRequest {
     public let explicitRealMode: Bool
     public let reason: String?
     public let gracePeriodMilliseconds: Int?
+    public let observedWakeGeneration: UInt64?
     public let vmConfiguration: VmConfigurationValidationRequest?
 
     public static func parse(from envelope: HelperEnvelope) -> HostLifecycleRequest {
@@ -726,6 +1026,9 @@ public struct HostLifecycleRequest {
             explicitRealMode: VmConfigurationValidationRequest.bool(payload["ExplicitRealMode"]) ?? false,
             reason: VmConfigurationValidationRequest.string(payload["Reason"]),
             gracePeriodMilliseconds: VmConfigurationValidationRequest.int(payload["GracePeriodMilliseconds"]),
+            observedWakeGeneration:
+                VmConfigurationValidationRequest.uint64(
+                    payload["ObservedWakeGeneration"]),
             vmConfiguration: configurationPayload.map { configuration in
                 VmConfigurationValidationRequest.parse(from: HelperEnvelope(raw: [
                     "ProtocolVersion": HelperProtocol.currentVersion,
@@ -947,7 +1250,12 @@ public struct GuestAgentReadinessProbeRequest {
     public let explicitRealMode: Bool
     public let expectedProtocolVersion: String
     public let expectedAgentVersion: String?
+    public let expectedRuntimeFilesystemUuid: String?
+    public let expectedAppDataFilesystemUuid: String?
     public let requiredCapabilities: [String]
+    public let hostUtcUnixMilliseconds: Int64?
+    public let maximumClockSkewMilliseconds: Int
+    public let correctGuestClock: Bool
     public let scriptedState: GuestAgentReadinessState?
 
     public static func parse(from envelope: HelperEnvelope) -> GuestAgentReadinessProbeRequest {
@@ -961,7 +1269,19 @@ public struct GuestAgentReadinessProbeRequest {
             explicitRealMode: VmConfigurationValidationRequest.bool(payload["ExplicitRealMode"]) ?? false,
             expectedProtocolVersion: VmConfigurationValidationRequest.string(payload["ExpectedProtocolVersion"]) ?? "1.0",
             expectedAgentVersion: VmConfigurationValidationRequest.string(payload["ExpectedAgentVersion"]),
+            expectedRuntimeFilesystemUuid: VmConfigurationValidationRequest.string(payload["ExpectedRuntimeFilesystemUuid"]),
+            expectedAppDataFilesystemUuid: VmConfigurationValidationRequest.string(payload["ExpectedAppDataFilesystemUuid"]),
             requiredCapabilities: payload["RequiredCapabilities"] as? [String] ?? [],
+            hostUtcUnixMilliseconds:
+                VmConfigurationValidationRequest.int(
+                    payload["HostUtcUnixMilliseconds"])
+                    .map(Int64.init),
+            maximumClockSkewMilliseconds:
+                VmConfigurationValidationRequest.int(
+                    payload["MaximumClockSkewMilliseconds"]) ?? 5_000,
+            correctGuestClock:
+                VmConfigurationValidationRequest.bool(
+                    payload["CorrectGuestClock"]) ?? false,
             scriptedState: scripted
         )
     }
@@ -980,6 +1300,8 @@ public struct GuestAgentReadinessProbeResult {
     public let guestBootId: String?
     public let guestBootGeneration: UInt64
     public let guestAgentGeneration: UInt64
+    public let runtimeFilesystemUuid: String?
+    public let appDataFilesystemUuid: String?
     public let capabilities: GuestAgentCapabilities?
     public let missingCapabilities: [String]
     public let reason: String
@@ -996,6 +1318,8 @@ private struct GuestAgentHandshakeResult {
     let guestBootId: String?
     let guestBootGeneration: UInt64
     let guestAgentGeneration: UInt64
+    let runtimeFilesystemUuid: String?
+    let appDataFilesystemUuid: String?
     let capabilities: GuestAgentCapabilities?
     let reason: String
     let message: String
@@ -2439,7 +2763,15 @@ public struct VmConfigurationValidationRequest {
     public var kernelPath: String? { Self.nonEmpty(Self.string(guestImage["KernelPath"])) }
     public var initrdPath: String? { Self.nonEmpty(Self.string(guestImage["InitrdPath"])) }
     public var kernelCommandLine: String? { Self.nonEmpty(Self.string(guestImage["KernelCommandLine"])) }
-    public var diskImagePath: String? { Self.nonEmpty(Self.string(guestImage["DiskImagePath"])) }
+    public var machineIdentifierData: String? {
+        Self.nonEmpty(Self.string(guestImage["MachineIdentifierData"]))
+    }
+    public var stableMacAddress: String? {
+        Self.nonEmpty(Self.string(guestImage["StableMacAddress"]))
+    }
+    public var diskAttachments: [[String: Any]] {
+        guestImage["DiskAttachments"] as? [[String: Any]] ?? []
+    }
     public var efiVariableStorePath: String? { Self.nonEmpty(Self.string(guestImage["EfiVariableStorePath"])) }
     public var serialLogPath: String? { Self.nonEmpty(Self.string(guestImage["SerialLogPath"])) }
 
@@ -2499,6 +2831,7 @@ public final class LocalVirtualizationAdapter: VirtualizationAdapter, @unchecked
         label: "io.hpd.environment.apple-virtualization.vm")
     private let vmQueueKey = DispatchSpecificKey<UInt8>()
     private let lock = NSLock()
+    private let hostPowerMonitor = HostPowerMonitor()
 
     public init() {
         vmQueue.setSpecific(key: vmQueueKey, value: 1)
@@ -2706,6 +3039,8 @@ public final class LocalVirtualizationAdapter: VirtualizationAdapter, @unchecked
         }
 
         do {
+            let diskLeases = try Self.acquireDiskLeases(
+                vmRequest)
             let configuration = try Self.buildConfiguration(vmRequest)
             try configuration.validate()
             let machine = VZVirtualMachine(
@@ -2718,6 +3053,7 @@ public final class LocalVirtualizationAdapter: VirtualizationAdapter, @unchecked
             hosts[request.hostId] = HostRecord(
                 machine: machine,
                 delegate: delegate,
+                diskLeases: diskLeases,
                 state: .starting,
                 diagnostics: [],
                 providerGeneration: request.providerGeneration,
@@ -2761,12 +3097,58 @@ public final class LocalVirtualizationAdapter: VirtualizationAdapter, @unchecked
         lock.lock()
         defer { lock.unlock() }
         guard let existing = hosts[request.hostId] else {
-            return HostLifecycleResult(hostId: request.hostId, state: .notCreated, accepted: true)
+            return HostLifecycleResult(
+                hostId: request.hostId,
+                state: .notCreated,
+                accepted: true,
+                powerObservation: hostPowerMonitor.snapshot())
         }
         #if canImport(Virtualization)
         existing.refreshStateFromMachine()
         #endif
-        return HostLifecycleResult(hostId: request.hostId, state: existing.state, accepted: true, diagnostics: existing.diagnostics)
+        return HostLifecycleResult(
+            hostId: request.hostId,
+            state: existing.state,
+            accepted: true,
+            diagnostics: existing.diagnostics,
+            powerObservation: hostPowerMonitor.snapshot())
+    }
+
+    public func powerObservation() -> HostPowerObservation {
+        hostPowerMonitor.snapshot()
+    }
+
+    public func acknowledgeWake(_ request: HostLifecycleRequest) -> HostLifecycleResult {
+        runOnVmQueue {
+            guard let observedGeneration = request.observedWakeGeneration else {
+                return HostLifecycleResult(
+                    hostId: request.hostId,
+                    state: hostState(request.hostId),
+                    accepted: false,
+                    diagnostics: [Self.lifecycleDiagnostic(
+                        code: "AppleVirtualization.WakeGenerationRequired",
+                        message: "Wake reconciliation requires the exact observed wake generation.",
+                        targetPath: "HostLifecycleRequest.ObservedWakeGeneration")],
+                    powerObservation: hostPowerMonitor.snapshot())
+            }
+            let accepted = hostPowerMonitor.acknowledge(
+                wakeGeneration: observedGeneration)
+            return HostLifecycleResult(
+                hostId: request.hostId,
+                state: hostState(request.hostId),
+                accepted: accepted,
+                diagnostics: accepted ? [] : [Self.lifecycleDiagnostic(
+                    code: "AppleVirtualization.WakeGenerationMismatch",
+                    message: "Wake reconciliation did not match the current fenced wake generation.",
+                    targetPath: "HostLifecycleRequest.ObservedWakeGeneration")],
+                powerObservation: hostPowerMonitor.snapshot())
+        }
+    }
+
+    private func hostState(_ hostId: String) -> HostLifecycleState {
+        lock.lock()
+        defer { lock.unlock() }
+        return hosts[hostId]?.state ?? .notCreated
     }
 
     public func requestStopHost(_ request: HostLifecycleRequest) -> HostLifecycleResult {
@@ -3014,6 +3396,8 @@ public final class LocalVirtualizationAdapter: VirtualizationAdapter, @unchecked
                 guestBootId: nil,
                 guestBootGeneration: 0,
                 guestAgentGeneration: 0,
+                runtimeFilesystemUuid: nil,
+                appDataFilesystemUuid: nil,
                 capabilities: nil,
                 missingCapabilities: [],
                 reason: "RealModeExplicitEnablementRequired",
@@ -3079,6 +3463,8 @@ public final class LocalVirtualizationAdapter: VirtualizationAdapter, @unchecked
             guestBootId: handshake.guestBootId,
             guestBootGeneration: handshake.guestBootGeneration,
             guestAgentGeneration: handshake.guestAgentGeneration,
+            runtimeFilesystemUuid: handshake.runtimeFilesystemUuid,
+            appDataFilesystemUuid: handshake.appDataFilesystemUuid,
             capabilities: handshake.capabilities,
             missingCapabilities: missing,
             reason: missing.isEmpty ? handshake.reason : "RequiredCapabilityMissing",
@@ -3339,6 +3725,8 @@ public final class LocalVirtualizationAdapter: VirtualizationAdapter, @unchecked
             guestBootId: nil,
             guestBootGeneration: 0,
             guestAgentGeneration: 0,
+            runtimeFilesystemUuid: nil,
+            appDataFilesystemUuid: nil,
             capabilities: nil,
             missingCapabilities: [],
             reason: transport.reason,
@@ -3408,6 +3796,8 @@ public final class LocalVirtualizationAdapter: VirtualizationAdapter, @unchecked
                 guestBootId: guestBootId,
                 guestBootGeneration: guestBootGeneration,
                 guestAgentGeneration: guestAgentGeneration,
+                runtimeFilesystemUuid: nil,
+                appDataFilesystemUuid: nil,
                 capabilities: capabilities,
                 reason: "GuestAgentProtocolMismatch",
                 message: "Guest-agent protocol version did not match expected version.",
@@ -3424,13 +3814,15 @@ public final class LocalVirtualizationAdapter: VirtualizationAdapter, @unchecked
                 guestBootId: guestBootId,
                 guestBootGeneration: guestBootGeneration,
                 guestAgentGeneration: guestAgentGeneration,
+                runtimeFilesystemUuid: nil,
+                appDataFilesystemUuid: nil,
                 capabilities: capabilities,
                 reason: "GuestAgentVersionMismatch",
                 message: "Guest-agent version did not match expected version.",
                 diagnostic: Self.lifecycleDiagnostic(code: "AppleVirtualization.GuestAgentVersionMismatch", message: "Guest-agent version did not match expected version.", targetPath: "guestAgent.hello"))
         }
 
-        let readyRequest: [String: Any] = [
+        var readyRequest: [String: Any] = [
             "ProtocolVersion": request.expectedProtocolVersion,
             "MessageType": 0,
             "Operation": 2,
@@ -3438,6 +3830,14 @@ public final class LocalVirtualizationAdapter: VirtualizationAdapter, @unchecked
             "SequenceNumber": 2,
             "HostId": request.hostId
         ]
+        if let hostUtc = request.hostUtcUnixMilliseconds {
+            readyRequest["ClockReconciliationRequest"] = [
+                "HostUtcUnixMilliseconds": hostUtc,
+                "MaximumClockSkewMilliseconds":
+                    max(0, request.maximumClockSkewMilliseconds),
+                "CorrectGuestClock": request.correctGuestClock
+            ]
+        }
         guard writeJsonLine(readyRequest, fd: fd, timeoutMilliseconds: timeout) else {
             return handshakeFailure(state: .timeout, transportState: .connected, reason: "GuestAgentReadyWriteTimeout", message: "Timed out writing guest-agent readiness request.", code: "AppleVirtualization.GuestAgentReadinessTimeout", targetPath: "guestAgent.ready")
         }
@@ -3462,6 +3862,10 @@ public final class LocalVirtualizationAdapter: VirtualizationAdapter, @unchecked
             guestBootId: string(readyPayload["GuestBootId"]) ?? guestBootId,
             guestBootGeneration: uint64(readyPayload["GuestBootGeneration"]) ?? guestBootGeneration,
             guestAgentGeneration: uint64(readyPayload["GuestAgentGeneration"]) ?? guestAgentGeneration,
+            runtimeFilesystemUuid:
+                string(readyPayload["RuntimeFilesystemUuid"]),
+            appDataFilesystemUuid:
+                string(readyPayload["AppDataFilesystemUuid"]),
             capabilities: capabilities,
             reason: isReady ? "GuestAgentReady" : "GuestAgentNotReady",
             message: isReady ? "Guest-agent hello and readiness checks passed over virtio-socket." : "Guest agent responded over virtio-socket but reported not ready.",
@@ -3486,6 +3890,8 @@ public final class LocalVirtualizationAdapter: VirtualizationAdapter, @unchecked
             guestBootId: nil,
             guestBootGeneration: 0,
             guestAgentGeneration: 0,
+            runtimeFilesystemUuid: nil,
+            appDataFilesystemUuid: nil,
             capabilities: nil,
             reason: reason,
             message: message,
@@ -3691,6 +4097,7 @@ public final class LocalVirtualizationAdapter: VirtualizationAdapter, @unchecked
             explicitRealMode: request.explicitRealMode,
             reason: nil,
             gracePeriodMilliseconds: nil,
+            observedWakeGeneration: nil,
             vmConfiguration: nil))
         let vmRunning = status.state == .running
         if request.includeGuestObservation, vmRunning {
@@ -3900,6 +4307,113 @@ public final class LocalVirtualizationAdapter: VirtualizationAdapter, @unchecked
                 code: "AppleVirtualization.EngineStatusGenerationMismatch",
                 message: "The guest engine response provider or host-start generation did not match the request.",
                 targetPath: "engine.guestAgentResponse.GuestEngineStatus.Generation")
+        }
+        return response
+        #else
+        return nil
+        #endif
+    }
+
+    public func storage(_ payload: [String: Any]) -> [String: Any]? {
+        #if canImport(Virtualization) && canImport(Darwin)
+        guard let hostId =
+                VmConfigurationValidationRequest.string(
+                    payload["HostId"]),
+              !hostId.trimmingCharacters(
+                    in: .whitespacesAndNewlines).isEmpty,
+              let providerGeneration =
+                VmConfigurationValidationRequest.uint64(
+                    payload["ProviderGeneration"]),
+              providerGeneration > 0 else {
+            return engineStatusError(
+                code: "AppleVirtualization.StorageGenerationMissing",
+                message: "Storage requires a host identity and positive provider generation.",
+                targetPath: "StorageRequest")
+        }
+        let endpoint = GuestAgentTransportEndpoint(
+            kind: .virtioSocket,
+            port: DefaultGuestAgentVirtioSocketPort,
+            address: nil,
+            name: nil)
+        let resolution = resolveRunningSocketDevice(
+            hostId: hostId,
+            endpoint: endpoint,
+            requireVmRunning: true,
+            providerGeneration: providerGeneration)
+        guard let socketDevice = resolution.socketDevice else {
+            return engineStatusError(
+                code: resolution.result?.diagnostic?.code ??
+                    "AppleVirtualization.StorageHostUnavailable",
+                message: resolution.result?.diagnostic?.message ??
+                    "The requested VM is unavailable for storage realization.",
+                targetPath: "StorageRequest.HostId")
+        }
+        let transportRequest = GuestAgentTransportProbeRequest(
+            hostId: hostId,
+            endpoint: endpoint,
+            timeoutMilliseconds: 10_000,
+            explicitRealMode: true,
+            requireVmRunning: true,
+            scriptedStatus: nil)
+        let connection = connectGuestAgentSocket(
+            socketDevice: socketDevice,
+            request: transportRequest)
+        guard let socketConnection = connection.connection else {
+            return engineStatusError(
+                code: connection.result.diagnostic?.code ??
+                    "AppleVirtualization.StorageGuestAgentUnavailable",
+                message: connection.result.diagnostic?.message ??
+                    connection.result.message,
+                targetPath: "storage.guestAgentTransport")
+        }
+        defer { socketConnection.close() }
+        let descriptor = socketConnection.fileDescriptor
+        guard descriptor >= 0 else {
+            return engineStatusError(
+                code: "AppleVirtualization.StorageGuestAgentTransportClosed",
+                message: "The guest-agent connection closed before the storage operation.",
+                targetPath: "storage.guestAgentTransport")
+        }
+        _ = setNonBlocking(descriptor)
+        let request: [String: Any] = [
+            "ProtocolVersion": HelperProtocol.currentVersion,
+            "MessageType": 0,
+            "Operation": Operation.storage.rawValue,
+            "RequestId": "guest-storage-\(UUID().uuidString)",
+            "SequenceNumber": 1,
+            "HostId": hostId,
+            "ProviderGeneration": providerGeneration,
+            "StorageRequest": payload
+        ]
+        guard writeJsonLine(
+                request,
+                fd: descriptor,
+                timeoutMilliseconds: 10_000),
+              let frame = readJsonLine(
+                fd: descriptor,
+                timeoutMilliseconds: 10_000),
+              let response = parseJsonObject(frame) else {
+            return engineStatusError(
+                code: "AppleVirtualization.StorageGuestAgentMalformedResponse",
+                message: "The guest agent returned no valid bounded storage response.",
+                targetPath: "storage.guestAgentResponse")
+        }
+        if let storage =
+                response["StorageResponse"] as? [String: Any] {
+            guard VmConfigurationValidationRequest.string(
+                    storage["HostId"]) == hostId,
+                  VmConfigurationValidationRequest.uint64(
+                    storage["ProviderGeneration"]) ==
+                    providerGeneration,
+                  VmConfigurationValidationRequest.uint64(
+                    storage["HostStartGeneration"]) ==
+                    (VmConfigurationValidationRequest.uint64(
+                        payload["HostStartGeneration"]) ?? 0) else {
+                return engineStatusError(
+                    code: "AppleVirtualization.StorageGenerationMismatch",
+                    message: "The guest storage response did not match the requested host incarnation.",
+                    targetPath: "storage.guestAgentResponse")
+            }
         }
         return response
         #else
@@ -4315,6 +4829,7 @@ public final class LocalVirtualizationAdapter: VirtualizationAdapter, @unchecked
         #if canImport(Virtualization)
         let machine: VZVirtualMachine
         let delegate: HostVirtualMachineDelegate
+        let diskLeases: [ExclusiveDiskLease]
         #endif
         var state: HostLifecycleState
         var diagnostics: [VmConfigurationValidationDiagnostic]
@@ -4325,6 +4840,7 @@ public final class LocalVirtualizationAdapter: VirtualizationAdapter, @unchecked
         init(
             machine: VZVirtualMachine,
             delegate: HostVirtualMachineDelegate,
+            diskLeases: [ExclusiveDiskLease],
             state: HostLifecycleState,
             diagnostics: [VmConfigurationValidationDiagnostic],
             providerGeneration: UInt64,
@@ -4332,6 +4848,7 @@ public final class LocalVirtualizationAdapter: VirtualizationAdapter, @unchecked
         ) {
             self.machine = machine
             self.delegate = delegate
+            self.diskLeases = diskLeases
             self.state = state
             self.diagnostics = diagnostics
             self.providerGeneration = providerGeneration
@@ -4378,6 +4895,46 @@ public final class LocalVirtualizationAdapter: VirtualizationAdapter, @unchecked
     }
     #endif
 
+    fileprivate static func diskRole(_ value: Any?) -> String? {
+        if let text = value as? String {
+            switch text.lowercased() {
+            case "system": return "system"
+            case "runtime": return "runtime"
+            case "appdata", "app-data": return "app-data"
+            default: return nil
+            }
+        }
+        switch VmConfigurationValidationRequest.int(value) {
+        case 0: return "system"
+        case 1: return "runtime"
+        case 2: return "app-data"
+        default: return nil
+        }
+    }
+
+    fileprivate static func diskRoleOrder(_ value: Any?) -> Int {
+        switch diskRole(value) {
+        case "system": return 0
+        case "runtime": return 1
+        case "app-data": return 2
+        default: return Int.max
+        }
+    }
+
+    fileprivate static func diskCachingMode(_ value: Any?) -> String {
+        if let text = value as? String {
+            return text.lowercased()
+        }
+        return VmConfigurationValidationRequest.int(value) == 1 ? "uncached" : "cached"
+    }
+
+    fileprivate static func diskSynchronizationMode(_ value: Any?) -> String {
+        if let text = value as? String {
+            return text.lowercased()
+        }
+        return VmConfigurationValidationRequest.int(value) == 1 ? "fsync" : "full"
+    }
+
     fileprivate static func validateStructuralInputs(_ request: VmConfigurationValidationRequest) -> [VmConfigurationValidationDiagnostic] {
         var diagnostics: [VmConfigurationValidationDiagnostic] = []
         if request.cpuCount <= 0 {
@@ -4386,8 +4943,15 @@ public final class LocalVirtualizationAdapter: VirtualizationAdapter, @unchecked
         if request.memorySizeBytes == 0 {
             diagnostics.append(VmConfigurationValidationDiagnostic(code: "AppleVirtualization.VmConfigurationMemorySizeInvalid", message: "Memory size must be greater than zero.", targetPath: "MemorySizeBytes"))
         }
-        if request.diskImagePath == nil {
-            diagnostics.append(VmConfigurationValidationDiagnostic(code: "AppleVirtualization.VmConfigurationDiskImageMissing", message: "Disk image path is required for first-slice VM configuration validation.", targetPath: "GuestImage.DiskImagePath"))
+        let roles = request.diskAttachments.compactMap { diskRole($0["Role"]) }
+        if request.diskAttachments.count != 3 || Set(roles).count != 3 ||
+            !["system", "runtime", "app-data"].allSatisfy({ roles.contains($0) }) {
+            diagnostics.append(VmConfigurationValidationDiagnostic(code: "AppleVirtualization.VmConfigurationDiskSetInvalid", message: "Exactly one system, runtime, and App-data disk attachment is required.", targetPath: "GuestImage.DiskAttachments"))
+        }
+        for (index, disk) in request.diskAttachments.enumerated() {
+            if VmConfigurationValidationRequest.nonEmpty(VmConfigurationValidationRequest.string(disk["DiskImagePath"])) == nil {
+                diagnostics.append(VmConfigurationValidationDiagnostic(code: "AppleVirtualization.VmConfigurationDiskImageMissing", message: "Every disk attachment requires a path.", targetPath: "GuestImage.DiskAttachments[\(index)].DiskImagePath"))
+            }
         }
 
         if request.bootLoader.caseInsensitiveCompare("Efi") == .orderedSame {
@@ -4435,11 +4999,50 @@ public final class LocalVirtualizationAdapter: VirtualizationAdapter, @unchecked
     }
 
     #if canImport(Virtualization)
+    private static func acquireDiskLeases(
+        _ request: VmConfigurationValidationRequest
+    ) throws -> [ExclusiveDiskLease] {
+        let paths = try request.diskAttachments
+            .map { disk -> String in
+                guard let path =
+                    VmConfigurationValidationRequest.nonEmpty(
+                        VmConfigurationValidationRequest.string(
+                            disk["DiskImagePath"]))
+                else {
+                    throw DiskLeaseError.invalidPath
+                }
+                return URL(fileURLWithPath: path)
+                    .resolvingSymlinksInPath()
+                    .standardizedFileURL.path
+            }
+            .sorted()
+        guard Set(paths).count == paths.count else {
+            throw DiskLeaseError.duplicatePath
+        }
+        return try paths.map {
+            try ExclusiveDiskLease(path: $0)
+        }
+    }
+
     private static func buildConfiguration(_ request: VmConfigurationValidationRequest) throws -> VZVirtualMachineConfiguration {
         let configuration = VZVirtualMachineConfiguration()
         configuration.cpuCount = request.cpuCount
         configuration.memorySize = request.memorySizeBytes
-        configuration.platform = VZGenericPlatformConfiguration()
+        let platform = VZGenericPlatformConfiguration()
+        if #available(macOS 13.0, *) {
+            guard
+                let encoded = request.machineIdentifierData,
+                let data = Data(base64Encoded: encoded),
+                let machineIdentifier =
+                    VZGenericMachineIdentifier(
+                        dataRepresentation: data)
+            else {
+                throw ValidationBuildError.unsupported(
+                    "A valid persisted generic machine identifier is required.")
+            }
+            platform.machineIdentifier = machineIdentifier
+        }
+        configuration.platform = platform
 
         if request.bootLoader.caseInsensitiveCompare("Efi") == .orderedSame {
             if #available(macOS 13.0, *) {
@@ -4460,11 +5063,52 @@ public final class LocalVirtualizationAdapter: VirtualizationAdapter, @unchecked
             configuration.bootLoader = bootLoader
         }
 
-        let diskAttachment = try VZDiskImageStorageDeviceAttachment(url: URL(fileURLWithPath: request.diskImagePath!), readOnly: false)
-        configuration.storageDevices = [VZVirtioBlockDeviceConfiguration(attachment: diskAttachment)]
+        configuration.storageDevices = try request.diskAttachments
+            .sorted { diskRoleOrder($0["Role"]) < diskRoleOrder($1["Role"]) }
+            .map { disk in
+                let path = VmConfigurationValidationRequest.nonEmpty(
+                    VmConfigurationValidationRequest.string(disk["DiskImagePath"]))!
+                let readOnly = VmConfigurationValidationRequest.bool(disk["ReadOnly"]) ?? false
+                let cachingMode: VZDiskImageCachingMode =
+                    diskCachingMode(disk["CachingMode"]) == "uncached" ? .uncached : .cached
+                let synchronizationMode: VZDiskImageSynchronizationMode =
+                    diskSynchronizationMode(disk["SynchronizationMode"]) == "fsync" ? .fsync : .full
+                let attachment = try VZDiskImageStorageDeviceAttachment(
+                    url: URL(fileURLWithPath: path),
+                    readOnly: readOnly,
+                    cachingMode: cachingMode,
+                    synchronizationMode: synchronizationMode)
+                let device =
+                    VZVirtioBlockDeviceConfiguration(attachment: attachment)
+                if #available(macOS 12.3, *) {
+                    let identifier: String
+                    switch diskRole(disk["Role"]) {
+                    case "system": identifier = "hpd-system"
+                    case "runtime": identifier = "hpd-runtime"
+                    case "app-data": identifier = "hpd-app-data"
+                    default:
+                        throw ValidationBuildError.unsupported(
+                            "Every block device requires a recognized storage role.")
+                    }
+                    try VZVirtioBlockDeviceConfiguration
+                        .validateBlockDeviceIdentifier(identifier)
+                    device.blockDeviceIdentifier = identifier
+                }
+                return device
+            }
 
         let network = VZVirtioNetworkDeviceConfiguration()
         network.attachment = VZNATNetworkDeviceAttachment()
+        guard
+            let stableMacAddress = request.stableMacAddress,
+            let macAddress = VZMACAddress(string: stableMacAddress),
+            macAddress.isLocallyAdministeredAddress,
+            macAddress.isUnicastAddress
+        else {
+            throw ValidationBuildError.unsupported(
+                "A valid persisted locally administered unicast MAC address is required.")
+        }
+        network.macAddress = macAddress
         configuration.networkDevices = [network]
 
         if request.includeSerialConsole, let serialLogPath = request.serialLogPath {
@@ -4619,6 +5263,7 @@ public struct FakeVirtualizationAdapter: VirtualizationAdapter {
     public let allowsSyntheticAuthorityFallback = true
 
     private let preflightResult: VirtualizationPreflight
+    private let powerObservationResult: HostPowerObservation
 
     public init(preflightResult: VirtualizationPreflight = .init(
         frameworkAvailable: true,
@@ -4691,8 +5336,9 @@ public struct FakeVirtualizationAdapter: VirtualizationAdapter {
                 message: "hpd-vz health proves only the helper protocol loop and does not imply RuntimeHost Ready or HPD guest readiness.",
                 severity: 2),
         ]
-    )) {
+    ), powerObservation: HostPowerObservation = .active) {
         self.preflightResult = preflightResult
+        self.powerObservationResult = powerObservation
     }
 
     public func preflight() -> VirtualizationPreflight {
@@ -4750,6 +5396,14 @@ public struct FakeVirtualizationAdapter: VirtualizationAdapter {
 
     public func deleteHost(_ request: HostLifecycleRequest) -> HostLifecycleResult {
         HostLifecycleResult(hostId: request.hostId, state: .notCreated, accepted: true)
+    }
+
+    public func acknowledgeWake(_ request: HostLifecycleRequest) -> HostLifecycleResult {
+        HostLifecycleResult(hostId: request.hostId, state: .notCreated, accepted: true)
+    }
+
+    public func powerObservation() -> HostPowerObservation {
+        powerObservationResult
     }
 
     public func probeGuestAgentTransport(_ request: GuestAgentTransportProbeRequest) -> GuestAgentTransportProbeResult {
@@ -4884,6 +5538,10 @@ public struct FakeVirtualizationAdapter: VirtualizationAdapter {
             guestBootId: ready ? "guest-boot-1" : nil,
             guestBootGeneration: ready ? 1 : 0,
             guestAgentGeneration: ready ? 1 : 0,
+            runtimeFilesystemUuid:
+                ready ? request.expectedRuntimeFilesystemUuid : nil,
+            appDataFilesystemUuid:
+                ready ? request.expectedAppDataFilesystemUuid : nil,
             capabilities: capabilities,
             missingCapabilities: missing,
             reason: reason,
@@ -4940,6 +5598,10 @@ public struct FakeVirtualizationAdapter: VirtualizationAdapter {
     }
 
     public func engineStatus(_ payload: [String: Any]) -> [String: Any]? {
+        nil
+    }
+
+    public func storage(_ payload: [String: Any]) -> [String: Any]? {
         nil
     }
 

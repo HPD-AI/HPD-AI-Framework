@@ -29,7 +29,7 @@ internal static class AppleVirtualizationRealModePreconditions
         ClassifyHelperMode(options, facts, diagnostics);
         ClassifyHostArchitecture(options.GuestImage.Architecture, facts, diagnostics);
         ClassifyBootInputs(options.GuestImage, facts, diagnostics);
-        ClassifyDiskImage(options.GuestImage.DiskImagePath, facts, diagnostics);
+        ClassifyDiskImages(options.GuestImage.DiskAttachments, facts, diagnostics);
         ClassifySerialLog(options.GuestImage.SerialLogPath, facts, diagnostics);
         ClassifySharedDirectories(options.GuestImage.SharedDirectories, facts, diagnostics);
         AddUnknownRuntimeVerificationFact(
@@ -140,25 +140,37 @@ internal static class AppleVirtualizationRealModePreconditions
         }
     }
 
-    private static void ClassifyDiskImage(
-        string? path,
+    private static void ClassifyDiskImages(
+        IReadOnlyList<AppleVirtualizationDiskAttachmentOptions> attachments,
         List<AppleVirtualizationPreflightFact> facts,
         List<Diagnostic> diagnostics)
     {
-        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+        if (attachments.Count != 3 ||
+            attachments.Select(attachment => attachment.Role).Distinct().Count() != 3)
         {
-            AddFailure(facts, diagnostics, DiskImageFact, "AppleVirtualization.RealModeDiskImageMissing", "GuestImage.DiskImagePath", "Writable disk image path is required for real VM boot.");
+            AddFailure(facts, diagnostics, DiskImageFact, "AppleVirtualization.RealModeDiskSetInvalid", "GuestImage.DiskAttachments", "Exactly one system, runtime, and App-data disk attachment is required.");
             return;
         }
 
-        try
+        foreach (AppleVirtualizationDiskAttachmentOptions attachment in attachments)
         {
-            using FileStream stream = File.Open(path, FileMode.Open, FileAccess.ReadWrite, FileShare.Read);
-            AddSupportedFact(facts, DiskImageFact, "DiskImageReadableWritable", "Disk image exists and can be opened read/write.", path);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            AddFailure(facts, diagnostics, DiskImageFact, "AppleVirtualization.RealModeDiskImageNotWritable", "GuestImage.DiskImagePath", $"Disk image must be readable and writable for first-slice boot. {ex.Message}");
+            string target = $"GuestImage.DiskAttachments[{attachment.Role}].DiskImagePath";
+            if (string.IsNullOrWhiteSpace(attachment.DiskImagePath) ||
+                !File.Exists(attachment.DiskImagePath))
+            {
+                AddFailure(facts, diagnostics, DiskImageFact, "AppleVirtualization.RealModeDiskImageMissing", target, $"{attachment.Role} disk image is required.");
+                continue;
+            }
+            try
+            {
+                FileAccess access = attachment.ReadOnly ? FileAccess.Read : FileAccess.ReadWrite;
+                using FileStream stream = File.Open(attachment.DiskImagePath, FileMode.Open, access, FileShare.Read);
+                AddSupportedFact(facts, DiskImageFact, "DiskImageAccessible", $"{attachment.Role} disk image is accessible with its declared access mode.", attachment.DiskImagePath);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                AddFailure(facts, diagnostics, DiskImageFact, "AppleVirtualization.RealModeDiskImageInaccessible", target, $"{attachment.Role} disk image cannot be opened with its declared access mode. {ex.Message}");
+            }
         }
     }
 

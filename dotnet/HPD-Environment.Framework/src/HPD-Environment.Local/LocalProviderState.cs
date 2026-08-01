@@ -25,6 +25,7 @@ internal sealed class LocalProviderState
         _engineNetworks = new(StringComparer.Ordinal);
     private readonly BoundedAuditLedger<string, AuthorityAuditEvent>
         _authorityAudit = new(32);
+    private Action? _releaseStorage;
 
     public LocalProviderState(LocalEnvironmentProviderOptions options)
     {
@@ -36,6 +37,26 @@ internal sealed class LocalProviderState
 
     public LocalEnvironmentProviderOptions Options { get; }
     public ProviderResourceLedger Ledger { get; }
+
+    public void RegisterStorageRelease(Action releaseStorage)
+    {
+        ArgumentNullException.ThrowIfNull(releaseStorage);
+        lock (_engineGate)
+        {
+            if (_releaseStorage is not null)
+                throw new InvalidOperationException(
+                    "LocalEnvironment.StorageReleaseAlreadyRegistered: the Local provider has more than one storage lifecycle owner.");
+            _releaseStorage = releaseStorage;
+        }
+    }
+
+    public void ReleaseStorageMounts()
+    {
+        Action? release;
+        lock (_engineGate)
+            release = _releaseStorage;
+        release?.Invoke();
+    }
 
     public EngineAuthorityMode CurrentEngineAuthorityMode
     {

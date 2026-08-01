@@ -15,6 +15,7 @@ using HPD.Environment.AppleVirtualization.Processes;
 using HPD.Environment.AppleVirtualization.Projections;
 using HPD.Environment.AppleVirtualization.Protocol;
 using HPD.Environment.AppleVirtualization.State;
+using HPD.Environment.AppleVirtualization.Storage;
 using HPD.Environment.Contracts;
 using HPD.Environment.Runtime;
 
@@ -84,11 +85,13 @@ public sealed class AppleVirtualizationProviderModule : IProviderModule
         var serviceDiscoveryProvider = new AppleVirtualizationServiceDiscoveryProvider(_ledger);
         var endpointProvider = new AppleVirtualizationEndpointPublicationProvider(_ledger, _helperClient);
         var authorityProvider = new AppleVirtualizationAuthorityBindingProvider(_ledger, _helperClient);
-        builder.AddRuntimeHostProvider(new AppleVirtualizationRuntimeHostProvider(
+        var runtimeHostProvider = new AppleVirtualizationRuntimeHostProvider(
             _helperClient,
             _ledger,
             _hostPlatformOverride ?? AppleVirtualizationProviderDescriptor.CurrentPlatform(),
-            _options));
+            _options);
+        builder.AddRuntimeHostProvider(runtimeHostProvider);
+        builder.AddRuntimeHostWakeReconciliationProvider(runtimeHostProvider);
         builder.AddExecutionUnitProvider(new AppleVirtualizationExecutionUnitProvider(_ledger, _helperClient, projectionProvider, authorityProvider));
         builder.AddContentProjectionProvider(projectionProvider);
         builder.AddProcessProvider(new AppleVirtualizationProcessProvider(_ledger, _helperClient));
@@ -97,6 +100,16 @@ public sealed class AppleVirtualizationProviderModule : IProviderModule
         builder.AddServiceDiscoveryProvider(serviceDiscoveryProvider);
         builder.AddEndpointPublicationProvider(endpointProvider);
         builder.AddAuthorityBindingProvider(authorityProvider);
+        var storageProvider =
+            new AppleVirtualizationStorageProvider(
+                _ledger,
+                _helperClient,
+                _options);
+        builder.AddStoragePoolProvider(storageProvider);
+        builder.AddDurableVolumeProvider(storageProvider);
+        builder.AddStorageReservationProvider(storageProvider);
+        builder.AddVolumeBackupProvider(storageProvider);
+        builder.AddVolumeRestoreProvider(storageProvider);
         if (_options.FeatureGates.EnableEngineControlPlane)
         {
             builder.AddEngineControlPlaneProvider(new AppleVirtualizationEngineControlPlaneProvider(_ledger, _helperClient, _options));
@@ -171,6 +184,8 @@ public sealed class AppleVirtualizationProviderModule : IProviderModule
         registry.Add(AppleVirtualizationJsonContext.Default.AppleVirtualizationEngineProvisioningPrerequisiteStatus, "hpd.execution.apple-virtualization.helper.engine.provisioning.prerequisites.v1");
         registry.Add(AppleVirtualizationJsonContext.Default.AppleVirtualizationEngineProvisioningOutputCapture, "hpd.execution.apple-virtualization.helper.engine.provisioning.output.v1");
         registry.Add(AppleVirtualizationJsonContext.Default.AppleVirtualizationEngineProvisioningEvidence, "hpd.execution.apple-virtualization.helper.engine.provisioning.evidence.v1");
+        registry.Add(AppleVirtualizationJsonContext.Default.AppleVirtualizationStorageRequest, "hpd.execution.apple-virtualization.helper.storage.request.v1");
+        registry.Add(AppleVirtualizationJsonContext.Default.AppleVirtualizationStorageResponse, "hpd.execution.apple-virtualization.helper.storage.response.v1");
         registry.Add(AppleVirtualizationJsonContext.Default.AppleVirtualizationUnitEnsureRequest, "hpd.execution.apple-virtualization.helper.unit.ensure.request.v1");
         registry.Add(AppleVirtualizationJsonContext.Default.AppleVirtualizationUnitLifecycleRequest, "hpd.execution.apple-virtualization.helper.unit.lifecycle.request.v1");
         registry.Add(AppleVirtualizationJsonContext.Default.AppleVirtualizationUnitStatusResponse, "hpd.execution.apple-virtualization.helper.unit.status.response.v1");
@@ -286,7 +301,12 @@ public static class AppleVirtualizationProviderDescriptor
         ProviderContractKind.NetworkMembership |
         ProviderContractKind.ServiceDiscovery |
         ProviderContractKind.EndpointPublication |
-        ProviderContractKind.AuthorityBinding;
+        ProviderContractKind.AuthorityBinding |
+        ProviderContractKind.StoragePool |
+        ProviderContractKind.DurableVolume |
+        ProviderContractKind.StorageReservation |
+        ProviderContractKind.VolumeBackup |
+        ProviderContractKind.VolumeRestore;
 
     public static ProviderDescriptor Create() =>
         Create(new AppleVirtualizationProviderOptions());
@@ -680,6 +700,10 @@ public sealed class AppleVirtualizationCapabilityReporter : IProviderCapabilityR
 [JsonSerializable(typeof(ProviderActivationStatus))]
 [JsonSerializable(typeof(AppleVirtualizationProviderOptions))]
 [JsonSerializable(typeof(AppleVirtualizationGuestImageOptions))]
+[JsonSerializable(typeof(AppleVirtualizationDiskAttachmentOptions))]
+[JsonSerializable(typeof(AppleVirtualizationDiskRole))]
+[JsonSerializable(typeof(AppleVirtualizationDiskCachingMode))]
+[JsonSerializable(typeof(AppleVirtualizationDiskSynchronizationMode))]
 [JsonSerializable(typeof(AppleVirtualizationGuestSharedDirectoryOptions))]
 [JsonSerializable(typeof(AppleVirtualizationEngineBootstrapOptions))]
 [JsonSerializable(typeof(AppleVirtualizationEngineProvisioningOptions))]
@@ -748,6 +772,9 @@ public sealed class AppleVirtualizationCapabilityReporter : IProviderCapabilityR
 [JsonSerializable(typeof(AppleVirtualizationEngineObservationState))]
 [JsonSerializable(typeof(AppleVirtualizationEngineStatusRequest))]
 [JsonSerializable(typeof(AppleVirtualizationEngineStatusResponse))]
+[JsonSerializable(typeof(AppleVirtualizationStorageAction))]
+[JsonSerializable(typeof(AppleVirtualizationStorageRequest))]
+[JsonSerializable(typeof(AppleVirtualizationStorageResponse))]
 [JsonSerializable(typeof(AppleVirtualizationRuntimeHostFingerprintInput))]
 [JsonSerializable(typeof(AppleVirtualizationEngineProvisioningPackageManager))]
 [JsonSerializable(typeof(AppleVirtualizationEngineProvisioningAction))]

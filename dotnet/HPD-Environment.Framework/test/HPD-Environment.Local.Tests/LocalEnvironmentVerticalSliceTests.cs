@@ -532,8 +532,7 @@ public sealed class LocalEnvironmentVerticalSliceTests
                     WorkloadStorage = new WorkloadStorageRequest
                     {
                         LogicalId = "test-workload-storage",
-                        PersistenceClass =
-                            WorkloadStoragePersistenceClass.Workload,
+                        StorageClass = StorageClass.RuntimeDisposable,
                     },
                 });
         EngineAuthorityBindingPlan plan =

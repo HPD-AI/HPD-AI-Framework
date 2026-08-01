@@ -1,5 +1,6 @@
 using HPD.Environment.AppleVirtualization.Protocol;
 using HPD.Environment.Contracts;
+using System.Text.Json.Serialization;
 
 namespace HPD.Environment.AppleVirtualization;
 
@@ -9,6 +10,9 @@ public sealed record AppleVirtualizationProviderOptions
     public IReadOnlyList<string> HelperArguments { get; init; } = Array.Empty<string>();
     public AppleVirtualizationHelperTransportMode HelperTransportMode { get; init; } = AppleVirtualizationHelperTransportMode.StdIo;
     public string? StateRoot { get; init; }
+    public string? BackupRoot { get; init; }
+    [JsonIgnore]
+    public IStorageBackupKeyProvider? BackupKeyProvider { get; init; }
     public TimeSpan HelperStartupTimeout { get; init; } = TimeSpan.FromSeconds(5);
     public TimeSpan HelperStopTimeout { get; init; } = TimeSpan.FromSeconds(2);
     public TimeSpan HostDeletionTimeout { get; init; } = TimeSpan.FromSeconds(30);
@@ -61,19 +65,52 @@ public enum AppleVirtualizationGuestImageConfigurationState
     MissingRequiredBootInputs,
 }
 
+public enum AppleVirtualizationDiskRole
+{
+    System,
+    Runtime,
+    AppData,
+}
+
+public enum AppleVirtualizationDiskCachingMode
+{
+    Cached,
+    Uncached,
+}
+
+public enum AppleVirtualizationDiskSynchronizationMode
+{
+    Full,
+    Fsync,
+}
+
+public sealed record AppleVirtualizationDiskAttachmentOptions
+{
+    public required AppleVirtualizationDiskRole Role { get; init; }
+    public required string DiskImagePath { get; init; }
+    public bool ReadOnly { get; init; }
+    public required AppleVirtualizationDiskCachingMode CachingMode { get; init; }
+    public required AppleVirtualizationDiskSynchronizationMode SynchronizationMode { get; init; }
+}
+
 public sealed record AppleVirtualizationGuestImageOptions
 {
     public string? BundleRoot { get; init; }
+    public string? MachineIdentifierData { get; init; }
+    public string? StableMacAddress { get; init; }
     public AppleVirtualizationGuestBootLoaderKind BootLoader { get; init; } = AppleVirtualizationGuestBootLoaderKind.LinuxBootLoader;
     public string? KernelPath { get; init; }
     public string? InitrdPath { get; init; }
     public string? KernelCommandLine { get; init; }
-    public string? DiskImagePath { get; init; }
+    public IReadOnlyList<AppleVirtualizationDiskAttachmentOptions> DiskAttachments { get; init; } =
+        Array.Empty<AppleVirtualizationDiskAttachmentOptions>();
     public string? EfiVariableStorePath { get; init; }
     public string? SerialLogPath { get; init; }
     public AppleVirtualizationGuestArchitectureExpectation Architecture { get; init; } = AppleVirtualizationGuestArchitectureExpectation.HostNative;
     public bool ExpectVirtiofsSupport { get; init; } = true;
     public string? ExpectedGuestAgentVersion { get; init; }
+    public string? ExpectedRuntimeFilesystemUuid { get; init; }
+    public string? ExpectedAppDataFilesystemUuid { get; init; }
     public string? GuestAgentConfigPath { get; init; }
     public string? GuestAgentBootstrapPath { get; init; }
     public string? GuestAgentBootstrapInlinePayloadRef { get; init; }
@@ -82,7 +119,12 @@ public sealed record AppleVirtualizationGuestImageOptions
 
     public AppleVirtualizationGuestImageConfigurationState GetConfigurationState()
     {
-        if (string.IsNullOrWhiteSpace(DiskImagePath))
+        if (DiskAttachments.Count != 3 ||
+            DiskAttachments.Select(attachment => attachment.Role).Distinct().Count() != 3 ||
+            !Enum.GetValues<AppleVirtualizationDiskRole>()
+                .All(role => DiskAttachments.Any(attachment =>
+                    attachment.Role == role &&
+                    !string.IsNullOrWhiteSpace(attachment.DiskImagePath))))
         {
             return AppleVirtualizationGuestImageConfigurationState.MissingRequiredBootInputs;
         }

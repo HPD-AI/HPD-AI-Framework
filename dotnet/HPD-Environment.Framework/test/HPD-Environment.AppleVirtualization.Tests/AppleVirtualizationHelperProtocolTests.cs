@@ -173,6 +173,66 @@ public sealed class AppleVirtualizationHelperProtocolTests
             .Should().Be("endpoint.release");
         AppleVirtualizationHelperOperationNames.ToWireName(AppleVirtualizationHelperOperation.EndpointUnsupported)
             .Should().Be("endpoint.unsupported");
+        AppleVirtualizationHelperOperationNames.ToWireName(
+                AppleVirtualizationHelperOperation.Storage)
+            .Should().Be("storage");
+    }
+
+    [Fact]
+    public void Storage_protocol_round_trips_identity_capacity_and_action()
+    {
+        AppleVirtualizationHelperEnvelope envelope =
+            AppleVirtualizationHelperEnvelope.Request(
+                AppleVirtualizationHelperOperation.Storage,
+                "storage-request",
+                50,
+                AppleVirtualizationHelperProtocol.StorageRequestSchema) with
+            {
+                StorageRequest =
+                    new AppleVirtualizationStorageRequest
+                    {
+                        HostId = "host-a",
+                        ProviderGeneration = 7,
+                        HostStartGeneration = 3,
+                        Action =
+                            AppleVirtualizationStorageAction.WriteRestoreChunk,
+                        LogicalVolumeId = "penpot-data",
+                        MaximumBytes = new ByteSize(1048576),
+                        OperationId = "restore-a",
+                        Offset = 4096,
+                        ChunkBase64 = "ZHVyYWJsZQ==",
+                        ExpectedContentSha256 = new string('a', 64),
+                        ExpectedEncodedPayloadBytes = 8192,
+                        ExpectedLogicalBytes = 4096,
+                        ExpectedEntryCount = 3,
+                    },
+            };
+
+        byte[] encoded =
+            AppleVirtualizationHelperJsonCodec.Encode(envelope);
+        AppleVirtualizationHelperEnvelope decoded =
+            AppleVirtualizationHelperJsonCodec.Decode(encoded);
+
+        decoded.PayloadSchema.Should().Be(
+            AppleVirtualizationHelperProtocol.StorageRequestSchema);
+        decoded.StorageRequest.Should().NotBeNull();
+        decoded.StorageRequest!.HostId.Should().Be("host-a");
+        decoded.StorageRequest.ProviderGeneration.Should().Be(7);
+        decoded.StorageRequest.HostStartGeneration.Should().Be(3);
+        decoded.StorageRequest.Action.Should().Be(
+            AppleVirtualizationStorageAction.WriteRestoreChunk);
+        decoded.StorageRequest.LogicalVolumeId.Should().Be(
+            "penpot-data");
+        decoded.StorageRequest.MaximumBytes.Should().Be(
+            new ByteSize(1048576));
+        decoded.StorageRequest.OperationId.Should().Be("restore-a");
+        decoded.StorageRequest.Offset.Should().Be(4096);
+        decoded.StorageRequest.ChunkBase64.Should().Be("ZHVyYWJsZQ==");
+        decoded.StorageRequest.ExpectedContentSha256.Should()
+            .Be(new string('a', 64));
+        decoded.StorageRequest.ExpectedEncodedPayloadBytes.Should().Be(8192);
+        decoded.StorageRequest.ExpectedLogicalBytes.Should().Be(4096);
+        decoded.StorageRequest.ExpectedEntryCount.Should().Be(3);
     }
 
     [Fact]
@@ -537,6 +597,7 @@ public sealed class AppleVirtualizationHelperProtocolTests
                 HostId = "host-round-trip",
                 ExplicitRealMode = true,
                 GracePeriodMilliseconds = 250,
+                ObservedWakeGeneration = 17,
                 VmConfigurationValidationRequest = new AppleVirtualizationVmConfigurationValidationRequest
                 {
                     HostId = "host-round-trip",
@@ -547,7 +608,7 @@ public sealed class AppleVirtualizationHelperProtocolTests
                         BootLoader = AppleVirtualizationGuestBootLoaderKind.LinuxBootLoader,
                         KernelPath = "/tmp/hpd-vz/vmlinuz",
                         InitrdPath = "/tmp/hpd-vz/initrd.img",
-                        DiskImagePath = "/tmp/hpd-vz/root.raw",
+                        DiskAttachments = AppleVirtualizationTestDiskSet.Create("/tmp/hpd-vz/root.raw"),
                         SerialLogPath = "/tmp/hpd-vz/serial.log",
                     },
                 },
@@ -558,6 +619,11 @@ public sealed class AppleVirtualizationHelperProtocolTests
                 HostPhase = RuntimeHostPhase.Starting,
                 Phase = ResourcePhase.Reconciling,
                 GuestControlReachable = false,
+                HostPowerState = AppleVirtualizationHostPowerState.WakeReconciliationRequired,
+                SleepGeneration = 4,
+                WakeGeneration = 17,
+                RequiresWakeReconciliation = true,
+                PowerObservedAt = DateTimeOffset.Parse("2026-07-30T22:00:00Z"),
             },
         };
 
@@ -573,11 +639,17 @@ public sealed class AppleVirtualizationHelperProtocolTests
         roundTrip.HostLifecycleRequest.Should().NotBeNull();
         roundTrip.HostLifecycleRequest!.ExplicitRealMode.Should().BeTrue();
         roundTrip.HostLifecycleRequest.GracePeriodMilliseconds.Should().Be(250);
+        roundTrip.HostLifecycleRequest.ObservedWakeGeneration.Should().Be(17);
         roundTrip.HostLifecycleRequest.VmConfigurationValidationRequest.Should().NotBeNull();
         roundTrip.HostLifecycleRequest.VmConfigurationValidationRequest!.GuestImage.KernelPath.Should().Be("/tmp/hpd-vz/vmlinuz");
         roundTrip.HostStatusResponse.Should().NotBeNull();
         roundTrip.HostStatusResponse!.HostPhase.Should().Be(RuntimeHostPhase.Starting);
         roundTrip.HostStatusResponse.GuestControlReachable.Should().BeFalse();
+        roundTrip.HostStatusResponse.HostPowerState.Should().Be(
+            AppleVirtualizationHostPowerState.WakeReconciliationRequired);
+        roundTrip.HostStatusResponse.SleepGeneration.Should().Be(4);
+        roundTrip.HostStatusResponse.WakeGeneration.Should().Be(17);
+        roundTrip.HostStatusResponse.RequiresWakeReconciliation.Should().BeTrue();
     }
 
     [Fact]

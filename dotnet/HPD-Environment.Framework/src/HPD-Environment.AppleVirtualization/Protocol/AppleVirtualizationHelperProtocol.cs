@@ -44,6 +44,8 @@ public static class AppleVirtualizationHelperProtocol
     public static readonly SchemaId EngineStatusResponseSchema = new("hpd.execution.apple-virtualization.helper.engine.status.response.v1");
     public static readonly SchemaId EngineProvisionRequestSchema = new("hpd.execution.apple-virtualization.helper.engine.provision.request.v1");
     public static readonly SchemaId EngineProvisionResponseSchema = new("hpd.execution.apple-virtualization.helper.engine.provision.response.v1");
+    public static readonly SchemaId StorageRequestSchema = new("hpd.execution.apple-virtualization.helper.storage.request.v1");
+    public static readonly SchemaId StorageResponseSchema = new("hpd.execution.apple-virtualization.helper.storage.response.v1");
     public static readonly SchemaId UnitRequestSchema = new("hpd.execution.apple-virtualization.helper.unit.request.v1");
     public static readonly SchemaId UnitResponseSchema = new("hpd.execution.apple-virtualization.helper.unit.response.v1");
     public static readonly SchemaId ProcessRequestSchema = new("hpd.execution.apple-virtualization.helper.process.request.v1");
@@ -109,6 +111,8 @@ public enum AppleVirtualizationHelperOperation
     EngineStatus,
     EngineProvision,
     ProcessStatus,
+    Storage,
+    HostWakeReconcile,
 }
 
 public enum AppleVirtualizationHelperEventKind
@@ -254,6 +258,8 @@ public sealed record AppleVirtualizationHelperEnvelope
     public AppleVirtualizationEngineStatusResponse? EngineStatusResponse { get; init; }
     public AppleVirtualizationEngineProvisioningRequest? EngineProvisioningRequest { get; init; }
     public AppleVirtualizationEngineProvisioningResponse? EngineProvisioningResponse { get; init; }
+    public AppleVirtualizationStorageRequest? StorageRequest { get; init; }
+    public AppleVirtualizationStorageResponse? StorageResponse { get; init; }
 
     public static AppleVirtualizationHelperEnvelope Request(
         AppleVirtualizationHelperOperation operation,
@@ -394,7 +400,6 @@ public sealed record AppleVirtualizationHostEnsureRequest
     public string? KernelPath { get; init; }
     public string? InitrdPath { get; init; }
     public string? KernelCommandLine { get; init; }
-    public string? DiskImagePath { get; init; }
     public string? EfiVariableStorePath { get; init; }
     public string? SerialLogPath { get; init; }
     public bool ExpectVirtiofsSupport { get; init; } = true;
@@ -411,6 +416,15 @@ public sealed record AppleVirtualizationHostLifecycleRequest
     public TimeSpan? GracePeriod { get; init; }
     public int? GracePeriodMilliseconds { get; init; }
     public string? Reason { get; init; }
+    public ulong? ObservedWakeGeneration { get; init; }
+}
+
+public enum AppleVirtualizationHostPowerState
+{
+    Active,
+    Sleeping,
+    WakeReconciliationRequired,
+    Terminating,
 }
 
 public sealed record AppleVirtualizationHostStatusResponse
@@ -420,6 +434,11 @@ public sealed record AppleVirtualizationHostStatusResponse
     public ResourcePhase Phase { get; init; }
     public ProviderOpaqueHandle? ProviderHandle { get; init; }
     public bool GuestControlReachable { get; init; }
+    public AppleVirtualizationHostPowerState HostPowerState { get; init; }
+    public ulong SleepGeneration { get; init; }
+    public ulong WakeGeneration { get; init; }
+    public bool RequiresWakeReconciliation { get; init; }
+    public DateTimeOffset? PowerObservedAt { get; init; }
     public IReadOnlyList<Condition> Conditions { get; init; } = Array.Empty<Condition>();
     public IReadOnlyList<Diagnostic> Diagnostics { get; init; } = Array.Empty<Diagnostic>();
 }
@@ -520,7 +539,12 @@ public sealed record AppleVirtualizationGuestAgentReadinessProbeRequest
     public bool ExplicitRealMode { get; init; }
     public string ExpectedProtocolVersion { get; init; } = AppleVirtualizationGuestAgentProtocol.CurrentVersion;
     public string? ExpectedAgentVersion { get; init; }
+    public string? ExpectedRuntimeFilesystemUuid { get; init; }
+    public string? ExpectedAppDataFilesystemUuid { get; init; }
     public IReadOnlyList<string> RequiredCapabilities { get; init; } = Array.Empty<string>();
+    public long? HostUtcUnixMilliseconds { get; init; }
+    public int MaximumClockSkewMilliseconds { get; init; } = 5_000;
+    public bool CorrectGuestClock { get; init; }
     public AppleVirtualizationGuestAgentReadinessState? ScriptedState { get; init; }
 }
 
@@ -538,6 +562,8 @@ public sealed record AppleVirtualizationGuestAgentReadinessProbeResponse
     public string? GuestBootId { get; init; }
     public ulong GuestBootGeneration { get; init; }
     public ulong GuestAgentGeneration { get; init; }
+    public string? RuntimeFilesystemUuid { get; init; }
+    public string? AppDataFilesystemUuid { get; init; }
     public AppleVirtualizationGuestAgentCapabilities? Capabilities { get; init; }
     public IReadOnlyList<string> MissingCapabilities { get; init; } = Array.Empty<string>();
     public string? Reason { get; init; }
@@ -1025,6 +1051,78 @@ public sealed record AppleVirtualizationProjectionConfigureRequest
     public ProjectionRealizationKind Realization { get; init; } = ProjectionRealizationKind.LiveProjection;
 }
 
+public enum AppleVirtualizationStorageAction
+{
+    MeasurePool,
+    EnsureVolume,
+    ObserveVolume,
+    DetachVolume,
+    EraseVolume,
+    BeginBackup,
+    ReadBackupChunk,
+    EndBackup,
+    BeginRestore,
+    WriteRestoreChunk,
+    CommitRestore,
+    AbortRestore,
+}
+
+public sealed record AppleVirtualizationStorageRequest
+{
+    public required string HostId { get; init; }
+    public required ulong ProviderGeneration { get; init; }
+    public ulong HostStartGeneration { get; init; }
+    public required AppleVirtualizationStorageAction Action { get; init; }
+    public StorageClass? StorageClass { get; init; }
+    public string? LogicalVolumeId { get; init; }
+    public ByteSize? MaximumBytes { get; init; }
+    public string? OwnerScopeId { get; init; }
+    public string? OwnerResourceId { get; init; }
+    public string? DeclarationId { get; init; }
+    public string? CompatibilityDomain { get; init; }
+    public ulong? VolumeGeneration { get; init; }
+    public string? OperationId { get; init; }
+    public long? Offset { get; init; }
+    public int? MaximumChunkBytes { get; init; }
+    public string? ChunkBase64 { get; init; }
+    public string? ExpectedContentSha256 { get; init; }
+    public long? ExpectedEncodedPayloadBytes { get; init; }
+    public long? ExpectedLogicalBytes { get; init; }
+    public int? ExpectedEntryCount { get; init; }
+}
+
+public sealed record AppleVirtualizationStorageResponse
+{
+    public required string HostId { get; init; }
+    public required ulong ProviderGeneration { get; init; }
+    public ulong HostStartGeneration { get; init; }
+    public required AppleVirtualizationStorageAction Action { get; init; }
+    public string? LogicalVolumeId { get; init; }
+    public bool Exists { get; init; }
+    public bool Attached { get; init; }
+    public string? EffectiveRuntimePath { get; init; }
+    public string? FilesystemIdentity { get; init; }
+    public ulong? VolumeGeneration { get; init; }
+    public ByteSize? LogicalCapacityBytes { get; init; }
+    public ByteSize? PhysicalAllocatedBytes { get; init; }
+    public ByteSize? UsedBytes { get; init; }
+    public ByteSize? AvailableBytes { get; init; }
+    public string? OperationId { get; init; }
+    public long? Offset { get; init; }
+    public string? ChunkBase64 { get; init; }
+    public bool Completed { get; init; }
+    public long? EncodedPayloadBytes { get; init; }
+    public long? LogicalBytes { get; init; }
+    public int? EntryCount { get; init; }
+    public string? ContentSha256 { get; init; }
+    public StorageMeasurementConfidence MeasurementConfidence { get; init; } =
+        StorageMeasurementConfidence.Unknown;
+    public IReadOnlyList<Condition> Conditions { get; init; } =
+        Array.Empty<Condition>();
+    public IReadOnlyList<Diagnostic> Diagnostics { get; init; } =
+        Array.Empty<Diagnostic>();
+}
+
 public sealed record AppleVirtualizationProjectionMountRequest
 {
     public required string ProjectionId { get; init; }
@@ -1371,6 +1469,7 @@ public static class AppleVirtualizationHelperOperationNames
             [AppleVirtualizationHelperOperation.HostRequestStop] = "host.requestStop",
             [AppleVirtualizationHelperOperation.HostStop] = "host.stop",
             [AppleVirtualizationHelperOperation.HostDelete] = "host.delete",
+            [AppleVirtualizationHelperOperation.HostWakeReconcile] = "host.wakeReconcile",
             [AppleVirtualizationHelperOperation.GuestControlWaitReady] = "guestControl.waitReady",
             [AppleVirtualizationHelperOperation.GuestControlStatus] = "guestControl.status",
             [AppleVirtualizationHelperOperation.ProjectionConfigure] = "projection.configure",
@@ -1409,6 +1508,7 @@ public static class AppleVirtualizationHelperOperationNames
             [AppleVirtualizationHelperOperation.EngineStatus] = "engine.status",
             [AppleVirtualizationHelperOperation.EngineProvision] = "engine.provision",
             [AppleVirtualizationHelperOperation.ProcessStatus] = "process.status",
+            [AppleVirtualizationHelperOperation.Storage] = "storage",
         };
 
     public static string ToWireName(AppleVirtualizationHelperOperation operation) => Names[operation];
@@ -1471,6 +1571,11 @@ public sealed class FakeAppleVirtualizationHelperClient : IAppleVirtualizationHe
         if (request.Operation == AppleVirtualizationHelperOperation.EngineProvision)
         {
             return ValueTask.FromResult(HandleEngineProvision(request));
+        }
+
+        if (request.Operation == AppleVirtualizationHelperOperation.Storage)
+        {
+            return ValueTask.FromResult(HandleStorage(request));
         }
 
         return ValueTask.FromResult(request.ToResponse(Interlocked.Increment(ref _sequence)));
@@ -1633,6 +1738,73 @@ public sealed class FakeAppleVirtualizationHelperClient : IAppleVirtualizationHe
                 ? AppleVirtualizationHelperEventKind.EngineDegraded
                 : AppleVirtualizationHelperEventKind.EngineObserved,
             EngineStatusResponse = AppleVirtualizationEngineStatusResponse.FromGuestStatus(engine, guestStatus),
+        };
+    }
+
+    private AppleVirtualizationHelperEnvelope HandleStorage(
+        AppleVirtualizationHelperEnvelope request)
+    {
+        AppleVirtualizationStorageRequest? storage =
+            request.StorageRequest;
+        if (storage is null)
+            return request.ToErrorResponse(
+                Interlocked.Increment(ref _sequence),
+                new AppleVirtualizationHelperError
+                {
+                    Code =
+                        "AppleVirtualization.StorageMissingPayload",
+                    Message =
+                        "Storage helper request did not include its payload.",
+                    Operation =
+                        AppleVirtualizationHelperOperationNames
+                            .ToWireName(request.Operation),
+                    FailedPhase = "Decode",
+                    Retryable = false,
+                });
+        bool exists =
+            storage.Action !=
+                AppleVirtualizationStorageAction.EraseVolume;
+        string? path = storage.LogicalVolumeId is null
+            ? null
+            : "/var/lib/hpdos/app-data/volumes/" +
+                storage.LogicalVolumeId;
+        return request.ToResponse(
+            Interlocked.Increment(ref _sequence)) with
+        {
+            PayloadSchema =
+                AppleVirtualizationHelperProtocol.StorageResponseSchema,
+            StorageResponse = new AppleVirtualizationStorageResponse
+            {
+                HostId = storage.HostId,
+                ProviderGeneration = storage.ProviderGeneration,
+                HostStartGeneration =
+                    storage.HostStartGeneration,
+                Action = storage.Action,
+                LogicalVolumeId = storage.LogicalVolumeId,
+                VolumeGeneration = storage.VolumeGeneration,
+                OperationId = storage.OperationId,
+                Offset = storage.Offset,
+                Completed = storage.Action is
+                    AppleVirtualizationStorageAction.EndBackup or
+                    AppleVirtualizationStorageAction.CommitRestore or
+                    AppleVirtualizationStorageAction.AbortRestore,
+                Exists = exists &&
+                    storage.LogicalVolumeId is not null,
+                Attached =
+                    storage.Action ==
+                        AppleVirtualizationStorageAction.EnsureVolume,
+                EffectiveRuntimePath = exists ? path : null,
+                FilesystemIdentity =
+                    "guest-app-data:fake",
+                LogicalCapacityBytes =
+                    new ByteSize(32L * 1024 * 1024 * 1024),
+                PhysicalAllocatedBytes = new ByteSize(0),
+                UsedBytes = new ByteSize(0),
+                AvailableBytes =
+                    new ByteSize(24L * 1024 * 1024 * 1024),
+                MeasurementConfidence =
+                    StorageMeasurementConfidence.ProviderReported,
+            },
         };
     }
 

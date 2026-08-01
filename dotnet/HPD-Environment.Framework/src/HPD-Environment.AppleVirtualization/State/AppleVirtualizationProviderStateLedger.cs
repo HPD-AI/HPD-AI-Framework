@@ -534,6 +534,18 @@ internal sealed class AppleVirtualizationProviderStateLedger
         }
     }
 
+    public IReadOnlyList<
+        AppleVirtualizationLedgerEntry<
+            RuntimeHost,
+            RuntimeHostStatus>> GetReadyRuntimeHosts()
+    {
+        lock (_gate)
+            return _hostsByResource.Values
+                .Where(static entry =>
+                    entry.Status.Readiness?.Ready == true)
+                .ToArray();
+    }
+
     public AppleVirtualizationLedgerLookup<AppleVirtualizationLedgerEntry<ExecutionUnit, ExecutionUnitStatus>> TryGetExecutionUnit(ResourceRef<ExecutionUnit> resource)
     {
         lock (_gate)

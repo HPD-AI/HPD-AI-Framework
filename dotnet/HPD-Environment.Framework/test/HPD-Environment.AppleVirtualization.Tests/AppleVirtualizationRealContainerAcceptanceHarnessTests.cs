@@ -67,7 +67,8 @@ public sealed class AppleVirtualizationRealContainerAcceptanceToolHarnessTests
         environment.HelperPath.Should().Be(files.HelperPath);
         environment.GuestImage.KernelPath.Should().Be(files.KernelPath);
         environment.GuestImage.InitrdPath.Should().Be(files.InitrdPath);
-        environment.GuestImage.DiskImagePath.Should().Be(files.DiskPath);
+        AppleVirtualizationTestDiskSet.Path(environment.GuestImage, AppleVirtualizationDiskRole.System)
+            .Should().Be(files.DiskPath);
         environment.GuestImage.ExpectedGuestAgentVersion.Should().Be("0.1.0");
         environment.EngineKind.Should().Be(EngineControlPlaneKind.DockerCompatible);
         environment.EngineApi.Should().Be(EngineApiKind.DockerCompatible);
@@ -505,7 +506,8 @@ public sealed class AppleVirtualizationRealContainerAcceptanceToolHarnessTests
         AppleVirtualizationContainerSmokeWorkflowRequest smoke = environment.CreateSmokeWorkflowRequest(hostId);
 
         vm.HostId.Should().Be(hostId);
-        vm.GuestImage.DiskImagePath.Should().Be(files.DiskPath);
+        AppleVirtualizationTestDiskSet.Path(vm.GuestImage, AppleVirtualizationDiskRole.System)
+            .Should().Be(files.DiskPath);
         vm.IncludeVirtioSocketPlaceholder.Should().BeTrue();
         readiness.GuestAgentReadinessProbeRequest!.ExplicitRealMode.Should().BeTrue();
         readiness.GuestAgentReadinessProbeRequest.RequiredCapabilities.Should().Contain(
@@ -853,7 +855,9 @@ public sealed class AppleVirtualizationRealContainerAcceptanceToolHarnessTests
 
         string hostId = "hpd-real-container-" + Guid.NewGuid().ToString("N");
         await using var helper = await RealHelperProcess.StartAsync(environment.HelperPath);
-        using RealContainerScratchDisk scratchDisk = RealContainerScratchDisk.Create(environment.GuestImage.DiskImagePath!, hostId);
+        using RealContainerScratchDisk scratchDisk = RealContainerScratchDisk.Create(
+            AppleVirtualizationTestDiskSet.Path(environment.GuestImage, AppleVirtualizationDiskRole.System)!,
+            hostId);
         var evidence = new RealContainerAcceptanceRunEvidence(maxHelperEvents: 128, maxSerialTailBytes: RealOutputTailBytes);
         try
         {
@@ -995,7 +999,9 @@ public sealed class AppleVirtualizationRealContainerAcceptanceToolHarnessTests
         string hostId = "hpd-real-http-" + Guid.NewGuid().ToString("N");
         const ushort guestPort = 18080;
         await using var helper = await RealHelperProcess.StartAsync(environment.HelperPath);
-        using RealContainerScratchDisk scratchDisk = RealContainerScratchDisk.Create(environment.GuestImage.DiskImagePath!, hostId);
+        using RealContainerScratchDisk scratchDisk = RealContainerScratchDisk.Create(
+            AppleVirtualizationTestDiskSet.Path(environment.GuestImage, AppleVirtualizationDiskRole.System)!,
+            hostId);
         var evidence = new RealContainerAcceptanceRunEvidence(maxHelperEvents: 128, maxSerialTailBytes: RealOutputTailBytes);
         ResourceRef<PublishedEndpoint>? endpointRef = null;
         try
@@ -1282,7 +1288,7 @@ public sealed class AppleVirtualizationRealContainerAcceptanceToolHarnessTests
         {
             BundleRoot = Path.GetDirectoryName(diskPath),
             BootLoader = AppleVirtualizationGuestBootLoaderKind.Efi,
-            DiskImagePath = diskPath,
+            DiskAttachments = AppleVirtualizationTestDiskSet.Create(diskPath),
             EfiVariableStorePath = efiVariableStorePath,
             SerialLogPath = serialLogPath,
             Architecture = AppleVirtualizationGuestArchitectureExpectation.Arm64,
@@ -1852,7 +1858,7 @@ public sealed class AppleVirtualizationRealContainerAcceptanceToolHarnessTests
                 KernelPath = NullIfWhiteSpace(kernel),
                 InitrdPath = NullIfWhiteSpace(initrd),
                 KernelCommandLine = NullIfWhiteSpace(getEnvironmentVariable("HPD_APPLEVZ_GUEST_KERNEL_CMDLINE")),
-                DiskImagePath = NullIfWhiteSpace(disk),
+                DiskAttachments = AppleVirtualizationTestDiskSet.Create(NullIfWhiteSpace(disk)),
                 SerialLogPath = NullIfWhiteSpace(serial),
                 Architecture = AppleVirtualizationGuestArchitectureExpectation.HostNative,
                 ExpectVirtiofsSupport = true,
@@ -1878,7 +1884,12 @@ public sealed class AppleVirtualizationRealContainerAcceptanceToolHarnessTests
                 HostId = hostId,
                 CpuCount = 2,
                 MemorySizeBytes = 2L * 1024 * 1024 * 1024,
-                GuestImage = diskImagePath is null ? GuestImage : GuestImage with { DiskImagePath = diskImagePath },
+                GuestImage = diskImagePath is null
+                    ? GuestImage
+                    : GuestImage with
+                    {
+                        DiskAttachments = AppleVirtualizationTestDiskSet.Create(diskImagePath),
+                    },
                 SharedDirectories = Array.Empty<AppleVirtualizationVmConfigurationSharedDirectory>(),
                 IncludeSerialConsole = true,
                 IncludeVirtioSocketPlaceholder = true,

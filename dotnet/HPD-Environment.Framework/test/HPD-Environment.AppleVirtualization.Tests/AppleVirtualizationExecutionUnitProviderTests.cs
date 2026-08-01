@@ -32,8 +32,7 @@ public sealed class AppleVirtualizationExecutionUnitProviderTests
                 WorkloadStorage = new WorkloadStorageRequest
                 {
                     LogicalId = "compose-project-test",
-                    PersistenceClass =
-                        WorkloadStoragePersistenceClass.Workload,
+                    StorageClass = StorageClass.RuntimeDisposable,
                 },
             },
             observed: null);

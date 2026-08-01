@@ -113,8 +113,7 @@ internal sealed class LocalExecutionUnitProvider(LocalProviderState state)
                     ExecutionUnitStatus>(unit);
         if (lookup.Succeeded &&
             lookup.Entry!.Status.WorkloadStorage is { } allocation &&
-            allocation.PersistenceClass is not
-                WorkloadStoragePersistenceClass.Installation)
+            allocation.StorageClass is not StorageClass.AppDurable)
             DeleteOwnedStorage(allocation.EffectiveRuntimePath);
         state.Ledger.Remove<
             ExecutionUnit,
@@ -200,7 +199,7 @@ internal sealed class LocalExecutionUnitProvider(LocalProviderState state)
             request.LogicalId.Any(character =>
                 !(char.IsAsciiLetterOrDigit(character) ||
                   character is '.' or '_' or '-')) ||
-            !Enum.IsDefined(request.PersistenceClass))
+            !Enum.IsDefined(request.StorageClass))
             throw new InvalidOperationException(
                 "LocalEnvironment.WorkloadStorageRequestInvalid: the workload storage request is malformed.");
 
@@ -218,7 +217,7 @@ internal sealed class LocalExecutionUnitProvider(LocalProviderState state)
             LogicalId = request.LogicalId,
             ProviderHandle = providerHandle,
             EffectiveRuntimePath = path,
-            PersistenceClass = request.PersistenceClass,
+            StorageClass = request.StorageClass,
             Generation = metadata.Generation,
         };
     }

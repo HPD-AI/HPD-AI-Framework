@@ -2,13 +2,16 @@
 import argparse
 import base64
 import datetime
+import fcntl
 import hashlib
 import json
 import os
 import signal
 import shutil
 import socket
+import stat
 import subprocess
+import struct
 import sys
 import threading
 import time
@@ -18,6 +21,8 @@ DEFAULT_PROTOCOL_VERSION = "1.0"
 DEFAULT_AGENT_VERSION = "0.1.0"
 DEFAULT_PORT = 7777
 MAX_FRAME_BYTES = 1048576
+FS_IOC_FSGETXATTR = 0x801C581F
+FS_XFLAG_PROJINHERIT = 0x00000200
 
 AF_VSOCK = getattr(socket, "AF_VSOCK", 40)
 VMADDR_CID_ANY = getattr(socket, "VMADDR_CID_ANY", 0xFFFFFFFF)
@@ -186,15 +191,71 @@ class GuestAgent:
             return payload
 
         if operation == 2:
+            clock_request = request.get("ClockReconciliationRequest") or {}
+            host_utc_ms = clock_request.get("HostUtcUnixMilliseconds")
+            if host_utc_ms is not None:
+                try:
+                    host_utc_ms = int(host_utc_ms)
+                    maximum_skew_ms = max(
+                        0,
+                        int(clock_request.get(
+                            "MaximumClockSkewMilliseconds",
+                            5000)),
+                    )
+                    observed_ms = int(time.time() * 1000)
+                    corrected = False
+                    if abs(observed_ms - host_utc_ms) > maximum_skew_ms:
+                        if not bool(clock_request.get("CorrectGuestClock")):
+                            return self.error(
+                                request,
+                                2,
+                                "Environment.Lifecycle.GuestClockSkewExceeded",
+                                "Guest realtime clock exceeds the accepted host-wake skew bound.",
+                                retryable=True,
+                            )
+                        time.clock_settime(
+                            time.CLOCK_REALTIME,
+                            host_utc_ms / 1000.0,
+                        )
+                        corrected = True
+                        observed_ms = int(time.time() * 1000)
+                    if abs(observed_ms - host_utc_ms) > maximum_skew_ms:
+                        return self.error(
+                            request,
+                            2,
+                            "Environment.Lifecycle.GuestClockCorrectionFailed",
+                            "Guest realtime clock could not be verified after correction.",
+                            retryable=True,
+                        )
+                except (AttributeError, OSError, TypeError, ValueError) as exc:
+                    return self.error(
+                        request,
+                        2,
+                        "Environment.Lifecycle.GuestClockCorrectionFailed",
+                        "Guest realtime clock reconciliation failed: " + str(exc),
+                        retryable=True,
+                    )
             payload = self.response_base(request, 2)
             payload["Ready"] = {
                 "IsReady": True,
                 "GuestBootId": self.guest_boot_id,
                 "GuestBootGeneration": self.guest_boot_generation,
                 "GuestAgentGeneration": self.guest_agent_generation,
+                "RuntimeFilesystemUuid":
+                    self.persisted_storage_identity("runtime"),
+                "AppDataFilesystemUuid":
+                    self.persisted_storage_identity("app-data"),
                 "Conditions": [],
                 "Diagnostics": [],
             }
+            if host_utc_ms is not None:
+                payload["Ready"]["ClockReconciliation"] = {
+                    "HostUtcUnixMilliseconds": host_utc_ms,
+                    "ObservedGuestUtcUnixMilliseconds": observed_ms,
+                    "MaximumClockSkewMilliseconds": maximum_skew_ms,
+                    "Corrected": corrected,
+                    "Verified": True,
+                }
             return payload
 
         if operation == 22:
@@ -203,7 +264,7 @@ class GuestAgent:
         if operation == 23:
             return self.process_status(request)
 
-        if operation in (24, 50):
+        if operation == 24:
             return self.process_stdin(request)
 
         if operation == 25:
@@ -227,7 +288,1363 @@ class GuestAgent:
         if operation == 47:
             return self.engine_status(request)
 
+        if operation == 50:
+            return self.storage(request)
+
         return self.error(request, operation if isinstance(operation, int) else 0, "AppleVirtualization.GuestAgentUnsupportedOperation", "Unsupported guest-agent operation.", retryable=False)
+
+    def storage(self, request):
+        storage_request = request.get("StorageRequest") or {}
+        host_id = storage_request.get("HostId") or request.get("HostId")
+        provider_generation = self.int_value(
+            storage_request.get(
+                "ProviderGeneration",
+                request.get("ProviderGeneration"),
+            ),
+            0,
+        )
+        host_start_generation = self.int_value(
+            storage_request.get("HostStartGeneration"),
+            0,
+        )
+        action = self.int_value(storage_request.get("Action"), -1)
+        storage_class = storage_request.get("StorageClass")
+        logical_id = storage_request.get("LogicalVolumeId")
+        owner_scope_id = storage_request.get("OwnerScopeId")
+        owner_resource_id = storage_request.get("OwnerResourceId")
+        declaration_id = storage_request.get("DeclarationId")
+        compatibility_domain = storage_request.get(
+            "CompatibilityDomain")
+        volume_generation = self.int_value(
+            storage_request.get("VolumeGeneration"),
+            0,
+        )
+        maximum_bytes = self.int_value(
+            self.case_dict(storage_request.get("MaximumBytes")).get("Value"),
+            0,
+        )
+        if action == 0 and storage_class == "runtime-disposable":
+            root = os.environ.get(
+                "HPD_GUEST_ENGINE_DATA_ROOT",
+                "/var/lib/hpdos/runtime/docker",
+            )
+        else:
+            root = os.environ.get(
+                "HPD_GUEST_APP_DATA_ROOT",
+                "/var/lib/hpdos/app-data",
+            )
+        volumes_root = os.path.join(root, "volumes")
+        quota_mode = os.environ.get(
+            "HPD_GUEST_STORAGE_QUOTA_MODE",
+            "ext4-project",
+        )
+
+        if not host_id or provider_generation <= 0:
+            return self.error(
+                request,
+                50,
+                "AppleVirtualization.StorageGenerationMissing",
+                "Storage operations require a host identity and positive provider generation.",
+                retryable=False,
+            )
+        if action not in range(0, 12):
+            return self.error(
+                request,
+                50,
+                "AppleVirtualization.StorageActionInvalid",
+                "Storage action is invalid.",
+                retryable=False,
+            )
+        if action == 0 and storage_class not in (
+                "app-durable", "runtime-disposable"):
+            return self.error(
+                request,
+                50,
+                "AppleVirtualization.StorageClassInvalid",
+                "Pool measurement requires app-durable or runtime-disposable storage class.",
+                retryable=False,
+            )
+        if action != 0 and not self.safe_storage_component(logical_id):
+            return self.error(
+                request,
+                50,
+                "AppleVirtualization.StorageIdentityInvalid",
+                "LogicalVolumeId must be one bounded safe path component.",
+                retryable=False,
+            )
+        if action != 0 and maximum_bytes <= 0:
+            return self.error(
+                request,
+                50,
+                "AppleVirtualization.StorageQuotaInvalid",
+                "Durable-volume operations require a positive MaximumBytes hard quota.",
+                retryable=False,
+            )
+        operation_id = storage_request.get("OperationId")
+        if action >= 5 and not self.safe_storage_component(operation_id):
+            return self.error(
+                request,
+                50,
+                "AppleVirtualization.StorageOperationIdentityInvalid",
+                "Backup and restore operations require one bounded safe operation identity.",
+                retryable=False,
+            )
+        ownership = {
+            "OwnerScopeId": owner_scope_id,
+            "OwnerResourceId": owner_resource_id,
+            "DeclarationId": declaration_id,
+            "CompatibilityDomain": compatibility_domain,
+            "VolumeGeneration": volume_generation,
+            "ProviderGeneration": provider_generation,
+        }
+        if action != 0 and (
+                any(not self.safe_storage_identity(value)
+                    for key, value in ownership.items()
+                    if key not in ("VolumeGeneration",
+                                   "ProviderGeneration")) or
+                volume_generation <= 0):
+            return self.error(
+                request,
+                50,
+                "AppleVirtualization.StorageOwnershipInvalid",
+                "Durable-volume operations require complete bounded ownership and positive volume/provider generations.",
+                retryable=False,
+            )
+        if quota_mode not in ("ext4-project", "directory-test"):
+            return self.error(
+                request,
+                50,
+                "AppleVirtualization.StorageQuotaModeInvalid",
+                "The configured durable-volume quota mode is unsupported.",
+                retryable=False,
+            )
+
+        try:
+            if os.path.lexists(root) and os.path.islink(root):
+                raise OSError("storage root must not be a symbolic link")
+            if (os.path.lexists(volumes_root)
+                    and os.path.islink(volumes_root)):
+                raise OSError(
+                    "storage volumes root must not be a symbolic link")
+            if action != 0:
+                os.makedirs(volumes_root, mode=0o700, exist_ok=True)
+            if os.path.islink(root) or (
+                    action != 0 and os.path.islink(volumes_root)):
+                raise OSError("storage roots must not be symbolic links")
+            path = (
+                None
+                if action == 0
+                else os.path.join(volumes_root, logical_id)
+            )
+            if (path is not None and os.path.lexists(path)
+                    and os.path.islink(path)):
+                raise OSError(
+                    "durable volume must not be a symbolic link")
+            if action == 2:
+                ownership = self.recover_verified_restore_ownership(
+                    root,
+                    volumes_root,
+                    logical_id,
+                    maximum_bytes,
+                    ownership,
+                )
+            if action >= 5:
+                return self.storage_transfer(
+                    request,
+                    storage_request,
+                    action,
+                    root,
+                    volumes_root,
+                    path,
+                    logical_id,
+                    maximum_bytes,
+                    quota_mode,
+                    ownership,
+                    operation_id,
+                )
+            if action == 1:
+                os.makedirs(path, mode=0o700, exist_ok=True)
+                if os.path.islink(path):
+                    raise OSError("durable volume must not be a symbolic link")
+                project_id = self.ensure_volume_quota(
+                    root,
+                    volumes_root,
+                    logical_id,
+                    path,
+                    maximum_bytes,
+                    quota_mode,
+                    ownership,
+                )
+            elif action in (2, 3):
+                project_id = self.verify_volume_quota(
+                    root,
+                    volumes_root,
+                    logical_id,
+                    path,
+                    maximum_bytes,
+                    quota_mode,
+                    ownership,
+                )
+            elif action == 4 and os.path.lexists(path):
+                if os.path.islink(path):
+                    raise OSError("durable volume must not be a symbolic link")
+                project_id = self.verify_volume_quota(
+                    root,
+                    volumes_root,
+                    logical_id,
+                    path,
+                    maximum_bytes,
+                    quota_mode,
+                    ownership,
+                )
+                tombstone = os.path.join(
+                    volumes_root,
+                    ".erase-" + str(uuid.uuid4()),
+                )
+                os.replace(path, tombstone)
+                self.fsync_directory(volumes_root)
+                shutil.rmtree(tombstone)
+                self.fsync_directory(volumes_root)
+                self.remove_volume_quota(
+                    root,
+                    volumes_root,
+                    logical_id,
+                    project_id,
+                    quota_mode,
+                )
+            else:
+                project_id = None
+
+            exists = path is not None and os.path.isdir(path)
+            logical_bytes, allocated_bytes = (
+                self.measure_storage_tree(path) if exists else (0, 0)
+            )
+            if (exists and maximum_bytes > 0 and
+                    logical_bytes > maximum_bytes):
+                raise OSError(
+                    "durable-volume content exceeds its hard quota")
+            filesystem = os.statvfs(root)
+            filesystem_identity = self.storage_filesystem_identity(
+                root,
+                quota_mode,
+            )
+            payload = self.response_base(request, 50)
+            payload["StorageResponse"] = {
+                "HostId": host_id,
+                "ProviderGeneration": provider_generation,
+                "HostStartGeneration": host_start_generation,
+                "Action": action,
+                "LogicalVolumeId": logical_id,
+                "Exists": exists,
+                "Attached": action == 1 and exists,
+                "EffectiveRuntimePath": path if exists else None,
+                "FilesystemIdentity": (
+                    filesystem_identity
+                    if project_id is None
+                    else filesystem_identity + ":project:" + str(project_id)
+                ),
+                "VolumeGeneration": ownership.get("VolumeGeneration"),
+                "LogicalCapacityBytes": {
+                    "Value": filesystem.f_blocks * filesystem.f_frsize
+                },
+                "PhysicalAllocatedBytes": {
+                    "Value": allocated_bytes
+                },
+                "UsedBytes": {"Value": logical_bytes},
+                "AvailableBytes": {
+                    "Value": filesystem.f_bavail * filesystem.f_frsize
+                },
+                "MeasurementConfidence": 1,
+                "Conditions": [],
+                "Diagnostics": [],
+            }
+            return payload
+        except OSError as error:
+            return self.error(
+                request,
+                50,
+                "AppleVirtualization.StorageOperationFailed",
+                "Guest App-data storage operation failed: " + str(error),
+                retryable=False,
+            )
+
+    def storage_transfer(
+            self,
+            request,
+            storage_request,
+            action,
+            root,
+            volumes_root,
+            volume_path,
+            logical_id,
+            maximum_bytes,
+            quota_mode,
+            ownership,
+            operation_id):
+        operations_root = os.path.join(
+            os.environ.get(
+                "HPD_GUEST_OPERATION_TEMP_ROOT",
+                "/var/lib/hpdos/runtime/operation-temporary"),
+            "storage")
+        if os.path.lexists(operations_root) and os.path.islink(operations_root):
+            raise OSError("storage operation root must not be a symbolic link")
+        os.makedirs(operations_root, mode=0o700, exist_ok=True)
+        operation_names = os.listdir(operations_root)
+        if len(operation_names) > 1024:
+            raise OSError("storage operation count exceeds its bound")
+        for name in operation_names:
+            entry = os.path.join(operations_root, name)
+            if (not self.safe_storage_component(name) or
+                    os.path.islink(entry) or
+                    not os.path.isdir(entry)):
+                raise OSError(
+                    "storage operation root contains an invalid identity")
+        operation_root = os.path.join(operations_root, operation_id)
+        restore_journal_root = os.path.join(
+            volumes_root, ".hpd-restore-operations")
+        if (os.path.lexists(restore_journal_root) and
+                os.path.islink(restore_journal_root)):
+            raise OSError("restore journal root must not be a symbolic link")
+        os.makedirs(restore_journal_root, mode=0o700, exist_ok=True)
+        state_path = (
+            os.path.join(operation_root, "state.json")
+            if action <= 7
+            else os.path.join(restore_journal_root, operation_id + ".json"))
+        payload_path = os.path.join(operation_root, "payload.bin")
+        identity = {
+            "OperationId": operation_id,
+            "LogicalVolumeId": logical_id,
+            **ownership,
+        }
+
+        if action == 5:
+            self.verify_volume_quota(
+                root, volumes_root, logical_id, volume_path,
+                maximum_bytes, quota_mode, ownership)
+            if os.path.isdir(operation_root):
+                state = self.load_storage_operation(state_path)
+                self.require_storage_operation(state, "backup", identity)
+            else:
+                os.mkdir(operation_root, mode=0o700)
+                try:
+                    evidence = self.capture_storage_payload(
+                        volume_path, payload_path, maximum_bytes)
+                    state = {
+                        "Schema": "hpd.guest.storage-operation/v1",
+                        "Kind": "backup",
+                        "Checkpoint": "ready",
+                        **identity,
+                        **evidence,
+                    }
+                    self.save_storage_operation(state_path, state)
+                    self.fsync_directory(operation_root)
+                    self.fsync_directory(operations_root)
+                except BaseException:
+                    shutil.rmtree(operation_root, ignore_errors=True)
+                    raise
+            return self.storage_transfer_response(
+                request, storage_request, action, logical_id,
+                operation_id, state, completed=True)
+
+        if action == 6:
+            state = self.load_storage_operation(state_path)
+            self.require_storage_operation(state, "backup", identity)
+            offset = self.int_value(storage_request.get("Offset"), -1)
+            maximum_chunk = self.int_value(
+                storage_request.get("MaximumChunkBytes"), 0)
+            if (offset < 0 or maximum_chunk <= 0 or
+                    maximum_chunk > 49152 or
+                    offset >= state["EncodedPayloadBytes"]):
+                raise OSError("backup chunk offset or size is invalid")
+            with open(payload_path, "rb") as stream:
+                stream.seek(offset)
+                chunk = stream.read(maximum_chunk)
+            if not chunk:
+                raise OSError("backup chunk content is missing")
+            return self.storage_transfer_response(
+                request, storage_request, action, logical_id,
+                operation_id, state, offset=offset,
+                chunk=chunk,
+                completed=(offset + len(chunk) ==
+                           state["EncodedPayloadBytes"]))
+
+        if action == 7:
+            if not os.path.isdir(operation_root):
+                return self.storage_transfer_response(
+                    request,
+                    storage_request,
+                    action,
+                    logical_id,
+                    operation_id,
+                    {
+                        "Checkpoint": "cleaned",
+                        **identity,
+                    },
+                    completed=True)
+            state = self.load_storage_operation(state_path)
+            self.require_storage_operation(state, "backup", identity)
+            shutil.rmtree(operation_root)
+            self.fsync_directory(operations_root)
+            return self.storage_transfer_response(
+                request, storage_request, action, logical_id,
+                operation_id, state, completed=True)
+
+        expected_digest = storage_request.get("ExpectedContentSha256")
+        expected_logical = self.int_value(
+            storage_request.get("ExpectedLogicalBytes"), -1)
+        if action == 8:
+            if (not self.valid_sha256(expected_digest) or
+                    expected_logical < 0 or
+                    expected_logical > maximum_bytes):
+                raise OSError("restore content evidence is invalid")
+            self.verify_volume_quota(
+                root, volumes_root, logical_id, volume_path,
+                maximum_bytes, quota_mode, ownership)
+            if os.path.exists(state_path):
+                state = self.load_storage_operation(state_path)
+                self.require_storage_operation(state, "restore", identity)
+                if (state.get("ExpectedContentSha256") != expected_digest or
+                        state.get("ExpectedLogicalBytes") != expected_logical):
+                    raise OSError("restore operation evidence conflicts")
+            else:
+                os.mkdir(operation_root, mode=0o700)
+                descriptor = os.open(
+                    payload_path,
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                    0o600)
+                os.close(descriptor)
+                state = {
+                    "Schema": "hpd.guest.storage-operation/v1",
+                    "Kind": "restore",
+                    "Checkpoint": "receiving",
+                    **identity,
+                    "ExpectedContentSha256": expected_digest,
+                    "ExpectedLogicalBytes": expected_logical,
+                    "ReceivedBytes": 0,
+                }
+                self.save_storage_operation(state_path, state)
+                self.fsync_directory(operation_root)
+                self.fsync_directory(operations_root)
+                self.fsync_directory(restore_journal_root)
+            return self.storage_transfer_response(
+                request, storage_request, action, logical_id,
+                operation_id, state)
+
+        state = self.load_storage_operation(state_path)
+        self.require_storage_operation(state, "restore", identity)
+        if action == 9:
+            if state.get("Checkpoint") != "receiving":
+                raise OSError("restore no longer accepts payload chunks")
+            offset = self.int_value(storage_request.get("Offset"), -1)
+            if offset != state.get("ReceivedBytes"):
+                raise OSError("restore chunk offset is not sequential")
+            chunk_text = storage_request.get("ChunkBase64")
+            try:
+                chunk = base64.b64decode(
+                    chunk_text,
+                    validate=True)
+            except (ValueError, TypeError) as error:
+                raise OSError("restore chunk is not canonical Base64") from error
+            if (not chunk or len(chunk) > 49152 or
+                    base64.b64encode(chunk).decode("ascii") != chunk_text):
+                raise OSError("restore chunk violates its byte bound")
+            with open(payload_path, "r+b", buffering=0) as stream:
+                stream.seek(offset)
+                stream.write(chunk)
+                stream.flush()
+                os.fsync(stream.fileno())
+            state["ReceivedBytes"] = offset + len(chunk)
+            self.save_storage_operation(state_path, state)
+            return self.storage_transfer_response(
+                request, storage_request, action, logical_id,
+                operation_id, state, offset=offset,
+                completed=False)
+
+        if action == 10:
+            state = self.commit_storage_restore(
+                storage_request,
+                state,
+                state_path,
+                payload_path,
+                operation_root,
+                volumes_root,
+                volume_path,
+                logical_id,
+                maximum_bytes,
+                quota_mode,
+                ownership)
+            return self.storage_transfer_response(
+                request, storage_request, action, logical_id,
+                operation_id, state, completed=True)
+
+        if action == 11:
+            checkpoint = state.get("Checkpoint")
+            staging = os.path.join(volumes_root, ".restore-" + operation_id)
+            previous = os.path.join(volumes_root, ".previous-" + operation_id)
+            if checkpoint in ("receiving", "staged"):
+                if os.path.isdir(staging):
+                    shutil.rmtree(staging)
+                shutil.rmtree(operation_root, ignore_errors=True)
+                os.unlink(state_path)
+            elif checkpoint == "previous-moved":
+                if os.path.isdir(staging):
+                    shutil.rmtree(staging)
+                if not os.path.isdir(volume_path) and os.path.isdir(previous):
+                    os.replace(previous, volume_path)
+                shutil.rmtree(operation_root, ignore_errors=True)
+                os.unlink(state_path)
+            elif checkpoint == "verified":
+                if os.path.isdir(previous):
+                    shutil.rmtree(previous)
+                shutil.rmtree(operation_root, ignore_errors=True)
+                os.unlink(state_path)
+            elif checkpoint == "selected":
+                raise OSError(
+                    "selected restore remains retained until recovery verifies its outcome")
+            else:
+                raise OSError("restore checkpoint is invalid")
+            self.fsync_directory(volumes_root)
+            self.fsync_directory(operations_root)
+            self.fsync_directory(restore_journal_root)
+            return self.storage_transfer_response(
+                request, storage_request, action, logical_id,
+                operation_id, state, completed=True)
+        raise OSError("storage transfer action is invalid")
+
+    def recover_verified_restore_ownership(
+            self,
+            root,
+            volumes_root,
+            logical_id,
+            maximum_bytes,
+            requested):
+        quota_state = self.load_volume_quota_state(volumes_root)
+        entry = quota_state.get(logical_id)
+        project_id = self.volume_project_id(logical_id)
+        if self.volume_quota_entry_matches(
+                entry, project_id, maximum_bytes, requested):
+            return requested
+        if not isinstance(entry, dict):
+            return requested
+        candidate = dict(requested)
+        candidate["VolumeGeneration"] = (
+            requested["VolumeGeneration"] + 1)
+        if not self.volume_quota_entry_matches(
+                entry, project_id, maximum_bytes, candidate):
+            return requested
+        journal_root = os.path.join(
+            volumes_root, ".hpd-restore-operations")
+        if not os.path.isdir(journal_root) or os.path.islink(journal_root):
+            return requested
+        matched = 0
+        names = os.listdir(journal_root)
+        if len(names) > 1024:
+            raise OSError("restore journal count exceeds its bound")
+        for name in names:
+            if (not name.endswith(".json") or
+                    not self.safe_storage_component(name[:-5])):
+                raise OSError("storage operation root contains an invalid identity")
+            state = self.load_storage_operation(os.path.join(journal_root, name))
+            if (state.get("Kind") == "restore" and
+                    state.get("Checkpoint") == "verified" and
+                    state.get("LogicalVolumeId") == logical_id and
+                    state.get("VolumeGeneration") ==
+                    requested["VolumeGeneration"] and
+                    state.get("RestoredVolumeGeneration") ==
+                    candidate["VolumeGeneration"] and
+                    all(state.get(key) == value
+                        for key, value in requested.items()
+                        if key != "VolumeGeneration")):
+                matched += 1
+        if matched != 1:
+            raise OSError(
+                "advanced durable-volume generation lacks one exact verified restore journal")
+        return candidate
+
+    def commit_storage_restore(
+            self,
+            storage_request,
+            state,
+            state_path,
+            payload_path,
+            operation_root,
+            volumes_root,
+            volume_path,
+            logical_id,
+            maximum_bytes,
+            quota_mode,
+            ownership):
+        checkpoint = state.get("Checkpoint")
+        expected_encoded = self.int_value(
+            storage_request.get("ExpectedEncodedPayloadBytes"), -1)
+        expected_entries = self.int_value(
+            storage_request.get("ExpectedEntryCount"), -1)
+        if checkpoint == "receiving":
+            if expected_encoded < 0:
+                expected_encoded = state.get("ReceivedBytes", -1)
+            if expected_entries < 0:
+                raise OSError("restore entry count is missing before selection")
+            if (state.get("ReceivedBytes") != expected_encoded or
+                    expected_entries > 1000000):
+                raise OSError("restore payload length or entry count is invalid")
+            staging = os.path.join(
+                volumes_root,
+                ".restore-" + state["OperationId"])
+            if os.path.lexists(staging):
+                raise OSError("restore staging identity already exists")
+            os.mkdir(staging, mode=0o700)
+            try:
+                evidence = self.restore_storage_payload(
+                    payload_path,
+                    staging,
+                    expected_entries,
+                    maximum_bytes)
+                if (evidence["ContentSha256"] !=
+                        state["ExpectedContentSha256"] or
+                        evidence["LogicalBytes"] !=
+                        state["ExpectedLogicalBytes"]):
+                    raise OSError("restore payload postconditions do not match")
+                state.update(evidence)
+                state["EncodedPayloadBytes"] = expected_encoded
+                state["EntryCount"] = expected_entries
+                state["Checkpoint"] = "staged"
+                self.save_storage_operation(state_path, state)
+            except BaseException:
+                shutil.rmtree(staging, ignore_errors=True)
+                raise
+            checkpoint = "staged"
+        staging = os.path.join(volumes_root, ".restore-" + state["OperationId"])
+        previous = os.path.join(volumes_root, ".previous-" + state["OperationId"])
+        if checkpoint == "staged":
+            if os.path.lexists(previous):
+                raise OSError("restore previous-generation identity already exists")
+            os.replace(volume_path, previous)
+            self.fsync_directory(volumes_root)
+            state["Checkpoint"] = "previous-moved"
+            self.save_storage_operation(state_path, state)
+            checkpoint = "previous-moved"
+        if checkpoint == "previous-moved":
+            if not os.path.isdir(staging) or os.path.isdir(volume_path):
+                raise OSError("restore selection preconditions are ambiguous")
+            os.replace(staging, volume_path)
+            self.fsync_directory(volumes_root)
+            state["Checkpoint"] = "selected"
+            self.save_storage_operation(state_path, state)
+            checkpoint = "selected"
+        if checkpoint == "selected":
+            evidence = self.measure_canonical_storage_tree(
+                volume_path, maximum_bytes)
+            if (evidence["ContentSha256"] !=
+                    state["ExpectedContentSha256"] or
+                    evidence["LogicalBytes"] !=
+                    state["ExpectedLogicalBytes"]):
+                raise OSError("selected restore content cannot be verified")
+            quota_state = self.load_volume_quota_state(volumes_root)
+            entry = quota_state.get(logical_id)
+            if not self.volume_quota_entry_matches(
+                    entry,
+                    self.volume_project_id(logical_id),
+                    maximum_bytes,
+                    ownership):
+                raise OSError("restore target quota ownership changed")
+            new_ownership = dict(ownership)
+            new_ownership["VolumeGeneration"] = ownership["VolumeGeneration"] + 1
+            quota_state[logical_id] = {
+                "ProjectId": self.volume_project_id(logical_id),
+                "MaximumBytes": maximum_bytes,
+                **new_ownership,
+            }
+            self.save_volume_quota_state(volumes_root, quota_state)
+            state["RestoredVolumeGeneration"] = new_ownership["VolumeGeneration"]
+            state["Checkpoint"] = "verified"
+            self.save_storage_operation(state_path, state)
+        if state.get("Checkpoint") != "verified":
+            raise OSError("restore did not reach its verified checkpoint")
+        return state
+
+    @staticmethod
+    def storage_transfer_response(
+            request,
+            storage_request,
+            action,
+            logical_id,
+            operation_id,
+            state,
+            offset=None,
+            chunk=None,
+            completed=False):
+        payload = {
+            "HostId": storage_request.get("HostId"),
+            "ProviderGeneration": storage_request.get("ProviderGeneration"),
+            "HostStartGeneration": storage_request.get("HostStartGeneration", 0),
+            "Action": action,
+            "LogicalVolumeId": logical_id,
+            "OperationId": operation_id,
+            "Offset": offset,
+            "ChunkBase64": (
+                base64.b64encode(chunk).decode("ascii")
+                if chunk is not None else None),
+            "Completed": completed,
+            "EncodedPayloadBytes": state.get("EncodedPayloadBytes"),
+            "LogicalBytes": state.get("LogicalBytes"),
+            "EntryCount": state.get("EntryCount"),
+            "ContentSha256": state.get("ContentSha256") or state.get("ExpectedContentSha256"),
+            "VolumeGeneration": (
+                state.get("RestoredVolumeGeneration") or
+                state.get("VolumeGeneration")),
+            "Exists": True,
+            "Attached": False,
+            "MeasurementConfidence": 1,
+            "Conditions": [],
+            "Diagnostics": [],
+        }
+        response = {
+            "ProtocolVersion": request.get("ProtocolVersion"),
+            "MessageType": 1,
+            "Operation": 50,
+            "RequestId": request.get("RequestId"),
+            "CausationId": request.get("RequestId"),
+            "SequenceNumber": int(request.get("SequenceNumber", 0)) + 1,
+            "Timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "HostId": request.get("HostId"),
+            "ProviderGeneration": request.get("ProviderGeneration"),
+            "HostStartGeneration": request.get("HostStartGeneration"),
+        }
+        response["StorageResponse"] = payload
+        return response
+
+    @staticmethod
+    def valid_sha256(value):
+        return (isinstance(value, str) and len(value) == 64 and
+                all(character in "0123456789abcdef" for character in value))
+
+    @staticmethod
+    def save_storage_operation(path, state):
+        encoded = json.dumps(
+            state, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        if len(encoded) > 65536:
+            raise OSError("storage operation state exceeds its byte bound")
+        temporary = path + ".tmp-" + str(uuid.uuid4())
+        descriptor = os.open(
+            temporary,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+            0o600)
+        try:
+            with os.fdopen(descriptor, "wb") as stream:
+                stream.write(encoded)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, path)
+            GuestAgent.fsync_directory(os.path.dirname(path))
+        except BaseException:
+            try:
+                os.unlink(temporary)
+            except OSError:
+                pass
+            raise
+
+    @staticmethod
+    def load_storage_operation(path):
+        if os.path.islink(path):
+            raise OSError("storage operation state must not be a symbolic link")
+        with open(path, "rb") as stream:
+            content = stream.read(65537)
+        if len(content) > 65536:
+            raise OSError("storage operation state exceeds its byte bound")
+        try:
+            state = json.loads(content.decode("utf-8", errors="strict"))
+        except (UnicodeDecodeError, ValueError, TypeError) as error:
+            raise OSError("storage operation state is malformed") from error
+        if (not isinstance(state, dict) or
+                state.get("Schema") != "hpd.guest.storage-operation/v1"):
+            raise OSError("storage operation state schema is invalid")
+        return state
+
+    @staticmethod
+    def require_storage_operation(state, kind, identity):
+        if state.get("Kind") != kind or any(
+                state.get(key) != value for key, value in identity.items()):
+            raise OSError("storage operation identity conflicts")
+
+    def capture_storage_payload(self, root, destination, maximum_bytes):
+        entries = self.canonical_storage_entries(root, maximum_bytes)
+        digest = hashlib.sha256()
+        logical = 0
+        descriptor = os.open(
+            destination,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+            0o600)
+        with os.fdopen(descriptor, "wb") as output:
+            for kind, relative, full_path, length in entries:
+                path_bytes = relative.encode("utf-8")
+                digest.update(struct.pack("<BIQ", kind, len(path_bytes), length))
+                digest.update(path_bytes)
+                output.write(struct.pack("<BI", kind, len(path_bytes)))
+                output.write(path_bytes)
+                output.write(struct.pack("<Q", length))
+                if kind == 2:
+                    before = os.stat(full_path, follow_symlinks=False)
+                    descriptor = os.open(
+                        full_path,
+                        os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+                    opened = os.fstat(descriptor)
+                    if ((opened.st_dev, opened.st_ino, opened.st_size) !=
+                            (before.st_dev, before.st_ino, before.st_size) or
+                            opened.st_nlink != 1 or
+                            not stat.S_ISREG(opened.st_mode)):
+                        os.close(descriptor)
+                        raise OSError(
+                            "backup source identity changed before capture")
+                    with os.fdopen(descriptor, "rb") as source:
+                        remaining = length
+                        while remaining:
+                            chunk = source.read(min(65536, remaining))
+                            if not chunk:
+                                raise OSError("backup source changed during capture")
+                            output.write(chunk)
+                            digest.update(chunk)
+                            logical += len(chunk)
+                            remaining -= len(chunk)
+                        if source.read(1):
+                            raise OSError("backup source grew during capture")
+                    after = os.stat(full_path, follow_symlinks=False)
+                    if ((before.st_dev, before.st_ino, before.st_size,
+                         before.st_mtime_ns) !=
+                            (after.st_dev, after.st_ino, after.st_size,
+                             after.st_mtime_ns)):
+                        raise OSError("backup source changed during capture")
+            output.flush()
+            os.fsync(output.fileno())
+        return {
+            "EncodedPayloadBytes": os.path.getsize(destination),
+            "LogicalBytes": logical,
+            "EntryCount": len(entries),
+            "ContentSha256": digest.hexdigest(),
+        }
+
+    def canonical_storage_entries(self, root, maximum_bytes):
+        entries = []
+        logical = 0
+        for current, directories, files in os.walk(
+                root, topdown=True, followlinks=False):
+            directories.sort()
+            files.sort()
+            for name in directories:
+                full = os.path.join(current, name)
+                if os.path.islink(full):
+                    raise OSError("symbolic links are not valid durable data")
+                relative = os.path.relpath(full, root).replace(os.sep, "/")
+                self.validate_storage_relative_path(relative)
+                entries.append((1, relative, full, 0))
+            for name in files:
+                full = os.path.join(current, name)
+                if os.path.islink(full):
+                    raise OSError("symbolic links are not valid durable data")
+                status = os.stat(full, follow_symlinks=False)
+                if (not stat.S_ISREG(status.st_mode) or
+                        status.st_nlink != 1):
+                    raise OSError("unsupported durable data entry")
+                relative = os.path.relpath(full, root).replace(os.sep, "/")
+                self.validate_storage_relative_path(relative)
+                logical += status.st_size
+                if logical > maximum_bytes:
+                    raise OSError("durable data exceeds its accepted maximum")
+                entries.append((2, relative, full, status.st_size))
+            if len(entries) > 1000000:
+                raise OSError("durable data contains too many entries")
+        entries.sort(key=lambda entry: entry[1].encode("utf-8"))
+        return entries
+
+    @staticmethod
+    def validate_storage_relative_path(relative):
+        encoded = relative.encode("utf-8", errors="strict")
+        parts = relative.split("/")
+        if (not encoded or len(encoded) > 1024 or relative.startswith("/") or
+                any(part in ("", ".", "..") for part in parts) or
+                "\\" in relative or "\x00" in relative):
+            raise OSError("durable data path is invalid")
+
+    def restore_storage_payload(
+            self, payload_path, destination, entry_count, maximum_bytes):
+        digest = hashlib.sha256()
+        logical = 0
+        previous = None
+        with open(payload_path, "rb") as source:
+            for _ in range(entry_count):
+                header = source.read(5)
+                if len(header) != 5:
+                    raise OSError("restore payload ended before an entry header")
+                kind, path_length = struct.unpack("<BI", header)
+                if kind not in (1, 2) or path_length <= 0 or path_length > 1024:
+                    raise OSError("restore entry header is invalid")
+                path_bytes = source.read(path_length)
+                length_bytes = source.read(8)
+                if len(path_bytes) != path_length or len(length_bytes) != 8:
+                    raise OSError("restore entry header is truncated")
+                try:
+                    relative = path_bytes.decode("utf-8", errors="strict")
+                except UnicodeDecodeError as error:
+                    raise OSError("restore path is not strict UTF-8") from error
+                self.validate_storage_relative_path(relative)
+                if previous is not None and previous >= path_bytes:
+                    raise OSError("restore entries are not canonical and unique")
+                previous = path_bytes
+                length = struct.unpack("<Q", length_bytes)[0]
+                if kind == 1 and length != 0:
+                    raise OSError("restore directory length is invalid")
+                digest.update(struct.pack("<BIQ", kind, path_length, length))
+                digest.update(path_bytes)
+                target = os.path.abspath(os.path.join(
+                    destination, *relative.split("/")))
+                if os.path.commonpath((destination, target)) != destination:
+                    raise OSError("restore path escapes staging")
+                if kind == 1:
+                    os.makedirs(target, mode=0o700, exist_ok=False)
+                    continue
+                os.makedirs(os.path.dirname(target), mode=0o700, exist_ok=True)
+                logical += length
+                if logical > maximum_bytes:
+                    raise OSError("restore content exceeds its accepted maximum")
+                descriptor = os.open(
+                    target,
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                    0o600)
+                with os.fdopen(descriptor, "wb") as output:
+                    remaining = length
+                    while remaining:
+                        chunk = source.read(min(65536, remaining))
+                        if not chunk:
+                            raise OSError("restore file content is truncated")
+                        output.write(chunk)
+                        digest.update(chunk)
+                        remaining -= len(chunk)
+                    output.flush()
+                    os.fsync(output.fileno())
+            if source.read(1):
+                raise OSError("restore payload has trailing content")
+        self.fsync_directory(destination)
+        return {
+            "LogicalBytes": logical,
+            "EntryCount": entry_count,
+            "ContentSha256": digest.hexdigest(),
+        }
+
+    def measure_canonical_storage_tree(self, root, maximum_bytes):
+        entries = self.canonical_storage_entries(root, maximum_bytes)
+        digest = hashlib.sha256()
+        logical = 0
+        for kind, relative, full_path, length in entries:
+            path_bytes = relative.encode("utf-8")
+            digest.update(struct.pack("<BIQ", kind, len(path_bytes), length))
+            digest.update(path_bytes)
+            if kind == 2:
+                descriptor = os.open(
+                    full_path,
+                    os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+                opened = os.fstat(descriptor)
+                if (not stat.S_ISREG(opened.st_mode) or
+                        opened.st_nlink != 1 or
+                        opened.st_size != length):
+                    os.close(descriptor)
+                    raise OSError(
+                        "selected restore file identity is invalid")
+                with os.fdopen(descriptor, "rb") as source:
+                    remaining = length
+                    while remaining:
+                        chunk = source.read(min(65536, remaining))
+                        if not chunk:
+                            raise OSError("selected restore content is truncated")
+                        digest.update(chunk)
+                        logical += len(chunk)
+                        remaining -= len(chunk)
+                    if source.read(1):
+                        raise OSError("selected restore content grew")
+        return {
+            "LogicalBytes": logical,
+            "EntryCount": len(entries),
+            "ContentSha256": digest.hexdigest(),
+        }
+
+    @staticmethod
+    def safe_storage_component(value):
+        if not isinstance(value, str) or not value or len(value) > 128:
+            return False
+        return all(
+            character.isalnum() or character in ("-", "_", ".")
+            for character in value
+        ) and value not in (".", "..")
+
+    @staticmethod
+    def safe_storage_identity(value):
+        if not isinstance(value, str) or not value or len(value) > 256:
+            return False
+        return all(
+            0x21 <= ord(character) <= 0x7e
+            for character in value
+        )
+
+    @staticmethod
+    def volume_quota_entry_matches(
+            entry,
+            project_id,
+            maximum_bytes,
+            ownership):
+        if not isinstance(entry, dict):
+            return False
+        expected = {
+            "ProjectId": project_id,
+            "MaximumBytes": maximum_bytes,
+            **ownership,
+        }
+        return (
+            set(entry.keys()) == set(expected.keys()) and
+            all(entry.get(key) == value
+                for key, value in expected.items())
+        )
+
+    @staticmethod
+    def storage_filesystem_identity(root, quota_mode):
+        test_identity = os.environ.get(
+            "HPD_GUEST_APP_DATA_FILESYSTEM_ID",
+        )
+        if quota_mode == "directory-test":
+            if not test_identity:
+                return "guest-app-data:test:" + str(os.stat(root).st_dev)
+            return test_identity
+
+        completed = subprocess.run(
+            [
+                "findmnt",
+                "-n",
+                "-o",
+                "SOURCE,FSTYPE,OPTIONS",
+                "--target",
+                root,
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+        fields = completed.stdout.strip().split()
+        if len(fields) != 3 or fields[1] != "ext4":
+            raise OSError(
+                "App-data root is not one verified ext4 mount")
+        options = set(fields[2].split(","))
+        if "prjquota" not in options and "pquota" not in options:
+            raise OSError(
+                "App-data filesystem does not enforce project quotas")
+        source = fields[0]
+        identity = subprocess.run(
+            ["blkid", "-s", "UUID", "-o", "value", source],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=3,
+        ).stdout.strip().lower()
+        if (not identity or len(identity) > 64 or
+                any(character not in "0123456789abcdef-"
+                    for character in identity)):
+            raise OSError(
+                "App-data filesystem UUID is missing or invalid")
+        return "guest-app-data:" + identity
+
+    @staticmethod
+    def persisted_storage_identity(role):
+        override = os.environ.get(
+            "HPD_GUEST_" +
+            role.upper().replace("-", "_") +
+            "_FILESYSTEM_UUID",
+        )
+        if override:
+            return GuestAgent.valid_filesystem_uuid(override)
+        path = "/etc/hpdos/storage-identities"
+        if not os.path.exists(path):
+            return None
+        if os.path.islink(path):
+            raise OSError(
+                "guest storage identity record must not be a symbolic link")
+        with open(path, "rb") as stream:
+            content = stream.read(4097)
+        if len(content) > 4096:
+            raise OSError(
+                "guest storage identity record exceeds its byte bound")
+        try:
+            text = content.decode("utf-8", errors="strict")
+        except UnicodeDecodeError as error:
+            raise OSError(
+                "guest storage identity record is not strict UTF-8") from error
+        entries = {}
+        for line in text.splitlines():
+            parts = line.split("=", 1)
+            if len(parts) != 2 or parts[0] in entries:
+                raise OSError(
+                    "guest storage identity record is malformed")
+            entries[parts[0]] = GuestAgent.valid_filesystem_uuid(
+                parts[1])
+        return entries.get(role)
+
+    @staticmethod
+    def valid_filesystem_uuid(value):
+        normalized = value.strip().lower()
+        if (not normalized or len(normalized) > 64 or
+                any(character not in "0123456789abcdef-"
+                    for character in normalized)):
+            raise OSError(
+                "guest storage filesystem UUID is invalid")
+        return normalized
+
+    def ensure_volume_quota(
+            self,
+            root,
+            volumes_root,
+            logical_id,
+            path,
+            maximum_bytes,
+            quota_mode,
+            ownership):
+        state = self.load_volume_quota_state(volumes_root)
+        entry = state.get(logical_id)
+        project_id = self.volume_project_id(logical_id)
+        for other_id, other in state.items():
+            if (other_id != logical_id and
+                    self.int_value(other.get("ProjectId"), 0) == project_id):
+                raise OSError(
+                    "durable-volume project identifier collision")
+        if entry is not None:
+            if not self.volume_quota_entry_matches(
+                    entry, project_id, maximum_bytes, ownership):
+                raise OSError(
+                    "durable-volume quota metadata conflicts with the accepted specification")
+        if quota_mode == "ext4-project":
+            self.storage_filesystem_identity(root, quota_mode)
+            self.run_quota_command(
+                ["setproject", "-P", str(project_id), path])
+            self.run_quota_command(
+                ["chattr", "+P", "-p", str(project_id), path])
+            hard_blocks = (maximum_bytes + 1023) // 1024
+            self.run_quota_command(
+                [
+                    "setquota",
+                    "-P",
+                    str(project_id),
+                    str(hard_blocks),
+                    str(hard_blocks),
+                    "0",
+                    "0",
+                    root,
+                ])
+            self.verify_project_identity(path, project_id)
+        state[logical_id] = {
+            "ProjectId": project_id,
+            "MaximumBytes": maximum_bytes,
+            **ownership,
+        }
+        self.save_volume_quota_state(volumes_root, state)
+        return project_id
+
+    def verify_volume_quota(
+            self,
+            root,
+            volumes_root,
+            logical_id,
+            path,
+            maximum_bytes,
+            quota_mode,
+            ownership):
+        if not os.path.isdir(path):
+            return None
+        state = self.load_volume_quota_state(volumes_root)
+        entry = state.get(logical_id)
+        if not isinstance(entry, dict):
+            raise OSError(
+                "durable-volume quota metadata is missing")
+        project_id = self.volume_project_id(logical_id)
+        if not self.volume_quota_entry_matches(
+                entry, project_id, maximum_bytes, ownership):
+            raise OSError(
+                "durable-volume quota metadata does not match the accepted specification")
+        if quota_mode == "ext4-project":
+            self.storage_filesystem_identity(root, quota_mode)
+            self.verify_project_identity(path, project_id)
+        return project_id
+
+    def remove_volume_quota(
+            self,
+            root,
+            volumes_root,
+            logical_id,
+            project_id,
+            quota_mode):
+        state = self.load_volume_quota_state(volumes_root)
+        entry = state.get(logical_id)
+        if not isinstance(entry, dict):
+            raise OSError(
+                "durable-volume quota metadata disappeared during erase")
+        if quota_mode == "ext4-project":
+            self.run_quota_command(
+                [
+                    "setquota",
+                    "-P",
+                    str(project_id),
+                    "0",
+                    "0",
+                    "0",
+                    "0",
+                    root,
+                ])
+        del state[logical_id]
+        self.save_volume_quota_state(volumes_root, state)
+
+    @staticmethod
+    def volume_project_id(logical_id):
+        digest = hashlib.sha256(
+            logical_id.encode("utf-8")).digest()
+        return 10000 + (
+            int.from_bytes(digest[:4], "big") % 2147473647)
+
+    @staticmethod
+    def run_quota_command(command):
+        completed = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            env={
+                "PATH":
+                    "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                "LC_ALL": "C",
+            },
+        )
+        if completed.returncode != 0:
+            message = completed.stderr.strip()
+            raise OSError(
+                command[0] + " failed" +
+                (": " + message[:512] if message else ""))
+
+    @staticmethod
+    def verify_project_identity(path, expected_project_id):
+        descriptor = os.open(
+            path,
+            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
+        )
+        try:
+            payload = bytearray(28)
+            fcntl.ioctl(
+                descriptor,
+                FS_IOC_FSGETXATTR,
+                payload,
+                True,
+            )
+            values = struct.unpack("IIIII8s", payload)
+            flags = values[0]
+            project_id = values[3]
+            if project_id != expected_project_id:
+                raise OSError(
+                    "durable-volume project identifier is incorrect")
+            if flags & FS_XFLAG_PROJINHERIT == 0:
+                raise OSError(
+                    "durable-volume project inheritance is disabled")
+        finally:
+            os.close(descriptor)
+
+    @staticmethod
+    def load_volume_quota_state(volumes_root):
+        path = os.path.join(
+            volumes_root,
+            ".hpd-volume-quotas-v1.json",
+        )
+        if not os.path.exists(path):
+            return {}
+        if os.path.islink(path):
+            raise OSError(
+                "durable-volume quota state must not be a symbolic link")
+        with open(path, "rb") as stream:
+            content = stream.read(65537)
+        if len(content) > 65536:
+            raise OSError(
+                "durable-volume quota state exceeds its byte bound")
+        try:
+            decoded = json.loads(content.decode("utf-8", errors="strict"))
+        except (UnicodeDecodeError, ValueError, TypeError) as error:
+            raise OSError(
+                "durable-volume quota state is malformed") from error
+        if (not isinstance(decoded, dict) or
+                decoded.get("Schema") !=
+                "hpd.guest.volume-quotas/v1" or
+                not isinstance(decoded.get("Volumes"), dict)):
+            raise OSError(
+                "durable-volume quota state schema is invalid")
+        return decoded["Volumes"]
+
+    @staticmethod
+    def save_volume_quota_state(volumes_root, volumes):
+        path = os.path.join(
+            volumes_root,
+            ".hpd-volume-quotas-v1.json",
+        )
+        temporary = path + ".tmp-" + str(uuid.uuid4())
+        payload = {
+            "Schema": "hpd.guest.volume-quotas/v1",
+            "Volumes": volumes,
+        }
+        encoded = json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        if len(encoded) > 65536:
+            raise OSError(
+                "durable-volume quota state exceeds its byte bound")
+        descriptor = os.open(
+            temporary,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+            0o600,
+        )
+        try:
+            with os.fdopen(descriptor, "wb") as stream:
+                stream.write(encoded)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, path)
+            GuestAgent.fsync_directory(volumes_root)
+        except BaseException:
+            try:
+                os.unlink(temporary)
+            except OSError:
+                pass
+            raise
+
+    @staticmethod
+    def measure_storage_tree(root):
+        logical = 0
+        allocated = 0
+        for current, directories, files in os.walk(
+            root,
+            topdown=True,
+            followlinks=False,
+        ):
+            for name in directories:
+                if os.path.islink(os.path.join(current, name)):
+                    raise OSError(
+                        "symbolic links are not valid durable data")
+            for name in files:
+                path = os.path.join(current, name)
+                if os.path.islink(path):
+                    raise OSError("symbolic links are not valid durable data")
+                status = os.stat(path, follow_symlinks=False)
+                logical += status.st_size
+                allocated += status.st_blocks * 512
+        return logical, allocated
+
+    @staticmethod
+    def fsync_directory(path):
+        descriptor = os.open(path, os.O_RDONLY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
 
     def engine_status(self, request):
         status_request = request.get("EngineStatusRequest") or {}

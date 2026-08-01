@@ -23,6 +23,7 @@ public sealed class EnvironmentProviderRegistry :
     private readonly List<JsonTypeInfoRegistration> _jsonTypes = [];
 
     public IReadOnlyList<IRuntimeHostProvider> RuntimeHostProviders => _runtimeHostProviders;
+    public IReadOnlyList<IRuntimeHostWakeReconciliationProvider> RuntimeHostWakeReconciliationProviders => _runtimeHostWakeReconciliationProviders;
     public IReadOnlyList<IRuntimeHostResetProvider> RuntimeHostResetProviders => _runtimeHostResetProviders;
     public IReadOnlyList<IExecutionUnitProvider> ExecutionUnitProviders => _executionUnitProviders;
     public IReadOnlyList<IProcessProvider> ProcessProviders => _processProviders;
@@ -39,11 +40,17 @@ public sealed class EnvironmentProviderRegistry :
     public IReadOnlyList<IAuthorityBindingProvider> AuthorityBindingProviders => _authorityBindingProviders;
     public IReadOnlyList<ICredentialProvider> CredentialProviders => _credentialProviders;
     public IReadOnlyList<IEngineControlPlaneProvider> EngineControlPlaneProviders => _engineControlPlaneProviders;
+    public IReadOnlyList<IStoragePoolProvider> StoragePoolProviders => _storagePoolProviders;
+    public IReadOnlyList<IDurableVolumeProvider> DurableVolumeProviders => _durableVolumeProviders;
+    public IReadOnlyList<IStorageReservationProvider> StorageReservationProviders => _storageReservationProviders;
+    public IReadOnlyList<IVolumeBackupProvider> VolumeBackupProviders => _volumeBackupProviders;
+    public IReadOnlyList<IVolumeRestoreProvider> VolumeRestoreProviders => _volumeRestoreProviders;
     public IReadOnlyList<IProviderCapabilityReporter> ProviderCapabilityReporters => _providerCapabilityReporters;
     public IReadOnlyList<IProviderActivator> ProviderActivators => _providerActivators;
     public IReadOnlyList<JsonTypeInfoRegistration> JsonTypes => _jsonTypes;
 
     private readonly List<IRuntimeHostProvider> _runtimeHostProviders = [];
+    private readonly List<IRuntimeHostWakeReconciliationProvider> _runtimeHostWakeReconciliationProviders = [];
     private readonly List<IRuntimeHostResetProvider> _runtimeHostResetProviders = [];
     private readonly List<IExecutionUnitProvider> _executionUnitProviders = [];
     private readonly List<IProcessProvider> _processProviders = [];
@@ -60,6 +67,11 @@ public sealed class EnvironmentProviderRegistry :
     private readonly List<IAuthorityBindingProvider> _authorityBindingProviders = [];
     private readonly List<ICredentialProvider> _credentialProviders = [];
     private readonly List<IEngineControlPlaneProvider> _engineControlPlaneProviders = [];
+    private readonly List<IStoragePoolProvider> _storagePoolProviders = [];
+    private readonly List<IDurableVolumeProvider> _durableVolumeProviders = [];
+    private readonly List<IStorageReservationProvider> _storageReservationProviders = [];
+    private readonly List<IVolumeBackupProvider> _volumeBackupProviders = [];
+    private readonly List<IVolumeRestoreProvider> _volumeRestoreProviders = [];
     private readonly List<IProviderCapabilityReporter> _providerCapabilityReporters = [];
     private readonly List<IProviderActivator> _providerActivators = [];
 
@@ -112,6 +124,7 @@ public sealed class EnvironmentProviderRegistry :
     public void AddProviderCapabilityReporter(IProviderCapabilityReporter reporter) => _providerCapabilityReporters.Add(reporter);
     public void AddProviderActivator(IProviderActivator activator) => _providerActivators.Add(activator);
     public void AddRuntimeHostProvider(IRuntimeHostProvider provider) => _runtimeHostProviders.Add(provider);
+    public void AddRuntimeHostWakeReconciliationProvider(IRuntimeHostWakeReconciliationProvider provider) => _runtimeHostWakeReconciliationProviders.Add(provider);
     public void AddRuntimeHostResetProvider(IRuntimeHostResetProvider provider) => _runtimeHostResetProviders.Add(provider);
     public void AddExecutionUnitProvider(IExecutionUnitProvider provider) => _executionUnitProviders.Add(provider);
     public void AddProcessProvider(IProcessProvider provider) => _processProviders.Add(provider);
@@ -128,6 +141,11 @@ public sealed class EnvironmentProviderRegistry :
     public void AddAuthorityBindingProvider(IAuthorityBindingProvider provider) => _authorityBindingProviders.Add(provider);
     public void AddCredentialProvider(ICredentialProvider provider) => _credentialProviders.Add(provider);
     public void AddEngineControlPlaneProvider(IEngineControlPlaneProvider provider) => _engineControlPlaneProviders.Add(provider);
+    public void AddStoragePoolProvider(IStoragePoolProvider provider) => _storagePoolProviders.Add(provider);
+    public void AddDurableVolumeProvider(IDurableVolumeProvider provider) => _durableVolumeProviders.Add(provider);
+    public void AddStorageReservationProvider(IStorageReservationProvider provider) => _storageReservationProviders.Add(provider);
+    public void AddVolumeBackupProvider(IVolumeBackupProvider provider) => _volumeBackupProviders.Add(provider);
+    public void AddVolumeRestoreProvider(IVolumeRestoreProvider provider) => _volumeRestoreProviders.Add(provider);
 
     private async ValueTask<ProviderCapabilityReport?> TryGetProviderCapabilityReportAsync(ProviderId providerId, ProviderCapabilityQuery? query, CancellationToken cancellationToken)
     {
@@ -490,7 +508,9 @@ public sealed partial class InMemoryEnvironmentRuntime(
     TimeProvider? timeProvider = null,
     TimeSpan? engineAuthorityPlanLifetime = null,
     TimeSpan? executionUnitObservationTimeout = null,
-    TimeSpan? processObservationTimeout = null) : IEnvironmentRuntime
+    TimeSpan? processObservationTimeout = null,
+    IEnvironmentRuntimeStorageStateStore? storageStateStore = null)
+    : IEnvironmentRuntime
 {
     private readonly IRuntimePlanner _planner = planner ?? new DefaultRuntimePlanner(registry, registry);
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
@@ -506,6 +526,8 @@ public sealed partial class InMemoryEnvironmentRuntime(
         processObservationTimeout is { } processTimeout && processTimeout > TimeSpan.Zero
             ? processTimeout
             : TimeSpan.FromSeconds(5);
+    private readonly IEnvironmentRuntimeStorageStateStore?
+        _storageStateStore = storageStateStore;
     private readonly SemaphoreSlim _reconciliationGate = new(1, 1);
     private readonly Dictionary<string, OwnedExecutionUnit> _units = new(StringComparer.Ordinal);
     private readonly Dictionary<ExecutionUnitIdentity, string> _unitIdsByIdentity = [];
@@ -629,6 +651,121 @@ public sealed partial class InMemoryEnvironmentRuntime(
             var stopped = _host.Snapshot with { Status = status };
             _host = _host with { Snapshot = stopped };
             return stopped;
+        }
+        finally
+        {
+            _reconciliationGate.Release();
+        }
+    }
+
+    public async ValueTask<ResourceSnapshot<RuntimeHost, RuntimeHostSpec, RuntimeHostStatus>> CompleteHostWakeReconciliationAsync(
+        RuntimeHostWakeReconciliationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        await _reconciliationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_host is null)
+            {
+                throw OwnershipFailure(
+                    "hpd.environment.runtime-host.not-owned",
+                    "The runtime does not own a host whose wake can be reconciled.");
+            }
+
+            RuntimeHostPowerStatus power = _host.Snapshot.Status.Power;
+            if (!power.RequiresWakeReconciliation ||
+                power.State != RuntimeHostPowerState.WakeReconciliationRequired)
+            {
+                throw OwnershipFailure(
+                    "hpd.environment.runtime-host.wake-reconciliation-not-required",
+                    $"Runtime host '{_host.Snapshot.Metadata.Id.Value}' has no pending wake reconciliation.");
+            }
+            if (request.ObservedWakeGeneration != power.WakeGeneration)
+            {
+                throw OwnershipFailure(
+                    "hpd.environment.runtime-host.wake-generation-stale",
+                    $"Wake generation '{request.ObservedWakeGeneration}' is stale; the current observed generation is '{power.WakeGeneration}'.");
+            }
+
+            IRuntimeHostWakeReconciliationProvider provider =
+                ProviderById(
+                    registry.RuntimeHostWakeReconciliationProviders,
+                    _host.ProviderId,
+                    "runtime host wake reconciliation");
+            TargetHandle<RuntimeHost> handle = _host.Snapshot.Status.Handle
+                ?? throw OwnershipFailure(
+                    "hpd.environment.runtime-host.handle-missing",
+                    $"Runtime host '{_host.Snapshot.Metadata.Id.Value}' has no accepted provider handle.");
+            RuntimeHostStatus status = await provider
+                .CompleteWakeReconciliationAsync(handle, request, cancellationToken)
+                .ConfigureAwait(false);
+            if (status.Handle is not { } returnedHandle ||
+                !returnedHandle.Equals(handle))
+            {
+                throw OwnershipFailure(
+                    "hpd.environment.runtime-host.wake-identity-mismatch",
+                    $"Provider '{provider.ProviderId.Value}' returned a mismatched host handle while completing wake reconciliation.");
+            }
+            if (status.Power.RequiresWakeReconciliation ||
+                status.Power.WakeGeneration != request.ObservedWakeGeneration)
+            {
+                throw OwnershipFailure(
+                    "hpd.environment.runtime-host.wake-not-acknowledged",
+                    $"Provider '{provider.ProviderId.Value}' did not prove completion of wake generation '{request.ObservedWakeGeneration}'.");
+            }
+
+            var reconciled = _host.Snapshot with { Status = status };
+            _host = _host with { Snapshot = reconciled };
+            return reconciled;
+        }
+        finally
+        {
+            _reconciliationGate.Release();
+        }
+    }
+
+    public async ValueTask<RuntimeHostResetResult> ResetHostAsync(
+        RuntimeHostResetRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        await _reconciliationGate.WaitAsync(cancellationToken)
+            .ConfigureAwait(false);
+        try
+        {
+            if (_host is null)
+                throw OwnershipFailure(
+                    "hpd.environment.runtime-host.not-owned",
+                    "The runtime does not own a host to reset.");
+            if (_host.Snapshot.Status.HostPhase != RuntimeHostPhase.Stopped)
+                throw OwnershipFailure(
+                    "hpd.environment.runtime-host.reset-requires-stopped",
+                    $"Runtime host '{_host.Snapshot.Metadata.Id.Value}' must be stopped before reset.");
+            if (HasCurrentHostDependents())
+                throw OwnershipFailure(
+                    "hpd.environment.runtime-host.dependents-active",
+                    $"Runtime host '{_host.Snapshot.Metadata.Id.Value}' cannot reset while dependent resources remain owned.");
+            IRuntimeHostResetProvider provider = ProviderById(
+                registry.RuntimeHostResetProviders,
+                _host.ProviderId,
+                "runtime host reset");
+            TargetHandle<RuntimeHost> handle = _host.Snapshot.Status.Handle ??
+                throw OwnershipFailure(
+                    "hpd.environment.runtime-host.handle-missing",
+                    $"Runtime host '{_host.Snapshot.Metadata.Id.Value}' has no accepted provider handle.");
+            RuntimeHostResetResult result = await provider.ResetAsync(
+                    handle,
+                    request,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (!result.Host.Equals(new ResourceRef<RuntimeHost>(
+                    _host.Snapshot.Metadata.Id,
+                    _host.Snapshot.Metadata.Scope,
+                    _host.Snapshot.Metadata.Generation)))
+                throw OwnershipFailure(
+                    "hpd.environment.runtime-host.reset-identity-mismatch",
+                    $"Provider '{provider.ProviderId.Value}' returned a mismatched host identity during reset.");
+            return result;
         }
         finally
         {
@@ -2884,7 +3021,7 @@ public sealed partial class InMemoryEnvironmentRuntime(
             throw OwnershipFailure(
                 "hpd.environment.workload-storage.logical-id-invalid",
                 "A workload storage logical ID must contain 1-128 ASCII letters, digits, dots, underscores, or hyphens.");
-        if (!Enum.IsDefined(storage.PersistenceClass))
+        if (!Enum.IsDefined(storage.StorageClass))
             throw OwnershipFailure(
                 "hpd.environment.workload-storage.persistence-invalid",
                 "A workload storage persistence class must be recognized.");
@@ -2966,7 +3103,8 @@ public sealed partial class InMemoryEnvironmentRuntime(
             candidate is IServiceDiscoveryProvider discovery && discovery.ProviderId.Equals(providerId) ||
             candidate is IEndpointPublicationProvider endpoint && endpoint.ProviderId.Equals(providerId) ||
             candidate is IAuthorityBindingProvider authority && authority.ProviderId.Equals(providerId) ||
-            candidate is IEngineControlPlaneProvider engine && engine.ProviderId.Equals(providerId));
+            candidate is IEngineControlPlaneProvider engine && engine.ProviderId.Equals(providerId) ||
+            candidate is IStorageProvider storage && storage.ProviderId.Equals(providerId));
         return provider ?? throw OwnershipFailure(
             "hpd.environment.provider-owner-unavailable",
             $"The provider '{providerId.Value}' that owns the {family} resource is not registered.");
@@ -3280,6 +3418,11 @@ public sealed class RuntimeCleanupException(string step, Exception innerExceptio
 [JsonSerializable(typeof(NetworkSpec))]
 [JsonSerializable(typeof(NetworkMembershipSpec))]
 [JsonSerializable(typeof(ServiceDiscoverySpec))]
+[JsonSerializable(typeof(StoragePoolSpec))]
+[JsonSerializable(typeof(DurableVolumeSpec))]
+[JsonSerializable(typeof(StorageReservationSpec))]
+[JsonSerializable(typeof(VolumeBackupSpec))]
+[JsonSerializable(typeof(VolumeRestoreSpec))]
 internal sealed partial class RuntimeSpecJsonContext : JsonSerializerContext;
 
 public interface IRuntimeFinalizationParticipant
@@ -3325,7 +3468,12 @@ public sealed class InMemoryEnvironmentProviderModule : IProviderModule
             ProviderContractKind.FunctionInvocation |
             ProviderContractKind.HostFunctionBinding |
             ProviderContractKind.FunctionSnapshot |
-            ProviderContractKind.EngineControlPlane,
+            ProviderContractKind.EngineControlPlane |
+            ProviderContractKind.StoragePool |
+            ProviderContractKind.DurableVolume |
+            ProviderContractKind.StorageReservation |
+            ProviderContractKind.VolumeBackup |
+            ProviderContractKind.VolumeRestore,
         TrustLevel = ProviderTrustLevel.BuiltIn,
         DefaultActivationScope = ProviderActivationScope.Runtime,
         ActivationModels =
@@ -3352,6 +3500,11 @@ public sealed class InMemoryEnvironmentProviderModule : IProviderModule
         builder.AddEndpointPublicationProvider(_provider);
         builder.AddAuthorityBindingProvider(_provider);
         builder.AddEngineControlPlaneProvider(_provider);
+        builder.AddStoragePoolProvider(_provider);
+        builder.AddDurableVolumeProvider(_provider);
+        builder.AddStorageReservationProvider(_provider);
+        builder.AddVolumeBackupProvider(_provider);
+        builder.AddVolumeRestoreProvider(_provider);
     }
 
     public void RegisterJsonTypes(IProviderJsonTypeRegistry registry)
@@ -3375,11 +3528,17 @@ public sealed class InMemoryEnvironmentProvider :
     IServiceDiscoveryProvider,
     IEndpointPublicationProvider,
     IAuthorityBindingProvider,
-    IEngineControlPlaneProvider
+    IEngineControlPlaneProvider,
+    IStoragePoolProvider,
+    IDurableVolumeProvider,
+    IStorageReservationProvider,
+    IVolumeBackupProvider,
+    IVolumeRestoreProvider
 {
     public static ProviderId InMemoryProviderId { get; } = new("hpd.execution.in-memory");
 
     private readonly ConcurrentDictionary<string, object> _resources = new(StringComparer.Ordinal);
+    private readonly object _storageGate = new();
     private long _sequence;
 
     public ProviderId ProviderId => InMemoryProviderId;
@@ -3419,7 +3578,11 @@ public sealed class InMemoryEnvironmentProvider :
     public ValueTask<RuntimeHostResetResult> ResetAsync(TargetHandle<RuntimeHost> host, RuntimeHostResetRequest request, CancellationToken cancellationToken = default) =>
         ValueTask.FromResult(new RuntimeHostResetResult(
             request.Scope,
-            new ResourceRef<RuntimeHost>(new ResourceId<RuntimeHost>($"runtime-host-reset-{NextSequence()}"), new ResourceScope("in-memory-runtime")),
+            new ResourceRef<RuntimeHost>(
+                new ResourceId<RuntimeHost>(
+                    host.Route.Segments.Single().Value),
+                host.Route.Scope,
+                new ResourceGeneration(1)),
             DateTimeOffset.UtcNow));
 
     public ValueTask<ExecutionUnitStatus> EnsureAsync(ResourceMetadata<ExecutionUnit> metadata, ExecutionUnitSpec spec, ExecutionUnitStatus? observed, CancellationToken cancellationToken = default)
@@ -3443,7 +3606,7 @@ public sealed class InMemoryEnvironmentProvider :
                     ProviderHandle = namespaceHandle,
                     EffectiveRuntimePath =
                         $"/hpd/in-memory/{metadata.Id.Value}",
-                    PersistenceClass = storage.PersistenceClass,
+                    StorageClass = storage.StorageClass,
                     Generation = metadata.Generation,
                 }
                 : null,
@@ -3984,6 +4147,573 @@ public sealed class InMemoryEnvironmentProvider :
         ValueTask.FromResult(new EngineControlPlaneStatus { Phase = ResourcePhase.Ready, EnginePhase = EngineControlPlanePhase.Stopped, ProviderHandle = engine.Route.ProviderHandle });
 
     public ValueTask DeleteAsync(ResourceRef<EngineControlPlane> engine, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+
+    public ValueTask<StoragePoolStatus> EnsureAsync(
+        ResourceMetadata<StoragePool> metadata,
+        StoragePoolSpec spec,
+        StoragePoolStatus? observed,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ValidatePool(spec);
+        lock (_storageGate)
+        {
+            long capacity = spec.QuotaBytes?.Value ?? 100L * 1024 * 1024 * 1024;
+            long reserved = _resources.Values
+                .OfType<StorageReservationStatus>()
+                .Where(item => item.ReservationPhase == StorageReservationPhase.Reserved)
+                .Sum(item => item.GrantedBytes.Value);
+            var status = new StoragePoolStatus
+            {
+                Phase = ResourcePhase.Ready,
+                ObservedGeneration = metadata.Generation,
+                PoolPhase = PoolPhase(capacity, reserved, spec),
+                LogicalCapacityBytes = new ByteSize(capacity),
+                PhysicalAllocatedBytes = new ByteSize(0),
+                AvailableBytes = new ByteSize(Math.Max(0, capacity - reserved)),
+                ReservedBytes = new ByteSize(reserved),
+                MeasurementConfidence = StorageMeasurementConfidence.Exact,
+                MeasuredAt = DateTimeOffset.UtcNow,
+                ProviderHandle = Opaque("storage-pool", metadata.Id.Value),
+            };
+            _resources[Key<StoragePoolStatus>(metadata.Id.Value)] = status;
+            _resources[Key<StoragePoolSpec>(metadata.Id.Value)] = spec;
+            return ValueTask.FromResult(status);
+        }
+    }
+
+    public ValueTask<StoragePoolStatus> GetStatusAsync(
+        ResourceRef<StoragePool> pool,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return ValueTask.FromResult(Required<StoragePoolStatus>(pool.Id.Value));
+    }
+
+    public ValueTask<StoragePoolStatus> RecoverAsync(
+        ResourceMetadata<StoragePool> metadata,
+        StoragePoolSpec spec,
+        StoragePoolStatus persisted,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ArgumentNullException.ThrowIfNull(persisted);
+        ValidatePool(spec);
+        lock (_storageGate)
+        {
+            _resources[Key<StoragePoolStatus>(metadata.Id.Value)] =
+                persisted;
+            _resources[Key<StoragePoolSpec>(metadata.Id.Value)] =
+                spec;
+        }
+        return ValueTask.FromResult(persisted);
+    }
+
+    public ValueTask DeleteAsync(
+        ResourceRef<StoragePool> pool,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        lock (_storageGate)
+        {
+            if (_resources.Values.OfType<DurableVolumeStatus>()
+                .Any(item => item.VolumePhase is not DurableVolumePhase.Erased))
+                throw new InvalidOperationException("A storage pool with retained durable volumes cannot be deleted.");
+            _resources.TryRemove(Key<StoragePoolStatus>(pool.Id.Value), out _);
+            _resources.TryRemove(Key<StoragePoolSpec>(pool.Id.Value), out _);
+        }
+        return ValueTask.CompletedTask;
+    }
+
+    public ValueTask<DurableVolumeStatus> EnsureAsync(
+        ResourceMetadata<DurableVolume> metadata,
+        DurableVolumeSpec spec,
+        DurableVolumeStatus? observed,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ValidateVolume(spec);
+        _ = Required<StoragePoolStatus>(spec.Pool.Id.Value);
+        var status = new DurableVolumeStatus
+        {
+            Phase = ResourcePhase.Ready,
+            ObservedGeneration = metadata.Generation,
+            VolumePhase = DurableVolumePhase.Ready,
+            VolumeGeneration = metadata.Generation,
+            ProviderRealizationGeneration = (ulong)Math.Max(1, metadata.Generation.Value),
+            LogicalCapacityBytes = spec.MinimumBytes,
+            PhysicalAllocatedBytes = new ByteSize(0),
+            UsedBytes = new ByteSize(0),
+            Integrity = VolumeIntegrityState.Clean,
+            ProviderHandle = Opaque("durable-volume", metadata.Id.Value),
+        };
+        _resources[Key<DurableVolumeStatus>(metadata.Id.Value)] = status;
+        return ValueTask.FromResult(status);
+    }
+
+    public ValueTask<DurableVolumeStatus> GetStatusAsync(
+        ResourceRef<DurableVolume> volume,
+        CancellationToken cancellationToken = default) =>
+        ValueTask.FromResult(Required<DurableVolumeStatus>(volume.Id.Value));
+
+    public ValueTask<DurableVolumeStatus> RecoverAsync(
+        ResourceMetadata<DurableVolume> metadata,
+        DurableVolumeSpec spec,
+        DurableVolumeStatus persisted,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ArgumentNullException.ThrowIfNull(persisted);
+        ValidateVolume(spec);
+        _ = Required<StoragePoolStatus>(spec.Pool.Id.Value);
+        _resources[Key<DurableVolumeStatus>(metadata.Id.Value)] =
+            persisted;
+        return ValueTask.FromResult(persisted);
+    }
+
+    public ValueTask<DurableVolumeStatus> DetachAsync(
+        ResourceRef<DurableVolume> volume,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        DurableVolumeStatus current = Required<DurableVolumeStatus>(volume.Id.Value);
+        DurableVolumeStatus detached = current with
+        {
+            VolumePhase = DurableVolumePhase.DetachedRetained,
+            LastCleanUnmountAt = DateTimeOffset.UtcNow,
+        };
+        _resources[Key<DurableVolumeStatus>(volume.Id.Value)] = detached;
+        return ValueTask.FromResult(detached);
+    }
+
+    public ValueTask EraseAsync(
+        ResourceRef<DurableVolume> volume,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        DurableVolumeStatus current = Required<DurableVolumeStatus>(volume.Id.Value);
+        _resources[Key<DurableVolumeStatus>(volume.Id.Value)] = current with
+        {
+            Phase = ResourcePhase.Deleted,
+            VolumePhase = DurableVolumePhase.Erased,
+            UsedBytes = new ByteSize(0),
+            PhysicalAllocatedBytes = new ByteSize(0),
+            ProviderHandle = null,
+        };
+        return ValueTask.CompletedTask;
+    }
+
+    public ValueTask<StorageReservationStatus> ReserveAsync(
+        ResourceMetadata<StorageReservation> metadata,
+        StorageReservationSpec spec,
+        StorageReservationStatus? observed,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ValidateReservation(spec);
+        lock (_storageGate)
+        {
+            StoragePoolStatus pool = Required<StoragePoolStatus>(spec.Pool.Id.Value);
+            long available = pool.AvailableBytes?.Value ?? 0;
+            long grant = checked((long)Math.Ceiling(spec.RequestedBytes.Value * spec.SafetyMultiplier));
+            if (grant > available)
+                throw new InvalidOperationException("The storage reservation exceeds authoritative available capacity.");
+            var status = new StorageReservationStatus
+            {
+                Phase = ResourcePhase.Ready,
+                ObservedGeneration = metadata.Generation,
+                ReservationPhase = StorageReservationPhase.Reserved,
+                GrantedBytes = new ByteSize(grant),
+                ReservedAt = DateTimeOffset.UtcNow,
+                ProviderHandle = Opaque("storage-reservation", metadata.Id.Value),
+            };
+            _resources[Key<StorageReservationStatus>(metadata.Id.Value)] = status;
+            _resources[Key<StorageReservationSpec>(metadata.Id.Value)] = spec;
+            _resources[Key<StoragePoolStatus>(spec.Pool.Id.Value)] = pool with
+            {
+                AvailableBytes = new ByteSize(available - grant),
+                ReservedBytes = new ByteSize(pool.ReservedBytes.Value + grant),
+            };
+            return ValueTask.FromResult(status);
+        }
+    }
+
+    public ValueTask<StorageReservationStatus> GetStatusAsync(
+        ResourceRef<StorageReservation> reservation,
+        CancellationToken cancellationToken = default) =>
+        ValueTask.FromResult(Required<StorageReservationStatus>(reservation.Id.Value));
+
+    public ValueTask<StorageReservationStatus> RecoverAsync(
+        ResourceMetadata<StorageReservation> metadata,
+        StorageReservationSpec spec,
+        StorageReservationStatus persisted,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ValidatePersistedReservation(spec);
+        lock (_storageGate)
+        {
+            StoragePoolStatus pool =
+                Required<StoragePoolStatus>(spec.Pool.Id.Value);
+            long grant = persisted.GrantedBytes.Value;
+            long available = pool.AvailableBytes?.Value ?? 0;
+            bool expired = spec.ExpiresAt <= DateTimeOffset.UtcNow;
+            StorageReservationStatus recovered = persisted with
+            {
+                Phase = expired
+                    ? ResourcePhase.Degraded
+                    : ResourcePhase.Ready,
+                ReservationPhase = expired
+                    ? StorageReservationPhase.Ambiguous
+                    : StorageReservationPhase.Reserved,
+                Diagnostics = expired
+                    ?
+                    [
+                        new Diagnostic
+                        {
+                            Code = new DiagnosticCode(
+                                "Environment.Storage.ReservationExpiredAmbiguous"),
+                            Severity = DiagnosticSeverity.Error,
+                            Message =
+                                "The reservation expired across runtime reconstruction; its bytes remain fenced until operation activity is disproven.",
+                        },
+                    ]
+                    : persisted.Diagnostics,
+            };
+            _resources[Key<StorageReservationStatus>(
+                metadata.Id.Value)] = recovered;
+            _resources[Key<StorageReservationSpec>(
+                metadata.Id.Value)] = spec;
+            _resources[Key<StoragePoolStatus>(
+                spec.Pool.Id.Value)] = pool with
+            {
+                AvailableBytes =
+                    new ByteSize(Math.Max(0, available - grant)),
+                ReservedBytes =
+                    new ByteSize(
+                        checked(pool.ReservedBytes.Value + grant)),
+            };
+            return ValueTask.FromResult(recovered);
+        }
+    }
+
+    public ValueTask ReleaseAsync(
+        ResourceRef<StorageReservation> reservation,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        lock (_storageGate)
+        {
+            StorageReservationStatus current = Required<StorageReservationStatus>(reservation.Id.Value);
+            StorageReservationSpec spec = Required<StorageReservationSpec>(reservation.Id.Value);
+            if (current.ReservationPhase == StorageReservationPhase.Reserved)
+            {
+                StoragePoolStatus pool = Required<StoragePoolStatus>(spec.Pool.Id.Value);
+                _resources[Key<StoragePoolStatus>(spec.Pool.Id.Value)] = pool with
+                {
+                    AvailableBytes = new ByteSize((pool.AvailableBytes?.Value ?? 0) + current.GrantedBytes.Value),
+                    ReservedBytes = new ByteSize(Math.Max(0, pool.ReservedBytes.Value - current.GrantedBytes.Value)),
+                };
+            }
+            _resources[Key<StorageReservationStatus>(reservation.Id.Value)] = current with
+            {
+                ReservationPhase = StorageReservationPhase.Released,
+                ReleasedAt = DateTimeOffset.UtcNow,
+                ProviderHandle = null,
+            };
+        }
+        return ValueTask.CompletedTask;
+    }
+
+    public ValueTask<VolumeBackupStatus> CaptureAsync(
+        ResourceMetadata<VolumeBackup> metadata,
+        VolumeBackupSpec spec,
+        VolumeBackupStatus? observed,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        DurableVolumeStatus volume = Required<DurableVolumeStatus>(spec.Volume.Id.Value);
+        StorageReservationStatus reservation = Required<StorageReservationStatus>(spec.Reservation.Id.Value);
+        if (reservation.ReservationPhase != StorageReservationPhase.Reserved)
+            throw new InvalidOperationException("Backup capture requires an active storage reservation.");
+        long storedBytes = Math.Max(1, volume.UsedBytes?.Value ?? 0);
+        byte[] evidence = InMemoryBackupEvidence(metadata.Id.Value);
+        string digest = InMemoryBackupDigest(evidence, storedBytes);
+        var status = new VolumeBackupStatus
+        {
+            Phase = ResourcePhase.Ready,
+            ObservedGeneration = metadata.Generation,
+            BackupPhase = VolumeBackupPhase.Ready,
+            ContentDigest = new Digest("sha256", digest),
+            LogicalBytes = volume.UsedBytes,
+            StoredBytes = new ByteSize(storedBytes),
+            CapturedAt = DateTimeOffset.UtcNow,
+            ProviderHandle = Opaque("volume-backup", metadata.Id.Value),
+        };
+        _resources[Key<VolumeBackupStatus>(metadata.Id.Value)] = status;
+        return ValueTask.FromResult(status);
+    }
+
+    public ValueTask<VolumeBackupStatus> GetStatusAsync(
+        ResourceRef<VolumeBackup> backup,
+        CancellationToken cancellationToken = default) =>
+        ValueTask.FromResult(Required<VolumeBackupStatus>(backup.Id.Value));
+
+    public ValueTask<VolumeBackupStatus> RecoverAsync(
+        ResourceMetadata<VolumeBackup> metadata,
+        VolumeBackupSpec spec,
+        VolumeBackupStatus persisted,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        _ = Required<DurableVolumeStatus>(spec.Volume.Id.Value);
+        _ = Required<StorageReservationStatus>(
+            spec.Reservation.Id.Value);
+        _resources[Key<VolumeBackupStatus>(
+            metadata.Id.Value)] = persisted;
+        return ValueTask.FromResult(persisted);
+    }
+
+    public async ValueTask ExportAsync(
+        ResourceRef<VolumeBackup> backup,
+        Stream destination,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(destination);
+        if (!destination.CanWrite)
+            throw new ArgumentException(
+                "Backup destination must be writable.",
+                nameof(destination));
+        VolumeBackupStatus status = Required<VolumeBackupStatus>(backup.Id.Value);
+        if (status.BackupPhase != VolumeBackupPhase.Ready)
+            throw new InvalidOperationException("Backup is not ready for export.");
+        byte[] evidence = InMemoryBackupEvidence(backup.Id.Value);
+        long remaining = status.StoredBytes?.Value ??
+            throw new InvalidOperationException(
+                "Backup stored-byte evidence is missing.");
+        while (remaining > 0)
+        {
+            int count = (int)Math.Min(evidence.Length, remaining);
+            await destination.WriteAsync(
+                    evidence.AsMemory(0, count),
+                    cancellationToken)
+                .ConfigureAwait(false);
+            remaining -= count;
+        }
+    }
+
+    public async ValueTask<VolumeBackupStatus> ImportAsync(
+        ResourceMetadata<VolumeBackup> metadata,
+        VolumeBackupSpec spec,
+        VolumeBackupStatus expectedStatus,
+        Stream source,
+        CancellationToken cancellationToken = default)
+    {
+        _ = Required<StorageReservationStatus>(spec.Reservation.Id.Value);
+        long remaining = expectedStatus.StoredBytes?.Value ??
+            throw new InvalidOperationException(
+                "Imported backup evidence is missing its stored-byte count.");
+        byte[] buffer = new byte[4096];
+        using var digest =
+            System.Security.Cryptography.IncrementalHash.CreateHash(
+                System.Security.Cryptography.HashAlgorithmName.SHA256);
+        while (remaining > 0)
+        {
+            int read = await source.ReadAsync(
+                    buffer.AsMemory(0, (int)Math.Min(buffer.Length, remaining)),
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (read == 0)
+                throw new InvalidOperationException(
+                    "Imported backup ended before its declared length.");
+            digest.AppendData(buffer, 0, read);
+            remaining -= read;
+        }
+        string observedDigest = Convert.ToHexString(
+            digest.GetHashAndReset()).ToLowerInvariant();
+        if (!string.Equals(
+                observedDigest,
+                expectedStatus.ContentDigest?.Value,
+                StringComparison.Ordinal))
+            throw new InvalidOperationException(
+                "Imported backup content digest does not match its evidence.");
+        var status = expectedStatus with
+        {
+            Phase = ResourcePhase.Ready,
+            BackupPhase = VolumeBackupPhase.Ready,
+            ReconciliationOutcome = ResourceReconciliationOutcome.Accepted,
+            ObservedGeneration = metadata.Generation,
+            ProviderHandle = Opaque("volume-backup", metadata.Id.Value),
+        };
+        _resources[Key<VolumeBackupStatus>(metadata.Id.Value)] = status;
+        return status;
+    }
+
+    private static byte[] InMemoryBackupEvidence(string backupId) =>
+        System.Text.Encoding.UTF8.GetBytes(
+            $"hpd-in-memory-backup:{backupId}");
+
+    private static string InMemoryBackupDigest(
+        byte[] evidence,
+        long storedBytes)
+    {
+        using var digest =
+            System.Security.Cryptography.IncrementalHash.CreateHash(
+                System.Security.Cryptography.HashAlgorithmName.SHA256);
+        long remaining = storedBytes;
+        while (remaining > 0)
+        {
+            int count = checked((int)Math.Min(evidence.Length, remaining));
+            digest.AppendData(evidence, 0, count);
+            remaining -= count;
+        }
+        return Convert.ToHexString(
+            digest.GetHashAndReset()).ToLowerInvariant();
+    }
+
+    public ValueTask DeleteAsync(
+        ResourceRef<VolumeBackup> backup,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        _resources.TryRemove(Key<VolumeBackupStatus>(backup.Id.Value), out _);
+        return ValueTask.CompletedTask;
+    }
+
+    public ValueTask<VolumeRestoreStatus> RestoreAsync(
+        ResourceMetadata<VolumeRestore> metadata,
+        VolumeRestoreSpec spec,
+        VolumeRestoreStatus? observed,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        VolumeBackupStatus backup = Required<VolumeBackupStatus>(spec.Backup.Id.Value);
+        DurableVolumeStatus target = Required<DurableVolumeStatus>(spec.TargetVolume.Id.Value);
+        StorageReservationStatus reservation = Required<StorageReservationStatus>(spec.Reservation.Id.Value);
+        if (backup.BackupPhase != VolumeBackupPhase.Ready ||
+            reservation.ReservationPhase != StorageReservationPhase.Reserved)
+            throw new InvalidOperationException("Restore requires a verified backup and active reservation.");
+        ResourceGeneration next = new(Math.Max(1, target.VolumeGeneration.Value + 1));
+        _resources[Key<DurableVolumeStatus>(spec.TargetVolume.Id.Value)] = target with
+        {
+            Phase = ResourcePhase.Ready,
+            VolumePhase = DurableVolumePhase.Ready,
+            VolumeGeneration = next,
+            Integrity = VolumeIntegrityState.Verified,
+        };
+        var status = new VolumeRestoreStatus
+        {
+            Phase = ResourcePhase.Ready,
+            ObservedGeneration = metadata.Generation,
+            RestorePhase = VolumeRestorePhase.Ready,
+            PreviousVolumeGeneration =
+                target.VolumeGeneration,
+            RestoredVolumeGeneration = next,
+            VerifiedDigest = backup.ContentDigest,
+            RestoredAt = DateTimeOffset.UtcNow,
+            ProviderHandle = Opaque("volume-restore", metadata.Id.Value),
+        };
+        _resources[Key<VolumeRestoreStatus>(metadata.Id.Value)] = status;
+        return ValueTask.FromResult(status);
+    }
+
+    public ValueTask<VolumeRestoreStatus> GetStatusAsync(
+        ResourceRef<VolumeRestore> restore,
+        CancellationToken cancellationToken = default) =>
+        ValueTask.FromResult(Required<VolumeRestoreStatus>(restore.Id.Value));
+
+    public ValueTask<VolumeRestoreStatus> RecoverAsync(
+        ResourceMetadata<VolumeRestore> metadata,
+        VolumeRestoreSpec spec,
+        VolumeRestoreStatus persisted,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        _ = Required<VolumeBackupStatus>(spec.Backup.Id.Value);
+        DurableVolumeStatus target =
+            Required<DurableVolumeStatus>(
+                spec.TargetVolume.Id.Value);
+        _ = Required<StorageReservationStatus>(
+            spec.Reservation.Id.Value);
+        if (persisted.RestoredVolumeGeneration is { } generation)
+            _resources[Key<DurableVolumeStatus>(
+                spec.TargetVolume.Id.Value)] = target with
+            {
+                VolumeGeneration = generation,
+                Integrity = VolumeIntegrityState.Verified,
+            };
+        _resources[Key<VolumeRestoreStatus>(
+            metadata.Id.Value)] = persisted;
+        return ValueTask.FromResult(persisted);
+    }
+
+    public ValueTask FinalizeAsync(
+        ResourceRef<VolumeRestore> restore,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        _ = Required<VolumeRestoreStatus>(restore.Id.Value);
+        return ValueTask.CompletedTask;
+    }
+
+    private static void ValidatePool(StoragePoolSpec spec)
+    {
+        if (spec.MinimumFreeBytes.Value < 0 ||
+            spec.WarningFreeBytes.Value < spec.MinimumFreeBytes.Value ||
+            spec.EmergencyFreeBytes.Value < 0 ||
+            spec.EmergencyFreeBytes.Value > spec.MinimumFreeBytes.Value ||
+            spec.QuotaBytes is { Value: <= 0 })
+            throw new ArgumentException("Storage pool watermarks or quota are invalid.", nameof(spec));
+    }
+
+    private static void ValidateVolume(DurableVolumeSpec spec)
+    {
+        if (string.IsNullOrWhiteSpace(spec.LogicalId) ||
+            string.IsNullOrWhiteSpace(spec.OwnerScopeId) ||
+            string.IsNullOrWhiteSpace(spec.OwnerResourceId) ||
+            string.IsNullOrWhiteSpace(spec.DeclarationId) ||
+            string.IsNullOrWhiteSpace(spec.CompatibilityDomain) ||
+            spec.MinimumBytes.Value <= 0 ||
+            spec.MaximumBytes.Value < spec.MinimumBytes.Value)
+            throw new ArgumentException("Durable volume identity or capacity is invalid.", nameof(spec));
+    }
+
+    private static void ValidateReservation(StorageReservationSpec spec)
+    {
+        ValidatePersistedReservation(spec);
+        if (spec.ExpiresAt <= DateTimeOffset.UtcNow)
+            throw new ArgumentException("Storage reservation is invalid or expired.", nameof(spec));
+    }
+
+    private static void ValidatePersistedReservation(StorageReservationSpec spec)
+    {
+        if (string.IsNullOrWhiteSpace(spec.OperationId) ||
+            string.IsNullOrWhiteSpace(spec.Owner) ||
+            spec.RequestedBytes.Value <= 0 ||
+            !double.IsFinite(spec.SafetyMultiplier) ||
+            spec.SafetyMultiplier < 1 ||
+            spec.ExpiresAt == default)
+            throw new ArgumentException("Storage reservation identity or capacity is invalid.", nameof(spec));
+    }
+
+    private static StoragePoolPhase PoolPhase(long capacity, long reserved, StoragePoolSpec spec)
+    {
+        long available = Math.Max(0, capacity - reserved);
+        if (available <= spec.EmergencyFreeBytes.Value) return StoragePoolPhase.Emergency;
+        if (available <= spec.MinimumFreeBytes.Value) return StoragePoolPhase.AdmissionStopped;
+        if (available <= spec.WarningFreeBytes.Value) return StoragePoolPhase.Warning;
+        return StoragePoolPhase.Ready;
+    }
+
+    private T Required<T>(string id) where T : class =>
+        _resources.TryGetValue(Key<T>(id), out object? value) && value is T typed
+            ? typed
+            : throw new KeyNotFoundException($"{typeof(T).Name} '{id}' was not found.");
+
+    private static string Key<T>(string id) => $"{typeof(T).FullName}:{id}";
+
+    private ProviderOpaqueHandle Opaque(string kind, string id) =>
+        new(ProviderId, $"{kind}:{id}", Generation: (ulong)Math.Max(1, NextSequence()));
 
     private long NextSequence() => Interlocked.Increment(ref _sequence);
 

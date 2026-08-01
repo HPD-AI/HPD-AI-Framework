@@ -428,6 +428,7 @@ public sealed class ExecutionContractShapeTests
         module.Register(builder);
 
         Assert.Contains(nameof(IProviderRegistrationBuilder.AddRuntimeHostProvider), builder.Calls);
+        Assert.Contains(nameof(IProviderRegistrationBuilder.AddRuntimeHostWakeReconciliationProvider), builder.Calls);
         Assert.Contains(nameof(IProviderRegistrationBuilder.AddRuntimeHostResetProvider), builder.Calls);
         Assert.Contains(nameof(IProviderRegistrationBuilder.AddExecutionUnitProvider), builder.Calls);
         Assert.Contains(nameof(IProviderRegistrationBuilder.AddProcessProvider), builder.Calls);
@@ -454,6 +455,61 @@ public sealed class ExecutionContractShapeTests
         Assert.NotNull(options.TypeInfoResolver.GetTypeInfo(typeof(AuthorityBindingSpec), options));
         Assert.NotNull(options.TypeInfoResolver.GetTypeInfo(typeof(ResourceSnapshotEnvelope), options));
         Assert.NotNull(options.TypeInfoResolver.GetTypeInfo(typeof(ExecutionResourceQuery), options));
+    }
+
+    [Fact]
+    public void Durable_storage_contracts_separate_capacity_physical_devices_and_app_data()
+    {
+        var volume = new DurableVolumeSpec
+        {
+            LogicalId = "app-installation/workload/postgres-data",
+            OwnerScopeId = "app-installation",
+            OwnerResourceId = "backend",
+            DeclarationId = "postgres-data",
+            Pool = Ref<StoragePool>("app-data", "storage-pool"),
+            MinimumBytes = new ByteSize(1_073_741_824),
+            MaximumBytes = new ByteSize(21_474_836_480),
+            Retention = DurableVolumeRetention.RetainOnRemove,
+            BackupEligible = true,
+            Filesystem = GuestFilesystemProvisioning.Ext4,
+            Encryption = StorageEncryptionRequirement.Required,
+            CompatibilityDomain = "penpot-postgres-v1",
+        };
+
+        Assert.Equal("app-data", volume.Pool.Id.Value);
+        Assert.True(volume.BackupEligible);
+        Assert.Equal(DurableVolumeRetention.RetainOnRemove, volume.Retention);
+        Assert.NotEqual(typeof(BlockVolume), typeof(DurableVolume));
+        Assert.NotEqual(
+            ProviderContractKind.BlockVolume,
+            ProviderContractKind.DurableVolume);
+    }
+
+    [Fact]
+    public void Durable_storage_specs_round_trip_through_source_generated_metadata()
+    {
+        var spec = new StorageReservationSpec
+        {
+            Pool = Ref<StoragePool>("app-data", "storage-pool"),
+            OperationId = "restore-1",
+            Owner = "io.penpot.penpot",
+            RequestedBytes = new ByteSize(4096),
+            EstimatedBytes = new ByteSize(2048),
+            SafetyMultiplier = 2,
+            ExpiresAt = DateTimeOffset.UnixEpoch.AddMinutes(5),
+        };
+
+        string json = JsonSerializer.Serialize(
+            spec,
+            ExecutionContractJsonContext.Default.StorageReservationSpec);
+        StorageReservationSpec? roundTrip = JsonSerializer.Deserialize(
+            json,
+            ExecutionContractJsonContext.Default.StorageReservationSpec);
+
+        Assert.NotNull(roundTrip);
+        Assert.Equal("restore-1", roundTrip.OperationId);
+        Assert.Equal(4096, roundTrip.RequestedBytes.Value);
+        Assert.Equal(2, roundTrip.SafetyMultiplier);
     }
 
     [Fact]
@@ -534,6 +590,7 @@ public sealed class ExecutionContractShapeTests
         public void AddProviderCapabilityReporter(IProviderCapabilityReporter reporter) => Calls.Add(nameof(AddProviderCapabilityReporter));
         public void AddProviderActivator(IProviderActivator activator) => Calls.Add(nameof(AddProviderActivator));
         public void AddRuntimeHostProvider(IRuntimeHostProvider provider) => Calls.Add(nameof(AddRuntimeHostProvider));
+        public void AddRuntimeHostWakeReconciliationProvider(IRuntimeHostWakeReconciliationProvider provider) => Calls.Add(nameof(AddRuntimeHostWakeReconciliationProvider));
         public void AddRuntimeHostResetProvider(IRuntimeHostResetProvider provider) => Calls.Add(nameof(AddRuntimeHostResetProvider));
         public void AddExecutionUnitProvider(IExecutionUnitProvider provider) => Calls.Add(nameof(AddExecutionUnitProvider));
         public void AddProcessProvider(IProcessProvider provider) => Calls.Add(nameof(AddProcessProvider));
@@ -550,6 +607,11 @@ public sealed class ExecutionContractShapeTests
         public void AddAuthorityBindingProvider(IAuthorityBindingProvider provider) => Calls.Add(nameof(AddAuthorityBindingProvider));
         public void AddCredentialProvider(ICredentialProvider provider) => Calls.Add(nameof(AddCredentialProvider));
         public void AddEngineControlPlaneProvider(IEngineControlPlaneProvider provider) => Calls.Add(nameof(AddEngineControlPlaneProvider));
+        public void AddStoragePoolProvider(IStoragePoolProvider provider) => Calls.Add(nameof(AddStoragePoolProvider));
+        public void AddDurableVolumeProvider(IDurableVolumeProvider provider) => Calls.Add(nameof(AddDurableVolumeProvider));
+        public void AddStorageReservationProvider(IStorageReservationProvider provider) => Calls.Add(nameof(AddStorageReservationProvider));
+        public void AddVolumeBackupProvider(IVolumeBackupProvider provider) => Calls.Add(nameof(AddVolumeBackupProvider));
+        public void AddVolumeRestoreProvider(IVolumeRestoreProvider provider) => Calls.Add(nameof(AddVolumeRestoreProvider));
     }
 
     private sealed class TestProviderModule : IProviderModule
@@ -570,6 +632,7 @@ public sealed class ExecutionContractShapeTests
             builder.AddProviderCapabilityReporter(provider);
             builder.AddProviderActivator(provider);
             builder.AddRuntimeHostProvider(provider);
+            builder.AddRuntimeHostWakeReconciliationProvider(provider);
             builder.AddRuntimeHostResetProvider(provider);
             builder.AddExecutionUnitProvider(provider);
             builder.AddProcessProvider(provider);
@@ -586,6 +649,7 @@ public sealed class ExecutionContractShapeTests
 
     private sealed class TestProvider :
         IRuntimeHostProvider,
+        IRuntimeHostWakeReconciliationProvider,
         IRuntimeHostResetProvider,
         IExecutionUnitProvider,
         IProcessProvider,
@@ -607,6 +671,21 @@ public sealed class ExecutionContractShapeTests
 
         public ValueTask<RuntimeHostStatus> GetStatusAsync(TargetHandle<RuntimeHost> host, CancellationToken cancellationToken = default) =>
             new(new RuntimeHostStatus { HostPhase = RuntimeHostPhase.Ready });
+
+        public ValueTask<RuntimeHostStatus> CompleteWakeReconciliationAsync(
+            TargetHandle<RuntimeHost> host,
+            RuntimeHostWakeReconciliationRequest request,
+            CancellationToken cancellationToken = default) =>
+            new(new RuntimeHostStatus
+            {
+                HostPhase = RuntimeHostPhase.Ready,
+                Handle = host,
+                Power = new RuntimeHostPowerStatus
+                {
+                    State = RuntimeHostPowerState.Active,
+                    WakeGeneration = request.ObservedWakeGeneration,
+                },
+            });
 
         public ValueTask<RuntimeHostResetResult> ResetAsync(TargetHandle<RuntimeHost> host, RuntimeHostResetRequest request, CancellationToken cancellationToken = default) =>
             new(new RuntimeHostResetResult(request.Scope, Ref<RuntimeHost>("host-reset", "runtime-host"), DateTimeOffset.UtcNow));
@@ -738,6 +817,16 @@ public sealed class ExecutionContractShapeTests
 [JsonSerializable(typeof(ProcessOutputQuery))]
 [JsonSerializable(typeof(EngineControlPlaneSpec))]
 [JsonSerializable(typeof(EngineControlPlaneStatus))]
+[JsonSerializable(typeof(StoragePoolSpec))]
+[JsonSerializable(typeof(StoragePoolStatus))]
+[JsonSerializable(typeof(DurableVolumeSpec))]
+[JsonSerializable(typeof(DurableVolumeStatus))]
+[JsonSerializable(typeof(StorageReservationSpec))]
+[JsonSerializable(typeof(StorageReservationStatus))]
+[JsonSerializable(typeof(VolumeBackupSpec))]
+[JsonSerializable(typeof(VolumeBackupStatus))]
+[JsonSerializable(typeof(VolumeRestoreSpec))]
+[JsonSerializable(typeof(VolumeRestoreStatus))]
 [JsonSerializable(typeof(RuntimePlanRequest))]
 [JsonSerializable(typeof(RuntimePlan))]
 [JsonSerializable(typeof(RuntimePlanValidationResult))]

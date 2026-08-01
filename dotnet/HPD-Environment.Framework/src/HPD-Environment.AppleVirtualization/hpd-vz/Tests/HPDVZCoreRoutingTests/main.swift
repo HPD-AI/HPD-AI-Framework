@@ -1,4 +1,150 @@
-import HPDVZCore
+import Foundation
+@_spi(Testing) import HPDVZCore
+
+final class RecordingIdleSleepActivities: HostIdleSleepActivityManaging {
+    var began: [String] = []
+    var ended: [String] = []
+    func begin(operationId: String) { began.append(operationId) }
+    func end(operationId: String) { ended.append(operationId) }
+}
+
+let sleepActivities = RecordingIdleSleepActivities()
+let storageService = HelperService(
+    adapter: FakeVirtualizationAdapter(),
+    idleSleepActivities: sleepActivities)
+_ = storageService.handle(HelperEnvelope(raw: [
+    "ProtocolVersion": HelperProtocol.currentVersion,
+    "Operation": Operation.storage.rawValue,
+    "RequestId": "backup-begin-request",
+    "SequenceNumber": 1,
+    "StorageRequest": [
+        "Action": 5,
+        "OperationId": "backup-operation"
+    ]
+]))
+precondition(
+    sleepActivities.began == ["backup-operation"] &&
+        sleepActivities.ended == ["backup-operation"],
+    "A failed backup begin must not leak its bounded idle-sleep assertion.")
+_ = storageService.handle(HelperEnvelope(raw: [
+    "ProtocolVersion": HelperProtocol.currentVersion,
+    "Operation": Operation.storage.rawValue,
+    "RequestId": "erase-request",
+    "SequenceNumber": 2,
+    "StorageRequest": [
+        "Action": 4,
+        "OperationId": "erase-operation"
+    ]
+]))
+precondition(
+    sleepActivities.began.last == "erase-operation" &&
+        sleepActivities.ended.last == "erase-operation",
+    "A single-request irreversible storage mutation must release its idle-sleep assertion.")
+
+let powerMonitor = HostPowerMonitor(
+    registerSystemNotifications: false)
+precondition(
+    powerMonitor.snapshot().state == .active,
+    "A new helper power monitor must begin active.")
+powerMonitor.simulateSleepForTesting()
+let sleepingPower = powerMonitor.snapshot()
+precondition(
+    sleepingPower.state == .sleeping &&
+        sleepingPower.sleepGeneration == 1 &&
+        sleepingPower.requiresWakeReconciliation,
+    "Sleep must fence mutations and advance the sleep generation.")
+powerMonitor.simulateWakeForTesting()
+let wakePower = powerMonitor.snapshot()
+precondition(
+    wakePower.state == .wakeReconciliationRequired &&
+        wakePower.wakeGeneration == 1 &&
+        wakePower.requiresWakeReconciliation,
+    "Wake must retain the mutation fence until reconciliation completes.")
+precondition(
+    !powerMonitor.acknowledge(wakeGeneration: 0),
+    "A stale wake generation must not clear the fence.")
+precondition(
+    powerMonitor.acknowledge(
+        wakeGeneration: wakePower.wakeGeneration),
+    "The exact observed wake generation must clear the fence.")
+precondition(
+    powerMonitor.snapshot().state == .active &&
+        !powerMonitor.snapshot().requiresWakeReconciliation,
+    "Successful wake reconciliation must restore active state.")
+powerMonitor.simulateTerminationForTesting()
+precondition(
+    powerMonitor.snapshot().state == .terminating &&
+        !powerMonitor.acknowledge(
+            wakeGeneration: wakePower.wakeGeneration),
+    "Termination must remain fenced and cannot be acknowledged as a wake.")
+
+let fencedService = HelperService(adapter: FakeVirtualizationAdapter(
+    powerObservation: HostPowerObservation(
+        state: .wakeReconciliationRequired,
+        sleepGeneration: 1,
+        wakeGeneration: 1,
+        requiresWakeReconciliation: true,
+        observedAt: "2026-07-30T22:00:00Z")))
+let fencedMutation = fencedService.handle(HelperEnvelope(raw: [
+    "ProtocolVersion": HelperProtocol.currentVersion,
+    "Operation": Operation.processStart.rawValue,
+    "RequestId": "fenced-process-start",
+    "SequenceNumber": 1
+]))
+let fencedError = fencedMutation["Error"] as? [String: Any]
+precondition(
+    fencedError?["Code"] as? String ==
+        "AppleVirtualization.WakeReconciliationRequired",
+    "New mutations must fail closed while wake reconciliation is fenced.")
+let allowedCleanup = fencedService.handle(HelperEnvelope(raw: [
+    "ProtocolVersion": HelperProtocol.currentVersion,
+    "Operation": Operation.hostStop.rawValue,
+    "RequestId": "fenced-host-stop",
+    "SequenceNumber": 2,
+    "HostLifecycleRequest": ["HostId": "host-a"]
+]))
+precondition(
+    allowedCleanup["Error"] == nil,
+    "Host stop must remain available while wake reconciliation is fenced.")
+
+let leaseRoot = FileManager.default.temporaryDirectory
+    .appendingPathComponent(
+        "hpd-vz-disk-lease-\(UUID().uuidString)",
+        isDirectory: true)
+try FileManager.default.createDirectory(
+    at: leaseRoot,
+    withIntermediateDirectories: true)
+defer {
+    try? FileManager.default.removeItem(at: leaseRoot)
+}
+let leasedDisk = leaseRoot.appendingPathComponent("disk.raw")
+precondition(
+    FileManager.default.createFile(
+        atPath: leasedDisk.path,
+        contents: Data(repeating: 0, count: 4096)),
+    "The exclusive-disk-lease fixture could not be created.")
+var firstLease: ExclusiveDiskLease? =
+    try ExclusiveDiskLease(path: leasedDisk.path)
+do {
+    _ = try ExclusiveDiskLease(path: leasedDisk.path)
+    preconditionFailure(
+        "Concurrent helper ownership of one disk was accepted.")
+} catch {
+}
+firstLease = nil
+_ = try ExclusiveDiskLease(path: leasedDisk.path)
+
+let hardLinkedDisk =
+    leaseRoot.appendingPathComponent("disk-alias.raw")
+try FileManager.default.linkItem(
+    at: leasedDisk,
+    to: hardLinkedDisk)
+do {
+    _ = try ExclusiveDiskLease(path: leasedDisk.path)
+    preconditionFailure(
+        "A hard-linked VM disk image was accepted.")
+} catch {
+}
 
 let hosts = [
     "host-a": EngineHostRouteState(running: true, providerGeneration: 7, socketAvailable: true),

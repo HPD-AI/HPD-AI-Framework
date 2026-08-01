@@ -199,7 +199,7 @@ public sealed class AppleVirtualizationExecutionUnitProvider : IExecutionUnitPro
                 storage.LogicalId.Any(character =>
                     !(char.IsAsciiLetterOrDigit(character) ||
                       character is '.' or '_' or '-')) ||
-                !Enum.IsDefined(storage.PersistenceClass))
+                !Enum.IsDefined(storage.StorageClass))
                 return Store(metadata, FailureStatus(
                     metadata,
                     assignedHost,
@@ -222,7 +222,7 @@ public sealed class AppleVirtualizationExecutionUnitProvider : IExecutionUnitPro
                         $"storage:{metadata.Scope.Value}:{metadata.Id.Value}",
                         Generation: _ledger.ProviderGeneration),
                     EffectiveRuntimePath = workingDirectory,
-                    PersistenceClass = storage.PersistenceClass,
+                    StorageClass = storage.StorageClass,
                     Generation = metadata.Generation,
                 },
             };

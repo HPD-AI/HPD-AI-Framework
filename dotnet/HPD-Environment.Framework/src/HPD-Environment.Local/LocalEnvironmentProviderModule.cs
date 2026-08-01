@@ -46,8 +46,9 @@ public sealed class LocalEnvironmentProviderModule : IProviderModule
         ArgumentNullException.ThrowIfNull(builder);
         builder.AddProviderCapabilityReporter(
             new LocalEnvironmentCapabilityReporter(_options));
-        builder.AddRuntimeHostProvider(
-            new LocalRuntimeHostProvider(_state));
+        var hostProvider = new LocalRuntimeHostProvider(_state);
+        builder.AddRuntimeHostProvider(hostProvider);
+        builder.AddRuntimeHostResetProvider(hostProvider);
         builder.AddExecutionUnitProvider(
             new LocalExecutionUnitProvider(_state));
         builder.AddProcessProvider(
@@ -66,6 +67,12 @@ public sealed class LocalEnvironmentProviderModule : IProviderModule
         builder.AddNetworkMembershipProvider(networkProvider);
         builder.AddServiceDiscoveryProvider(
             new LocalServiceDiscoveryProvider(_state));
+        var storageProvider = new LocalStorageProvider(_state);
+        builder.AddStoragePoolProvider(storageProvider);
+        builder.AddDurableVolumeProvider(storageProvider);
+        builder.AddStorageReservationProvider(storageProvider);
+        builder.AddVolumeBackupProvider(storageProvider);
+        builder.AddVolumeRestoreProvider(storageProvider);
     }
 
     public void RegisterJsonTypes(IProviderJsonTypeRegistry registry)
@@ -120,7 +127,12 @@ public static class LocalEnvironmentProviderDescriptor
         ProviderContractKind.ServiceDiscovery |
         ProviderContractKind.EndpointPublication |
         ProviderContractKind.AuthorityBinding |
-        ProviderContractKind.EngineControlPlane;
+        ProviderContractKind.EngineControlPlane |
+        ProviderContractKind.StoragePool |
+        ProviderContractKind.DurableVolume |
+        ProviderContractKind.StorageReservation |
+        ProviderContractKind.VolumeBackup |
+        ProviderContractKind.VolumeRestore;
 
     public static ProviderDescriptor Create(
         LocalEnvironmentProviderOptions options)

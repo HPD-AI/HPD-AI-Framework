@@ -4,7 +4,8 @@ using HPD.Environment.Contracts;
 using HPD.Environment.Runtime;
 
 internal sealed class LocalRuntimeHostProvider(LocalProviderState state)
-    : IRuntimeHostProvider
+    : IRuntimeHostProvider,
+      IRuntimeHostResetProvider
 {
     private static readonly ProviderResourceShape Shape = new(
         new TargetKind("runtime-host"),
@@ -99,6 +100,7 @@ internal sealed class LocalRuntimeHostProvider(LocalProviderState state)
                     RuntimeHostStatus>(host);
         if (!lookup.Succeeded)
             throw Error(lookup.Diagnostic!);
+        state.ReleaseStorageMounts();
         ProviderResourceEntry<
             RuntimeHost,
             RuntimeHostSpec,
@@ -123,6 +125,7 @@ internal sealed class LocalRuntimeHostProvider(LocalProviderState state)
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        state.ReleaseStorageMounts();
         state.Ledger.Remove<
             RuntimeHost,
             RuntimeHostSpec,
@@ -147,6 +150,62 @@ internal sealed class LocalRuntimeHostProvider(LocalProviderState state)
             ? ValueTask.FromResult(lookup.Entry!.Status)
             : ValueTask.FromException<RuntimeHostStatus>(
                 Error(lookup.Diagnostic!));
+    }
+
+    public ValueTask<RuntimeHostResetResult> ResetAsync(
+        TargetHandle<RuntimeHost> host,
+        RuntimeHostResetRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ArgumentNullException.ThrowIfNull(request);
+        ProviderLedgerLookup<ProviderResourceEntry<
+            RuntimeHost,
+            RuntimeHostSpec,
+            RuntimeHostStatus>> lookup = state.Ledger.TryGet<
+                RuntimeHost,
+                RuntimeHostSpec,
+                RuntimeHostStatus>(host);
+        if (!lookup.Succeeded)
+            throw Error(lookup.Diagnostic!);
+        if (lookup.Entry!.Status.HostPhase != RuntimeHostPhase.Stopped)
+            throw new InvalidOperationException(
+                "LocalEnvironment.ResetRequiresStoppedHost: the Local RuntimeHost must be stopped before disposable state is reset.");
+        if (!request.RetainUserData)
+            throw new InvalidOperationException(
+                "LocalEnvironment.ResetCannotEraseDurableData: durable App data requires the explicit volume erase lifecycle and cannot be selected by RuntimeHost reset.");
+        if (request.Scope is not (
+            RuntimeHostResetScope.RuntimeState or
+            RuntimeHostResetScope.BootstrapState or
+            RuntimeHostResetScope.StorageState))
+            throw new InvalidOperationException(
+                $"LocalEnvironment.ResetScopeUnsupported: reset scope '{request.Scope}' is not a Local disposable-state operation.");
+
+        string allocations = Path.Combine(
+            state.WorkloadStateRoot,
+            "allocations");
+        if (Directory.Exists(allocations))
+        {
+            foreach (FileSystemInfo entry in
+                     new DirectoryInfo(allocations)
+                         .EnumerateFileSystemInfos())
+            {
+                if (entry.LinkTarget is not null ||
+                    entry.Attributes.HasFlag(
+                        FileAttributes.ReparsePoint))
+                    throw new InvalidOperationException(
+                        "LocalEnvironment.ResetOwnedStateInvalid: the disposable allocation root contains a linked entry.");
+                if (entry is DirectoryInfo directory)
+                    directory.Delete(recursive: true);
+                else
+                    entry.Delete();
+            }
+        }
+        state.Ledger.AdvanceProviderGeneration();
+        return ValueTask.FromResult(new RuntimeHostResetResult(
+            request.Scope,
+            lookup.Entry.Resource,
+            DateTimeOffset.UtcNow));
     }
 
     private RuntimeHostStatus Failed(

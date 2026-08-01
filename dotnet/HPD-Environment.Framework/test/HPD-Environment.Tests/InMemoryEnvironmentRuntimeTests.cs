@@ -8,6 +8,76 @@ namespace HPD.Environment.Runtime.Tests;
 public sealed class InMemoryEnvironmentRuntimeTests
 {
     [Fact]
+    public async Task Host_reset_requires_verified_stop_and_preserves_exact_runtime_identity()
+    {
+        var runtime = new InMemoryEnvironmentRuntime(CreateRegistry());
+        ResourceSnapshot<RuntimeHost, RuntimeHostSpec, RuntimeHostStatus> host =
+            await runtime.EnsureHostAsync(new RuntimeHostSpec
+            {
+                Platform = new PlatformSpec("linux", "x64"),
+                PreferredProvider =
+                    InMemoryEnvironmentProvider.InMemoryProviderId,
+            });
+
+        RuntimeResourceOwnershipException running =
+            await Assert.ThrowsAsync<RuntimeResourceOwnershipException>(
+                () => runtime.ResetHostAsync(
+                        new RuntimeHostResetRequest(
+                            RuntimeHostResetScope.RuntimeState))
+                    .AsTask());
+        Assert.Equal(
+            "hpd.environment.runtime-host.reset-requires-stopped",
+            running.Diagnostic.Code.Value);
+
+        _ = await runtime.StopHostAsync(StopPolicy.Default);
+        RuntimeHostResetResult result = await runtime.ResetHostAsync(
+            new RuntimeHostResetRequest(
+                RuntimeHostResetScope.RuntimeState));
+
+        Assert.Equal(RuntimeHostResetScope.RuntimeState, result.Scope);
+        Assert.Equal(host.Metadata.Id, result.Host.Id);
+        Assert.Equal(host.Metadata.Scope, result.Host.Scope);
+        Assert.Equal(host.Metadata.Generation, result.Host.Generation);
+    }
+
+    [Fact]
+    public async Task Wake_reconciliation_requires_exact_observed_generation_and_provider_proof()
+    {
+        var provider = new WakeReconciliationTestProvider();
+        var registry = new EnvironmentProviderRegistry();
+        registry.RegisterModule(provider);
+        var runtime = new InMemoryEnvironmentRuntime(registry);
+        _ = await runtime.EnsureHostAsync(new RuntimeHostSpec
+        {
+            Platform = new PlatformSpec("linux", "x64"),
+            PreferredProvider = provider.Descriptor.Id,
+        });
+
+        RuntimeResourceOwnershipException stale =
+            await Assert.ThrowsAsync<RuntimeResourceOwnershipException>(
+                () => runtime.CompleteHostWakeReconciliationAsync(
+                        new RuntimeHostWakeReconciliationRequest(6))
+                    .AsTask());
+        Assert.Equal(
+            "hpd.environment.runtime-host.wake-generation-stale",
+            stale.Diagnostic.Code.Value);
+        Assert.Equal(0, provider.ReconciliationCount);
+
+        ResourceSnapshot<RuntimeHost, RuntimeHostSpec, RuntimeHostStatus>
+            reconciled =
+                await runtime.CompleteHostWakeReconciliationAsync(
+                    new RuntimeHostWakeReconciliationRequest(7));
+
+        Assert.Equal(1, provider.ReconciliationCount);
+        Assert.Equal(RuntimeHostPowerState.Active,
+            reconciled.Status.Power.State);
+        Assert.False(
+            reconciled.Status.Power.RequiresWakeReconciliation);
+        Assert.Equal((ulong)7,
+            reconciled.Status.Power.WakeGeneration);
+    }
+
+    [Fact]
     public async Task Workload_storage_logical_identity_is_path_free_and_bounded()
     {
         var runtime = new InMemoryEnvironmentRuntime(CreateRegistry());
@@ -19,8 +89,7 @@ public sealed class InMemoryEnvironmentRuntimeTests
                         WorkloadStorage = new WorkloadStorageRequest
                         {
                             LogicalId = "../../host-path",
-                            PersistenceClass =
-                                WorkloadStoragePersistenceClass.Workload,
+                            StorageClass = StorageClass.RuntimeDisposable,
                         },
                     }).AsTask());
 
@@ -3196,5 +3265,103 @@ public sealed class InMemoryEnvironmentRuntimeTests
                     new ProviderPreflightCheck("virtualization-entitlement", PreflightCheckState.Passed),
                 ],
             });
+    }
+
+    private sealed class WakeReconciliationTestProvider :
+        IProviderModule,
+        IRuntimeHostProvider,
+        IRuntimeHostWakeReconciliationProvider
+    {
+        public int ReconciliationCount { get; private set; }
+
+        public ProviderDescriptor Descriptor { get; } = new()
+        {
+            Id = new ProviderId(
+                "hpd.execution.test-wake-reconciliation"),
+            DisplayName = "Wake Reconciliation Test Provider",
+            ContractVersion = new SemanticVersion(1, 0, 0),
+            ProviderVersion = new SemanticVersion(1, 0, 0),
+            ContractKinds = ProviderContractKind.RuntimeHost,
+            TrustLevel = ProviderTrustLevel.BuiltIn,
+        };
+
+        public ProviderId ProviderId => Descriptor.Id;
+
+        public void Register(IProviderRegistrationBuilder builder)
+        {
+            builder.AddRuntimeHostProvider(this);
+            builder.AddRuntimeHostWakeReconciliationProvider(this);
+        }
+
+        public void RegisterJsonTypes(
+            IProviderJsonTypeRegistry registry)
+        {
+        }
+
+        public ValueTask<RuntimeHostStatus> EnsureAsync(
+            ResourceMetadata<RuntimeHost> metadata,
+            RuntimeHostSpec spec,
+            RuntimeHostStatus? observed,
+            CancellationToken cancellationToken = default)
+        {
+            TargetHandle<RuntimeHost> handle =
+                Handle<RuntimeHost>(
+                    TargetRouteSegmentKind.RuntimeHost,
+                    metadata.Id.Value);
+            return ValueTask.FromResult(new RuntimeHostStatus
+            {
+                Phase = ResourcePhase.Degraded,
+                ObservedGeneration = metadata.Generation,
+                HostPhase = RuntimeHostPhase.Degraded,
+                Handle = handle,
+                Power = new RuntimeHostPowerStatus
+                {
+                    State = RuntimeHostPowerState
+                        .WakeReconciliationRequired,
+                    SleepGeneration = 4,
+                    WakeGeneration = 7,
+                    RequiresWakeReconciliation = true,
+                },
+            });
+        }
+
+        public ValueTask<RuntimeHostStatus>
+            CompleteWakeReconciliationAsync(
+                TargetHandle<RuntimeHost> host,
+                RuntimeHostWakeReconciliationRequest request,
+                CancellationToken cancellationToken = default)
+        {
+            ReconciliationCount++;
+            return ValueTask.FromResult(new RuntimeHostStatus
+            {
+                Phase = ResourcePhase.Ready,
+                HostPhase = RuntimeHostPhase.Ready,
+                Handle = host,
+                Power = new RuntimeHostPowerStatus
+                {
+                    State = RuntimeHostPowerState.Active,
+                    SleepGeneration = 4,
+                    WakeGeneration =
+                        request.ObservedWakeGeneration,
+                    RequiresWakeReconciliation = false,
+                },
+            });
+        }
+
+        public ValueTask<RuntimeHostStatus> StopAsync(
+            TargetHandle<RuntimeHost> host,
+            StopPolicy policy,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public ValueTask DeleteAsync(
+            ResourceRef<RuntimeHost> host,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public ValueTask<RuntimeHostStatus> GetStatusAsync(
+            TargetHandle<RuntimeHost> host,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
     }
 }
