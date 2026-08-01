@@ -419,11 +419,19 @@ internal sealed class LocalProcessProvider(LocalProviderState state)
             throw new InvalidOperationException(
                 "The Docker Compose CLI plugin path has no parent directory.");
         string configPath = Path.Combine(directory, "config.json");
-        string config = JsonSerializer.Serialize(new
+        using (var stream = new FileStream(
+                   configPath,
+                   FileMode.Create,
+                   FileAccess.Write,
+                   FileShare.None))
+        using (var writer = new Utf8JsonWriter(stream))
         {
-            cliPluginsExtraDirs = new[] { pluginDirectory },
-        });
-        File.WriteAllText(configPath, config);
+            writer.WriteStartObject();
+            writer.WriteStartArray("cliPluginsExtraDirs");
+            writer.WriteStringValue(pluginDirectory);
+            writer.WriteEndArray();
+            writer.WriteEndObject();
+        }
         if (!OperatingSystem.IsWindows())
         {
             File.SetUnixFileMode(
