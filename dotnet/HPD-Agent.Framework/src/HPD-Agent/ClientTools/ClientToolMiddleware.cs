@@ -1044,6 +1044,21 @@ public class ClientToolMiddleware : IAgentMiddleware
                             runtimeToken);
 
                     case ClientToolBackgroundOperationOutcomeState.Faulted:
+                        handle?.SetStatus("faulted");
+                        throw new InvalidOperationException(
+                            FormatError(
+                                result.Error,
+                                result.ErrorMessage,
+                                "Client tool background operation failed."));
+
+                    case ClientToolBackgroundOperationOutcomeState.Unknown:
+                        handle?.SetStatus("unknown");
+                        throw new InvalidOperationException(
+                            FormatError(
+                                result.Error,
+                                result.ErrorMessage,
+                                "Client tool background operation has an unknown outcome and must not be replayed."));
+
                     default:
                         handle?.SetStatus("faulted");
                         throw new InvalidOperationException(

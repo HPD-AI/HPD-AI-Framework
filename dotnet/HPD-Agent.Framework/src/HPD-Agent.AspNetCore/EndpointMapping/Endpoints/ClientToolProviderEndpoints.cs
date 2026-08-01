@@ -149,7 +149,7 @@ internal static class ClientToolProviderEndpoints
             if (helloText is null)
             {
                 LogHandshakeRejected(logger, "hello_connection_closed");
-                return TypedResults.Ok();
+                return TypedResults.Empty;
             }
 
             var messageType = ReadMessageType(helloText);
@@ -164,7 +164,7 @@ internal static class ClientToolProviderEndpoints
                         Message = "The first provider message must be provider.hello."
                     },
                     ct).ConfigureAwait(false);
-                return TypedResults.Ok();
+                return TypedResults.Empty;
             }
 
             var hello = JsonSerializer.Deserialize(
@@ -181,7 +181,7 @@ internal static class ClientToolProviderEndpoints
                         Message = "Provider hello message did not include a valid identity."
                     },
                     ct).ConfigureAwait(false);
-                return TypedResults.Ok();
+                return TypedResults.Empty;
             }
 
             if (!string.Equals(hello.ProtocolVersion, "2", StringComparison.Ordinal))
@@ -195,7 +195,7 @@ internal static class ClientToolProviderEndpoints
                         Message = $"Provider protocol '{hello.ProtocolVersion}' is unsupported. Expected '2'."
                     },
                     ct).ConfigureAwait(false);
-                return TypedResults.Ok();
+                return TypedResults.Empty;
             }
 
             if (authorization is not null &&
@@ -278,7 +278,7 @@ internal static class ClientToolProviderEndpoints
                     .ConfigureAwait(false);
             }
         }
-        return TypedResults.Ok();
+        return TypedResults.Empty;
     }
 
     private static void LogHandshakeRejected(

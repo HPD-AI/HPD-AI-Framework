@@ -471,6 +471,40 @@ public sealed class ClientToolProviderContractsTests
         result.Error.CurrentContext!.DocumentId.Should().Be("doc-2");
         result.Error.Metadata.Should().Contain("expectedRevision", "42");
         result.Metadata.Should().Contain("artifactId", "file_1");
+
+        var ambiguous = registry.RegisterBackgroundOperation(
+            new ClientToolProviderBackgroundOperationDescriptor
+            {
+                Binding = new ClientToolProviderToolBinding
+                {
+                    BindingId = binding.Lease.BindingId,
+                    ClientRuntimeId =
+                        registration.ClientRuntimeId,
+                    ConnectionId = registration.ConnectionId,
+                    AppProviderName = "code-server",
+                    HarnessName = "export",
+                    ProviderToolName = "export_selection",
+                    VisibleToolName =
+                        "code_server_export_export_selection"
+                },
+                ClientOperationId = "op_2",
+                ToolName = "code_server_export_export_selection",
+                RequestId = "req_2",
+                CallId = "call_2",
+                SessionId = "session",
+                ThreadId = "thread"
+            });
+
+        await registry.DisconnectAsync(
+            registration.ClientRuntimeId,
+            registration.ConnectionId);
+
+        ClientToolBackgroundOperationResult unknown =
+            await ambiguous.Completion.WaitAsync(
+                TimeSpan.FromSeconds(1));
+        unknown.State.Should().Be(
+            ClientToolBackgroundOperationOutcomeState.Unknown);
+        unknown.ErrorType.Should().Be("unknown_outcome");
     }
 
     private static ClientToolProviderManifest Manifest(

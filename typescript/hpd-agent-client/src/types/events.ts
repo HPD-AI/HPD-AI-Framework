@@ -960,7 +960,8 @@ export interface ClientToolInvokeOutcomeEvent extends BaseEvent, ResponseMetadat
 export type ClientToolBackgroundOperationOutcomeState =
   | 'Completed'
   | 'Faulted'
-  | 'Cancelled';
+  | 'Cancelled'
+  | 'Unknown';
 
 export interface ClientToolBackgroundOperationOutcomeEvent extends AgentInputEvent {
   type: typeof EventTypes.CLIENT_TOOL_BACKGROUND_OPERATION_OUTCOME;

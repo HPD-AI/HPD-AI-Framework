@@ -947,9 +947,9 @@ public sealed class InMemoryClientToolProviderRegistry : IClientToolProviderRegi
             {
                 pending.TrySetResult(new ClientToolBackgroundOperationResult
                 {
-                    State = ClientToolBackgroundOperationOutcomeState.Faulted,
+                    State = ClientToolBackgroundOperationOutcomeState.Unknown,
                     ErrorMessage = message,
-                    ErrorType = "provider_disconnected"
+                    ErrorType = "unknown_outcome"
                 });
             }
         }

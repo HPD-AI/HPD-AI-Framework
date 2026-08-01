@@ -125,7 +125,13 @@ public enum ClientToolBackgroundOperationOutcomeState
     Faulted,
 
     /// <summary>The operation was cancelled.</summary>
-    Cancelled
+    Cancelled,
+
+    /// <summary>
+    /// The provider connection was lost after accepting the operation and
+    /// completion cannot be proven. The operation must not be replayed.
+    /// </summary>
+    Unknown
 }
 
 /// <summary>
@@ -154,12 +160,16 @@ public sealed record ClientToolBackgroundOperationOutcomeEvent : AgentInputEvent
     public ClientToolAugmentation? Augmentation { get; init; }
 
     /// <summary>
-    /// Gets the error message when <see cref="State"/> is <see cref="ClientToolBackgroundOperationOutcomeState.Faulted"/>.
+    /// Gets the error message when <see cref="State"/> is
+    /// <see cref="ClientToolBackgroundOperationOutcomeState.Faulted"/> or
+    /// <see cref="ClientToolBackgroundOperationOutcomeState.Unknown"/>.
     /// </summary>
     public string? ErrorMessage { get; init; }
 
     /// <summary>
-    /// Gets the optional error type when <see cref="State"/> is <see cref="ClientToolBackgroundOperationOutcomeState.Faulted"/>.
+    /// Gets the optional error type when <see cref="State"/> is
+    /// <see cref="ClientToolBackgroundOperationOutcomeState.Faulted"/> or
+    /// <see cref="ClientToolBackgroundOperationOutcomeState.Unknown"/>.
     /// </summary>
     public string? ErrorType { get; init; }
 
