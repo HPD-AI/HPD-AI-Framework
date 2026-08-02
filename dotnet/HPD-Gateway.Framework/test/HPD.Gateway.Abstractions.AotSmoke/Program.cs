@@ -1,0 +1,270 @@
+using System.Text.Json;
+using HPD.Gateway.Abstractions;
+using HPD.Gateway.Abstractions.Serialization;
+
+var configuration = new GatewayConfiguration
+{
+    SchemaVersion = new GatewaySchemaVersion(1, 0),
+    CanonicalizationVersion = 1,
+    Metadata = new ResourceMetadata
+    {
+        DisplayName = "AOT smoke",
+        Labels = [new MetadataEntry("environment", "smoke")]
+    },
+    Definitions = new GatewayDefinitions
+    {
+        Authorization =
+        [
+            new DeclarationDefinition<NamedAuthorizationPolicy>
+            {
+                Id = new DefinitionId("authorized"),
+                Specification = new NamedAuthorizationPolicy("GatewayUsers")
+            }
+        ],
+        Cors =
+        [
+            new DeclarationDefinition<CorsPolicyBinding>
+            {
+                Id = new DefinitionId("cors"),
+                Specification = new CorsPolicyBinding("GatewayCors")
+            }
+        ],
+        TrafficAdmission =
+        [
+            new DeclarationDefinition<TrafficAdmissionBinding>
+            {
+                Id = new DefinitionId("admission"),
+                Specification = new TrafficAdmissionBinding("GatewayAdmission")
+            }
+        ],
+        RequestTimeout =
+        [
+            new DeclarationDefinition<RequestTimeoutBinding>
+            {
+                Id = new DefinitionId("timeout"),
+                Specification = new RequestTimeoutBinding { Timeout = TimeSpan.FromSeconds(10) }
+            }
+        ],
+        OutputCache =
+        [
+            new DeclarationDefinition<OutputCacheBinding>
+            {
+                Id = new DefinitionId("cache"),
+                Specification = new OutputCacheBinding("GatewayCache")
+            }
+        ],
+        Telemetry =
+        [
+            new DeclarationDefinition<TelemetryEnrichment>
+            {
+                Id = new DefinitionId("telemetry"),
+                Specification = new TelemetryEnrichment
+                {
+                    Attributes = [new MetadataEntry("gateway.area", "smoke")]
+                }
+            }
+        ],
+        Inspection =
+        [
+            new DeclarationDefinition<RequestInspectionBinding>
+            {
+                Id = new DefinitionId("inspection"),
+                Specification = new RequestInspectionBinding
+                {
+                    MaximumBodyBytes = 65_536,
+                    MaximumInspectionBytes = 1_024,
+                    AllowDiskSpill = false
+                }
+            }
+        ]
+    },
+    RootDefaults = new GatewayRootDeclarations
+    {
+        Cors = new DeclarationReference<CorsPolicyBinding> { Definition = new DefinitionId("cors") },
+        TrafficAdmission = new DeclarationReference<TrafficAdmissionBinding> { Definition = new DefinitionId("admission") },
+        RequestTimeout = new DeclarationReference<RequestTimeoutBinding> { Definition = new DefinitionId("timeout") },
+        Telemetry = new DeclarationReference<TelemetryEnrichment> { Definition = new DefinitionId("telemetry") }
+    },
+    Upstreams =
+    [
+        new UpstreamDeclaration
+        {
+            Id = new UpstreamId("static"),
+            Endpoints = new StaticEndpointSource
+            {
+                Destinations =
+                [
+                    new DestinationDeclaration
+                    {
+                        Id = new DestinationId("one"),
+                        Address = new Uri("https://127.0.0.1"),
+                        HealthAddress = new Uri("https://127.0.0.1/health"),
+                        HostOverride = "backend.internal"
+                    }
+                ]
+            },
+            LoadBalancing = new LoadBalancingDeclaration(LoadBalancingKind.RoundRobin),
+            SessionAffinity = new SessionAffinityDeclaration
+            {
+                Policy = "Cookie",
+                FailurePolicy = "Redistribute",
+                CookieName = "hpd-affinity"
+            },
+            HealthChecks = new HealthCheckDeclaration
+            {
+                Passive = new PassiveHealthCheckDeclaration
+                {
+                    Enabled = true,
+                    Policy = "TransportFailureRate",
+                    ReactivationPeriod = TimeSpan.FromSeconds(30)
+                },
+                Active = new ActiveHealthCheckDeclaration
+                {
+                    Enabled = true,
+                    Interval = TimeSpan.FromSeconds(10),
+                    Timeout = TimeSpan.FromSeconds(2),
+                    Policy = "ConsecutiveFailures",
+                    Path = "/health"
+                }
+            },
+            Transport = new UpstreamTransportDeclaration
+            {
+                MaxConnectionsPerServer = 32,
+                ConnectTimeout = TimeSpan.FromSeconds(3),
+                EnableMultipleHttp2Connections = true,
+                Tls = new UpstreamTlsDeclaration
+                {
+                    ServerName = "backend.internal",
+                    ClientCertificate = new SecretReference(
+                        new ProviderId("secrets"),
+                        new ProviderObjectId("client-cert"),
+                        "v1")
+                }
+            },
+            Request = new UpstreamRequestDeclaration
+            {
+                ActivityTimeout = TimeSpan.FromSeconds(30),
+                Version = UpstreamHttpVersion.Http2,
+                VersionSelection = HttpVersionSelection.RequestVersionOrLower
+            }
+        },
+        new UpstreamDeclaration
+        {
+            Id = new UpstreamId("discovered"),
+            Endpoints = new DiscoveredEndpointSource
+            {
+                Provider = new ProviderId("dns"),
+                Service = new ProviderObjectId("orders"),
+                Parameters = [new ProviderParameter("region", "local")],
+                StaleBehavior = DiscoveryStaleBehavior.RejectActivationUntilFresh
+            }
+        }
+    ],
+    Routes =
+    [
+        new RouteDeclaration
+        {
+            Id = new RouteId("smoke"),
+            Listener = new ListenerId("https"),
+            Match = new HttpRouteMatch
+            {
+                Path = "/{**catch-all}",
+                Methods = ["GET"],
+                Hosts = ["gateway.local"],
+                Headers =
+                [
+                    new HttpHeaderMatch
+                    {
+                        Name = "X-Smoke",
+                        Kind = TextMatchKind.Exact,
+                        Values = ["yes"]
+                    }
+                ],
+                Query =
+                [
+                    new HttpQueryMatch
+                    {
+                        Name = "ready",
+                        Kind = TextMatchKind.Exists
+                    }
+                ]
+            },
+            Upstream = new UpstreamId("static"),
+            Declarations = new RouteDeclarations
+            {
+                Authorization = new DeclarationReference<NamedAuthorizationPolicy>
+                {
+                    Definition = new DefinitionId("authorized")
+                },
+                OutputCache = new DeclarationReference<OutputCacheBinding>
+                {
+                    Definition = new DefinitionId("cache")
+                },
+                Inspection = new DeclarationReference<RequestInspectionBinding>
+                {
+                    Definition = new DefinitionId("inspection")
+                },
+                RequestTransforms = new OrderedRequestTransforms
+                {
+                    Headers =
+                    [
+                        new RequestHeaderTransform
+                        {
+                            Kind = HeaderTransformKind.Set,
+                            Name = "X-Gateway",
+                            Value = "HPD"
+                        }
+                    ]
+                },
+                ResponseTransforms = new OrderedResponseTransforms
+                {
+                    Headers =
+                    [
+                        new ResponseHeaderTransform
+                        {
+                            Kind = HeaderTransformKind.Append,
+                            Name = "X-Gateway",
+                            Value = "HPD"
+                        }
+                    ],
+                    Trailers =
+                    [
+                        new ResponseHeaderTransform
+                        {
+                            Kind = HeaderTransformKind.Set,
+                            Name = "X-Gateway-Complete",
+                            Value = "true"
+                        }
+                    ]
+                }
+            }
+        }
+    ]
+};
+
+var json = JsonSerializer.SerializeToUtf8Bytes(configuration, GatewayJsonSerializerContext.Default.GatewayConfiguration);
+var read = GatewayConfigurationReader.Read(json);
+if (!read.IsAccepted)
+{
+    throw new InvalidOperationException("Strict bounded candidate reading failed.");
+}
+
+var validation = GatewayConfigurationValidator.Validate(read.Configuration);
+if (!validation.IsValid)
+{
+    throw new InvalidOperationException($"The AOT smoke configuration was rejected with {validation.Errors.Length} error(s).");
+}
+
+var canonical = GatewayConfigurationCanonicalizer.TryCanonicalize(read.Configuration);
+if (!canonical.IsCanonicalized || canonical.Document!.Sha256.Length != 64)
+{
+    throw new InvalidOperationException("Canonicalization or content hashing failed.");
+}
+
+_ = JsonSerializer.SerializeToUtf8Bytes(validation, GatewayJsonSerializerContext.Default.GatewayValidationResult);
+_ = JsonSerializer.SerializeToUtf8Bytes(read, GatewayJsonSerializerContext.Default.GatewayConfigurationReadResult);
+_ = JsonSerializer.SerializeToUtf8Bytes(canonical, GatewayJsonSerializerContext.Default.GatewayCanonicalizationResult);
+
+Console.WriteLine(
+    $"HPD.Gateway AOT smoke passed: {read.Configuration!.Routes.Length} route(s), " +
+    $"{read.Configuration.Upstreams.Length} upstream(s), sha256={canonical.Document.Sha256}.");

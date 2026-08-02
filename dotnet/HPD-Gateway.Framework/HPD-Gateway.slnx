@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/HPD.Gateway.Abstractions/HPD.Gateway.Abstractions.csproj" />
+  </Folder>
+  <Folder Name="/test/">
+    <Project Path="test/HPD.Gateway.Abstractions.Tests/HPD.Gateway.Abstractions.Tests.csproj" />
+    <Project Path="test/HPD.Gateway.Abstractions.AotSmoke/HPD.Gateway.Abstractions.AotSmoke.csproj" />
+  </Folder>
+</Solution>
