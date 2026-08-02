@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>HPD.Gateway.Resilience</RootNamespace>
+    <AssemblyName>HPD.Gateway.Resilience</AssemblyName>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD.Gateway.Resilience</PackageId>
+    <Description>Closed static Upstream resilience profiles for HPD.Gateway and YARP.</Description>
+    <PackageTags>hpd;gateway;yarp;resilience;polly;aot</PackageTags>
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Microsoft.Extensions.Http.Resilience" Version="10.0.0" />
+    <ProjectReference Include="../HPD.Gateway.Abstractions/HPD.Gateway.Abstractions.csproj" />
+    <ProjectReference Include="../HPD.Gateway.Core/HPD.Gateway.Core.csproj" />
+    <ProjectReference Include="../HPD.Gateway.Yarp/HPD.Gateway.Yarp.csproj" />
+  </ItemGroup>
+</Project>

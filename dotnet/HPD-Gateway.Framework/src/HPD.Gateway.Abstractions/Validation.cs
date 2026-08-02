@@ -188,11 +188,23 @@ public static class GatewayConfigurationValidator
             ValidateHealth(upstream.HealthChecks, $"{path}.healthChecks", errors);
             ValidateTransport(upstream.Transport, $"{path}.transport", errors);
             ValidateRequest(upstream.Request, $"{path}.request", errors);
+            if (upstream.Resilience is { } resilience)
+            {
+                ValidateCanonicalName(resilience.ProfileName, $"{path}.resilience.profileName", errors);
+                if (resilience.ProfileVersion <= 0)
+                    Add(errors, GatewayValidationErrorCode.InvalidValue, $"{path}.resilience.profileVersion", "Profile version must be positive.");
+            }
             ValidateMetadata(upstream.Metadata, $"{path}.metadata", errors);
             ValidateEndpointSource(upstream.Endpoints, path, errors);
         }
 
         return upstreams;
+    }
+
+    private static void ValidateCanonicalName(string? value, string path, ImmutableArray<GatewayValidationError>.Builder errors)
+    {
+        if (value is null || !GatewayIdentifier.IsCanonical(value))
+            Add(errors, GatewayValidationErrorCode.InvalidIdentifier, path, "Name must use canonical lowercase Gateway identifier syntax.");
     }
 
     private static void ValidateEndpointSource(

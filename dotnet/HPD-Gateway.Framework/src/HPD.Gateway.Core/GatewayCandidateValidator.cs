@@ -32,12 +32,13 @@ public static class GatewayCandidateValidator
         ValidateRoot(configuration.RootDefaults, configuration.Definitions, capabilities, errors);
         ValidateDefinitionPolicies(configuration.Definitions, capabilities, errors);
         ValidateInstalledFamilies(configuration, capabilities, errors);
-        ValidateUpstreamCapabilities(configuration.Upstreams, capabilities, errors);
+        ValidateUpstreamCapabilities(configuration, capabilities, errors);
         return new GatewayValidationResult { Errors = errors.ToImmutable() };
     }
 
-    private static void ValidateUpstreamCapabilities(ImmutableArray<UpstreamDeclaration> upstreams, HostCapabilitySnapshot capabilities, ImmutableArray<GatewayValidationError>.Builder errors)
+    private static void ValidateUpstreamCapabilities(GatewayConfiguration configuration, HostCapabilitySnapshot capabilities, ImmutableArray<GatewayValidationError>.Builder errors)
     {
+        var upstreams = configuration.Upstreams;
         if (upstreams.IsDefault) return;
         for (var index = 0; index < upstreams.Length; index++)
         {
@@ -74,8 +75,44 @@ public static class GatewayCandidateValidator
             Resolve(upstream.SessionAffinity?.FailurePolicy, capabilities.SessionAffinityFailurePolicies, $"{path}.sessionAffinity.failurePolicy", errors);
             Resolve(upstream.HealthChecks?.Passive?.Policy, capabilities.PassiveHealthPolicies, $"{path}.healthChecks.passive.policy", errors);
             Resolve(upstream.HealthChecks?.Active?.Policy, capabilities.ActiveHealthPolicies, $"{path}.healthChecks.active.policy", errors);
+            if (upstream.Resilience is { } resilience)
+            {
+                if (!capabilities.UpstreamResilienceProfiles.TryGetValue(resilience.ProfileName, out var profile))
+                {
+                    Add(errors, $"{path}.resilience.profileName", "Upstream resilience profile is not registered by the host capability snapshot.");
+                }
+                else if (profile.Version != resilience.ProfileVersion)
+                {
+                    Add(errors, $"{path}.resilience.profileVersion", "Upstream resilience profile version is not installed by the host capability snapshot.");
+                }
+                else if (profile.Strategies.HasFlag(UpstreamResilienceStrategies.SelectedResponseRetry))
+                {
+                    ValidateRetryRoutes(configuration.Routes, upstream, path, errors);
+                    if (upstream.Request?.Version == UpstreamHttpVersion.Http3)
+                        Add(errors, $"{path}.request.version", "Selected-response retry does not support HTTP/3 upstream requests.");
+                }
+            }
         }
     }
+
+    private static void ValidateRetryRoutes(ImmutableArray<RouteDeclaration> routes, UpstreamDeclaration upstream, string upstreamPath, ImmutableArray<GatewayValidationError>.Builder errors)
+    {
+        if (routes.IsDefault) return;
+        for (var index = 0; index < routes.Length; index++)
+        {
+            var route = routes[index];
+            if (route is null || !route.Enabled || route.Upstream != upstream.Id) continue;
+            var methods = route.Match?.Methods ?? [];
+            if (methods.IsDefaultOrEmpty || methods.Any(static method => !IsRetrySafeMethod(method)))
+                Add(errors, GatewayValidationErrorCode.InvalidValue, $"routes[{index}].match.methods", "Retry-enabled Upstreams require an explicit bodyless-safe method set (GET, HEAD, OPTIONS, or TRACE). Runtime requests with content are never retried.");
+        }
+    }
+
+    private static bool IsRetrySafeMethod(string method) =>
+        method.Equals("GET", StringComparison.OrdinalIgnoreCase) ||
+        method.Equals("HEAD", StringComparison.OrdinalIgnoreCase) ||
+        method.Equals("OPTIONS", StringComparison.OrdinalIgnoreCase) ||
+        method.Equals("TRACE", StringComparison.OrdinalIgnoreCase);
 
     private static void ValidateListener(ListenerId id, HttpRouteMatch? match, string path, HostCapabilitySnapshot capabilities, ImmutableArray<GatewayValidationError>.Builder errors)
     {
@@ -122,12 +159,12 @@ public static class GatewayCandidateValidator
         Require(definitions?.Authorization.Length > 0 || Uses(configuration, static d => d.Authorization is not null, static d => d.Authorization is not null), GatewayDeclarationFamilies.Authorization, capabilities, "authorization", errors);
         Require(definitions?.Cors.Length > 0 || Uses(configuration, static d => d.Cors is not null, static d => d.Cors is not null), GatewayDeclarationFamilies.Cors, capabilities, "cors", errors);
         Require(definitions?.TrafficAdmission.Length > 0 || Uses(configuration, static d => d.TrafficAdmission is not null, static d => d.TrafficAdmission is not null), GatewayDeclarationFamilies.TrafficAdmission, capabilities, "trafficAdmission", errors);
-        Require(definitions?.RequestTimeout.Length > 0 || Uses(configuration, static d => d.RequestTimeout is not null, static d => d.RequestTimeout is not null), GatewayDeclarationFamilies.RequestTimeout, capabilities, "requestTimeout", errors);
         Require(definitions?.OutputCache.Length > 0 || Uses(configuration, static d => d.OutputCache is not null, static d => d.OutputCache is not null), GatewayDeclarationFamilies.OutputCache, capabilities, "outputCache", errors);
         Require(definitions?.Telemetry.Length > 0 || Uses(configuration, static d => d.Telemetry is not null, static d => d.Telemetry is not null), GatewayDeclarationFamilies.Telemetry, capabilities, "telemetry", errors);
         Require(definitions?.Inspection.Length > 0 || Uses(configuration, static d => d.Inspection is not null, static d => d.Inspection is not null), GatewayDeclarationFamilies.Inspection, capabilities, "inspection", errors);
         Require(configuration.Routes.Any(static route => route?.Declarations?.RequestTransforms is not null), GatewayDeclarationFamilies.RequestTransforms, capabilities, "requestTransforms", errors);
         Require(configuration.Routes.Any(static route => route?.Declarations?.ResponseTransforms is not null), GatewayDeclarationFamilies.ResponseTransforms, capabilities, "responseTransforms", errors);
+        Require(configuration.Upstreams.Any(static upstream => upstream?.Resilience is not null), GatewayDeclarationFamilies.UpstreamResilience, capabilities, "upstreamResilience", errors);
     }
 
     private static bool Uses(

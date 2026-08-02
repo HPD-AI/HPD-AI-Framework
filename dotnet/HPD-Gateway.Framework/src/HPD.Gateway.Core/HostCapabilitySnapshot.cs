@@ -31,9 +31,28 @@ public enum GatewayDeclarationFamilies : ushort
     Inspection = 1 << 6,
     RequestTransforms = 1 << 7,
     ResponseTransforms = 1 << 8,
+    UpstreamResilience = 1 << 9,
     AllBaseline = Authorization | Cors | TrafficAdmission | RequestTimeout | OutputCache |
-        Telemetry | Inspection | RequestTransforms | ResponseTransforms
+        Telemetry | Inspection | RequestTransforms | ResponseTransforms,
+    All = AllBaseline | UpstreamResilience
 }
+
+[Flags]
+public enum UpstreamResilienceStrategies : byte
+{
+    None = 0,
+    SelectedResponseRetry = 1,
+    CircuitBreaker = 2,
+    OutboundConcurrencyLimiter = 4,
+    PerAttemptTimeout = 8
+}
+
+public sealed record UpstreamResilienceCapability(
+    string Name,
+    int Version,
+    UpstreamResilienceStrategies Strategies,
+    ImmutableArray<int> RetryStatusCodes,
+    int MaximumRetryAttempts);
 
 public sealed record ListenerCapability(
     ListenerId Id,
@@ -65,6 +84,7 @@ public sealed record HostCapabilityRegistration
     public IEnumerable<string> PassiveHealthPolicies { get; init; } = [];
     public IEnumerable<string> ActiveHealthPolicies { get; init; } = [];
     public IEnumerable<string> RequestInspectors { get; init; } = [];
+    public IEnumerable<UpstreamResilienceCapability> UpstreamResilienceProfiles { get; init; } = [];
     public bool AllowInspectionFileSpill { get; init; }
 }
 
@@ -90,6 +110,7 @@ public sealed class HostCapabilitySnapshot
         PassiveHealthPolicies = Names(registration.PassiveHealthPolicies);
         ActiveHealthPolicies = Names(registration.ActiveHealthPolicies);
         RequestInspectors = Names(registration.RequestInspectors);
+        UpstreamResilienceProfiles = ResilienceProfiles(registration.UpstreamResilienceProfiles);
         AllowInspectionFileSpill = registration.AllowInspectionFileSpill;
     }
 
@@ -107,6 +128,7 @@ public sealed class HostCapabilitySnapshot
     public ImmutableHashSet<string> PassiveHealthPolicies { get; }
     public ImmutableHashSet<string> ActiveHealthPolicies { get; }
     public ImmutableHashSet<string> RequestInspectors { get; }
+    public ImmutableDictionary<string, UpstreamResilienceCapability> UpstreamResilienceProfiles { get; }
     public bool AllowInspectionFileSpill { get; }
 
     public static HostCapabilitySnapshot Create(HostCapabilityRegistration registration)
@@ -126,9 +148,10 @@ public sealed class HostCapabilitySnapshot
             SessionAffinityFailurePolicies = Required(registration.SessionAffinityFailurePolicies, nameof(registration.SessionAffinityFailurePolicies)).ToArray(),
             PassiveHealthPolicies = Required(registration.PassiveHealthPolicies, nameof(registration.PassiveHealthPolicies)).ToArray(),
             ActiveHealthPolicies = Required(registration.ActiveHealthPolicies, nameof(registration.ActiveHealthPolicies)).ToArray(),
-            RequestInspectors = Required(registration.RequestInspectors, nameof(registration.RequestInspectors)).ToArray()
+            RequestInspectors = Required(registration.RequestInspectors, nameof(registration.RequestInspectors)).ToArray(),
+            UpstreamResilienceProfiles = Required(registration.UpstreamResilienceProfiles, nameof(registration.UpstreamResilienceProfiles)).ToArray()
         };
-        if ((registration.InstalledFamilies & ~GatewayDeclarationFamilies.AllBaseline) != 0)
+        if ((registration.InstalledFamilies & ~GatewayDeclarationFamilies.All) != 0)
             throw new ArgumentException("Installed declaration-family flags are invalid.", nameof(registration));
 
         var listeners = ImmutableDictionary.CreateBuilder<ListenerId, ListenerCapability>();
@@ -172,10 +195,32 @@ public sealed class HostCapabilitySnapshot
         ValidateNames(registration.PassiveHealthPolicies, nameof(registration.PassiveHealthPolicies));
         ValidateNames(registration.ActiveHealthPolicies, nameof(registration.ActiveHealthPolicies));
         ValidateInspectorNames(registration.RequestInspectors, nameof(registration.RequestInspectors));
+        _ = ResilienceProfiles(registration.UpstreamResilienceProfiles);
         return new HostCapabilitySnapshot(listeners.ToImmutable(), discoveries.ToImmutable(), secrets.ToImmutable(), registration);
     }
 
     private static ImmutableHashSet<string> Names(IEnumerable<string> values) => values.ToImmutableHashSet(StringComparer.Ordinal);
+
+    private static ImmutableDictionary<string, UpstreamResilienceCapability> ResilienceProfiles(IEnumerable<UpstreamResilienceCapability> values)
+    {
+        var profiles = ImmutableDictionary.CreateBuilder<string, UpstreamResilienceCapability>(StringComparer.Ordinal);
+        foreach (var profile in values)
+        {
+            var hasRetry = profile?.Strategies.HasFlag(UpstreamResilienceStrategies.SelectedResponseRetry) == true;
+            if (profile is null || !GatewayIdentifier.IsCanonical(profile.Name) || profile.Version <= 0 ||
+                profile.Strategies == UpstreamResilienceStrategies.None ||
+                (profile.Strategies & ~(UpstreamResilienceStrategies.SelectedResponseRetry | UpstreamResilienceStrategies.CircuitBreaker |
+                    UpstreamResilienceStrategies.OutboundConcurrencyLimiter | UpstreamResilienceStrategies.PerAttemptTimeout)) != 0 ||
+                profile.RetryStatusCodes.IsDefault || profile.RetryStatusCodes.Length > 32 ||
+                profile.RetryStatusCodes.Any(static status => status is < 100 or > 599) ||
+                profile.RetryStatusCodes.Distinct().Count() != profile.RetryStatusCodes.Length ||
+                (hasRetry && (profile.RetryStatusCodes.IsEmpty || profile.MaximumRetryAttempts is < 1 or > 5)) ||
+                (!hasRetry && (!profile.RetryStatusCodes.IsEmpty || profile.MaximumRetryAttempts != 0)) ||
+                !profiles.TryAdd(profile.Name, profile))
+                throw new ArgumentException("Upstream resilience capabilities must be canonical, positive-versioned, nonempty, and unique.", nameof(values));
+        }
+        return profiles.ToImmutable();
+    }
 
     private static void ValidateNames(IEnumerable<string>? values, string name)
     {

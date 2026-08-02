@@ -1,16 +1,45 @@
+using System.Collections.Immutable;
+using System.Net;
 using System.Text.Json;
 using HPD.Gateway.Abstractions;
 using HPD.Gateway.Abstractions.Serialization;
 using HPD.Gateway.Core;
 using HPD.Gateway.Inspection;
+using HPD.Gateway.Resilience;
 using HPD.Gateway.Yarp;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Hosting.Server;
+using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.DependencyInjection;
 using Yarp.ReverseProxy.Configuration;
+
+var smokeResilienceProfile = new GatewayResilienceProfile
+{
+    Name = "smoke-resilience",
+    Version = 1,
+    Retry = new GatewayResponseRetryProfile
+    {
+        StatusCodes = [HttpStatusCode.ServiceUnavailable],
+        MaximumRetryAttempts = 1,
+        Delay = TimeSpan.Zero,
+        MaximumRetryAfter = TimeSpan.FromMilliseconds(10)
+    },
+    CircuitBreaker = new GatewayCircuitBreakerProfile
+    {
+        StatusCodes = [HttpStatusCode.ServiceUnavailable],
+        FailureRatio = 1,
+        MinimumThroughput = 2,
+        SamplingDuration = TimeSpan.FromSeconds(10),
+        BreakDuration = TimeSpan.FromSeconds(2)
+    },
+    ConcurrencyLimiter = new GatewayOutboundConcurrencyProfile { PermitLimit = 8, QueueLimit = 0 },
+    AttemptTimeout = new GatewayAttemptTimeoutProfile { Timeout = TimeSpan.FromSeconds(1) }
+};
 
 var configuration = new GatewayConfiguration
 {
@@ -157,7 +186,8 @@ var configuration = new GatewayConfiguration
                 ActivityTimeout = TimeSpan.FromSeconds(30),
                 Version = UpstreamHttpVersion.Http2,
                 VersionSelection = HttpVersionSelection.RequestVersionOrLower
-            }
+            },
+            Resilience = new UpstreamResilienceBinding { ProfileName = "smoke-resilience", ProfileVersion = 1 }
         },
         new UpstreamDeclaration
         {
@@ -256,7 +286,7 @@ var configuration = new GatewayConfiguration
 var json = JsonSerializer.SerializeToUtf8Bytes(configuration, GatewayJsonSerializerContext.Default.GatewayConfiguration);
 var capabilities = HostCapabilitySnapshot.Create(new HostCapabilityRegistration
 {
-    InstalledFamilies = GatewayDeclarationFamilies.AllBaseline,
+    InstalledFamilies = GatewayDeclarationFamilies.All,
     AuthorizationPolicies = ["GatewayUsers"],
     CorsPolicies = ["GatewayCors"],
     TrafficAdmissionPolicies = ["GatewayAdmission"],
@@ -266,6 +296,16 @@ var capabilities = HostCapabilitySnapshot.Create(new HostCapabilityRegistration
     PassiveHealthPolicies = ["TransportFailureRate"],
     ActiveHealthPolicies = ["ConsecutiveFailures"],
     RequestInspectors = ["smoke-inspector"],
+    UpstreamResilienceProfiles =
+    [
+        new UpstreamResilienceCapability(
+            "smoke-resilience",
+            1,
+            UpstreamResilienceStrategies.SelectedResponseRetry | UpstreamResilienceStrategies.CircuitBreaker |
+            UpstreamResilienceStrategies.OutboundConcurrencyLimiter | UpstreamResilienceStrategies.PerAttemptTimeout,
+            [503],
+            1)
+    ],
     Listeners = [new ListenerCapability(new ListenerId("https"), ListenerRole.DataPlane, ListenerProtocols.Http1 | ListenerProtocols.Http2, ["gateway.local"], true)],
     DiscoveryProviders = [new DiscoveryProviderCapability(new ProviderId("dns"), ["region"], ["region"], false, true)],
     SecretProviders = [new ProviderId("secrets")]
@@ -340,6 +380,7 @@ services.AddRateLimiter(options => options.AddFixedWindowLimiter("GatewayAdmissi
 services.AddOutputCache(options => options.AddPolicy("GatewayCache", policy => policy.Expire(TimeSpan.FromSeconds(10))));
 services.AddReverseProxy();
 services.AddHpdGatewayYarpPublication();
+services.AddHpdGatewayYarpResilience(registry => registry.Add(smokeResilienceProfile));
 services.AddHpdGatewayYarpMaterialization();
 var smokeInspector = new SmokeInspector();
 services.AddHpdGatewayYarpInspection(registry => registry.Add("smoke-inspector", smokeInspector));
@@ -408,6 +449,16 @@ var spillPath = smokeInspector.SpillPath;
 await completeSpillContext.Request.Body.DisposeAsync();
 if (File.Exists(spillPath)) throw new InvalidOperationException("Native AOT inspection spill file was not cleaned up.");
 
+var resilienceRegistry = serviceProvider.GetRequiredService<GatewayResilienceRegistry>();
+var retryTerminal = new AotRetryHandler();
+using (var resilientInvoker = new HttpMessageInvoker(resilienceRegistry.Wrap(smokeResilienceProfile.Name, smokeResilienceProfile.Version, retryTerminal)))
+using (var resilientRequest = new HttpRequestMessage(HttpMethod.Get, "http://localhost/aot-resilience"))
+using (var resilientResponse = await resilientInvoker.SendAsync(resilientRequest, CancellationToken.None))
+{
+    if (resilientResponse.StatusCode != HttpStatusCode.OK || retryTerminal.Attempts != 2)
+        throw new InvalidOperationException("Native AOT selected-response resilience execution failed.");
+}
+
 var publicationBundle = materialized.Bundle!;
 var proxyProvider = serviceProvider.GetRequiredService<HpdProxyConfigProvider>();
 var changeListener = serviceProvider.GetRequiredService<HpdConfigChangeListener>();
@@ -434,12 +485,85 @@ if ((await publication).State != GatewayPublicationState.ActiveAcknowledged)
     throw new InvalidOperationException("The serialized publisher did not acknowledge the exact native revision.");
 }
 
+var liveAttempts = 0;
+var liveUpstreamBuilder = WebApplication.CreateSlimBuilder();
+liveUpstreamBuilder.WebHost.UseUrls("http://127.0.0.1:0");
+await using var liveUpstream = liveUpstreamBuilder.Build();
+liveUpstream.Run(context =>
+{
+    var attempt = Interlocked.Increment(ref liveAttempts);
+    context.Response.StatusCode = attempt == 1 ? StatusCodes.Status503ServiceUnavailable : StatusCodes.Status200OK;
+    return Task.CompletedTask;
+});
+await liveUpstream.StartAsync();
+
+var liveProxyBuilder = WebApplication.CreateSlimBuilder();
+liveProxyBuilder.WebHost.UseUrls("http://127.0.0.1:0");
+liveProxyBuilder.Services.AddReverseProxy();
+liveProxyBuilder.Services.AddHpdGatewayYarpPublication();
+liveProxyBuilder.Services.AddHpdGatewayYarpResilience(registry => registry.Add(smokeResilienceProfile));
+liveProxyBuilder.Services.AddHpdGatewayYarpMaterialization();
+await using var liveProxy = liveProxyBuilder.Build();
+liveProxy.MapReverseProxy();
+await liveProxy.StartAsync();
+
+var liveConfiguration = new GatewayConfiguration
+{
+    SchemaVersion = new GatewaySchemaVersion(1, 0),
+    CanonicalizationVersion = 1,
+    Routes =
+    [
+        new RouteDeclaration
+        {
+            Id = new RouteId("live"),
+            Match = new HttpRouteMatch { Path = "/{**path}", Methods = ["GET"] },
+            Upstream = new UpstreamId("live"),
+            Declarations = new RouteDeclarations()
+        }
+    ],
+    Upstreams =
+    [
+        new UpstreamDeclaration
+        {
+            Id = new UpstreamId("live"),
+            Endpoints = new StaticEndpointSource
+            {
+                Destinations = [new DestinationDeclaration { Id = new DestinationId("one"), Address = new Uri(Address(liveUpstream)) }]
+            },
+            Resilience = new UpstreamResilienceBinding { ProfileName = smokeResilienceProfile.Name, ProfileVersion = smokeResilienceProfile.Version }
+        }
+    ]
+};
+var liveCapabilities = HostCapabilitySnapshot.Create(new HostCapabilityRegistration
+{
+    InstalledFamilies = GatewayDeclarationFamilies.UpstreamResilience,
+    UpstreamResilienceProfiles = liveProxy.Services.GetHpdGatewayResilienceCapabilities()
+});
+var liveJson = JsonSerializer.SerializeToUtf8Bytes(liveConfiguration, GatewayJsonSerializerContext.Default.GatewayConfiguration);
+var liveAccepted = GatewayCandidateReader.Read(liveJson, liveCapabilities);
+if (!liveAccepted.IsAccepted) throw new InvalidOperationException("Native AOT live resilience candidate was rejected.");
+var liveIdentity = new PublicationCandidateIdentity(new CandidateId("aot-live"), "aot-live-authority", "epoch-1", 1, liveAccepted.CanonicalDocument!.ContentHash);
+var liveMaterialized = await liveProxy.Services.GetRequiredService<GatewayNativeMaterializer>()
+    .MaterializeAsync(liveAccepted, liveIdentity, "aot-live-native");
+if (!liveMaterialized.IsMaterialized) throw new InvalidOperationException("Native AOT live resilience materialization failed.");
+var livePublication = await liveProxy.Services.GetRequiredService<GatewayYarpPublisher>()
+    .PublishAsync(liveMaterialized.Bundle!, TimeSpan.FromSeconds(5));
+if (livePublication.State != GatewayPublicationState.ActiveAcknowledged)
+    throw new InvalidOperationException("Native AOT live resilience publication was not acknowledged.");
+using var liveClient = new HttpClient { BaseAddress = new Uri(Address(liveProxy)) };
+using var liveResponse = await liveClient.GetAsync("/retry");
+if (liveResponse.StatusCode != HttpStatusCode.OK || liveAttempts != 2)
+    throw new InvalidOperationException("Native AOT real YARP resilience forwarding failed.");
+
 _ = JsonSerializer.SerializeToUtf8Bytes(validation, GatewayJsonSerializerContext.Default.GatewayValidationResult);
 _ = JsonSerializer.SerializeToUtf8Bytes(canonical, GatewayJsonSerializerContext.Default.GatewayCanonicalizationResult);
 
 Console.WriteLine(
     $"HPD.Gateway AOT smoke passed: {read.Configuration!.Routes.Length} route(s), " +
     $"{read.Configuration.Upstreams.Length} upstream(s), sha256={canonical.Document.ContentHash.Value}.");
+
+static string Address(WebApplication application) => application.Services
+    .GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.Single();
 
 file sealed class SmokeInspector : IGatewayRequestInspector
 {
@@ -461,4 +585,17 @@ file sealed class NonSeekableReadStream(byte[] bytes) : MemoryStream(bytes)
 {
     public override bool CanSeek => false;
     public override long Length => throw new NotSupportedException();
+}
+
+file sealed class AotRetryHandler : HttpMessageHandler
+{
+    internal int Attempts { get; private set; }
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        Attempts++;
+        return Task.FromResult(new HttpResponseMessage(Attempts == 1 ? HttpStatusCode.ServiceUnavailable : HttpStatusCode.OK)
+        {
+            RequestMessage = request
+        });
+    }
 }

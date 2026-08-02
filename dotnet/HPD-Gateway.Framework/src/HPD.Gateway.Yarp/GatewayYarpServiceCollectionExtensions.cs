@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+using HPD.Gateway.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Yarp.ReverseProxy.Configuration;
@@ -35,6 +37,13 @@ public static class GatewayYarpServiceCollectionExtensions
         services.AddSingleton<IHostedService>(static provider =>
             new HpdMaterializationOwnershipGuard(provider.GetServices<IForwarderHttpClientFactory>()));
         return services;
+    }
+
+    public static ImmutableArray<UpstreamResilienceCapability> GetHpdGatewayResilienceCapabilities(
+        this IServiceProvider services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        return services.GetRequiredService<GatewayUpstreamResilienceProvider>().Capabilities;
     }
 }
 

@@ -21,7 +21,16 @@ public sealed record UpstreamDeclaration
 
     public UpstreamRequestDeclaration Request { get; init; } = new();
 
+    public UpstreamResilienceBinding? Resilience { get; init; }
+
     public ResourceMetadata Metadata { get; init; } = ResourceMetadata.Empty;
+}
+
+public sealed record UpstreamResilienceBinding
+{
+    public required string ProfileName { get; init; }
+
+    public required int ProfileVersion { get; init; }
 }
 
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]

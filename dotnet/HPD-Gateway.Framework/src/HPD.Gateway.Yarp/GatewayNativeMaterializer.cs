@@ -29,11 +29,15 @@ internal sealed class GatewayMaterializationResult
     internal static GatewayMaterializationResult Rejected(ImmutableArray<GatewayMaterializationDiagnostic> diagnostics) => new(null, diagnostics);
 }
 
-internal sealed class GatewayNativeMaterializer(IConfigValidator nativeValidator, GatewayInspectionRegistry? inspectionRegistry = null)
+internal sealed class GatewayNativeMaterializer(
+    IConfigValidator nativeValidator,
+    GatewayInspectionRegistry? inspectionRegistry = null,
+    GatewayUpstreamResilienceProvider? resilienceRegistry = null)
 {
     private const int MaximumDiagnostics = 256;
     private readonly IConfigValidator _nativeValidator = nativeValidator;
     private readonly GatewayInspectionRegistry? _inspectionRegistry = inspectionRegistry;
+    private readonly GatewayUpstreamResilienceProvider? _resilienceRegistry = resilienceRegistry;
 
     internal async ValueTask<GatewayMaterializationResult> MaterializeAsync(
         GatewayCandidateReadResult candidate,
@@ -220,7 +224,7 @@ internal sealed class GatewayNativeMaterializer(IConfigValidator nativeValidator
         .Order(caseSensitive ? StringComparer.Ordinal : StringComparer.OrdinalIgnoreCase)
         .ToImmutableArray();
 
-    private static ClusterConfig MaterializeCluster(UpstreamDeclaration upstream)
+    private ClusterConfig MaterializeCluster(UpstreamDeclaration upstream)
     {
         var source = (StaticEndpointSource)upstream.Endpoints;
         var metadata = ImmutableDictionary.CreateBuilder<string, string>(StringComparer.Ordinal);
@@ -228,6 +232,13 @@ internal sealed class GatewayNativeMaterializer(IConfigValidator nativeValidator
         metadata.Add(HpdForwarderHttpClientFactory.UseProxyMetadata, upstream.Transport.UseProxy ? bool.TrueString : bool.FalseString);
         if (upstream.Transport.ConnectTimeout is { } connectTimeout)
             metadata.Add(HpdForwarderHttpClientFactory.ConnectTimeoutTicksMetadata, connectTimeout.Ticks.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        if (upstream.Resilience is { } resilience)
+        {
+            if (_resilienceRegistry is null || !_resilienceRegistry.IsInstalled(resilience.ProfileName, resilience.ProfileVersion))
+                throw new InvalidOperationException("Accepted resilience profile is not installed in the runtime registry.");
+            metadata.Add(HpdForwarderHttpClientFactory.ResilienceProfileMetadata, resilience.ProfileName);
+            metadata.Add(HpdForwarderHttpClientFactory.ResilienceVersionMetadata, resilience.ProfileVersion.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        }
 
         return new ClusterConfig
         {
@@ -326,6 +337,9 @@ internal sealed class GatewayNativeMaterializer(IConfigValidator nativeValidator
                 Add(diagnostics, "materialization.discovery-observation-required", $"upstreams[{index}].endpoints", "Discovery requires an immutable provider observation before materialization.");
             if (upstream.Transport.Tls is not null)
                 Add(diagnostics, "materialization.tls-resolution-required", $"upstreams[{index}].transport.tls", "TLS requires resolved ephemeral material and a compatible static client factory.");
+            if (upstream.Resilience is { } resilience &&
+                (_resilienceRegistry is null || !_resilienceRegistry.IsInstalled(resilience.ProfileName, resilience.ProfileVersion)))
+                Add(diagnostics, "materialization.resilience-profile-not-installed", $"upstreams[id={upstream.Id.Value}].resilience", "The selected Upstream resilience profile is not installed at its accepted version.");
         }
 
         if (configuration.RootDefaults!.Telemetry is not null && configuration.Routes.Any(static route => route.Enabled))
