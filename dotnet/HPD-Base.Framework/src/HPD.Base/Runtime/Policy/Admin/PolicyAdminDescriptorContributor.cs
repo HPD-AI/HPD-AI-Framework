@@ -3,8 +3,10 @@ namespace HPD.Base;
 
 internal sealed class PolicyAdminDescriptorContributor : IBaseDescriptorContributor
 {
+    /// <summary>Gets the ID.</summary>
     public string Id => "hpd.base.policy.admin";
 
+    /// <summary>Executes the contribute operation.</summary>
     public void Contribute(IBaseDescriptorContributionBuilder builder)
     {
         builder.AddModule(new BaseModuleDescriptor

@@ -25,6 +25,7 @@ internal sealed class BaseRealtimeWebSocketSession
     private readonly Dictionary<string, BaseRealtimeChannelOwner> _channels = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _sendLock = new(1, 1);
 
+    /// <summary>Initializes a new instance.</summary>
     public BaseRealtimeWebSocketSession(
         WebSocket socket,
         IBaseRealtimeFeedSource feeds,
@@ -48,6 +49,7 @@ internal sealed class BaseRealtimeWebSocketSession
             options.Limits.MaxJoinsPerSecond);
     }
 
+    /// <summary>Executes the run async operation.</summary>
     public async Task RunAsync(CancellationToken cancellationToken)
     {
         HPDBaseRealtimeAspNetCoreLog.ConnectionOpened(_logger);

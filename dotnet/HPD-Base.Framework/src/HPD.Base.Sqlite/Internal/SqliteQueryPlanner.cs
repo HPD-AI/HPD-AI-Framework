@@ -8,18 +8,20 @@ namespace HPD.Base.Sqlite;
 internal sealed class SqliteQueryPlanner
 {
     private readonly HPDBaseSqliteOptions _options;
-    private readonly SqliteNames _names;
+    private readonly SqlitePhysicalModel.CollectionModel _collection;
     private int _parameterId;
     private readonly List<(string Name, object? Value)> _parameters = [];
     private readonly List<string> _unsupported = [];
 
-    public SqliteQueryPlanner(HPDBaseSqliteOptions options)
+    /// <summary>Initializes a new instance.</summary>
+    public SqliteQueryPlanner(HPDBaseSqliteOptions options, SqlitePhysicalModel.CollectionModel collection)
     {
         _options = options;
-        _names = new SqliteNames(options);
+        _collection = collection;
     }
 
-    public SqliteQueryPlan Plan(string collectionId, RecordQuery query)
+    /// <summary>Executes the plan operation.</summary>
+    public SqliteQueryPlan Plan(RecordQuery query)
     {
         _parameterId = 0;
         _parameters.Clear();
@@ -32,8 +34,7 @@ internal sealed class SqliteQueryPlanner
         if (query.Select is { Length: > 0 } && query.Select.Length > _options.MaxSelectFields) _unsupported.Add("select.tooManyFields");
         if (query.Select?.Any(field => string.IsNullOrWhiteSpace(field) || field.Contains('.') || field.Any(char.IsControl)) == true) _unsupported.Add("select.field");
 
-        var filter = "collection_id = $collection";
-        _parameters.Add(("$collection", collectionId));
+        var filter = "1 = 1";
         if (query.Filter is not null)
         {
             var plannedFilter = PlanFilter(query.Filter, 0, new NodeCounter());
@@ -53,8 +54,8 @@ internal sealed class SqliteQueryPlanner
         return new SqliteQueryPlan(
             unsupported.Length == 0,
             unsupported,
-            $"SELECT collection_id, record_id, revision, created_at, updated_at, payload_json FROM {_names.Records} WHERE {filter}{sort}{page.Sql}",
-            $"SELECT COUNT(*) FROM {_names.Records} WHERE {filter}",
+            $"SELECT {_collection.SelectList} FROM {_collection.Table} WHERE {filter}{sort}{page.Sql}",
+            $"SELECT COUNT(*) FROM {_collection.Table} WHERE {filter}",
             _parameters.ToArray(),
             page.PageInfo);
     }
@@ -76,8 +77,8 @@ internal sealed class SqliteQueryPlanner
             FilterNodeKind.Compare => PlanCompare(filter),
             FilterNodeKind.In => PlanIn(filter),
             FilterNodeKind.Between => PlanBetween(filter),
-            FilterNodeKind.IsNull => JsonPath(filter.Field) is { } path ? $"(json_type(payload_json, {AddParameter(path)}) = 'null')" : null,
-            FilterNodeKind.IsDefined => JsonPath(filter.Field) is { } path ? $"(json_type(payload_json, {AddParameter(path)}) IS NOT NULL)" : null,
+            FilterNodeKind.IsNull => FieldModel(filter.Field) is { } nullField ? $"({nullField.Column} IS NULL{(nullField.PresenceColumn is null ? "" : " AND " + nullField.PresenceColumn + " = 1")})" : null,
+            FilterNodeKind.IsDefined => FieldModel(filter.Field) is { } definedField ? (definedField.PresenceColumn is null ? "(1 = 1)" : $"({definedField.PresenceColumn} = 1)") : null,
             _ => null
         };
     }
@@ -256,19 +257,13 @@ internal sealed class SqliteQueryPlanner
             "createdAt" => "created_at",
             "updatedAt" => "updated_at",
             "revision" => "revision",
-            _ => JsonPath(field) is { } path ? $"json_extract(payload_json, {AddParameter(path)})" : null
+            _ => FieldModel(field)?.Column
         };
     }
 
-    private static string? JsonPath(string? field)
-    {
-        if (string.IsNullOrWhiteSpace(field) || field.Contains('.') || field.Any(char.IsControl))
-        {
-            return null;
-        }
-
-        return "$." + field.Replace("\"", "\\\"", StringComparison.Ordinal);
-    }
+    private SqlitePhysicalModel.FieldModel? FieldModel(string? name) => string.IsNullOrWhiteSpace(name)
+        ? null
+        : _collection.Fields.SingleOrDefault(field => string.Equals(field.Definition.Name, name, StringComparison.Ordinal));
 
     private string AddParameter(object? value)
     {
@@ -293,6 +288,7 @@ internal sealed class SqliteQueryPlanner
 
     private sealed class NodeCounter
     {
+        /// <summary>Provides the value value.</summary>
         public int Value;
     }
 }
@@ -305,6 +301,7 @@ internal sealed record SqliteQueryPlan(
     (string Name, object? Value)[] Parameters,
     PageInfo PageInfo)
 {
+    /// <summary>Executes the bind operation.</summary>
     public void Bind(SqliteCommand command)
     {
         foreach (var parameter in Parameters)

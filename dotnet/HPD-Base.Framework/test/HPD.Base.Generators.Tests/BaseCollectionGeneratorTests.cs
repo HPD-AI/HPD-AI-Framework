@@ -22,8 +22,14 @@ public sealed class BaseCollectionGeneratorTests
             [BaseCollection("projects", typeof(AppJsonContext))]
             public partial record Project
             {
+                [BaseField("project.name")]
                 public required string Name { get; init; }
+
+                [BaseField("project.owner")]
+                public required BaseRecordId<User> OwnerId { get; init; }
             }
+
+            public sealed record User;
 
             [JsonSerializable(typeof(Project))]
             public partial class AppJsonContext : JsonSerializerContext;
@@ -36,6 +42,7 @@ public sealed class BaseCollectionGeneratorTests
         first.GeneratedSource.Should().Be(second.GeneratedSource);
         first.GeneratedSource.Should().Contain("BaseCollection<global::Example.Project>");
         first.GeneratedSource.Should().Contain("Fields.SetName");
+        first.GeneratedSource.Should().Contain("BaseRecordIdJsonConverterFactory.Register<global::Example.User>()");
     }
 
     [Fact]
@@ -116,6 +123,7 @@ public sealed class BaseCollectionGeneratorTests
             [BaseCollection("projects", typeof(AppJsonContext))]
             public partial record Project
             {
+                [BaseField("project.callback")]
                 public Action? Callback { get; init; }
             }
 
@@ -128,7 +136,7 @@ public sealed class BaseCollectionGeneratorTests
         Diagnostic diagnostic = result.Diagnostics.Should()
             .ContainSingle(item => item.Id == "HPDBASE008")
             .Subject;
-        diagnostic.Location.GetLineSpan().StartLinePosition.Line.Should().Be(7);
+        diagnostic.Location.GetLineSpan().StartLinePosition.Line.Should().Be(8);
         result.GeneratedSource.Should().BeEmpty();
     }
 
@@ -142,10 +150,10 @@ public sealed class BaseCollectionGeneratorTests
             [BaseCollection("projects", typeof(AppJsonContext))]
             public partial record Project
             {
-                [BaseField(Name = "name")]
+                [BaseField("project.first", Name = "name")]
                 public string First { get; init; } = "";
 
-                [BaseField(Name = "name")]
+                [BaseField("project.second", Name = "name")]
                 public string Second { get; init; } = "";
             }
 
@@ -179,6 +187,7 @@ public sealed class BaseCollectionGeneratorTests
             [BaseCollection("projects", typeof(AppJsonContext))]
             public partial record Project
             {
+                [BaseField("project.name")]
                 public string Name { get; init; } = "";
             }
 
@@ -193,6 +202,149 @@ public sealed class BaseCollectionGeneratorTests
             .Subject;
         diagnostic.Location.IsInSource.Should().BeTrue();
         result.GeneratedSource.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void MissingStableFieldIdentityReportsAtTheProperty()
+    {
+        const string source = """
+            using HPD.Base;
+            using System.Text.Json.Serialization;
+
+            [BaseCollection("projects", typeof(AppJsonContext))]
+            public partial record Project
+            {
+                public string Name { get; init; } = "";
+            }
+
+            [JsonSerializable(typeof(Project))]
+            public partial class AppJsonContext : JsonSerializerContext;
+            """;
+
+        var result = Run(source);
+
+        result.Diagnostics.Should().ContainSingle(item => item.Id == "HPDBASE010");
+        result.GeneratedSource.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DuplicateStableFieldIdentityReportsExactDiagnostic()
+    {
+        const string source = """
+            using HPD.Base;
+            using System.Text.Json.Serialization;
+            [BaseCollection("projects", typeof(AppJsonContext))]
+            public partial record Project
+            {
+                [BaseField("project.value")] public string First { get; init; } = "";
+                [BaseField("project.value")] public string Second { get; init; } = "";
+            }
+            [JsonSerializable(typeof(Project))] public partial class AppJsonContext : JsonSerializerContext;
+            """;
+
+        GeneratorResult result = Run(source);
+
+        result.Diagnostics.Should().ContainSingle(item => item.Id == "HPDBASE011");
+        result.GeneratedSource.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void MalformedStableFieldIdentityReportsExactDiagnostic()
+    {
+        const string source = """
+            using HPD.Base;
+            using System.Text.Json.Serialization;
+            [BaseCollection("projects", typeof(AppJsonContext))]
+            public partial record Project
+            {
+                [BaseField("bad identity")] public string Value { get; init; } = "";
+            }
+            [JsonSerializable(typeof(Project))] public partial class AppJsonContext : JsonSerializerContext;
+            """;
+
+        GeneratorResult result = Run(source);
+
+        result.Diagnostics.Should().ContainSingle(item => item.Id == "HPDBASE008");
+        result.GeneratedSource.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DeclarationOrderDoesNotChangeGeneratedContract()
+    {
+        const string prefix = """
+            using HPD.Base;
+            using System.Text.Json.Serialization;
+            [BaseCollection("projects", typeof(AppJsonContext))]
+            public partial record Project
+            {
+            """;
+        const string suffix = """
+            }
+            [JsonSerializable(typeof(Project))] public partial class AppJsonContext : JsonSerializerContext;
+            """;
+        string first = prefix + "[BaseField(\"project.a\")] public string A { get; init; } = \"\";\n[BaseField(\"project.b\")] public string B { get; init; } = \"\";\n" + suffix;
+        string reversed = prefix + "[BaseField(\"project.b\")] public string B { get; init; } = \"\";\n[BaseField(\"project.a\")] public string A { get; init; } = \"\";\n" + suffix;
+
+        GeneratorResult left = Run(first);
+        GeneratorResult right = Run(reversed);
+
+        left.Diagnostics.Should().BeEmpty();
+        right.Diagnostics.Should().BeEmpty();
+        left.GeneratedSource.Should().Be(right.GeneratedSource);
+    }
+
+    [Fact]
+    public void ManyValuedTypedRecordIdsGenerateBoundedArrayRelationMetadata()
+    {
+        const string source = """
+            using HPD.Base;
+            using System.Text.Json.Serialization;
+            [BaseCollection("owners", typeof(AppJsonContext))]
+            public partial record Owner { [BaseField("owner.name")] public required string Name { get; init; } }
+            [BaseCollection("teams", typeof(AppJsonContext))]
+            public partial record Team
+            {
+                [BaseField("team.members")]
+                [BaseRelation("team.members", typeof(Owner), LocalMultiplicity = BaseRelationMultiplicity.Many, MinimumCount = 1, MaximumCount = 4, IncludeAllowed = true, IncludeFilterAllowed = true, IncludeSortAllowed = true, IncludeMaximumDepth = 2)]
+                public required BaseRecordId<Owner>[] Members { get; init; }
+            }
+            [JsonSerializable(typeof(Owner))]
+            [JsonSerializable(typeof(Team))]
+            public partial class AppJsonContext : JsonSerializerContext;
+            """;
+
+        GeneratorResult result = Run(source);
+
+        result.Diagnostics.Should().BeEmpty();
+        result.GeneratedSource.Should().Contain("LocalMultiplicity = (global::HPD.Base.BaseRelationMultiplicity)2");
+        result.GeneratedSource.Should().Contain("MinimumCount = 1");
+        result.GeneratedSource.Should().Contain("MaximumCount = 4");
+        result.GeneratedSource.Should().Contain("Allowed = true, FilterAllowed = true, SortAllowed = true, MaxDepth = 2");
+    }
+
+    [Theory]
+    [InlineData("BaseRecordId<Owner>", "BaseRelationMultiplicity.Many")]
+    [InlineData("BaseRecordId<Owner>[]", "BaseRelationMultiplicity.ExactlyOne")]
+    public void RelationMultiplicityMustMatchTheTypedRecordIdShape(string propertyType, string multiplicity)
+    {
+        string source = $$"""
+            using HPD.Base;
+            using System.Text.Json.Serialization;
+            [BaseCollection("owners", typeof(AppJsonContext))]
+            public partial record Owner { [BaseField("owner.name")] public required string Name { get; init; } }
+            [BaseCollection("teams", typeof(AppJsonContext))]
+            public partial record Team
+            {
+                [BaseField("team.members")]
+                [BaseRelation("team.members", typeof(Owner), LocalMultiplicity = {{multiplicity}})]
+                public required {{propertyType}} Members { get; init; }
+            }
+            [JsonSerializable(typeof(Owner))]
+            [JsonSerializable(typeof(Team))]
+            public partial class AppJsonContext : JsonSerializerContext;
+            """;
+
+        Run(source).Diagnostics.Should().ContainSingle(item => item.Id == "HPDBASE012");
     }
 
     private static GeneratorResult Run(string source)

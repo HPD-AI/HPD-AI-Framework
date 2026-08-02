@@ -446,7 +446,7 @@ public sealed class HPDAuthBasePolicyEvaluator : IPolicyEvaluator
         bool isRead)
     {
         FilterExpression? tenantFilter = null;
-        if (isRead && rule.RequireTenantMatch && !string.IsNullOrWhiteSpace(rule.TenantFieldPath))
+        if (isRead && rule.RequireTenantMatch && !string.IsNullOrWhiteSpace(rule.TenantFieldId))
         {
             if (string.IsNullOrWhiteSpace(request.Principal.CurrentTenantId))
                 return null;
@@ -454,7 +454,7 @@ public sealed class HPDAuthBasePolicyEvaluator : IPolicyEvaluator
             tenantFilter = new FilterExpression
             {
                 Kind = FilterNodeKind.Compare,
-                Field = rule.TenantFieldPath,
+                Field = rule.TenantFieldId,
                 Operator = FilterOperator.Equal,
                 Value = new QueryValue
                 {

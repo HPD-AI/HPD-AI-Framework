@@ -7,12 +7,15 @@ public sealed class BaseSessionRealtime(
     IBaseRealtimeFeedSource source,
     BaseSession session)
 {
+    /// <summary>Executes the live operation.</summary>
     public BaseRealtimeBuilder<T> Live<T>(BaseCollection<T> collection) =>
         new(source, session, collection, durable: false, resumeCursor: null);
 
+    /// <summary>Executes the durable operation.</summary>
     public BaseRealtimeBuilder<T> Durable<T>(BaseCollection<T> collection) =>
         new(source, session, collection, durable: true, resumeCursor: null);
 
+    /// <summary>Executes the resume operation.</summary>
     public BaseRealtimeBuilder<T> Resume<T>(
         BaseCollection<T> collection,
         string cursor)
@@ -62,9 +65,11 @@ public sealed class BaseRealtimeBuilder<T>
         _operations = operations;
     }
 
+    /// <summary>Executes the for record operation.</summary>
     public BaseRealtimeBuilder<T> ForRecord(RecordId recordId) =>
         Copy(recordId: recordId.Value);
 
+    /// <summary>Executes the operations operation.</summary>
     public BaseRealtimeBuilder<T> Operations(params ReadOnlySpan<BaseOperationKind> operations)
     {
         if (operations.Length == 0)
@@ -75,9 +80,11 @@ public sealed class BaseRealtimeBuilder<T>
         return Copy(operations: operations.ToArray());
     }
 
+    /// <summary>Executes the include snapshots operation.</summary>
     public BaseRealtimeBuilder<T> IncludeSnapshots(bool includeBefore = false) =>
         Copy(snapshots: true, before: includeBefore);
 
+    /// <summary>Executes the open async operation.</summary>
     public async ValueTask<BaseRealtimeFeed> OpenAsync(
         CancellationToken cancellationToken = default)
     {
@@ -145,23 +152,34 @@ public sealed class BaseRealtimeFeed(
     IAsyncEnumerable<BaseRealtimeEvent> events,
     BaseRealtimeFeedMetadata metadata) : IAsyncDisposable
 {
+    /// <summary>Gets the events.</summary>
     public IAsyncEnumerable<BaseRealtimeEvent> Events { get; } = events;
+    /// <summary>Gets the metadata.</summary>
     public BaseRealtimeFeedMetadata Metadata { get; } = metadata;
+    /// <summary>Executes the dispose async operation.</summary>
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 }
 
+/// <summary>Represents a base realtime feed metadata.</summary>
 public sealed record BaseRealtimeFeedMetadata
 {
+    /// <summary>Gets or sets the stream ID.</summary>
     public string? StreamId { get; init; }
+    /// <summary>Gets or sets the cursor.</summary>
     public string? Cursor { get; init; }
+    /// <summary>Gets or sets the replayable.</summary>
     public bool Replayable { get; init; }
+    /// <summary>Gets or sets the resumable.</summary>
     public bool Resumable { get; init; }
 }
 
+/// <summary>Represents a base realtime open exception.</summary>
 public sealed class BaseRealtimeOpenException(string code, string safeMessage)
     : Exception(safeMessage)
 {
+    /// <summary>Gets the code.</summary>
     public string Code { get; } = Validate(code, nameof(code));
+    /// <summary>Gets the safe message.</summary>
     public string SafeMessage { get; } = Validate(safeMessage, nameof(safeMessage));
 
     private static string Validate(string value, string name)

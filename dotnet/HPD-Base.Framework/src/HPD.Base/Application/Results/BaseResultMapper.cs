@@ -3,6 +3,7 @@ namespace HPD.Base;
 
 internal static class BaseResultMapper
 {
+    /// <summary>Executes the map operation.</summary>
     public static BaseResult<BaseUnit> Map(OperationResult result)
     {
         ArgumentNullException.ThrowIfNull(result);
@@ -24,6 +25,7 @@ internal static class BaseResultMapper
             result.Diagnostics);
     }
 
+    /// <summary>Executes the map operation.</summary>
     public static BaseResult<TOutput> Map<TInput, TOutput>(
         OperationResult<TInput> result,
         Func<TInput, TOutput> map)
@@ -61,5 +63,6 @@ internal static class BaseResultMapper
 /// <summary>Represents a successful BASE operation with no returned payload.</summary>
 public readonly record struct BaseUnit
 {
+    /// <summary>Gets the value.</summary>
     public static BaseUnit Value => default;
 }

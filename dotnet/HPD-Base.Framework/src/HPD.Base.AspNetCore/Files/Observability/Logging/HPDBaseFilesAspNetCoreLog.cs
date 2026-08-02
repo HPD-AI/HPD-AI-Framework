@@ -4,6 +4,7 @@ namespace HPD.Base.AspNetCore;
 
 internal static partial class HPDBaseFilesAspNetCoreLog
 {
+    /// <summary>Executes the download response stream failed operation.</summary>
     [LoggerMessage(
         EventId = 4500,
         EventName = "DownloadResponseStreamFailed",

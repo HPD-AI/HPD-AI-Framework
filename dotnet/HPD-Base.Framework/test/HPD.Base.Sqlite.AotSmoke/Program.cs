@@ -9,29 +9,23 @@ try
 {
     var services = new ServiceCollection();
     services.AddLogging();
-    services.AddSingleton<IPolicyEvaluator, SmokePolicyEvaluator>();
-    services.AddHPDBaseRuntime().AddHPDBaseSqliteStore(options =>
+    services.AddHPDBase(builder =>
     {
-        options.StoreId = "smoke.sqlite";
-        options.DataSource = dataSource;
-        options.CollectionIds = ["items"];
-        options.Collections =
-        [
-            new CollectionDefinition
-            {
-                Id = "items",
-                Name = "items",
-                Kind = BaseCollectionKinds.Document,
-                SchemaMode = SchemaMode.Loose,
-                UnknownFields = UnknownFieldPolicy.Preserve,
-                Operations = new CollectionOperationMatrix { List = true, Get = true, Create = true, Patch = true, Replace = true, Delete = true },
-                Fields = [new FieldDefinition { Id = "title", Name = "title", Type = BaseFieldTypes.String }]
-            }
-        ];
+        builder.ConfigureSchema(options =>
+        {
+            options.ApplicationId = "hpd.base.sqlite.aot";
+            options.PlanProtectionKey = Enumerable.Repeat((byte)0x61, 32).ToArray();
+        });
+        builder.UseSqlite(options => { options.StoreId = "smoke.sqlite"; options.DataSource = dataSource; });
+        builder.AddCollection(HPD.Base.BaseCollection.Define("items", SmokeJsonContext.Default.SmokeRecord, schema => schema.String("title", "title")));
+        builder.ReplacePolicyEvaluator<SmokePolicyEvaluator>();
     });
 
     await using var provider = services.BuildServiceProvider();
-    provider.GetRequiredService<IRecordStoreRegistry>().AddHPDBaseSqliteStore(provider);
+    IBaseSchemaManager schemas = provider.GetRequiredService<IBaseSchemaManager>();
+    BaseSchemaPlan plan = (await schemas.PlanAsync(new BaseSchemaPlanRequest { StoreId = "smoke.sqlite" })).Value!;
+    Require((await schemas.ApplyAsync(new BaseSchemaApplyRequest { ProtectedArtifact = plan.ProtectedArtifact })).IsSuccess(), "Schema apply failed.");
+    Require((await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess(), "Application initialization failed.");
 
     var runtime = provider.GetRequiredService<IBaseRecordRuntime>();
     var principal = new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.Anonymous };
@@ -55,7 +49,15 @@ try
     Require(descriptor.Status == OperationStatus.Ok && descriptor.Value is not null, "Relational descriptor failed.");
     _ = JsonSerializer.Serialize(descriptor.Value, HPDBaseSqliteJsonSerializerContext.Default.RelationalStoreDescriptor);
     _ = JsonSerializer.Serialize(
-        new HPD.Base.Sqlite.HPDBaseSqliteOptions { StoreId = "serialized", CollectionIds = ["items"] },
+        new HPD.Base.Sqlite.HPDBaseSqliteOptions
+        {
+            StoreId = "serialized",
+            Collections = [new CollectionDefinition
+            {
+                Id = "items", Name = "items", Kind = BaseCollectionKinds.Document,
+                SchemaMode = SchemaMode.Loose, UnknownFields = UnknownFieldPolicy.Preserve
+            }]
+        },
         HPDBaseSqliteJsonSerializerContext.Default.HPDBaseSqliteOptions);
 
     var delete = await runtime.DeleteAsync("items", create.Value!.Id, new RecordDeleteRequest { ExpectedRevision = create.Value.Metadata.Revision, ReturnPrevious = true }, principal, Operation(BaseOperationKind.Delete));
@@ -88,9 +90,16 @@ static void Require(bool condition, string message)
 
 internal sealed class SmokePolicyEvaluator : IPolicyEvaluator
 {
+    public SmokePolicyEvaluator() { }
+
     public ValueTask<PolicyDecision> EvaluateAsync(PolicyEvaluationRequest request, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         return ValueTask.FromResult(new PolicyDecision { Effect = PolicyEffect.Allow, Outcome = PolicyOutcome.Allowed });
     }
 }
+
+internal sealed record SmokeRecord(string Title);
+
+[System.Text.Json.Serialization.JsonSerializable(typeof(SmokeRecord))]
+internal sealed partial class SmokeJsonContext : System.Text.Json.Serialization.JsonSerializerContext;

@@ -11,6 +11,7 @@ internal sealed class BaseHttpQueryBinder : IBaseHttpQueryBinder
 {
     private readonly HPDBaseAspNetCoreOptions _options;
 
+    /// <summary>Initializes a new instance.</summary>
     public BaseHttpQueryBinder(IOptions<HPDBaseAspNetCoreOptions> options)
     {
         _options = options.Value;
@@ -25,6 +26,7 @@ internal sealed class BaseHttpQueryBinder : IBaseHttpQueryBinder
         "collections"
     };
 
+    /// <summary>Executes the bind list query async operation.</summary>
     public ValueTask<OperationResult<RecordQuery>> BindListQueryAsync(
         HttpContext httpContext,
         CancellationToken cancellationToken = default)
@@ -80,7 +82,7 @@ internal sealed class BaseHttpQueryBinder : IBaseHttpQueryBinder
             Sort = sort,
             Page = BindPage(query),
             Select = select,
-            Include = include?.Select(static path => new QueryInclude { Path = path }).ToArray(),
+            Include = include?.Select(static navigationId => new RecordInclude { NavigationId = navigationId }).ToArray(),
             Count = BindCount(query, out var countValidation),
             Extensions = BindExtensions(query, _options.Limits, out var extensionValidation)
         };
@@ -110,6 +112,7 @@ internal sealed class BaseHttpQueryBinder : IBaseHttpQueryBinder
         return new BaseHttpQueryParseResult(true);
     }
 
+    /// <summary>Executes the bind manifest expand operation.</summary>
     public OperationResult<string[]> BindManifestExpand(HttpContext httpContext)
     {
         ArgumentNullException.ThrowIfNull(httpContext);

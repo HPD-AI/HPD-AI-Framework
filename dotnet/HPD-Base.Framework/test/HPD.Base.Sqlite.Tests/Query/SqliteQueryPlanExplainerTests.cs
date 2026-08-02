@@ -11,14 +11,14 @@ public sealed class SqliteQueryPlanExplainerTests
     [Fact]
     public async Task UnsupportedPlanReportsReasonWithoutExecutableSql()
     {
-        var services = new ServiceCollection().AddLogging().AddHPDBaseSqliteStore(options => options.CollectionIds = ["items"]);
+        var services = new ServiceCollection().AddLogging().AddHPDBaseSqliteStore(options => options.Collections = [Collection()]);
         await using var provider = services.BuildServiceProvider();
         var explainer = provider.GetRequiredService<IRelationalQueryPlanExplainer>();
 
         var result = await explainer.ExplainAsync(
             Collection(),
             Operation(BaseOperationKind.List),
-            new RecordQuery { Include = [new QueryInclude { Path = "owner" }] },
+            new RecordQuery { Include = [new RecordInclude { NavigationId = "owner" }] },
             VisibilityLevel.Public);
 
         result.Value!.Status.Should().Be(RelationalQueryPlanStatus.Unsupported);

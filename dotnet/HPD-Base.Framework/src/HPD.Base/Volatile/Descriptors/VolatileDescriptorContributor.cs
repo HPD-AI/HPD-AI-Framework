@@ -7,14 +7,17 @@ internal sealed class VolatileDescriptorContributor : IBaseDescriptorContributor
     private readonly HPDBaseVolatileStoreOptions _options;
     private readonly VolatileRecordStore _store;
 
+    /// <summary>Initializes a new instance.</summary>
     public VolatileDescriptorContributor(IOptions<HPDBaseVolatileStoreOptions> options, VolatileRecordStore store)
     {
         _options = options.Value;
         _store = store;
     }
 
+    /// <summary>Gets the ID.</summary>
     public string Id => _options.ModuleId;
 
+    /// <summary>Executes the contribute operation.</summary>
     public void Contribute(IBaseDescriptorContributionBuilder builder)
     {
         if (_options.ContributeModuleDescriptor)

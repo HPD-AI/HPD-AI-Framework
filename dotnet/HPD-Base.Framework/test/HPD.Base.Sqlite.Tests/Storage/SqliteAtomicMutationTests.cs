@@ -231,7 +231,7 @@ public sealed class SqliteAtomicMutationTests
             new HPDBaseSqliteOptions
             {
                 StoreId = $"atomic-{Guid.NewGuid():N}",
-                CollectionIds = ["items"]
+                Collections = [Collection("items")]
             },
             time);
         var collection = Collection("items");
@@ -273,7 +273,7 @@ public sealed class SqliteAtomicMutationTests
         await using var store = SqliteTestFactory.Create(new HPDBaseSqliteOptions
         {
             DataSource = path
-        });
+        }, initializeSchema: false);
         var processor = new CallbackProcessor((_, _) =>
             throw new InvalidOperationException("The processor must not be invoked."));
         var requests = new[]
@@ -431,7 +431,7 @@ public sealed class SqliteAtomicMutationTests
         var options = new HPDBaseSqliteOptions
         {
             StoreId = $"atomic-{Guid.NewGuid():N}",
-            CollectionIds = ["items"],
+            Collections = [Collection("items")],
             MaxTrackedMutationExecutions = 2,
             QuarantinedMutationDrainTimeout = TimeSpan.FromMilliseconds(100)
         };
@@ -480,8 +480,7 @@ public sealed class SqliteAtomicMutationTests
         {
             StoreId = $"atomic-{Guid.NewGuid():N}",
             DataSource = path,
-            CollectionIds = ["items"],
-            FailIfSchemaMissing = true,
+            Collections = [Collection("items")],
             QuarantinedMutationDrainTimeout = TimeSpan.FromMilliseconds(100)
         };
         var store = SqliteTestFactory.Create(
@@ -500,7 +499,7 @@ public sealed class SqliteAtomicMutationTests
             {
                 await connection.OpenAsync();
                 await using var command = connection.CreateCommand();
-                command.CommandText = $"DROP TABLE {options.SchemaPrefix}records;";
+                command.CommandText = $"DROP TABLE {PhysicalTable("items")};";
                 await command.ExecuteNonQueryAsync();
             }
 
@@ -529,7 +528,7 @@ public sealed class SqliteAtomicMutationTests
             new HPDBaseSqliteOptions
             {
                 StoreId = $"atomic-{Guid.NewGuid():N}",
-                CollectionIds = ["items"]
+                Collections = [Collection("items")]
             },
             transactions: transactions,
             sessionOperations: sessions);
@@ -570,7 +569,7 @@ public sealed class SqliteAtomicMutationTests
         var options = new HPDBaseSqliteOptions
         {
             StoreId = $"atomic-{Guid.NewGuid():N}",
-            CollectionIds = ["items"],
+            Collections = [Collection("items")],
             MaxTrackedMutationExecutions = 1,
             QuarantinedMutationDrainTimeout = TimeSpan.FromMilliseconds(100)
         };
@@ -652,7 +651,7 @@ public sealed class SqliteAtomicMutationTests
         SqliteTestFactory.Create(new HPDBaseSqliteOptions
         {
             StoreId = $"atomic-{Guid.NewGuid():N}",
-            CollectionIds = ["items", "first", "second"]
+            Collections = [Collection("items"), Collection("first"), Collection("second")]
         });
 
     private static SqliteRecordStore FaultableStore(
@@ -661,9 +660,12 @@ public sealed class SqliteAtomicMutationTests
             new HPDBaseSqliteOptions
             {
                 StoreId = $"atomic-{Guid.NewGuid():N}",
-                CollectionIds = ["items"]
+                Collections = [Collection("items")]
             },
             transactions: transactions);
+
+    private static string PhysicalTable(string collectionId) => "b_c_" + Convert.ToHexStringLower(
+        System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(collectionId)))[..32];
 
     private static CallbackProcessor CreateProcessor(
         CollectionDefinition collection,

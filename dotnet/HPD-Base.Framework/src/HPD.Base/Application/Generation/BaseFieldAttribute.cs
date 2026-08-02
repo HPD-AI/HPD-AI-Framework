@@ -4,8 +4,13 @@ namespace HPD.Base;
 /// Customizes one property in a generated BASE collection contract.
 /// </summary>
 [AttributeUsage(AttributeTargets.Property, Inherited = false)]
-public sealed class BaseFieldAttribute : Attribute
+public sealed class BaseFieldAttribute(string id) : Attribute
 {
+    /// <summary>
+    /// Gets the stable logical field identifier.
+    /// </summary>
+    public string Id { get; } = id;
+
     /// <summary>
     /// Gets or sets the canonical stored field name.
     /// </summary>

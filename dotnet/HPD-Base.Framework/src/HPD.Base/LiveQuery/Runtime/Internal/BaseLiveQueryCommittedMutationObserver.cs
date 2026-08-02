@@ -5,6 +5,7 @@ internal sealed class BaseLiveQueryCommittedMutationObserver(
     IBaseDependencyInvalidationMapper invalidations,
     DefaultBaseLiveQueryCoordinator coordinator) : IBaseCommittedMutationObserver
 {
+    /// <summary>Executes the observe async operation.</summary>
     public async ValueTask ObserveAsync(
         BaseRecordMutationEvent mutation,
         CancellationToken cancellationToken = default)

@@ -13,6 +13,7 @@ internal sealed class VolatileFileStorageProvider : IFileStorageProvider
     private long _nextId;
     private long _nextRevision;
 
+    /// <summary>Initializes a new instance.</summary>
     public VolatileFileStorageProvider(IOptions<HPDBaseVolatileFileStoreOptions> options)
     {
         ProviderRef = options.Value.ProviderRef;
@@ -20,8 +21,10 @@ internal sealed class VolatileFileStorageProvider : IFileStorageProvider
         _timeProvider = options.Value.TimeProvider ?? TimeProvider.System;
     }
 
+    /// <summary>Gets the provider ref.</summary>
     public FileProviderRef ProviderRef { get; }
 
+    /// <summary>Executes the upload async operation.</summary>
     public ValueTask<OperationResult<FileObjectUploadResult>> UploadAsync(
         FileBucketDescriptor bucket,
         FileObjectUploadRequest request,
@@ -88,6 +91,7 @@ internal sealed class VolatileFileStorageProvider : IFileStorageProvider
         });
     }
 
+    /// <summary>Executes the open download async operation.</summary>
     public ValueTask<OperationResult<FileObjectDownloadResult>> OpenDownloadAsync(
         FileBucketDescriptor bucket,
         FileObjectDownloadRequest request,
@@ -124,6 +128,7 @@ internal sealed class VolatileFileStorageProvider : IFileStorageProvider
         }));
     }
 
+    /// <summary>Executes the get metadata async operation.</summary>
     public ValueTask<OperationResult<FileObjectMetadata>> GetMetadataAsync(
         FileBucketDescriptor bucket,
         FileObjectMetadataRequest request,
@@ -148,6 +153,7 @@ internal sealed class VolatileFileStorageProvider : IFileStorageProvider
             : NotFound<FileObjectMetadata>(request.ObjectId));
     }
 
+    /// <summary>Executes the delete async operation.</summary>
     public ValueTask<OperationResult> DeleteAsync(
         FileBucketDescriptor bucket,
         FileObjectDeleteRequest request,
@@ -179,6 +185,7 @@ internal sealed class VolatileFileStorageProvider : IFileStorageProvider
         return ValueTask.FromResult(OperationResults.NoContent());
     }
 
+    /// <summary>Executes the list metadata async operation.</summary>
     public ValueTask<OperationResult<FileObjectListResult>> ListMetadataAsync(
         FileBucketDescriptor bucket,
         FileObjectListRequest request,
@@ -210,6 +217,7 @@ internal sealed class VolatileFileStorageProvider : IFileStorageProvider
         return ValueTask.FromResult(OperationResults.Ok(new FileObjectListResult { Items = items }));
     }
 
+    /// <summary>Executes the clear operation.</summary>
     public void Clear()
     {
         _objects.Clear();

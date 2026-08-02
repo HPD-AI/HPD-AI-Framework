@@ -3,8 +3,10 @@ namespace HPD.Base;
 
 internal sealed class BaseMutationDescriptorContributor : IBaseDescriptorContributor
 {
+    /// <summary>Gets the ID.</summary>
     public string Id => "hpd.base.runtime.mutations";
 
+    /// <summary>Executes the contribute operation.</summary>
     public void Contribute(IBaseDescriptorContributionBuilder builder)
     {
         ArgumentNullException.ThrowIfNull(builder);

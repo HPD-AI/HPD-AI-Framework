@@ -3,38 +3,77 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace HPD.Base;
-
 /// <summary>Installs one optional provider or hosting integration into HPD.BASE.</summary>
 public interface IHPDBaseBuilderExtension
 {
+    /// <summary>Gets id.</summary>
     string Id { get; }
+
+    /// <summary>Gets is Record Provider.</summary>
     bool IsRecordProvider { get; }
+
+    /// <summary>Gets supports Required Indexes.</summary>
     bool SupportsRequiredIndexes { get; }
+
+    /// <summary>Performs configure.</summary>
     void Configure(IServiceCollection services, IReadOnlyList<CollectionDefinition> collections);
-    void Initialize(IServiceProvider services) { }
+    /// <summary>Performs initialize Async.</summary>
+    ValueTask InitializeAsync(IServiceProvider services, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
 }
 
 /// <summary>Collects one deterministic HPD.BASE host configuration.</summary>
 public sealed class HPDBaseBuilder
 {
+    /// <summary>Provides _services.</summary>
     private readonly IServiceCollection _services;
+    /// <summary>Provides _collections.</summary>
     private readonly Dictionary<string, CollectionDefinition> _collections = new(StringComparer.Ordinal);
+    /// <summary>Provides _reads.</summary>
+    private readonly Dictionary<string, IBaseReadRegistration> _reads = new(StringComparer.Ordinal);
+    /// <summary>Provides _dependency Templates.</summary>
     private readonly List<BaseDependencyTemplate> _dependencyTemplates = [];
+    /// <summary>Provides _extensions.</summary>
     private readonly List<IHPDBaseBuilderExtension> _extensions = [];
+    /// <summary>Provides _runtime.</summary>
     private Action<HPDBaseRuntimeOptions>? _runtime;
+    /// <summary>Provides _files.</summary>
     private Action<HPDBaseFilesOptions>? _files;
+    /// <summary>Provides _dependencies.</summary>
     private Action<BaseDependencyOptions>? _dependencies;
+    /// <summary>Provides _realtime.</summary>
     private Action<BaseRealtimeOptions>? _realtime;
+    /// <summary>Provides _live Queries.</summary>
     private Action<BaseLiveQueryOptions>? _liveQueries;
+    /// <summary>Provides _volatile Store.</summary>
     private Action<HPDBaseVolatileStoreOptions>? _volatileStore;
+    /// <summary>Provides _relational.</summary>
+    private Action<HPDBaseRelationalOptions>? _relational;
+    /// <summary>Provides _schema.</summary>
+    private Action<HPDBaseSchemaOptions>? _schema;
+    /// <summary>Provides _built.</summary>
     private bool _built;
-
     internal HPDBaseBuilder(IServiceCollection services) => _services = services;
-
+    /// <summary>Performs configure Runtime.</summary>
     public HPDBaseBuilder ConfigureRuntime(Action<HPDBaseRuntimeOptions> configure)
     {
         ArgumentNullException.ThrowIfNull(configure);
         _runtime += configure;
+        return this;
+    }
+
+    /// <summary>Configures bounded relational-read and include execution.</summary>
+    public HPDBaseBuilder ConfigureRelational(Action<HPDBaseRelationalOptions> configure)
+    {
+        ArgumentNullException.ThrowIfNull(configure);
+        _relational += configure;
+        return this;
+    }
+
+    /// <summary>Configures bounded schema planning and application.</summary>
+    public HPDBaseBuilder ConfigureSchema(Action<HPDBaseSchemaOptions> configure)
+    {
+        ArgumentNullException.ThrowIfNull(configure);
+        _schema += configure;
         return this;
     }
 
@@ -57,6 +96,7 @@ public sealed class HPDBaseBuilder
         return this;
     }
 
+    /// <summary>Performs add Collection.</summary>
     public HPDBaseBuilder AddCollection<T>(BaseCollection<T> collection)
     {
         ArgumentNullException.ThrowIfNull(collection);
@@ -65,78 +105,112 @@ public sealed class HPDBaseBuilder
         return this;
     }
 
+    /// <summary>Registers one generated typed relational read definition.</summary>
+    public HPDBaseBuilder AddRead<TParameters, TRow>(BaseReadDefinition<TParameters, TRow> definition)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        if (!_reads.TryAdd(definition.Id, definition))
+            throw new InvalidOperationException($"Read '{definition.Id}' is already registered.");
+        return this;
+    }
+
+    /// <summary>Performs add Files.</summary>
     public HPDBaseBuilder AddFiles(Action<HPDBaseFilesOptions>? configure = null)
     {
         if (_files is not null)
             throw new InvalidOperationException("Files are already registered.");
-        _files = configure ?? (_ => { });
+        _files = configure ?? (_ =>
+        {
+        });
         return this;
     }
 
-    public HPDBaseBuilder AddDependencies(
-        Action<BaseDependencyOptions>? configure = null,
-        Action<BaseDependencyCatalog>? define = null)
+    /// <summary>Performs add Dependencies.</summary>
+    public HPDBaseBuilder AddDependencies(Action<BaseDependencyOptions>? configure = null, Action<BaseDependencyCatalog>? define = null)
     {
         if (_dependencies is not null)
             throw new InvalidOperationException("Dependencies are already registered.");
-        _dependencies = configure ?? (_ => { });
+        _dependencies = configure ?? (_ =>
+        {
+        });
         define?.Invoke(new BaseDependencyCatalog(_dependencyTemplates));
         return this;
     }
 
+    /// <summary>Performs add Realtime.</summary>
     public HPDBaseBuilder AddRealtime(Action<BaseRealtimeOptions>? configure = null)
     {
         if (_realtime is not null)
             throw new InvalidOperationException("Realtime is already registered.");
-        _realtime = configure ?? (_ => { });
+        _realtime = configure ?? (_ =>
+        {
+        });
         return this;
     }
 
+    /// <summary>Performs add Live Queries.</summary>
     public HPDBaseBuilder AddLiveQueries(Action<BaseLiveQueryOptions>? configure = null)
     {
         if (_liveQueries is not null)
             throw new InvalidOperationException("Live queries are already registered.");
-        _liveQueries = configure ?? (_ => { });
+        _liveQueries = configure ?? (_ =>
+        {
+        });
         return this;
     }
 
+    /// <summary>Performs replace Policy Evaluator.</summary>
     public HPDBaseBuilder ReplacePolicyEvaluator<
-        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T>()
+    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)]
+    T>()
         where T : class, IPolicyEvaluator
     {
         _services.Replace(ServiceDescriptor.Singleton<IPolicyEvaluator, T>());
         return this;
     }
 
+    /// <summary>Performs add Descriptor Contributor.</summary>
     public HPDBaseBuilder AddDescriptorContributor<
-        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T>()
+    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)]
+    T>()
         where T : class, IBaseDescriptorContributor
     {
         _services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseDescriptorContributor, T>());
         return this;
     }
 
+    /// <summary>Performs build.</summary>
     internal void Build()
     {
         if (_built)
             throw new InvalidOperationException("The HPD.BASE builder was already applied.");
         _built = true;
-
         IHPDBaseBuilderExtension[] explicitProviders = _extensions.Where(static item => item.IsRecordProvider).ToArray();
         if (explicitProviders.Length > 1)
             throw new InvalidOperationException("Select at most one explicit HPD.BASE record provider.");
         if (explicitProviders.Length == 1 && _volatileStore is not null)
-            throw new InvalidOperationException(
-                "ConfigureVolatileStore cannot be combined with an explicit HPD.BASE record provider.");
-
-        IHPDBaseBuilderExtension provider = explicitProviders.Length == 1
-            ? explicitProviders[0]
-            : new VolatileProviderInstaller(_volatileStore);
-
+            throw new InvalidOperationException("ConfigureVolatileStore cannot be combined with an explicit HPD.BASE record provider.");
+        IHPDBaseBuilderExtension provider = explicitProviders.Length == 1 ? explicitProviders[0] : new VolatileProviderInstaller(_volatileStore);
         CollectionDefinition[] collections = _collections.Values.ToArray();
+        var relationalOptions = new HPDBaseRelationalOptions();
+        _relational?.Invoke(relationalOptions);
+        relationalOptions.Validate();
+        var schemaOptions = new HPDBaseSchemaOptions();
+        _schema?.Invoke(schemaOptions);
+        schemaOptions.Validate();
+        BaseApplicationGraphValidator.Validate(collections, _reads.Values, relationalOptions, schemaOptions);
+        BaseLogicalSchema logicalSchema = BaseLogicalSchemaFactory.Create(schemaOptions, collections, _reads.Values);
         ValidateIndexCapabilities(collections, provider);
-
+        _services.AddSingleton(new BaseReadRegistry(new Dictionary<string, IBaseReadRegistration>(_reads, StringComparer.Ordinal)));
+        _services.AddSingleton(new BaseCollectionRegistry(collections.ToDictionary(static collection => collection.Id, StringComparer.Ordinal)));
+        _services.AddSingleton(logicalSchema);
         _services.AddHPDBaseRuntime(_runtime).UseFailClosedPolicy();
+        _services.AddSingleton(Microsoft.Extensions.Options.Options.Create(relationalOptions));
+        _services.AddSingleton(Microsoft.Extensions.Options.Options.Create(schemaOptions));
+        _services.AddSingleton<IBaseSchemaPlanProtector, DefaultBaseSchemaPlanProtector>();
+        _services.AddSingleton<IBaseSchemaManager, DefaultBaseSchemaManager>();
+        _services.TryAddSingleton<IBaseApplicationLifetime, DefaultBaseApplicationLifetime>();
+        _services.AddSingleton<IBaseProviderBootstrap, DefaultBaseProviderBootstrap>();
         if (_files is not null)
         {
             _services.AddHPDBaseFiles(options =>
@@ -155,6 +229,7 @@ public sealed class HPDBaseBuilder
             });
             _services.AddHPDBaseFilesVolatileProvider();
         }
+
         if (_dependencies is not null)
             _services.AddHPDBaseDependencies(_dependencies, _dependencyTemplates.ToArray());
         if (_realtime is not null)
@@ -166,63 +241,54 @@ public sealed class HPDBaseBuilder
             _services.AddHPDBaseLiveQuery(_liveQueries);
         }
 
-        IHPDBaseBuilderExtension[] installedExtensions = explicitProviders.Length == 0
-            ? [provider, .. _extensions]
-            : _extensions.ToArray();
+        IHPDBaseBuilderExtension[] installedExtensions = explicitProviders.Length == 0 ? [provider, .._extensions] : _extensions.ToArray();
         foreach (IHPDBaseBuilderExtension extension in installedExtensions)
             extension.Configure(_services, collections);
-
-        _services.AddSingleton(new HPDBaseInstalledFeatures
-        {
-            Provider = provider.Id,
-            CollectionIds = collections.Select(static item => item.Id).ToArray(),
-            Files = _files is not null,
-            Dependencies = _dependencies is not null,
-            Realtime = _realtime is not null,
-            LiveQueries = _liveQueries is not null,
-            ExtensionIds = installedExtensions.Select(static item => item.Id).ToArray(),
-            Extensions = installedExtensions
-        });
-        _services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseApplicationInitializer, BaseRecordStoreInitializer>());
+        _services.AddSingleton(new HPDBaseInstalledFeatures { Provider = provider.Id, CollectionIds = collections.Select(static item => item.Id).ToArray(), ReadIds = _reads.Keys.ToArray(), Files = _files is not null, Dependencies = _dependencies is not null, Realtime = _realtime is not null, LiveQueries = _liveQueries is not null, ExtensionIds = installedExtensions.Select(static item => item.Id).ToArray(), Extensions = installedExtensions, LogicalSchema = logicalSchema });
+        _services.TryAddSingleton<IHPDBaseApplication, DefaultHPDBaseApplication>();
+        _services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseHealthContributor, BaseApplicationHealthContributor>());
     }
 
-    private static void ValidateIndexCapabilities(
-        CollectionDefinition[] collections,
-        IHPDBaseBuilderExtension provider)
+    /// <summary>Performs validate Index Capabilities.</summary>
+    private static void ValidateIndexCapabilities(CollectionDefinition[] collections, IHPDBaseBuilderExtension provider)
     {
-        IndexDefinition? required = collections.SelectMany(static collection => collection.Indexes ?? [])
-            .FirstOrDefault(static index => index.Enforcement != EnforcementOwner.Advisory);
+        IndexDefinition? required = collections.SelectMany(static collection => collection.Indexes ?? []).FirstOrDefault(static index => index.Enforcement != EnforcementOwner.Advisory);
         if (required is not null && !provider.SupportsRequiredIndexes)
-            throw new InvalidOperationException(
-                $"Required physical index '{required.CollectionId}/{required.Id}' cannot be installed by " +
-                $"the selected provider '{provider.Id}'. Mark it Advisory or select a capable provider.");
+            throw new InvalidOperationException($"Required physical index '{required.CollectionId}/{required.Id}' cannot be installed by " + $"the selected provider '{provider.Id}'. Mark it Advisory or select a capable provider.");
     }
 }
 
+/// <summary>Represents hPDBase Installed Features.</summary>
 public sealed record HPDBaseInstalledFeatures
 {
+    /// <summary>Gets or sets provider.</summary>
     public required string Provider { get; init; }
+    /// <summary>Gets or sets collection Ids.</summary>
     public required string[] CollectionIds { get; init; }
+    /// <summary>Gets or sets read Ids.</summary>
+    public required string[] ReadIds { get; init; }
+    /// <summary>Gets or sets extension Ids.</summary>
     public required string[] ExtensionIds { get; init; }
+    /// <summary>Gets or sets files.</summary>
     public bool Files { get; init; }
+    /// <summary>Gets or sets dependencies.</summary>
     public bool Dependencies { get; init; }
+    /// <summary>Gets or sets realtime.</summary>
     public bool Realtime { get; init; }
+    /// <summary>Gets or sets live Queries.</summary>
     public bool LiveQueries { get; init; }
     internal IHPDBaseBuilderExtension[] Extensions { get; init; } = [];
+    internal BaseLogicalSchema LogicalSchema { get; init; } = null!;
 }
 
 /// <summary>Defines validated application dependency-template handles.</summary>
 public sealed class BaseDependencyCatalog
 {
+    /// <summary>Provides _templates.</summary>
     private readonly List<BaseDependencyTemplate> _templates;
     internal BaseDependencyCatalog(List<BaseDependencyTemplate> templates) => _templates = templates;
-
-    public BaseDependencyTemplateHandle Define(
-        string id,
-        BaseDependencyKind kind,
-        BaseDependencyVisibility visibility,
-        string? description = null,
-        params ReadOnlySpan<string> parameters)
+    /// <summary>Performs define.</summary>
+    public BaseDependencyTemplateHandle Define(string id, BaseDependencyKind kind, BaseDependencyVisibility visibility, string? description = null, params ReadOnlySpan<string> parameters)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(id);
         if (_templates.Any(template => string.Equals(template.Id, id, StringComparison.Ordinal)))

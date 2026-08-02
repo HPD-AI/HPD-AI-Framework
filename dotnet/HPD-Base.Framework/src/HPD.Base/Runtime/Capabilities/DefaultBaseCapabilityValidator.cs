@@ -5,11 +5,13 @@ internal sealed class DefaultBaseCapabilityValidator : IBaseCapabilityValidator
 {
     private readonly IRecordStoreRegistry _stores;
 
+    /// <summary>Initializes a new instance.</summary>
     public DefaultBaseCapabilityValidator(IRecordStoreRegistry stores)
     {
         _stores = stores;
     }
 
+    /// <summary>Executes the validate capabilities operation.</summary>
     public BaseRuntimeValidationResult ValidateCapabilities(BaseDescriptorSnapshot snapshot)
     {
         ArgumentNullException.ThrowIfNull(snapshot);

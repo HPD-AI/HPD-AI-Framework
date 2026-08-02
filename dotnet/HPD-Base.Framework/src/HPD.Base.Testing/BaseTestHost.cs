@@ -23,14 +23,20 @@ public sealed class BaseTestHost : IAsyncDisposable
         Policy = policy;
     }
 
+    /// <summary>Gets the time.</summary>
     public BaseTestTimeProvider Time { get; }
+    /// <summary>Gets the faults.</summary>
     public BaseTestFaults Faults { get; }
+    /// <summary>Gets the probe.</summary>
     public BaseTestProbe Probe { get; }
+    /// <summary>Gets the policy.</summary>
     public BaseTestPolicy Policy { get; }
+    /// <summary>Gets the features.</summary>
     public HPDBaseInstalledFeatures Features =>
         _provider.GetRequiredService<HPDBaseInstalledFeatures>();
 
-    public static ValueTask<BaseTestHost> CreateAsync(
+    /// <summary>Executes the create async operation.</summary>
+    public static async ValueTask<BaseTestHost> CreateAsync(
         Action<HPDBaseBuilder> configure,
         DateTimeOffset? initialTime = null)
     {
@@ -40,7 +46,12 @@ public sealed class BaseTestHost : IAsyncDisposable
         var time = new BaseTestTimeProvider(
             initialTime ?? new DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero));
         services.AddSingleton<TimeProvider>(time);
-        services.AddHPDBase(configure);
+        services.AddHPDBase(builder =>
+        {
+            configure(builder);
+            builder.ConfigureSchema(options =>
+                options.PlanProtectionKey = Enumerable.Repeat((byte)0xA7, 32).ToArray());
+        });
         var policy = new BaseTestPolicy();
         services.AddSingleton(policy);
         services.Replace(
@@ -54,29 +65,54 @@ public sealed class BaseTestHost : IAsyncDisposable
         services.AddSingleton<BaseTestProbe>();
         services.AddSingleton<IBaseCommittedMutationObserver>(
             provider => provider.GetRequiredService<BaseTestProbe>());
-        services.TryAddEnumerable(
-            ServiceDescriptor.Singleton<
-                IBaseApplicationInitializer,
-                BaseTestStoreInitializer>());
+        services.AddSingleton<BaseTestStoreInitializer>();
         ServiceProvider provider = services.BuildServiceProvider(
             new ServiceProviderOptions
             {
                 ValidateOnBuild = true,
                 ValidateScopes = true,
             });
-        return ValueTask.FromResult(new BaseTestHost(
+        HPDBaseInstalledFeatures features = provider.GetRequiredService<HPDBaseInstalledFeatures>();
+        if (string.Equals(features.Provider, "sqlite", StringComparison.Ordinal))
+        {
+            IBaseSchemaManager schemas = provider.GetRequiredService<IBaseSchemaManager>();
+            OperationResult<BaseSchemaPlan> plan = await schemas.PlanAsync(
+                new BaseSchemaPlanRequest { StoreId = "sqlite" }).ConfigureAwait(false);
+            if (!plan.IsSuccess() || plan.Value is null)
+                throw new InvalidOperationException(
+                    $"The HPD.BASE test schema could not be planned ({plan.Error?.Code ?? "unknown"}).");
+            OperationResult<BaseSchemaApplyResult> applied = await schemas.ApplyAsync(
+                new BaseSchemaApplyRequest
+                {
+                    ProtectedArtifact = plan.Value.ProtectedArtifact,
+                    AllowDestructive = true,
+                }).ConfigureAwait(false);
+            if (!applied.IsSuccess())
+                throw new InvalidOperationException(
+                    $"The HPD.BASE test schema could not be applied ({applied.Error?.Code ?? "unknown"}).");
+        }
+        OperationResult<BaseApplicationReadiness> initialized = await provider
+            .GetRequiredService<IHPDBaseApplication>()
+            .InitializeAsync()
+            .ConfigureAwait(false);
+        if (!initialized.IsSuccess())
+            throw new InvalidOperationException("The HPD.BASE test host failed to initialize.");
+        provider.GetRequiredService<BaseTestStoreInitializer>().Initialize();
+        return new BaseTestHost(
             provider,
             time,
             faults,
             provider.GetRequiredService<BaseTestProbe>(),
-            policy));
+            policy);
     }
 
+    /// <summary>Executes the session operation.</summary>
     public BaseSession Session(
         PrincipalContext principal,
         Action<BaseSessionOptions>? configure = null) =>
         _provider.GetRequiredService<IBaseSessionFactory>().For(principal, configure);
 
+    /// <summary>Executes the get required service operation.</summary>
     public T GetRequiredService<T>() where T : notnull =>
         _provider.GetRequiredService<T>();
 
@@ -120,6 +156,7 @@ public sealed class BaseTestHost : IAsyncDisposable
         return entries;
     }
 
+    /// <summary>Executes the dispose async operation.</summary>
     public ValueTask DisposeAsync() => _provider.DisposeAsync();
 
 }

@@ -7,6 +7,7 @@ namespace HPD.Base;
 /// <typeparam name="T">The successful value type.</typeparam>
 public abstract record BaseResult<T>
 {
+    /// <summary>Initializes a new instance.</summary>
     private protected BaseResult()
     {
     }

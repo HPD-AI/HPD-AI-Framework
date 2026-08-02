@@ -12,7 +12,7 @@ public sealed class RecordEndpointTests
         var list = await app.ReadBaseJsonAsync<RecordPage>((await client.GetAsync("/base/collections/items/records?where[title]=alpha")).Content);
         list!.Items.Should().Contain(item => item.Id == created.Id);
 
-        var query = await client.PostAsync("/base/collections/items/query", JsonContent.Create(new RecordQuery
+        var query = await client.PostAsync("/base/collections/items/records:query", JsonContent.Create(new RecordQuery
         {
             Select = ["title"]
         }, HPDBaseJsonSerializerContext.Default.RecordQuery));

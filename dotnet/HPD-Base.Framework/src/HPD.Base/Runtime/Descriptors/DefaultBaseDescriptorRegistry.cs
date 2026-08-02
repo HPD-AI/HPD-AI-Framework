@@ -11,6 +11,7 @@ internal sealed class DefaultBaseDescriptorRegistry : IBaseDescriptorRegistry
     private readonly IRecordStoreRegistry _stores;
     private BaseDescriptorSnapshot? _current;
 
+    /// <summary>Initializes a new instance.</summary>
     public DefaultBaseDescriptorRegistry(
         IOptions<HPDBaseRuntimeOptions> options,
         IEnumerable<IBaseDescriptorContributor> contributors,
@@ -25,8 +26,10 @@ internal sealed class DefaultBaseDescriptorRegistry : IBaseDescriptorRegistry
         _stores = stores;
     }
 
+    /// <summary>Gets the current.</summary>
     public BaseDescriptorSnapshot Current => _current ??= CreateSnapshot();
 
+    /// <summary>Executes the rebuild async operation.</summary>
     public ValueTask<BaseDescriptorSnapshot> RebuildAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();

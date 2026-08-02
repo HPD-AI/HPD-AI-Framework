@@ -10,6 +10,7 @@ internal sealed class BaseRealtimeHealthContributor : IBaseHealthContributor, IB
     private readonly IEventCoordinator _events;
     private readonly TimeProvider _timeProvider;
 
+    /// <summary>Initializes a new instance.</summary>
     public BaseRealtimeHealthContributor(
         IOptions<BaseRealtimeOptions> options,
         BaseRealtimeStats stats,
@@ -22,8 +23,10 @@ internal sealed class BaseRealtimeHealthContributor : IBaseHealthContributor, IB
         _timeProvider = timeProvider;
     }
 
+    /// <summary>Gets the ID.</summary>
     public string Id => BaseRealtimeModuleIds.Module;
 
+    /// <summary>Executes the get health async operation.</summary>
     public ValueTask<HealthDescriptor[]> GetHealthAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -79,6 +82,7 @@ internal sealed class BaseRealtimeHealthContributor : IBaseHealthContributor, IB
         ]);
     }
 
+    /// <summary>Executes the get diagnostics async operation.</summary>
     public ValueTask<DiagnosticDescriptor[]> GetDiagnosticsAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();

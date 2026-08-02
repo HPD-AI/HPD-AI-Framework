@@ -37,6 +37,7 @@ internal static class HPDBaseHPDAuthTelemetry
         unit: "{operation}",
         description: "Counts HPD.BASE HPD.Auth admin and service bypass decisions.");
 
+    /// <summary>Executes the trace policy async operation.</summary>
     public static async ValueTask<PolicyDecision> TracePolicyAsync(
         PolicyEvaluationRequest request,
         HPDAuthBasePolicyCompositionMode compositionMode,
@@ -57,6 +58,7 @@ internal static class HPDBaseHPDAuthTelemetry
         }
     }
 
+    /// <summary>Executes the trace grants async operation.</summary>
     public static async ValueTask<AccessGrant[]> TraceGrantsAsync(
         PolicyEvaluationRequest request,
         int providerCount,
@@ -76,9 +78,11 @@ internal static class HPDBaseHPDAuthTelemetry
         }
     }
 
+    /// <summary>Executes the record grant provider call operation.</summary>
     public static void RecordGrantProviderCall(PolicyEvaluationRequest request, string status) =>
         GrantProviderCalls.Add(1, Tags(request, null, null, null, status));
 
+    /// <summary>Executes the record matched grants operation.</summary>
     public static void RecordMatchedGrants(PolicyEvaluationRequest request, int count, PolicyEffect effect)
     {
         var tags = Tags(request, EffectValue(effect), null, null, "ok");
@@ -86,6 +90,7 @@ internal static class HPDBaseHPDAuthTelemetry
         GrantsMatched.Record(count, tags);
     }
 
+    /// <summary>Executes the record bypass operation.</summary>
     public static void RecordBypass(PolicyEvaluationRequest request, string bypassKind)
     {
         var tags = Tags(request, HPDBaseTelemetryValues.PolicyAllow, OutcomeValue(PolicyOutcome.Bypassed), null, "ok");
@@ -93,6 +98,7 @@ internal static class HPDBaseHPDAuthTelemetry
         Bypasses.Add(1, tags);
     }
 
+    /// <summary>Executes the trace host check operation.</summary>
     public static bool TraceHostCheck(int statusProviderCount, Func<bool> invoke)
     {
         using var activity = HPDBaseHPDAuthObservability.ActivitySource.StartActivity(HPDBaseTelemetrySpans.AuthHostCheck, ActivityKind.Internal);

@@ -8,6 +8,7 @@ using BaseQueryValidationUsageConverter = LowerCamelJsonStringEnumConverter<Base
 using BaseRuntimeValidationFailureKindConverter = LowerCamelJsonStringEnumConverter<BaseRuntimeValidationFailureKind>;
 using BaseRuntimeValidationSeverityConverter = LowerCamelJsonStringEnumConverter<BaseRuntimeValidationSeverity>;
 
+/// <summary>Represents a hpdbase runtime JSON serializer context.</summary>
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,

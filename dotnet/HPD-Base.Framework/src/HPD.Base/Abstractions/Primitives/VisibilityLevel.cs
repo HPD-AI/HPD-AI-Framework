@@ -5,8 +5,12 @@ namespace HPD.Base;
 /// </summary>
 public enum VisibilityLevel
 {
-    Public,
-    Authenticated,
-    Admin,
-    Internal
+    /// <summary>Identifies public.</summary>
+Public,
+    /// <summary>Identifies authenticated.</summary>
+Authenticated,
+    /// <summary>Identifies admin.</summary>
+Admin,
+    /// <summary>Identifies internal.</summary>
+Internal
 }

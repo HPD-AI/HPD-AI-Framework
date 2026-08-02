@@ -9,6 +9,7 @@ namespace HPD.Base.AspNetCore;
 
 internal static class FileObjectEndpoints
 {
+    /// <summary>Executes the map operation.</summary>
     public static void Map(RouteGroupBuilder group)
     {
         group.MapPost("/{bucketId}/objects", (RequestDelegate)Upload)

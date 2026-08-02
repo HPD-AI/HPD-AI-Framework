@@ -4,6 +4,7 @@ namespace HPD.Base;
 
 internal static class DescriptorViewFilter
 {
+    /// <summary>Executes the manifest operation.</summary>
     public static BaseManifest Manifest(BaseDescriptorSnapshot snapshot, VisibilityLevel view)
     {
         var manifest = snapshot.Manifest with
@@ -43,6 +44,7 @@ internal static class DescriptorViewFilter
         return WithETag(PruneManifestReferences(manifest, visibleFeatureIds), view);
     }
 
+    /// <summary>Executes the schema operation.</summary>
     public static SchemaMetadata Schema(BaseDescriptorSnapshot snapshot, VisibilityLevel view) =>
         snapshot.Schema with
         {
@@ -55,6 +57,7 @@ internal static class DescriptorViewFilter
             Diagnostics = Diagnostics(snapshot.Schema.Diagnostics, view)
         };
 
+    /// <summary>Executes the collection operation.</summary>
     public static CollectionDefinition Collection(CollectionDefinition collection, VisibilityLevel view) =>
         collection with
         {
@@ -69,6 +72,7 @@ internal static class DescriptorViewFilter
             Indexes = view == VisibilityLevel.Public ? PublicIndexes(collection.Indexes) : collection.Indexes
         };
 
+    /// <summary>Executes the capabilities operation.</summary>
     public static CapabilityDescriptor Capabilities(BaseDescriptorSnapshot snapshot, VisibilityLevel view) =>
         snapshot.Capabilities with
         {
@@ -166,12 +170,14 @@ internal static class DescriptorViewFilter
         };
     }
 
+    /// <summary>Executes the health operation.</summary>
     public static HealthDescriptor[] Health(HealthDescriptor[]? health, VisibilityLevel view) =>
         (health ?? [])
         .Where(item => IsVisible(item.Visibility, view))
         .Select(item => view == VisibilityLevel.Public ? item with { Dependencies = null } : item)
         .ToArray();
 
+    /// <summary>Executes the diagnostics operation.</summary>
     public static DiagnosticDescriptor[] Diagnostics(DiagnosticDescriptor[]? diagnostics, VisibilityLevel view) =>
         (diagnostics ?? [])
         .Where(item => IsVisible(item.Visibility, view))

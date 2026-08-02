@@ -7,11 +7,13 @@ internal sealed class DefaultBaseQueryValidator : IBaseQueryValidator
 {
     private readonly HPDBaseRuntimeLimitOptions _limits;
 
+    /// <summary>Initializes a new instance.</summary>
     public DefaultBaseQueryValidator(IOptions<HPDBaseRuntimeOptions> options)
     {
         _limits = options.Value.Limits;
     }
 
+    /// <summary>Executes the validate async operation.</summary>
     public ValueTask<OperationResult<ValidatedRecordQuery>> ValidateAsync(
         CollectionDefinition collection,
         RecordQuery query,
@@ -96,7 +98,7 @@ internal sealed class DefaultBaseQueryValidator : IBaseQueryValidator
         {
             return ValueTask.FromResult(OperationResults.ValidationFailed<ValidatedRecordQuery>(new BaseError
             {
-                Code = "base.runtime.query.include.tooMany",
+                Code = "base.include.limitExceeded",
                 Message = "Query contains too many include paths.",
                 Category = ErrorCategory.Validation
             }));
@@ -104,22 +106,22 @@ internal sealed class DefaultBaseQueryValidator : IBaseQueryValidator
 
         if (includeCount > 0 && capability.Include?.Supported != true)
         {
-            return ValueTask.FromResult(Unsupported("base.runtime.query.include.unsupported", "Includes are not supported by the selected store."));
+            return ValueTask.FromResult(Unsupported("base.include.unsupported", "Includes are not supported by the selected store."));
         }
 
         if (query.Include?.Any(include => include.Filter is not null) == true && capability.Include?.IncludeFilters != true)
         {
-            return ValueTask.FromResult(Unsupported("base.runtime.query.include.filterUnsupported", "Include filters are not supported by the selected store."));
+            return ValueTask.FromResult(Unsupported("base.include.unsupported", "Include filters are not supported by the selected store."));
         }
 
         if (query.Include?.Any(include => include.Sort is { Length: > 0 }) == true && capability.Include?.IncludeSort != true)
         {
-            return ValueTask.FromResult(Unsupported("base.runtime.query.include.sortUnsupported", "Include sort is not supported by the selected store."));
+            return ValueTask.FromResult(Unsupported("base.include.unsupported", "Include sort is not supported by the selected store."));
         }
 
         if (query.Include?.Any(include => include.Limit is not null) == true && capability.Include?.IncludeLimit != true)
         {
-            return ValueTask.FromResult(Unsupported("base.runtime.query.include.limitUnsupported", "Include limits are not supported by the selected store."));
+            return ValueTask.FromResult(Unsupported("base.include.unsupported", "Include limits are not supported by the selected store."));
         }
 
         foreach (var include in query.Include ?? [])
@@ -291,19 +293,20 @@ internal sealed class DefaultBaseQueryValidator : IBaseQueryValidator
     {
         var fields = collection.Fields ?? [];
         return new FieldIndex(
-            fields.Length == 0,
-            fields.SelectMany(field => new[] { field.Id, field.Name })
+            false,
+            fields.Select(field => field.Id)
                 .Where(value => !string.IsNullOrWhiteSpace(value))
                 .ToHashSet(StringComparer.Ordinal),
             fields.Where(field => field.System)
-                .SelectMany(field => new[] { field.Id, field.Name })
+                .Select(field => field.Id)
                 .Where(value => !string.IsNullOrWhiteSpace(value))
                 .ToHashSet(StringComparer.Ordinal),
             fields.Where(field => field.Relation is not null)
-                .SelectMany(field => new[] { field.Id, field.Name })
+                .SelectMany(field => new[] { field.Relation!.Id, field.Relation.InverseNavigationId })
                 .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Select(value => value!)
                 .ToHashSet(StringComparer.Ordinal),
-            fields.SelectMany(field => new[] { (field.Id, field.Type), (field.Name, field.Type) })
+            fields.Select(field => (field.Id, field.Type))
                 .Where(item => !string.IsNullOrWhiteSpace(item.Item1))
                 .GroupBy(item => item.Item1, StringComparer.Ordinal)
                 .ToDictionary(group => group.Key, group => group.First().Type, StringComparer.Ordinal));
@@ -325,7 +328,7 @@ internal sealed class DefaultBaseQueryValidator : IBaseQueryValidator
             });
         }
 
-        var topLevel = TopLevelFieldPath(fieldPath);
+        var topLevel = fields.All.Contains(fieldPath) ? fieldPath : TopLevelFieldPath(fieldPath);
         if (!fields.SchemaOpen && !fields.All.Contains(topLevel))
         {
             return OperationResults.ValidationFailed<ValidatedRecordQuery>(new BaseError
@@ -348,7 +351,7 @@ internal sealed class DefaultBaseQueryValidator : IBaseQueryValidator
             });
         }
 
-        if (fieldPath.Contains('.', StringComparison.Ordinal) && !nestedSupported)
+        if (!string.Equals(topLevel, fieldPath, StringComparison.Ordinal) && !nestedSupported)
         {
             return Unsupported("base.runtime.query.field.nestedUnsupported", "Nested field paths are not supported by the selected store.");
         }
@@ -357,46 +360,50 @@ internal sealed class DefaultBaseQueryValidator : IBaseQueryValidator
     }
 
     private static OperationResult<ValidatedRecordQuery>? ValidateInclude(
-        QueryInclude include,
+        RecordInclude include,
         FieldIndex fields,
         int maxDepth)
     {
-        if (string.IsNullOrWhiteSpace(include.Path))
+        if (string.IsNullOrWhiteSpace(include.NavigationId))
         {
             return OperationResults.ValidationFailed<ValidatedRecordQuery>(new BaseError
             {
-                Code = "base.runtime.query.include.pathRequired",
-                Message = "Include path must be non-empty.",
+                Code = "base.include.invalid",
+                Message = "Include navigation id must be non-empty.",
                 Category = ErrorCategory.Validation
             });
         }
 
-        var depth = include.Path.Split('.', StringSplitOptions.RemoveEmptyEntries).Length;
+        var depth = IncludeDepth(include);
         if (maxDepth > 0 && depth > maxDepth)
         {
             return OperationResults.ValidationFailed<ValidatedRecordQuery>(new BaseError
             {
-                Code = "base.runtime.query.include.tooDeep",
+                Code = "base.include.limitExceeded",
                 Message = "Include path exceeds the maximum depth.",
                 Category = ErrorCategory.Validation,
-                Target = include.Path
+                Target = include.NavigationId
             });
         }
 
-        var topLevel = TopLevelFieldPath(include.Path);
-        if (!fields.SchemaOpen && !fields.Relations.Contains(topLevel))
+        if (!fields.Relations.Contains(include.NavigationId))
         {
             return OperationResults.ValidationFailed<ValidatedRecordQuery>(new BaseError
             {
-                Code = "base.runtime.query.include.notRelation",
-                Message = "Include path must reference a declared relation field.",
+                Code = "base.include.invalid",
+                Message = "Include navigation id must reference a declared relation.",
                 Category = ErrorCategory.Validation,
-                Target = include.Path
+                Target = include.NavigationId
             });
         }
 
         return null;
     }
+
+    private static int IncludeDepth(RecordInclude include) =>
+        1 + (include.Includes is { Length: > 0 }
+            ? include.Includes.Max(IncludeDepth)
+            : 0);
 
     private static string TopLevelFieldPath(string fieldPath)
     {
@@ -458,6 +465,7 @@ internal sealed class DefaultBaseQueryValidator : IBaseQueryValidator
 
     private static class FilterCounter
     {
+        /// <summary>Executes the count operation.</summary>
         public static FilterCounterResult Count(FilterExpression filter, int maxDepth, int maxNodes)
         {
             var nodes = 0;
@@ -497,6 +505,7 @@ internal sealed class DefaultBaseQueryValidator : IBaseQueryValidator
 
     private static class FilterShapeValidator
     {
+        /// <summary>Executes the validate operation.</summary>
         public static FilterShapeResult Validate(
             FilterExpression filter,
             QueryCapability capability,
@@ -634,6 +643,7 @@ internal sealed class DefaultBaseQueryValidator : IBaseQueryValidator
             return Success();
         }
 
+        /// <summary>Executes the validate value operation.</summary>
         public static FilterShapeResult ValidateValue(QueryValue value)
         {
             var activeBranches = 0;
@@ -685,13 +695,13 @@ internal sealed class DefaultBaseQueryValidator : IBaseQueryValidator
             QueryCapability capability,
             FieldIndex fields)
         {
-            var topLevel = TopLevelFieldPath(fieldPath);
+            var topLevel = fields.All.Contains(fieldPath) ? fieldPath : TopLevelFieldPath(fieldPath);
             if (!fields.SchemaOpen && !fields.All.Contains(topLevel))
             {
                 return Fail("base.runtime.query.field.unknown", "Query references a field that is not declared by the collection schema.");
             }
 
-            if (fieldPath.Contains('.', StringComparison.Ordinal) && !capability.Filter.NestedFieldPaths)
+            if (!string.Equals(topLevel, fieldPath, StringComparison.Ordinal) && !capability.Filter.NestedFieldPaths)
             {
                 return Fail("base.runtime.query.field.nestedUnsupported", "Nested field paths are not supported by the selected store.");
             }
@@ -740,7 +750,7 @@ internal sealed class DefaultBaseQueryValidator : IBaseQueryValidator
 
                 if (descriptor.AllowedFieldTypes is { Length: > 0 })
                 {
-                    var topLevel = TopLevelFieldPath(filter.Field);
+                    var topLevel = fields.All.Contains(filter.Field) ? filter.Field : TopLevelFieldPath(filter.Field);
                     var fieldType = fields.Types.TryGetValue(topLevel, out var type) ? type : null;
                     if (fieldType is not null && !descriptor.AllowedFieldTypes.Contains(fieldType, StringComparer.Ordinal))
                     {

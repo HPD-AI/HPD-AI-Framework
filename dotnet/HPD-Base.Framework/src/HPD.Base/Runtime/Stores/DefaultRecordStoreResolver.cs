@@ -5,11 +5,13 @@ internal sealed class DefaultRecordStoreResolver : IRecordStoreResolver
 {
     private readonly IRecordStoreRegistry _registry;
 
+    /// <summary>Initializes a new instance.</summary>
     public DefaultRecordStoreResolver(IRecordStoreRegistry registry)
     {
         _registry = registry;
     }
 
+    /// <summary>Executes the resolve operation.</summary>
     public OperationResult<IRecordStore> Resolve(
         CollectionDefinition collection,
         OperationContext operation)

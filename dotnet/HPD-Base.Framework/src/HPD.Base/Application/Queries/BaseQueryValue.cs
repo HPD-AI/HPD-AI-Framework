@@ -4,6 +4,7 @@ namespace HPD.Base;
 
 internal static class BaseQueryValue
 {
+    /// <summary>Executes the from operation.</summary>
     public static QueryValue From<T>(T value)
     {
         if (value is null)

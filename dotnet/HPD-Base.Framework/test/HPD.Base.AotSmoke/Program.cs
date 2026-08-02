@@ -16,7 +16,8 @@ var roundTrip = JsonSerializer.Deserialize(json, collection.JsonTypeInfo);
 
 if (roundTrip is null ||
     roundTrip.OrganizationId != "org_aot" ||
-    AotProject.Fields.OrganizationId.Path != "organizationId" ||
+    AotProject.Fields.OrganizationId.Id != "organization-id" ||
+    AotProject.Fields.OrganizationId.StoredName != "organizationId" ||
     !AotProject.Fields.Name.Operators.HasFlag(BaseFieldOperator.Order))
 {
     throw new InvalidOperationException(
@@ -46,9 +47,10 @@ namespace HPD.Base.AotSmoke
     [BaseCollection("aot.projects", typeof(AotApplicationJsonContext))]
     internal sealed partial record AotProject
     {
+        [BaseField("organization-id")]
         public required string OrganizationId { get; init; }
 
-        [BaseField(Operators = BaseFieldOperator.Equal | BaseFieldOperator.Order)]
+        [BaseField("name", Operators = BaseFieldOperator.Equal | BaseFieldOperator.Order)]
         public required string Name { get; init; }
     }
 

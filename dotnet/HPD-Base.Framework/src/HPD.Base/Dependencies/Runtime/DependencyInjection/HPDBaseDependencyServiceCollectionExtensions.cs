@@ -3,8 +3,10 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace HPD.Base;
 
+/// <summary>Represents a hpdbase dependency service collection extensions.</summary>
 public static class HPDBaseDependencyServiceCollectionExtensions
 {
+    /// <summary>Executes the add hpdbase dependencies operation.</summary>
     public static IServiceCollection AddHPDBaseDependencies(
         this IServiceCollection services,
         Action<BaseDependencyOptions> configure,

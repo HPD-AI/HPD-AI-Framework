@@ -6,11 +6,13 @@ internal sealed class DefaultFileObjectKeyValidator : IFileObjectKeyValidator
 {
     private readonly HPDBaseFilesOptions _options;
 
+    /// <summary>Initializes a new instance.</summary>
     public DefaultFileObjectKeyValidator(IOptions<HPDBaseFilesOptions> options)
     {
         _options = options.Value;
     }
 
+    /// <summary>Executes the normalize operation.</summary>
     public OperationResult<FileObjectKey> Normalize(string? key)
     {
         if (string.IsNullOrWhiteSpace(key))

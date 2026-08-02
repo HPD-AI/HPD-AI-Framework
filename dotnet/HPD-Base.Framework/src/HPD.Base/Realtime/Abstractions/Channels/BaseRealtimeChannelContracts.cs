@@ -38,20 +38,31 @@ public sealed record BaseRealtimeChannelJoinRequest
     public string? ResumeCursor { get; init; }
 }
 
+/// <summary>Represents a base realtime channel join result.</summary>
 public sealed record BaseRealtimeChannelJoinResult
 {
+    /// <summary>Gets or sets the channel.</summary>
     public required string Channel { get; init; }
+    /// <summary>Gets or sets the kind.</summary>
     public required string Kind { get; init; }
+    /// <summary>Gets or sets the replayable.</summary>
     public bool Replayable { get; init; }
+    /// <summary>Gets or sets the resumable.</summary>
     public bool Resumable { get; init; }
+    /// <summary>Gets or sets the stream ID.</summary>
     public string? StreamId { get; init; }
+    /// <summary>Gets or sets the cursor.</summary>
     public string? Cursor { get; init; }
 }
 
+/// <summary>Represents a base realtime error.</summary>
 public sealed record BaseRealtimeError
 {
+    /// <summary>Gets or sets the code.</summary>
     public required string Code { get; init; }
+    /// <summary>Gets or sets the message.</summary>
     public required string Message { get; init; }
+    /// <summary>Gets or sets the target.</summary>
     public string? Target { get; init; }
 }
 

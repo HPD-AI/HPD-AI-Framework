@@ -88,15 +88,15 @@ public enum HPDBasePublicMetadataMode
     /// <summary>
     /// Maps public manifest, capabilities, schema, and collection metadata routes.
     /// </summary>
-    Full,
+Full,
 
     /// <summary>
     /// Maps only compact public manifest and capabilities routes.
     /// </summary>
-    Minimal,
+Minimal,
 
     /// <summary>
     /// Maps no public metadata routes.
     /// </summary>
-    Disabled
+Disabled
 }

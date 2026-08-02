@@ -7,12 +7,15 @@ namespace HPD.Base;
 /// </summary>
 public sealed class BaseBatchBuilder
 {
+    /// <summary>Executes the add operation.</summary>
     public BaseBatchItem<T> Add<T>(BaseCreate<T> command) =>
         Create(command.Collection, command.Id, command.Value, command.IdempotencyKey);
 
+    /// <summary>Executes the add operation.</summary>
     public BaseBatchItem<T> Add<T>(BaseReplace<T> command) =>
         Replace(command.Collection, command.Id, command.Value, command.ExpectedRevision);
 
+    /// <summary>Executes the add operation.</summary>
     public BaseBatchItem<T> Add<T, TPatch>(BasePatch<T, TPatch> command) =>
         Patch(
             command.Collection,
@@ -21,6 +24,7 @@ public sealed class BaseBatchBuilder
             command.JsonTypeInfo,
             command.ExpectedRevision);
 
+    /// <summary>Executes the add operation.</summary>
     public BaseDeleteBatchItem Add<T>(BaseDelete<T> command) =>
         Delete(
             command.Collection,
@@ -28,6 +32,7 @@ public sealed class BaseBatchBuilder
             command.ExpectedRevision,
             command.ReturnPrevious);
 
+    /// <summary>Executes the add operation.</summary>
     public BaseBatchItem<T> Add<T>(BaseUpsert<T> command) =>
         Upsert(
             command.Collection,

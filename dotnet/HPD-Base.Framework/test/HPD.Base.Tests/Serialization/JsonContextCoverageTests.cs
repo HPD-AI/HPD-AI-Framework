@@ -19,6 +19,10 @@ public sealed class JsonContextCoverageTests
         Assert.NotNull(HPDBaseJsonSerializerContext.Default.OperationResultDiagnosticDescriptorArray);
         Assert.NotNull(HPDBaseJsonSerializerContext.Default.OperationResultRecordUpsertResult);
         Assert.NotNull(HPDBaseJsonSerializerContext.Default.OperationResultBaseRecordBatchResult);
+        Assert.NotNull(HPDBaseJsonSerializerContext.Default.OperationResultBaseRelationalReadExecutionResult);
+        Assert.NotNull(HPDBaseJsonSerializerContext.Default.OperationResultRecordIncludeExecutionResult);
+        Assert.NotNull(HPDBaseJsonSerializerContext.Default.OperationResultBaseSchemaPlan);
+        Assert.NotNull(HPDBaseJsonSerializerContext.Default.OperationResultBaseSchemaApplyResult);
     }
 
     [Fact]
@@ -36,5 +40,9 @@ public sealed class JsonContextCoverageTests
         Assert.NotNull(HPDBaseJsonSerializerContext.Default.RecordUpsertRequest);
         Assert.NotNull(HPDBaseJsonSerializerContext.Default.RecordMutationExecutionResult);
         Assert.NotNull(HPDBaseJsonSerializerContext.Default.BaseRecordMutationFact);
+        Assert.NotNull(HPDBaseJsonSerializerContext.Default.BaseRelationalReadPlan);
+        Assert.NotNull(HPDBaseJsonSerializerContext.Default.RecordIncludeExecutionRequest);
+        Assert.NotNull(HPDBaseJsonSerializerContext.Default.BaseSchemaPreparedPlan);
+        Assert.NotNull(HPDBaseJsonSerializerContext.Default.BaseSchemaProviderApplyRequest);
     }
 }

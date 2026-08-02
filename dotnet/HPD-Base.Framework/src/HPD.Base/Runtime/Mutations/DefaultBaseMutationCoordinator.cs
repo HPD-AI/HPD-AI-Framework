@@ -13,12 +13,14 @@ internal sealed class DefaultBaseMutationCoordinator(
     IBaseResultNormalizer normalizer,
     IBaseOperationalFailureMapper failureMapper,
     IBaseMutationPostCommitDispatcher postCommit,
+    IBaseDescriptorRegistry descriptors,
     IOptions<HPDBaseRuntimeOptions> options,
     ILogger<DefaultBaseMutationCoordinator> logger) : IBaseMutationCoordinator
 {
     private readonly HPDBaseRuntimeMutationOptions _limits = options.Value.Mutations;
     private readonly HPDBaseRuntimeEventOptions _events = options.Value.Events;
 
+    /// <summary>Executes the execute single async operation.</summary>
     public async ValueTask<OperationResult<BaseRecordBatchItemResult>> ExecuteSingleAsync(
         BaseRecordBatchItem item,
         PrincipalContext principal,
@@ -76,6 +78,7 @@ internal sealed class DefaultBaseMutationCoordinator(
         };
     }
 
+    /// <summary>Executes the execute batch async operation.</summary>
     public async ValueTask<OperationResult<BaseRecordBatchResult>> ExecuteBatchAsync(
         BaseRecordBatchRequest request,
         PrincipalContext principal,
@@ -239,7 +242,7 @@ internal sealed class DefaultBaseMutationCoordinator(
         bool atomicGroup,
         CancellationToken cancellationToken)
     {
-        var processor = new DefaultBaseMutationProcessor(commands, principal, policy, normalizer);
+        var processor = new DefaultBaseMutationProcessor(commands, principal, policy, normalizer, descriptors.Current.Schema.Collections ?? [], _limits.MaxTransactionDuration);
         var request = new RecordMutationExecutionRequest
         {
             AcquisitionTimeout = _limits.StoreAcquisitionTimeout,

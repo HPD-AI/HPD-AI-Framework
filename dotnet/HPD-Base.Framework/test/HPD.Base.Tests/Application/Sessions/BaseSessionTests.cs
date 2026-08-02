@@ -167,7 +167,7 @@ public sealed class BaseSessionTests
         runtime.Query!.Page!.Limit.Should().Be(25);
         runtime.Query.Filter.Should().Match<FilterExpression>(filter =>
             filter.Kind == FilterNodeKind.Compare &&
-            filter.Field == "organizationId" &&
+            filter.Field == "organization-id" &&
             filter.Operator == FilterOperator.Equal &&
             filter.Value!.String == "org_1");
         runtime.Query.Sort.Should().ContainSingle()
@@ -360,7 +360,23 @@ public sealed class BaseSessionTests
             }
         });
         services.Replace(ServiceDescriptor.Singleton<IBaseRecordRuntime>(runtime));
+        services.Replace(ServiceDescriptor.Singleton<IHPDBaseApplication>(new ReadyApplication()));
         return services.BuildServiceProvider();
+    }
+
+    private sealed class ReadyApplication : IHPDBaseApplication
+    {
+        public BaseApplicationReadiness CurrentReadiness { get; } = new()
+        {
+            State = BaseApplicationReadinessState.Ready,
+            SchemaGeneration = 0,
+            ProviderReady = true,
+            RequiredAssetsReady = true,
+            SchemaCompatibility = "compatible",
+        };
+
+        public ValueTask<OperationResult<BaseApplicationReadiness>> InitializeAsync(CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(OperationResults.Ok(CurrentReadiness));
     }
 
     private static PrincipalContext Principal() =>

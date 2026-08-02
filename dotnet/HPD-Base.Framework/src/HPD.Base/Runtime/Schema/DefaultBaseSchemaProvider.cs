@@ -5,11 +5,13 @@ internal sealed class DefaultBaseSchemaProvider : IBaseSchemaProvider
 {
     private readonly IBaseDescriptorRegistry _registry;
 
+    /// <summary>Initializes a new instance.</summary>
     public DefaultBaseSchemaProvider(IBaseDescriptorRegistry registry)
     {
         _registry = registry;
     }
 
+    /// <summary>Executes the get schema async operation.</summary>
     public ValueTask<OperationResult<SchemaMetadata>> GetSchemaAsync(
         PrincipalContext principal,
         OperationContext operation,
@@ -29,6 +31,7 @@ internal sealed class DefaultBaseSchemaProvider : IBaseSchemaProvider
             () => ValueTask.FromResult(OperationResults.Ok(DescriptorViewFilter.Schema(_registry.Current, view))));
     }
 
+    /// <summary>Executes the get collection async operation.</summary>
     public ValueTask<OperationResult<CollectionDefinition>> GetCollectionAsync(
         string collectionId,
         PrincipalContext principal,

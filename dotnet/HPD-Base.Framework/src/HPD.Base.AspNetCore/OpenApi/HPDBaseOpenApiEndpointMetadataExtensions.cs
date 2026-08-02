@@ -15,6 +15,7 @@ internal static class HPDBaseOpenApiEndpointMetadataExtensions
     private static readonly IReadOnlyDictionary<string, RouteDescriptor> s_routeDescriptors =
         AspNetCoreRouteDescriptorFactory.Create().ToDictionary(static descriptor => descriptor.OperationId, StringComparer.Ordinal);
 
+    /// <summary>Executes the with hpdbase open API operation.</summary>
     public static IEndpointConventionBuilder WithHPDBaseOpenApi(this IEndpointConventionBuilder builder, string operationId)
     {
         var metadata = Create(operationId);
@@ -29,6 +30,38 @@ internal static class HPDBaseOpenApiEndpointMetadataExtensions
             ApplyTypedMetadata(endpointBuilder, operationId);
         });
 
+        return builder;
+    }
+
+    internal static IEndpointConventionBuilder WithHPDBaseRegisteredReadOpenApi(
+        this IEndpointConventionBuilder builder,
+        string operationId,
+        Type parameterType,
+        Type responseType)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentException.ThrowIfNullOrWhiteSpace(operationId);
+        ArgumentNullException.ThrowIfNull(parameterType);
+        ArgumentNullException.ThrowIfNull(responseType);
+        HPDBaseOpenApiRouteMetadata metadata = FromDescriptor(
+            operationId,
+            IsAdmin: false,
+            IsRecord: true,
+            "Execute registered read",
+            "Executes one bounded typed registered read.",
+            ["Registered Reads"]) with
+        {
+            RequestDtoId = parameterType.FullName,
+            ResponseDtoId = responseType.FullName ?? responseType.Name,
+        };
+        builder.Add(endpointBuilder =>
+        {
+            endpointBuilder.Metadata.Add(s_openApiHandlerMethod);
+            endpointBuilder.Metadata.Add(metadata);
+            endpointBuilder.Metadata.Add(new HPDBaseOpenApiTagsMetadata(metadata.Tags));
+            endpointBuilder.Metadata.Add(new HPDBaseOpenApiSummaryMetadata(metadata.Summary));
+            endpointBuilder.Metadata.Add(new HPDBaseOpenApiDescriptionMetadata(metadata.Description));
+        });
         return builder;
     }
 
@@ -214,8 +247,10 @@ internal static class HPDBaseOpenApiEndpointMetadataExtensions
         int StatusCode,
         string ContentType) : IProducesResponseTypeMetadata
     {
+        /// <summary>Gets the description.</summary>
         public string? Description => null;
 
+        /// <summary>Gets the content types.</summary>
         public IEnumerable<string> ContentTypes => [ContentType];
     }
 

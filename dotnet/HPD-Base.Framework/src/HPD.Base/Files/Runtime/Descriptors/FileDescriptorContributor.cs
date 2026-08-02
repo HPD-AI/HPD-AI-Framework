@@ -6,13 +6,16 @@ internal sealed class FileDescriptorContributor : IBaseDescriptorContributor
 {
     private readonly HPDBaseFilesOptions _options;
 
+    /// <summary>Initializes a new instance.</summary>
     public FileDescriptorContributor(IOptions<HPDBaseFilesOptions> options)
     {
         _options = options.Value;
     }
 
+    /// <summary>Gets the ID.</summary>
     public string Id => FileModuleIds.Module;
 
+    /// <summary>Executes the contribute operation.</summary>
     public void Contribute(IBaseDescriptorContributionBuilder builder)
     {
         var dtoIds = new[] { FileDtoIds.BucketDescriptor, FileDtoIds.ObjectRef, FileDtoIds.ObjectMetadata, FileDtoIds.ObjectUploadResult, FileDtoIds.ObjectListResult, FileDtoIds.ObjectEvent };

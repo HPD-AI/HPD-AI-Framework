@@ -2,7 +2,6 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace HPD.Base;
-
 using VisibilityLevelConverter = LowerCamelJsonStringEnumConverter<VisibilityLevel>;
 using CapabilityStatusConverter = LowerCamelJsonStringEnumConverter<CapabilityStatus>;
 using QueryCountModeConverter = LowerCamelJsonStringEnumConverter<QueryCountMode>;
@@ -34,52 +33,14 @@ using RelationalPolicyPlanKindConverter = LowerCamelJsonStringEnumConverter<Rela
 using RelationalPlanDiagnosticSeverityConverter = LowerCamelJsonStringEnumConverter<RelationalPlanDiagnosticSeverity>;
 using OperationStatusConverter = LowerCamelJsonStringEnumConverter<OperationStatus>;
 
-[JsonSourceGenerationOptions(
-    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
-    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-    WriteIndented = false,
-    UseStringEnumConverter = true,
-    Converters = new[]
-    {
-        typeof(RecordIdJsonConverter),
-        typeof(RevisionTokenJsonConverter),
-        typeof(VisibilityLevelConverter),
-        typeof(CapabilityStatusConverter),
-        typeof(QueryCountModeConverter),
-        typeof(QueryPaginationModeConverter),
-        typeof(QueryCursorDirectionConverter),
-        typeof(QuerySortDirectionConverter),
-        typeof(QueryNullOrderConverter),
-        typeof(FilterNodeKindConverter),
-        typeof(FilterOperatorConverter),
-        typeof(QueryValueKindConverter),
-        typeof(RelationalObjectKindConverter),
-        typeof(RelationalNamespaceKindConverter),
-        typeof(RelationalTableKindConverter),
-        typeof(RelationalViewKindConverter),
-        typeof(RelationalViewMaterializationKindConverter),
-        typeof(RelationalColumnTypeFamilyConverter),
-        typeof(RelationalGeneratedColumnKindConverter),
-        typeof(RelationalJsonStorageKindConverter),
-        typeof(RelationalMappingKindConverter),
-        typeof(RelationalPayloadMappingKindConverter),
-        typeof(RelationalRecordIdMappingKindConverter),
-        typeof(RelationalConstraintEnforcementKindConverter),
-        typeof(RelationalColumnWriteBehaviorConverter),
-        typeof(RelationalFieldConversionKindConverter),
-        typeof(RelationalQueryPlanStatusConverter),
-        typeof(RelationalPushdownSupportConverter),
-        typeof(RelationalResidualKindConverter),
-        typeof(RelationalPolicyPlanKindConverter),
-        typeof(RelationalPlanDiagnosticSeverityConverter),
-        typeof(OperationStatusConverter)
-    })]
+/// <summary>Represents hPDBase Relational Json Serializer Context.</summary>
+[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull, WriteIndented = false, UseStringEnumConverter = true, Converters = new[] { typeof(RecordIdJsonConverter), typeof(RevisionTokenJsonConverter), typeof(VisibilityLevelConverter), typeof(CapabilityStatusConverter), typeof(QueryCountModeConverter), typeof(QueryPaginationModeConverter), typeof(QueryCursorDirectionConverter), typeof(QuerySortDirectionConverter), typeof(QueryNullOrderConverter), typeof(FilterNodeKindConverter), typeof(FilterOperatorConverter), typeof(QueryValueKindConverter), typeof(RelationalObjectKindConverter), typeof(RelationalNamespaceKindConverter), typeof(RelationalTableKindConverter), typeof(RelationalViewKindConverter), typeof(RelationalViewMaterializationKindConverter), typeof(RelationalColumnTypeFamilyConverter), typeof(RelationalGeneratedColumnKindConverter), typeof(RelationalJsonStorageKindConverter), typeof(RelationalMappingKindConverter), typeof(RelationalPayloadMappingKindConverter), typeof(RelationalRecordIdMappingKindConverter), typeof(RelationalConstraintEnforcementKindConverter), typeof(RelationalColumnWriteBehaviorConverter), typeof(RelationalFieldConversionKindConverter), typeof(RelationalQueryPlanStatusConverter), typeof(RelationalPushdownSupportConverter), typeof(RelationalResidualKindConverter), typeof(RelationalPolicyPlanKindConverter), typeof(RelationalPlanDiagnosticSeverityConverter), typeof(OperationStatusConverter) })]
 [JsonSerializable(typeof(JsonElement))]
 [JsonSerializable(typeof(Dictionary<string, JsonElement>))]
 [JsonSerializable(typeof(RecordQuery))]
 [JsonSerializable(typeof(QuerySort))]
 [JsonSerializable(typeof(QueryPage))]
-[JsonSerializable(typeof(QueryInclude))]
+[JsonSerializable(typeof(RecordInclude))]
 [JsonSerializable(typeof(QueryExtension))]
 [JsonSerializable(typeof(FilterExpression))]
 [JsonSerializable(typeof(QueryValue))]

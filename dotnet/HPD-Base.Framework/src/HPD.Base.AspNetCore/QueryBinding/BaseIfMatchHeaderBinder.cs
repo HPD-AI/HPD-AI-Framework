@@ -6,6 +6,7 @@ namespace HPD.Base.AspNetCore;
 
 internal static class BaseIfMatchHeaderBinder
 {
+    /// <summary>Executes the bind operation.</summary>
     public static RevisionToken? Bind(HttpContext httpContext)
     {
         if (!httpContext.Request.Headers.TryGetValue(BaseHttpHeaders.IfMatch, out var values))

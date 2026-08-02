@@ -20,7 +20,7 @@ public abstract class RuntimeStoreQueryConformanceTests<TFixture> : RuntimeStore
         {
             var include = await runtime.ListAsync(
                 Collection.Id,
-                new RecordQuery { Include = [new QueryInclude { Path = "relation" }] },
+                new RecordQuery { Include = [new RecordInclude { NavigationId = "relation" }] },
                 Principal,
                 Operation(BaseOperationKind.List));
             RecordStoreConformanceAssertions.Failure(include, OperationStatus.Unsupported, OperationStatus.CapabilityUnavailable, OperationStatus.ValidationFailed);

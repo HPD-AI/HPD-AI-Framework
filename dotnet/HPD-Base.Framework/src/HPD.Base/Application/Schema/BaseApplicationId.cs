@@ -2,6 +2,7 @@ namespace HPD.Base;
 
 internal static class BaseApplicationId
 {
+    /// <summary>Executes the validate operation.</summary>
     public static void Validate(string value, string parameterName)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(value, parameterName);

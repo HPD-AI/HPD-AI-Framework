@@ -6,8 +6,10 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Base.AspNetCore;
 
+/// <summary>Represents a hpdbase realtime endpoint route builder extensions.</summary>
 public static class HPDBaseRealtimeEndpointRouteBuilderExtensions
 {
+    /// <summary>Executes the map hpdbase realtime operation.</summary>
     public static IEndpointRouteBuilder MapHPDBaseRealtime(this IEndpointRouteBuilder endpoints)
     {
         ArgumentNullException.ThrowIfNull(endpoints);

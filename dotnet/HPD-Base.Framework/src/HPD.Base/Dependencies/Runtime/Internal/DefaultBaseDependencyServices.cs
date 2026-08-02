@@ -16,6 +16,7 @@ internal sealed class DefaultBaseDependencyServices :
     private readonly IReadOnlyList<IBaseMutationDependencyRule> _rules;
     private readonly Dictionary<string, BaseDependencyTemplate> _templates;
 
+    /// <summary>Initializes a new instance.</summary>
     public DefaultBaseDependencyServices(
         BaseDependencyOptions options,
         IEnumerable<BaseDependencyTemplate> templates,
@@ -29,8 +30,10 @@ internal sealed class DefaultBaseDependencyServices :
         Templates = _templates.Values.OrderBy(static template => template.Id, StringComparer.Ordinal).ToArray();
     }
 
+    /// <summary>Gets the templates.</summary>
     public IReadOnlyList<BaseDependencyTemplate> Templates { get; }
 
+    /// <summary>Executes the create operation.</summary>
     public BaseDependencyReference Create(string templateId, params BaseDependencyParameter[] parameters)
     {
         if (!_templates.TryGetValue(templateId, out var template))
@@ -67,12 +70,14 @@ internal sealed class DefaultBaseDependencyServices :
         };
     }
 
+    /// <summary>Executes the create set operation.</summary>
     public BaseDependencySet CreateSet(params BaseDependencyReference[] references)
     {
         ArgumentNullException.ThrowIfNull(references);
         return new BaseDependencySet { References = Deduplicate(references, int.MaxValue) };
     }
 
+    /// <summary>Executes the map async operation.</summary>
     public async ValueTask<BaseDependencyInvalidation> MapAsync(
         BaseRecordMutationEvent mutation,
         CancellationToken cancellationToken = default)

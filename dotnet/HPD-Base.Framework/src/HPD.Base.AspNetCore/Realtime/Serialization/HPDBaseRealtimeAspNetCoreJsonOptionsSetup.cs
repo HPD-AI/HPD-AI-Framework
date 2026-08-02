@@ -6,6 +6,7 @@ namespace HPD.Base.AspNetCore;
 
 internal sealed class HPDBaseRealtimeAspNetCoreJsonOptionsSetup : IConfigureOptions<JsonOptions>
 {
+    /// <summary>Executes the configure operation.</summary>
     public void Configure(JsonOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);

@@ -4,6 +4,7 @@ namespace HPD.Base;
 
 internal static partial class HPDBaseFilesLog
 {
+    /// <summary>Executes the file provider unavailable operation.</summary>
     [LoggerMessage(
         EventId = 4000,
         EventName = "FileProviderUnavailable",
@@ -14,6 +15,7 @@ internal static partial class HPDBaseFilesLog
         string operationKind,
         string capabilityReason);
 
+    /// <summary>Executes the file provider operation failed operation.</summary>
     [LoggerMessage(
         EventId = 4001,
         EventName = "FileProviderOperationFailed",
@@ -25,6 +27,7 @@ internal static partial class HPDBaseFilesLog
         string errorCategory,
         string errorCode);
 
+    /// <summary>Executes the file policy denied operation.</summary>
     [LoggerMessage(
         EventId = 4002,
         EventName = "FilePolicyDenied",
@@ -35,6 +38,7 @@ internal static partial class HPDBaseFilesLog
         string operationKind,
         string policyReasonCode);
 
+    /// <summary>Executes the file validation rejected operation.</summary>
     [LoggerMessage(
         EventId = 4003,
         EventName = "FileValidationRejected",

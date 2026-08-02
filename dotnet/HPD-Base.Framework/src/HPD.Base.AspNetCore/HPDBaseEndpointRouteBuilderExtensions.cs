@@ -1,5 +1,6 @@
 using HPD.Base.AspNetCore;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -40,17 +41,29 @@ public static class HPDBaseEndpointRouteBuilderExtensions
     {
         ArgumentNullException.ThrowIfNull(endpoints);
 
-        foreach (IBaseApplicationInitializer initializer in
-                 endpoints.ServiceProvider.GetServices<IBaseApplicationInitializer>())
-        {
-            initializer.Initialize();
-        }
-
         var options = new HPDBaseEndpointOptions();
         configure?.Invoke(options);
         EndpointRouteBuilderValidation.Validate(options);
 
         var group = endpoints.MapGroup(options.RoutePrefix);
+        group.AddEndpointFilter(static async (invocation, next) =>
+        {
+            IHPDBaseApplication? application = invocation.HttpContext.RequestServices
+                .GetService<IHPDBaseApplication>();
+            if (application is null ||
+                application.CurrentReadiness.State == BaseApplicationReadinessState.Ready)
+            {
+                return await next(invocation).ConfigureAwait(false);
+            }
+
+            return Results.Problem(
+                statusCode: StatusCodes.Status503ServiceUnavailable,
+                title: "HPD.BASE is not ready.",
+                extensions: new Dictionary<string, object?>
+                {
+                    ["code"] = "base.application.notReady",
+                });
+        });
 
         if (options.MapMetadata)
             MetadataEndpoints.MapPublic(group, options.PublicMetadataMode);
@@ -67,6 +80,7 @@ public static class HPDBaseEndpointRouteBuilderExtensions
                 records.RequireAuthorization(options.RecordPolicyName);
 
             RecordEndpoints.Map(records);
+            RegisteredReadEndpoints.Map(records);
         }
 
         if (options.MapAdminMetadata || options.MapAdminPolicyExplain)

@@ -7,6 +7,7 @@ internal sealed class DefaultBaseRealtimeProjectionService : IBaseRealtimeProjec
     private readonly IBaseRecordRedactor _redactor;
     private readonly IBaseDependencyInvalidationMapper? _invalidations;
 
+    /// <summary>Initializes a new instance.</summary>
     public DefaultBaseRealtimeProjectionService(
         IBaseRealtimePolicy policy,
         IBaseRecordRedactor redactor,
@@ -17,6 +18,7 @@ internal sealed class DefaultBaseRealtimeProjectionService : IBaseRealtimeProjec
         _invalidations = invalidations;
     }
 
+    /// <summary>Executes the project async operation.</summary>
     public async ValueTask<BaseRealtimeEvent?> ProjectAsync(
         BaseRealtimeProjectionRequest request,
         CancellationToken cancellationToken = default)

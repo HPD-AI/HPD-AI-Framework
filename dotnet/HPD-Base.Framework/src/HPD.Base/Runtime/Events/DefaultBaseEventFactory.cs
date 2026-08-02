@@ -3,6 +3,7 @@ namespace HPD.Base;
 
 internal sealed class DefaultBaseEventFactory : IBaseEventFactory
 {
+    /// <summary>Executes the create record mutation event operation.</summary>
     public BaseRecordMutationEvent CreateRecordMutationEvent(
         BaseOperationKind operation,
         OperationContext context,

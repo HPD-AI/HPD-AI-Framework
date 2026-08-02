@@ -15,6 +15,7 @@ internal static class HPDBaseVolatileTelemetry
         unit: "s",
         description: "Records HPD.BASE Volatile store operation duration.");
 
+    /// <summary>Executes the trace async operation.</summary>
     public static async ValueTask<OperationResult<T>> TraceAsync<T>(
         string spanName,
         BaseOperationKind operation,

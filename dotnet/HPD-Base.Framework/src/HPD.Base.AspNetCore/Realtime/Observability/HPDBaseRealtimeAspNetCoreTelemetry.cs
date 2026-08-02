@@ -21,6 +21,7 @@ internal static class HPDBaseRealtimeAspNetCoreTelemetry
         unit: "By",
         description: "Records HPD.BASE realtime WebSocket message sizes.");
 
+    /// <summary>Executes the start accept operation.</summary>
     public static Activity? StartAccept()
     {
         var activity = HPDBaseRealtimeAspNetCoreObservability.ActivitySource.StartActivity(HPDBaseTelemetrySpans.RealtimeWebSocketAccept, ActivityKind.Server);
@@ -29,6 +30,7 @@ internal static class HPDBaseRealtimeAspNetCoreTelemetry
         return activity;
     }
 
+    /// <summary>Executes the start connection operation.</summary>
     public static Activity? StartConnection()
     {
         var activity = HPDBaseRealtimeAspNetCoreObservability.ActivitySource.StartActivity(HPDBaseTelemetrySpans.RealtimeConnection, ActivityKind.Internal);
@@ -37,6 +39,7 @@ internal static class HPDBaseRealtimeAspNetCoreTelemetry
         return activity;
     }
 
+    /// <summary>Executes the start join operation.</summary>
     public static Activity? StartJoin(string channelKind)
     {
         var activity = HPDBaseRealtimeAspNetCoreObservability.ActivitySource.StartActivity(HPDBaseTelemetrySpans.RealtimeChannelJoin, ActivityKind.Internal);
@@ -45,6 +48,7 @@ internal static class HPDBaseRealtimeAspNetCoreTelemetry
         return activity;
     }
 
+    /// <summary>Executes the start leave operation.</summary>
     public static Activity? StartLeave()
     {
         var activity = HPDBaseRealtimeAspNetCoreObservability.ActivitySource.StartActivity(HPDBaseTelemetrySpans.RealtimeChannelLeave, ActivityKind.Internal);
@@ -52,6 +56,7 @@ internal static class HPDBaseRealtimeAspNetCoreTelemetry
         return activity;
     }
 
+    /// <summary>Executes the start send operation.</summary>
     public static Activity? StartSend(string channelKind)
     {
         var activity = HPDBaseRealtimeAspNetCoreObservability.ActivitySource.StartActivity(HPDBaseTelemetrySpans.RealtimeEventSend, ActivityKind.Internal);
@@ -60,6 +65,7 @@ internal static class HPDBaseRealtimeAspNetCoreTelemetry
         return activity;
     }
 
+    /// <summary>Executes the finish operation.</summary>
     public static void Finish(Activity? activity, string status)
     {
         activity?.SetTag(HPDBaseTelemetryTags.ResultStatus, status);
@@ -73,6 +79,7 @@ internal static class HPDBaseRealtimeAspNetCoreTelemetry
         }
     }
 
+    /// <summary>Executes the record received operation.</summary>
     public static void RecordReceived(long bytes)
     {
         MessagesReceived.Add(1, MessageTags("received"));
@@ -82,6 +89,7 @@ internal static class HPDBaseRealtimeAspNetCoreTelemetry
         }
     }
 
+    /// <summary>Executes the record sent operation.</summary>
     public static void RecordSent(long bytes)
     {
         MessagesSent.Add(1, MessageTags("sent"));

@@ -6,13 +6,16 @@ internal sealed class FileHealthContributor : IBaseHealthContributor, IBaseDiagn
 {
     private readonly HPDBaseFilesOptions _options;
 
+    /// <summary>Initializes a new instance.</summary>
     public FileHealthContributor(IOptions<HPDBaseFilesOptions> options)
     {
         _options = options.Value;
     }
 
+    /// <summary>Gets the ID.</summary>
     public string Id => FileModuleIds.Module;
 
+    /// <summary>Executes the get health async operation.</summary>
     public ValueTask<HealthDescriptor[]> GetHealthAsync(CancellationToken cancellationToken = default)
     {
         var now = DateTimeOffset.UnixEpoch;
@@ -54,6 +57,7 @@ internal sealed class FileHealthContributor : IBaseHealthContributor, IBaseDiagn
         ]);
     }
 
+    /// <summary>Executes the get diagnostics async operation.</summary>
     public ValueTask<DiagnosticDescriptor[]> GetDiagnosticsAsync(CancellationToken cancellationToken = default)
     {
         return ValueTask.FromResult<DiagnosticDescriptor[]>(

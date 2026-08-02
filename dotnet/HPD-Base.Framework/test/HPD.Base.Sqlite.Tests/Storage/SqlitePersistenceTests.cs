@@ -13,7 +13,7 @@ public sealed class SqlitePersistenceTests
         var path = Path.Combine(Path.GetTempPath(), "hpd-base-sqlite-persist-" + Guid.NewGuid().ToString("N") + ".db");
         try
         {
-            var options = new HPDBaseSqliteOptions { DataSource = path, CollectionIds = ["items"] };
+            var options = new HPDBaseSqliteOptions { DataSource = path, Collections = [SqliteTestFactory.Collection()] };
             var first = SqliteTestFactory.Create(options);
             var create = await first.CreateAsync(Collection(), new RecordCreateRequest { RequestedId = new RecordId("one"), Payload = Payload("durable") }, Operation(BaseOperationKind.Create));
             create.Status.Should().Be(OperationStatus.Created);

@@ -10,6 +10,7 @@ internal sealed class BaseHttpResultMapper : IBaseHttpResultMapper
     private readonly BaseProblemDetailsFactory _problemDetailsFactory;
     private readonly IBaseJsonOptionsProvider _jsonOptionsProvider;
 
+    /// <summary>Initializes a new instance.</summary>
     public BaseHttpResultMapper(
         BaseProblemDetailsFactory problemDetailsFactory,
         IBaseJsonOptionsProvider jsonOptionsProvider)
@@ -18,6 +19,7 @@ internal sealed class BaseHttpResultMapper : IBaseHttpResultMapper
         _jsonOptionsProvider = jsonOptionsProvider;
     }
 
+    /// <summary>Executes the to HTTP result operation.</summary>
     public IResult ToHttpResult<T>(
         OperationResult<T> result,
         HttpContext httpContext,
@@ -38,6 +40,7 @@ internal sealed class BaseHttpResultMapper : IBaseHttpResultMapper
         return TypedResults.Json(result.Value, jsonTypeInfo, statusCode: statusCode);
     }
 
+    /// <summary>Executes the to HTTP result operation.</summary>
     public IResult ToHttpResult(
         OperationResult result,
         HttpContext httpContext,

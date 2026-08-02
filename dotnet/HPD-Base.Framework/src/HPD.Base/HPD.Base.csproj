@@ -11,6 +11,7 @@
     <PackageId>HPD.Base</PackageId>
     <Description>Typed, policy-aware, realtime application data platform for .NET.</Description>
     <PackageTags>hpd;base;data;realtime;aot</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
     <IsAotCompatible>true</IsAotCompatible>
     <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
     <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>

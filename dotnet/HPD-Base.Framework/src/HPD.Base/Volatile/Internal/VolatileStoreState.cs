@@ -3,11 +3,16 @@ namespace HPD.Base;
 
 internal sealed class VolatileStoreState
 {
+    /// <summary>Gets the collections.</summary>
     public Dictionary<string, VolatileCollectionState> Collections { get; } = new(StringComparer.Ordinal);
+    /// <summary>Gets or sets the next record ID.</summary>
     public long NextRecordId { get; set; }
+    /// <summary>Gets or sets the next revision.</summary>
     public long NextRevision { get; set; }
+    /// <summary>Gets or sets the next sequence.</summary>
     public long NextSequence { get; set; }
 
+    /// <summary>Executes the clone operation.</summary>
     public VolatileStoreState Clone()
     {
         var clone = new VolatileStoreState
@@ -26,8 +31,10 @@ internal sealed class VolatileStoreState
 
 internal sealed class VolatileCollectionState
 {
+    /// <summary>Gets the records by ID.</summary>
     public Dictionary<string, StoredRecord> RecordsById { get; } = new(StringComparer.Ordinal);
 
+    /// <summary>Executes the clone operation.</summary>
     public VolatileCollectionState Clone()
     {
         var clone = new VolatileCollectionState();

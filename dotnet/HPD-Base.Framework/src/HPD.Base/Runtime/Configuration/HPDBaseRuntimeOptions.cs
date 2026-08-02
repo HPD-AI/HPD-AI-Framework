@@ -1,22 +1,33 @@
 
 namespace HPD.Base;
 
+/// <summary>Represents a hpdbase runtime options.</summary>
 public sealed class HPDBaseRuntimeOptions
 {
+    /// <summary>Gets or sets the runtime.</summary>
     public required RuntimeDescriptor Runtime { get; set; }
+    /// <summary>Gets or sets the compatibility.</summary>
     public required CompatibilityDescriptor Compatibility { get; set; }
+    /// <summary>Gets or sets the manifest version.</summary>
     public string ManifestVersion { get; set; } = "1.0";
+    /// <summary>Gets or sets the default manifest visibility.</summary>
     public VisibilityLevel DefaultManifestVisibility { get; set; } = VisibilityLevel.Public;
+    /// <summary>Gets or sets the fail fast on descriptor validation.</summary>
     public bool FailFastOnDescriptorValidation { get; set; } = true;
+    /// <summary>Gets or sets the limits.</summary>
     public HPDBaseRuntimeLimitOptions Limits { get; set; } = new();
+    /// <summary>Gets or sets the events.</summary>
     public HPDBaseRuntimeEventOptions Events { get; set; } = new();
     /// <summary>Gets or sets bounded mutation, batch, and provider execution limits.</summary>
     public HPDBaseRuntimeMutationOptions Mutations { get; set; } = new();
+    /// <summary>Gets or sets the redaction.</summary>
     public HPDBaseRuntimeRedactionOptions Redaction { get; set; } = new();
+    /// <summary>Gets or sets the observability.</summary>
     public HPDBaseRuntimeObservabilityOptions Observability { get; set; } = new();
 
     internal bool AllowPolicyAbstainAsAllowForDevelopment { get; set; }
 
+    /// <summary>Executes the create default operation.</summary>
     public static HPDBaseRuntimeOptions CreateDefault() => new()
     {
         Runtime = new RuntimeDescriptor

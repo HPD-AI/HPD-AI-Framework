@@ -11,6 +11,7 @@ using Microsoft.CodeAnalysis.Text;
 
 namespace HPD.Base.Generators;
 
+/// <summary>Represents a base collection generator.</summary>
 [Generator(LanguageNames.CSharp)]
 public sealed class BaseCollectionGenerator : IIncrementalGenerator
 {
@@ -20,6 +21,8 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         "HPD.Base.BaseFieldAttribute";
     private const string IndexAttribute =
         "HPD.Base.BaseIndexAttribute";
+    private const string RelationAttribute =
+        "HPD.Base.BaseRelationAttribute";
     private const string JsonPropertyNameAttribute =
         "System.Text.Json.Serialization.JsonPropertyNameAttribute";
     private const string JsonOptionsAttribute =
@@ -97,6 +100,31 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         DiagnosticSeverity.Error,
         true);
 
+    private static readonly DiagnosticDescriptor MissingFieldIdentity = new DiagnosticDescriptor(
+        "HPDBASE010",
+        "Missing stable BASE field identifier",
+        "Collection '{0}' property '{1}' must declare [BaseField(\"stable-id\")] or an explicitly ignored BaseField attribute",
+        "HPD.Base.Generation",
+        DiagnosticSeverity.Error,
+        true);
+
+    private static readonly DiagnosticDescriptor DuplicateFieldIdentity = new DiagnosticDescriptor(
+        "HPDBASE011",
+        "Duplicate stable BASE field identifier",
+        "Collection '{0}' declares stable field identifier '{1}' more than once",
+        "HPD.Base.Generation",
+        DiagnosticSeverity.Error,
+        true);
+
+    private static readonly DiagnosticDescriptor InvalidRelation = new DiagnosticDescriptor(
+        "HPDBASE012",
+        "Invalid BASE relation declaration",
+        "Collection '{0}' relation on property '{1}' is invalid: {2}",
+        "HPD.Base.Generation",
+        DiagnosticSeverity.Error,
+        true);
+
+    /// <summary>Executes the initialize operation.</summary>
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
         IncrementalValuesProvider<INamedTypeSymbol> candidates =
@@ -199,8 +227,10 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         }
 
         var fields = new List<FieldModel>();
+        var fieldIds = new HashSet<string>(StringComparer.Ordinal);
         var storedNames = new HashSet<string>(StringComparer.Ordinal);
         var propertyFields = new Dictionary<string, FieldModel>(StringComparer.Ordinal);
+        var relationIds = new HashSet<string>(StringComparer.Ordinal);
         bool camelCaseJson = UsesCamelCase(jsonContext);
 
         foreach (IPropertySymbol property in symbol.GetMembers()
@@ -213,11 +243,42 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
             .OrderBy(property => property.Locations.FirstOrDefault()?.SourceSpan.Start ?? int.MaxValue))
         {
             AttributeData fieldAttribute = FindAttribute(property, FieldAttribute);
+            if (fieldAttribute == null)
+            {
+                context.ReportDiagnostic(Diagnostic.Create(
+                    MissingFieldIdentity,
+                    GetLocation(property),
+                    collectionId,
+                    property.Name));
+                return null;
+            }
+
+            string fieldId = GetConstructorString(fieldAttribute, 0);
+            if (!IsValidId(fieldId))
+            {
+                context.ReportDiagnostic(Diagnostic.Create(
+                    InvalidField,
+                    GetLocation(property),
+                    collectionId,
+                    property.Name,
+                    "the stable identifier must be 1-128 ASCII letters, digits, '.', '-', or '_' and start with a letter or digit"));
+                return null;
+            }
+
             if (GetNamedBoolean(fieldAttribute, "Ignore", false))
             {
                 continue;
             }
 
+            if (!fieldIds.Add(fieldId))
+            {
+                context.ReportDiagnostic(Diagnostic.Create(
+                    DuplicateFieldIdentity,
+                    GetLocation(property),
+                    collectionId,
+                    fieldId));
+                return null;
+            }
             string storedName =
                 GetNamedString(fieldAttribute, "Name") ??
                 GetJsonPropertyName(property) ??
@@ -268,15 +329,95 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
 
             var field = new FieldModel
             {
+                Id = fieldId,
                 PropertyName = property.Name,
                 StoredName = storedName,
                 TypeName = property.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+                TypedRecordIdTarget = TypedRecordIdTarget(property.Type),
                 SchemaType = GetSchemaType(property.Type),
                 SchemaFormat = GetSchemaFormat(property.Type),
                 Nullable = IsNullable(property),
                 Required = property.IsRequired || !IsNullable(property),
                 Operators = operators,
             };
+
+            AttributeData relationAttribute = FindAttribute(property, RelationAttribute);
+            if (relationAttribute != null)
+            {
+                string relationId = GetConstructorString(relationAttribute, 0);
+                INamedTypeSymbol targetType = GetConstructorType(relationAttribute, 1);
+                AttributeData targetCollection = targetType == null ? null : FindAttribute(targetType, CollectionAttribute);
+                string targetCollectionId = targetCollection == null ? null : GetConstructorString(targetCollection, 0);
+                if (!IsValidId(relationId) || targetType == null || !IsValidId(targetCollectionId))
+                {
+                    context.ReportDiagnostic(Diagnostic.Create(
+                        InvalidRelation, GetLocation(relationAttribute, property), collectionId, property.Name,
+                        "the relation id and target generated collection must be valid"));
+                    return null;
+                }
+
+                if (!relationIds.Add(relationId))
+                {
+                    context.ReportDiagnostic(Diagnostic.Create(
+                        InvalidRelation, GetLocation(relationAttribute, property), collectionId, property.Name,
+                        "the relation id is already declared"));
+                    return null;
+                }
+
+                bool manyShape = IsManyRecordIdShape(property.Type);
+                if (field.TypedRecordIdTarget == null ||
+                    !string.Equals(field.TypedRecordIdTarget, targetType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), StringComparison.Ordinal))
+                {
+                    context.ReportDiagnostic(Diagnostic.Create(
+                        InvalidRelation, GetLocation(relationAttribute, property), collectionId, property.Name,
+                        "the property must be BaseRecordId<TTarget> for the declared target type"));
+                    return null;
+                }
+
+                string targetFieldId = GetNamedString(relationAttribute, "TargetFieldId") ?? "base.recordId";
+                string inverseNavigationId = GetNamedString(relationAttribute, "InverseNavigationId");
+                long localMultiplicity = GetNamedInt64(relationAttribute, "LocalMultiplicity", 0);
+                long inverseMultiplicity = GetNamedInt64(relationAttribute, "InverseMultiplicity", 2);
+                long deleteBehavior = GetNamedInt64(relationAttribute, "DeleteBehavior", 0);
+                long minimumCount = GetNamedInt64(relationAttribute, "MinimumCount", -1);
+                long maximumCount = GetNamedInt64(relationAttribute, "MaximumCount", -1);
+                long includeMaximumDepth = GetNamedInt64(relationAttribute, "IncludeMaximumDepth", -1);
+                if (!IsValidId(targetFieldId) ||
+                    (inverseNavigationId != null && !IsValidId(inverseNavigationId)) ||
+                    localMultiplicity < 0 || localMultiplicity > 2 ||
+                    inverseMultiplicity < 0 || inverseMultiplicity > 2 ||
+                    deleteBehavior != 0 ||
+                    (manyShape != (localMultiplicity == 2)) ||
+                    (localMultiplicity == 1 && !field.Required) ||
+                    (localMultiplicity == 0 && field.Required) ||
+                    (localMultiplicity != 2 && (minimumCount >= 0 || maximumCount >= 0)) ||
+                    minimumCount < -1 || maximumCount < -1 ||
+                    (minimumCount >= 0 && maximumCount >= 0 && minimumCount > maximumCount) ||
+                    maximumCount > 10_000 || includeMaximumDepth is < -1 or > 32)
+                {
+                    context.ReportDiagnostic(Diagnostic.Create(
+                        InvalidRelation, GetLocation(relationAttribute, property), collectionId, property.Name,
+                        "identifiers, CLR nullability, and multiplicities must agree and only Restrict delete behavior is executable"));
+                    return null;
+                }
+
+                field.Relation = new RelationModel
+                {
+                    Id = relationId,
+                    TargetCollectionId = targetCollectionId,
+                    TargetFieldId = targetFieldId,
+                    LocalMultiplicity = localMultiplicity,
+                    InverseMultiplicity = inverseMultiplicity,
+                    InverseNavigationId = inverseNavigationId,
+                    DeleteBehavior = deleteBehavior,
+                    IncludeAllowed = GetNamedBoolean(relationAttribute, "IncludeAllowed", false),
+                    MinimumCount = minimumCount < 0 ? null : (int?)minimumCount,
+                    MaximumCount = maximumCount < 0 ? null : (int?)maximumCount,
+                    IncludeFilterAllowed = GetNamedBoolean(relationAttribute, "IncludeFilterAllowed", false),
+                    IncludeSortAllowed = GetNamedBoolean(relationAttribute, "IncludeSortAllowed", false),
+                    IncludeMaximumDepth = includeMaximumDepth < 0 ? null : (int?)includeMaximumDepth,
+                };
+            }
 
             fields.Add(field);
             propertyFields.Add(property.Name, field);
@@ -376,6 +517,9 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
                 typeQualificationStyle:
                     SymbolDisplayTypeQualificationStyle.NameAndContainingTypesAndNamespaces));
 
+        fields.Sort(static (left, right) => StringComparer.Ordinal.Compare(left.Id, right.Id));
+        indexes.Sort(static (left, right) => StringComparer.Ordinal.Compare(left.Id, right.Id));
+
         return new CollectionModel
         {
             Namespace = symbol.ContainingNamespace.IsGlobalNamespace
@@ -414,10 +558,23 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
             .Append(model.TypeName)
             .AppendLine();
         source.AppendLine("{");
+        foreach (string target in model.Fields
+            .Select(static field => field.TypedRecordIdTarget)
+            .Where(static target => target != null)
+            .Distinct(StringComparer.Ordinal))
+        {
+            source.AppendLine("    [global::System.Runtime.CompilerServices.ModuleInitializer]");
+            source.Append("    internal static void RegisterHPDBaseRecordIdJsonConverter_")
+                .Append(Sanitize(target!)).Append("() => global::HPD.Base.BaseRecordIdJsonConverterFactory.Register<")
+                .Append(target).AppendLine(">();");
+            source.AppendLine();
+        }
+        source.AppendLine("    /// <summary>Gets the generated collection contract with stable logical identities and source-generated serialization metadata.</summary>");
         source.Append("    public static global::HPD.Base.BaseCollection<")
             .Append(model.FullTypeName)
             .AppendLine("> Collection { get; } = CreateHPDBaseCollection();");
         source.AppendLine();
+        source.AppendLine("    /// <summary>Provides typed handles for the collection's declared fields.</summary>");
         source.AppendLine("    public static class Fields");
         source.AppendLine("    {");
 
@@ -427,6 +584,7 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
                 .Append(model.FullTypeName).Append(", ").Append(field.TypeName)
                 .Append("> __").Append(EscapeIdentifier(field.PropertyName))
                 .AppendLine(" = null!;");
+            source.Append("        /// <summary>Gets the typed field handle for stable field <c>").Append(field.Id).AppendLine("</c>.</summary>");
             source.Append("        public static global::HPD.Base.BaseField<")
                 .Append(model.FullTypeName).Append(", ").Append(field.TypeName)
                 .Append("> ").Append(EscapeIdentifier(field.PropertyName)).AppendLine();
@@ -488,7 +646,7 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         source.AppendLine("                    Id = \"hpd.base.application.generated\",");
         source.AppendLine("                    Kind = global::HPD.Base.SchemaSourceKind.Generated,");
         source.AppendLine("                },");
-        RenderFieldDefinitions(source, model.Fields);
+        RenderFieldDefinitions(source, model);
         RenderIndexes(source, model);
         source.AppendLine("            },");
         source.AppendLine("            jsonTypeInfo,");
@@ -500,6 +658,7 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
             source.Append("                Fields.Set")
                 .Append(EscapeIdentifier(field.PropertyName)).Append("(fields.Add<")
                 .Append(field.TypeName).Append(">(")
+                .Append(Literal(field.Id)).Append(", ")
                 .Append(Literal(field.StoredName)).Append(", nullable: ")
                 .Append(field.Nullable ? "true" : "false")
                 .Append(", operators: (global::HPD.Base.BaseFieldOperator)")
@@ -515,15 +674,16 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
 
     private static void RenderFieldDefinitions(
         StringBuilder source,
-        IReadOnlyList<FieldModel> fields)
+        CollectionModel model)
     {
+        IReadOnlyList<FieldModel> fields = model.Fields;
         source.AppendLine("                Fields =");
         source.AppendLine("                [");
         foreach (FieldModel field in fields)
         {
             source.AppendLine("                    new global::HPD.Base.FieldDefinition");
             source.AppendLine("                    {");
-            source.Append("                        Id = ").Append(Literal(field.StoredName)).AppendLine(",");
+            source.Append("                        Id = ").Append(Literal(field.Id)).AppendLine(",");
             source.Append("                        Name = ").Append(Literal(field.StoredName)).AppendLine(",");
             source.Append("                        Type = ").Append(Literal(field.SchemaType)).AppendLine(",");
             if (field.SchemaFormat != null)
@@ -535,6 +695,33 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
                 .Append(field.Required ? "true" : "false").AppendLine(",");
             source.Append("                        Nullable = ")
                 .Append(field.Nullable ? "true" : "false").AppendLine(",");
+            if (field.Relation != null)
+            {
+                source.AppendLine("                        Relation = new global::HPD.Base.RelationDefinition");
+                source.AppendLine("                        {");
+                source.Append("                            Id = ").Append(Literal(field.Relation.Id)).AppendLine(",");
+                source.Append("                            SourceCollectionId = ").Append(Literal(model.CollectionId)).AppendLine(",");
+                source.Append("                            SourceFieldId = ").Append(Literal(field.Id)).AppendLine(",");
+                source.Append("                            TargetCollectionId = ").Append(Literal(field.Relation.TargetCollectionId)).AppendLine(",");
+                source.Append("                            TargetFieldId = ").Append(Literal(field.Relation.TargetFieldId)).AppendLine(",");
+                source.Append("                            LocalMultiplicity = (global::HPD.Base.BaseRelationMultiplicity)").Append(field.Relation.LocalMultiplicity).AppendLine(",");
+                source.Append("                            InverseMultiplicity = (global::HPD.Base.BaseRelationMultiplicity)").Append(field.Relation.InverseMultiplicity).AppendLine(",");
+                source.Append("                            Required = ").Append(field.Required ? "true" : "false").AppendLine(",");
+                if (field.Relation.MinimumCount is int minimumCount)
+                    source.Append("                            MinimumCount = ").Append(minimumCount).AppendLine(",");
+                if (field.Relation.MaximumCount is int maximumCount)
+                    source.Append("                            MaximumCount = ").Append(maximumCount).AppendLine(",");
+                if (field.Relation.InverseNavigationId != null)
+                    source.Append("                            InverseNavigationId = ").Append(Literal(field.Relation.InverseNavigationId)).AppendLine(",");
+                source.Append("                            DeleteBehavior = (global::HPD.Base.BaseRelationDeleteBehavior)").Append(field.Relation.DeleteBehavior).AppendLine(",");
+                source.Append("                            Include = new global::HPD.Base.RelationIncludeDefinition { Allowed = ").Append(field.Relation.IncludeAllowed ? "true" : "false")
+                    .Append(", FilterAllowed = ").Append(field.Relation.IncludeFilterAllowed ? "true" : "false")
+                    .Append(", SortAllowed = ").Append(field.Relation.IncludeSortAllowed ? "true" : "false");
+                if (field.Relation.IncludeMaximumDepth is int includeMaximumDepth)
+                    source.Append(", MaxDepth = ").Append(includeMaximumDepth);
+                source.AppendLine(" },");
+                source.AppendLine("                        },");
+            }
             source.AppendLine("                    },");
         }
         source.AppendLine("                ],");
@@ -570,8 +757,8 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
                 source.AppendLine("                            new global::HPD.Base.IndexPart");
                 source.AppendLine("                            {");
                 source.AppendLine("                                Kind = global::HPD.Base.IndexPartKind.Field,");
-                source.Append("                                FieldPath = ")
-                    .Append(Literal(field.StoredName)).AppendLine(",");
+                source.Append("                                FieldId = ")
+                    .Append(Literal(field.Id)).AppendLine(",");
                 source.AppendLine("                            },");
             }
             source.AppendLine("                        ],");
@@ -768,6 +955,36 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
                property.NullableAnnotation == NullableAnnotation.Annotated;
     }
 
+    private static string TypedRecordIdTarget(ITypeSymbol type)
+    {
+        if (type is IArrayTypeSymbol array && array.Rank == 1)
+            return TypedRecordIdTarget(array.ElementType);
+
+        if (type is INamedTypeSymbol collection && IsApprovedRecordIdCollection(collection))
+            return TypedRecordIdTarget(collection.TypeArguments[0]);
+
+        if (type is INamedTypeSymbol named &&
+            named.IsGenericType &&
+            named.ConstructedFrom.ToDisplayString() == "HPD.Base.BaseRecordId<TRecord>")
+        {
+            return named.TypeArguments[0].ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        }
+
+        return null;
+    }
+
+    private static bool IsManyRecordIdShape(ITypeSymbol type) =>
+        type is IArrayTypeSymbol { Rank: 1 } ||
+        type is INamedTypeSymbol named && IsApprovedRecordIdCollection(named);
+
+    private static bool IsApprovedRecordIdCollection(INamedTypeSymbol type)
+    {
+        if (!type.IsGenericType || type.TypeArguments.Length != 1) return false;
+        string definition = type.ConstructedFrom.ToDisplayString();
+        return definition is "System.Collections.Generic.IReadOnlyList<T>" or
+            "System.Collections.Immutable.ImmutableArray<T>";
+    }
+
     private static string GetSchemaType(ITypeSymbol type)
     {
         IArrayTypeSymbol array = type as IArrayTypeSymbol;
@@ -783,9 +1000,16 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
             return GetSchemaType(named.TypeArguments[0]);
         }
 
+        if (named != null && IsApprovedRecordIdCollection(named)) return "array";
+
         if (type.TypeKind == TypeKind.Enum)
         {
             return "string";
+        }
+
+        if (TypedRecordIdTarget(type) != null)
+        {
+            return "id";
         }
 
         switch (type.SpecialType)
@@ -804,9 +1028,10 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
             case SpecialType.System_Int64:
             case SpecialType.System_UInt64:
                 return "integer";
+            case SpecialType.System_Decimal:
+                return "decimal";
             case SpecialType.System_Single:
             case SpecialType.System_Double:
-            case SpecialType.System_Decimal:
                 return "number";
             default:
                 return IsKnownStringShape(type) ? "string" : "object";
@@ -855,6 +1080,30 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
     private static string EscapeIdentifier(string value) =>
         SyntaxFacts.GetKeywordKind(value) != SyntaxKind.None ? "@" + value : value;
 
+    private static bool IsValidId(string value)
+    {
+        if (string.IsNullOrEmpty(value) || value.Length > 128 || !IsAsciiLetterOrDigit(value[0]))
+        {
+            return false;
+        }
+
+        foreach (char character in value)
+        {
+            if (!IsAsciiLetterOrDigit(character) &&
+                character != '.' &&
+                character != '-' &&
+                character != '_')
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool IsAsciiLetterOrDigit(char value) =>
+        value is >= 'a' and <= 'z' or >= 'A' and <= 'Z' or >= '0' and <= '9';
+
     private static string Sanitize(string value)
     {
         var result = new StringBuilder(value.Length);
@@ -880,37 +1129,97 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
 
     private sealed class CollectionModel
     {
+        /// <summary>Provides the namespace value.</summary>
         public string Namespace;
+        /// <summary>Provides the type name value.</summary>
         public string TypeName;
+        /// <summary>Provides the full type name value.</summary>
         public string FullTypeName;
+        /// <summary>Provides the is record value.</summary>
         public bool IsRecord;
+        /// <summary>Provides the collection ID value.</summary>
         public string CollectionId;
+        /// <summary>Provides the collection name value.</summary>
         public string CollectionName;
+        /// <summary>Provides the collection kind value.</summary>
         public string CollectionKind;
+        /// <summary>Provides the strict value.</summary>
         public bool Strict;
+        /// <summary>Provides the fields value.</summary>
         public List<FieldModel> Fields;
+        /// <summary>Provides the indexes value.</summary>
         public List<IndexModel> Indexes;
+        /// <summary>Provides the context type name value.</summary>
         public string ContextTypeName;
+        /// <summary>Provides the hint name value.</summary>
         public string HintName;
     }
 
     private sealed class FieldModel
     {
+        /// <summary>Provides the ID value.</summary>
+        public string Id;
+        /// <summary>Provides the property name value.</summary>
         public string PropertyName;
+        /// <summary>Provides the stored name value.</summary>
         public string StoredName;
+        /// <summary>Provides the type name value.</summary>
         public string TypeName;
+        /// <summary>Provides the typed record ID target value.</summary>
+        public string TypedRecordIdTarget;
+        /// <summary>Provides the schema type value.</summary>
         public string SchemaType;
+        /// <summary>Provides the schema format value.</summary>
         public string SchemaFormat;
+        /// <summary>Provides the nullable value.</summary>
         public bool Nullable;
+        /// <summary>Provides the required value.</summary>
         public bool Required;
+        /// <summary>Provides the operators value.</summary>
         public long Operators;
+        /// <summary>Provides the relation value.</summary>
+        public RelationModel Relation;
+    }
+
+    private sealed class RelationModel
+    {
+        /// <summary>Provides the ID value.</summary>
+        public string Id;
+        /// <summary>Provides the target collection ID value.</summary>
+        public string TargetCollectionId;
+        /// <summary>Provides the target field ID value.</summary>
+        public string TargetFieldId;
+        /// <summary>Provides the local multiplicity value.</summary>
+        public long LocalMultiplicity;
+        /// <summary>Provides the inverse multiplicity value.</summary>
+        public long InverseMultiplicity;
+        /// <summary>Provides the inverse navigation ID value.</summary>
+        public string InverseNavigationId;
+        /// <summary>Provides the delete behavior value.</summary>
+        public long DeleteBehavior;
+        /// <summary>Provides the include allowed value.</summary>
+        public bool IncludeAllowed;
+        /// <summary>Provides the minimum count value.</summary>
+        public int? MinimumCount;
+        /// <summary>Provides the maximum count value.</summary>
+        public int? MaximumCount;
+        /// <summary>Provides the include filter allowed value.</summary>
+        public bool IncludeFilterAllowed;
+        /// <summary>Provides the include sort allowed value.</summary>
+        public bool IncludeSortAllowed;
+        /// <summary>Provides the include maximum depth value.</summary>
+        public int? IncludeMaximumDepth;
     }
 
     private sealed class IndexModel
     {
+        /// <summary>Provides the ID value.</summary>
         public string Id;
+        /// <summary>Provides the unique value.</summary>
         public bool Unique;
+        /// <summary>Provides the required value.</summary>
         public bool Required;
+        /// <summary>Provides the fields value.</summary>
         public List<FieldModel> Fields;
     }
 }

@@ -7,13 +7,16 @@ internal sealed class BaseRealtimeDescriptorContributor : IBaseDescriptorContrib
 {
     private readonly BaseRealtimeOptions _options;
 
+    /// <summary>Initializes a new instance.</summary>
     public BaseRealtimeDescriptorContributor(IOptions<BaseRealtimeOptions> options)
     {
         _options = options.Value;
     }
 
+    /// <summary>Gets the ID.</summary>
     public string Id => BaseRealtimeModuleIds.Module;
 
+    /// <summary>Executes the contribute operation.</summary>
     public void Contribute(IBaseDescriptorContributionBuilder builder)
     {
         foreach (var dto in DtoIds)
@@ -215,17 +218,23 @@ internal sealed class BaseRealtimeDescriptorContributor : IBaseDescriptorContrib
         return JsonDocument.Parse(stream.ToArray()).RootElement.Clone();
     }
 
-    internal static class HealthIds
+internal static class HealthIds
     {
+        /// <summary>Provides the registration value.</summary>
         public const string Registration = "hpd.base.realtime.registration";
+        /// <summary>Provides the event stream value.</summary>
         public const string EventStream = "hpd.base.realtime.hpdEventsStream";
     }
 
-    internal static class DiagnosticIds
+internal static class DiagnosticIds
     {
+        /// <summary>Provides the options value.</summary>
         public const string Options = "hpd.base.realtime.options";
+        /// <summary>Provides the stream open failures value.</summary>
         public const string StreamOpenFailures = "hpd.base.realtime.streamOpenFailures";
+        /// <summary>Provides the hpdevents coordinator stats value.</summary>
         public const string HPDEventsCoordinatorStats = "hpd.base.realtime.hpdEventsCoordinatorStats";
+        /// <summary>Provides the connection stats value.</summary>
         public const string ConnectionStats = "hpd.base.realtime.connectionStats";
     }
 

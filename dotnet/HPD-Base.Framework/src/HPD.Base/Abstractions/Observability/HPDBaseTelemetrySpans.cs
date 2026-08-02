@@ -5,6 +5,18 @@ namespace HPD.Base;
 /// </summary>
 public static class HPDBaseTelemetrySpans
 {
+    /// <summary>Registered relational read execution span.</summary>
+    public const string RelationalRead = "base.relational.read";
+    /// <summary>Snapshot-consistent relation include span.</summary>
+    public const string RelationInclude = "base.relation.include";
+    /// <summary>Schema inspection span.</summary>
+    public const string SchemaInspect = "base.schema.inspect";
+    /// <summary>Schema planning span.</summary>
+    public const string SchemaPlan = "base.schema.plan";
+    /// <summary>Schema verification span.</summary>
+    public const string SchemaVerify = "base.schema.verify";
+    /// <summary>Schema application span.</summary>
+    public const string SchemaApply = "base.schema.apply";
     /// <summary>Runtime list records span.</summary>
     public const string RuntimeRecordsList = "hpd.base.runtime.records.list";
     /// <summary>Runtime get record span.</summary>

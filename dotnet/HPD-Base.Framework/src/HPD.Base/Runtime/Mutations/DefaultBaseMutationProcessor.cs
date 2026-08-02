@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.Json;
 
 namespace HPD.Base;
 
@@ -6,12 +7,18 @@ internal sealed class DefaultBaseMutationProcessor(
     BaseMutationCommand[] commands,
     PrincipalContext principal,
     IBasePolicyOrchestrator policy,
-    IBaseResultNormalizer normalizer) : IAtomicMutationProcessor
+    IBaseResultNormalizer normalizer,
+    CollectionDefinition[] collections,
+    TimeSpan transactionTimeout) : IAtomicMutationProcessor
 {
     private readonly List<BaseMutationAttempt> _attempts = [];
+    private readonly IReadOnlyDictionary<string, CollectionDefinition> _collections = collections.ToDictionary(static value => value.Id, StringComparer.Ordinal);
+    private long _deadline;
 
+    /// <summary>Gets the attempts.</summary>
     public IReadOnlyList<BaseMutationAttempt> Attempts => _attempts;
 
+    /// <summary>Executes the process async operation.</summary>
     public async ValueTask<AtomicMutationProcessingResult> ProcessAsync(
         IAtomicRecordSession session,
         CancellationToken cancellationToken = default)
@@ -19,6 +26,7 @@ internal sealed class DefaultBaseMutationProcessor(
         ArgumentNullException.ThrowIfNull(session);
         if (_attempts.Count != 0)
             return Failed(Error("base.runtime.batch.invalid", "A mutation processor can only be invoked once.", ErrorCategory.Unexpected));
+        _deadline = Stopwatch.GetTimestamp() + (long)(transactionTimeout.TotalSeconds * Stopwatch.Frequency);
 
         foreach (var command in commands)
         {
@@ -62,6 +70,8 @@ internal sealed class DefaultBaseMutationProcessor(
             return FromFailure(command, policyResult);
         if (EnforceWritePolicy<RecordEnvelope>(validated.Payload, validated.Payload, policyResult.Value) is { } gate)
             return FromFailure(command, gate);
+        if (await EnforceRelationsAsync(session, command, validated.Payload, cancellationToken).ConfigureAwait(false) is { } relationError)
+            return Failure(command, RelationStatus(relationError), relationError);
 
         return await WriteCreateAsync(
             session,
@@ -121,6 +131,8 @@ internal sealed class DefaultBaseMutationProcessor(
             return FromFailure(command, policyResult);
         if (EnforceWritePolicy<RecordEnvelope>(proposedPayload, validated.Payload, policyResult.Value) is { } gate)
             return FromFailure(command, gate);
+        if (await EnforceRelationsAsync(session, command, proposedPayload, cancellationToken).ConfigureAwait(false) is { } relationError)
+            return Failure(command, RelationStatus(relationError), relationError);
 
         return await WritePatchAsync(
             session,
@@ -177,6 +189,8 @@ internal sealed class DefaultBaseMutationProcessor(
             return FromFailure(command, policyResult);
         if (EnforceWritePolicy<RecordEnvelope>(validated.Payload, validated.Payload, policyResult.Value) is { } gate)
             return FromFailure(command, gate);
+        if (await EnforceRelationsAsync(session, command, validated.Payload, cancellationToken).ConfigureAwait(false) is { } relationError)
+            return Failure(command, RelationStatus(relationError), relationError);
 
         return await WriteReplaceAsync(
             session,
@@ -264,6 +278,8 @@ internal sealed class DefaultBaseMutationProcessor(
             {
                 return FromFailure(command, gate);
             }
+            if (await EnforceRelationsAsync(session, command, validated.Payload, cancellationToken).ConfigureAwait(false) is { } createRelationError)
+                return Failure(command, RelationStatus(createRelationError), createRelationError);
 
             if (request.Condition == RecordUpsertExistenceCondition.UpdateOnly || request.ExpectedRevision is not null)
                 return Failure(command,
@@ -310,6 +326,8 @@ internal sealed class DefaultBaseMutationProcessor(
         {
             return FromFailure(command, updateGate);
         }
+        if (await EnforceRelationsAsync(session, command, proposedPayload, cancellationToken).ConfigureAwait(false) is { } relationError)
+            return Failure(command, RelationStatus(relationError), relationError);
 
         if (request.Condition == RecordUpsertExistenceCondition.CreateOnly)
             return Failure(command, OperationStatus.Conflict, Error(
@@ -365,6 +383,112 @@ internal sealed class DefaultBaseMutationProcessor(
             command.Context,
             startedAt);
     }
+
+    private async ValueTask<BaseError?> EnforceRelationsAsync(
+        IAtomicRecordSession session,
+        BaseMutationCommand command,
+        RecordPayload payload,
+        CancellationToken cancellationToken)
+    {
+        foreach (FieldDefinition field in command.Collection.Fields ?? [])
+        {
+            if (field.Relation is not { OwningSide: BaseRelationOwningSide.Source } relation)
+                continue;
+            if (relation.DeleteBehavior is not BaseRelationDeleteBehavior.Restrict || relation.ExistenceEnforcement is not EnforcementOwner.Runtime)
+                return RelationError("base.relation.enforcementUnsupported", "The declared relation enforcement mode is unavailable.", ErrorCategory.Unsupported);
+            if (!_collections.TryGetValue(relation.TargetCollectionId, out CollectionDefinition? targetCollection))
+                return RelationError("base.relation.invalid", "The declared relation is invalid.", ErrorCategory.Validation);
+            if (!TryRelationIds(payload, field.Name, relation, out RecordId[] ids, out string? code))
+                return RelationError(code!, "The relation value has an invalid shape or cardinality.", ErrorCategory.Validation);
+
+            foreach (RecordId id in ids)
+            {
+                OperationResult<RecordEnvelope> target = normalizer.NormalizeStoreResult(
+                    await session.GetAsync(targetCollection, id, command.Context, cancellationToken).ConfigureAwait(false),
+                    command.Context);
+                if (!target.IsSuccess() || target.Value is null)
+                    return RelationError("base.relation.targetUnavailable", "A relation target is unavailable.", ErrorCategory.Authorization);
+
+                OperationResult<BasePolicyEvaluation> targetPolicy;
+                try
+                {
+                    Task<OperationResult<BasePolicyEvaluation>> policyTask = policy.EvaluateReadAsync(new BasePolicyRequest
+                    {
+                        Principal = principal,
+                        Operation = command.Context,
+                        Collection = targetCollection,
+                        ResourceKind = PolicyResourceKind.RelationTarget,
+                        RecordId = id,
+                        ExistingRecord = target.Value
+                    }, cancellationToken).AsTask();
+                    TimeSpan remaining = TimeSpan.FromSeconds(Math.Max(0, _deadline - Stopwatch.GetTimestamp()) / (double)Stopwatch.Frequency);
+                    if (remaining <= TimeSpan.Zero) return RelationError("base.relation.policyTimeout", "Relation policy evaluation exceeded its bounded lifetime.", ErrorCategory.Store);
+                    TimeSpan publicationMargin = TimeSpan.FromMilliseconds(Math.Min(10, Math.Max(1, remaining.TotalMilliseconds / 10)));
+                    remaining -= publicationMargin;
+                    if (remaining <= TimeSpan.Zero) return RelationError("base.relation.policyTimeout", "Relation policy evaluation exceeded its bounded lifetime.", ErrorCategory.Store);
+                    try { targetPolicy = await policyTask.WaitAsync(remaining, cancellationToken).ConfigureAwait(false); }
+                    catch { Observe(policyTask); throw; }
+                }
+                catch (TimeoutException)
+                {
+                    return RelationError("base.relation.policyTimeout", "Relation policy evaluation exceeded its bounded lifetime.", ErrorCategory.Store);
+                }
+                catch (OperationCanceledException) { throw; }
+                catch
+                {
+                    return RelationError("base.relation.targetUnavailable", "A relation target is unavailable.", ErrorCategory.Authorization);
+                }
+                if (!targetPolicy.IsSuccess() || targetPolicy.Value?.Decision.Effect != PolicyEffect.Allow ||
+                    !BaseRecordFilterMatcher.Matches(target.Value, targetPolicy.Value.EffectiveRecordFilter))
+                    return RelationError("base.relation.targetUnavailable", "A relation target is unavailable.", ErrorCategory.Authorization);
+            }
+        }
+        return null;
+    }
+
+    private static bool TryRelationIds(RecordPayload payload, string name, RelationDefinition relation, out RecordId[] ids, out string? code)
+    {
+        ids = []; code = null;
+        if (payload.Fields is null || !payload.Fields.TryGetValue(name, out var value) || value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+        {
+            if (relation.Required || relation.LocalMultiplicity == BaseRelationMultiplicity.ExactlyOne) { code = "base.relation.cardinalityInvalid"; return false; }
+            return true;
+        }
+        if (relation.LocalMultiplicity == BaseRelationMultiplicity.Many)
+        {
+            if (value.ValueKind != JsonValueKind.Array) { code = "base.relation.invalid"; return false; }
+            var values = new List<RecordId>();
+            var unique = new HashSet<string>(StringComparer.Ordinal);
+            foreach (JsonElement item in value.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(item.GetString())) { code = "base.relation.invalid"; return false; }
+                string id = item.GetString()!;
+                if (!unique.Add(id)) { code = "base.relation.cardinalityInvalid"; return false; }
+                values.Add(new RecordId(id));
+            }
+            if (relation.MinimumCount is int minimum && values.Count < minimum ||
+                relation.MaximumCount is int maximum && values.Count > maximum)
+            {
+                code = "base.relation.cardinalityInvalid";
+                return false;
+            }
+            ids = values.ToArray(); return true;
+        }
+        if (value.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(value.GetString())) { code = "base.relation.invalid"; return false; }
+        ids = [new RecordId(value.GetString()!)]; return true;
+    }
+
+    private static OperationStatus RelationStatus(BaseError error) => error.Category switch
+    {
+        ErrorCategory.Validation => OperationStatus.ValidationFailed,
+        ErrorCategory.Unsupported => OperationStatus.Unsupported,
+        ErrorCategory.Store => OperationStatus.StoreError,
+        _ => OperationStatus.PolicyDenied
+    };
+
+    private static BaseError RelationError(string code, string message, ErrorCategory category) => new() { Code = code, Message = message, Category = category };
+
+    private static void Observe(Task task) => _ = task.ContinueWith(static completed => _ = completed.Exception, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
 
     private BaseMutationAttempt NormalizeSession(
         BaseMutationCommand command,

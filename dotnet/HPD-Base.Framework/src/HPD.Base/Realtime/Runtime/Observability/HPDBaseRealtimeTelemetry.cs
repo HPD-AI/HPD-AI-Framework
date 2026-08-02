@@ -103,6 +103,7 @@ internal static class HPDBaseRealtimeTelemetry
             description: "Reports active HPD.BASE realtime channels.");
     }
 
+    /// <summary>Executes the register stats operation.</summary>
     public static void RegisterStats(BaseRealtimeStats stats)
     {
         lock (Gate)
@@ -111,6 +112,7 @@ internal static class HPDBaseRealtimeTelemetry
         }
     }
 
+    /// <summary>Executes the trace join async operation.</summary>
     public static async ValueTask<T> TraceJoinAsync<T>(string channelKind, Func<ValueTask<T>> invoke)
     {
         using var activity = Start(HPDBaseTelemetrySpans.RealtimeChannelJoin, channelKind);
@@ -120,21 +122,36 @@ internal static class HPDBaseRealtimeTelemetry
         return result;
     }
 
+    /// <summary>Executes the record event projected operation.</summary>
     public static void RecordEventProjected() => EventsProjected.Add(1, ChannelTags("recordChanges"));
 
+    /// <summary>Executes the record connection opened operation.</summary>
     public static void RecordConnectionOpened() => ConnectionsOpened.Add(1, ConnectionTags());
+    /// <summary>Executes the record connection closed operation.</summary>
     public static void RecordConnectionClosed() => ConnectionsClosed.Add(1, ConnectionTags());
+    /// <summary>Executes the record channel opened operation.</summary>
     public static void RecordChannelOpened() => ChannelsOpened.Add(1, ChannelTags("recordChanges"));
+    /// <summary>Executes the record channel closed operation.</summary>
     public static void RecordChannelClosed() => ChannelsClosed.Add(1, ChannelTags("recordChanges"));
+    /// <summary>Executes the record policy skip operation.</summary>
     public static void RecordPolicySkip() => PolicySkips.Add(1, ChannelTags("recordChanges"));
+    /// <summary>Executes the record stream open failure operation.</summary>
     public static void RecordStreamOpenFailure() => StreamOpenFailures.Add(1, ErrorTags("streamOpenFailure"));
+    /// <summary>Executes the record send failure operation.</summary>
     public static void RecordSendFailure() => SendFailures.Add(1, ErrorTags("sendFailure"));
+    /// <summary>Executes the record receive idle timeout operation.</summary>
     public static void RecordReceiveIdleTimeout() => ReceiveIdleTimeouts.Add(1, ErrorTags("receiveIdleTimeout"));
+    /// <summary>Executes the record join rate rejection operation.</summary>
     public static void RecordJoinRateRejection() => JoinRateRejections.Add(1, ErrorTags("joinRateLimited"));
+    /// <summary>Executes the record slow consumer termination operation.</summary>
     public static void RecordSlowConsumerTermination() => SlowConsumerTerminations.Add(1, ErrorTags("slowConsumer"));
+    /// <summary>Executes the record payload drop operation.</summary>
     public static void RecordPayloadDrop() => PayloadDrops.Add(1, MessageTags("dropped"));
+    /// <summary>Executes the record durable journal read operation.</summary>
     public static void RecordDurableJournalRead() => DurableJournalReads.Add(1, ChannelTags("recordChanges"));
+    /// <summary>Executes the record durable event projected operation.</summary>
     public static void RecordDurableEventProjected() => DurableEventsProjected.Add(1, ChannelTags("recordChanges"));
+    /// <summary>Executes the record durable cursor rejection operation.</summary>
     public static void RecordDurableCursorRejection() => DurableCursorRejections.Add(1, ErrorTags("cursorRejected"));
 
     private static Activity? Start(string spanName, string channelKind)

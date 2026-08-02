@@ -74,6 +74,7 @@ public static class HPDBaseOpenApiEndpointRouteBuilderExtensions
 
     private sealed class CompositeEndpointConventionBuilder(IReadOnlyList<IEndpointConventionBuilder> builders) : IEndpointConventionBuilder
     {
+        /// <summary>Executes the add operation.</summary>
         public void Add(Action<EndpointBuilder> convention)
         {
             foreach (var builder in builders)

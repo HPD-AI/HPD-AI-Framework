@@ -14,6 +14,7 @@ public sealed class BaseSession
     private readonly IBaseDependencyReferenceFactory? _dependencies;
     private readonly IBaseRealtimeFeedSource? _realtime;
     private readonly IBaseLiveQueryCoordinator? _liveQueries;
+    private readonly IBaseRegisteredReadRuntime? _reads;
 
     internal BaseSession(
         IBaseRecordRuntime runtime,
@@ -24,6 +25,7 @@ public sealed class BaseSession
         IBaseDependencyReferenceFactory? dependencies = null,
         IBaseRealtimeFeedSource? realtime = null,
         IBaseLiveQueryCoordinator? liveQueries = null,
+        IBaseRegisteredReadRuntime? reads = null,
         int maxQueryPageSize = 500)
     {
         _runtime = runtime;
@@ -34,6 +36,7 @@ public sealed class BaseSession
         _dependencies = dependencies;
         _realtime = realtime;
         _liveQueries = liveQueries;
+        _reads = reads;
         MaxQueryPageSize = maxQueryPageSize;
     }
 
@@ -76,6 +79,12 @@ public sealed class BaseSession
     /// <summary>Gets valid server-side live-query helpers.</summary>
     public BaseSessionLiveQueries LiveQueries => new(
         _liveQueries ?? Missing<IBaseLiveQueryCoordinator>("live queries"));
+
+    /// <summary>Gets registered typed relational-read operations.</summary>
+    public BaseSessionReads Reads => new(
+        _reads ?? Missing<IBaseRegisteredReadRuntime>("relational reads"),
+        _liveQueries,
+        this);
 
     internal IBaseRecordRuntime Runtime => _runtime;
     internal int MaxQueryPageSize { get; }

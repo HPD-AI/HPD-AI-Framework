@@ -9,9 +9,11 @@ namespace HPD.Base.AspNetCore;
 
 internal static class DiagnosticEndpoints
 {
+    /// <summary>Executes the map public operation.</summary>
     public static void MapPublic(IEndpointRouteBuilder endpoints) =>
         endpoints.MapGet("/diagnostics", (RequestDelegate)Public).WithHPDBaseOpenApi(BaseRouteIds.Diagnostics).WithName(BaseRouteIds.Diagnostics);
 
+    /// <summary>Executes the map admin operation.</summary>
     public static void MapAdmin(IEndpointRouteBuilder endpoints) =>
         endpoints.MapGet("/diagnostics", (RequestDelegate)Admin).WithHPDBaseOpenApi(BaseHttpRouteNames.AdminDiagnostics).WithName(BaseHttpRouteNames.AdminDiagnostics);
 

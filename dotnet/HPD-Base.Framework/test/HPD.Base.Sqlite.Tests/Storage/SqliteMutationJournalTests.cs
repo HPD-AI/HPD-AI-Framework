@@ -328,10 +328,10 @@ public sealed class SqliteMutationJournalTests
                 {
                     options.StoreId = "require-enqueue";
                     options.DataSource = path;
-                    options.CollectionIds = [collection.Id];
                     options.Collections = [collection];
                 });
             await using var provider = services.BuildServiceProvider();
+            await provider.GetRequiredService<SqliteRecordStore>().InitializeUnacceptedSchemaForTestsAsync();
             provider.GetRequiredService<IRecordStoreRegistry>().AddHPDBaseSqliteStore(provider);
             var descriptor = await provider.GetRequiredService<IBaseDescriptorRegistry>().RebuildAsync();
 

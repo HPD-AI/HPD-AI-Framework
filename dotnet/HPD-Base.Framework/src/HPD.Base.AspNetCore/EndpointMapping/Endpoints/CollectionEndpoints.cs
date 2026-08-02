@@ -9,12 +9,14 @@ namespace HPD.Base.AspNetCore;
 
 internal static class CollectionEndpoints
 {
+    /// <summary>Executes the map public operation.</summary>
     public static void MapPublic(IEndpointRouteBuilder endpoints)
     {
         endpoints.MapGet("/collections", (RequestDelegate)ListPublic).WithHPDBaseOpenApi(BaseHttpRouteNames.CollectionsList).WithName(BaseHttpRouteNames.CollectionsList);
         endpoints.MapGet("/collections/{collectionId}", (RequestDelegate)GetPublic).WithHPDBaseOpenApi(BaseHttpRouteNames.CollectionsGet).WithName(BaseHttpRouteNames.CollectionsGet);
     }
 
+    /// <summary>Executes the map admin operation.</summary>
     public static void MapAdmin(IEndpointRouteBuilder endpoints)
     {
         endpoints.MapGet("/collections", (RequestDelegate)ListAdmin).WithHPDBaseOpenApi(BaseHttpRouteNames.AdminCollectionsList).WithName(BaseHttpRouteNames.AdminCollectionsList);

@@ -8,6 +8,7 @@ internal sealed class DefaultBaseDiagnosticProvider : IBaseDiagnosticProvider
     private readonly IEnumerable<IBaseDiagnosticContributor> _contributors;
     private readonly ILogger<DefaultBaseDiagnosticProvider> _logger;
 
+    /// <summary>Initializes a new instance.</summary>
     public DefaultBaseDiagnosticProvider(
         IBaseDescriptorRegistry registry,
         IEnumerable<IBaseDiagnosticContributor> contributors,
@@ -18,6 +19,7 @@ internal sealed class DefaultBaseDiagnosticProvider : IBaseDiagnosticProvider
         _logger = logger;
     }
 
+    /// <summary>Executes the get diagnostics async operation.</summary>
     public async ValueTask<OperationResult<DiagnosticDescriptor[]>> GetDiagnosticsAsync(
         PrincipalContext principal,
         OperationContext operation,

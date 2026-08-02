@@ -11,6 +11,7 @@ internal sealed class BaseHttpOperationContextFactory : IBaseHttpOperationContex
     private readonly HPDBaseAspNetCoreOptions _options;
     private readonly TimeProvider _timeProvider;
 
+    /// <summary>Initializes a new instance.</summary>
     public BaseHttpOperationContextFactory(
         IOptions<HPDBaseAspNetCoreOptions> options,
         TimeProvider timeProvider)
@@ -19,6 +20,7 @@ internal sealed class BaseHttpOperationContextFactory : IBaseHttpOperationContex
         _timeProvider = timeProvider;
     }
 
+    /// <summary>Executes the create operation.</summary>
     public OperationContext Create(
         HttpContext httpContext,
         PrincipalContext principal,

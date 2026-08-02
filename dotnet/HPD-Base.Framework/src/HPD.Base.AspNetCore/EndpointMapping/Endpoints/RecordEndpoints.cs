@@ -12,10 +12,11 @@ namespace HPD.Base.AspNetCore;
 
 internal static class RecordEndpoints
 {
+    /// <summary>Executes the map operation.</summary>
     public static void Map(IEndpointRouteBuilder endpoints)
     {
         endpoints.MapGet("/collections/{collectionId}/records", (RequestDelegate)ListRequest).WithHPDBaseOpenApi(BaseRouteIds.RecordsList).WithName(BaseRouteIds.RecordsList);
-        endpoints.MapPost("/collections/{collectionId}/query", (RequestDelegate)QueryRequest).WithHPDBaseOpenApi(BaseRouteIds.RecordsQuery).WithName(BaseRouteIds.RecordsQuery);
+        endpoints.MapPost("/collections/{collectionId}/records:query", (RequestDelegate)QueryRequest).WithHPDBaseOpenApi(BaseRouteIds.RecordsQuery).WithName(BaseRouteIds.RecordsQuery);
         endpoints.MapGet("/collections/{collectionId}/records/{id}", (RequestDelegate)GetRequest).WithHPDBaseOpenApi(BaseRouteIds.RecordsGet).WithName(BaseRouteIds.RecordsGet);
         endpoints.MapPost("/collections/{collectionId}/records", (RequestDelegate)CreateRequest).WithHPDBaseOpenApi(BaseRouteIds.RecordsCreate).WithName(BaseRouteIds.RecordsCreate);
         endpoints.MapPatch("/collections/{collectionId}/records/{id}", (RequestDelegate)PatchRequest).WithHPDBaseOpenApi(BaseRouteIds.RecordsPatch).WithName(BaseRouteIds.RecordsPatch);

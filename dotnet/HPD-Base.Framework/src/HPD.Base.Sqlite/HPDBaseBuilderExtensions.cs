@@ -3,12 +3,11 @@ using HPD.Base.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Base.Sqlite;
-
+/// <summary>Represents hPDBase Builder Extensions.</summary>
 public static class HPDBaseBuilderExtensions
 {
-    public static HPDBaseBuilder UseSqlite(
-        this HPDBaseBuilder builder,
-        Action<HPDBaseSqliteOptions>? configure = null)
+    /// <summary>Performs use Sqlite.</summary>
+    public static HPDBaseBuilder UseSqlite(this HPDBaseBuilder builder, Action<HPDBaseSqliteOptions>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
         return builder.Use(new Installer(configure));
@@ -16,19 +15,25 @@ public static class HPDBaseBuilderExtensions
 
     private sealed class Installer(Action<HPDBaseSqliteOptions>? configure) : IHPDBaseBuilderExtension
     {
+        /// <summary>Gets id.</summary>
         public string Id => "sqlite";
+        /// <summary>Gets is Record Provider.</summary>
         public bool IsRecordProvider => true;
-        public bool SupportsRequiredIndexes => false;
+        /// <summary>Gets supports Required Indexes.</summary>
+        public bool SupportsRequiredIndexes => true;
 
-        public void Configure(IServiceCollection services, IReadOnlyList<CollectionDefinition> collections) =>
-            services.AddHPDBaseSqliteStore(options =>
-            {
-                configure?.Invoke(options);
-                options.CollectionIds = collections.Select(static item => item.Id).ToArray();
-                options.Collections = collections.ToArray();
-            });
-
-        public void Initialize(IServiceProvider services) =>
+        /// <summary>Performs configure.</summary>
+        public void Configure(IServiceCollection services, IReadOnlyList<CollectionDefinition> collections) => services.AddHPDBaseSqliteStore(options =>
+        {
+            configure?.Invoke(options);
+            options.Collections = collections.ToArray();
+        });
+        /// <summary>Performs initialize Async.</summary>
+        public ValueTask InitializeAsync(IServiceProvider services, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
             services.GetRequiredService<IRecordStoreRegistry>().AddHPDBaseSqliteStore(services);
+            return ValueTask.CompletedTask;
+        }
     }
 }

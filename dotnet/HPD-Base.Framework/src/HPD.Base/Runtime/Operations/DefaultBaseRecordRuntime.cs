@@ -1,10 +1,13 @@
 using System.Diagnostics;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace HPD.Base;
 
 internal sealed class DefaultBaseRecordRuntime(
     IBaseSchemaProvider schema,
+    BaseCollectionRegistry collections,
     IRecordStoreResolver storeResolver,
     IBaseQueryValidator queryValidator,
     IBasePolicyOrchestrator policy,
@@ -12,8 +15,12 @@ internal sealed class DefaultBaseRecordRuntime(
     IBaseResultNormalizer normalizer,
     IBaseOperationalFailureMapper failureMapper,
     IBaseMutationCoordinator mutations,
+    IServiceProvider services,
+    IOptions<HPDBaseRelationalOptions> relationalOptions,
     ILogger<DefaultBaseRecordRuntime> logger) : IBaseRecordRuntime
 {
+    private readonly HPDBaseRelationalOptions _relationalOptions = relationalOptions.Value;
+    /// <summary>Executes the list async operation.</summary>
     public async ValueTask<OperationResult<RecordPage>> ListAsync(
         string collectionId,
         RecordQuery? query,
@@ -90,9 +97,20 @@ internal sealed class DefaultBaseRecordRuntime(
             composedQuery = composedValidation.Value.Query;
         }
 
-        var result = await InvokeStoreAsync(
-            () => storeResult.Value.ListAsync(collection, composedQuery, context, cancellationToken),
-            context).ConfigureAwait(false);
+        OperationResult<RecordPage> result;
+        if (composedQuery.Include is { Length: > 0 })
+        {
+            result = await ExecuteIncludesAsync(
+                collection, composedQuery, principal, context, storeResult.Value,
+                policyResult.Value, cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            var providerQuery = BaseQueryFieldResolver.ToStoredNames(collection, composedQuery);
+            result = await InvokeStoreAsync(
+                () => storeResult.Value.ListAsync(collection, providerQuery, context, cancellationToken),
+                context).ConfigureAwait(false);
+        }
         result = normalizer.NormalizeStoreResult(result, context);
         if (result.IsSuccess() && result.Value is not null && policyResult.Value is not null)
         {
@@ -109,6 +127,212 @@ internal sealed class DefaultBaseRecordRuntime(
         return Finish(activity, result, BaseOperationKind.List, collectionId, context, startedAt);
     }
 
+    private async ValueTask<OperationResult<RecordPage>> ExecuteIncludesAsync(
+        CollectionDefinition root,
+        RecordQuery query,
+        PrincipalContext principal,
+        OperationContext operation,
+        IRecordStore store,
+        BasePolicyEvaluation? rootPolicy,
+        CancellationToken cancellationToken)
+    {
+        using HPDBaseRelationalTelemetry.Scope telemetry = HPDBaseRelationalTelemetry.StartRelational(
+            HPDBaseTelemetrySpans.RelationInclude, "include", 1, query.Include?.Length ?? 0);
+        if (store is not IConsistentRecordIncludeStore includes || !includes.Includes.Supported || !includes.Includes.SnapshotConsistency)
+            return OperationResults.Unsupported<RecordPage>(new BaseError { Code = "base.include.unsupported", Message = "The selected store cannot execute snapshot-consistent includes.", Category = ErrorCategory.Unsupported });
+        var policies = new Dictionary<string, RecordIncludeSourcePolicy>(StringComparer.Ordinal)
+        {
+            [root.Id] = new RecordIncludeSourcePolicy { CollectionId = root.Id, Filter = rootPolicy?.EffectiveRecordFilter, ReadMask = rootPolicy?.EffectiveReadMask },
+        };
+        OperationResult<RecordPage>? validation = await ResolveIncludePoliciesAsync(root, query.Include!, principal, operation, store, policies, 1, [0], cancellationToken).ConfigureAwait(false);
+        if (validation is not null) return validation;
+        IHPDBaseApplication? application = services.GetService<IHPDBaseApplication>();
+        long generation = application?.CurrentReadiness.SchemaGeneration ?? 0;
+        OperationResult<RecordIncludeExecutionResult> executed;
+        try
+        {
+            executed = await includes.ExecuteIncludeAsync(new RecordIncludeExecutionRequest
+            {
+                RootCollection = root,
+                RootQuery = query,
+                IncludePlan = query.Include!,
+                SourcePolicies = policies.Values.ToArray(),
+                Operation = operation,
+                AcquisitionTimeout = _relationalOptions.SnapshotAcquisitionTimeout,
+                ExecutionTimeout = _relationalOptions.MaxExecutionDuration,
+                MaxResultRows = Math.Min(_relationalOptions.MaxIncludedRecords, includes.Includes.MaxRecords),
+                MaxResultBytes = _relationalOptions.MaxResultBytes,
+            }, cancellationToken).AsTask().WaitAsync(_relationalOptions.MaxExecutionDuration, cancellationToken).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        { return OperationResults.StoreError<RecordPage>(new BaseError { Code = "base.include.limitExceeded", Message = "Include execution exceeded its bounded lifetime.", Category = ErrorCategory.Store }); }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        { return OperationResults.StoreError<RecordPage>(new BaseError { Code = "base.include.limitExceeded", Message = "Include execution exceeded its bounded lifetime.", Category = ErrorCategory.Store }); }
+        catch when (!cancellationToken.IsCancellationRequested)
+        { return OperationResults.StoreError<RecordPage>(new BaseError { Code = "base.include.invalid", Message = "Include execution failed.", Category = ErrorCategory.Store }); }
+        if (!executed.IsSuccess() || executed.Value is null)
+        {
+            string code = executed.Error?.Code switch
+            {
+                "base.include.limitExceeded" => "base.include.limitExceeded",
+                "base.include.snapshotUnsupported" => "base.include.snapshotUnsupported",
+                "base.include.unsupported" => "base.include.unsupported",
+                _ => "base.include.invalid",
+            };
+            var error = new BaseError
+            {
+                Code = code,
+                Message = "Include execution failed.",
+                Category = code is "base.include.unsupported" or "base.include.snapshotUnsupported"
+                    ? ErrorCategory.Unsupported
+                    : ErrorCategory.Store,
+            };
+            return code == "base.include.unsupported"
+                ? OperationResults.Unsupported<RecordPage>(error)
+                : code == "base.include.snapshotUnsupported"
+                    ? OperationResults.CapabilityUnavailable<RecordPage>(error)
+                    : OperationResults.StoreError<RecordPage>(error);
+        }
+        IncludeResultValidation resultValidation = ValidateIncludeResult(executed.Value.Page, query.Include!, Math.Min(_relationalOptions.MaxIncludedRecords, includes.Includes.MaxRecords), _relationalOptions.MaxResultBytes);
+        if (resultValidation != IncludeResultValidation.Valid)
+            return OperationResults.StoreError<RecordPage>(new BaseError
+            {
+                Code = resultValidation == IncludeResultValidation.LimitExceeded ? "base.include.limitExceeded" : "base.include.invalid",
+                Message = "The include provider returned an invalid result.",
+                Category = ErrorCategory.Store,
+            });
+        if (generation != 0 && (executed.Value.SchemaGeneration != generation || application?.CurrentReadiness.SchemaGeneration != generation))
+            return OperationResults.CapabilityUnavailable<RecordPage>(new BaseError { Code = "base.include.snapshotUnsupported", Message = "The include schema generation is not ready.", Category = ErrorCategory.Capability });
+        if (!ValidIncludeEvidence(executed.Value.DependencyEvidence, policies.Keys, Math.Min(_relationalOptions.MaxIncludedRecords, includes.Includes.MaxRecords)))
+            return OperationResults.StoreError<RecordPage>(new BaseError { Code = "base.relational.dependencies.invalid", Message = "The include dependency evidence is invalid.", Category = ErrorCategory.Store });
+        OperationResult<RecordPage> completed = OperationResults.Ok(executed.Value.Page);
+        telemetry.SetOutcome(completed.Status);
+        return completed;
+    }
+
+    private static IncludeResultValidation ValidateIncludeResult(RecordPage page, RecordInclude[] plan, int maxRecords, int maxBytes)
+    {
+        if (page.Items is null || page.Page.Limit is < 0 || page.Page.Offset is < 0 || page.Page.Page is < 0 || page.Page.PerPage is < 0 || page.Count?.Total < 0)
+            return IncludeResultValidation.Invalid;
+        int records = 0;
+        long bytes = 0;
+        IncludeResultValidation Visit(RecordEnvelope record, RecordInclude[] expected, bool included)
+        {
+            if (included && ++records > maxRecords) return IncludeResultValidation.LimitExceeded;
+            foreach ((string key, System.Text.Json.JsonElement value) in record.Payload.Fields ?? [])
+            {
+                bytes += key.Length * 2L + value.GetRawText().Length * 2L;
+                if (bytes > maxBytes) return IncludeResultValidation.LimitExceeded;
+            }
+            RecordIncludeResult[] actual = record.Includes ?? [];
+            if (actual.Length != expected.Length) return IncludeResultValidation.Invalid;
+            for (int index = 0; index < expected.Length; index++)
+            {
+                RecordInclude requested = expected[index];
+                RecordIncludeResult result = actual[index];
+                if (!string.Equals(result.NavigationId, requested.NavigationId, StringComparison.Ordinal)) return IncludeResultValidation.Invalid;
+                RecordEnvelope[] children = result.Kind switch
+                {
+                    RecordIncludeKind.None when result.Record is null && result.Records is null => [],
+                    RecordIncludeKind.One when result.Record is not null && result.Records is null => [result.Record],
+                    RecordIncludeKind.Many when result.Record is null && result.Records is not null => result.Records,
+                    _ => null!,
+                };
+                if (children is null || requested.Limit is { } limit && children.Length > limit) return IncludeResultValidation.Invalid;
+                foreach (RecordEnvelope child in children)
+                {
+                    IncludeResultValidation childValidation = Visit(child, requested.Includes ?? [], included: true);
+                    if (childValidation != IncludeResultValidation.Valid) return childValidation;
+                }
+            }
+            return IncludeResultValidation.Valid;
+        }
+        foreach (RecordEnvelope root in page.Items)
+        {
+            IncludeResultValidation rootValidation = Visit(root, plan, included: false);
+            if (rootValidation != IncludeResultValidation.Valid) return rootValidation;
+        }
+        return IncludeResultValidation.Valid;
+    }
+
+    private static bool ValidIncludeEvidence(BaseReadDependencyEvidence[]? evidence, IEnumerable<string> requiredCollections, int maxRecords)
+    {
+        if (evidence is null) return false;
+        HashSet<string> required = requiredCollections.ToHashSet(StringComparer.Ordinal);
+        if (evidence.Length < required.Count || evidence.Length > maxRecords + required.Count) return false;
+        var observed = new HashSet<string>(StringComparer.Ordinal);
+        var entries = new HashSet<string>(StringComparer.Ordinal);
+        foreach (BaseReadDependencyEvidence item in evidence)
+        {
+            if (string.IsNullOrWhiteSpace(item.CollectionId) || item.CollectionId.Length > 128 ||
+                !required.Contains(item.CollectionId) || item.RecordId is { Length: > 512 } ||
+                !entries.Add(item.CollectionId + "\0" + item.RecordId))
+                return false;
+            observed.Add(item.CollectionId);
+        }
+        return observed.SetEquals(required);
+    }
+
+    private enum IncludeResultValidation { Valid, Invalid, LimitExceeded }
+
+    private async ValueTask<OperationResult<RecordPage>?> ResolveIncludePoliciesAsync(
+        CollectionDefinition parent,
+        RecordInclude[] includes,
+        PrincipalContext principal,
+        OperationContext operation,
+        IRecordStore expectedStore,
+        Dictionary<string, RecordIncludeSourcePolicy> policies,
+        int depth,
+        int[] includeCount,
+        CancellationToken cancellationToken)
+    {
+        if (depth > _relationalOptions.MaxIncludeDepth) return IncludeValidation("base.include.limitExceeded", "Include depth exceeds the configured limit.");
+        foreach (RecordInclude include in includes)
+        {
+            if (++includeCount[0] > _relationalOptions.MaxIncludes) return IncludeValidation("base.include.limitExceeded", "Include count exceeds the configured limit.");
+            RelationDefinition? relation = (parent.Fields ?? []).Select(static field => field.Relation).FirstOrDefault(candidate => candidate is not null && (candidate.Id == include.NavigationId || candidate.SourceFieldId == include.NavigationId));
+            bool inverse = false;
+            if (relation is null)
+            {
+                relation = collections.Collections.Values.SelectMany(static collection => collection.Fields ?? []).Select(static field => field.Relation)
+                    .FirstOrDefault(candidate => candidate is not null && candidate.TargetCollectionId == parent.Id && candidate.InverseNavigationId == include.NavigationId);
+                inverse = relation is not null;
+            }
+            if (relation is null || relation.Include?.Allowed != true) return IncludeValidation("base.include.invalid", "The requested relation cannot be included.");
+            if (relation.Include.MaxDepth is { } relationDepth && depth > relationDepth) return IncludeValidation("base.include.limitExceeded", "Include depth exceeds the relation limit.");
+            if (include.Filter is not null && relation.Include.FilterAllowed != true) return IncludeValidation("base.include.unsupported", "The relation does not permit include filtering.");
+            if (include.Sort is { Length: > 0 } && relation.Include.SortAllowed != true) return IncludeValidation("base.include.unsupported", "The relation does not permit include sorting.");
+            if (include.Limit is <= 0 || include.Limit > _relationalOptions.MaxIncludedRecordsPerParent) return IncludeValidation("base.include.limitExceeded", "The per-parent include limit is invalid.");
+            string targetId = inverse ? relation.SourceCollectionId : relation.TargetCollectionId;
+            OperationContext targetOperation = operation with { CollectionId = targetId };
+            OperationResult<CollectionDefinition> targetResult = await schema.GetCollectionAsync(targetId, principal, targetOperation, BasePolicyRuntimeSimulation.ViewFor(principal, targetOperation), cancellationToken).ConfigureAwait(false);
+            if (!targetResult.IsSuccess() || targetResult.Value is null) return Failure<RecordPage, CollectionDefinition>(targetResult);
+            HashSet<string> targetFields = (targetResult.Value.Fields ?? []).Select(static field => field.Id).ToHashSet(StringComparer.Ordinal);
+            if ((include.SelectFieldIds ?? []).Any(field => !targetFields.Contains(field)) ||
+                (include.Sort ?? []).Any(sort => !targetFields.Contains(sort.Field)) ||
+                !IncludeFilterFieldsValid(include.Filter, targetFields))
+                return IncludeValidation("base.include.invalid", "The include references an unknown target field.");
+            OperationResult<IRecordStore> targetStore = storeResolver.Resolve(targetResult.Value, targetOperation);
+            if (!targetStore.IsSuccess() || !ReferenceEquals(targetStore.Value, expectedStore)) return IncludeValidation("base.include.snapshotUnsupported", "Includes require one store instance.");
+            OperationResult<BasePolicyEvaluation> targetPolicy = await EvaluateReadPolicyAsync(new BasePolicyRequest { Principal = principal, Operation = targetOperation, Collection = targetResult.Value, ResourceKind = PolicyResourceKind.Query }, cancellationToken).ConfigureAwait(false);
+            if (!targetPolicy.IsSuccess() || targetPolicy.Value is null)
+                return OperationResults.PolicyDenied<RecordPage>(new BaseError
+                {
+                    Code = "base.include.policyUnsupported",
+                    Message = "Include policy evaluation failed.",
+                    Category = ErrorCategory.Authorization,
+                });
+            policies[targetId] = new RecordIncludeSourcePolicy { CollectionId = targetId, Filter = targetPolicy.Value.EffectiveRecordFilter, ReadMask = targetPolicy.Value.EffectiveReadMask };
+            if (include.Includes is { Length: > 0 } && await ResolveIncludePoliciesAsync(targetResult.Value, include.Includes, principal, targetOperation, expectedStore, policies, depth + 1, includeCount, cancellationToken).ConfigureAwait(false) is { } failure) return failure;
+        }
+        return null;
+    }
+
+    private static OperationResult<RecordPage> IncludeValidation(string code, string message) => OperationResults.ValidationFailed<RecordPage>(new BaseError { Code = code, Message = message, Category = ErrorCategory.Validation });
+    private static bool IncludeFilterFieldsValid(FilterExpression? filter, HashSet<string> fields) => filter is null ||
+        (filter.Field is null || fields.Contains(filter.Field)) && (filter.Children ?? []).All(child => IncludeFilterFieldsValid(child, fields));
+
+    /// <summary>Executes the get async operation.</summary>
     public async ValueTask<OperationResult<RecordEnvelope>> GetAsync(
         string collectionId,
         RecordId id,
@@ -206,6 +430,7 @@ internal sealed class DefaultBaseRecordRuntime(
         return Finish(activity, result, BaseOperationKind.Get, collectionId, context, startedAt);
     }
 
+    /// <summary>Executes the create async operation.</summary>
     public ValueTask<OperationResult<RecordEnvelope>> CreateAsync(
         string collectionId,
         RecordCreateRequest request,
@@ -228,6 +453,7 @@ internal sealed class DefaultBaseRecordRuntime(
             static item => item.Record,
             cancellationToken);
 
+    /// <summary>Executes the patch async operation.</summary>
     public ValueTask<OperationResult<RecordEnvelope>> PatchAsync(
         string collectionId,
         RecordId id,
@@ -252,6 +478,7 @@ internal sealed class DefaultBaseRecordRuntime(
             static item => item.Record,
             cancellationToken);
 
+    /// <summary>Executes the replace async operation.</summary>
     public ValueTask<OperationResult<RecordEnvelope>> ReplaceAsync(
         string collectionId,
         RecordId id,
@@ -276,6 +503,7 @@ internal sealed class DefaultBaseRecordRuntime(
             static item => item.Record,
             cancellationToken);
 
+    /// <summary>Executes the delete async operation.</summary>
     public ValueTask<OperationResult<DeleteResult>> DeleteAsync(
         string collectionId,
         RecordId id,
@@ -300,6 +528,7 @@ internal sealed class DefaultBaseRecordRuntime(
             static item => item.Delete,
             cancellationToken);
 
+    /// <summary>Executes the upsert async operation.</summary>
     public ValueTask<OperationResult<RecordUpsertResult>> UpsertAsync(
         string collectionId,
         RecordUpsertRequest request,
@@ -322,6 +551,7 @@ internal sealed class DefaultBaseRecordRuntime(
             static item => item.Upsert,
             cancellationToken);
 
+    /// <summary>Executes the batch async operation.</summary>
     public async ValueTask<OperationResult<BaseRecordBatchResult>> BatchAsync(
         BaseRecordBatchRequest request,
         PrincipalContext principal,
@@ -607,6 +837,7 @@ internal sealed class DefaultBaseRecordRuntime(
 
     private readonly record struct GateFailure(BaseError Error)
     {
+        /// <summary>Executes the as operation.</summary>
         public OperationResult<T> As<T>() => OperationResults.Unsupported<T>(Error);
     }
 }

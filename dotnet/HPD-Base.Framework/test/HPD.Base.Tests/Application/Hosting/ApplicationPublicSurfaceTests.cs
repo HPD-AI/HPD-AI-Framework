@@ -25,6 +25,11 @@ public sealed class ApplicationPublicSurfaceTests
             typeof(HPD.Base.QueryValue),
             typeof(IFileObjectService),
             typeof(FileOperationContext),
+            typeof(BaseRelationalReadPlan),
+            typeof(BaseRelationalReadExecutionRequest),
+            typeof(IBaseSchemaStore),
+            typeof(IRelationalReadStore),
+            typeof(IConsistentRecordIncludeStore),
         ];
         Type[] applicationTypes =
         [
@@ -42,12 +47,13 @@ public sealed class ApplicationPublicSurfaceTests
         foreach (Type type in forbidden)
         {
             publicMembers.Should().NotContain(
-                member => SignatureTypes(member).Any(candidate => candidate == type),
+                member => SignatureTypes(member).SelectMany(Flatten).Any(candidate => candidate == type),
                 $"ordinary application members must not expose {type.FullName}");
         }
 
         Type[] eventTypes = publicMembers
             .SelectMany(SignatureTypes)
+            .SelectMany(Flatten)
             .Where(type =>
                 type.Namespace is string ns &&
                 ns.StartsWith("HPD.Events", StringComparison.Ordinal))
@@ -86,4 +92,21 @@ public sealed class ApplicationPublicSurfaceTests
             PropertyInfo property => [property.PropertyType],
             _ => [],
         };
+
+    private static IEnumerable<Type> Flatten(Type type)
+    {
+        yield return type;
+
+        if (type.HasElementType && type.GetElementType() is { } elementType)
+        {
+            foreach (Type nested in Flatten(elementType))
+                yield return nested;
+        }
+
+        foreach (Type argument in type.GetGenericArguments())
+        {
+            foreach (Type nested in Flatten(argument))
+                yield return nested;
+        }
+    }
 }

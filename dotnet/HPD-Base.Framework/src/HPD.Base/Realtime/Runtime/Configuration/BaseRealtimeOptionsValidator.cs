@@ -4,8 +4,10 @@ using HPD.Events;
 
 internal static class BaseRealtimeOptionsValidator
 {
+    /// <summary>Provides the minimum payload bytes value.</summary>
     public const int MinimumPayloadBytes = 256;
 
+    /// <summary>Executes the validate operation.</summary>
     public static void Validate(BaseRealtimeOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);

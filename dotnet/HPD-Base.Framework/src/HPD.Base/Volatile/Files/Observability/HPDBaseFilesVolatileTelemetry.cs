@@ -25,6 +25,7 @@ internal static class HPDBaseFilesVolatileTelemetry
         unit: "By",
         description: "Records HPD.BASE Files Volatile download sizes.");
 
+    /// <summary>Executes the trace async operation.</summary>
     public static async ValueTask<OperationResult<T>> TraceAsync<T>(
         string spanName,
         string operation,
@@ -40,6 +41,7 @@ internal static class HPDBaseFilesVolatileTelemetry
         return result;
     }
 
+    /// <summary>Executes the trace async operation.</summary>
     public static async ValueTask<OperationResult> TraceAsync(
         string spanName,
         string operation,
@@ -175,9 +177,14 @@ internal static class HPDBaseFilesVolatileTelemetry
 
 internal static class ProviderOperationValues
 {
+    /// <summary>Provides the upload value.</summary>
     public const string Upload = "upload";
+    /// <summary>Provides the download open value.</summary>
     public const string DownloadOpen = "downloadOpen";
+    /// <summary>Provides the metadata get value.</summary>
     public const string MetadataGet = "metadataGet";
+    /// <summary>Provides the delete value.</summary>
     public const string Delete = "delete";
+    /// <summary>Provides the list value.</summary>
     public const string List = "list";
 }

@@ -10,6 +10,7 @@ internal sealed class DefaultBaseEventDispatcher : IBaseEventDispatcher
     private readonly ILogger<DefaultBaseEventDispatcher> _logger;
     private readonly IBaseCommittedMutationObserver[] _observers;
 
+    /// <summary>Initializes a new instance.</summary>
     public DefaultBaseEventDispatcher(
         IBaseEventPublisher publisher,
         IOptions<HPDBaseRuntimeOptions> options,
@@ -22,6 +23,7 @@ internal sealed class DefaultBaseEventDispatcher : IBaseEventDispatcher
         _observers = observers.ToArray();
     }
 
+    /// <summary>Executes the dispatch mutation async operation.</summary>
     public async ValueTask<OperationResult<EventReference[]>> DispatchMutationAsync(
         BaseEvent @event,
         EventDeliveryGuarantee committedGuarantee,

@@ -5,11 +5,13 @@ internal sealed class DefaultBaseCapabilityProvider : IBaseCapabilityProvider
 {
     private readonly IBaseDescriptorRegistry _registry;
 
+    /// <summary>Initializes a new instance.</summary>
     public DefaultBaseCapabilityProvider(IBaseDescriptorRegistry registry)
     {
         _registry = registry;
     }
 
+    /// <summary>Executes the get capabilities async operation.</summary>
     public ValueTask<OperationResult<CapabilityDescriptor>> GetCapabilitiesAsync(
         PrincipalContext principal,
         OperationContext operation,
@@ -29,6 +31,7 @@ internal sealed class DefaultBaseCapabilityProvider : IBaseCapabilityProvider
             () => ValueTask.FromResult(OperationResults.Ok(DescriptorViewFilter.Capabilities(_registry.Current, view))));
     }
 
+    /// <summary>Executes the supports feature operation.</summary>
     public bool SupportsFeature(string featureId, string? collectionId = null)
     {
         _ = collectionId;

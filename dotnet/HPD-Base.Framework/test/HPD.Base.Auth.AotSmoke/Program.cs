@@ -15,7 +15,7 @@ services.AddHPDBaseHPDAuth(options =>
         {
             CollectionId = "items",
             ReadRoles = ["Reader"],
-            TenantFieldPath = "tenantId"
+            TenantFieldId = "tenantId"
         }
     ];
 });

@@ -3,6 +3,7 @@ namespace HPD.Base;
 
 internal sealed class DefaultBaseResultFactory : IBaseResultFactory
 {
+    /// <summary>Executes the success operation.</summary>
     public OperationResult<T> Success<T>(OperationStatus status, T value)
     {
         if (!status.IsSuccess())
@@ -13,6 +14,7 @@ internal sealed class DefaultBaseResultFactory : IBaseResultFactory
         return new OperationResult<T> { Status = status, Value = value };
     }
 
+    /// <summary>Executes the failure operation.</summary>
     public OperationResult<T> Failure<T>(OperationStatus status, BaseError error)
     {
         if (!status.RequiresError())
@@ -24,6 +26,7 @@ internal sealed class DefaultBaseResultFactory : IBaseResultFactory
         return new OperationResult<T> { Status = status, Error = error };
     }
 
+    /// <summary>Executes the failure operation.</summary>
     public OperationResult Failure(OperationStatus status, BaseError error)
     {
         if (!status.RequiresError())

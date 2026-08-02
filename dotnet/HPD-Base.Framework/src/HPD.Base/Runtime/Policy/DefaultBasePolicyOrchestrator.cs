@@ -7,6 +7,7 @@ internal sealed class DefaultBasePolicyOrchestrator : IBasePolicyOrchestrator
     private readonly IEnumerable<IPolicyEvaluator> _evaluators;
     private readonly HPDBaseRuntimeOptions _options;
 
+    /// <summary>Initializes a new instance.</summary>
     public DefaultBasePolicyOrchestrator(
         IEnumerable<IPolicyEvaluator> evaluators,
         IOptions<HPDBaseRuntimeOptions> options)
@@ -15,11 +16,13 @@ internal sealed class DefaultBasePolicyOrchestrator : IBasePolicyOrchestrator
         _options = options.Value;
     }
 
+    /// <summary>Executes the evaluate read async operation.</summary>
     public ValueTask<OperationResult<BasePolicyEvaluation>> EvaluateReadAsync(
         BasePolicyRequest request,
         CancellationToken cancellationToken = default) =>
         EvaluateAsync(request, cancellationToken);
 
+    /// <summary>Executes the evaluate write async operation.</summary>
     public ValueTask<OperationResult<BasePolicyEvaluation>> EvaluateWriteAsync(
         BasePolicyRequest request,
         CancellationToken cancellationToken = default) =>

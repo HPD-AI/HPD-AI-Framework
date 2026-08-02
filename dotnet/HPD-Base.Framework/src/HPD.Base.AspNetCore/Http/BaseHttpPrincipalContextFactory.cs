@@ -11,6 +11,7 @@ internal sealed class BaseHttpPrincipalContextFactory : IBaseHttpPrincipalContex
     private readonly IEnumerable<IBaseHttpPrincipalMapper> _mappers;
     private readonly HPDBaseAspNetCoreOptions _options;
 
+    /// <summary>Initializes a new instance.</summary>
     public BaseHttpPrincipalContextFactory(
         IEnumerable<IBaseHttpPrincipalMapper> mappers,
         IOptions<HPDBaseAspNetCoreOptions> options)
@@ -19,6 +20,7 @@ internal sealed class BaseHttpPrincipalContextFactory : IBaseHttpPrincipalContex
         _options = options.Value;
     }
 
+    /// <summary>Executes the create async operation.</summary>
     public async ValueTask<PrincipalContext> CreateAsync(
         HttpContext httpContext,
         HPDBaseEndpointKind endpointKind,

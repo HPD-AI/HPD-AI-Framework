@@ -5,6 +5,7 @@ namespace HPD.Base.AspNetCore;
 
 internal sealed class BaseProblemDetailsFactory
 {
+    /// <summary>Executes the create operation.</summary>
     public ProblemDetails Create(
         OperationStatus status,
         BaseError? error,

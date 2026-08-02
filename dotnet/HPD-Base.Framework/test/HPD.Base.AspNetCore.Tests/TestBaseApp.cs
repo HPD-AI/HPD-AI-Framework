@@ -51,6 +51,15 @@ internal static class TestBaseApp
         Kind = BaseCollectionKinds.Document,
         SchemaMode = SchemaMode.Loose,
         UnknownFields = UnknownFieldPolicy.Preserve,
+        Fields =
+        [
+            new FieldDefinition
+            {
+                Id = "title",
+                Name = "title",
+                Type = BaseFieldTypes.String,
+            },
+        ],
         Operations = new CollectionOperationMatrix
         {
             List = true,

@@ -6,11 +6,13 @@ internal sealed class DefaultBaseResultRedactor : IBaseResultRedactor
 {
     private readonly HPDBaseRuntimeRedactionOptions _options;
 
+    /// <summary>Initializes a new instance.</summary>
     public DefaultBaseResultRedactor(IOptions<HPDBaseRuntimeOptions> options)
     {
         _options = options.Value.Redaction;
     }
 
+    /// <summary>Executes the redact operation.</summary>
     public OperationResult<T> Redact<T>(OperationResult<T> result, VisibilityLevel view)
     {
         return view == VisibilityLevel.Public && _options.RedactPublicErrors
@@ -18,6 +20,7 @@ internal sealed class DefaultBaseResultRedactor : IBaseResultRedactor
             : result;
     }
 
+    /// <summary>Executes the redact operation.</summary>
     public OperationResult Redact(OperationResult result, VisibilityLevel view)
     {
         return view == VisibilityLevel.Public && _options.RedactPublicErrors

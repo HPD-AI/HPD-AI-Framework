@@ -5,6 +5,7 @@ namespace HPD.Base.AspNetCore;
 
 internal static class BaseIdempotencyKeyBinder
 {
+    /// <summary>Executes the bind operation.</summary>
     public static string? Bind(HttpContext httpContext)
     {
         if (!httpContext.Request.Headers.TryGetValue(BaseHttpHeaders.IdempotencyKey, out var values))

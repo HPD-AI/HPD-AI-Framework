@@ -8,6 +8,7 @@ namespace HPD.Base.AspNetCore;
 
 internal sealed class HPDBaseOpenApiSchemaTransformer : IOpenApiSchemaTransformer
 {
+    /// <summary>Executes the transform async operation.</summary>
     public Task TransformAsync(OpenApiSchema schema, OpenApiSchemaTransformerContext context, CancellationToken cancellationToken)
     {
         var type = Nullable.GetUnderlyingType(context.JsonTypeInfo.Type) ?? context.JsonTypeInfo.Type;

@@ -2,22 +2,30 @@ using System.Text.Json;
 
 namespace HPD.Base;
 
+/// <summary>Represents a store capability descriptor.</summary>
 public sealed record StoreCapabilityDescriptor
 {
+    /// <summary>Gets or sets the store ID.</summary>
     public required string StoreId { get; init; }
+    /// <summary>Gets or sets the store kind.</summary>
     public required string StoreKind { get; init; }
+    /// <summary>Gets or sets the store version.</summary>
     public required string StoreVersion { get; init; }
     /// <summary>Gets portable record-read support and limits.</summary>
     public required RecordReadCapability Read { get; init; }
     /// <summary>Gets portable record-mutation support and authority.</summary>
     public required RecordMutationCapability Mutation { get; init; }
+    /// <summary>Gets or sets the query.</summary>
     public required QueryCapability Query { get; init; }
+    /// <summary>Gets or sets the revision.</summary>
     public RevisionCapability? Revision { get; init; }
     /// <summary>Gets ordered and atomic batch guarantees, when implemented.</summary>
     public StoreBatchCapability? Batch { get; init; }
     /// <summary>Gets atomic record-ID upsert guarantees, when implemented.</summary>
     public StoreUpsertCapability? Upsert { get; init; }
+    /// <summary>Gets or sets the streaming.</summary>
     public StreamingCapability? Streaming { get; init; }
+    /// <summary>Gets or sets the extensions.</summary>
     public Dictionary<string, JsonElement>? Extensions { get; init; }
 }
 
@@ -51,9 +59,25 @@ public sealed record RecordMutationCapability
     public ConsistencyModel Consistency { get; init; }
 }
 
-public enum IdAuthority { Runtime, Store, Client, Hybrid }
-public enum TimestampAuthority { Runtime, Store, Client, Hybrid, None }
-public enum ConsistencyModel { Strong, Eventual, Session, StoreDefined }
+/// <summary>Defines the ID authority contract.</summary>
+public enum IdAuthority { /// <summary>Identifies runtime.</summary>
+Runtime, /// <summary>Identifies store.</summary>
+Store, /// <summary>Identifies client.</summary>
+Client, /// <summary>Identifies hybrid.</summary>
+Hybrid }
+/// <summary>Defines the timestamp authority contract.</summary>
+public enum TimestampAuthority { /// <summary>Identifies runtime.</summary>
+Runtime, /// <summary>Identifies store.</summary>
+Store, /// <summary>Identifies client.</summary>
+Client, /// <summary>Identifies hybrid.</summary>
+Hybrid, /// <summary>Identifies none.</summary>
+None }
+/// <summary>Defines the consistency model contract.</summary>
+public enum ConsistencyModel { /// <summary>Identifies strong.</summary>
+Strong, /// <summary>Identifies eventual.</summary>
+Eventual, /// <summary>Identifies session.</summary>
+Session, /// <summary>Identifies store defined.</summary>
+StoreDefined }
 
 /// <summary>Declares conditional mutation support and its revision guarantee.</summary>
 public sealed record RevisionCapability
@@ -124,18 +148,22 @@ public sealed record StoreUpsertCapability
 public enum BaseTransactionIsolation
 {
     /// <summary>The provider has a bounded but provider-defined isolation model.</summary>
-    StoreDefined,
+StoreDefined,
     /// <summary>Each statement observes committed state at statement start.</summary>
-    ReadCommitted,
+ReadCommitted,
     /// <summary>The transaction observes one repeatable committed snapshot.</summary>
-    RepeatableRead,
+RepeatableRead,
     /// <summary>Concurrent executions behave as a serial order.</summary>
-    Serializable
+Serializable
 }
 
+/// <summary>Represents a streaming capability.</summary>
 public sealed record StreamingCapability
 {
+    /// <summary>Gets or sets the supported.</summary>
     public bool Supported { get; init; }
+    /// <summary>Gets or sets the max items.</summary>
     public int? MaxItems { get; init; }
+    /// <summary>Gets or sets the requires stable sort.</summary>
     public bool RequiresStableSort { get; init; }
 }

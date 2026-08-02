@@ -4,8 +4,10 @@ using Microsoft.Extensions.Options;
 
 namespace HPD.Base;
 
+/// <summary>Represents a hpdbase files service collection extensions.</summary>
 public static class HPDBaseFilesServiceCollectionExtensions
 {
+    /// <summary>Executes the add hpdbase files operation.</summary>
     public static IServiceCollection AddHPDBaseFiles(this IServiceCollection services, Action<HPDBaseFilesOptions>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(services);
@@ -30,6 +32,7 @@ public static class HPDBaseFilesServiceCollectionExtensions
         return services;
     }
 
+    /// <summary>Executes the add hpdbase files operation.</summary>
     public static IHPDBaseRuntimeBuilder AddHPDBaseFiles(this IHPDBaseRuntimeBuilder builder, Action<HPDBaseFilesOptions>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(builder);

@@ -4,6 +4,7 @@ namespace HPD.Base;
 
 internal sealed class DefaultBaseSchemaValidator : IBaseSchemaValidator
 {
+    /// <summary>Executes the validate create async operation.</summary>
     public ValueTask<OperationResult<BaseValidatedPayload>> ValidateCreateAsync(
         BasePayloadValidationRequest request,
         CancellationToken cancellationToken = default)
@@ -16,6 +17,7 @@ internal sealed class DefaultBaseSchemaValidator : IBaseSchemaValidator
             SchemaValidationOperation.Create));
     }
 
+    /// <summary>Executes the validate patch async operation.</summary>
     public ValueTask<OperationResult<BaseValidatedPayload>> ValidatePatchAsync(
         BasePayloadValidationRequest request,
         CancellationToken cancellationToken = default)
@@ -44,6 +46,7 @@ internal sealed class DefaultBaseSchemaValidator : IBaseSchemaValidator
             request.Patch.Fields?.Keys.ToArray()));
     }
 
+    /// <summary>Executes the validate replace async operation.</summary>
     public ValueTask<OperationResult<BaseValidatedPayload>> ValidateReplaceAsync(
         BasePayloadValidationRequest request,
         CancellationToken cancellationToken = default)
@@ -283,8 +286,8 @@ internal sealed class DefaultBaseSchemaValidator : IBaseSchemaValidator
 
     private enum SchemaValidationOperation
     {
-        Create,
-        Patch,
-        Replace
+    Create,
+    Patch,
+    Replace
     }
 }

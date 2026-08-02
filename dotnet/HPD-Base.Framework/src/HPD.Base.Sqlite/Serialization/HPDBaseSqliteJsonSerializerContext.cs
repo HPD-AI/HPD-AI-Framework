@@ -4,6 +4,7 @@ using System.Text.Json.Serialization;
 
 namespace HPD.Base.Sqlite;
 
+/// <summary>Represents a hpdbase sqlite JSON serializer context.</summary>
 [JsonSerializable(typeof(HPDBaseSqliteOptions))]
 [JsonSerializable(typeof(RelationalStoreDescriptor))]
 [JsonSerializable(typeof(RelationalTableDescriptor[]))]

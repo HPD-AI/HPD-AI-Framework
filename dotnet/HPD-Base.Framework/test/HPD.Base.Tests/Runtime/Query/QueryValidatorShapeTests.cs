@@ -133,18 +133,32 @@ public sealed class QueryValidatorShapeTests
     }
 
     [Fact]
+    public async Task StableFieldIdContainingDotIsNotTreatedAsNestedPath()
+    {
+        using var provider = Provider();
+
+        var result = await Validate(
+            provider,
+            new RecordQuery { Filter = Compare("membership.subject-ref", "subject") },
+            Capability(),
+            CollectionWithFields(Field("membership.subject-ref")));
+
+        Assert.True(result.IsSuccess(), result.Error?.Message);
+    }
+
+    [Fact]
     public async Task IncludePathMustReferenceDeclaredRelation()
     {
         using var provider = Provider();
 
         var result = await Validate(
             provider,
-            new RecordQuery { Include = [new QueryInclude { Path = "title" }] },
+            new RecordQuery { Include = [new RecordInclude { NavigationId = "title" }] },
             Capability(),
             CollectionWithFields(Field("title")));
 
         Assert.Equal(OperationStatus.ValidationFailed, result.Status);
-        Assert.Equal("base.runtime.query.include.notRelation", result.Error!.Code);
+        Assert.Equal("base.include.invalid", result.Error!.Code);
     }
 
     [Fact]
@@ -317,7 +331,7 @@ public sealed class QueryValidatorShapeTests
         Kind = BaseCollectionKinds.Document,
         SchemaMode = SchemaMode.Loose,
         UnknownFields = UnknownFieldPolicy.Preserve,
-        Fields = fields.Length == 0 ? null : fields
+        Fields = fields.Length == 0 ? [Field("title")] : fields
     };
 
     private static FieldDefinition Field(string name) => new()

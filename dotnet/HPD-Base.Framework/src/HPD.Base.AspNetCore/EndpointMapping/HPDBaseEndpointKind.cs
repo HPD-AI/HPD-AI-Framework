@@ -6,11 +6,11 @@ namespace HPD.Base.AspNetCore;
 public enum HPDBaseEndpointKind
 {
     /// <summary>Public metadata route.</summary>
-    PublicMetadata,
+PublicMetadata,
 
     /// <summary>Admin metadata route.</summary>
-    AdminMetadata,
+AdminMetadata,
 
     /// <summary>User-facing record route.</summary>
-    Records
+Records
 }

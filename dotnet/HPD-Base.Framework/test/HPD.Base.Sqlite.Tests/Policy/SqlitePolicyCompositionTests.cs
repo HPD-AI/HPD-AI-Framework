@@ -17,6 +17,7 @@ public sealed class SqlitePolicyCompositionTests
         {
             var services = Services(path, new TenantPolicyEvaluator(SupportedTenantFilter()));
             await using var provider = services.BuildServiceProvider();
+            await provider.GetRequiredService<SqliteRecordStore>().InitializeUnacceptedSchemaForTestsAsync();
             provider.GetRequiredService<IRecordStoreRegistry>().AddHPDBaseSqliteStore(provider);
             var runtime = provider.GetRequiredService<IBaseRecordRuntime>();
 
@@ -55,6 +56,7 @@ public sealed class SqlitePolicyCompositionTests
                 Value = new QueryValue { Kind = QueryValueKind.String, String = "a" }
             }));
             await using var provider = services.BuildServiceProvider();
+            await provider.GetRequiredService<SqliteRecordStore>().InitializeUnacceptedSchemaForTestsAsync();
             provider.GetRequiredService<IRecordStoreRegistry>().AddHPDBaseSqliteStore(provider);
             var runtime = provider.GetRequiredService<IBaseRecordRuntime>();
 
@@ -82,7 +84,6 @@ public sealed class SqlitePolicyCompositionTests
         {
             options.DataSource = path;
             options.StoreId = "policy-sqlite";
-            options.CollectionIds = ["items"];
             options.Collections = [Collection()];
         });
         return services;

@@ -7,11 +7,13 @@ using Microsoft.AspNetCore.Routing;
 
 namespace HPD.Base.AspNetCore;
 
+/// <summary>Represents a hpdbase files open API endpoint metadata extensions.</summary>
 public static class HPDBaseFilesOpenApiEndpointMetadataExtensions
 {
     private static readonly System.Reflection.MethodInfo s_openApiHandlerMethod =
         ((Func<HttpContext, Task>)OpenApiHandlerStub).Method;
 
+    /// <summary>Executes the with hpdbase files open API operation.</summary>
     public static IEndpointConventionBuilder WithHPDBaseFilesOpenApi(this IEndpointConventionBuilder builder, string operationId)
     {
         ArgumentNullException.ThrowIfNull(builder);
@@ -79,6 +81,7 @@ public static class HPDBaseFilesOpenApiEndpointMetadataExtensions
 
     private sealed record ProducesMetadata(Type? Type, int StatusCode, string ContentType) : IProducesResponseTypeMetadata
     {
+        /// <summary>Gets the content types.</summary>
         public IEnumerable<string> ContentTypes => Type == typeof(void) ? [] : [ContentType];
     }
 

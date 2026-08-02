@@ -8,6 +8,7 @@ internal sealed class DefaultBaseHealthProvider : IBaseHealthProvider
     private readonly IEnumerable<IBaseHealthContributor> _contributors;
     private readonly ILogger<DefaultBaseHealthProvider> _logger;
 
+    /// <summary>Initializes a new instance.</summary>
     public DefaultBaseHealthProvider(
         IBaseDescriptorRegistry registry,
         IEnumerable<IBaseHealthContributor> contributors,
@@ -18,6 +19,7 @@ internal sealed class DefaultBaseHealthProvider : IBaseHealthProvider
         _logger = logger;
     }
 
+    /// <summary>Executes the get health async operation.</summary>
     public async ValueTask<OperationResult<HealthDescriptor[]>> GetHealthAsync(
         PrincipalContext principal,
         OperationContext operation,

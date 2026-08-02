@@ -4,6 +4,7 @@ namespace HPD.Base;
 
 internal sealed class DefaultBaseJsonOptionsProvider : IBaseJsonOptionsProvider
 {
+    /// <summary>Initializes a new instance.</summary>
     public DefaultBaseJsonOptionsProvider(
         IBaseJsonTypeInfoResolverComposer composer,
         IEnumerable<IBaseJsonTypeInfoContributor> contributors)
@@ -11,5 +12,6 @@ internal sealed class DefaultBaseJsonOptionsProvider : IBaseJsonOptionsProvider
         Options = composer.ComposeAndFreeze(contributors);
     }
 
+    /// <summary>Gets the options.</summary>
     public JsonSerializerOptions Options { get; }
 }

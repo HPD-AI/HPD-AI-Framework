@@ -7,6 +7,7 @@ internal sealed class PolicyAdminHealthContributor : IBaseHealthContributor, IBa
     private readonly IEnumerable<IPolicyEvaluator> _evaluators;
     private readonly TimeProvider _timeProvider;
 
+    /// <summary>Initializes a new instance.</summary>
     public PolicyAdminHealthContributor(
         IBasePolicyExplainService explainService,
         IEnumerable<IPolicyEvaluator> evaluators,
@@ -17,8 +18,10 @@ internal sealed class PolicyAdminHealthContributor : IBaseHealthContributor, IBa
         _timeProvider = timeProvider;
     }
 
+    /// <summary>Gets the ID.</summary>
     public string Id => "hpd.base.policy.admin";
 
+    /// <summary>Executes the get health async operation.</summary>
     public ValueTask<HealthDescriptor[]> GetHealthAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -39,6 +42,7 @@ internal sealed class PolicyAdminHealthContributor : IBaseHealthContributor, IBa
         ]);
     }
 
+    /// <summary>Executes the get diagnostics async operation.</summary>
     public ValueTask<DiagnosticDescriptor[]> GetDiagnosticsAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();

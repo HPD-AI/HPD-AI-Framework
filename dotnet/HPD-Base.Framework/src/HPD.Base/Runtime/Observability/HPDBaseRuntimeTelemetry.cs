@@ -65,6 +65,7 @@ internal static class HPDBaseRuntimeTelemetry
         unit: "{operation}",
         description: "Counts HPD.BASE runtime diagnostic reads.");
 
+    /// <summary>Executes the start runtime operation operation.</summary>
     public static Activity? StartRuntimeOperation(string spanName, BaseOperationKind operation, string collectionId, OperationContext context)
     {
         var activity = HPDBaseRuntimeObservability.ActivitySource.StartActivity(spanName, ActivityKind.Internal);
@@ -76,6 +77,7 @@ internal static class HPDBaseRuntimeTelemetry
         return activity;
     }
 
+    /// <summary>Executes the start store invocation operation.</summary>
     public static Activity? StartStoreInvocation(OperationContext context)
     {
         var activity = HPDBaseRuntimeObservability.ActivitySource.StartActivity(HPDBaseTelemetrySpans.RuntimeStoreInvoke, ActivityKind.Internal);
@@ -87,6 +89,7 @@ internal static class HPDBaseRuntimeTelemetry
         return activity;
     }
 
+    /// <summary>Executes the start policy evaluation operation.</summary>
     public static Activity? StartPolicyEvaluation(OperationContext context, string resourceKind)
     {
         var activity = HPDBaseRuntimeObservability.ActivitySource.StartActivity(HPDBaseTelemetrySpans.RuntimePolicyEvaluate, ActivityKind.Internal);
@@ -99,6 +102,7 @@ internal static class HPDBaseRuntimeTelemetry
         return activity;
     }
 
+    /// <summary>Executes the start event dispatch operation.</summary>
     public static Activity? StartEventDispatch(OperationContext context, string eventType)
     {
         var activity = HPDBaseRuntimeObservability.ActivitySource.StartActivity(HPDBaseTelemetrySpans.RuntimeEventsDispatch, ActivityKind.Internal);
@@ -111,6 +115,7 @@ internal static class HPDBaseRuntimeTelemetry
         return activity;
     }
 
+    /// <summary>Executes the trace runtime read async operation.</summary>
     public static async ValueTask<OperationResult<T>> TraceRuntimeReadAsync<T>(
         string spanName,
         BaseOperationKind operation,
@@ -163,6 +168,7 @@ internal static class HPDBaseRuntimeTelemetry
         return result;
     }
 
+    /// <summary>Executes the trace runtime validation async operation.</summary>
     public static async ValueTask<BaseRuntimeValidationResult> TraceRuntimeValidationAsync(
         Func<ValueTask<BaseRuntimeValidationResult>> invoke)
     {
@@ -197,6 +203,7 @@ internal static class HPDBaseRuntimeTelemetry
         return result;
     }
 
+    /// <summary>Executes the finish runtime operation operation.</summary>
     public static OperationResult<T> FinishRuntimeOperation<T>(
         Activity? activity,
         OperationResult<T> result,
@@ -211,6 +218,7 @@ internal static class HPDBaseRuntimeTelemetry
         return enriched;
     }
 
+    /// <summary>Executes the finish store invocation operation.</summary>
     public static OperationResult<T> FinishStoreInvocation<T>(
         Activity? activity,
         OperationResult<T> result,
@@ -223,6 +231,7 @@ internal static class HPDBaseRuntimeTelemetry
         return result;
     }
 
+    /// <summary>Executes the finish policy evaluation operation.</summary>
     public static OperationResult<T> FinishPolicyEvaluation<T>(
         Activity? activity,
         OperationResult<T> result,
@@ -235,6 +244,7 @@ internal static class HPDBaseRuntimeTelemetry
         return result;
     }
 
+    /// <summary>Executes the finish event dispatch operation.</summary>
     public static OperationResult<T> FinishEventDispatch<T>(
         Activity? activity,
         OperationResult<T> result,

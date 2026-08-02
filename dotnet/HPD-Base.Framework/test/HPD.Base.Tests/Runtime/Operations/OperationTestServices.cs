@@ -55,7 +55,11 @@ internal static class OperationTestServices
                 Kind = BaseCollectionKinds.Document,
                 SchemaMode = SchemaMode.Loose,
                 UnknownFields = UnknownFieldPolicy.Preserve,
-                Fields = _fields,
+                Fields = _fields ??
+                [
+                    new FieldDefinition { Id = "title", Name = "title", Type = BaseFieldTypes.String },
+                    new FieldDefinition { Id = "tenantId", Name = "tenantId", Type = BaseFieldTypes.String },
+                ],
                 Operations = new CollectionOperationMatrix
                 {
                     List = true,

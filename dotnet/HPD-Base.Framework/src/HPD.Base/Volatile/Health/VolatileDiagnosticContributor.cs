@@ -6,13 +6,16 @@ internal sealed class VolatileDiagnosticContributor : IBaseDiagnosticContributor
 {
     private readonly HPDBaseVolatileStoreOptions _options;
 
+    /// <summary>Initializes a new instance.</summary>
     public VolatileDiagnosticContributor(IOptions<HPDBaseVolatileStoreOptions> options)
     {
         _options = options.Value;
     }
 
+    /// <summary>Gets the ID.</summary>
     public string Id => _options.DiagnosticRefId;
 
+    /// <summary>Executes the get diagnostics async operation.</summary>
     public ValueTask<DiagnosticDescriptor[]> GetDiagnosticsAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();

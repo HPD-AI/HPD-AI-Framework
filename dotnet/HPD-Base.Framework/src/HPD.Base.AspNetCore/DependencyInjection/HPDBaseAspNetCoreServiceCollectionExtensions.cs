@@ -38,8 +38,37 @@ public static class HPDBaseAspNetCoreServiceCollectionExtensions
         services.TryAddSingleton<IBaseHttpResultMapper, BaseHttpResultMapper>();
         services.TryAddSingleton<BaseProblemDetailsFactory>();
         services.TryAddSingleton<IBaseHttpQueryBinder, BaseHttpQueryBinder>();
+        services.Replace(ServiceDescriptor.Singleton<IBaseApplicationLifetime, AspNetCoreBaseApplicationLifetime>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseDescriptorContributor, AspNetCoreProjectionDescriptorContributor>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<Microsoft.Extensions.Hosting.IHostedService, HPDBaseApplicationHostedService>());
 
         return services;
     }
+}
+
+internal sealed class AspNetCoreBaseApplicationLifetime(
+    Microsoft.Extensions.Hosting.IHostApplicationLifetime lifetime) : IBaseApplicationLifetime
+{
+    /// <summary>Gets the stopping.</summary>
+    public CancellationToken Stopping => lifetime.ApplicationStopping;
+}
+
+internal sealed class HPDBaseApplicationHostedService(IServiceProvider services)
+    : Microsoft.Extensions.Hosting.IHostedService
+{
+    /// <summary>Executes the start async operation.</summary>
+    public async Task StartAsync(CancellationToken cancellationToken)
+    {
+        IHPDBaseApplication? application = services.GetService<IHPDBaseApplication>();
+        if (application is null)
+            return;
+        OperationResult<BaseApplicationReadiness> result = await application
+            .InitializeAsync(cancellationToken)
+            .ConfigureAwait(false);
+        if (!result.IsSuccess())
+            throw new InvalidOperationException("HPD.BASE application initialization failed.");
+    }
+
+    /// <summary>Executes the stop async operation.</summary>
+    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 }

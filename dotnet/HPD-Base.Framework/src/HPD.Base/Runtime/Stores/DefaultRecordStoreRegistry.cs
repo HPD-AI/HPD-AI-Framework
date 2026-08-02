@@ -6,6 +6,7 @@ internal sealed class DefaultRecordStoreRegistry : IRecordStoreRegistry
     private readonly object _gate = new();
     private readonly List<RecordStoreRegistration> _registrations = [];
 
+    /// <summary>Executes the add operation.</summary>
     public void Add(RecordStoreRegistration registration)
     {
         ArgumentNullException.ThrowIfNull(registration);
@@ -18,9 +19,11 @@ internal sealed class DefaultRecordStoreRegistry : IRecordStoreRegistry
         }
     }
 
+    /// <summary>Executes the get store operation.</summary>
     public IRecordStore? GetStore(string storeId)
         => GetRegistration(storeId)?.Store;
 
+    /// <summary>Executes the get registration operation.</summary>
     public RecordStoreRegistration? GetRegistration(string storeId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(storeId);
@@ -31,9 +34,11 @@ internal sealed class DefaultRecordStoreRegistry : IRecordStoreRegistry
         }
     }
 
+    /// <summary>Executes the get store for collection operation.</summary>
     public IRecordStore? GetStoreForCollection(string collectionId)
         => GetRegistrationForCollection(collectionId)?.Store;
 
+    /// <summary>Executes the get registration for collection operation.</summary>
     public RecordStoreRegistration? GetRegistrationForCollection(string collectionId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(collectionId);
@@ -45,6 +50,7 @@ internal sealed class DefaultRecordStoreRegistry : IRecordStoreRegistry
         }
     }
 
+    /// <summary>Executes the get registrations operation.</summary>
     public RecordStoreRegistration[] GetRegistrations()
     {
         lock (_gate)

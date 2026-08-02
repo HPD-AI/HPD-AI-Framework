@@ -1,10 +1,14 @@
 
 namespace HPD.Base;
 
+/// <summary>Represents a record create request.</summary>
 public sealed record RecordCreateRequest
 {
+    /// <summary>Gets or sets the payload.</summary>
     public required RecordPayload Payload { get; init; }
+    /// <summary>Gets or sets the requested ID.</summary>
     public RecordId? RequestedId { get; init; }
+    /// <summary>Gets or sets the idempotency key.</summary>
     public string? IdempotencyKey { get; init; }
 }
 
@@ -13,7 +17,9 @@ public sealed record RecordCreateRequest
 /// </summary>
 public sealed record RecordPatchRequest
 {
+    /// <summary>Gets or sets the patch.</summary>
     public required RecordPayload Patch { get; init; }
+    /// <summary>Gets or sets the expected revision.</summary>
     public RevisionToken? ExpectedRevision { get; init; }
 }
 
@@ -22,12 +28,17 @@ public sealed record RecordPatchRequest
 /// </summary>
 public sealed record RecordReplaceRequest
 {
+    /// <summary>Gets or sets the payload.</summary>
     public required RecordPayload Payload { get; init; }
+    /// <summary>Gets or sets the expected revision.</summary>
     public RevisionToken? ExpectedRevision { get; init; }
 }
 
+/// <summary>Represents a record delete request.</summary>
 public sealed record RecordDeleteRequest
 {
+    /// <summary>Gets or sets the expected revision.</summary>
     public RevisionToken? ExpectedRevision { get; init; }
+    /// <summary>Gets or sets the return previous.</summary>
     public bool ReturnPrevious { get; init; }
 }

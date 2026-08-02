@@ -6,8 +6,8 @@ namespace HPD.Base;
 /// </summary>
 public sealed record BasePage<T>
 {
-    /// <summary>Gets the policy-projected typed records.</summary>
-    public required BaseRecord<T>[] Items { get; init; }
+    /// <summary>Gets the complete typed values in this page.</summary>
+    public required T[] Items { get; init; }
 
     /// <summary>Gets canonical continuation metadata.</summary>
     public required PageInfo Page { get; init; }

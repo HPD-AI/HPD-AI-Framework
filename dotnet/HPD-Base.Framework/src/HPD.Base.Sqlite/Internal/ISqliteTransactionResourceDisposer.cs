@@ -4,6 +4,7 @@ namespace HPD.Base.Sqlite;
 
 internal interface ISqliteTransactionResourceDisposer
 {
+    /// <summary>Executes the dispose async operation.</summary>
     ValueTask DisposeAsync(
         SqliteTransaction transaction,
         SqliteConnection connection);
@@ -12,12 +13,14 @@ internal interface ISqliteTransactionResourceDisposer
 internal sealed class DefaultSqliteTransactionResourceDisposer
     : ISqliteTransactionResourceDisposer
 {
+    /// <summary>Gets the instance.</summary>
     public static DefaultSqliteTransactionResourceDisposer Instance { get; } = new();
 
     private DefaultSqliteTransactionResourceDisposer()
     {
     }
 
+    /// <summary>Executes the dispose async operation.</summary>
     public async ValueTask DisposeAsync(
         SqliteTransaction transaction,
         SqliteConnection connection)

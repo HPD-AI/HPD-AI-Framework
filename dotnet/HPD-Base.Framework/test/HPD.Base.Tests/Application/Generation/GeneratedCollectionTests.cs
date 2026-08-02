@@ -13,7 +13,8 @@ public sealed class GeneratedCollectionTests
         GeneratedProject.Collection.Id.Should().Be("projects");
         GeneratedProject.Collection.JsonTypeInfo.Type.Should().Be(typeof(GeneratedProject));
 
-        GeneratedProject.Fields.OrganizationId.Path.Should().Be("organizationId");
+        GeneratedProject.Fields.OrganizationId.Id.Should().Be("organization-id");
+        GeneratedProject.Fields.OrganizationId.StoredName.Should().Be("organizationId");
         GeneratedProject.Fields.Name.Operators.Should().HaveFlag(BaseFieldOperator.Order);
         GeneratedProject.Fields.OptionalNote.Nullable.Should().BeTrue();
 
@@ -22,8 +23,8 @@ public sealed class GeneratedCollectionTests
         GeneratedProject.Collection.Definition.Fields.Should().HaveCount(3);
         GeneratedProject.Collection.Definition.Indexes.Should().ContainSingle();
         GeneratedProject.Collection.Definition.Indexes![0].Parts.Should().ContainSingle();
-        GeneratedProject.Collection.Definition.Indexes[0].Parts![0].FieldPath
-            .Should().Be("organizationId");
+        GeneratedProject.Collection.Definition.Indexes[0].Parts![0].FieldId
+            .Should().Be("organization-id");
     }
 
     [Fact]
@@ -35,15 +36,16 @@ public sealed class GeneratedCollectionTests
                 GeneratedApplicationJsonContext.Default.GeneratedProject,
                 schema =>
                 {
-                    schema.String("organizationId").Required();
-                    schema.String("name").Required();
-                    schema.String("optionalNote").Optional();
-                    schema.Index("organization-name", "organizationId", "name")
+                    schema.String("organization-id", "organizationId").Required();
+                    schema.String("name", "name").Required();
+                    schema.String("optional-note", "optionalNote").Optional();
+                    schema.Index("organization-name", "organization-id", "name")
                         .Required()
                         .Unique();
                 });
 
-        collection.Field<string>("organizationId").Nullable.Should().BeFalse();
+        collection.Definition.Fields![0].Id.Should().Be("organization-id");
+        collection.Definition.Fields[0].Nullable.Should().BeFalse();
         collection.Definition.Indexes![0].Enforcement.Should().Be(EnforcementOwner.Store);
         collection.Definition.Indexes[0].Unique.Should().BeTrue();
 
@@ -73,10 +75,10 @@ public sealed class GeneratedCollectionTests
                 GeneratedApplicationJsonContext.Default.GeneratedProject,
                 schema =>
                 {
-                    schema.String("organizationId").Required();
-                    schema.String("name").Required();
-                    schema.String("optionalNote").Optional();
-                    schema.Index("organization", "organizationId").Advisory();
+                    schema.String("organization-id", "organizationId").Required();
+                    schema.String("name", "name").Required();
+                    schema.String("optional-note", "optionalNote").Optional();
+                    schema.Index("organization", "organization-id").Advisory();
                 });
 
         manual.Definition.Should().BeEquivalentTo(GeneratedProject.Collection.Definition);
@@ -87,11 +89,13 @@ public sealed class GeneratedCollectionTests
 [BaseIndex("organization", nameof(OrganizationId), Required = false)]
 internal sealed partial record GeneratedProject
 {
+    [BaseField("organization-id")]
     public required string OrganizationId { get; init; }
 
-    [BaseField(Operators = BaseFieldOperator.Equal | BaseFieldOperator.Order)]
+    [BaseField("name", Operators = BaseFieldOperator.Equal | BaseFieldOperator.Order)]
     public required string Name { get; init; }
 
+    [BaseField("optional-note")]
     public string? OptionalNote { get; init; }
 }
 

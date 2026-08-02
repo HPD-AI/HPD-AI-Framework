@@ -18,7 +18,7 @@ public sealed class SqliteLoggingTests
         var path = Path.Combine(Path.GetTempPath(), marker, "store.db");
         using var collector = new LogCollector();
         using var loggerFactory = CreateLoggerFactory(collector);
-        await using var store = new SqliteRecordStore(new HPDBaseSqliteOptions { DataSource = path }, loggerFactory);
+        await using var store = new SqliteRecordStore(Options(path), loggerFactory);
 
         var result = await store.GetAsync(Collection(), new RecordId("one"), Operation(BaseOperationKind.Get));
 
@@ -38,7 +38,7 @@ public sealed class SqliteLoggingTests
         {
             using var collector = new LogCollector();
             using var loggerFactory = CreateLoggerFactory(collector);
-            await using var store = new SqliteRecordStore(new HPDBaseSqliteOptions { DataSource = path }, loggerFactory);
+            await using var store = new SqliteRecordStore(Options(path), loggerFactory);
 
             var result = await store.ListAsync(
                 Collection(),
@@ -75,7 +75,7 @@ public sealed class SqliteLoggingTests
             await File.WriteAllTextAsync(path, marker);
             using var collector = new LogCollector();
             using var loggerFactory = CreateLoggerFactory(collector);
-            await using var store = new SqliteRecordStore(new HPDBaseSqliteOptions { DataSource = path }, loggerFactory);
+            await using var store = new SqliteRecordStore(Options(path), loggerFactory);
 
             var result = await store.GetAsync(Collection(), new RecordId("one"), Operation(BaseOperationKind.Get));
 
@@ -145,13 +145,13 @@ public sealed class SqliteLoggingTests
             {
                 await connection.OpenAsync();
                 await using var command = connection.CreateCommand();
-                command.CommandText = "CREATE TABLE hpd_base_records(collection_id TEXT NOT NULL);";
+                command.CommandText = $"CREATE TABLE {PhysicalTable("items")}(record_id TEXT NOT NULL);";
                 await command.ExecuteNonQueryAsync();
             }
 
             using var collector = new LogCollector();
             using var loggerFactory = CreateLoggerFactory(collector);
-            await using var store = new SqliteRecordStore(new HPDBaseSqliteOptions { DataSource = path }, loggerFactory);
+            await using var store = new SqliteRecordStore(Options(path), loggerFactory);
 
             var result = await store.CreateAsync(Collection(), CreateRequest("one"), Operation(BaseOperationKind.Create));
 
@@ -179,7 +179,6 @@ public sealed class SqliteLoggingTests
             services.AddHPDBaseSqliteStore(options =>
             {
                 options.DataSource = path;
-                options.AutoInitialize = false;
             });
 
             await using var provider = services.BuildServiceProvider();
@@ -207,7 +206,8 @@ public sealed class SqliteLoggingTests
         {
             using var collector = new LogCollector();
             using var loggerFactory = CreateLoggerFactory(collector);
-            await using var store = new SqliteRecordStore(new HPDBaseSqliteOptions { DataSource = path }, loggerFactory);
+            await using var store = new SqliteRecordStore(Options(path), loggerFactory);
+            await store.InitializeUnacceptedSchemaForTestsAsync();
 
             var created = await store.CreateAsync(Collection(), CreateRequest("one"), Operation(BaseOperationKind.Create));
             var duplicate = await store.CreateAsync(Collection(), CreateRequest("one"), Operation(BaseOperationKind.Create));
@@ -261,6 +261,15 @@ public sealed class SqliteLoggingTests
         SchemaMode = SchemaMode.Loose,
         UnknownFields = UnknownFieldPolicy.Preserve
     };
+
+    private static HPDBaseSqliteOptions Options(string path) => new()
+    {
+        DataSource = path,
+        Collections = [Collection()]
+    };
+
+    private static string PhysicalTable(string collectionId) => "b_c_" + Convert.ToHexStringLower(
+        System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(collectionId)))[..32];
 
     private static OperationContext Operation(BaseOperationKind kind) => new()
     {

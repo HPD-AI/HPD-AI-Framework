@@ -8,15 +8,105 @@ internal sealed class SqliteSchemaInitializer
 {
     private readonly HPDBaseSqliteOptions _options;
     private readonly SqliteNames _names;
+    private readonly SqlitePhysicalModel _physical;
 
+    /// <summary>Initializes a new instance.</summary>
     public SqliteSchemaInitializer(HPDBaseSqliteOptions options)
     {
         _options = options;
         _names = new SqliteNames(options);
+        _physical = new SqlitePhysicalModel(options);
     }
 
+    /// <summary>Executes the initialize async operation.</summary>
     public ValueTask InitializeAsync(SqliteConnection connection, CancellationToken cancellationToken) =>
         HPDBaseSqliteTelemetry.TraceSchemaAsync(HPDBaseTelemetrySpans.SqliteSchemaInitialize, _options.StoreId, () => InitializeCoreAsync(connection, cancellationToken));
+
+    internal string[] GetExecutionStatements()
+    {
+        var statements = new List<string>();
+        statements.AddRange(_physical.Collections.Select(static collection => collection.CreateSql()));
+        statements.AddRange(_physical.Relations.Select(static relation => relation.CreateSql()));
+        statements.Add($"""
+CREATE TABLE IF NOT EXISTS {_names.Collections} (
+  collection_id TEXT NOT NULL PRIMARY KEY,
+  schema_hash TEXT NULL,
+  registered_at TEXT NOT NULL,
+  native_name TEXT NOT NULL,
+  read_only INTEGER NOT NULL DEFAULT 0,
+  descriptor_json TEXT NULL
+);
+CREATE TABLE IF NOT EXISTS {_names.ProviderState} (
+  key TEXT NOT NULL PRIMARY KEY,
+  value TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS {_names.SchemaBaseline} (
+  application_id TEXT NOT NULL PRIMARY KEY,
+  store_instance_id TEXT NOT NULL,
+  baseline_id TEXT NOT NULL,
+  checksum TEXT NOT NULL,
+  generation INTEGER NOT NULL,
+  last_plan_id TEXT NOT NULL,
+  applied_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS {_names.SchemaAssets} (
+  application_id TEXT NOT NULL,
+  logical_id TEXT NOT NULL,
+  safe_summary TEXT NOT NULL,
+  state INTEGER NOT NULL,
+  PRIMARY KEY(application_id, logical_id)
+);
+CREATE TABLE IF NOT EXISTS {_names.SchemaHistory} (
+  application_id TEXT NOT NULL,
+  generation INTEGER NOT NULL,
+  baseline_id TEXT NOT NULL,
+  checksum TEXT NOT NULL,
+  plan_id TEXT NOT NULL,
+  classification INTEGER NOT NULL,
+  outcome INTEGER NOT NULL,
+  provider_version TEXT NOT NULL,
+  structural_verification INTEGER NOT NULL,
+  external_data_migration INTEGER NOT NULL,
+  semantic_conversion INTEGER NOT NULL,
+  external_attestation_id TEXT NULL,
+  external_signer_id TEXT NULL,
+  applied_at TEXT NOT NULL,
+  PRIMARY KEY(application_id, generation)
+);
+CREATE TABLE IF NOT EXISTS {_names.SchemaLease} (
+  application_id TEXT NOT NULL PRIMARY KEY,
+  generation INTEGER NOT NULL,
+  owner_token TEXT NULL,
+  acquired_at TEXT NULL
+);
+CREATE TABLE IF NOT EXISTS {_names.MutationJournal} (
+  position INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_id TEXT NOT NULL UNIQUE,
+  event_type TEXT NOT NULL,
+  schema_version TEXT NOT NULL,
+  occurred_at TEXT NOT NULL,
+  tenant_id TEXT NULL,
+  operation INTEGER NOT NULL,
+  visibility INTEGER NOT NULL,
+  collection_id TEXT NOT NULL,
+  record_id TEXT NOT NULL,
+  before_json TEXT NULL,
+  after_json TEXT NULL
+);
+""");
+        foreach (SqlitePhysicalModel.CollectionModel collection in _physical.Collections)
+        {
+            statements.Add($"CREATE INDEX IF NOT EXISTS ix_{collection.Table}_updated ON {collection.Table}(updated_at, record_id);");
+            statements.AddRange(collection.Indexes.Select(index => index.CreateSql(collection)));
+        }
+        foreach (SqlitePhysicalModel.RelationModel relation in _physical.Relations)
+        {
+            statements.Add($"CREATE INDEX IF NOT EXISTS {relation.SourceIndex} ON {relation.Table}(source_record_id, ordinal);");
+            statements.Add($"CREATE INDEX IF NOT EXISTS {relation.TargetIndex} ON {relation.Table}(target_record_id, source_record_id);");
+        }
+        statements.Add($"CREATE INDEX IF NOT EXISTS {_names.MutationJournalScopeIndex} ON {_names.MutationJournal}(tenant_id, collection_id, record_id, position);");
+        return statements.ToArray();
+    }
 
     private async ValueTask InitializeCoreAsync(SqliteConnection connection, CancellationToken cancellationToken)
     {
@@ -25,29 +115,12 @@ internal sealed class SqliteSchemaInitializer
             throw new InvalidOperationException("SQLite schema prefix must contain only ASCII letters, digits, and underscores.");
         }
 
-        await ExecuteAsync(connection, $"""
-CREATE TABLE IF NOT EXISTS {_names.Records} (
-  collection_id TEXT NOT NULL,
-  record_id TEXT NOT NULL,
-  revision INTEGER NOT NULL,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL,
-  payload_json TEXT NOT NULL,
-  PRIMARY KEY (collection_id, record_id)
-);
-""", cancellationToken).ConfigureAwait(false);
-
-        var missingRecordColumns = await GetMissingRecordColumnsAsync(connection, cancellationToken).ConfigureAwait(false);
-        if (missingRecordColumns.Length != 0)
+        foreach (SqlitePhysicalModel.CollectionModel collection in _physical.Collections)
         {
-            HPDBaseSqliteTelemetry.RecordSchemaMissingParts(_options.StoreId, missingRecordColumns.Length);
-            throw new InvalidOperationException("SQLite provider-owned schema is missing required parts: " + string.Join(", ", missingRecordColumns));
+            await ExecuteAsync(connection, collection.CreateSql(), cancellationToken).ConfigureAwait(false);
         }
-
-        await ExecuteAsync(connection, $"""
-CREATE INDEX IF NOT EXISTS {_names.RecordsUpdatedIndex}
-  ON {_names.Records}(collection_id, updated_at, record_id);
-""", cancellationToken).ConfigureAwait(false);
+        foreach (SqlitePhysicalModel.RelationModel relation in _physical.Relations)
+            await ExecuteAsync(connection, relation.CreateSql(), cancellationToken).ConfigureAwait(false);
 
         await ExecuteAsync(connection, $"""
 CREATE TABLE IF NOT EXISTS {_names.Collections} (
@@ -68,6 +141,48 @@ CREATE TABLE IF NOT EXISTS {_names.ProviderState} (
 """, cancellationToken).ConfigureAwait(false);
 
         await ExecuteAsync(connection, $"""
+CREATE TABLE IF NOT EXISTS {_names.SchemaBaseline} (
+  application_id TEXT NOT NULL PRIMARY KEY,
+  store_instance_id TEXT NOT NULL,
+  baseline_id TEXT NOT NULL,
+  checksum TEXT NOT NULL,
+  generation INTEGER NOT NULL,
+  last_plan_id TEXT NOT NULL,
+  applied_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS {_names.SchemaAssets} (
+  application_id TEXT NOT NULL,
+  logical_id TEXT NOT NULL,
+  safe_summary TEXT NOT NULL,
+  state INTEGER NOT NULL,
+  PRIMARY KEY(application_id, logical_id)
+);
+CREATE TABLE IF NOT EXISTS {_names.SchemaHistory} (
+  application_id TEXT NOT NULL,
+  generation INTEGER NOT NULL,
+  baseline_id TEXT NOT NULL,
+  checksum TEXT NOT NULL,
+  plan_id TEXT NOT NULL,
+  classification INTEGER NOT NULL,
+  outcome INTEGER NOT NULL,
+  provider_version TEXT NOT NULL,
+  structural_verification INTEGER NOT NULL,
+  external_data_migration INTEGER NOT NULL,
+  semantic_conversion INTEGER NOT NULL,
+  external_attestation_id TEXT NULL,
+  external_signer_id TEXT NULL,
+  applied_at TEXT NOT NULL,
+  PRIMARY KEY(application_id, generation)
+);
+CREATE TABLE IF NOT EXISTS {_names.SchemaLease} (
+  application_id TEXT NOT NULL PRIMARY KEY,
+  generation INTEGER NOT NULL,
+  owner_token TEXT NULL,
+  acquired_at TEXT NULL
+);
+""", cancellationToken).ConfigureAwait(false);
+
+        await ExecuteAsync(connection, $"""
 CREATE TABLE IF NOT EXISTS {_names.MutationJournal} (
   position INTEGER PRIMARY KEY AUTOINCREMENT,
   event_id TEXT NOT NULL UNIQUE,
@@ -84,13 +199,38 @@ CREATE TABLE IF NOT EXISTS {_names.MutationJournal} (
 );
 """, cancellationToken).ConfigureAwait(false);
 
+        var malformedColumns = new List<string>();
+        foreach (SqlitePhysicalModel.CollectionModel collection in _physical.Collections)
+            malformedColumns.AddRange(await GetMissingRecordColumnsAsync(connection, collection, cancellationToken).ConfigureAwait(false));
+        malformedColumns.AddRange(await GetMissingMutationJournalColumnsAsync(connection, cancellationToken).ConfigureAwait(false));
+        malformedColumns.AddRange(await GetMissingSchemaAuthorityColumnsAsync(connection, cancellationToken).ConfigureAwait(false));
+        foreach (SqlitePhysicalModel.RelationModel relation in _physical.Relations)
+            malformedColumns.AddRange(await GetMissingRelationColumnsAsync(connection, relation, cancellationToken).ConfigureAwait(false));
+        if (malformedColumns.Count != 0)
+            throw new InvalidOperationException("SQLite provider-owned schema is missing required parts: " + string.Join(", ", malformedColumns));
+
+        foreach (SqlitePhysicalModel.CollectionModel collection in _physical.Collections)
+        {
+            await ExecuteAsync(connection,
+                $"CREATE INDEX IF NOT EXISTS ix_{collection.Table}_updated ON {collection.Table}(updated_at, record_id);",
+                cancellationToken).ConfigureAwait(false);
+            foreach (SqlitePhysicalModel.IndexModel index in collection.Indexes)
+                await ExecuteAsync(connection, index.CreateSql(collection), cancellationToken).ConfigureAwait(false);
+        }
+        foreach (SqlitePhysicalModel.RelationModel relation in _physical.Relations)
+        {
+            await ExecuteAsync(connection, $"CREATE INDEX IF NOT EXISTS {relation.SourceIndex} ON {relation.Table}(source_record_id, ordinal);", cancellationToken).ConfigureAwait(false);
+            await ExecuteAsync(connection, $"CREATE INDEX IF NOT EXISTS {relation.TargetIndex} ON {relation.Table}(target_record_id, source_record_id);", cancellationToken).ConfigureAwait(false);
+        }
+
         await ExecuteAsync(connection, $"""
 CREATE INDEX IF NOT EXISTS {_names.MutationJournalScopeIndex}
   ON {_names.MutationJournal}(tenant_id, collection_id, record_id, position);
 """, cancellationToken).ConfigureAwait(false);
 
-        foreach (var collectionId in _options.CollectionIds.Concat((_options.Collections ?? []).Select(c => c.Id)).Distinct(StringComparer.Ordinal))
+        foreach (SqlitePhysicalModel.CollectionModel collection in _physical.Collections)
         {
+            string collectionId = collection.Definition.Id;
             if (!SqliteValidation.IsValidIdText(collectionId))
             {
                 continue;
@@ -105,7 +245,7 @@ ON CONFLICT(collection_id) DO UPDATE SET native_name = excluded.native_name;
             command.CommandTimeout = TimeoutSeconds();
             command.Parameters.AddWithValue("$collection", collectionId);
             command.Parameters.AddWithValue("$registered", DateTimeOffset.UtcNow.ToString("O"));
-            command.Parameters.AddWithValue("$native", _names.Records);
+            command.Parameters.AddWithValue("$native", collection.Table);
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
 
@@ -116,6 +256,7 @@ ON CONFLICT(collection_id) DO UPDATE SET native_name = excluded.native_name;
         }
     }
 
+    /// <summary>Executes the has required schema async operation.</summary>
     public ValueTask<bool> HasRequiredSchemaAsync(SqliteConnection connection, CancellationToken cancellationToken) =>
         HPDBaseSqliteTelemetry.TraceSchemaAsync(HPDBaseTelemetrySpans.SqliteSchemaValidate, _options.StoreId, async () =>
         {
@@ -123,10 +264,13 @@ ON CONFLICT(collection_id) DO UPDATE SET native_name = excluded.native_name;
             return missing.Length == 0;
         });
 
+    /// <summary>Executes the get missing schema parts async operation.</summary>
     public async ValueTask<string[]> GetMissingSchemaPartsAsync(SqliteConnection connection, CancellationToken cancellationToken)
     {
         var missing = new List<string>();
-        foreach (var table in new[] { _names.Records, _names.Collections, _names.ProviderState, _names.MutationJournal })
+        foreach (var table in new[] { _names.Collections, _names.ProviderState, _names.MutationJournal, _names.SchemaBaseline, _names.SchemaAssets, _names.SchemaHistory, _names.SchemaLease }
+            .Concat(_physical.Collections.Select(static collection => collection.Table))
+            .Concat(_physical.Relations.Select(static relation => relation.Table)))
         {
             if (!await ObjectExistsAsync(connection, "table", table, cancellationToken).ConfigureAwait(false))
             {
@@ -136,17 +280,46 @@ ON CONFLICT(collection_id) DO UPDATE SET native_name = excluded.native_name;
 
         if (missing.Count == 0)
         {
-            missing.AddRange(await GetMissingRecordColumnsAsync(connection, cancellationToken).ConfigureAwait(false));
-            missing.AddRange(await GetMissingMutationJournalColumnsAsync(connection, cancellationToken).ConfigureAwait(false));
-
-            if (!await ObjectExistsAsync(connection, "index", _names.RecordsUpdatedIndex, cancellationToken).ConfigureAwait(false))
+            foreach (SqlitePhysicalModel.CollectionModel collection in _physical.Collections)
             {
-                missing.Add("index:" + _names.RecordsUpdatedIndex);
+                missing.AddRange(await GetMissingRecordColumnsAsync(connection, collection, cancellationToken).ConfigureAwait(false));
+                missing.AddRange(await GetMalformedRecordColumnsAsync(connection, collection, cancellationToken).ConfigureAwait(false));
+            }
+            foreach (SqlitePhysicalModel.RelationModel relation in _physical.Relations)
+            {
+                missing.AddRange(await GetMissingRelationColumnsAsync(connection, relation, cancellationToken).ConfigureAwait(false));
+                missing.AddRange(await GetMalformedRelationColumnsAsync(connection, relation, cancellationToken).ConfigureAwait(false));
+            }
+            missing.AddRange(await GetMissingMutationJournalColumnsAsync(connection, cancellationToken).ConfigureAwait(false));
+            missing.AddRange(await GetMissingSchemaAuthorityColumnsAsync(connection, cancellationToken).ConfigureAwait(false));
+
+            foreach (SqlitePhysicalModel.CollectionModel collection in _physical.Collections)
+            {
+                if (!await ObjectExistsAsync(connection, "index", $"ix_{collection.Table}_updated", cancellationToken).ConfigureAwait(false))
+                    missing.Add("index:ix_" + collection.Table + "_updated");
+                else if (!await IndexMatchesAsync(connection, $"ix_{collection.Table}_updated", false, ["updated_at", "record_id"], [false, false], cancellationToken).ConfigureAwait(false))
+                    missing.Add("index-shape:ix_" + collection.Table + "_updated");
+                foreach (SqlitePhysicalModel.IndexModel index in collection.Indexes)
+                    if (!await ObjectExistsAsync(connection, "index", index.Name, cancellationToken).ConfigureAwait(false))
+                        missing.Add("index:" + index.Name);
+                    else if (!await IndexMatchesAsync(connection, index.Name, index.Definition.Unique || index.Definition.Kind == IndexKind.Unique, index.Parts.Select(static part => part.Column).ToArray(), index.Definition.Parts!.Select(static part => part.Direction == IndexSortDirection.Desc).ToArray(), cancellationToken).ConfigureAwait(false))
+                        missing.Add("index-shape:" + index.Name);
+            }
+            foreach (SqlitePhysicalModel.RelationModel relation in _physical.Relations)
+            {
+                if (!await ObjectExistsAsync(connection, "index", relation.SourceIndex, cancellationToken).ConfigureAwait(false)) missing.Add("index:" + relation.SourceIndex);
+                else if (!await IndexMatchesAsync(connection, relation.SourceIndex, false, ["source_record_id", "ordinal"], [false, false], cancellationToken).ConfigureAwait(false)) missing.Add("index-shape:" + relation.SourceIndex);
+                if (!await ObjectExistsAsync(connection, "index", relation.TargetIndex, cancellationToken).ConfigureAwait(false)) missing.Add("index:" + relation.TargetIndex);
+                else if (!await IndexMatchesAsync(connection, relation.TargetIndex, false, ["target_record_id", "source_record_id"], [false, false], cancellationToken).ConfigureAwait(false)) missing.Add("index-shape:" + relation.TargetIndex);
             }
 
             if (!await ObjectExistsAsync(connection, "index", _names.MutationJournalScopeIndex, cancellationToken).ConfigureAwait(false))
             {
                 missing.Add("index:" + _names.MutationJournalScopeIndex);
+            }
+            else if (!await IndexMatchesAsync(connection, _names.MutationJournalScopeIndex, false, ["tenant_id", "collection_id", "record_id", "position"], [false, false, false, false], cancellationToken).ConfigureAwait(false))
+            {
+                missing.Add("index-shape:" + _names.MutationJournalScopeIndex);
             }
         }
 
@@ -192,14 +365,85 @@ ON CONFLICT(collection_id) DO UPDATE SET native_name = excluded.native_name;
         return false;
     }
 
-    private async ValueTask<string[]> GetMissingRecordColumnsAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    private async ValueTask<Dictionary<string, ColumnShape>> GetColumnShapesAsync(SqliteConnection connection, string table, CancellationToken cancellationToken)
+    {
+        var result = new Dictionary<string, ColumnShape>(StringComparer.Ordinal);
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"PRAGMA table_info({table});";
+        command.CommandTimeout = TimeoutSeconds();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            result[reader.GetString(1)] = new ColumnShape(reader.GetString(2).ToUpperInvariant(), reader.GetInt64(3) != 0, reader.GetInt64(5) != 0);
+        return result;
+    }
+
+    private async ValueTask<bool> IndexMatchesAsync(SqliteConnection connection, string index, bool unique, string[] columns, bool[] descending, CancellationToken cancellationToken)
+    {
+        await using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "SELECT [sql] FROM sqlite_master WHERE type = 'index' AND name = $name;";
+            command.CommandTimeout = TimeoutSeconds();
+            command.Parameters.AddWithValue("$name", index);
+            string? sql = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) as string;
+            if (sql is null || sql.Contains("CREATE UNIQUE INDEX", StringComparison.OrdinalIgnoreCase) != unique) return false;
+        }
+        var actual = new List<(string Column, bool Descending)>();
+        await using var info = connection.CreateCommand();
+        info.CommandText = $"PRAGMA index_xinfo({index});";
+        info.CommandTimeout = TimeoutSeconds();
+        await using var reader = await info.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            if (reader.GetInt64(5) != 0) actual.Add((reader.GetString(2), reader.GetInt64(3) != 0));
+        return actual.Select(static item => item.Column).SequenceEqual(columns, StringComparer.Ordinal) &&
+            actual.Select(static item => item.Descending).SequenceEqual(descending);
+    }
+
+    private async ValueTask<string[]> GetMalformedRecordColumnsAsync(SqliteConnection connection, SqlitePhysicalModel.CollectionModel collection, CancellationToken cancellationToken)
+    {
+        Dictionary<string, ColumnShape> shapes = await GetColumnShapesAsync(connection, collection.Table, cancellationToken).ConfigureAwait(false);
+        var malformed = new List<string>();
+        Check(shapes, malformed, collection.Table, "record_id", "TEXT", false, true);
+        Check(shapes, malformed, collection.Table, "revision", "INTEGER", true, false);
+        Check(shapes, malformed, collection.Table, "created_at", "TEXT", true, false);
+        Check(shapes, malformed, collection.Table, "updated_at", "TEXT", true, false);
+        foreach (SqlitePhysicalModel.FieldModel field in collection.Fields)
+        {
+            if (field.PresenceColumn is not null) Check(shapes, malformed, collection.Table, field.PresenceColumn, "INTEGER", true, false);
+            Check(shapes, malformed, collection.Table, field.Column, field.SqlType, field.PresenceColumn is null, false);
+        }
+        if (collection.HasExtensionJson) Check(shapes, malformed, collection.Table, "extension_json", "TEXT", false, false);
+        return malformed.ToArray();
+    }
+
+    private async ValueTask<string[]> GetMalformedRelationColumnsAsync(SqliteConnection connection, SqlitePhysicalModel.RelationModel relation, CancellationToken cancellationToken)
+    {
+        Dictionary<string, ColumnShape> shapes = await GetColumnShapesAsync(connection, relation.Table, cancellationToken).ConfigureAwait(false);
+        var malformed = new List<string>();
+        Check(shapes, malformed, relation.Table, "source_record_id", "TEXT", true, true);
+        Check(shapes, malformed, relation.Table, "target_record_id", "TEXT", true, false);
+        Check(shapes, malformed, relation.Table, "ordinal", "INTEGER", true, true);
+        return malformed.ToArray();
+    }
+
+    private static void Check(Dictionary<string, ColumnShape> shapes, List<string> malformed, string table, string column, string type, bool notNull, bool primaryKey)
+    {
+        if (shapes.TryGetValue(column, out ColumnShape shape) && (shape.Type != type || shape.NotNull != notNull || shape.PrimaryKey != primaryKey))
+            malformed.Add("column-shape:" + table + "." + column);
+    }
+
+    private readonly record struct ColumnShape(string Type, bool NotNull, bool PrimaryKey);
+
+    private async ValueTask<string[]> GetMissingRecordColumnsAsync(SqliteConnection connection, SqlitePhysicalModel.CollectionModel collection, CancellationToken cancellationToken)
     {
         var missing = new List<string>();
-        foreach (var column in new[] { "collection_id", "record_id", "revision", "created_at", "updated_at", "payload_json" })
+        IEnumerable<string> columns = new[] { "record_id", "revision", "created_at", "updated_at" }
+            .Concat(collection.Fields.SelectMany(static field => field.PresenceColumn is null ? [field.Column] : new[] { field.PresenceColumn, field.Column }))
+            .Concat(collection.HasExtensionJson ? ["extension_json"] : []);
+        foreach (var column in columns)
         {
-            if (!await ColumnExistsAsync(connection, _names.Records, column, cancellationToken).ConfigureAwait(false))
+            if (!await ColumnExistsAsync(connection, collection.Table, column, cancellationToken).ConfigureAwait(false))
             {
-                missing.Add("column:" + _names.Records + "." + column);
+                missing.Add("column:" + collection.Table + "." + column);
             }
         }
 
@@ -231,6 +475,25 @@ ON CONFLICT(collection_id) DO UPDATE SET native_name = excluded.native_name;
                 missing.Add("column:" + _names.MutationJournal + "." + column);
         }
 
+        return missing.ToArray();
+    }
+
+    private async ValueTask<string[]> GetMissingSchemaAuthorityColumnsAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        var missing = new List<string>();
+        foreach (string column in new[] { "application_id", "store_instance_id", "baseline_id", "checksum", "generation", "last_plan_id", "applied_at" })
+            if (!await ColumnExistsAsync(connection, _names.SchemaBaseline, column, cancellationToken).ConfigureAwait(false)) missing.Add("column:" + _names.SchemaBaseline + "." + column);
+        foreach (string column in new[] { "application_id", "generation", "baseline_id", "checksum", "plan_id", "classification", "outcome", "provider_version", "structural_verification", "external_data_migration", "semantic_conversion", "external_attestation_id", "external_signer_id", "applied_at" })
+            if (!await ColumnExistsAsync(connection, _names.SchemaHistory, column, cancellationToken).ConfigureAwait(false)) missing.Add("column:" + _names.SchemaHistory + "." + column);
+        return missing.ToArray();
+    }
+
+    private async ValueTask<string[]> GetMissingRelationColumnsAsync(SqliteConnection connection, SqlitePhysicalModel.RelationModel relation, CancellationToken cancellationToken)
+    {
+        var missing = new List<string>();
+        foreach (string column in new[] { "source_record_id", "target_record_id", "ordinal" })
+            if (!await ColumnExistsAsync(connection, relation.Table, column, cancellationToken).ConfigureAwait(false))
+                missing.Add("column:" + relation.Table + "." + column);
         return missing.ToArray();
     }
 }

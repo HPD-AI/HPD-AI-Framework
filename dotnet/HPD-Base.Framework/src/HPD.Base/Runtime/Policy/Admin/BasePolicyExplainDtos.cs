@@ -40,25 +40,25 @@ public sealed record BasePolicyExplainRequest
 public enum BasePolicyExplainOperation
 {
     /// <summary>Explains collection-level policy.</summary>
-    Collection,
+Collection,
 
     /// <summary>Explains list/query policy.</summary>
-    Query,
+Query,
 
     /// <summary>Explains get-record policy.</summary>
-    Record,
+Record,
 
     /// <summary>Explains create policy.</summary>
-    Create,
+Create,
 
     /// <summary>Explains patch policy.</summary>
-    Patch,
+Patch,
 
     /// <summary>Explains replace policy.</summary>
-    Replace,
+Replace,
 
     /// <summary>Explains delete policy.</summary>
-    Delete
+Delete
 }
 
 /// <summary>
@@ -124,34 +124,34 @@ public sealed record BasePolicyExplainResponse
 public enum BasePolicyExplainOutcome
 {
     /// <summary>The simulated operation would be allowed.</summary>
-    Allowed,
+Allowed,
 
     /// <summary>The simulated operation would be allowed with constraints.</summary>
-    AllowedWithConstraints,
+AllowedWithConstraints,
 
     /// <summary>The simulated operation would be denied by policy.</summary>
-    Denied,
+Denied,
 
     /// <summary>The caller or target operation would be unauthenticated.</summary>
-    Unauthenticated,
+Unauthenticated,
 
     /// <summary>The target record or collection was not found.</summary>
-    NotFound,
+NotFound,
 
     /// <summary>The target would be presented as not found to a public caller because policy denied it.</summary>
-    CloakedNotFound,
+CloakedNotFound,
 
     /// <summary>The explain request or simulated payload failed validation.</summary>
-    ValidationFailed,
+ValidationFailed,
 
     /// <summary>The simulated operation is not supported by runtime or policy constraints.</summary>
-    Unsupported,
+Unsupported,
 
     /// <summary>A required capability is unavailable.</summary>
-    CapabilityUnavailable,
+CapabilityUnavailable,
 
     /// <summary>A store lookup or runtime dependency failed.</summary>
-    StoreError
+StoreError
 }
 
 /// <summary>

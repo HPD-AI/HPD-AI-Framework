@@ -10,6 +10,7 @@ internal sealed class SqliteDiagnosticContributor : IBaseDiagnosticContributor
     private readonly HPDBaseSqliteOptions _options;
     private readonly ILogger<SqliteDiagnosticContributor> _logger;
 
+    /// <summary>Initializes a new instance.</summary>
     public SqliteDiagnosticContributor(
         IOptions<HPDBaseSqliteOptions> options,
         ILogger<SqliteDiagnosticContributor> logger)
@@ -18,8 +19,10 @@ internal sealed class SqliteDiagnosticContributor : IBaseDiagnosticContributor
         _logger = logger;
     }
 
+    /// <summary>Gets the ID.</summary>
     public string Id => _options.DiagnosticRefId;
 
+    /// <summary>Executes the get diagnostics async operation.</summary>
     public async ValueTask<DiagnosticDescriptor[]> GetDiagnosticsAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();

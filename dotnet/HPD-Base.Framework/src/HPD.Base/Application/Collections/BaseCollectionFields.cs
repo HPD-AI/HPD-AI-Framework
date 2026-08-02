@@ -7,6 +7,7 @@ namespace HPD.Base;
 public sealed class BaseCollectionFields<TRecord>
 {
     private readonly Dictionary<string, object> _items = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _storedNames = new(StringComparer.Ordinal);
     private bool _sealed;
 
     internal IReadOnlyDictionary<string, object> Items => _items;
@@ -15,23 +16,33 @@ public sealed class BaseCollectionFields<TRecord>
     /// Declares one typed field.
     /// </summary>
     /// <typeparam name="TValue">The field value type.</typeparam>
-    /// <param name="path">The canonical stored field path.</param>
+    /// <param name="id">The stable logical field identifier.</param>
+    /// <param name="storedName">The current canonical stored field name.</param>
     /// <param name="nullable">Whether the persisted field accepts null.</param>
     /// <param name="operators">The query operations supported by the field.</param>
     /// <returns>The typed field contract.</returns>
     public BaseField<TRecord, TValue> Add<TValue>(
-        string path,
+        string id,
+        string storedName,
         bool nullable = false,
         BaseFieldOperator operators = BaseFieldOperator.Equal)
     {
         ObjectDisposedException.ThrowIf(_sealed, this);
-        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        BaseApplicationId.Validate(id, nameof(id));
+        ArgumentException.ThrowIfNullOrWhiteSpace(storedName);
 
-        var field = new BaseField<TRecord, TValue>(path, nullable, operators);
-        if (!_items.TryAdd(path, field))
+        var field = new BaseField<TRecord, TValue>(id, storedName, nullable, operators);
+        if (!_items.TryAdd(id, field))
         {
             throw new InvalidOperationException(
-                $"Field '{path}' is already declared.");
+                $"Field '{id}' is already declared.");
+        }
+
+        if (!_storedNames.Add(storedName))
+        {
+            _items.Remove(id);
+            throw new InvalidOperationException(
+                $"Field stored name '{storedName}' is already declared.");
         }
 
         return field;

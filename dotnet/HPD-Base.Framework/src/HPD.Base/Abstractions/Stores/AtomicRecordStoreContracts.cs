@@ -5,24 +5,24 @@ namespace HPD.Base;
 public enum RecordMutationExecutionOutcome
 {
     /// <summary>The provider confirmed commit.</summary>
-    Committed,
+Committed,
     /// <summary>The provider confirmed rollback.</summary>
-    RollbackConfirmed,
+RollbackConfirmed,
     /// <summary>The provider confirmed rollback after cancellation.</summary>
-    CancelledRollbackConfirmed,
+CancelledRollbackConfirmed,
     /// <summary>The provider confirmed rollback after a transaction conflict.</summary>
-    ConflictRollbackConfirmed,
+ConflictRollbackConfirmed,
     /// <summary>The provider cannot determine whether commit occurred.</summary>
-    Indeterminate
+Indeterminate
 }
 
 /// <summary>Classifies whether the framework-owned processor permits provider commit.</summary>
 public enum AtomicMutationProcessingOutcome
 {
     /// <summary>Processing completed successfully and the provider may commit.</summary>
-    ReadyToCommit,
+ReadyToCommit,
     /// <summary>Processing failed and the provider must roll back.</summary>
-    Failed
+Failed
 }
 
 /// <summary>Supplies bounded provider execution lifetimes for one mutation boundary.</summary>

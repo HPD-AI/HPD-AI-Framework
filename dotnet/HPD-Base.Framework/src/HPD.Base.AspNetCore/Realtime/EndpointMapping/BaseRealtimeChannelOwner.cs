@@ -17,6 +17,7 @@ internal sealed class BaseRealtimeChannelOwner : IAsyncDisposable
     private Task? _stop;
     private int _slowConsumerRecorded;
 
+    /// <summary>Initializes a new instance.</summary>
     public BaseRealtimeChannelOwner(
         string channel,
         IAsyncEnumerable<BaseRealtimeEvent> events,
@@ -45,14 +46,19 @@ internal sealed class BaseRealtimeChannelOwner : IAsyncDisposable
         Completion = ObserveAsync();
     }
 
+    /// <summary>Gets the channel.</summary>
     public string Channel { get; }
 
+    /// <summary>Gets the completion.</summary>
     public Task Completion { get; }
 
+    /// <summary>Gets the is completed.</summary>
     public bool IsCompleted => Completion.IsCompleted;
 
+    /// <summary>Executes the activate operation.</summary>
     public void Activate() => _activation.TrySetResult();
 
+    /// <summary>Executes the stop async operation.</summary>
     public Task StopAsync()
     {
         lock (_stopSync)
@@ -61,6 +67,7 @@ internal sealed class BaseRealtimeChannelOwner : IAsyncDisposable
         }
     }
 
+    /// <summary>Executes the dispose async operation.</summary>
     public async ValueTask DisposeAsync()
     {
         await StopAsync().ConfigureAwait(false);

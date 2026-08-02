@@ -5,6 +5,7 @@ namespace HPD.Base.AspNetCore;
 
 internal static class BaseHttpStatusCodeMapper
 {
+    /// <summary>Executes the to status code operation.</summary>
     public static int ToStatusCode(OperationStatus status) =>
         status switch
         {

@@ -24,7 +24,7 @@ public sealed class SqliteDatabaseErrorTests
             lockCommand.CommandText = "BEGIN IMMEDIATE;";
             await lockCommand.ExecuteNonQueryAsync();
 
-            var store = SqliteTestFactory.Create(new HPDBaseSqliteOptions { DataSource = path, BusyTimeout = TimeSpan.FromMilliseconds(1), CommandTimeout = TimeSpan.FromSeconds(1) });
+            var store = SqliteTestFactory.Create(new HPDBaseSqliteOptions { DataSource = path, BusyTimeout = TimeSpan.FromMilliseconds(1), CommandTimeout = TimeSpan.FromSeconds(1) }, initializeSchema: false);
             var result = await store.CreateAsync(Collection(), new RecordCreateRequest { RequestedId = new RecordId("blocked"), Payload = Payload("blocked") }, Operation(BaseOperationKind.Create));
 
             result.Status.Should().Be(OperationStatus.Conflict);
@@ -46,7 +46,7 @@ public sealed class SqliteDatabaseErrorTests
         try
         {
             await File.WriteAllTextAsync(path, "not sqlite");
-            var store = SqliteTestFactory.Create(new HPDBaseSqliteOptions { DataSource = path });
+            var store = SqliteTestFactory.Create(new HPDBaseSqliteOptions { DataSource = path }, initializeSchema: false);
             var result = await store.GetAsync(Collection(), new RecordId("one"), Operation(BaseOperationKind.Get));
 
             result.Status.Should().Be(OperationStatus.StoreError);
@@ -65,7 +65,7 @@ public sealed class SqliteDatabaseErrorTests
     public async Task CantOpenDatabaseMapsToSpecificNativeStoreError()
     {
         var path = Path.Combine(Path.GetTempPath(), "hpd-base-sqlite-missing-" + Guid.NewGuid().ToString("N"), "store.db");
-        var store = SqliteTestFactory.Create(new HPDBaseSqliteOptions { DataSource = path });
+        var store = SqliteTestFactory.Create(new HPDBaseSqliteOptions { DataSource = path }, initializeSchema: false);
 
         var result = await store.GetAsync(Collection(), new RecordId("one"), Operation(BaseOperationKind.Get));
 

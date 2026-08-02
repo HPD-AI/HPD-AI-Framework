@@ -3,6 +3,7 @@ namespace HPD.Base;
 
 internal sealed class DefaultBaseDescriptorValidator : IBaseDescriptorValidator
 {
+    /// <summary>Executes the validate operation.</summary>
     public BaseRuntimeValidationResult Validate(BaseDescriptorSnapshot snapshot)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
@@ -514,7 +515,7 @@ internal sealed class DefaultBaseDescriptorValidator : IBaseDescriptorValidator
                     continue;
                 }
 
-                var fieldRef = TopLevelFieldPath(part.FieldPath);
+                var fieldRef = part.FieldId;
                 if (!string.IsNullOrWhiteSpace(fieldRef) && fieldRefs.Contains(fieldRef))
                 {
                     continue;
@@ -525,8 +526,8 @@ internal sealed class DefaultBaseDescriptorValidator : IBaseDescriptorValidator
                     Severity = BaseRuntimeValidationSeverity.Fatal,
                     Kind = BaseRuntimeValidationFailureKind.UnresolvedReference,
                     Code = "base.runtime.descriptor.unresolvedIndexField",
-                    Message = $"Index '{index.Name}' on collection '{collection.Id}' references missing field '{part.FieldPath}'.",
-                    TargetRef = part.FieldPath,
+                    Message = $"Index '{index.Name}' on collection '{collection.Id}' references missing field '{part.FieldId}'.",
+                    TargetRef = part.FieldId,
                     TargetPath = $"collections.{collection.Id}.indexes.{index.Name}.parts.fieldPath"
                 });
             }

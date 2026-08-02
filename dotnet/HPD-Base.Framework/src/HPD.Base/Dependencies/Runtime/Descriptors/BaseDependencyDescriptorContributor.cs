@@ -5,8 +5,10 @@ namespace HPD.Base;
 internal sealed class BaseDependencyDescriptorContributor(
     IBaseDependencyTemplateProvider templates) : IBaseDescriptorContributor
 {
+    /// <summary>Gets the ID.</summary>
     public string Id => BaseDependencyModuleIds.Module;
 
+    /// <summary>Executes the contribute operation.</summary>
     public void Contribute(IBaseDescriptorContributionBuilder builder)
     {
         var publicTemplates = templates.Templates

@@ -5,6 +5,14 @@ namespace HPD.Base;
 /// </summary>
 public static class HPDBaseTelemetryTags
 {
+    /// <summary>Bounded source-count bucket.</summary>
+    public const string SourceCountBucket = "hpd.base.source_count.bucket";
+    /// <summary>Bounded join-count bucket.</summary>
+    public const string JoinCountBucket = "hpd.base.join_count.bucket";
+    /// <summary>Schema plan classification.</summary>
+    public const string SchemaPlanClassification = "hpd.base.schema.plan.classification";
+    /// <summary>Schema or application readiness state.</summary>
+    public const string ReadinessState = "hpd.base.readiness.state";
     /// <summary>Stable module/package id.</summary>
     public const string ModuleId = "hpd.base.module.id";
 

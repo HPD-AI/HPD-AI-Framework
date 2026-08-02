@@ -5,6 +5,7 @@ namespace HPD.Base.Testing;
 internal sealed class BaseTestFilePolicyOrchestrator(BaseTestPolicy policy)
     : IFilePolicyOrchestrator
 {
+    /// <summary>Executes the evaluate async operation.</summary>
     public ValueTask<OperationResult<FilePolicyEvaluation>> EvaluateAsync(
         FilePolicyRequest request,
         CancellationToken cancellationToken = default)

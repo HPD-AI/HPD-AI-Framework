@@ -9,11 +9,13 @@ internal sealed class HPDBaseAspNetCoreJsonOptionsSetup : IConfigureOptions<Json
 {
     private readonly IBaseJsonOptionsProvider _baseJsonOptionsProvider;
 
+    /// <summary>Initializes a new instance.</summary>
     public HPDBaseAspNetCoreJsonOptionsSetup(IBaseJsonOptionsProvider baseJsonOptionsProvider)
     {
         _baseJsonOptionsProvider = baseJsonOptionsProvider;
     }
 
+    /// <summary>Executes the configure operation.</summary>
     public void Configure(JsonOptions options)
     {
         options.SerializerOptions.TypeInfoResolverChain.Insert(0, HPDBaseAspNetCoreJsonSerializerContext.Default);

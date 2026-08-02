@@ -11,7 +11,7 @@ namespace HPD.Base;
 /// <summary>
 /// Process-local, thread-safe, non-durable HPD.BASE record store implementation.
 /// </summary>
-internal sealed class VolatileRecordStore : IAtomicRecordStore, IStreamingRecordStore
+internal sealed partial class VolatileRecordStore : IAtomicRecordStore, IStreamingRecordStore, IRelationalReadStore, IConsistentRecordIncludeStore
 {
     private readonly HPDBaseVolatileStoreOptions _options;
     private readonly SemaphoreSlim _stateGate = new(1, 1);
@@ -36,6 +36,14 @@ internal sealed class VolatileRecordStore : IAtomicRecordStore, IStreamingRecord
         _options = options ?? new HPDBaseVolatileStoreOptions();
         ValidateOptions(_options);
         Capabilities = CreateCapabilities(_options);
+        Includes = new RecordIncludeExecutionCapability
+        {
+            Supported = true,
+            MaxDepth = 3,
+            MaxIncludes = 8,
+            MaxRecords = Math.Min(1_000, _options.MaxPageSize),
+            SnapshotConsistency = true,
+        };
     }
 
     /// <inheritdoc />
@@ -478,6 +486,16 @@ internal sealed class VolatileRecordStore : IAtomicRecordStore, IStreamingRecord
             return ValueTask.FromResult(VolatileResultFactory.RevisionConflict<DeleteResult>(expected, current.Metadata.Revision, id.Value));
         }
 
+        if (HasRestrictedIncomingReference(working, collection.Id, id.Value))
+        {
+            return ValueTask.FromResult(OperationResults.Conflict<DeleteResult>(new BaseError
+            {
+                Code = "base.relation.deleteRestricted",
+                Message = "The record cannot be deleted while it is referenced.",
+                Category = ErrorCategory.Conflict
+            }));
+        }
+
         var previous = request.ReturnPrevious ? RecordCloneHelpers.CloneEnvelope(current) : null;
         state.RecordsById.Remove(id.Value);
         var result = OperationResults.Deleted(new DeleteResult { Id = id, Deleted = true, Previous = previous });
@@ -727,6 +745,31 @@ internal sealed class VolatileRecordStore : IAtomicRecordStore, IStreamingRecord
 
     private static VolatileCollectionState? GetCollectionOrNull(VolatileStoreState state, string collectionId) =>
         state.Collections.GetValueOrDefault(collectionId);
+
+    private bool HasRestrictedIncomingReference(VolatileStoreState state, string targetCollectionId, string targetRecordId)
+    {
+        foreach (CollectionDefinition source in _options.Collections ?? [])
+        {
+            VolatileCollectionState? sourceState = GetCollectionOrNull(state, source.Id);
+            if (sourceState is null) continue;
+            foreach (FieldDefinition field in source.Fields ?? [])
+            {
+                if (field.Relation is not { OwningSide: BaseRelationOwningSide.Source, DeleteBehavior: BaseRelationDeleteBehavior.Restrict } relation ||
+                    !string.Equals(relation.TargetCollectionId, targetCollectionId, StringComparison.Ordinal)) continue;
+                foreach (StoredRecord record in sourceState.RecordsById.Values)
+                    if (RelationContains(record.Payload, field.Name, targetRecordId)) return true;
+            }
+        }
+        return false;
+    }
+
+    private static bool RelationContains(RecordPayload payload, string fieldName, string targetRecordId)
+    {
+        if (payload.Fields?.TryGetValue(fieldName, out JsonElement value) != true) return false;
+        return value.ValueKind == JsonValueKind.String
+            ? string.Equals(value.GetString(), targetRecordId, StringComparison.Ordinal)
+            : value.ValueKind == JsonValueKind.Array && value.EnumerateArray().Any(item => item.ValueKind == JsonValueKind.String && string.Equals(item.GetString(), targetRecordId, StringComparison.Ordinal));
+    }
 
     private static string NextRecordId(VolatileStoreState state) => $"mem:{++state.NextRecordId:x16}";
 
@@ -1582,7 +1625,8 @@ internal sealed class VolatileRecordStore : IAtomicRecordStore, IStreamingRecord
             {
                 PayloadFields = true,
                 NestedFieldPaths = true
-            }
+            },
+            Include = new QueryIncludeCapability { Supported = true, MaxDepth = 3, BackRelations = true, IncludeFilters = true, IncludeSort = true, IncludeLimit = true, ExecutionMode = QueryExecutionMode.Native }
         },
         Revision = new RevisionCapability
         {
@@ -1645,12 +1689,14 @@ internal sealed class VolatileRecordStore : IAtomicRecordStore, IStreamingRecord
         private readonly SemaphoreSlim _operationGate = new(1, 1);
         private int _lifetimeState;
 
+        /// <summary>Initializes a new instance.</summary>
         public AtomicSession(VolatileRecordStore owner, VolatileStoreState working)
         {
             _owner = owner;
             _working = working;
         }
 
+        /// <summary>Executes the get async operation.</summary>
         public ValueTask<OperationResult<RecordEnvelope>> GetAsync(
             CollectionDefinition collection,
             RecordId id,
@@ -1670,6 +1716,7 @@ internal sealed class VolatileRecordStore : IAtomicRecordStore, IStreamingRecord
                         context,
                         token)));
 
+        /// <summary>Executes the create async operation.</summary>
         public ValueTask<OperationResult<RecordMutationSessionResult>> CreateAsync(
             CollectionDefinition collection,
             RecordCreateRequest request,
@@ -1702,6 +1749,7 @@ internal sealed class VolatileRecordStore : IAtomicRecordStore, IStreamingRecord
                         changedFields: PayloadFieldNames(request.Payload));
                 });
 
+        /// <summary>Executes the patch async operation.</summary>
         public ValueTask<OperationResult<RecordMutationSessionResult>> PatchAsync(
             CollectionDefinition collection,
             RecordId id,
@@ -1737,6 +1785,7 @@ internal sealed class VolatileRecordStore : IAtomicRecordStore, IStreamingRecord
                         changedFields: PayloadFieldNames(request.Patch));
                 });
 
+        /// <summary>Executes the replace async operation.</summary>
         public ValueTask<OperationResult<RecordMutationSessionResult>> ReplaceAsync(
             CollectionDefinition collection,
             RecordId id,
@@ -1772,6 +1821,7 @@ internal sealed class VolatileRecordStore : IAtomicRecordStore, IStreamingRecord
                         changedFields: PayloadFieldNames(request.Payload));
                 });
 
+        /// <summary>Executes the delete async operation.</summary>
         public ValueTask<OperationResult<RecordMutationSessionResult>> DeleteAsync(
             CollectionDefinition collection,
             RecordId id,
@@ -1807,6 +1857,7 @@ internal sealed class VolatileRecordStore : IAtomicRecordStore, IStreamingRecord
                         changedFields: null);
                 });
 
+        /// <summary>Executes the close async operation.</summary>
         public async ValueTask CloseAsync()
         {
             if (Interlocked.CompareExchange(
@@ -1959,26 +2010,34 @@ internal sealed class VolatileRecordStore : IAtomicRecordStore, IStreamingRecord
 
     private readonly record struct PayloadNormalizeResult<T>(RecordPayload? Value, OperationResult<T>? Result)
     {
+        /// <summary>Executes the success operation.</summary>
         public static PayloadNormalizeResult<T> Success(RecordPayload payload) => new(payload, null);
+        /// <summary>Executes the failure operation.</summary>
         public static PayloadNormalizeResult<T> Failure(OperationResult<T> result) => new(null, result);
     }
 
     private readonly record struct PayloadFieldsResult<T>(Dictionary<string, System.Text.Json.JsonElement>? Value, OperationResult<T>? Result)
     {
+        /// <summary>Executes the success operation.</summary>
         public static PayloadFieldsResult<T> Success(Dictionary<string, System.Text.Json.JsonElement> fields) => new(fields, null);
+        /// <summary>Executes the failure operation.</summary>
         public static PayloadFieldsResult<T> Failure(OperationResult<T> result) => new(null, result);
     }
 
     private readonly record struct QueryResult<TValue, TResult>(TValue? Value, OperationResult<TResult>? Result)
         where TValue : class
     {
+        /// <summary>Executes the success operation.</summary>
         public static QueryResult<TValue, TResult> Success(TValue value) => new(value, null);
+        /// <summary>Executes the failure operation.</summary>
         public static QueryResult<TValue, TResult> Failure(OperationResult<TResult> result) => new(null, result);
     }
 
     private sealed class SelectNode
     {
+        /// <summary>Gets or sets the value.</summary>
         public JsonElement? Value { get; set; }
+        /// <summary>Gets the children.</summary>
         public Dictionary<string, SelectNode> Children { get; } = new(StringComparer.Ordinal);
     }
 }

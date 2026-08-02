@@ -35,6 +35,12 @@ public sealed class TelemetryContractTests
         Assert.Equal("hpd.base.store.patch_if_revision", HPDBaseTelemetrySpans.StorePatchIfRevision);
         Assert.Equal("hpd.base.sqlite.connection.open", HPDBaseTelemetrySpans.SqliteConnectionOpen);
         Assert.Equal("hpd.base.auth.hpd_auth.policy.evaluate", HPDBaseTelemetrySpans.AuthPolicyEvaluate);
+        Assert.Equal("base.relational.read", HPDBaseTelemetrySpans.RelationalRead);
+        Assert.Equal("base.relation.include", HPDBaseTelemetrySpans.RelationInclude);
+        Assert.Equal("base.schema.inspect", HPDBaseTelemetrySpans.SchemaInspect);
+        Assert.Equal("base.schema.plan", HPDBaseTelemetrySpans.SchemaPlan);
+        Assert.Equal("base.schema.verify", HPDBaseTelemetrySpans.SchemaVerify);
+        Assert.Equal("base.schema.apply", HPDBaseTelemetrySpans.SchemaApply);
     }
 
     [Fact]

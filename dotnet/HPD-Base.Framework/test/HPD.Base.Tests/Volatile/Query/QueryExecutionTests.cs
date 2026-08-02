@@ -183,7 +183,7 @@ public sealed class QueryExecutionTests
         var store = new VolatileRecordStore();
         var result = await store.ListAsync(
             VolatileTestData.Collection(),
-            new RecordQuery { Include = [new QueryInclude { Path = "relation" }] },
+            new RecordQuery { Include = [new RecordInclude { NavigationId = "relation" }] },
             VolatileTestData.Operation(BaseOperationKind.List));
 
         result.Status.Should().Be(OperationStatus.Unsupported);

@@ -9,6 +9,7 @@ internal sealed class SqliteHealthContributor : IBaseHealthContributor
     private readonly HPDBaseSqliteOptions _options;
     private readonly SqliteRecordStore _store;
 
+    /// <summary>Initializes a new instance.</summary>
     public SqliteHealthContributor(
         IOptions<HPDBaseSqliteOptions> options,
         SqliteRecordStore store)
@@ -17,8 +18,10 @@ internal sealed class SqliteHealthContributor : IBaseHealthContributor
         _store = store;
     }
 
+    /// <summary>Gets the ID.</summary>
     public string Id => _options.HealthRefId;
 
+    /// <summary>Executes the get health async operation.</summary>
     public async ValueTask<HealthDescriptor[]> GetHealthAsync(CancellationToken cancellationToken = default)
     {
         var status = HealthStatus.Healthy;
@@ -35,17 +38,10 @@ internal sealed class SqliteHealthContributor : IBaseHealthContributor
             await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
             journalMode = await factory.GetJournalModeAsync(connection, cancellationToken).ConfigureAwait(false);
             var schema = new SqliteSchemaInitializer(_options);
-            if (_options.AutoInitialize && quarantinedMutations == 0)
-            {
-                await schema.InitializeAsync(connection, cancellationToken).ConfigureAwait(false);
-            }
-
             missing = await schema.GetMissingSchemaPartsAsync(connection, cancellationToken).ConfigureAwait(false);
             if (missing.Length != 0)
             {
-                status = _options.FailIfSchemaMissing
-                    ? HealthStatus.Unhealthy
-                    : HealthStatus.Degraded;
+                status = HealthStatus.Unhealthy;
                 summary = "SQLite provider-owned schema is missing required parts.";
             }
         }

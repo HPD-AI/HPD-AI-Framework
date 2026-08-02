@@ -6,5 +6,8 @@
     <TargetFrameworks>net10.0</TargetFrameworks>
     <!-- .NET 10 is the minimum BASE contract and maps to released C# 14. -->
     <LangVersion>14.0</LangVersion>
+    <!-- BASE ships a complete IntelliSense contract; do not inherit the monorepo's CS1591 suppression. -->
+    <NoWarn>$([System.String]::Copy('$(NoWarn)').Replace(';CS1591', '').Replace('CS1591;', '').Replace('CS1591', ''))</NoWarn>
+    <WarningsAsErrors>$(WarningsAsErrors);CS1591</WarningsAsErrors>
   </PropertyGroup>
 </Project>

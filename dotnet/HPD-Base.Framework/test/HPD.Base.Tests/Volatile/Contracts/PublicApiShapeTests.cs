@@ -55,7 +55,9 @@ public sealed class PublicApiShapeTests
                 typeof(IRecordStore),
                 typeof(IRecordMutationStore),
                 typeof(IAtomicRecordStore),
-                typeof(IStreamingRecordStore)
+                typeof(IStreamingRecordStore),
+                typeof(IRelationalReadStore),
+                typeof(IConsistentRecordIncludeStore)
             ]);
     }
 

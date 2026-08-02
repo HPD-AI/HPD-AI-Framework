@@ -6,8 +6,10 @@ using Microsoft.AspNetCore.Routing;
 
 namespace HPD.Base.AspNetCore;
 
+/// <summary>Represents a hpdbase files endpoint route builder extensions.</summary>
 public static class HPDBaseFilesEndpointRouteBuilderExtensions
 {
+    /// <summary>Executes the map hpdbase files API operation.</summary>
     public static RouteGroupBuilder MapHPDBaseFilesApi(this IEndpointRouteBuilder endpoints, string routePrefix = "/base/files")
     {
         ArgumentNullException.ThrowIfNull(endpoints);

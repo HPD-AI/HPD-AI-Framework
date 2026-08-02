@@ -36,13 +36,13 @@ public sealed class BaseQuery<T>
         if (!field.Operators.HasFlag(BaseFieldOperator.Equal))
         {
             throw new InvalidOperationException(
-                $"Field '{field.Path}' does not support equality queries.");
+                $"Field '{field.Id}' does not support equality queries.");
         }
 
         return WithFilter(new FilterExpression
         {
             Kind = FilterNodeKind.Compare,
-            Field = field.Path,
+            Field = field.Id,
             Operator = FilterOperator.Equal,
             Value = BaseQueryValue.From(value),
         });
@@ -69,7 +69,7 @@ public sealed class BaseQuery<T>
     }
 
     /// <summary>Executes one bounded page.</summary>
-    public async ValueTask<BaseResult<BasePage<T>>> PageAsync(
+    public async ValueTask<BaseResult<BasePage<BaseRecord<T>>>> PageAsync(
         CancellationToken cancellationToken = default)
     {
         int limit = _limit ?? throw new InvalidOperationException(
@@ -133,7 +133,7 @@ public sealed class BaseQuery<T>
         CancellationToken cancellationToken = default)
     {
         var result = await ExecutePageAsync(2, cancellationToken).ConfigureAwait(false);
-        if (result is BaseFailure<BasePage<T>> failure)
+        if (result is BaseFailure<BasePage<BaseRecord<T>>> failure)
         {
             return new BaseFailure<BaseRecord<T>?>(
                 failure.Status,
@@ -142,7 +142,7 @@ public sealed class BaseQuery<T>
                 failure.Diagnostics);
         }
 
-        var success = (BaseSuccess<BasePage<T>>)result;
+        var success = (BaseSuccess<BasePage<BaseRecord<T>>>)result;
         if (success.Value.Items.Length > 1 || success.Value.Page.HasMore)
         {
             return new BaseFailure<BaseRecord<T>?>(
@@ -176,7 +176,7 @@ public sealed class BaseQuery<T>
             ? Math.Min(configured, maximumItems)
             : maximumItems;
         var items = new List<BaseRecord<T>>(effectiveLimit);
-        BaseSuccess<BasePage<T>>? finalPage = null;
+        BaseSuccess<BasePage<BaseRecord<T>>>? finalPage = null;
         var offset = 0;
 
         while (items.Count < effectiveLimit)
@@ -184,11 +184,11 @@ public sealed class BaseQuery<T>
             int remaining = Math.Min(
                 effectiveLimit - items.Count,
                 _session.MaxQueryPageSize);
-            BaseResult<BasePage<T>> pageResult = await ExecutePageAsync(
+            BaseResult<BasePage<BaseRecord<T>>> pageResult = await ExecutePageAsync(
                 remaining,
                 offset,
                 cancellationToken).ConfigureAwait(false);
-            if (pageResult is BaseFailure<BasePage<T>> failure)
+            if (pageResult is BaseFailure<BasePage<BaseRecord<T>>> failure)
             {
                 return new BaseFailure<BaseRecord<T>[]>(
                     failure.Status,
@@ -197,7 +197,7 @@ public sealed class BaseQuery<T>
                     failure.Diagnostics);
             }
 
-            finalPage = (BaseSuccess<BasePage<T>>)pageResult;
+            finalPage = (BaseSuccess<BasePage<BaseRecord<T>>>)pageResult;
             BaseRecord<T>[] pageItems = finalPage.Value.Items;
             items.AddRange(pageItems.Take(remaining));
             if (!finalPage.Value.Page.HasMore || items.Count >= effectiveLimit)
@@ -238,7 +238,7 @@ public sealed class BaseQuery<T>
 
         while (emitted < effectiveLimit)
         {
-            BasePage<T> page = (await ExecutePageAsync(
+            BasePage<BaseRecord<T>> page = (await ExecutePageAsync(
                 Math.Min(
                     effectiveLimit - emitted,
                     _session.MaxQueryPageSize),
@@ -308,18 +308,18 @@ public sealed class BaseQuery<T>
         if (!field.Operators.HasFlag(BaseFieldOperator.Order))
         {
             throw new InvalidOperationException(
-                $"Field '{field.Path}' does not support ordering.");
+                $"Field '{field.Id}' does not support ordering.");
         }
 
         return new BaseQuery<T>(
             _session,
             _collection,
             _filters,
-            [.. _sort, new QuerySort(field.Path, direction)],
+            [.. _sort, new QuerySort(field.Id, direction)],
             _limit);
     }
 
-    private async ValueTask<BaseResult<BasePage<T>>> ExecutePageAsync(
+    private async ValueTask<BaseResult<BasePage<BaseRecord<T>>>> ExecutePageAsync(
         int limit,
         int offset,
         CancellationToken cancellationToken)
@@ -334,7 +334,7 @@ public sealed class BaseQuery<T>
         return BaseResultMapper.Map(result, Decode);
     }
 
-    private ValueTask<BaseResult<BasePage<T>>> ExecutePageAsync(
+    private ValueTask<BaseResult<BasePage<BaseRecord<T>>>> ExecutePageAsync(
         int limit,
         CancellationToken cancellationToken) =>
         ExecutePageAsync(limit, 0, cancellationToken);
@@ -351,7 +351,7 @@ public sealed class BaseQuery<T>
             warnings: null,
             diagnostics: null);
 
-    private BasePage<T> Decode(RecordPage page) =>
+    private BasePage<BaseRecord<T>> Decode(RecordPage page) =>
         new()
         {
             Items = page.Items

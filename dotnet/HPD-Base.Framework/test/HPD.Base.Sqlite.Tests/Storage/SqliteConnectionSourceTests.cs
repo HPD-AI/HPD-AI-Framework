@@ -18,7 +18,7 @@ public sealed class SqliteConnectionSourceTests
             {
                 DataSource = dataSource,
                 EnableWal = false,
-                CollectionIds = ["items"]
+                Collections = [Collection()]
             });
 
             var create = await store.CreateAsync(Collection(), new RecordCreateRequest { RequestedId = new RecordId("one"), Payload = Payload("data-source") }, Operation(BaseOperationKind.Create));
@@ -50,7 +50,7 @@ public sealed class SqliteConnectionSourceTests
                 ConnectionString = connectionString,
                 DataSource = ignoredDataSource,
                 EnableWal = false,
-                CollectionIds = ["items"]
+                Collections = [Collection()]
             });
 
             var create = await store.CreateAsync(Collection(), new RecordCreateRequest { RequestedId = new RecordId("one"), Payload = Payload("connection-string") }, Operation(BaseOperationKind.Create));
@@ -83,7 +83,7 @@ public sealed class SqliteConnectionSourceTests
             {
                 ConnectionString = connectionString,
                 EnableWal = false,
-                CollectionIds = ["items"]
+                Collections = [Collection()]
             });
 
             var create = await store.CreateAsync(Collection(), new RecordCreateRequest { RequestedId = new RecordId("one"), Payload = Payload("aspire") }, Operation(BaseOperationKind.Create));

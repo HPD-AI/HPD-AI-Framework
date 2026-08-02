@@ -19,10 +19,10 @@ public sealed record BaseUpsertResult<T>
 public enum BaseEnsureOutcome
 {
     /// <summary>The record was created.</summary>
-    Created,
+Created,
 
     /// <summary>An existing record was read without being modified.</summary>
-    AlreadyExisted,
+AlreadyExisted,
 }
 
 /// <summary>

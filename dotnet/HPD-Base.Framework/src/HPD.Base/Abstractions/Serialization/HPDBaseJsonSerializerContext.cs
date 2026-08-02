@@ -2,7 +2,6 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace HPD.Base;
-
 using BaseOperationKindConverter = LowerCamelJsonStringEnumConverter<BaseOperationKind>;
 using OperationModeConverter = LowerCamelJsonStringEnumConverter<OperationMode>;
 using VisibilityLevelConverter = LowerCamelJsonStringEnumConverter<VisibilityLevel>;
@@ -34,9 +33,9 @@ using GenerationKindConverter = LowerCamelJsonStringEnumConverter<GenerationKind
 using ValidationRuleKindConverter = LowerCamelJsonStringEnumConverter<ValidationRuleKind>;
 using ValidationSeverityConverter = LowerCamelJsonStringEnumConverter<ValidationSeverity>;
 using ValidationAppliesToConverter = LowerCamelJsonStringEnumConverter<ValidationAppliesTo>;
-using RelationKindConverter = LowerCamelJsonStringEnumConverter<RelationKind>;
-using RelationCardinalityConverter = LowerCamelJsonStringEnumConverter<RelationCardinality>;
-using DeleteBehaviorConverter = LowerCamelJsonStringEnumConverter<DeleteBehavior>;
+using BaseRelationOwningSideConverter = LowerCamelJsonStringEnumConverter<BaseRelationOwningSide>;
+using BaseRelationMultiplicityConverter = LowerCamelJsonStringEnumConverter<BaseRelationMultiplicity>;
+using BaseRelationDeleteBehaviorConverter = LowerCamelJsonStringEnumConverter<BaseRelationDeleteBehavior>;
 using FileReferenceShapeConverter = LowerCamelJsonStringEnumConverter<FileReferenceShape>;
 using FileCleanupPolicyConverter = LowerCamelJsonStringEnumConverter<FileCleanupPolicy>;
 using IndexKindConverter = LowerCamelJsonStringEnumConverter<IndexKind>;
@@ -59,6 +58,11 @@ using QueryCountModeConverter = LowerCamelJsonStringEnumConverter<QueryCountMode
 using QueryOperatorPlacementConverter = LowerCamelJsonStringEnumConverter<QueryOperatorPlacement>;
 using FilterUsageConverter = LowerCamelJsonStringEnumConverter<FilterUsage>;
 using QueryExecutionModeConverter = LowerCamelJsonStringEnumConverter<QueryExecutionMode>;
+using BaseJoinKindConverter = LowerCamelJsonStringEnumConverter<BaseJoinKind>;
+using BaseAggregateKindConverter = LowerCamelJsonStringEnumConverter<BaseAggregateKind>;
+using BaseRelationalOperandKindConverter = LowerCamelJsonStringEnumConverter<BaseRelationalOperandKind>;
+using BaseReadConsistencyConverter = LowerCamelJsonStringEnumConverter<BaseReadConsistency>;
+using BaseReadDependencyModeConverter = LowerCamelJsonStringEnumConverter<BaseReadDependencyMode>;
 using PrincipalAuthenticationStateConverter = LowerCamelJsonStringEnumConverter<PrincipalAuthenticationState>;
 using PolicyResourceKindConverter = LowerCamelJsonStringEnumConverter<PolicyResourceKind>;
 using PolicyEffectConverter = LowerCamelJsonStringEnumConverter<PolicyEffect>;
@@ -92,104 +96,8 @@ using BaseTransactionIsolationConverter = LowerCamelJsonStringEnumConverter<Base
 using RecordMutationExecutionOutcomeConverter = LowerCamelJsonStringEnumConverter<RecordMutationExecutionOutcome>;
 using AtomicMutationProcessingOutcomeConverter = LowerCamelJsonStringEnumConverter<AtomicMutationProcessingOutcome>;
 
-[JsonSourceGenerationOptions(
-    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
-    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-    WriteIndented = false,
-    UseStringEnumConverter = true,
-    Converters = new[]
-    {
-        typeof(RecordIdJsonConverter),
-        typeof(RevisionTokenJsonConverter),
-        typeof(BaseOperationKindConverter),
-        typeof(OperationModeConverter),
-        typeof(VisibilityLevelConverter),
-        typeof(ManifestLinkKindConverter),
-        typeof(HttpMethodKindConverter),
-        typeof(RuntimeModeConverter),
-        typeof(BaseModuleKindConverter),
-        typeof(ModuleStatusConverter),
-        typeof(DependencyFailureBehaviorConverter),
-        typeof(ProjectionKindConverter),
-        typeof(ProjectionStatusConverter),
-        typeof(ProjectionEntrypointKindConverter),
-        typeof(RouteAuthRequirementConverter),
-        typeof(CapabilityStatusConverter),
-        typeof(CapabilityScopeConverter),
-        typeof(SupportLevelConverter),
-        typeof(HealthStatusConverter),
-        typeof(HealthScopeConverter),
-        typeof(HealthMetricValueKindConverter),
-        typeof(DiagnosticSeverityConverter),
-        typeof(DiagnosticCategoryConverter),
-        typeof(SchemaMetadataRoleConverter),
-        typeof(SchemaModeConverter),
-        typeof(UnknownFieldPolicyConverter),
-        typeof(ValidationModeConverter),
-        typeof(FieldCardinalityKindConverter),
-        typeof(DefaultValueKindConverter),
-        typeof(GenerationKindConverter),
-        typeof(ValidationRuleKindConverter),
-        typeof(ValidationSeverityConverter),
-        typeof(ValidationAppliesToConverter),
-        typeof(RelationKindConverter),
-        typeof(RelationCardinalityConverter),
-        typeof(DeleteBehaviorConverter),
-        typeof(FileReferenceShapeConverter),
-        typeof(FileCleanupPolicyConverter),
-        typeof(IndexKindConverter),
-        typeof(IndexStatusConverter),
-        typeof(IndexPartKindConverter),
-        typeof(IndexSortDirectionConverter),
-        typeof(IndexNullOrderConverter),
-        typeof(EnforcementOwnerConverter),
-        typeof(SchemaSourceKindConverter),
-        typeof(RecordPayloadKindConverter),
-        typeof(RecordIncludeKindConverter),
-        typeof(FilterNodeKindConverter),
-        typeof(FilterOperatorConverter),
-        typeof(QueryValueKindConverter),
-        typeof(QuerySortDirectionConverter),
-        typeof(QueryNullOrderConverter),
-        typeof(QueryPaginationModeConverter),
-        typeof(QueryCursorDirectionConverter),
-        typeof(QueryCountModeConverter),
-        typeof(QueryOperatorPlacementConverter),
-        typeof(FilterUsageConverter),
-        typeof(QueryExecutionModeConverter),
-        typeof(PrincipalAuthenticationStateConverter),
-        typeof(PolicyResourceKindConverter),
-        typeof(PolicyEffectConverter),
-        typeof(PolicyOutcomeConverter),
-        typeof(FieldMaskModeConverter),
-        typeof(ObligationEnforcementConverter),
-        typeof(PushdownModeConverter),
-        typeof(PushdownTrustConverter),
-        typeof(AccessSubjectKindConverter),
-        typeof(GrantEffectConverter),
-        typeof(ResourceScopeKindConverter),
-        typeof(IdAuthorityConverter),
-        typeof(TimestampAuthorityConverter),
-        typeof(ConsistencyModelConverter),
-        typeof(OperationStatusConverter),
-        typeof(ErrorCategoryConverter),
-        typeof(ConflictKindConverter),
-        typeof(CapabilityFailureReasonConverter),
-        typeof(RevisionGuaranteeConverter),
-        typeof(EventResourceKindConverter),
-        typeof(EventDeliveryGuaranteeConverter),
-        typeof(BaseRecordMutationKindConverter),
-        typeof(BaseCommittedRecordMutationKindConverter),
-        typeof(BaseRecordBatchExecutionModeConverter),
-        typeof(BaseRecordBatchOutcomeConverter),
-        typeof(BaseRecordBatchItemDispositionConverter),
-        typeof(RecordUpsertUpdateModeConverter),
-        typeof(RecordUpsertExistenceConditionConverter),
-        typeof(RecordUpsertOutcomeConverter),
-        typeof(BaseTransactionIsolationConverter),
-        typeof(RecordMutationExecutionOutcomeConverter),
-        typeof(AtomicMutationProcessingOutcomeConverter)
-    })]
+/// <summary>Represents hPDBase Json Serializer Context.</summary>
+[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull, WriteIndented = false, UseStringEnumConverter = true, Converters = new[] { typeof(RecordIdJsonConverter), typeof(RevisionTokenJsonConverter), typeof(BaseOperationKindConverter), typeof(OperationModeConverter), typeof(VisibilityLevelConverter), typeof(ManifestLinkKindConverter), typeof(HttpMethodKindConverter), typeof(RuntimeModeConverter), typeof(BaseModuleKindConverter), typeof(ModuleStatusConverter), typeof(DependencyFailureBehaviorConverter), typeof(ProjectionKindConverter), typeof(ProjectionStatusConverter), typeof(ProjectionEntrypointKindConverter), typeof(RouteAuthRequirementConverter), typeof(CapabilityStatusConverter), typeof(CapabilityScopeConverter), typeof(SupportLevelConverter), typeof(HealthStatusConverter), typeof(HealthScopeConverter), typeof(HealthMetricValueKindConverter), typeof(DiagnosticSeverityConverter), typeof(DiagnosticCategoryConverter), typeof(SchemaMetadataRoleConverter), typeof(SchemaModeConverter), typeof(UnknownFieldPolicyConverter), typeof(ValidationModeConverter), typeof(FieldCardinalityKindConverter), typeof(DefaultValueKindConverter), typeof(GenerationKindConverter), typeof(ValidationRuleKindConverter), typeof(ValidationSeverityConverter), typeof(ValidationAppliesToConverter), typeof(BaseRelationOwningSideConverter), typeof(BaseRelationMultiplicityConverter), typeof(BaseRelationDeleteBehaviorConverter), typeof(FileReferenceShapeConverter), typeof(FileCleanupPolicyConverter), typeof(IndexKindConverter), typeof(IndexStatusConverter), typeof(IndexPartKindConverter), typeof(IndexSortDirectionConverter), typeof(IndexNullOrderConverter), typeof(EnforcementOwnerConverter), typeof(SchemaSourceKindConverter), typeof(RecordPayloadKindConverter), typeof(RecordIncludeKindConverter), typeof(FilterNodeKindConverter), typeof(FilterOperatorConverter), typeof(QueryValueKindConverter), typeof(QuerySortDirectionConverter), typeof(QueryNullOrderConverter), typeof(QueryPaginationModeConverter), typeof(QueryCursorDirectionConverter), typeof(QueryCountModeConverter), typeof(QueryOperatorPlacementConverter), typeof(FilterUsageConverter), typeof(QueryExecutionModeConverter), typeof(BaseJoinKindConverter), typeof(BaseAggregateKindConverter), typeof(BaseRelationalOperandKindConverter), typeof(BaseReadConsistencyConverter), typeof(BaseReadDependencyModeConverter), typeof(PrincipalAuthenticationStateConverter), typeof(PolicyResourceKindConverter), typeof(PolicyEffectConverter), typeof(PolicyOutcomeConverter), typeof(FieldMaskModeConverter), typeof(ObligationEnforcementConverter), typeof(PushdownModeConverter), typeof(PushdownTrustConverter), typeof(AccessSubjectKindConverter), typeof(GrantEffectConverter), typeof(ResourceScopeKindConverter), typeof(IdAuthorityConverter), typeof(TimestampAuthorityConverter), typeof(ConsistencyModelConverter), typeof(OperationStatusConverter), typeof(ErrorCategoryConverter), typeof(ConflictKindConverter), typeof(CapabilityFailureReasonConverter), typeof(RevisionGuaranteeConverter), typeof(EventResourceKindConverter), typeof(EventDeliveryGuaranteeConverter), typeof(BaseRecordMutationKindConverter), typeof(BaseCommittedRecordMutationKindConverter), typeof(BaseRecordBatchExecutionModeConverter), typeof(BaseRecordBatchOutcomeConverter), typeof(BaseRecordBatchItemDispositionConverter), typeof(RecordUpsertUpdateModeConverter), typeof(RecordUpsertExistenceConditionConverter), typeof(RecordUpsertOutcomeConverter), typeof(BaseTransactionIsolationConverter), typeof(RecordMutationExecutionOutcomeConverter), typeof(AtomicMutationProcessingOutcomeConverter) })]
 [JsonSerializable(typeof(BaseOperationKind))]
 [JsonSerializable(typeof(OperationMode))]
 [JsonSerializable(typeof(VisibilityLevel))]
@@ -221,9 +129,9 @@ using AtomicMutationProcessingOutcomeConverter = LowerCamelJsonStringEnumConvert
 [JsonSerializable(typeof(ValidationRuleKind))]
 [JsonSerializable(typeof(ValidationSeverity))]
 [JsonSerializable(typeof(ValidationAppliesTo))]
-[JsonSerializable(typeof(RelationKind))]
-[JsonSerializable(typeof(RelationCardinality))]
-[JsonSerializable(typeof(DeleteBehavior))]
+[JsonSerializable(typeof(BaseRelationOwningSide))]
+[JsonSerializable(typeof(BaseRelationMultiplicity))]
+[JsonSerializable(typeof(BaseRelationDeleteBehavior))]
 [JsonSerializable(typeof(FileReferenceShape))]
 [JsonSerializable(typeof(FileCleanupPolicy))]
 [JsonSerializable(typeof(IndexKind))]
@@ -286,7 +194,6 @@ using AtomicMutationProcessingOutcomeConverter = LowerCamelJsonStringEnumConvert
 [JsonSerializable(typeof(string[]))]
 [JsonSerializable(typeof(Dictionary<string, string>))]
 [JsonSerializable(typeof(Dictionary<string, JsonElement>))]
-[JsonSerializable(typeof(Dictionary<string, RecordIncludeValue>))]
 [JsonSerializable(typeof(BaseManifest))]
 [JsonSerializable(typeof(ManifestLinkDescriptor))]
 [JsonSerializable(typeof(RuntimeDescriptor))]
@@ -349,8 +256,8 @@ using AtomicMutationProcessingOutcomeConverter = LowerCamelJsonStringEnumConvert
 [JsonSerializable(typeof(ValidationAnnotations))]
 [JsonSerializable(typeof(ValidationRule))]
 [JsonSerializable(typeof(ValidationRule[]))]
-[JsonSerializable(typeof(RelationAnnotation))]
-[JsonSerializable(typeof(RelationIncludeAnnotation))]
+[JsonSerializable(typeof(RelationDefinition))]
+[JsonSerializable(typeof(RelationIncludeDefinition))]
 [JsonSerializable(typeof(FileAnnotation))]
 [JsonSerializable(typeof(FieldVisibilityAnnotation))]
 [JsonSerializable(typeof(UiAnnotation))]
@@ -365,8 +272,8 @@ using AtomicMutationProcessingOutcomeConverter = LowerCamelJsonStringEnumConvert
 [JsonSerializable(typeof(RecordPayload))]
 [JsonSerializable(typeof(RecordMetadata))]
 [JsonSerializable(typeof(RecordPolicyMetadata))]
-[JsonSerializable(typeof(RecordIncludeValue))]
-[JsonSerializable(typeof(RecordIncludeValue[]))]
+[JsonSerializable(typeof(RecordIncludeResult))]
+[JsonSerializable(typeof(RecordIncludeResult[]))]
 [JsonSerializable(typeof(RecordPage))]
 [JsonSerializable(typeof(PageInfo))]
 [JsonSerializable(typeof(CountInfo))]
@@ -401,8 +308,8 @@ using AtomicMutationProcessingOutcomeConverter = LowerCamelJsonStringEnumConvert
 [JsonSerializable(typeof(QuerySort))]
 [JsonSerializable(typeof(QuerySort[]))]
 [JsonSerializable(typeof(QueryPage))]
-[JsonSerializable(typeof(QueryInclude))]
-[JsonSerializable(typeof(QueryInclude[]))]
+[JsonSerializable(typeof(RecordInclude))]
+[JsonSerializable(typeof(RecordInclude[]))]
 [JsonSerializable(typeof(QueryExtension))]
 [JsonSerializable(typeof(QueryExtension[]))]
 [JsonSerializable(typeof(FilterExpression))]
@@ -485,15 +392,105 @@ using AtomicMutationProcessingOutcomeConverter = LowerCamelJsonStringEnumConvert
 [JsonSerializable(typeof(HealthMetric[]))]
 [JsonSerializable(typeof(DiagnosticDescriptor))]
 [JsonSerializable(typeof(DiagnosticDescriptor[]))]
+[JsonSerializable(typeof(BaseJoinKind))]
+[JsonSerializable(typeof(BaseAggregateKind))]
+[JsonSerializable(typeof(BaseRelationalOperandKind))]
+[JsonSerializable(typeof(BaseReadConsistency))]
+[JsonSerializable(typeof(BaseReadDependencyMode))]
+[JsonSerializable(typeof(BaseRelationalReadSource))]
+[JsonSerializable(typeof(BaseRelationalReadSource[]))]
+[JsonSerializable(typeof(BaseRelationalOperand))]
+[JsonSerializable(typeof(BaseRelationalOperand[]))]
+[JsonSerializable(typeof(BaseRelationalReadJoin))]
+[JsonSerializable(typeof(BaseRelationalReadJoin[]))]
+[JsonSerializable(typeof(BaseRelationalPredicate))]
+[JsonSerializable(typeof(BaseRelationalPredicate[]))]
+[JsonSerializable(typeof(BaseRelationalReadAggregate))]
+[JsonSerializable(typeof(BaseRelationalReadAggregate[]))]
+[JsonSerializable(typeof(BaseRelationalReadProjection))]
+[JsonSerializable(typeof(BaseRelationalReadProjection[]))]
+[JsonSerializable(typeof(BaseRelationalReadSort))]
+[JsonSerializable(typeof(BaseRelationalReadSort[]))]
+[JsonSerializable(typeof(BaseRelationalReadBudgets))]
+[JsonSerializable(typeof(BaseRelationalReadPlan))]
+[JsonSerializable(typeof(BaseRelationalFieldValue))]
+[JsonSerializable(typeof(BaseRelationalFieldValue[]))]
+[JsonSerializable(typeof(BaseRelationalRow))]
+[JsonSerializable(typeof(BaseRelationalRow[]))]
+[JsonSerializable(typeof(BaseRelationalReadResult))]
+[JsonSerializable(typeof(BaseRelationalParameterValue))]
+[JsonSerializable(typeof(BaseRelationalParameterValue[]))]
+[JsonSerializable(typeof(BaseRelationalReadParameter))]
+[JsonSerializable(typeof(BaseRelationalReadParameter[]))]
+[JsonSerializable(typeof(BaseRelationalReadSourcePolicy))]
+[JsonSerializable(typeof(BaseRelationalReadSourcePolicy[]))]
+[JsonSerializable(typeof(BaseRelationalReadExecutionRequest))]
+[JsonSerializable(typeof(BaseRelationalReadExecutionResult))]
+[JsonSerializable(typeof(BaseReadDependencyEvidence))]
+[JsonSerializable(typeof(BaseReadDependencyEvidence[]))]
+[JsonSerializable(typeof(RelationalReadCapability))]
+[JsonSerializable(typeof(RecordIncludeExecutionCapability))]
+[JsonSerializable(typeof(RecordIncludeSourcePolicy))]
+[JsonSerializable(typeof(RecordIncludeSourcePolicy[]))]
+[JsonSerializable(typeof(RecordIncludeExecutionRequest))]
+[JsonSerializable(typeof(RecordIncludeExecutionResult))]
+[JsonSerializable(typeof(BaseSchemaCompatibility))]
+[JsonSerializable(typeof(BaseSchemaAssetState))]
+[JsonSerializable(typeof(BaseSchemaMigrationState))]
+[JsonSerializable(typeof(BaseSchemaApplyOutcome))]
+[JsonSerializable(typeof(BaseSchemaPlanClassification))]
+[JsonSerializable(typeof(BaseSchemaStructuralVerification))]
+[JsonSerializable(typeof(BaseExternalDataMigrationVerification))]
+[JsonSerializable(typeof(BaseSemanticConversionVerification))]
+[JsonSerializable(typeof(BaseSchemaOperationKind))]
+[JsonSerializable(typeof(BaseLogicalCollection))]
+[JsonSerializable(typeof(BaseLogicalCollection[]))]
+[JsonSerializable(typeof(BaseLogicalField))]
+[JsonSerializable(typeof(BaseLogicalField[]))]
+[JsonSerializable(typeof(BaseLogicalIndex))]
+[JsonSerializable(typeof(BaseLogicalIndex[]))]
+[JsonSerializable(typeof(BaseLogicalRead))]
+[JsonSerializable(typeof(BaseLogicalRead[]))]
+[JsonSerializable(typeof(BaseLogicalSchema))]
+[JsonSerializable(typeof(BaseSchemaObservedAsset))]
+[JsonSerializable(typeof(BaseSchemaObservedAsset[]))]
+[JsonSerializable(typeof(BaseSchemaProviderVerifiedEnvelope))]
+[JsonSerializable(typeof(BaseSchemaObservedState))]
+[JsonSerializable(typeof(BaseSchemaLogicalOperation))]
+[JsonSerializable(typeof(BaseSchemaLogicalOperation[]))]
+[JsonSerializable(typeof(BaseSchemaSafePhysicalSummary))]
+[JsonSerializable(typeof(BaseSchemaSafePhysicalSummary[]))]
+[JsonSerializable(typeof(BaseSchemaPreparedPlan))]
+[JsonSerializable(typeof(BaseSchemaPlan))]
+[JsonSerializable(typeof(BaseSchemaExecutionCapability))]
+[JsonSerializable(typeof(BaseSchemaInspectionRequest))]
+[JsonSerializable(typeof(BaseSchemaPreparationRequest))]
+[JsonSerializable(typeof(BaseSchemaProviderApplyRequest))]
+[JsonSerializable(typeof(BaseSchemaHistoryRequest))]
+[JsonSerializable(typeof(BaseSchemaApplyResult))]
+[JsonSerializable(typeof(BaseSchemaHistoryEntry))]
+[JsonSerializable(typeof(BaseSchemaHistoryEntry[]))]
+[JsonSerializable(typeof(BaseSchemaHistoryPage))]
+[JsonSerializable(typeof(BaseSchemaPlanRequest))]
+[JsonSerializable(typeof(BaseSchemaVerifyRequest))]
+[JsonSerializable(typeof(BaseSchemaApplyRequest))]
+[JsonSerializable(typeof(BaseExternalMigrationAttestation))]
+[JsonSerializable(typeof(OperationResult<BaseRelationalReadExecutionResult>))]
+[JsonSerializable(typeof(OperationResult<RecordIncludeExecutionResult>))]
+[JsonSerializable(typeof(OperationResult<BaseSchemaObservedState>))]
+[JsonSerializable(typeof(OperationResult<BaseSchemaPreparedPlan>))]
+[JsonSerializable(typeof(OperationResult<BaseSchemaPlan>))]
+[JsonSerializable(typeof(OperationResult<BaseSchemaApplyResult>))]
+[JsonSerializable(typeof(OperationResult<BaseSchemaHistoryPage>))]
 public partial class HPDBaseJsonSerializerContext : JsonSerializerContext
 {
+    /// <summary>Performs create Options.</summary>
     public static JsonSerializerOptions CreateOptions()
     {
         var options = new JsonSerializerOptions(Default.Options)
         {
             TypeInfoResolver = Default
         };
-
         return options;
     }
 }

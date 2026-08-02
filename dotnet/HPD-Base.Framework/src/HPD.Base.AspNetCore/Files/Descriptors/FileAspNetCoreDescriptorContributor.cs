@@ -6,13 +6,16 @@ internal sealed class FileAspNetCoreDescriptorContributor : IBaseDescriptorContr
 {
     private readonly IFileAspNetCoreRouteMappingState _mappingState;
 
+    /// <summary>Initializes a new instance.</summary>
     public FileAspNetCoreDescriptorContributor(IFileAspNetCoreRouteMappingState mappingState)
     {
         _mappingState = mappingState;
     }
 
+    /// <summary>Gets the ID.</summary>
     public string Id => FileModuleIds.AspNetCoreModule;
 
+    /// <summary>Executes the contribute operation.</summary>
     public void Contribute(IBaseDescriptorContributionBuilder builder)
     {
         if (!_mappingState.IsMapped)

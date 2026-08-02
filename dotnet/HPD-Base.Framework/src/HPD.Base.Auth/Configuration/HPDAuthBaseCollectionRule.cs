@@ -36,9 +36,9 @@ public sealed record HPDAuthBaseCollectionRule
     public bool RequireTenantMatch { get; init; } = true;
 
     /// <summary>
-    /// Gets the field path that stores the tenant id for tenant-scoped records.
+    /// Gets the stable field identifier that stores the tenant id for tenant-scoped records.
     /// </summary>
-    public string? TenantFieldPath { get; init; }
+    public string? TenantFieldId { get; init; }
 
     /// <summary>
     /// Gets the readable field include list.

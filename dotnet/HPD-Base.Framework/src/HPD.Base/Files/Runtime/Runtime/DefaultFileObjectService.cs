@@ -13,6 +13,7 @@ internal sealed class DefaultFileObjectService : IFileObjectService
     private readonly IFileObjectMetadataRedactor _redactor;
     private readonly ILogger<DefaultFileObjectService> _logger;
 
+    /// <summary>Initializes a new instance.</summary>
     public DefaultFileObjectService(
         IOptions<HPDBaseFilesOptions> options,
         IFileBucketRegistry buckets,
@@ -31,6 +32,7 @@ internal sealed class DefaultFileObjectService : IFileObjectService
         _logger = logger;
     }
 
+    /// <summary>Executes the upload async operation.</summary>
     public ValueTask<OperationResult<FileObjectUploadResult>> UploadAsync(FileObjectUploadRequest request, FileOperationContext context, CancellationToken cancellationToken = default) =>
         HPDBaseFilesTelemetry.TraceAsync(
             HPDBaseTelemetrySpans.FilesObjectUpload,
@@ -78,6 +80,7 @@ internal sealed class DefaultFileObjectService : IFileObjectService
             : result;
     }
 
+    /// <summary>Executes the open download async operation.</summary>
     public ValueTask<OperationResult<FileObjectDownloadResult>> OpenDownloadAsync(FileObjectDownloadRequest request, FileOperationContext context, CancellationToken cancellationToken = default) =>
         HPDBaseFilesTelemetry.TraceAsync(
             HPDBaseTelemetrySpans.FilesObjectDownloadOpen,
@@ -110,6 +113,7 @@ internal sealed class DefaultFileObjectService : IFileObjectService
             : result;
     }
 
+    /// <summary>Executes the get metadata async operation.</summary>
     public ValueTask<OperationResult<FileObjectMetadata>> GetMetadataAsync(FileObjectMetadataRequest request, FileOperationContext context, CancellationToken cancellationToken = default) =>
         HPDBaseFilesTelemetry.TraceAsync(
             HPDBaseTelemetrySpans.FilesObjectMetadataGet,
@@ -142,6 +146,7 @@ internal sealed class DefaultFileObjectService : IFileObjectService
             : result;
     }
 
+    /// <summary>Executes the delete async operation.</summary>
     public ValueTask<OperationResult> DeleteAsync(FileObjectDeleteRequest request, FileOperationContext context, CancellationToken cancellationToken = default) =>
         HPDBaseFilesTelemetry.TraceAsync(
             HPDBaseTelemetrySpans.FilesObjectDelete,
@@ -170,6 +175,7 @@ internal sealed class DefaultFileObjectService : IFileObjectService
             : new OperationResult { Status = provider.Failure.Status, Error = provider.Failure.Error };
     }
 
+    /// <summary>Executes the list metadata async operation.</summary>
     public ValueTask<OperationResult<FileObjectListResult>> ListMetadataAsync(FileObjectListRequest request, FileOperationContext context, CancellationToken cancellationToken = default) =>
         HPDBaseFilesTelemetry.TraceAsync(
             HPDBaseTelemetrySpans.FilesObjectList,
@@ -424,13 +430,17 @@ internal sealed class DefaultFileObjectService : IFileObjectService
 
     private readonly record struct Resolved<T>(bool IsSuccess, FileBucketDescriptor Bucket, OperationResult<T> Failure)
     {
+        /// <summary>Executes the ok operation.</summary>
         public static Resolved<T> Ok(FileBucketDescriptor bucket) => new(true, bucket, default!);
+        /// <summary>Executes the fail operation.</summary>
         public static Resolved<T> Fail(OperationResult<T> failure) => new(false, default!, failure);
     }
 
     private readonly record struct ProviderResolved<T>(bool IsSuccess, IFileStorageProvider Value, OperationResult<T> Failure)
     {
+        /// <summary>Executes the ok operation.</summary>
         public static ProviderResolved<T> Ok(IFileStorageProvider provider) => new(true, provider, default!);
+        /// <summary>Executes the fail operation.</summary>
         public static ProviderResolved<T> Fail(OperationResult<T> failure) => new(false, default!, failure);
     }
 }

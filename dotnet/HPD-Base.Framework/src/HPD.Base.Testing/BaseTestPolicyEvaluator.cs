@@ -22,6 +22,7 @@ public sealed class BaseTestPolicy
 internal sealed class BaseTestPolicyEvaluator(BaseTestPolicy policy)
     : IPolicyEvaluator
 {
+    /// <summary>Executes the evaluate async operation.</summary>
     public ValueTask<PolicyDecision> EvaluateAsync(
         PolicyEvaluationRequest request,
         CancellationToken cancellationToken = default) =>

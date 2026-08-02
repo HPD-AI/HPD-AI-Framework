@@ -2,8 +2,10 @@ using HPD.Events;
 
 namespace HPD.Base;
 
+/// <summary>Defines the istreaming record store contract.</summary>
 public interface IStreamingRecordStore : IRecordStore
 {
+    /// <summary>Executes the open stream async operation.</summary>
     ValueTask<OperationResult<AsyncStream<RecordEnvelope>>> OpenStreamAsync(
         CollectionDefinition collection,
         RecordQuery query,

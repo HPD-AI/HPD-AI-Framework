@@ -7,6 +7,7 @@ namespace HPD.Base;
 
 internal sealed class DefaultBaseRealtimeFeedSource : IBaseRealtimeFeedSource
 {
+    /// <summary>Provides the record changes stream ID value.</summary>
     public const string RecordChangesStreamId = "base.realtime.record_changes";
 
     private readonly IEventStreamSource<BaseRecordMutationEvent> _events;
@@ -19,6 +20,7 @@ internal sealed class DefaultBaseRealtimeFeedSource : IBaseRealtimeFeedSource
     private readonly BaseRealtimeCursorProtector _cursors;
     private readonly TimeProvider _timeProvider;
 
+    /// <summary>Initializes a new instance.</summary>
     public DefaultBaseRealtimeFeedSource(
         IEventStreamSource<BaseRecordMutationEvent> events,
         IBaseRealtimeProjectionService projection,
@@ -41,6 +43,7 @@ internal sealed class DefaultBaseRealtimeFeedSource : IBaseRealtimeFeedSource
         _logger = logger;
     }
 
+    /// <summary>Executes the open async operation.</summary>
     public async ValueTask<AsyncStreamOpenResult<AsyncStream<BaseRealtimeEvent>>> OpenAsync(
         BaseRealtimeFeedRequest request,
         CancellationToken cancellationToken = default)

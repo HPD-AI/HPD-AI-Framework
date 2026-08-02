@@ -16,6 +16,7 @@ internal static class HPDBaseHPDAuthAspNetCoreTelemetry
         unit: "s",
         description: "Records HPD.BASE HPD.Auth ASP.NET principal mapping duration.");
 
+    /// <summary>Executes the trace map async operation.</summary>
     public static async ValueTask<PrincipalContext?> TraceMapAsync(
         int enricherCount,
         Func<ValueTask<PrincipalContext?>> invoke)
@@ -35,6 +36,7 @@ internal static class HPDBaseHPDAuthAspNetCoreTelemetry
         }
     }
 
+    /// <summary>Executes the trace enrich async operation.</summary>
     public static async ValueTask<PrincipalContext> TraceEnrichAsync(
         PrincipalContext principal,
         int enricherCount,

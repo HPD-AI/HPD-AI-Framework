@@ -45,11 +45,13 @@ internal static class HPDBaseOpenApiFilters
         BaseHttpRouteNames.AdminPolicyExplain
     ];
 
+    /// <summary>Executes the public operation.</summary>
     public static bool Public(ApiDescription description) =>
         description.ActionDescriptor.EndpointMetadata.OfType<HPDBaseOpenApiRouteMetadata>().FirstOrDefault() is { IsAdmin: false }
         || description.ActionDescriptor.EndpointMetadata.OfType<IHPDBaseModuleOpenApiMetadata>().Any()
         || (OperationId(description) is { } operationId && s_publicOperationIds.Contains(operationId));
 
+    /// <summary>Executes the admin operation.</summary>
     public static bool Admin(ApiDescription description) =>
         description.ActionDescriptor.EndpointMetadata.OfType<HPDBaseOpenApiRouteMetadata>().FirstOrDefault() is { IsAdmin: true }
         || (OperationId(description) is { } operationId && s_adminOperationIds.Contains(operationId));

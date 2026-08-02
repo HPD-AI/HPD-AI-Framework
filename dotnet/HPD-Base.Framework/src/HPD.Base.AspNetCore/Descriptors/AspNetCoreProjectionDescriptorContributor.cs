@@ -5,8 +5,10 @@ namespace HPD.Base.AspNetCore;
 
 internal sealed class AspNetCoreProjectionDescriptorContributor : IBaseDescriptorContributor
 {
+    /// <summary>Gets the ID.</summary>
     public string Id => "hpd.base.aspnetcore";
 
+    /// <summary>Executes the contribute operation.</summary>
     public void Contribute(IBaseDescriptorContributionBuilder builder)
     {
         var dtoContracts = AspNetCoreDtoContractDescriptorFactory.Create();

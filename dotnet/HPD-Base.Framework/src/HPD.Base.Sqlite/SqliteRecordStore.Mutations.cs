@@ -6,6 +6,7 @@ using Microsoft.Data.Sqlite;
 
 namespace HPD.Base.Sqlite;
 
+/// <summary>Represents a sqlite record store.</summary>
 public sealed partial class SqliteRecordStore
 {
     private static readonly TimeSpan MinimumExecutionTimeout = TimeSpan.FromSeconds(1);
@@ -39,6 +40,7 @@ public sealed partial class SqliteRecordStore
         acquisitionLifetime.CancelAfter(request.AcquisitionTimeout);
 
         MutationExecutionSlot? executionSlot = null;
+        IAsyncDisposable? generationLease = null;
         SqliteConnection? connection = null;
         SqliteTransaction? transaction = null;
         try
@@ -48,6 +50,7 @@ public sealed partial class SqliteRecordStore
                     SqliteErrorCodes.DatabaseUnavailable,
                     "SQLite mutation execution is unavailable."));
 
+            generationLease = await _schemaGenerationGate.AcquireSharedAsync(acquisitionLifetime.Token).ConfigureAwait(false);
             await _mutationExecutionSlots.WaitAsync(acquisitionLifetime.Token).ConfigureAwait(false);
             executionSlot = new MutationExecutionSlot(_mutationExecutionSlots);
             if (Volatile.Read(ref _disposed) != 0)
@@ -71,6 +74,8 @@ public sealed partial class SqliteRecordStore
             if (connection is not null)
                 await connection.DisposeAsync().ConfigureAwait(false);
             executionSlot?.Dispose();
+            if (generationLease is not null)
+                await generationLease.DisposeAsync().ConfigureAwait(false);
 
             return CancelledBeforeCommit();
         }
@@ -79,6 +84,8 @@ public sealed partial class SqliteRecordStore
             if (connection is not null)
                 await connection.DisposeAsync().ConfigureAwait(false);
             executionSlot?.Dispose();
+            if (generationLease is not null)
+                await generationLease.DisposeAsync().ConfigureAwait(false);
 
             if (IsTransactionConflict(ex))
                 return ConflictBeforeCommit();
@@ -88,6 +95,8 @@ public sealed partial class SqliteRecordStore
         catch (ObjectDisposedException)
         {
             executionSlot?.Dispose();
+            if (generationLease is not null)
+                await generationLease.DisposeAsync().ConfigureAwait(false);
             return FailedBeforeCommit(ProviderError(
                 SqliteErrorCodes.DatabaseUnavailable,
                 "SQLite mutation execution is unavailable."));
@@ -97,11 +106,13 @@ public sealed partial class SqliteRecordStore
             if (connection is not null)
                 await connection.DisposeAsync().ConfigureAwait(false);
             executionSlot?.Dispose();
+            if (generationLease is not null)
+                await generationLease.DisposeAsync().ConfigureAwait(false);
 
             return FailedBeforeCommit(MapSchemaFailure<object>(ex).Error!);
         }
 
-        var resources = new TransactionResources(this, connection, transaction, executionSlot!);
+        var resources = new TransactionResources(this, connection, transaction, executionSlot!, generationLease!);
         try
         {
             using var processingLifetime =
@@ -409,16 +420,19 @@ public sealed partial class SqliteRecordStore
         SqliteRecordStore owner,
         SqliteConnection connection,
         SqliteTransaction transaction,
-        MutationExecutionSlot executionSlot)
+        MutationExecutionSlot executionSlot,
+        IAsyncDisposable generationLease)
     {
         private bool _transferred;
 
+        /// <summary>Executes the transfer to operation.</summary>
         public void TransferTo(Task operation)
         {
             _transferred = true;
             owner.TrackQuarantinedMutation(DisposeAfterCompletionAsync(operation), this);
         }
 
+        /// <summary>Executes the dispose if owned async operation.</summary>
         public async ValueTask DisposeIfOwnedAsync(TimeSpan completionTimeout)
         {
             if (_transferred)
@@ -468,6 +482,7 @@ public sealed partial class SqliteRecordStore
                     .DisposeAsync(transaction, connection)
                     .ConfigureAwait(false);
                 executionSlot.Dispose();
+                await generationLease.DisposeAsync().ConfigureAwait(false);
                 return true;
             }
             catch
@@ -482,6 +497,7 @@ public sealed partial class SqliteRecordStore
     {
         private int _released;
 
+        /// <summary>Executes the dispose operation.</summary>
         public void Dispose()
         {
             if (Interlocked.Exchange(ref _released, 1) == 0)
@@ -585,6 +601,7 @@ public sealed partial class SqliteRecordStore
         private readonly TimeSpan _transactionTimeout;
         private int _lifetimeState;
 
+        /// <summary>Initializes a new instance.</summary>
         public SqliteAtomicRecordSession(
             SqliteRecordStore owner,
             SqliteConnection connection,
@@ -599,6 +616,7 @@ public sealed partial class SqliteRecordStore
             _transactionTimeout = transactionTimeout;
         }
 
+        /// <summary>Executes the get async operation.</summary>
         public ValueTask<OperationResult<RecordEnvelope>> GetAsync(
             CollectionDefinition collection,
             RecordId id,
@@ -628,6 +646,7 @@ public sealed partial class SqliteRecordStore
                         : SqliteResultFactory.WithRevision(OperationResults.Ok(record), record.Metadata);
                 });
 
+        /// <summary>Executes the create async operation.</summary>
         public ValueTask<OperationResult<RecordMutationSessionResult>> CreateAsync(
             CollectionDefinition collection,
             RecordCreateRequest request,
@@ -638,6 +657,7 @@ public sealed partial class SqliteRecordStore
                 cancellationToken,
                 token => CreateCoreAsync(collection, request, context, token));
 
+        /// <summary>Executes the patch async operation.</summary>
         public ValueTask<OperationResult<RecordMutationSessionResult>> PatchAsync(
             CollectionDefinition collection,
             RecordId id,
@@ -657,6 +677,7 @@ public sealed partial class SqliteRecordStore
                     context,
                     token));
 
+        /// <summary>Executes the replace async operation.</summary>
         public ValueTask<OperationResult<RecordMutationSessionResult>> ReplaceAsync(
             CollectionDefinition collection,
             RecordId id,
@@ -676,6 +697,7 @@ public sealed partial class SqliteRecordStore
                     context,
                     token));
 
+        /// <summary>Executes the delete async operation.</summary>
         public ValueTask<OperationResult<RecordMutationSessionResult>> DeleteAsync(
             CollectionDefinition collection,
             RecordId id,
@@ -687,6 +709,7 @@ public sealed partial class SqliteRecordStore
                 cancellationToken,
                 token => DeleteCoreAsync(collection, id, request, context, token));
 
+        /// <summary>Executes the close async operation.</summary>
         public async ValueTask CloseAsync()
         {
             if (Interlocked.CompareExchange(
@@ -781,24 +804,25 @@ public sealed partial class SqliteRecordStore
                 return payloadError;
 
             var now = Now(context.Operation);
-            var payloadJson = SqliteRecordSerializer.Serialize(request.Payload);
+            RecordPayload normalizedPayload = SqliteRecordSerializer.NormalizeObjectPayload(request.Payload);
+            SqlitePhysicalModel.CollectionModel physical = _owner._physical.Collection(collection.Id);
             await using var command = _connection.CreateCommand();
             command.Transaction = _transaction;
-            command.CommandText = $"INSERT INTO {_owner._names.Records}(collection_id, record_id, revision, created_at, updated_at, payload_json) VALUES ($collection, $id, 1, $created, $updated, $payload);";
+            command.CommandText = $"INSERT INTO {physical.Table}(record_id, revision, created_at, updated_at{physical.PayloadColumnClause}) VALUES ($id, 1, $created, $updated{physical.PayloadParameterClause});";
             command.CommandTimeout = CommandTimeoutSeconds();
-            command.Parameters.AddWithValue("$collection", collection.Id);
             command.Parameters.AddWithValue("$id", id.Value);
             command.Parameters.AddWithValue("$created", now.ToString("O"));
             command.Parameters.AddWithValue("$updated", now.ToString("O"));
-            command.Parameters.AddWithValue("$payload", payloadJson);
+            physical.AddPayloadParameters(command, normalizedPayload, includeExtensions: true);
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            await SyncRelationsAsync(collection.Id, id.Value, normalizedPayload, cancellationToken).ConfigureAwait(false);
 
             var metadata = SqliteRecordMapper.Metadata(1, now, now, _owner._options.StoreId);
             var after = new RecordEnvelope
             {
                 CollectionId = collection.Id,
                 Id = id,
-                Payload = SqliteRecordSerializer.Deserialize(payloadJson),
+                Payload = normalizedPayload,
                 Metadata = metadata
             };
             var journal = await _owner.AppendMutationJournalAsync(
@@ -875,17 +899,17 @@ public sealed partial class SqliteRecordStore
             var nextPayload = replace
                 ? SqliteRecordSerializer.Clone(payload)
                 : SqliteRecordSerializer.Merge(before.Payload, payload);
-            var payloadJson = SqliteRecordSerializer.Serialize(nextPayload);
+            SqlitePhysicalModel.CollectionModel physical = _owner._physical.Collection(collection.Id);
             await using var command = _connection.CreateCommand();
             command.Transaction = _transaction;
-            command.CommandText = $"UPDATE {_owner._names.Records} SET revision = $revision, updated_at = $updated, payload_json = $payload WHERE collection_id = $collection AND record_id = $id;";
+            command.CommandText = $"UPDATE {physical.Table} SET revision = $revision, updated_at = $updated{physical.PayloadAssignmentClause} WHERE record_id = $id;";
             command.CommandTimeout = CommandTimeoutSeconds();
             command.Parameters.AddWithValue("$revision", nextRevision);
             command.Parameters.AddWithValue("$updated", now.ToString("O"));
-            command.Parameters.AddWithValue("$payload", payloadJson);
-            command.Parameters.AddWithValue("$collection", collection.Id);
+            physical.AddPayloadParameters(command, nextPayload, includeExtensions: true);
             command.Parameters.AddWithValue("$id", id.Value);
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            await SyncRelationsAsync(collection.Id, id.Value, nextPayload, cancellationToken).ConfigureAwait(false);
 
             var metadata = SqliteRecordMapper.Metadata(
                 nextRevision,
@@ -894,7 +918,7 @@ public sealed partial class SqliteRecordStore
                 _owner._options.StoreId);
             var after = before with
             {
-                Payload = SqliteRecordSerializer.Deserialize(payloadJson),
+                Payload = SqliteRecordSerializer.Clone(nextPayload),
                 Metadata = metadata
             };
             var physicalOperation = committedOperation == BaseCommittedRecordMutationKind.Patch
@@ -964,13 +988,22 @@ public sealed partial class SqliteRecordStore
                     id.Value);
             }
 
+            if (await HasRestrictedIncomingReferenceAsync(collection.Id, id.Value, cancellationToken).ConfigureAwait(false))
+                return OperationResults.Conflict<RecordMutationSessionResult>(new BaseError
+                {
+                    Code = "base.relation.deleteRestricted",
+                    Message = "The record is referenced by a restricted relation.",
+                    Category = ErrorCategory.Conflict
+                });
+
             await using var command = _connection.CreateCommand();
             command.Transaction = _transaction;
-            command.CommandText = $"DELETE FROM {_owner._names.Records} WHERE collection_id = $collection AND record_id = $id;";
+            SqlitePhysicalModel.CollectionModel physical = _owner._physical.Collection(collection.Id);
+            command.CommandText = $"DELETE FROM {physical.Table} WHERE record_id = $id;";
             command.CommandTimeout = CommandTimeoutSeconds();
-            command.Parameters.AddWithValue("$collection", collection.Id);
             command.Parameters.AddWithValue("$id", id.Value);
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            await DeleteOutgoingRelationsAsync(collection.Id, id.Value, cancellationToken).ConfigureAwait(false);
 
             var delete = new DeleteResult
             {
@@ -1000,6 +1033,70 @@ public sealed partial class SqliteRecordStore
                 delete,
                 journal);
             return OperationResults.Deleted(value);
+        }
+
+        private async ValueTask SyncRelationsAsync(string collectionId, string sourceRecordId, RecordPayload payload, CancellationToken cancellationToken)
+        {
+            Dictionary<string, System.Text.Json.JsonElement> fields = SqliteRecordSerializer.NormalizeObjectPayload(payload).Fields ?? [];
+            foreach (SqlitePhysicalModel.RelationModel relation in _owner._physical.RelationsFrom(collectionId))
+            {
+                await using (var remove = _connection.CreateCommand())
+                {
+                    remove.Transaction = _transaction;
+                    remove.CommandTimeout = CommandTimeoutSeconds();
+                    remove.CommandText = $"DELETE FROM {relation.Table} WHERE source_record_id = $source;";
+                    remove.Parameters.AddWithValue("$source", sourceRecordId);
+                    await remove.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+                }
+
+                if (!fields.TryGetValue(relation.SourceFieldName, out var value) || value.ValueKind is System.Text.Json.JsonValueKind.Null)
+                    continue;
+                if (value.ValueKind != System.Text.Json.JsonValueKind.Array)
+                    throw new InvalidOperationException("SQLite relation payload shape is invalid.");
+
+                var ordinal = 0;
+                foreach (var target in value.EnumerateArray())
+                {
+                    if (target.ValueKind != System.Text.Json.JsonValueKind.String || string.IsNullOrWhiteSpace(target.GetString()))
+                        throw new InvalidOperationException("SQLite relation payload shape is invalid.");
+                    await using var insert = _connection.CreateCommand();
+                    insert.Transaction = _transaction;
+                    insert.CommandTimeout = CommandTimeoutSeconds();
+                    insert.CommandText = $"INSERT INTO {relation.Table}(source_record_id, target_record_id, ordinal) VALUES ($source, $target, $ordinal);";
+                    insert.Parameters.AddWithValue("$source", sourceRecordId);
+                    insert.Parameters.AddWithValue("$target", target.GetString()!);
+                    insert.Parameters.AddWithValue("$ordinal", ordinal++);
+                    await insert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+                }
+            }
+        }
+
+        private async ValueTask<bool> HasRestrictedIncomingReferenceAsync(string collectionId, string targetRecordId, CancellationToken cancellationToken)
+        {
+            foreach (SqlitePhysicalModel.RelationModel relation in _owner._physical.RelationsTo(collectionId)
+                .Where(static relation => relation.Definition.DeleteBehavior == BaseRelationDeleteBehavior.Restrict))
+            {
+                await using var command = _connection.CreateCommand();
+                command.Transaction = _transaction;
+                command.CommandTimeout = CommandTimeoutSeconds();
+                command.CommandText = $"SELECT 1 FROM {relation.Table} WHERE target_record_id = $target LIMIT 1;";
+                command.Parameters.AddWithValue("$target", targetRecordId);
+                if (await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is not null) return true;
+            }
+            return false;
+        }
+
+        private async ValueTask DeleteOutgoingRelationsAsync(string collectionId, string sourceRecordId, CancellationToken cancellationToken)
+        {
+            foreach (SqlitePhysicalModel.RelationModel relation in _owner._physical.RelationsFrom(collectionId))
+            {
+                await using var command = _connection.CreateCommand();
+                command.Transaction = _transaction;
+                command.CommandTimeout = CommandTimeoutSeconds();
+                command.CommandText = $"DELETE FROM {relation.Table} WHERE source_record_id = $source;";
+                command.Parameters.AddWithValue("$source", sourceRecordId);
+                await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
         }
 
         private static RecordMutationSessionResult SessionResult(

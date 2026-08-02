@@ -18,7 +18,7 @@ public sealed class HPDAuthBasePolicyExplainIntegrationTests
                 {
                     CollectionId = "items",
                     ReadRoles = ["Reader"],
-                    TenantFieldPath = "tenantId",
+                    TenantFieldId = "tenantId",
                     ReadExcludeFields = ["secret"]
                 }
             ];
@@ -96,7 +96,7 @@ public sealed class HPDAuthBasePolicyExplainIntegrationTests
                 {
                     CollectionId = "items",
                     ReadRoles = ["Reader"],
-                    TenantFieldPath = "tenantId"
+                    TenantFieldId = "tenantId"
                 }
             ];
         }, detectedHost: false);
@@ -179,6 +179,13 @@ public sealed class HPDAuthBasePolicyExplainIntegrationTests
                 Kind = BaseCollectionKinds.Document,
                 SchemaMode = SchemaMode.Loose,
                 UnknownFields = UnknownFieldPolicy.Preserve,
+                Fields =
+                [
+                    new FieldDefinition { Id = "tenantId", Name = "tenantId", Type = BaseFieldTypes.String },
+                    new FieldDefinition { Id = "title", Name = "title", Type = BaseFieldTypes.String },
+                    new FieldDefinition { Id = "body", Name = "body", Type = BaseFieldTypes.String },
+                    new FieldDefinition { Id = "secret", Name = "secret", Type = BaseFieldTypes.String },
+                ],
                 Operations = new CollectionOperationMatrix
                 {
                     List = true,

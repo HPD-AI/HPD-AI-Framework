@@ -15,6 +15,7 @@ public sealed class BaseSessionFiles
         _context = context;
     }
 
+    /// <summary>Executes the bucket operation.</summary>
     public BaseFileBucket Bucket(string bucketId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(bucketId);
@@ -38,8 +39,10 @@ public sealed class BaseFileBucket
         Id = bucketId;
     }
 
+    /// <summary>Gets the ID.</summary>
     public FileBucketId Id { get; }
 
+    /// <summary>Executes the upload async operation.</summary>
     public async ValueTask<BaseResult<FileObjectUploadResult>> UploadAsync(
         string key,
         Stream content,
@@ -72,6 +75,7 @@ public sealed class BaseFileBucket
         return BaseResultMapper.Map(result, static value => value);
     }
 
+    /// <summary>Executes the open read async operation.</summary>
     public async ValueTask<BaseResult<FileObjectDownloadResult>> OpenReadAsync(
         FileObjectId objectId,
         CancellationToken cancellationToken = default)
@@ -83,6 +87,7 @@ public sealed class BaseFileBucket
         return BaseResultMapper.Map(result, static value => value);
     }
 
+    /// <summary>Executes the get metadata async operation.</summary>
     public async ValueTask<BaseResult<FileObjectMetadata>> GetMetadataAsync(
         FileObjectId objectId,
         CancellationToken cancellationToken = default)
@@ -94,6 +99,7 @@ public sealed class BaseFileBucket
         return BaseResultMapper.Map(result, static value => value);
     }
 
+    /// <summary>Executes the delete async operation.</summary>
     public async ValueTask<BaseResult<BaseUnit>> DeleteAsync(
         FileObjectId objectId,
         CancellationToken cancellationToken = default)
@@ -105,6 +111,7 @@ public sealed class BaseFileBucket
         return BaseResultMapper.Map(result);
     }
 
+    /// <summary>Executes the list async operation.</summary>
     public async ValueTask<BaseResult<FileObjectListResult>> ListAsync(
         string? prefix,
         int maximum,

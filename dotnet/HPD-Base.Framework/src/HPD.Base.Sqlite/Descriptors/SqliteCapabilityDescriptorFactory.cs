@@ -5,6 +5,7 @@ namespace HPD.Base.Sqlite;
 
 internal static class SqliteCapabilityDescriptorFactory
 {
+    /// <summary>Executes the create operation.</summary>
     public static CapabilityDescriptor Create(HPDBaseSqliteOptions options, StoreCapabilityDescriptor storeCapabilities) => new()
     {
         DescriptorVersion = options.StoreVersion,
@@ -111,7 +112,7 @@ internal static class SqliteCapabilityDescriptorFactory
         Status = CapabilityStatus.Available,
         SupportLevel = SupportLevel.Required,
         Scope = CapabilityScope.Collection,
-        AppliesTo = options.CollectionIds.Length == 0 ? null : options.CollectionIds,
+        AppliesTo = options.Collections.Length == 0 ? null : options.Collections.Select(static collection => collection.Id).ToArray(),
         Constraints = constraints,
         HealthRef = options.ContributeHealth ? options.HealthRefId : null,
         DiagnosticRefs = options.ContributeDiagnostics ? [options.DiagnosticRefId] : null,

@@ -26,7 +26,7 @@ public sealed class HPDAuthBasePolicyEvaluatorTests
                 {
                     CollectionId = "items",
                     ReadRoles = ["Reader"],
-                    TenantFieldPath = "tenantId"
+                    TenantFieldId = "tenantId"
                 }
             ];
         }).BuildServiceProvider();
@@ -57,7 +57,7 @@ public sealed class HPDAuthBasePolicyEvaluatorTests
                 {
                     CollectionId = "items",
                     ReadRoles = ["Reader"],
-                    TenantFieldPath = "tenantId"
+                    TenantFieldId = "tenantId"
                 }
             ];
         }).BuildServiceProvider();
@@ -106,7 +106,7 @@ public sealed class HPDAuthBasePolicyEvaluatorTests
                 {
                     CollectionId = "items",
                     ReadRoles = ["Reader"],
-                    TenantFieldPath = "tenantId",
+                    TenantFieldId = "tenantId",
                     ReadExcludeFields = ["secret"]
                 }
             ];
@@ -389,7 +389,7 @@ public sealed class HPDAuthBasePolicyEvaluatorTests
                 {
                     CollectionId = "items",
                     ReadRoles = ["Reader"],
-                    TenantFieldPath = "tenantId",
+                    TenantFieldId = "tenantId",
                     ReadIncludeFields = ["title", "ownerId"]
                 }
             ];

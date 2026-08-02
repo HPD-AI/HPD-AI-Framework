@@ -9,14 +9,17 @@ internal sealed class SqliteDescriptorContributor : IBaseDescriptorContributor
     private readonly HPDBaseSqliteOptions _options;
     private readonly SqliteRecordStore _store;
 
+    /// <summary>Initializes a new instance.</summary>
     public SqliteDescriptorContributor(IOptions<HPDBaseSqliteOptions> options, SqliteRecordStore store)
     {
         _options = options.Value;
         _store = store;
     }
 
+    /// <summary>Gets the ID.</summary>
     public string Id => _options.ModuleId;
 
+    /// <summary>Executes the contribute operation.</summary>
     public void Contribute(IBaseDescriptorContributionBuilder builder)
     {
         if (_options.ContributeModuleDescriptor)

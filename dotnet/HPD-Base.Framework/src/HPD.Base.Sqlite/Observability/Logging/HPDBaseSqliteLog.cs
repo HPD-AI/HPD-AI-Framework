@@ -4,6 +4,7 @@ namespace HPD.Base.Sqlite;
 
 internal static partial class HPDBaseSqliteLog
 {
+    /// <summary>Executes the database open failed operation.</summary>
     [LoggerMessage(
         EventId = 3000,
         Level = LogLevel.Error,
@@ -15,6 +16,7 @@ internal static partial class HPDBaseSqliteLog
         int nativeErrorCode,
         int nativeExtendedErrorCode);
 
+    /// <summary>Executes the database busy operation.</summary>
     [LoggerMessage(
         EventId = 3001,
         Level = LogLevel.Warning,
@@ -26,6 +28,7 @@ internal static partial class HPDBaseSqliteLog
         int nativeErrorCode,
         int nativeExtendedErrorCode);
 
+    /// <summary>Executes the database locked operation.</summary>
     [LoggerMessage(
         EventId = 3002,
         Level = LogLevel.Warning,
@@ -37,6 +40,7 @@ internal static partial class HPDBaseSqliteLog
         int nativeErrorCode,
         int nativeExtendedErrorCode);
 
+    /// <summary>Executes the schema missing operation.</summary>
     [LoggerMessage(
         EventId = 3003,
         Level = LogLevel.Error,
@@ -46,6 +50,7 @@ internal static partial class HPDBaseSqliteLog
         ILogger logger,
         string errorCode);
 
+    /// <summary>Executes the schema diagnostic warning operation.</summary>
     [LoggerMessage(
         EventId = 3005,
         Level = LogLevel.Warning,
@@ -55,6 +60,7 @@ internal static partial class HPDBaseSqliteLog
         ILogger logger,
         string errorCode);
 
+    /// <summary>Executes the query plan rejected operation.</summary>
     [LoggerMessage(
         EventId = 3006,
         Level = LogLevel.Debug,
@@ -65,6 +71,7 @@ internal static partial class HPDBaseSqliteLog
         string planStatus,
         string errorCode);
 
+    /// <summary>Executes the provider operation failed operation.</summary>
     [LoggerMessage(
         EventId = 3008,
         Level = LogLevel.Error,
@@ -78,6 +85,7 @@ internal static partial class HPDBaseSqliteLog
         int nativeErrorCode,
         int nativeExtendedErrorCode);
 
+    /// <summary>Executes the operation kind operation.</summary>
     public static string OperationKind(BaseOperationKind operation) => operation switch
     {
         BaseOperationKind.List => "list",

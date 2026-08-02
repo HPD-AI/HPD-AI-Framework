@@ -3,6 +3,7 @@ namespace HPD.Base;
 
 internal static class VolatileValidation
 {
+    /// <summary>Executes the validate collection ID operation.</summary>
     public static OperationResult<T>? ValidateCollectionId<T>(string? collectionId)
     {
         if (IsValidIdText(collectionId))
@@ -19,6 +20,7 @@ internal static class VolatileValidation
         });
     }
 
+    /// <summary>Executes the validate record ID operation.</summary>
     public static OperationResult<T>? ValidateRecordId<T>(string? recordId)
     {
         if (IsValidIdText(recordId))
@@ -35,6 +37,7 @@ internal static class VolatileValidation
         });
     }
 
+    /// <summary>Executes the validate field name operation.</summary>
     public static OperationResult<T>? ValidateFieldName<T>(string? fieldName)
     {
         if (IsValidFieldName(fieldName))
@@ -51,6 +54,7 @@ internal static class VolatileValidation
         });
     }
 
+    /// <summary>Executes the is valid ID text operation.</summary>
     public static bool IsValidIdText(string? value) =>
         !string.IsNullOrWhiteSpace(value) && !value.Any(char.IsControl);
 

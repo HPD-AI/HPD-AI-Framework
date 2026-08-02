@@ -51,6 +51,7 @@ internal static class HPDBaseSqliteTelemetry
         unit: "{error}",
         description: "Counts HPD.BASE SQLite provider errors.");
 
+    /// <summary>Executes the trace store async operation.</summary>
     public static async ValueTask<OperationResult<T>> TraceStoreAsync<T>(
         string spanName,
         BaseOperationKind operation,
@@ -66,6 +67,7 @@ internal static class HPDBaseSqliteTelemetry
         return result;
     }
 
+    /// <summary>Executes the trace connection open async operation.</summary>
     public static async ValueTask<T> TraceConnectionOpenAsync<T>(string storeId, Func<ValueTask<T>> invoke)
     {
         using var activity = StartProviderSpan(HPDBaseTelemetrySpans.SqliteConnectionOpen, storeId);
@@ -83,6 +85,7 @@ internal static class HPDBaseSqliteTelemetry
         }
     }
 
+    /// <summary>Executes the trace schema async operation.</summary>
     public static async ValueTask TraceSchemaAsync(string spanName, string storeId, Func<ValueTask> invoke)
     {
         using var activity = StartProviderSpan(spanName, storeId);
@@ -101,6 +104,7 @@ internal static class HPDBaseSqliteTelemetry
         }
     }
 
+    /// <summary>Executes the trace schema async operation.</summary>
     public static async ValueTask<TResult> TraceSchemaAsync<TResult>(string spanName, string storeId, Func<ValueTask<TResult>> invoke)
     {
         using var activity = StartProviderSpan(spanName, storeId);
@@ -120,11 +124,13 @@ internal static class HPDBaseSqliteTelemetry
         }
     }
 
+    /// <summary>Executes the record schema missing parts operation.</summary>
     public static void RecordSchemaMissingParts(string storeId, int missingPartCount)
     {
         LastObservedMissingSchemaParts[storeId] = Math.Max(0, missingPartCount);
     }
 
+    /// <summary>Executes the trace query plan operation.</summary>
     public static SqliteQueryPlan TraceQueryPlan(string storeId, string collectionId, RecordQuery query, Func<SqliteQueryPlan> plan)
     {
         using var activity = HPDBaseSqliteObservability.ActivitySource.StartActivity(HPDBaseTelemetrySpans.SqliteQueryPlan, ActivityKind.Internal);
@@ -149,6 +155,7 @@ internal static class HPDBaseSqliteTelemetry
         return result;
     }
 
+    /// <summary>Executes the trace transaction async operation.</summary>
     public static async ValueTask<T> TraceTransactionAsync<T>(string storeId, Func<ValueTask<T>> invoke)
     {
         using var activity = StartProviderSpan(HPDBaseTelemetrySpans.SqliteTransaction, storeId);

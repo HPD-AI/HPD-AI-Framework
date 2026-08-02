@@ -14,12 +14,16 @@ public sealed partial class SqliteRecordStore :
     IRecordMutationStore,
     IAtomicRecordStore,
     ITransactionalMutationJournalStore,
+    IRelationalReadStore,
+    IConsistentRecordIncludeStore,
+    IBaseSchemaStore,
     IAsyncDisposable
 {
     private readonly HPDBaseSqliteOptions _options;
     private readonly SqliteConnectionFactory _connections;
     private readonly SqliteSchemaInitializer _schema;
     private readonly SqliteNames _names;
+    private readonly SqlitePhysicalModel _physical;
     private readonly ILogger<SqliteRecordStore> _logger;
     private readonly TimeProvider _timeProvider;
     private readonly ISqliteTransactionController _transactions;
@@ -27,9 +31,11 @@ public sealed partial class SqliteRecordStore :
     private readonly ISqliteTransactionResourceDisposer _transactionResourceDisposer;
     private readonly SemaphoreSlim _keepAliveGate = new(1, 1);
     private readonly SemaphoreSlim _mutationExecutionSlots;
+    private readonly SqliteSchemaGenerationGate _schemaGenerationGate = new();
     private readonly ConcurrentDictionary<long, QuarantinedMutation> _quarantinedMutations = new();
     private SqliteConnection? _keepAliveConnection;
     private long _nextQuarantinedMutationId;
+    private long _schemaGeneration;
     private int _disposed;
 
     /// <summary>
@@ -67,6 +73,12 @@ public sealed partial class SqliteRecordStore :
         _connections = new SqliteConnectionFactory(_options);
         _schema = new SqliteSchemaInitializer(_options);
         _names = new SqliteNames(_options);
+        _physical = new SqlitePhysicalModel(_options);
+        Includes = new RecordIncludeExecutionCapability
+        {
+            Supported = true, MaxDepth = 3, MaxIncludes = 8,
+            MaxRecords = Math.Min(1_000, _options.MaxPageSize), SnapshotConsistency = true,
+        };
         _mutationExecutionSlots = new SemaphoreSlim(
             _options.MaxTrackedMutationExecutions,
             _options.MaxTrackedMutationExecutions);
@@ -82,6 +94,7 @@ public sealed partial class SqliteRecordStore :
     public async ValueTask<BaseMutationJournalBounds> GetMutationJournalBoundsAsync(
         CancellationToken cancellationToken = default)
     {
+        await using var generationLease = await _schemaGenerationGate.AcquireSharedAsync(cancellationToken).ConfigureAwait(false);
         await using var connection = await OpenInitializedAsync(cancellationToken).ConfigureAwait(false);
         return await GetBoundsAsync(
             connection,
@@ -104,6 +117,7 @@ public sealed partial class SqliteRecordStore :
         if (request.Limit > _options.MutationJournalMaxReadSize)
             throw new ArgumentOutOfRangeException(nameof(request), "Journal read limit exceeds the configured maximum.");
 
+        await using var generationLease = await _schemaGenerationGate.AcquireSharedAsync(cancellationToken).ConfigureAwait(false);
         await using var connection = await OpenInitializedAsync(cancellationToken).ConfigureAwait(false);
         var cutoff = MutationJournalCutoff();
         var bounds = await GetBoundsAsync(connection, cutoff, cancellationToken).ConfigureAwait(false);
@@ -149,6 +163,7 @@ LIMIT $limit;
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(eventId);
+        await using var generationLease = await _schemaGenerationGate.AcquireSharedAsync(cancellationToken).ConfigureAwait(false);
         await using var connection = await OpenInitializedAsync(cancellationToken).ConfigureAwait(false);
         await using var command = connection.CreateCommand();
         command.CommandText = $"""
@@ -249,7 +264,8 @@ WHERE event_id = $eventId
         if (SqliteValidation.ValidateCollectionId<RecordPage>(collection.Id) is { } collectionError) return collectionError;
         if (ValidateRegisteredCollection<RecordPage>(collection.Id) is { } registrationError) return registrationError;
 
-        var plan = HPDBaseSqliteTelemetry.TraceQueryPlan(_options.StoreId, collection.Id, query, () => new SqliteQueryPlanner(_options).Plan(collection.Id, query));
+        SqlitePhysicalModel.CollectionModel physicalCollection = _physical.Collection(collection.Id);
+        var plan = HPDBaseSqliteTelemetry.TraceQueryPlan(_options.StoreId, collection.Id, query, () => new SqliteQueryPlanner(_options, physicalCollection).Plan(query));
         if (!plan.Supported)
         {
             HPDBaseSqliteLog.QueryPlanRejected(_logger, "unsupported", SqliteErrorCodes.UnsupportedQuery);
@@ -258,6 +274,7 @@ WHERE event_id = $eventId
 
         try
         {
+            await using var generationLease = await _schemaGenerationGate.AcquireSharedAsync(cancellationToken).ConfigureAwait(false);
             await using var connection = await OpenInitializedAsync(cancellationToken).ConfigureAwait(false);
             long? total = null;
             if (query.Count != QueryCountMode.None)
@@ -278,7 +295,7 @@ WHERE event_id = $eventId
             await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
-                rows.Add(SqliteRecordMapper.ReadEnvelope(reader, _options.StoreId));
+                rows.Add(physicalCollection.ReadEnvelope(reader, _options.StoreId));
             }
 
             var requestedLimit = plan.PageInfo.PerPage ?? plan.PageInfo.Limit ?? _options.DefaultPageSize;
@@ -329,6 +346,7 @@ WHERE event_id = $eventId
 
         try
         {
+            await using var generationLease = await _schemaGenerationGate.AcquireSharedAsync(cancellationToken).ConfigureAwait(false);
             await using var connection = await OpenInitializedAsync(cancellationToken).ConfigureAwait(false);
             var record = await ReadAsync(connection, collection.Id, id.Value, cancellationToken).ConfigureAwait(false);
             return record is null ? SqliteResultFactory.NotFound<RecordEnvelope>(id.Value) : SqliteResultFactory.WithRevision(OperationResults.Ok(record), record.Metadata);
@@ -357,12 +375,12 @@ WHERE event_id = $eventId
     {
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = $"SELECT collection_id, record_id, revision, created_at, updated_at, payload_json FROM {_names.Records} WHERE collection_id = $collection AND record_id = $id;";
+        SqlitePhysicalModel.CollectionModel collection = _physical.Collection(collectionId);
+        command.CommandText = $"SELECT {collection.SelectList} FROM {collection.Table} WHERE record_id = $id;";
         command.CommandTimeout = commandTimeoutSeconds ?? TimeoutSeconds();
-        command.Parameters.AddWithValue("$collection", collectionId);
         command.Parameters.AddWithValue("$id", id);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        return await reader.ReadAsync(cancellationToken).ConfigureAwait(false) ? SqliteRecordMapper.ReadEnvelope(reader, _options.StoreId) : null;
+        return await reader.ReadAsync(cancellationToken).ConfigureAwait(false) ? collection.ReadEnvelope(reader, _options.StoreId) : null;
     }
 
     private async ValueTask<EventReference> AppendMutationJournalAsync(
@@ -534,16 +552,44 @@ FROM {_names.MutationJournal};
     {
         await EnsureKeepAliveAsync(cancellationToken).ConfigureAwait(false);
         var connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
-        if (_options.AutoInitialize)
+        RegisterPortableRelationalFunctions(connection);
+        if (!await _schema.HasRequiredSchemaAsync(connection, cancellationToken).ConfigureAwait(false))
         {
-            await _schema.InitializeAsync(connection, cancellationToken).ConfigureAwait(false);
-        }
-        else if (_options.FailIfSchemaMissing && !await _schema.HasRequiredSchemaAsync(connection, cancellationToken).ConfigureAwait(false))
-        {
-            throw new SqliteException("HPD.BASE SQLite schema is missing.", 1);
+            throw new InvalidOperationException("HPD.BASE SQLite schema is missing required parts.");
         }
 
         return connection;
+    }
+
+    private static void RegisterPortableRelationalFunctions(SqliteConnection connection)
+    {
+        connection.CreateCollation("HPD_BASE_DECIMAL", static (left, right) =>
+            decimal.Parse(left, CultureInfo.InvariantCulture).CompareTo(decimal.Parse(right, CultureInfo.InvariantCulture)));
+        connection.CreateAggregate<string?, DecimalAggregate, string>(
+            "HPD_BASE_DECIMAL_SUM",
+            default,
+            static (state, value) => value is null
+                ? state
+                : new DecimalAggregate(state.Sum + decimal.Parse(value, CultureInfo.InvariantCulture), state.Count + 1),
+            static state => state.Sum.ToString(CultureInfo.InvariantCulture),
+            isDeterministic: true);
+        connection.CreateAggregate<string?, DecimalAggregate, string?>(
+            "HPD_BASE_DECIMAL_AVERAGE",
+            default,
+            static (state, value) => value is null
+                ? state
+                : new DecimalAggregate(state.Sum + decimal.Parse(value, CultureInfo.InvariantCulture), state.Count + 1),
+            static state => state.Count == 0 ? null : (state.Sum / state.Count).ToString(CultureInfo.InvariantCulture),
+            isDeterministic: true);
+    }
+
+    private readonly record struct DecimalAggregate(decimal Sum, long Count);
+
+    internal async ValueTask InitializeUnacceptedSchemaForTestsAsync(CancellationToken cancellationToken = default)
+    {
+        await EnsureKeepAliveAsync(cancellationToken).ConfigureAwait(false);
+        await using SqliteConnection connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await _schema.InitializeAsync(connection, cancellationToken).ConfigureAwait(false);
     }
 
     private async ValueTask EnsureKeepAliveAsync(CancellationToken cancellationToken)
@@ -612,7 +658,7 @@ FROM {_names.MutationJournal};
 
     private OperationResult<T>? ValidateRegisteredCollection<T>(string collectionId)
     {
-        var registered = _options.CollectionIds.Concat((_options.Collections ?? []).Select(collection => collection.Id)).Distinct(StringComparer.Ordinal).ToArray();
+        var registered = _options.Collections.Select(static collection => collection.Id).Distinct(StringComparer.Ordinal).ToArray();
         return registered.Length == 0 || registered.Contains(collectionId, StringComparer.Ordinal)
             ? null
             : SqliteResultFactory.CapabilityUnavailable<T>(
@@ -706,7 +752,7 @@ FROM {_names.MutationJournal};
             Pagination = new PaginationCapability { Page = true, Offset = true, Cursor = false, DefaultLimit = options.DefaultPageSize, MaxLimit = options.MaxPageSize, CursorRequiresStableSort = false },
             Count = new CountCapability { SupportedModes = [QueryCountMode.None, QueryCountMode.IfAvailable, QueryCountMode.Exact], CountMayBeExpensive = false },
             Select = new SelectCapability { PayloadFields = true, SystemFields = false, NestedFieldPaths = false },
-            Include = new QueryIncludeCapability { Supported = false, ExecutionMode = QueryExecutionMode.Unsupported }
+            Include = new QueryIncludeCapability { Supported = true, MaxDepth = 3, BackRelations = true, IncludeFilters = true, IncludeSort = true, IncludeLimit = true, ExecutionMode = QueryExecutionMode.Native }
         },
         Revision = new RevisionCapability
         {

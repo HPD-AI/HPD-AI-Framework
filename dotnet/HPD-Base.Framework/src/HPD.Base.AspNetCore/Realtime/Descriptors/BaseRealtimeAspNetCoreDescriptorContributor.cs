@@ -5,8 +5,10 @@ namespace HPD.Base.AspNetCore;
 
 internal sealed class BaseRealtimeAspNetCoreDescriptorContributor : IBaseDescriptorContributor
 {
+    /// <summary>Gets the ID.</summary>
     public string Id => "hpd.base.realtime.aspnetcore";
 
+    /// <summary>Executes the contribute operation.</summary>
     public void Contribute(IBaseDescriptorContributionBuilder builder)
     {
         var route = Route();
@@ -100,10 +102,15 @@ internal sealed class BaseRealtimeAspNetCoreDescriptorContributor : IBaseDescrip
 
 internal sealed class BaseRealtimeWebSocketOpenApiMetadata : IHPDBaseModuleOpenApiMetadata
 {
+    /// <summary>Gets the operation ID.</summary>
     public string OperationId => BaseRealtimeRouteIds.WebSocket;
+    /// <summary>Gets the summary.</summary>
     public string Summary => "BASE realtime WebSocket";
+    /// <summary>Gets the description.</summary>
     public string Description => "Opens the HPD.BASE realtime WebSocket JSON protocol. OpenAPI describes the handshake route; WebSocket frames use BaseRealtimeClientMessage and BaseRealtimeServerMessage.";
+    /// <summary>Gets the tags.</summary>
     public string[] Tags => ["Realtime"];
+    /// <summary>Gets the required feature IDs.</summary>
     public string[] RequiredFeatureIds =>
     [
         BaseRealtimeFeatureIds.Channels,

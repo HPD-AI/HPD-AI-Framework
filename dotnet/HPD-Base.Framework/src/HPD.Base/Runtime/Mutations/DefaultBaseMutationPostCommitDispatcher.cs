@@ -4,6 +4,7 @@ namespace HPD.Base;
 
 internal interface IBaseMutationPostCommitDispatcher
 {
+    /// <summary>Executes the dispatch async operation.</summary>
     ValueTask<BaseRecordBatchItemResult> DispatchAsync(
         BaseMutationAttempt attempt,
         PrincipalContext principal);
@@ -14,6 +15,7 @@ internal sealed class DefaultBaseMutationPostCommitDispatcher(
     IBaseEventFactory eventFactory,
     IBaseEventDispatcher eventDispatcher) : IBaseMutationPostCommitDispatcher
 {
+    /// <summary>Executes the dispatch async operation.</summary>
     public async ValueTask<BaseRecordBatchItemResult> DispatchAsync(
         BaseMutationAttempt attempt,
         PrincipalContext principal)

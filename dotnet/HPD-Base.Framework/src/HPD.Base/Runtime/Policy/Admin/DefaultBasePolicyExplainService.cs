@@ -14,6 +14,7 @@ internal sealed class DefaultBasePolicyExplainService : IBasePolicyExplainServic
     private readonly BasePolicyExplainRedactor _redactor;
     private readonly HPDBasePolicyAdminOptions _options;
 
+    /// <summary>Initializes a new instance.</summary>
     public DefaultBasePolicyExplainService(
         IBaseSchemaProvider schema,
         IBaseSchemaValidator schemaValidator,
@@ -36,6 +37,7 @@ internal sealed class DefaultBasePolicyExplainService : IBasePolicyExplainServic
         _options = options.Value;
     }
 
+    /// <summary>Executes the explain async operation.</summary>
     public async ValueTask<OperationResult<BasePolicyExplainResponse>> ExplainAsync(
         BasePolicyExplainRequest request,
         PrincipalContext principal,

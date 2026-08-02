@@ -9,6 +9,7 @@ namespace HPD.Base.AspNetCore;
 
 internal static class MetadataEndpoints
 {
+    /// <summary>Executes the map public operation.</summary>
     public static void MapPublic(IEndpointRouteBuilder endpoints, HPDBasePublicMetadataMode mode)
     {
         if (mode == HPDBasePublicMetadataMode.Disabled)
@@ -21,6 +22,7 @@ internal static class MetadataEndpoints
             endpoints.MapGet("/schema", (RequestDelegate)SchemaPublic).WithHPDBaseOpenApi(BaseRouteIds.Schema).WithName(BaseRouteIds.Schema);
     }
 
+    /// <summary>Executes the map admin operation.</summary>
     public static void MapAdmin(IEndpointRouteBuilder endpoints)
     {
         endpoints.MapGet("/manifest", (RequestDelegate)ManifestAdmin).WithHPDBaseOpenApi(BaseHttpRouteNames.AdminManifest).WithName(BaseHttpRouteNames.AdminManifest);

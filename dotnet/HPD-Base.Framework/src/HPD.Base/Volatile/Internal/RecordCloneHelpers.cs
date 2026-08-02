@@ -4,6 +4,7 @@ namespace HPD.Base;
 
 internal static class RecordCloneHelpers
 {
+    /// <summary>Executes the clone envelope operation.</summary>
     public static RecordEnvelope CloneEnvelope(StoredRecord record) => new()
     {
         CollectionId = record.CollectionId,
@@ -12,6 +13,7 @@ internal static class RecordCloneHelpers
         Metadata = CloneMetadata(record.Metadata)
     };
 
+    /// <summary>Executes the clone payload operation.</summary>
     public static RecordPayload ClonePayload(RecordPayload payload)
     {
         if (payload.Kind == RecordPayloadKind.FieldMap)
@@ -30,6 +32,7 @@ internal static class RecordCloneHelpers
         };
     }
 
+    /// <summary>Executes the clone metadata operation.</summary>
     public static RecordMetadata CloneMetadata(RecordMetadata metadata) => new()
     {
         CreatedAt = metadata.CreatedAt,
@@ -42,6 +45,7 @@ internal static class RecordCloneHelpers
             : new Dictionary<string, string>(metadata.Tags, StringComparer.Ordinal)
     };
 
+    /// <summary>Executes the clone fields operation.</summary>
     public static Dictionary<string, JsonElement> CloneFields(Dictionary<string, JsonElement>? fields)
     {
         var clone = new Dictionary<string, JsonElement>(StringComparer.Ordinal);

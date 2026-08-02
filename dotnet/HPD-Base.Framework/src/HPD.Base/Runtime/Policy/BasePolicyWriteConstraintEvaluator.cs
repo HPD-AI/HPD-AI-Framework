@@ -5,6 +5,7 @@ namespace HPD.Base;
 
 internal static class BasePolicyWriteConstraintEvaluator
 {
+    /// <summary>Executes the evaluate operation.</summary>
     public static BasePolicyWriteCheckEvaluation Evaluate(
         RecordPayload? payload,
         FilterExpression filter)
@@ -327,7 +328,7 @@ internal static class BasePolicyWriteConstraintEvaluator
 
 internal enum BasePolicyWriteCheckEvaluation
 {
-    Allowed,
-    Denied,
-    Unsupported
+Allowed,
+Denied,
+Unsupported
 }

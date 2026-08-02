@@ -5,94 +5,94 @@ namespace HPD.Base;
 public enum BaseRecordMutationKind
 {
     /// <summary>Create a record.</summary>
-    Create,
+Create,
     /// <summary>Patch an existing record.</summary>
-    Patch,
+Patch,
     /// <summary>Replace an existing record.</summary>
-    Replace,
+Replace,
     /// <summary>Delete an existing record.</summary>
-    Delete,
+Delete,
     /// <summary>Atomically create or update a record by its record identifier.</summary>
-    Upsert
+Upsert
 }
 
 /// <summary>Identifies the physical record mutation that committed at the provider.</summary>
 public enum BaseCommittedRecordMutationKind
 {
     /// <summary>A record was physically created.</summary>
-    Create,
+Create,
     /// <summary>An existing record was physically patched.</summary>
-    Patch,
+Patch,
     /// <summary>An existing record was physically replaced.</summary>
-    Replace,
+Replace,
     /// <summary>An existing record was physically deleted.</summary>
-    Delete
+Delete
 }
 
 /// <summary>Controls ordered batch execution and its commit guarantees.</summary>
 public enum BaseRecordBatchExecutionMode
 {
     /// <summary>Execute every item in order as an independent commit.</summary>
-    OrderedIndependent,
+OrderedIndependent,
     /// <summary>Execute independent commits in order and stop after the first failure.</summary>
-    OrderedStopOnFailure,
+OrderedStopOnFailure,
     /// <summary>Execute every item in one provider-owned atomic transaction.</summary>
-    Atomic
+Atomic
 }
 
 /// <summary>Describes the aggregate outcome of a record batch.</summary>
 public enum BaseRecordBatchOutcome
 {
     /// <summary>Every requested mutation committed.</summary>
-    Committed,
+Committed,
     /// <summary>At least one mutation committed and at least one did not commit.</summary>
-    PartiallyCommitted,
+PartiallyCommitted,
     /// <summary>The provider confirmed that the atomic batch was rolled back.</summary>
-    RolledBack,
+RolledBack,
     /// <summary>No mutation committed and execution failed without an atomic rollback result.</summary>
-    Failed
+Failed
 }
 
 /// <summary>Describes the transaction disposition of one batch item.</summary>
 public enum BaseRecordBatchItemDisposition
 {
     /// <summary>The item committed.</summary>
-    Committed,
+Committed,
     /// <summary>The item executed and failed.</summary>
-    Failed,
+Failed,
     /// <summary>The item was not executed.</summary>
-    Skipped,
+Skipped,
     /// <summary>The item executed provisionally and the provider confirmed rollback.</summary>
-    RolledBack
+RolledBack
 }
 
 /// <summary>Selects how the update branch of an upsert modifies an existing record.</summary>
 public enum RecordUpsertUpdateMode
 {
     /// <summary>Merge supplied top-level fields into the existing payload.</summary>
-    Patch,
+Patch,
     /// <summary>Replace the complete existing payload.</summary>
-    Replace
+Replace
 }
 
 /// <summary>Constrains which existence branch an upsert may take.</summary>
 public enum RecordUpsertExistenceCondition
 {
     /// <summary>Create when absent or update when present.</summary>
-    Any,
+Any,
     /// <summary>Create only and conflict when the record already exists.</summary>
-    CreateOnly,
+CreateOnly,
     /// <summary>Update only and return not found when the record is absent.</summary>
-    UpdateOnly
+UpdateOnly
 }
 
 /// <summary>Reports which branch of an atomic upsert committed.</summary>
 public enum RecordUpsertOutcome
 {
     /// <summary>The record was created.</summary>
-    Created,
+Created,
     /// <summary>The existing record was updated.</summary>
-    Updated
+Updated
 }
 
 /// <summary>Requests an atomic record-ID-keyed create-or-update operation.</summary>

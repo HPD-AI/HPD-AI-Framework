@@ -4,8 +4,10 @@ using Microsoft.Extensions.Options;
 
 namespace HPD.Base;
 
+/// <summary>Represents a hpdbase realtime service collection extensions.</summary>
 public static class HPDBaseRealtimeServiceCollectionExtensions
 {
+    /// <summary>Executes the add hpdbase realtime operation.</summary>
     public static IServiceCollection AddHPDBaseRealtime(
         this IServiceCollection services,
         Action<BaseRealtimeOptions>? configure = null)
@@ -37,6 +39,7 @@ public static class HPDBaseRealtimeServiceCollectionExtensions
         return services;
     }
 
+    /// <summary>Executes the add hpdbase realtime operation.</summary>
     public static IHPDBaseRuntimeBuilder AddHPDBaseRealtime(
         this IHPDBaseRuntimeBuilder builder,
         Action<BaseRealtimeOptions>? configure = null)

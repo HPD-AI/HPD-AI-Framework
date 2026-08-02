@@ -224,8 +224,11 @@ public sealed class DescriptorContributionTests
                         Id = "ownerId",
                         Name = "ownerId",
                         Type = BaseFieldTypes.String,
-                        Relation = new RelationAnnotation
+                        Relation = new RelationDefinition
                         {
+                            Id = "item-owner",
+                            SourceCollectionId = "items",
+                            SourceFieldId = "ownerId",
                             TargetCollectionId = "users"
                         }
                     }
@@ -418,7 +421,7 @@ public sealed class DescriptorContributionTests
             new IndexPart
             {
                 Kind = IndexPartKind.Field,
-                FieldPath = fieldPath
+                FieldId = fieldPath
             }
         ]
     };

@@ -4,6 +4,7 @@ namespace HPD.Base;
 
 internal sealed class DefaultBaseRecordRedactor : IBaseRecordRedactor
 {
+    /// <summary>Executes the redact record operation.</summary>
     public RecordEnvelope RedactRecord(
         RecordEnvelope record,
         CollectionDefinition collection,
@@ -25,6 +26,7 @@ internal sealed class DefaultBaseRecordRedactor : IBaseRecordRedactor
         };
     }
 
+    /// <summary>Executes the redact page operation.</summary>
     public RecordPage RedactPage(
         RecordPage page,
         CollectionDefinition collection,
@@ -45,43 +47,24 @@ internal sealed class DefaultBaseRecordRedactor : IBaseRecordRedactor
         VisibilityLevel view)
     {
         var hasFieldMetadata = collection.Fields is { Length: > 0 };
-        var allowed = new HashSet<string>(
-            hasFieldMetadata
-                ? collection.Fields!
-                    .Where(field => FieldVisible(field, view))
-                    .Select(field => field.Name)
-                : [],
-            StringComparer.Ordinal);
+        FieldDefinition[] visible = hasFieldMetadata
+            ? collection.Fields!.Where(field => FieldVisible(field, view)).ToArray()
+            : [];
 
         if (!hasFieldMetadata && (readMask is null || readMask.Mode is FieldMaskMode.Unspecified or FieldMaskMode.AllowAll))
         {
-            allowed.Add("*");
-            return allowed;
+            return new HashSet<string>(["*"], StringComparer.Ordinal);
         }
 
-        if (readMask is null || readMask.Mode == FieldMaskMode.Unspecified || readMask.Mode == FieldMaskMode.AllowAll)
+        IEnumerable<FieldDefinition> masked = readMask?.Mode switch
         {
-            return allowed;
-        }
-
-        if (readMask.Mode == FieldMaskMode.DenyAll)
-        {
-            allowed.Clear();
-            return allowed;
-        }
-
-        if (readMask.Mode == FieldMaskMode.IncludeOnly)
-        {
-            allowed.IntersectWith(readMask.Include ?? []);
-            return allowed;
-        }
-
-        if (readMask.Mode == FieldMaskMode.Exclude)
-        {
-            allowed.ExceptWith(readMask.Exclude ?? []);
-        }
-
-        return allowed;
+            null or FieldMaskMode.Unspecified or FieldMaskMode.AllowAll => visible,
+            FieldMaskMode.DenyAll => [],
+            FieldMaskMode.IncludeOnly => visible.Where(field => (readMask.Include ?? []).Contains(field.Id, StringComparer.Ordinal)),
+            FieldMaskMode.Exclude => visible.Where(field => !(readMask.Exclude ?? []).Contains(field.Id, StringComparer.Ordinal)),
+            _ => [],
+        };
+        return masked.Select(static field => field.Name).ToHashSet(StringComparer.Ordinal);
     }
 
     private static bool FieldVisible(FieldDefinition field, VisibilityLevel view)

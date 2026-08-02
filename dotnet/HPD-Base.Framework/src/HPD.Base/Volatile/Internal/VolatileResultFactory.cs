@@ -3,6 +3,7 @@ namespace HPD.Base;
 
 internal static class VolatileResultFactory
 {
+    /// <summary>Executes the not found operation.</summary>
     public static OperationResult<T> NotFound<T>(string recordId) =>
         OperationResults.NotFound<T>(new BaseError
         {
@@ -12,6 +13,7 @@ internal static class VolatileResultFactory
             Target = recordId
         });
 
+    /// <summary>Executes the duplicate ID operation.</summary>
     public static OperationResult<T> DuplicateId<T>(string recordId) =>
         OperationResults.Conflict<T>(new BaseError
         {
@@ -22,6 +24,7 @@ internal static class VolatileResultFactory
             Conflict = new ConflictInfo { Kind = ConflictKind.Unique, Resource = recordId }
         });
 
+    /// <summary>Executes the unsupported operation.</summary>
     public static OperationResult<T> Unsupported<T>(string code, string message, string? target = null) =>
         OperationResults.Unsupported<T>(new BaseError
         {
@@ -31,6 +34,7 @@ internal static class VolatileResultFactory
             Target = target
         });
 
+    /// <summary>Executes the validation operation.</summary>
     public static OperationResult<T> Validation<T>(string code, string message, string? target = null) =>
         OperationResults.ValidationFailed<T>(new BaseError
         {
@@ -40,6 +44,7 @@ internal static class VolatileResultFactory
             Target = target
         });
 
+    /// <summary>Executes the store error operation.</summary>
     public static OperationResult<T> StoreError<T>(string code, string message, string? target = null) =>
         OperationResults.StoreError<T>(new BaseError
         {
@@ -50,6 +55,7 @@ internal static class VolatileResultFactory
             Store = new StoreErrorInfo { Retryable = false }
         });
 
+    /// <summary>Executes the revision conflict operation.</summary>
     public static OperationResult<T> RevisionConflict<T>(
         RevisionToken expected,
         RevisionToken? actual,
@@ -69,6 +75,7 @@ internal static class VolatileResultFactory
             }
         });
 
+    /// <summary>Executes the with revision operation.</summary>
     public static OperationResult<T> WithRevision<T>(OperationResult<T> result, RecordMetadata metadata) =>
         result with
         {

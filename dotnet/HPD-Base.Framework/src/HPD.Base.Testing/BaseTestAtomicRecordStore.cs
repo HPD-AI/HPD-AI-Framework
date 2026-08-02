@@ -4,10 +4,11 @@ namespace HPD.Base.Testing;
 
 internal sealed class BaseTestStoreInitializer(
     IRecordStoreRegistry registry,
-    BaseTestFaults faults) : IBaseApplicationInitializer
+    BaseTestFaults faults)
 {
     private bool _initialized;
 
+    /// <summary>Executes the initialize operation.</summary>
     public void Initialize()
     {
         if (_initialized)
@@ -37,8 +38,10 @@ internal class BaseTestAtomicRecordStore(
     IAtomicRecordStore inner,
     BaseTestFaults faults) : IAtomicRecordStore
 {
+    /// <summary>Gets the capabilities.</summary>
     public StoreCapabilityDescriptor Capabilities => inner.Capabilities;
 
+    /// <summary>Executes the list async operation.</summary>
     public ValueTask<OperationResult<RecordPage>> ListAsync(
         CollectionDefinition collection,
         RecordQuery query,
@@ -46,6 +49,7 @@ internal class BaseTestAtomicRecordStore(
         CancellationToken cancellationToken = default) =>
         inner.ListAsync(collection, query, context, cancellationToken);
 
+    /// <summary>Executes the get async operation.</summary>
     public ValueTask<OperationResult<RecordEnvelope>> GetAsync(
         CollectionDefinition collection,
         RecordId id,
@@ -53,12 +57,14 @@ internal class BaseTestAtomicRecordStore(
         CancellationToken cancellationToken = default) =>
         inner.GetAsync(collection, id, context, cancellationToken);
 
+    /// <summary>Executes the execute single async operation.</summary>
     public ValueTask<RecordMutationExecutionResult> ExecuteSingleAsync(
         IAtomicMutationProcessor processor,
         RecordMutationExecutionRequest request,
         CancellationToken cancellationToken = default) =>
         inner.ExecuteSingleAsync(processor, request, cancellationToken);
 
+    /// <summary>Executes the execute atomic async operation.</summary>
     public async ValueTask<RecordMutationExecutionResult> ExecuteAtomicAsync(
         IAtomicMutationProcessor processor,
         RecordMutationExecutionRequest request,
@@ -95,6 +101,7 @@ internal class BaseTestAtomicRecordStore(
     private sealed class RejectCommitProcessor(
         IAtomicMutationProcessor innerProcessor) : IAtomicMutationProcessor
     {
+        /// <summary>Executes the process async operation.</summary>
         public async ValueTask<AtomicMutationProcessingResult> ProcessAsync(
             IAtomicRecordSession session,
             CancellationToken cancellationToken = default)
@@ -120,15 +127,18 @@ internal sealed class BaseTestJournalAtomicRecordStore(
     : BaseTestAtomicRecordStore(inner, faults),
       ITransactionalMutationJournalStore
 {
+    /// <summary>Executes the get mutation journal bounds async operation.</summary>
     public ValueTask<BaseMutationJournalBounds> GetMutationJournalBoundsAsync(
         CancellationToken cancellationToken = default) =>
         journal.GetMutationJournalBoundsAsync(cancellationToken);
 
+    /// <summary>Executes the read mutation journal async operation.</summary>
     public ValueTask<BaseMutationJournalPage> ReadMutationJournalAsync(
         BaseMutationJournalReadRequest request,
         CancellationToken cancellationToken = default) =>
         journal.ReadMutationJournalAsync(request, cancellationToken);
 
+    /// <summary>Executes the find mutation journal entry async operation.</summary>
     public ValueTask<BaseMutationJournalEntry?> FindMutationJournalEntryAsync(
         string eventId,
         CancellationToken cancellationToken = default) =>

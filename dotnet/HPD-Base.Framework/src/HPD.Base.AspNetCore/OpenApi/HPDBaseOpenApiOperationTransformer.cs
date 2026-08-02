@@ -30,6 +30,7 @@ internal sealed class HPDBaseOpenApiOperationTransformer(IOptions<HPDBaseOpenApi
     private const string FileObjectsUploadOperationId = "base.files.objects.upload";
     private const string FileObjectsListOperationId = "base.files.objects.list";
 
+    /// <summary>Executes the transform async operation.</summary>
     public Task TransformAsync(OpenApiOperation operation, OpenApiOperationTransformerContext context, CancellationToken cancellationToken)
     {
         var metadata = context.Description.ActionDescriptor.EndpointMetadata.OfType<HPDBaseOpenApiRouteMetadata>().FirstOrDefault();

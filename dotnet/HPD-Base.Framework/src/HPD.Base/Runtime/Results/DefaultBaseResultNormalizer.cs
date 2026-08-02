@@ -6,11 +6,13 @@ internal sealed class DefaultBaseResultNormalizer : IBaseResultNormalizer
 {
     private readonly ILogger<DefaultBaseResultNormalizer> _logger;
 
+    /// <summary>Initializes a new instance.</summary>
     public DefaultBaseResultNormalizer(ILogger<DefaultBaseResultNormalizer> logger)
     {
         _logger = logger;
     }
 
+    /// <summary>Executes the normalize store result operation.</summary>
     public OperationResult<T> NormalizeStoreResult<T>(
         OperationResult<T> result,
         OperationContext operation)

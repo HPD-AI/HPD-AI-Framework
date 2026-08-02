@@ -4,6 +4,7 @@ namespace HPD.Base;
 
 internal static partial class HPDBaseRealtimeLog
 {
+    /// <summary>Executes the event stream open failed operation.</summary>
     [LoggerMessage(
         EventId = 5000,
         EventName = "EventStreamOpenFailed",
@@ -14,6 +15,7 @@ internal static partial class HPDBaseRealtimeLog
         string errorCategory,
         string errorCode);
 
+    /// <summary>Executes the event projection failed operation.</summary>
     [LoggerMessage(
         EventId = 5001,
         EventName = "EventProjectionFailed",

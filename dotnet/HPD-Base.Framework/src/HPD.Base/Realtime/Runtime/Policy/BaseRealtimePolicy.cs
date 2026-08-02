@@ -23,8 +23,10 @@ public sealed record BaseRealtimeEventProjectionDecision
     public CollectionDefinition? Collection { get; init; }
 }
 
+/// <summary>Defines the ibase realtime policy contract.</summary>
 public interface IBaseRealtimePolicy
 {
+    /// <summary>Executes the evaluate async operation.</summary>
     ValueTask<BaseRealtimeEventProjectionDecision> EvaluateAsync(
         BaseRealtimeProjectionRequest request,
         CancellationToken cancellationToken = default);
@@ -35,6 +37,7 @@ internal sealed class DefaultBaseRealtimePolicy : IBaseRealtimePolicy
     private readonly IBaseSchemaProvider _schema;
     private readonly IBasePolicyOrchestrator _policies;
 
+    /// <summary>Initializes a new instance.</summary>
     public DefaultBaseRealtimePolicy(
         IBaseSchemaProvider schema,
         IBasePolicyOrchestrator policies)
@@ -43,6 +46,7 @@ internal sealed class DefaultBaseRealtimePolicy : IBaseRealtimePolicy
         _policies = policies;
     }
 
+    /// <summary>Executes the evaluate async operation.</summary>
     public async ValueTask<BaseRealtimeEventProjectionDecision> EvaluateAsync(
         BaseRealtimeProjectionRequest request,
         CancellationToken cancellationToken = default)

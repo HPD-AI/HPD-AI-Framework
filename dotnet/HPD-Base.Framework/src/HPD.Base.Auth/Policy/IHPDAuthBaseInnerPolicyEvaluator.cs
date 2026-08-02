@@ -26,15 +26,15 @@ public enum HPDAuthBasePolicyCompositionMode
     /// <summary>
     /// Evaluate only HPD.Auth adapter grants and rules.
     /// </summary>
-    HPDAuthOnly,
+HPDAuthOnly,
 
     /// <summary>
     /// Evaluate the HPD.Auth adapter first, then let the inner evaluator further constrain an allow.
     /// </summary>
-    HPDAuthThenInner,
+HPDAuthThenInner,
 
     /// <summary>
     /// Evaluate the inner evaluator first, then let the HPD.Auth adapter further constrain an allow.
     /// </summary>
-    InnerThenHPDAuth
+InnerThenHPDAuth
 }

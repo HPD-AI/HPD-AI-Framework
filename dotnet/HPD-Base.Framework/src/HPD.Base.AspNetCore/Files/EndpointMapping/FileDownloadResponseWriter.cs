@@ -7,6 +7,7 @@ namespace HPD.Base.AspNetCore;
 
 internal sealed class FileDownloadResponseWriter(ILogger<FileDownloadResponseWriter> logger)
 {
+    /// <summary>Executes the write async operation.</summary>
     public async Task WriteAsync(
         HttpContext httpContext,
         FileObjectDownloadResult download)

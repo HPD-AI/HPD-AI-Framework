@@ -14,11 +14,13 @@ internal sealed class DefaultBaseDescriptorProvider : IBaseDescriptorProvider
 
     private readonly IBaseDescriptorRegistry _registry;
 
+    /// <summary>Initializes a new instance.</summary>
     public DefaultBaseDescriptorProvider(IBaseDescriptorRegistry registry)
     {
         _registry = registry;
     }
 
+    /// <summary>Executes the get manifest async operation.</summary>
     public ValueTask<OperationResult<BaseManifest>> GetManifestAsync(
         BaseManifestRequest request,
         CancellationToken cancellationToken = default)
@@ -35,6 +37,7 @@ internal sealed class DefaultBaseDescriptorProvider : IBaseDescriptorProvider
             () => ValueTask.FromResult(OperationResults.Ok(DescriptorViewFilter.Manifest(_registry.Current, request.View))));
     }
 
+    /// <summary>Executes the get expanded manifest async operation.</summary>
     public ValueTask<OperationResult<ExpandedBaseManifest>> GetExpandedManifestAsync(
         BaseManifestExpansionRequest request,
         CancellationToken cancellationToken = default)

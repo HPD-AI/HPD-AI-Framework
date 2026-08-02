@@ -2,8 +2,10 @@ using HPD.AI.Platform;
 
 namespace HPD.Base.Studio;
 
+/// <summary>Represents a hpdbase studio builder extensions.</summary>
 public static class HPDBaseStudioBuilderExtensions
 {
+    /// <summary>Executes the add base studio operation.</summary>
     public static HPDAIPlatformBuilder AddBaseStudio(this HPDAIPlatformBuilder builder)
     {
         ArgumentNullException.ThrowIfNull(builder);

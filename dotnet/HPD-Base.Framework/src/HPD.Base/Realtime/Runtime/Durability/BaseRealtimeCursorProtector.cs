@@ -7,11 +7,11 @@ namespace HPD.Base;
 
 internal enum BaseRealtimeCursorStatus
 {
-    Valid,
-    Invalid,
-    ScopeMismatch,
-    Expired,
-    VersionUnsupported
+Valid,
+Invalid,
+ScopeMismatch,
+Expired,
+VersionUnsupported
 }
 
 internal readonly record struct BaseRealtimeCursorReadResult(
@@ -29,6 +29,7 @@ internal sealed class BaseRealtimeCursorProtector
     private readonly TimeProvider _timeProvider;
     private readonly TimeSpan _lifetime;
 
+    /// <summary>Initializes a new instance.</summary>
     public BaseRealtimeCursorProtector(
         IOptions<BaseRealtimeOptions> options,
         TimeProvider timeProvider)
@@ -43,8 +44,10 @@ internal sealed class BaseRealtimeCursorProtector
         _lifetime = TimeSpan.FromSeconds(options.Value.Limits.CursorLifetimeSeconds);
     }
 
+    /// <summary>Gets the enabled.</summary>
     public bool Enabled => _key is not null;
 
+    /// <summary>Executes the protect operation.</summary>
     public string Protect(
         BaseMutationJournalPosition position,
         string storeId,
@@ -75,6 +78,7 @@ internal sealed class BaseRealtimeCursorProtector
         return Base64UrlEncode(token);
     }
 
+    /// <summary>Executes the unprotect operation.</summary>
     public BaseRealtimeCursorReadResult Unprotect(
         string cursor,
         string storeId,

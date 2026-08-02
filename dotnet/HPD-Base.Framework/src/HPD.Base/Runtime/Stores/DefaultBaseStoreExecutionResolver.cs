@@ -4,6 +4,7 @@ namespace HPD.Base;
 internal sealed class DefaultBaseStoreExecutionResolver(
     IRecordStoreRegistry registry) : IBaseStoreExecutionResolver
 {
+    /// <summary>Executes the resolve operation.</summary>
     public OperationResult<BaseResolvedMutationStore> Resolve(
         CollectionDefinition collection,
         BaseRecordMutationKind operation,

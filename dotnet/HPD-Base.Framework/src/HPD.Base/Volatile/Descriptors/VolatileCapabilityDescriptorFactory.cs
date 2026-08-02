@@ -3,6 +3,7 @@ namespace HPD.Base;
 
 internal static class VolatileCapabilityDescriptorFactory
 {
+    /// <summary>Executes the create operation.</summary>
     public static CapabilityDescriptor Create(
         HPDBaseVolatileStoreOptions options,
         StoreCapabilityDescriptor storeCapabilities) => new()

@@ -35,6 +35,7 @@ internal static class HPDBaseFilesTelemetry
         unit: "{error}",
         description: "Counts HPD.BASE Files validation failures.");
 
+    /// <summary>Executes the trace async operation.</summary>
     public static async ValueTask<OperationResult<T>> TraceAsync<T>(
         string spanName,
         string operation,
@@ -51,6 +52,7 @@ internal static class HPDBaseFilesTelemetry
         return result;
     }
 
+    /// <summary>Executes the trace async operation.</summary>
     public static async ValueTask<OperationResult> TraceAsync(
         string spanName,
         string operation,
@@ -116,6 +118,7 @@ internal static class HPDBaseFilesTelemetry
         }
     }
 
+    /// <summary>Executes the record policy evaluation operation.</summary>
     public static void RecordPolicyEvaluation(string operation, OperationStatus status, BaseError? error) =>
         PolicyEvaluations.Add(1, Tags(operation, status, error));
 
@@ -214,9 +217,14 @@ internal static class HPDBaseFilesTelemetry
 
 internal static class FileOperationValues
 {
+    /// <summary>Provides the upload value.</summary>
     public const string Upload = "upload";
+    /// <summary>Provides the download open value.</summary>
     public const string DownloadOpen = "downloadOpen";
+    /// <summary>Provides the metadata get value.</summary>
     public const string MetadataGet = "metadataGet";
+    /// <summary>Provides the delete value.</summary>
     public const string Delete = "delete";
+    /// <summary>Provides the list value.</summary>
     public const string List = "list";
 }

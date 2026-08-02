@@ -8,6 +8,7 @@ internal sealed class BaseRealtimeJoinRateLimiter
     private long _windowStartedAt;
     private int _attempts;
 
+    /// <summary>Initializes a new instance.</summary>
     public BaseRealtimeJoinRateLimiter(TimeProvider timeProvider, int maximum)
     {
         ArgumentNullException.ThrowIfNull(timeProvider);
@@ -18,6 +19,7 @@ internal sealed class BaseRealtimeJoinRateLimiter
         _windowStartedAt = timeProvider.GetTimestamp();
     }
 
+    /// <summary>Executes the try acquire operation.</summary>
     public bool TryAcquire()
     {
         var now = _timeProvider.GetTimestamp();

@@ -6,9 +6,11 @@ public sealed class BaseSessionDependencies(
     IBaseDependencyReferenceFactory factory,
     string? tenantId)
 {
+    /// <summary>Executes the collection operation.</summary>
     public BaseDependencyReference Collection<T>(BaseCollection<T> collection) =>
         Collection(tenantId, collection);
 
+    /// <summary>Executes the collection operation.</summary>
     public BaseDependencyReference Collection<T>(
         string? tenant,
         BaseCollection<T> collection)
@@ -20,11 +22,13 @@ public sealed class BaseSessionDependencies(
             new BaseDependencyParameter("collection", collection.Id));
     }
 
+    /// <summary>Executes the record operation.</summary>
     public BaseDependencyReference Record<T>(
         BaseCollection<T> collection,
         RecordId recordId) =>
         Record(tenantId, collection, recordId);
 
+    /// <summary>Executes the record operation.</summary>
     public BaseDependencyReference Record<T>(
         string? tenant,
         BaseCollection<T> collection,
@@ -38,6 +42,7 @@ public sealed class BaseSessionDependencies(
             new BaseDependencyParameter("record", recordId.Value));
     }
 
+    /// <summary>Executes the resolve operation.</summary>
     public BaseDependencyReference Resolve(
         BaseDependencyTemplateHandle template,
         params ReadOnlySpan<string?> values)
@@ -46,6 +51,7 @@ public sealed class BaseSessionDependencies(
         return template.Resolve(factory, values);
     }
 
+    /// <summary>Executes the set operation.</summary>
     public BaseDependencySet Set(params ReadOnlySpan<BaseDependencyReference> references) =>
         factory.CreateSet(references.ToArray());
 }
@@ -64,8 +70,11 @@ public sealed class BaseDependencyTemplateHandle
         _parameterNames = Template.ParameterNames;
     }
 
+    /// <summary>Gets the template.</summary>
     public BaseDependencyTemplate Template { get; }
+    /// <summary>Gets the ID.</summary>
     public string Id => Template.Id;
+    /// <summary>Gets the parameter names.</summary>
     public IReadOnlyList<string> ParameterNames => _parameterNames;
 
     internal BaseDependencyReference Resolve(

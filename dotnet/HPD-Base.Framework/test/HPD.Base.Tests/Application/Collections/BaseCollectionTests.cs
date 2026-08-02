@@ -10,23 +10,28 @@ public sealed partial class BaseCollectionTests
     [Fact]
     public void CreateProducesImmutableTypedContract()
     {
+        BaseField<ProjectDocument, string>? organization = null;
+        BaseField<ProjectDocument, string>? name = null;
         var collection = BaseCollection<ProjectDocument>.Create(
             Definition(),
             TestJsonContext.Default.ProjectDocument,
             fields =>
             {
-                fields.Add<string>(
+                organization = fields.Add<string>(
+                    "organization-id",
                     "organizationId",
                     operators: BaseFieldOperator.Equal);
-                fields.Add<string>(
+                name = fields.Add<string>(
+                    "name",
                     "name",
                     operators: BaseFieldOperator.Equal | BaseFieldOperator.Order);
             });
 
         collection.Id.Should().Be("projects");
         collection.JsonTypeInfo.Type.Should().Be(typeof(ProjectDocument));
-        collection.Field<string>("organizationId").Path.Should().Be("organizationId");
-        collection.Field<string>("name").Operators.Should().HaveFlag(BaseFieldOperator.Order);
+        organization!.Id.Should().Be("organization-id");
+        organization.StoredName.Should().Be("organizationId");
+        name!.Operators.Should().HaveFlag(BaseFieldOperator.Order);
     }
 
     [Fact]
@@ -37,8 +42,8 @@ public sealed partial class BaseCollectionTests
             TestJsonContext.Default.ProjectDocument,
             fields =>
             {
-                fields.Add<string>("name");
-                fields.Add<string>("name");
+                fields.Add<string>("name", "name");
+                fields.Add<string>("name", "otherName");
             });
 
         action.Should()
@@ -47,18 +52,18 @@ public sealed partial class BaseCollectionTests
     }
 
     [Fact]
-    public void FieldRejectsIncorrectValueType()
+    public void CreateRejectsDuplicateStoredNames()
     {
-        var collection = BaseCollection<ProjectDocument>.Create(
-            Definition(),
-            TestJsonContext.Default.ProjectDocument,
-            fields => fields.Add<string>("name"));
-
-        var action = () => collection.Field<int>("name");
+        var action = () => BaseCollection<ProjectDocument>.Create(
+            Definition(), TestJsonContext.Default.ProjectDocument, fields =>
+            {
+                fields.Add<string>("first-name", "name");
+                fields.Add<string>("second-name", "name");
+            });
 
         action.Should()
             .Throw<InvalidOperationException>()
-            .WithMessage("*field 'name' is not declared as 'System.Int32'.");
+            .WithMessage("*stored name 'name' is already declared*");
     }
 
     private static CollectionDefinition Definition() =>

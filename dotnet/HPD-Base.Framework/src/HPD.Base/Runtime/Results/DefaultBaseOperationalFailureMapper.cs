@@ -3,6 +3,7 @@ namespace HPD.Base;
 
 internal sealed class DefaultBaseOperationalFailureMapper : IBaseOperationalFailureMapper
 {
+    /// <summary>Executes the try map operation.</summary>
     public bool TryMap(Exception exception, OperationContext operation, out BaseError error, out OperationStatus status)
     {
         ArgumentNullException.ThrowIfNull(exception);

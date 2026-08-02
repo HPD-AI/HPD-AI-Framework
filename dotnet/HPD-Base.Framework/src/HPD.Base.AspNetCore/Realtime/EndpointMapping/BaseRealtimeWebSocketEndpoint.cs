@@ -12,6 +12,7 @@ internal sealed class BaseRealtimeWebSocketEndpoint(
     ILogger<BaseRealtimeWebSocketEndpoint> logger,
     ILogger<BaseRealtimeWebSocketSession> sessionLogger)
 {
+    /// <summary>Executes the handle async operation.</summary>
     public async Task HandleAsync(HttpContext context)
     {
         using var acceptActivity = HPDBaseRealtimeAspNetCoreTelemetry.StartAccept();

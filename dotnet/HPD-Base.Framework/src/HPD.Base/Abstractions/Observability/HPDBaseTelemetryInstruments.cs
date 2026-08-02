@@ -5,6 +5,14 @@ namespace HPD.Base;
 /// </summary>
 public static class HPDBaseTelemetryInstruments
 {
+    /// <summary>Relational read/include attempt counter.</summary>
+    public const string RelationalAttempts = "hpd.base.relational.attempts";
+    /// <summary>Relational read/include duration histogram.</summary>
+    public const string RelationalDuration = "hpd.base.relational.duration";
+    /// <summary>Schema lifecycle attempt counter.</summary>
+    public const string SchemaAttempts = "hpd.base.schema.attempts";
+    /// <summary>Schema lifecycle duration histogram.</summary>
+    public const string SchemaDuration = "hpd.base.schema.duration";
     /// <summary>Runtime operation counter.</summary>
     public const string RuntimeOperations = "hpd.base.runtime.operations";
     /// <summary>Runtime operation duration histogram.</summary>

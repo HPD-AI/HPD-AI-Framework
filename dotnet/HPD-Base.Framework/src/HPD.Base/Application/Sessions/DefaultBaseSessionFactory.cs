@@ -7,19 +7,14 @@ internal sealed class DefaultBaseSessionFactory(
     IBaseRecordRuntime runtime,
     TimeProvider timeProvider,
     IServiceProvider services,
-    IEnumerable<IBaseApplicationInitializer> initializers,
     IOptions<HPDBaseRuntimeOptions> runtimeOptions) : IBaseSessionFactory
 {
+    /// <summary>Executes the for operation.</summary>
     public BaseSession For(
         PrincipalContext principal,
         Action<BaseSessionOptions>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(principal);
-        foreach (IBaseApplicationInitializer initializer in initializers)
-        {
-            initializer.Initialize();
-        }
-
         var options = new BaseSessionOptions
         {
             TenantId = principal.CurrentTenantId,
@@ -33,8 +28,12 @@ internal sealed class DefaultBaseSessionFactory(
         };
         configure?.Invoke(options);
 
+        IHPDBaseApplication? application = services.GetService<IHPDBaseApplication>();
+        IBaseRecordRuntime sessionRuntime = application is null
+            ? runtime
+            : new ReadinessBoundRecordRuntime(runtime, application);
         return new BaseSession(
-            runtime,
+            sessionRuntime,
             timeProvider,
             Snapshot(principal),
             options,
@@ -42,6 +41,7 @@ internal sealed class DefaultBaseSessionFactory(
             services.GetService<IBaseDependencyReferenceFactory>(),
             services.GetService<IBaseRealtimeFeedSource>(),
             services.GetService<IBaseLiveQueryCoordinator>(),
+            services.GetService<IBaseRegisteredReadRuntime>(),
             runtimeOptions.Value.Limits.MaxPageSize);
     }
 
@@ -62,9 +62,4 @@ internal sealed class DefaultBaseSessionFactory(
                 })
                 .ToArray(),
         };
-}
-
-internal interface IBaseApplicationInitializer
-{
-    void Initialize();
 }

@@ -6,8 +6,10 @@ using Microsoft.Extensions.Options;
 
 namespace HPD.Base.AspNetCore;
 
+/// <summary>Represents a hpdbase files asp net core service collection extensions.</summary>
 public static class HPDBaseFilesAspNetCoreServiceCollectionExtensions
 {
+    /// <summary>Executes the add hpdbase files asp net core operation.</summary>
     public static IServiceCollection AddHPDBaseFilesAspNetCore(this IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
@@ -20,6 +22,7 @@ public static class HPDBaseFilesAspNetCoreServiceCollectionExtensions
         return services;
     }
 
+    /// <summary>Executes the add hpdbase files asp net core operation.</summary>
     public static IHPDBaseRuntimeBuilder AddHPDBaseFilesAspNetCore(this IHPDBaseRuntimeBuilder builder)
     {
         ArgumentNullException.ThrowIfNull(builder);

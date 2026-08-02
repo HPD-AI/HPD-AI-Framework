@@ -20,7 +20,6 @@ public sealed class SqliteTelemetryTests
         {
             StoreId = "primary",
             DataSource = path,
-            CollectionIds = ["items"],
             Collections = [Collection()]
         });
 
@@ -73,9 +72,8 @@ public sealed class SqliteTelemetryTests
         {
             StoreId = "primary",
             DataSource = dataSource,
-            CollectionIds = ["items"],
             Collections = [Collection()]
-        });
+        }, initializeSchema: false);
 
         var result = await store.ListAsync(Collection(), new RecordQuery(), Operation(BaseOperationKind.List));
 
@@ -98,7 +96,6 @@ public sealed class SqliteTelemetryTests
             {
                 StoreId = "primary",
                 DataSource = path,
-                CollectionIds = ["items"],
                 Collections = [Collection()]
             });
 
@@ -133,7 +130,8 @@ public sealed class SqliteTelemetryTests
         Name = "items",
         Kind = BaseCollectionKinds.Document,
         SchemaMode = SchemaMode.Loose,
-        UnknownFields = UnknownFieldPolicy.Preserve
+        UnknownFields = UnknownFieldPolicy.Preserve,
+        Fields = [new FieldDefinition { Id = "title", Name = "title", Type = BaseFieldTypes.String }]
     };
 
     private static OperationContext Operation(BaseOperationKind operation, string? recordId = null) => new()

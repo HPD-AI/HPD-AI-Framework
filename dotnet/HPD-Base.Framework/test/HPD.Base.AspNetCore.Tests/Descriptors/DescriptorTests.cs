@@ -18,7 +18,7 @@ public sealed class DescriptorTests
             "Get /base/health",
             "Get /base/diagnostics",
             "Get /base/collections/{collectionId}/records",
-            "Post /base/collections/{collectionId}/query",
+            "Post /base/collections/{collectionId}/records:query",
             "Get /base/collections/{collectionId}/records/{id}",
             "Post /base/collections/{collectionId}/records",
             "Patch /base/collections/{collectionId}/records/{id}",

@@ -17,9 +17,9 @@ public abstract class RecordStoreQueryConformanceTests<TFixture> : RecordStoreCo
         }
 
         var store = await CreateStoreAsync();
-        await CreateRecordAsync(store, "query-a", ("title", "a"), ("status", "open"), ("rank", "1"));
-        await CreateRecordAsync(store, "query-b", ("title", "b"), ("status", "closed"), ("rank", "3"));
-        await CreateRecordAsync(store, "query-c", ("title", "c"), ("status", "open"), ("rank", "2"));
+        await CreateRecordAsync(store, "query-a", ("title", RecordStoreConformanceData.StringElement("a")), ("status", RecordStoreConformanceData.StringElement("open")), ("rank", RecordStoreConformanceData.Element("1")));
+        await CreateRecordAsync(store, "query-b", ("title", RecordStoreConformanceData.StringElement("b")), ("status", RecordStoreConformanceData.StringElement("closed")), ("rank", RecordStoreConformanceData.Element("3")));
+        await CreateRecordAsync(store, "query-c", ("title", RecordStoreConformanceData.StringElement("c")), ("status", RecordStoreConformanceData.StringElement("open")), ("rank", RecordStoreConformanceData.Element("2")));
 
         var result = await store.ListAsync(
             Collection,
@@ -206,7 +206,7 @@ public abstract class RecordStoreQueryConformanceTests<TFixture> : RecordStoreCo
         var store = await CreateStoreAsync();
         var include = await store.ListAsync(
             Collection,
-            new RecordQuery { Include = [new QueryInclude { Path = "relation" }] },
+            new RecordQuery { Include = [new RecordInclude { NavigationId = "relation" }] },
             Operation(BaseOperationKind.List));
         if (Capabilities.Query.Include?.Supported != true)
         {

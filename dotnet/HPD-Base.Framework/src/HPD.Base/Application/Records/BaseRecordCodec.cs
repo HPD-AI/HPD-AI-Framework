@@ -6,11 +6,13 @@ namespace HPD.Base;
 
 internal static class BaseRecordCodec
 {
+    /// <summary>Executes the encode operation.</summary>
     public static RecordPayload Encode<T>(
         BaseCollection<T> collection,
         T value)
         => Encode(value, collection.JsonTypeInfo);
 
+    /// <summary>Executes the encode operation.</summary>
     public static RecordPayload Encode<T>(
         T value,
         JsonTypeInfo<T> jsonTypeInfo)
@@ -25,6 +27,7 @@ internal static class BaseRecordCodec
         };
     }
 
+    /// <summary>Executes the decode operation.</summary>
     public static BaseRecord<T> Decode<T>(
         BaseCollection<T> collection,
         RecordEnvelope envelope)

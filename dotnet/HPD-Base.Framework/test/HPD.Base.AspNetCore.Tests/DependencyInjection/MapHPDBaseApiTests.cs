@@ -6,7 +6,7 @@ namespace HPD.Base.AspNetCore.Tests.DependencyInjection;
 public sealed class MapHPDBaseApiTests
 {
     [Fact]
-    public void UnifiedBuilderMapInitializesDefaultVolatileProvider()
+    public void UnifiedBuilderMapIsSideEffectFreeBeforeHostStartup()
     {
         var builder = WebApplication.CreateBuilder();
         builder.Services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
@@ -24,7 +24,9 @@ public sealed class MapHPDBaseApiTests
         app.Services.GetRequiredService<IRecordStoreRegistry>()
             .GetStoreForCollection("items")
             .Should()
-            .NotBeNull();
+            .BeNull();
+        app.Services.GetRequiredService<IHPDBaseApplication>()
+            .CurrentReadiness.State.Should().Be(BaseApplicationReadinessState.NotStarted);
     }
 
     [Fact]

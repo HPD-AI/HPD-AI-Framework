@@ -2,6 +2,7 @@ using System.Text.Json.Serialization;
 
 namespace HPD.Base;
 
+/// <summary>Represents a hpdbase dependencies JSON serializer context.</summary>
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
