@@ -28,5 +28,12 @@ inspection must call `AddHpdGatewayYarpInspection` and
 the body path. Inspection does not provide replay, retries, mirroring, body
 transforms, or response capture.
 
-Management, credential replacement, resilience, and standalone-host support
-are not implemented.
+`HPD.Gateway.Resilience` adds optional, statically registered, exact-version
+Upstream profiles for selected-response retry, circuit breaking, outbound
+concurrency limiting, and per-attempt timeout. Retry is restricted to bodyless
+safe HTTP/1.1/2 requests and selected status responses. The package emits only
+closed profile/strategy/outcome telemetry tags and does not expose dynamic
+Polly configuration or a general handler/plugin chain.
+
+Management, credential replacement, and standalone-host support are not
+implemented.
