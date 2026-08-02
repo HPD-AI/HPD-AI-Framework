@@ -3,6 +3,7 @@ using HPD.Gateway.Abstractions;
 using HPD.Gateway.Abstractions.Serialization;
 using HPD.Gateway.Core;
 using HPD.Gateway.Yarp;
+using Microsoft.Extensions.DependencyInjection;
 using Yarp.ReverseProxy.Configuration;
 
 var configuration = new GatewayConfiguration
@@ -275,19 +276,58 @@ if (!canonical.IsCanonicalized || canonical.Document!.ContentHash.Value.Length !
     throw new InvalidOperationException("Canonicalization or content hashing failed.");
 }
 
-using var proxyProvider = new HpdProxyConfigProvider();
-using var changeListener = new HpdConfigChangeListener(proxyProvider);
-using var publisher = new GatewayYarpPublisher(proxyProvider, changeListener, [proxyProvider]);
-var publicationBundle = NativePublicationBundle.Create(
+var materializableConfiguration = configuration with
+{
+    Definitions = new GatewayDefinitions(),
+    RootDefaults = new GatewayRootDeclarations(),
+    Upstreams =
+    [
+        configuration.Upstreams[0] with
+        {
+            SessionAffinity = null,
+            HealthChecks = null,
+            Transport = configuration.Upstreams[0].Transport with { Tls = null }
+        }
+    ],
+    Routes =
+    [
+        configuration.Routes[0] with
+        {
+            Listener = null,
+            Declarations = new RouteDeclarations
+            {
+                RequestTransforms = configuration.Routes[0].Declarations!.RequestTransforms,
+                ResponseTransforms = configuration.Routes[0].Declarations!.ResponseTransforms
+            }
+        }
+    ]
+};
+var materializableJson = JsonSerializer.SerializeToUtf8Bytes(materializableConfiguration, GatewayJsonSerializerContext.Default.GatewayConfiguration);
+var materializableRead = GatewayCandidateReader.Read(materializableJson, capabilities);
+if (!materializableRead.IsAccepted) throw new InvalidOperationException("Materializable AOT candidate was rejected.");
+
+var services = new ServiceCollection();
+services.AddLogging();
+services.AddReverseProxy();
+services.AddHpdGatewayYarpPublication();
+services.AddHpdGatewayYarpMaterialization();
+await using var serviceProvider = services.BuildServiceProvider();
+var materializer = serviceProvider.GetRequiredService<GatewayNativeMaterializer>();
+var materialized = await materializer.MaterializeAsync(
+    materializableRead,
     new PublicationCandidateIdentity(
         new CandidateId("aot-smoke"),
         "aot-authority",
         "epoch-1",
         1,
-        canonical.Document.ContentHash),
-    [],
-    [],
+        materializableRead.CanonicalDocument!.ContentHash),
     "native-aot-smoke");
+if (!materialized.IsMaterialized) throw new InvalidOperationException("Native AOT materialization failed.");
+
+var publicationBundle = materialized.Bundle!;
+var proxyProvider = serviceProvider.GetRequiredService<HpdProxyConfigProvider>();
+var changeListener = serviceProvider.GetRequiredService<HpdConfigChangeListener>();
+var publisher = serviceProvider.GetRequiredService<GatewayYarpPublisher>();
 var publication = publisher.PublishAsync(publicationBundle, TimeSpan.FromSeconds(5));
 IProxyConfig? publishedSnapshot = null;
 for (var index = 0; index < 1_000; index++)

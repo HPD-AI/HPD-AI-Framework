@@ -11,5 +11,9 @@ domain-framed content identity, and one serialized HPD-owned YARP publication
 stream in `HPD.Gateway.Yarp`. Candidate acceptance requires both validation
 layers. Native publication provides exact-snapshot YARP acknowledgement,
 historical LKG evidence, and explicit indeterminate recovery semantics. It does
-not yet include declaration-to-YARP materialization, management, credential
-replacement, resilience, or standalone-host support.
+include deterministic baseline Route/Cluster materialization, native named
+policy selection, ordered non-body transforms, static destinations, balancing,
+affinity, health, and supported transport/request projection. Discovery
+observations, TLS material, telemetry instrumentation, and request inspection
+currently fail closed before bundle creation. Management, credential
+replacement, resilience, and standalone-host support are not implemented.

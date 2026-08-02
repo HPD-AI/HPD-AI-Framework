@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Yarp.ReverseProxy.Configuration;
+using Yarp.ReverseProxy.Forwarder;
 
 namespace HPD.Gateway.Yarp;
 
@@ -21,6 +22,20 @@ public static class GatewayYarpServiceCollectionExtensions
             new HpdYarpOwnershipGuard(provider.GetRequiredService<GatewayYarpPublisher>()));
         return services;
     }
+
+    public static IServiceCollection AddHpdGatewayYarpMaterialization(this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        foreach (var descriptor in services
+            .Where(static descriptor => descriptor.ServiceType == typeof(IForwarderHttpClientFactory) && descriptor.ImplementationType == typeof(ForwarderHttpClientFactory))
+            .ToArray())
+            services.Remove(descriptor);
+        services.AddSingleton<IForwarderHttpClientFactory, HpdForwarderHttpClientFactory>();
+        services.AddSingleton<GatewayNativeMaterializer>();
+        services.AddSingleton<IHostedService>(static provider =>
+            new HpdMaterializationOwnershipGuard(provider.GetServices<IForwarderHttpClientFactory>()));
+        return services;
+    }
 }
 
 internal sealed class HpdYarpOwnershipGuard(GatewayYarpPublisher publisher) : IHostedService
@@ -30,6 +45,20 @@ internal sealed class HpdYarpOwnershipGuard(GatewayYarpPublisher publisher) : IH
     public Task StartAsync(CancellationToken cancellationToken)
     {
         _ = _publisher;
+        return Task.CompletedTask;
+    }
+
+    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+}
+
+internal sealed class HpdMaterializationOwnershipGuard(IEnumerable<IForwarderHttpClientFactory> configuredClientFactories) : IHostedService
+{
+    private readonly IForwarderHttpClientFactory[] _clientFactories = configuredClientFactories.ToArray();
+
+    public Task StartAsync(CancellationToken cancellationToken)
+    {
+        if (_clientFactories.Length != 1 || _clientFactories[0] is not HpdForwarderHttpClientFactory)
+            throw new InvalidOperationException("Managed materialization requires exactly one HPD-owned IForwarderHttpClientFactory.");
         return Task.CompletedTask;
     }
 

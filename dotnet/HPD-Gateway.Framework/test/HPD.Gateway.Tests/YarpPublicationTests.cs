@@ -6,8 +6,10 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Primitives;
+using System.Net.Http;
 using Xunit;
 using Yarp.ReverseProxy.Configuration;
+using Yarp.ReverseProxy.Forwarder;
 
 namespace HPD.Gateway.Tests;
 
@@ -250,6 +252,23 @@ public sealed class YarpPublicationTests
     }
 
     [Fact]
+    public async Task HostStartupRejectsCompetingForwarderClientFactory()
+    {
+        var builder = WebApplication.CreateSlimBuilder();
+        builder.WebHost.UseUrls("http://127.0.0.1:0");
+        builder.Services.AddReverseProxy();
+        builder.Services.AddHpdGatewayYarpPublication();
+        builder.Services.AddHpdGatewayYarpMaterialization();
+        builder.Services.AddSingleton<IForwarderHttpClientFactory, StubClientFactory>();
+        await using var application = builder.Build();
+        application.MapReverseProxy();
+
+        var action = () => application.StartAsync();
+
+        await action.Should().ThrowAsync<InvalidOperationException>();
+    }
+
+    [Fact]
     public async Task DisposalWithPendingAcknowledgementIsIndeterminate()
     {
         var fixture = new PublisherFixture();
@@ -404,5 +423,10 @@ public sealed class YarpPublicationTests
         public IReadOnlyList<RouteConfig> Routes => [];
         public IReadOnlyList<ClusterConfig> Clusters => [];
         public IChangeToken ChangeToken { get; } = new CancellationChangeToken(CancellationToken.None);
+    }
+
+    private sealed class StubClientFactory : IForwarderHttpClientFactory
+    {
+        public HttpMessageInvoker CreateClient(ForwarderHttpClientContext context) => new(new HttpClientHandler());
     }
 }
