@@ -116,6 +116,14 @@ var configuration = new GatewayConfiguration
                     MaximumInspectedBytes = 1_024
                 }
             }
+        ],
+        CredentialDisposition =
+        [
+            new DeclarationDefinition<CredentialDispositionBinding>
+            {
+                Id = new DefinitionId("strip-credentials"),
+                Specification = new CredentialDispositionBinding { Kind = CredentialDispositionKind.Strip }
+            }
         ]
     },
     RootDefaults = new GatewayRootDeclarations
@@ -123,7 +131,8 @@ var configuration = new GatewayConfiguration
         Cors = new DeclarationReference<CorsPolicyBinding> { Definition = new DefinitionId("cors") },
         TrafficAdmission = new DeclarationReference<TrafficAdmissionBinding> { Definition = new DefinitionId("admission") },
         RequestTimeout = new DeclarationReference<RequestTimeoutBinding> { Definition = new DefinitionId("timeout") },
-        Telemetry = new DeclarationReference<TelemetryEnrichment> { Definition = new DefinitionId("telemetry") }
+        Telemetry = new DeclarationReference<TelemetryEnrichment> { Definition = new DefinitionId("telemetry") },
+        CredentialDisposition = new DeclarationReference<CredentialDispositionBinding> { Definition = new DefinitionId("strip-credentials") }
     },
     Upstreams =
     [
@@ -334,13 +343,15 @@ var materializableConfiguration = configuration with
         TrafficAdmission = configuration.Definitions.TrafficAdmission,
         RequestTimeout = configuration.Definitions.RequestTimeout,
         OutputCache = configuration.Definitions.OutputCache,
-        Inspection = configuration.Definitions.Inspection
+        Inspection = configuration.Definitions.Inspection,
+        CredentialDisposition = configuration.Definitions.CredentialDisposition
     },
     RootDefaults = new GatewayRootDeclarations
     {
         Cors = configuration.RootDefaults!.Cors,
         TrafficAdmission = configuration.RootDefaults.TrafficAdmission,
-        RequestTimeout = configuration.RootDefaults.RequestTimeout
+        RequestTimeout = configuration.RootDefaults.RequestTimeout,
+        CredentialDisposition = configuration.RootDefaults.CredentialDisposition
     },
     Upstreams =
     [
@@ -486,11 +497,15 @@ if ((await publication).State != GatewayPublicationState.ActiveAcknowledged)
 }
 
 var liveAttempts = 0;
+var liveCredentialLeak = false;
 var liveUpstreamBuilder = WebApplication.CreateSlimBuilder();
 liveUpstreamBuilder.WebHost.UseUrls("http://127.0.0.1:0");
 await using var liveUpstream = liveUpstreamBuilder.Build();
 liveUpstream.Run(context =>
 {
+    liveCredentialLeak |= context.Request.Headers.ContainsKey("Authorization") ||
+        context.Request.Headers.ContainsKey("Cookie") ||
+        context.Request.Headers.ContainsKey("X-Aot-Key");
     var attempt = Interlocked.Increment(ref liveAttempts);
     context.Response.StatusCode = attempt == 1 ? StatusCodes.Status503ServiceUnavailable : StatusCodes.Status200OK;
     return Task.CompletedTask;
@@ -518,7 +533,13 @@ var liveConfiguration = new GatewayConfiguration
             Id = new RouteId("live"),
             Match = new HttpRouteMatch { Path = "/{**path}", Methods = ["GET"] },
             Upstream = new UpstreamId("live"),
-            Declarations = new RouteDeclarations()
+            Declarations = new RouteDeclarations
+            {
+                CredentialDisposition = new DeclarationReference<CredentialDispositionBinding>
+                {
+                    Inline = new CredentialDispositionBinding { Kind = CredentialDispositionKind.Strip }
+                }
+            }
         }
     ],
     Upstreams =
@@ -536,7 +557,8 @@ var liveConfiguration = new GatewayConfiguration
 };
 var liveCapabilities = HostCapabilitySnapshot.Create(new HostCapabilityRegistration
 {
-    InstalledFamilies = GatewayDeclarationFamilies.UpstreamResilience,
+    InstalledFamilies = GatewayDeclarationFamilies.UpstreamResilience | GatewayDeclarationFamilies.CredentialDisposition,
+    ProtectedCredentialHeaders = ["X-Aot-Key"],
     UpstreamResilienceProfiles = liveProxy.Services.GetHpdGatewayResilienceCapabilities()
 });
 var liveJson = JsonSerializer.SerializeToUtf8Bytes(liveConfiguration, GatewayJsonSerializerContext.Default.GatewayConfiguration);
@@ -551,9 +573,13 @@ var livePublication = await liveProxy.Services.GetRequiredService<GatewayYarpPub
 if (livePublication.State != GatewayPublicationState.ActiveAcknowledged)
     throw new InvalidOperationException("Native AOT live resilience publication was not acknowledged.");
 using var liveClient = new HttpClient { BaseAddress = new Uri(Address(liveProxy)) };
-using var liveResponse = await liveClient.GetAsync("/retry");
-if (liveResponse.StatusCode != HttpStatusCode.OK || liveAttempts != 2)
-    throw new InvalidOperationException("Native AOT real YARP resilience forwarding failed.");
+using var liveRequest = new HttpRequestMessage(HttpMethod.Get, "/retry");
+liveRequest.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "native-aot-secret");
+liveRequest.Headers.TryAddWithoutValidation("Cookie", "session=native-aot-secret");
+liveRequest.Headers.TryAddWithoutValidation("X-Aot-Key", "native-aot-secret");
+using var liveResponse = await liveClient.SendAsync(liveRequest);
+if (liveResponse.StatusCode != HttpStatusCode.OK || liveAttempts != 2 || liveCredentialLeak)
+    throw new InvalidOperationException("Native AOT real YARP resilience and credential stripping forwarding failed.");
 
 _ = JsonSerializer.SerializeToUtf8Bytes(validation, GatewayJsonSerializerContext.Default.GatewayValidationResult);
 _ = JsonSerializer.SerializeToUtf8Bytes(canonical, GatewayJsonSerializerContext.Default.GatewayCanonicalizationResult);

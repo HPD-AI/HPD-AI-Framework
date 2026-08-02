@@ -35,5 +35,12 @@ safe HTTP/1.1/2 requests and selected status responses. The package emits only
 closed profile/strategy/outcome telemetry tags and does not expose dynamic
 Polly configuration or a general handler/plugin chain.
 
-Management, credential replacement, and standalone-host support are not
-implemented.
+Routes may opt into closed protected-credential stripping. HPD removes
+`Authorization`, `Proxy-Authorization`, `Cookie`, and a bounded set of
+host-registered credential header names through deterministic YARP request
+transforms immediately before forwarding. The candidate cannot provide header
+names, and protected headers cannot be restored by candidate request
+transforms. No disposition preserves ordinary YARP behavior.
+
+Management, downstream credential replacement/delegation, and standalone-host
+support are not implemented.

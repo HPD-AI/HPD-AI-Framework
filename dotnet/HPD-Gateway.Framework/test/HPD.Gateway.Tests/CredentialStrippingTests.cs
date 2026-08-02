@@ -2,8 +2,6 @@ using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Net;
 using System.Net.Http.Headers;
-using System.Net.Sockets;
-using System.Text;
 using System.Text.Json;
 using FluentAssertions;
 using HPD.Gateway.Abstractions;
@@ -16,6 +14,8 @@ using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
+using Yarp.ReverseProxy.Configuration;
+using Yarp.ReverseProxy.Transforms.Builder;
 using Xunit;
 
 namespace HPD.Gateway.Tests;
@@ -269,6 +269,25 @@ public sealed class CredentialStrippingTests
     }
 
     [Fact]
+    public async Task InFlightRequestKeepsItsStrippingGenerationWhileNewRequestsUseTheReplacement()
+    {
+        await using var fixture = await CredentialFixture.Start();
+        await fixture.Publish(strip: true, 1);
+
+        var oldGeneration = fixture.Send("/hold");
+        await fixture.WaitUntilHeld();
+        fixture.Observations.Last().Should().Be(Observed.Empty);
+
+        await fixture.Publish(strip: false, 2);
+        using var newGeneration = await fixture.Send("/observe");
+        fixture.Observations.Last().Authorization.Should().Be("Bearer inbound");
+
+        fixture.ReleaseHeld();
+        using var completedOldGeneration = await oldGeneration;
+        completedOldGeneration.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
     public async Task UpgradePathStripsBeforeUpstreamSend()
     {
         await using var fixture = await CredentialFixture.Start();
@@ -283,13 +302,55 @@ public sealed class CredentialStrippingTests
     [Fact]
     public async Task ConnectPathStripsBeforeUpstreamSend()
     {
-        await using var fixture = await CredentialFixture.Start();
-        await fixture.Publish(strip: true, 1);
+        var accepted = Read(Configuration("http://127.0.0.1:5001", routeDisposition: StripReference()), Capabilities("X-Api-Key"));
+        var materialized = await new GatewayNativeMaterializer(new AcceptingConfigValidator()).MaterializeAsync(
+            accepted,
+            Identity(accepted, 1),
+            "credential-connect");
+        await using var services = new ServiceCollection().AddLogging().AddReverseProxy().Services.BuildServiceProvider();
+        var transformer = services.GetRequiredService<ITransformBuilder>().Build(
+            materialized.Bundle!.Routes.Single(),
+            materialized.Bundle.Clusters.Single());
+        var context = new DefaultHttpContext();
+        context.Request.Method = HttpMethods.Connect;
+        context.Request.Headers.Authorization = "Bearer inbound";
+        context.Request.Headers.Cookie = "session=one";
+        context.Request.Headers["Proxy-Authorization"] = "Basic inbound";
+        context.Request.Headers["X-Api-Key"] = "first";
+        using var outbound = new HttpRequestMessage(HttpMethod.Connect, "http://127.0.0.1:5001");
 
-        await fixture.SendRawConnect();
+        await transformer.TransformRequestAsync(context, outbound, "http://127.0.0.1:5001", CancellationToken.None);
 
-        fixture.Observations.Should().NotBeEmpty();
-        fixture.Observations.Last().Should().Be(Observed.Empty);
+        outbound.Headers.Contains("Authorization").Should().BeFalse();
+        outbound.Headers.Contains("Cookie").Should().BeFalse();
+        outbound.Headers.Contains("Proxy-Authorization").Should().BeFalse();
+        outbound.Headers.Contains("X-Api-Key").Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task MaterializedStrippingIsDifferentiallyEquivalentToDirectYarpTransforms()
+    {
+        var accepted = Read(Configuration("http://127.0.0.1:5001", routeDisposition: StripReference()), Capabilities("X-Api-Key"));
+        var materialized = await new GatewayNativeMaterializer(new AcceptingConfigValidator()).MaterializeAsync(
+            accepted,
+            Identity(accepted, 1),
+            "credential-differential");
+        var direct = new RouteConfig
+        {
+            RouteId = "direct",
+            ClusterId = "backend",
+            Match = new RouteMatch { Path = "/{**path}" }
+        };
+        foreach (var header in accepted.ProtectedCredentialHeaders)
+            direct = global::Yarp.ReverseProxy.Transforms.RequestHeadersTransformExtensions.WithTransformRequestHeaderRemove(direct, header);
+
+        materialized.Bundle!.Routes.Single().Transforms.Should().BeEquivalentTo(direct.Transforms, options => options.WithStrictOrdering());
+
+        await using var services = new ServiceCollection().AddLogging().AddReverseProxy().Services.BuildServiceProvider();
+        var builder = services.GetRequiredService<ITransformBuilder>();
+        var hpdHeaders = await Execute(builder.Build(materialized.Bundle.Routes.Single(), materialized.Bundle.Clusters.Single()));
+        var directHeaders = await Execute(builder.Build(direct, materialized.Bundle.Clusters.Single()));
+        hpdHeaders.Should().Equal(directHeaders).And.BeEmpty();
     }
 
     private static CredentialDispositionBinding Strip() => new() { Kind = CredentialDispositionKind.Strip };
@@ -351,16 +412,42 @@ public sealed class CredentialStrippingTests
     private static PublicationCandidateIdentity Identity(GatewayCandidateReadResult accepted, ulong version) =>
         new(new CandidateId($"credential-{version}"), "authority", "epoch", version, accepted.CanonicalDocument!.ContentHash);
 
+    private static async Task<string[]> Execute(global::Yarp.ReverseProxy.Forwarder.HttpTransformer transformer)
+    {
+        var context = new DefaultHttpContext();
+        context.Request.Method = HttpMethods.Get;
+        context.Request.Headers.Authorization = "Bearer inbound";
+        context.Request.Headers.Cookie = "session=one";
+        context.Request.Headers["Proxy-Authorization"] = "Basic inbound";
+        context.Request.Headers["X-Api-Key"] = "first";
+        using var outbound = new HttpRequestMessage(HttpMethod.Get, "http://127.0.0.1:5001");
+        await transformer.TransformRequestAsync(context, outbound, "http://127.0.0.1:5001", CancellationToken.None);
+        return outbound.Headers
+            .Where(header => header.Key is "Authorization" or "Cookie" or "Proxy-Authorization" or "X-Api-Key")
+            .Select(header => header.Key)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+    }
+
     private sealed class CredentialFixture : IAsyncDisposable
     {
         private readonly WebApplication _backend;
         private readonly WebApplication _proxy;
+        private readonly TaskCompletionSource _held = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        private CredentialFixture(WebApplication backend, WebApplication proxy, ConcurrentQueue<Observed> observations)
+        private CredentialFixture(
+            WebApplication backend,
+            WebApplication proxy,
+            ConcurrentQueue<Observed> observations,
+            TaskCompletionSource held,
+            TaskCompletionSource release)
         {
             _backend = backend;
             _proxy = proxy;
             Observations = observations;
+            _held = held;
+            _release = release;
             Client = new HttpClient { BaseAddress = new Uri(Address(proxy)) };
         }
 
@@ -370,18 +457,24 @@ public sealed class CredentialStrippingTests
         internal static async Task<CredentialFixture> Start()
         {
             var observations = new ConcurrentQueue<Observed>();
+            var held = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var backendBuilder = WebApplication.CreateSlimBuilder();
             backendBuilder.WebHost.UseUrls("http://127.0.0.1:0");
             var backend = backendBuilder.Build();
-            backend.Run(context =>
+            backend.Run(async context =>
             {
                 observations.Enqueue(new Observed(
                     context.Request.Headers.Authorization.ToString(),
                     context.Request.Headers.Cookie.ToString(),
                     context.Request.Headers["Proxy-Authorization"].ToString(),
                     context.Request.Headers["X-Api-Key"].ToString()));
+                if (context.Request.Path == "/hold")
+                {
+                    held.TrySetResult();
+                    await release.Task;
+                }
                 context.Response.StatusCode = StatusCodes.Status200OK;
-                return Task.CompletedTask;
             });
             await backend.StartAsync();
 
@@ -393,13 +486,26 @@ public sealed class CredentialStrippingTests
             var proxy = proxyBuilder.Build();
             proxy.MapReverseProxy();
             await proxy.StartAsync();
-            return new CredentialFixture(backend, proxy, observations);
+            return new CredentialFixture(backend, proxy, observations, held, release);
         }
+
+        internal Task WaitUntilHeld() => _held.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        internal void ReleaseHeld() => _release.TrySetResult();
 
         internal async Task Publish(bool strip, ulong version)
         {
             var capabilities = strip ? Capabilities("X-Api-Key") : HostCapabilitySnapshot.Create(new() { ProtectedCredentialHeaders = ["X-Api-Key"] });
-            var configuration = Configuration(Address(_backend), routeDisposition: strip ? StripReference() : null);
+            var configuration = Configuration(Address(_backend), routeDisposition: strip ? StripReference() : null) with
+            {
+                Routes =
+                [
+                    Route(new RouteDeclarations { CredentialDisposition = strip ? StripReference() : null }) with
+                    {
+                        Match = new HttpRouteMatch { Hosts = ["*"] }
+                    }
+                ]
+            };
             var accepted = Read(configuration, capabilities);
             var materialized = await _proxy.Services.GetRequiredService<GatewayNativeMaterializer>().MaterializeAsync(
                 accepted,
@@ -424,26 +530,6 @@ public sealed class CredentialStrippingTests
                 request.Headers.TryAddWithoutValidation("Upgrade", "h2c");
             }
             return Client.SendAsync(request);
-        }
-
-        internal async Task SendRawConnect()
-        {
-            var endpoint = new Uri(Address(_proxy));
-            using var client = new TcpClient();
-            await client.ConnectAsync(endpoint.Host, endpoint.Port);
-            await using var stream = client.GetStream();
-            var request = Encoding.ASCII.GetBytes(
-                "CONNECT /protocol HTTP/1.1\r\n" +
-                $"Host: {endpoint.Host}:{endpoint.Port}\r\n" +
-                "Authorization: Bearer inbound\r\n" +
-                "Cookie: session=one; session=two\r\n" +
-                "Proxy-Authorization: Basic inbound\r\n" +
-                "X-Api-Key: first\r\n" +
-                "X-Api-Key: second\r\n" +
-                "Connection: close\r\n\r\n");
-            await stream.WriteAsync(request);
-            var buffer = new byte[1024];
-            _ = await stream.ReadAsync(buffer);
         }
 
         public async ValueTask DisposeAsync()
