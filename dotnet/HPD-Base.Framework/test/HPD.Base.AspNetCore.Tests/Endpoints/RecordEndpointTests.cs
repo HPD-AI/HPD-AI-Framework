@@ -86,10 +86,37 @@ public sealed class RecordEndpointTests
             "/base/collections/items/records",
             content);
 
-        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        response.StatusCode.Should().Be(HttpStatusCode.RequestEntityTooLarge);
         var body = await response.Content.ReadAsStringAsync();
-        body.Should().Contain("base.http.body.invalidJson")
-            .And.Contain("Request body is not valid JSON.");
+        body.Should().Contain("base.http.body.tooLarge")
+            .And.Contain("Request body exceeds the configured maximum length.");
+    }
+
+    [Theory]
+    [InlineData("/base/collections/items/records:query", false)]
+    [InlineData("/base/collections/items/records:query", true)]
+    [InlineData("/base/collections/items/records/missing", false)]
+    [InlineData("/base/collections/items/records/missing", true)]
+    public async Task OptionalQueryAndDeleteBodiesReturnStablePayloadTooLarge(string path, bool unknownLength)
+    {
+        await using var app = await TestBaseApp.CreateAsync(
+            configureAspNetCore: options => options.Limits.MaxRequestBodyLength = 64);
+        const string payload = """{"padding":"this body is deliberately much larger than sixty-four bytes so it must be rejected"}""";
+        HttpContent content = unknownLength
+            ? new UnknownLengthContent(payload)
+            : new StringContent(payload, System.Text.Encoding.UTF8, "application/json");
+        var request = new HttpRequestMessage(
+            path.EndsWith("records:query", StringComparison.Ordinal) ? HttpMethod.Post : HttpMethod.Delete,
+            path)
+        {
+            Content = content,
+        };
+
+        HttpResponseMessage response = await app.GetTestClient().SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.RequestEntityTooLarge);
+        string body = await response.Content.ReadAsStringAsync();
+        body.Should().Contain("base.http.body.tooLarge").And.NotContain("RequestBodyTooLargeException");
     }
 
     [Fact]

@@ -33,6 +33,8 @@ internal sealed class DefaultBaseRegisteredReadRuntime(
         if (!registry.Registrations.TryGetValue(definition.Id, out IBaseReadRegistration? registered) ||
             !ReferenceEquals(registered, definition))
             return Failure<TRow>(OperationStatus.NotFound, "base.relational.read.notFound", "The registered read handle is not installed.");
+        if (!Authorized(definition.Authorization, principal.AuthenticationState))
+            return Failure<TRow>(OperationStatus.PolicyDenied, "base.relational.read.denied", "Policy denied the registered read.");
         if (page is { } requested && (requested.Page < 1 || requested.PerPage < 1 || requested.PerPage > _options.MaxPageSize))
             return Failure<TRow>(OperationStatus.ValidationFailed, "base.relational.read.invalid", "The registered read page is invalid.");
 
@@ -187,6 +189,16 @@ internal sealed class DefaultBaseRegisteredReadRuntime(
         telemetry.SetOutcome(completed.Status);
         return completed;
     }
+
+    private static bool Authorized(BaseReadAuthorization authorization, PrincipalAuthenticationState state) =>
+        authorization switch
+        {
+            BaseReadAuthorization.Authenticated => state is PrincipalAuthenticationState.Authenticated or
+                PrincipalAuthenticationState.Service or PrincipalAuthenticationState.Admin or PrincipalAuthenticationState.System,
+            BaseReadAuthorization.Admin => state is PrincipalAuthenticationState.Admin or PrincipalAuthenticationState.System,
+            BaseReadAuthorization.System => state == PrincipalAuthenticationState.System,
+            _ => false,
+        };
 
     private static ResultValidation ValidateResult(
         BaseRelationalReadPlan plan,

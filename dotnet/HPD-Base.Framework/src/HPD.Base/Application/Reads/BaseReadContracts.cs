@@ -42,6 +42,12 @@ public sealed class BaseReadDefinition<TParameters, TRow> : IBaseReadRegistratio
     /// <summary>Gets the stable read-definition identifier.</summary>
     public string Id => Plan.Id;
 
+    /// <summary>Gets the registered read's explicit HTTP exposure.</summary>
+    public BaseReadExposure Exposure { get; internal init; }
+
+    /// <summary>Gets the minimum principal authorization required to invoke the read.</summary>
+    public BaseReadAuthorization Authorization { get; internal init; } = BaseReadAuthorization.Authenticated;
+
     internal BaseRelationalReadPlan Plan { get; }
 
     /// <summary>Gets source-generated request metadata.</summary>
@@ -60,6 +66,8 @@ public sealed class BaseReadDefinition<TParameters, TRow> : IBaseReadRegistratio
     JsonTypeInfo IBaseReadRegistration.RowJsonTypeInfo => RowJsonTypeInfo;
     BaseRelationalReadPlan IBaseReadRegistration.Plan => Plan;
     Type IBaseReadRegistration.ResponseType => typeof(BasePage<TRow>);
+    BaseReadExposure IBaseReadRegistration.Exposure => Exposure;
+    BaseReadAuthorization IBaseReadRegistration.Authorization => Authorization;
 
     async ValueTask<BaseUntypedRegisteredReadResult> IBaseReadRegistration.ExecuteAsync(
         IBaseRegisteredReadRuntime runtime,
@@ -104,6 +112,10 @@ internal interface IBaseReadRegistration
     JsonTypeInfo RowJsonTypeInfo { get; }
     /// <summary>Gets the response type.</summary>
     Type ResponseType { get; }
+    /// <summary>Gets the explicit HTTP exposure.</summary>
+    BaseReadExposure Exposure { get; }
+    /// <summary>Gets the minimum invocation authorization.</summary>
+    BaseReadAuthorization Authorization { get; }
     /// <summary>Executes the execute async operation.</summary>
     ValueTask<BaseUntypedRegisteredReadResult> ExecuteAsync(IBaseRegisteredReadRuntime runtime, object parameters, BaseReadPageRequest page, PrincipalContext principal, OperationContext operation, CancellationToken cancellationToken);
 }
@@ -169,18 +181,28 @@ public static class BaseReadGeneratedContract
         BaseRelationalReadParameter[] parameters,
         IBaseReadParameterCodec<TParameters> parameterCodec,
         IBaseReadRowCodec<TRow> rowCodec,
+        BaseReadExposure exposure,
+        BaseReadAuthorization authorization,
         Action<BaseReadDefinitionBuilder<TParameters, TRow>> configure)
     {
         ArgumentNullException.ThrowIfNull(configure);
         var builder = new BaseReadDefinitionBuilder<TParameters, TRow>(
             id, parameters);
         configure(builder);
+        if (!Enum.IsDefined(exposure) || !Enum.IsDefined(authorization))
+            throw new ArgumentOutOfRangeException(nameof(exposure));
+        if (exposure == BaseReadExposure.Admin && authorization == BaseReadAuthorization.Authenticated)
+            throw new InvalidOperationException("An admin-exposed registered read must require admin or system authorization.");
         return new BaseReadDefinition<TParameters, TRow>(
             builder.Build(),
             parameterJson,
             rowJson,
             parameterCodec,
-            rowCodec);
+            rowCodec)
+        {
+            Exposure = exposure,
+            Authorization = authorization,
+        };
     }
 
     /// <summary>Encodes one generated supported scalar parameter.</summary>

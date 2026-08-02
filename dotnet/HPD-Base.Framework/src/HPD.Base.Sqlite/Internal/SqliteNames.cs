@@ -11,6 +11,7 @@ internal sealed class SqliteNames
         Collections = Prefix + "collections";
         ProviderState = Prefix + "provider_state";
         MutationJournal = Prefix + "mutation_journal";
+        SchemaIdentity = Prefix + "schema_identity";
         SchemaBaseline = Prefix + "schema_baseline";
         SchemaAssets = Prefix + "schema_assets";
         SchemaHistory = Prefix + "schema_history";
@@ -26,6 +27,8 @@ internal sealed class SqliteNames
     public string ProviderState { get; }
     /// <summary>Gets the mutation journal.</summary>
     public string MutationJournal { get; }
+    /// <summary>Gets the physical store identity.</summary>
+    public string SchemaIdentity { get; }
     /// <summary>Gets the schema baseline.</summary>
     public string SchemaBaseline { get; }
     /// <summary>Gets the schema assets.</summary>

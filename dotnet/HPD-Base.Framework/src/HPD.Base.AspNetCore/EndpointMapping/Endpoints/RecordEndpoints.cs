@@ -31,7 +31,10 @@ internal static class RecordEndpoints
 
     private static async Task QueryRequest(HttpContext httpContext)
     {
-        var query = await ReadOptionalBody(httpContext, HPDBaseJsonSerializerContext.Default.RecordQuery, httpContext.RequestAborted);
+        RecordQuery? query;
+        try { query = await ReadOptionalBody(httpContext, HPDBaseJsonSerializerContext.Default.RecordQuery, httpContext.RequestAborted); }
+        catch (RequestBodyTooLargeException) { await BodyTooLargeProblem(httpContext).ExecuteAsync(httpContext); return; }
+        catch (JsonException) { await BodyValidationProblem(httpContext, "base.http.body.invalidJson", "Request body is not valid JSON.").ExecuteAsync(httpContext); return; }
         await Execute(httpContext, services => Query(RouteValue(httpContext, "collectionId"), query, httpContext, services.GetRequiredService<IHPDBaseRuntime>(), services.GetRequiredService<IBaseHttpPrincipalContextFactory>(), services.GetRequiredService<IBaseHttpOperationContextFactory>(), services.GetRequiredService<IBaseHttpResultMapper>(), httpContext.RequestAborted));
     }
 
@@ -76,7 +79,10 @@ internal static class RecordEndpoints
 
     private static async Task DeleteRequest(HttpContext httpContext)
     {
-        var request = await ReadOptionalBody(httpContext, HPDBaseJsonSerializerContext.Default.RecordDeleteRequest, httpContext.RequestAborted);
+        RecordDeleteRequest? request;
+        try { request = await ReadOptionalBody(httpContext, HPDBaseJsonSerializerContext.Default.RecordDeleteRequest, httpContext.RequestAborted); }
+        catch (RequestBodyTooLargeException) { await BodyTooLargeProblem(httpContext).ExecuteAsync(httpContext); return; }
+        catch (JsonException) { await BodyValidationProblem(httpContext, "base.http.body.invalidJson", "Request body is not valid JSON.").ExecuteAsync(httpContext); return; }
         await Execute(httpContext, services => Delete(RouteValue(httpContext, "collectionId"), RouteValue(httpContext, "id"), request, httpContext, services.GetRequiredService<IHPDBaseRuntime>(), services.GetRequiredService<IBaseHttpPrincipalContextFactory>(), services.GetRequiredService<IBaseHttpOperationContextFactory>(), services.GetRequiredService<IBaseHttpResultMapper>(), httpContext.RequestAborted));
     }
 
@@ -443,7 +449,7 @@ internal static class RecordEndpoints
             return default;
         if (httpContext.Request.ContentLength is { } contentLength
             && contentLength > Limits(httpContext).MaxRequestBodyLength)
-            throw new JsonException("Request body exceeds the configured maximum length.");
+            throw new RequestBodyTooLargeException();
         if (httpContext.Features.Get<IHttpRequestBodyDetectionFeature>()?.CanHaveBody == false)
             return default;
 
@@ -470,6 +476,10 @@ internal static class RecordEndpoints
 
             return (value, null);
         }
+        catch (RequestBodyTooLargeException)
+        {
+            return (default, BodyTooLargeProblem(httpContext));
+        }
         catch (JsonException)
         {
             return (default, BodyValidationProblem(
@@ -491,6 +501,22 @@ internal static class RecordEndpoints
         };
         problem.Extensions["hpd.status"] = "validationFailed";
         problem.Extensions["hpd.error.code"] = code;
+        problem.Extensions["hpd.error.category"] = "validation";
+        return TypedResults.Problem(problem);
+    }
+
+    private static IResult BodyTooLargeProblem(HttpContext httpContext)
+    {
+        var problem = new Microsoft.AspNetCore.Mvc.ProblemDetails
+        {
+            Status = StatusCodes.Status413PayloadTooLarge,
+            Title = "Request body is too large",
+            Type = "urn:hpd:base:error:payload-too-large",
+            Detail = "Request body exceeds the configured maximum length.",
+            Instance = httpContext.Request.Path,
+        };
+        problem.Extensions["hpd.status"] = "validationFailed";
+        problem.Extensions["hpd.error.code"] = "base.http.body.tooLarge";
         problem.Extensions["hpd.error.category"] = "validation";
         return TypedResults.Problem(problem);
     }

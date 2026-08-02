@@ -3,6 +3,7 @@ using System.Text.Json.Serialization.Metadata;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Metadata;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.AspNetCore.Authorization;
 
 namespace HPD.Base.AspNetCore.Tests.Endpoints;
 
@@ -36,7 +37,7 @@ public sealed class RegisteredReadEndpointTests
         JsonElement operation = document.RootElement.GetProperty("paths").GetProperty("/base/reads/test-read").GetProperty("post");
         operation.GetProperty("requestBody").ValueKind.Should().Be(JsonValueKind.Object);
         operation.GetProperty("responses").EnumerateObject().Select(static response => response.Name)
-            .Should().BeEquivalentTo("200", "400", "403", "424", "500");
+            .Should().BeEquivalentTo("200", "400", "403", "413", "424", "500", "503");
     }
 
     [Theory]
@@ -59,10 +60,60 @@ public sealed class RegisteredReadEndpointTests
 
         HttpResponseMessage response = await app.GetTestClient().PostAsync("/base/reads/test-read", content);
 
-        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        response.StatusCode.Should().Be(HttpStatusCode.RequestEntityTooLarge);
         string body = await response.Content.ReadAsStringAsync();
-        body.Should().Contain("base.http.body.invalidJson");
+        body.Should().Contain("base.http.body.tooLarge");
+        body.Should().NotContain("base.http.body.invalidJson");
         body.Should().NotContain(new string('x', 32));
+    }
+
+    [Fact]
+    public async Task OnlyExplicitlyExposedReadsAreMappedAndAdminReadsUseTheAdminSurface()
+    {
+        var publicRead = new TestReadRegistration("public-read", BaseReadExposure.Public, BaseReadAuthorization.Authenticated);
+        var adminRead = new TestReadRegistration("admin-read", BaseReadExposure.Admin, BaseReadAuthorization.Admin);
+        var internalRead = new TestReadRegistration("internal-read", BaseReadExposure.None, BaseReadAuthorization.System);
+        await using WebApplication app = await TestBaseApp.CreateAsync(
+            configureServices: services =>
+            {
+                services.AddAuthorizationBuilder().AddPolicy("read-admin", policy => policy.RequireAssertion(_ => true));
+                services.AddSingleton(new BaseReadRegistry(new Dictionary<string, IBaseReadRegistration>
+                {
+                    [publicRead.Id] = publicRead,
+                    [adminRead.Id] = adminRead,
+                    [internalRead.Id] = internalRead,
+                }));
+                services.AddSingleton<IBaseRegisteredReadRuntime, UnusedReadRuntime>();
+            },
+            configureEndpoints: options =>
+            {
+                options.RequireAuthorizationForAdminRoutes = true;
+                options.AdminPolicyName = "read-admin";
+            },
+            mapOpenApi: true);
+
+        Endpoint[] endpoints = app.Services.GetRequiredService<EndpointDataSource>().Endpoints.ToArray();
+        RouteEndpoint publicEndpoint = endpoints.OfType<RouteEndpoint>().Single(endpoint =>
+            endpoint.Metadata.GetMetadata<IEndpointNameMetadata>()?.EndpointName == "base.reads.public-read");
+        RouteEndpoint adminEndpoint = endpoints.OfType<RouteEndpoint>().Single(endpoint =>
+            endpoint.Metadata.GetMetadata<IEndpointNameMetadata>()?.EndpointName == "base.reads.admin-read");
+        publicEndpoint.RoutePattern.RawText.Should().Be("/base/reads/public-read");
+        adminEndpoint.RoutePattern.RawText.Should().Be("/base/admin/reads/admin-read");
+        adminEndpoint.Metadata.GetOrderedMetadata<IAuthorizeData>()
+            .Should().ContainSingle(metadata => metadata.Policy == "read-admin");
+        adminEndpoint.Metadata.GetOrderedMetadata<IProducesResponseTypeMetadata>()
+            .Should().Contain(metadata => metadata.StatusCode == StatusCodes.Status401Unauthorized);
+        endpoints.Select(endpoint => endpoint.Metadata.GetMetadata<IEndpointNameMetadata>()?.EndpointName)
+            .Should().NotContain("base.reads.internal-read");
+
+        using JsonDocument publicDocument = JsonDocument.Parse(await (await app.GetTestClient()
+            .GetAsync("/base/openapi/base-public.json")).Content.ReadAsStringAsync());
+        using JsonDocument adminDocument = JsonDocument.Parse(await (await app.GetTestClient()
+            .GetAsync("/base/openapi/base-admin.json")).Content.ReadAsStringAsync());
+        publicDocument.RootElement.GetProperty("paths").TryGetProperty("/base/reads/public-read", out _).Should().BeTrue();
+        publicDocument.RootElement.GetProperty("paths").TryGetProperty("/base/admin/reads/admin-read", out _).Should().BeFalse();
+        adminDocument.RootElement.GetProperty("paths").TryGetProperty("/base/admin/reads/admin-read", out _).Should().BeTrue();
+        adminDocument.RootElement.GetProperty("paths").TryGetProperty("/base/reads/public-read", out _).Should().BeFalse();
     }
 
     [Fact]
@@ -86,12 +137,17 @@ public sealed class RegisteredReadEndpointTests
         body.Should().NotContain("JsonException");
     }
 
-    private sealed class TestReadRegistration : IBaseReadRegistration
+    private sealed class TestReadRegistration(
+        string id = "test-read",
+        BaseReadExposure exposure = BaseReadExposure.Public,
+        BaseReadAuthorization authorization = BaseReadAuthorization.Authenticated) : IBaseReadRegistration
     {
-        public string Id => "test-read";
+        public string Id => id;
+        public BaseReadExposure Exposure => exposure;
+        public BaseReadAuthorization Authorization => authorization;
         public BaseRelationalReadPlan Plan { get; } = new()
         {
-            Id = "test-read", Sources = [], Projection = [], Parameters = [],
+            Id = id, Sources = [], Projection = [], Parameters = [],
             Budgets = new BaseRelationalReadBudgets { MaxResultRows = 10, MaxResultBytes = 1024, MaxOperations = 10 }
         };
         public JsonTypeInfo ParameterJsonTypeInfo => TestReadJsonContext.Default.TestReadParameters;

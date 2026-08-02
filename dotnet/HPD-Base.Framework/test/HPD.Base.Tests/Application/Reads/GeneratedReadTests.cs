@@ -16,6 +16,8 @@ public sealed class GeneratedReadTests
         ProjectNameRead.Parameters.Name.Id.Should().Be("project-name.name");
         ProjectNameRead.Row.Fields.Name.Id.Should().Be("project-name.row.name");
         ProjectNameRead.Handle.Id.Should().Be("project-name");
+        ProjectNameRead.Definition.Exposure.Should().Be(BaseReadExposure.Public);
+        ProjectNameRead.Definition.Authorization.Should().Be(BaseReadAuthorization.Authenticated);
 
         BaseRelationalReadPlan plan = ProjectNameRead.Definition.Plan;
         plan.Sources.Should().ContainSingle().Which.Should().BeEquivalentTo(
@@ -272,6 +274,34 @@ public sealed class GeneratedReadTests
             first.Request.Should().BeNull();
             second.Request.Should().BeNull();
         }
+    }
+
+    [Fact]
+    public async Task NamedReadAuthorizationFailsBeforeStoreSelectionOrProviderExecution()
+    {
+        var store = new RelationalReadStore();
+        var services = new ServiceCollection().AddLogging();
+        var policy = new CountingReadPolicyEvaluator();
+        services.AddSingleton<IPolicyEvaluator>(policy);
+        services.AddHPDBase(builder => builder
+            .AddCollection(ReadProject.Collection)
+            .AddRead(ProjectNameRead.Definition)
+            .Use(new RelationalReadInstaller(store)));
+        await using ServiceProvider provider = services.BuildServiceProvider();
+        (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
+        BaseSession anonymous = provider.GetRequiredService<IBaseSessionFactory>().For(new PrincipalContext
+        {
+            AuthenticationState = PrincipalAuthenticationState.Anonymous,
+        });
+
+        BaseFailure<BasePage<ProjectNameRead.Row>> failure = (await anonymous.Reads.ExecuteAsync(
+            ProjectNameRead.Handle, new ProjectNameRead { Name = "secret" }, BaseReadPageRequest.Create(1, 10)))
+            .Should().BeOfType<BaseFailure<BasePage<ProjectNameRead.Row>>>().Subject;
+
+        failure.Status.Should().Be(OperationStatus.PolicyDenied);
+        failure.Error.Code.Should().Be("base.relational.read.denied");
+        store.Request.Should().BeNull();
+        policy.QueryEvaluations.Should().Be(0);
     }
 
     [Fact]
@@ -676,7 +706,7 @@ internal sealed partial record ReadUnrelated
     public required string Value { get; init; }
 }
 
-[BaseRead("project-name", typeof(GeneratedReadJsonContext))]
+[BaseRead("project-name", typeof(GeneratedReadJsonContext), Exposure = BaseReadExposure.Public)]
 internal sealed partial record ProjectNameRead
 {
     [BaseReadParameter("project-name.name")]

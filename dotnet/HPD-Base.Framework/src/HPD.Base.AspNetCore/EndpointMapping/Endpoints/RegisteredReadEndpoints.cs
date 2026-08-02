@@ -12,22 +12,34 @@ namespace HPD.Base.AspNetCore;
 
 internal static class RegisteredReadEndpoints
 {
-    internal static void Map(IEndpointRouteBuilder endpoints)
+    internal static bool HasExposure(IServiceProvider services, BaseReadExposure exposure) =>
+        services.GetService<BaseReadRegistry>()?.Registrations.Values.Any(read => read.Exposure == exposure) == true;
+
+    internal static void Map(IEndpointRouteBuilder endpoints, BaseReadExposure exposure, bool routeRequiresAuthorization)
     {
         BaseReadRegistry? registry = endpoints.ServiceProvider.GetService<BaseReadRegistry>();
         if (registry is null) return;
-        foreach (IBaseReadRegistration registration in registry.Registrations.Values.OrderBy(static value => value.Id, StringComparer.Ordinal))
+        foreach (IBaseReadRegistration registration in registry.Registrations.Values
+            .Where(value => value.Exposure == exposure)
+            .OrderBy(static value => value.Id, StringComparer.Ordinal))
         {
             IBaseReadRegistration captured = registration;
             string operationId = "base.reads." + captured.Id;
             var route = endpoints.MapPost("/reads/" + captured.Id, (RequestDelegate)(context => Execute(context, captured)))
-                .WithHPDBaseRegisteredReadOpenApi(operationId, captured.ParameterJsonTypeInfo.Type, captured.ResponseType)
+                .WithHPDBaseRegisteredReadOpenApi(
+                    operationId,
+                    captured.ParameterJsonTypeInfo.Type,
+                    captured.ResponseType,
+                    exposure == BaseReadExposure.Admin)
                 .WithName(operationId);
             route.Add(builder =>
             {
                 builder.Metadata.Add(new AcceptsMetadata(["application/json"], captured.ParameterJsonTypeInfo.Type, false));
                 builder.Metadata.Add(new ResponseMetadata(captured.ResponseType, StatusCodes.Status200OK, "application/json"));
-                foreach (int status in new[] { 400, 403, 424, 500 }) builder.Metadata.Add(new ResponseMetadata(typeof(ProblemDetails), status, "application/problem+json"));
+                foreach (int status in routeRequiresAuthorization
+                    ? new[] { 400, 401, 403, 413, 424, 500, 503 }
+                    : new[] { 400, 403, 413, 424, 500, 503 })
+                    builder.Metadata.Add(new ResponseMetadata(typeof(ProblemDetails), status, "application/problem+json"));
             });
         }
     }
@@ -36,9 +48,10 @@ internal static class RegisteredReadEndpoints
     {
         object? parameters;
         long maximumBody = context.RequestServices.GetRequiredService<IOptions<HPDBaseAspNetCoreOptions>>().Value.Limits.MaxRequestBodyLength;
-        if (context.Request.ContentLength is { } length && length > maximumBody) { await InvalidBody(context); return; }
+        if (context.Request.ContentLength is { } length && length > maximumBody) { await BodyTooLarge(context); return; }
         await using var body = new LimitedRequestBodyStream(context.Request.Body, maximumBody);
         try { parameters = await JsonSerializer.DeserializeAsync(body, registration.ParameterJsonTypeInfo, context.RequestAborted).ConfigureAwait(false); }
+        catch (RequestBodyTooLargeException) { await BodyTooLarge(context); return; }
         catch (JsonException) { await InvalidBody(context); return; }
         if (parameters is null) { await Problem(context, OperationStatus.ValidationFailed, new BaseError { Code = "base.http.body.required", Message = "Registered read parameters are required.", Category = ErrorCategory.Validation }); return; }
         if (!int.TryParse(context.Request.Query["page"], out int page)) page = 1;
@@ -69,6 +82,13 @@ internal static class RegisteredReadEndpoints
 
     private static Task InvalidBody(HttpContext context) => Problem(context, OperationStatus.ValidationFailed,
         new BaseError { Code = "base.http.body.invalidJson", Message = "Request body is not valid JSON.", Category = ErrorCategory.Validation });
+
+    private static Task BodyTooLarge(HttpContext context) => Results.Problem(
+        statusCode: StatusCodes.Status413PayloadTooLarge,
+        title: "BASE registered read request is too large.",
+        detail: "Request body exceeds the configured maximum length.",
+        extensions: new Dictionary<string, object?> { ["hpd.error.code"] = "base.http.body.tooLarge" })
+        .ExecuteAsync(context);
 
     private sealed record ResponseMetadata(Type Type, int StatusCode, string ContentType) : IProducesResponseTypeMetadata
     {

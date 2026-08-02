@@ -1,6 +1,6 @@
-using System.Text.Json;
-
 namespace HPD.Base.AspNetCore;
+
+internal sealed class RequestBodyTooLargeException : IOException;
 
 internal sealed class LimitedRequestBodyStream(Stream inner, long maximumBytes) : Stream
 {
@@ -83,6 +83,6 @@ internal sealed class LimitedRequestBodyStream(Stream inner, long maximumBytes) 
     {
         _bytesRead += read;
         if (_bytesRead > maximumBytes)
-            throw new JsonException("Request body exceeds the configured maximum length.");
+            throw new RequestBodyTooLargeException();
     }
 }

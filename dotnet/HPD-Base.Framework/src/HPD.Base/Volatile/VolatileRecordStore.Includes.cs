@@ -40,10 +40,13 @@ internal sealed partial class VolatileRecordStore
             RecordInclude include = includes[index];
             (RelationDefinition relation, bool inverse) = ResolveVolatileInclude(parentCollection.Id, include.NavigationId);
             CollectionDefinition target = state.Collection(inverse ? relation.SourceCollectionId : relation.TargetCollectionId);
-            Dictionary<string, string[]> relatedIds = VolatileRelatedIdsBatch(parents, relation, inverse, state);
+            state.Dependencies.Add(target.Id);
+            RecordIncludeSourcePolicy policy = state.Policy(target.Id);
+            Dictionary<string, string[]> relatedIds = policy.Denied
+                ? []
+                : VolatileRelatedIdsBatch(parents, relation, inverse, state);
             string[] uniqueIds = relatedIds.Values.SelectMany(static ids => ids).Distinct(StringComparer.Ordinal).ToArray();
             if (uniqueIds.Length > state.Request.MaxResultRows) throw new VolatileIncludeLimitException();
-            RecordIncludeSourcePolicy policy = state.Policy(target.Id);
             FilterExpression? filter = CombineVolatile(policy.Filter, include.Filter);
             RecordQuery targetQuery = new()
             {
@@ -52,13 +55,13 @@ internal sealed partial class VolatileRecordStore
                 Page = new QueryPage { Mode = QueryPaginationMode.Offset, Offset = 0, Limit = state.Request.MaxResultRows },
                 Count = QueryCountMode.None,
             };
-            RecordEnvelope[] records = uniqueIds.Length == 0
+            RecordEnvelope[] records = uniqueIds.Length == 0 || policy.Denied
                 ? []
                 : IncludePage(target, targetQuery, state, uniqueIds.ToHashSet(StringComparer.Ordinal)).Items;
             RecordEnvelope[] expanded = include.Includes is { Length: > 0 }
                 ? ExpandIncludeBatch(records, target, include.Includes, state, depth + 1)
                 : records;
-            RecordEnvelope[] selected = expanded.Select(record => SelectVolatileInclude(record, target, include, policy.ReadMask)).ToArray();
+            RecordEnvelope[] selected = expanded.Select(record => SelectVolatileInclude(record, target, include, policy)).ToArray();
             Dictionary<string, RecordEnvelope> byId = selected.ToDictionary(static record => record.Id.Value, StringComparer.Ordinal);
             Dictionary<string, int>? sortOrder = include.Sort is { Length: > 0 }
                 ? selected.Select((record, position) => (record.Id.Value, position)).ToDictionary(static item => item.Value, static item => item.position, StringComparer.Ordinal)
@@ -99,6 +102,7 @@ internal sealed partial class VolatileRecordStore
     }
     private static Dictionary<string, string[]> VolatileRelatedIdsBatch(RecordEnvelope[] parents, RelationDefinition relation, bool inverse, VolatileIncludeState state)
     {
+        if (parents.Length == 0) return [];
         CollectionDefinition source = state.Collection(relation.SourceCollectionId); FieldDefinition field = (source.Fields ?? []).Single(item => item.Id == relation.SourceFieldId);
         if (!inverse)
             return parents.ToDictionary(static parent => parent.Id.Value, parent => PayloadIds(parent.Payload, field.Name), StringComparer.Ordinal);
@@ -115,8 +119,8 @@ internal sealed partial class VolatileRecordStore
     private static FilterExpression? CombineVolatile(params FilterExpression?[] values) { FilterExpression[] present = values.Where(static value => value is not null).Cast<FilterExpression>().ToArray(); return present.Length switch { 0 => null, 1 => present[0], _ => new FilterExpression { Kind = FilterNodeKind.And, Children = present } }; }
     private static FilterExpression? LowerVolatileFilter(CollectionDefinition collection, FilterExpression? filter) => filter is null ? null : filter with { Field = filter.Field is null ? null : LowerVolatileField(collection, filter.Field), Children = filter.Children?.Select(child => LowerVolatileFilter(collection, child)!).ToArray() };
     private static string LowerVolatileField(CollectionDefinition collection, string id) => id is "id" or "createdAt" or "updatedAt" or "revision" ? id : (collection.Fields ?? []).Single(field => field.Id == id || field.Name == id).Name;
-    private static RecordEnvelope SelectVolatileInclude(RecordEnvelope record, CollectionDefinition collection, RecordInclude include, FieldMask? mask)
-    { IEnumerable<FieldDefinition> allowed = collection.Fields ?? []; allowed = mask?.Mode switch { FieldMaskMode.DenyAll => [], FieldMaskMode.IncludeOnly => allowed.Where(field => (mask.Include ?? []).Contains(field.Id)), FieldMaskMode.Exclude => allowed.Where(field => !(mask.Exclude ?? []).Contains(field.Id)), _ => allowed }; if (include.SelectFieldIds is { } selected) allowed = allowed.Where(field => selected.Contains(field.Id)); HashSet<string> names = allowed.Select(static field => field.Name).ToHashSet(StringComparer.Ordinal); return record with { Payload = record.Payload with { Fields = (record.Payload.Fields ?? []).Where(pair => names.Contains(pair.Key)).ToDictionary(static pair => pair.Key, static pair => pair.Value, StringComparer.Ordinal) } }; }
+    private static RecordEnvelope SelectVolatileInclude(RecordEnvelope record, CollectionDefinition collection, RecordInclude include, RecordIncludeSourcePolicy policy)
+    { HashSet<string> visible = policy.VisibleFieldIds.ToHashSet(StringComparer.Ordinal); IEnumerable<FieldDefinition> allowed = (collection.Fields ?? []).Where(field => visible.Contains(field.Id)); allowed = policy.ReadMask?.Mode switch { FieldMaskMode.DenyAll => [], FieldMaskMode.IncludeOnly => allowed.Where(field => (policy.ReadMask.Include ?? []).Contains(field.Id)), FieldMaskMode.Exclude => allowed.Where(field => !(policy.ReadMask.Exclude ?? []).Contains(field.Id)), _ => allowed }; if (include.SelectFieldIds is { } selected) allowed = allowed.Where(field => selected.Contains(field.Id)); HashSet<string> names = allowed.Select(static field => field.Name).ToHashSet(StringComparer.Ordinal); return record with { Payload = record.Payload with { Fields = (record.Payload.Fields ?? []).Where(pair => names.Contains(pair.Key)).ToDictionary(static pair => pair.Key, static pair => pair.Value, StringComparer.Ordinal) } }; }
     private static OperationResult<RecordIncludeExecutionResult> IncludeError(string code, string message) => OperationResults.StoreError<RecordIncludeExecutionResult>(new BaseError { Code = code, Message = message, Category = ErrorCategory.Store });
     private sealed class VolatileIncludeState(RecordIncludeExecutionRequest request, VolatileStoreState snapshot, CollectionDefinition[] collections, int maxIncludes, CancellationToken cancellationToken)
     { private int _records; private int _bytes; private int _includes; internal RecordIncludeExecutionRequest Request => request; internal VolatileStoreState Snapshot => snapshot; internal HashSet<string> Dependencies { get; } = new(StringComparer.Ordinal); internal CollectionDefinition Collection(string id) => collections.Single(collection => collection.Id == id); internal RecordIncludeSourcePolicy Policy(string id) => request.SourcePolicies.Single(policy => policy.CollectionId == id); internal void Include(int count) { cancellationToken.ThrowIfCancellationRequested(); _includes += count; if (_includes > maxIncludes) throw new VolatileIncludeLimitException(); } internal void Record(RecordEnvelope record) { cancellationToken.ThrowIfCancellationRequested(); _records++; _bytes += (record.Payload.Fields ?? []).Sum(pair => pair.Key.Length * 2 + pair.Value.GetRawText().Length * 2); if (_records > request.MaxResultRows || _bytes > request.MaxResultBytes) throw new VolatileIncludeLimitException(); } }

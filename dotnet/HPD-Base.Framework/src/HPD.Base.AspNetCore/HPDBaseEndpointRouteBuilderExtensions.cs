@@ -80,10 +80,11 @@ public static class HPDBaseEndpointRouteBuilderExtensions
                 records.RequireAuthorization(options.RecordPolicyName);
 
             RecordEndpoints.Map(records);
-            RegisteredReadEndpoints.Map(records);
+            RegisteredReadEndpoints.Map(records, BaseReadExposure.Public, options.RequireAuthorizationForRecordRoutes);
         }
 
-        if (options.MapAdminMetadata || options.MapAdminPolicyExplain)
+        bool mapAdminReads = options.MapRecords && RegisteredReadEndpoints.HasExposure(endpoints.ServiceProvider, BaseReadExposure.Admin);
+        if (options.MapAdminMetadata || options.MapAdminPolicyExplain || mapAdminReads)
         {
             var admin = group.MapGroup("/admin");
             if (options.RequireAuthorizationForAdminRoutes)
@@ -101,6 +102,8 @@ public static class HPDBaseEndpointRouteBuilderExtensions
 
             if (options.MapAdminPolicyExplain)
                 PolicyAdminExplainEndpoints.Map(admin);
+            if (mapAdminReads)
+                RegisteredReadEndpoints.Map(admin, BaseReadExposure.Admin, options.RequireAuthorizationForAdminRoutes);
         }
 
         options.ConfigureRoutes?.Invoke(group);

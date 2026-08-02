@@ -469,6 +469,40 @@ public sealed class BaseRecordIdTests
         OperationResult<RecordPage> duplicateEvidence = await ExecuteAsync();
         duplicateEvidence.Error!.Code.Should().Be("base.relational.dependencies.invalid");
 
+        store.Response = Response([Child("one") with
+        {
+            Payload = new RecordPayload
+            {
+                Kind = RecordPayloadKind.FieldMap,
+                Fields = new Dictionary<string, JsonElement>
+                {
+                    ["provider-secret"] = JsonDocument.Parse("\"must-not-leak\"").RootElement.Clone(),
+                },
+            },
+        }],
+            [new() { CollectionId = TypedIdManyDocument.Collection.Id }, new() { CollectionId = TypedIdOwner.Collection.Id }]);
+        OperationResult<RecordPage> leakedField = await ExecuteAsync();
+        leakedField.Error!.Code.Should().Be("base.include.invalid");
+        leakedField.Error.Message.Should().NotContain("provider-secret").And.NotContain("must-not-leak");
+
+        store.Response = Response([Child("one")],
+            [new() { CollectionId = TypedIdManyDocument.Collection.Id }, new() { CollectionId = TypedIdOwner.Collection.Id }]) with
+        {
+            Page = Response([Child("one")],
+                [new() { CollectionId = TypedIdManyDocument.Collection.Id }, new() { CollectionId = TypedIdOwner.Collection.Id }]).Page with
+            {
+                Items = [Response([Child("one")], []).Page.Items[0] with
+                {
+                    Includes = [new RecordIncludeResult { NavigationId = "typed-id-many-document.members", Kind = RecordIncludeKind.One, Record = Child("one") }],
+                }],
+            },
+        };
+        (await ExecuteAsync()).Error!.Code.Should().Be("base.include.invalid");
+
+        store.Response = Response([Child("one") with { CollectionId = "wrong-collection" }],
+            [new() { CollectionId = TypedIdManyDocument.Collection.Id }, new() { CollectionId = TypedIdOwner.Collection.Id }]);
+        (await ExecuteAsync()).Error!.Code.Should().Be("base.include.invalid");
+
         ValueTask<OperationResult<RecordPage>> ExecuteAsync() => runtime.ListAsync(
             TypedIdManyDocument.Collection.Id, query, principal,
             new OperationContext { Operation = BaseOperationKind.List, CollectionId = TypedIdManyDocument.Collection.Id });
@@ -526,7 +560,10 @@ public sealed class BaseRecordIdTests
     {
         var services = new ServiceCollection().AddLogging();
         services.AddSingleton<IPolicyEvaluator, DenyOwnerIncludePolicyEvaluator>();
-        services.AddHPDBase(builder => builder.AddCollection(TypedIdOwner.Collection).AddCollection(TypedIdDocument.Collection));
+        services.AddHPDBase(builder => builder
+            .AddCollection(TypedIdOwner.Collection)
+            .AddCollection(TypedIdDocument.Collection)
+            .AddCollection(TypedIdManyDocument.Collection));
         await using ServiceProvider provider = services.BuildServiceProvider();
         (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
         PrincipalContext principal = new() { AuthenticationState = PrincipalAuthenticationState.Authenticated, SubjectId = "include-policy" };
@@ -534,6 +571,7 @@ public sealed class BaseRecordIdTests
         BaseRecordId<TypedIdOwner> owner = BaseRecordId<TypedIdOwner>.Create("secret-owner");
         (await session.Collection(TypedIdOwner.Collection).CreateAsync(owner.Value, new TypedIdOwner { Name = "Secret" })).Should().BeOfType<BaseSuccess<BaseRecord<TypedIdOwner>>>();
         (await session.Collection(TypedIdDocument.Collection).CreateAsync(new RecordId("document"), new TypedIdDocument { OwnerId = owner })).Should().BeOfType<BaseSuccess<BaseRecord<TypedIdDocument>>>();
+        (await session.Collection(TypedIdManyDocument.Collection).CreateAsync(new RecordId("many-document"), new TypedIdManyDocument { Members = [owner] })).Should().BeOfType<BaseSuccess<BaseRecord<TypedIdManyDocument>>>();
 
         OperationResult<RecordPage> result = await provider.GetRequiredService<IBaseRecordRuntime>().ListAsync(
             TypedIdDocument.Collection.Id,
@@ -544,8 +582,234 @@ public sealed class BaseRecordIdTests
             }, principal,
             new OperationContext { Operation = BaseOperationKind.List, CollectionId = TypedIdDocument.Collection.Id });
 
-        result.Error!.Code.Should().Be("base.include.policyUnsupported");
-        result.Error.Message.ToLowerInvariant().Should().NotContain("secret");
+        result.IsSuccess().Should().BeTrue(result.Error?.Code);
+        RecordIncludeResult included = result.Value!.Items.Should().ContainSingle().Which.Includes.Should().ContainSingle().Which;
+        included.Kind.Should().Be(RecordIncludeKind.None);
+        included.Record.Should().BeNull();
+        included.Records.Should().BeNull();
+
+        OperationResult<RecordPage> many = await provider.GetRequiredService<IBaseRecordRuntime>().ListAsync(
+            TypedIdManyDocument.Collection.Id,
+            new RecordQuery
+            {
+                Include = [new RecordInclude { NavigationId = "typed-id-many-document.members" }],
+                Page = new QueryPage { Mode = QueryPaginationMode.Offset, Offset = 0, Limit = 10 },
+            }, principal,
+            new OperationContext { Operation = BaseOperationKind.List, CollectionId = TypedIdManyDocument.Collection.Id });
+        many.IsSuccess().Should().BeTrue(many.Error?.Code);
+        RecordIncludeResult deniedMany = many.Value!.Items.Single().Includes!.Single();
+        deniedMany.Kind.Should().Be(RecordIncludeKind.Many);
+        deniedMany.Records.Should().BeEmpty();
+        deniedMany.Record.Should().BeNull();
+
+        OperationResult<RecordPage> malformedBelowDenied = await provider.GetRequiredService<IBaseRecordRuntime>().ListAsync(
+            TypedIdDocument.Collection.Id,
+            new RecordQuery
+            {
+                Include = [new RecordInclude
+                {
+                    NavigationId = "typed-id-document.owner",
+                    Includes = [new RecordInclude { NavigationId = "undeclared-navigation" }],
+                }],
+                Page = new QueryPage { Mode = QueryPaginationMode.Offset, Offset = 0, Limit = 10 },
+            }, principal,
+            new OperationContext { Operation = BaseOperationKind.List, CollectionId = TypedIdDocument.Collection.Id });
+        malformedBelowDenied.Error!.Code.Should().Be("base.include.invalid");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ValidNestedIncludeBelowDeniedParentRemainsNonDisclosingAndCarriesCompleteEvidence(bool sqlite)
+    {
+        string database = Path.Combine(Path.GetTempPath(), "hpd-base-denied-nested-" + Guid.NewGuid().ToString("N") + ".db");
+        try
+        {
+            var services = new ServiceCollection().AddLogging();
+            services.AddSingleton<IPolicyEvaluator, DenyOwnerIncludePolicyEvaluator>();
+            services.AddHPDBase(builder =>
+            {
+                builder.AddCollection(TypedIdOwner.Collection)
+                    .AddCollection(TypedIdDocument.Collection)
+                    .AddCollection(TypedIdManyDocument.Collection);
+                if (sqlite)
+                {
+                    builder.ConfigureSchema(options => options.PlanProtectionKey = Enumerable.Repeat((byte)0x7A, 32).ToArray());
+                    builder.UseSqlite(options => options.DataSource = database);
+                }
+            });
+            await using ServiceProvider provider = services.BuildServiceProvider();
+            if (sqlite)
+            {
+                IBaseSchemaManager schemas = provider.GetRequiredService<IBaseSchemaManager>();
+                BaseSchemaPlan plan = (await schemas.PlanAsync(new BaseSchemaPlanRequest { StoreId = "sqlite" })).Value!;
+                (await schemas.ApplyAsync(new BaseSchemaApplyRequest { ProtectedArtifact = plan.ProtectedArtifact })).IsSuccess().Should().BeTrue();
+            }
+            (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
+            PrincipalContext principal = new() { AuthenticationState = PrincipalAuthenticationState.Authenticated, SubjectId = "denied-nested" };
+            BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(principal);
+            BaseRecordId<TypedIdOwner> owner = BaseRecordId<TypedIdOwner>.Create("owner");
+            (await session.Collection(TypedIdOwner.Collection).CreateAsync(owner.Value, new TypedIdOwner { Name = "Secret" })).Should().BeOfType<BaseSuccess<BaseRecord<TypedIdOwner>>>();
+            (await session.Collection(TypedIdDocument.Collection).CreateAsync(new RecordId("document"), new TypedIdDocument { OwnerId = owner })).Should().BeOfType<BaseSuccess<BaseRecord<TypedIdDocument>>>();
+
+            OperationResult<RecordPage> result = await provider.GetRequiredService<IBaseRecordRuntime>().ListAsync(
+                TypedIdDocument.Collection.Id,
+                new RecordQuery
+                {
+                    Include = [new RecordInclude
+                    {
+                        NavigationId = "typed-id-document.owner",
+                        Includes = [new RecordInclude { NavigationId = "typed-id-owner.many-documents" }],
+                    }],
+                    Page = new QueryPage { Mode = QueryPaginationMode.Offset, Offset = 0, Limit = 10 },
+                }, principal,
+                new OperationContext { Operation = BaseOperationKind.List, CollectionId = TypedIdDocument.Collection.Id });
+
+            result.IsSuccess().Should().BeTrue($"{result.Error?.Code}: {result.Error?.Message}");
+            RecordIncludeResult denied = result.Value!.Items.Single().Includes!.Single();
+            denied.Kind.Should().Be(RecordIncludeKind.None);
+            denied.Record.Should().BeNull();
+            denied.Records.Should().BeNull();
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            foreach (string candidate in new[] { database, database + "-wal", database + "-shm" })
+                if (File.Exists(candidate)) File.Delete(candidate);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task IncludesNeverExposeFieldsHiddenFromTheTargetSchemaView(bool sqlite)
+    {
+        string database = Path.Combine(Path.GetTempPath(), "hpd-base-include-visibility-" + Guid.NewGuid().ToString("N") + ".db");
+        try
+        {
+            CollectionDefinition hiddenDefinition = TypedIdOwner.Collection.Definition with
+            {
+                Fields = TypedIdOwner.Collection.Definition.Fields!.Select(field => field.Id == TypedIdOwner.Fields.Name.Id
+                    ? field with { Visibility = new FieldVisibilityAnnotation { Visibility = VisibilityLevel.Admin } }
+                    : field).ToArray(),
+            };
+            BaseCollection<TypedIdOwner> hiddenOwner = BaseCollection<TypedIdOwner>.Create(
+                hiddenDefinition,
+                TypedIdOwner.Collection.JsonTypeInfo,
+                static _ => { });
+            var services = new ServiceCollection().AddLogging();
+            services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
+            services.AddHPDBase(builder =>
+            {
+                builder.AddCollection(hiddenOwner).AddCollection(TypedIdDocument.Collection);
+                if (sqlite)
+                {
+                    builder.ConfigureSchema(options => options.PlanProtectionKey = Enumerable.Repeat((byte)0x79, 32).ToArray());
+                    builder.UseSqlite(options => options.DataSource = database);
+                }
+            });
+            await using ServiceProvider provider = services.BuildServiceProvider();
+            if (sqlite)
+            {
+                IBaseSchemaManager schemas = provider.GetRequiredService<IBaseSchemaManager>();
+                BaseSchemaPlan plan = (await schemas.PlanAsync(new BaseSchemaPlanRequest { StoreId = "sqlite" })).Value!;
+                (await schemas.ApplyAsync(new BaseSchemaApplyRequest { ProtectedArtifact = plan.ProtectedArtifact })).IsSuccess().Should().BeTrue();
+            }
+            (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
+            PrincipalContext principal = new() { AuthenticationState = PrincipalAuthenticationState.Authenticated, SubjectId = "include-visibility" };
+            PrincipalContext administrator = new() { AuthenticationState = PrincipalAuthenticationState.Admin, SubjectId = "include-administrator" };
+            BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(administrator);
+            BaseRecordId<TypedIdOwner> ownerId = BaseRecordId<TypedIdOwner>.Create("owner-hidden");
+            (await session.Collection(hiddenOwner).CreateAsync(ownerId.Value, new TypedIdOwner { Name = "must-not-leak" })).Should().BeOfType<BaseSuccess<BaseRecord<TypedIdOwner>>>();
+            (await session.Collection(TypedIdDocument.Collection).CreateAsync(new RecordId("document"), new TypedIdDocument { OwnerId = ownerId })).Should().BeOfType<BaseSuccess<BaseRecord<TypedIdDocument>>>();
+
+            OperationResult<RecordPage> result = await provider.GetRequiredService<IBaseRecordRuntime>().ListAsync(
+                TypedIdDocument.Collection.Id,
+                new RecordQuery
+                {
+                    Include = [new RecordInclude { NavigationId = "typed-id-document.owner" }],
+                    Page = new QueryPage { Mode = QueryPaginationMode.Offset, Offset = 0, Limit = 10 },
+                },
+                principal,
+                new OperationContext { Operation = BaseOperationKind.List, CollectionId = TypedIdDocument.Collection.Id });
+
+            result.IsSuccess().Should().BeTrue(result.Error?.Code);
+            result.Value!.Items.Single().Includes!.Single().Record!.Payload.Fields.Should().BeEmpty();
+
+            OperationResult<RecordPage> nested = await provider.GetRequiredService<IBaseRecordRuntime>().ListAsync(
+                TypedIdDocument.Collection.Id,
+                new RecordQuery
+                {
+                    Include = [new RecordInclude
+                    {
+                        NavigationId = "typed-id-document.owner",
+                        Includes = [new RecordInclude
+                        {
+                            NavigationId = "typed-id-owner.documents",
+                            Includes = [new RecordInclude { NavigationId = "typed-id-document.owner" }],
+                        }],
+                    }],
+                    Page = new QueryPage { Mode = QueryPaginationMode.Offset, Offset = 0, Limit = 10 },
+                },
+                principal,
+                new OperationContext { Operation = BaseOperationKind.List, CollectionId = TypedIdDocument.Collection.Id });
+
+            nested.IsSuccess().Should().BeTrue($"{nested.Error?.Code}: {nested.Error?.Message}");
+            RecordEnvelope nestedOwner = nested.Value!.Items.Single().Includes!.Single().Record!
+                .Includes!.Single().Records!.Single().Includes!.Single().Record!;
+            nestedOwner.Payload.Fields.Should().BeEmpty();
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            foreach (string candidate in new[] { database, database + "-wal", database + "-shm" })
+                if (File.Exists(candidate)) File.Delete(candidate);
+        }
+    }
+
+    [Fact]
+    public async Task HiddenInverseRelationCannotBeResolvedThroughTheCanonicalRegistry()
+    {
+        CollectionDefinition hiddenDocumentDefinition = TypedIdDocument.Collection.Definition with
+        {
+            Fields = TypedIdDocument.Collection.Definition.Fields!.Select(field => field.Id == TypedIdDocument.Fields.OwnerId.Id
+                ? field with { Visibility = new FieldVisibilityAnnotation { Visibility = VisibilityLevel.Admin } }
+                : field).ToArray(),
+        };
+        BaseCollection<TypedIdDocument> hiddenDocument = BaseCollection<TypedIdDocument>.Create(
+            hiddenDocumentDefinition,
+            TypedIdDocument.Collection.JsonTypeInfo,
+            static _ => { });
+        var services = new ServiceCollection().AddLogging();
+        services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
+        services.AddHPDBase(builder => builder
+            .AddCollection(TypedIdOwner.Collection)
+            .AddCollection(hiddenDocument)
+            .AddCollection(TypedIdManyDocument.Collection));
+        await using ServiceProvider provider = services.BuildServiceProvider();
+        (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
+        PrincipalContext administrator = new() { AuthenticationState = PrincipalAuthenticationState.Admin, SubjectId = "inverse-admin" };
+        BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(administrator);
+        BaseRecordId<TypedIdOwner> owner = BaseRecordId<TypedIdOwner>.Create("owner");
+        (await session.Collection(TypedIdOwner.Collection).CreateAsync(owner.Value, new TypedIdOwner { Name = "Owner" })).Should().BeOfType<BaseSuccess<BaseRecord<TypedIdOwner>>>();
+        (await session.Collection(hiddenDocument).CreateAsync(new RecordId("hidden-document"), new TypedIdDocument { OwnerId = owner })).Should().BeOfType<BaseSuccess<BaseRecord<TypedIdDocument>>>();
+        (await session.Collection(TypedIdManyDocument.Collection).CreateAsync(new RecordId("root"), new TypedIdManyDocument { Members = [owner] })).Should().BeOfType<BaseSuccess<BaseRecord<TypedIdManyDocument>>>();
+
+        PrincipalContext principal = new() { AuthenticationState = PrincipalAuthenticationState.Authenticated, SubjectId = "inverse-user" };
+        OperationResult<RecordPage> result = await provider.GetRequiredService<IBaseRecordRuntime>().ListAsync(
+            TypedIdManyDocument.Collection.Id,
+            new RecordQuery
+            {
+                Include = [new RecordInclude
+                {
+                    NavigationId = "typed-id-many-document.members",
+                    Includes = [new RecordInclude { NavigationId = "typed-id-owner.documents" }],
+                }],
+                Page = new QueryPage { Mode = QueryPaginationMode.Offset, Offset = 0, Limit = 10 },
+            }, principal,
+            new OperationContext { Operation = BaseOperationKind.List, CollectionId = TypedIdManyDocument.Collection.Id });
+
+        result.Error!.Code.Should().Be("base.include.invalid");
     }
 }
 

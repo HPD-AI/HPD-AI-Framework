@@ -142,7 +142,13 @@ internal sealed class DefaultBaseRecordRuntime(
             return OperationResults.Unsupported<RecordPage>(new BaseError { Code = "base.include.unsupported", Message = "The selected store cannot execute snapshot-consistent includes.", Category = ErrorCategory.Unsupported });
         var policies = new Dictionary<string, RecordIncludeSourcePolicy>(StringComparer.Ordinal)
         {
-            [root.Id] = new RecordIncludeSourcePolicy { CollectionId = root.Id, Filter = rootPolicy?.EffectiveRecordFilter, ReadMask = rootPolicy?.EffectiveReadMask },
+            [root.Id] = new RecordIncludeSourcePolicy
+            {
+                CollectionId = root.Id,
+                Filter = rootPolicy?.EffectiveRecordFilter,
+                ReadMask = rootPolicy?.EffectiveReadMask,
+                VisibleFieldIds = (root.Fields ?? []).Select(static field => field.Id).ToArray(),
+            },
         };
         OperationResult<RecordPage>? validation = await ResolveIncludePoliciesAsync(root, query.Include!, principal, operation, store, policies, 1, [0], cancellationToken).ConfigureAwait(false);
         if (validation is not null) return validation;
@@ -193,7 +199,13 @@ internal sealed class DefaultBaseRecordRuntime(
                     ? OperationResults.CapabilityUnavailable<RecordPage>(error)
                     : OperationResults.StoreError<RecordPage>(error);
         }
-        IncludeResultValidation resultValidation = ValidateIncludeResult(executed.Value.Page, query.Include!, Math.Min(_relationalOptions.MaxIncludedRecords, includes.Includes.MaxRecords), _relationalOptions.MaxResultBytes);
+        IncludeResultValidation resultValidation = ValidateIncludeResult(
+            executed.Value.Page,
+            root,
+            query.Include!,
+            policies,
+            Math.Min(_relationalOptions.MaxIncludedRecords, includes.Includes.MaxRecords),
+            _relationalOptions.MaxResultBytes);
         if (resultValidation != IncludeResultValidation.Valid)
             return OperationResults.StoreError<RecordPage>(new BaseError
             {
@@ -210,13 +222,19 @@ internal sealed class DefaultBaseRecordRuntime(
         return completed;
     }
 
-    private static IncludeResultValidation ValidateIncludeResult(RecordPage page, RecordInclude[] plan, int maxRecords, int maxBytes)
+    private IncludeResultValidation ValidateIncludeResult(
+        RecordPage page,
+        CollectionDefinition rootCollection,
+        RecordInclude[] plan,
+        IReadOnlyDictionary<string, RecordIncludeSourcePolicy> policies,
+        int maxRecords,
+        int maxBytes)
     {
         if (page.Items is null || page.Page.Limit is < 0 || page.Page.Offset is < 0 || page.Page.Page is < 0 || page.Page.PerPage is < 0 || page.Count?.Total < 0)
             return IncludeResultValidation.Invalid;
         int records = 0;
         long bytes = 0;
-        IncludeResultValidation Visit(RecordEnvelope record, RecordInclude[] expected, bool included)
+        IncludeResultValidation Visit(RecordEnvelope record, CollectionDefinition collection, RecordInclude[] expected, bool included)
         {
             if (included && ++records > maxRecords) return IncludeResultValidation.LimitExceeded;
             foreach ((string key, System.Text.Json.JsonElement value) in record.Payload.Fields ?? [])
@@ -231,6 +249,10 @@ internal sealed class DefaultBaseRecordRuntime(
                 RecordInclude requested = expected[index];
                 RecordIncludeResult result = actual[index];
                 if (!string.Equals(result.NavigationId, requested.NavigationId, StringComparison.Ordinal)) return IncludeResultValidation.Invalid;
+                IncludeTargetResolution resolved = IncludeTarget(collection, requested.NavigationId);
+                CollectionDefinition? target = resolved.Target;
+                if (target is null || !policies.TryGetValue(target.Id, out RecordIncludeSourcePolicy? targetPolicy))
+                    return IncludeResultValidation.Invalid;
                 RecordEnvelope[] children = result.Kind switch
                 {
                     RecordIncludeKind.None when result.Record is null && result.Records is null => [],
@@ -239,20 +261,74 @@ internal sealed class DefaultBaseRecordRuntime(
                     _ => null!,
                 };
                 if (children is null || requested.Limit is { } limit && children.Length > limit) return IncludeResultValidation.Invalid;
+                if (resolved.Many && result.Kind != RecordIncludeKind.Many || !resolved.Many && result.Kind is not (RecordIncludeKind.None or RecordIncludeKind.One))
+                    return IncludeResultValidation.Invalid;
+                if (targetPolicy.Denied && (children.Length != 0 || result.Kind != (resolved.Many ? RecordIncludeKind.Many : RecordIncludeKind.None)))
+                    return IncludeResultValidation.Invalid;
+                HashSet<string> allowedNames = AllowedIncludePayloadNames(target, requested, targetPolicy);
                 foreach (RecordEnvelope child in children)
                 {
-                    IncludeResultValidation childValidation = Visit(child, requested.Includes ?? [], included: true);
+                    if (!string.Equals(child.CollectionId, target.Id, StringComparison.Ordinal))
+                        return IncludeResultValidation.Invalid;
+                    if ((child.Payload.Fields ?? []).Keys.Any(key => !allowedNames.Contains(key)))
+                        return IncludeResultValidation.Invalid;
+                    IncludeResultValidation childValidation = Visit(child, target, requested.Includes ?? [], included: true);
                     if (childValidation != IncludeResultValidation.Valid) return childValidation;
                 }
             }
             return IncludeResultValidation.Valid;
         }
-        foreach (RecordEnvelope root in page.Items)
+        foreach (RecordEnvelope rootRecord in page.Items)
         {
-            IncludeResultValidation rootValidation = Visit(root, plan, included: false);
+            IncludeResultValidation rootValidation = Visit(rootRecord, rootCollection, plan, included: false);
             if (rootValidation != IncludeResultValidation.Valid) return rootValidation;
         }
         return IncludeResultValidation.Valid;
+    }
+
+    private IncludeTargetResolution IncludeTarget(CollectionDefinition parent, string navigationId)
+    {
+        RelationDefinition? relation = (parent.Fields ?? [])
+            .Select(static field => field.Relation)
+            .FirstOrDefault(candidate => candidate is not null &&
+                (candidate.Id == navigationId || candidate.SourceFieldId == navigationId));
+        string? targetId = relation?.TargetCollectionId;
+        bool many = relation?.LocalMultiplicity == BaseRelationMultiplicity.Many;
+        if (relation is null)
+        {
+            relation = collections.Collections.Values
+                .SelectMany(static collection => collection.Fields ?? [])
+                .Select(static field => field.Relation)
+                .FirstOrDefault(candidate => candidate is not null &&
+                    candidate.TargetCollectionId == parent.Id &&
+                    candidate.InverseNavigationId == navigationId);
+            targetId = relation?.SourceCollectionId;
+            many = relation?.InverseMultiplicity == BaseRelationMultiplicity.Many;
+        }
+        return targetId is not null && collections.Collections.TryGetValue(targetId, out CollectionDefinition? target)
+            ? new IncludeTargetResolution(target, many)
+            : default;
+    }
+
+    private readonly record struct IncludeTargetResolution(CollectionDefinition? Target, bool Many);
+
+    private static HashSet<string> AllowedIncludePayloadNames(
+        CollectionDefinition collection,
+        RecordInclude include,
+        RecordIncludeSourcePolicy policy)
+    {
+        HashSet<string> visible = policy.VisibleFieldIds.ToHashSet(StringComparer.Ordinal);
+        IEnumerable<FieldDefinition> fields = (collection.Fields ?? []).Where(field => visible.Contains(field.Id));
+        fields = policy.ReadMask?.Mode switch
+        {
+            FieldMaskMode.DenyAll => [],
+            FieldMaskMode.IncludeOnly => fields.Where(field => (policy.ReadMask.Include ?? []).Contains(field.Id)),
+            FieldMaskMode.Exclude => fields.Where(field => !(policy.ReadMask.Exclude ?? []).Contains(field.Id)),
+            _ => fields,
+        };
+        if (include.SelectFieldIds is { } selected)
+            fields = fields.Where(field => selected.Contains(field.Id));
+        return fields.Select(static field => field.Name).ToHashSet(StringComparer.Ordinal);
     }
 
     private static bool ValidIncludeEvidence(BaseReadDependencyEvidence[]? evidence, IEnumerable<string> requiredCollections, int maxRecords)
@@ -307,6 +383,11 @@ internal sealed class DefaultBaseRecordRuntime(
             OperationContext targetOperation = operation with { CollectionId = targetId };
             OperationResult<CollectionDefinition> targetResult = await schema.GetCollectionAsync(targetId, principal, targetOperation, BasePolicyRuntimeSimulation.ViewFor(principal, targetOperation), cancellationToken).ConfigureAwait(false);
             if (!targetResult.IsSuccess() || targetResult.Value is null) return Failure<RecordPage, CollectionDefinition>(targetResult);
+            if (inverse && !(targetResult.Value.Fields ?? []).Any(field =>
+                    field.Relation is { } visibleRelation &&
+                    visibleRelation.Id == relation.Id &&
+                    visibleRelation.InverseNavigationId == include.NavigationId))
+                return IncludeValidation("base.include.invalid", "The requested relation cannot be included.");
             HashSet<string> targetFields = (targetResult.Value.Fields ?? []).Select(static field => field.Id).ToHashSet(StringComparer.Ordinal);
             if ((include.SelectFieldIds ?? []).Any(field => !targetFields.Contains(field)) ||
                 (include.Sort ?? []).Any(sort => !targetFields.Contains(sort.Field)) ||
@@ -315,14 +396,32 @@ internal sealed class DefaultBaseRecordRuntime(
             OperationResult<IRecordStore> targetStore = storeResolver.Resolve(targetResult.Value, targetOperation);
             if (!targetStore.IsSuccess() || !ReferenceEquals(targetStore.Value, expectedStore)) return IncludeValidation("base.include.snapshotUnsupported", "Includes require one store instance.");
             OperationResult<BasePolicyEvaluation> targetPolicy = await EvaluateReadPolicyAsync(new BasePolicyRequest { Principal = principal, Operation = targetOperation, Collection = targetResult.Value, ResourceKind = PolicyResourceKind.Query }, cancellationToken).ConfigureAwait(false);
-            if (!targetPolicy.IsSuccess() || targetPolicy.Value is null)
-                return OperationResults.PolicyDenied<RecordPage>(new BaseError
+            if (targetPolicy.Status == OperationStatus.PolicyDenied)
+            {
+                policies[targetId] = new RecordIncludeSourcePolicy
+                {
+                    CollectionId = targetId,
+                    VisibleFieldIds = targetFields.ToArray(),
+                    Denied = true,
+                };
+            }
+            else if (!targetPolicy.IsSuccess() || targetPolicy.Value is null)
+                return OperationResults.Unsupported<RecordPage>(new BaseError
                 {
                     Code = "base.include.policyUnsupported",
-                    Message = "Include policy evaluation failed.",
-                    Category = ErrorCategory.Authorization,
+                    Message = "Include policy evaluation could not be enforced.",
+                    Category = ErrorCategory.Unsupported,
                 });
-            policies[targetId] = new RecordIncludeSourcePolicy { CollectionId = targetId, Filter = targetPolicy.Value.EffectiveRecordFilter, ReadMask = targetPolicy.Value.EffectiveReadMask };
+            else
+            {
+                policies[targetId] = new RecordIncludeSourcePolicy
+                {
+                    CollectionId = targetId,
+                    Filter = targetPolicy.Value.EffectiveRecordFilter,
+                    ReadMask = targetPolicy.Value.EffectiveReadMask,
+                    VisibleFieldIds = targetFields.ToArray(),
+                };
+            }
             if (include.Includes is { Length: > 0 } && await ResolveIncludePoliciesAsync(targetResult.Value, include.Includes, principal, targetOperation, expectedStore, policies, depth + 1, includeCount, cancellationToken).ConfigureAwait(false) is { } failure) return failure;
         }
         return null;

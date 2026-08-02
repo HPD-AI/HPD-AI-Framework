@@ -29,6 +29,7 @@ public sealed partial class SqliteRecordStore :
     private readonly ISqliteTransactionController _transactions;
     private readonly ISqliteSessionOperationController _sessionOperations;
     private readonly ISqliteTransactionResourceDisposer _transactionResourceDisposer;
+    private readonly ISqliteSchemaCommandController _schemaCommands;
     private readonly SemaphoreSlim _keepAliveGate = new(1, 1);
     private readonly SemaphoreSlim _mutationExecutionSlots;
     private readonly SqliteSchemaGenerationGate _schemaGenerationGate = new();
@@ -56,7 +57,8 @@ public sealed partial class SqliteRecordStore :
         TimeProvider timeProvider,
         ISqliteTransactionController? transactions = null,
         ISqliteSessionOperationController? sessionOperations = null,
-        ISqliteTransactionResourceDisposer? transactionResourceDisposer = null)
+        ISqliteTransactionResourceDisposer? transactionResourceDisposer = null,
+        ISqliteSchemaCommandController? schemaCommands = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(loggerFactory);
@@ -70,6 +72,7 @@ public sealed partial class SqliteRecordStore :
             sessionOperations ?? DefaultSqliteSessionOperationController.Instance;
         _transactionResourceDisposer =
             transactionResourceDisposer ?? DefaultSqliteTransactionResourceDisposer.Instance;
+        _schemaCommands = schemaCommands ?? DefaultSqliteSchemaCommandController.Instance;
         _connections = new SqliteConnectionFactory(_options);
         _schema = new SqliteSchemaInitializer(_options);
         _names = new SqliteNames(_options);

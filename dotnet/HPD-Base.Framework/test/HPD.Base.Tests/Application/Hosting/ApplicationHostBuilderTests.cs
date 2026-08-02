@@ -11,6 +11,87 @@ namespace HPD.Base.Tests.Application.Hosting;
 public sealed class ApplicationHostBuilderTests
 {
     [Fact]
+    public async Task FreshSqlitePlansAreBoundToDistinctPersistentPhysicalStoreIdentities()
+    {
+        string firstPath = Path.Combine(Path.GetTempPath(), "hpd-base-store-a-" + Guid.NewGuid().ToString("N") + ".db");
+        string secondPath = Path.Combine(Path.GetTempPath(), "hpd-base-store-b-" + Guid.NewGuid().ToString("N") + ".db");
+        byte[] key = Enumerable.Repeat((byte)0x73, 32).ToArray();
+        static ServiceProvider Build(string path, byte[] key)
+        {
+            var services = new ServiceCollection().AddLogging();
+            services.AddHPDBase(builder => builder
+                .ConfigureSchema(options => { options.ApplicationId = "physical-store-app"; options.PlanProtectionKey = key; })
+                .AddCollection(GeneratedProject.Collection)
+                .UseSqlite(options => { options.DataSource = path; options.StoreId = "sqlite"; }));
+            return services.BuildServiceProvider();
+        }
+
+        try
+        {
+            await using ServiceProvider firstProvider = Build(firstPath, key);
+            await using ServiceProvider secondProvider = Build(secondPath, key);
+            IBaseSchemaManager firstManager = firstProvider.GetRequiredService<IBaseSchemaManager>();
+            IBaseSchemaManager secondManager = secondProvider.GetRequiredService<IBaseSchemaManager>();
+            BaseSchemaPlan firstPlan = (await firstManager.PlanAsync(new BaseSchemaPlanRequest { StoreId = "sqlite" })).Value!;
+            BaseSchemaPlan secondPlan = (await secondManager.PlanAsync(new BaseSchemaPlanRequest { StoreId = "sqlite" })).Value!;
+
+            firstPlan.PersistedStoreInstanceId.Should().NotBe(secondPlan.PersistedStoreInstanceId);
+            (await secondManager.ApplyAsync(new BaseSchemaApplyRequest { ProtectedArtifact = firstPlan.ProtectedArtifact }))
+                .Error!.Code.Should().Be(BaseSchemaErrorCodes.PlanStale);
+
+            await using ServiceProvider reconstructed = Build(firstPath, key);
+            BaseSchemaPlan reconstructedPlan = (await reconstructed.GetRequiredService<IBaseSchemaManager>()
+                .PlanAsync(new BaseSchemaPlanRequest { StoreId = "sqlite" })).Value!;
+            reconstructedPlan.PersistedStoreInstanceId.Should().Be(firstPlan.PersistedStoreInstanceId);
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            foreach (string path in new[] { firstPath, secondPath })
+                foreach (string candidate in new[] { path, path + "-wal", path + "-shm" })
+                    if (File.Exists(candidate)) File.Delete(candidate);
+        }
+    }
+
+    [Fact]
+    public async Task FreshSqlitePlansAreDeterministicAcrossCallsAndHostReconstruction()
+    {
+        string path = Path.Combine(Path.GetTempPath(), "hpd-base-fresh-plan-" + Guid.NewGuid().ToString("N") + ".db");
+        byte[] key = Enumerable.Repeat((byte)0x46, 32).ToArray();
+        async ValueTask<BaseSchemaPlan> PlanAsync()
+        {
+            var services = new ServiceCollection().AddLogging();
+            services.AddHPDBase(builder => builder
+                .ConfigureSchema(options => { options.ApplicationId = "fresh-plan-app"; options.PlanProtectionKey = key; })
+                .AddCollection(GeneratedProject.Collection)
+                .UseSqlite(options => { options.DataSource = path; options.StoreId = "sqlite"; }));
+            await using ServiceProvider provider = services.BuildServiceProvider();
+            return (await provider.GetRequiredService<IBaseSchemaManager>()
+                .PlanAsync(new BaseSchemaPlanRequest { StoreId = "sqlite" })).Value!;
+        }
+
+        try
+        {
+            BaseSchemaPlan first = await PlanAsync();
+            BaseSchemaPlan second = await PlanAsync();
+
+            second.Classification.Should().Be(first.Classification);
+            second.Operations.Should().Equal(first.Operations);
+            second.LogicalPlanDigest.Should().Be(first.LogicalPlanDigest);
+            second.ProviderApplyArtifactDigest.Should().Be(first.ProviderApplyArtifactDigest);
+            second.PersistedStoreInstanceId.Should().Be(first.PersistedStoreInstanceId);
+            second.PlanId.Should().NotBe(first.PlanId);
+            second.TargetBaselineId.Should().NotBe(first.TargetBaselineId);
+            second.ProtectedArtifact.Should().NotEqual(first.ProtectedArtifact);
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            foreach (string candidate in new[] { path, path + "-wal", path + "-shm" }) if (File.Exists(candidate)) File.Delete(candidate);
+        }
+    }
+
+    [Fact]
     public async Task SqliteSchemaPlanApplyVerifyAndHistoryUseAuthenticatedBoundary()
     {
         string path = Path.Combine(Path.GetTempPath(), "hpd-base-schema-manager-" + Guid.NewGuid().ToString("N") + ".db");

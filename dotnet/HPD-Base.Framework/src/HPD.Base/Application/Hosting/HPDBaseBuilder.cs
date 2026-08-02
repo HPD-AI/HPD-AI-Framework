@@ -209,6 +209,7 @@ public sealed class HPDBaseBuilder
         _services.AddSingleton(Microsoft.Extensions.Options.Options.Create(schemaOptions));
         _services.AddSingleton<IBaseSchemaPlanProtector, DefaultBaseSchemaPlanProtector>();
         _services.AddSingleton<IBaseSchemaManager, DefaultBaseSchemaManager>();
+        _services.AddSingleton<BaseSchemaCommandHost>();
         _services.TryAddSingleton<IBaseApplicationLifetime, DefaultBaseApplicationLifetime>();
         _services.AddSingleton<IBaseProviderBootstrap, DefaultBaseProviderBootstrap>();
         if (_files is not null)

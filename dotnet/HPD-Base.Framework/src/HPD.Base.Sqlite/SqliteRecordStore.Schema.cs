@@ -28,11 +28,21 @@ public sealed partial class SqliteRecordStore
             await using var generationLease = await _schemaGenerationGate.AcquireSharedAsync(cancellationToken).ConfigureAwait(false);
             await EnsureKeepAliveAsync(cancellationToken).ConfigureAwait(false);
             await using SqliteConnection connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
+            string? storeInstanceId = await ReadStoreInstanceIdAsync(connection, cancellationToken).ConfigureAwait(false);
             if (!await SchemaTableExistsAsync(connection, _names.SchemaBaseline, cancellationToken).ConfigureAwait(false))
-                return OperationResults.Ok(MissingBaseline(request.ApplicationId));
+                return OperationResults.Ok(MissingBaseline(storeInstanceId));
 
             BaselineRow? baseline = await ReadBaselineAsync(connection, request.ApplicationId, cancellationToken).ConfigureAwait(false);
-            if (baseline is null) return OperationResults.Ok(MissingBaseline(request.ApplicationId));
+            if (baseline is null) return OperationResults.Ok(MissingBaseline(storeInstanceId));
+            if (storeInstanceId is null || !string.Equals(storeInstanceId, baseline.StoreInstanceId, StringComparison.Ordinal))
+                return OperationResults.Ok(new BaseSchemaObservedState
+                {
+                    StoreId = _options.StoreId, PersistedStoreInstanceId = storeInstanceId,
+                    AcceptedBaselineId = baseline.BaselineId, AcceptedChecksum = baseline.Checksum,
+                    Generation = baseline.Generation, Compatibility = BaseSchemaCompatibility.Drifted,
+                    Assets = [], MigrationState = BaseSchemaMigrationState.Failed,
+                    LastAppliedPlanId = baseline.LastPlanId
+                });
             Volatile.Write(ref _schemaGeneration, baseline.Generation);
             BaseSchemaObservedAsset[] assets = await ReadAssetsAsync(connection, request.ApplicationId, cancellationToken).ConfigureAwait(false);
             bool checksumMatches = string.Equals(baseline.Checksum, request.ExpectedLogicalChecksum, StringComparison.Ordinal);
@@ -67,7 +77,15 @@ public sealed partial class SqliteRecordStore
         cancellationToken.ThrowIfCancellationRequested();
         if (!string.Equals(request.ObservedState.StoreId, _options.StoreId, StringComparison.Ordinal) || request.ExpectedGeneration != request.ObservedState.Generation)
             return SchemaConflict<BaseSchemaPreparedPlan>(BaseSchemaErrorCodes.PlanStale, "The observed schema generation is stale.");
-        string instanceId = request.ObservedState.PersistedStoreInstanceId ?? OpaqueSchemaId();
+        string instanceId;
+        try
+        {
+            instanceId = request.ObservedState.PersistedStoreInstanceId
+                ?? await GetOrCreateStoreInstanceIdAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (SqliteException ex) { return MapSqlite<BaseSchemaPreparedPlan>(BaseOperationKind.SchemaWrite, ex); }
+        catch { return SchemaFailure<BaseSchemaPreparedPlan>(BaseSchemaErrorCodes.MigrationFailed, "SQLite schema planning failed."); }
         SchemaAssetValue[] assets = CurrentSchemaAssets()
             .Concat(request.LogicalDelta.Where(static operation => operation.LogicalId.StartsWith("q:", StringComparison.Ordinal) && operation.Kind != BaseSchemaOperationKind.RemoveRead)
                 .Select(static operation => new SchemaAssetValue(operation.LogicalId, "registered")))
@@ -180,6 +198,13 @@ public sealed partial class SqliteRecordStore
         {
             await ExecuteSchemaCommandAsync(connection, "BEGIN IMMEDIATE;", request.LeaseTimeout, cancellationToken).ConfigureAwait(false);
             transaction = true;
+            string? persistedStoreInstanceId = await ReadStoreInstanceIdAsync(connection, cancellationToken).ConfigureAwait(false);
+            if (!string.Equals(persistedStoreInstanceId, artifact.StoreInstanceId, StringComparison.Ordinal))
+            {
+                await ExecuteSchemaCommandAsync(connection, "ROLLBACK;", request.CommitCompletionTimeout, CancellationToken.None).ConfigureAwait(false);
+                transaction = false;
+                return SchemaConflict<BaseSchemaApplyResult>(BaseSchemaErrorCodes.PlanStale, "The SQLite schema plan belongs to a different physical store.");
+            }
             bool hasBaseline = await SchemaTableExistsAsync(connection, _names.SchemaBaseline, cancellationToken).ConfigureAwait(false);
             BaselineRow? current = hasBaseline ? await ReadBaselineAsync(connection, artifact.ApplicationId, cancellationToken).ConfigureAwait(false) : null;
             if ((current?.Generation ?? 0) != request.ExpectedGeneration || current?.Checksum != request.ExpectedBaselineChecksum ||
@@ -223,12 +248,14 @@ public sealed partial class SqliteRecordStore
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            if (transaction) await TryRollbackSchemaAsync(connection, request.CommitCompletionTimeout).ConfigureAwait(false);
+            if (transaction && !await TryRollbackSchemaAsync(connection, request.CommitCompletionTimeout).ConfigureAwait(false))
+                return SchemaFailure<BaseSchemaApplyResult>(BaseSchemaErrorCodes.MigrationIndeterminate, "SQLite schema migration completion is indeterminate.");
             throw;
         }
         catch (SqliteException ex) when (ex.SqliteErrorCode is 5 or 6)
         {
-            if (transaction) await TryRollbackSchemaAsync(connection, request.CommitCompletionTimeout).ConfigureAwait(false);
+            if (transaction && !await TryRollbackSchemaAsync(connection, request.CommitCompletionTimeout).ConfigureAwait(false))
+                return SchemaFailure<BaseSchemaApplyResult>(BaseSchemaErrorCodes.MigrationIndeterminate, "SQLite schema migration completion is indeterminate.");
             return SchemaCapability<BaseSchemaApplyResult>(BaseSchemaErrorCodes.MigrationBusy, "SQLite schema migration ownership is busy.");
         }
         catch
@@ -271,11 +298,69 @@ public sealed partial class SqliteRecordStore
         catch { return SchemaFailure<BaseSchemaHistoryPage>(BaseSchemaErrorCodes.VerifyFailed, "SQLite schema history could not be read."); }
     }
 
-    private BaseSchemaObservedState MissingBaseline(string applicationId) => new()
+    private BaseSchemaObservedState MissingBaseline(string? storeInstanceId) => new()
     {
-        StoreId = _options.StoreId, Generation = 0, Compatibility = BaseSchemaCompatibility.MigrationRequired,
+        StoreId = _options.StoreId, PersistedStoreInstanceId = storeInstanceId,
+        Generation = 0, Compatibility = BaseSchemaCompatibility.MigrationRequired,
         Assets = [], MigrationState = BaseSchemaMigrationState.None
     };
+
+    private async ValueTask<string?> ReadStoreInstanceIdAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        if (!await SchemaTableExistsAsync(connection, _names.SchemaIdentity, cancellationToken).ConfigureAwait(false)) return null;
+        await using var command = connection.CreateCommand();
+        command.CommandTimeout = TimeoutSeconds();
+        command.CommandText = $"SELECT store_instance_id FROM {_names.SchemaIdentity} WHERE singleton = 1;";
+        return await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) as string;
+    }
+
+    private async ValueTask<string> GetOrCreateStoreInstanceIdAsync(CancellationToken cancellationToken)
+    {
+        await EnsureKeepAliveAsync(cancellationToken).ConfigureAwait(false);
+        await using SqliteConnection connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
+        bool transaction = false;
+        try
+        {
+            await ExecuteStoreIdentityCommandAsync(connection, "BEGIN IMMEDIATE;", cancellationToken).ConfigureAwait(false);
+            transaction = true;
+            await using (var create = connection.CreateCommand())
+            {
+                create.CommandTimeout = TimeoutSeconds();
+                create.CommandText = $"CREATE TABLE IF NOT EXISTS {_names.SchemaIdentity} (singleton INTEGER NOT NULL PRIMARY KEY CHECK (singleton = 1), store_instance_id TEXT NOT NULL);";
+                await create.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+            string candidate = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
+            await using (var insert = connection.CreateCommand())
+            {
+                insert.CommandTimeout = TimeoutSeconds();
+                insert.CommandText = $"INSERT OR IGNORE INTO {_names.SchemaIdentity}(singleton, store_instance_id) VALUES (1, $instance);";
+                insert.Parameters.AddWithValue("$instance", candidate);
+                await insert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+            string instanceId = await ReadStoreInstanceIdAsync(connection, cancellationToken).ConfigureAwait(false)
+                ?? throw new InvalidOperationException("SQLite did not persist its physical store identity.");
+            await ExecuteStoreIdentityCommandAsync(connection, "COMMIT;", CancellationToken.None).ConfigureAwait(false);
+            transaction = false;
+            return instanceId;
+        }
+        catch
+        {
+            if (transaction)
+            {
+                try { await ExecuteStoreIdentityCommandAsync(connection, "ROLLBACK;", CancellationToken.None).ConfigureAwait(false); }
+                catch { }
+            }
+            throw;
+        }
+    }
+
+    private async ValueTask ExecuteStoreIdentityCommandAsync(SqliteConnection connection, string sql, CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandTimeout = TimeoutSeconds();
+        command.CommandText = sql;
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
 
     private async ValueTask<bool> SchemaTableExistsAsync(SqliteConnection connection, string table, CancellationToken cancellationToken)
     {
@@ -287,7 +372,7 @@ public sealed partial class SqliteRecordStore
     private async ValueTask<string[]> GetAcceptedDriftAsync(SqliteConnection connection, BaseSchemaObservedAsset[] assets, CancellationToken cancellationToken)
     {
         var missing = new List<string>();
-        foreach (string core in new[] { _names.Collections, _names.ProviderState, _names.MutationJournal, _names.SchemaBaseline, _names.SchemaAssets, _names.SchemaHistory, _names.SchemaLease })
+        foreach (string core in new[] { _names.Collections, _names.ProviderState, _names.MutationJournal, _names.SchemaIdentity, _names.SchemaBaseline, _names.SchemaAssets, _names.SchemaHistory, _names.SchemaLease })
             if (!await SchemaObjectExistsAsync(connection, "table", core, cancellationToken).ConfigureAwait(false)) missing.Add("table:" + core);
         foreach (BaseSchemaObservedAsset asset in assets)
         {
@@ -412,7 +497,7 @@ public sealed partial class SqliteRecordStore
     }
 
     private async ValueTask ExecuteSchemaCommandAsync(SqliteConnection connection, string sql, TimeSpan timeout, CancellationToken cancellationToken)
-    { await using var command = connection.CreateCommand(); command.CommandTimeout = Math.Max(1, (int)Math.Ceiling(timeout.TotalSeconds)); command.CommandText = sql; await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false); }
+        => await _schemaCommands.ExecuteAsync(connection, sql, timeout, cancellationToken).ConfigureAwait(false);
     private async ValueTask<bool> TryRollbackSchemaAsync(SqliteConnection connection, TimeSpan timeout)
     { try { await ExecuteSchemaCommandAsync(connection, "ROLLBACK;", timeout, CancellationToken.None).ConfigureAwait(false); return true; } catch { return false; } }
 
@@ -591,7 +676,6 @@ public sealed partial class SqliteRecordStore
     private static void WriteNullableSchemaString(BinaryWriter writer, string? value) { writer.Write(value is not null); if (value is not null) WriteSchemaString(writer, value); }
     private static string? ReadNullableSchemaString(BinaryReader reader) => reader.ReadBoolean() ? ReadSchemaString(reader) : null;
     private static string Digest(byte[] bytes) => Convert.ToHexStringLower(SHA256.HashData(bytes));
-    private static string OpaqueSchemaId() => Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
     private static OperationResult<T> SchemaValidation<T>(string code, string message) => new() { Status = OperationStatus.ValidationFailed, Error = new BaseError { Code = code, Message = message, Category = ErrorCategory.Validation } };
     private static OperationResult<T> SchemaConflict<T>(string code, string message) => new() { Status = OperationStatus.Conflict, Error = new BaseError { Code = code, Message = message, Category = ErrorCategory.Conflict } };
     private static OperationResult<T> SchemaCapability<T>(string code, string message) => new() { Status = OperationStatus.CapabilityUnavailable, Error = new BaseError { Code = code, Message = message, Category = ErrorCategory.Capability } };

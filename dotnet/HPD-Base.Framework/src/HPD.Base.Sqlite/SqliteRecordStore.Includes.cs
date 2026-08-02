@@ -66,12 +66,16 @@ public sealed partial class SqliteRecordStore
             RecordInclude include = includes[index];
             (RelationDefinition relation, bool inverse) = ResolveInclude(parentCollection.Id, include.NavigationId);
             CollectionDefinition targetDefinition = _physical.Collection(inverse ? relation.SourceCollectionId : relation.TargetCollectionId).Definition;
-            Dictionary<string, string[]> related = await RelatedIdsBatchAsync(parents, relation, inverse, state).ConfigureAwait(false);
+            state.Dependencies.Add(targetDefinition.Id);
+            RecordIncludeSourcePolicy targetPolicy = state.Policy(targetDefinition.Id);
+            Dictionary<string, string[]> related = targetPolicy.Denied
+                ? []
+                : await RelatedIdsBatchAsync(parents, relation, inverse, state).ConfigureAwait(false);
             string[] ids = related.Values.SelectMany(static value => value).Distinct(StringComparer.Ordinal).ToArray();
             if (ids.Length > state.Request.MaxResultRows) throw new IncludeLimitException();
-            RecordEnvelope[] targets = ids.Length == 0
+            RecordEnvelope[] targets = ids.Length == 0 || targetPolicy.Denied
                 ? []
-                : (await ReadIncludePageAsync(targetDefinition, TargetQuery(ids, include, state.Policy(targetDefinition.Id), state.Request.MaxResultRows), state).ConfigureAwait(false)).Items;
+                : (await ReadIncludePageAsync(targetDefinition, TargetQuery(ids, include, targetPolicy, state.Request.MaxResultRows), state).ConfigureAwait(false)).Items;
             RecordEnvelope[] expandedTargets = include.Includes is { Length: > 0 }
                 ? await ExpandBatchAsync(targets, targetDefinition, include.Includes, state, depth + 1).ConfigureAwait(false)
                 : targets;
@@ -85,7 +89,7 @@ public sealed partial class SqliteRecordStore
                     : parentIds.Where(byId.ContainsKey);
                 int limit = include.Limit ?? 100;
                 RecordEnvelope[] nested = ordered.Take(limit)
-                    .Select(id => SelectIncludeFields(byId[id], targetDefinition, include, state.Policy(targetDefinition.Id).ReadMask)).ToArray();
+                    .Select(id => SelectIncludeFields(byId[id], targetDefinition, include, targetPolicy)).ToArray();
                 foreach (RecordEnvelope record in nested) state.Record(record);
 
                 bool many = inverse ? relation.InverseMultiplicity == BaseRelationMultiplicity.Many : relation.LocalMultiplicity == BaseRelationMultiplicity.Many;
@@ -196,10 +200,11 @@ public sealed partial class SqliteRecordStore
     };
     private static string LowerIncludeField(CollectionDefinition collection, string id) => id is "id" or "createdAt" or "updatedAt" or "revision" ? id : (collection.Fields ?? []).Single(field => field.Id == id || field.Name == id).Name;
     private static string? PayloadId(RecordPayload payload, string name) => payload.Fields is { } fields && fields.TryGetValue(name, out JsonElement value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
-    private static RecordEnvelope SelectIncludeFields(RecordEnvelope record, CollectionDefinition collection, RecordInclude include, FieldMask? mask)
+    private static RecordEnvelope SelectIncludeFields(RecordEnvelope record, CollectionDefinition collection, RecordInclude include, RecordIncludeSourcePolicy policy)
     {
-        IEnumerable<FieldDefinition> allowed = collection.Fields ?? [];
-        allowed = mask?.Mode switch { FieldMaskMode.DenyAll => [], FieldMaskMode.IncludeOnly => allowed.Where(field => (mask.Include ?? []).Contains(field.Id)), FieldMaskMode.Exclude => allowed.Where(field => !(mask.Exclude ?? []).Contains(field.Id)), _ => allowed };
+        HashSet<string> visible = policy.VisibleFieldIds.ToHashSet(StringComparer.Ordinal);
+        IEnumerable<FieldDefinition> allowed = (collection.Fields ?? []).Where(field => visible.Contains(field.Id));
+        allowed = policy.ReadMask?.Mode switch { FieldMaskMode.DenyAll => [], FieldMaskMode.IncludeOnly => allowed.Where(field => (policy.ReadMask.Include ?? []).Contains(field.Id)), FieldMaskMode.Exclude => allowed.Where(field => !(policy.ReadMask.Exclude ?? []).Contains(field.Id)), _ => allowed };
         if (include.SelectFieldIds is { } requested) allowed = allowed.Where(field => requested.Contains(field.Id));
         HashSet<string> names = allowed.Select(static field => field.Name).ToHashSet(StringComparer.Ordinal);
         Dictionary<string, JsonElement> fields = (record.Payload.Fields ?? []).Where(pair => names.Contains(pair.Key)).ToDictionary(static pair => pair.Key, static pair => pair.Value, StringComparer.Ordinal);

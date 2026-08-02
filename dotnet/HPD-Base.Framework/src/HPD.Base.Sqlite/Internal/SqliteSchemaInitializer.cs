@@ -40,6 +40,10 @@ CREATE TABLE IF NOT EXISTS {_names.ProviderState} (
   key TEXT NOT NULL PRIMARY KEY,
   value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS {_names.SchemaIdentity} (
+  singleton INTEGER NOT NULL PRIMARY KEY CHECK (singleton = 1),
+  store_instance_id TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS {_names.SchemaBaseline} (
   application_id TEXT NOT NULL PRIMARY KEY,
   store_instance_id TEXT NOT NULL,
@@ -141,6 +145,10 @@ CREATE TABLE IF NOT EXISTS {_names.ProviderState} (
 """, cancellationToken).ConfigureAwait(false);
 
         await ExecuteAsync(connection, $"""
+CREATE TABLE IF NOT EXISTS {_names.SchemaIdentity} (
+  singleton INTEGER NOT NULL PRIMARY KEY CHECK (singleton = 1),
+  store_instance_id TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS {_names.SchemaBaseline} (
   application_id TEXT NOT NULL PRIMARY KEY,
   store_instance_id TEXT NOT NULL,
@@ -268,7 +276,7 @@ ON CONFLICT(collection_id) DO UPDATE SET native_name = excluded.native_name;
     public async ValueTask<string[]> GetMissingSchemaPartsAsync(SqliteConnection connection, CancellationToken cancellationToken)
     {
         var missing = new List<string>();
-        foreach (var table in new[] { _names.Collections, _names.ProviderState, _names.MutationJournal, _names.SchemaBaseline, _names.SchemaAssets, _names.SchemaHistory, _names.SchemaLease }
+        foreach (var table in new[] { _names.Collections, _names.ProviderState, _names.MutationJournal, _names.SchemaIdentity, _names.SchemaBaseline, _names.SchemaAssets, _names.SchemaHistory, _names.SchemaLease }
             .Concat(_physical.Collections.Select(static collection => collection.Table))
             .Concat(_physical.Relations.Select(static relation => relation.Table)))
         {

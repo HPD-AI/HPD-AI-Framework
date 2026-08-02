@@ -178,7 +178,7 @@ internal sealed class DefaultBaseSchemaManager(
         if (!store.SchemaExecution.Inspect || !store.SchemaExecution.Apply) return Capability<BaseSchemaApplyResult>();
         OperationResult<BaseSchemaObservedState> inspection = await InspectAsync(store, plan.StoreId, VisibilityLevel.Admin, cancellationToken).ConfigureAwait(false);
         if (!inspection.IsSuccess() || inspection.Value is null) return Copy<BaseSchemaApplyResult, BaseSchemaObservedState>(inspection);
-        if (inspection.Value.Generation != plan.ExpectedGeneration || (inspection.Value.PersistedStoreInstanceId is not null && inspection.Value.PersistedStoreInstanceId != plan.PersistedStoreInstanceId) ||
+        if (inspection.Value.Generation != plan.ExpectedGeneration ||
             inspection.Value.AcceptedChecksum != plan.BaselineChecksum) return Failure<BaseSchemaApplyResult>(OperationStatus.Conflict, BaseSchemaErrorCodes.PlanStale, "The schema plan is stale.", ErrorCategory.Conflict);
 
         var envelope = new BaseSchemaProviderVerifiedEnvelope

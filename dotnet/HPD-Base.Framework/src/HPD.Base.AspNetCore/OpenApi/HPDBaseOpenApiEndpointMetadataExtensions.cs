@@ -37,7 +37,8 @@ internal static class HPDBaseOpenApiEndpointMetadataExtensions
         this IEndpointConventionBuilder builder,
         string operationId,
         Type parameterType,
-        Type responseType)
+        Type responseType,
+        bool isAdmin)
     {
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentException.ThrowIfNullOrWhiteSpace(operationId);
@@ -45,7 +46,7 @@ internal static class HPDBaseOpenApiEndpointMetadataExtensions
         ArgumentNullException.ThrowIfNull(responseType);
         HPDBaseOpenApiRouteMetadata metadata = FromDescriptor(
             operationId,
-            IsAdmin: false,
+            IsAdmin: isAdmin,
             IsRecord: true,
             "Execute registered read",
             "Executes one bounded typed registered read.",
@@ -146,6 +147,7 @@ internal static class HPDBaseOpenApiEndpointMetadataExtensions
         Produces<ProblemDetails>(builder, StatusCodes.Status403Forbidden, "application/problem+json");
         Produces<ProblemDetails>(builder, StatusCodes.Status404NotFound, "application/problem+json");
         Produces<ProblemDetails>(builder, StatusCodes.Status409Conflict, "application/problem+json");
+        Produces<ProblemDetails>(builder, StatusCodes.Status413PayloadTooLarge, "application/problem+json");
         Produces<ProblemDetails>(builder, StatusCodes.Status424FailedDependency, "application/problem+json");
         Produces<ProblemDetails>(builder, StatusCodes.Status429TooManyRequests, "application/problem+json");
         Produces<ProblemDetails>(builder, StatusCodes.Status500InternalServerError, "application/problem+json");

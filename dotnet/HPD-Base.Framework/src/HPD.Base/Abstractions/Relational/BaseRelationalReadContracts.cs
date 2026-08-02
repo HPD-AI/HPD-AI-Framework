@@ -371,6 +371,10 @@ public sealed record RecordIncludeSourcePolicy
     public FilterExpression? Filter { get; init; }
     /// <summary>Gets or sets read Mask.</summary>
     public FieldMask? ReadMask { get; init; }
+    /// <summary>Gets the exact schema-visible field identifiers for this source.</summary>
+    public required string[] VisibleFieldIds { get; init; }
+    /// <summary>Gets whether policy denied reading every record from this source.</summary>
+    public bool Denied { get; init; }
 }
 
 /// <summary>Defines one bounded snapshot-consistent include request.</summary>

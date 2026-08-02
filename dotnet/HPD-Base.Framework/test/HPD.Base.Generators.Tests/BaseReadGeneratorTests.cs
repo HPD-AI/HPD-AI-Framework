@@ -17,7 +17,7 @@ public sealed class BaseReadGeneratorTests
             using HPD.Base;
             using System.Text.Json.Serialization;
 
-            [BaseRead("project-name", typeof(AppJsonContext))]
+            [BaseRead("project-name", typeof(AppJsonContext), Exposure = BaseReadExposure.Admin, Authorization = BaseReadAuthorization.Admin)]
             public partial record ProjectName
             {
                 [BaseReadParameter("project-name.id")]
@@ -44,7 +44,37 @@ public sealed class BaseReadGeneratorTests
         first.Source.Should().Be(second.Source);
         first.Source.Should().Contain("BaseReadParameter<global::ProjectName, string>");
         first.Source.Should().Contain("BaseReadField<global::ProjectName.Row, string>");
+        first.Source.Should().Contain("BaseReadExposure.Admin, global::HPD.Base.BaseReadAuthorization.Admin");
         first.Source.Should().NotContain("System.Type");
+    }
+
+    [Fact]
+    public void AdminExposureWithoutAdminAuthorizationFailsGeneration()
+    {
+        const string source = """
+            using HPD.Base;
+            using System.Text.Json.Serialization;
+            [BaseRead("read", typeof(AppJsonContext), Exposure = BaseReadExposure.Admin)]
+            public partial record Read
+            {
+                [BaseReadParameter("read.value")]
+                public string Value { get; init; } = "";
+                public sealed partial record Row
+                {
+                    [BaseReadField("read.row.value")]
+                    public string Value { get; init; } = "";
+                }
+                public static void Configure(BaseReadDefinitionBuilder<Read, Row> read) { }
+            }
+            [JsonSerializable(typeof(Read))]
+            [JsonSerializable(typeof(Read.Row))]
+            public partial class AppJsonContext : JsonSerializerContext;
+            """;
+
+        var result = Run(source);
+
+        result.Diagnostics.Should().ContainSingle(diagnostic => diagnostic.Id == "HPDBASE020");
+        result.Source.Should().BeEmpty();
     }
 
     [Fact]

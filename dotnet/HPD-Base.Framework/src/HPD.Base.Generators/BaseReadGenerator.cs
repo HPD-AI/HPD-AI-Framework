@@ -55,6 +55,15 @@ public sealed class BaseReadGenerator : IIncrementalGenerator
             AttributeData attribute = Find(symbol, ReadAttribute)!;
             string id = ConstructorString(attribute, 0);
             INamedTypeSymbol jsonContext = ConstructorType(attribute, 1);
+            int exposure = NamedEnum(attribute, "Exposure", 0);
+            int authorization = NamedEnum(attribute, "Authorization", 0);
+            if (exposure is < 0 or > 2 || authorization is < 0 or > 2 ||
+                exposure == 2 && authorization == 0)
+            {
+                Report(context, symbol, id ?? symbol.Name,
+                    "exposure and authorization metadata must be valid, and admin exposure requires admin or system authorization");
+                continue;
+            }
             if (!ValidId(id) || !ids.Add(id) || !IsTopLevelPartialRecord(symbol))
             {
                 Report(context, symbol, id ?? symbol.Name,
@@ -88,6 +97,8 @@ public sealed class BaseReadGenerator : IIncrementalGenerator
                 RowFullTypeName = row.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                 JsonContext = jsonContext.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                 Id = id,
+                Exposure = exposure,
+                Authorization = authorization,
                 Parameters = parameters,
                 Fields = fields,
             };
@@ -233,7 +244,11 @@ public sealed class BaseReadGenerator : IIncrementalGenerator
             if (member.Kind is "String" or "Id") source.Append(", MaxLength = 4096");
             source.Append(", Nullable = ").Append(member.ContainerNullable ? "true" : "false").AppendLine(" },");
         }
-        source.AppendLine("            }, new HPDBaseParameterCodec(), new HPDBaseRowCodec(), Configure);\n    }");
+        source.Append("            }, new HPDBaseParameterCodec(), new HPDBaseRowCodec(), global::HPD.Base.BaseReadExposure.")
+            .Append(new[] { "None", "Public", "Admin" }[model.Exposure])
+            .Append(", global::HPD.Base.BaseReadAuthorization.")
+            .Append(new[] { "Authenticated", "Admin", "System" }[model.Authorization])
+            .AppendLine(", Configure);\n    }");
         source.AppendLine("}");
         return source.ToString();
     }
@@ -251,6 +266,8 @@ public sealed class BaseReadGenerator : IIncrementalGenerator
         SymbolEqualityComparer.Default.Equals(ConstructorType(attribute, 0), target));
     private static AttributeData Find(ISymbol symbol, string name) => symbol.GetAttributes().FirstOrDefault(attribute => attribute.AttributeClass?.ToDisplayString() == name);
     private static string ConstructorString(AttributeData attribute, int index) => attribute?.ConstructorArguments.Length > index ? attribute.ConstructorArguments[index].Value as string : null;
+    private static int NamedEnum(AttributeData attribute, string name, int fallback) =>
+        attribute.NamedArguments.FirstOrDefault(pair => pair.Key == name).Value.Value is int value ? value : fallback;
     private static INamedTypeSymbol ConstructorType(AttributeData attribute, int index) => attribute?.ConstructorArguments.Length > index ? attribute.ConstructorArguments[index].Value as INamedTypeSymbol : null;
     private static Location Location(ISymbol symbol) => symbol.Locations.FirstOrDefault(static location => location.IsInSource) ?? Microsoft.CodeAnalysis.Location.None;
     private static void Report(SourceProductionContext context, ISymbol symbol, string id, string reason) => context.ReportDiagnostic(Diagnostic.Create(InvalidRead, Location(symbol), id, reason));
@@ -336,7 +353,9 @@ public sealed class BaseReadGenerator : IIncrementalGenerator
         public string FullTypeName; /// <summary>Provides the row full type name value.</summary>
         public string RowFullTypeName; /// <summary>Provides the JSON context value.</summary>
         public string JsonContext; /// <summary>Provides the ID value.</summary>
-        public string Id; /// <summary>Provides the parameters value.</summary>
+        public string Id; /// <summary>Provides the exposure value.</summary>
+        public int Exposure; /// <summary>Provides the authorization value.</summary>
+        public int Authorization; /// <summary>Provides the parameters value.</summary>
         public List<MemberModel> Parameters; /// <summary>Provides the fields value.</summary>
         public List<MemberModel> Fields; }
     private sealed class MemberModel { /// <summary>Provides the name value.</summary>
