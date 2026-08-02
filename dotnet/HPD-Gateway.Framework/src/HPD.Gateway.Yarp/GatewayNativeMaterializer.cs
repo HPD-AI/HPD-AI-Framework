@@ -77,11 +77,11 @@ internal sealed class GatewayNativeMaterializer(IConfigValidator nativeValidator
             try
             {
                 var errors = await _nativeValidator.ValidateClusterAsync(clusters[index]).ConfigureAwait(false);
-                if (errors.Count > 0) Add(diagnostics, "native.cluster-validation-failed", $"upstreams[{index}]", "YARP rejected the materialized Cluster configuration.");
+                if (errors.Count > 0) Add(diagnostics, "native.cluster-validation-failed", $"upstreams[id={clusters[index].ClusterId}]", "YARP rejected the materialized Cluster configuration.");
             }
             catch (Exception)
             {
-                Add(diagnostics, "native.cluster-validation-failed", $"upstreams[{index}]", "YARP native Cluster validation failed unexpectedly.");
+                Add(diagnostics, "native.cluster-validation-failed", $"upstreams[id={clusters[index].ClusterId}]", "YARP native Cluster validation failed unexpectedly.");
             }
         }
         for (var index = 0; index < routes.Length && diagnostics.Count < MaximumDiagnostics; index++)
@@ -91,11 +91,11 @@ internal sealed class GatewayNativeMaterializer(IConfigValidator nativeValidator
             try
             {
                 var errors = await _nativeValidator.ValidateRouteAsync(routes[index]).ConfigureAwait(false);
-                if (errors.Count > 0) Add(diagnostics, "native.route-validation-failed", $"routes[{index}]", "YARP rejected the materialized Route configuration.");
+                if (errors.Count > 0) Add(diagnostics, "native.route-validation-failed", $"routes[id={routes[index].RouteId}]", "YARP rejected the materialized Route configuration.");
             }
             catch (Exception)
             {
-                Add(diagnostics, "native.route-validation-failed", $"routes[{index}]", "YARP native Route validation failed unexpectedly.");
+                Add(diagnostics, "native.route-validation-failed", $"routes[id={routes[index].RouteId}]", "YARP native Route validation failed unexpectedly.");
             }
         }
         if (diagnostics.Count > 0) return GatewayMaterializationResult.Rejected(diagnostics.ToImmutable());

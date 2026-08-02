@@ -3,6 +3,9 @@ using HPD.Gateway.Abstractions;
 using HPD.Gateway.Abstractions.Serialization;
 using HPD.Gateway.Core;
 using HPD.Gateway.Yarp;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.OutputCaching;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.DependencyInjection;
 using Yarp.ReverseProxy.Configuration;
 
@@ -276,16 +279,27 @@ if (!canonical.IsCanonicalized || canonical.Document!.ContentHash.Value.Length !
     throw new InvalidOperationException("Canonicalization or content hashing failed.");
 }
 
+var supportedRouteDeclarations = configuration.Routes[0].Declarations!;
 var materializableConfiguration = configuration with
 {
-    Definitions = new GatewayDefinitions(),
-    RootDefaults = new GatewayRootDeclarations(),
+    Definitions = new GatewayDefinitions
+    {
+        Authorization = configuration.Definitions!.Authorization,
+        Cors = configuration.Definitions.Cors,
+        TrafficAdmission = configuration.Definitions.TrafficAdmission,
+        RequestTimeout = configuration.Definitions.RequestTimeout,
+        OutputCache = configuration.Definitions.OutputCache
+    },
+    RootDefaults = new GatewayRootDeclarations
+    {
+        Cors = configuration.RootDefaults!.Cors,
+        TrafficAdmission = configuration.RootDefaults.TrafficAdmission,
+        RequestTimeout = configuration.RootDefaults.RequestTimeout
+    },
     Upstreams =
     [
         configuration.Upstreams[0] with
         {
-            SessionAffinity = null,
-            HealthChecks = null,
             Transport = configuration.Upstreams[0].Transport with { Tls = null }
         }
     ],
@@ -293,11 +307,12 @@ var materializableConfiguration = configuration with
     [
         configuration.Routes[0] with
         {
-            Listener = null,
             Declarations = new RouteDeclarations
             {
-                RequestTransforms = configuration.Routes[0].Declarations!.RequestTransforms,
-                ResponseTransforms = configuration.Routes[0].Declarations!.ResponseTransforms
+                Authorization = supportedRouteDeclarations.Authorization,
+                OutputCache = supportedRouteDeclarations.OutputCache,
+                RequestTransforms = supportedRouteDeclarations.RequestTransforms,
+                ResponseTransforms = supportedRouteDeclarations.ResponseTransforms
             }
         }
     ]
@@ -308,6 +323,14 @@ if (!materializableRead.IsAccepted) throw new InvalidOperationException("Materia
 
 var services = new ServiceCollection();
 services.AddLogging();
+services.AddAuthorizationBuilder().AddPolicy("GatewayUsers", policy => policy.RequireAssertion(_ => true));
+services.AddCors(options => options.AddPolicy("GatewayCors", policy => policy.AllowAnyOrigin()));
+services.AddRateLimiter(options => options.AddFixedWindowLimiter("GatewayAdmission", limiter =>
+{
+    limiter.PermitLimit = 10;
+    limiter.Window = TimeSpan.FromMinutes(1);
+}));
+services.AddOutputCache(options => options.AddPolicy("GatewayCache", policy => policy.Expire(TimeSpan.FromSeconds(10))));
 services.AddReverseProxy();
 services.AddHpdGatewayYarpPublication();
 services.AddHpdGatewayYarpMaterialization();
@@ -322,7 +345,8 @@ var materialized = await materializer.MaterializeAsync(
         1,
         materializableRead.CanonicalDocument!.ContentHash),
     "native-aot-smoke");
-if (!materialized.IsMaterialized) throw new InvalidOperationException("Native AOT materialization failed.");
+if (!materialized.IsMaterialized)
+    throw new InvalidOperationException($"Native AOT materialization failed: {string.Join(", ", materialized.Diagnostics.Select(item => $"{item.Code}@{item.Path}"))}");
 
 var publicationBundle = materialized.Bundle!;
 var proxyProvider = serviceProvider.GetRequiredService<HpdProxyConfigProvider>();

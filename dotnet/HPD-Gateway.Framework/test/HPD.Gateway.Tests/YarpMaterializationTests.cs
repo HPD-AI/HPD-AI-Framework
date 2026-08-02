@@ -247,6 +247,75 @@ public sealed class YarpMaterializationTests
     }
 
     [Fact]
+    public async Task NativeValidationDiagnosticsUseStableResourceIdsAfterSorting()
+    {
+        var configuration = Configuration() with
+        {
+            Routes =
+            [
+                Route("z") with { Match = new HttpRouteMatch { Path = "/z" } },
+                Route("a") with { Match = new HttpRouteMatch { Path = "/a" } }
+            ],
+            Upstreams =
+            [
+                Upstream() with { Id = new UpstreamId("z") },
+                Upstream() with { Id = new UpstreamId("a") }
+            ]
+        };
+        configuration = configuration with
+        {
+            Routes =
+            [
+                configuration.Routes[0] with { Upstream = new UpstreamId("z") },
+                configuration.Routes[1] with { Upstream = new UpstreamId("a") }
+            ]
+        };
+        var accepted = Read(configuration, Capabilities());
+
+        var result = await new GatewayNativeMaterializer(new SelectiveRejectingConfigValidator("a"))
+            .MaterializeAsync(accepted, Identity(accepted), "native-correlated");
+
+        result.Diagnostics.Should().Contain(item => item.Path == "upstreams[id=a]");
+        result.Diagnostics.Should().Contain(item => item.Path == "routes[id=a]");
+        result.Diagnostics.Should().NotContain(item => item.Path.EndsWith("[0]", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("tls")]
+    [InlineData("telemetry")]
+    public async Task EachDeferredRuntimeSelectionFailsClosed(string selection)
+    {
+        var configuration = selection == "tls"
+            ? Configuration("https://127.0.0.1:5001/") with
+            {
+                Upstreams =
+                [
+                    Upstream("https://127.0.0.1:5001/") with
+                    {
+                        Transport = new UpstreamTransportDeclaration
+                        {
+                            UseProxy = false,
+                            Tls = new UpstreamTlsDeclaration { ServerName = "backend.local" }
+                        }
+                    }
+                ]
+            }
+            : Configuration() with
+            {
+                RootDefaults = new GatewayRootDeclarations
+                {
+                    Telemetry = Inline(new TelemetryEnrichment { Attributes = [new MetadataEntry("area", "orders")] })
+                }
+            };
+
+        var result = await Materialize(configuration);
+
+        result.Bundle.Should().BeNull();
+        result.Diagnostics.Should().ContainSingle(item => item.Code == $"materialization.{selection}-runtime-required" ||
+            item.Code == $"materialization.{selection}-resolution-required");
+    }
+
+    [Fact]
     public async Task NativeValidationExceptionAndCancellationAreBoundedRejections()
     {
         var accepted = Read(Configuration(), Capabilities());
@@ -323,24 +392,105 @@ public sealed class YarpMaterializationTests
     }
 
     [Fact]
-    public async Task HpdMaterializedAndDirectYarpForwardIdentically()
+    public async Task HpdMaterializedAndDirectYarpForwardAndReloadIdentically()
     {
-        await using var backend = await StartBackend();
-        var backendAddress = Address(backend);
-        var configuration = Configuration(backendAddress);
-        var accepted = Read(configuration, Capabilities());
+        await using var firstBackend = await StartBackend("first");
+        await using var secondBackend = await StartBackend("second");
+        var added = ForwardingConfiguration(Address(firstBackend), "one");
+        var changed = ForwardingConfiguration(Address(secondBackend), "two");
+        var removed = changed with { Routes = [] };
+        var readded = ForwardingConfiguration(Address(firstBackend), "three");
 
-        await using var hpd = await StartHpdProxy(accepted);
-
-        var native = await Materialize(configuration);
-        await using var direct = await StartDirectProxy(native.Bundle!);
+        var firstNative = await Materialize(added);
+        await using var hpd = await StartHpdProxy();
+        await using var direct = await StartDirectProxy(firstNative.Bundle!);
         using var client = new HttpClient();
 
-        var hpdResponse = await client.GetStringAsync(new Uri(new Uri(Address(hpd)), "/proxy/value"));
-        var directResponse = await client.GetStringAsync(new Uri(new Uri(Address(direct)), "/proxy/value"));
+        await PublishHpd(hpd, added, 1);
+        await AssertEquivalentForwarding(client, hpd, direct, "first:/items/value:one", "one");
 
-        hpdResponse.Should().Be("backend:/proxy/value");
-        directResponse.Should().Be(hpdResponse);
+        await ReloadBoth(hpd, direct, changed, 2);
+        await AssertEquivalentForwarding(client, hpd, direct, "second:/items/value:two", "two");
+
+        await ReloadBoth(hpd, direct, removed, 3);
+        await AssertEquivalentStatus(client, hpd, direct, HttpStatusCode.NotFound);
+
+        await ReloadBoth(hpd, direct, readded, 4);
+        await AssertEquivalentForwarding(client, hpd, direct, "first:/items/value:three", "three");
+    }
+
+    private static GatewayConfiguration ForwardingConfiguration(string address, string transformValue) => Configuration(address) with
+    {
+        Routes =
+        [
+            Route("route") with
+            {
+                Match = new HttpRouteMatch
+                {
+                    Path = "/items/{**rest}",
+                    Methods = ["GET"],
+                    Hosts = ["gateway.local"],
+                    Headers = [new HttpHeaderMatch { Name = "X-Tenant", Kind = TextMatchKind.Exact, Values = ["yes"] }],
+                    Query = [new HttpQueryMatch { Name = "ready", Kind = TextMatchKind.Exists }]
+                },
+                Declarations = new RouteDeclarations
+                {
+                    Authorization = Inline(new NamedAuthorizationPolicy("route-auth")),
+                    RequestTransforms = new OrderedRequestTransforms
+                    {
+                        Headers = [new RequestHeaderTransform { Kind = HeaderTransformKind.Set, Name = "X-Gateway", Value = transformValue }]
+                    },
+                    ResponseTransforms = new OrderedResponseTransforms
+                    {
+                        Headers = [new ResponseHeaderTransform { Kind = HeaderTransformKind.Set, Name = "X-Reload", Value = transformValue }]
+                    }
+                }
+            }
+        ]
+    };
+
+    private static async Task ReloadBoth(WebApplication hpd, WebApplication direct, GatewayConfiguration configuration, ulong version)
+    {
+        await PublishHpd(hpd, configuration, version);
+        var native = await Materialize(configuration);
+        direct.Services.GetRequiredService<InMemoryConfigProvider>().Update(native.Bundle!.Routes, native.Bundle.Clusters);
+    }
+
+    private static async Task PublishHpd(WebApplication app, GatewayConfiguration configuration, ulong version)
+    {
+        var accepted = Read(configuration, Capabilities());
+        var identity = new PublicationCandidateIdentity(new CandidateId($"candidate-{version}"), "authority", "epoch", version, accepted.CanonicalDocument!.ContentHash);
+        var result = await app.Services.GetRequiredService<GatewayNativeMaterializer>()
+            .MaterializeAsync(accepted, identity, $"native-forward-{version}");
+        result.IsMaterialized.Should().BeTrue(string.Join(", ", result.Diagnostics.Select(item => item.Code)));
+        var outcome = await app.Services.GetRequiredService<GatewayYarpPublisher>().PublishAsync(result.Bundle!, TimeSpan.FromSeconds(5));
+        outcome.State.Should().Be(GatewayPublicationState.ActiveAcknowledged);
+    }
+
+    private static async Task AssertEquivalentForwarding(HttpClient client, WebApplication hpd, WebApplication direct, string expectedBody, string expectedHeader)
+    {
+        var hpdResponse = await SendMatched(client, hpd);
+        var directResponse = await SendMatched(client, direct);
+        hpdResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        directResponse.StatusCode.Should().Be(hpdResponse.StatusCode);
+        (await hpdResponse.Content.ReadAsStringAsync()).Should().Be(expectedBody);
+        (await directResponse.Content.ReadAsStringAsync()).Should().Be(expectedBody);
+        hpdResponse.Headers.GetValues("X-Reload").Should().Equal(expectedHeader);
+        directResponse.Headers.GetValues("X-Reload").Should().Equal(expectedHeader);
+    }
+
+    private static async Task AssertEquivalentStatus(HttpClient client, WebApplication hpd, WebApplication direct, HttpStatusCode expected)
+    {
+        (await SendMatched(client, hpd)).StatusCode.Should().Be(expected);
+        (await SendMatched(client, direct)).StatusCode.Should().Be(expected);
+    }
+
+    private static Task<HttpResponseMessage> SendMatched(HttpClient client, WebApplication app)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, new Uri(new Uri(Address(app)), "/items/value?ready=1"));
+        request.Headers.Host = "gateway.local";
+        request.Headers.Add("X-Tenant", "yes");
+        return client.SendAsync(request);
     }
 
     private static async Task<GatewayMaterializationResult> Materialize(GatewayConfiguration configuration, HostCapabilitySnapshot? capabilities = null)
@@ -409,32 +559,28 @@ public sealed class YarpMaterializationTests
             : []
     });
 
-    private static async Task<WebApplication> StartBackend()
+    private static async Task<WebApplication> StartBackend(string name)
     {
         var builder = WebApplication.CreateSlimBuilder();
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         var app = builder.Build();
-        app.Map("/{**path}", (HttpContext context) => $"backend:{context.Request.Path}");
+        app.Map("/{**path}", (HttpContext context) => $"{name}:{context.Request.Path}:{context.Request.Headers["X-Gateway"]}");
         await app.StartAsync();
         return app;
     }
 
-    private static async Task<WebApplication> StartHpdProxy(GatewayCandidateReadResult accepted)
+    private static async Task<WebApplication> StartHpdProxy()
     {
         var builder = WebApplication.CreateSlimBuilder();
         builder.WebHost.UseUrls("http://127.0.0.1:0");
+        builder.Services.AddAuthorizationBuilder().AddPolicy("route-auth", policy => policy.RequireAssertion(_ => true));
         builder.Services.AddReverseProxy();
         builder.Services.AddHpdGatewayYarpPublication();
         builder.Services.AddHpdGatewayYarpMaterialization();
         var app = builder.Build();
+        app.UseAuthorization();
         app.MapReverseProxy();
         await app.StartAsync();
-        var materializer = app.Services.GetRequiredService<GatewayNativeMaterializer>();
-        var result = await materializer.MaterializeAsync(accepted, Identity(accepted), "native-forward");
-        result.IsMaterialized.Should().BeTrue(string.Join(", ", result.Diagnostics.Select(item => item.Code)));
-        var publisher = app.Services.GetRequiredService<GatewayYarpPublisher>();
-        var publication = publisher.PublishAsync(result.Bundle!, TimeSpan.FromSeconds(5));
-        (await publication).State.Should().Be(GatewayPublicationState.ActiveAcknowledged);
         return app;
     }
 
@@ -442,8 +588,10 @@ public sealed class YarpMaterializationTests
     {
         var builder = WebApplication.CreateSlimBuilder();
         builder.WebHost.UseUrls("http://127.0.0.1:0");
+        builder.Services.AddAuthorizationBuilder().AddPolicy("route-auth", policy => policy.RequireAssertion(_ => true));
         builder.Services.AddReverseProxy().LoadFromMemory(bundle.Routes, bundle.Clusters);
         var app = builder.Build();
+        app.UseAuthorization();
         app.MapReverseProxy();
         await app.StartAsync();
         return app;
@@ -464,6 +612,15 @@ public sealed class YarpMaterializationTests
     {
         public ValueTask<IList<Exception>> ValidateRouteAsync(RouteConfig route) => ValueTask.FromResult<IList<Exception>>([new InvalidOperationException()]);
         public ValueTask<IList<Exception>> ValidateClusterAsync(ClusterConfig cluster) => ValueTask.FromResult<IList<Exception>>([new InvalidOperationException()]);
+    }
+
+    private sealed class SelectiveRejectingConfigValidator(string rejectedId) : IConfigValidator
+    {
+        public ValueTask<IList<Exception>> ValidateRouteAsync(RouteConfig route) =>
+            ValueTask.FromResult<IList<Exception>>(route.RouteId == rejectedId ? [new InvalidOperationException()] : []);
+
+        public ValueTask<IList<Exception>> ValidateClusterAsync(ClusterConfig cluster) =>
+            ValueTask.FromResult<IList<Exception>>(cluster.ClusterId == rejectedId ? [new InvalidOperationException()] : []);
     }
 
     private sealed class ThrowingConfigValidator : IConfigValidator
