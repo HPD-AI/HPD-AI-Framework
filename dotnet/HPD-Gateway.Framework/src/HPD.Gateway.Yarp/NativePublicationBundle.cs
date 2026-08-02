@@ -10,6 +10,8 @@ internal sealed record NativePublicationBundle(
     ImmutableArray<RouteConfig> Routes,
     ImmutableArray<ClusterConfig> Clusters)
 {
+    internal const int MaximumNativeRevisionIdLength = 256;
+
     internal static NativePublicationBundle Create(
         PublicationCandidateIdentity identity,
         ImmutableArray<RouteConfig> routes,
@@ -21,6 +23,9 @@ internal sealed record NativePublicationBundle(
         if (string.IsNullOrWhiteSpace(identity.AuthorityId) || string.IsNullOrWhiteSpace(identity.AuthorityEpoch)) throw new ArgumentException("Authority identity and epoch are required.", nameof(identity));
         if (identity.ContentHash.Algorithm != "sha-256" || identity.ContentHash.Value?.Length != 64) throw new ArgumentException("A canonical SHA-256 content identity is required.", nameof(identity));
         if (routes.IsDefault || clusters.IsDefault) throw new ArgumentException("Native publication arrays must be initialized.");
-        return new NativePublicationBundle(identity, nativeRevisionId ?? $"hpd-{Guid.NewGuid():N}", routes, clusters);
+        var revision = nativeRevisionId ?? $"hpd-{Guid.NewGuid():N}";
+        if (string.IsNullOrWhiteSpace(revision) || revision.Length > MaximumNativeRevisionIdLength || revision.Any(char.IsControl))
+            throw new ArgumentException($"Native revision identity must be nonblank, at most {MaximumNativeRevisionIdLength} characters, and contain no control characters.", nameof(nativeRevisionId));
+        return new NativePublicationBundle(identity, revision, routes, clusters);
     }
 }

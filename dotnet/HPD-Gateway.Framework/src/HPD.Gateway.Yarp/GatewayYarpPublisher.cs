@@ -9,13 +9,15 @@ internal sealed class GatewayYarpPublisher : IDisposable
     private readonly HpdProxyConfigProvider _provider;
     private readonly HpdConfigChangeListener _listener;
     private readonly SemaphoreSlim _publicationLease = new(1, 1);
+    private readonly CancellationTokenSource _lifetime = new();
     private readonly object _stateLock = new();
+    private readonly object _lifecycleLock = new();
     private readonly Dictionary<AttemptKey, Attempt> _attempts = [];
     private readonly Dictionary<string, AttemptKey> _authorityHeads = new(StringComparer.Ordinal);
     private readonly Queue<AttemptKey> _attemptOrder = [];
     private readonly HashSet<string> _nativeRevisions = new(StringComparer.Ordinal);
     private ActivePublicationIdentity? _lastKnownGood;
-    private bool _disposed;
+    private volatile bool _disposed;
 
     internal GatewayYarpPublisher(
         HpdProxyConfigProvider provider,
@@ -56,10 +58,16 @@ internal sealed class GatewayYarpPublisher : IDisposable
                     immediate = Immediate(GatewayPublicationState.IdentityConflict, bundle, "candidate.epoch-conflict", "Authority epoch changes require an explicit reset operation.");
                 else if (key.Version < head.Version)
                     immediate = Immediate(GatewayPublicationState.Stale, bundle, "candidate.stale", "A newer authority version is already admitted.");
+                else if (!EnsureAttemptCapacity())
+                    immediate = CapacityExceeded(bundle);
                 else if (!_nativeRevisions.Add(bundle.NativeRevisionId))
                     immediate = Immediate(GatewayPublicationState.IdentityConflict, bundle, "publication.revision-reused", "Native revision correlation must be unique.");
                 else
                     attempt = Admit(bundle, key);
+            }
+            else if (_authorityHeads.Count >= MaximumRememberedAttempts || !EnsureAttemptCapacity())
+            {
+                immediate = CapacityExceeded(bundle);
             }
             else if (!_nativeRevisions.Add(bundle.NativeRevisionId))
             {
@@ -83,7 +91,6 @@ internal sealed class GatewayYarpPublisher : IDisposable
         _attempts.Add(key, attempt);
         _authorityHeads[bundle.Identity.AuthorityId] = key;
         _attemptOrder.Enqueue(key);
-        PruneHistory();
         return attempt;
     }
 
@@ -95,7 +102,8 @@ internal sealed class GatewayYarpPublisher : IDisposable
         {
             try
             {
-                await _publicationLease.WaitAsync(cancellationToken).ConfigureAwait(false);
+                using var preExchange = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
+                await _publicationLease.WaitAsync(preExchange.Token).ConfigureAwait(false);
                 acquired = true;
             }
             catch (OperationCanceledException)
@@ -114,7 +122,7 @@ internal sealed class GatewayYarpPublisher : IDisposable
                 }
             }
 
-            if (cancellationToken.IsCancellationRequested)
+            if (cancellationToken.IsCancellationRequested || _disposed)
             {
                 Complete(attempt, Immediate(GatewayPublicationState.CanceledBeforePublish, attempt.Bundle, "publication.canceled-before-publish", "Publication was canceled before entering the native boundary."));
                 return;
@@ -122,14 +130,24 @@ internal sealed class GatewayYarpPublisher : IDisposable
 
             snapshot = _provider.Prepare(attempt.Bundle);
             var acknowledgement = _listener.Register(snapshot);
-            try
+            lock (_lifecycleLock)
             {
-                _provider.Install(snapshot);
-            }
-            catch
-            {
-                Complete(attempt, Indeterminate(attempt.Bundle, "publication.notification-failed", "Native state exchanged, but change notification failed."));
-                return;
+                if (cancellationToken.IsCancellationRequested || _disposed)
+                {
+                    Complete(attempt, Immediate(GatewayPublicationState.CanceledBeforePublish, attempt.Bundle, "publication.canceled-before-publish", "Publication was canceled immediately before native exchange."));
+                    return;
+                }
+
+                attempt.Boundary = PublicationBoundary.ExchangeStarted;
+                try
+                {
+                    _provider.Install(snapshot);
+                }
+                catch
+                {
+                    Complete(attempt, Indeterminate(attempt.Bundle, "publication.notification-failed", "Native state exchanged, but change notification failed."));
+                    return;
+                }
             }
 
             NativeAcknowledgement observed;
@@ -161,9 +179,11 @@ internal sealed class GatewayYarpPublisher : IDisposable
         }
         catch (Exception)
         {
-            Complete(attempt, snapshot is null
-                ? Immediate(GatewayPublicationState.RejectedBeforePublish, attempt.Bundle, "publication.preparation-failed", "Publication failed before native exchange.")
-                : Indeterminate(attempt.Bundle, "publication.correlation-lost", "Publication correlation was unexpectedly interrupted."));
+            Complete(attempt, attempt.Boundary == PublicationBoundary.ExchangeStarted
+                ? Indeterminate(attempt.Bundle, "publication.correlation-lost", "Publication correlation was unexpectedly interrupted.")
+                : cancellationToken.IsCancellationRequested || _disposed
+                    ? Immediate(GatewayPublicationState.CanceledBeforePublish, attempt.Bundle, "publication.canceled-before-publish", "Publication stopped before native exchange.")
+                    : Immediate(GatewayPublicationState.RejectedBeforePublish, attempt.Bundle, "publication.preparation-failed", "Publication failed before native exchange."));
         }
         finally
         {
@@ -207,24 +227,37 @@ internal sealed class GatewayYarpPublisher : IDisposable
 
     private void PruneHistory()
     {
-        var inspected = 0;
-        while (_attempts.Count > MaximumRememberedAttempts && _attemptOrder.Count > 0 && inspected++ <= _attemptOrder.Count)
+        var count = _attemptOrder.Count;
+        for (var index = 0; index < count; index++)
         {
             var key = _attemptOrder.Dequeue();
             var isHead = _authorityHeads.TryGetValue(key.Authority, out var head) && head == key;
             if (!isHead && _attempts.TryGetValue(key, out var attempt) && attempt.Completion.Task.IsCompleted)
+            {
                 _attempts.Remove(key);
-            else
+                _nativeRevisions.Remove(attempt.Bundle.NativeRevisionId);
+            }
+            else if (_attempts.ContainsKey(key))
                 _attemptOrder.Enqueue(key);
         }
     }
 
+    private bool EnsureAttemptCapacity()
+    {
+        PruneHistory();
+        return _attempts.Count < MaximumRememberedAttempts;
+    }
+
+    private GatewayPublicationOutcome CapacityExceeded(NativePublicationBundle bundle) =>
+        Immediate(GatewayPublicationState.RejectedBeforePublish, bundle, "publication.admission-capacity-exceeded", "The bounded publication identity history is full; restart or explicit future authority retirement is required before admitting another candidate.");
+
     public void Dispose()
     {
-        lock (_stateLock)
+        lock (_lifecycleLock)
         {
             if (_disposed) return;
             _disposed = true;
+            _lifetime.Cancel();
         }
         _listener.Dispose();
     }
@@ -237,6 +270,13 @@ internal sealed class GatewayYarpPublisher : IDisposable
     private sealed class Attempt(NativePublicationBundle bundle)
     {
         internal NativePublicationBundle Bundle { get; } = bundle;
+        internal PublicationBoundary Boundary { get; set; }
         internal TaskCompletionSource<GatewayPublicationOutcome> Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
+
+    private enum PublicationBoundary : byte
+    {
+        PreExchange,
+        ExchangeStarted
     }
 }

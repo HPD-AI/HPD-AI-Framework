@@ -113,6 +113,18 @@ public sealed class YarpPublicationTests
     }
 
     [Fact]
+    public async Task ListenerRegistrationFailureIsRejectedBeforePublish()
+    {
+        using var fixture = new PublisherFixture();
+        fixture.Listener.Dispose();
+        var outcome = await fixture.Publisher.PublishAsync(Bundle(1), TimeSpan.FromSeconds(2));
+
+        outcome.State.Should().Be(GatewayPublicationState.RejectedBeforePublish);
+        outcome.Diagnostics.Should().ContainSingle(item => item.Code == "publication.preparation-failed");
+        fixture.Provider.GetConfig().RevisionId.Should().StartWith("hpd-bootstrap-");
+    }
+
+    [Fact]
     public async Task CallerCancellationAfterExchangeCannotCancelPublication()
     {
         using var fixture = new PublisherFixture();
@@ -252,6 +264,69 @@ public sealed class YarpPublicationTests
     }
 
     [Fact]
+    public async Task DisposalMakesQueuedAttemptSafeWithoutMutatingNativeState()
+    {
+        var fixture = new PublisherFixture();
+        var first = Bundle(1);
+        var firstTask = fixture.Publisher.PublishAsync(first, TimeSpan.FromSeconds(2));
+        await fixture.WaitForRevision(first.NativeRevisionId);
+        var second = Bundle(2);
+        var secondTask = fixture.Publisher.PublishAsync(second, TimeSpan.FromSeconds(2));
+
+        fixture.Publisher.Dispose();
+
+        (await firstTask).State.Should().Be(GatewayPublicationState.PublicationIndeterminate);
+        (await secondTask).State.Should().Be(GatewayPublicationState.CanceledBeforePublish);
+        fixture.Provider.GetConfig().RevisionId.Should().Be(first.NativeRevisionId);
+        fixture.Dispose();
+    }
+
+    [Fact]
+    public async Task DistinctAuthorityAdmissionIsBounded()
+    {
+        var fixture = new PublisherFixture();
+        var admitted = new List<Task<GatewayPublicationOutcome>>(4_096);
+        for (var index = 0; index < 4_096; index++)
+            admitted.Add(fixture.Publisher.PublishAsync(AuthorityBundle(index), TimeSpan.FromMinutes(1)));
+
+        var rejected = await fixture.Publisher.PublishAsync(AuthorityBundle(4_096), TimeSpan.FromMinutes(1));
+        rejected.State.Should().Be(GatewayPublicationState.RejectedBeforePublish);
+        rejected.Diagnostics.Should().ContainSingle(item => item.Code == "publication.admission-capacity-exceeded");
+
+        fixture.Publisher.Dispose();
+        var outcomes = await Task.WhenAll(admitted);
+        outcomes.Should().ContainSingle(item => item.State == GatewayPublicationState.PublicationIndeterminate);
+        outcomes.Count(item => item.State == GatewayPublicationState.CanceledBeforePublish).Should().Be(4_095);
+        fixture.Dispose();
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("native\nrevision")]
+    public void NativeRevisionIdentityMustBeBoundedAndSafe(string revision)
+    {
+        var action = () => NativePublicationBundle.Create(
+            new PublicationCandidateIdentity(new CandidateId("candidate"), "authority", "epoch", 1, Hash('a')),
+            [],
+            [],
+            revision);
+
+        action.Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void NativeRevisionIdentityRejectsOversizedValue()
+    {
+        var action = () => NativePublicationBundle.Create(
+            new PublicationCandidateIdentity(new CandidateId("candidate"), "authority", "epoch", 1, Hash('a')),
+            [],
+            [],
+            new string('r', NativePublicationBundle.MaximumNativeRevisionIdLength + 1));
+
+        action.Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
     public async Task FreshProcessPublisherCanReplayDurableCandidateIntent()
     {
         var identity = new PublicationCandidateIdentity(new CandidateId("replay"), "authority", "epoch-1", 7, Hash('a'));
@@ -277,6 +352,12 @@ public sealed class YarpPublicationTests
         ImmutableArray<ClusterConfig>.Empty,
         $"native-{version}-{Guid.NewGuid():N}");
 
+    private static NativePublicationBundle AuthorityBundle(int authority) => NativePublicationBundle.Create(
+        new PublicationCandidateIdentity(new CandidateId($"candidate-{authority}"), $"authority-{authority}", "epoch-1", 1, Hash('a')),
+        [],
+        [],
+        $"native-authority-{authority}");
+
     private static ContentHash Hash(char value) => new("sha-256", new string(value, 64));
 
     private sealed class PublisherFixture : IDisposable
@@ -293,11 +374,12 @@ public sealed class YarpPublicationTests
 
         internal async Task<IProxyConfig> WaitForRevision(string revision)
         {
-            for (var index = 0; index < 1_000; index++)
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            while (!timeout.IsCancellationRequested)
             {
                 var current = Provider.GetConfig();
                 if (current.RevisionId == revision) return current;
-                await Task.Yield();
+                await Task.Delay(1, timeout.Token).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
             }
             throw new TimeoutException($"Revision '{revision}' was not installed.");
         }
