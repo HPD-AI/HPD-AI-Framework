@@ -11,7 +11,7 @@ namespace HPD.Gateway.Abstractions.Serialization;
     GenerationMode = JsonSourceGenerationMode.Default)]
 [JsonSerializable(typeof(GatewayConfiguration))]
 [JsonSerializable(typeof(GatewayConfigurationParseResult))]
-[JsonSerializable(typeof(GatewayConfigurationReadResult))]
+[JsonSerializable(typeof(GatewayPortableDocumentResult))]
 [JsonSerializable(typeof(GatewayCanonicalizationResult))]
 [JsonSerializable(typeof(GatewayValidationResult))]
 public partial class GatewayJsonSerializerContext : JsonSerializerContext;

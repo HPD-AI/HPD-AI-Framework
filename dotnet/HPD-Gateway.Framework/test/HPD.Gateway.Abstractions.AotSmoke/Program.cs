@@ -245,18 +245,21 @@ var configuration = new GatewayConfiguration
 };
 
 var json = JsonSerializer.SerializeToUtf8Bytes(configuration, GatewayJsonSerializerContext.Default.GatewayConfiguration);
-var capabilities = new HostCapabilitySnapshot
+var capabilities = HostCapabilitySnapshot.Create(new HostCapabilityRegistration
 {
-    AuthorizationPolicies = ImmutableHashSet.Create(StringComparer.Ordinal, "GatewayUsers"),
-    CorsPolicies = ImmutableHashSet.Create(StringComparer.Ordinal, "GatewayCors"),
-    TrafficAdmissionPolicies = ImmutableHashSet.Create(StringComparer.Ordinal, "GatewayAdmission"),
-    OutputCachePolicies = ImmutableHashSet.Create(StringComparer.Ordinal, "GatewayCache"),
-    SessionAffinityPolicies = ImmutableHashSet.Create(StringComparer.Ordinal, "Cookie"),
-    SessionAffinityFailurePolicies = ImmutableHashSet.Create(StringComparer.Ordinal, "Redistribute"),
-    PassiveHealthPolicies = ImmutableHashSet.Create(StringComparer.Ordinal, "TransportFailureRate"),
-    ActiveHealthPolicies = ImmutableHashSet.Create(StringComparer.Ordinal, "ConsecutiveFailures"),
-    Listeners = [new ListenerId("https")]
-};
+    InstalledFamilies = GatewayDeclarationFamilies.AllBaseline,
+    AuthorizationPolicies = ["GatewayUsers"],
+    CorsPolicies = ["GatewayCors"],
+    TrafficAdmissionPolicies = ["GatewayAdmission"],
+    OutputCachePolicies = ["GatewayCache"],
+    SessionAffinityPolicies = ["Cookie"],
+    SessionAffinityFailurePolicies = ["Redistribute"],
+    PassiveHealthPolicies = ["TransportFailureRate"],
+    ActiveHealthPolicies = ["ConsecutiveFailures"],
+    Listeners = [new ListenerCapability(new ListenerId("https"), ListenerRole.DataPlane, ListenerProtocols.Http1 | ListenerProtocols.Http2, ["gateway.local"], true)],
+    DiscoveryProviders = [new DiscoveryProviderCapability(new ProviderId("dns"), ["region"], ["region"], false, true)],
+    SecretProviders = [new ProviderId("secrets")]
+});
 var read = GatewayCandidateReader.Read(json, capabilities);
 if (!read.IsAccepted)
 {
@@ -272,7 +275,6 @@ if (!canonical.IsCanonicalized || canonical.Document!.ContentHash.Value.Length !
 }
 
 _ = JsonSerializer.SerializeToUtf8Bytes(validation, GatewayJsonSerializerContext.Default.GatewayValidationResult);
-_ = JsonSerializer.SerializeToUtf8Bytes(read, GatewayJsonSerializerContext.Default.GatewayConfigurationReadResult);
 _ = JsonSerializer.SerializeToUtf8Bytes(canonical, GatewayJsonSerializerContext.Default.GatewayCanonicalizationResult);
 
 Console.WriteLine(

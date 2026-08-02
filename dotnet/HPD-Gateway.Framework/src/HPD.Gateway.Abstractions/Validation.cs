@@ -48,11 +48,6 @@ public static class GatewayConfigurationValidator
     public const int MaximumMetadataValueLength = 4_096;
     public static readonly TimeSpan MaximumOperationalDuration = TimeSpan.FromDays(1);
 
-    private static readonly HashSet<string> SupportedMethods = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "HEAD", "OPTIONS", "GET", "PUT", "POST", "PATCH", "DELETE", "TRACE"
-    };
-
     private static readonly HashSet<string> ForbiddenTransformHeaders = new(StringComparer.OrdinalIgnoreCase)
     {
         "Connection", "Content-Length", "Host", "Keep-Alive", "Proxy-Authenticate",
@@ -880,7 +875,6 @@ public static class GatewayConfigurationValidator
         {
             var method = methods[index];
             if (!string.IsNullOrEmpty(method) && !IsHttpToken(method)) Add(errors, GatewayValidationErrorCode.InvalidRouteMatch, $"{path}[{index}]", "HTTP method is not a valid token.");
-            if (!string.IsNullOrEmpty(method) && !SupportedMethods.Contains(method)) Add(errors, GatewayValidationErrorCode.InvalidRouteMatch, $"{path}[{index}]", "HTTP method is not supported by the native gateway contract.");
             if (!seen.Add(method ?? string.Empty)) Add(errors, GatewayValidationErrorCode.InvalidRouteMatch, $"{path}[{index}]", "HTTP methods must be unique ignoring case.");
         }
     }

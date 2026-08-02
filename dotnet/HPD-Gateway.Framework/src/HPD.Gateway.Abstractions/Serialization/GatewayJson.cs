@@ -38,7 +38,7 @@ public sealed record GatewayConfigurationParseResult
     public bool IsParsed => Configuration is not null && Errors.IsEmpty;
 }
 
-public sealed record GatewayConfigurationReadResult
+public sealed record GatewayPortableDocumentResult
 {
     public GatewayConfiguration? Configuration { get; init; }
 
@@ -46,28 +46,28 @@ public sealed record GatewayConfigurationReadResult
 
     public required ImmutableArray<GatewayValidationError> Errors { get; init; }
 
-    public bool IsAccepted => Configuration is not null && CanonicalDocument is not null && Errors.IsEmpty;
+    public bool IsStructurallyValid => Configuration is not null && CanonicalDocument is not null && Errors.IsEmpty;
 }
 
-public static class GatewayConfigurationReader
+public static class GatewayPortableDocumentReader
 {
-    public static GatewayConfigurationReadResult Read(ReadOnlySpan<byte> utf8Json)
+    public static GatewayPortableDocumentResult Read(ReadOnlySpan<byte> utf8Json)
     {
         var parsed = GatewayConfigurationParser.Parse(utf8Json);
         if (!parsed.IsParsed)
         {
-            return new GatewayConfigurationReadResult { Errors = parsed.Errors };
+            return new GatewayPortableDocumentResult { Errors = parsed.Errors };
         }
 
         var canonical = GatewayConfigurationCanonicalizer.TryCanonicalize(parsed.Configuration);
         return canonical.IsCanonicalized
-            ? new GatewayConfigurationReadResult
+            ? new GatewayPortableDocumentResult
             {
                 Configuration = parsed.Configuration,
                 CanonicalDocument = canonical.Document,
                 Errors = []
             }
-            : new GatewayConfigurationReadResult { Errors = canonical.Errors };
+            : new GatewayPortableDocumentResult { Errors = canonical.Errors };
     }
 }
 

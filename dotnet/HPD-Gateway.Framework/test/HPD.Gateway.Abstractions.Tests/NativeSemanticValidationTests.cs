@@ -1,8 +1,10 @@
 using System.Buffers.Binary;
 using System.Collections.Immutable;
 using System.Security.Cryptography;
+using System.Text.Json;
 using FluentAssertions;
 using HPD.Gateway.Abstractions;
+using HPD.Gateway.Abstractions.Serialization;
 using HPD.Gateway.Core;
 using Xunit;
 
@@ -10,13 +12,40 @@ namespace HPD.Gateway.Tests;
 
 public sealed class NativeSemanticValidationTests
 {
+    [Fact]
+    public void OnlyCoreCandidateResultExposesAcceptance()
+    {
+        typeof(GatewayPortableDocumentResult).GetProperty("IsAccepted").Should().BeNull();
+        typeof(GatewayPortableDocumentResult).GetProperty(nameof(GatewayPortableDocumentResult.IsStructurallyValid)).Should().NotBeNull();
+        typeof(GatewayCandidateReadResult).GetProperty(nameof(GatewayCandidateReadResult.IsAccepted)).Should().NotBeNull();
+        typeof(GatewayCandidateReadResult).GetConstructors().Should().BeEmpty();
+        typeof(GatewayConfiguration).Assembly.GetType("HPD.Gateway.Abstractions.Serialization.GatewayConfigurationReader").Should().BeNull();
+    }
+
+    [Fact]
+    public void PortableDocumentCannotBecomeAcceptedWithoutCoreGate()
+    {
+        var configuration = WithMatch(new HttpRouteMatch { Path = "/orders/{id" });
+        var json = JsonSerializer.SerializeToUtf8Bytes(configuration, GatewayJsonSerializerContext.Default.GatewayConfiguration);
+
+        GatewayPortableDocumentReader.Read(json).IsStructurallyValid.Should().BeTrue();
+        GatewayCandidateReader.Read(json, Capabilities()).IsAccepted.Should().BeFalse();
+    }
+
+    [Fact]
+    public void InvalidMethodTokensAreRejected()
+    {
+        var configuration = WithMatch(new HttpRouteMatch { Path = "/orders", Methods = ["G ET"] });
+        GatewayConfigurationValidator.Validate(configuration).IsValid.Should().BeFalse();
+    }
+
     [Theory]
-    [InlineData("G ET")]
     [InlineData("BREW")]
-    public void InvalidOrUnsupportedMethodsAreRejected(string method)
+    [InlineData("PROPFIND")]
+    public void ValidExtensionMethodsAreAccepted(string method)
     {
         var configuration = WithMatch(new HttpRouteMatch { Path = "/orders", Methods = [method] });
-        GatewayConfigurationValidator.Validate(configuration).IsValid.Should().BeFalse();
+        GatewayConfigurationValidator.Validate(configuration).IsValid.Should().BeTrue();
     }
 
     [Fact]
@@ -99,9 +128,112 @@ public sealed class NativeSemanticValidationTests
             Endpoints = new StaticEndpointSource { Destinations = [new DestinationDeclaration { Id = new DestinationId("plain"), Address = new Uri("http://orders.internal") }] },
             Transport = new UpstreamTransportDeclaration { Tls = new UpstreamTlsDeclaration { ServerName = "orders.internal" } }
         };
-        var result = GatewayCandidateValidator.Validate(valid with { Upstreams = [upstream] }, new HostCapabilitySnapshot());
+        var result = GatewayCandidateValidator.Validate(valid with { Upstreams = [upstream] }, HostCapabilitySnapshot.Create(new HostCapabilityRegistration()));
         result.Errors.Should().Contain(error => error.Path.Contains("transport.tls", StringComparison.Ordinal));
         result.Errors.Should().Contain(error => error.Path.Contains("authorization", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ListenerAttachmentRejectsManagementAndHostnameExpansion()
+    {
+        var valid = WithMatch(new HttpRouteMatch { Path = "/orders", Hosts = ["outside.example.com"] });
+        var route = valid.Routes[0] with { Listener = new ListenerId("management") };
+        var capabilities = HostCapabilitySnapshot.Create(new HostCapabilityRegistration
+        {
+            InstalledFamilies = GatewayDeclarationFamilies.Authorization,
+            AuthorizationPolicies = ["orders.read"],
+            Listeners = [new ListenerCapability(new ListenerId("management"), ListenerRole.Management, ListenerProtocols.Http1, ["api.example.com"], true)]
+        });
+
+        var result = GatewayCandidateValidator.Validate(valid with { Routes = [route] }, capabilities);
+
+        result.Errors.Should().Contain(error => error.Message.Contains("management", StringComparison.Ordinal));
+        result.Errors.Should().Contain(error => error.Message.Contains("outside", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void HostRestrictedListenerRejectsHostlessRoute()
+    {
+        var valid = WithMatch(new HttpRouteMatch { Path = "/orders" });
+        var route = valid.Routes[0] with { Listener = new ListenerId("public") };
+        var capabilities = HostCapabilitySnapshot.Create(new HostCapabilityRegistration
+        {
+            InstalledFamilies = GatewayDeclarationFamilies.Authorization,
+            AuthorizationPolicies = ["orders.read"],
+            Listeners = [new ListenerCapability(new ListenerId("public"), ListenerRole.DataPlane, ListenerProtocols.Http2, ["api.example.com"], true)]
+        });
+
+        GatewayCandidateValidator.Validate(valid with { Routes = [route] }, capabilities).Errors
+            .Should().Contain(error => error.Message.Contains("hostless", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void DiscoveryProviderAndParameterSchemaAlwaysResolveWithoutTls()
+    {
+        var valid = GatewayConfigurationTests.CreateValidConfiguration();
+        var discovered = valid.Upstreams[0] with { Endpoints = new DiscoveredEndpointSource
+        {
+            Provider = new ProviderId("dns"), Service = new ProviderObjectId("orders"),
+            Parameters = [new ProviderParameter("unsupported", "x")],
+            StaleBehavior = DiscoveryStaleBehavior.RejectActivationUntilFresh
+        }};
+        var capabilities = HostCapabilitySnapshot.Create(new HostCapabilityRegistration
+        {
+            InstalledFamilies = GatewayDeclarationFamilies.Authorization,
+            AuthorizationPolicies = ["orders.read"],
+            DiscoveryProviders = [new DiscoveryProviderCapability(new ProviderId("dns"), ["region"], ["region"], false, false)]
+        });
+
+        var errors = GatewayCandidateValidator.Validate(valid with { Upstreams = [discovered] }, capabilities).Errors;
+        errors.Should().Contain(error => error.Message.Contains("not supported", StringComparison.Ordinal));
+        errors.Should().Contain(error => error.Message.Contains("missing", StringComparison.Ordinal));
+
+        var absent = HostCapabilitySnapshot.Create(new HostCapabilityRegistration
+        {
+            InstalledFamilies = GatewayDeclarationFamilies.Authorization,
+            AuthorizationPolicies = ["orders.read"]
+        });
+        GatewayCandidateValidator.Validate(valid with { Upstreams = [discovered] }, absent).Errors
+            .Should().Contain(error => error.Message.Contains("not installed", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void SecretProvidersAndInstalledFamiliesMustResolve()
+    {
+        var valid = GatewayConfigurationTests.CreateValidConfiguration();
+        var upstream = valid.Upstreams[0] with { Transport = new UpstreamTransportDeclaration
+        {
+            Tls = new UpstreamTlsDeclaration
+            {
+                ServerName = "orders.internal",
+                ClientCertificate = new SecretReference(new ProviderId("vault"), new ProviderObjectId("client"))
+            }
+        }};
+        var route = valid.Routes[0] with { Declarations = valid.Routes[0].Declarations! with
+        {
+            Inspection = new DeclarationReference<RequestInspectionBinding> { Inline = new RequestInspectionBinding { MaximumBodyBytes = 10, MaximumInspectionBytes = 10 } }
+        }};
+        var capabilities = HostCapabilitySnapshot.Create(new HostCapabilityRegistration
+        {
+            InstalledFamilies = GatewayDeclarationFamilies.Authorization,
+            AuthorizationPolicies = ["orders.read"]
+        });
+
+        var errors = GatewayCandidateValidator.Validate(valid with { Routes = [route], Upstreams = [upstream] }, capabilities).Errors;
+        errors.Should().Contain(error => error.Path.Contains("clientCertificate.provider", StringComparison.Ordinal));
+        errors.Should().Contain(error => error.Path == "inspection");
+    }
+
+    [Fact]
+    public void CapabilitySnapshotFactoryRejectsInvalidRegistrationsAndExposesGetOnlyState()
+    {
+        var action = () => HostCapabilitySnapshot.Create(new HostCapabilityRegistration
+        {
+            AuthorizationPolicies = null!
+        });
+        action.Should().Throw<ArgumentException>();
+        typeof(HostCapabilitySnapshot).GetConstructors().Should().BeEmpty();
+        typeof(HostCapabilitySnapshot).GetProperties().Should().OnlyContain(property => !property.CanWrite);
     }
 
     [Fact]
@@ -130,8 +262,9 @@ public sealed class NativeSemanticValidationTests
         return valid with { Routes = [valid.Routes[0] with { Match = match }] };
     }
 
-    private static HostCapabilitySnapshot Capabilities() => new()
+    private static HostCapabilitySnapshot Capabilities() => HostCapabilitySnapshot.Create(new HostCapabilityRegistration
     {
-        AuthorizationPolicies = ImmutableHashSet.Create(StringComparer.Ordinal, "orders.read")
-    };
+        InstalledFamilies = GatewayDeclarationFamilies.Authorization,
+        AuthorizationPolicies = ["orders.read"]
+    });
 }

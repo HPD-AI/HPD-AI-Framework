@@ -77,9 +77,9 @@ public sealed class ContractHardeningTests
             "\"canonicalizationVersion\":99",
             StringComparison.Ordinal);
 
-        var result = GatewayConfigurationReader.Read(Encoding.UTF8.GetBytes(json));
+        var result = GatewayPortableDocumentReader.Read(Encoding.UTF8.GetBytes(json));
 
-        result.IsAccepted.Should().BeFalse();
+        result.IsStructurallyValid.Should().BeFalse();
         result.CanonicalDocument.Should().BeNull();
         result.Errors.Should().Contain(error => error.Code == GatewayValidationErrorCode.UnsupportedVersion);
     }
