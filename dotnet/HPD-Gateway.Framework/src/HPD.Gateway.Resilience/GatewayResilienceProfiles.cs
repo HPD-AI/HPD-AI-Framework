@@ -73,14 +73,14 @@ public sealed class GatewayResilienceRegistryBuilder
             throw new ArgumentException("A resilience profile must contain at least one strategy.", nameof(profile));
         if (profile.Retry is { } retry)
         {
-            ValidateStatuses(retry.StatusCodes, nameof(profile));
+            ValidateStatuses(retry.StatusCodes, nameof(profile), retryStatuses: true);
             if (retry.MaximumRetryAttempts is < 1 or > 5 || retry.Delay < TimeSpan.Zero || retry.Delay > TimeSpan.FromSeconds(30) ||
                 retry.MaximumRetryAfter < TimeSpan.Zero || retry.MaximumRetryAfter > TimeSpan.FromMinutes(1))
                 throw new ArgumentOutOfRangeException(nameof(profile));
         }
         if (profile.CircuitBreaker is { } breaker)
         {
-            ValidateStatuses(breaker.StatusCodes, nameof(profile));
+            ValidateStatuses(breaker.StatusCodes, nameof(profile), retryStatuses: false);
             if (breaker.FailureRatio is <= 0 or > 1 || breaker.MinimumThroughput is < 2 or > 10_000 ||
                 breaker.SamplingDuration < TimeSpan.FromSeconds(1) || breaker.SamplingDuration > TimeSpan.FromHours(1) ||
                 breaker.BreakDuration < TimeSpan.FromSeconds(1) || breaker.BreakDuration > TimeSpan.FromHours(1))
@@ -92,13 +92,16 @@ public sealed class GatewayResilienceRegistryBuilder
             throw new ArgumentOutOfRangeException(nameof(profile));
     }
 
-    private static void ValidateStatuses(ImmutableArray<HttpStatusCode> statuses, string name)
+    private static void ValidateStatuses(ImmutableArray<HttpStatusCode> statuses, string name, bool retryStatuses)
     {
         if (statuses.IsDefaultOrEmpty || statuses.Length > 32 || statuses.Any(static value => (int)value is < 100 or > 599) ||
             statuses.Distinct().Count() != statuses.Length ||
-            !statuses.Select(static value => (int)value).SequenceEqual(statuses.Select(static value => (int)value).Order()))
-            throw new ArgumentException("Status codes must be initialized, bounded, valid, unique, and sorted.", name);
+            !statuses.Select(static value => (int)value).SequenceEqual(statuses.Select(static value => (int)value).Order()) ||
+            retryStatuses && statuses.Any(static value => !IsRetryStatus((int)value)))
+            throw new ArgumentException("Status codes must be initialized, bounded, valid, unique, sorted, and within the strategy's closed set.", name);
     }
+
+    private static bool IsRetryStatus(int status) => status is 408 or 429 || status is >= 500 and <= 599;
 }
 
 internal sealed class GatewayResilienceRegistry(ImmutableDictionary<string, GatewayResilienceProfile> profiles) : GatewayUpstreamResilienceProvider

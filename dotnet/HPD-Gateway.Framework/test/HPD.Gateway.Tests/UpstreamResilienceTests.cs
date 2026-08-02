@@ -71,6 +71,39 @@ public sealed class UpstreamResilienceTests
         create.Should().Throw<ArgumentException>();
     }
 
+    [Theory]
+    [InlineData(200)]
+    [InlineData(302)]
+    [InlineData(401)]
+    [InlineData(404)]
+    public void RetryStatusesOutsideClosedSetAreRejectedAtBothRegistrationBoundaries(int status)
+    {
+        Action registerRuntime = () => new GatewayResilienceRegistryBuilder().Add(RetryProfile("invalid", 1) with
+        {
+            Retry = new GatewayResponseRetryProfile
+            {
+                StatusCodes = [(HttpStatusCode)status],
+                MaximumRetryAttempts = 1
+            }
+        });
+        Action registerCapability = () => HostCapabilitySnapshot.Create(new()
+        {
+            InstalledFamilies = GatewayDeclarationFamilies.UpstreamResilience,
+            UpstreamResilienceProfiles =
+            [
+                new UpstreamResilienceCapability(
+                    "invalid",
+                    1,
+                    UpstreamResilienceStrategies.SelectedResponseRetry,
+                    [status],
+                    1)
+            ]
+        });
+
+        registerRuntime.Should().Throw<ArgumentException>();
+        registerCapability.Should().Throw<ArgumentException>();
+    }
+
     [Fact]
     public void ResilienceCannotBypassRequestTimeoutFamilyInstallation()
     {
@@ -145,6 +178,32 @@ public sealed class UpstreamResilienceTests
         fixture.Hits("/retry").Should().Be(2);
         withBody.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
         fixture.Hits("/retry-body").Should().Be(1);
+    }
+
+    [Theory]
+    [InlineData(408)]
+    [InlineData(429)]
+    [InlineData(503)]
+    public async Task AdmittedRetryStatusesPerformTheBoundedAttemptCountAndReturnFinalResponse(int status)
+    {
+        var profile = RetryProfile("selected", 1) with
+        {
+            Retry = new GatewayResponseRetryProfile
+            {
+                StatusCodes = [(HttpStatusCode)status],
+                MaximumRetryAttempts = 1
+            }
+        };
+        var builder = new GatewayResilienceRegistryBuilder();
+        builder.Add(profile);
+        var terminal = new ConstantStatusHandler((HttpStatusCode)status);
+        using var invoker = new HttpMessageInvoker(builder.Build().Wrap(profile.Name, profile.Version, terminal));
+        using var request = new HttpRequestMessage(HttpMethod.Get, "http://localhost/selected-status");
+
+        using var response = await invoker.SendAsync(request, CancellationToken.None);
+
+        response.StatusCode.Should().Be((HttpStatusCode)status);
+        terminal.Attempts.Should().Be(2);
     }
 
     [Fact]
@@ -689,6 +748,17 @@ public sealed class UpstreamResilienceTests
             {
                 RequestMessage = request
             });
+        }
+    }
+
+    private sealed class ConstantStatusHandler(HttpStatusCode statusCode) : HttpMessageHandler
+    {
+        internal int Attempts { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Attempts++;
+            return Task.FromResult(new HttpResponseMessage(statusCode) { RequestMessage = request });
         }
     }
 

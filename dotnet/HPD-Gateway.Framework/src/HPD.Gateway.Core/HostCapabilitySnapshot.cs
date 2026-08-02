@@ -215,6 +215,7 @@ public sealed class HostCapabilitySnapshot
                 profile.RetryStatusCodes.Any(static status => status is < 100 or > 599) ||
                 profile.RetryStatusCodes.Distinct().Count() != profile.RetryStatusCodes.Length ||
                 !profile.RetryStatusCodes.SequenceEqual(profile.RetryStatusCodes.Order()) ||
+                profile.RetryStatusCodes.Any(static status => !IsRetryStatus(status)) ||
                 (hasRetry && (profile.RetryStatusCodes.IsEmpty || profile.MaximumRetryAttempts is < 1 or > 5)) ||
                 (!hasRetry && (!profile.RetryStatusCodes.IsEmpty || profile.MaximumRetryAttempts != 0)) ||
                 !profiles.TryAdd(profile.Name, profile))
@@ -222,6 +223,8 @@ public sealed class HostCapabilitySnapshot
         }
         return profiles.ToImmutable();
     }
+
+    private static bool IsRetryStatus(int status) => status is 408 or 429 || status is >= 500 and <= 599;
 
     private static void ValidateNames(IEnumerable<string>? values, string name)
     {
