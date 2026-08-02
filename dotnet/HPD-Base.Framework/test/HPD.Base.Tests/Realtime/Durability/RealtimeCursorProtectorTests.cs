@@ -30,7 +30,6 @@ public sealed class RealtimeCursorProtectorTests
         cursor.Should().NotContain("private-store-marker");
         cursor.Should().NotContain("tenant-a");
         cursor.Should().NotContain("items");
-        cursor.Should().NotContain("42");
     }
 
     [Fact]

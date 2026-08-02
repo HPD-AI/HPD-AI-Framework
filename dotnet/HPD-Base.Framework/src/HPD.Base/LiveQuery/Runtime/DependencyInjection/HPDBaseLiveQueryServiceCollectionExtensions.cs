@@ -3,8 +3,10 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace HPD.Base;
 
+/// <summary>Represents a hpdbase live query service collection extensions.</summary>
 public static class HPDBaseLiveQueryServiceCollectionExtensions
 {
+    /// <summary>Executes the add hpdbase live query operation.</summary>
     public static IServiceCollection AddHPDBaseLiveQuery(
         this IServiceCollection services,
         Action<BaseLiveQueryOptions>? configure = null)
@@ -35,5 +37,10 @@ public static class HPDBaseLiveQueryServiceCollectionExtensions
             throw new ArgumentOutOfRangeException(nameof(options), "Live-query transition capacity must be between 1 and 1024.");
         if (options.MaxQueryIdLength is < 16 or > 256)
             throw new ArgumentOutOfRangeException(nameof(options), "Live-query id limit must be between 16 and 256.");
+        if (options.MaxEvaluationDuration < TimeSpan.FromMilliseconds(10)
+            || options.MaxEvaluationDuration > TimeSpan.FromMinutes(10))
+            throw new ArgumentOutOfRangeException(
+                nameof(options),
+                "Live-query evaluation duration must be between 10 milliseconds and 10 minutes.");
     }
 }

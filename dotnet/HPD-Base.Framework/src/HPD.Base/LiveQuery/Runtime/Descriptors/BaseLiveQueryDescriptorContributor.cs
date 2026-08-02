@@ -5,8 +5,10 @@ namespace HPD.Base;
 internal sealed class BaseLiveQueryDescriptorContributor(
     BaseLiveQueryOptions options) : IBaseDescriptorContributor
 {
+    /// <summary>Gets the ID.</summary>
     public string Id => BaseLiveQueryModuleIds.Module;
 
+    /// <summary>Executes the contribute operation.</summary>
     public void Contribute(IBaseDescriptorContributionBuilder builder)
     {
         builder.AddModule(new BaseModuleDescriptor
@@ -46,7 +48,11 @@ internal sealed class BaseLiveQueryDescriptorContributor(
                     Limits =
                     [
                         Limit("activeSubscriptions", options.MaxActiveSubscriptions, "subscriptions"),
-                        Limit("dependenciesPerEvaluation", options.MaxDependenciesPerEvaluation, "references")
+                        Limit("dependenciesPerEvaluation", options.MaxDependenciesPerEvaluation, "references"),
+                        Limit(
+                            "evaluationDuration",
+                            checked((int)options.MaxEvaluationDuration.TotalMilliseconds),
+                            "milliseconds")
                     ]
                 }
             ]

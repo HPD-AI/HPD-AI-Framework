@@ -245,6 +245,65 @@ public sealed class LiveQueryCoordinatorTests
     }
 
     [Fact]
+    public async Task InitialEvaluationTimeoutIsEnforcedWhenExecutorIgnoresCancellation()
+    {
+        var coordinator = Coordinator(options =>
+            options.MaxEvaluationDuration = TimeSpan.FromMilliseconds(20));
+        var never = new TaskCompletionSource<BaseLiveQueryEvaluation<int>>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var subscribe = async () => await coordinator.SubscribeAsync(new BaseLiveQueryRequest<int>
+        {
+            QueryId = "initial.timeout",
+            ExecuteAsync = _ => new ValueTask<BaseLiveQueryEvaluation<int>>(never.Task)
+        }).AsTask().WaitAsync(TimeSpan.FromSeconds(2));
+
+        var failure = await subscribe.Should().ThrowAsync<BaseLiveQueryException>();
+        failure.Which.Code.Should().Be(BaseLiveQueryErrorCodes.ExecutionFailed);
+        failure.Which.SafeMessage.ToLowerInvariant().Should().NotContain("cancel");
+    }
+
+    [Fact]
+    public async Task RerunTimeoutTerminatesAndDisposalDoesNotWaitForExecutor()
+    {
+        var executions = 0;
+        var never = new TaskCompletionSource<BaseLiveQueryEvaluation<int>>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var coordinator = Coordinator(options =>
+            options.MaxEvaluationDuration = TimeSpan.FromMilliseconds(20));
+        var subscription = await coordinator.SubscribeAsync(new BaseLiveQueryRequest<int>
+        {
+            QueryId = "rerun.timeout",
+            ExecuteAsync = _ => Interlocked.Increment(ref executions) == 1
+                ? ValueTask.FromResult(Evaluation(1, Reference("a")))
+                : new ValueTask<BaseLiveQueryEvaluation<int>>(never.Task)
+        });
+        _ = await NextAsync(subscription);
+
+        await coordinator.InvalidateAsync(Invalidation(Reference("a")));
+        var failure = await NextAsync(subscription);
+
+        failure.Kind.Should().Be(BaseLiveQueryTransitionKind.Failed);
+        failure.Failure!.Code.Should().Be(BaseLiveQueryErrorCodes.ExecutionFailed);
+        await subscription.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(2));
+    }
+
+    [Fact]
+    public async Task TransitionQueueRejectsACompetingReader()
+    {
+        await using var subscription = await Coordinator()
+            .SubscribeAsync(Request("single.reader", 1, Reference("a")));
+        await using var first = subscription.Transitions.GetAsyncEnumerator();
+        (await first.MoveNextAsync()).Should().BeTrue();
+        await using var competing = subscription.Transitions.GetAsyncEnumerator();
+
+        var read = async () => await competing.MoveNextAsync();
+
+        var failure = await read.Should().ThrowAsync<BaseLiveQueryException>();
+        failure.Which.Code.Should().Be(BaseLiveQueryErrorCodes.RequestInvalid);
+    }
+
+    [Fact]
     public async Task CapacityAndDependencyLimitsFailExplicitly()
     {
         var coordinator = Coordinator(options =>
@@ -334,6 +393,7 @@ public sealed class LiveQueryCoordinatorTests
         {
             options.MaxActiveSubscriptions = 12;
             options.MaxDependenciesPerEvaluation = 7;
+            options.MaxEvaluationDuration = TimeSpan.FromSeconds(4);
         });
         using var provider = services.BuildServiceProvider();
 
@@ -349,6 +409,22 @@ public sealed class LiveQueryCoordinatorTests
             item.Name == "activeSubscriptions" && item.Value == "12");
         family.Limits.Should().Contain(item =>
             item.Name == "dependenciesPerEvaluation" && item.Value == "7");
+        family.Limits.Should().Contain(item =>
+            item.Name == "evaluationDuration"
+            && item.Value == "4000"
+            && item.Unit == "milliseconds");
+    }
+
+    [Fact]
+    public void EvaluationDurationMustBeStrictlyBounded()
+    {
+        var tooShort = () => Coordinator(options =>
+            options.MaxEvaluationDuration = TimeSpan.FromMilliseconds(9));
+        var tooLong = () => Coordinator(options =>
+            options.MaxEvaluationDuration = TimeSpan.FromMinutes(10).Add(TimeSpan.FromMilliseconds(1)));
+
+        tooShort.Should().Throw<ArgumentOutOfRangeException>();
+        tooLong.Should().Throw<ArgumentOutOfRangeException>();
     }
 
     private static IBaseLiveQueryCoordinator Coordinator(Action<BaseLiveQueryOptions>? configure = null)

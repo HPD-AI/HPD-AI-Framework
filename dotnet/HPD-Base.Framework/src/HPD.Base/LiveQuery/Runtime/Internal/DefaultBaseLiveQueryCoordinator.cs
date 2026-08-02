@@ -6,8 +6,11 @@ namespace HPD.Base;
 
 internal interface IBaseLiveQueryState
 {
+    /// <summary>Gets the subscription ID.</summary>
     string SubscriptionId { get; }
+    /// <summary>Executes the invalidate operation.</summary>
     void Invalidate(BaseDependencyInvalidation invalidation);
+    /// <summary>Executes the fail operation.</summary>
     void Fail(string code, string safeMessage);
 }
 
@@ -20,11 +23,13 @@ internal sealed class DefaultBaseLiveQueryCoordinator : IBaseLiveQueryCoordinato
     private int _reservedSubscriptions;
     private long _invalidationGeneration;
 
+    /// <summary>Initializes a new instance.</summary>
     public DefaultBaseLiveQueryCoordinator(BaseLiveQueryOptions options)
     {
         _options = options;
     }
 
+    /// <summary>Executes the subscribe async operation.</summary>
     public async ValueTask<IBaseLiveQuerySubscription<T>> SubscribeAsync<T>(
         BaseLiveQueryRequest<T> request,
         CancellationToken cancellationToken = default)
@@ -39,7 +44,10 @@ internal sealed class DefaultBaseLiveQueryCoordinator : IBaseLiveQueryCoordinato
         var executionGeneration = CurrentGeneration();
         try
         {
-            var initial = await ExecuteAsync(request.ExecuteAsync, cancellationToken).ConfigureAwait(false);
+            var initial = await ExecuteAsync(
+                request.ExecuteAsync,
+                cancellationToken,
+                _options.MaxEvaluationDuration).ConfigureAwait(false);
             ValidateDependencies(initial.Dependencies);
 
             var id = Guid.NewGuid().ToString("N");
@@ -69,6 +77,7 @@ internal sealed class DefaultBaseLiveQueryCoordinator : IBaseLiveQueryCoordinato
         }
     }
 
+    /// <summary>Executes the invalidate async operation.</summary>
     public ValueTask InvalidateAsync(
         BaseDependencyInvalidation invalidation,
         CancellationToken cancellationToken = default)
@@ -147,16 +156,28 @@ internal sealed class DefaultBaseLiveQueryCoordinator : IBaseLiveQueryCoordinato
 
     private static async ValueTask<BaseLiveQueryEvaluation<T>> ExecuteAsync<T>(
         Func<CancellationToken, ValueTask<BaseLiveQueryEvaluation<T>>> executor,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        TimeSpan maximumDuration)
     {
+        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        lifetime.CancelAfter(maximumDuration);
         try
         {
-            return await executor(cancellationToken).ConfigureAwait(false)
+            return await executor(lifetime.Token)
+                .AsTask()
+                .WaitAsync(lifetime.Token)
+                .ConfigureAwait(false)
                 ?? throw Failure(BaseLiveQueryErrorCodes.DependenciesInvalid, "The live-query evaluation is invalid.");
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (OperationCanceledException)
         {
-            throw;
+            throw Failure(
+                BaseLiveQueryErrorCodes.ExecutionFailed,
+                "The live query exceeded the configured evaluation duration.");
         }
         catch (BaseLiveQueryException)
         {
@@ -184,7 +205,9 @@ internal sealed class DefaultBaseLiveQueryCoordinator : IBaseLiveQueryCoordinato
         private Task? _worker;
         private long _version = 1;
         private int _stopped;
+        private int _transitionReaderActive;
 
+        /// <summary>Initializes a new instance.</summary>
         public BaseLiveQueryState(
             string id,
             BaseLiveQueryRequest<T> request,
@@ -211,17 +234,21 @@ internal sealed class DefaultBaseLiveQueryCoordinator : IBaseLiveQueryCoordinato
                 new BoundedChannelOptions(options.TransitionBufferCapacity)
                 {
                     FullMode = BoundedChannelFullMode.DropOldest,
-                    SingleReader = false,
+                    SingleReader = true,
                     SingleWriter = true,
                     AllowSynchronousContinuations = false
                 });
             _transitions.Writer.TryWrite(Snapshot(initial.Value, _version));
         }
 
+        /// <summary>Gets the subscription ID.</summary>
         public string SubscriptionId { get; }
+        /// <summary>Gets the query ID.</summary>
         public string QueryId { get; }
+        /// <summary>Gets the transitions.</summary>
         public IAsyncEnumerable<BaseLiveQueryTransition<T>> Transitions => ReadTransitionsAsync();
 
+        /// <summary>Executes the start operation.</summary>
         public void Start(bool rerunRequired)
         {
             _worker = RunAsync();
@@ -229,6 +256,7 @@ internal sealed class DefaultBaseLiveQueryCoordinator : IBaseLiveQueryCoordinato
                 _signals.Writer.TryWrite(true);
         }
 
+        /// <summary>Executes the invalidate operation.</summary>
         public void Invalidate(BaseDependencyInvalidation invalidation)
         {
             if (Volatile.Read(ref _stopped) != 0)
@@ -243,6 +271,7 @@ internal sealed class DefaultBaseLiveQueryCoordinator : IBaseLiveQueryCoordinato
                 _signals.Writer.TryWrite(true);
         }
 
+        /// <summary>Executes the fail operation.</summary>
         public void Fail(string code, string safeMessage)
         {
             if (Interlocked.Exchange(ref _stopped, 1) != 0)
@@ -259,6 +288,7 @@ internal sealed class DefaultBaseLiveQueryCoordinator : IBaseLiveQueryCoordinato
             _remove(SubscriptionId);
         }
 
+        /// <summary>Executes the dispose async operation.</summary>
         public async ValueTask DisposeAsync()
         {
             if (Interlocked.Exchange(ref _stopped, 1) == 0)
@@ -292,7 +322,10 @@ internal sealed class DefaultBaseLiveQueryCoordinator : IBaseLiveQueryCoordinato
                     BaseLiveQueryEvaluation<T> evaluation;
                     try
                     {
-                        evaluation = await ExecuteAsync(_request.ExecuteAsync, _cancellation.Token).ConfigureAwait(false);
+                        evaluation = await ExecuteAsync(
+                            _request.ExecuteAsync,
+                            _cancellation.Token,
+                            _options.MaxEvaluationDuration).ConfigureAwait(false);
                         ValidateEvaluationDependencies(evaluation.Dependencies);
                     }
                     catch (OperationCanceledException) when (_cancellation.IsCancellationRequested)
@@ -341,8 +374,19 @@ internal sealed class DefaultBaseLiveQueryCoordinator : IBaseLiveQueryCoordinato
         private async IAsyncEnumerable<BaseLiveQueryTransition<T>> ReadTransitionsAsync(
             [EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
-            await foreach (var transition in _transitions.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
-                yield return transition;
+            if (Interlocked.CompareExchange(ref _transitionReaderActive, 1, 0) != 0)
+                throw Failure(
+                    BaseLiveQueryErrorCodes.RequestInvalid,
+                    "The live-query transition stream already has an active reader.");
+            try
+            {
+                await foreach (var transition in _transitions.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
+                    yield return transition;
+            }
+            finally
+            {
+                Volatile.Write(ref _transitionReaderActive, 0);
+            }
         }
 
         private static BaseLiveQueryTransition<T> Snapshot(T value, long version) => new()
