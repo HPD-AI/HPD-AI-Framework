@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using System.Text.Json;
 using HPD.Gateway.Abstractions;
 using HPD.Gateway.Abstractions.Serialization;

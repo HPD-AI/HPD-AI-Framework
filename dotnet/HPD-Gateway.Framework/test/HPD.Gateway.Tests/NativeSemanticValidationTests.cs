@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using System.Collections.Immutable;
 using System.Security.Cryptography;
 using System.Text.Json;
 using FluentAssertions;
@@ -36,11 +35,16 @@ public sealed class NativeSemanticValidationTests
     public void AuthoritativeReaderReturnsErrorsForNullDiscoveryParametersWithoutThrowing()
     {
         var valid = GatewayConfigurationTests.CreateValidConfiguration();
-        var discovered = valid.Upstreams[0] with { Endpoints = new DiscoveredEndpointSource
+        var discovered = valid.Upstreams[0] with
         {
-            Provider = new ProviderId("dns"), Service = new ProviderObjectId("orders"),
-            Parameters = [], StaleBehavior = DiscoveryStaleBehavior.RejectActivationUntilFresh
-        }};
+            Endpoints = new DiscoveredEndpointSource
+            {
+                Provider = new ProviderId("dns"),
+                Service = new ProviderObjectId("orders"),
+                Parameters = [],
+                StaleBehavior = DiscoveryStaleBehavior.RejectActivationUntilFresh
+            }
+        };
         var json = JsonSerializer.Serialize(
             valid with { Upstreams = [discovered] },
             GatewayJsonSerializerContext.Default.GatewayConfiguration)
@@ -80,7 +84,9 @@ public sealed class NativeSemanticValidationTests
     {
         var configuration = WithMatch(new HttpRouteMatch
         {
-            Path = "/orders", Methods = ["GET", "get"], Hosts = ["API.Example.com", "api.example.com"]
+            Path = "/orders",
+            Methods = ["GET", "get"],
+            Hosts = ["API.Example.com", "api.example.com"]
         });
         GatewayConfigurationValidator.Validate(configuration).Errors.Should().HaveCountGreaterThanOrEqualTo(2);
     }
@@ -99,7 +105,9 @@ public sealed class NativeSemanticValidationTests
         var predicate = new HttpHeaderMatch { Name = "Bad Header", Kind = TextMatchKind.Exact, Values = ["x"] };
         var configuration = WithMatch(new HttpRouteMatch
         {
-            Path = "/orders", Hosts = ["bad host"], Headers = [predicate, predicate],
+            Path = "/orders",
+            Hosts = ["bad host"],
+            Headers = [predicate, predicate],
             Query = [new HttpQueryMatch { Name = "x&y", Kind = TextMatchKind.NotExists }]
         });
         GatewayConfigurationValidator.Validate(configuration).Errors.Should().HaveCountGreaterThanOrEqualTo(4);
@@ -139,10 +147,13 @@ public sealed class NativeSemanticValidationTests
     public void InvalidHeaderTransformsAreRejected(string name, string value)
     {
         var valid = GatewayConfigurationTests.CreateValidConfiguration();
-        var route = valid.Routes[0] with { Declarations = new RouteDeclarations
+        var route = valid.Routes[0] with
         {
-            RequestTransforms = new OrderedRequestTransforms { Headers = [new RequestHeaderTransform { Kind = HeaderTransformKind.Set, Name = name, Value = value }] }
-        }};
+            Declarations = new RouteDeclarations
+            {
+                RequestTransforms = new OrderedRequestTransforms { Headers = [new RequestHeaderTransform { Kind = HeaderTransformKind.Set, Name = name, Value = value }] }
+            }
+        };
         GatewayConfigurationValidator.Validate(valid with { Routes = [route] }).IsValid.Should().BeFalse();
     }
 
@@ -198,12 +209,16 @@ public sealed class NativeSemanticValidationTests
     public void DiscoveryProviderAndParameterSchemaAlwaysResolveWithoutTls()
     {
         var valid = GatewayConfigurationTests.CreateValidConfiguration();
-        var discovered = valid.Upstreams[0] with { Endpoints = new DiscoveredEndpointSource
+        var discovered = valid.Upstreams[0] with
         {
-            Provider = new ProviderId("dns"), Service = new ProviderObjectId("orders"),
-            Parameters = [new ProviderParameter("unsupported", "x")],
-            StaleBehavior = DiscoveryStaleBehavior.RejectActivationUntilFresh
-        }};
+            Endpoints = new DiscoveredEndpointSource
+            {
+                Provider = new ProviderId("dns"),
+                Service = new ProviderObjectId("orders"),
+                Parameters = [new ProviderParameter("unsupported", "x")],
+                StaleBehavior = DiscoveryStaleBehavior.RejectActivationUntilFresh
+            }
+        };
         var capabilities = HostCapabilitySnapshot.Create(new HostCapabilityRegistration
         {
             InstalledFamilies = GatewayDeclarationFamilies.Authorization,
@@ -228,18 +243,24 @@ public sealed class NativeSemanticValidationTests
     public void SecretProvidersAndInstalledFamiliesMustResolve()
     {
         var valid = GatewayConfigurationTests.CreateValidConfiguration();
-        var upstream = valid.Upstreams[0] with { Transport = new UpstreamTransportDeclaration
+        var upstream = valid.Upstreams[0] with
         {
-            Tls = new UpstreamTlsDeclaration
+            Transport = new UpstreamTransportDeclaration
             {
-                ServerName = "orders.internal",
-                ClientCertificate = new SecretReference(new ProviderId("vault"), new ProviderObjectId("client"))
+                Tls = new UpstreamTlsDeclaration
+                {
+                    ServerName = "orders.internal",
+                    ClientCertificate = new SecretReference(new ProviderId("vault"), new ProviderObjectId("client"))
+                }
             }
-        }};
-        var route = valid.Routes[0] with { Declarations = valid.Routes[0].Declarations! with
+        };
+        var route = valid.Routes[0] with
         {
-            Inspection = new DeclarationReference<RequestInspectionBinding> { Inline = new RequestInspectionBinding { MaximumBodyBytes = 10, MaximumInspectionBytes = 10 } }
-        }};
+            Declarations = valid.Routes[0].Declarations! with
+            {
+                Inspection = new DeclarationReference<RequestInspectionBinding> { Inline = new RequestInspectionBinding { MaximumBodyBytes = 10, MaximumInspectionBytes = 10 } }
+            }
+        };
         var capabilities = HostCapabilitySnapshot.Create(new HostCapabilityRegistration
         {
             InstalledFamilies = GatewayDeclarationFamilies.Authorization,

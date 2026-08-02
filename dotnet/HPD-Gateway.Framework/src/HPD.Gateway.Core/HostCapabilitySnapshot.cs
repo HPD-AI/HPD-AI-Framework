@@ -171,9 +171,12 @@ public sealed class HostCapabilitySnapshot
 
     private static void ValidateNames(IEnumerable<string>? values, string name)
     {
-        var materialized = Required(values, name).ToArray();
-        if (materialized.Any(static value => string.IsNullOrWhiteSpace(value)) || materialized.Distinct(StringComparer.Ordinal).Count() != materialized.Length)
-            throw new ArgumentException("Capability names must be nonblank and unique using ordinal equality.", name);
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var value in Required(values, name))
+        {
+            if (string.IsNullOrWhiteSpace(value) || !names.Add(value))
+                throw new ArgumentException("Capability names must be nonblank and unique using ordinal equality.", name);
+        }
     }
 
     private static ImmutableArray<string> ValidateParameterNames(ImmutableArray<string> values, string name)

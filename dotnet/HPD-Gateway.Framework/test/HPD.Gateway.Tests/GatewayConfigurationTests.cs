@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using System.Text.Json;
 using FluentAssertions;
 using HPD.Gateway.Abstractions;

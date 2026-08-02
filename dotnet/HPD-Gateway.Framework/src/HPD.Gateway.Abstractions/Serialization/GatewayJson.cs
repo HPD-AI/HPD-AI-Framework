@@ -1,6 +1,5 @@
 using System.Collections.Immutable;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using HPD.Gateway.Abstractions;
 
 namespace HPD.Gateway.Abstractions.Serialization;
@@ -14,19 +13,6 @@ public static class GatewayJson
     public const int MaximumItemsPerArray = 10_000;
     public const int MaximumStringUtf8Bytes = 16 * 1024;
 
-    public static JsonSerializerOptions StrictOptions { get; } = CreateOptions();
-
-    private static JsonSerializerOptions CreateOptions()
-    {
-        var options = new JsonSerializerOptions(GatewayJsonSerializerContext.Default.Options)
-        {
-            TypeInfoResolver = GatewayJsonSerializerContext.Default,
-            UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
-            MaxDepth = MaximumDepth
-        };
-        options.MakeReadOnly();
-        return options;
-    }
 }
 
 public sealed record GatewayConfigurationParseResult

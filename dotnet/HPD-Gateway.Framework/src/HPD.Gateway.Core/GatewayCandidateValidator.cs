@@ -12,7 +12,7 @@ public static class GatewayCandidateValidator
         var structural = GatewayConfigurationValidator.Validate(configuration);
         if (!structural.IsValid || configuration is null) return structural;
 
-        var errors = structural.Errors.ToBuilder();
+        var errors = ImmutableArray.CreateBuilder<GatewayValidationError>();
         for (var index = 0; index < configuration.Routes.Length; index++)
         {
             var route = configuration.Routes[index];
@@ -119,24 +119,23 @@ public static class GatewayCandidateValidator
     private static void ValidateInstalledFamilies(GatewayConfiguration configuration, HostCapabilitySnapshot capabilities, ImmutableArray<GatewayValidationError>.Builder errors)
     {
         var definitions = configuration.Definitions;
-        Require(definitions?.Authorization.Length > 0 || Uses(configuration, static d => d.Authorization is not null), GatewayDeclarationFamilies.Authorization, capabilities, "authorization", errors);
-        Require(definitions?.Cors.Length > 0 || Uses(configuration, static d => d.Cors is not null), GatewayDeclarationFamilies.Cors, capabilities, "cors", errors);
-        Require(definitions?.TrafficAdmission.Length > 0 || Uses(configuration, static d => d.TrafficAdmission is not null), GatewayDeclarationFamilies.TrafficAdmission, capabilities, "trafficAdmission", errors);
-        Require(definitions?.RequestTimeout.Length > 0 || Uses(configuration, static d => d.RequestTimeout is not null), GatewayDeclarationFamilies.RequestTimeout, capabilities, "requestTimeout", errors);
-        Require(definitions?.OutputCache.Length > 0 || Uses(configuration, static d => d.OutputCache is not null), GatewayDeclarationFamilies.OutputCache, capabilities, "outputCache", errors);
-        Require(definitions?.Telemetry.Length > 0 || Uses(configuration, static d => d.Telemetry is not null), GatewayDeclarationFamilies.Telemetry, capabilities, "telemetry", errors);
-        Require(definitions?.Inspection.Length > 0 || Uses(configuration, static d => d.Inspection is not null), GatewayDeclarationFamilies.Inspection, capabilities, "inspection", errors);
+        Require(definitions?.Authorization.Length > 0 || Uses(configuration, static d => d.Authorization is not null, static d => d.Authorization is not null), GatewayDeclarationFamilies.Authorization, capabilities, "authorization", errors);
+        Require(definitions?.Cors.Length > 0 || Uses(configuration, static d => d.Cors is not null, static d => d.Cors is not null), GatewayDeclarationFamilies.Cors, capabilities, "cors", errors);
+        Require(definitions?.TrafficAdmission.Length > 0 || Uses(configuration, static d => d.TrafficAdmission is not null, static d => d.TrafficAdmission is not null), GatewayDeclarationFamilies.TrafficAdmission, capabilities, "trafficAdmission", errors);
+        Require(definitions?.RequestTimeout.Length > 0 || Uses(configuration, static d => d.RequestTimeout is not null, static d => d.RequestTimeout is not null), GatewayDeclarationFamilies.RequestTimeout, capabilities, "requestTimeout", errors);
+        Require(definitions?.OutputCache.Length > 0 || Uses(configuration, static d => d.OutputCache is not null, static d => d.OutputCache is not null), GatewayDeclarationFamilies.OutputCache, capabilities, "outputCache", errors);
+        Require(definitions?.Telemetry.Length > 0 || Uses(configuration, static d => d.Telemetry is not null, static d => d.Telemetry is not null), GatewayDeclarationFamilies.Telemetry, capabilities, "telemetry", errors);
+        Require(definitions?.Inspection.Length > 0 || Uses(configuration, static d => d.Inspection is not null, static d => d.Inspection is not null), GatewayDeclarationFamilies.Inspection, capabilities, "inspection", errors);
         Require(configuration.Routes.Any(static route => route?.Declarations?.RequestTransforms is not null), GatewayDeclarationFamilies.RequestTransforms, capabilities, "requestTransforms", errors);
         Require(configuration.Routes.Any(static route => route?.Declarations?.ResponseTransforms is not null), GatewayDeclarationFamilies.ResponseTransforms, capabilities, "responseTransforms", errors);
     }
 
-    private static bool Uses(GatewayConfiguration configuration, Func<GatewayRootDeclarations, bool> root) =>
-        configuration.RootDefaults is { } defaults && root(defaults) || configuration.Routes.Any(route => route?.Declarations is { } declarations && root(new GatewayRootDeclarations
-        {
-            Authorization = declarations.Authorization, Cors = declarations.Cors, TrafficAdmission = declarations.TrafficAdmission,
-            RequestTimeout = declarations.RequestTimeout, OutputCache = declarations.OutputCache,
-            Telemetry = declarations.Telemetry, Inspection = declarations.Inspection
-        }));
+    private static bool Uses(
+        GatewayConfiguration configuration,
+        Func<GatewayRootDeclarations, bool> root,
+        Func<RouteDeclarations, bool> route) =>
+        configuration.RootDefaults is { } defaults && root(defaults) ||
+        configuration.Routes.Any(candidate => candidate?.Declarations is { } declarations && route(declarations));
 
     private static void Require(bool used, GatewayDeclarationFamilies family, HostCapabilitySnapshot capabilities, string path, ImmutableArray<GatewayValidationError>.Builder errors)
     {
