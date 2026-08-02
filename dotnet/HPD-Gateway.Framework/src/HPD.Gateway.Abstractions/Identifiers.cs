@@ -18,6 +18,8 @@ public readonly record struct ProviderObjectId(string Value);
 
 public readonly record struct DeclarationFamilyId(string Value);
 
+public readonly record struct CandidateId(string Value);
+
 public static class GatewayIdentifier
 {
     public const int MaximumUtf8Bytes = 128;

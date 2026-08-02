@@ -2,6 +2,8 @@ using System.Text.Json;
 using HPD.Gateway.Abstractions;
 using HPD.Gateway.Abstractions.Serialization;
 using HPD.Gateway.Core;
+using HPD.Gateway.Yarp;
+using Yarp.ReverseProxy.Configuration;
 
 var configuration = new GatewayConfiguration
 {
@@ -271,6 +273,41 @@ var canonical = GatewayConfigurationCanonicalizer.TryCanonicalize(read.Configura
 if (!canonical.IsCanonicalized || canonical.Document!.ContentHash.Value.Length != 64)
 {
     throw new InvalidOperationException("Canonicalization or content hashing failed.");
+}
+
+using var proxyProvider = new HpdProxyConfigProvider();
+using var changeListener = new HpdConfigChangeListener(proxyProvider);
+using var publisher = new GatewayYarpPublisher(proxyProvider, changeListener, [proxyProvider]);
+var publicationBundle = NativePublicationBundle.Create(
+    new PublicationCandidateIdentity(
+        new CandidateId("aot-smoke"),
+        "aot-authority",
+        "epoch-1",
+        1,
+        canonical.Document.ContentHash),
+    [],
+    [],
+    "native-aot-smoke");
+var publication = publisher.PublishAsync(publicationBundle, TimeSpan.FromSeconds(5));
+IProxyConfig? publishedSnapshot = null;
+for (var index = 0; index < 1_000; index++)
+{
+    var current = proxyProvider.GetConfig();
+    if (current.RevisionId == publicationBundle.NativeRevisionId)
+    {
+        publishedSnapshot = current;
+        break;
+    }
+    await Task.Yield();
+}
+if (publishedSnapshot is null)
+{
+    throw new InvalidOperationException("The serialized publisher did not install its native snapshot.");
+}
+changeListener.ConfigurationApplied([publishedSnapshot]);
+if ((await publication).State != GatewayPublicationState.ActiveAcknowledged)
+{
+    throw new InvalidOperationException("The serialized publisher did not acknowledge the exact native revision.");
 }
 
 _ = JsonSerializer.SerializeToUtf8Bytes(validation, GatewayJsonSerializerContext.Default.GatewayValidationResult);
