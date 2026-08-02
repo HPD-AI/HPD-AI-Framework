@@ -258,7 +258,7 @@ public sealed class NativeSemanticValidationTests
         {
             Declarations = valid.Routes[0].Declarations! with
             {
-                Inspection = new DeclarationReference<RequestInspectionBinding> { Inline = new RequestInspectionBinding { MaximumBodyBytes = 10, MaximumInspectionBytes = 10 } }
+                Inspection = new DeclarationReference<RequestInspectionBinding> { Inline = new RequestInspectionBinding { InspectorName = "inspector", Mode = RequestInspectionMode.BoundedPrefix, MaximumAcceptedBodyBytes = 10, MaximumInspectedBytes = 10 } }
             }
         };
         var capabilities = HostCapabilitySnapshot.Create(new HostCapabilityRegistration
@@ -270,6 +270,49 @@ public sealed class NativeSemanticValidationTests
         var errors = GatewayCandidateValidator.Validate(valid with { Routes = [route], Upstreams = [upstream] }, capabilities).Errors;
         errors.Should().Contain(error => error.Path.Contains("clientCertificate.provider", StringComparison.Ordinal));
         errors.Should().Contain(error => error.Path == "inspection");
+    }
+
+    [Fact]
+    public void InspectionRequiresNamedInspectorAndHostSpillCapability()
+    {
+        var valid = GatewayConfigurationTests.CreateValidConfiguration();
+        var inspection = new RequestInspectionBinding
+        {
+            InspectorName = "content-check",
+            Mode = RequestInspectionMode.CompleteBody,
+            MaximumAcceptedBodyBytes = 4096,
+            MemoryThresholdBytes = 1024,
+            SpillPolicy = RequestInspectionSpillPolicy.Allowed
+        };
+        var configuration = valid with
+        {
+            Routes =
+            [
+                valid.Routes[0] with
+                {
+                    Declarations = valid.Routes[0].Declarations! with
+                    {
+                        Inspection = new DeclarationReference<RequestInspectionBinding> { Inline = inspection }
+                    }
+                }
+            ]
+        };
+        var without = HostCapabilitySnapshot.Create(new HostCapabilityRegistration
+        {
+            InstalledFamilies = GatewayDeclarationFamilies.Authorization | GatewayDeclarationFamilies.Inspection,
+            AuthorizationPolicies = ["orders.read"]
+        });
+        var with = HostCapabilitySnapshot.Create(new HostCapabilityRegistration
+        {
+            InstalledFamilies = GatewayDeclarationFamilies.Authorization | GatewayDeclarationFamilies.Inspection,
+            AuthorizationPolicies = ["orders.read"],
+            RequestInspectors = ["content-check"],
+            AllowInspectionFileSpill = true
+        });
+
+        GatewayCandidateValidator.Validate(configuration, without).Errors.Should().Contain(error =>
+            error.Path.EndsWith("inspectorName", StringComparison.Ordinal) || error.Path.EndsWith("spillPolicy", StringComparison.Ordinal));
+        GatewayCandidateValidator.Validate(configuration, with).IsValid.Should().BeTrue();
     }
 
     [Fact]

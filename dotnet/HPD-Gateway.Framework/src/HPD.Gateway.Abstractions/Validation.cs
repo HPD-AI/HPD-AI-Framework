@@ -605,9 +605,22 @@ public static class GatewayConfigurationValidator
 
     private static void ValidateInspection(RequestInspectionBinding value, string path, ImmutableArray<GatewayValidationError>.Builder errors)
     {
-        if (value.MaximumBodyBytes <= 0 || value.MaximumInspectionBytes <= 0 || value.MaximumInspectionBytes > value.MaximumBodyBytes)
+        ValidatePolicyName(value.InspectorName, $"{path}.inspectorName", errors);
+        if (!Enum.IsDefined(value.Mode) || !Enum.IsDefined(value.SpillPolicy) || value.MaximumAcceptedBodyBytes <= 0)
         {
-            Add(errors, GatewayValidationErrorCode.InvalidValue, path, "Inspection bounds must be positive and inspection bytes cannot exceed body bytes.");
+            Add(errors, GatewayValidationErrorCode.InvalidValue, path, "Inspection mode, spill policy, and accepted-body bound must be valid.");
+            return;
+        }
+        if (value.Mode == RequestInspectionMode.BoundedPrefix)
+        {
+            if (value.MaximumInspectedBytes is not > 0 || value.MaximumInspectedBytes > value.MaximumAcceptedBodyBytes ||
+                value.MemoryThresholdBytes is not null || value.SpillPolicy != RequestInspectionSpillPolicy.Disabled)
+                Add(errors, GatewayValidationErrorCode.InvalidValue, path, "Prefix inspection requires a positive inspected-byte bound not exceeding the accepted-body bound and cannot select complete-body memory or spill settings.");
+        }
+        else if (value.MaximumInspectedBytes is not null || value.MemoryThresholdBytes is not > 0 ||
+                 value.MemoryThresholdBytes > value.MaximumAcceptedBodyBytes)
+        {
+            Add(errors, GatewayValidationErrorCode.InvalidValue, path, "Complete inspection requires a positive memory threshold not exceeding the accepted-body bound and cannot select a prefix bound.");
         }
     }
 

@@ -161,8 +161,10 @@ public sealed class ContractHardeningTests
                         {
                             Inline = new RequestInspectionBinding
                             {
-                                MaximumBodyBytes = 10,
-                                MaximumInspectionBytes = 20
+                                InspectorName = "inspector",
+                                Mode = RequestInspectionMode.BoundedPrefix,
+                                MaximumAcceptedBodyBytes = 10,
+                                MaximumInspectedBytes = 20
                             }
                         },
                         RequestTransforms = new OrderedRequestTransforms

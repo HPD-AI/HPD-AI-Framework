@@ -150,12 +150,13 @@ public static class GatewayCandidateValidator
         Each(definitions.TrafficAdmission, "definitions.trafficAdmission", x => x.PolicyName, c.TrafficAdmissionPolicies, errors);
         Each(definitions.RequestTimeout, "definitions.requestTimeout", x => x.PolicyName, c.RequestTimeoutPolicies, errors);
         Each(definitions.OutputCache, "definitions.outputCache", x => x.PolicyName, c.OutputCachePolicies, errors);
+        Each(definitions.Inspection, "definitions.inspection", x => x.InspectorName, c.RequestInspectors, errors, "inspectorName");
     }
 
-    private static void Each<T>(ImmutableArray<DeclarationDefinition<T>> values, string path, Func<T, string?> selector, ImmutableHashSet<string> available, ImmutableArray<GatewayValidationError>.Builder errors) where T : class
+    private static void Each<T>(ImmutableArray<DeclarationDefinition<T>> values, string path, Func<T, string?> selector, ImmutableHashSet<string> available, ImmutableArray<GatewayValidationError>.Builder errors, string member = "policyName") where T : class
     {
         if (values.IsDefault) return;
-        for (var i = 0; i < values.Length; i++) if (values[i]?.Specification is { } value) Resolve(selector(value), available, $"{path}[{i}].specification.policyName", errors);
+        for (var i = 0; i < values.Length; i++) if (values[i]?.Specification is { } value) Resolve(selector(value), available, $"{path}[{i}].specification.{member}", errors);
     }
 
     private static void ValidateDeclarations(RouteDeclarations? d, string path, GatewayDefinitions? definitions, HostCapabilitySnapshot c, ImmutableArray<GatewayValidationError>.Builder errors)
@@ -166,6 +167,8 @@ public static class GatewayCandidateValidator
         ResolveReference(d.TrafficAdmission, definitions?.TrafficAdmission, x => x.PolicyName, c.TrafficAdmissionPolicies, $"{path}.trafficAdmission", errors);
         ResolveReference(d.RequestTimeout, definitions?.RequestTimeout, x => x.PolicyName, c.RequestTimeoutPolicies, $"{path}.requestTimeout", errors);
         ResolveReference(d.OutputCache, definitions?.OutputCache, x => x.PolicyName, c.OutputCachePolicies, $"{path}.outputCache", errors);
+        ResolveReference(d.Inspection, definitions?.Inspection, x => x.InspectorName, c.RequestInspectors, $"{path}.inspection", errors, "inspectorName");
+        ValidateInspectionSpill(d.Inspection, definitions?.Inspection, c, $"{path}.inspection", errors);
     }
 
     private static void ValidateRoot(GatewayRootDeclarations? d, GatewayDefinitions? definitions, HostCapabilitySnapshot c, ImmutableArray<GatewayValidationError>.Builder errors)
@@ -176,16 +179,27 @@ public static class GatewayCandidateValidator
         ResolveReference(d.TrafficAdmission, definitions?.TrafficAdmission, x => x.PolicyName, c.TrafficAdmissionPolicies, "rootDefaults.trafficAdmission", errors);
         ResolveReference(d.RequestTimeout, definitions?.RequestTimeout, x => x.PolicyName, c.RequestTimeoutPolicies, "rootDefaults.requestTimeout", errors);
         ResolveReference(d.OutputCache, definitions?.OutputCache, x => x.PolicyName, c.OutputCachePolicies, "rootDefaults.outputCache", errors);
+        ResolveReference(d.Inspection, definitions?.Inspection, x => x.InspectorName, c.RequestInspectors, "rootDefaults.inspection", errors, "inspectorName");
+        ValidateInspectionSpill(d.Inspection, definitions?.Inspection, c, "rootDefaults.inspection", errors);
     }
 
-    private static void ResolveReference<T>(DeclarationReference<T>? reference, ImmutableArray<DeclarationDefinition<T>>? definitions, Func<T, string?> selector, ImmutableHashSet<string> available, string path, ImmutableArray<GatewayValidationError>.Builder errors) where T : class
+    private static void ResolveReference<T>(DeclarationReference<T>? reference, ImmutableArray<DeclarationDefinition<T>>? definitions, Func<T, string?> selector, ImmutableHashSet<string> available, string path, ImmutableArray<GatewayValidationError>.Builder errors, string member = "policyName") where T : class
     {
-        if (reference?.Inline is { } inline) Resolve(selector(inline), available, $"{path}.inline.policyName", errors);
+        if (reference?.Inline is { } inline) Resolve(selector(inline), available, $"{path}.inline.{member}", errors);
         if (reference?.Definition is { } id && definitions is { } values && !values.IsDefault)
         {
             var specification = values.FirstOrDefault(x => x?.Id == id)?.Specification;
             if (specification is not null) Resolve(selector(specification), available, $"{path}.definition", errors);
         }
+    }
+
+    private static void ValidateInspectionSpill(DeclarationReference<RequestInspectionBinding>? reference, ImmutableArray<DeclarationDefinition<RequestInspectionBinding>>? definitions, HostCapabilitySnapshot capabilities, string path, ImmutableArray<GatewayValidationError>.Builder errors)
+    {
+        var value = reference?.Inline;
+        if (value is null && reference?.Definition is { } id && definitions is { } values && !values.IsDefault)
+            value = values.FirstOrDefault(x => x?.Id == id)?.Specification;
+        if (value?.SpillPolicy == RequestInspectionSpillPolicy.Allowed && !capabilities.AllowInspectionFileSpill)
+            Add(errors, $"{path}.spillPolicy", "Inspection file spill is not permitted by the host capability snapshot.");
     }
 
     private static void Resolve(string? name, ImmutableHashSet<string> available, string path, ImmutableArray<GatewayValidationError>.Builder errors)

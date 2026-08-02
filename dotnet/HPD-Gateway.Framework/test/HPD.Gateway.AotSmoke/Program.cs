@@ -78,9 +78,10 @@ var configuration = new GatewayConfiguration
                 Id = new DefinitionId("inspection"),
                 Specification = new RequestInspectionBinding
                 {
-                    MaximumBodyBytes = 65_536,
-                    MaximumInspectionBytes = 1_024,
-                    AllowDiskSpill = false
+                    InspectorName = "smoke-inspector",
+                    Mode = RequestInspectionMode.BoundedPrefix,
+                    MaximumAcceptedBodyBytes = 65_536,
+                    MaximumInspectedBytes = 1_024
                 }
             }
         ]
@@ -261,6 +262,7 @@ var capabilities = HostCapabilitySnapshot.Create(new HostCapabilityRegistration
     SessionAffinityFailurePolicies = ["Redistribute"],
     PassiveHealthPolicies = ["TransportFailureRate"],
     ActiveHealthPolicies = ["ConsecutiveFailures"],
+    RequestInspectors = ["smoke-inspector"],
     Listeners = [new ListenerCapability(new ListenerId("https"), ListenerRole.DataPlane, ListenerProtocols.Http1 | ListenerProtocols.Http2, ["gateway.local"], true)],
     DiscoveryProviders = [new DiscoveryProviderCapability(new ProviderId("dns"), ["region"], ["region"], false, true)],
     SecretProviders = [new ProviderId("secrets")]

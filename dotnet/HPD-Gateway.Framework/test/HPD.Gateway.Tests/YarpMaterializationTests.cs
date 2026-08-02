@@ -219,7 +219,7 @@ public sealed class YarpMaterializationTests
             ],
             RootDefaults = new GatewayRootDeclarations
             {
-                Inspection = Inline(new RequestInspectionBinding { MaximumBodyBytes = 1024, MaximumInspectionBytes = 128 })
+                Inspection = Inline(new RequestInspectionBinding { InspectorName = "inspector", Mode = RequestInspectionMode.BoundedPrefix, MaximumAcceptedBodyBytes = 1024, MaximumInspectedBytes = 128 })
             }
         };
 
@@ -554,6 +554,7 @@ public sealed class YarpMaterializationTests
         SessionAffinityFailurePolicies = ["Redistribute"],
         PassiveHealthPolicies = ["TransportFailureRate"],
         ActiveHealthPolicies = ["ConsecutiveFailures"],
+        RequestInspectors = ["inspector"],
         DiscoveryProviders = withDiscovery
             ? [new DiscoveryProviderCapability(new ProviderId("dns"), [], [], true, false)]
             : []

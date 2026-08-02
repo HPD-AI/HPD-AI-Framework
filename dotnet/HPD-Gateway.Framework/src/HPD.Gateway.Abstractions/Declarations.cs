@@ -94,13 +94,31 @@ public sealed record OutputCacheBinding(string PolicyName);
 
 public sealed record RequestInspectionBinding
 {
-    public required long MaximumBodyBytes { get; init; }
+    public required string InspectorName { get; init; }
 
-    public required int MaximumInspectionBytes { get; init; }
+    public required RequestInspectionMode Mode { get; init; }
 
-    public bool RequireCompleteBody { get; init; }
+    public required long MaximumAcceptedBodyBytes { get; init; }
 
-    public bool AllowDiskSpill { get; init; }
+    public int? MaximumInspectedBytes { get; init; }
+
+    public int? MemoryThresholdBytes { get; init; }
+
+    public RequestInspectionSpillPolicy SpillPolicy { get; init; }
+}
+
+[JsonConverter(typeof(StrictStringEnumJsonConverter<RequestInspectionMode>))]
+public enum RequestInspectionMode
+{
+    BoundedPrefix = 0,
+    CompleteBody = 1
+}
+
+[JsonConverter(typeof(StrictStringEnumJsonConverter<RequestInspectionSpillPolicy>))]
+public enum RequestInspectionSpillPolicy
+{
+    Disabled = 0,
+    Allowed = 1
 }
 
 public sealed record TelemetryEnrichment

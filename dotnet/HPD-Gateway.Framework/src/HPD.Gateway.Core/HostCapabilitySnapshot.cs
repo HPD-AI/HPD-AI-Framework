@@ -64,6 +64,8 @@ public sealed record HostCapabilityRegistration
     public IEnumerable<string> SessionAffinityFailurePolicies { get; init; } = [];
     public IEnumerable<string> PassiveHealthPolicies { get; init; } = [];
     public IEnumerable<string> ActiveHealthPolicies { get; init; } = [];
+    public IEnumerable<string> RequestInspectors { get; init; } = [];
+    public bool AllowInspectionFileSpill { get; init; }
 }
 
 public sealed class HostCapabilitySnapshot
@@ -87,6 +89,8 @@ public sealed class HostCapabilitySnapshot
         SessionAffinityFailurePolicies = Names(registration.SessionAffinityFailurePolicies);
         PassiveHealthPolicies = Names(registration.PassiveHealthPolicies);
         ActiveHealthPolicies = Names(registration.ActiveHealthPolicies);
+        RequestInspectors = Names(registration.RequestInspectors);
+        AllowInspectionFileSpill = registration.AllowInspectionFileSpill;
     }
 
     public ImmutableDictionary<ListenerId, ListenerCapability> Listeners { get; }
@@ -102,6 +106,8 @@ public sealed class HostCapabilitySnapshot
     public ImmutableHashSet<string> SessionAffinityFailurePolicies { get; }
     public ImmutableHashSet<string> PassiveHealthPolicies { get; }
     public ImmutableHashSet<string> ActiveHealthPolicies { get; }
+    public ImmutableHashSet<string> RequestInspectors { get; }
+    public bool AllowInspectionFileSpill { get; }
 
     public static HostCapabilitySnapshot Create(HostCapabilityRegistration registration)
     {
@@ -119,7 +125,8 @@ public sealed class HostCapabilitySnapshot
             SessionAffinityPolicies = Required(registration.SessionAffinityPolicies, nameof(registration.SessionAffinityPolicies)).ToArray(),
             SessionAffinityFailurePolicies = Required(registration.SessionAffinityFailurePolicies, nameof(registration.SessionAffinityFailurePolicies)).ToArray(),
             PassiveHealthPolicies = Required(registration.PassiveHealthPolicies, nameof(registration.PassiveHealthPolicies)).ToArray(),
-            ActiveHealthPolicies = Required(registration.ActiveHealthPolicies, nameof(registration.ActiveHealthPolicies)).ToArray()
+            ActiveHealthPolicies = Required(registration.ActiveHealthPolicies, nameof(registration.ActiveHealthPolicies)).ToArray(),
+            RequestInspectors = Required(registration.RequestInspectors, nameof(registration.RequestInspectors)).ToArray()
         };
         if ((registration.InstalledFamilies & ~GatewayDeclarationFamilies.AllBaseline) != 0)
             throw new ArgumentException("Installed declaration-family flags are invalid.", nameof(registration));
@@ -164,6 +171,7 @@ public sealed class HostCapabilitySnapshot
         ValidateNames(registration.SessionAffinityFailurePolicies, nameof(registration.SessionAffinityFailurePolicies));
         ValidateNames(registration.PassiveHealthPolicies, nameof(registration.PassiveHealthPolicies));
         ValidateNames(registration.ActiveHealthPolicies, nameof(registration.ActiveHealthPolicies));
+        ValidateNames(registration.RequestInspectors, nameof(registration.RequestInspectors));
         return new HostCapabilitySnapshot(listeners.ToImmutable(), discoveries.ToImmutable(), secrets.ToImmutable(), registration);
     }
 
