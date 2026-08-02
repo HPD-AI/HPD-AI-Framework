@@ -1,4 +1,6 @@
 using System.Collections.Immutable;
+using System.Collections.Concurrent;
+using System.Diagnostics.Metrics;
 using System.Net;
 using System.Text;
 using System.Text.Json;
@@ -33,11 +35,68 @@ public sealed class UpstreamResilienceTests
         {
             Retry = new GatewayResponseRetryProfile { StatusCodes = [HttpStatusCode.ServiceUnavailable], MaximumRetryAttempts = 6 }
         });
+        Action unsorted = () => new GatewayResilienceRegistryBuilder().Add(RetryProfile("unsorted", 1) with
+        {
+            Retry = new GatewayResponseRetryProfile
+            {
+                StatusCodes = [HttpStatusCode.ServiceUnavailable, HttpStatusCode.RequestTimeout],
+                MaximumRetryAttempts = 1
+            }
+        });
 
         duplicate.Should().Throw<ArgumentException>();
         invalidName.Should().Throw<ArgumentException>();
         empty.Should().Throw<ArgumentException>();
         tooMany.Should().Throw<ArgumentOutOfRangeException>();
+        unsorted.Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void CapabilitySnapshotRejectsUnsortedRetryStatuses()
+    {
+        Action create = () => HostCapabilitySnapshot.Create(new()
+        {
+            InstalledFamilies = GatewayDeclarationFamilies.UpstreamResilience,
+            UpstreamResilienceProfiles =
+            [
+                new UpstreamResilienceCapability(
+                    "safe",
+                    1,
+                    UpstreamResilienceStrategies.SelectedResponseRetry,
+                    [503, 408],
+                    1)
+            ]
+        });
+
+        create.Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void ResilienceCannotBypassRequestTimeoutFamilyInstallation()
+    {
+        var configuration = Configuration("http://127.0.0.1:5001", ["GET"]) with
+        {
+            Routes =
+            [
+                Configuration("http://127.0.0.1:5001", ["GET"]).Routes[0] with
+                {
+                    Declarations = new RouteDeclarations
+                    {
+                        RequestTimeout = new DeclarationReference<RequestTimeoutBinding>
+                        {
+                            Inline = new RequestTimeoutBinding { Timeout = TimeSpan.FromSeconds(1) }
+                        }
+                    }
+                }
+            ]
+        };
+        var capabilities = Capabilities(
+            new UpstreamResilienceCapability("safe", 1, UpstreamResilienceStrategies.SelectedResponseRetry, [503], 1));
+
+        var result = GatewayCandidateValidator.Validate(configuration, capabilities);
+
+        result.IsValid.Should().BeFalse();
+        result.Errors.Should().Contain(error => error.Path == "requestTimeout");
     }
 
     [Theory]
@@ -105,6 +164,40 @@ public sealed class UpstreamResilienceTests
 
         response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
         fixture.Hits("/always-fail").Should().Be(3);
+    }
+
+    [Fact]
+    public async Task ResilienceTelemetryUsesOnlyTheClosedBoundedTagSet()
+    {
+        var measurements = new ConcurrentQueue<KeyValuePair<string, object?>[]>();
+        using var listener = new MeterListener
+        {
+            InstrumentPublished = (instrument, meterListener) =>
+            {
+                if (instrument.Meter.Name == GatewayResilienceTelemetry.MeterName)
+                    meterListener.EnableMeasurementEvents(instrument);
+            }
+        };
+        listener.SetMeasurementEventCallback<long>((instrument, measurement, tags, state) =>
+        {
+            if (instrument.Name == GatewayResilienceTelemetry.InstrumentName && measurement > 0)
+                measurements.Enqueue(tags.ToArray());
+        });
+        listener.Start();
+        await using var fixture = await ResilienceFixture.Start(RetryProfile("safe", 1));
+
+        using var response = await fixture.Client.GetAsync("/retry");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        measurements.Should().ContainSingle();
+        var tags = measurements.Single();
+        tags.Select(static tag => tag.Key).Should().Equal(
+            "hpd.gateway.resilience.profile",
+            "hpd.gateway.resilience.strategy",
+            "hpd.gateway.resilience.outcome");
+        tags.Should().Contain(new KeyValuePair<string, object?>("hpd.gateway.resilience.profile", "safe"));
+        tags.Should().Contain(new KeyValuePair<string, object?>("hpd.gateway.resilience.strategy", "retry"));
+        tags.Should().Contain(new KeyValuePair<string, object?>("hpd.gateway.resilience.outcome", "attempt"));
     }
 
     [Fact]
@@ -178,7 +271,7 @@ public sealed class UpstreamResilienceTests
     }
 
     [Fact]
-    public async Task CircuitOpensWithoutAdditionalUpstreamAttempt()
+    public async Task CircuitOpensThenTransitionsThroughHalfOpen()
     {
         await using var fixture = await ResilienceFixture.Start(new GatewayResilienceProfile
         {
@@ -190,7 +283,7 @@ public sealed class UpstreamResilienceTests
                 FailureRatio = 1,
                 MinimumThroughput = 2,
                 SamplingDuration = TimeSpan.FromSeconds(10),
-                BreakDuration = TimeSpan.FromSeconds(2)
+                BreakDuration = TimeSpan.FromSeconds(1)
             }
         }, profileName: "breaker");
 
@@ -202,6 +295,12 @@ public sealed class UpstreamResilienceTests
         second.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
         third.StatusCode.Should().Be(HttpStatusCode.BadGateway);
         fixture.Hits("/always-fail").Should().Be(2);
+
+        await Task.Delay(TimeSpan.FromMilliseconds(1100));
+        using var halfOpen = await fixture.Client.GetAsync("/always-fail");
+
+        halfOpen.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+        fixture.Hits("/always-fail").Should().Be(3);
     }
 
     [Fact]
@@ -342,6 +441,46 @@ public sealed class UpstreamResilienceTests
         fixture.Hits("/always-fail").Should().Be(6);
     }
 
+    [Fact]
+    public async Task InFlightRequestKeepsOldProfileWhileNewRequestsUseReplacement()
+    {
+        var first = RetryProfile("safe", 1);
+        var second = RetryProfile("alternate", 2) with
+        {
+            Retry = new GatewayResponseRetryProfile { StatusCodes = [HttpStatusCode.BadGateway], MaximumRetryAttempts = 1 }
+        };
+        await using var fixture = await ResilienceFixture.Start(first, "safe", second);
+
+        var oldGeneration = fixture.Client.GetAsync("/generation");
+        await fixture.GenerationEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await fixture.Reload("alternate", 2, 2);
+
+        using var newGeneration = await fixture.Client.GetAsync("/always-fail");
+        newGeneration.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+        fixture.Hits("/always-fail").Should().Be(1);
+
+        fixture.ReleaseGeneration.TrySetResult();
+        using var oldResponse = await oldGeneration.WaitAsync(TimeSpan.FromSeconds(5));
+        oldResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        fixture.Hits("/generation").Should().Be(2);
+    }
+
+    [Fact]
+    public async Task NoSelectedProfileMatchesDirectYarpForwarding()
+    {
+        await using var fixture = await ResilienceFixture.Start(RetryProfile("safe", 1));
+        await fixture.Reload(null, 0, 2);
+        await using var direct = await fixture.StartDirectYarp();
+        using var directClient = new HttpClient { BaseAddress = new Uri(ResilienceFixture.Address(direct)) };
+
+        using var hpdResponse = await fixture.Client.GetAsync("/plain");
+        using var directResponse = await directClient.GetAsync("/plain");
+
+        hpdResponse.StatusCode.Should().Be(directResponse.StatusCode);
+        (await hpdResponse.Content.ReadAsByteArrayAsync()).Should().Equal(await directResponse.Content.ReadAsByteArrayAsync());
+        fixture.Hits("/plain").Should().Be(2);
+    }
+
     private static IReadOnlyDictionary<string, string> ResilienceMetadata(string name, int version) =>
         new Dictionary<string, string>(StringComparer.Ordinal)
         {
@@ -408,6 +547,7 @@ public sealed class UpstreamResilienceTests
         private readonly WebApplication _backend;
         private readonly Dictionary<string, int> _hits;
         private readonly object _gate = new();
+        private NativePublicationBundle? _lastBundle;
 
         private ResilienceFixture(WebApplication proxy, WebApplication backend, Dictionary<string, int> hits)
         {
@@ -418,6 +558,8 @@ public sealed class UpstreamResilienceTests
         }
 
         internal HttpClient Client { get; }
+        internal TaskCompletionSource GenerationEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal TaskCompletionSource ReleaseGeneration { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal int Hits(string path) { lock (_gate) return _hits.GetValueOrDefault(path); }
 
         internal static async Task<ResilienceFixture> Start(
@@ -427,6 +569,8 @@ public sealed class UpstreamResilienceTests
         {
             var hits = new Dictionary<string, int>(StringComparer.Ordinal);
             var gate = new object();
+            TaskCompletionSource? generationEntered = null;
+            TaskCompletionSource? releaseGeneration = null;
             var backendBuilder = WebApplication.CreateSlimBuilder();
             backendBuilder.WebHost.UseUrls("http://127.0.0.1:0");
             var backend = backendBuilder.Build();
@@ -434,13 +578,20 @@ public sealed class UpstreamResilienceTests
             {
                 int count;
                 lock (gate) { hits.TryGetValue(context.Request.Path, out count); hits[context.Request.Path] = ++count; }
+                if (context.Request.Path == "/generation" && count == 1)
+                {
+                    generationEntered!.TrySetResult();
+                    await releaseGeneration!.Task.WaitAsync(context.RequestAborted);
+                }
                 if (context.Request.Path == "/slow") await Task.Delay(500, context.RequestAborted);
                 context.Response.StatusCode = context.Request.Path.Value switch
                 {
                     "/retry" when count > 1 => StatusCodes.Status200OK,
+                    "/generation" when count == 1 => StatusCodes.Status503ServiceUnavailable,
                     "/retry" or "/retry-body" or "/always-fail" => StatusCodes.Status503ServiceUnavailable,
                     _ => StatusCodes.Status200OK
                 };
+                if (context.Request.Path == "/plain") await context.Response.WriteAsync("plain");
             });
             await backend.StartAsync();
 
@@ -459,6 +610,8 @@ public sealed class UpstreamResilienceTests
             await proxy.StartAsync();
 
             var fixture = new ResilienceFixture(proxy, backend, hits);
+            generationEntered = fixture.GenerationEntered;
+            releaseGeneration = fixture.ReleaseGeneration;
             await fixture.Reload(profileName, profile.Version, 1);
             return fixture;
         }
@@ -477,8 +630,21 @@ public sealed class UpstreamResilienceTests
             var identity = new PublicationCandidateIdentity(new CandidateId($"resilience-{version}"), "authority", "epoch", version, accepted.CanonicalDocument!.ContentHash);
             var materialized = await _proxy.Services.GetRequiredService<GatewayNativeMaterializer>().MaterializeAsync(accepted, identity, $"resilience-native-{version}");
             materialized.IsMaterialized.Should().BeTrue(string.Join(", ", materialized.Diagnostics.Select(error => error.Code)));
+            _lastBundle = materialized.Bundle!;
             var outcome = await _proxy.Services.GetRequiredService<GatewayYarpPublisher>().PublishAsync(materialized.Bundle!, TimeSpan.FromSeconds(5));
             outcome.State.Should().Be(GatewayPublicationState.ActiveAcknowledged);
+        }
+
+        internal async Task<WebApplication> StartDirectYarp()
+        {
+            var bundle = _lastBundle ?? throw new InvalidOperationException("A native bundle has not been materialized.");
+            var builder = WebApplication.CreateSlimBuilder();
+            builder.WebHost.UseUrls("http://127.0.0.1:0");
+            builder.Services.AddReverseProxy().LoadFromMemory(bundle.Routes, bundle.Clusters);
+            var application = builder.Build();
+            application.MapReverseProxy();
+            await application.StartAsync();
+            return application;
         }
 
         public async ValueTask DisposeAsync()
@@ -488,7 +654,7 @@ public sealed class UpstreamResilienceTests
             await _backend.DisposeAsync();
         }
 
-        private static string Address(WebApplication application) => application.Services
+        internal static string Address(WebApplication application) => application.Services
             .GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.Single();
     }
 

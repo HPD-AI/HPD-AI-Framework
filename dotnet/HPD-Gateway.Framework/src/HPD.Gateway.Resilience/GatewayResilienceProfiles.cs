@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics.Metrics;
 using System.Net;
 using HPD.Gateway.Abstractions;
 using HPD.Gateway.Core;
@@ -94,8 +95,9 @@ public sealed class GatewayResilienceRegistryBuilder
     private static void ValidateStatuses(ImmutableArray<HttpStatusCode> statuses, string name)
     {
         if (statuses.IsDefaultOrEmpty || statuses.Length > 32 || statuses.Any(static value => (int)value is < 100 or > 599) ||
-            statuses.Distinct().Count() != statuses.Length)
-            throw new ArgumentException("Status codes must be initialized, bounded, valid, and unique.", name);
+            statuses.Distinct().Count() != statuses.Length ||
+            !statuses.Select(static value => (int)value).SequenceEqual(statuses.Select(static value => (int)value).Order()))
+            throw new ArgumentException("Status codes must be initialized, bounded, valid, unique, and sorted.", name);
     }
 }
 
@@ -122,7 +124,7 @@ internal sealed class GatewayResilienceRegistry(ImmutableDictionary<string, Gate
             throw new InvalidOperationException("The selected resilience profile is not installed.");
         var pipeline = BuildPipeline(profile);
         HttpMessageHandler handler = new ResilienceHandler(pipeline) { InnerHandler = inner };
-        if (profile.ConcurrencyLimiter is { } limiter) handler = new GatewayConcurrencyHandler(limiter, handler);
+        if (profile.ConcurrencyLimiter is { } limiter) handler = new GatewayConcurrencyHandler(profile.Name, limiter, handler);
         return handler;
     }
 
@@ -142,7 +144,12 @@ internal sealed class GatewayResilienceRegistry(ImmutableDictionary<string, Gate
                     args.Outcome.Exception is null && args.Outcome.Result is { } response &&
                     response.RequestMessage is { } request && IsRetryEligible(request) && statuses.Contains(response.StatusCode)),
                 DelayGenerator = args => ValueTask.FromResult(BoundedRetryAfter(args.Outcome.Result, retry.MaximumRetryAfter)),
-                OnRetry = args => { args.Outcome.Result?.Dispose(); return default; }
+                OnRetry = args =>
+                {
+                    GatewayResilienceTelemetry.Record(profile.Name, "retry", "attempt");
+                    args.Outcome.Result?.Dispose();
+                    return default;
+                }
             });
         }
         if (profile.CircuitBreaker is { } breaker)
@@ -154,10 +161,17 @@ internal sealed class GatewayResilienceRegistry(ImmutableDictionary<string, Gate
                 MinimumThroughput = breaker.MinimumThroughput,
                 SamplingDuration = breaker.SamplingDuration,
                 BreakDuration = breaker.BreakDuration,
-                ShouldHandle = args => ValueTask.FromResult(args.Outcome.Result is { } response && statuses.Contains(response.StatusCode))
+                ShouldHandle = args => ValueTask.FromResult(args.Outcome.Result is { } response && statuses.Contains(response.StatusCode)),
+                OnOpened = _ => { GatewayResilienceTelemetry.Record(profile.Name, "circuit", "opened"); return default; },
+                OnClosed = _ => { GatewayResilienceTelemetry.Record(profile.Name, "circuit", "closed"); return default; },
+                OnHalfOpened = _ => { GatewayResilienceTelemetry.Record(profile.Name, "circuit", "half-opened"); return default; }
             });
         }
-        if (profile.AttemptTimeout is { } timeout) builder.AddTimeout(new TimeoutStrategyOptions { Timeout = timeout.Timeout });
+        if (profile.AttemptTimeout is { } timeout) builder.AddTimeout(new TimeoutStrategyOptions
+        {
+            Timeout = timeout.Timeout,
+            OnTimeout = _ => { GatewayResilienceTelemetry.Record(profile.Name, "timeout", "elapsed"); return default; }
+        });
         return builder.Build();
     }
 
@@ -192,12 +206,14 @@ internal sealed class GatewayResilienceRegistry(ImmutableDictionary<string, Gate
 
 internal sealed class GatewayConcurrencyHandler : DelegatingHandler
 {
+    private readonly string _profileName;
     private readonly SemaphoreSlim _permits;
     private readonly int _queueLimit;
     private int _queued;
 
-    internal GatewayConcurrencyHandler(GatewayOutboundConcurrencyProfile profile, HttpMessageHandler inner)
+    internal GatewayConcurrencyHandler(string profileName, GatewayOutboundConcurrencyProfile profile, HttpMessageHandler inner)
     {
+        _profileName = profileName;
         _permits = new SemaphoreSlim(profile.PermitLimit, profile.PermitLimit);
         _queueLimit = profile.QueueLimit;
         InnerHandler = inner;
@@ -206,7 +222,10 @@ internal sealed class GatewayConcurrencyHandler : DelegatingHandler
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         if (!await TryEnterAsync(cancellationToken).ConfigureAwait(false))
+        {
+            GatewayResilienceTelemetry.Record(_profileName, "concurrency", "rejected");
             return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable) { RequestMessage = request };
+        }
         try { return await base.SendAsync(request, cancellationToken).ConfigureAwait(false); }
         finally { _permits.Release(); }
     }
@@ -228,6 +247,19 @@ internal sealed class GatewayConcurrencyHandler : DelegatingHandler
         if (disposing) _permits.Dispose();
         base.Dispose(disposing);
     }
+}
+
+internal static class GatewayResilienceTelemetry
+{
+    internal const string MeterName = "HPD.Gateway.Resilience";
+    internal const string InstrumentName = "hpd.gateway.resilience.events";
+    private static readonly Meter Meter = new(MeterName, "1.0.0");
+    private static readonly Counter<long> Events = Meter.CreateCounter<long>(InstrumentName);
+
+    internal static void Record(string profileName, string strategy, string outcome) => Events.Add(1,
+        new KeyValuePair<string, object?>("hpd.gateway.resilience.profile", profileName),
+        new KeyValuePair<string, object?>("hpd.gateway.resilience.strategy", strategy),
+        new KeyValuePair<string, object?>("hpd.gateway.resilience.outcome", outcome));
 }
 
 public static class GatewayResilienceServiceCollectionExtensions

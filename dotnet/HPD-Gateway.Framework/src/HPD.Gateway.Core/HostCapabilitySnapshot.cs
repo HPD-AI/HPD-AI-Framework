@@ -214,6 +214,7 @@ public sealed class HostCapabilitySnapshot
                 profile.RetryStatusCodes.IsDefault || profile.RetryStatusCodes.Length > 32 ||
                 profile.RetryStatusCodes.Any(static status => status is < 100 or > 599) ||
                 profile.RetryStatusCodes.Distinct().Count() != profile.RetryStatusCodes.Length ||
+                !profile.RetryStatusCodes.SequenceEqual(profile.RetryStatusCodes.Order()) ||
                 (hasRetry && (profile.RetryStatusCodes.IsEmpty || profile.MaximumRetryAttempts is < 1 or > 5)) ||
                 (!hasRetry && (!profile.RetryStatusCodes.IsEmpty || profile.MaximumRetryAttempts != 0)) ||
                 !profiles.TryAdd(profile.Name, profile))
