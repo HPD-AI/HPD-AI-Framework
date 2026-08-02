@@ -17,7 +17,8 @@ public enum GatewayValidationErrorCode
     UnsupportedVersion = 7,
     MissingRequiredValue = 8,
     InvalidEnumValue = 9,
-    BoundExceeded = 10
+    BoundExceeded = 10,
+    AmbiguousRoute = 11
 }
 
 public sealed record GatewayValidationError(
@@ -45,6 +46,24 @@ public static class GatewayConfigurationValidator
     public const int MaximumTransforms = 64;
     public const int MaximumTextLength = 2_048;
     public const int MaximumMetadataValueLength = 4_096;
+    public static readonly TimeSpan MaximumOperationalDuration = TimeSpan.FromDays(1);
+
+    private static readonly HashSet<string> SupportedMethods = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "HEAD", "OPTIONS", "GET", "PUT", "POST", "PATCH", "DELETE", "TRACE"
+    };
+
+    private static readonly HashSet<string> ForbiddenTransformHeaders = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Connection", "Content-Length", "Host", "Keep-Alive", "Proxy-Authenticate",
+        "Proxy-Authorization", "Proxy-Connection", "TE", "Trailer", "Transfer-Encoding", "Upgrade"
+    };
+
+    private static readonly HashSet<string> ForbiddenTrailerHeaders = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Authorization", "Cache-Control", "Content-Encoding", "Content-Range", "Content-Type",
+        "Cookie", "Expires", "Location", "Range", "Retry-After", "Set-Cookie", "Vary", "WWW-Authenticate"
+    };
 
     public static GatewayValidationResult Validate(GatewayConfiguration? configuration)
     {
@@ -215,6 +234,10 @@ public static class GatewayConfigurationValidator
                     ValidateHttpUri(destination.Address, $"{destinationPath}.address", true, errors);
                     ValidateHttpUri(destination.HealthAddress, $"{destinationPath}.healthAddress", false, errors);
                     ValidateOptionalText(destination.HostOverride, $"{destinationPath}.hostOverride", errors);
+                    if (destination.HostOverride is not null && !IsSupportedHostPattern(destination.HostOverride))
+                    {
+                        Add(errors, GatewayValidationErrorCode.InvalidValue, $"{destinationPath}.hostOverride", "Host override is not a legal Host header value.");
+                    }
                     ValidateMetadata(destination.Metadata, $"{destinationPath}.metadata", errors);
                 }
                 break;
@@ -276,6 +299,7 @@ public static class GatewayConfigurationValidator
         }
 
         var routes = new HashSet<string>(StringComparer.Ordinal);
+        var routeShapes = new HashSet<string>(StringComparer.Ordinal);
         for (var index = 0; index < declarations.Length; index++)
         {
             var route = declarations[index];
@@ -304,6 +328,15 @@ public static class GatewayConfigurationValidator
             }
 
             ValidateRouteMatch(route.Match, $"{path}.match", errors);
+            if (route.Match is not null && !route.Match.Methods.IsDefault && !route.Match.Hosts.IsDefault &&
+                !route.Match.Headers.IsDefault && !route.Match.Query.IsDefault)
+            {
+                var shape = CreateRouteShape(route.Order ?? 0, route.Match);
+                if (!routeShapes.Add(shape))
+                {
+                    Add(errors, GatewayValidationErrorCode.AmbiguousRoute, $"{path}.match", "Another route has the same effective match and order.");
+                }
+            }
             ValidateMetadata(route.Metadata, $"{path}.metadata", errors);
             if (route.Declarations is null)
             {
@@ -338,8 +371,8 @@ public static class GatewayConfigurationValidator
             Add(errors, GatewayValidationErrorCode.InvalidRouteMatch, path, "Route match requires a path or at least one host.");
         }
 
-        ValidateTextArray(match.Methods, $"{path}.methods", MaximumMatchItems, errors);
-        ValidateTextArray(match.Hosts, $"{path}.hosts", MaximumMatchItems, errors);
+        ValidateMethods(match.Methods, $"{path}.methods", errors);
+        ValidateHosts(match.Hosts, $"{path}.hosts", errors);
         ValidateOptionalText(match.Path, $"{path}.path", errors);
         ValidateMatches(match.Headers, $"{path}.headers", true, errors);
         ValidateMatches(match.Query, $"{path}.query", false, errors);
@@ -353,6 +386,7 @@ public static class GatewayConfigurationValidator
             return;
         }
 
+        var predicates = new HashSet<string>(StringComparer.Ordinal);
         for (var index = 0; index < matches.Length; index++)
         {
             object? item = matches[index];
@@ -378,12 +412,39 @@ public static class GatewayConfigurationValidator
             }
 
             ValidateRequiredText(name, $"{path}[{index}].name", errors);
+            if (name is not null && (header ? !IsHttpToken(name) : ContainsProhibitedQueryNameCharacter(name)))
+            {
+                Add(errors, GatewayValidationErrorCode.InvalidRouteMatch, $"{path}[{index}].name", header
+                    ? "Header match name is not a valid HTTP field name."
+                    : "Query match name contains a control or query-delimiter character.");
+            }
             ValidateEnum(kind, $"{path}[{index}].kind", errors);
+            if (!header && kind == TextMatchKind.NotExists)
+            {
+                Add(errors, GatewayValidationErrorCode.InvalidRouteMatch, $"{path}[{index}].kind", "NotExists is not supported by the native query matcher.");
+            }
             ValidateTextArray(values, $"{path}[{index}].values", MaximumMatchItems, errors);
             var requiresValues = kind is TextMatchKind.Exact or TextMatchKind.Prefix or TextMatchKind.Contains;
             if (requiresValues == values.IsDefaultOrEmpty)
             {
                 Add(errors, GatewayValidationErrorCode.InvalidRouteMatch, $"{path}[{index}].values", requiresValues ? "This match kind requires values." : "Exists and NotExists must not contain values.");
+            }
+
+            var comparison = item is HttpHeaderMatch hm && hm.CaseSensitive || item is HttpQueryMatch qm && qm.CaseSensitive
+                ? StringComparer.Ordinal
+                : StringComparer.OrdinalIgnoreCase;
+            if (!values.IsDefault && values.Distinct(comparison).Count() != values.Length)
+            {
+                Add(errors, GatewayValidationErrorCode.InvalidRouteMatch, $"{path}[{index}].values", "Match values must be semantically unique.");
+            }
+            if (name is not null)
+            {
+                var orderedValues = values.IsDefault ? Enumerable.Empty<string>() : values.OrderBy(static v => v, comparison);
+                var predicate = $"{name.ToUpperInvariant()}\u001f{kind}\u001f{(item is HttpHeaderMatch h && h.CaseSensitive || item is HttpQueryMatch q && q.CaseSensitive)}\u001f{string.Join('\u001e', orderedValues)}";
+                if (!predicates.Add(predicate))
+                {
+                    Add(errors, GatewayValidationErrorCode.InvalidRouteMatch, $"{path}[{index}]", "Duplicate semantic match predicate.");
+                }
             }
         }
     }
@@ -601,11 +662,12 @@ public static class GatewayConfigurationValidator
 
             ValidateEnum(kind, $"{path}[{index}].kind", errors);
             ValidateRequiredText(name, $"{path}[{index}].name", errors);
-            var forbidden = name?.Equals("Content-Length", StringComparison.OrdinalIgnoreCase) == true ||
-                name?.Equals("Transfer-Encoding", StringComparison.OrdinalIgnoreCase) == true ||
-                name?.Equals("Connection", StringComparison.OrdinalIgnoreCase) == true ||
-                name?.Equals("Host", StringComparison.OrdinalIgnoreCase) == true;
-            if (forbidden || (trailer && name?.Equals("Trailer", StringComparison.OrdinalIgnoreCase) == true))
+            if (name is not null && !IsHttpToken(name))
+            {
+                Add(errors, GatewayValidationErrorCode.InvalidValue, $"{path}[{index}].name", "Transform name is not a valid HTTP field name.");
+            }
+            var forbidden = name is not null && ForbiddenTransformHeaders.Contains(name);
+            if (forbidden || (trailer && name is not null && ForbiddenTrailerHeaders.Contains(name)))
             {
                 Add(errors, GatewayValidationErrorCode.InvalidValue, $"{path}[{index}].name", "Hop-by-hop, framing, Host, and trailer-control fields cannot be transformed.");
             }
@@ -620,6 +682,10 @@ public static class GatewayConfigurationValidator
             else
             {
                 ValidateRequiredText(value, $"{path}[{index}].value", errors);
+                if (value is not null && ContainsInvalidFieldValueCharacter(value))
+                {
+                    Add(errors, GatewayValidationErrorCode.InvalidValue, $"{path}[{index}].value", "Transform value contains CR, LF, NUL, or a prohibited control character.");
+                }
             }
         }
     }
@@ -637,13 +703,13 @@ public static class GatewayConfigurationValidator
         if (value?.Passive is { } passive)
         {
             ValidatePolicyName(passive.Policy, $"{path}.passive.policy", errors);
-            ValidatePositive(passive.ReactivationPeriod, $"{path}.passive.reactivationPeriod", errors);
+            ValidateDuration(passive.ReactivationPeriod, $"{path}.passive.reactivationPeriod", errors);
         }
         if (value?.Active is { } active)
         {
             ValidatePolicyName(active.Policy, $"{path}.active.policy", errors);
-            ValidatePositive(active.Interval, $"{path}.active.interval", errors);
-            ValidatePositive(active.Timeout, $"{path}.active.timeout", errors);
+            ValidateDuration(active.Interval, $"{path}.active.interval", errors);
+            ValidateDuration(active.Timeout, $"{path}.active.timeout", errors);
             ValidateOptionalText(active.Path, $"{path}.active.path", errors);
             if (active.Path is not null && !active.Path.StartsWith("/", StringComparison.Ordinal))
             {
@@ -663,7 +729,7 @@ public static class GatewayConfigurationValidator
         {
             Add(errors, GatewayValidationErrorCode.InvalidValue, $"{path}.maxConnectionsPerServer", "Maximum connections must be positive.");
         }
-        ValidatePositive(value.ConnectTimeout, $"{path}.connectTimeout", errors);
+        ValidateDuration(value.ConnectTimeout, $"{path}.connectTimeout", errors);
         if (value.Tls is { } tls)
         {
             ValidateRequiredText(tls.ServerName, $"{path}.tls.serverName", errors);
@@ -679,7 +745,7 @@ public static class GatewayConfigurationValidator
             Add(errors, GatewayValidationErrorCode.MissingRequiredValue, path, "Upstream request configuration is required.");
             return;
         }
-        ValidatePositive(value.ActivityTimeout, $"{path}.activityTimeout", errors);
+        ValidateDuration(value.ActivityTimeout, $"{path}.activityTimeout", errors);
         ValidateEnum(value.Version, $"{path}.version", errors);
         ValidateEnum(value.VersionSelection, $"{path}.versionSelection", errors);
     }
@@ -741,6 +807,10 @@ public static class GatewayConfigurationValidator
         {
             Add(errors, GatewayValidationErrorCode.InvalidValue, path, "URI must be absolute HTTP or HTTPS.");
         }
+        if (!string.IsNullOrEmpty(value.UserInfo) || !string.IsNullOrEmpty(value.Query) || !string.IsNullOrEmpty(value.Fragment))
+        {
+            Add(errors, GatewayValidationErrorCode.InvalidValue, path, "URI must not contain user-info, a query, or a fragment.");
+        }
     }
 
     private static void ValidateTextArray(ImmutableArray<string> values, string path, int maximum, ImmutableArray<GatewayValidationError>.Builder errors)
@@ -790,6 +860,72 @@ public static class GatewayConfigurationValidator
         {
             Add(errors, GatewayValidationErrorCode.InvalidValue, path, "Duration must be positive.");
         }
+    }
+
+    private static void ValidateDuration(TimeSpan? value, string path, ImmutableArray<GatewayValidationError>.Builder errors)
+    {
+        ValidatePositive(value, path, errors);
+        if (value > MaximumOperationalDuration)
+        {
+            Add(errors, GatewayValidationErrorCode.InvalidValue, path, "Duration exceeds the family maximum of one day.");
+        }
+    }
+
+    private static void ValidateMethods(ImmutableArray<string> methods, string path, ImmutableArray<GatewayValidationError>.Builder errors)
+    {
+        ValidateTextArray(methods, path, MaximumMatchItems, errors);
+        if (methods.IsDefault) return;
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (var index = 0; index < methods.Length; index++)
+        {
+            var method = methods[index];
+            if (!string.IsNullOrEmpty(method) && !IsHttpToken(method)) Add(errors, GatewayValidationErrorCode.InvalidRouteMatch, $"{path}[{index}]", "HTTP method is not a valid token.");
+            if (!string.IsNullOrEmpty(method) && !SupportedMethods.Contains(method)) Add(errors, GatewayValidationErrorCode.InvalidRouteMatch, $"{path}[{index}]", "HTTP method is not supported by the native gateway contract.");
+            if (!seen.Add(method ?? string.Empty)) Add(errors, GatewayValidationErrorCode.InvalidRouteMatch, $"{path}[{index}]", "HTTP methods must be unique ignoring case.");
+        }
+    }
+
+    private static void ValidateHosts(ImmutableArray<string> hosts, string path, ImmutableArray<GatewayValidationError>.Builder errors)
+    {
+        ValidateTextArray(hosts, path, MaximumMatchItems, errors);
+        if (hosts.IsDefault) return;
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (var index = 0; index < hosts.Length; index++)
+        {
+            var host = hosts[index];
+            if (!seen.Add(host ?? string.Empty)) Add(errors, GatewayValidationErrorCode.InvalidRouteMatch, $"{path}[{index}]", "Hosts must be unique ignoring case.");
+            if (!IsSupportedHostPattern(host)) Add(errors, GatewayValidationErrorCode.InvalidRouteMatch, $"{path}[{index}]", "Host is not a supported ASP.NET host pattern.");
+        }
+    }
+
+    private static bool IsSupportedHostPattern(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value) || value.Contains("xn--", StringComparison.OrdinalIgnoreCase) || value.Any(static c => char.IsControl(c) || char.IsWhiteSpace(c))) return false;
+        if (value == "*") return true;
+        var host = value.StartsWith("*.", StringComparison.Ordinal) ? value[2..] : value;
+        if (host.Contains('*') || host.Contains('/') || host.Contains('?') || host.Contains('#') || host.Contains('@')) return false;
+        if (host.StartsWith("[", StringComparison.Ordinal)) return Uri.TryCreate($"http://{host}", UriKind.Absolute, out _);
+        var colon = host.LastIndexOf(':');
+        if (colon >= 0 && (!int.TryParse(host[(colon + 1)..], out var port) || port is < 1 or > 65535)) return false;
+        var hostname = colon < 0 ? host : host[..colon];
+        return Uri.CheckHostName(hostname) is UriHostNameType.Dns or UriHostNameType.IPv4;
+    }
+
+    private static bool IsHttpToken(string value) => value.Length > 0 && value.All(static c =>
+        char.IsAsciiLetterOrDigit(c) || c is '!' or '#' or '$' or '%' or '&' or '\'' or '*' or '+' or '-' or '.' or '^' or '_' or '`' or '|' or '~');
+
+    private static bool ContainsInvalidFieldValueCharacter(string value) => value.Any(static c => c is '\r' or '\n' or '\0' || c < ' ' && c != '\t' || c == '\u007f');
+
+    private static bool ContainsProhibitedQueryNameCharacter(string value) => value.Any(static c => char.IsControl(c) || c is '&' or '=' or '#');
+
+    private static string CreateRouteShape(int order, HttpRouteMatch match)
+    {
+        static string Join(IEnumerable<string> values) => string.Join('\u001d', values);
+        var methods = Join(match.Methods.Select(static value => value.ToUpperInvariant()).OrderBy(static value => value, StringComparer.Ordinal));
+        var hosts = Join(match.Hosts.Select(static value => value.ToLowerInvariant()).OrderBy(static value => value, StringComparer.Ordinal));
+        var headers = Join(match.Headers.Select(static value => $"{value.Name.ToUpperInvariant()}:{value.Kind}:{value.CaseSensitive}:{Join(value.Values.OrderBy(static item => item, StringComparer.Ordinal))}").OrderBy(static value => value, StringComparer.Ordinal));
+        var query = Join(match.Query.Select(static value => $"{value.Name.ToUpperInvariant()}:{value.Kind}:{value.CaseSensitive}:{Join(value.Values.OrderBy(static item => item, StringComparer.Ordinal))}").OrderBy(static value => value, StringComparer.Ordinal));
+        return $"{order}\u001f{match.Path}\u001f{methods}\u001f{hosts}\u001f{headers}\u001f{query}";
     }
 
     private static void ValidateEnum<T>(T value, string path, ImmutableArray<GatewayValidationError>.Builder errors)

@@ -18,5 +18,6 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/HPD.Gateway.Abstractions/HPD.Gateway.Abstractions.csproj" />
+    <ProjectReference Include="../../src/HPD.Gateway.Core/HPD.Gateway.Core.csproj" />
   </ItemGroup>
 </Project>

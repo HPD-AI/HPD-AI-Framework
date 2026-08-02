@@ -223,7 +223,7 @@ public sealed class ContractHardeningTests
 
         firstResult.IsCanonicalized.Should().BeTrue();
         secondResult.IsCanonicalized.Should().BeTrue();
-        secondResult.Document!.Sha256.Should().Be(firstResult.Document!.Sha256);
+        secondResult.Document!.ContentHash.Should().Be(firstResult.Document!.ContentHash);
         secondResult.Document.Utf8Json.Should().Equal(firstResult.Document.Utf8Json);
     }
 
@@ -247,7 +247,8 @@ public sealed class ContractHardeningTests
         var secondRoute = valid.Routes[0] with
         {
             Id = new RouteId("billing-api"),
-            Upstream = new UpstreamId("billing")
+            Upstream = new UpstreamId("billing"),
+            Match = new HttpRouteMatch { Path = "/billing/{**catch-all}" }
         };
 
         return valid with

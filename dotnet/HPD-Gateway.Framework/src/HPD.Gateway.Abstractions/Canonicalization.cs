@@ -1,15 +1,24 @@
 using System.Collections.Immutable;
+using System.Buffers.Binary;
 using System.Security.Cryptography;
 using System.Text.Json;
 using HPD.Gateway.Abstractions.Serialization;
 
 namespace HPD.Gateway.Abstractions;
 
-public sealed record GatewayCanonicalDocument
-{
-    public required byte[] Utf8Json { get; init; }
+public readonly record struct ContentHash(string Algorithm, string Value);
 
-    public required string Sha256 { get; init; }
+public sealed class GatewayCanonicalDocument
+{
+    internal GatewayCanonicalDocument(ImmutableArray<byte> utf8Json, ContentHash contentHash)
+    {
+        Utf8Json = utf8Json;
+        ContentHash = contentHash;
+    }
+
+    public ImmutableArray<byte> Utf8Json { get; }
+
+    public ContentHash ContentHash { get; }
 }
 
 public sealed record GatewayCanonicalizationResult
@@ -47,10 +56,15 @@ public static class GatewayConfigurationCanonicalizer
         };
 
         var json = JsonSerializer.SerializeToUtf8Bytes(canonical, GatewayJsonSerializerContext.Default.GatewayConfiguration);
-        var hash = Convert.ToHexStringLower(SHA256.HashData(json));
+        var framed = new byte[6 + json.Length];
+        BinaryPrimitives.WriteUInt16BigEndian(framed.AsSpan(0, 2), configuration.SchemaVersion.Major);
+        BinaryPrimitives.WriteUInt16BigEndian(framed.AsSpan(2, 2), configuration.SchemaVersion.Minor);
+        BinaryPrimitives.WriteUInt16BigEndian(framed.AsSpan(4, 2), configuration.CanonicalizationVersion);
+        json.CopyTo(framed.AsSpan(6));
+        var hash = new ContentHash("sha-256", Convert.ToHexStringLower(SHA256.HashData(framed)));
         return new GatewayCanonicalizationResult
         {
-            Document = new GatewayCanonicalDocument { Utf8Json = json, Sha256 = hash },
+            Document = new GatewayCanonicalDocument(ImmutableArray.Create(json), hash),
             Errors = []
         };
     }
@@ -59,17 +73,17 @@ public static class GatewayConfigurationCanonicalizer
     {
         Match = value.Match! with
         {
-            Methods = Sort(value.Match.Methods),
-            Hosts = Sort(value.Match.Hosts),
+            Methods = Sort(value.Match.Methods.Select(static method => method.ToUpperInvariant()).ToImmutableArray()),
+            Hosts = Sort(value.Match.Hosts.Select(static host => host.ToLowerInvariant()).ToImmutableArray()),
             Headers = value.Match.Headers
-                .OrderBy(static item => item.Name, StringComparer.Ordinal)
+                .OrderBy(static item => item.Name, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(static item => item.Kind)
-                .Select(static item => item with { Values = Sort(item.Values) })
+                .Select(static item => item with { Name = item.Name.ToLowerInvariant(), Values = SortMatchValues(item.Values, item.CaseSensitive) })
                 .ToImmutableArray(),
             Query = value.Match.Query
-                .OrderBy(static item => item.Name, StringComparer.Ordinal)
+                .OrderBy(static item => item.Name, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(static item => item.Kind)
-                .Select(static item => item with { Values = Sort(item.Values) })
+                .Select(static item => item with { Name = item.Name.ToLowerInvariant(), Values = SortMatchValues(item.Values, item.CaseSensitive) })
                 .ToImmutableArray()
         },
         Declarations = CanonicalRouteDeclarations(value.Declarations!),
@@ -153,5 +167,9 @@ public static class GatewayConfigurationCanonicalizer
 
     private static ImmutableArray<string> Sort(ImmutableArray<string> values) => values
         .OrderBy(static value => value, StringComparer.Ordinal)
+        .ToImmutableArray();
+
+    private static ImmutableArray<string> SortMatchValues(ImmutableArray<string> values, bool caseSensitive) => values
+        .OrderBy(static value => value, caseSensitive ? StringComparer.Ordinal : StringComparer.OrdinalIgnoreCase)
         .ToImmutableArray();
 }

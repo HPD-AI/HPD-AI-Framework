@@ -1,6 +1,8 @@
+using System.Collections.Immutable;
 using System.Text.Json;
 using HPD.Gateway.Abstractions;
 using HPD.Gateway.Abstractions.Serialization;
+using HPD.Gateway.Core;
 
 var configuration = new GatewayConfiguration
 {
@@ -243,20 +245,28 @@ var configuration = new GatewayConfiguration
 };
 
 var json = JsonSerializer.SerializeToUtf8Bytes(configuration, GatewayJsonSerializerContext.Default.GatewayConfiguration);
-var read = GatewayConfigurationReader.Read(json);
+var capabilities = new HostCapabilitySnapshot
+{
+    AuthorizationPolicies = ImmutableHashSet.Create(StringComparer.Ordinal, "GatewayUsers"),
+    CorsPolicies = ImmutableHashSet.Create(StringComparer.Ordinal, "GatewayCors"),
+    TrafficAdmissionPolicies = ImmutableHashSet.Create(StringComparer.Ordinal, "GatewayAdmission"),
+    OutputCachePolicies = ImmutableHashSet.Create(StringComparer.Ordinal, "GatewayCache"),
+    SessionAffinityPolicies = ImmutableHashSet.Create(StringComparer.Ordinal, "Cookie"),
+    SessionAffinityFailurePolicies = ImmutableHashSet.Create(StringComparer.Ordinal, "Redistribute"),
+    PassiveHealthPolicies = ImmutableHashSet.Create(StringComparer.Ordinal, "TransportFailureRate"),
+    ActiveHealthPolicies = ImmutableHashSet.Create(StringComparer.Ordinal, "ConsecutiveFailures"),
+    Listeners = [new ListenerId("https")]
+};
+var read = GatewayCandidateReader.Read(json, capabilities);
 if (!read.IsAccepted)
 {
-    throw new InvalidOperationException("Strict bounded candidate reading failed.");
+    throw new InvalidOperationException($"Strict native candidate reading failed with {read.Errors.Length} error(s).");
 }
 
-var validation = GatewayConfigurationValidator.Validate(read.Configuration);
-if (!validation.IsValid)
-{
-    throw new InvalidOperationException($"The AOT smoke configuration was rejected with {validation.Errors.Length} error(s).");
-}
+var validation = GatewayCandidateValidator.Validate(read.Configuration, capabilities);
 
 var canonical = GatewayConfigurationCanonicalizer.TryCanonicalize(read.Configuration);
-if (!canonical.IsCanonicalized || canonical.Document!.Sha256.Length != 64)
+if (!canonical.IsCanonicalized || canonical.Document!.ContentHash.Value.Length != 64)
 {
     throw new InvalidOperationException("Canonicalization or content hashing failed.");
 }
@@ -267,4 +277,4 @@ _ = JsonSerializer.SerializeToUtf8Bytes(canonical, GatewayJsonSerializerContext.
 
 Console.WriteLine(
     $"HPD.Gateway AOT smoke passed: {read.Configuration!.Routes.Length} route(s), " +
-    $"{read.Configuration.Upstreams.Length} upstream(s), sha256={canonical.Document.Sha256}.");
+    $"{read.Configuration.Upstreams.Length} upstream(s), sha256={canonical.Document.ContentHash.Value}.");
