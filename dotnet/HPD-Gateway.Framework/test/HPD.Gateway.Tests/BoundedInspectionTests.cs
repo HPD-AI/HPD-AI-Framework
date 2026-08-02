@@ -12,6 +12,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.WebUtilities;
@@ -73,6 +74,20 @@ public sealed class BoundedInspectionTests
         exceededResponse.StatusCode.Should().Be(HttpStatusCode.RequestEntityTooLarge);
         exceeded.BackendHits.Should().Be(0);
         rejecting.Calls.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task CompleteRejectsLargeUnknownLengthChunkAsPayloadTooLarge()
+    {
+        var inspector = new RecordingInspector();
+        await using var fixture = await InspectionFixture.Start(inspector, Complete(maximumAccepted: 4, threshold: 4));
+        using var content = new StreamContent(new NonSeekableReadStream(new byte[64 * 1024]));
+
+        using var response = await fixture.Client.PostAsync("/upload", content);
+
+        response.StatusCode.Should().Be(HttpStatusCode.RequestEntityTooLarge);
+        fixture.BackendHits.Should().Be(0);
+        inspector.Calls.Should().Be(0);
     }
 
     [Fact]
@@ -192,6 +207,33 @@ public sealed class BoundedInspectionTests
         context.Request.Protocol = protocol;
         context.Request.Method = method;
         context.Request.ContentLength = 0;
+        var forwarded = false;
+
+        await executor.ExecuteAsync(
+            context,
+            new GatewayInspectionSelection("content-check", RequestInspectionMode.BoundedPrefix, 16, 2, null, RequestInspectionSpillPolicy.Disabled),
+            _ => { forwarded = true; return Task.CompletedTask; });
+
+        context.Response.StatusCode.Should().Be(StatusCodes.Status415UnsupportedMediaType);
+        forwarded.Should().BeFalse();
+        inspector.Calls.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task NonWebSocketUpgradeRejectsBeforeInspectorOrForwarder()
+    {
+        var inspector = new RecordingInspector();
+        var registryBuilder = new GatewayInspectionRegistryBuilder();
+        registryBuilder.Add("content-check", inspector);
+        var executor = new GatewayInspectionExecutor(registryBuilder.Build());
+        var context = new DefaultHttpContext();
+        context.Features.Set<IHttpUpgradeFeature>(new TestUpgradeFeature());
+        context.Request.Protocol = "HTTP/1.1";
+        context.Request.Method = "POST";
+        context.Request.Headers.Connection = "Upgrade";
+        context.Request.Headers.Upgrade = "h2c";
+        context.Request.ContentLength = 4;
+        context.Request.Body = new MemoryStream("body"u8.ToArray());
         var forwarded = false;
 
         await executor.ExecuteAsync(
@@ -497,6 +539,12 @@ public sealed class BoundedInspectionTests
     {
         public override bool CanSeek => false;
         public override long Length => throw new NotSupportedException();
+    }
+
+    private sealed class TestUpgradeFeature : IHttpUpgradeFeature
+    {
+        public bool IsUpgradableRequest => true;
+        public Task<Stream> UpgradeAsync() => throw new InvalidOperationException("Upgrade must not be invoked.");
     }
 
     private sealed class Counter { internal int Value; }

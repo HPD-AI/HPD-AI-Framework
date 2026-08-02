@@ -37,6 +37,7 @@ internal sealed class GatewayInspectionExecutor(GatewayInspectionRegistry regist
     {
         status = StatusCodes.Status415UnsupportedMediaType;
         if (context.WebSockets.IsWebSocketRequest || HttpMethods.IsConnect(context.Request.Method)) return false;
+        if (context.Features.Get<IHttpUpgradeFeature>()?.IsUpgradableRequest == true || HasUpgradeHeaders(context.Request)) return false;
         if (context.Request.Protocol == "HTTP/3") return false;
         var contentType = context.Request.ContentType;
         if (contentType?.StartsWith("application/grpc", StringComparison.OrdinalIgnoreCase) == true) return false;
@@ -48,6 +49,22 @@ internal sealed class GatewayInspectionExecutor(GatewayInspectionRegistry regist
         }
         if (mode == RequestInspectionMode.CompleteBody && context.Request.Headers.ContainsKey("Trailer")) return false;
         return true;
+    }
+
+    private static bool HasUpgradeHeaders(HttpRequest request)
+    {
+        if (!request.Headers.TryGetValue("Upgrade", out var upgrade) || upgrade.Count == 0) return false;
+        if (!request.Headers.TryGetValue("Connection", out var connection)) return false;
+
+        foreach (var value in connection)
+        {
+            if (value is null) continue;
+            foreach (var token in value.Split(','))
+            {
+                if (token.Trim().Equals("upgrade", StringComparison.OrdinalIgnoreCase)) return true;
+            }
+        }
+        return false;
     }
 
     private static async Task ExecutePrefixAsync(HttpContext context, GatewayInspectionSelection selection, IGatewayRequestInspector inspector, RequestDelegate next)
@@ -109,8 +126,11 @@ internal sealed class GatewayInspectionExecutor(GatewayInspectionRegistry regist
             try
             {
                 int read;
-                while ((read = await context.Request.Body.ReadAsync(scratch, context.RequestAborted).ConfigureAwait(false)) != 0)
+                do
                 {
+                    var remainingWithSentinel = selection.MaximumAcceptedBodyBytes - observed + 1;
+                    var requested = checked((int)Math.Min(scratch.Length, remainingWithSentinel));
+                    read = await context.Request.Body.ReadAsync(scratch.AsMemory(0, requested), context.RequestAborted).ConfigureAwait(false);
                     observed += read;
                     if (observed > selection.MaximumAcceptedBodyBytes)
                     {
@@ -118,6 +138,7 @@ internal sealed class GatewayInspectionExecutor(GatewayInspectionRegistry regist
                         return;
                     }
                 }
+                while (read != 0);
             }
             finally
             {

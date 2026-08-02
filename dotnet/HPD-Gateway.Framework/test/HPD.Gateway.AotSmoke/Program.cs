@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.DependencyInjection;
 using Yarp.ReverseProxy.Configuration;
 
@@ -340,7 +341,8 @@ services.AddOutputCache(options => options.AddPolicy("GatewayCache", policy => p
 services.AddReverseProxy();
 services.AddHpdGatewayYarpPublication();
 services.AddHpdGatewayYarpMaterialization();
-services.AddHpdGatewayYarpInspection(registry => registry.Add("smoke-inspector", new SmokeInspector()));
+var smokeInspector = new SmokeInspector();
+services.AddHpdGatewayYarpInspection(registry => registry.Add("smoke-inspector", smokeInspector));
 await using var serviceProvider = services.BuildServiceProvider();
 var materializer = serviceProvider.GetRequiredService<GatewayNativeMaterializer>();
 var materialized = await materializer.MaterializeAsync(
@@ -369,6 +371,42 @@ await inspectionExecutor.ExecuteAsync(
         forwardedBody = await reader.ReadToEndAsync();
     });
 if (forwardedBody != "aot!") throw new InvalidOperationException("Native AOT prefix inspection replay failed.");
+
+var completeMemoryContext = new DefaultHttpContext();
+completeMemoryContext.Request.ContentLength = null;
+completeMemoryContext.Request.Body = new NonSeekableReadStream("complete-memory"u8.ToArray());
+var completeMemoryBody = string.Empty;
+await inspectionExecutor.ExecuteAsync(
+    completeMemoryContext,
+    new GatewayInspectionSelection("smoke-inspector", RequestInspectionMode.CompleteBody, 64, null, 64, RequestInspectionSpillPolicy.Disabled),
+    async context =>
+    {
+        using var reader = new StreamReader(context.Request.Body, leaveOpen: true);
+        completeMemoryBody = await reader.ReadToEndAsync();
+    });
+if (completeMemoryBody != "complete-memory") throw new InvalidOperationException("Native AOT complete-memory inspection replay failed.");
+await completeMemoryContext.Request.Body.DisposeAsync();
+
+var spillBytes = new byte[8 * 1024];
+Array.Fill(spillBytes, (byte)'s');
+var completeSpillContext = new DefaultHttpContext();
+completeSpillContext.Request.ContentLength = null;
+completeSpillContext.Request.Body = new NonSeekableReadStream(spillBytes);
+var completeSpillLength = 0;
+await inspectionExecutor.ExecuteAsync(
+    completeSpillContext,
+    new GatewayInspectionSelection("smoke-inspector", RequestInspectionMode.CompleteBody, 16 * 1024, null, 128, RequestInspectionSpillPolicy.Allowed),
+    async context =>
+    {
+        using var buffer = new MemoryStream();
+        await context.Request.Body.CopyToAsync(buffer);
+        completeSpillLength = checked((int)buffer.Length);
+    });
+if (completeSpillLength != spillBytes.Length || !smokeInspector.SpillExistedDuringInspection || smokeInspector.SpillPath is null)
+    throw new InvalidOperationException("Native AOT complete-body spill inspection failed.");
+var spillPath = smokeInspector.SpillPath;
+await completeSpillContext.Request.Body.DisposeAsync();
+if (File.Exists(spillPath)) throw new InvalidOperationException("Native AOT inspection spill file was not cleaned up.");
 
 var publicationBundle = materialized.Bundle!;
 var proxyProvider = serviceProvider.GetRequiredService<HpdProxyConfigProvider>();
@@ -405,6 +443,22 @@ Console.WriteLine(
 
 file sealed class SmokeInspector : IGatewayRequestInspector
 {
-    public ValueTask<GatewayInspectionDecision> InspectAsync(GatewayInspectionContext context, CancellationToken cancellationToken) =>
-        ValueTask.FromResult(GatewayInspectionDecision.Allow());
+    internal string? SpillPath { get; private set; }
+    internal bool SpillExistedDuringInspection { get; private set; }
+
+    public ValueTask<GatewayInspectionDecision> InspectAsync(GatewayInspectionContext context, CancellationToken cancellationToken)
+    {
+        if (context.Body is FileBufferingReadStream buffering && buffering.TempFileName is { } path)
+        {
+            SpillPath = path;
+            SpillExistedDuringInspection = File.Exists(path);
+        }
+        return ValueTask.FromResult(GatewayInspectionDecision.Allow());
+    }
+}
+
+file sealed class NonSeekableReadStream(byte[] bytes) : MemoryStream(bytes)
+{
+    public override bool CanSeek => false;
+    public override long Length => throw new NotSupportedException();
 }
