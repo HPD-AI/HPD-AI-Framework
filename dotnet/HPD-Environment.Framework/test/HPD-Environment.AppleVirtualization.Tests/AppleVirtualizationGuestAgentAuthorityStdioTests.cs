@@ -340,7 +340,7 @@ public sealed class AppleVirtualizationGuestAgentAuthorityStdioTests
         Authority(responses[2]).GetProperty("RevocationStatus").GetInt32().Should().Be(2);
         Authority(responses[2]).GetProperty("RevocationEvidence").EnumerateArray()
             .Select(evidence => evidence.GetProperty("Kind").GetInt32())
-            .Should().Contain([6, 3]);
+            .Should().Equal(3);
         Authority(responses[2]).GetProperty("AuditEvents")[0].GetProperty("Kind").GetInt32()
             .Should().Be(5);
         File.Exists(workspace.TargetSocket).Should().BeFalse();

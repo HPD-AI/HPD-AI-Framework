@@ -621,13 +621,13 @@ public sealed partial class InMemoryEnvironmentRuntime(
                     "hpd.environment.runtime-host.not-owned",
                     "The runtime does not own a host to stop.");
             }
-            if (HasCurrentHostDependents())
+            if (HasCurrentHostActiveDependents())
             {
                 throw OwnershipFailure(
                     "hpd.environment.runtime-host.dependents-active",
                     $"Runtime host '{_host.Snapshot.Metadata.Id.Value}' cannot stop while the runtime owns " +
-                    "dependent execution units, processes, authority bindings, engines, projections, or " +
-                    "network resources. Delete those dependents first, or delete the host to run ordered cleanup.");
+                    "active execution units, processes, authority bindings, engines, projections, or " +
+                    "network resources. Stop execution units and delete the other dependents first, or delete the host to run ordered cleanup.");
             }
 
             IRuntimeHostProvider provider =
@@ -1419,6 +1419,82 @@ public sealed partial class InMemoryEnvironmentRuntime(
         }
     }
 
+    public async ValueTask<ResourceSnapshot<
+        ExecutionUnit,
+        ExecutionUnitSpec,
+        ExecutionUnitStatus>> StopExecutionUnitAsync(
+        ResourceRef<ExecutionUnit> unit,
+        StopPolicy policy,
+        CancellationToken cancellationToken = default)
+    {
+        await _reconciliationGate.WaitAsync(cancellationToken)
+            .ConfigureAwait(false);
+        try
+        {
+            OwnedExecutionUnit owned = FindUnit(unit);
+            owned = await RefreshUnitAsync(owned, cancellationToken)
+                .ConfigureAwait(false);
+            if (HasActiveUnitDependents(owned))
+            {
+                ExecutionUnitStatus observed = owned.Snapshot.Status;
+                TargetHandle<ExecutionUnit>? observedHandle =
+                    observed.Handle;
+                int runtimeAuthorities = observedHandle is null
+                    ? 0
+                    : _authorities.Values.Count(authority =>
+                        authority.Snapshot.Spec.Target.Unit is { } target &&
+                        target.Equals(observedHandle.Value));
+                int runtimeMemberships = observedHandle is null
+                    ? 0
+                    : _networkMemberships.Values.Count(membership =>
+                        membership.Snapshot.Spec.Target.Unit is { } target &&
+                        target.Equals(observedHandle.Value));
+                int runtimeProcesses = observedHandle is null
+                    ? 0
+                    : _activeHandles.Values.Count(process =>
+                            process.Spec.Target.Equals(
+                                observedHandle.Value)) +
+                        _activeRuns.Values.Count(process =>
+                            process.Spec.Target.Equals(
+                                observedHandle.Value));
+                throw OwnershipFailure(
+                    "hpd.environment.execution-unit.dependents-active",
+                    $"Execution unit '{unit.Id.Value}' cannot stop while it owns active dependents " +
+                    $"(phase={observed.Phase}, unitPhase={observed.UnitPhase}, " +
+                    $"providerProcesses={observed.ActiveProcesses.Count}, " +
+                    $"providerAuthorities={observed.AuthorityBindings.Count}, " +
+                    $"providerProjections={observed.RealizedContentProjections.Count}, " +
+                    $"providerMemberships={observed.NetworkMemberships.Count}, " +
+                    $"providerPublications={observed.PublishedEndpoints.Count}, " +
+                    $"runtimeProcesses={runtimeProcesses}, " +
+                    $"runtimeAuthorities={runtimeAuthorities}, " +
+                    $"runtimeMemberships={runtimeMemberships}).");
+            }
+            TargetHandle<ExecutionUnit> handle = owned.Snapshot.Status.Handle ??
+                throw OwnershipFailure(
+                    "hpd.environment.execution-unit.handle-missing",
+                    $"Execution unit '{unit.Id.Value}' has no accepted provider handle.");
+            ExecutionUnitStatus status = await ProviderById(
+                    registry.ExecutionUnitProviders,
+                    owned.ProviderId,
+                    "execution unit")
+                .StopAsync(handle, policy, cancellationToken)
+                .ConfigureAwait(false);
+            if (status.Handle is not { } returnedHandle ||
+                !returnedHandle.Equals(handle))
+                throw OwnershipFailure(
+                    "hpd.environment.execution-unit.stop-identity-mismatch",
+                    $"Provider '{owned.ProviderId.Value}' returned a mismatched handle while stopping execution unit '{unit.Id.Value}'.");
+            var stopped = owned.Snapshot with { Status = status };
+            _units[unit.Id.Value] = owned with { Snapshot = stopped };
+            return stopped;
+        }
+        finally
+        {
+            _reconciliationGate.Release();
+        }
+    }
+
     public async ValueTask<ResourceSnapshot<PublishedEndpoint, PublishedEndpointSpec, PublishedEndpointStatus>>
         EnsurePublishedEndpointAsync(
         PublishedEndpointSpec spec,
@@ -1570,8 +1646,31 @@ public sealed partial class InMemoryEnvironmentRuntime(
         try
         {
             OwnedAuthorityBinding owned = FindAuthority(binding);
-            await ProviderById(registry.AuthorityBindingProviders, owned.ProviderId, "authority binding")
-                .RevokeAuthorityBindingAsync(binding, cancellationToken).ConfigureAwait(false);
+            IAuthorityBindingProvider provider = ProviderById(
+                registry.AuthorityBindingProviders,
+                owned.ProviderId,
+                "authority binding");
+            await provider.RevokeAuthorityBindingAsync(
+                    binding,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            AuthorityBindingStatus status = await provider.GetStatusAsync(
+                    binding,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (status.BindingPhase != AuthorityBindingPhase.Revoked ||
+                status.BoundAuthority?.RevocationStatus !=
+                    RevocationVerificationStatus.Verified)
+            {
+                _authorities[binding.Id.Value] = owned with
+                {
+                    Snapshot = owned.Snapshot with { Status = status },
+                };
+                throw OwnershipFailure(
+                    "hpd.environment.authority.revocation-unverified",
+                    $"Authority binding '{binding.Id.Value}' remains owned because provider revocation was not verified " +
+                    $"(phase={status.BindingPhase}, verification={status.BoundAuthority?.RevocationStatus.ToString() ?? "missing"}).");
+            }
             _authorities.Remove(binding.Id.Value);
         }
         finally
@@ -2720,6 +2819,18 @@ public sealed partial class InMemoryEnvironmentRuntime(
 
     private bool HasCurrentHostDependents() =>
         UnitsForCurrentHost().Any() ||
+        EnginesForCurrentHost().Any() ||
+        AuthoritiesForCurrentHost().Any() ||
+        NetworksForCurrentHost().Any() ||
+        NetworkMembershipsForCurrentHost().Any() ||
+        ServiceDiscoveriesForCurrentHost().Any() ||
+        _publishedEndpoints.Count > 0;
+
+    private bool HasCurrentHostActiveDependents() =>
+        UnitsForCurrentHost().Any(unit =>
+            unit.Snapshot.Status.UnitPhase is not (
+                ExecutionUnitPhase.Stopped or
+                ExecutionUnitPhase.Deleted)) ||
         EnginesForCurrentHost().Any() ||
         AuthoritiesForCurrentHost().Any() ||
         NetworksForCurrentHost().Any() ||
@@ -4015,8 +4126,9 @@ public sealed class InMemoryEnvironmentProvider :
 
     public ValueTask ReleasePublishedEndpointAsync(ResourceRef<PublishedEndpoint> endpoint, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
 
-    public ValueTask<AuthorityBindingStatus> EnsureAuthorityBindingAsync(ResourceMetadata<AuthorityBinding> metadata, AuthorityBindingSpec spec, AuthorityBindingStatus? observed, CancellationToken cancellationToken = default) =>
-        ValueTask.FromResult(new AuthorityBindingStatus
+    public ValueTask<AuthorityBindingStatus> EnsureAuthorityBindingAsync(ResourceMetadata<AuthorityBinding> metadata, AuthorityBindingSpec spec, AuthorityBindingStatus? observed, CancellationToken cancellationToken = default)
+    {
+        var status = new AuthorityBindingStatus
         {
             Phase = ResourcePhase.Ready,
             ObservedGeneration = metadata.Generation,
@@ -4035,12 +4147,47 @@ public sealed class InMemoryEnvironmentProvider :
                 AuditCorrelationId = spec.Policy.RequireAudit ? $"audit-{NextSequence()}" : null,
             },
             ProviderHandle = Handle<AuthorityBinding>(TargetRouteSegmentKind.Endpoint, metadata.Id.Value),
-        });
+        };
+        _resources[$"authority:{metadata.Scope}:{metadata.Id.Value}"] =
+            status;
+        return ValueTask.FromResult(status);
+    }
 
     public ValueTask<AuthorityBindingStatus> GetStatusAsync(ResourceRef<AuthorityBinding> binding, CancellationToken cancellationToken = default) =>
-        ValueTask.FromResult(new AuthorityBindingStatus { Phase = ResourcePhase.Ready, BindingPhase = AuthorityBindingPhase.Projected });
+        ValueTask.FromResult(
+            _resources.TryGetValue(
+                $"authority:{binding.Scope}:{binding.Id.Value}",
+                out object? value) &&
+            value is AuthorityBindingStatus status
+                ? status
+                : new AuthorityBindingStatus
+                {
+                    Phase = ResourcePhase.Failed,
+                    BindingPhase = AuthorityBindingPhase.Failed,
+                });
 
-    public ValueTask RevokeAuthorityBindingAsync(ResourceRef<AuthorityBinding> binding, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+    public ValueTask RevokeAuthorityBindingAsync(ResourceRef<AuthorityBinding> binding, CancellationToken cancellationToken = default)
+    {
+        string key = $"authority:{binding.Scope}:{binding.Id.Value}";
+        if (_resources.TryGetValue(key, out object? value) &&
+            value is AuthorityBindingStatus current)
+        {
+            _resources[key] = current with
+            {
+                Phase = ResourcePhase.Deleted,
+                BindingPhase = AuthorityBindingPhase.Revoked,
+                BoundAuthority = current.BoundAuthority is { } authority
+                    ? authority with
+                    {
+                        RevocationStatus =
+                            RevocationVerificationStatus.Verified,
+                    }
+                    : null,
+                LastTransitionAt = DateTimeOffset.UtcNow,
+            };
+        }
+        return ValueTask.CompletedTask;
+    }
 
     public ValueTask<EngineControlPlaneStatus> EnsureEngineControlPlaneAsync(ResourceMetadata<EngineControlPlane> metadata, EngineControlPlaneSpec spec, EngineControlPlaneStatus? observed, CancellationToken cancellationToken = default) =>
         ValueTask.FromResult(new EngineControlPlaneStatus

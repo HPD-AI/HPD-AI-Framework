@@ -50,7 +50,11 @@ public sealed class ManagedTerminalTuiRenderer : IDisposable
         EnsureGrid(size.Width, captureHeight);
 
         _currentGrid!.Clear();
-        var context = new RenderContext(size.Width, captureHeight, theme ?? Theme.Default, elapsed: _clock.Elapsed);
+        // The backing grid is deliberately taller than the viewport so a frame can
+        // retain logical scrollback. Layout, however, must be constrained by the
+        // physical terminal or viewport-filling components will size themselves to
+        // the capture buffer instead of the rows the user can actually see.
+        var context = new RenderContext(size.Width, size.Height, theme ?? Theme.Default, elapsed: _clock.Elapsed);
         var writer = new SegmentWriter(_currentGrid);
         root.Render(in context, size.Width, ref writer);
 

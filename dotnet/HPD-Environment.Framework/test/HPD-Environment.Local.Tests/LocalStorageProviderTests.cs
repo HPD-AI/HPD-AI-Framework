@@ -6,6 +6,93 @@ namespace HPD.Environment.Local.Tests;
 public sealed class LocalStorageProviderTests
 {
     [Fact]
+    public async Task Default_directory_backend_reports_observed_capacity_and_survives_host_stop()
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            "hpd-local-observed-volume-tests",
+            Guid.NewGuid().ToString("N"));
+        try
+        {
+            var options = new LocalEnvironmentProviderOptions
+            {
+                WorkloadStateRoot = Path.Combine(root, "state"),
+                StorageRoot = Path.Combine(root, "storage"),
+                EngineSocketPath = "/test/docker.sock",
+            };
+            var registry = new EnvironmentProviderRegistry();
+            registry.RegisterModule(
+                new LocalEnvironmentProviderModule(options));
+            IStoragePoolProvider pools =
+                registry.StoragePoolProviders.Single();
+            IDurableVolumeProvider volumes =
+                registry.DurableVolumeProviders.Single();
+            ResourceRef<StoragePool> pool = Ref<StoragePool>("pool");
+            ResourceRef<DurableVolume> volume =
+                Ref<DurableVolume>("volume");
+            await pools.EnsureAsync(
+                Metadata<StoragePool>("pool"),
+                PoolSpec(),
+                null);
+            DurableVolumeStatus created = await volumes.EnsureAsync(
+                Metadata<DurableVolume>("volume"),
+                VolumeSpec(pool),
+                null);
+            Assert.Equal(
+                DurableVolumeCapacityEnforcement.ObservedLimit,
+                created.CapacityEnforcement);
+            string data = Path.Combine(
+                created.Realization!.EffectiveRuntimePath,
+                "value.txt");
+            await File.WriteAllTextAsync(data, "durable");
+
+            IRuntimeHostProvider hosts =
+                registry.RuntimeHostProviders.Single();
+            RuntimeHostStatus host = await hosts.EnsureAsync(
+                Metadata<RuntimeHost>("host"),
+                new RuntimeHostSpec
+                {
+                    Platform = LocalEnvironmentProviderDescriptor
+                        .CurrentPlatform(),
+                },
+                null);
+            await hosts.StopAsync(
+                host.Handle!.Value,
+                StopPolicy.Default);
+
+            var reconstructed = new EnvironmentProviderRegistry();
+            reconstructed.RegisterModule(
+                new LocalEnvironmentProviderModule(options));
+            await reconstructed.StoragePoolProviders.Single()
+                .EnsureAsync(
+                    Metadata<StoragePool>("pool"),
+                    PoolSpec(),
+                    null);
+            DurableVolumeStatus reopened = await reconstructed
+                .DurableVolumeProviders.Single()
+                .EnsureAsync(
+                    Metadata<DurableVolume>("volume"),
+                    VolumeSpec(pool),
+                    created);
+            Assert.Equal(
+                created.FilesystemIdentity,
+                reopened.FilesystemIdentity);
+            Assert.Equal(
+                DurableVolumeCapacityEnforcement.ObservedLimit,
+                reopened.CapacityEnforcement);
+            Assert.Equal("durable", await File.ReadAllTextAsync(data));
+
+            await reconstructed.DurableVolumeProviders.Single()
+                .EraseAsync(volume);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Runtime_pool_fails_closed_without_authoritative_engine_root()
     {
         string root = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
@@ -54,7 +141,7 @@ public sealed class LocalStorageProviderTests
                     EngineDataRootPath = engineRoot,
                     EngineSocketPath = "/test/docker.sock",
                     DurableVolumeBackend =
-                        LocalDurableVolumeBackendKind.TestDirectory,
+                        LocalDurableVolumeBackendKind.ObservedDirectory,
                 }));
             StoragePoolStatus status = await registry.StoragePoolProviders
                 .Single().EnsureAsync(
@@ -94,7 +181,7 @@ public sealed class LocalStorageProviderTests
                     EngineDataRootPath = engineRoot,
                     EngineSocketPath = "/test/docker.sock",
                     DurableVolumeBackend =
-                        LocalDurableVolumeBackendKind.TestDirectory,
+                        LocalDurableVolumeBackendKind.ObservedDirectory,
                 }));
             IStoragePoolProvider pools =
                 registry.StoragePoolProviders.Single();
@@ -344,7 +431,7 @@ public sealed class LocalStorageProviderTests
                     EngineSocketPath = "/test/docker.sock",
                     DurableVolumeBackend =
                         LocalDurableVolumeBackendKind
-                            .TestDirectory,
+                            .ObservedDirectory,
                     BackupKeyProvider =
                         TestBackupKeyProvider.Instance,
                 }));
@@ -448,18 +535,33 @@ public sealed class LocalStorageProviderTests
             }
             await File.WriteAllTextAsync(content, "after");
 
+            ResourceRef<DurableVolume> restoredVolume =
+                Ref<DurableVolume>("restored-volume");
+            DurableVolumeStatus restoredTarget = await volumes.EnsureAsync(
+                Metadata<DurableVolume>("restored-volume"),
+                VolumeSpec(pool) with
+                {
+                    LogicalId = "penpot-data-restored",
+                },
+                observed: null);
+
             VolumeRestoreStatus restored = await restores.RestoreAsync(
                 Metadata<VolumeRestore>("restore"),
                 new VolumeRestoreSpec
                 {
                     Backup = backup,
-                    TargetVolume = volume,
+                    TargetVolume = restoredVolume,
                     Reservation = reservation,
                     ExpectedCompatibilityDomain = "penpot-v1",
                 },
                 observed: null);
             Assert.Equal(VolumeRestorePhase.Ready, restored.RestorePhase);
-            Assert.Equal("before", await File.ReadAllTextAsync(content));
+            Assert.Equal(
+                "before",
+                await File.ReadAllTextAsync(Path.Combine(
+                    restoredTarget.Realization!.EffectiveRuntimePath,
+                    "value.txt")));
+            Assert.Equal("after", await File.ReadAllTextAsync(content));
         }
         finally
         {
@@ -485,7 +587,7 @@ public sealed class LocalStorageProviderTests
                     EngineSocketPath = "/test/docker.sock",
                     DurableVolumeBackend =
                         LocalDurableVolumeBackendKind
-                            .TestDirectory,
+                            .ObservedDirectory,
                 }));
             IStoragePoolProvider pools = registry.StoragePoolProviders.Single();
             IDurableVolumeProvider volumes = registry.DurableVolumeProviders.Single();
@@ -1122,7 +1224,7 @@ public sealed class LocalStorageProviderTests
                 StorageRoot = Path.Combine(root, "storage"),
                 EngineSocketPath = "/test/docker.sock",
                 DurableVolumeBackend =
-                    LocalDurableVolumeBackendKind.TestDirectory,
+                    LocalDurableVolumeBackendKind.ObservedDirectory,
                 BackupKeyProvider =
                     TestBackupKeyProvider.Instance,
             }));

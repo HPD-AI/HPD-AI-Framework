@@ -175,13 +175,11 @@ internal sealed class LocalEngineControlPlaneProvider(
             mode == EngineAuthorityMode.Rootless
                 ? SensitiveAuthorityClass.RootlessEngineControl
                 : SensitiveAuthorityClass.RootfulEngineControl;
-        DateTimeOffset expiresAt = DateTimeOffset.UtcNow.AddMinutes(2);
         return ValueTask.FromResult(new EngineAuthorityBindingPlan
         {
             Accepted = true,
             PlanId = new EngineAuthorityBindingPlanId(
                 $"local-engine-plan-{Guid.NewGuid():N}"),
-            ExpiresAt = expiresAt,
             SourceEngine = request.Engine,
             Spec = new AuthorityBindingSpec
             {
@@ -212,7 +210,6 @@ internal sealed class LocalEngineControlPlaneProvider(
                     Lease = new SensitiveLeasePolicy
                     {
                         Lifetime = BindingLifetime.Operation,
-                        ExpiresAfter = TimeSpan.FromMinutes(2),
                         RevokeOnTargetStop = true,
                     },
                     Redaction =

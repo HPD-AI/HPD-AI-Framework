@@ -10,6 +10,8 @@ using HPD.Environment.Runtime;
 
 internal interface ILocalDurableVolumeBackend : IDisposable
 {
+    DurableVolumeCapacityEnforcement CapacityEnforcement { get; }
+
     bool Exists(string logicalId);
 
     string Create(
@@ -36,6 +38,8 @@ internal static class LocalDurableVolumeBackend
         string storageRoot) =>
         options.DurableVolumeBackend switch
         {
+            LocalDurableVolumeBackendKind.ObservedDirectory =>
+                new ObservedDirectoryDurableVolumeBackend(storageRoot),
             LocalDurableVolumeBackendKind.PlatformHardQuota
                 when OperatingSystem.IsMacOS() =>
                 new MacSparseBundleDurableVolumeBackend(storageRoot),
@@ -46,8 +50,6 @@ internal static class LocalDurableVolumeBackend
             LocalDurableVolumeBackendKind.PlatformHardQuota =>
                 new UnsupportedHardQuotaDurableVolumeBackend(
                     "no production hard-quota durable-volume backend is available on this platform"),
-            LocalDurableVolumeBackendKind.TestDirectory =>
-                new TestDirectoryDurableVolumeBackend(storageRoot),
             _ => throw new InvalidOperationException(
                 "LocalEnvironment.HardQuotaBackendInvalid: the configured durable-volume backend is not recognized."),
         };
@@ -56,6 +58,9 @@ internal static class LocalDurableVolumeBackend
 internal sealed class UnsupportedHardQuotaDurableVolumeBackend(
     string reason) : ILocalDurableVolumeBackend
 {
+    public DurableVolumeCapacityEnforcement CapacityEnforcement =>
+        DurableVolumeCapacityEnforcement.HardLimit;
+
     public bool Exists(string logicalId)
     {
         _ = logicalId;
@@ -112,17 +117,20 @@ internal sealed class UnsupportedHardQuotaDurableVolumeBackend(
             "; observation-only directories are not a production fallback.");
 }
 
-internal sealed class TestDirectoryDurableVolumeBackend :
+internal sealed class ObservedDirectoryDurableVolumeBackend :
     ILocalDurableVolumeBackend
 {
     private readonly string _volumesRoot;
 
-    public TestDirectoryDurableVolumeBackend(string storageRoot)
+    public ObservedDirectoryDurableVolumeBackend(string storageRoot)
     {
         _volumesRoot = ProviderStateDirectory.EnsurePrivateRoot(
             Path.Combine(storageRoot, "volumes"),
             "LocalEnvironment.StorageRootInvalid");
     }
+
+    public DurableVolumeCapacityEnforcement CapacityEnforcement =>
+        DurableVolumeCapacityEnforcement.ObservedLimit;
 
     public bool Exists(string logicalId) =>
         Directory.Exists(VolumePath(logicalId));
@@ -215,6 +223,9 @@ internal sealed class MacSparseBundleDurableVolumeBackend :
             Path.Combine(storageRoot, "volumes"),
             "LocalEnvironment.StorageRootInvalid");
     }
+
+    public DurableVolumeCapacityEnforcement CapacityEnforcement =>
+        DurableVolumeCapacityEnforcement.HardLimit;
 
     public bool Exists(string logicalId) =>
         Directory.Exists(ImagePath(logicalId));

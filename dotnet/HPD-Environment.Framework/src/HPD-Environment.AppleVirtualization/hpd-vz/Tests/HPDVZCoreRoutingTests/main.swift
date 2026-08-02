@@ -292,6 +292,22 @@ precondition(
     "A deletion request from the current provider generation must be eligible for lifecycle handling.")
 
 precondition(
+    HostLifecycleObservationDecision.reconcile(
+        current: .stopping,
+        observed: .running) == .stopping,
+    "An accepted guest shutdown must remain stopping while Apple still observes the VM running.")
+precondition(
+    HostLifecycleObservationDecision.reconcile(
+        current: .stopping,
+        observed: .stopped) == .stopped,
+    "Apple's terminal stopped observation must complete an accepted guest shutdown.")
+precondition(
+    HostLifecycleObservationDecision.reconcile(
+        current: .stopping,
+        observed: .failed) == .failed,
+    "Apple's terminal error observation must fail an accepted guest shutdown.")
+
+precondition(
     HostStartGenerationDecision.evaluate(
         recordGeneration: 2,
         requestGeneration: 1) == .stale,
@@ -423,5 +439,23 @@ let mergedFakeOutput = mergedFakeResult.result?["Output"] as? [String: Any]
 precondition(
     (mergedFakeOutput?["MergedStandardError"] as? Bool) == true,
     "The Swift fake process result must preserve the effective stderr merge state.")
+
+let stdinProcessRequest = ProcessRequest.parse(from: HelperEnvelope(raw: [
+    "Operation": Operation.processStdin.rawValue,
+    "ProcessStdinRequest": [
+        "ProcessId": "process-stdin",
+        "Bytes": "aW5wdXQK",
+        "Sequence": 7,
+        "CloseAfterWrite": true
+    ]
+]))
+let stdinGuestPayload = stdinProcessRequest.toGuestPayload(operation: .processStdin)
+let stdinGuestRequest = stdinGuestPayload["ProcessStdinRequest"] as? [String: Any]
+precondition(
+    (stdinGuestPayload["Operation"] as? Int) == 24 &&
+        (stdinGuestRequest?["ProcessId"] as? String) == "process-stdin" &&
+        (stdinGuestRequest?["Bytes"] as? String) == "aW5wdXQK" &&
+        (stdinGuestRequest?["CloseAfterWrite"] as? Bool) == true,
+    "The Swift helper must map process stdin to guest-agent operation 24 without losing its payload.")
 
 print("Engine host routing tests passed.")

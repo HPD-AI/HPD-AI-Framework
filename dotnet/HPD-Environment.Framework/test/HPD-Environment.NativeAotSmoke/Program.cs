@@ -1,5 +1,6 @@
 using HPD.Environment.AppleVirtualization;
 using HPD.Environment.Contracts;
+using HPD.Environment.Local;
 using HPD.Environment.Runtime;
 
 var options = new AppleVirtualizationProviderOptions
@@ -14,21 +15,33 @@ var options = new AppleVirtualizationProviderOptions
 
 var registry = new EnvironmentProviderRegistry();
 registry.RegisterModule(new AppleVirtualizationProviderModule(options));
+registry.RegisterModule(new LocalEnvironmentProviderModule(
+    new LocalEnvironmentProviderOptions
+    {
+        EnableWellKnownSocketDiscovery = false,
+    }));
 
-ProviderDescriptor? descriptor =
+ProviderDescriptor? appleDescriptor =
     await registry.GetAsync(AppleVirtualizationProviderDescriptor.ProviderId);
-ProviderCapabilityReport capabilities =
+ProviderCapabilityReport appleCapabilities =
     await registry.GetCapabilitiesAsync(AppleVirtualizationProviderDescriptor.ProviderId);
+ProviderDescriptor? localDescriptor =
+    await registry.GetAsync(LocalEnvironmentProviderDescriptor.ProviderId);
+ProviderCapabilityReport localCapabilities =
+    await registry.GetCapabilitiesAsync(LocalEnvironmentProviderDescriptor.ProviderId);
 
 bool valid =
-    descriptor is not null &&
-    descriptor.Id.Equals(AppleVirtualizationProviderDescriptor.ProviderId) &&
-    capabilities.ProviderId.Equals(AppleVirtualizationProviderDescriptor.ProviderId) &&
-    registry.RuntimeHostProviders.Count == 1 &&
-    registry.ExecutionUnitProviders.Count == 1 &&
-    registry.ProcessProviders.Count == 1 &&
-    registry.AuthorityBindingProviders.Count == 1 &&
-    registry.EngineControlPlaneProviders.Count == 1 &&
+    appleDescriptor is not null &&
+    appleDescriptor.Id.Equals(AppleVirtualizationProviderDescriptor.ProviderId) &&
+    appleCapabilities.ProviderId.Equals(AppleVirtualizationProviderDescriptor.ProviderId) &&
+    localDescriptor is not null &&
+    localDescriptor.Id.Equals(LocalEnvironmentProviderDescriptor.ProviderId) &&
+    localCapabilities.ProviderId.Equals(LocalEnvironmentProviderDescriptor.ProviderId) &&
+    registry.RuntimeHostProviders.Count == 2 &&
+    registry.ExecutionUnitProviders.Count == 2 &&
+    registry.ProcessProviders.Count == 2 &&
+    registry.AuthorityBindingProviders.Count == 2 &&
+    registry.EngineControlPlaneProviders.Count == 2 &&
     registry.JsonTypes.Count > 0 &&
     registry.JsonTypes.Any(registration =>
         registration.Type == typeof(ProviderDescriptor)) &&
@@ -42,5 +55,5 @@ if (!valid)
 }
 
 Console.WriteLine(
-    $"HPD Environment NativeAOT smoke passed with {registry.JsonTypes.Count} generated JSON registrations.");
+    $"HPD Environment NativeAOT smoke passed for Apple and Local with {registry.JsonTypes.Count} generated JSON registrations.");
 return 0;

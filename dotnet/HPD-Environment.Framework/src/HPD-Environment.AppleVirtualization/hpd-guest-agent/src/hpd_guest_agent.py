@@ -30,6 +30,7 @@ VMADDR_CID_ANY = getattr(socket, "VMADDR_CID_ANY", 0xFFFFFFFF)
 
 def capabilities():
     return {
+        "HostShutdown": True,
         "ProcessStart": True,
         "ProcessStdin": True,
         "ProcessSignal": True,
@@ -54,7 +55,8 @@ def capabilities():
 
 
 class GuestAgent:
-    def __init__(self, agent_version, protocol_version, guest_boot_id=None):
+    def __init__(self, agent_version, protocol_version, guest_boot_id=None,
+                 host_shutdown_executor=None):
         self.agent_version = agent_version
         self.protocol_version = protocol_version
         self.guest_boot_id = guest_boot_id or self._default_boot_id()
@@ -63,6 +65,8 @@ class GuestAgent:
         self.guest_agent_generation, self.engine_generations = self._load_generation_state()
         self.processes = {}
         self.processes_lock = threading.Lock()
+        self.host_shutdown_executor = (
+            host_shutdown_executor or self._request_poweroff)
 
     def get_process(self, process_id):
         with self.processes_lock:
@@ -235,16 +239,24 @@ class GuestAgent:
                         "Guest realtime clock reconciliation failed: " + str(exc),
                         retryable=True,
                     )
+            try:
+                runtime_filesystem_uuid = self.verified_storage_identity(
+                    "runtime")
+                app_data_filesystem_uuid = self.verified_storage_identity(
+                    "app-data")
+                storage_ready = True
+            except OSError:
+                runtime_filesystem_uuid = None
+                app_data_filesystem_uuid = None
+                storage_ready = False
             payload = self.response_base(request, 2)
             payload["Ready"] = {
-                "IsReady": True,
+                "IsReady": storage_ready,
                 "GuestBootId": self.guest_boot_id,
                 "GuestBootGeneration": self.guest_boot_generation,
                 "GuestAgentGeneration": self.guest_agent_generation,
-                "RuntimeFilesystemUuid":
-                    self.persisted_storage_identity("runtime"),
-                "AppDataFilesystemUuid":
-                    self.persisted_storage_identity("app-data"),
+                "RuntimeFilesystemUuid": runtime_filesystem_uuid,
+                "AppDataFilesystemUuid": app_data_filesystem_uuid,
                 "Conditions": [],
                 "Diagnostics": [],
             }
@@ -291,7 +303,85 @@ class GuestAgent:
         if operation == 50:
             return self.storage(request)
 
+        if operation == 52:
+            return self.host_shutdown(request)
+
         return self.error(request, operation if isinstance(operation, int) else 0, "AppleVirtualization.GuestAgentUnsupportedOperation", "Unsupported guest-agent operation.", retryable=False)
+
+    def host_shutdown(self, request):
+        shutdown_request = request.get("HostShutdownRequest")
+        if not isinstance(shutdown_request, dict):
+            return self.error(
+                request,
+                52,
+                "AppleVirtualization.GuestAgentHostShutdownRequestMissing",
+                "HostShutdownRequest is required.",
+                retryable=False,
+            )
+
+        host_id = shutdown_request.get("HostId")
+        provider_generation = self.int_value(
+            shutdown_request.get("ProviderGeneration"), 0)
+        host_start_generation = self.int_value(
+            shutdown_request.get("HostStartGeneration"), 0)
+        if (not isinstance(host_id, str) or not host_id.strip() or
+                host_id != request.get("HostId") or
+                provider_generation <= 0 or
+                provider_generation != self.int_value(
+                    request.get("ProviderGeneration"), 0) or
+                host_start_generation <= 0 or
+                host_start_generation != self.int_value(
+                    request.get("HostStartGeneration"), 0)):
+            return self.error(
+                request,
+                52,
+                "AppleVirtualization.GuestAgentHostShutdownIdentityInvalid",
+                "Host shutdown requires matching host and positive provider generations.",
+                retryable=False,
+            )
+
+        payload = self.response_base(request, 52)
+        payload["ResponseStatus"] = 1
+        payload["HostShutdownResponse"] = {
+            "Accepted": True,
+            "HostId": host_id,
+            "ProviderGeneration": provider_generation,
+            "HostStartGeneration": host_start_generation,
+        }
+        return payload
+
+    @staticmethod
+    def _request_poweroff():
+        GuestAgent._write_shutdown_diagnostic(
+            "HPDOS_GUEST_SHUTDOWN: root-cgroup OpenRC shutdown requested")
+        try:
+            os.sync()
+            return subprocess.Popen(
+                [
+                    "/bin/sh",
+                    "-c",
+                    "printf '%s\\n' \"$$\" > /sys/fs/cgroup/cgroup.procs; "
+                    "exec /sbin/openrc shutdown",
+                ],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                close_fds=True,
+                start_new_session=True,
+            )
+        except Exception as exc:
+            GuestAgent._write_shutdown_diagnostic(
+                "HPDOS_GUEST_SHUTDOWN_FAILED: " + repr(exc))
+            raise
+
+    @staticmethod
+    def _write_shutdown_diagnostic(message):
+        encoded = (message + "\n").encode("utf-8", errors="replace")
+        try:
+            with open("/dev/hvc0", "ab", buffering=0) as console:
+                console.write(encoded)
+        except OSError:
+            print(message, flush=True)
 
     def storage(self, request):
         storage_request = request.get("StorageRequest") or {}
@@ -325,8 +415,8 @@ class GuestAgent:
         )
         if action == 0 and storage_class == "runtime-disposable":
             root = os.environ.get(
-                "HPD_GUEST_ENGINE_DATA_ROOT",
-                "/var/lib/hpdos/runtime/docker",
+                "HPD_GUEST_RUNTIME_ROOT",
+                "/var/lib/hpdos/runtime",
             )
         else:
             root = os.environ.get(
@@ -337,6 +427,13 @@ class GuestAgent:
         quota_mode = os.environ.get(
             "HPD_GUEST_STORAGE_QUOTA_MODE",
             "ext4-project",
+        )
+        filesystem_mode = (
+            "ext4"
+            if (action == 0 and
+                storage_class == "runtime-disposable" and
+                quota_mode != "directory-test")
+            else quota_mode
         )
 
         if not host_id or provider_generation <= 0:
@@ -526,7 +623,7 @@ class GuestAgent:
             filesystem = os.statvfs(root)
             filesystem_identity = self.storage_filesystem_identity(
                 root,
-                quota_mode,
+                filesystem_mode,
             )
             payload = self.response_base(request, 50)
             payload["StorageResponse"] = {
@@ -1312,29 +1409,17 @@ class GuestAgent:
                 return "guest-app-data:test:" + str(os.stat(root).st_dev)
             return test_identity
 
-        completed = subprocess.run(
-            [
-                "findmnt",
-                "-n",
-                "-o",
-                "SOURCE,FSTYPE,OPTIONS",
-                "--target",
-                root,
-            ],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=3,
-        )
-        fields = completed.stdout.strip().split()
-        if len(fields) != 3 or fields[1] != "ext4":
+        source, filesystem_type, options = (
+            GuestAgent.storage_mount_identity(root))
+        if filesystem_type != "ext4":
             raise OSError(
                 "App-data root is not one verified ext4 mount")
-        options = set(fields[2].split(","))
-        if "prjquota" not in options and "pquota" not in options:
+        if (quota_mode == "ext4-project" and
+                "prjquota" not in options and "pquota" not in options):
             raise OSError(
-                "App-data filesystem does not enforce project quotas")
-        source = fields[0]
+                "App-data filesystem does not enforce project quotas; "
+                "observed filesystem options: " +
+                ",".join(sorted(options)))
         identity = subprocess.run(
             ["blkid", "-s", "UUID", "-o", "value", source],
             check=True,
@@ -1347,7 +1432,107 @@ class GuestAgent:
                     for character in identity)):
             raise OSError(
                 "App-data filesystem UUID is missing or invalid")
-        return "guest-app-data:" + identity
+        prefix = "guest-runtime:" if quota_mode == "ext4" else "guest-app-data:"
+        return prefix + identity
+
+    @staticmethod
+    def storage_mount_identity(root, mountinfo=None):
+        target = os.path.realpath(root)
+        if mountinfo is None:
+            with open(
+                    "/proc/self/mountinfo",
+                    "r",
+                    encoding="utf-8") as stream:
+                mountinfo = stream.read()
+        matches = []
+        for line in mountinfo.splitlines():
+            fields = line.split()
+            try:
+                separator = fields.index("-")
+            except ValueError:
+                continue
+            if len(fields) <= separator + 3 or len(fields) < 6:
+                continue
+            mount_point = GuestAgent.decode_mountinfo_path(fields[4])
+            if os.path.realpath(mount_point) != target:
+                continue
+            matches.append((
+                GuestAgent.decode_mountinfo_path(fields[separator + 2]),
+                fields[separator + 1],
+                set(fields[separator + 3].split(",")),
+            ))
+        if len(matches) != 1:
+            raise OSError(
+                "App-data root is not one verified filesystem mount")
+        return matches[0]
+
+    @staticmethod
+    def decode_mountinfo_path(value):
+        for encoded, decoded in (
+                ("\\040", " "),
+                ("\\011", "\t"),
+                ("\\012", "\n"),
+                ("\\134", "\\")):
+            value = value.replace(encoded, decoded)
+        return value
+
+    def verified_storage_identity(self, role):
+        persisted = self.persisted_storage_identity(role)
+        if not persisted:
+            raise OSError(
+                "guest storage identity is not initialized")
+        if role == "app-data":
+            live = self.storage_filesystem_identity(
+                os.environ.get(
+                    "HPD_GUEST_APP_DATA_ROOT",
+                    "/var/lib/hpdos/app-data",
+                ),
+                "ext4-project",
+            ).removeprefix("guest-app-data:")
+        elif role == "runtime":
+            root = os.environ.get(
+                "HPD_GUEST_RUNTIME_ROOT",
+                "/var/lib/hpdos/runtime",
+            )
+            completed = subprocess.run(
+                [
+                    "findmnt",
+                    "-n",
+                    "-o",
+                    "SOURCE,FSTYPE",
+                    "--target",
+                    root,
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=3,
+            )
+            fields = completed.stdout.strip().split()
+            if len(fields) != 2 or fields[1] != "ext4":
+                raise OSError(
+                    "runtime root is not one verified ext4 mount")
+            live = subprocess.run(
+                [
+                    "blkid",
+                    "-s",
+                    "UUID",
+                    "-o",
+                    "value",
+                    fields[0],
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=3,
+            ).stdout.strip().lower()
+            live = self.valid_filesystem_uuid(live)
+        else:
+            raise OSError("unsupported guest storage identity role")
+        if live != persisted:
+            raise OSError(
+                "live guest storage identity does not match persisted identity")
+        return live
 
     @staticmethod
     def persisted_storage_identity(role):
@@ -3168,16 +3353,16 @@ class GuestAgent:
             )
 
         if operation == 46:
-            before = self.authority_projection_observation(source_socket, target_socket)
             try:
                 if os.path.islink(target_socket):
                     os.unlink(target_socket)
             except OSError as exc:
                 return self.error(request, operation, "AppleVirtualization.GuestAgentAuthorityRevokeFailed", "Failed to revoke authority socket projection: " + str(exc), retryable=False)
-            after = self.authority_projection_observation(source_socket, target_socket)
-            evidence = []
-            evidence.extend(before["evidence"])
-            evidence.append(self.socket_evidence(3, target_socket, not os.path.lexists(target_socket), "Projected authority socket is absent after revoke."))
+            evidence = [self.socket_evidence(
+                3,
+                target_socket,
+                not os.path.lexists(target_socket),
+                "Projected authority socket is absent after revoke.")]
             return self.authority_response(
                 request,
                 operation,
@@ -3206,7 +3391,7 @@ class GuestAgent:
                         severity=4,
                     )
                 ],
-                revocation_evidence=evidence if evidence else after["evidence"],
+                revocation_evidence=evidence,
             )
 
         return self.error(request, operation, "AppleVirtualization.GuestAgentUnsupportedOperation", "Unsupported authority operation.", retryable=False)
@@ -3414,7 +3599,13 @@ def serve_stream(agent, reader, writer):
         if request.get("Operation") == 51:
             agent.tcp_tunnel(request, reader, writer)
             return
-        write_frame(writer, agent.handle(request))
+        response = agent.handle(request)
+        write_frame(writer, response)
+        if (request.get("Operation") == 52 and
+                response.get("ResponseStatus") == 1 and
+                (response.get("HostShutdownResponse") or {}).get("Accepted") is True):
+            agent.host_shutdown_executor()
+            return
 
 
 def serve_stdio(agent):

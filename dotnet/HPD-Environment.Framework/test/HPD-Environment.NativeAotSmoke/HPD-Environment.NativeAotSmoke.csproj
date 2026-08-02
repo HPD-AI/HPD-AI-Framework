@@ -16,6 +16,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/HPD-Environment.AppleVirtualization/HPD-Environment.AppleVirtualization.csproj" />
+    <ProjectReference Include="../../src/HPD-Environment.Local/HPD-Environment.Local.csproj" />
     <ProjectReference Include="../../src/HPD-Environment.Runtime/HPD-Environment.Runtime.csproj" />
   </ItemGroup>
 </Project>

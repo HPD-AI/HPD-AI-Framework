@@ -1494,6 +1494,7 @@ public enum StorageClass
     ProviderDefined,
 }
 public enum StorageMeasurementConfidence { Exact, ProviderReported, Estimated, Unknown }
+public enum DurableVolumeCapacityEnforcement { Unknown, ObservedLimit, HardLimit }
 public enum StoragePoolPhase { Pending, Measuring, Ready, Warning, AdmissionStopped, Emergency, Degraded, Failed, Deleting, Deleted }
 public enum DurableVolumePhase { Pending, Creating, Ready, Attaching, Attached, DetachedRetained, RestoreStaged, PendingErase, Erased, FailedRetained, Failed }
 public enum StorageReservationPhase { Pending, Reserved, Committed, Releasing, Released, Expired, Ambiguous, Failed }
@@ -1634,6 +1635,7 @@ public sealed record DurableVolumeStatus : ResourceStatus
     public ByteSize? LogicalCapacityBytes { get; init; }
     public ByteSize? PhysicalAllocatedBytes { get; init; }
     public ByteSize? UsedBytes { get; init; }
+    public DurableVolumeCapacityEnforcement CapacityEnforcement { get; init; } = DurableVolumeCapacityEnforcement.Unknown;
     public string? FilesystemIdentity { get; init; }
     public VolumeIntegrityState Integrity { get; init; } = VolumeIntegrityState.Unknown;
     public DateTimeOffset? LastCleanUnmountAt { get; init; }
@@ -1782,6 +1784,7 @@ public interface IEnvironmentRuntime
     ValueTask<ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus>> EnsureExecutionUnitAsync(ExecutionUnitSpec spec, CancellationToken cancellationToken = default);
     ValueTask<IReadOnlyList<ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus>>> ListExecutionUnitsAsync(CancellationToken cancellationToken = default);
     ValueTask<ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus>> GetExecutionUnitAsync(ResourceRef<ExecutionUnit> unit, CancellationToken cancellationToken = default);
+    ValueTask<ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus>> StopExecutionUnitAsync(ResourceRef<ExecutionUnit> unit, StopPolicy policy, CancellationToken cancellationToken = default);
     ValueTask DeleteExecutionUnitAsync(ResourceRef<ExecutionUnit> unit, CancellationToken cancellationToken = default);
     ValueTask<ResourceSnapshot<Network, NetworkSpec, NetworkStatus>> EnsureNetworkAsync(NetworkSpec spec, NetworkRealizationContext? realizationContext = null, CancellationToken cancellationToken = default);
     ValueTask<ResourceSnapshot<Network, NetworkSpec, NetworkStatus>> GetNetworkAsync(ResourceRef<Network> network, CancellationToken cancellationToken = default);

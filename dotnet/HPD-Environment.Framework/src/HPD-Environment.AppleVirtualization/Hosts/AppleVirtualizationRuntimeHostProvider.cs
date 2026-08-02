@@ -25,6 +25,7 @@ public sealed class AppleVirtualizationRuntimeHostProvider :
     IRuntimeHostProvider,
     IRuntimeHostWakeReconciliationProvider
 {
+    private const int MaxRetainedDiagnostics = 64;
     private static readonly SchemaVersion SchemaVersion = new("v1");
     private static readonly ResourceKind RuntimeHostKind = new("runtime-host");
     private static readonly ContentType JsonContentType = new("application/json");
@@ -962,7 +963,13 @@ public sealed class AppleVirtualizationRuntimeHostProvider :
         CancellationToken cancellationToken)
     {
         AppleVirtualizationRealModePreconditionResult preconditions =
-            AppleVirtualizationRealModePreconditions.Evaluate(_options);
+            AppleVirtualizationRealModePreconditions.Evaluate(
+                _options,
+                helperOwnsRetainedVm:
+                    previous.Handle is not null &&
+                    previous.HostPhase is
+                        RuntimeHostPhase.Stopped or
+                        RuntimeHostPhase.Failed);
         if (!preconditions.Passed)
         {
             return Store(metadata, previous with
@@ -1114,6 +1121,8 @@ public sealed class AppleVirtualizationRuntimeHostProvider :
                 HostLifecycleRequest = new AppleVirtualizationHostLifecycleRequest
                 {
                     HostId = entry.Resource.Id.Value,
+                    HostStartGeneration = checked((ulong)(
+                        entry.Status.Generations.HostStartGeneration?.Value ?? 0)),
                     ExplicitRealMode = _options.FeatureGates.EnableRealVmBoot,
                     StopKind = policy.Kind,
                     GracePeriod = policy.GracePeriod,
@@ -1132,6 +1141,11 @@ public sealed class AppleVirtualizationRuntimeHostProvider :
                 Diagnostics = AppendDiagnostic(entry.Status.Diagnostics, ToDiagnostic(response.Error, OperationName(operation))),
             }
             : MapHostStatus(ToMetadata(entry), null, entry.Status, response.HostStatusResponse, response.GuestControlStatusResponse);
+        string gracefulStopFailureCode = response.Error?.Code ??
+            response.HostStatusResponse?.Diagnostics.FirstOrDefault()?.Code.Value ??
+            (response.ResponseStatus + "." +
+             (response.HostStatusResponse?.HostPhase.ToString() ??
+              "MissingHostStatus"));
 
         bool gracefulTimedOut = false;
         if (policy.Kind is (StopKind.Graceful or StopKind.GracefulThenKill) &&
@@ -1193,12 +1207,16 @@ public sealed class AppleVirtualizationRuntimeHostProvider :
         {
             gracefulTimedOut = true;
             forcedStop = true;
+            IReadOnlyList<Diagnostic> gracefulStopDiagnostics =
+                status.Diagnostics;
             AppleVirtualizationHelperEnvelope forceResponse = await _helper.SendAsync(
                 HostLifecycleRequest(ToMetadata(entry), status, AppleVirtualizationHelperOperation.HostStop) with
                 {
                     HostLifecycleRequest = new AppleVirtualizationHostLifecycleRequest
                     {
                         HostId = entry.Resource.Id.Value,
+                        HostStartGeneration = checked((ulong)(
+                            status.Generations.HostStartGeneration?.Value ?? 0)),
                         ExplicitRealMode = _options.FeatureGates.EnableRealVmBoot,
                         StopKind = StopKind.Kill,
                         GracePeriod = TimeSpan.Zero,
@@ -1217,6 +1235,64 @@ public sealed class AppleVirtualizationRuntimeHostProvider :
                     Diagnostics = AppendDiagnostic(status.Diagnostics, ToDiagnostic(forceResponse.Error, "host.stop")),
                 }
                 : MapHostStatus(ToMetadata(entry), null, status, forceResponse.HostStatusResponse, forceResponse.GuestControlStatusResponse);
+            status = status with
+            {
+                Diagnostics = AppendDiagnostics(
+                    gracefulStopDiagnostics,
+                    status.Diagnostics),
+            };
+        }
+
+        if (forcedStop &&
+            status.HostPhase == RuntimeHostPhase.Stopping)
+        {
+            TimeSpan completionTimeout =
+                _options.HostStopCompletionTimeout > TimeSpan.Zero
+                    ? _options.HostStopCompletionTimeout
+                    : TimeSpan.FromSeconds(10);
+            long startedAt =
+                System.Diagnostics.Stopwatch.GetTimestamp();
+            while (status.HostPhase == RuntimeHostPhase.Stopping &&
+                   System.Diagnostics.Stopwatch.GetElapsedTime(startedAt) <
+                       completionTimeout)
+            {
+                TimeSpan remaining = completionTimeout -
+                    System.Diagnostics.Stopwatch.GetElapsedTime(startedAt);
+                if (remaining <= TimeSpan.Zero)
+                    break;
+                await Task.Delay(
+                        remaining < TimeSpan.FromMilliseconds(50)
+                            ? remaining
+                            : TimeSpan.FromMilliseconds(50),
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                AppleVirtualizationHelperEnvelope observation =
+                    await _helper.SendAsync(
+                            HostLifecycleRequest(
+                                ToMetadata(entry),
+                                status,
+                                AppleVirtualizationHelperOperation
+                                    .HostStatus),
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                status = observation.ResponseStatus ==
+                    AppleVirtualizationHelperResponseStatus.Error
+                        ? status with
+                        {
+                            Phase = ResourcePhase.Degraded,
+                            Diagnostics = AppendDiagnostic(
+                                status.Diagnostics,
+                                ToDiagnostic(
+                                    observation.Error,
+                                    "host.status")),
+                        }
+                        : MapHostStatus(
+                            ToMetadata(entry),
+                            null,
+                            status,
+                            observation.HostStatusResponse,
+                            observation.GuestControlStatusResponse);
+            }
         }
 
         if (gracefulTimedOut)
@@ -1227,8 +1303,9 @@ public sealed class AppleVirtualizationRuntimeHostProvider :
                     status.Conditions,
                     LifecycleCondition(
                         "Environment.Lifecycle.GracefulStopTimedOut",
-                        "GracePeriodExpired",
-                        "The guest did not prove a clean shutdown before the graceful-stop deadline.",
+                        gracefulStopFailureCode,
+                        "The guest did not prove a clean shutdown before the graceful-stop deadline (" +
+                        gracefulStopFailureCode + ").",
                         ToMetadata(entry).Generation,
                         DiagnosticSeverity.Error)),
             };
@@ -1527,6 +1604,8 @@ public sealed class AppleVirtualizationRuntimeHostProvider :
             HostLifecycleRequest = new AppleVirtualizationHostLifecycleRequest
             {
                 HostId = metadata.Id.Value,
+                HostStartGeneration = checked((ulong)(
+                    status.Generations.HostStartGeneration?.Value ?? 0)),
                 ExplicitRealMode = _options.FeatureGates.EnableRealVmBoot,
             },
         };
@@ -1649,7 +1728,12 @@ public sealed class AppleVirtualizationRuntimeHostProvider :
             ObservedGeneration = metadata.Generation,
             LastTransitionAt = now,
             Conditions = conditions,
-            Diagnostics = ReadinessStoppedDiagnostics(previous, mappedHostPhase, host?.Diagnostics ?? previous.Diagnostics),
+            Diagnostics = ReadinessStoppedDiagnostics(
+                previous,
+                mappedHostPhase,
+                AppendDiagnostics(
+                    previous.Diagnostics,
+                    host?.Diagnostics ?? Array.Empty<Diagnostic>())),
             GuestControlEndpoint = previous.GuestControlEndpoint,
             GuestControl = GuestControl(guestExpected, guestInstalled, reachable: false, guest?.Conditions ?? previous.GuestControl?.Conditions),
             Readiness = Readiness(spec, ready: false, now, previous.Readiness),
@@ -2285,14 +2369,11 @@ public sealed class AppleVirtualizationRuntimeHostProvider :
 
     private static IReadOnlyList<Diagnostic> AppendDiagnostic(IReadOnlyList<Diagnostic> existing, Diagnostic diagnostic)
     {
-        Diagnostic[] diagnostics = new Diagnostic[existing.Count + 1];
-        for (int i = 0; i < existing.Count; i++)
-        {
-            diagnostics[i] = existing[i];
-        }
-
-        diagnostics[^1] = diagnostic;
-        return diagnostics;
+        return existing
+            .Where(candidate => candidate != diagnostic)
+            .Append(diagnostic)
+            .TakeLast(MaxRetainedDiagnostics)
+            .ToArray();
     }
 
     private static IReadOnlyList<Diagnostic> AppendDiagnostics(
@@ -2304,17 +2385,11 @@ public sealed class AppleVirtualizationRuntimeHostProvider :
             return existing;
         }
 
-        Diagnostic[] diagnostics = new Diagnostic[existing.Count + additional.Count];
-        for (int i = 0; i < existing.Count; i++)
+        IReadOnlyList<Diagnostic> diagnostics = existing;
+        foreach (Diagnostic diagnostic in additional)
         {
-            diagnostics[i] = existing[i];
+            diagnostics = AppendDiagnostic(diagnostics, diagnostic);
         }
-
-        for (int i = 0; i < additional.Count; i++)
-        {
-            diagnostics[existing.Count + i] = additional[i];
-        }
-
         return diagnostics;
     }
 

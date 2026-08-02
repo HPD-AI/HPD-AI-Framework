@@ -59,6 +59,7 @@ public enum AppleVirtualizationGuestAgentOperation
     AuthorityRevoke,
     EngineStatus,
     EngineProvision,
+    HostShutdown,
 }
 
 public enum AppleVirtualizationGuestAgentEventKind
@@ -225,6 +226,8 @@ public sealed record AppleVirtualizationGuestAgentEnvelope
     public AppleVirtualizationGuestAgentEngineStatus? EngineStatus { get; init; }
     public AppleVirtualizationGuestAgentEngineProvisioningRequest? EngineProvisioningRequest { get; init; }
     public AppleVirtualizationGuestAgentEngineProvisioningResult? EngineProvisioningResult { get; init; }
+    public AppleVirtualizationGuestAgentHostShutdownRequest? HostShutdownRequest { get; init; }
+    public AppleVirtualizationGuestAgentHostShutdownResponse? HostShutdownResponse { get; init; }
 
     public static AppleVirtualizationGuestAgentEnvelope Request(
         AppleVirtualizationGuestAgentOperation operation,
@@ -295,6 +298,7 @@ public sealed record AppleVirtualizationGuestAgentReady
 
 public sealed record AppleVirtualizationGuestAgentCapabilities
 {
+    public bool HostShutdown { get; init; }
     public bool ProcessStart { get; init; } = true;
     public bool ProcessStdin { get; init; } = true;
     public bool ProcessSignal { get; init; } = true;
@@ -313,6 +317,18 @@ public sealed record AppleVirtualizationGuestAgentCapabilities
     public bool EngineProvisioning { get; init; }
     public IReadOnlyList<string> Limitations { get; init; } = Array.Empty<string>();
 }
+
+public sealed record AppleVirtualizationGuestAgentHostShutdownRequest(
+    string HostId,
+    ulong ProviderGeneration,
+    ulong HostStartGeneration,
+    string? Reason = null);
+
+public sealed record AppleVirtualizationGuestAgentHostShutdownResponse(
+    bool Accepted,
+    string HostId,
+    ulong ProviderGeneration,
+    ulong HostStartGeneration);
 
 public sealed record AppleVirtualizationGuestAgentError
 {

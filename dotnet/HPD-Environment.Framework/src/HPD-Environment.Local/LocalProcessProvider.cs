@@ -15,7 +15,9 @@ internal sealed class LocalProcessProvider(LocalProviderState state)
         {
             "hpdos-compose-stage",
             "hpdos-compose-images",
+            "hpdos-compose-image-inspection",
             "hpdos-compose-stop",
+            "hpdos-compose-absent",
             "hpdos-compose-remove",
             "hpdos-compose-inspect",
         };

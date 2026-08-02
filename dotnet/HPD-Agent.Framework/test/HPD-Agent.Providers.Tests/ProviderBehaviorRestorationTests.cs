@@ -112,10 +112,7 @@ public sealed class ProviderBehaviorRestorationTests
         invalid.Errors.Should().Contain(error => error.Contains("chat provider family", StringComparison.OrdinalIgnoreCase));
         invalid.Errors.Should().Contain(error => error.Contains("Model name", StringComparison.OrdinalIgnoreCase));
         invalid.Errors.Should().Contain(error => error.Contains("Endpoint", StringComparison.OrdinalIgnoreCase));
-        if (providerCase.RequiresApiKey)
-        {
-            invalid.Errors.Should().Contain(error => error.Contains("API key", StringComparison.OrdinalIgnoreCase));
-        }
+        invalid.Errors.Should().NotContain(error => error.Contains("API key", StringComparison.OrdinalIgnoreCase));
     }
 
     [Theory]
@@ -136,6 +133,44 @@ public sealed class ProviderBehaviorRestorationTests
         metadata.Should().NotBeNull();
         metadata!.ProviderName.Should().Be(providerCase.ProviderKey);
         metadata.DefaultModelId.Should().Be("test-model");
+    }
+
+    [Fact]
+    public void OpenAICompatibleProvider_CreateChatClient_ShouldResolveRequiredApiKeyFromSecretResolver()
+    {
+        var provider = new DeepSeekProvider();
+        var config = new ClientProviderConfig
+        {
+            ProviderKey = "deepseek",
+            ModelName = "deepseek-v4-flash"
+        };
+
+        using var services = ServicesWithSecrets(new Dictionary<string, string>
+        {
+            ["deepseek:ApiKey"] = "test-key"
+        });
+
+        using var client = provider.CreateChatClient(config, services);
+
+        client.Should().NotBeNull();
+    }
+
+    [Fact]
+    public void OpenAICompatibleProvider_CreateChatClient_ShouldFailWhenRequiredApiKeyCannotBeResolved()
+    {
+        var provider = new DeepSeekProvider();
+        var config = new ClientProviderConfig
+        {
+            ProviderKey = "deepseek",
+            ModelName = "deepseek-v4-flash"
+        };
+
+        using var services = ServicesWithSecrets();
+
+        var action = () => provider.CreateChatClient(config, services);
+
+        action.Should().Throw<SecretNotFoundException>()
+            .WithMessage("*DeepSeek*");
     }
 
     [Theory]

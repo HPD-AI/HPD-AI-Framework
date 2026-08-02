@@ -333,7 +333,7 @@ public sealed class AppleVirtualizationRuntimeHostProviderTests
     public async Task Stop_host_sends_graceful_request_and_returns_stopped_status()
     {
         var ledger = new AppleVirtualizationProviderStateLedger();
-        RuntimeHostStatus seeded = SeedHost(ledger);
+        RuntimeHostStatus seeded = SeedHost(ledger, hostStartGeneration: 1);
         var helper = new FakeAppleVirtualizationHelperClient();
         helper.EnqueueResponse(HostResponse(AppleVirtualizationHelperOperation.HostRequestStop, RuntimeHostPhase.Stopped, ResourcePhase.Ready));
         var provider = new AppleVirtualizationRuntimeHostProvider(helper, ledger, SupportedHost);
@@ -345,6 +345,7 @@ public sealed class AppleVirtualizationRuntimeHostProviderTests
         stopped.HostPhase.Should().Be(RuntimeHostPhase.Stopped);
         helper.Requests.Should().ContainSingle().Which.Operation.Should().Be(AppleVirtualizationHelperOperation.HostRequestStop);
         helper.Requests[0].HostLifecycleRequest!.StopKind.Should().Be(StopKind.Graceful);
+        helper.Requests[0].HostLifecycleRequest.HostStartGeneration.Should().Be(1);
     }
 
     [Fact]
@@ -403,6 +404,39 @@ public sealed class AppleVirtualizationRuntimeHostProviderTests
         helper.Requests.Select(request => request.Operation).Should().Equal(
             AppleVirtualizationHelperOperation.HostRequestStop,
             AppleVirtualizationHelperOperation.HostStop);
+    }
+
+    [Fact]
+    public async Task Forced_stop_waits_for_Apple_completion_before_returning()
+    {
+        var ledger = new AppleVirtualizationProviderStateLedger();
+        RuntimeHostStatus seeded = SeedHost(ledger);
+        var helper = new FakeAppleVirtualizationHelperClient();
+        helper.EnqueueResponse(HostResponse(
+            AppleVirtualizationHelperOperation.HostStop,
+            RuntimeHostPhase.Stopping,
+            ResourcePhase.Degraded));
+        helper.EnqueueResponse(HostResponse(
+            AppleVirtualizationHelperOperation.HostStatus,
+            RuntimeHostPhase.Stopped,
+            ResourcePhase.Ready));
+        var provider = new AppleVirtualizationRuntimeHostProvider(
+            helper,
+            ledger,
+            SupportedHost,
+            new AppleVirtualizationProviderOptions
+            {
+                HostStopCompletionTimeout = TimeSpan.FromSeconds(1),
+            });
+
+        RuntimeHostStatus stopped = await provider.StopAsync(
+            seeded.Handle!.Value,
+            StopPolicy.Default with { Kind = StopKind.Kill });
+
+        stopped.HostPhase.Should().Be(RuntimeHostPhase.Stopped);
+        helper.Requests.Select(request => request.Operation).Should().Equal(
+            AppleVirtualizationHelperOperation.HostStop,
+            AppleVirtualizationHelperOperation.HostStatus);
     }
 
     [Fact]
@@ -1378,6 +1412,50 @@ public sealed class AppleVirtualizationRuntimeHostProviderTests
     }
 
     [Fact]
+    public async Task Explicit_real_mode_restart_leaves_retained_disk_access_admission_to_helper()
+    {
+        using RealBootFiles files = RealBootFiles.Create();
+        var ledger = new AppleVirtualizationProviderStateLedger();
+        var helper = new FakeAppleVirtualizationHelperClient();
+        helper.EnqueueResponse(HostResponse(AppleVirtualizationHelperOperation.HostStart, RuntimeHostPhase.Starting));
+        helper.EnqueueResponse(HostResponse(AppleVirtualizationHelperOperation.HostStatus, RuntimeHostPhase.Running));
+        var provider = new AppleVirtualizationRuntimeHostProvider(
+            helper,
+            ledger,
+            SupportedHost,
+            RealBootOptions(files.GuestImage));
+        ResourceMetadata<RuntimeHost> metadata = Metadata("runtime-host-1");
+        RuntimeHostSpec spec = Spec();
+        RuntimeHostStatus first = await provider.EnsureAsync(metadata, spec, observed: null);
+        RuntimeHostStatus inactive = first with
+        {
+            Phase = ResourcePhase.Ready,
+            HostPhase = RuntimeHostPhase.Stopped,
+        };
+        int requestCount = helper.Requests.Count;
+        using FileStream retainedDisk = new(
+            files.GuestImage.DiskAttachments[0].DiskImagePath,
+            FileMode.Open,
+            FileAccess.ReadWrite,
+            FileShare.None);
+        helper.EnqueueResponse(HostResponse(AppleVirtualizationHelperOperation.HostStart, RuntimeHostPhase.Starting));
+        helper.EnqueueResponse(HostResponse(AppleVirtualizationHelperOperation.HostStatus, RuntimeHostPhase.Running));
+
+        RuntimeHostStatus restarted = await provider.EnsureAsync(
+            metadata,
+            spec,
+            inactive);
+
+        restarted.HostPhase.Should().Be(RuntimeHostPhase.Running);
+        restarted.Diagnostics.Should().NotContain(diagnostic =>
+            diagnostic.Code.Value ==
+                "AppleVirtualization.RealModeDiskImageInaccessible");
+        helper.Requests.Skip(requestCount).Should().Contain(request =>
+            request.Operation ==
+                AppleVirtualizationHelperOperation.HostStart);
+    }
+
+    [Fact]
     public async Task Explicit_real_mode_helper_failure_maps_to_failed_status_with_diagnostics()
     {
         using RealBootFiles files = RealBootFiles.Create();
@@ -1397,6 +1475,39 @@ public sealed class AppleVirtualizationRuntimeHostProviderTests
         status.Readiness!.Ready.Should().BeFalse();
         status.Diagnostics.Should().ContainSingle().Which.Code.Value.Should().Be("AppleVirtualization.HostStartFailed");
         helper.Requests.Should().ContainSingle().Which.Operation.Should().Be(AppleVirtualizationHelperOperation.HostStart);
+    }
+
+    [Fact]
+    public async Task Explicit_real_mode_repeated_helper_failure_does_not_duplicate_diagnostics()
+    {
+        using RealBootFiles files = RealBootFiles.Create();
+        var ledger = new AppleVirtualizationProviderStateLedger();
+        var helper = new FakeAppleVirtualizationHelperClient();
+        helper.EnqueueResponse(HostError(
+            AppleVirtualizationHelperOperation.HostStart,
+            "AppleVirtualization.HostStartFailed"));
+        helper.EnqueueResponse(HostError(
+            AppleVirtualizationHelperOperation.HostStart,
+            "AppleVirtualization.HostStartFailed"));
+        var provider = new AppleVirtualizationRuntimeHostProvider(
+            helper,
+            ledger,
+            SupportedHost,
+            RealBootOptions(files.GuestImage));
+        ResourceMetadata<RuntimeHost> metadata = Metadata("runtime-host-1");
+        RuntimeHostSpec spec = Spec();
+
+        RuntimeHostStatus first = await provider.EnsureAsync(
+            metadata,
+            spec,
+            observed: null);
+        RuntimeHostStatus second = await provider.EnsureAsync(
+            metadata,
+            spec,
+            observed: first);
+
+        second.Diagnostics.Should().ContainSingle().Which.Code.Value
+            .Should().Be("AppleVirtualization.HostStartFailed");
     }
 
     [Fact]
@@ -1423,7 +1534,9 @@ public sealed class AppleVirtualizationRuntimeHostProviderTests
         helper.Requests[0].HostLifecycleRequest!.GracePeriodMilliseconds.Should().Be(1500);
     }
 
-    private static RuntimeHostStatus SeedHost(AppleVirtualizationProviderStateLedger ledger)
+    private static RuntimeHostStatus SeedHost(
+        AppleVirtualizationProviderStateLedger ledger,
+        long? hostStartGeneration = null)
     {
         ResourceMetadata<RuntimeHost> metadata = Metadata("runtime-host-1");
         return ledger.UpsertRuntimeHost(metadata, new RuntimeHostStatus
@@ -1431,6 +1544,12 @@ public sealed class AppleVirtualizationRuntimeHostProviderTests
             Phase = ResourcePhase.Ready,
             ObservedGeneration = metadata.Generation,
             HostPhase = RuntimeHostPhase.Ready,
+            Generations = new RuntimeHostGenerationStatus
+            {
+                HostStartGeneration = hostStartGeneration is null
+                    ? null
+                    : new RuntimeHostStartGeneration(hostStartGeneration.Value),
+            },
             GuestControl = new GuestControlStatus(
                 Expected: true,
                 Installed: true,

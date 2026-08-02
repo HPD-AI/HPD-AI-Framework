@@ -16,6 +16,43 @@ namespace HPD.Agent.TUI.Tests;
 public sealed class HpdAgentTuiAppCancelTests
 {
     [Fact]
+    public async Task ActivePage_ReceivesInputBeforeFocusedPrompt()
+    {
+        var scope = new AgentTuiRuntimeScope("agent-a", "session-a", "main");
+        var runtime = new CancelRuntime(scope);
+        var received = new List<KeyEvent>();
+        await using var app = HpdAgentTuiApp.Create(
+            runtime,
+            scope,
+            builder => builder
+                .AddAgentTuiDefaults()
+                .TryAddPage(new HpdAgentTuiPageDescriptor(
+                    "test.page",
+                    static _ => new HPD.TUI.Components.Text("Page"))
+                {
+                    HandleInput = (_, key) =>
+                    {
+                        received.Add(key);
+                        return key.Key == KeyCode.Enter;
+                    },
+                }),
+            new TestTerminal(80, 24));
+        InvokePrivate(app, "RebuildShell", scope, "Connected.");
+        var state = GetPrivateField<AgentTuiSessionState>(app, "_state");
+        state.Shell.Navigation.GoToPage("test.page");
+        var application = GetPrivateField<HPD.TUI.Rendering.ManagedTerminalTuiApplication>(
+            app,
+            "_application");
+
+        application.HandleInput(
+            TuiInputEvent.FromKey(new KeyEvent(KeyCode.Enter))).Should().BeTrue();
+
+        received.Should().ContainSingle()
+            .Which.Key.Should().Be(KeyCode.Enter);
+        GetPrivateField<PromptView>(app, "_prompt").Model.Value.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task FirstInput_PromotesAndHydratesTransientScopeBeforeObservationAndSubmission()
     {
         var scope = new AgentTuiRuntimeScope("agent-a", "pending-session", "main");

@@ -22,7 +22,7 @@ class StorageTests(unittest.TestCase):
             os.environ,
             {
                 "HPD_GUEST_APP_DATA_ROOT": self.storage_directory.name,
-                "HPD_GUEST_ENGINE_DATA_ROOT": self.engine_directory.name,
+                "HPD_GUEST_RUNTIME_ROOT": self.engine_directory.name,
                 "HPD_GUEST_AGENT_STATE_DIR": self.state_directory.name,
                 "HPD_GUEST_OPERATION_TEMP_ROOT":
                     str(pathlib.Path(self.state_directory.name) / "operations"),

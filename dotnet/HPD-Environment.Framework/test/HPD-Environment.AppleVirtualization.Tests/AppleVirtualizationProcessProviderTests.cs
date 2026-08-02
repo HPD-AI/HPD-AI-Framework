@@ -62,6 +62,37 @@ public sealed class AppleVirtualizationProcessProviderTests
     }
 
     [Fact]
+    public async Task Process_requests_use_the_runtime_hosts_authoritative_guest_agent_generation()
+    {
+        var fixture = CreateFixture();
+        fixture.Ledger.UpsertRuntimeHost(
+            AppleVirtualizationContractFixtures.Metadata<RuntimeHost>(
+                "runtime-host-1",
+                "runtime-host"),
+            new RuntimeHostStatus
+            {
+                Phase = ResourcePhase.Ready,
+                ObservedGeneration = new ResourceGeneration(1),
+                HostPhase = RuntimeHostPhase.Ready,
+                Readiness = new RuntimeHostReadinessStatus(Ready: true),
+                Generations = new RuntimeHostGenerationStatus
+                {
+                    GuestAgentGeneration = new ResourceGeneration(7),
+                },
+            });
+        fixture.Helper.EnqueueResponse(ProcessStatus(
+            AppleVirtualizationHelperOperation.ProcessStart,
+            "process-1",
+            ProcessInvocationPhase.Running));
+
+        _ = await fixture.Provider.StartAsync(fixture.Spec);
+
+        fixture.Helper.Requests.Should().ContainSingle();
+        fixture.Helper.Requests[0].ProcessHost!.GuestAgentGeneration
+            .Should().Be(7);
+    }
+
+    [Fact]
     public async Task Run_streams_stderr_and_preserves_stream_identity()
     {
         var fixture = CreateFixture();

@@ -815,7 +815,8 @@ public sealed class AppleVirtualizationProcessProvider : IProcessProvider, IReta
                 HostStartGeneration = checked((ulong)(host.Generations.HostStartGeneration?.Value ?? 0)),
                 GuestBootId = guestBootId,
                 GuestBootGeneration = guestBootGeneration,
-                GuestAgentGeneration = ParseGuestAgentGeneration(host.Conditions),
+                GuestAgentGeneration = checked((ulong)(
+                    host.Generations.GuestAgentGeneration?.Value ?? 0)),
             };
         }
 
@@ -859,22 +860,6 @@ public sealed class AppleVirtualizationProcessProvider : IProcessProvider, IReta
         return ulong.TryParse(numeric, NumberStyles.None, CultureInfo.InvariantCulture, out ulong parsed)
             ? (separator > 0 ? value[..separator] : null, parsed)
             : (null, 0);
-    }
-
-    private static ulong ParseGuestAgentGeneration(IReadOnlyList<Condition> conditions)
-    {
-        foreach (Condition condition in conditions)
-        {
-            if (string.Equals(
-                    condition.Type,
-                    "AppleVirtualization.GuestAgentGeneration",
-                    StringComparison.Ordinal) &&
-                ulong.TryParse(condition.Message, NumberStyles.None, CultureInfo.InvariantCulture, out ulong parsed))
-            {
-                return parsed;
-            }
-        }
-        return 0;
     }
 
     private Diagnostic? ValidateAuthorityBindings(

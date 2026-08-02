@@ -520,6 +520,11 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             return true;
         }
 
+        if (TryHandleActivePageInput(in key))
+        {
+            return true;
+        }
+
         if (key.Key == KeyCode.Escape && key.Modifiers == KeyModifiers.None)
         {
             if (_dialogs?.HasOpenDialog == true)
@@ -554,6 +559,30 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
 
         shortcut.Execute(new AgentTuiShortcutContext(_scope, _state.Shell, _state.Shell.Navigation, shortcut));
         return true;
+    }
+
+    private bool TryHandleActivePageInput(in KeyEvent key)
+    {
+        if (_scope is null ||
+            _state is null ||
+            _dialogs?.HasOpenDialog == true ||
+            string.IsNullOrWhiteSpace(_state.Shell.Navigation.ActivePageId) ||
+            !_registry.TryFindPage(_state.Shell.Navigation.ActivePageId, out var page) ||
+            page.HandleInput is null)
+        {
+            return false;
+        }
+
+        return page.HandleInput(
+            new AgentTuiPageContext(
+                _scope,
+                _state.Shell,
+                _state.Shell.Navigation,
+                _registry,
+                page,
+                _registry.ShellChrome.DefaultTranscriptHeight,
+                _state.State),
+            key);
     }
 
     private bool TryGoBack()

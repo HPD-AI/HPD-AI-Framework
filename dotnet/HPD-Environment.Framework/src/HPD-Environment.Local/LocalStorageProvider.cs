@@ -287,6 +287,8 @@ internal sealed class LocalStorageProvider :
             PhysicalAllocatedBytes =
                 new ByteSize(physicalAllocatedBytes),
             UsedBytes = new ByteSize(DirectoryBytes(path)),
+            CapacityEnforcement =
+                _volumeBackend.CapacityEnforcement,
             FilesystemIdentity = identity.FilesystemIdentity,
             Integrity = VolumeIntegrityState.Clean,
         };
@@ -342,6 +344,8 @@ internal sealed class LocalStorageProvider :
             PhysicalAllocatedBytes =
                 new ByteSize(physicalAllocatedBytes),
             UsedBytes = new ByteSize(usedBytes),
+            CapacityEnforcement =
+                _volumeBackend.CapacityEnforcement,
             Diagnostics = overMaximum
                 ?
                 [
@@ -418,6 +422,8 @@ internal sealed class LocalStorageProvider :
                 PhysicalAllocatedBytes =
                     new ByteSize(physicalAllocatedBytes),
                 UsedBytes = new ByteSize(usedBytes),
+                CapacityEnforcement =
+                    _volumeBackend.CapacityEnforcement,
                 VolumeGeneration = new ResourceGeneration(
                     identity.VolumeGeneration),
                 Integrity = pendingRestores.Count != 0
@@ -902,10 +908,10 @@ internal sealed class LocalStorageProvider :
                         backup.Spec) ||
                     !string.Equals(
                         manifest.LogicalVolumeId,
-                        target.Spec.LogicalId,
+                        backup.Spec.SourceVolumeSpec.LogicalId,
                         StringComparison.Ordinal))
                     throw new InvalidOperationException(
-                        "Environment.Storage.BackupInvalid: restored content digest does not match the backup manifest.");
+                        "Environment.Storage.BackupInvalid: restored content or source identity does not match the backup manifest.");
                 operation = operation with
                 {
                     Checkpoint = LocalRestoreCheckpoint.Staged,
@@ -1603,7 +1609,7 @@ internal sealed class LocalStorageProvider :
             UseShellExecute = false,
             CreateNoWindow = true,
         };
-        start.ArgumentList.Add("-sk");
+        start.ArgumentList.Add("-skx");
         start.ArgumentList.Add(root);
         using var process = new System.Diagnostics.Process
         {

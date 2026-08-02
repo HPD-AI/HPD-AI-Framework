@@ -51,18 +51,17 @@ public final class ExclusiveDiskLease {
     private var descriptor: Int32
 
     public init(path: String) throws {
-        let opened = Darwin.open(
+        let disk = Darwin.open(
             path,
             O_RDWR | O_CLOEXEC | O_NOFOLLOW)
-        guard opened >= 0 else {
+        guard disk >= 0 else {
             throw DiskLeaseError.openFailed(
                 path,
                 errno)
         }
-        descriptor = opened
         do {
             var metadata = stat()
-            guard Darwin.fstat(opened, &metadata) == 0 else {
+            guard Darwin.fstat(disk, &metadata) == 0 else {
                 throw DiskLeaseError.openFailed(
                     path,
                     errno)
@@ -72,6 +71,36 @@ public final class ExclusiveDiskLease {
                 metadata.st_nlink == 1
             else {
                 throw DiskLeaseError.unsafeFile(path)
+            }
+        } catch {
+            Darwin.close(disk)
+            throw error
+        }
+        Darwin.close(disk)
+
+        let leasePath = path + ".hpd-vz.lock"
+        let opened = Darwin.open(
+            leasePath,
+            O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW,
+            S_IRUSR | S_IWUSR)
+        guard opened >= 0 else {
+            throw DiskLeaseError.openFailed(
+                leasePath,
+                errno)
+        }
+        descriptor = opened
+        do {
+            var leaseMetadata = stat()
+            guard Darwin.fstat(opened, &leaseMetadata) == 0 else {
+                throw DiskLeaseError.openFailed(
+                    leasePath,
+                    errno)
+            }
+            guard
+                leaseMetadata.st_mode & S_IFMT == S_IFREG,
+                leaseMetadata.st_nlink == 1
+            else {
+                throw DiskLeaseError.unsafeFile(leasePath)
             }
             guard hpd_flock(
                 opened,
@@ -704,6 +733,22 @@ public enum HostLifecycleState: Int {
     case stopping = 3
     case stopped = 4
     case failed = 5
+}
+
+package enum HostLifecycleObservationDecision {
+    package static func reconcile(
+        current: HostLifecycleState,
+        observed: HostLifecycleState
+    ) -> HostLifecycleState {
+        // VZVirtualMachine remains `running` while a guest-initiated shutdown
+        // drains services. Once HPDOS has accepted an identity-bound shutdown,
+        // only a terminal Apple observation may advance that lifecycle. A
+        // transient `running` observation must not cancel the stopping fence.
+        if current == .stopping && observed == .running {
+            return .stopping
+        }
+        return observed
+    }
 }
 
 package enum HostDeletionGenerationDecision: Equatable {
@@ -2366,7 +2411,7 @@ public struct ProcessRequest {
             }
             payload["ProcessLifecycleRequest"] = lifecycle
         case .processStdin, .processCloseStdin:
-            payload["Operation"] = operation == .processStdin ? 50 : 24
+            payload["Operation"] = 24
             payload["ProcessStdinRequest"] = [
                 "ProcessId": processId,
                 "Bytes": stdinBytesBase64 ?? "",
@@ -3152,38 +3197,163 @@ public final class LocalVirtualizationAdapter: VirtualizationAdapter, @unchecked
     }
 
     public func requestStopHost(_ request: HostLifecycleRequest) -> HostLifecycleResult {
-        runOnVmQueue {
-            requestStopHostOnMainThread(request)
-        }
-    }
-
-    private func requestStopHostOnMainThread(_ request: HostLifecycleRequest) -> HostLifecycleResult {
-        #if canImport(Virtualization)
-        lock.lock()
-        guard let existing = hosts[request.hostId] else {
-            lock.unlock()
-            return HostLifecycleResult(hostId: request.hostId, state: .notCreated, accepted: true)
-        }
-
-        if existing.machine.canRequestStop {
-            existing.state = .stopping
-            do {
-                try existing.machine.requestStop()
-                let state = existing.state
-                lock.unlock()
-                return HostLifecycleResult(hostId: request.hostId, state: state, accepted: true, diagnostics: existing.diagnostics)
-            } catch {
-                existing.diagnostics = [Self.lifecycleDiagnostic(code: "AppleVirtualization.HostRequestStopFailed", message: "VZVirtualMachine.requestStop() failed: \(error)", targetPath: "host.requestStop")]
-                existing.state = .failed
-                let diagnostics = existing.diagnostics
-                lock.unlock()
-                return HostLifecycleResult(hostId: request.hostId, state: .failed, accepted: false, diagnostics: diagnostics)
+        #if canImport(Virtualization) && canImport(Darwin)
+        let endpoint = GuestAgentTransportEndpoint(
+            kind: .virtioSocket,
+            port: DefaultGuestAgentVirtioSocketPort,
+            address: nil,
+            name: nil)
+        let resolution = resolveRunningSocketDevice(
+            hostId: request.hostId,
+            endpoint: endpoint,
+            requireVmRunning: true,
+            providerGeneration: request.providerGeneration,
+            hostStartGeneration: request.hostStartGeneration)
+        guard let socketDevice = resolution.socketDevice else {
+            if resolution.result?.reason == "VmNotCreated" {
+                return HostLifecycleResult(
+                    hostId: request.hostId,
+                    state: .notCreated,
+                    accepted: true)
             }
+            return HostLifecycleResult(
+                hostId: request.hostId,
+                state: .running,
+                accepted: false,
+                diagnostics: [resolution.result?.diagnostic ?? Self.lifecycleDiagnostic(
+                    code: "AppleVirtualization.GuestShutdownHostUnavailable",
+                    message: resolution.result?.message ?? "The VM is unavailable for guest-agent shutdown.",
+                    targetPath: "host.requestStop.guestAgent",
+                    severity: 4)])
         }
 
-        let state = existing.state
-        lock.unlock()
-        return HostLifecycleResult(hostId: request.hostId, state: state, accepted: false, diagnostics: [Self.lifecycleDiagnostic(code: "AppleVirtualization.HostRequestStopNotAvailable", message: "The VM state does not currently allow guest-requested stop.", targetPath: "host.requestStop", severity: 3)])
+        let timeout = boundedTimeoutMilliseconds(
+            min(request.gracePeriodMilliseconds ?? 30_000, 30_000))
+        let connection = connectGuestAgentSocket(
+            socketDevice: socketDevice,
+            request: GuestAgentTransportProbeRequest(
+                hostId: request.hostId,
+                endpoint: endpoint,
+                timeoutMilliseconds: timeout,
+                explicitRealMode: true,
+                requireVmRunning: true,
+                scriptedStatus: nil))
+        guard let socketConnection = connection.connection else {
+            return HostLifecycleResult(
+                hostId: request.hostId,
+                state: .running,
+                accepted: false,
+                diagnostics: [connection.result.diagnostic ?? Self.lifecycleDiagnostic(
+                    code: "AppleVirtualization.GuestShutdownTransportUnavailable",
+                    message: connection.result.message,
+                    targetPath: "host.requestStop.guestAgent",
+                    severity: 4)])
+        }
+        defer { socketConnection.close() }
+
+        let fd = socketConnection.fileDescriptor
+        _ = setNonBlocking(fd)
+        let shutdownRequest: [String: Any] = [
+            "ProtocolVersion": HelperProtocol.currentVersion,
+            "MessageType": MessageType.request.rawValue,
+            "Operation": 52,
+            "RequestId": "guest-host-shutdown-\(UUID().uuidString)",
+            "SequenceNumber": 1,
+            "HostId": request.hostId,
+            "ProviderGeneration": request.providerGeneration,
+            "HostStartGeneration": request.hostStartGeneration,
+            "HostShutdownRequest": [
+                "HostId": request.hostId,
+                "ProviderGeneration": request.providerGeneration,
+                "HostStartGeneration": request.hostStartGeneration,
+                "Reason": request.reason ?? "host lifecycle stop"
+            ]
+        ]
+        guard writeJsonLine(
+                  shutdownRequest,
+                  fd: fd,
+                  timeoutMilliseconds: timeout) else {
+            return HostLifecycleResult(
+                hostId: request.hostId,
+                state: .running,
+                accepted: false,
+                diagnostics: [Self.lifecycleDiagnostic(
+                    code: "AppleVirtualization.GuestShutdownWriteFailed",
+                    message: "The identity-bound host shutdown request could not be written to the HPD guest agent.",
+                    targetPath: "host.requestStop.guestAgent",
+                    severity: 4)])
+        }
+        guard let frame = readJsonLine(
+                  fd: fd,
+                  timeoutMilliseconds: timeout) else {
+            return HostLifecycleResult(
+                hostId: request.hostId,
+                state: .running,
+                accepted: false,
+                diagnostics: [Self.lifecycleDiagnostic(
+                    code: "AppleVirtualization.GuestShutdownResponseTimeout",
+                    message: "The HPD guest agent did not return a bounded host shutdown response.",
+                    targetPath: "host.requestStop.guestAgent",
+                    severity: 4)])
+        }
+        guard let response = parseJsonObject(frame) else {
+            return HostLifecycleResult(
+                hostId: request.hostId,
+                state: .running,
+                accepted: false,
+                diagnostics: [Self.lifecycleDiagnostic(
+                    code: "AppleVirtualization.GuestShutdownResponseMalformed",
+                    message: "The HPD guest agent returned a malformed host shutdown response.",
+                    targetPath: "host.requestStop.guestAgent",
+                    severity: 4)])
+        }
+        if let error = response["Error"] as? [String: Any] {
+            let guestCode = string(error["Code"]) ?? "unknown"
+            return HostLifecycleResult(
+                hostId: request.hostId,
+                state: .running,
+                accepted: false,
+                diagnostics: [Self.lifecycleDiagnostic(
+                    code: "AppleVirtualization.GuestShutdownRejected",
+                    message: "The HPD guest agent rejected the identity-bound host shutdown request (\(guestCode)).",
+                    targetPath: "host.requestStop.guestAgent",
+                    severity: 4)])
+        }
+        guard let shutdown = response["HostShutdownResponse"] as? [String: Any],
+              bool(shutdown["Accepted"]) == true,
+              string(response["HostId"]) == request.hostId,
+              uint64(response["ProviderGeneration"]) == request.providerGeneration,
+              uint64(response["HostStartGeneration"]) == request.hostStartGeneration else {
+            return HostLifecycleResult(
+                hostId: request.hostId,
+                state: .running,
+                accepted: false,
+                diagnostics: [Self.lifecycleDiagnostic(
+                    code: "AppleVirtualization.GuestShutdownIdentityMismatch",
+                    message: "The HPD guest agent host shutdown response did not match the active host generations.",
+                    targetPath: "host.requestStop.guestAgent",
+                    severity: 4)])
+        }
+
+        return runOnVmQueue {
+            lock.lock()
+            defer { lock.unlock() }
+            guard let existing = hosts[request.hostId] else {
+                return HostLifecycleResult(
+                    hostId: request.hostId,
+                    state: .stopped,
+                    accepted: true)
+            }
+            existing.refreshStateFromMachine()
+            if existing.state == .running {
+                existing.state = .stopping
+            }
+            return HostLifecycleResult(
+                hostId: request.hostId,
+                state: existing.state,
+                accepted: true,
+                diagnostics: existing.diagnostics)
+        }
         #else
         return hostStatus(request)
         #endif
@@ -3632,27 +3802,43 @@ public final class LocalVirtualizationAdapter: VirtualizationAdapter, @unchecked
         }
 
         let timeout = boundedTimeoutMilliseconds(request.timeoutMilliseconds)
-        let semaphore = DispatchSemaphore(value: 0)
+        let deadline = DispatchTime.now() + .milliseconds(timeout)
         var connectionResult: Result<VZVirtioSocketConnection, Error>?
-        runOnVmQueue {
-            socketDevice.connect(toPort: port) { result in
-                connectionResult = result
-                semaphore.signal()
-            }
-        }
+        var resetAttempts = 0
 
-        if semaphore.wait(timeout: .now() + .milliseconds(timeout)) == .timedOut {
-            return (nil, GuestAgentTransportProbeResult(
-                hostId: request.hostId,
-                state: .timeout,
-                endpoint: request.endpoint,
-                vmRunning: true,
-                reason: "GuestAgentTransportTimeout",
-                message: "Timed out connecting to the HPD guest-agent virtio-socket port.",
-                diagnostic: Self.lifecycleDiagnostic(
-                    code: "AppleVirtualization.GuestAgentTransportTimeout",
+        while true {
+            let semaphore = DispatchSemaphore(value: 0)
+            connectionResult = nil
+            runOnVmQueue {
+                socketDevice.connect(toPort: port) { result in
+                    connectionResult = result
+                    semaphore.signal()
+                }
+            }
+
+            if semaphore.wait(timeout: deadline) == .timedOut {
+                return (nil, GuestAgentTransportProbeResult(
+                    hostId: request.hostId,
+                    state: .timeout,
+                    endpoint: request.endpoint,
+                    vmRunning: true,
+                    reason: "GuestAgentTransportTimeout",
                     message: "Timed out connecting to the HPD guest-agent virtio-socket port.",
-                    targetPath: "guestAgent.transport")))
+                    diagnostic: Self.lifecycleDiagnostic(
+                        code: "AppleVirtualization.GuestAgentTransportTimeout",
+                        message: "Timed out connecting to the HPD guest-agent virtio-socket port.",
+                        targetPath: "guestAgent.transport")))
+            }
+
+            if case .failure(let error) = connectionResult,
+               isTransientGuestAgentConnectionReset(error),
+               resetAttempts < 3,
+               DispatchTime.now() < deadline {
+                resetAttempts += 1
+                Thread.sleep(forTimeInterval: 0.1)
+                continue
+            }
+            break
         }
 
         switch connectionResult {
@@ -3704,6 +3890,11 @@ public final class LocalVirtualizationAdapter: VirtualizationAdapter, @unchecked
                     message: "Guest-agent virtio-socket connection completed without a result.",
                     targetPath: "guestAgent.transport")))
         }
+    }
+
+    private func isTransientGuestAgentConnectionReset(_ error: Error) -> Bool {
+        let error = error as NSError
+        return error.domain == NSPOSIXErrorDomain && error.code == ECONNRESET
     }
     #endif
 
@@ -4692,13 +4883,16 @@ public final class LocalVirtualizationAdapter: VirtualizationAdapter, @unchecked
         }
 
         let observedBootId = string(response["GuestBootId"])
-        guard string(response["HostId"]) == hostId,
-              VmConfigurationValidationRequest.uint64(response["ProviderGeneration"]) == request.providerGeneration,
-              VmConfigurationValidationRequest.uint64(response["HostStartGeneration"]) == request.hostStartGeneration,
-              request.guestBootGeneration == 0 ||
-                VmConfigurationValidationRequest.uint64(response["GuestBootGeneration"]) == request.guestBootGeneration,
-              request.guestAgentGeneration == 0 ||
-                VmConfigurationValidationRequest.uint64(response["GuestAgentGeneration"]) == request.guestAgentGeneration,
+        let observedHostId = string(response["HostId"])
+        let observedProviderGeneration = VmConfigurationValidationRequest.uint64(response["ProviderGeneration"])
+        let observedHostStartGeneration = VmConfigurationValidationRequest.uint64(response["HostStartGeneration"])
+        let observedGuestBootGeneration = VmConfigurationValidationRequest.uint64(response["GuestBootGeneration"])
+        let observedGuestAgentGeneration = VmConfigurationValidationRequest.uint64(response["GuestAgentGeneration"])
+        guard observedHostId == hostId,
+              observedProviderGeneration == request.providerGeneration,
+              observedHostStartGeneration == request.hostStartGeneration,
+              request.guestBootGeneration == 0 || observedGuestBootGeneration == request.guestBootGeneration,
+              request.guestAgentGeneration == 0 || observedGuestAgentGeneration == request.guestAgentGeneration,
               request.guestBootId == nil || observedBootId == request.guestBootId else {
             return ProcessResult(
                 processId: request.processId,
@@ -4710,7 +4904,7 @@ public final class LocalVirtualizationAdapter: VirtualizationAdapter, @unchecked
                 outputEvent: nil,
                 diagnostic: Self.lifecycleDiagnostic(
                     code: "AppleVirtualization.ProcessResponseIdentityMismatch",
-                    message: "The guest process response did not identify the requested VM and provider generation.",
+                    message: "The guest process response identity did not match the request (host \(observedHostId ?? "missing")/\(hostId), provider \(observedProviderGeneration.map(String.init) ?? "missing")/\(request.providerGeneration), host-start \(observedHostStartGeneration.map(String.init) ?? "missing")/\(request.hostStartGeneration), guest-boot-id \(observedBootId ?? "missing")/\(request.guestBootId ?? "unconstrained"), guest-boot \(observedGuestBootGeneration.map(String.init) ?? "missing")/\(request.guestBootGeneration), guest-agent \(observedGuestAgentGeneration.map(String.init) ?? "missing")/\(request.guestAgentGeneration)).",
                     targetPath: "process.guestAgentResponse",
                     severity: 4))
         }
@@ -4856,20 +5050,24 @@ public final class LocalVirtualizationAdapter: VirtualizationAdapter, @unchecked
         }
 
         func refreshStateFromMachine() {
+            let observed: HostLifecycleState
             switch machine.state {
             case .starting, .restoring, .resuming:
-                state = .starting
+                observed = .starting
             case .running, .paused, .pausing, .saving:
-                state = .running
+                observed = .running
             case .stopping:
-                state = .stopping
+                observed = .stopping
             case .stopped:
-                state = .stopped
+                observed = .stopped
             case .error:
-                state = .failed
+                observed = .failed
             @unknown default:
-                state = .failed
+                observed = .failed
             }
+            state = HostLifecycleObservationDecision.reconcile(
+                current: state,
+                observed: observed)
         }
         #endif
     }

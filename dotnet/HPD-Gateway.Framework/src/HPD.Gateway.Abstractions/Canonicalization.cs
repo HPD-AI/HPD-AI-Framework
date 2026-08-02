@@ -121,7 +121,8 @@ public static class GatewayConfigurationCanonicalizer
         RequestTimeout = CanonicalDefinitions(value.RequestTimeout, static item => item),
         OutputCache = CanonicalDefinitions(value.OutputCache, static item => item),
         Telemetry = CanonicalDefinitions(value.Telemetry, CanonicalTelemetry),
-        Inspection = CanonicalDefinitions(value.Inspection, static item => item)
+        Inspection = CanonicalDefinitions(value.Inspection, static item => item),
+        CredentialDisposition = CanonicalDefinitions(value.CredentialDisposition, static item => item)
     };
 
     private static ImmutableArray<DeclarationDefinition<T>> CanonicalDefinitions<T>(

@@ -94,6 +94,7 @@ public static class GatewayConfigurationValidator
         var outputCacheDefinitions = ValidateDefinitions(definitions.OutputCache, "definitions.outputCache", errors);
         var telemetryDefinitions = ValidateDefinitions(definitions.Telemetry, "definitions.telemetry", errors);
         var inspectionDefinitions = ValidateDefinitions(definitions.Inspection, "definitions.inspection", errors);
+        var credentialDispositionDefinitions = ValidateDefinitions(definitions.CredentialDisposition, "definitions.credentialDisposition", errors);
 
         ValidateSpecifications(definitions, errors);
 
@@ -126,6 +127,7 @@ public static class GatewayConfigurationValidator
             outputCacheDefinitions,
             telemetryDefinitions,
             inspectionDefinitions,
+            credentialDispositionDefinitions,
             errors);
 
         if (configuration.RootDefaults is null)
@@ -144,6 +146,7 @@ public static class GatewayConfigurationValidator
                 outputCacheDefinitions,
                 telemetryDefinitions,
                 inspectionDefinitions,
+                credentialDispositionDefinitions,
                 errors);
         }
 
@@ -298,6 +301,7 @@ public static class GatewayConfigurationValidator
         HashSet<string> outputCacheDefinitions,
         HashSet<string> telemetryDefinitions,
         HashSet<string> inspectionDefinitions,
+        HashSet<string> credentialDispositionDefinitions,
         ImmutableArray<GatewayValidationError>.Builder errors)
     {
         if (declarations.IsDefault)
@@ -361,6 +365,7 @@ public static class GatewayConfigurationValidator
                 outputCacheDefinitions,
                 telemetryDefinitions,
                 inspectionDefinitions,
+                credentialDispositionDefinitions,
                 errors);
         }
     }
@@ -501,6 +506,7 @@ public static class GatewayConfigurationValidator
         ValidateDefinitionSpecifications(definitions.OutputCache, "definitions.outputCache", static (value, path, e) => ValidatePolicyName(value.PolicyName, $"{path}.policyName", e), errors);
         ValidateDefinitionSpecifications(definitions.Telemetry, "definitions.telemetry", ValidateTelemetry, errors);
         ValidateDefinitionSpecifications(definitions.Inspection, "definitions.inspection", ValidateInspection, errors);
+        ValidateDefinitionSpecifications(definitions.CredentialDisposition, "definitions.credentialDisposition", ValidateCredentialDisposition, errors);
     }
 
     private static void ValidateDefinitionSpecifications<T>(ImmutableArray<DeclarationDefinition<T>> definitions, string path, Action<T, string, ImmutableArray<GatewayValidationError>.Builder> validate, ImmutableArray<GatewayValidationError>.Builder errors)
@@ -530,9 +536,10 @@ public static class GatewayConfigurationValidator
         HashSet<string> outputCacheDefinitions,
         HashSet<string> telemetryDefinitions,
         HashSet<string> inspectionDefinitions,
+        HashSet<string> credentialDispositionDefinitions,
         ImmutableArray<GatewayValidationError>.Builder errors)
     {
-        ValidateCommonDeclarations(declarations.Authorization, declarations.Cors, declarations.TrafficAdmission, declarations.RequestTimeout, declarations.OutputCache, declarations.Telemetry, declarations.Inspection, path, authorizationDefinitions, corsDefinitions, trafficAdmissionDefinitions, requestTimeoutDefinitions, outputCacheDefinitions, telemetryDefinitions, inspectionDefinitions, errors);
+        ValidateCommonDeclarations(declarations.Authorization, declarations.Cors, declarations.TrafficAdmission, declarations.RequestTimeout, declarations.OutputCache, declarations.Telemetry, declarations.Inspection, declarations.CredentialDisposition, path, authorizationDefinitions, corsDefinitions, trafficAdmissionDefinitions, requestTimeoutDefinitions, outputCacheDefinitions, telemetryDefinitions, inspectionDefinitions, credentialDispositionDefinitions, errors);
         ValidateTransforms(declarations.RequestTransforms, declarations.ResponseTransforms, path, errors);
     }
 
@@ -546,8 +553,9 @@ public static class GatewayConfigurationValidator
         HashSet<string> outputCacheDefinitions,
         HashSet<string> telemetryDefinitions,
         HashSet<string> inspectionDefinitions,
+        HashSet<string> credentialDispositionDefinitions,
         ImmutableArray<GatewayValidationError>.Builder errors) =>
-        ValidateCommonDeclarations(declarations.Authorization, declarations.Cors, declarations.TrafficAdmission, declarations.RequestTimeout, declarations.OutputCache, declarations.Telemetry, declarations.Inspection, path, authorizationDefinitions, corsDefinitions, trafficAdmissionDefinitions, requestTimeoutDefinitions, outputCacheDefinitions, telemetryDefinitions, inspectionDefinitions, errors);
+        ValidateCommonDeclarations(declarations.Authorization, declarations.Cors, declarations.TrafficAdmission, declarations.RequestTimeout, declarations.OutputCache, declarations.Telemetry, declarations.Inspection, declarations.CredentialDisposition, path, authorizationDefinitions, corsDefinitions, trafficAdmissionDefinitions, requestTimeoutDefinitions, outputCacheDefinitions, telemetryDefinitions, inspectionDefinitions, credentialDispositionDefinitions, errors);
 
     private static void ValidateCommonDeclarations(
         DeclarationReference<NamedAuthorizationPolicy>? authorization,
@@ -557,6 +565,7 @@ public static class GatewayConfigurationValidator
         DeclarationReference<OutputCacheBinding>? outputCache,
         DeclarationReference<TelemetryEnrichment>? telemetry,
         DeclarationReference<RequestInspectionBinding>? inspection,
+        DeclarationReference<CredentialDispositionBinding>? credentialDisposition,
         string path,
         HashSet<string> authorizationDefinitions,
         HashSet<string> corsDefinitions,
@@ -565,6 +574,7 @@ public static class GatewayConfigurationValidator
         HashSet<string> outputCacheDefinitions,
         HashSet<string> telemetryDefinitions,
         HashSet<string> inspectionDefinitions,
+        HashSet<string> credentialDispositionDefinitions,
         ImmutableArray<GatewayValidationError>.Builder errors)
     {
         ValidateReference(authorization, $"{path}.authorization", authorizationDefinitions, static (value, p, e) => ValidatePolicyName(value.PolicyName, $"{p}.policyName", e), errors);
@@ -574,6 +584,7 @@ public static class GatewayConfigurationValidator
         ValidateReference(outputCache, $"{path}.outputCache", outputCacheDefinitions, static (value, p, e) => ValidatePolicyName(value.PolicyName, $"{p}.policyName", e), errors);
         ValidateReference(telemetry, $"{path}.telemetry", telemetryDefinitions, ValidateTelemetry, errors);
         ValidateReference(inspection, $"{path}.inspection", inspectionDefinitions, ValidateInspection, errors);
+        ValidateReference(credentialDisposition, $"{path}.credentialDisposition", credentialDispositionDefinitions, ValidateCredentialDisposition, errors);
     }
 
     private static void ValidateReference<T>(DeclarationReference<T>? reference, string path, HashSet<string> definitions, Action<T, string, ImmutableArray<GatewayValidationError>.Builder> validateInline, ImmutableArray<GatewayValidationError>.Builder errors)
@@ -635,6 +646,12 @@ public static class GatewayConfigurationValidator
         {
             Add(errors, GatewayValidationErrorCode.InvalidValue, path, "Complete inspection requires a positive memory threshold not exceeding the accepted-body bound, cannot select a prefix bound, and memory-only accepted bounds must fit the framework threshold range.");
         }
+    }
+
+    private static void ValidateCredentialDisposition(CredentialDispositionBinding value, string path, ImmutableArray<GatewayValidationError>.Builder errors)
+    {
+        if (!Enum.IsDefined(value.Kind))
+            Add(errors, GatewayValidationErrorCode.InvalidValue, $"{path}.kind", "Credential disposition kind is unsupported.");
     }
 
     private static void ValidateTelemetry(TelemetryEnrichment value, string path, ImmutableArray<GatewayValidationError>.Builder errors) =>

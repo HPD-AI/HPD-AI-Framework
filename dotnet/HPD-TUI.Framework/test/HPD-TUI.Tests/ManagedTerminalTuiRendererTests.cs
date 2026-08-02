@@ -130,6 +130,18 @@ public sealed class ManagedTerminalTuiRendererTests
     }
 
     [Fact]
+    public void Render_ConstrainsLayoutToPhysicalViewportHeight()
+    {
+        using var terminal = new TestTerminal(40, 7);
+        using var renderer = new ManagedTerminalTuiRenderer(terminal);
+        var component = new ContextHeightComponent();
+
+        renderer.Render(component, Theme.Default);
+
+        Assert.Equal(7, component.ObservedHeight);
+    }
+
+    [Fact]
     public void Render_WhenContentShrinks_ClearsAndRendersWholeBuffer()
     {
         using var terminal = new TestTerminal(40, 5);
@@ -263,6 +275,24 @@ public sealed class ManagedTerminalTuiRendererTests
     }
 
     [Fact]
+    public async Task Application_ResizeEvent_RendersWithoutDispatchingToComponent()
+    {
+        using var terminal = new TestTerminal(40, 8);
+        using var app = new ManagedTerminalTuiApplication(terminal);
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(80));
+        var sink = new RecordingSink();
+        var component = new InputCountingComponent();
+        app.PerformanceSink = sink;
+        app.SetRoot(component);
+        terminal.Enqueue(TerminalInputEvent.FromResize(new TerminalSize(60, 12)));
+
+        await app.RunAsync(cancellationToken: cancellation.Token);
+
+        Assert.Equal(0, component.InputCount);
+        Assert.Equal(2, sink.Events.OfType<TuiRenderCompleted>().Count());
+    }
+
+    [Fact]
     public void TextWriterSink_FormatsFrameSummary()
     {
         var writer = new StringWriter();
@@ -282,7 +312,7 @@ public sealed class ManagedTerminalTuiRendererTests
     private sealed class TestTerminal : ITerminal, ITerminalInput
     {
         private readonly StringBuilder _output = new();
-        private readonly Queue<KeyEvent> _keys = new();
+        private readonly Queue<TerminalInputEvent> _events = new();
         private TerminalSize _size;
 
         public TestTerminal(int width, int height)
@@ -309,8 +339,10 @@ public sealed class ManagedTerminalTuiRendererTests
 
         public void EnqueueKey(KeyEvent key)
         {
-            _keys.Enqueue(key);
+            Enqueue(TerminalInputEvent.FromKey(key));
         }
+
+        public void Enqueue(TerminalInputEvent input) => _events.Enqueue(input);
 
         public void Write(ReadOnlySpan<char> text)
         {
@@ -323,9 +355,9 @@ public sealed class ManagedTerminalTuiRendererTests
 
         public ValueTask<TerminalInputEvent> ReadAsync(CancellationToken cancellationToken = default)
         {
-            if (_keys.TryDequeue(out var key))
+            if (_events.TryDequeue(out var input))
             {
-                return ValueTask.FromResult(TerminalInputEvent.FromKey(key));
+                return ValueTask.FromResult(input);
             }
 
             return WaitAsync(cancellationToken);
@@ -408,6 +440,21 @@ public sealed class ManagedTerminalTuiRendererTests
         {
             return false;
         }
+    }
+
+    private sealed class ContextHeightComponent : IComponent
+    {
+        public int ObservedHeight { get; private set; }
+
+        public Measurement Measure(in RenderContext context, int maxWidth) => new(1, 1);
+
+        public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+        {
+            ObservedHeight = context.Height;
+            output.Write("x", context.Theme.Text);
+        }
+
+        public bool HandleInput(in TuiInputEvent key) => false;
     }
 
     private sealed class StyledFillLineComponent : IComponent

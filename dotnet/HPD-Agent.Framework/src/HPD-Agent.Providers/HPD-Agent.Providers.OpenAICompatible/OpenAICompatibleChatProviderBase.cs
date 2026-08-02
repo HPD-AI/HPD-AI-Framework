@@ -84,13 +84,6 @@ public abstract class OpenAICompatibleChatProviderBase<TConfig> : IChatClientPro
             errors.Add($"Model name is required for {DisplayName}");
         }
 
-        if (Definition.RequiresApiKey && string.IsNullOrWhiteSpace(config.ApiKey))
-        {
-            errors.Add(
-                $"API key is required for {DisplayName}. " +
-                $"Set it via the apiKey parameter, {Definition.ApiKeySecretKey}, or a registered environment alias.");
-        }
-
         if (!string.IsNullOrWhiteSpace(config.Endpoint) &&
             !Uri.IsWellFormedUriString(config.Endpoint, UriKind.Absolute))
         {

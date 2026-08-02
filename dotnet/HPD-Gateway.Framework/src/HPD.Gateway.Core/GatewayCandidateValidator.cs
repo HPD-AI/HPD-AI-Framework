@@ -32,6 +32,7 @@ public static class GatewayCandidateValidator
         ValidateRoot(configuration.RootDefaults, configuration.Definitions, capabilities, errors);
         ValidateDefinitionPolicies(configuration.Definitions, capabilities, errors);
         ValidateInstalledFamilies(configuration, capabilities, errors);
+        ValidateCredentialDisposition(configuration, capabilities, errors);
         ValidateUpstreamCapabilities(configuration, capabilities, errors);
         return new GatewayValidationResult { Errors = errors.ToImmutable() };
     }
@@ -166,6 +167,37 @@ public static class GatewayCandidateValidator
         Require(configuration.Routes.Any(static route => route?.Declarations?.RequestTransforms is not null), GatewayDeclarationFamilies.RequestTransforms, capabilities, "requestTransforms", errors);
         Require(configuration.Routes.Any(static route => route?.Declarations?.ResponseTransforms is not null), GatewayDeclarationFamilies.ResponseTransforms, capabilities, "responseTransforms", errors);
         Require(configuration.Upstreams.Any(static upstream => upstream?.Resilience is not null), GatewayDeclarationFamilies.UpstreamResilience, capabilities, "upstreamResilience", errors);
+        Require(definitions?.CredentialDisposition.Length > 0 || Uses(configuration, static d => d.CredentialDisposition is not null, static d => d.CredentialDisposition is not null), GatewayDeclarationFamilies.CredentialDisposition, capabilities, "credentialDisposition", errors);
+    }
+
+    private static void ValidateCredentialDisposition(GatewayConfiguration configuration, HostCapabilitySnapshot capabilities, ImmutableArray<GatewayValidationError>.Builder errors)
+    {
+        var definitions = configuration.Definitions?.CredentialDisposition ?? [];
+        for (var index = 0; index < configuration.Routes.Length; index++)
+        {
+            var route = configuration.Routes[index];
+            if (route?.Declarations is null) continue;
+            var reference = route.Declarations.CredentialDisposition ?? configuration.RootDefaults?.CredentialDisposition;
+            var disposition = ResolveValue(reference, definitions);
+            if (disposition?.Kind != CredentialDispositionKind.Strip) continue;
+
+            var transforms = route.Declarations.RequestTransforms?.Headers ?? [];
+            for (var transformIndex = 0; transformIndex < transforms.Length; transformIndex++)
+            {
+                var transform = transforms[transformIndex];
+                if (transform is not null && transform.Kind is HeaderTransformKind.Set or HeaderTransformKind.Append &&
+                    capabilities.ProtectedCredentialHeaders.Contains(transform.Name, StringComparer.OrdinalIgnoreCase))
+                    Add(errors, GatewayValidationErrorCode.InvalidValue, $"routes[{index}].declarations.requestTransforms.headers[{transformIndex}].name", "A protected credential header cannot be set or appended after credential stripping is selected.");
+            }
+        }
+    }
+
+    private static T? ResolveValue<T>(DeclarationReference<T>? reference, ImmutableArray<DeclarationDefinition<T>> definitions) where T : class
+    {
+        if (reference?.Inline is { } inline) return inline;
+        if (reference?.Definition is { } id && !definitions.IsDefault)
+            return definitions.FirstOrDefault(definition => definition?.Id == id)?.Specification;
+        return null;
     }
 
     private static bool Uses(

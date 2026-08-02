@@ -12,6 +12,12 @@ public class ConsoleTerminal : ITerminal, ITerminalInput
     private const int BurstPasteWaitAttempts = 2;
     private const int BurstPasteMinimumLength = 8;
     private readonly Queue<KeyEvent> _pendingKeys = new();
+    private TerminalSize _lastObservedSize;
+
+    public ConsoleTerminal()
+    {
+        _lastObservedSize = GetSize();
+    }
 
     public ITerminalInput Input => this;
 
@@ -37,6 +43,13 @@ public class ConsoleTerminal : ITerminal, ITerminalInput
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            var size = GetSize();
+            if (size != _lastObservedSize)
+            {
+                _lastObservedSize = size;
+                return TerminalInputEvent.FromResize(size);
+            }
+
             if (TryReadInput(out var input))
             {
                 return input;

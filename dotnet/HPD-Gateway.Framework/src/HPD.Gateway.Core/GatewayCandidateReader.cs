@@ -9,16 +9,19 @@ public sealed class GatewayCandidateReadResult
     internal GatewayCandidateReadResult(
         GatewayConfiguration? configuration,
         GatewayCanonicalDocument? canonicalDocument,
-        ImmutableArray<GatewayValidationError> errors)
+        ImmutableArray<GatewayValidationError> errors,
+        ImmutableArray<string> protectedCredentialHeaders = default)
     {
         Configuration = configuration;
         CanonicalDocument = canonicalDocument;
         Errors = errors;
+        ProtectedCredentialHeaders = protectedCredentialHeaders;
     }
 
     public GatewayConfiguration? Configuration { get; }
     public GatewayCanonicalDocument? CanonicalDocument { get; }
     public ImmutableArray<GatewayValidationError> Errors { get; }
+    public ImmutableArray<string> ProtectedCredentialHeaders { get; }
     public bool IsAccepted => Configuration is not null && CanonicalDocument is not null && Errors.IsEmpty;
 }
 
@@ -34,7 +37,7 @@ public static class GatewayCandidateReader
 
         var canonical = GatewayConfigurationCanonicalizer.TryCanonicalize(parsed.Configuration);
         return canonical.IsCanonicalized
-            ? new GatewayCandidateReadResult(parsed.Configuration, canonical.Document, [])
+            ? new GatewayCandidateReadResult(parsed.Configuration, canonical.Document, [], capabilities.ProtectedCredentialHeaders)
             : new GatewayCandidateReadResult(null, null, canonical.Errors);
     }
 }

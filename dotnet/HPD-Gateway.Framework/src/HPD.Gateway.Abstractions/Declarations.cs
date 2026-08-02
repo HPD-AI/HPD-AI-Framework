@@ -37,6 +37,8 @@ public sealed record GatewayDefinitions
     public ImmutableArray<DeclarationDefinition<TelemetryEnrichment>> Telemetry { get; init; } = [];
 
     public ImmutableArray<DeclarationDefinition<RequestInspectionBinding>> Inspection { get; init; } = [];
+
+    public ImmutableArray<DeclarationDefinition<CredentialDispositionBinding>> CredentialDisposition { get; init; } = [];
 }
 
 public sealed record RouteDeclarations
@@ -58,6 +60,8 @@ public sealed record RouteDeclarations
     public DeclarationReference<TelemetryEnrichment>? Telemetry { get; init; }
 
     public DeclarationReference<RequestInspectionBinding>? Inspection { get; init; }
+
+    public DeclarationReference<CredentialDispositionBinding>? CredentialDisposition { get; init; }
 }
 
 public sealed record GatewayRootDeclarations
@@ -75,6 +79,8 @@ public sealed record GatewayRootDeclarations
     public DeclarationReference<TelemetryEnrichment>? Telemetry { get; init; }
 
     public DeclarationReference<RequestInspectionBinding>? Inspection { get; init; }
+
+    public DeclarationReference<CredentialDispositionBinding>? CredentialDisposition { get; init; }
 }
 
 public sealed record NamedAuthorizationPolicy(string PolicyName);
@@ -105,6 +111,17 @@ public sealed record RequestInspectionBinding
     public int? MemoryThresholdBytes { get; init; }
 
     public RequestInspectionSpillPolicy SpillPolicy { get; init; }
+}
+
+[JsonConverter(typeof(StrictStringEnumJsonConverter<CredentialDispositionKind>))]
+public enum CredentialDispositionKind
+{
+    Strip = 0
+}
+
+public sealed record CredentialDispositionBinding
+{
+    public required CredentialDispositionKind Kind { get; init; }
 }
 
 [JsonConverter(typeof(StrictStringEnumJsonConverter<RequestInspectionMode>))]

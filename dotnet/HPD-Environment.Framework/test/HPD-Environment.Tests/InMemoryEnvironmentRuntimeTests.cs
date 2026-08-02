@@ -709,6 +709,123 @@ public sealed class InMemoryEnvironmentRuntimeTests
     }
 
     [Fact]
+    public async Task Stopped_execution_unit_retains_restartable_storage_without_blocking_host_stop()
+    {
+        var runtime = new InMemoryEnvironmentRuntime(CreateRegistry());
+        ResourceSnapshot<RuntimeHost, RuntimeHostSpec, RuntimeHostStatus> host =
+            await runtime.EnsureHostAsync(new RuntimeHostSpec
+            {
+                Platform = new PlatformSpec("linux", "x64"),
+            });
+        ResourceRef<RuntimeHost> hostRef = new(
+            host.Metadata.Id,
+            host.Metadata.Scope,
+            host.Metadata.Generation);
+        var unitSpec = new ExecutionUnitSpec
+        {
+            ReconciliationKey = new ExecutionUnitIdentityKey("restartable"),
+            PreferredHost = hostRef,
+            WorkloadStorage = new WorkloadStorageRequest
+            {
+                LogicalId = "restartable-storage",
+                StorageClass = StorageClass.RuntimeDisposable,
+            },
+        };
+        ResourceSnapshot<ExecutionUnit,
+            ExecutionUnitSpec,
+            ExecutionUnitStatus> unit =
+            await runtime.EnsureExecutionUnitAsync(unitSpec);
+        ResourceRef<ExecutionUnit> unitRef = new(
+            unit.Metadata.Id,
+            unit.Metadata.Scope,
+            unit.Metadata.Generation);
+
+        ResourceSnapshot<ExecutionUnit,
+            ExecutionUnitSpec,
+            ExecutionUnitStatus> stoppedUnit =
+            await runtime.StopExecutionUnitAsync(
+                unitRef,
+                StopPolicy.Default);
+        ResourceSnapshot<RuntimeHost,
+            RuntimeHostSpec,
+            RuntimeHostStatus> stoppedHost =
+            await runtime.StopHostAsync(StopPolicy.Default);
+
+        Assert.Equal(ExecutionUnitPhase.Stopped,
+            stoppedUnit.Status.UnitPhase);
+        Assert.Equal(RuntimeHostPhase.Stopped,
+            stoppedHost.Status.HostPhase);
+        Assert.Single(await runtime.ListExecutionUnitsAsync());
+
+        _ = await runtime.EnsureHostAsync(host.Spec);
+        ResourceSnapshot<ExecutionUnit,
+            ExecutionUnitSpec,
+            ExecutionUnitStatus> restartedUnit =
+            await runtime.EnsureExecutionUnitAsync(unitSpec);
+
+        Assert.Equal(unit.Metadata.Id, restartedUnit.Metadata.Id);
+        Assert.Equal(unit.Metadata.Generation,
+            restartedUnit.Metadata.Generation);
+        Assert.Equal(ExecutionUnitPhase.Ready,
+            restartedUnit.Status.UnitPhase);
+        Assert.Equal(
+            unit.Status.WorkloadStorage?.LogicalId,
+            restartedUnit.Status.WorkloadStorage?.LogicalId);
+    }
+
+    [Fact]
+    public async Task Execution_unit_stop_refreshes_stale_provider_dependents_before_admission()
+    {
+        var provider = new RecordingRuntimeProvider("test.runtime");
+        var registry = new EnvironmentProviderRegistry();
+        registry.RegisterModule(new RecordingRuntimeProviderModule(provider));
+        var runtime = new InMemoryEnvironmentRuntime(registry);
+        ResourceSnapshot<RuntimeHost, RuntimeHostSpec, RuntimeHostStatus> host =
+            await runtime.EnsureHostAsync(new RuntimeHostSpec
+            {
+                Platform = new PlatformSpec("linux", "x64"),
+            });
+        ResourceSnapshot<ExecutionUnit,
+            ExecutionUnitSpec,
+            ExecutionUnitStatus> unit =
+            await runtime.EnsureExecutionUnitAsync(new ExecutionUnitSpec
+            {
+                PreferredHost = new(
+                    host.Metadata.Id,
+                    host.Metadata.Scope,
+                    host.Metadata.Generation),
+            });
+        ResourceRef<ExecutionUnit> unitRef = new(
+            unit.Metadata.Id,
+            unit.Metadata.Scope,
+            unit.Metadata.Generation);
+        var staleBinding = new ResourceRef<AuthorityBinding>(
+            new ResourceId<AuthorityBinding>("authority-binding-stale"),
+            unit.Metadata.Scope,
+            new ResourceGeneration(1));
+        provider.UnitStatusOverride = unit.Status with
+        {
+            AuthorityBindings = [staleBinding],
+        };
+        _ = await runtime.GetExecutionUnitAsync(unitRef);
+        provider.UnitStatusOverride = unit.Status with
+        {
+            AuthorityBindings = [],
+        };
+
+        ResourceSnapshot<ExecutionUnit,
+            ExecutionUnitSpec,
+            ExecutionUnitStatus> stopped =
+            await runtime.StopExecutionUnitAsync(
+                unitRef,
+                StopPolicy.Default);
+
+        Assert.Equal(ExecutionUnitPhase.Stopped, stopped.Status.UnitPhase);
+        Assert.Empty(stopped.Status.AuthorityBindings);
+        Assert.True(provider.Calls.Count(call => call == "unit-status") >= 2);
+    }
+
+    [Fact]
     public async Task Reconciled_execution_unit_retains_identity_and_advances_only_for_material_change()
     {
         EnvironmentProviderRegistry registry = CreateRegistry();

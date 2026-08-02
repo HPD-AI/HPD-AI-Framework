@@ -82,10 +82,14 @@ labels, and immutable intent match.
 
 ## Persistent data
 
-Compose named volumes remain engine-managed and HPDOS-owned. Retention follows
-the signed App specification. Local staging files are provider-private and are
-not an App-selected host bind mount. Provider migration is not an ordinary
-restart and requires an explicit future migration workflow.
+App-durable volumes and Compose staging allocations live in provider-owned
+directories beneath the configured Local storage root. HPDOS retains the
+logical volume/allocation identity and reacquires the effective provider path
+for each operation; Apps never select an absolute host path. The Docker engine
+receives only the provider-resolved bind projection for the current owned
+workload. Retention, reservation, backup, restore, and erase follow the typed
+Environment storage lifecycle. Provider migration is not an ordinary restart
+and requires an explicit migration workflow.
 
 ## Physical acceptance
 

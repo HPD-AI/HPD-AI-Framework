@@ -54,7 +54,7 @@ internal sealed class GatewayNativeMaterializer(
 
         var configuration = candidate.Configuration;
         var diagnostics = ImmutableArray.CreateBuilder<GatewayMaterializationDiagnostic>();
-        RejectUnrealizedSelections(configuration, diagnostics);
+        RejectUnrealizedSelections(configuration, candidate.ProtectedCredentialHeaders, diagnostics);
         if (diagnostics.Count > 0) return GatewayMaterializationResult.Rejected(diagnostics.ToImmutable());
 
         ImmutableArray<ClusterConfig> clusters;
@@ -68,7 +68,7 @@ internal sealed class GatewayNativeMaterializer(
             routes = configuration.Routes
                 .Where(static route => route.Enabled)
                 .OrderBy(static route => route.Id.Value, StringComparer.Ordinal)
-                .Select(route => MaterializeRoute(route, configuration.RootDefaults!, configuration.Definitions!))
+                .Select(route => MaterializeRoute(route, configuration.RootDefaults!, configuration.Definitions!, candidate.ProtectedCredentialHeaders))
                 .ToImmutableArray();
         }
         catch (Exception)
@@ -116,11 +116,12 @@ internal sealed class GatewayNativeMaterializer(
         }
     }
 
-    private RouteConfig MaterializeRoute(RouteDeclaration route, GatewayRootDeclarations root, GatewayDefinitions definitions)
+    private RouteConfig MaterializeRoute(RouteDeclaration route, GatewayRootDeclarations root, GatewayDefinitions definitions, ImmutableArray<string> protectedCredentialHeaders)
     {
         var declarations = route.Declarations!;
         var timeout = Resolve(declarations.RequestTimeout ?? root.RequestTimeout, definitions.RequestTimeout);
         var inspection = Resolve(declarations.Inspection ?? root.Inspection, definitions.Inspection);
+        var credentialDisposition = Resolve(declarations.CredentialDisposition ?? root.CredentialDisposition, definitions.CredentialDisposition);
         var metadata = ImmutableDictionary.CreateBuilder<string, string>(StringComparer.Ordinal);
         metadata.Add("hpd.gateway.route-id", route.Id.Value);
         if (inspection is not null)
@@ -159,6 +160,13 @@ internal sealed class GatewayNativeMaterializer(
                 HeaderTransformKind.Remove => native.WithTransformRequestHeaderRemove(transform.Name),
                 _ => throw new InvalidOperationException()
             };
+        if (credentialDisposition?.Kind == CredentialDispositionKind.Strip)
+        {
+            if (protectedCredentialHeaders.IsDefaultOrEmpty)
+                throw new InvalidOperationException("Accepted protected credential header catalog is unavailable.");
+            foreach (var header in protectedCredentialHeaders)
+                native = native.WithTransformRequestHeaderRemove(header);
+        }
         foreach (var transform in declarations.ResponseTransforms?.Headers ?? [])
             native = transform.Kind switch
             {
@@ -328,7 +336,10 @@ internal sealed class GatewayNativeMaterializer(
         throw new InvalidOperationException("Accepted declaration reference is empty.");
     }
 
-    private void RejectUnrealizedSelections(GatewayConfiguration configuration, ImmutableArray<GatewayMaterializationDiagnostic>.Builder diagnostics)
+    private void RejectUnrealizedSelections(
+        GatewayConfiguration configuration,
+        ImmutableArray<string> protectedCredentialHeaders,
+        ImmutableArray<GatewayMaterializationDiagnostic>.Builder diagnostics)
     {
         for (var index = 0; index < configuration.Upstreams.Length; index++)
         {
@@ -354,6 +365,9 @@ internal sealed class GatewayNativeMaterializer(
             var inspection = Resolve(declarations.Inspection ?? configuration.RootDefaults.Inspection, configuration.Definitions!.Inspection);
             if (inspection is not null && (_inspectionRegistry is null || !_inspectionRegistry.TryGet(inspection.InspectorName, out _)))
                 Add(diagnostics, "materialization.inspector-not-installed", $"routes[id={configuration.Routes[index].Id.Value}].declarations.inspection", "The selected request inspector is not installed in the runtime registry.");
+            var credentialDisposition = Resolve(declarations.CredentialDisposition ?? configuration.RootDefaults.CredentialDisposition, configuration.Definitions.CredentialDisposition);
+            if (credentialDisposition is not null && protectedCredentialHeaders.IsDefaultOrEmpty)
+                Add(diagnostics, "materialization.credential-catalog-unavailable", $"routes[id={configuration.Routes[index].Id.Value}].declarations.credentialDisposition", "The accepted protected credential header catalog is unavailable.");
         }
     }
 

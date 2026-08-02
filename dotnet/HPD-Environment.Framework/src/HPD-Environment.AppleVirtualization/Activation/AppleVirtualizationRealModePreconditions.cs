@@ -18,7 +18,9 @@ internal static class AppleVirtualizationRealModePreconditions
 
     private static readonly ProviderId ProviderId = AppleVirtualizationProviderDescriptor.ProviderId;
 
-    public static AppleVirtualizationRealModePreconditionResult Evaluate(AppleVirtualizationProviderOptions options)
+    public static AppleVirtualizationRealModePreconditionResult Evaluate(
+        AppleVirtualizationProviderOptions options,
+        bool helperOwnsRetainedVm = false)
     {
         ArgumentNullException.ThrowIfNull(options);
 
@@ -29,7 +31,11 @@ internal static class AppleVirtualizationRealModePreconditions
         ClassifyHelperMode(options, facts, diagnostics);
         ClassifyHostArchitecture(options.GuestImage.Architecture, facts, diagnostics);
         ClassifyBootInputs(options.GuestImage, facts, diagnostics);
-        ClassifyDiskImages(options.GuestImage.DiskAttachments, facts, diagnostics);
+        ClassifyDiskImages(
+            options.GuestImage.DiskAttachments,
+            helperOwnsRetainedVm,
+            facts,
+            diagnostics);
         ClassifySerialLog(options.GuestImage.SerialLogPath, facts, diagnostics);
         ClassifySharedDirectories(options.GuestImage.SharedDirectories, facts, diagnostics);
         AddUnknownRuntimeVerificationFact(
@@ -142,6 +148,7 @@ internal static class AppleVirtualizationRealModePreconditions
 
     private static void ClassifyDiskImages(
         IReadOnlyList<AppleVirtualizationDiskAttachmentOptions> attachments,
+        bool helperOwnsRetainedVm,
         List<AppleVirtualizationPreflightFact> facts,
         List<Diagnostic> diagnostics)
     {
@@ -159,6 +166,16 @@ internal static class AppleVirtualizationRealModePreconditions
                 !File.Exists(attachment.DiskImagePath))
             {
                 AddFailure(facts, diagnostics, DiskImageFact, "AppleVirtualization.RealModeDiskImageMissing", target, $"{attachment.Role} disk image is required.");
+                continue;
+            }
+            if (helperOwnsRetainedVm)
+            {
+                AddSupportedFact(
+                    facts,
+                    DiskImageFact,
+                    "DiskImageOwnedByHelper",
+                    $"{attachment.Role} disk image exists; access-mode admission remains owned by the helper's retained VM incarnation.",
+                    attachment.DiskImagePath);
                 continue;
             }
             try

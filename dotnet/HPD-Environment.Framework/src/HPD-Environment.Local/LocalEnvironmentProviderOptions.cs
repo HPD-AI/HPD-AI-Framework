@@ -5,8 +5,8 @@ using System.Text.Json.Serialization;
 
 public enum LocalDurableVolumeBackendKind
 {
+    ObservedDirectory,
     PlatformHardQuota,
-    TestDirectory,
 }
 
 public sealed record LocalEnvironmentProviderOptions
@@ -16,7 +16,7 @@ public sealed record LocalEnvironmentProviderOptions
     public string? StorageRoot { get; init; }
     public string? EngineDataRootPath { get; init; }
     public LocalDurableVolumeBackendKind DurableVolumeBackend { get; init; } =
-        LocalDurableVolumeBackendKind.PlatformHardQuota;
+        LocalDurableVolumeBackendKind.ObservedDirectory;
     [JsonIgnore]
     public IStorageBackupKeyProvider? BackupKeyProvider { get; init; }
     public string? DockerCliPath { get; init; }

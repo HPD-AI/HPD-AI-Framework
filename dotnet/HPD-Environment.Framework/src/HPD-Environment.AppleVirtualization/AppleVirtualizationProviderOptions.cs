@@ -15,6 +15,7 @@ public sealed record AppleVirtualizationProviderOptions
     public IStorageBackupKeyProvider? BackupKeyProvider { get; init; }
     public TimeSpan HelperStartupTimeout { get; init; } = TimeSpan.FromSeconds(5);
     public TimeSpan HelperStopTimeout { get; init; } = TimeSpan.FromSeconds(2);
+    public TimeSpan HostStopCompletionTimeout { get; init; } = TimeSpan.FromSeconds(10);
     public TimeSpan HostDeletionTimeout { get; init; } = TimeSpan.FromSeconds(30);
     public int StartupStderrCaptureBytes { get; init; } = 4096;
     public int DefaultCpuCores { get; init; } = 4;

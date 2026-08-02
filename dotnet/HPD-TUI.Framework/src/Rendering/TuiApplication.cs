@@ -229,6 +229,12 @@ public sealed class TuiApplication : IDisposable
                 }
                 else if (evt.Kind == TuiLoopEventKind.Input)
                 {
+                    if (evt.Input.Kind == TerminalInputEventKind.Resize)
+                    {
+                        dirty = true;
+                        continue;
+                    }
+
                     var input = new TuiInputEvent(evt.Input);
                     if (input.Key == KeyCode.Escape && input.Modifiers == KeyModifiers.Ctrl)
                     {

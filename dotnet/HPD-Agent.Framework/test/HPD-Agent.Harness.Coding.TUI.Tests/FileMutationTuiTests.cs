@@ -8,6 +8,7 @@ using HPD.Agent.TUI.Models;
 using HPD.Agent.TUI.Runtime;
 using HPD.Agent.TUI.Views;
 using HPD.Agent.ToolHarness.Coding.TUI;
+using HPD.Agent.ToolHarness.Coding.TUI.LanguageServers;
 using HPD.TUI.Components;
 using HPD.TUI.Core;
 using HPD.TUI.Rendering;

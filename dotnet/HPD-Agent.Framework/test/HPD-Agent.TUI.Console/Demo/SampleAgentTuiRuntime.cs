@@ -49,9 +49,9 @@ internal sealed class SampleAgentTuiRuntime : IHpdAgentTuiRuntime, IAsyncDisposa
     {
         if (input is InterruptionRequestEvent)
         {
-            var executionId = _activeExecution?.ThreadExecutionId ?? input.ThreadExecutionId;
+            var interruptedExecutionId = _activeExecution?.ThreadExecutionId ?? input.ThreadExecutionId;
             _activeExecution = null;
-            return Task.FromResult(new AgentTuiSubmitResult(AgentInputDisposition.Accepted, executionId));
+            return Task.FromResult(new AgentTuiSubmitResult(AgentInputDisposition.Accepted, interruptedExecutionId));
         }
 
         var executionId = Guid.NewGuid().ToString("N");

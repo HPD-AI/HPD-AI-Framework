@@ -32,9 +32,10 @@ public enum GatewayDeclarationFamilies : ushort
     RequestTransforms = 1 << 7,
     ResponseTransforms = 1 << 8,
     UpstreamResilience = 1 << 9,
+    CredentialDisposition = 1 << 10,
     AllBaseline = Authorization | Cors | TrafficAdmission | RequestTimeout | OutputCache |
         Telemetry | Inspection | RequestTransforms | ResponseTransforms,
-    All = AllBaseline | UpstreamResilience
+    All = AllBaseline | UpstreamResilience | CredentialDisposition
 }
 
 [Flags]
@@ -85,6 +86,7 @@ public sealed record HostCapabilityRegistration
     public IEnumerable<string> ActiveHealthPolicies { get; init; } = [];
     public IEnumerable<string> RequestInspectors { get; init; } = [];
     public IEnumerable<UpstreamResilienceCapability> UpstreamResilienceProfiles { get; init; } = [];
+    public IEnumerable<string> ProtectedCredentialHeaders { get; init; } = [];
     public bool AllowInspectionFileSpill { get; init; }
 }
 
@@ -111,6 +113,7 @@ public sealed class HostCapabilitySnapshot
         ActiveHealthPolicies = Names(registration.ActiveHealthPolicies);
         RequestInspectors = Names(registration.RequestInspectors);
         UpstreamResilienceProfiles = ResilienceProfiles(registration.UpstreamResilienceProfiles);
+        ProtectedCredentialHeaders = ProtectedHeaders(registration.ProtectedCredentialHeaders);
         AllowInspectionFileSpill = registration.AllowInspectionFileSpill;
     }
 
@@ -129,6 +132,7 @@ public sealed class HostCapabilitySnapshot
     public ImmutableHashSet<string> ActiveHealthPolicies { get; }
     public ImmutableHashSet<string> RequestInspectors { get; }
     public ImmutableDictionary<string, UpstreamResilienceCapability> UpstreamResilienceProfiles { get; }
+    public ImmutableArray<string> ProtectedCredentialHeaders { get; }
     public bool AllowInspectionFileSpill { get; }
 
     public static HostCapabilitySnapshot Create(HostCapabilityRegistration registration)
@@ -149,7 +153,8 @@ public sealed class HostCapabilitySnapshot
             PassiveHealthPolicies = Required(registration.PassiveHealthPolicies, nameof(registration.PassiveHealthPolicies)).ToArray(),
             ActiveHealthPolicies = Required(registration.ActiveHealthPolicies, nameof(registration.ActiveHealthPolicies)).ToArray(),
             RequestInspectors = Required(registration.RequestInspectors, nameof(registration.RequestInspectors)).ToArray(),
-            UpstreamResilienceProfiles = Required(registration.UpstreamResilienceProfiles, nameof(registration.UpstreamResilienceProfiles)).ToArray()
+            UpstreamResilienceProfiles = Required(registration.UpstreamResilienceProfiles, nameof(registration.UpstreamResilienceProfiles)).ToArray(),
+            ProtectedCredentialHeaders = Required(registration.ProtectedCredentialHeaders, nameof(registration.ProtectedCredentialHeaders)).ToArray()
         };
         if ((registration.InstalledFamilies & ~GatewayDeclarationFamilies.All) != 0)
             throw new ArgumentException("Installed declaration-family flags are invalid.", nameof(registration));
@@ -196,6 +201,7 @@ public sealed class HostCapabilitySnapshot
         ValidateNames(registration.ActiveHealthPolicies, nameof(registration.ActiveHealthPolicies));
         ValidateInspectorNames(registration.RequestInspectors, nameof(registration.RequestInspectors));
         _ = ResilienceProfiles(registration.UpstreamResilienceProfiles);
+        _ = ProtectedHeaders(registration.ProtectedCredentialHeaders);
         return new HostCapabilitySnapshot(listeners.ToImmutable(), discoveries.ToImmutable(), secrets.ToImmutable(), registration);
     }
 
@@ -225,6 +231,43 @@ public sealed class HostCapabilitySnapshot
     }
 
     private static bool IsRetryStatus(int status) => status is 408 or 429 || status is >= 500 and <= 599;
+
+    private static ImmutableArray<string> ProtectedHeaders(IEnumerable<string> values)
+    {
+        const int maximumCustomHeaders = 32;
+        var custom = values.ToArray();
+        if (custom.Length > maximumCustomHeaders)
+            throw new ArgumentException("Protected credential header count exceeds its bound.", nameof(values));
+
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "Authorization",
+            "Proxy-Authorization",
+            "Cookie"
+        };
+        foreach (var value in custom)
+        {
+            if (string.IsNullOrWhiteSpace(value) || value.Length > 256 || !IsHttpToken(value) || IsProhibitedCustomProtectedHeader(value) || !names.Add(value))
+                throw new ArgumentException("Protected credential headers must be bounded, valid, unique end-to-end HTTP field names.", nameof(values));
+        }
+
+        return names.Select(static name => name.ToLowerInvariant()).Order(StringComparer.Ordinal).ToImmutableArray();
+    }
+
+    private static bool IsProhibitedCustomProtectedHeader(string value) => value.Equals("Connection", StringComparison.OrdinalIgnoreCase) ||
+        value.Equals("Content-Length", StringComparison.OrdinalIgnoreCase) || value.Equals("Host", StringComparison.OrdinalIgnoreCase) ||
+        value.Equals("Keep-Alive", StringComparison.OrdinalIgnoreCase) || value.Equals("Proxy-Connection", StringComparison.OrdinalIgnoreCase) ||
+        value.Equals("TE", StringComparison.OrdinalIgnoreCase) || value.Equals("Trailer", StringComparison.OrdinalIgnoreCase) ||
+        value.Equals("Transfer-Encoding", StringComparison.OrdinalIgnoreCase) || value.Equals("Upgrade", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsHttpToken(string value)
+    {
+        if (value.Length == 0) return false;
+        foreach (var c in value)
+            if (!(char.IsAsciiLetterOrDigit(c) || c is '!' or '#' or '$' or '%' or '&' or '\'' or '*' or '+' or '-' or '.' or '^' or '_' or '`' or '|' or '~'))
+                return false;
+        return true;
+    }
 
     private static void ValidateNames(IEnumerable<string>? values, string name)
     {

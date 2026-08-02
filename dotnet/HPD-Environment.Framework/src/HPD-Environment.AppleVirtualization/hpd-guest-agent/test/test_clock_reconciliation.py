@@ -44,6 +44,10 @@ class ClockReconciliationTests(unittest.TestCase):
     def test_skewed_clock_is_corrected_and_verified(self):
         host_utc_ms = 2_000_000
         with mock.patch.object(
+            self.agent,
+            "verified_storage_identity",
+            side_effect=["runtime-uuid", "app-data-uuid"],
+        ), mock.patch.object(
             MODULE.time,
             "time",
             side_effect=[1000.0, 2000.0],
@@ -57,7 +61,11 @@ class ClockReconciliationTests(unittest.TestCase):
         clock_settime.assert_called_once_with(MODULE.time.CLOCK_REALTIME, 2000.0)
 
     def test_failed_clock_correction_fails_closed(self):
-        with mock.patch.object(MODULE.time, "time", return_value=1000.0), \
+        with mock.patch.object(
+                self.agent,
+                "verified_storage_identity",
+                side_effect=["runtime-uuid", "app-data-uuid"],
+        ), mock.patch.object(MODULE.time, "time", return_value=1000.0), \
                 mock.patch.object(
                     MODULE.time,
                     "clock_settime",
