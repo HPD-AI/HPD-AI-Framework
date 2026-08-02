@@ -106,6 +106,21 @@ public sealed class HostCapabilitySnapshot
     public static HostCapabilitySnapshot Create(HostCapabilityRegistration registration)
     {
         ArgumentNullException.ThrowIfNull(registration);
+        registration = registration with
+        {
+            Listeners = Required(registration.Listeners, nameof(registration.Listeners)).ToArray(),
+            DiscoveryProviders = Required(registration.DiscoveryProviders, nameof(registration.DiscoveryProviders)).ToArray(),
+            SecretProviders = Required(registration.SecretProviders, nameof(registration.SecretProviders)).ToArray(),
+            AuthorizationPolicies = Required(registration.AuthorizationPolicies, nameof(registration.AuthorizationPolicies)).ToArray(),
+            CorsPolicies = Required(registration.CorsPolicies, nameof(registration.CorsPolicies)).ToArray(),
+            TrafficAdmissionPolicies = Required(registration.TrafficAdmissionPolicies, nameof(registration.TrafficAdmissionPolicies)).ToArray(),
+            RequestTimeoutPolicies = Required(registration.RequestTimeoutPolicies, nameof(registration.RequestTimeoutPolicies)).ToArray(),
+            OutputCachePolicies = Required(registration.OutputCachePolicies, nameof(registration.OutputCachePolicies)).ToArray(),
+            SessionAffinityPolicies = Required(registration.SessionAffinityPolicies, nameof(registration.SessionAffinityPolicies)).ToArray(),
+            SessionAffinityFailurePolicies = Required(registration.SessionAffinityFailurePolicies, nameof(registration.SessionAffinityFailurePolicies)).ToArray(),
+            PassiveHealthPolicies = Required(registration.PassiveHealthPolicies, nameof(registration.PassiveHealthPolicies)).ToArray(),
+            ActiveHealthPolicies = Required(registration.ActiveHealthPolicies, nameof(registration.ActiveHealthPolicies)).ToArray()
+        };
         if ((registration.InstalledFamilies & ~GatewayDeclarationFamilies.AllBaseline) != 0)
             throw new ArgumentException("Installed declaration-family flags are invalid.", nameof(registration));
 

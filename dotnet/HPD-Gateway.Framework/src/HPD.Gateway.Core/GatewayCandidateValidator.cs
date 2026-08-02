@@ -10,7 +10,7 @@ public static class GatewayCandidateValidator
     {
         ArgumentNullException.ThrowIfNull(capabilities);
         var structural = GatewayConfigurationValidator.Validate(configuration);
-        if (configuration is null) return structural;
+        if (!structural.IsValid || configuration is null) return structural;
 
         var errors = structural.Errors.ToBuilder();
         for (var index = 0; index < configuration.Routes.Length; index++)

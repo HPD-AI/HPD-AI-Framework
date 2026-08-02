@@ -33,6 +33,33 @@ public sealed class NativeSemanticValidationTests
     }
 
     [Fact]
+    public void AuthoritativeReaderReturnsErrorsForNullDiscoveryParametersWithoutThrowing()
+    {
+        var valid = GatewayConfigurationTests.CreateValidConfiguration();
+        var discovered = valid.Upstreams[0] with { Endpoints = new DiscoveredEndpointSource
+        {
+            Provider = new ProviderId("dns"), Service = new ProviderObjectId("orders"),
+            Parameters = [], StaleBehavior = DiscoveryStaleBehavior.RejectActivationUntilFresh
+        }};
+        var json = JsonSerializer.Serialize(
+            valid with { Upstreams = [discovered] },
+            GatewayJsonSerializerContext.Default.GatewayConfiguration)
+            .Replace("\"parameters\":[]", "\"parameters\":null", StringComparison.Ordinal);
+        var capabilities = HostCapabilitySnapshot.Create(new HostCapabilityRegistration
+        {
+            InstalledFamilies = GatewayDeclarationFamilies.Authorization,
+            AuthorizationPolicies = ["orders.read"],
+            DiscoveryProviders = [new DiscoveryProviderCapability(new ProviderId("dns"), [], [], false, false)]
+        });
+
+        var action = () => GatewayCandidateReader.Read(System.Text.Encoding.UTF8.GetBytes(json), capabilities);
+
+        action.Should().NotThrow();
+        action().IsAccepted.Should().BeFalse();
+        action().Errors.Should().NotBeEmpty().And.HaveCountLessThanOrEqualTo(256);
+    }
+
+    [Fact]
     public void InvalidMethodTokensAreRejected()
     {
         var configuration = WithMatch(new HttpRouteMatch { Path = "/orders", Methods = ["G ET"] });
@@ -234,6 +261,26 @@ public sealed class NativeSemanticValidationTests
         action.Should().Throw<ArgumentException>();
         typeof(HostCapabilitySnapshot).GetConstructors().Should().BeEmpty();
         typeof(HostCapabilitySnapshot).GetProperties().Should().OnlyContain(property => !property.CanWrite);
+    }
+
+    [Fact]
+    public void CapabilitySnapshotEnumeratesRegistrationSequencesExactlyOnce()
+    {
+        var enumerations = 0;
+        IEnumerable<string> Once()
+        {
+            if (++enumerations > 1) throw new InvalidOperationException("Sequence was enumerated twice.");
+            yield return "orders.read";
+        }
+
+        var snapshot = HostCapabilitySnapshot.Create(new HostCapabilityRegistration
+        {
+            InstalledFamilies = GatewayDeclarationFamilies.Authorization,
+            AuthorizationPolicies = Once()
+        });
+
+        snapshot.AuthorizationPolicies.Should().ContainSingle("orders.read");
+        enumerations.Should().Be(1);
     }
 
     [Fact]
