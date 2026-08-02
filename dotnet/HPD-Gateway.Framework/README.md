@@ -14,6 +14,19 @@ historical LKG evidence, and explicit indeterminate recovery semantics. It does
 include deterministic baseline Route/Cluster materialization, native named
 policy selection, ordered non-body transforms, static destinations, balancing,
 affinity, health, and supported transport/request projection. Discovery
-observations, TLS material, telemetry instrumentation, and request inspection
-currently fail closed before bundle creation. Management, credential
-replacement, resilience, and standalone-host support are not implemented.
+observations, TLS material, and telemetry instrumentation currently fail closed
+before bundle creation.
+
+`HPD.Gateway.Inspection` adds opt-in bounded pre-forward request inspection.
+Inspectors are explicitly registered by canonical name and selected through
+immutable materialized Route metadata. Prefix mode requires a known accepted
+length, retains only its bounded prefix, and then resumes transparent
+forwarding. Complete mode uses ASP.NET Core's bounded request-owned buffering
+with an explicit memory threshold and host-approved spill policy. Hosts using
+inspection must call `AddHpdGatewayYarpInspection` and
+`MapHpdGatewayReverseProxy`; ordinary Routes without inspection do not enter
+the body path. Inspection does not provide replay, retries, mirroring, body
+transforms, or response capture.
+
+Management, credential replacement, resilience, and standalone-host support
+are not implemented.

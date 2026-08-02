@@ -2,10 +2,12 @@ using System.Text.Json;
 using HPD.Gateway.Abstractions;
 using HPD.Gateway.Abstractions.Serialization;
 using HPD.Gateway.Core;
+using HPD.Gateway.Inspection;
 using HPD.Gateway.Yarp;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Yarp.ReverseProxy.Configuration;
 
@@ -290,7 +292,8 @@ var materializableConfiguration = configuration with
         Cors = configuration.Definitions.Cors,
         TrafficAdmission = configuration.Definitions.TrafficAdmission,
         RequestTimeout = configuration.Definitions.RequestTimeout,
-        OutputCache = configuration.Definitions.OutputCache
+        OutputCache = configuration.Definitions.OutputCache,
+        Inspection = configuration.Definitions.Inspection
     },
     RootDefaults = new GatewayRootDeclarations
     {
@@ -313,6 +316,7 @@ var materializableConfiguration = configuration with
             {
                 Authorization = supportedRouteDeclarations.Authorization,
                 OutputCache = supportedRouteDeclarations.OutputCache,
+                Inspection = supportedRouteDeclarations.Inspection,
                 RequestTransforms = supportedRouteDeclarations.RequestTransforms,
                 ResponseTransforms = supportedRouteDeclarations.ResponseTransforms
             }
@@ -336,6 +340,7 @@ services.AddOutputCache(options => options.AddPolicy("GatewayCache", policy => p
 services.AddReverseProxy();
 services.AddHpdGatewayYarpPublication();
 services.AddHpdGatewayYarpMaterialization();
+services.AddHpdGatewayYarpInspection(registry => registry.Add("smoke-inspector", new SmokeInspector()));
 await using var serviceProvider = services.BuildServiceProvider();
 var materializer = serviceProvider.GetRequiredService<GatewayNativeMaterializer>();
 var materialized = await materializer.MaterializeAsync(
@@ -349,6 +354,21 @@ var materialized = await materializer.MaterializeAsync(
     "native-aot-smoke");
 if (!materialized.IsMaterialized)
     throw new InvalidOperationException($"Native AOT materialization failed: {string.Join(", ", materialized.Diagnostics.Select(item => $"{item.Code}@{item.Path}"))}");
+
+var inspectionExecutor = serviceProvider.GetRequiredService<GatewayInspectionExecutor>();
+var inspectionContext = new DefaultHttpContext();
+inspectionContext.Request.ContentLength = 4;
+inspectionContext.Request.Body = new MemoryStream("aot!"u8.ToArray());
+var forwardedBody = string.Empty;
+await inspectionExecutor.ExecuteAsync(
+    inspectionContext,
+    new GatewayInspectionSelection("smoke-inspector", RequestInspectionMode.BoundedPrefix, 16, 2, null, RequestInspectionSpillPolicy.Disabled),
+    async context =>
+    {
+        using var reader = new StreamReader(context.Request.Body);
+        forwardedBody = await reader.ReadToEndAsync();
+    });
+if (forwardedBody != "aot!") throw new InvalidOperationException("Native AOT prefix inspection replay failed.");
 
 var publicationBundle = materialized.Bundle!;
 var proxyProvider = serviceProvider.GetRequiredService<HpdProxyConfigProvider>();
@@ -382,3 +402,9 @@ _ = JsonSerializer.SerializeToUtf8Bytes(canonical, GatewayJsonSerializerContext.
 Console.WriteLine(
     $"HPD.Gateway AOT smoke passed: {read.Configuration!.Routes.Length} route(s), " +
     $"{read.Configuration.Upstreams.Length} upstream(s), sha256={canonical.Document.ContentHash.Value}.");
+
+file sealed class SmokeInspector : IGatewayRequestInspector
+{
+    public ValueTask<GatewayInspectionDecision> InspectAsync(GatewayInspectionContext context, CancellationToken cancellationToken) =>
+        ValueTask.FromResult(GatewayInspectionDecision.Allow());
+}

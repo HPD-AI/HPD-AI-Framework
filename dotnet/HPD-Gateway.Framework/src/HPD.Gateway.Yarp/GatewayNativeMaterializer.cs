@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http;
 using HPD.Gateway.Abstractions;
 using HPD.Gateway.Core;
+using HPD.Gateway.Inspection;
 using Yarp.ReverseProxy.Configuration;
 using Yarp.ReverseProxy.Forwarder;
 using Yarp.ReverseProxy.LoadBalancing;
@@ -28,10 +29,11 @@ internal sealed class GatewayMaterializationResult
     internal static GatewayMaterializationResult Rejected(ImmutableArray<GatewayMaterializationDiagnostic> diagnostics) => new(null, diagnostics);
 }
 
-internal sealed class GatewayNativeMaterializer(IConfigValidator nativeValidator)
+internal sealed class GatewayNativeMaterializer(IConfigValidator nativeValidator, GatewayInspectionRegistry? inspectionRegistry = null)
 {
     private const int MaximumDiagnostics = 256;
     private readonly IConfigValidator _nativeValidator = nativeValidator;
+    private readonly GatewayInspectionRegistry? _inspectionRegistry = inspectionRegistry;
 
     internal async ValueTask<GatewayMaterializationResult> MaterializeAsync(
         GatewayCandidateReadResult candidate,
@@ -110,10 +112,26 @@ internal sealed class GatewayNativeMaterializer(IConfigValidator nativeValidator
         }
     }
 
-    private static RouteConfig MaterializeRoute(RouteDeclaration route, GatewayRootDeclarations root, GatewayDefinitions definitions)
+    private RouteConfig MaterializeRoute(RouteDeclaration route, GatewayRootDeclarations root, GatewayDefinitions definitions)
     {
         var declarations = route.Declarations!;
         var timeout = Resolve(declarations.RequestTimeout ?? root.RequestTimeout, definitions.RequestTimeout);
+        var inspection = Resolve(declarations.Inspection ?? root.Inspection, definitions.Inspection);
+        var metadata = ImmutableDictionary.CreateBuilder<string, string>(StringComparer.Ordinal);
+        metadata.Add("hpd.gateway.route-id", route.Id.Value);
+        if (inspection is not null)
+        {
+            if (_inspectionRegistry is null || !_inspectionRegistry.TryGet(inspection.InspectorName, out _))
+                throw new InvalidOperationException("Accepted inspector is not installed in the runtime registry.");
+            metadata.Add(GatewayInspectionMetadata.Inspector, inspection.InspectorName);
+            metadata.Add(GatewayInspectionMetadata.Mode, inspection.Mode.ToString());
+            metadata.Add(GatewayInspectionMetadata.MaximumAccepted, inspection.MaximumAcceptedBodyBytes.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            metadata.Add(GatewayInspectionMetadata.Spill, inspection.SpillPolicy.ToString());
+            if (inspection.MaximumInspectedBytes is { } inspected)
+                metadata.Add(GatewayInspectionMetadata.MaximumInspected, inspected.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            if (inspection.MemoryThresholdBytes is { } threshold)
+                metadata.Add(GatewayInspectionMetadata.MemoryThreshold, threshold.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        }
         var native = new RouteConfig
         {
             RouteId = route.Id.Value,
@@ -126,7 +144,7 @@ internal sealed class GatewayNativeMaterializer(IConfigValidator nativeValidator
             OutputCachePolicy = Resolve(declarations.OutputCache ?? root.OutputCache, definitions.OutputCache)?.PolicyName,
             TimeoutPolicy = timeout?.PolicyName,
             Timeout = timeout?.Timeout,
-            Metadata = ImmutableDictionary<string, string>.Empty.Add("hpd.gateway.route-id", route.Id.Value)
+            Metadata = metadata.ToImmutable()
         };
 
         foreach (var transform in declarations.RequestTransforms?.Headers ?? [])
@@ -299,7 +317,7 @@ internal sealed class GatewayNativeMaterializer(IConfigValidator nativeValidator
         throw new InvalidOperationException("Accepted declaration reference is empty.");
     }
 
-    private static void RejectUnrealizedSelections(GatewayConfiguration configuration, ImmutableArray<GatewayMaterializationDiagnostic>.Builder diagnostics)
+    private void RejectUnrealizedSelections(GatewayConfiguration configuration, ImmutableArray<GatewayMaterializationDiagnostic>.Builder diagnostics)
     {
         for (var index = 0; index < configuration.Upstreams.Length; index++)
         {
@@ -312,8 +330,6 @@ internal sealed class GatewayNativeMaterializer(IConfigValidator nativeValidator
 
         if (configuration.RootDefaults!.Telemetry is not null && configuration.Routes.Any(static route => route.Enabled))
             Add(diagnostics, "materialization.telemetry-runtime-required", "rootDefaults.telemetry", "Telemetry enrichment requires statically installed instrumentation.");
-        if (configuration.RootDefaults.Inspection is not null && configuration.Routes.Any(static route => route.Enabled))
-            Add(diagnostics, "materialization.inspection-runtime-required", "rootDefaults.inspection", "Request inspection remains disabled until Slice 4 middleware is installed.");
 
         for (var index = 0; index < configuration.Routes.Length; index++)
         {
@@ -321,8 +337,9 @@ internal sealed class GatewayNativeMaterializer(IConfigValidator nativeValidator
             var declarations = configuration.Routes[index].Declarations!;
             if (declarations.Telemetry is not null)
                 Add(diagnostics, "materialization.telemetry-runtime-required", $"routes[{index}].declarations.telemetry", "Telemetry enrichment requires statically installed instrumentation.");
-            if (declarations.Inspection is not null)
-                Add(diagnostics, "materialization.inspection-runtime-required", $"routes[{index}].declarations.inspection", "Request inspection remains disabled until Slice 4 middleware is installed.");
+            var inspection = Resolve(declarations.Inspection ?? configuration.RootDefaults.Inspection, configuration.Definitions!.Inspection);
+            if (inspection is not null && (_inspectionRegistry is null || !_inspectionRegistry.TryGet(inspection.InspectorName, out _)))
+                Add(diagnostics, "materialization.inspector-not-installed", $"routes[id={configuration.Routes[index].Id.Value}].declarations.inspection", "The selected request inspector is not installed in the runtime registry.");
         }
     }
 

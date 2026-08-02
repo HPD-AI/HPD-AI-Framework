@@ -6,6 +6,7 @@ using FluentAssertions;
 using HPD.Gateway.Abstractions;
 using HPD.Gateway.Abstractions.Serialization;
 using HPD.Gateway.Core;
+using HPD.Gateway.Inspection;
 using HPD.Gateway.Yarp;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -162,6 +163,65 @@ public sealed class YarpMaterializationTests
     }
 
     [Fact]
+    public async Task InspectionRootInheritanceAndRouteReplacementProduceClosedMetadata()
+    {
+        var prefix = new RequestInspectionBinding
+        {
+            InspectorName = "inspector",
+            Mode = RequestInspectionMode.BoundedPrefix,
+            MaximumAcceptedBodyBytes = 1024,
+            MaximumInspectedBytes = 64
+        };
+        var complete = new RequestInspectionBinding
+        {
+            InspectorName = "inspector",
+            Mode = RequestInspectionMode.CompleteBody,
+            MaximumAcceptedBodyBytes = 2048,
+            MemoryThresholdBytes = 256,
+            SpillPolicy = RequestInspectionSpillPolicy.Allowed
+        };
+        var configuration = Configuration() with
+        {
+            RootDefaults = new GatewayRootDeclarations { Inspection = Inline(prefix) },
+            Routes =
+            [
+                Route("inherited") with { Match = new HttpRouteMatch { Path = "/inherited" } },
+                Route("replaced") with
+                {
+                    Match = new HttpRouteMatch { Path = "/replaced" },
+                    Declarations = new RouteDeclarations { Inspection = Inline(complete) }
+                }
+            ]
+        };
+        var capabilities = HostCapabilitySnapshot.Create(new HostCapabilityRegistration
+        {
+            InstalledFamilies = GatewayDeclarationFamilies.Inspection,
+            RequestInspectors = ["inspector"],
+            AllowInspectionFileSpill = true
+        });
+        var accepted = Read(configuration, capabilities);
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddReverseProxy();
+        services.AddHpdGatewayYarpMaterialization();
+        services.AddHpdGatewayYarpInspection(registry => registry.Add("inspector", new AllowingInspector()));
+        await using var provider = services.BuildServiceProvider();
+
+        var result = await provider.GetRequiredService<GatewayNativeMaterializer>()
+            .MaterializeAsync(accepted, Identity(accepted), "native-inspection");
+
+        var inherited = result.Bundle!.Routes.Single(route => route.RouteId == "inherited").Metadata!;
+        var replaced = result.Bundle.Routes.Single(route => route.RouteId == "replaced").Metadata!;
+        inherited[GatewayInspectionMetadata.Mode].Should().Be(nameof(RequestInspectionMode.BoundedPrefix));
+        inherited[GatewayInspectionMetadata.MaximumInspected].Should().Be("64");
+        inherited.Should().NotContainKey(GatewayInspectionMetadata.MemoryThreshold);
+        replaced[GatewayInspectionMetadata.Mode].Should().Be(nameof(RequestInspectionMode.CompleteBody));
+        replaced[GatewayInspectionMetadata.MemoryThreshold].Should().Be("256");
+        replaced[GatewayInspectionMetadata.Spill].Should().Be(nameof(RequestInspectionSpillPolicy.Allowed));
+        replaced.Should().NotContainKey(GatewayInspectionMetadata.MaximumInspected);
+    }
+
+    [Fact]
     public async Task RealYarpValidatorAcceptsInstalledNamedPolicies()
     {
         var services = new ServiceCollection();
@@ -199,7 +259,7 @@ public sealed class YarpMaterializationTests
     }
 
     [Fact]
-    public async Task UnrealizedRuntimeInputsRejectWholeBundle()
+    public async Task UnrealizedDiscoveryInputRejectsWholeBundle()
     {
         var configuration = Configuration() with
         {
@@ -216,11 +276,7 @@ public sealed class YarpMaterializationTests
                         StaleBehavior = DiscoveryStaleBehavior.RejectActivationUntilFresh
                     }
                 }
-            ],
-            RootDefaults = new GatewayRootDeclarations
-            {
-                Inspection = Inline(new RequestInspectionBinding { InspectorName = "inspector", Mode = RequestInspectionMode.BoundedPrefix, MaximumAcceptedBodyBytes = 1024, MaximumInspectedBytes = 128 })
-            }
+            ]
         };
 
         var result = await Materialize(configuration, Capabilities(withDiscovery: true));
@@ -228,7 +284,31 @@ public sealed class YarpMaterializationTests
         result.IsMaterialized.Should().BeFalse();
         result.Bundle.Should().BeNull();
         result.Diagnostics.Should().Contain(item => item.Code == "materialization.discovery-observation-required");
-        result.Diagnostics.Should().Contain(item => item.Code == "materialization.inspection-runtime-required");
+    }
+
+    [Fact]
+    public async Task AcceptedInspectionStillRequiresMatchingRuntimeRegistry()
+    {
+        var configuration = Configuration() with
+        {
+            RootDefaults = new GatewayRootDeclarations
+            {
+                Inspection = Inline(new RequestInspectionBinding
+                {
+                    InspectorName = "inspector",
+                    Mode = RequestInspectionMode.BoundedPrefix,
+                    MaximumAcceptedBodyBytes = 1024,
+                    MaximumInspectedBytes = 128
+                })
+            }
+        };
+        var accepted = Read(configuration, Capabilities());
+
+        var result = await new GatewayNativeMaterializer(new AcceptingConfigValidator())
+            .MaterializeAsync(accepted, Identity(accepted), "native-missing-inspector");
+
+        result.Bundle.Should().BeNull();
+        result.Diagnostics.Should().ContainSingle(item => item.Code == "materialization.inspector-not-installed" && item.Path == "routes[id=route].declarations.inspection");
     }
 
     [Fact]
@@ -628,5 +708,11 @@ public sealed class YarpMaterializationTests
     {
         public ValueTask<IList<Exception>> ValidateRouteAsync(RouteConfig route) => throw new InvalidOperationException();
         public ValueTask<IList<Exception>> ValidateClusterAsync(ClusterConfig cluster) => throw new InvalidOperationException();
+    }
+
+    private sealed class AllowingInspector : IGatewayRequestInspector
+    {
+        public ValueTask<GatewayInspectionDecision> InspectAsync(GatewayInspectionContext context, CancellationToken cancellationToken) =>
+            ValueTask.FromResult(GatewayInspectionDecision.Allow());
     }
 }

@@ -171,7 +171,7 @@ public sealed class HostCapabilitySnapshot
         ValidateNames(registration.SessionAffinityFailurePolicies, nameof(registration.SessionAffinityFailurePolicies));
         ValidateNames(registration.PassiveHealthPolicies, nameof(registration.PassiveHealthPolicies));
         ValidateNames(registration.ActiveHealthPolicies, nameof(registration.ActiveHealthPolicies));
-        ValidateNames(registration.RequestInspectors, nameof(registration.RequestInspectors));
+        ValidateInspectorNames(registration.RequestInspectors, nameof(registration.RequestInspectors));
         return new HostCapabilitySnapshot(listeners.ToImmutable(), discoveries.ToImmutable(), secrets.ToImmutable(), registration);
     }
 
@@ -184,6 +184,16 @@ public sealed class HostCapabilitySnapshot
         {
             if (string.IsNullOrWhiteSpace(value) || !names.Add(value))
                 throw new ArgumentException("Capability names must be nonblank and unique using ordinal equality.", name);
+        }
+    }
+
+    private static void ValidateInspectorNames(IEnumerable<string>? values, string name)
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var value in Required(values, name))
+        {
+            if (!GatewayIdentifier.IsCanonical(value) || !names.Add(value))
+                throw new ArgumentException("Inspector names must be canonical and unique using ordinal equality.", name);
         }
     }
 

@@ -605,8 +605,8 @@ public static class GatewayConfigurationValidator
 
     private static void ValidateInspection(RequestInspectionBinding value, string path, ImmutableArray<GatewayValidationError>.Builder errors)
     {
-        ValidatePolicyName(value.InspectorName, $"{path}.inspectorName", errors);
-        if (!Enum.IsDefined(value.Mode) || !Enum.IsDefined(value.SpillPolicy) || value.MaximumAcceptedBodyBytes <= 0)
+        ValidateId(value.InspectorName, $"{path}.inspectorName", errors);
+        if (!Enum.IsDefined(value.Mode) || !Enum.IsDefined(value.SpillPolicy) || value.MaximumAcceptedBodyBytes <= 0 || value.MaximumAcceptedBodyBytes == long.MaxValue)
         {
             Add(errors, GatewayValidationErrorCode.InvalidValue, path, "Inspection mode, spill policy, and accepted-body bound must be valid.");
             return;
@@ -618,9 +618,10 @@ public static class GatewayConfigurationValidator
                 Add(errors, GatewayValidationErrorCode.InvalidValue, path, "Prefix inspection requires a positive inspected-byte bound not exceeding the accepted-body bound and cannot select complete-body memory or spill settings.");
         }
         else if (value.MaximumInspectedBytes is not null || value.MemoryThresholdBytes is not > 0 ||
-                 value.MemoryThresholdBytes > value.MaximumAcceptedBodyBytes)
+                 value.MemoryThresholdBytes > value.MaximumAcceptedBodyBytes ||
+                 value.SpillPolicy == RequestInspectionSpillPolicy.Disabled && value.MaximumAcceptedBodyBytes > int.MaxValue)
         {
-            Add(errors, GatewayValidationErrorCode.InvalidValue, path, "Complete inspection requires a positive memory threshold not exceeding the accepted-body bound and cannot select a prefix bound.");
+            Add(errors, GatewayValidationErrorCode.InvalidValue, path, "Complete inspection requires a positive memory threshold not exceeding the accepted-body bound, cannot select a prefix bound, and memory-only accepted bounds must fit the framework threshold range.");
         }
     }
 
