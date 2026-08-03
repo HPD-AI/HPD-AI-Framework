@@ -8,22 +8,22 @@ namespace HPD.Agent;
 public interface IProviderConfig;
 
 /// <summary>Marks provider-specific Realtime session options.</summary>
-public interface IRealtimeSessionProviderOptions;
+public interface IRealtimeSessionProviderOptions : IProviderConfig;
 
 /// <summary>Marks provider-specific image-generation operation options.</summary>
-public interface IImageGenerationProviderOptions;
+public interface IImageGenerationProviderOptions : IProviderConfig;
 
 /// <summary>Marks provider-specific embedding-generation operation options.</summary>
-public interface IEmbeddingGenerationProviderOptions;
+public interface IEmbeddingGenerationProviderOptions : IProviderConfig;
 
 /// <summary>Marks provider-specific text-to-speech operation options.</summary>
-public interface ITextToSpeechProviderOptions;
+public interface ITextToSpeechProviderOptions : IProviderConfig;
 
 /// <summary>Marks provider-specific speech-to-text operation options.</summary>
-public interface ISpeechToTextProviderOptions;
+public interface ISpeechToTextProviderOptions : IProviderConfig;
 
 /// <summary>Marks provider-specific hosted-file operation options.</summary>
-public interface IHostedFileProviderOptions;
+public interface IHostedFileProviderOptions : IProviderConfig;
 
 /// <summary>Serializable audio-format defaults for a Realtime session.</summary>
 public sealed class RealtimeAudioFormatRunConfig

@@ -543,6 +543,9 @@ public class ProviderClientConfig
     /// </summary>
     public JsonElement? ConstructionOptions { get; set; }
 
+    /// <summary>Gets or sets the strongly typed provider-specific client configuration.</summary>
+    public IProviderConfig? ProviderConfig { get; set; }
+
     /// <summary>
     /// Optional OpenRouter HTTP-Referer attribution header.
     /// </summary>
@@ -578,6 +581,9 @@ public class ProviderClientConfig
     /// </summary>
     public T? GetProviderConfig<T>(HPD.Agent.Providers.ProviderClientFamily family) where T : class
     {
+        if (ProviderConfig is T typed)
+            return typed;
+
         if (_cachedProviderConfig is T cached)
             return cached;
 
@@ -611,6 +617,8 @@ public class ProviderClientConfig
     /// </summary>
     public void SetProviderConfig<T>(T config, HPD.Agent.Providers.ProviderClientFamily family) where T : class
     {
+        if (config is IProviderConfig typed)
+            ProviderConfig = typed;
         _cachedProviderConfig = config;
 
         // Serialize using registered serializer
@@ -936,6 +944,7 @@ public static class ProviderClientConfigResolver
         target.HttpReferer = source.HttpReferer ?? target.HttpReferer;
         target.AppName = source.AppName ?? target.AppName;
         target.PromptFormatter = source.PromptFormatter ?? target.PromptFormatter;
+        target.ProviderConfig = source.ProviderConfig ?? target.ProviderConfig;
 
         if (source.CustomHeaders != null)
         {

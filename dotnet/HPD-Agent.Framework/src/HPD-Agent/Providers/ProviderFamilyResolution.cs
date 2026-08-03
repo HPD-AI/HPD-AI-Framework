@@ -153,6 +153,11 @@ public static class ProviderFamilyPlanResolver
             target.ConstructionOptions = source.ConstructionOptions.Value.Clone();
             provenance[nameof(ProviderClientConfig.ConstructionOptions)] = layer;
         }
+        if (source.ProviderConfig is not null)
+        {
+            target.ProviderConfig = source.ProviderConfig;
+            provenance[nameof(ProviderClientConfig.ProviderConfig)] = layer;
+        }
         return;
 
         void SetString(string name, string? value, Action<string> setter)
