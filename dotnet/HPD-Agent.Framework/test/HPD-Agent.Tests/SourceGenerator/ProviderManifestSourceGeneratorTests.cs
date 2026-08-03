@@ -23,7 +23,7 @@ public sealed class ProviderManifestSourceGeneratorTests
 
             [HpdProvider("sample", "Sample", DocumentationUrl = "https://example.test/")]
             [HpdProviderAlias("sample-ai")]
-            [HpdProviderFamily(ProviderClientFamily.Chat, DefaultModelName = "sample-model")]
+            [HpdProviderFamily(ProviderClientFamily.Chat, DefaultModelName = "sample-model", BindsModelToClient = false)]
             [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(ProviderClientConfig), typeof(HPDJsonContext))]
             [HpdProviderSecretAlias("sample:ApiKey", "SAMPLE_API_KEY")]
             internal sealed class SampleProvider : IChatClientProvider
@@ -45,6 +45,7 @@ public sealed class ProviderManifestSourceGeneratorTests
         Assert.Contains("HpdProviderManifestAttribute", generated);
         Assert.Contains("sample-ai", generated);
         Assert.Contains("sample-model", generated);
+        Assert.Contains("BindsModelToClient = false", generated);
         Assert.Contains("ProviderPayloadJsonContract", generated);
         Assert.Contains("HPDJsonContext.Default.GetTypeInfo", generated);
         Assert.Contains("ProviderSecretAliasRegistration", generated);
