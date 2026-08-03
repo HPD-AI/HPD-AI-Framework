@@ -13,6 +13,11 @@ using Meai = Microsoft.Extensions.AI;
 
 namespace HPD.Agent.Providers.Fireworks;
 
+[HpdProvider("fireworks", "Fireworks AI", DocumentationUrl = "https://docs.fireworks.ai/")]
+[HpdProviderFamily(ProviderClientFamily.Chat)]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(FireworksProviderConfig), typeof(FireworksJsonContext))]
+[HpdProviderSecretAlias("fireworks:ApiKey", "FIREWORKS_API_KEY")]
+[HpdProviderSecretAlias("fireworks:Endpoint", "FIREWORKS_ENDPOINT", "FIREWORKS_BASE_URL")]
 internal class FireworksProvider : IChatClientProvider
 {
     private static readonly Uri DefaultEndpoint = new("https://api.fireworks.ai/inference/v1/");

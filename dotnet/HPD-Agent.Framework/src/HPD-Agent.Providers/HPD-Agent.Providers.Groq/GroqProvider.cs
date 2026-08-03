@@ -17,6 +17,11 @@ namespace HPD.Agent.Providers.Groq;
 /// <summary>
 /// Groq provider implementation using the shared OpenAI-compatible chat completions client.
 /// </summary>
+[HpdProvider("groq", "Groq", DocumentationUrl = "https://console.groq.com/docs/")]
+[HpdProviderFamily(ProviderClientFamily.Chat)]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(GroqProviderConfig), typeof(GroqJsonContext))]
+[HpdProviderSecretAlias("groq:ApiKey", "GROQ_API_KEY")]
+[HpdProviderSecretAlias("groq:Endpoint", "GROQ_ENDPOINT")]
 internal sealed class GroqProvider : IChatClientProvider
 {
     internal static readonly Uri DefaultEndpoint = new("https://api.groq.com/openai/v1/");

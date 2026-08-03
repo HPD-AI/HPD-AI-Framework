@@ -5,6 +5,11 @@ using System.Collections.Generic;
 
 namespace HPD.Agent.Providers.Cerebras;
 
+[HpdProvider("cerebras", "Cerebras", DocumentationUrl = "https://inference-docs.cerebras.ai/resources/openai")]
+[HpdProviderFamily(ProviderClientFamily.Chat)]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(CerebrasProviderConfig), typeof(CerebrasJsonContext))]
+[HpdProviderSecretAlias("cerebras:ApiKey", "CEREBRAS_API_KEY")]
+[HpdProviderSecretAlias("cerebras:Endpoint", "CEREBRAS_ENDPOINT", "CEREBRAS_BASE_URL")]
 internal sealed class CerebrasProvider : OpenAICompatibleChatProviderBase<CerebrasProviderConfig>
 {
     internal static readonly Uri DefaultEndpoint = new("https://api.cerebras.ai/v1/");

@@ -12,6 +12,11 @@ using Meai = Microsoft.Extensions.AI;
 
 namespace HPD.Agent.Providers.DeepInfra;
 
+[HpdProvider("deepinfra", "DeepInfra", DocumentationUrl = "https://docs.deepinfra.com/chat/overview")]
+[HpdProviderFamily(ProviderClientFamily.Chat)]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(DeepInfraProviderConfig), typeof(DeepInfraJsonContext))]
+[HpdProviderSecretAlias("deepinfra:ApiKey", "DEEPINFRA_API_KEY")]
+[HpdProviderSecretAlias("deepinfra:Endpoint", "DEEPINFRA_ENDPOINT", "DEEPINFRA_BASE_URL")]
 internal class DeepInfraProvider : IChatClientProvider
 {
     internal static readonly Uri DefaultEndpoint = new("https://api.deepinfra.com/v1/openai/");

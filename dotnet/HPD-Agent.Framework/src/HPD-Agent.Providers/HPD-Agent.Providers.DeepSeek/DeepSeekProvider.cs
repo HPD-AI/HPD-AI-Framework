@@ -6,6 +6,11 @@ using System.Collections.Generic;
 
 namespace HPD.Agent.Providers.DeepSeek;
 
+[HpdProvider("deepseek", "DeepSeek", DocumentationUrl = "https://api-docs.deepseek.com/")]
+[HpdProviderFamily(ProviderClientFamily.Chat)]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(DeepSeekProviderConfig), typeof(DeepSeekJsonContext))]
+[HpdProviderSecretAlias("deepseek:ApiKey", "DEEPSEEK_API_KEY")]
+[HpdProviderSecretAlias("deepseek:Endpoint", "DEEPSEEK_ENDPOINT", "DEEPSEEK_BASE_URL")]
 internal sealed class DeepSeekProvider : OpenAICompatibleChatProviderBase<DeepSeekProviderConfig>
 {
     internal static readonly Uri DefaultEndpoint = new("https://api.deepseek.com/v1/");
