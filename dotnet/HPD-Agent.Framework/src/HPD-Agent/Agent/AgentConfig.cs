@@ -782,7 +782,7 @@ public static class ProviderClientConfigResolver
             targetChat.PresencePenalty = sourceChat.PresencePenalty ?? targetChat.PresencePenalty;
             targetChat.Seed = sourceChat.Seed ?? targetChat.Seed;
             targetChat.StopSequences = sourceChat.StopSequences?.ToArray() ?? targetChat.StopSequences;
-            targetChat.Reasoning = sourceChat.Reasoning ?? targetChat.Reasoning;
+            targetChat.Reasoning = sourceChat.Reasoning?.Clone() ?? targetChat.Reasoning;
             targetChat.RuntimeResponseFormat = sourceChat.RuntimeResponseFormat ?? targetChat.RuntimeResponseFormat;
             targetChat.ProviderOptions = sourceChat.ProviderOptions ?? targetChat.ProviderOptions;
             targetChat.Override = sourceChat.Override ?? targetChat.Override;

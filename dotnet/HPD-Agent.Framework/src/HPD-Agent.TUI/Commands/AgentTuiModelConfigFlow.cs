@@ -366,21 +366,7 @@ public static class AgentTuiModelConfigFlow
     private static ChatClientConfig? CloneChat(ChatClientConfig? source)
         => source is null
             ? null
-            : new ChatClientConfig
-            {
-                Temperature = source.Temperature,
-                TopP = source.TopP,
-                TopK = source.TopK,
-                MaxOutputTokens = source.MaxOutputTokens,
-                FrequencyPenalty = source.FrequencyPenalty,
-                PresencePenalty = source.PresencePenalty,
-                Seed = source.Seed,
-                ModelName = source.ModelName,
-                StopSequences = source.StopSequences?.ToArray(),
-                ProviderOptions = source.ProviderOptions,
-                Reasoning = source.Reasoning?.Clone(),
-                ResponseFormat = source.ResponseFormat
-            };
+            : (ChatClientConfig)ProviderClientConfigResolver.Clone(source);
 
     private sealed record ModelConfigChoice(
         string Kind,
