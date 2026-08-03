@@ -2664,12 +2664,13 @@ public class AgentBuilder
     private AgentClientSet CreateAuxiliaryClientSet()
     {
         var resolvedConfigs = new Dictionary<ProviderClientFamily, ProviderClientConfig>();
-        var textToSpeech = CaptureOverride(ProviderClientFamily.TextToSpeech, _config.Clients.TextToSpeech, _config.Clients.TextToSpeech?.Override?.Client, resolvedConfigs);
-        var speechToText = CaptureOverride(ProviderClientFamily.SpeechToText, _config.Clients.SpeechToText, _config.Clients.SpeechToText?.Override?.Client, resolvedConfigs);
-        var realtime = CaptureOverride(ProviderClientFamily.Realtime, _config.Clients.Realtime, _config.Clients.Realtime?.Override?.Client, resolvedConfigs);
-        var imageGenerator = CaptureOverride(ProviderClientFamily.ImageGeneration, _config.Clients.ImageGeneration, _config.Clients.ImageGeneration?.Override?.Client, resolvedConfigs);
-        var embeddingGenerator = CaptureOverride(ProviderClientFamily.Embeddings, _config.Clients.Embeddings, _config.Clients.Embeddings?.Override?.Client, resolvedConfigs);
-        var hostedFiles = CaptureOverride(ProviderClientFamily.HostedFiles, _config.Clients.HostedFiles, _config.Clients.HostedFiles?.Override?.Client, resolvedConfigs);
+        var clients = _config?.Clients ?? new AgentClientsConfig();
+        var textToSpeech = CaptureOverride(ProviderClientFamily.TextToSpeech, clients.TextToSpeech, clients.TextToSpeech?.Override?.Client, resolvedConfigs);
+        var speechToText = CaptureOverride(ProviderClientFamily.SpeechToText, clients.SpeechToText, clients.SpeechToText?.Override?.Client, resolvedConfigs);
+        var realtime = CaptureOverride(ProviderClientFamily.Realtime, clients.Realtime, clients.Realtime?.Override?.Client, resolvedConfigs);
+        var imageGenerator = CaptureOverride(ProviderClientFamily.ImageGeneration, clients.ImageGeneration, clients.ImageGeneration?.Override?.Client, resolvedConfigs);
+        var embeddingGenerator = CaptureOverride(ProviderClientFamily.Embeddings, clients.Embeddings, clients.Embeddings?.Override?.Client, resolvedConfigs);
+        var hostedFiles = CaptureOverride(ProviderClientFamily.HostedFiles, clients.HostedFiles, clients.HostedFiles?.Override?.Client, resolvedConfigs);
         var vadFactory = ResolveComponentFactory<IVoiceActivityDetectorProvider, IVoiceActivityDetector>(ProviderClientFamily.VoiceActivityDetection, ProviderFamilyLifetime.StatefulPerAudioSession, static (p, c, x, s) => p.CreateVoiceActivityDetector(c, x, s), resolvedConfigs);
         var eotFactory = ResolveComponentFactory<IEndOfTurnDetectorProvider, IEotDetector>(ProviderClientFamily.EndOfTurnDetection, ProviderFamilyLifetime.StatefulPerAudioSession, static (p, c, x, s) => p.CreateEndOfTurnDetector(c, x, s), resolvedConfigs);
 
