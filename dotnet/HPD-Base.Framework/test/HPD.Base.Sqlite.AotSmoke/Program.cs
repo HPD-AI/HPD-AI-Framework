@@ -113,6 +113,13 @@ try
             ConfirmDestructiveReplacement = true,
         })).RequireValue();
     Require(restored.RestoreEpoch == manifest.RestoreEpoch + 1, "Restore epoch did not advance.");
+    BaseBatchBuilder postRestoreRetry = session.Atomic(identity);
+    postRestoreRetry.Create(items, new RecordId("receipt-item"), new SmokeRecord("receipt"));
+    BaseResult<BaseBatchResult> restoredReceipt = await postRestoreRetry.CommitAsync();
+    Require(
+        restoredReceipt is BaseSuccess<BaseBatchResult> restoredDuplicate
+        && restoredDuplicate.Value.RequestDisposition == BaseMutationRequestDisposition.Duplicate,
+        "Restore did not preserve the durable atomic receipt.");
 
     var relational = provider.GetRequiredService<IRelationalMetadataProvider>();
     var descriptor = await relational.GetStoreAsync(Operation(BaseOperationKind.List), VisibilityLevel.Admin);
