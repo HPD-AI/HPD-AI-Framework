@@ -723,6 +723,49 @@ public sealed class SqliteAtomicMutationTests
     }
 
     [Fact]
+    public async Task ConcurrentExactIdentityCommitsOneReceiptAndReplaysEveryOtherCaller()
+    {
+        await using SqliteRecordStore store = Store();
+        CollectionDefinition collection = Collection("items");
+        int processCalls = 0;
+        var processor = new CallbackProcessor(async (session, cancellationToken) =>
+        {
+            Interlocked.Increment(ref processCalls);
+            OperationResult<RecordMutationSessionResult> created = await session.CreateAsync(
+                collection,
+                new RecordCreateRequest
+                {
+                    RequestedId = new RecordId("concurrent-receipt"),
+                    Payload = Payload("concurrent"),
+                },
+                MutationContext(BaseRecordMutationKind.Create, "evt-concurrent-receipt", collection.Id),
+                cancellationToken);
+            return Ready([created.Value!.Mutation]);
+        });
+        BaseMutationRequestIdentity identity = BaseMutationRequestIdentity.Create(
+            "scope", "operation", "concurrent-key",
+            BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("concurrent-key"u8)));
+        RecordMutationExecutionRequest request = ExecutionRequest() with
+        {
+            AtomicRequest = new BaseAtomicMutationExecutionRequest
+            {
+                Identity = identity,
+                StructuralDigest = System.Security.Cryptography.SHA256.HashData("concurrent-structure"u8),
+                ExpiresAt = DateTimeOffset.UtcNow.AddDays(1),
+                MaxReceiptBytes = 4_096,
+            },
+        };
+
+        RecordMutationExecutionResult[] results = await Task.WhenAll(
+            Enumerable.Range(0, 12).Select(_ => store.ExecuteAtomicAsync(processor, request).AsTask()));
+
+        processCalls.Should().Be(1);
+        results.Should().ContainSingle(result => result.RequestDisposition == BaseMutationRequestDisposition.Committed);
+        results.Count(result => result.RequestDisposition == BaseMutationRequestDisposition.Duplicate).Should().Be(11);
+        results.Should().OnlyContain(result => result.Outcome == RecordMutationExecutionOutcome.Committed);
+    }
+
+    [Fact]
     public async Task DescriptorAdvertisesOnlyProvenL30Guarantees()
     {
         await using var store = Store();
