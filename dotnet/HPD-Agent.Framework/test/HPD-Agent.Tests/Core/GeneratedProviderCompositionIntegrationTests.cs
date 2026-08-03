@@ -12,7 +12,7 @@ public sealed class GeneratedProviderCompositionIntegrationTests
     public void GeneratedComposition_RegistersAnthropicWithoutModuleInitializer()
     {
         var services = new ServiceCollection();
-        services.AddHpdGeneratedProviders();
+        HpdGeneratedProviderServiceCollectionExtensions.AddHpdGeneratedProviders(services);
         using var provider = services.BuildServiceProvider();
 
         var composition = provider.GetRequiredService<ProviderComposition>();
@@ -40,7 +40,7 @@ public sealed class GeneratedProviderCompositionIntegrationTests
     public void AgentBuilder_CompositionConstructor_MaterializesGeneratedProviders()
     {
         var services = new ServiceCollection();
-        services.AddHpdGeneratedProviders();
+        HpdGeneratedProviderServiceCollectionExtensions.AddHpdGeneratedProviders(services);
         using var provider = services.BuildServiceProvider();
         var composition = provider.GetRequiredService<ProviderComposition>();
 
@@ -72,7 +72,7 @@ public sealed class GeneratedProviderCompositionIntegrationTests
         string document)
     {
         var services = new ServiceCollection();
-        services.AddHpdGeneratedProviders();
+        HpdGeneratedProviderServiceCollectionExtensions.AddHpdGeneratedProviders(services);
         using var provider = services.BuildServiceProvider();
 
         var config = HpdAgentConfigSerializer.Deserialize(
@@ -105,7 +105,7 @@ public sealed class GeneratedProviderCompositionIntegrationTests
     public void RunConfigSerializer_RoundTripsGeneratedProviderPayloads(HpdConfigFormat format)
     {
         var services = new ServiceCollection();
-        services.AddHpdGeneratedProviders();
+        HpdGeneratedProviderServiceCollectionExtensions.AddHpdGeneratedProviders(services);
         using var provider = services.BuildServiceProvider();
         var composition = provider.GetRequiredService<ProviderComposition>();
         var config = new AgentRunConfig

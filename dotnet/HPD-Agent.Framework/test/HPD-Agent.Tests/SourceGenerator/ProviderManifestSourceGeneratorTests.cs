@@ -121,6 +121,7 @@ public sealed class ProviderManifestSourceGeneratorTests
         Assert.Contains("global::SampleManifest.Fragment", generated);
         Assert.Contains("ProviderComposition.Create", generated);
         Assert.Contains("AddHpdGeneratedProviders", generated);
+        Assert.Contains("internal static class HpdGeneratedProviderServiceCollectionExtensions", generated);
         Assert.DoesNotContain("Assembly.Load", generated);
         Assert.DoesNotContain("GetTypes", generated);
     }

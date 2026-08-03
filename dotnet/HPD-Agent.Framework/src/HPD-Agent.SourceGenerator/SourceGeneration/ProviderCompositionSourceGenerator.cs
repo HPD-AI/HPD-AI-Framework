@@ -84,7 +84,7 @@ public sealed class ProviderCompositionSourceGenerator : IIncrementalGenerator
             services.AppendLine("#nullable enable");
             services.AppendLine("namespace Microsoft.Extensions.DependencyInjection;");
             services.AppendLine("/// <summary>Registers the source-generated provider composition for this application.</summary>");
-            services.AppendLine("public static class HpdGeneratedProviderServiceCollectionExtensions");
+            services.AppendLine("internal static class HpdGeneratedProviderServiceCollectionExtensions");
             services.AppendLine("{");
             services.AppendLine("    /// <summary>Adds immutable provider metadata, factories, serializers, and secret aliases.</summary>");
             services.AppendLine("    public static global::Microsoft.Extensions.DependencyInjection.IServiceCollection AddHpdGeneratedProviders(this global::Microsoft.Extensions.DependencyInjection.IServiceCollection services)");
