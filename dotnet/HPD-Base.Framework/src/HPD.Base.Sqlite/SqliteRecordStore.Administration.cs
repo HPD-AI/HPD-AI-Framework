@@ -2,6 +2,7 @@ using System.Buffers.Binary;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Security.AccessControl;
 using Microsoft.Data.Sqlite;
 
 namespace HPD.Base.Sqlite;
@@ -223,8 +224,7 @@ public sealed partial class SqliteRecordStore
         bool replacementInstalled = false;
         bool retainRecovery = false;
         bool administrationSlot = false;
-        UnixFileMode? unixMode = null;
-        FileAttributes? windowsAttributes = null;
+        RestoreFilePolicy? filePolicy = null;
         try
         {
             using var slotAcquisition = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -297,8 +297,7 @@ public sealed partial class SqliteRecordStore
             if (_quarantinedAdministration.Count != 0)
                 return RestoreStoreError(BaseAdministrationErrorCodes.RestoreBusy, "The store has unresolved administration work.", BaseRestoreFailureDisposition.OriginalPreserved);
 
-            if (OperatingSystem.IsWindows()) windowsAttributes = File.GetAttributes(activePath);
-            else unixMode = File.GetUnixFileMode(activePath);
+            filePolicy = CaptureFilePolicy(activePath);
 
             WriteRestoreMarker("Prepared", stagingPath, recovery, ActiveIdentity, manifest.StoreIdentityDigest);
             await CheckpointWalAsync(cancellationToken).ConfigureAwait(false);
@@ -313,14 +312,7 @@ public sealed partial class SqliteRecordStore
             File.Move(stagingPath, activePath);
             staging = null;
             replacementInstalled = true;
-            if (!OperatingSystem.IsWindows() && unixMode is { } mode)
-            {
-                ApplyUnixMode(activePath, mode);
-            }
-            else if (windowsAttributes is { } attributes)
-            {
-                File.SetAttributes(activePath, attributes);
-            }
+            ApplyFilePolicy(activePath, filePolicy);
             WriteRestoreMarker("ReplacementInstalled", stagingPath, recovery, ActiveIdentity, manifest.StoreIdentityDigest);
             await _administrationOperations.BeforePhaseAsync("postInstallValidation", CancellationToken.None).ConfigureAwait(false);
             await ValidateDatabaseFileAsync(activePath, cancellationToken).ConfigureAwait(false);
@@ -341,6 +333,7 @@ public sealed partial class SqliteRecordStore
             if (!retainRecovery) DeleteRecoverySet(recovery);
             WriteRestoreMarker("Completed", stagingPath, recovery, ActiveIdentity, manifest.StoreIdentityDigest);
             DeleteStaging(RestoreMarkerPath());
+            SqliteAdministrationDurability.FlushDirectory(Path.GetDirectoryName(activePath)!);
             await EnsureKeepAliveAsync(CancellationToken.None).ConfigureAwait(false);
             return OperationResults.Ok(new BaseRestoreResult
             {
@@ -561,6 +554,7 @@ public sealed partial class SqliteRecordStore
                 remaining -= read;
             }
             await payload.FlushAsync(cancellationToken).ConfigureAwait(false);
+            payload.Flush(flushToDisk: true);
             digest = hash.GetHashAndReset();
         }
         byte[] tag = new byte[BackupTagLength];
@@ -715,6 +709,7 @@ public sealed partial class SqliteRecordStore
             stream.Flush(flushToDisk: true);
         }
         File.Move(temporary, markerPath, overwrite: true);
+        SqliteAdministrationDurability.FlushDirectory(Path.GetDirectoryName(markerPath)!);
     }
 
     private void RecoverRestoreMarkerIfPresent()
@@ -795,6 +790,37 @@ public sealed partial class SqliteRecordStore
         File.SetUnixFileMode(path, mode);
         if (File.GetUnixFileMode(path) != mode) throw new UnauthorizedAccessException();
     }
+
+    private static RestoreFilePolicy CaptureFilePolicy(string path)
+    {
+        if (!OperatingSystem.IsWindows())
+            return new RestoreFilePolicy(File.GetUnixFileMode(path), null, null);
+        FileInfo file = new(path);
+        byte[] descriptor = file.GetAccessControl(AccessControlSections.All).GetSecurityDescriptorBinaryForm();
+        return new RestoreFilePolicy(null, file.Attributes, descriptor);
+    }
+
+    private static void ApplyFilePolicy(string path, RestoreFilePolicy policy)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            ApplyUnixMode(path, policy.UnixMode!.Value);
+            return;
+        }
+        var security = new FileSecurity();
+        security.SetSecurityDescriptorBinaryForm(policy.WindowsSecurityDescriptor!);
+        var file = new FileInfo(path);
+        file.SetAccessControl(security);
+        file.Attributes = policy.WindowsAttributes!.Value;
+        byte[] installed = file.GetAccessControl(AccessControlSections.All).GetSecurityDescriptorBinaryForm();
+        if (!installed.AsSpan().SequenceEqual(policy.WindowsSecurityDescriptor))
+            throw new UnauthorizedAccessException("SQLite restore file security policy could not be preserved.");
+    }
+
+    private sealed record RestoreFilePolicy(
+        UnixFileMode? UnixMode,
+        FileAttributes? WindowsAttributes,
+        byte[]? WindowsSecurityDescriptor);
     private static void DeleteStaging(string path) { try { if (File.Exists(path)) File.Delete(path); } catch (IOException) { } catch (UnauthorizedAccessException) { } }
 
     private static OperationResult<T> AdminUnsupported<T>() => OperationResults.CapabilityUnavailable<T>(AdminError(BaseAdministrationErrorCodes.CapabilityUnavailable, "SQLite administration is unavailable.", ErrorCategory.Capability));

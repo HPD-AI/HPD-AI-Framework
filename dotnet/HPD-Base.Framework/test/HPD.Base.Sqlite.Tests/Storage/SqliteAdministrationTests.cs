@@ -4,6 +4,7 @@ using FluentAssertions;
 using HPD.Base;
 using HPD.Base.Sqlite;
 using Microsoft.Extensions.Options;
+using System.Security.AccessControl;
 
 namespace HPD.Base.Sqlite.Tests.Storage;
 
@@ -93,6 +94,58 @@ public sealed class SqliteAdministrationTests
     }
 
     [Fact]
+    public async Task SuccessfulRestorePreservesProviderOwnedFileSecurityPolicy()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"hpd-base-admin-permissions-{Guid.NewGuid():N}.db");
+        using BaseOpaqueTokenProtector protector = Protector(12, Enumerable.Repeat((byte)0x12, 32).ToArray());
+        try
+        {
+            await using SqliteRecordStore store = Store(path, protector);
+            UnixFileMode? unixMode = null;
+            byte[]? windowsDescriptor = null;
+            if (OperatingSystem.IsWindows())
+            {
+                windowsDescriptor = new FileInfo(path)
+                    .GetAccessControl(AccessControlSections.All)
+                    .GetSecurityDescriptorBinaryForm();
+            }
+            else
+            {
+                unixMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+                File.SetUnixFileMode(path, unixMode.Value);
+            }
+            var destination = new MemoryStream();
+            BaseBackupManifest manifest = (await store.CreateBackupAsync(destination, BackupRequest())).Value!;
+            destination.Position = 0;
+
+            OperationResult<BaseRestoreResult> restored = await store.RestoreAsync(
+                destination,
+                new BaseRestoreRequest
+                {
+                    StoreId = "sqlite",
+                    Principal = Principal(),
+                    ExpectedCurrentStoreIdentityDigest = manifest.StoreIdentityDigest,
+                    ExpectedArtifactStoreIdentityDigest = manifest.StoreIdentityDigest,
+                    IdentityMode = BaseRestoreIdentityMode.RequireCurrentStoreIdentity,
+                    RecoveryImageRetention = BaseRecoveryImageRetention.DeleteAfterSuccessfulRestore,
+                    ConfirmDestructiveReplacement = true,
+                });
+
+            restored.IsSuccess().Should().BeTrue(restored.Error?.Code);
+            if (OperatingSystem.IsWindows())
+            {
+                new FileInfo(path).GetAccessControl(AccessControlSections.All)
+                    .GetSecurityDescriptorBinaryForm().Should().Equal(windowsDescriptor!);
+            }
+            else
+            {
+                File.GetUnixFileMode(path).Should().Be(unixMode);
+            }
+        }
+        finally { Cleanup(path); }
+    }
+
+    [Fact]
     public async Task StartupRecoversOriginalRenamedCrashStateBeforeOpeningStore()
     {
         string path = Path.Combine(Path.GetTempPath(), $"hpd-base-admin-recovery-{Guid.NewGuid():N}.db");
@@ -161,14 +214,14 @@ public sealed class SqliteAdministrationTests
     }
 
     [Fact]
-    public void InvalidRestoreMarkerFailsClosedBeforeAnyDatabaseOpen()
+    public async Task InvalidRestoreMarkerFailsClosedBeforeAnyDatabaseOpen()
     {
         string path = Path.Combine(Path.GetTempPath(), $"hpd-base-admin-invalid-marker-{Guid.NewGuid():N}.db");
         using BaseOpaqueTokenProtector protector = Protector(11, Enumerable.Repeat((byte)0x11, 32).ToArray());
         try
         {
             SqliteRecordStore initialized = Store(path, protector);
-            initialized.DisposeAsync().AsTask().GetAwaiter().GetResult();
+            await initialized.DisposeAsync();
             File.WriteAllText(path + ".restore-state", "not-authenticated-restore-state");
 
             Action restart = () => _ = Store(path, protector);
