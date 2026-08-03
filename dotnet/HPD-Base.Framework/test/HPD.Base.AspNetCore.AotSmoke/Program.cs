@@ -135,6 +135,19 @@ static async Task VerifyProjectionAsync(WebApplication app)
         Require(
             duplicateBatch?.RequestDisposition == BaseMutationRequestDisposition.Duplicate,
             "Atomic batch duplicate body was invalid.");
+        var firstPageResponse = await client.GetAsync(
+            "/base/collections/items/records?sort=title&limit=1");
+        Require(firstPageResponse.StatusCode == System.Net.HttpStatusCode.OK, "Cursor first page failed.");
+        RecordPage? firstPage = await firstPageResponse.Content.ReadFromJsonAsync(
+            HPDBaseJsonSerializerContext.Default.RecordPage);
+        Require(firstPage?.Page.NextCursor is not null, "Cursor first page did not return continuation.");
+        var continuedResponse = await client.GetAsync(
+            "/base/collections/items/records?sort=title&limit=1&cursor="
+            + Uri.EscapeDataString(firstPage.Page.NextCursor));
+        Require(continuedResponse.StatusCode == System.Net.HttpStatusCode.OK, "Cursor continuation failed.");
+        RecordPage? continuedPage = await continuedResponse.Content.ReadFromJsonAsync(
+            HPDBaseJsonSerializerContext.Default.RecordPage);
+        Require(continuedPage?.Items.Length == 1, "Cursor continuation body was invalid.");
         Require(!JsonSerializer.IsReflectionEnabledByDefault, "JSON reflection fallback must be disabled.");
     }
     finally
