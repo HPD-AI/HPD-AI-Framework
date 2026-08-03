@@ -174,6 +174,33 @@ public sealed class BaseSessionTests
     }
 
     [Fact]
+    public async Task QueryContinuesFromOpaqueCursorWithExplicitRecordIdTieBreaker()
+    {
+        var runtime = new RecordingRuntime
+        {
+            ListResult = new OperationResult<RecordPage>
+            {
+                Status = OperationStatus.Ok,
+                Value = new RecordPage { Items = [], Page = new PageInfo() }
+            }
+        };
+        using var services = Services(runtime, TimeProvider.System);
+        BaseSession session = services.GetRequiredService<IBaseSessionFactory>().For(Principal());
+
+        await session.Collection(GeneratedProject.Collection)
+            .Query()
+            .OrderBy(GeneratedProject.Fields.Name)
+            .ThenByRecordId()
+            .Take(25)
+            .ContinueFrom("opaque-provider-token")
+            .PageAsync();
+
+        runtime.Query!.Page!.Mode.Should().Be(QueryPaginationMode.Cursor);
+        runtime.Query.Page.Cursor.Should().Be("opaque-provider-token");
+        runtime.Query.Sort!.Select(item => item.Field).Should().Equal("name", "id");
+    }
+
+    [Fact]
     public async Task ArrayQueryOwnsPagingWithinTheConfiguredRuntimeLimit()
     {
         var runtime = new RecordingRuntime
@@ -222,6 +249,55 @@ public sealed class BaseSessionTests
             .Should().Equal(2, 2, 2);
         runtime.Queries.Select(item => item.Page!.Offset)
             .Should().Equal(0, 2, 4);
+    }
+
+    [Fact]
+    public async Task ArrayQueryPrefersProviderCursorAfterFirstPage()
+    {
+        var runtime = new RecordingRuntime
+        {
+            List = query =>
+            {
+                int start = query.Page!.Cursor switch
+                {
+                    "cursor-2" => 2,
+                    "cursor-4" => 4,
+                    _ => 0
+                };
+                int count = Math.Min(query.Page.Limit ?? 2, 5 - start);
+                return new OperationResult<RecordPage>
+                {
+                    Status = OperationStatus.Ok,
+                    Value = new RecordPage
+                    {
+                        Items = Enumerable.Range(start, count)
+                            .Select(index => Envelope(new GeneratedProject
+                            {
+                                OrganizationId = "org_1",
+                                Name = $"project_{index}"
+                            }) with { Id = new RecordId($"record_{index}") })
+                            .ToArray(),
+                        Page = new PageInfo
+                        {
+                            NextCursor = start + count < 5 ? $"cursor-{start + count}" : null,
+                            HasMore = start + count < 5
+                        }
+                    }
+                };
+            }
+        };
+        using var services = Services(runtime, TimeProvider.System, maxPageSize: 2);
+        BaseQuery<GeneratedProject> query = services.GetRequiredService<IBaseSessionFactory>()
+            .For(Principal()).Collection(GeneratedProject.Collection).Query();
+
+        BaseRecord<GeneratedProject>[] records =
+            (await query.ToArrayAsync(10_000)).RequireValue();
+
+        records.Should().HaveCount(5);
+        runtime.Queries.Select(item => item.Page!.Mode)
+            .Should().Equal(QueryPaginationMode.Offset, QueryPaginationMode.Cursor, QueryPaginationMode.Cursor);
+        runtime.Queries.Select(item => item.Page!.Cursor)
+            .Should().Equal(null, "cursor-2", "cursor-4");
     }
 
     [Fact]

@@ -12,19 +12,22 @@ public sealed class BaseQuery<T>
     private readonly FilterExpression[] _filters;
     private readonly QuerySort[] _sort;
     private readonly int? _limit;
+    private readonly string? _cursor;
 
     internal BaseQuery(
         BaseSession session,
         BaseCollection<T> collection,
         FilterExpression[]? filters = null,
         QuerySort[]? sort = null,
-        int? limit = null)
+        int? limit = null,
+        string? cursor = null)
     {
         _session = session;
         _collection = collection;
         _filters = filters ?? [];
         _sort = sort ?? [];
         _limit = limit;
+        _cursor = cursor;
     }
 
     /// <summary>Adds a typed equality predicate.</summary>
@@ -56,6 +59,23 @@ public sealed class BaseQuery<T>
     public BaseQuery<T> OrderByDescending<TValue>(BaseField<T, TValue> field) =>
         AddSort(field, QuerySortDirection.Desc);
 
+    /// <summary>Adds the stable record identifier as an explicit final ordering key.</summary>
+    public BaseQuery<T> ThenByRecordId() => new(
+        _session,
+        _collection,
+        _filters,
+        [.. _sort, new QuerySort("id")],
+        _limit,
+        _cursor);
+
+    /// <summary>Continues this exact query from an opaque provider cursor.</summary>
+    public BaseQuery<T> ContinueFrom(string cursor)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(cursor);
+        return new BaseQuery<T>(
+            _session, _collection, _filters, _sort, _limit, cursor);
+    }
+
     /// <summary>Applies an explicit positive result bound.</summary>
     public BaseQuery<T> Take(int maximum)
     {
@@ -65,7 +85,8 @@ public sealed class BaseQuery<T>
             _collection,
             _filters,
             _sort,
-            maximum);
+            maximum,
+            _cursor);
     }
 
     /// <summary>Executes one bounded page.</summary>
@@ -74,7 +95,7 @@ public sealed class BaseQuery<T>
     {
         int limit = _limit ?? throw new InvalidOperationException(
             "A query must declare Take(maximum) before page execution.");
-        var query = Build(limit);
+        var query = Build(limit, cursor: _cursor);
         var result = await _session.Runtime.ListAsync(
             _collection.Id,
             query,
@@ -178,6 +199,7 @@ public sealed class BaseQuery<T>
         var items = new List<BaseRecord<T>>(effectiveLimit);
         BaseSuccess<BasePage<BaseRecord<T>>>? finalPage = null;
         var offset = 0;
+        string? cursor = _cursor;
 
         while (items.Count < effectiveLimit)
         {
@@ -187,6 +209,7 @@ public sealed class BaseQuery<T>
             BaseResult<BasePage<BaseRecord<T>>> pageResult = await ExecutePageAsync(
                 remaining,
                 offset,
+                cursor,
                 cancellationToken).ConfigureAwait(false);
             if (pageResult is BaseFailure<BasePage<BaseRecord<T>>> failure)
             {
@@ -210,7 +233,8 @@ public sealed class BaseQuery<T>
                 return ContinuationFailure();
             }
 
-            offset += pageItems.Length;
+            cursor = finalPage.Value.Page.NextCursor;
+            if (cursor is null) offset += pageItems.Length;
         }
 
         return new BaseSuccess<BaseRecord<T>[]>(
@@ -235,6 +259,7 @@ public sealed class BaseQuery<T>
             : maximumItems;
         var emitted = 0;
         var offset = 0;
+        string? cursor = _cursor;
 
         while (emitted < effectiveLimit)
         {
@@ -243,6 +268,7 @@ public sealed class BaseQuery<T>
                     effectiveLimit - emitted,
                     _session.MaxQueryPageSize),
                 offset,
+                cursor,
                 cancellationToken).ConfigureAwait(false)).RequireValue();
             if (page.Items.Length == 0 && page.Page.HasMore)
             {
@@ -265,11 +291,12 @@ public sealed class BaseQuery<T>
                 yield break;
             }
 
-            offset += page.Items.Length;
+            cursor = page.Page.NextCursor;
+            if (cursor is null) offset += page.Items.Length;
         }
     }
 
-    internal RecordQuery Build(int limit, int offset = 0) =>
+    internal RecordQuery Build(int limit, int offset = 0, string? cursor = null) =>
         new()
         {
             Filter = _filters.Length switch
@@ -285,9 +312,10 @@ public sealed class BaseQuery<T>
             Sort = _sort.Length == 0 ? null : _sort,
             Page = new QueryPage
             {
-                Mode = QueryPaginationMode.Offset,
-                Offset = offset,
+                Mode = cursor is null ? QueryPaginationMode.Offset : QueryPaginationMode.Cursor,
+                Offset = cursor is null ? offset : null,
                 Limit = limit,
+                Cursor = cursor,
             },
             Count = QueryCountMode.None,
         };
@@ -298,7 +326,8 @@ public sealed class BaseQuery<T>
             _collection,
             [.. _filters, filter],
             _sort,
-            _limit);
+            _limit,
+            _cursor);
 
     private BaseQuery<T> AddSort<TValue>(
         BaseField<T, TValue> field,
@@ -316,15 +345,17 @@ public sealed class BaseQuery<T>
             _collection,
             _filters,
             [.. _sort, new QuerySort(field.Id, direction)],
-            _limit);
+            _limit,
+            _cursor);
     }
 
     private async ValueTask<BaseResult<BasePage<BaseRecord<T>>>> ExecutePageAsync(
         int limit,
         int offset,
+        string? cursor,
         CancellationToken cancellationToken)
     {
-        var query = Build(limit, offset);
+        var query = Build(limit, offset, cursor);
         var result = await _session.Runtime.ListAsync(
             _collection.Id,
             query,
@@ -337,7 +368,7 @@ public sealed class BaseQuery<T>
     private ValueTask<BaseResult<BasePage<BaseRecord<T>>>> ExecutePageAsync(
         int limit,
         CancellationToken cancellationToken) =>
-        ExecutePageAsync(limit, 0, cancellationToken);
+        ExecutePageAsync(limit, 0, _cursor, cancellationToken);
 
     private static BaseFailure<BaseRecord<T>[]> ContinuationFailure() =>
         new(

@@ -313,8 +313,8 @@ public sealed class ApplicationHostBuilderTests
                 await using var command = seed.CreateCommand();
                 command.CommandText = $"""
                     INSERT INTO {Native("b_c_", "schema-evolution-projects")}
-                      (record_id,revision,created_at,updated_at,{Native("f_", "schema-evolution.name")},{Native("p_", "schema-evolution.extra")},{Native("f_", "schema-evolution.extra")},{Native("f_", "schema-evolution.required")})
-                    VALUES ('preserved',7,'2026-08-02T00:00:00.0000000+00:00','2026-08-02T00:00:00.0000000+00:00','kept',1,'removed','required');
+                      (record_id,revision,created_at,updated_at,append_position,{Native("f_", "schema-evolution.name")},{Native("p_", "schema-evolution.extra")},{Native("f_", "schema-evolution.extra")},{Native("f_", "schema-evolution.required")})
+                    VALUES ('preserved',7,'2026-08-02T00:00:00.0000000+00:00','2026-08-02T00:00:00.0000000+00:00',1,'kept',1,'removed','required');
                     INSERT INTO hpd_base_mutation_journal
                       (event_id,event_type,schema_version,occurred_at,tenant_id,operation,visibility,collection_id,record_id,before_json,after_json)
                     VALUES ('schema-preservation-event','mutation','1','2026-08-02T00:00:00.0000000+00:00',NULL,0,0,'schema-evolution-projects','preserved',NULL,NULL);
@@ -412,11 +412,11 @@ public sealed class ApplicationHostBuilderTests
                 await seed.OpenAsync();
                 await using var command = seed.CreateCommand();
                 command.CommandText = $"""
-                    INSERT INTO {Native("b_c_", target.Id)} (record_id,revision,created_at,updated_at,{Native("p_", "schema-rebuild.target.name")},{Native("f_", "schema-rebuild.target.name")})
-                    VALUES ('target',3,'2026-08-02T00:00:00.0000000+00:00','2026-08-02T00:00:00.0000000+00:00',1,'target');
+                    INSERT INTO {Native("b_c_", target.Id)} (record_id,revision,created_at,updated_at,append_position,{Native("p_", "schema-rebuild.target.name")},{Native("f_", "schema-rebuild.target.name")})
+                    VALUES ('target',3,'2026-08-02T00:00:00.0000000+00:00','2026-08-02T00:00:00.0000000+00:00',1,1,'target');
                     INSERT INTO {Native("b_c_", "schema-rebuild-sources")}
-                      (record_id,revision,created_at,updated_at,{Native("p_", "schema-rebuild.source.name")},{Native("f_", "schema-rebuild.source.name")},{Native("p_", "schema-rebuild.source.removable")},{Native("f_", "schema-rebuild.source.removable")},{Native("f_", "schema-rebuild.source.members")})
-                    VALUES ('source',9,'2026-08-02T00:00:00.0000000+00:00','2026-08-02T00:00:00.0000000+00:00',1,'source',0,NULL,'["target"]');
+                      (record_id,revision,created_at,updated_at,append_position,{Native("p_", "schema-rebuild.source.name")},{Native("f_", "schema-rebuild.source.name")},{Native("p_", "schema-rebuild.source.removable")},{Native("f_", "schema-rebuild.source.removable")},{Native("f_", "schema-rebuild.source.members")})
+                    VALUES ('source',9,'2026-08-02T00:00:00.0000000+00:00','2026-08-02T00:00:00.0000000+00:00',1,1,'source',0,NULL,'["target"]');
                     INSERT INTO {Native("b_r_", "schema-rebuild.members")} (source_record_id,target_record_id,ordinal) VALUES ('source','target',0);
                     INSERT INTO hpd_base_mutation_journal
                       (event_id,event_type,schema_version,occurred_at,tenant_id,operation,visibility,collection_id,record_id,before_json,after_json)

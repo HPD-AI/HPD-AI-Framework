@@ -23,10 +23,17 @@ public static class HPDBaseSqliteServiceCollectionExtensions
         services.AddOptions();
         services.TryAddSingleton(options);
         services.TryAddSingleton<IOptions<HPDBaseSqliteOptions>>(Options.Create(options));
-        services.TryAddSingleton(provider => new SqliteRecordStore(
-            provider.GetRequiredService<IOptions<HPDBaseSqliteOptions>>().Value,
-            provider.GetRequiredService<ILoggerFactory>(),
-            provider.GetService<TimeProvider>() ?? TimeProvider.System));
+        services.TryAddSingleton(provider =>
+        {
+            BaseTokenProtectionRegistration? tokenRegistration = provider.GetService<BaseTokenProtectionRegistration>();
+            return new SqliteRecordStore(
+                provider.GetRequiredService<IOptions<HPDBaseSqliteOptions>>().Value,
+                provider.GetRequiredService<ILoggerFactory>(),
+                provider.GetService<TimeProvider>() ?? TimeProvider.System,
+                tokenProtector: tokenRegistration?.ExplicitlyConfigured == true
+                    ? provider.GetRequiredService<BaseOpaqueTokenProtector>()
+                    : null);
+        });
         services.TryAddSingleton<IRecordStore>(provider => provider.GetRequiredService<SqliteRecordStore>());
         services.TryAddSingleton<IRecordMutationStore>(provider => provider.GetRequiredService<SqliteRecordStore>());
         services.TryAddSingleton<IAtomicRecordStore>(provider => provider.GetRequiredService<SqliteRecordStore>());

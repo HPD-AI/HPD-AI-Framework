@@ -33,7 +33,9 @@ CREATE TABLE IF NOT EXISTS {_names.Collections} (
   schema_hash TEXT NULL,
   registered_at TEXT NOT NULL,
   native_name TEXT NOT NULL,
-  read_only INTEGER NOT NULL DEFAULT 0,
+  mutation_mode INTEGER NOT NULL,
+  next_append_position INTEGER NOT NULL DEFAULT 0 CHECK (next_append_position >= 0),
+  purge_generation INTEGER NOT NULL DEFAULT 0 CHECK (purge_generation >= 0),
   descriptor_json TEXT NULL
 );
 CREATE TABLE IF NOT EXISTS {_names.ProviderState} (
@@ -147,7 +149,9 @@ CREATE TABLE IF NOT EXISTS {_names.Collections} (
   schema_hash TEXT NULL,
   registered_at TEXT NOT NULL,
   native_name TEXT NOT NULL,
-  read_only INTEGER NOT NULL DEFAULT 0,
+  mutation_mode INTEGER NOT NULL,
+  next_append_position INTEGER NOT NULL DEFAULT 0 CHECK (next_append_position >= 0),
+  purge_generation INTEGER NOT NULL DEFAULT 0 CHECK (purge_generation >= 0),
   descriptor_json TEXT NULL
 );
 """, cancellationToken).ConfigureAwait(false);
@@ -238,6 +242,7 @@ CREATE TABLE IF NOT EXISTS {_names.OperationReceipts} (
 """, cancellationToken).ConfigureAwait(false);
 
         var malformedColumns = new List<string>();
+        malformedColumns.AddRange(await GetMissingCollectionStateAsync(connection, cancellationToken).ConfigureAwait(false));
         foreach (SqlitePhysicalModel.CollectionModel collection in _physical.Collections)
             malformedColumns.AddRange(await GetMissingRecordColumnsAsync(connection, collection, cancellationToken).ConfigureAwait(false));
         malformedColumns.AddRange(await GetMissingMutationJournalColumnsAsync(connection, cancellationToken).ConfigureAwait(false));
@@ -276,14 +281,15 @@ CREATE INDEX IF NOT EXISTS {_names.MutationJournalScopeIndex}
 
             await using var command = connection.CreateCommand();
             command.CommandText = $"""
-INSERT INTO {_names.Collections}(collection_id, schema_hash, registered_at, native_name, read_only, descriptor_json)
-VALUES ($collection, NULL, $registered, $native, 0, NULL)
-ON CONFLICT(collection_id) DO UPDATE SET native_name = excluded.native_name;
+INSERT INTO {_names.Collections}(collection_id, schema_hash, registered_at, native_name, mutation_mode, next_append_position, purge_generation, descriptor_json)
+VALUES ($collection, NULL, $registered, $native, $mode, 0, 0, NULL)
+ON CONFLICT(collection_id) DO UPDATE SET native_name = excluded.native_name, mutation_mode = excluded.mutation_mode;
 """;
             command.CommandTimeout = TimeoutSeconds();
             command.Parameters.AddWithValue("$collection", collectionId);
             command.Parameters.AddWithValue("$registered", DateTimeOffset.UtcNow.ToString("O"));
             command.Parameters.AddWithValue("$native", collection.Table);
+            command.Parameters.AddWithValue("$mode", (int)collection.Definition.MutationMode);
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
 
@@ -331,6 +337,7 @@ ON CONFLICT(collection_id) DO UPDATE SET native_name = excluded.native_name;
             missing.AddRange(await GetMissingMutationJournalColumnsAsync(connection, cancellationToken).ConfigureAwait(false));
             missing.AddRange(await GetMissingReceiptColumnsAsync(connection, cancellationToken).ConfigureAwait(false));
             missing.AddRange(await GetMissingSchemaAuthorityColumnsAsync(connection, cancellationToken).ConfigureAwait(false));
+            missing.AddRange(await GetMissingCollectionStateAsync(connection, cancellationToken).ConfigureAwait(false));
 
             foreach (SqlitePhysicalModel.CollectionModel collection in _physical.Collections)
             {
@@ -445,6 +452,7 @@ ON CONFLICT(collection_id) DO UPDATE SET native_name = excluded.native_name;
         Check(shapes, malformed, collection.Table, "revision", "INTEGER", true, false);
         Check(shapes, malformed, collection.Table, "created_at", "TEXT", true, false);
         Check(shapes, malformed, collection.Table, "updated_at", "TEXT", true, false);
+        Check(shapes, malformed, collection.Table, "append_position", "INTEGER", true, false);
         foreach (SqlitePhysicalModel.FieldModel field in collection.Fields)
         {
             if (field.PresenceColumn is not null) Check(shapes, malformed, collection.Table, field.PresenceColumn, "INTEGER", true, false);
@@ -475,7 +483,7 @@ ON CONFLICT(collection_id) DO UPDATE SET native_name = excluded.native_name;
     private async ValueTask<string[]> GetMissingRecordColumnsAsync(SqliteConnection connection, SqlitePhysicalModel.CollectionModel collection, CancellationToken cancellationToken)
     {
         var missing = new List<string>();
-        IEnumerable<string> columns = new[] { "record_id", "revision", "created_at", "updated_at" }
+        IEnumerable<string> columns = new[] { "record_id", "revision", "created_at", "updated_at", "append_position" }
             .Concat(collection.Fields.SelectMany(static field => field.PresenceColumn is null ? [field.Column] : new[] { field.PresenceColumn, field.Column }))
             .Concat(collection.HasExtensionJson ? ["extension_json"] : []);
         foreach (var column in columns)
@@ -523,6 +531,28 @@ ON CONFLICT(collection_id) DO UPDATE SET native_name = excluded.native_name;
         foreach (string column in new[] { "scope", "operation", "idempotency_key", "fingerprint", "structural_digest", "result_json", "result_format_version", "schema_generation", "store_instance_id", "committed_at", "expires_at" })
             if (!await ColumnExistsAsync(connection, _names.OperationReceipts, column, cancellationToken).ConfigureAwait(false))
                 missing.Add("column:" + _names.OperationReceipts + "." + column);
+        return missing.ToArray();
+    }
+
+    private async ValueTask<string[]> GetMissingCollectionStateAsync(
+        SqliteConnection connection,
+        CancellationToken cancellationToken)
+    {
+        var missing = new List<string>();
+        foreach (string column in new[]
+        {
+            "collection_id", "schema_hash", "registered_at", "native_name",
+            "mutation_mode", "next_append_position", "purge_generation", "descriptor_json"
+        })
+            if (!await ColumnExistsAsync(connection, _names.Collections, column, cancellationToken).ConfigureAwait(false))
+                missing.Add("column:" + _names.Collections + "." + column);
+        if (missing.Count != 0) return missing.ToArray();
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"SELECT value FROM {_names.ProviderState} WHERE key = 'restore_epoch';";
+        command.CommandTimeout = TimeoutSeconds();
+        object? value = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+        if (value is not string text || !long.TryParse(text, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out long epoch) || epoch < 0)
+            missing.Add("state:" + _names.ProviderState + ".restore_epoch");
         return missing.ToArray();
     }
 

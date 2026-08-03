@@ -608,7 +608,7 @@ public sealed partial class SqliteRecordStore
             .Where(asset => asset.LogicalId.StartsWith("f:" + collectionId + ":", StringComparison.Ordinal))
             .Select(static asset => asset.LogicalId.Split(':')[2])
             .ToHashSet(StringComparer.Ordinal);
-        var columns = new List<string> { "record_id", "revision", "created_at", "updated_at" };
+        var columns = new List<string> { "record_id", "revision", "created_at", "updated_at", "append_position" };
         var values = new List<string>(columns);
         foreach (SqlitePhysicalModel.FieldModel field in collection.Fields)
         {
@@ -643,8 +643,9 @@ public sealed partial class SqliteRecordStore
         foreach (CollectionMapping mapping in mappings)
         {
             await using var command = connection.CreateCommand(); command.CommandTimeout = TimeoutSeconds();
-            command.CommandText = $"INSERT INTO {_names.Collections}(collection_id,schema_hash,registered_at,native_name,read_only,descriptor_json) VALUES ($id,NULL,$at,$native,0,NULL) ON CONFLICT(collection_id) DO UPDATE SET native_name=excluded.native_name;";
-            command.Parameters.AddWithValue("$id", mapping.CollectionId); command.Parameters.AddWithValue("$at", _timeProvider.GetUtcNow().ToString("O", CultureInfo.InvariantCulture)); command.Parameters.AddWithValue("$native", mapping.NativeName);
+            CollectionDefinition definition = _options.Collections.Single(item => string.Equals(item.Id, mapping.CollectionId, StringComparison.Ordinal));
+            command.CommandText = $"INSERT INTO {_names.Collections}(collection_id,schema_hash,registered_at,native_name,mutation_mode,next_append_position,purge_generation,descriptor_json) VALUES ($id,NULL,$at,$native,$mode,0,0,NULL) ON CONFLICT(collection_id) DO UPDATE SET native_name=excluded.native_name, mutation_mode=excluded.mutation_mode;";
+            command.Parameters.AddWithValue("$id", mapping.CollectionId); command.Parameters.AddWithValue("$at", _timeProvider.GetUtcNow().ToString("O", CultureInfo.InvariantCulture)); command.Parameters.AddWithValue("$native", mapping.NativeName); command.Parameters.AddWithValue("$mode", (int)definition.MutationMode);
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
     }

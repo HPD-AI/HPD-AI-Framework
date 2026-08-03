@@ -17,3 +17,5 @@ public sealed class HPDBaseTokenProtectionOptions
     /// <summary>Gets or sets retained keys accepted only for decryption or validation.</summary>
     public BaseOpaqueTokenKey[] DecryptionKeys { get; set; } = [];
 }
+
+internal sealed record BaseTokenProtectionRegistration(bool ExplicitlyConfigured);

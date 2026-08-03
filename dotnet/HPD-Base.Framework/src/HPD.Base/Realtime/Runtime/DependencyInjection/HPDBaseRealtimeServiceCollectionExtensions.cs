@@ -27,6 +27,7 @@ public static class HPDBaseRealtimeServiceCollectionExtensions
             ActiveKey = new BaseOpaqueTokenKey { Id = 0, Key = System.Security.Cryptography.RandomNumberGenerator.GetBytes(32) },
         }));
         services.TryAddSingleton<BaseOpaqueTokenProtector>();
+        services.TryAddSingleton(new BaseTokenProtectionRegistration(false));
         services.TryAddSingleton<BaseRealtimeStats>();
         services.TryAddSingleton<BaseRealtimeCursorProtector>();
         services.TryAddSingleton<IBaseRealtimePolicy, DefaultBaseRealtimePolicy>();

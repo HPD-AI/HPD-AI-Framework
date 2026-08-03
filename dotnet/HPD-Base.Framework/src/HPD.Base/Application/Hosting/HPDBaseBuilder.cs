@@ -220,6 +220,7 @@ public sealed class HPDBaseBuilder
         _tokenProtection?.Invoke(tokenOptions);
         ValidateTokenOptions(tokenOptions);
         _services.AddSingleton(Microsoft.Extensions.Options.Options.Create(tokenOptions));
+        _services.AddSingleton(new BaseTokenProtectionRegistration(_tokenProtection is not null));
         _services.TryAddSingleton<BaseOpaqueTokenProtector>();
         _services.AddSingleton<IBaseSchemaPlanProtector, DefaultBaseSchemaPlanProtector>();
         _services.AddSingleton<IBaseSchemaManager, DefaultBaseSchemaManager>();

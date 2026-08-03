@@ -86,10 +86,11 @@ internal sealed partial class InMemoryRecordStore
 
     private RecordPage IncludePage(CollectionDefinition collection, RecordQuery query, InMemoryIncludeState state, HashSet<string>? restrictedIds)
     {
-        StoredRecord[] records = GetCollectionOrNull(state.Snapshot, collection.Id)?.RecordsById.Values.OrderBy(static record => record.AppendPosition).ThenBy(static record => record.Id.Value, StringComparer.Ordinal).ToArray() ?? [];
+        InMemoryCollectionState? collectionState = GetCollectionOrNull(state.Snapshot, collection.Id);
+        StoredRecord[] records = collectionState?.RecordsById.Values.OrderBy(static record => record.AppendPosition).ThenBy(static record => record.Id.Value, StringComparer.Ordinal).ToArray() ?? [];
         var filtered = records.Where(record => (restrictedIds is null || restrictedIds.Contains(record.Id.Value)) && (query.Filter is null || MatchesFilter(record, query.Filter))).ToList();
         var sorted = ApplySort<RecordPage>(filtered, query.Sort); if (sorted.Result is not null) throw new InvalidOperationException();
-        var page = ApplyPage<RecordPage>(sorted.Value!, query, out PageInfo pageInfo); if (page.Result is not null) throw new InvalidOperationException();
+        var page = ApplyPage<RecordPage>(sorted.Value!, query, collection, state.Request.Operation, collectionState, out PageInfo pageInfo); if (page.Result is not null) throw new InvalidOperationException();
         state.Dependencies.Add(collection.Id);
         return new RecordPage { Items = ApplySelect(page.Value!, query.Select).Select(RecordCloneHelpers.CloneEnvelope).ToArray(), Page = pageInfo, Count = query.Count == QueryCountMode.None ? null : new CountInfo { Mode = query.Count, Total = filtered.Count, IsExact = true } };
     }

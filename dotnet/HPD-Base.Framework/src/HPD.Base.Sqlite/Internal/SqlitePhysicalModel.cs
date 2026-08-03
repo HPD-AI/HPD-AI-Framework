@@ -71,7 +71,7 @@ internal sealed class CollectionModel
         internal FieldModel[] Fields { get; }
         internal IndexModel[] Indexes { get; }
         internal bool HasExtensionJson => Definition.SchemaMode == SchemaMode.Loose || Definition.UnknownFields == UnknownFieldPolicy.Preserve;
-        internal string SelectList => string.Join(", ", new[] { "record_id", "revision", "created_at", "updated_at" }
+        internal string SelectList => string.Join(", ", new[] { "record_id", "revision", "created_at", "updated_at", "append_position" }
             .Concat(Fields.SelectMany(static item => item.PresenceColumn is null ? [item.Column] : new[] { item.PresenceColumn, item.Column }))
             .Concat(HasExtensionJson ? Enumerable.Repeat("extension_json", 1) : Enumerable.Empty<string>()));
         internal string PayloadColumns => string.Join(", ", Fields.SelectMany((item, index) => item.PresenceColumn is null ? [item.Column] : new[] { item.PresenceColumn, item.Column })
@@ -93,6 +93,7 @@ internal sealed class CollectionModel
                 "revision INTEGER NOT NULL",
                 "created_at TEXT NOT NULL",
                 "updated_at TEXT NOT NULL",
+                "append_position INTEGER NOT NULL UNIQUE CHECK (append_position > 0)",
             };
             foreach (FieldModel field in Fields)
             {
@@ -121,13 +122,17 @@ internal sealed class CollectionModel
             }
         }
 
-        internal RecordEnvelope ReadEnvelope(SqliteDataReader reader, string storeId)
+        internal RecordEnvelope ReadEnvelope(SqliteDataReader reader, string storeId) =>
+            ReadEnvelope(reader, storeId, out _);
+
+        internal RecordEnvelope ReadEnvelope(SqliteDataReader reader, string storeId, out long appendPosition)
         {
             int ordinal = 0;
             string recordId = reader.GetString(ordinal++);
             long revision = reader.GetInt64(ordinal++);
             DateTimeOffset created = DateTimeOffset.Parse(reader.GetString(ordinal++), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
             DateTimeOffset updated = DateTimeOffset.Parse(reader.GetString(ordinal++), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
+            appendPosition = reader.GetInt64(ordinal++);
             var payload = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
             foreach (FieldModel field in Fields)
             {

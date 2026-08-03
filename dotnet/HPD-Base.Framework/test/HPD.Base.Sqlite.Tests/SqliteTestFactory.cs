@@ -13,6 +13,7 @@ internal static class SqliteTestFactory
         ISqliteSessionOperationController? sessionOperations = null,
         ISqliteTransactionResourceDisposer? transactionResourceDisposer = null,
         ISqliteSchemaCommandController? schemaCommands = null,
+        BaseOpaqueTokenProtector? tokenProtector = null,
         bool initializeSchema = true)
     {
         options ??= new HPDBaseSqliteOptions { Collections = [Collection()] };
@@ -25,6 +26,7 @@ internal static class SqliteTestFactory
             && sessionOperations is null
             && transactionResourceDisposer is null
             && schemaCommands is null
+            && tokenProtector is null
             ? new SqliteRecordStore(options, NullLoggerFactory.Instance)
             : new SqliteRecordStore(
                 options,
@@ -33,7 +35,8 @@ internal static class SqliteTestFactory
                 transactions,
                 sessionOperations,
                 transactionResourceDisposer,
-                schemaCommands);
+                schemaCommands,
+                tokenProtector);
         if (initializeSchema)
             store.InitializeUnacceptedSchemaForTestsAsync().AsTask().GetAwaiter().GetResult();
         return store;

@@ -901,13 +901,15 @@ public sealed partial class SqliteRecordStore
             var now = Now(context.Operation);
             RecordPayload normalizedPayload = SqliteRecordSerializer.NormalizeObjectPayload(request.Payload);
             SqlitePhysicalModel.CollectionModel physical = _owner._physical.Collection(collection.Id);
+            long appendPosition = await AllocateAppendPositionAsync(collection.Id, cancellationToken).ConfigureAwait(false);
             await using var command = _connection.CreateCommand();
             command.Transaction = _transaction;
-            command.CommandText = $"INSERT INTO {physical.Table}(record_id, revision, created_at, updated_at{physical.PayloadColumnClause}) VALUES ($id, 1, $created, $updated{physical.PayloadParameterClause});";
+            command.CommandText = $"INSERT INTO {physical.Table}(record_id, revision, created_at, updated_at, append_position{physical.PayloadColumnClause}) VALUES ($id, 1, $created, $updated, $appendPosition{physical.PayloadParameterClause});";
             command.CommandTimeout = CommandTimeoutSeconds();
             command.Parameters.AddWithValue("$id", id.Value);
             command.Parameters.AddWithValue("$created", now.ToString("O"));
             command.Parameters.AddWithValue("$updated", now.ToString("O"));
+            command.Parameters.AddWithValue("$appendPosition", appendPosition);
             physical.AddPayloadParameters(command, normalizedPayload, includeExtensions: true);
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
             await SyncRelationsAsync(collection.Id, id.Value, normalizedPayload, cancellationToken).ConfigureAwait(false);
@@ -944,6 +946,21 @@ public sealed partial class SqliteRecordStore
             return SqliteResultFactory.WithRevision(
                 OperationResults.Created(value),
                 metadata);
+        }
+
+        private async ValueTask<long> AllocateAppendPositionAsync(
+            string collectionId,
+            CancellationToken cancellationToken)
+        {
+            await using var command = _connection.CreateCommand();
+            command.Transaction = _transaction;
+            command.CommandText = $"UPDATE {_owner._names.Collections} SET next_append_position = next_append_position + 1 WHERE collection_id = $collection RETURNING next_append_position;";
+            command.CommandTimeout = CommandTimeoutSeconds();
+            command.Parameters.AddWithValue("$collection", collectionId);
+            object? value = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+            return value is long position && position > 0
+                ? position
+                : throw new InvalidOperationException("SQLite collection append-position state is unavailable.");
         }
 
         private async ValueTask<OperationResult<RecordMutationSessionResult>> MutateCoreAsync(

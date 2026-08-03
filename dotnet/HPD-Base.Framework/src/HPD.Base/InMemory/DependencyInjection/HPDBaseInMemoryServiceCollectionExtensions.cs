@@ -36,7 +36,22 @@ internal static class HPDBaseInMemoryServiceCollectionExtensions
         services.AddOptions();
         services.TryAddSingleton(options);
         services.TryAddSingleton<IOptions<HPDBaseInMemoryStoreOptions>>(Options.Create(options));
-        services.TryAddSingleton(provider => new InMemoryRecordStore(provider.GetRequiredService<IOptions<HPDBaseInMemoryStoreOptions>>()));
+        services.TryAddSingleton(TimeProvider.System);
+        services.TryAddSingleton<IOptions<HPDBaseTokenProtectionOptions>>(_ => Options.Create(
+            new HPDBaseTokenProtectionOptions
+            {
+                ActiveKey = new BaseOpaqueTokenKey
+                {
+                    Id = 0,
+                    Key = System.Security.Cryptography.RandomNumberGenerator.GetBytes(32)
+                }
+            }));
+        services.TryAddSingleton(new BaseTokenProtectionRegistration(false));
+        services.TryAddSingleton<BaseOpaqueTokenProtector>();
+        services.TryAddSingleton(provider => new InMemoryRecordStore(
+            provider.GetRequiredService<IOptions<HPDBaseInMemoryStoreOptions>>(),
+            provider.GetRequiredService<BaseOpaqueTokenProtector>(),
+            provider.GetRequiredService<TimeProvider>()));
         services.TryAddSingleton<IRecordStore>(provider => provider.GetRequiredService<InMemoryRecordStore>());
         services.TryAddSingleton<IRecordMutationStore>(provider => provider.GetRequiredService<InMemoryRecordStore>());
         services.TryAddSingleton<IAtomicRecordStore>(provider => provider.GetRequiredService<InMemoryRecordStore>());

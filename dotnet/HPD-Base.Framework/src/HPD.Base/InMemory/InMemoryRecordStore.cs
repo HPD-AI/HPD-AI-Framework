@@ -14,6 +14,7 @@ namespace HPD.Base;
 internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreamingRecordStore, IRelationalReadStore, IConsistentRecordIncludeStore
 {
     private readonly HPDBaseInMemoryStoreOptions _options;
+    private readonly BaseQueryCursorCodec _queryCursors;
     private readonly SemaphoreSlim _stateGate = new(1, 1);
     private InMemoryStoreState _publishedState = new();
     private long _generation;
@@ -22,8 +23,11 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
     /// Initializes a new store using configured options.
     /// </summary>
     /// <param name="options">The configured InMemory options.</param>
-    public InMemoryRecordStore(IOptions<HPDBaseInMemoryStoreOptions> options)
-        : this(options.Value)
+    public InMemoryRecordStore(
+        IOptions<HPDBaseInMemoryStoreOptions> options,
+        BaseOpaqueTokenProtector tokenProtector,
+        TimeProvider timeProvider)
+        : this(options.Value, tokenProtector, timeProvider)
     {
     }
 
@@ -32,8 +36,17 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
     /// </summary>
     /// <param name="options">The InMemory options.</param>
     public InMemoryRecordStore(HPDBaseInMemoryStoreOptions? options = null)
+        : this(options, CreateProcessLocalTokenProtector(), TimeProvider.System)
+    {
+    }
+
+    internal InMemoryRecordStore(
+        HPDBaseInMemoryStoreOptions? options,
+        BaseOpaqueTokenProtector tokenProtector,
+        TimeProvider timeProvider)
     {
         _options = options ?? new HPDBaseInMemoryStoreOptions();
+        _queryCursors = new BaseQueryCursorCodec(tokenProtector, timeProvider);
         ValidateOptions(_options);
         Capabilities = CreateCapabilities(_options);
         Includes = new RecordIncludeExecutionCapability
@@ -45,6 +58,16 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             SnapshotConsistency = true,
         };
     }
+
+    private static BaseOpaqueTokenProtector CreateProcessLocalTokenProtector() =>
+        new(Options.Create(new HPDBaseTokenProtectionOptions
+        {
+            ActiveKey = new BaseOpaqueTokenKey
+            {
+                Id = 0,
+                Key = RandomNumberGenerator.GetBytes(32)
+            }
+        }));
 
     /// <inheritdoc />
     public StoreCapabilityDescriptor Capabilities { get; }
@@ -83,7 +106,8 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         }
 
         var published = Volatile.Read(ref _publishedState);
-        var snapshot = GetCollectionOrNull(published, collection.Id)?.RecordsById.Values
+        InMemoryCollectionState? collectionState = GetCollectionOrNull(published, collection.Id);
+        var snapshot = collectionState?.RecordsById.Values
             .OrderBy(record => record.AppendPosition)
             .ThenBy(record => record.Id.Value, StringComparer.Ordinal)
             .ToArray() ?? [];
@@ -106,7 +130,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
 
         var sorted = sortedResult.Value!;
         var total = sorted.Count;
-        var pageResult = ApplyPage<RecordPage>(sorted, query, out var pageInfo);
+        var pageResult = ApplyPage<RecordPage>(sorted, query, collection, context, collectionState, out var pageInfo);
         if (pageResult.Result is not null)
         {
             return ValueTask.FromResult(pageResult.Result);
@@ -918,24 +942,49 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
     private QueryResult<StoredRecord[], T> ApplyPage<T>(
         List<StoredRecord> snapshot,
         RecordQuery query,
+        CollectionDefinition collection,
+        OperationContext context,
+        InMemoryCollectionState? collectionState,
         out PageInfo pageInfo)
     {
         var page = query.Page;
         pageInfo = new PageInfo();
         var limit = page?.Limit ?? page?.PerPage ?? _options.DefaultPageSize;
 
-        int offset;
+        int offset = 0;
+        BaseQueryCursorPayload? cursorPayload = null;
+        QueryCursorGuarantee guarantee = collection.MutationMode is
+            BaseCollectionMutationMode.AppendOnly or
+            BaseCollectionMutationMode.AppendOnlyWithAdministrativePurge
+                ? QueryCursorGuarantee.StableHistory
+                : QueryCursorGuarantee.Seek;
+        long appendHighWater = collectionState?.NextAppendPosition ?? 0;
+        long purgeGeneration = collectionState?.PurgeGeneration ?? 0;
         switch (page?.Mode)
         {
             case QueryPaginationMode.Offset:
                 offset = page.Offset ?? 0;
                 break;
             case QueryPaginationMode.Cursor:
-                if (!DecodeCursor<T>(query, limit, out offset, out var error))
+                if (page.CursorDirection != QueryCursorDirection.After)
                 {
-                    return QueryResult<StoredRecord[], T>.Failure(error!);
+                    return CursorFailure<T>(BaseQueryErrorCodes.CursorDirectionUnsupported,
+                        "The requested cursor direction is not supported.");
                 }
-
+                if (!string.IsNullOrWhiteSpace(page.Cursor))
+                {
+                    BaseQueryCursorReadResult decoded = _queryCursors.Unprotect(
+                        page.Cursor, query, limit, _options.StoreId, collection.Id, context,
+                        restoreEpoch: 0, schemaGeneration: 0, guarantee, purgeGeneration);
+                    if (decoded.Status != BaseQueryCursorStatus.Valid)
+                        return CursorFailure<T>(CursorErrorCode(decoded.Status), "The query cursor cannot be continued.");
+                    cursorPayload = decoded.Payload;
+                    appendHighWater = cursorPayload!.AppendHighWater;
+                    snapshot = snapshot
+                        .Where(record => guarantee != QueryCursorGuarantee.StableHistory || record.AppendPosition <= appendHighWater)
+                        .Where(record => CompareToCursor(record, query.Sort, cursorPayload) > 0)
+                        .ToList();
+                }
                 break;
             case QueryPaginationMode.Page:
             default:
@@ -945,6 +994,30 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
 
         var items = snapshot.Skip(offset).Take(limit).ToArray();
         var nextOffset = offset + items.Length;
+        bool hasMore = nextOffset < snapshot.Count;
+        string? nextCursor = null;
+        if (hasMore && items.Length != 0)
+        {
+            try
+            {
+                nextCursor = _queryCursors.Protect(new BaseQueryCursorPayload
+                {
+                    Guarantee = guarantee,
+                    Direction = QueryCursorDirection.After,
+                    RestoreEpoch = 0,
+                    SchemaGeneration = 0,
+                    AppendHighWater = appendHighWater,
+                    PurgeGeneration = purgeGeneration,
+                    Keys = CursorKeys(items[^1], query.Sort),
+                    RecordId = items[^1].Id.Value
+                }, query, limit, _options.StoreId, collection.Id, context);
+            }
+            catch (BaseQueryCursorKeyTooLargeException)
+            {
+                return CursorFailure<T>(BaseQueryErrorCodes.CursorKeyTooLarge,
+                    "The query ordering key exceeds the cursor bound.");
+            }
+        }
         pageInfo = new PageInfo
         {
             Page = page?.Mode is null or QueryPaginationMode.Page ? page?.Page ?? 1 : null,
@@ -952,83 +1025,56 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             Offset = page?.Mode == QueryPaginationMode.Offset ? offset : null,
             Limit = page?.Mode == QueryPaginationMode.Offset ? limit : null,
             Cursor = page?.Cursor,
-            NextCursor = nextOffset < snapshot.Count ? EncodeCursor(query, limit, nextOffset) : null,
-            HasMore = nextOffset < snapshot.Count
+            NextCursor = nextCursor,
+            HasMore = hasMore
         };
         return QueryResult<StoredRecord[], T>.Success(items);
     }
 
-    private static bool DecodeCursor<T>(
-        RecordQuery query,
-        int limit,
-        out int offset,
-        out OperationResult<T>? error)
+    private static QueryResult<StoredRecord[], T> CursorFailure<T>(string code, string message) =>
+        QueryResult<StoredRecord[], T>.Failure(InMemoryResultFactory.Validation<T>(code, message));
+
+    private static string CursorErrorCode(BaseQueryCursorStatus status) => status switch
     {
-        offset = 0;
-        error = null;
-        var cursor = query.Page?.Cursor;
-        if (string.IsNullOrWhiteSpace(cursor))
-        {
-            return true;
-        }
+        BaseQueryCursorStatus.ScopeMismatch => BaseQueryErrorCodes.CursorScopeMismatch,
+        BaseQueryCursorStatus.QueryMismatch => BaseQueryErrorCodes.CursorQueryMismatch,
+        BaseQueryCursorStatus.Expired => BaseQueryErrorCodes.CursorExpired,
+        BaseQueryCursorStatus.VersionUnsupported => BaseQueryErrorCodes.CursorVersionUnsupported,
+        BaseQueryCursorStatus.SchemaChanged => BaseQueryErrorCodes.CursorSchemaChanged,
+        BaseQueryCursorStatus.RestoreInvalidated => BaseQueryErrorCodes.CursorRestoreInvalidated,
+        BaseQueryCursorStatus.GuaranteeUnavailable => BaseQueryErrorCodes.CursorGuaranteeUnavailable,
+        BaseQueryCursorStatus.DirectionUnsupported => BaseQueryErrorCodes.CursorDirectionUnsupported,
+        BaseQueryCursorStatus.KeyTooLarge => BaseQueryErrorCodes.CursorKeyTooLarge,
+        _ => BaseQueryErrorCodes.CursorInvalid
+    };
 
-        try
-        {
-            var bytes = DecodeBase64Url(cursor);
-            var text = Encoding.UTF8.GetString(bytes);
-            var parts = text.Split(':');
-            if (parts is ["v1", var shape, var encodedLimit, var encodedOffset]
-                && string.Equals(shape, QueryShapeHash(query, limit), StringComparison.Ordinal)
-                && int.TryParse(encodedLimit, NumberStyles.None, CultureInfo.InvariantCulture, out var cursorLimit)
-                && cursorLimit == limit
-                && int.TryParse(encodedOffset, NumberStyles.None, CultureInfo.InvariantCulture, out offset)
-                && offset >= 0)
-            {
-                return true;
-            }
-        }
-        catch (FormatException)
-        {
-        }
-
-        error = InMemoryResultFactory.Validation<T>(
-            InMemoryErrorCodes.InvalidQuery,
-            "Cursor is malformed or unsupported.");
-        return false;
+    private static BaseQueryCursorKey[] CursorKeys(StoredRecord record, QuerySort[]? sort)
+    {
+        if (sort is null || sort.Length == 0)
+            return [new BaseQueryCursorKey(true, record.AppendPosition.ToString(CultureInfo.InvariantCulture))];
+        return sort.Select(item => TryReadField(record.Payload, item.Field, out JsonElement value)
+            ? new BaseQueryCursorKey(true, value.GetRawText())
+            : new BaseQueryCursorKey(false, "null")).ToArray();
     }
 
-    private static string EncodeCursor(RecordQuery query, int limit, int offset) =>
-        EncodeBase64Url(Encoding.UTF8.GetBytes(
-            string.Create(
-                CultureInfo.InvariantCulture,
-                $"v1:{QueryShapeHash(query, limit)}:{limit}:{offset}")));
-
-    private static string EncodeBase64Url(byte[] bytes) =>
-        Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
-
-    private static byte[] DecodeBase64Url(string text)
+    private static int CompareToCursor(StoredRecord record, QuerySort[]? sort, BaseQueryCursorPayload cursor)
     {
-        var base64 = text.Replace('-', '+').Replace('_', '/');
-        var padding = base64.Length % 4;
-        if (padding != 0)
+        if (sort is null || sort.Length == 0)
         {
-            base64 = base64.PadRight(base64.Length + 4 - padding, '=');
+            long value = long.Parse(cursor.Keys[0].Json, CultureInfo.InvariantCulture);
+            int append = record.AppendPosition.CompareTo(value);
+            return append != 0 ? append : string.Compare(record.Id.Value, cursor.RecordId, StringComparison.Ordinal);
         }
-
-        return Convert.FromBase64String(base64);
-    }
-
-    private static string QueryShapeHash(RecordQuery query, int limit)
-    {
-        var builder = new StringBuilder();
-        builder.Append("limit=").Append(limit).Append(';');
-        builder.Append("count=").Append(query.Count).Append(';');
-        AppendFilterShape(builder, query.Filter);
-        AppendSortShape(builder, query.Sort);
-        AppendStringArrayShape(builder, "select", query.Select);
-
-        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(builder.ToString()));
-        return Convert.ToHexString(hash.AsSpan(0, 12));
+        if (cursor.Keys.Length != sort.Length) return 0;
+        for (int index = 0; index < sort.Length; index++)
+        {
+            bool present = TryReadField(record.Payload, sort[index].Field, out JsonElement current);
+            using JsonDocument document = JsonDocument.Parse(cursor.Keys[index].Json);
+            int compared = CompareSortValues(present, current, cursor.Keys[index].Present, document.RootElement, sort[index].Nulls);
+            if (compared != 0)
+                return sort[index].Direction == QuerySortDirection.Desc ? -compared : compared;
+        }
+        return string.Compare(record.Id.Value, cursor.RecordId, StringComparison.Ordinal);
     }
 
     private static void AppendFilterShape(StringBuilder builder, FilterExpression? filter)
@@ -1655,7 +1701,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             {
                 Page = true,
                 Offset = true,
-                Cursor = QueryCursorGuarantee.Seek,
+                Cursor = QueryCursorGuarantee.StableHistory,
                 DefaultLimit = options.DefaultPageSize,
                 MaxLimit = options.MaxPageSize,
                 CursorRequiresStableSort = true

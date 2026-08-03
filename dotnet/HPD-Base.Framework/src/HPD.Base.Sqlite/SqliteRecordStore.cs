@@ -24,6 +24,7 @@ public sealed partial class SqliteRecordStore :
     private readonly SqliteSchemaInitializer _schema;
     private readonly SqliteNames _names;
     private readonly SqlitePhysicalModel _physical;
+    private readonly BaseQueryCursorCodec? _queryCursors;
     private readonly ILogger<SqliteRecordStore> _logger;
     private readonly TimeProvider _timeProvider;
     private readonly ISqliteTransactionController _transactions;
@@ -58,7 +59,8 @@ public sealed partial class SqliteRecordStore :
         ISqliteTransactionController? transactions = null,
         ISqliteSessionOperationController? sessionOperations = null,
         ISqliteTransactionResourceDisposer? transactionResourceDisposer = null,
-        ISqliteSchemaCommandController? schemaCommands = null)
+        ISqliteSchemaCommandController? schemaCommands = null,
+        BaseOpaqueTokenProtector? tokenProtector = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(loggerFactory);
@@ -77,6 +79,7 @@ public sealed partial class SqliteRecordStore :
         _schema = new SqliteSchemaInitializer(_options);
         _names = new SqliteNames(_options);
         _physical = new SqlitePhysicalModel(_options);
+        _queryCursors = tokenProtector is null ? null : new BaseQueryCursorCodec(tokenProtector, timeProvider);
         Includes = new RecordIncludeExecutionCapability
         {
             Supported = true, MaxDepth = 3, MaxIncludes = 8,
@@ -85,7 +88,7 @@ public sealed partial class SqliteRecordStore :
         _mutationExecutionSlots = new SemaphoreSlim(
             _options.MaxTrackedMutationExecutions,
             _options.MaxTrackedMutationExecutions);
-        Capabilities = CreateCapabilities(_options);
+        Capabilities = CreateCapabilities(_options, _queryCursors is not null);
     }
 
     internal int QuarantinedMutationCount => _quarantinedMutations.Count;
@@ -104,6 +107,64 @@ public sealed partial class SqliteRecordStore :
             MutationJournalCutoff(),
             cancellationToken).ConfigureAwait(false);
     }
+
+    private async ValueTask<SqliteCursorState> ReadCursorStateAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        string collectionId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = $"SELECT next_append_position, purge_generation, COALESCE((SELECT CAST(value AS INTEGER) FROM {_names.ProviderState} WHERE key = 'restore_epoch'), 0) FROM {_names.Collections} WHERE collection_id = $collection;";
+        command.CommandTimeout = TimeoutSeconds();
+        command.Parameters.AddWithValue("$collection", collectionId);
+        await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            throw new InvalidOperationException("SQLite collection cursor state is unavailable.");
+        return new SqliteCursorState(reader.GetInt64(0), reader.GetInt64(1), reader.GetInt64(2));
+    }
+
+    private static BaseQueryCursorKey[] SqliteCursorKeys(RecordEnvelope record, QuerySort[] sort) =>
+        sort.Select(item => SqliteCursorKey(record, item.Field)).ToArray();
+
+    private static BaseQueryCursorKey SqliteCursorKey(RecordEnvelope record, string field)
+    {
+        if (field == "id") return new BaseQueryCursorKey(true, JsonString(record.Id.Value));
+        if (field == "revision") return new BaseQueryCursorKey(true, record.Metadata.Revision?.Value ?? "0");
+        if (field == "createdAt") return new BaseQueryCursorKey(true, JsonString(record.Metadata.CreatedAt?.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture) ?? ""));
+        if (field == "updatedAt") return new BaseQueryCursorKey(true, JsonString(record.Metadata.UpdatedAt?.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture) ?? ""));
+        Dictionary<string, JsonElement> fields = SqliteRecordSerializer.NormalizeObjectPayload(record.Payload).Fields ?? [];
+        return fields.TryGetValue(field, out JsonElement value)
+            ? new BaseQueryCursorKey(true, value.GetRawText())
+            : new BaseQueryCursorKey(false, "null");
+    }
+
+    private static string JsonString(string value) =>
+        "\"" + JsonEncodedText.Encode(value).ToString() + "\"";
+
+    private static string QueryCursorErrorCode(BaseQueryCursorStatus status) => status switch
+    {
+        BaseQueryCursorStatus.ScopeMismatch => BaseQueryErrorCodes.CursorScopeMismatch,
+        BaseQueryCursorStatus.QueryMismatch => BaseQueryErrorCodes.CursorQueryMismatch,
+        BaseQueryCursorStatus.Expired => BaseQueryErrorCodes.CursorExpired,
+        BaseQueryCursorStatus.VersionUnsupported => BaseQueryErrorCodes.CursorVersionUnsupported,
+        BaseQueryCursorStatus.SchemaChanged => BaseQueryErrorCodes.CursorSchemaChanged,
+        BaseQueryCursorStatus.RestoreInvalidated => BaseQueryErrorCodes.CursorRestoreInvalidated,
+        BaseQueryCursorStatus.GuaranteeUnavailable => BaseQueryErrorCodes.CursorGuaranteeUnavailable,
+        BaseQueryCursorStatus.DirectionUnsupported => BaseQueryErrorCodes.CursorDirectionUnsupported,
+        BaseQueryCursorStatus.KeyTooLarge => BaseQueryErrorCodes.CursorKeyTooLarge,
+        _ => BaseQueryErrorCodes.CursorInvalid
+    };
+
+    private readonly record struct SqliteCursorState(
+        long AppendHighWater,
+        long PurgeGeneration,
+        long RestoreEpoch);
+
+    private readonly record struct SqliteCursorRow(
+        RecordEnvelope Envelope,
+        long AppendPosition);
 
     /// <inheritdoc />
     public async ValueTask<BaseMutationJournalPage> ReadMutationJournalAsync(
@@ -266,23 +327,74 @@ WHERE event_id = $eventId
         ArgumentNullException.ThrowIfNull(query);
         if (SqliteValidation.ValidateCollectionId<RecordPage>(collection.Id) is { } collectionError) return collectionError;
         if (ValidateRegisteredCollection<RecordPage>(collection.Id) is { } registrationError) return registrationError;
-
         SqlitePhysicalModel.CollectionModel physicalCollection = _physical.Collection(collection.Id);
-        var plan = HPDBaseSqliteTelemetry.TraceQueryPlan(_options.StoreId, collection.Id, query, () => new SqliteQueryPlanner(_options, physicalCollection).Plan(query));
-        if (!plan.Supported)
+        SqliteQueryPlan shapePlan = HPDBaseSqliteTelemetry.TraceQueryPlan(
+            _options.StoreId, collection.Id, query,
+            () => new SqliteQueryPlanner(_options, physicalCollection).Plan(query));
+        if (!shapePlan.Supported)
         {
             HPDBaseSqliteLog.QueryPlanRejected(_logger, "unsupported", SqliteErrorCodes.UnsupportedQuery);
-            return SqliteResultFactory.Unsupported<RecordPage>(SqliteErrorCodes.UnsupportedQuery, "SQLite cannot safely execute this query shape before count/page.", string.Join(",", plan.UnsupportedParts));
+            return SqliteResultFactory.Unsupported<RecordPage>(SqliteErrorCodes.UnsupportedQuery, "SQLite cannot safely execute this query shape before count/page.", string.Join(",", shapePlan.UnsupportedParts));
         }
 
         try
         {
             await using var generationLease = await _schemaGenerationGate.AcquireSharedAsync(cancellationToken).ConfigureAwait(false);
             await using var connection = await OpenInitializedAsync(cancellationToken).ConfigureAwait(false);
+            bool requestedCursor = query.Page?.Mode == QueryPaginationMode.Cursor;
+            bool cursorCapable = _queryCursors is not null
+                && query.Sort is { Length: > 0 }
+                && query.Include is not { Length: > 0 };
+            if (requestedCursor && !cursorCapable)
+                return SqliteResultFactory.Unsupported<RecordPage>(
+                    BaseQueryErrorCodes.CursorGuaranteeUnavailable,
+                    "This SQLite query cannot provide cursor continuation.");
+            if (requestedCursor && query.Page!.CursorDirection != QueryCursorDirection.After)
+                return SqliteResultFactory.Validation<RecordPage>(
+                    BaseQueryErrorCodes.CursorDirectionUnsupported,
+                    "This SQLite query does not support the requested cursor direction.");
+
+            await using SqliteTransaction? readTransaction = cursorCapable
+                ? connection.BeginTransaction()
+                : null;
+            SqliteCursorState cursorState = cursorCapable
+                ? await ReadCursorStateAsync(connection, readTransaction!, collection.Id, cancellationToken).ConfigureAwait(false)
+                : default;
+            QueryCursorGuarantee guarantee = collection.MutationMode is
+                BaseCollectionMutationMode.AppendOnly or
+                BaseCollectionMutationMode.AppendOnlyWithAdministrativePurge
+                    ? QueryCursorGuarantee.StableHistory
+                    : QueryCursorGuarantee.Seek;
+            BaseQueryCursorPayload? cursorPayload = null;
+            if (requestedCursor && !string.IsNullOrWhiteSpace(query.Page!.Cursor))
+            {
+                BaseQueryCursorReadResult decoded = _queryCursors!.Unprotect(
+                    query.Page.Cursor, query, query.Page.Limit ?? _options.DefaultPageSize,
+                    _options.StoreId, collection.Id, context, cursorState.RestoreEpoch,
+                    Volatile.Read(ref _schemaGeneration), guarantee, cursorState.PurgeGeneration);
+                if (decoded.Status != BaseQueryCursorStatus.Valid)
+                    return SqliteResultFactory.Validation<RecordPage>(
+                        QueryCursorErrorCode(decoded.Status),
+                        "The query cursor cannot be continued.");
+                cursorPayload = decoded.Payload;
+            }
+            long? appendHighWater = guarantee == QueryCursorGuarantee.StableHistory && cursorCapable
+                ? cursorPayload?.AppendHighWater ?? cursorState.AppendHighWater
+                : null;
+            var plan = HPDBaseSqliteTelemetry.TraceQueryPlan(
+                _options.StoreId, collection.Id, query,
+                () => new SqliteQueryPlanner(_options, physicalCollection).Plan(query, cursorPayload, appendHighWater));
+            if (!plan.Supported)
+            {
+                HPDBaseSqliteLog.QueryPlanRejected(_logger, "unsupported", SqliteErrorCodes.UnsupportedQuery);
+                return SqliteResultFactory.Unsupported<RecordPage>(SqliteErrorCodes.UnsupportedQuery, "SQLite cannot safely execute this query shape before count/page.", string.Join(",", plan.UnsupportedParts));
+            }
+
             long? total = null;
             if (query.Count != QueryCountMode.None)
             {
                 await using var count = connection.CreateCommand();
+                count.Transaction = readTransaction;
                 count.CommandText = plan.CountSql;
                 count.CommandTimeout = TimeoutSeconds();
                 plan.Bind(count);
@@ -290,15 +402,17 @@ WHERE event_id = $eventId
             }
 
             await using var command = connection.CreateCommand();
+            command.Transaction = readTransaction;
             command.CommandText = plan.SelectSql;
             command.CommandTimeout = TimeoutSeconds();
             plan.Bind(command);
 
-            var rows = new List<RecordEnvelope>();
+            var rows = new List<SqliteCursorRow>();
             await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
-                rows.Add(physicalCollection.ReadEnvelope(reader, _options.StoreId));
+                RecordEnvelope envelope = physicalCollection.ReadEnvelope(reader, _options.StoreId, out long appendPosition);
+                rows.Add(new SqliteCursorRow(envelope, appendPosition));
             }
 
             var requestedLimit = plan.PageInfo.PerPage ?? plan.PageInfo.Limit ?? _options.DefaultPageSize;
@@ -308,8 +422,33 @@ WHERE event_id = $eventId
                 rows.RemoveAt(rows.Count - 1);
             }
 
-            var items = rows.Select(row => row with { Payload = SqliteRecordSerializer.Select(row.Payload, query.Select) }).ToArray();
-            var page = plan.PageInfo with { HasMore = hasMore };
+            string? nextCursor = null;
+            if (hasMore && rows.Count != 0 && cursorCapable)
+            {
+                SqliteCursorRow last = rows[^1];
+                try
+                {
+                    nextCursor = _queryCursors!.Protect(new BaseQueryCursorPayload
+                    {
+                        Guarantee = guarantee,
+                        Direction = QueryCursorDirection.After,
+                        RestoreEpoch = cursorState.RestoreEpoch,
+                        SchemaGeneration = Volatile.Read(ref _schemaGeneration),
+                        AppendHighWater = appendHighWater ?? 0,
+                        PurgeGeneration = cursorState.PurgeGeneration,
+                        Keys = SqliteCursorKeys(last.Envelope, query.Sort!),
+                        RecordId = last.Envelope.Id.Value
+                    }, query, requestedLimit, _options.StoreId, collection.Id, context);
+                }
+                catch (BaseQueryCursorKeyTooLargeException)
+                {
+                    return SqliteResultFactory.Validation<RecordPage>(
+                        BaseQueryErrorCodes.CursorKeyTooLarge,
+                        "The query ordering key exceeds the cursor bound.");
+                }
+            }
+            var items = rows.Select(row => row.Envelope with { Payload = SqliteRecordSerializer.Select(row.Envelope.Payload, query.Select) }).ToArray();
+            var page = plan.PageInfo with { HasMore = hasMore, NextCursor = nextCursor };
             return OperationResults.Ok(new RecordPage
             {
                 Items = items,
@@ -730,7 +869,7 @@ FROM {_names.MutationJournal};
         if (options.QuarantinedMutationDrainTimeout <= TimeSpan.Zero) throw new ArgumentException("SQLite quarantined mutation drain timeout must be positive.", nameof(options));
     }
 
-    private static StoreCapabilityDescriptor CreateCapabilities(HPDBaseSqliteOptions options) => new()
+    private static StoreCapabilityDescriptor CreateCapabilities(HPDBaseSqliteOptions options, bool cursorEnabled) => new()
     {
         StoreId = options.StoreId,
         StoreKind = "sqlite",
@@ -755,7 +894,7 @@ FROM {_names.MutationJournal};
         {
             Filter = new FilterCapability { Supported = true, Operators = [FilterOperator.Equal, FilterOperator.NotEqual, FilterOperator.LessThan, FilterOperator.LessThanOrEqual, FilterOperator.GreaterThan, FilterOperator.GreaterThanOrEqual], BooleanComposition = true, Not = true, NullChecks = true, MissingFieldChecks = true, NestedFieldPaths = false, ArrayMembership = false, MaxDepth = options.MaxFilterDepth, MaxNodes = options.MaxFilterNodes, ExecutionMode = QueryExecutionMode.Native },
             Sort = new SortCapability { Supported = true, MaxFields = options.MaxSortFields, NestedFieldPaths = false, NullOrdering = false, StableTieBreaker = true, DefaultSort = ["updatedAt", "id"] },
-            Pagination = new PaginationCapability { Page = true, Offset = true, Cursor = QueryCursorGuarantee.None, DefaultLimit = options.DefaultPageSize, MaxLimit = options.MaxPageSize, CursorRequiresStableSort = false },
+            Pagination = new PaginationCapability { Page = true, Offset = true, Cursor = cursorEnabled ? QueryCursorGuarantee.StableHistory : QueryCursorGuarantee.None, DefaultLimit = options.DefaultPageSize, MaxLimit = options.MaxPageSize, CursorRequiresStableSort = true },
             Count = new CountCapability { SupportedModes = [QueryCountMode.None, QueryCountMode.IfAvailable, QueryCountMode.Exact], CountMayBeExpensive = false },
             Select = new SelectCapability { PayloadFields = true, SystemFields = false, NestedFieldPaths = false },
             Include = new QueryIncludeCapability { Supported = true, MaxDepth = 3, BackRelations = true, IncludeFilters = true, IncludeSort = true, IncludeLimit = true, ExecutionMode = QueryExecutionMode.Native }

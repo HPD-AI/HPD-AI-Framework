@@ -165,6 +165,76 @@ public sealed class QueryExecutionTests
     }
 
     [Fact]
+    public async Task AppendOnlyCursorExcludesLaterInsertInsideApplicationSortRange()
+    {
+        var store = new InMemoryRecordStore();
+        var collection = InMemoryTestData.Collection() with
+        {
+            MutationMode = BaseCollectionMutationMode.AppendOnly
+        };
+        await Create(store, collection, "a", "open", "1");
+        await Create(store, collection, "c", "open", "2");
+        RecordQuery firstQuery = new()
+        {
+            Sort = [new QuerySort("title")],
+            Page = new QueryPage { Mode = QueryPaginationMode.Page, Page = 1, PerPage = 1 }
+        };
+        OperationContext operation = InMemoryTestData.Operation(BaseOperationKind.List);
+        var first = await store.ListAsync(collection, firstQuery, operation);
+        await Create(store, collection, "b", "open", "3");
+
+        var second = await store.ListAsync(collection, firstQuery with
+        {
+            Page = new QueryPage
+            {
+                Mode = QueryPaginationMode.Cursor,
+                Limit = 1,
+                Cursor = first.Value!.Page.NextCursor
+            }
+        }, operation);
+
+        second.Status.Should().Be(OperationStatus.Ok);
+        second.Value!.Items.Select(item => item.Payload.Fields!["title"].GetString())
+            .Should().Equal("c");
+    }
+
+    [Fact]
+    public async Task CursorIsConfidentialTamperEvidentAndScopeBound()
+    {
+        var store = new InMemoryRecordStore();
+        var collection = InMemoryTestData.Collection();
+        await Create(store, collection, "private-ordering-value-one", "open", "1");
+        await Create(store, collection, "private-ordering-value-two", "open", "2");
+        OperationContext tenantA = InMemoryTestData.Operation(BaseOperationKind.List) with { TenantId = "tenant-a" };
+        RecordQuery firstQuery = new()
+        {
+            Sort = [new QuerySort("title")],
+            Page = new QueryPage { Mode = QueryPaginationMode.Page, Page = 1, PerPage = 1 }
+        };
+        var first = await store.ListAsync(collection, firstQuery, tenantA);
+        string cursor = first.Value!.Page.NextCursor!;
+        byte[] wire = DecodeCursorWire(cursor);
+        wire.AsSpan().IndexOf("private-ordering-value-one"u8).Should().Be(-1);
+
+        int tamperIndex = cursor.Length / 2;
+        string tampered = cursor[..tamperIndex]
+            + (cursor[tamperIndex] == 'A' ? 'B' : 'A')
+            + cursor[(tamperIndex + 1)..];
+        RecordQuery continuation = firstQuery with
+        {
+            Page = new QueryPage { Mode = QueryPaginationMode.Cursor, Limit = 1, Cursor = tampered }
+        };
+        var invalid = await store.ListAsync(collection, continuation, tenantA);
+        var wrongScope = await store.ListAsync(collection, continuation with
+        {
+            Page = continuation.Page! with { Cursor = cursor }
+        }, tenantA with { TenantId = "tenant-b" });
+
+        invalid.Error!.Code.Should().Be(BaseQueryErrorCodes.CursorInvalid);
+        wrongScope.Error!.Code.Should().Be(BaseQueryErrorCodes.CursorScopeMismatch);
+    }
+
+    [Fact]
     public async Task PageModeRejectsPageZero()
     {
         var store = new InMemoryRecordStore();
@@ -228,4 +298,10 @@ public sealed class QueryExecutionTests
         Operator = FilterOperator.Equal,
         Value = new QueryValue { Kind = QueryValueKind.String, String = status }
     };
+
+    private static byte[] DecodeCursorWire(string value)
+    {
+        string text = value.Replace('-', '+').Replace('_', '/');
+        return Convert.FromBase64String(text.PadRight(text.Length + ((4 - text.Length % 4) % 4), '='));
+    }
 }

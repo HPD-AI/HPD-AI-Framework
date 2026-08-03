@@ -44,20 +44,30 @@ internal sealed class BaseOpaqueTokenProtector : IDisposable
     }
 
     public BaseOpaqueTokenResult Unprotect(string purpose, byte version, string tokenText, int expectedPlaintextLength, ReadOnlySpan<byte> scopeDigest)
+        => Unprotect(purpose, version, tokenText, expectedPlaintextLength, expectedPlaintextLength, scopeDigest);
+
+    public BaseOpaqueTokenResult Unprotect(
+        string purpose,
+        byte version,
+        string tokenText,
+        int minimumPlaintextLength,
+        int maximumPlaintextLength,
+        ReadOnlySpan<byte> scopeDigest)
     {
-        if (string.IsNullOrWhiteSpace(purpose) || scopeDigest.Length != 32 || string.IsNullOrWhiteSpace(tokenText) || expectedPlaintextLength < 0 || expectedPlaintextLength > 65_536)
+        if (string.IsNullOrWhiteSpace(purpose) || scopeDigest.Length != 32 || string.IsNullOrWhiteSpace(tokenText) || minimumPlaintextLength < 0 || maximumPlaintextLength < minimumPlaintextLength || maximumPlaintextLength > 65_536)
             return new(BaseOpaqueTokenStatus.Invalid, null);
         byte[] token;
         try { token = Decode(tokenText); } catch (FormatException) { return new(BaseOpaqueTokenStatus.Invalid, null); }
-        if (token.Length != 2 + NonceLength + expectedPlaintextLength + TagLength) return new(BaseOpaqueTokenStatus.Invalid, null);
+        int plaintextLength = token.Length - 2 - NonceLength - TagLength;
+        if (plaintextLength < minimumPlaintextLength || plaintextLength > maximumPlaintextLength) return new(BaseOpaqueTokenStatus.Invalid, null);
         if (!_keys.TryGetValue(token[0], out byte[]? root)) return new(BaseOpaqueTokenStatus.KeyUnavailable, null);
         if (token[1] != version) return new(BaseOpaqueTokenStatus.VersionUnsupported, null);
-        byte[] plaintext = new byte[expectedPlaintextLength];
+        byte[] plaintext = new byte[plaintextLength];
         byte[] key = Derive(root, purpose, version);
         try
         {
             using var aes = new AesGcm(key, TagLength);
-            aes.Decrypt(token.AsSpan(2, NonceLength), token.AsSpan(2 + NonceLength, expectedPlaintextLength), token.AsSpan(2 + NonceLength + expectedPlaintextLength, TagLength), plaintext, Associated(purpose, version, scopeDigest));
+            aes.Decrypt(token.AsSpan(2, NonceLength), token.AsSpan(2 + NonceLength, plaintextLength), token.AsSpan(2 + NonceLength + plaintextLength, TagLength), plaintext, Associated(purpose, version, scopeDigest));
             return new(BaseOpaqueTokenStatus.Valid, plaintext);
         }
         catch (CryptographicException) { CryptographicOperations.ZeroMemory(plaintext); return new(BaseOpaqueTokenStatus.Invalid, null); }
