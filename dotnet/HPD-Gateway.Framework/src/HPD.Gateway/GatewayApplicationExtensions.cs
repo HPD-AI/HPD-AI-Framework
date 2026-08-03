@@ -15,11 +15,26 @@ public static class GatewayApplicationExtensions
         if (marker.IsMapped)
             throw new InvalidOperationException("MapHpdGateway may be called only once for a governed host.");
         foreach (var participant in application.Services
-            .GetServices<IGatewayApplicationPipelineParticipant>())
+            .GetServices<IGatewayApplicationPipelineParticipant>()
+            .OrderBy(static participant => participant.Order))
             participant.Configure(application);
         application.MapHpdGatewayHealth();
         application.MapHpdGatewayReverseProxy();
         return application;
+    }
+}
+
+internal sealed class GatewayNativePolicyPipeline(GatewayCompositionState state) :
+    IGatewayApplicationPipelineParticipant
+{
+    public int Order => 100;
+
+    public void Configure(IApplicationBuilder application)
+    {
+        if (!state.CorsPolicies.IsEmpty) application.UseCors();
+        if (!state.AuthorizationPolicies.IsEmpty) application.UseAuthorization();
+        if (!state.TrafficAdmissionPolicies.IsEmpty) application.UseRateLimiter();
+        if (!state.RequestTimeoutPolicies.IsEmpty) application.UseRequestTimeouts();
     }
 }
 

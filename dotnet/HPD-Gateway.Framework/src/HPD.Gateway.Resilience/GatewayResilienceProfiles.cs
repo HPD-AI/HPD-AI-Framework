@@ -278,8 +278,34 @@ public static class GatewayResilienceServiceCollectionExtensions
         var builder = new GatewayResilienceRegistryBuilder();
         configure(builder);
         var registry = builder.Build();
+        return AddRegistry(services, registry);
+    }
+
+    private static IServiceCollection AddRegistry(
+        IServiceCollection services,
+        GatewayResilienceRegistry registry)
+    {
         services.AddSingleton(registry);
         services.AddSingleton<GatewayUpstreamResilienceProvider>(registry);
         return services;
+    }
+}
+
+public static class GatewayResilienceBuilderExtensions
+{
+    public static GatewayBuilder AddUpstreamResilience(
+        this GatewayBuilder gateway,
+        Action<GatewayResilienceRegistryBuilder> configure)
+    {
+        ArgumentNullException.ThrowIfNull(gateway);
+        ArgumentNullException.ThrowIfNull(configure);
+        gateway.ThrowIfSealed();
+        var builder = new GatewayResilienceRegistryBuilder();
+        configure(builder);
+        var registry = builder.Build();
+        gateway.Services.AddSingleton(registry);
+        gateway.Services.AddSingleton<GatewayUpstreamResilienceProvider>(registry);
+        gateway.AddResilienceCapabilities(registry.Capabilities);
+        return gateway;
     }
 }

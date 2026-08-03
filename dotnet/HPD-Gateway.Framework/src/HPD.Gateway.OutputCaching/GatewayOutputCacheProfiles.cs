@@ -174,6 +174,7 @@ internal sealed class HpdOutputCachePipelineMarker :
 {
     internal int UseCount { get; set; }
     internal bool IsMapped { get; set; }
+    int IGatewayApplicationPipelineParticipant.Order => 200;
     bool IGatewayEndpointMappingParticipant.IsMapped => IsMapped;
     void IGatewayEndpointMappingParticipant.MarkMapped() => IsMapped = true;
 
@@ -216,6 +217,24 @@ public static class GatewayOutputCacheExtensions
         var builder = new GatewayOutputCacheRegistryBuilder();
         configure(builder);
         var registry = builder.Build();
+        return AddRegistry(services, registry);
+    }
+
+    internal static IServiceCollection AddHpdGatewayOutputCaching(
+        this IServiceCollection services,
+        GatewayOutputCacheRegistry registry)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(registry);
+        if (services.Any(static descriptor => descriptor.ServiceType == typeof(GatewayOutputCacheRegistry)))
+            throw new InvalidOperationException("HPD Output Cache may be registered only once.");
+        return AddRegistry(services, registry);
+    }
+
+    private static IServiceCollection AddRegistry(
+        IServiceCollection services,
+        GatewayOutputCacheRegistry registry)
+    {
         services.AddSingleton(registry);
         services.AddSingleton<IGatewayOutputCacheRuntimeCapabilityProvider>(registry);
         services.AddOutputCache(options =>
@@ -255,5 +274,23 @@ public static class GatewayOutputCacheExtensions
         var marker = application.ApplicationServices.GetRequiredService<HpdOutputCachePipelineMarker>();
         ((IGatewayApplicationPipelineParticipant)marker).Configure(application);
         return application;
+    }
+}
+
+public static class GatewayOutputCacheBuilderExtensions
+{
+    public static GatewayBuilder AddOutputCaching(
+        this GatewayBuilder gateway,
+        Action<GatewayOutputCacheRegistryBuilder> configure)
+    {
+        ArgumentNullException.ThrowIfNull(gateway);
+        ArgumentNullException.ThrowIfNull(configure);
+        gateway.ThrowIfSealed();
+        var builder = new GatewayOutputCacheRegistryBuilder();
+        configure(builder);
+        var registry = builder.Build();
+        gateway.Services.AddHpdGatewayOutputCaching(registry);
+        gateway.AddOutputCacheCapabilities(registry.Capabilities);
+        return gateway;
     }
 }

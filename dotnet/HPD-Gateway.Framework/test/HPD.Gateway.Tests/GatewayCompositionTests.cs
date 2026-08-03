@@ -1,11 +1,15 @@
 using System.Collections.Immutable;
 using System.Net;
 using System.Text.Json;
+using System.Threading.RateLimiting;
 using FluentAssertions;
 using HPD.Gateway.Abstractions;
 using HPD.Gateway.Abstractions.Serialization;
 using HPD.Gateway.Core;
 using HPD.Gateway.Hosting;
+using HPD.Gateway.Inspection;
+using HPD.Gateway.OutputCaching;
+using HPD.Gateway.Resilience;
 using HPD.Gateway.Status;
 using HPD.Gateway.Yarp;
 using Microsoft.AspNetCore.Builder;
@@ -79,6 +83,58 @@ public sealed class GatewayCompositionTests
         listener.Protocols.Should().Be(ListenerProtocols.Http1 | ListenerProtocols.Http2);
         listener.Hostnames.Should().Equal("*.example", "exact.example");
         listener.Tls.Should().BeTrue();
+    }
+
+    [Fact]
+    public void OptionalRegistriesContributeCapabilitiesFromTheExactRuntimeTransaction()
+    {
+        var services = new ServiceCollection();
+        services.AddHpdGateway(builder =>
+        {
+            builder.AddCoreFamilies();
+            builder.AddRequestInspection(registry => registry.Add("inspector", new AllowInspector()), allowFileSpill: true);
+            builder.ProtectCredentialHeaders("X-Api-Key");
+            builder.AddAuthorizationPolicy("auth", policy => policy.RequireAssertion(_ => true));
+            builder.AddCorsPolicy("cors", policy => policy.AllowAnyOrigin());
+            builder.AddTrafficAdmissionPolicy("admission", static _ =>
+                RateLimitPartition.GetNoLimiter("global"));
+            builder.AddRequestTimeoutPolicy("timeout", TimeSpan.FromSeconds(5));
+            builder.AddUpstreamResilience(registry => registry.Add(new GatewayResilienceProfile
+            {
+                Name = "safe",
+                Version = 3,
+                Retry = new GatewayResponseRetryProfile
+                {
+                    StatusCodes = [HttpStatusCode.ServiceUnavailable],
+                    MaximumRetryAttempts = 2
+                }
+            }));
+            builder.AddOutputCaching(registry => registry.Add(new GatewayOutputCacheProfile
+            {
+                Name = "cache",
+                Version = 4,
+                Expiration = TimeSpan.FromMinutes(2)
+            }));
+        });
+
+        using var provider = services.BuildServiceProvider();
+        var capabilities = provider.GetRequiredService<HostCapabilitySnapshot>();
+        capabilities.InstalledFamilies.Should().HaveFlag(GatewayDeclarationFamilies.Inspection);
+        capabilities.InstalledFamilies.Should().HaveFlag(GatewayDeclarationFamilies.UpstreamResilience);
+        capabilities.InstalledFamilies.Should().HaveFlag(GatewayDeclarationFamilies.OutputCache);
+        capabilities.RequestInspectors.Should().ContainSingle().Which.Should().Be("inspector");
+        capabilities.AllowInspectionFileSpill.Should().BeTrue();
+        capabilities.ProtectedCredentialHeaders.Should().Contain("x-api-key");
+        capabilities.AuthorizationPolicies.Should().ContainSingle("auth");
+        capabilities.CorsPolicies.Should().ContainSingle("cors");
+        capabilities.TrafficAdmissionPolicies.Should().ContainSingle("admission");
+        capabilities.RequestTimeoutPolicies.Should().ContainSingle("timeout");
+        capabilities.UpstreamResilienceProfiles["safe"].Version.Should().Be(3);
+        capabilities.OutputCacheProfiles["cache"].Version.Should().Be(4);
+        provider.GetHpdGatewayResilienceCapabilities()
+            .Should().BeEquivalentTo(capabilities.UpstreamResilienceProfiles.Values);
+        provider.GetHpdGatewayOutputCacheCapabilities()
+            .Should().BeEquivalentTo(capabilities.OutputCacheProfiles.Values);
     }
 
     [Fact]
@@ -314,4 +370,12 @@ public sealed class GatewayCompositionTests
         .GetRequiredService<IServer>()
         .Features.Get<IServerAddressesFeature>()!
         .Addresses.Single();
+
+    private sealed class AllowInspector : IGatewayRequestInspector
+    {
+        public ValueTask<GatewayInspectionDecision> InspectAsync(
+            GatewayInspectionContext context,
+            CancellationToken cancellationToken) =>
+            ValueTask.FromResult(GatewayInspectionDecision.Allow());
+    }
 }

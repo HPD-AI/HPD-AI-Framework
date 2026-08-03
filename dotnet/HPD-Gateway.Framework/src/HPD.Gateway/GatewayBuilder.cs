@@ -1,5 +1,15 @@
-using HPD.Gateway.Core;
 using System.Collections.Immutable;
+using System.Threading.RateLimiting;
+using HPD.Gateway.Abstractions;
+using HPD.Gateway.Core;
+using HPD.Gateway.Inspection;
+using HPD.Gateway.Yarp;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Cors.Infrastructure;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Timeouts;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Gateway;
@@ -9,6 +19,15 @@ public sealed class GatewayBuilder
     private bool _sealed;
     private GatewayDeclarationFamilies _installedFamilies;
     private GatewayNodeActivationRequest? _initialCandidate;
+    private ImmutableArray<string> _requestInspectors = [];
+    private ImmutableArray<UpstreamResilienceCapability> _resilienceProfiles = [];
+    private ImmutableArray<OutputCacheCapability> _outputCacheProfiles = [];
+    private ImmutableArray<string> _protectedCredentialHeaders = [];
+    private readonly HashSet<string> _authorizationPolicies = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _corsPolicies = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _trafficAdmissionPolicies = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _requestTimeoutPolicies = new(StringComparer.Ordinal);
+    private bool _allowInspectionFileSpill;
 
     internal GatewayBuilder(IServiceCollection services) => Services = services;
 
@@ -39,11 +58,108 @@ public sealed class GatewayBuilder
         return this;
     }
 
+    public GatewayBuilder AddRequestInspection(
+        Action<GatewayInspectionRegistryBuilder> configure,
+        bool allowFileSpill = false)
+    {
+        ThrowIfSealed();
+        ArgumentNullException.ThrowIfNull(configure);
+        if (!_requestInspectors.IsEmpty)
+            throw new InvalidOperationException("Request inspection is already registered.");
+        var registryBuilder = new GatewayInspectionRegistryBuilder();
+        configure(registryBuilder);
+        var registry = registryBuilder.Build();
+        if (registry.Names.IsEmpty)
+            throw new InvalidOperationException("At least one request inspector must be registered.");
+        Services.AddHpdGatewayYarpInspection(registry);
+        _requestInspectors = registry.Names;
+        _allowInspectionFileSpill = allowFileSpill;
+        _installedFamilies |= GatewayDeclarationFamilies.Inspection;
+        return this;
+    }
+
+    public GatewayBuilder ProtectCredentialHeaders(params string[] headerNames)
+    {
+        ThrowIfSealed();
+        ArgumentNullException.ThrowIfNull(headerNames);
+        if (!_protectedCredentialHeaders.IsEmpty)
+            throw new InvalidOperationException("Protected credential headers are already registered.");
+        _protectedCredentialHeaders = ImmutableArray.CreateRange(headerNames);
+        return this;
+    }
+
+    public GatewayBuilder AddAuthorizationPolicy(
+        string name,
+        Action<AuthorizationPolicyBuilder> configure)
+    {
+        ArgumentNullException.ThrowIfNull(configure);
+        AddPolicyName(name, _authorizationPolicies, GatewayDeclarationFamilies.Authorization);
+        Services.AddAuthorizationBuilder().AddPolicy(name, configure);
+        return this;
+    }
+
+    public GatewayBuilder AddCorsPolicy(string name, Action<CorsPolicyBuilder> configure)
+    {
+        ArgumentNullException.ThrowIfNull(configure);
+        AddPolicyName(name, _corsPolicies, GatewayDeclarationFamilies.Cors);
+        Services.AddCors(options => options.AddPolicy(name, configure));
+        return this;
+    }
+
+    public GatewayBuilder AddTrafficAdmissionPolicy<TPartitionKey>(
+        string name,
+        Func<HttpContext, RateLimitPartition<TPartitionKey>> partitioner)
+        where TPartitionKey : notnull
+    {
+        ArgumentNullException.ThrowIfNull(partitioner);
+        AddPolicyName(name, _trafficAdmissionPolicies, GatewayDeclarationFamilies.TrafficAdmission);
+        Services.AddRateLimiter(options => options.AddPolicy(name, partitioner));
+        return this;
+    }
+
+    public GatewayBuilder AddRequestTimeoutPolicy(string name, TimeSpan timeout)
+    {
+        if (timeout <= TimeSpan.Zero || timeout > TimeSpan.FromDays(1))
+            throw new ArgumentOutOfRangeException(nameof(timeout));
+        AddPolicyName(name, _requestTimeoutPolicies, GatewayDeclarationFamilies.RequestTimeout);
+        Services.AddRequestTimeouts(options => options.AddPolicy(name, timeout));
+        return this;
+    }
+
+    internal void AddResilienceCapabilities(ImmutableArray<UpstreamResilienceCapability> capabilities)
+    {
+        ThrowIfSealed();
+        if (!_resilienceProfiles.IsEmpty || capabilities.IsDefaultOrEmpty)
+            throw new InvalidOperationException("A nonempty resilience registry may be contributed only once.");
+        _resilienceProfiles = capabilities;
+        _installedFamilies |= GatewayDeclarationFamilies.UpstreamResilience;
+    }
+
+    internal void AddOutputCacheCapabilities(ImmutableArray<OutputCacheCapability> capabilities)
+    {
+        ThrowIfSealed();
+        if (!_outputCacheProfiles.IsEmpty || capabilities.IsDefaultOrEmpty)
+            throw new InvalidOperationException("A nonempty Output Cache registry may be contributed only once.");
+        _outputCacheProfiles = capabilities;
+        _installedFamilies |= GatewayDeclarationFamilies.OutputCache;
+    }
+
     internal GatewayCompositionState Seal()
     {
         ThrowIfSealed();
         _sealed = true;
-        return new GatewayCompositionState(_installedFamilies, _initialCandidate);
+        return new GatewayCompositionState(
+            _installedFamilies,
+            _initialCandidate,
+            _requestInspectors,
+            _resilienceProfiles,
+            _outputCacheProfiles,
+            _protectedCredentialHeaders,
+            _authorizationPolicies.Order(StringComparer.Ordinal).ToImmutableArray(),
+            _corsPolicies.Order(StringComparer.Ordinal).ToImmutableArray(),
+            _trafficAdmissionPolicies.Order(StringComparer.Ordinal).ToImmutableArray(),
+            _requestTimeoutPolicies.Order(StringComparer.Ordinal).ToImmutableArray(),
+            _allowInspectionFileSpill);
     }
 
     internal void ThrowIfSealed()
@@ -51,10 +167,30 @@ public sealed class GatewayBuilder
         if (_sealed)
             throw new InvalidOperationException("The HPD Gateway composition is already sealed.");
     }
+
+    private void AddPolicyName(
+        string name,
+        HashSet<string> names,
+        GatewayDeclarationFamilies family)
+    {
+        ThrowIfSealed();
+        if (!GatewayIdentifier.IsCanonical(name) || !names.Add(name))
+            throw new ArgumentException("Policy names must be canonical and unique.", nameof(name));
+        _installedFamilies |= family;
+    }
 }
 
 internal sealed record GatewayCompositionState(
     GatewayDeclarationFamilies InstalledFamilies,
-    GatewayNodeActivationRequest? InitialCandidate);
+    GatewayNodeActivationRequest? InitialCandidate,
+    ImmutableArray<string> RequestInspectors,
+    ImmutableArray<UpstreamResilienceCapability> ResilienceProfiles,
+    ImmutableArray<OutputCacheCapability> OutputCacheProfiles,
+    ImmutableArray<string> ProtectedCredentialHeaders,
+    ImmutableArray<string> AuthorizationPolicies,
+    ImmutableArray<string> CorsPolicies,
+    ImmutableArray<string> TrafficAdmissionPolicies,
+    ImmutableArray<string> RequestTimeoutPolicies,
+    bool AllowInspectionFileSpill);
 
 internal sealed class HpdGatewayCompositionMarker;

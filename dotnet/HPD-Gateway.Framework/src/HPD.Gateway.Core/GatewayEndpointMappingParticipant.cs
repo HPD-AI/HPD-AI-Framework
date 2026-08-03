@@ -10,5 +10,6 @@ internal interface IGatewayEndpointMappingParticipant
 
 internal interface IGatewayApplicationPipelineParticipant
 {
+    int Order { get; }
     void Configure(IApplicationBuilder application);
 }

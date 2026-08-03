@@ -36,6 +36,7 @@ public static class GatewayServiceCollectionExtensions
         staged.AddSingleton<HpdGatewayMappingMarker>();
         staged.AddSingleton<IGatewayEndpointMappingParticipant>(static provider =>
             provider.GetRequiredService<HpdGatewayMappingMarker>());
+        staged.AddSingleton<IGatewayApplicationPipelineParticipant, GatewayNativePolicyPipeline>();
         staged.AddSingleton<GatewayNodeActivator>();
         staged.AddSingleton<IGatewayNodeActivator>(static provider =>
             provider.GetRequiredService<GatewayNodeActivator>());
@@ -66,7 +67,16 @@ public static class GatewayServiceCollectionExtensions
         return HostCapabilitySnapshot.Create(new HostCapabilityRegistration
         {
             Listeners = listeners,
-            InstalledFamilies = state.InstalledFamilies
+            InstalledFamilies = state.InstalledFamilies,
+            RequestInspectors = state.RequestInspectors,
+            UpstreamResilienceProfiles = state.ResilienceProfiles,
+            OutputCacheProfiles = state.OutputCacheProfiles,
+            ProtectedCredentialHeaders = state.ProtectedCredentialHeaders,
+            AuthorizationPolicies = state.AuthorizationPolicies,
+            CorsPolicies = state.CorsPolicies,
+            TrafficAdmissionPolicies = state.TrafficAdmissionPolicies,
+            RequestTimeoutPolicies = state.RequestTimeoutPolicies,
+            AllowInspectionFileSpill = state.AllowInspectionFileSpill
         });
     }
 

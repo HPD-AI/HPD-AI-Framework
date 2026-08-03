@@ -77,10 +77,29 @@ public static class GatewayInspectionYarpExtensions
         if (services.Any(static descriptor => descriptor.ServiceType == typeof(GatewayInspectionRegistry)))
             throw new InvalidOperationException("HPD request inspection can be registered only once.");
         services.AddHpdGatewayInspection(configure);
+        AddPipelineServices(services);
+        return services;
+    }
+
+    internal static IServiceCollection AddHpdGatewayYarpInspection(
+        this IServiceCollection services,
+        GatewayInspectionRegistry registry)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(registry);
+        if (services.Any(static descriptor => descriptor.ServiceType == typeof(GatewayInspectionRegistry)))
+            throw new InvalidOperationException("HPD request inspection can be registered only once.");
+        services.AddSingleton(registry);
+        services.AddSingleton<GatewayInspectionExecutor>();
+        AddPipelineServices(services);
+        return services;
+    }
+
+    private static void AddPipelineServices(IServiceCollection services)
+    {
         services.AddSingleton<HpdInspectionPipelineMarker>();
         services.AddSingleton<IGatewayEndpointMappingParticipant>(static provider => provider.GetRequiredService<HpdInspectionPipelineMarker>());
         services.AddSingleton<IHostedService, HpdInspectionPipelineGuard>();
-        return services;
     }
 
     public static ReverseProxyConventionBuilder MapHpdGatewayReverseProxy(this IEndpointRouteBuilder endpoints)

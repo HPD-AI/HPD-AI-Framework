@@ -22,6 +22,7 @@ public sealed class GatewayInspectionRegistryBuilder
 internal sealed class GatewayInspectionRegistry(ImmutableDictionary<string, IGatewayRequestInspector> inspectors)
 {
     private readonly ImmutableDictionary<string, IGatewayRequestInspector> _inspectors = inspectors;
+    internal ImmutableArray<string> Names { get; } = inspectors.Keys.Order(StringComparer.Ordinal).ToImmutableArray();
     internal bool TryGet(string name, out IGatewayRequestInspector inspector) => _inspectors.TryGetValue(name, out inspector!);
 }
 

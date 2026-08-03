@@ -15,5 +15,6 @@
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference Include="../HPD.Gateway.Abstractions/HPD.Gateway.Abstractions.csproj" />
     <ProjectReference Include="../HPD.Gateway.Core/HPD.Gateway.Core.csproj" />
+    <ProjectReference Include="../HPD.Gateway/HPD.Gateway.csproj" />
   </ItemGroup>
 </Project>
