@@ -26,6 +26,7 @@ internal sealed class DefaultBaseMutationProcessor(
         if (_attempts.Count != 0 || committedMutations.Length != commands.Length)
             return Failed(Error(BaseMutationRequestErrorCodes.ReceiptUnavailable, "The stored receipt is unavailable.", ErrorCategory.Authorization));
 
+        var projectedMutations = new BaseRecordMutationFact[committedMutations.Length];
         for (var index = 0; index < committedMutations.Length; index++)
         {
             BaseMutationCommand command = commands[index];
@@ -33,6 +34,9 @@ internal sealed class DefaultBaseMutationProcessor(
             if (!string.Equals(mutation.Collection.Id, command.Collection.Id, StringComparison.Ordinal)
                 || mutation.RequestedOperation != command.Kind)
                 return Failed(Error(BaseMutationRequestErrorCodes.ReceiptUnavailable, "The stored receipt is unavailable.", ErrorCategory.Authorization));
+            if (!TryProjectReceiptMutation(mutation, command.Collection, out mutation))
+                return Failed(Error(BaseMutationRequestErrorCodes.ReceiptUnavailable, "The stored receipt is unavailable.", ErrorCategory.Authorization));
+            projectedMutations[index] = mutation;
 
             RecordEnvelope? resource = mutation.After ?? mutation.Before;
             OperationResult<BasePolicyEvaluation> policyResult = await policy.EvaluateReadAsync(new BasePolicyRequest
@@ -73,7 +77,108 @@ internal sealed class DefaultBaseMutationProcessor(
             });
         }
 
-        return new AtomicMutationProcessingResult(AtomicMutationProcessingOutcome.ReadyToCommit, committedMutations);
+        return new AtomicMutationProcessingResult(AtomicMutationProcessingOutcome.ReadyToCommit, projectedMutations);
+    }
+
+    internal static bool TryProjectReceiptMutation(
+        BaseRecordMutationFact stored,
+        CollectionDefinition currentCollection,
+        out BaseRecordMutationFact projected)
+    {
+        Dictionary<string, FieldDefinition> storedByName = (stored.Collection.Fields ?? [])
+            .ToDictionary(static field => field.Name, StringComparer.Ordinal);
+        Dictionary<string, FieldDefinition> currentById = (currentCollection.Fields ?? [])
+            .ToDictionary(static field => field.Id, StringComparer.Ordinal);
+
+        bool ProjectEnvelope(RecordEnvelope? source, out RecordEnvelope? target)
+        {
+            target = source;
+            if (source is null) return true;
+            Dictionary<string, JsonElement>? sourceFields = source.Payload.Kind switch
+            {
+                RecordPayloadKind.FieldMap => source.Payload.Fields,
+                RecordPayloadKind.Json when source.Payload.Json.ValueKind == JsonValueKind.Object =>
+                    source.Payload.Json.EnumerateObject().ToDictionary(
+                        static property => property.Name,
+                        static property => property.Value.Clone(),
+                        StringComparer.Ordinal),
+                _ => null,
+            };
+            if (sourceFields is null) return false;
+            var fields = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+            foreach ((string name, JsonElement value) in sourceFields)
+            {
+                if (storedByName.TryGetValue(name, out FieldDefinition? oldField))
+                {
+                    if (!currentById.TryGetValue(oldField.Id, out FieldDefinition? currentField)
+                        || !string.Equals(oldField.Type, currentField.Type, StringComparison.Ordinal)
+                        || !string.Equals(oldField.Format, currentField.Format, StringComparison.Ordinal)
+                        || !fields.TryAdd(currentField.Name, value.Clone()))
+                        return false;
+                }
+                else
+                {
+                    if (stored.Collection.UnknownFields != UnknownFieldPolicy.Preserve
+                        || currentCollection.UnknownFields != UnknownFieldPolicy.Preserve
+                        || !fields.TryAdd(name, value.Clone()))
+                        return false;
+                }
+            }
+
+            target = source with
+            {
+                Payload = new RecordPayload { Kind = RecordPayloadKind.FieldMap, Fields = fields },
+            };
+            return true;
+        }
+
+        if (!ProjectEnvelope(stored.Before, out RecordEnvelope? before)
+            || !ProjectEnvelope(stored.After, out RecordEnvelope? after)
+            || !ProjectEnvelope(stored.Delete?.Previous, out RecordEnvelope? deletedPrevious))
+        {
+            projected = stored;
+            return false;
+        }
+
+        string[]? changedFields = stored.ChangedFields;
+        if (changedFields is not null)
+        {
+            var mapped = new string[changedFields.Length];
+            for (var index = 0; index < changedFields.Length; index++)
+            {
+                string name = changedFields[index];
+                if (storedByName.TryGetValue(name, out FieldDefinition? oldField))
+                {
+                    if (!currentById.TryGetValue(oldField.Id, out FieldDefinition? currentField))
+                    {
+                        projected = stored;
+                        return false;
+                    }
+                    mapped[index] = currentField.Name;
+                }
+                else if (stored.Collection.UnknownFields == UnknownFieldPolicy.Preserve
+                    && currentCollection.UnknownFields == UnknownFieldPolicy.Preserve)
+                {
+                    mapped[index] = name;
+                }
+                else
+                {
+                    projected = stored;
+                    return false;
+                }
+            }
+            changedFields = mapped;
+        }
+
+        projected = stored with
+        {
+            Collection = currentCollection,
+            Before = before,
+            After = after,
+            Delete = stored.Delete is null ? null : stored.Delete with { Previous = deletedPrevious },
+            ChangedFields = changedFields,
+        };
+        return true;
     }
 
     /// <summary>Executes the process async operation.</summary>
