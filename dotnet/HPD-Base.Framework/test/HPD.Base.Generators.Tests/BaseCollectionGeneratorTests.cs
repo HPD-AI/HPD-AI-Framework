@@ -133,6 +133,35 @@ public sealed class BaseCollectionGeneratorTests
     }
 
     [Fact]
+    public void AppendOnlyGenerationExposesContractMetadataButNoMutationOrPurgeHelpers()
+    {
+        const string source = """
+            using HPD.Base;
+            using System.Text.Json.Serialization;
+
+            [BaseCollection("history", typeof(AppJsonContext), MutationMode = BaseCollectionMutationMode.AppendOnlyWithAdministrativePurge)]
+            public partial record History
+            {
+                [BaseField("history.value")]
+                public required string Value { get; init; }
+            }
+
+            [JsonSerializable(typeof(History))]
+            public partial class AppJsonContext : JsonSerializerContext;
+            """;
+
+        GeneratorResult result = Run(source);
+
+        result.Diagnostics.Should().BeEmpty();
+        result.GeneratedSource.Should().Contain("MutationMode = global::HPD.Base.BaseCollectionMutationMode.AppendOnlyWithAdministrativePurge");
+        result.GeneratedSource.Should().NotContain("CreateAsync");
+        result.GeneratedSource.Should().NotContain("PatchAsync");
+        result.GeneratedSource.Should().NotContain("ReplaceAsync");
+        result.GeneratedSource.Should().NotContain("DeleteAsync");
+        result.GeneratedSource.Should().NotContain("PurgeAsync");
+    }
+
+    [Fact]
     public void UnsupportedPayloadFieldReportsAtTheField()
     {
         const string source = """
