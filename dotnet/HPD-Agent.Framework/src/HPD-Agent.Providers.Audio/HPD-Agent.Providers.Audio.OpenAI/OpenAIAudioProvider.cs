@@ -17,6 +17,15 @@ namespace HPD.Agent.Providers.Audio.OpenAI;
 
 #pragma warning disable OPENAI002
 
+[HpdProvider("openai", "OpenAI")]
+[HpdProviderFamily(ProviderClientFamily.SpeechToText)]
+[HpdProviderFamily(ProviderClientFamily.TextToSpeech)]
+[HpdProviderFamily(ProviderClientFamily.Realtime)]
+[HpdProviderPayload(ProviderClientFamily.SpeechToText, ProviderPayloadKind.Configuration, typeof(OpenAISttConfig), typeof(OpenAISttJsonContext))]
+[HpdProviderPayload(ProviderClientFamily.TextToSpeech, ProviderPayloadKind.Configuration, typeof(OpenAITtsConfig), typeof(OpenAITtsJsonContext))]
+[HpdProviderPayload(ProviderClientFamily.Realtime, ProviderPayloadKind.Configuration, typeof(OpenAIRealtimeConfig), typeof(OpenAIRealtimeJsonContext))]
+[HpdProviderSecretAlias("openai:ApiKey", "OPENAI_API_KEY")]
+[HpdProviderSecretAlias("openai:Endpoint", "OPENAI_ENDPOINT")]
 public sealed class OpenAIAudioProvider : ISpeechToTextClientProvider, ITextToSpeechClientProvider, IRealtimeClientProvider
 {
     public const string Key = "openai";

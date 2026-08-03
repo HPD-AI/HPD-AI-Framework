@@ -1,4 +1,5 @@
 using System.ClientModel;
+using System.Text.Json;
 using HPD.Agent;
 using HPD.Agent.ErrorHandling;
 using HPD.Agent.Providers;
@@ -310,14 +311,8 @@ public sealed class OpenAIAudioProviderTests
             IncludeLogprobs = true
         };
 
-        var json = ProviderDiscovery.SerializeProviderConfig(
-            "openai",
-            ProviderClientFamily.SpeechToText,
-            config);
-        var deserialized = ProviderDiscovery.DeserializeProviderConfig(
-            "openai",
-            ProviderClientFamily.SpeechToText,
-            json);
+        var json = JsonSerializer.Serialize(config, OpenAISttJsonContext.Default.OpenAISttConfig);
+        var deserialized = JsonSerializer.Deserialize(json, OpenAISttJsonContext.Default.OpenAISttConfig);
 
         var roundTripped = Assert.IsType<OpenAISttConfig>(deserialized);
         Assert.Equal("sk-test", roundTripped.ApiKey);

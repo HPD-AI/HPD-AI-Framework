@@ -110,7 +110,7 @@ public static class AudioRuntimeAttachmentSpeechToTextProviderExtensions
     }
 
     private static ProviderClientConfig Clone(ProviderClientConfig source)
-        => new()
+        => new SpeechToTextClientConfig
         {
             ProviderKey = source.ProviderKey,
             ModelName = source.ModelName,
@@ -119,7 +119,7 @@ public static class AudioRuntimeAttachmentSpeechToTextProviderExtensions
             CustomHeaders = source.CustomHeaders is null
                 ? null
                 : new Dictionary<string, string>(source.CustomHeaders, StringComparer.OrdinalIgnoreCase),
-            ConstructionOptions = source.ConstructionOptions,
+            ProviderConfig = source.ProviderConfig,
             PromptFormatter = source.PromptFormatter
         };
 

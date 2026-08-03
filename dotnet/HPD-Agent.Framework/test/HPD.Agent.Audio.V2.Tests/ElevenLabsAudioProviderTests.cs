@@ -210,7 +210,7 @@ public sealed class ElevenLabsAudioProviderTests
             new ProviderClientConfig
             {
                 ProviderKey = "elevenlabs",
-                ConstructionOptions = JsonDocument.Parse("""{"apiKey":"el-test","stability":0.4}""").RootElement.Clone()
+                ProviderConfig = new ElevenLabsTtsConfig { ApiKey = "el-test", Stability = 0.4f }
             },
             ProviderClientFamily.TextToSpeech);
 
@@ -226,7 +226,7 @@ public sealed class ElevenLabsAudioProviderTests
             new ProviderClientConfig
             {
                 ProviderKey = "elevenlabs",
-                ConstructionOptions = JsonDocument.Parse("""{"apiKey":"el-test","defaultModelId":"scribe_v2"}""").RootElement.Clone()
+                ProviderConfig = new ElevenLabsSttConfig { ApiKey = "el-test", DefaultModelId = "scribe_v2" }
             },
             ProviderClientFamily.SpeechToText);
 
@@ -248,24 +248,6 @@ public sealed class ElevenLabsAudioProviderTests
 
         Assert.False(result.IsValid);
         Assert.Contains(result.Errors, error => error.Contains("Realtime", StringComparison.Ordinal));
-    }
-
-    [Fact]
-    public void ValidateConfiguration_InvalidProviderOptionsFails()
-    {
-        var provider = new ElevenLabsAudioProvider();
-
-        var result = provider.ValidateConfiguration(
-            new ProviderClientConfig
-            {
-                ProviderKey = "elevenlabs",
-                ApiKey = "el-test",
-                ConstructionOptions = JsonDocument.Parse("[]").RootElement.Clone()
-            },
-            ProviderClientFamily.TextToSpeech);
-
-        Assert.False(result.IsValid);
-        Assert.Contains(result.Errors, error => error.Contains("ConstructionOptions", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -613,13 +595,12 @@ public sealed class ElevenLabsAudioProviderTests
             {
                 ProviderKey = "elevenlabs",
                 ApiKey = "el-test",
-                ConstructionOptions = JsonDocument.Parse("""
+                ProviderConfig = new ElevenLabsTtsConfig
                 {
-                  "enablePushTextStreaming": true,
-                  "webSocketBaseUrl": "wss://example.test/v1",
-                  "defaultVoiceId": "voice-test"
+                    EnablePushTextStreaming = true,
+                    WebSocketBaseUrl = "wss://example.test/v1",
+                    DefaultVoiceId = "voice-test"
                 }
-                """).RootElement.Clone()
             });
 
         var profile = Assert.IsType<TextToSpeechCapabilityProfile>(
@@ -777,14 +758,8 @@ public sealed class ElevenLabsAudioProviderTests
             StreamingChunkSizeBytes = 4096
         };
 
-        var json = ProviderDiscovery.SerializeProviderConfig(
-            "elevenlabs",
-            ProviderClientFamily.SpeechToText,
-            config);
-        var deserialized = ProviderDiscovery.DeserializeProviderConfig(
-            "elevenlabs",
-            ProviderClientFamily.SpeechToText,
-            json);
+        var json = JsonSerializer.Serialize(config, ElevenLabsTtsJsonContext.Default.ElevenLabsSttConfig);
+        var deserialized = JsonSerializer.Deserialize(json, ElevenLabsTtsJsonContext.Default.ElevenLabsSttConfig);
 
         var roundTripped = Assert.IsType<ElevenLabsSttConfig>(deserialized);
         Assert.Equal("el-test", roundTripped.ApiKey);
@@ -825,14 +800,8 @@ public sealed class ElevenLabsAudioProviderTests
             PushTextAggregationMode = PushTextInputAggregationMode.Sentence
         };
 
-        var json = ProviderDiscovery.SerializeProviderConfig(
-            "elevenlabs",
-            ProviderClientFamily.TextToSpeech,
-            config);
-        var deserialized = ProviderDiscovery.DeserializeProviderConfig(
-            "elevenlabs",
-            ProviderClientFamily.TextToSpeech,
-            json);
+        var json = JsonSerializer.Serialize(config, ElevenLabsTtsJsonContext.Default.ElevenLabsTtsConfig);
+        var deserialized = JsonSerializer.Deserialize(json, ElevenLabsTtsJsonContext.Default.ElevenLabsTtsConfig);
 
         var roundTripped = Assert.IsType<ElevenLabsTtsConfig>(deserialized);
         Assert.Equal("el-test", roundTripped.ApiKey);
@@ -867,14 +836,12 @@ public sealed class ElevenLabsAudioProviderTests
                 ApiKey = apiKey,
                 ModelName = System.Environment.GetEnvironmentVariable("ELEVENLABS_TTS_MODEL") ??
                     ElevenLabsAudioProvider.DefaultTextToSpeechModel,
-                ConstructionOptions = JsonDocument.Parse(JsonSerializer.Serialize(
-                    new ElevenLabsTtsConfig
-                    {
-                        DefaultVoiceId = System.Environment.GetEnvironmentVariable("ELEVENLABS_VOICE_ID") ??
-                            ElevenLabsAudioProvider.DefaultVoiceId,
-                        OutputFormat = "mp3"
-                    },
-                    ElevenLabsTtsJsonContext.Default.ElevenLabsTtsConfig)).RootElement.Clone()
+                ProviderConfig = new ElevenLabsTtsConfig
+                {
+                    DefaultVoiceId = System.Environment.GetEnvironmentVariable("ELEVENLABS_VOICE_ID") ??
+                        ElevenLabsAudioProvider.DefaultVoiceId,
+                    OutputFormat = "mp3"
+                }
             });
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
 

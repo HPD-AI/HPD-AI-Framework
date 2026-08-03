@@ -9,6 +9,12 @@ using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.Providers.Audio.ElevenLabs;
 
+[HpdProvider("elevenlabs", "ElevenLabs Audio")]
+[HpdProviderFamily(ProviderClientFamily.TextToSpeech)]
+[HpdProviderFamily(ProviderClientFamily.SpeechToText)]
+[HpdProviderPayload(ProviderClientFamily.TextToSpeech, ProviderPayloadKind.Configuration, typeof(ElevenLabsTtsConfig), typeof(ElevenLabsTtsJsonContext))]
+[HpdProviderPayload(ProviderClientFamily.SpeechToText, ProviderPayloadKind.Configuration, typeof(ElevenLabsSttConfig), typeof(ElevenLabsTtsJsonContext))]
+[HpdProviderSecretAlias("elevenlabs:ApiKey", "ELEVENLABS_API_KEY")]
 public sealed class ElevenLabsAudioProvider : ITextToSpeechClientProvider, ISpeechToTextClientProvider
 {
     public const string Key = "elevenlabs";
