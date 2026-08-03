@@ -47,7 +47,7 @@ public sealed class AgentStreamingServiceTests : IDisposable
     }
 
     [Fact]
-    public void ApplyRouteScope_PreservesRunConfigContextOverrides()
+    public void ApplyRouteScope_PreservesRunConfigContextProperties()
     {
         var workspaceOverride = new Dictionary<string, object>
         {
@@ -61,9 +61,12 @@ public sealed class AgentStreamingServiceTests : IDisposable
                 ProviderKey = "openrouter",
                 ModelName = "model-1"
             } },
-            ContextOverrides = new Dictionary<string, object>
+            Context = new AgentContextRunConfig
             {
-                ["workspace"] = workspaceOverride
+                Properties = new Dictionary<string, object>
+                {
+                    ["workspace"] = workspaceOverride
+                }
             }
         };
         var input = new UserMessagesInputEvent { Messages = [new ChatMessage(ChatRole.User, "run tests")],
@@ -89,8 +92,8 @@ public sealed class AgentStreamingServiceTests : IDisposable
         messages.ThreadExecutionId.Should().Be("route-run");
         messages.ClientInputId.Should().Be("client-input-1");
         messages.RunConfig.Should().BeSameAs(runConfig);
-        messages.RunConfig!.ContextOverrides.Should().ContainKey("workspace");
-        messages.RunConfig.ContextOverrides!["workspace"].Should().BeSameAs(workspaceOverride);
+        messages.RunConfig!.Context!.Properties.Should().ContainKey("workspace");
+        messages.RunConfig.Context.Properties!["workspace"].Should().BeSameAs(workspaceOverride);
     }
 
     [Fact]

@@ -65,8 +65,9 @@ internal static class CodingMode
                 .SetRunConfigComposer(_ =>
                 {
                     var runConfig = providers.ModelSelection.ToRunConfig() ?? new AgentRunConfig();
-                    runConfig.ContextOverrides ??= [];
-                    runConfig.ContextOverrides[AgentWorkspace.ContextKey] = workspace;
+                    runConfig.Context ??= new AgentContextRunConfig();
+                    runConfig.Context.Properties ??= [];
+                    runConfig.Context.Properties[AgentWorkspace.ContextKey] = workspace;
                     return runConfig;
                 })
                 .AddConsoleProviderCommands(providers)

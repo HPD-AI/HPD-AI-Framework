@@ -305,11 +305,16 @@ public class DtoSerializationTests
                     Temperature = 0.7,
                     MaxOutputTokens = 4000
                 } },
-                AdditionalSystemInstructions = "Be concise",
-                ContextOverrides = new Dictionary<string, object> { ["key"] = "value" },
-                PermissionOverrides = new Dictionary<string, bool> { ["file_write"] = true },
-                CoalesceDeltas = true,
-                SkipTools = false
+                SystemInstructions = new SystemInstructionsRunConfig { Append = "Be concise" },
+                Context = new AgentContextRunConfig
+                {
+                    Properties = new Dictionary<string, object> { ["key"] = "value" }
+                },
+                Security = new AgentSecurityRunConfig
+                {
+                    PermissionOverrides = new Dictionary<string, bool> { ["file_write"] = true }
+                },
+                Streaming = new StreamingRunConfig { CoalesceDeltas = true }
             }
         };
 
@@ -329,6 +334,10 @@ public class DtoSerializationTests
         deserialized.RunConfig.Clients.Chat!.Temperature.Should().Be(0.7);
         deserialized.RunConfig.Clients.Chat.MaxOutputTokens.Should().Be(4000);
         deserialized.RunConfig.Clients.Chat.ModelName.Should().Be("claude-sonnet-4-5");
+        deserialized.RunConfig.SystemInstructions!.Append.Should().Be("Be concise");
+        deserialized.RunConfig.Context!.Properties.Should().ContainKey("key");
+        deserialized.RunConfig.Security.PermissionOverrides.Should().ContainKey("file_write");
+        deserialized.RunConfig.Streaming!.CoalesceDeltas.Should().BeTrue();
     }
 
     [Fact]
