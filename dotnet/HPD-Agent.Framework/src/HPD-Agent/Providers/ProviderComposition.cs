@@ -49,11 +49,13 @@ public sealed class ProviderComposition
     private ProviderComposition(
         IReadOnlyList<ProviderManifestFragment> fragments,
         IProviderDescriptorRegistry descriptors,
-        IProviderRuntimeRegistry runtime)
+        IProviderRuntimeRegistry runtime,
+        IProviderSerializationRegistry serialization)
     {
         Fragments = fragments;
         Descriptors = descriptors;
         Runtime = runtime;
+        Serialization = serialization;
     }
 
     /// <summary>Gets the manifest fragments used to construct this composition.</summary>
@@ -65,13 +67,20 @@ public sealed class ProviderComposition
     /// <summary>Gets the composed runtime registry.</summary>
     public IProviderRuntimeRegistry Runtime { get; }
 
+    /// <summary>Gets the generated provider payload serialization registry.</summary>
+    public IProviderSerializationRegistry Serialization { get; }
+
     /// <summary>Creates an isolated immutable composition from manifest fragments.</summary>
     public static ProviderComposition Create(IReadOnlyList<ProviderManifestFragment> fragments)
     {
         ArgumentNullException.ThrowIfNull(fragments);
         var fragmentCopy = new List<ProviderManifestFragment>(fragments).AsReadOnly();
         var registry = DescriptorRegistry.Create(fragmentCopy);
-        return new ProviderComposition(fragmentCopy, registry, RuntimeRegistry.Create(fragmentCopy, registry));
+        return new ProviderComposition(
+            fragmentCopy,
+            registry,
+            RuntimeRegistry.Create(fragmentCopy, registry),
+            SerializationRegistry.Create(fragmentCopy, registry));
     }
 
     private sealed class DescriptorRegistry : IProviderDescriptorRegistry
@@ -198,6 +207,39 @@ public sealed class ProviderComposition
         }
     }
 
+    private sealed class SerializationRegistry : IProviderSerializationRegistry
+    {
+        private readonly IProviderDescriptorRegistry _descriptors;
+        private readonly IReadOnlyDictionary<(string Key, ProviderClientFamily Family, ProviderPayloadKind Kind), ProviderPayloadJsonContract> _contracts;
+
+        private SerializationRegistry(
+            IProviderDescriptorRegistry descriptors,
+            Dictionary<(string, ProviderClientFamily, ProviderPayloadKind), ProviderPayloadJsonContract> contracts)
+        {
+            _descriptors = descriptors;
+            _contracts = new ReadOnlyDictionary<(string, ProviderClientFamily, ProviderPayloadKind), ProviderPayloadJsonContract>(contracts);
+        }
+
+        public bool TryGet(string providerKey, ProviderClientFamily family, ProviderPayloadKind kind, out ProviderPayloadJsonContract? contract)
+        {
+            contract = null;
+            return _descriptors.TryGet(providerKey, out var descriptor) &&
+                _contracts.TryGetValue((descriptor.ProviderKey, family, kind), out contract);
+        }
+
+        public static SerializationRegistry Create(IReadOnlyList<ProviderManifestFragment> fragments, IProviderDescriptorRegistry descriptors)
+        {
+            var contracts = new Dictionary<(string, ProviderClientFamily, ProviderPayloadKind), ProviderPayloadJsonContract>(new SerializationKeyComparer());
+            foreach (var contract in fragments.SelectMany(x => x.SerializationContracts))
+            {
+                var canonical = descriptors.Canonicalize(contract.ProviderKey);
+                if (!contracts.TryAdd((canonical, contract.Family, contract.Kind), contract))
+                    throw Error("HPDP013", $"Provider '{canonical}' has more than one '{contract.Kind}' JSON contract for client family '{contract.Family}'.");
+            }
+            return new SerializationRegistry(descriptors, contracts);
+        }
+    }
+
     private sealed class CompositeDescriptor : IProviderDescriptor
     {
         public CompositeDescriptor(string key, string name, Uri? uri, Dictionary<ProviderClientFamily, ProviderFamilyDescriptor> families, HashSet<string> aliases)
@@ -221,6 +263,14 @@ public sealed class ProviderComposition
             x.Family == y.Family && StringComparer.OrdinalIgnoreCase.Equals(x.Key, y.Key);
         public int GetHashCode((string Key, ProviderClientFamily Family) obj) =>
             HashCode.Combine(StringComparer.OrdinalIgnoreCase.GetHashCode(obj.Key), obj.Family);
+    }
+
+    private sealed class SerializationKeyComparer : IEqualityComparer<(string Key, ProviderClientFamily Family, ProviderPayloadKind Kind)>
+    {
+        public bool Equals((string Key, ProviderClientFamily Family, ProviderPayloadKind Kind) x, (string Key, ProviderClientFamily Family, ProviderPayloadKind Kind) y) =>
+            x.Family == y.Family && x.Kind == y.Kind && StringComparer.OrdinalIgnoreCase.Equals(x.Key, y.Key);
+        public int GetHashCode((string Key, ProviderClientFamily Family, ProviderPayloadKind Kind) obj) =>
+            HashCode.Combine(StringComparer.OrdinalIgnoreCase.GetHashCode(obj.Key), obj.Family, obj.Kind);
     }
 
     private static ProviderCompositionException Error(string code, string message) => new(code, message);

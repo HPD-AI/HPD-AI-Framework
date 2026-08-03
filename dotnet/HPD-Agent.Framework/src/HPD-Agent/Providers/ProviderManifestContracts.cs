@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text.Json.Serialization.Metadata;
 
 namespace HPD.Agent.Providers;
 
@@ -60,6 +61,91 @@ public sealed class HpdProviderAliasAttribute : Attribute
 
     /// <summary>Gets the declared alias.</summary>
     public string Alias { get; }
+}
+
+/// <summary>Declares a source-generated JSON contract owned by a provider family.</summary>
+[AttributeUsage(AttributeTargets.Class, AllowMultiple = true, Inherited = false)]
+public sealed class HpdProviderPayloadAttribute : Attribute
+{
+    /// <summary>Initializes a provider payload declaration.</summary>
+    public HpdProviderPayloadAttribute(
+        ProviderClientFamily family,
+        ProviderPayloadKind kind,
+        Type payloadType,
+        Type jsonContextType)
+    {
+        Family = family;
+        Kind = kind;
+        PayloadType = payloadType;
+        JsonContextType = jsonContextType;
+    }
+
+    /// <summary>Gets the owning client family.</summary>
+    public ProviderClientFamily Family { get; }
+
+    /// <summary>Gets the payload's role.</summary>
+    public ProviderPayloadKind Kind { get; }
+
+    /// <summary>Gets the concrete payload type.</summary>
+    public Type PayloadType { get; }
+
+    /// <summary>Gets the source-generated JSON context type.</summary>
+    public Type JsonContextType { get; }
+}
+
+/// <summary>Identifies the role of a provider-specific payload.</summary>
+public enum ProviderPayloadKind
+{
+    /// <summary>Client-construction configuration.</summary>
+    Configuration = 0,
+
+    /// <summary>Options compiled for one provider operation.</summary>
+    OperationOptions = 1
+}
+
+/// <summary>Describes one closed, AOT-safe provider JSON payload contract.</summary>
+public sealed class ProviderPayloadJsonContract
+{
+    /// <summary>Initializes a payload contract.</summary>
+    public ProviderPayloadJsonContract(
+        string providerKey,
+        ProviderClientFamily family,
+        ProviderPayloadKind kind,
+        Type runtimeType,
+        JsonTypeInfo jsonTypeInfo)
+    {
+        ProviderKey = providerKey;
+        Family = family;
+        Kind = kind;
+        RuntimeType = runtimeType;
+        JsonTypeInfo = jsonTypeInfo;
+    }
+
+    /// <summary>Gets the canonical provider key.</summary>
+    public string ProviderKey { get; }
+
+    /// <summary>Gets the owning client family.</summary>
+    public ProviderClientFamily Family { get; }
+
+    /// <summary>Gets the payload role.</summary>
+    public ProviderPayloadKind Kind { get; }
+
+    /// <summary>Gets the concrete runtime type used for diagnostics.</summary>
+    public Type RuntimeType { get; }
+
+    /// <summary>Gets the source-generated JSON metadata.</summary>
+    public JsonTypeInfo JsonTypeInfo { get; }
+}
+
+/// <summary>Looks up generated provider payload JSON contracts.</summary>
+public interface IProviderSerializationRegistry
+{
+    /// <summary>Attempts to find the contract for a provider, family, and payload role.</summary>
+    bool TryGet(
+        string providerKey,
+        ProviderClientFamily family,
+        ProviderPayloadKind kind,
+        out ProviderPayloadJsonContract? contract);
 }
 
 /// <summary>Identifies a generated provider manifest exposed by a provider assembly.</summary>
@@ -156,12 +242,15 @@ public sealed class ProviderManifestFragment
     /// <param name="runtimeFactories">Closed runtime provider factories.</param>
     public ProviderManifestFragment(
         IReadOnlyList<IProviderDescriptor> descriptors,
-        IReadOnlyList<ProviderRuntimeFactoryRegistration> runtimeFactories)
+        IReadOnlyList<ProviderRuntimeFactoryRegistration> runtimeFactories,
+        IReadOnlyList<ProviderPayloadJsonContract> serializationContracts)
     {
         ArgumentNullException.ThrowIfNull(descriptors);
         ArgumentNullException.ThrowIfNull(runtimeFactories);
+        ArgumentNullException.ThrowIfNull(serializationContracts);
         Descriptors = new List<IProviderDescriptor>(descriptors).AsReadOnly();
         RuntimeFactories = new List<ProviderRuntimeFactoryRegistration>(runtimeFactories).AsReadOnly();
+        SerializationContracts = new List<ProviderPayloadJsonContract>(serializationContracts).AsReadOnly();
     }
 
     /// <summary>Gets immutable provider descriptor contributions.</summary>
@@ -169,4 +258,7 @@ public sealed class ProviderManifestFragment
 
     /// <summary>Gets immutable closed runtime provider factories.</summary>
     public IReadOnlyList<ProviderRuntimeFactoryRegistration> RuntimeFactories { get; }
+
+    /// <summary>Gets immutable source-generated provider payload contracts.</summary>
+    public IReadOnlyList<ProviderPayloadJsonContract> SerializationContracts { get; }
 }

@@ -9,7 +9,7 @@ public sealed class ProviderManifestContractsTests
     {
         var descriptors = new List<IProviderDescriptor>();
         var factories = new List<ProviderRuntimeFactoryRegistration>();
-        var fragment = new ProviderManifestFragment(descriptors, factories);
+        var fragment = new ProviderManifestFragment(descriptors, factories, Array.Empty<ProviderPayloadJsonContract>());
 
         descriptors.Add(new TestDescriptor());
         factories.Add(new ProviderRuntimeFactoryRegistration("test", Array.Empty<ProviderClientFamily>(), static () => throw new NotSupportedException()));
@@ -26,9 +26,9 @@ public sealed class ProviderManifestContractsTests
     public void Fragment_RejectsNullCollections()
     {
         Assert.Throws<ArgumentNullException>(() =>
-            new ProviderManifestFragment(null!, Array.Empty<ProviderRuntimeFactoryRegistration>()));
+            new ProviderManifestFragment(null!, Array.Empty<ProviderRuntimeFactoryRegistration>(), Array.Empty<ProviderPayloadJsonContract>()));
         Assert.Throws<ArgumentNullException>(() =>
-            new ProviderManifestFragment(Array.Empty<IProviderDescriptor>(), null!));
+            new ProviderManifestFragment(Array.Empty<IProviderDescriptor>(), null!, Array.Empty<ProviderPayloadJsonContract>()));
     }
 
     [Fact]
@@ -37,8 +37,8 @@ public sealed class ProviderManifestContractsTests
         var chat = new TestDescriptor("test", ProviderClientFamily.Chat, ["legacy-test"]);
         var embeddings = new TestDescriptor("test", ProviderClientFamily.Embeddings, []);
         var composition = ProviderComposition.Create([
-            new([chat], [new("test", [ProviderClientFamily.Chat], static () => throw new NotSupportedException())]),
-            new([embeddings], [new("test", [ProviderClientFamily.Embeddings], static () => throw new NotSupportedException())])]);
+            new([chat], [new("test", [ProviderClientFamily.Chat], static () => throw new NotSupportedException())], []),
+            new([embeddings], [new("test", [ProviderClientFamily.Embeddings], static () => throw new NotSupportedException())], [])]);
 
         Assert.Equal("test", composition.Descriptors.Canonicalize("LEGACY-TEST"));
         Assert.True(composition.Descriptors.TryGet("test", out var descriptor));
@@ -50,8 +50,8 @@ public sealed class ProviderManifestContractsTests
     public void Composition_RejectsDuplicateFamily()
     {
         var exception = Assert.Throws<ProviderCompositionException>(() => ProviderComposition.Create([
-            new([new TestDescriptor("test", ProviderClientFamily.Chat, [])], []),
-            new([new TestDescriptor("test", ProviderClientFamily.Chat, [])], [])]));
+            new([new TestDescriptor("test", ProviderClientFamily.Chat, [])], [], []),
+            new([new TestDescriptor("test", ProviderClientFamily.Chat, [])], [], [])]));
         Assert.Equal("HPDP010", exception.Code);
     }
 
@@ -59,8 +59,8 @@ public sealed class ProviderManifestContractsTests
     public void Composition_RejectsAliasCollision()
     {
         var exception = Assert.Throws<ProviderCompositionException>(() => ProviderComposition.Create([
-            new([new TestDescriptor("one", ProviderClientFamily.Chat, ["two"])], []),
-            new([new TestDescriptor("two", ProviderClientFamily.Chat, [])], [])]));
+            new([new TestDescriptor("one", ProviderClientFamily.Chat, ["two"])], [], []),
+            new([new TestDescriptor("two", ProviderClientFamily.Chat, [])], [], [])]));
         Assert.Equal("HPDP011", exception.Code);
     }
 

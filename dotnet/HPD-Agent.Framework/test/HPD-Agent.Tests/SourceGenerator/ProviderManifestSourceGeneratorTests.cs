@@ -24,6 +24,7 @@ public sealed class ProviderManifestSourceGeneratorTests
             [HpdProvider("sample", "Sample", DocumentationUrl = "https://example.test/")]
             [HpdProviderAlias("sample-ai")]
             [HpdProviderFamily(ProviderClientFamily.Chat, DefaultModelName = "sample-model")]
+            [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(ClientProviderConfig), typeof(HPDJsonContext))]
             internal sealed class SampleProvider : IChatClientProvider
             {
                 public string ProviderKey => "sample";
@@ -43,6 +44,8 @@ public sealed class ProviderManifestSourceGeneratorTests
         Assert.Contains("HpdProviderManifestAttribute", generated);
         Assert.Contains("sample-ai", generated);
         Assert.Contains("sample-model", generated);
+        Assert.Contains("ProviderPayloadJsonContract", generated);
+        Assert.Contains("HPDJsonContext.Default.GetTypeInfo", generated);
         Assert.DoesNotContain("ModuleInitializer", generated);
         Assert.DoesNotContain("ProviderDiscovery", generated);
     }
@@ -78,7 +81,8 @@ public sealed class ProviderManifestSourceGeneratorTests
             {
                 public static ProviderManifestFragment Fragment { get; } = new(
                     Array.Empty<IProviderDescriptor>(),
-                    Array.Empty<ProviderRuntimeFactoryRegistration>());
+                    Array.Empty<ProviderRuntimeFactoryRegistration>(),
+                    Array.Empty<ProviderPayloadJsonContract>());
             }
             """;
 

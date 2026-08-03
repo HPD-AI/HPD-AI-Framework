@@ -75,6 +75,7 @@ public sealed class ProviderCompositionSourceGenerator : IIncrementalGenerator
             source.AppendLine("    public static global::HPD.Agent.Providers.ProviderComposition Composition { get; } = global::HPD.Agent.Providers.ProviderComposition.Create(Fragments);");
             source.AppendLine("    public static global::HPD.Agent.Providers.IProviderDescriptorRegistry Descriptors => Composition.Descriptors;");
             source.AppendLine("    public static global::HPD.Agent.Providers.IProviderRuntimeRegistry Runtime => Composition.Runtime;");
+            source.AppendLine("    public static global::HPD.Agent.Providers.IProviderSerializationRegistry Serialization => Composition.Serialization;");
             source.AppendLine("}");
             context.AddSource("GeneratedProviderComposition.g.cs", source.ToString());
         });
