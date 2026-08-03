@@ -745,8 +745,10 @@ public sealed class SqliteAtomicMutationTests
         BaseMutationRequestIdentity identity = BaseMutationRequestIdentity.Create(
             "scope", "operation", "concurrent-key",
             BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("concurrent-key"u8)));
-        RecordMutationExecutionRequest request = ExecutionRequest() with
+        RecordMutationExecutionRequest request = ExecutionRequest(TimeSpan.FromSeconds(10)) with
         {
+            AcquisitionTimeout = TimeSpan.FromSeconds(10),
+            CommitCompletionTimeout = TimeSpan.FromSeconds(10),
             AtomicRequest = new BaseAtomicMutationExecutionRequest
             {
                 Identity = identity,
