@@ -100,9 +100,11 @@ public sealed class GatewayCompositionTests
     }
 
     [Fact]
-    public void OptionalRegistriesContributeCapabilitiesFromTheExactRuntimeTransaction()
+    public async Task OptionalRegistriesContributeCapabilitiesFromTheExactRuntimeTransaction()
     {
-        var services = new ServiceCollection();
+        var applicationBuilder = WebApplication.CreateSlimBuilder();
+        applicationBuilder.WebHost.UseUrls("http://127.0.0.1:0");
+        var services = applicationBuilder.Services;
         services.AddHpdGateway(builder =>
         {
             builder.AddCoreFamilies();
@@ -131,7 +133,10 @@ public sealed class GatewayCompositionTests
             }));
         });
 
-        using var provider = services.BuildServiceProvider();
+        await using var application = applicationBuilder.Build();
+        application.MapHpdGateway();
+        await application.StartAsync();
+        var provider = application.Services;
         var capabilities = provider.GetRequiredService<HostCapabilitySnapshot>();
         capabilities.InstalledFamilies.Should().HaveFlag(GatewayDeclarationFamilies.Inspection);
         capabilities.InstalledFamilies.Should().HaveFlag(GatewayDeclarationFamilies.UpstreamResilience);

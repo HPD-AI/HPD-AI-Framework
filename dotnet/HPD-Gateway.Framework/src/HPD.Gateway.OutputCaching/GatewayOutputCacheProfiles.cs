@@ -257,6 +257,8 @@ public static class GatewayOutputCacheExtensions
         });
         services.AddSingleton<GatewayConservativeOutputCachePolicy>();
         services.AddSingleton<HpdOutputCachePipelineMarker>();
+        services.AddSingleton<IGatewayApplicationPipelineParticipant>(static provider =>
+            provider.GetRequiredService<HpdOutputCachePipelineMarker>());
         services.AddSingleton<IGatewayEndpointMappingParticipant>(static provider => provider.GetRequiredService<HpdOutputCachePipelineMarker>());
         services.AddSingleton<IHostedService, HpdOutputCacheStartupGuard>();
         return services;
