@@ -43,8 +43,12 @@ internal sealed class CompositeProvider :
         where TProvider : class, IProvider
         => _providers.Any(static provider => provider is TProvider);
 
-    public IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null) =>
-        GetFamilyProvider<IChatClientProvider>(ProviderClientFamily.Chat).CreateChatClient(config, services);
+    public ValueTask<IChatClient> CreateChatClientAsync(
+        ClientProviderConfig config,
+        IServiceProvider? services = null,
+        CancellationToken cancellationToken = default) =>
+        GetFamilyProvider<IChatClientProvider>(ProviderClientFamily.Chat)
+            .CreateChatClientAsync(config, services, cancellationToken);
 
     public ITextToSpeechClient CreateTextToSpeechClient(ClientProviderConfig config, IServiceProvider? services = null) =>
         GetFamilyProvider<ITextToSpeechClientProvider>(ProviderClientFamily.TextToSpeech).CreateTextToSpeechClient(config, services);

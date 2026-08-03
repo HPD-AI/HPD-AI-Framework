@@ -32,7 +32,6 @@ public static class AgentConfigValidator
         // Basic configuration validation
         ValidateName(config, errors);
         ValidateMaxAgenticIterations(config, errors);
-        ValidateProvider(config, errors);
         ValidateMcp(config, errors);
         ValidateErrorHandling(config, errors);
         ValidateCompaction(config, errors);
@@ -59,53 +58,6 @@ public static class AgentConfigValidator
         if (config.MaxAgenticIterations <= 0 || config.MaxAgenticIterations > 50)
         {
             errors.Add("MaxFunctionCallTurns must be between 1 and 50.");
-        }
-    }
-
-    private static void ValidateProvider(AgentConfig config, List<string> errors)
-    {
-        var chatConfig = config.ResolveClientConfig(Providers.ProviderClientFamily.Chat);
-        if (chatConfig == null)
-        {
-            return;
-        }
-
-        // Provider/model are optional at setup time. If one is partially configured,
-        // runtime can complete it via AgentRunConfig.
-        if (string.IsNullOrEmpty(chatConfig.ProviderKey) && string.IsNullOrEmpty(chatConfig.ModelName))
-        {
-            return;
-        }
-
-        // Provider-specific validation
-        var providerKey = chatConfig.ProviderKey?.ToLowerInvariant();
-
-        if (providerKey == "azureopenai" && !string.IsNullOrEmpty(chatConfig.Endpoint))
-        {
-            if (!IsValidUri(chatConfig.Endpoint))
-            {
-                errors.Add("Azure OpenAI endpoint must be a valid URI.");
-            }
-        }
-
-        if (providerKey == "ollama")
-        {
-            if (!string.IsNullOrEmpty(chatConfig.ModelName) && chatConfig.ModelName.Contains('/'))
-            {
-                errors.Add("Ollama model name should not contain '/' characters.");
-            }
-        }
-
-        // Generic endpoint validation
-        if (!string.IsNullOrEmpty(chatConfig.Endpoint) && !IsValidUri(chatConfig.Endpoint))
-        {
-            errors.Add("Provider endpoint must be a valid URI.");
-        }
-
-        // Model combination validation
-        if (!string.IsNullOrEmpty(chatConfig.ModelName) && !IsValidProviderModelCombination(chatConfig))
-        {
-            errors.Add("The specified model is not supported by the selected provider.");
         }
     }
 
@@ -224,11 +176,6 @@ public static class AgentConfigValidator
 
     #region Helper Methods
 
-    private static bool IsValidUri(string? uri)
-    {
-        return !string.IsNullOrEmpty(uri) && Uri.TryCreate(uri, UriKind.Absolute, out _);
-    }
-
     private static bool IsValidPath(string path)
     {
         try
@@ -243,43 +190,6 @@ public static class AgentConfigValidator
         {
             return false;
         }
-    }
-
-    private static bool IsValidProviderModelCombination(ClientProviderConfig config)
-    {
-        return config.ProviderKey?.ToLowerInvariant() switch
-        {
-            "openai" => IsValidOpenAIModel(config.ModelName),
-            "openrouter" => IsValidOpenRouterModel(config.ModelName),
-            "azureopenai" => IsValidAzureModel(config.ModelName),
-            "ollama" => IsValidOllamaModel(config.ModelName),
-            _ => true // Unknown providers are allowed
-        };
-    }
-
-    private static bool IsValidOpenAIModel(string? modelName)
-    {
-        // OpenAI now has many models; accept any non-empty model name
-        return !string.IsNullOrEmpty(modelName);
-    }
-
-    private static bool IsValidOpenRouterModel(string? modelName)
-    {
-        // OpenRouter accepts many model formats, be more lenient
-        return !string.IsNullOrEmpty(modelName) && modelName.Length > 3;
-    }
-
-    private static bool IsValidAzureModel(string? modelName)
-    {
-        // Azure model names are deployment names, can be anything
-        return !string.IsNullOrEmpty(modelName);
-    }
-
-    private static bool IsValidOllamaModel(string? modelName)
-    {
-        // Ollama models typically don't have slashes in local names
-        return !string.IsNullOrEmpty(modelName) &&
-               modelName.All(c => char.IsLetterOrDigit(c) || c == '-' || c == '_' || c == '.');
     }
 
     private static bool HasReasonableResourceLimits(AgentConfig config)

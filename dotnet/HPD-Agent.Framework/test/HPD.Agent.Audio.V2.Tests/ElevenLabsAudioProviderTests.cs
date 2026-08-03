@@ -210,7 +210,7 @@ public sealed class ElevenLabsAudioProviderTests
             new ClientProviderConfig
             {
                 ProviderKey = "elevenlabs",
-                ProviderOptions = JsonDocument.Parse("""{"apiKey":"el-test","stability":0.4}""").RootElement.Clone()
+                ConstructionOptions = JsonDocument.Parse("""{"apiKey":"el-test","stability":0.4}""").RootElement.Clone()
             },
             ProviderClientFamily.TextToSpeech);
 
@@ -226,7 +226,7 @@ public sealed class ElevenLabsAudioProviderTests
             new ClientProviderConfig
             {
                 ProviderKey = "elevenlabs",
-                ProviderOptions = JsonDocument.Parse("""{"apiKey":"el-test","defaultModelId":"scribe_v2"}""").RootElement.Clone()
+                ConstructionOptions = JsonDocument.Parse("""{"apiKey":"el-test","defaultModelId":"scribe_v2"}""").RootElement.Clone()
             },
             ProviderClientFamily.SpeechToText);
 
@@ -260,12 +260,12 @@ public sealed class ElevenLabsAudioProviderTests
             {
                 ProviderKey = "elevenlabs",
                 ApiKey = "el-test",
-                ProviderOptions = JsonDocument.Parse("[]").RootElement.Clone()
+                ConstructionOptions = JsonDocument.Parse("[]").RootElement.Clone()
             },
             ProviderClientFamily.TextToSpeech);
 
         Assert.False(result.IsValid);
-        Assert.Contains(result.Errors, error => error.Contains("ProviderOptions", StringComparison.Ordinal));
+        Assert.Contains(result.Errors, error => error.Contains("ConstructionOptions", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -613,7 +613,7 @@ public sealed class ElevenLabsAudioProviderTests
             {
                 ProviderKey = "elevenlabs",
                 ApiKey = "el-test",
-                ProviderOptions = JsonDocument.Parse("""
+                ConstructionOptions = JsonDocument.Parse("""
                 {
                   "enablePushTextStreaming": true,
                   "webSocketBaseUrl": "wss://example.test/v1",
@@ -867,7 +867,7 @@ public sealed class ElevenLabsAudioProviderTests
                 ApiKey = apiKey,
                 ModelName = System.Environment.GetEnvironmentVariable("ELEVENLABS_TTS_MODEL") ??
                     ElevenLabsAudioProvider.DefaultTextToSpeechModel,
-                ProviderOptions = JsonDocument.Parse(JsonSerializer.Serialize(
+                ConstructionOptions = JsonDocument.Parse(JsonSerializer.Serialize(
                     new ElevenLabsTtsConfig
                     {
                         DefaultVoiceId = System.Environment.GetEnvironmentVariable("ELEVENLABS_VOICE_ID") ??

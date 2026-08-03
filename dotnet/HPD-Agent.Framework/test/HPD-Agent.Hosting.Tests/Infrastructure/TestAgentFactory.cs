@@ -142,7 +142,7 @@ internal class TestChatClientProvider : IChatClientProvider
     public string ProviderKey => "test";
     public string DisplayName => "Test Provider";
 
-    public IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null)
+    public async ValueTask<IChatClient> CreateChatClientAsync(ClientProviderConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
     {
         return _chatClient;
     }

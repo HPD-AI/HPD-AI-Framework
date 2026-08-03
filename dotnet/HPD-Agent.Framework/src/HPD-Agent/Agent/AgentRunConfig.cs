@@ -144,11 +144,18 @@ public class AgentRunConfig
     public string? ModelId { get; set; }
 
     /// <summary>
-    /// API key to use when switching providers.
-    /// Required when switching to a different provider that needs authentication.
-    /// If null and switching to same provider, inherits from agent config.
+    /// Runtime-only API key to use for this invocation.
+    /// This value is never serialized. Serializable runs should select a named
+    /// authentication registration through <see cref="AuthenticationKey"/>.
     /// </summary>
+    [JsonIgnore]
     public string? ApiKey { get; set; }
+
+    /// <summary>
+    /// Gets or sets the opaque name of a host-registered static credential.
+    /// The name is serializable; the credential value is resolved locally at run time.
+    /// </summary>
+    public string? AuthenticationKey { get; set; }
 
     /// <summary>
     /// Endpoint URL override for the provider.
@@ -158,28 +165,29 @@ public class AgentRunConfig
 
     /// <summary>
     /// Custom HTTP headers to include in provider requests.
-    /// Used for OAuth flows that require additional headers (e.g., ChatGPT-Account-Id for OpenAI Codex).
-    /// These headers are merged with any provider-default headers.
+    /// Authentication headers are rejected; these values are for non-secret request metadata.
     /// </summary>
     public Dictionary<string, string>? CustomHeaders { get; set; }
 
     /// <summary>
-    /// Provider-specific options to use when switching providers for this run.
+    /// Provider-specific client-construction options for this run.
     /// Prefer this object-shaped property for JSON/YAML config.
     /// </summary>
-    public JsonElement? ProviderOptions { get; set; }
+    public JsonElement? ConstructionOptions { get; set; }
 
-    public string? GetProviderOptionsRawJson()
-        => ProviderOptions?.GetRawText();
+    /// <summary>Gets the raw JSON for provider-specific construction options.</summary>
+    public string? GetConstructionOptionsRawJson()
+        => ConstructionOptions?.GetRawText();
 
     internal ClientProviderConfig? GetChatProviderOverride()
     {
         if (string.IsNullOrWhiteSpace(ProviderKey) &&
             string.IsNullOrWhiteSpace(ModelId) &&
             string.IsNullOrWhiteSpace(ApiKey) &&
+            string.IsNullOrWhiteSpace(AuthenticationKey) &&
             string.IsNullOrWhiteSpace(ProviderEndpoint) &&
             CustomHeaders == null &&
-            ProviderOptions is null)
+            ConstructionOptions is null)
             return null;
 
         return new ClientProviderConfig
@@ -187,9 +195,10 @@ public class AgentRunConfig
             ProviderKey = ProviderKey ?? string.Empty,
             ModelName = ModelId ?? string.Empty,
             ApiKey = ApiKey,
+            AuthenticationKey = AuthenticationKey,
             Endpoint = ProviderEndpoint,
             CustomHeaders = CustomHeaders,
-            ProviderOptions = ProviderOptions
+            ConstructionOptions = ConstructionOptions
         };
     }
 

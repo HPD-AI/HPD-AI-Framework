@@ -173,7 +173,7 @@ public sealed class AgentEvaluationConvenienceExtensionsTests
 
         public string DisplayName => providerKey;
 
-        public IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null) => client;
+        public async ValueTask<IChatClient> CreateChatClientAsync(ClientProviderConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default) => client;
 
         public HPD.Agent.ErrorHandling.IProviderErrorHandler CreateErrorHandler() => new StubErrorHandler();
 

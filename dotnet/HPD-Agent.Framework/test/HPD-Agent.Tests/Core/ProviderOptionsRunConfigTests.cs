@@ -7,7 +7,7 @@ using Xunit;
 
 namespace HPD.Agent.Tests.Core;
 
-public sealed class ProviderOptionsRunConfigTests : AgentTestBase
+public sealed class ConstructionOptionsRunConfigTests : AgentTestBase
 {
     [Fact]
     public async Task RunConfigProviderOptions_IsPassedToRuntimeProviderConfig()
@@ -17,12 +17,14 @@ public sealed class ProviderOptionsRunConfigTests : AgentTestBase
         var provider = new CapturingChatClientProvider(fakeClient);
         var registry = new CapturingProviderRegistry(provider);
         var config = DefaultConfig();
-        config.Clients!.Chat!.ProviderOptions = JsonDocument.Parse("""{"base":true}""").RootElement.Clone();
+        config.Clients!.Chat!.ConstructionOptions = JsonDocument.Parse("""{"base":true}""").RootElement.Clone();
 
         var agent = await new AgentBuilder(config, registry)
             .WithCircuitBreaker(5)
             .WithErrorTracking(maxConsecutiveErrors: 3)
             .BuildAsync(TestCancellationToken);
+
+        Assert.Empty(provider.CreatedConfigs);
 
         await agent.RunAsync(
             "hello",
@@ -30,12 +32,32 @@ public sealed class ProviderOptionsRunConfigTests : AgentTestBase
             {
                 ProviderKey = "test",
                 ModelId = "run-model",
-                ProviderOptions = JsonDocument.Parse("""{"run":true}""").RootElement.Clone()
+                ConstructionOptions = JsonDocument.Parse("""{"run":true}""").RootElement.Clone()
             },
             cancellationToken: TestCancellationToken);
 
-        Assert.Equal("""{"base":true,"run":true}""", provider.CreatedConfigs.Last().GetProviderOptionsRawJson());
+        Assert.Equal("""{"base":true,"run":true}""", provider.CreatedConfigs.Last().GetConstructionOptionsRawJson());
         Assert.Equal("run-model", provider.CreatedConfigs.Last().ModelName);
+    }
+
+    [Fact]
+    public async Task DefaultProvider_IsCreatedLazilyAndReusedAcrossRuns()
+    {
+        var fakeClient = new FakeChatClient();
+        fakeClient.EnqueueTextResponse("first");
+        fakeClient.EnqueueTextResponse("second");
+        var provider = new CapturingChatClientProvider(fakeClient);
+        var registry = new CapturingProviderRegistry(provider);
+        var agent = await new AgentBuilder(DefaultConfig(), registry)
+            .BuildAsync(TestCancellationToken);
+
+        Assert.Empty(provider.CreatedConfigs);
+
+        await agent.RunAsync("one", cancellationToken: TestCancellationToken);
+        await agent.RunAsync("two", cancellationToken: TestCancellationToken);
+
+        Assert.Single(provider.CreatedConfigs);
+        agent.Dispose();
     }
 
     [Fact]
@@ -46,7 +68,7 @@ public sealed class ProviderOptionsRunConfigTests : AgentTestBase
         var provider = new CapturingChatClientProvider(fakeClient);
         var registry = new CapturingProviderRegistry(provider);
         var config = DefaultConfig();
-        config.Clients!.Chat!.ProviderOptions = JsonDocument.Parse("""{"base":true}""").RootElement.Clone();
+        config.Clients!.Chat!.ConstructionOptions = JsonDocument.Parse("""{"base":true}""").RootElement.Clone();
 
         var agent = await new AgentBuilder(config, registry)
             .WithCircuitBreaker(5)
@@ -62,7 +84,7 @@ public sealed class ProviderOptionsRunConfigTests : AgentTestBase
             },
             cancellationToken: TestCancellationToken);
 
-        Assert.Equal("""{"base":true}""", provider.CreatedConfigs.Last().GetProviderOptionsRawJson());
+        Assert.Equal("""{"base":true}""", provider.CreatedConfigs.Last().GetConstructionOptionsRawJson());
         Assert.Equal("run-model", provider.CreatedConfigs.Last().ModelName);
     }
 
@@ -100,7 +122,7 @@ public sealed class ProviderOptionsRunConfigTests : AgentTestBase
 
         public string DisplayName => "Test Provider";
 
-        public IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null)
+        public async ValueTask<IChatClient> CreateChatClientAsync(ClientProviderConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
         {
             CreatedConfigs.Add(config);
             return chatClient;

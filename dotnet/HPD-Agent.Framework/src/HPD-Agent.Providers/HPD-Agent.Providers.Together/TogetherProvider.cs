@@ -24,7 +24,7 @@ internal class TogetherProvider : IChatClientProvider, IEmbeddingGeneratorProvid
     public string DisplayName => "Together AI";
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider registers an AOT-compatible config deserializer in TogetherProviderModule.")]
-    public Meai.IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null)
+    public async ValueTask<Meai.IChatClient> CreateChatClientAsync(ClientProviderConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(config);
 
@@ -104,11 +104,6 @@ internal class TogetherProvider : IChatClientProvider, IEmbeddingGeneratorProvid
             errors.Add("Model name is required for Together AI");
         }
 
-        if (string.IsNullOrWhiteSpace(config.ApiKey))
-        {
-            errors.Add("API key is required for Together AI. " +
-                       "Set it via the apiKey parameter, TOGETHER_API_KEY environment variable, or configuration.");
-        }
 
         if (!string.IsNullOrWhiteSpace(config.Endpoint) &&
             !Uri.IsWellFormedUriString(config.Endpoint, UriKind.Absolute))

@@ -351,7 +351,7 @@ if (realtimeRequested)
             ModelName = realtimeModel,
             ApiKey = apiKey,
             Endpoint = openAIEndpoint,
-            ProviderOptions = JsonDocument.Parse(JsonSerializer.Serialize(new OpenAIRealtimeConfig
+            ConstructionOptions = JsonDocument.Parse(JsonSerializer.Serialize(new OpenAIRealtimeConfig
             {
                 DefaultModelId = realtimeModel
             })).RootElement.Clone()

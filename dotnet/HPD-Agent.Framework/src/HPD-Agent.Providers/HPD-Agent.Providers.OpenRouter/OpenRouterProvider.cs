@@ -19,7 +19,7 @@ internal class OpenRouterProvider : IChatClientProvider
     public string ProviderKey => "openrouter";
     public string DisplayName => "OpenRouter";
 
-    public IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null)
+    public async ValueTask<IChatClient> CreateChatClientAsync(ClientProviderConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
     {
         // Get secret resolver from services
         var secrets = services?.GetService<ISecretResolver>();
@@ -31,8 +31,7 @@ internal class OpenRouterProvider : IChatClientProvider
         }
 
         // Resolve API key using ISecretResolver
-        var apiKeyTask = secrets.RequireAsync("openrouter:ApiKey", "OpenRouter", config.ApiKey, CancellationToken.None);
-        string apiKey = apiKeyTask.GetAwaiter().GetResult();
+        string apiKey = await secrets.RequireAsync("openrouter:ApiKey", "OpenRouter", config.ApiKey, cancellationToken).ConfigureAwait(false);
 
         var attributionInfo = ExtractAttributionInfo(config);
 
@@ -152,7 +151,7 @@ internal class OpenRouterProvider : IChatClientProvider
         try
         {
             // Create a temporary client to test the API key
-            var testClient = CreateChatClient(config) as OpenRouterChatClient;
+            var testClient = await CreateChatClientAsync(config, cancellationToken: cancellationToken).ConfigureAwait(false) as OpenRouterChatClient;
             if (testClient == null)
                 return ProviderValidationResult.Failure("Failed to create test client");
 

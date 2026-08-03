@@ -131,6 +131,8 @@ public class AgentBuilder
     // Secret resolution
     private ISecretResolver? _secretResolver;
     private readonly List<ISecretResolver> _additionalResolvers = new();
+    private readonly ExplicitSecretResolver _explicitSecretResolver = new();
+    private bool _secretResolverChainBuilt;
 
     /// <summary>
     /// Selected ToolHarnesses for this agent (from WithToolHarness calls).
@@ -1080,6 +1082,24 @@ public class AgentBuilder
     }
 
     /// <summary>
+    /// Adds a runtime-only secret with the highest resolution priority.
+    /// Explicit secret values are never written to serializable agent configuration.
+    /// </summary>
+    /// <param name="key">The canonical secret-resolver key.</param>
+    /// <param name="value">The secret value.</param>
+    /// <returns>This builder.</returns>
+    public AgentBuilder AddExplicitSecret(string key, string value)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(key);
+        ArgumentException.ThrowIfNullOrWhiteSpace(value);
+        if (_secretResolverChainBuilt)
+            throw new InvalidOperationException("Explicit secrets cannot be added after the agent has been built.");
+
+        _explicitSecretResolver.Set(key, value);
+        return this;
+    }
+
+    /// <summary>
     /// Gets the configured secret resolver (available after Build).
     /// Exposed so toolharnesses and connectors can resolve secrets.
     /// </summary>
@@ -1855,14 +1875,22 @@ public class AgentBuilder
 
         // Build the secret resolver chain FIRST (before BuildDependenciesAsync)
         // Providers need ISecretResolver available in the service provider during CreateChatClient
-        if (_secretResolver is null)
+        if (!_secretResolverChainBuilt)
         {
-            var resolvers = new List<ISecretResolver>();
-            resolvers.Add(new EnvironmentSecretResolver());
-            resolvers.AddRange(_additionalResolvers);
-            if (_configuration != null)
-                resolvers.Add(new ConfigurationSecretResolver(_configuration));
+            var resolvers = new List<ISecretResolver> { _explicitSecretResolver };
+            if (_secretResolver is not null)
+            {
+                resolvers.Add(_secretResolver);
+            }
+            else
+            {
+                resolvers.Add(new EnvironmentSecretResolver());
+                resolvers.AddRange(_additionalResolvers);
+                if (_configuration != null)
+                    resolvers.Add(new ConfigurationSecretResolver(_configuration));
+            }
             _secretResolver = new ChainedSecretResolver(resolvers);
+            _secretResolverChainBuilt = true;
         }
 
         // Wrap the service provider to make ISecretResolver available to providers
@@ -2767,61 +2795,20 @@ public class AgentBuilder
             };
     }
 
-    private AgentClientSet CreateAgentClientSet(
-        IChatClient? chat,
-        ClientProviderConfig? chatConfig)
+    private AgentClientSet CreateAuxiliaryClientSet()
     {
         var resolvedConfigs = new Dictionary<ProviderClientFamily, ClientProviderConfig>();
-        if (chatConfig != null)
-            resolvedConfigs[ProviderClientFamily.Chat] = ClientProviderConfigResolver.Clone(chatConfig);
-
-        var textToSpeech = ResolveClientFamily<ITextToSpeechClientProvider, ITextToSpeechClient>(
-            ProviderClientFamily.TextToSpeech,
-            static (provider, config, services) => provider.CreateTextToSpeechClient(config, services),
-            resolvedConfigs);
-
-        var speechToText = ResolveClientFamily<ISpeechToTextClientProvider, ISpeechToTextClient>(
-            ProviderClientFamily.SpeechToText,
-            static (provider, config, services) => provider.CreateSpeechToTextClient(config, services),
-            resolvedConfigs);
-
-        var realtime = ResolveClientFamily<IRealtimeClientProvider, IRealtimeClient>(
-            ProviderClientFamily.Realtime,
-            static (provider, config, services) => provider.CreateRealtimeClient(config, services),
-            resolvedConfigs);
-
-        var imageGenerator = ResolveClientFamily<IImageGeneratorProvider, IImageGenerator>(
-            ProviderClientFamily.ImageGeneration,
-            static (provider, config, services) => provider.CreateImageGenerator(config, services),
-            resolvedConfigs);
-
-        var embeddingGenerator = ResolveClientFamily<IEmbeddingGeneratorProvider, IEmbeddingGenerator>(
-            ProviderClientFamily.Embeddings,
-            static (provider, config, services) => provider.CreateEmbeddingGenerator(config, services),
-            resolvedConfigs);
-
-        var hostedFiles = ResolveClientFamily<IHostedFileClientProvider, IHostedFileClient>(
-            ProviderClientFamily.HostedFiles,
-            static (provider, config, services) => provider.CreateHostedFileClient(config, services),
-            resolvedConfigs);
-
-        var vadFactory = ResolveComponentFactory<IVoiceActivityDetectorProvider, IVoiceActivityDetector>(
-            ProviderClientFamily.VoiceActivityDetection,
-            ProviderFamilyLifetime.StatefulPerAudioSession,
-            static (provider, config, context, services) =>
-                provider.CreateVoiceActivityDetector(config, context, services),
-            resolvedConfigs);
-
-        var eotFactory = ResolveComponentFactory<IEndOfTurnDetectorProvider, IEotDetector>(
-            ProviderClientFamily.EndOfTurnDetection,
-            ProviderFamilyLifetime.StatefulPerAudioSession,
-            static (provider, config, context, services) =>
-                provider.CreateEndOfTurnDetector(config, context, services),
-            resolvedConfigs);
+        var textToSpeech = ResolveClientFamily<ITextToSpeechClientProvider, ITextToSpeechClient>(ProviderClientFamily.TextToSpeech, static (p, c, s) => p.CreateTextToSpeechClient(c, s), resolvedConfigs);
+        var speechToText = ResolveClientFamily<ISpeechToTextClientProvider, ISpeechToTextClient>(ProviderClientFamily.SpeechToText, static (p, c, s) => p.CreateSpeechToTextClient(c, s), resolvedConfigs);
+        var realtime = ResolveClientFamily<IRealtimeClientProvider, IRealtimeClient>(ProviderClientFamily.Realtime, static (p, c, s) => p.CreateRealtimeClient(c, s), resolvedConfigs);
+        var imageGenerator = ResolveClientFamily<IImageGeneratorProvider, IImageGenerator>(ProviderClientFamily.ImageGeneration, static (p, c, s) => p.CreateImageGenerator(c, s), resolvedConfigs);
+        var embeddingGenerator = ResolveClientFamily<IEmbeddingGeneratorProvider, IEmbeddingGenerator>(ProviderClientFamily.Embeddings, static (p, c, s) => p.CreateEmbeddingGenerator(c, s), resolvedConfigs);
+        var hostedFiles = ResolveClientFamily<IHostedFileClientProvider, IHostedFileClient>(ProviderClientFamily.HostedFiles, static (p, c, s) => p.CreateHostedFileClient(c, s), resolvedConfigs);
+        var vadFactory = ResolveComponentFactory<IVoiceActivityDetectorProvider, IVoiceActivityDetector>(ProviderClientFamily.VoiceActivityDetection, ProviderFamilyLifetime.StatefulPerAudioSession, static (p, c, x, s) => p.CreateVoiceActivityDetector(c, x, s), resolvedConfigs);
+        var eotFactory = ResolveComponentFactory<IEndOfTurnDetectorProvider, IEotDetector>(ProviderClientFamily.EndOfTurnDetection, ProviderFamilyLifetime.StatefulPerAudioSession, static (p, c, x, s) => p.CreateEndOfTurnDetector(c, x, s), resolvedConfigs);
 
         return new AgentClientSet
         {
-            Chat = chat,
             TextToSpeech = textToSpeech,
             SpeechToText = speechToText,
             Realtime = realtime,
@@ -2863,98 +2850,50 @@ public class AgentBuilder
         var provider = _providerRegistry.GetRequiredProvider<TProvider>(config.ProviderKey);
         var capturedConfig = ClientProviderConfigResolver.Clone(config);
         resolvedConfigs[family] = capturedConfig;
-
-        var lifetime = provider.GetMetadata().Families.TryGetValue(family, out var descriptor)
-            ? descriptor.Lifetime
-            : defaultLifetime;
-
+        var lifetime = provider.GetMetadata().Families.TryGetValue(family, out var descriptor) ? descriptor.Lifetime : defaultLifetime;
         return context =>
         {
-            var scopedContext = context.Lifetime == ProviderFamilyLifetime.ReusableClient
-                ? context with { Lifetime = lifetime }
-                : context;
-
-            return ApplyComponentMiddleware(
-                family,
-                createComponent(provider, capturedConfig, scopedContext, _serviceProvider),
-                scopedContext);
+            var scopedContext = context.Lifetime == ProviderFamilyLifetime.ReusableClient ? context with { Lifetime = lifetime } : context;
+            return ApplyComponentMiddleware(family, createComponent(provider, capturedConfig, scopedContext, _serviceProvider), scopedContext);
         };
     }
 
     private TClient ApplyClientMiddleware<TClient>(ProviderClientFamily family, TClient client)
-    {
-        return family switch
+        => family switch
         {
-            ProviderClientFamily.Chat when client is IChatClient chat =>
-                (TClient)(object)ApplyMiddleware(chat, _config.ClientMiddleware?.Chat, "chat client"),
-            ProviderClientFamily.TextToSpeech when client is ITextToSpeechClient tts =>
-                (TClient)(object)ApplyMiddleware(tts, _config.ClientMiddleware?.TextToSpeech, "text-to-speech client"),
-            ProviderClientFamily.SpeechToText when client is ISpeechToTextClient stt =>
-                (TClient)(object)ApplyMiddleware(stt, _config.ClientMiddleware?.SpeechToText, "speech-to-text client"),
-            ProviderClientFamily.Realtime when client is IRealtimeClient realtime =>
-                (TClient)(object)ApplyMiddleware(realtime, _config.ClientMiddleware?.Realtime, "realtime client"),
-            ProviderClientFamily.ImageGeneration when client is IImageGenerator imageGenerator =>
-                (TClient)(object)ApplyMiddleware(imageGenerator, _config.ClientMiddleware?.ImageGeneration, "image generator"),
-            ProviderClientFamily.Embeddings when client is IEmbeddingGenerator embeddingGenerator =>
-                (TClient)(object)ApplyMiddleware(embeddingGenerator, _config.ClientMiddleware?.Embeddings, "embedding generator"),
-            ProviderClientFamily.HostedFiles when client is IHostedFileClient hostedFiles =>
-                (TClient)(object)ApplyMiddleware(hostedFiles, _config.ClientMiddleware?.HostedFiles, "hosted file client"),
+            ProviderClientFamily.TextToSpeech when client is ITextToSpeechClient value => (TClient)(object)ApplyMiddleware(value, _config.ClientMiddleware?.TextToSpeech, "text-to-speech client"),
+            ProviderClientFamily.SpeechToText when client is ISpeechToTextClient value => (TClient)(object)ApplyMiddleware(value, _config.ClientMiddleware?.SpeechToText, "speech-to-text client"),
+            ProviderClientFamily.ImageGeneration when client is IImageGenerator value => (TClient)(object)ApplyMiddleware(value, _config.ClientMiddleware?.ImageGeneration, "image generator"),
+            ProviderClientFamily.Embeddings when client is IEmbeddingGenerator value => (TClient)(object)ApplyMiddleware(value, _config.ClientMiddleware?.Embeddings, "embedding generator"),
+            ProviderClientFamily.HostedFiles when client is IHostedFileClient value => (TClient)(object)ApplyMiddleware(value, _config.ClientMiddleware?.HostedFiles, "hosted file client"),
             _ => client
         };
-    }
 
-    private TComponent ApplyComponentMiddleware<TComponent>(
-        ProviderClientFamily family,
-        TComponent component,
-        ProviderComponentLifetimeContext context)
-    {
-        return family switch
+    private TComponent ApplyComponentMiddleware<TComponent>(ProviderClientFamily family, TComponent component, ProviderComponentLifetimeContext context)
+        => family switch
         {
-            ProviderClientFamily.VoiceActivityDetection when component is IVoiceActivityDetector vad =>
-                (TComponent)(object)ApplyMiddleware(vad, _config.ClientMiddleware?.VoiceActivityDetection, context, "voice activity detector"),
-            ProviderClientFamily.EndOfTurnDetection when component is IEotDetector eot =>
-                (TComponent)(object)ApplyMiddleware(eot, _config.ClientMiddleware?.EndOfTurnDetection, context, "end-of-turn detector"),
+            ProviderClientFamily.VoiceActivityDetection when component is IVoiceActivityDetector value => (TComponent)(object)ApplyMiddleware(value, _config.ClientMiddleware?.VoiceActivityDetection, context, "voice activity detector"),
+            ProviderClientFamily.EndOfTurnDetection when component is IEotDetector value => (TComponent)(object)ApplyMiddleware(value, _config.ClientMiddleware?.EndOfTurnDetection, context, "end-of-turn detector"),
             _ => component
         };
-    }
 
-    private TClient ApplyMiddleware<TClient>(
-        TClient client,
-        IReadOnlyList<Func<TClient, IServiceProvider?, TClient>>? middleware,
-        string clientDescription)
+    private TClient ApplyMiddleware<TClient>(TClient client, IReadOnlyList<Func<TClient, IServiceProvider?, TClient>>? middleware, string description)
     {
-        if (middleware == null || middleware.Count == 0)
-            return client;
-
+        if (middleware == null) return client;
         var effective = client;
-        for (var i = middleware.Count - 1; i >= 0; i--)
-        {
-            effective = middleware[i](effective, _serviceProvider)
-                ?? throw new InvalidOperationException($"{clientDescription} middleware returned null.");
-        }
-
+        for (var index = middleware.Count - 1; index >= 0; index--)
+            effective = middleware[index](effective, _serviceProvider) ?? throw new InvalidOperationException($"{description} middleware returned null.");
         return effective;
     }
 
-    private TComponent ApplyMiddleware<TComponent>(
-        TComponent component,
-        IReadOnlyList<Func<TComponent, ProviderComponentLifetimeContext, IServiceProvider?, TComponent>>? middleware,
-        ProviderComponentLifetimeContext context,
-        string componentDescription)
+    private TComponent ApplyMiddleware<TComponent>(TComponent component, IReadOnlyList<Func<TComponent, ProviderComponentLifetimeContext, IServiceProvider?, TComponent>>? middleware, ProviderComponentLifetimeContext context, string description)
     {
-        if (middleware == null || middleware.Count == 0)
-            return component;
-
+        if (middleware == null) return component;
         var effective = component;
-        for (var i = middleware.Count - 1; i >= 0; i--)
-        {
-            effective = middleware[i](effective, context, _serviceProvider)
-                ?? throw new InvalidOperationException($"{componentDescription} middleware returned null.");
-        }
-
+        for (var index = middleware.Count - 1; index >= 0; index--)
+            effective = middleware[index](effective, context, _serviceProvider) ?? throw new InvalidOperationException($"{description} middleware returned null.");
         return effective;
     }
-
     /// <summary>
     /// Builds all dependencies needed for agent construction.
     /// </summary>
@@ -2968,177 +2907,21 @@ public class AgentBuilder
             var testErrorHandler = new HPD.Agent.ErrorHandling.GenericErrorHandler();
             var toolBuild = await BuildToolOptionsAsync(cancellationToken).ConfigureAwait(false);
             return new AgentBuildDependencies(
-                CreateAgentClientSet(_baseClient, chatConfig: null),
+                AgentClientSet.ForChat(_baseClient),
                 toolBuild.MergedOptions,
                 testErrorHandler,
                 OwnedHttpClients: toolBuild.OwnedHttpClients);
         }
 
-        // === START: VALIDATION LOGIC ===
+        // Provider-backed clients are invocation resources. The builder retains only
+        // their defaults and runtime services; the run resolver acquires clients lazily.
         AgentConfigValidator.ValidateAndThrow(_config);
-        var chatProviderConfig = _config.ResolveClientConfig(ProviderClientFamily.Chat);
-
-        // === RUNTIME PROVIDER: Skip provider client creation when a chat client
-        // will be selected at invocation time via AgentRunConfig.
-        if (_deferredProvider || chatProviderConfig == null)
-        {
-            var runtimeErrorHandler = new HPD.Agent.ErrorHandling.GenericErrorHandler();
-            var toolBuild = await BuildToolOptionsAsync(cancellationToken).ConfigureAwait(false);
-            return new AgentBuildDependencies(
-                CreateAgentClientSet(null, chatConfig: null),
-                toolBuild.MergedOptions,
-                runtimeErrorHandler,
-                OwnedHttpClients: toolBuild.OwnedHttpClients);
-        }
-
-        EnsureAutoConfiguration();
-
-        // Fill missing values from the matching Providers section.
-        if (_configuration != null && !string.IsNullOrEmpty(chatProviderConfig.ProviderKey))
-        {
-            var providerName = chatProviderConfig.ProviderKey;
-
-            if (TryGetExactConfigurationValue(_configuration, $"Providers:{providerName}:ProviderKey", out var sectionProviderKey) &&
-                string.IsNullOrEmpty(chatProviderConfig.ProviderKey))
-                chatProviderConfig.ProviderKey = sectionProviderKey;
-
-            if (TryGetExactConfigurationValue(_configuration, $"Providers:{providerName}:ApiKey", out var sectionApiKey) &&
-                string.IsNullOrEmpty(chatProviderConfig.ApiKey))
-                chatProviderConfig.ApiKey = sectionApiKey;
-
-            if (TryGetExactConfigurationValue(_configuration, $"Providers:{providerName}:ModelName", out var sectionModelName) &&
-                string.IsNullOrEmpty(chatProviderConfig.ModelName))
-                chatProviderConfig.ModelName = sectionModelName;
-
-            if (TryGetExactConfigurationValue(_configuration, $"Providers:{providerName}:Endpoint", out var sectionEndpoint) &&
-                string.IsNullOrEmpty(chatProviderConfig.Endpoint))
-                chatProviderConfig.Endpoint = sectionEndpoint;
-        }
-
-        // Resolve provider from registry
-        var providerKey = chatProviderConfig.ProviderKey;
-        if (string.IsNullOrEmpty(providerKey) || string.IsNullOrEmpty(chatProviderConfig.ModelName))
-        {
-            var runtimeErrorHandler = new HPD.Agent.ErrorHandling.GenericErrorHandler();
-            var toolBuild = await BuildToolOptionsAsync(cancellationToken).ConfigureAwait(false);
-            return new AgentBuildDependencies(
-                CreateAgentClientSet(null, chatConfig: null),
-                toolBuild.MergedOptions,
-                runtimeErrorHandler,
-                OwnedHttpClients: toolBuild.OwnedHttpClients);
-        }
-
-        var providerFeatures = _providerRegistry.GetRequiredProvider<IChatClientProvider>(providerKey);
-
-        // Validate provider-specific configuration
-        ProviderValidationResult validation;
-
-        // Check if async validation is enabled in configuration
-        var enableAsyncValidation = _config.Validation?.EnableAsyncValidation ?? false;
-
-        // Try async validation first if enabled and supported
-        if (enableAsyncValidation)
-        {
-            var asyncValidationTask = providerFeatures.ValidateConfigurationAsync(
-                chatProviderConfig,
-                ProviderClientFamily.Chat,
-                cancellationToken);
-
-            // If provider supports async validation (returns non-null Task)
-            if (asyncValidationTask != null)
-            {
-                var asyncValidation = await asyncValidationTask.ConfigureAwait(false);
-
-                // If async validation returned a result, use it; otherwise fall back to sync
-                if (asyncValidation != null)
-                {
-                    validation = asyncValidation;
-                    _logger?.CreateLogger<AgentBuilder>().LogDebug(
-                        "Used async validation for provider '{ProviderKey}'", providerKey);
-                }
-                else
-                {
-                    // Async task completed but returned null, use sync
-                    validation = providerFeatures.ValidateConfiguration(chatProviderConfig, ProviderClientFamily.Chat);
-                }
-            }
-            else
-            {
-                // Provider doesn't support async validation (returns null Task), use sync
-                validation = providerFeatures.ValidateConfiguration(chatProviderConfig, ProviderClientFamily.Chat);
-            }
-        }
-        else
-        {
-            // Async validation disabled, use sync only
-            validation = providerFeatures.ValidateConfiguration(chatProviderConfig, ProviderClientFamily.Chat);
-        }
-
-        if (!validation.IsValid)
-        {
-            // Check if this is an API key issue and provide helpful guidance
-            var hasApiKeyError = validation.Errors.Any(e =>
-                e.Contains("API key", StringComparison.OrdinalIgnoreCase) ||
-                e.Contains("ApiKey", StringComparison.OrdinalIgnoreCase) ||
-                e.Contains("AccessKey", StringComparison.OrdinalIgnoreCase));
-
-                var errorMessage = $"Provider configuration for '{providerKey}' is invalid:\n- {string.Join("\n- ", validation.Errors)}";
-
-            if (hasApiKeyError)
-            {
-                var providerUpper = providerKey.ToUpperInvariant();
-
-                errorMessage += $"\n\nConfigure your API key using the provider section or typed agent config:\n\n" +
-                    $" PROVIDERS SECTION:\n" +
-                    $"   appsettings.json → \"Providers\": {{\n" +
-                    $"     \"{providerKey}\": {{\n" +
-                    $"       \"ProviderKey\": \"{providerKey}\",\n" +
-                    $"       \"ModelName\": \"your-model\",\n" +
-                    $"       \"ApiKey\": \"your-api-key\"\n" +
-                    $"     }}\n" +
-                    $"   }}\n\n" +
-                    $"  ENVIRONMENT VARIABLE:\n" +
-                    $"   {providerUpper}_API_KEY=your-api-key\n\n" +
-                    $" USER SECRETS (development only):\n" +
-                    $"   dotnet user-secrets set \"Providers:{providerKey}:ApiKey\" \"your-api-key\"\n\n" +
-                    $" CODE (for testing only, not recommended):\n" +
-                    $"   Clients = new AgentClientConfig {{ Chat = new ClientProviderConfig {{ ApiKey = \"your-api-key\", ... }} }}";
-            }            throw new InvalidOperationException(errorMessage);
-        }
-
-        // Create chat client and error handler via provider factories
-        // Skip client creation if WithChatClient() was used (e.g., SubAgent inheriting parent's client)
-        if (_baseClient == null)
-        {
-            _baseClient = providerFeatures.CreateChatClient(chatProviderConfig, _serviceProvider);
-
-            if (_baseClient == null)
-                throw new InvalidOperationException($"The factory for provider '{providerKey}' returned a null chat client.");
-        }
-
-        // Note: Error handler is now created in the middleware registration phase above,
-        // not here. This ensures it's only created if retry is actually enabled.
-
-        // Use base client directly (no middleware pipeline)
-        // Observability (telemetry, logging, caching) is integrated directly into Agent.cs
-        var clientToUse = _baseClient;
-
-        // Dynamic Memory registration is handled by WithDynamicMemory() extension method
-        // No need to register here in Build() - the extension already adds Middleware and ToolHarness
-
-        var builtTools = await BuildToolOptionsAsync(cancellationToken).ConfigureAwait(false);
-
-        // Create the provider-specific error handler
-        var errorHandler = providerFeatures.CreateErrorHandler();
-        if (errorHandler == null)
-            throw new InvalidOperationException($"The factory for provider '{providerKey}' returned a null error handler.");
-
-        // Return dependencies instead of creating agent
+        var runtimeToolBuild = await BuildToolOptionsAsync(cancellationToken).ConfigureAwait(false);
         return new AgentBuildDependencies(
-            CreateAgentClientSet(clientToUse, chatProviderConfig),
-            builtTools.MergedOptions,
-            errorHandler,
-            builtTools.OwnedHttpClients);
+            CreateAuxiliaryClientSet(),
+            runtimeToolBuild.MergedOptions,
+            new HPD.Agent.ErrorHandling.GenericErrorHandler(),
+            OwnedHttpClients: runtimeToolBuild.OwnedHttpClients);
     }
 
     private void EnsureAutoConfiguration()
@@ -4708,14 +4491,21 @@ public static class AgentBuilderConfigExtensions
 
 public static class AgentBuilderProviderExtensions
 {
+    /// <summary>Configures the default Chat provider and model for agent runs.</summary>
+    /// <param name="builder">The agent builder.</param>
+    /// <param name="providerKey">The canonical provider key.</param>
+    /// <param name="modelName">The default model name.</param>
+    /// <param name="apiKey">An optional runtime-only explicit API key.</param>
+    /// <returns>The builder.</returns>
     public static AgentBuilder WithProvider(this AgentBuilder builder, string providerKey, string modelName, string? apiKey = null)
     {
         builder.Config.SetChatClientConfig(new ClientProviderConfig
         {
             ProviderKey = providerKey,
-            ModelName = modelName,
-            ApiKey = apiKey
+            ModelName = modelName
         });
+        if (apiKey is not null)
+            builder.AddExplicitSecret($"{providerKey}:ApiKey", apiKey);
         return builder;
     }
 }

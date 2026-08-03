@@ -22,7 +22,7 @@ internal class CohereProvider : IChatClientProvider, IEmbeddingGeneratorProvider
     public string DisplayName => "Cohere";
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider registers an AOT-compatible config deserializer in CohereProviderModule.")]
-    public Meai.IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null)
+    public async ValueTask<Meai.IChatClient> CreateChatClientAsync(ClientProviderConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(config);
 
@@ -101,11 +101,6 @@ internal class CohereProvider : IChatClientProvider, IEmbeddingGeneratorProvider
             errors.Add("Model name is required for Cohere");
         }
 
-        if (string.IsNullOrWhiteSpace(config.ApiKey))
-        {
-            errors.Add("API key is required for Cohere. " +
-                       "Set it via the apiKey parameter, COHERE_API_KEY environment variable, or configuration.");
-        }
 
         if (!string.IsNullOrWhiteSpace(config.Endpoint) &&
             !Uri.IsWellFormedUriString(config.Endpoint, UriKind.Absolute))

@@ -86,7 +86,7 @@ public sealed class ProviderConstructionValidationRestorationTests
         {
             ModelPath = Directory.GetCurrentDirectory(),
             Providers = [""],
-            ProviderOptions = new Dictionary<string, Dictionary<string, string>>
+            ConstructionOptions = new Dictionary<string, Dictionary<string, string>>
             {
                 [""] = new()
                 {

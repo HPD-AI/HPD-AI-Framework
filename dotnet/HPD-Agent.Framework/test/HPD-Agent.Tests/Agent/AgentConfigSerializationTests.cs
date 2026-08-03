@@ -114,7 +114,7 @@ public sealed class AgentConfigSerializationTests
     }
 
     [Fact]
-    public void ProviderOptions_ObjectFeedsRegisteredProviderDeserializer()
+    public void ConstructionOptions_ObjectFeedsRegisteredProviderDeserializer()
     {
         var providerKey = $"provider-options-{Guid.NewGuid():N}";
         ProviderDiscovery.RegisterProviderConfigType<ProviderTestOptions>(
@@ -125,7 +125,7 @@ public sealed class AgentConfigSerializationTests
         var config = new ClientProviderConfig
         {
             ProviderKey = providerKey,
-            ProviderOptions = JsonDocument.Parse("""{"budget":512,"enabled":true}""").RootElement.Clone()
+            ConstructionOptions = JsonDocument.Parse("""{"budget":512,"enabled":true}""").RootElement.Clone()
         };
 
         var options = config.GetProviderConfig<ProviderTestOptions>();
@@ -136,7 +136,7 @@ public sealed class AgentConfigSerializationTests
     }
 
     [Fact]
-    public void ProviderOptions_YamlObjectMergesWithOverrides()
+    public void ConstructionOptions_YamlObjectMergesWithOverrides()
     {
         var path = Path.Combine(Path.GetTempPath(), $"hpd-agent-options-{Guid.NewGuid():N}.yaml");
         File.WriteAllText(path, """
@@ -145,13 +145,13 @@ public sealed class AgentConfigSerializationTests
           providers:
             openai:
               providerKey: openai
-              providerOptions:
+              constructionOptions:
                 organizationId: org_1
                 projectId: proj_agent
           chat:
             providerKey: openai
             modelName: gpt-agent
-            providerOptions:
+            constructionOptions:
               projectId: proj_chat
               reasoningEffort: medium
         """);
@@ -163,12 +163,12 @@ public sealed class AgentConfigSerializationTests
             var resolved = config!.ResolveClientConfig(ProviderClientFamily.Chat);
 
             resolved.Should().NotBeNull();
-            using var json = JsonDocument.Parse(resolved!.GetProviderOptionsRawJson()!);
+            using var json = JsonDocument.Parse(resolved!.GetConstructionOptionsRawJson()!);
             var root = json.RootElement;
             root.GetProperty("organizationId").GetString().Should().Be("org_1");
             root.GetProperty("projectId").GetString().Should().Be("proj_chat");
             root.GetProperty("reasoningEffort").GetString().Should().Be("medium");
-            resolved.ProviderOptions.Should().NotBeNull();
+            resolved.ConstructionOptions.Should().NotBeNull();
         }
         finally
         {

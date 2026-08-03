@@ -117,7 +117,7 @@ public sealed class ProviderBehaviorRestorationTests
 
     [Theory]
     [MemberData(nameof(OpenAICompatibleProviders))]
-    public void OpenAICompatibleProvider_CreateChatClient_ShouldExposeMetadataAndDefaultModel(ProviderCase providerCase)
+    public async Task OpenAICompatibleProvider_CreateChatClient_ShouldExposeMetadataAndDefaultModel(ProviderCase providerCase)
     {
         var provider = providerCase.Create();
         var config = new ClientProviderConfig
@@ -127,7 +127,7 @@ public sealed class ProviderBehaviorRestorationTests
             ApiKey = providerCase.RequiresApiKey ? "test-key" : null
         };
 
-        using var client = provider.CreateChatClient(config);
+        using var client = await provider.CreateChatClientAsync(config);
         var metadata = client.GetService(typeof(ChatClientMetadata)) as ChatClientMetadata;
 
         metadata.Should().NotBeNull();
@@ -136,7 +136,7 @@ public sealed class ProviderBehaviorRestorationTests
     }
 
     [Fact]
-    public void OpenAICompatibleProvider_CreateChatClient_ShouldResolveRequiredApiKeyFromSecretResolver()
+    public async Task OpenAICompatibleProvider_CreateChatClient_ShouldResolveRequiredApiKeyFromSecretResolver()
     {
         var provider = new DeepSeekProvider();
         var config = new ClientProviderConfig
@@ -150,13 +150,13 @@ public sealed class ProviderBehaviorRestorationTests
             ["deepseek:ApiKey"] = "test-key"
         });
 
-        using var client = provider.CreateChatClient(config, services);
+        using var client = await provider.CreateChatClientAsync(config, services);
 
         client.Should().NotBeNull();
     }
 
     [Fact]
-    public void OpenAICompatibleProvider_CreateChatClient_ShouldFailWhenRequiredApiKeyCannotBeResolved()
+    public async Task OpenAICompatibleProvider_CreateChatClient_ShouldFailWhenRequiredApiKeyCannotBeResolved()
     {
         var provider = new DeepSeekProvider();
         var config = new ClientProviderConfig
@@ -167,9 +167,9 @@ public sealed class ProviderBehaviorRestorationTests
 
         using var services = ServicesWithSecrets();
 
-        var action = () => provider.CreateChatClient(config, services);
+        var action = async () => await provider.CreateChatClientAsync(config, services);
 
-        action.Should().Throw<SecretNotFoundException>()
+        await action.Should().ThrowAsync<SecretNotFoundException>()
             .WithMessage("*DeepSeek*");
     }
 
@@ -274,7 +274,7 @@ public sealed class ProviderBehaviorRestorationTests
     }
 
     [Fact]
-    public void AzureAI_CreateChatClient_WithApiKeyAuthModeButNoKey_ShouldFailBeforeSdkClientConstruction()
+    public async Task AzureAI_CreateChatClient_WithApiKeyAuthModeButNoKey_ShouldFailBeforeSdkClientConstruction()
     {
         var provider = new AzureAIProvider();
         var config = new ClientProviderConfig
@@ -288,14 +288,14 @@ public sealed class ProviderBehaviorRestorationTests
             AuthMode = AzureAIAuthMode.ApiKey
         });
 
-        var action = () => provider.CreateChatClient(config, ServicesWithSecrets());
+        var action = async () => await provider.CreateChatClientAsync(config, ServicesWithSecrets());
 
-        action.Should().Throw<InvalidOperationException>()
+        await action.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*API key authentication was requested*");
     }
 
     [Fact]
-    public void AzureAI_CreateChatClient_WithProjectEndpointAndApiKey_ShouldRejectKeyAuth()
+    public async Task AzureAI_CreateChatClient_WithProjectEndpointAndApiKey_ShouldRejectKeyAuth()
     {
         var provider = new AzureAIProvider();
         var config = new ClientProviderConfig
@@ -306,9 +306,9 @@ public sealed class ProviderBehaviorRestorationTests
             ApiKey = "test-key"
         };
 
-        var action = () => provider.CreateChatClient(config, ServicesWithSecrets());
+        var action = async () => await provider.CreateChatClientAsync(config, ServicesWithSecrets());
 
-        action.Should().Throw<InvalidOperationException>()
+        await action.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*Projects endpoints require OAuth authentication*");
     }
 

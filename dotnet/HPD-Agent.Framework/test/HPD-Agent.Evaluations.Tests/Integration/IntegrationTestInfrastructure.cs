@@ -37,7 +37,7 @@ internal sealed class StubChatClientProvider(IChatClient client) : IChatClientPr
 {
     public string ProviderKey => "test";
     public string DisplayName => "Test";
-    public IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services) => client;
+    public async ValueTask<IChatClient> CreateChatClientAsync(ClientProviderConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default) => client;
     public HPD.Agent.ErrorHandling.IProviderErrorHandler CreateErrorHandler() => new StubErrorHandler();
     public ProviderMetadata GetMetadata() => new()
     {

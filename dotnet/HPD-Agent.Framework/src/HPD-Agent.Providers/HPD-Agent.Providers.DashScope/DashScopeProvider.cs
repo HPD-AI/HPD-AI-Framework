@@ -25,7 +25,7 @@ internal class DashScopeProvider : IChatClientProvider, IEmbeddingGeneratorProvi
     public string DisplayName => "DashScope";
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider registers an AOT-compatible config deserializer in DashScopeProviderModule.")]
-    public Meai.IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null)
+    public async ValueTask<Meai.IChatClient> CreateChatClientAsync(ClientProviderConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(config);
 
@@ -108,11 +108,6 @@ internal class DashScopeProvider : IChatClientProvider, IEmbeddingGeneratorProvi
             errors.Add("Model name is required for DashScope");
         }
 
-        if (string.IsNullOrWhiteSpace(config.ApiKey))
-        {
-            errors.Add("API key is required for DashScope. " +
-                       "Set it via the apiKey parameter, DASHSCOPE_API_KEY, QWEN_API_KEY, DASHSCOPE_KEY environment variable, or configuration.");
-        }
 
         if (!string.IsNullOrWhiteSpace(config.Endpoint) &&
             !Uri.IsWellFormedUriString(config.Endpoint, UriKind.Absolute))

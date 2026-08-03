@@ -41,8 +41,8 @@ public static class AgentBuilderExtensions
     /// </para>
     /// <para>
     /// This method creates an <see cref="AzureAIProviderConfig"/> that is:
-    /// - Stored in <c>ClientProviderConfig.ProviderOptions</c> as a structured JSON/YAML object
-    /// - Applied during <c>AzureAIProvider.CreateChatClient()</c> via the registered deserializer
+    /// - Stored in <c>ClientProviderConfig.ConstructionOptions</c> as a structured JSON/YAML object
+    /// - Applied during <c>AzureAIProvider.CreateChatClientAsync()</c> via the registered deserializer
     /// </para>
     /// <para>
     /// For FFI/JSON configuration, you can use the same config structure directly:
@@ -52,7 +52,7 @@ public static class AgentBuilderExtensions
     ///   "modelName": "gpt-4",
     ///   "endpoint": "https://your-project.services.ai.azure.com",
     ///   "apiKey": "your-api-key",
-    ///   "providerOptions": { "authMode": "DefaultAzureCredential" }
+    ///   "constructionOptions": { "authMode": "DefaultAzureCredential" }
     /// }
     /// </code>
     /// </para>

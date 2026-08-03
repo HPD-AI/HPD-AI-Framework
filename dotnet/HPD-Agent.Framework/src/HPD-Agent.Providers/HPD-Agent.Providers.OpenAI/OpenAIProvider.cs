@@ -39,7 +39,7 @@ internal class OpenAIProvider :
     public string ProviderKey => "openai";
     public string DisplayName => "OpenAI";
 
-    public IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null)
+    public async ValueTask<IChatClient> CreateChatClientAsync(ClientProviderConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
     {
         // Get secret resolver from services
         var secrets = services?.GetService<ISecretResolver>();
@@ -273,7 +273,7 @@ internal class AzureOpenAIProvider :
     public string ProviderKey => "azure-openai";
     public string DisplayName => "Azure OpenAI (Traditional)";
 
-    public IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null)
+    public async ValueTask<IChatClient> CreateChatClientAsync(ClientProviderConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
     {
         string? modelName = config.ModelName;
         if (string.IsNullOrEmpty(modelName))

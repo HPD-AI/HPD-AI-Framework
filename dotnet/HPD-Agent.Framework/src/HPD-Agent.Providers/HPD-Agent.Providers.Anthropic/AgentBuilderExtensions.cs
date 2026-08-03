@@ -77,9 +77,11 @@ public static class AgentBuilderExtensions
         var chatConfig = new ClientProviderConfig
         {
             ProviderKey = "anthropic",
-            ApiKey = apiKey, // May be null - AgentBuilder.Build() will resolve via ISecretResolver
             ModelName = model
         };
+
+        if (apiKey is not null)
+            builder.AddExplicitSecret("anthropic:ApiKey", apiKey);
 
         builder.Config.SetChatClientConfig(chatConfig);
 

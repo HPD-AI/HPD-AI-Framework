@@ -24,14 +24,14 @@ public class AgentClientConfigTests
                         ProviderKey = "openai",
                         ApiKey = "agent-key",
                         Endpoint = "https://agent.example",
-                        ProviderOptions = JsonDocument.Parse("""{"organizationId":"org_1","projectId":"proj_agent"}""").RootElement.Clone()
+                        ConstructionOptions = JsonDocument.Parse("""{"organizationId":"org_1","projectId":"proj_agent"}""").RootElement.Clone()
                     }
                 },
                 Chat = new ClientProviderConfig
                 {
                     ProviderKey = "openai",
                     ModelName = "gpt-agent",
-                    ProviderOptions = JsonDocument.Parse("""{"providerFeature":"agent-default"}""").RootElement.Clone()
+                    ConstructionOptions = JsonDocument.Parse("""{"providerFeature":"agent-default"}""").RootElement.Clone()
                 }
             }
         };
@@ -43,13 +43,13 @@ public class AgentClientConfigTests
                 ["openai"] = new ClientProviderConfig
                 {
                     Endpoint = "https://run.example",
-                    ProviderOptions = JsonDocument.Parse("""{"projectId":"proj_run"}""").RootElement.Clone()
+                    ConstructionOptions = JsonDocument.Parse("""{"projectId":"proj_run"}""").RootElement.Clone()
                 }
             },
             Chat = new ClientProviderConfig
             {
                 ModelName = "gpt-run",
-                ProviderOptions = JsonDocument.Parse("""{"requestProfile":"interactive"}""").RootElement.Clone()
+                ConstructionOptions = JsonDocument.Parse("""{"requestProfile":"interactive"}""").RootElement.Clone()
             }
         };
 
@@ -61,7 +61,7 @@ public class AgentClientConfigTests
         resolved.ApiKey.Should().Be("agent-key");
         resolved.Endpoint.Should().Be("https://run.example");
 
-        using var json = JsonDocument.Parse(resolved.GetProviderOptionsRawJson()!);
+        using var json = JsonDocument.Parse(resolved.GetConstructionOptionsRawJson()!);
         var root = json.RootElement;
         root.GetProperty("organizationId").GetString().Should().Be("org_1");
         root.GetProperty("projectId").GetString().Should().Be("proj_run");
@@ -81,13 +81,13 @@ public class AgentClientConfigTests
                     ["openai"] = new ClientProviderConfig
                     {
                         ProviderKey = "openai",
-                        ProviderOptions = JsonDocument.Parse("[]").RootElement.Clone()
+                        ConstructionOptions = JsonDocument.Parse("[]").RootElement.Clone()
                     }
                 },
                 Chat = new ClientProviderConfig
                 {
                     ProviderKey = "openai",
-                    ProviderOptions = JsonDocument.Parse("""{"ok":true}""").RootElement.Clone()
+                    ConstructionOptions = JsonDocument.Parse("""{"ok":true}""").RootElement.Clone()
                 }
             }
         };
@@ -95,7 +95,64 @@ public class AgentClientConfigTests
         var act = () => config.ResolveClientConfig(ProviderClientFamily.Chat);
 
         act.Should().Throw<InvalidOperationException>()
-            .WithMessage("*ProviderOptions merge requires*JSON object*");
+            .WithMessage("*ConstructionOptions merge requires*JSON object*");
+    }
+
+    [Fact]
+    public void ResolveClientConfig_WhenProviderChanges_DiscardsPreviousProviderState()
+    {
+        var config = new AgentConfig
+        {
+            Clients = new AgentClientConfig
+            {
+                Providers = new()
+                {
+                    ["anthropic"] = new ClientProviderConfig
+                    {
+                        ProviderKey = "anthropic",
+                        Endpoint = "https://anthropic.example",
+                        AuthenticationKey = "anthropic-default",
+                        ConstructionOptions = JsonDocument.Parse("""{"thinkingBudget":4096}""").RootElement.Clone()
+                    },
+                    ["openai"] = new ClientProviderConfig
+                    {
+                        ProviderKey = "openai",
+                        Endpoint = "https://openai.example",
+                        AuthenticationKey = "openai-default",
+                        ConstructionOptions = JsonDocument.Parse("""{"organizationId":"org_1"}""").RootElement.Clone()
+                    }
+                },
+                Chat = new ClientProviderConfig
+                {
+                    ProviderKey = "anthropic",
+                    ModelName = "claude-agent",
+                    CustomHeaders = new() { ["anthropic-version"] = "2023-06-01" },
+                    ConstructionOptions = JsonDocument.Parse("""{"anthropicOnly":true}""").RootElement.Clone()
+                }
+            }
+        };
+
+        var resolved = config.ResolveClientConfig(
+            ProviderClientFamily.Chat,
+            new AgentClientConfig
+            {
+                Chat = new ClientProviderConfig
+                {
+                    ProviderKey = "openai",
+                    ModelName = "gpt-run"
+                }
+            });
+
+        resolved.Should().NotBeNull();
+        resolved!.ProviderKey.Should().Be("openai");
+        resolved.ModelName.Should().Be("gpt-run");
+        resolved.Endpoint.Should().Be("https://openai.example");
+        resolved.AuthenticationKey.Should().Be("openai-default");
+        resolved.CustomHeaders.Should().BeNull();
+
+        using var json = JsonDocument.Parse(resolved.GetConstructionOptionsRawJson()!);
+        json.RootElement.GetProperty("organizationId").GetString().Should().Be("org_1");
+        json.RootElement.TryGetProperty("anthropicOnly", out _).Should().BeFalse();
     }
 
     [Fact]
@@ -163,7 +220,7 @@ public class AgentClientConfigTests
         public string ProviderKey => "test";
         public string DisplayName => "Test";
 
-        public IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null)
+        public async ValueTask<IChatClient> CreateChatClientAsync(ClientProviderConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
         public IProviderErrorHandler CreateErrorHandler() => new GenericErrorHandler();

@@ -380,7 +380,7 @@ public class CodingToolHarnessAgentBuilderTests
 
         public string DisplayName => "Test";
 
-        public IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null) => chatClient;
+        public async ValueTask<IChatClient> CreateChatClientAsync(ClientProviderConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default) => chatClient;
 
         public IProviderErrorHandler CreateErrorHandler() => new GenericErrorHandler();
 

@@ -40,7 +40,7 @@ internal class DeepInfraProvider : IChatClientProvider
     public string DisplayName => "DeepInfra";
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider registers an AOT-compatible config deserializer in DeepInfraProviderModule.")]
-    public Meai.IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null)
+    public async ValueTask<Meai.IChatClient> CreateChatClientAsync(ClientProviderConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(config);
 
@@ -57,11 +57,8 @@ internal class DeepInfraProvider : IChatClientProvider
                 "Ensure the agent builder is properly configured with secret resolution.");
         }
 
-        var apiKeyTask = secrets.RequireAsync("deepinfra:ApiKey", "DeepInfra", config.ApiKey, CancellationToken.None);
-        var apiKey = apiKeyTask.GetAwaiter().GetResult();
-
-        var endpointTask = secrets.ResolveOrDefaultAsync("deepinfra:Endpoint", config.Endpoint, CancellationToken.None);
-        var endpoint = endpointTask.GetAwaiter().GetResult();
+        var apiKey = await secrets.RequireAsync("deepinfra:ApiKey", "DeepInfra", config.ApiKey, cancellationToken).ConfigureAwait(false);
+        var endpoint = await secrets.ResolveOrDefaultAsync("deepinfra:Endpoint", config.Endpoint, cancellationToken).ConfigureAwait(false);
         var baseAddress = string.IsNullOrWhiteSpace(endpoint)
             ? DefaultEndpoint
             : new Uri(endpoint, UriKind.Absolute);
@@ -128,11 +125,6 @@ internal class DeepInfraProvider : IChatClientProvider
             errors.Add("Model name is required for DeepInfra");
         }
 
-        if (string.IsNullOrWhiteSpace(config.ApiKey))
-        {
-            errors.Add("API key is required for DeepInfra. " +
-                       "Set it via the apiKey parameter, DEEPINFRA_API_KEY environment variable, or configuration.");
-        }
 
         if (!string.IsNullOrWhiteSpace(config.Endpoint) &&
             !Uri.IsWellFormedUriString(config.Endpoint, UriKind.Absolute))

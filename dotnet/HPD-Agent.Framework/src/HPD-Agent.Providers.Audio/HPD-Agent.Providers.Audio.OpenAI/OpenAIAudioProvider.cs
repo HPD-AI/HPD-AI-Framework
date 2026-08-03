@@ -177,7 +177,7 @@ public sealed class OpenAIAudioProvider : ISpeechToTextClientProvider, ITextToSp
         OpenAISttConfig? providerConfig = null;
         OpenAITtsConfig? ttsProviderConfig = null;
         OpenAIRealtimeConfig? realtimeProviderConfig = null;
-        if (!string.IsNullOrWhiteSpace(config.GetProviderOptionsRawJson()))
+        if (!string.IsNullOrWhiteSpace(config.GetConstructionOptionsRawJson()))
         {
             try
             {
@@ -202,7 +202,7 @@ public sealed class OpenAIAudioProvider : ISpeechToTextClientProvider, ITextToSp
                     ProviderClientFamily.Realtime => "realtime",
                     _ => "STT"
                 };
-                errors.Add($"Invalid OpenAI {label} ProviderOptions: {ex.Message}");
+                errors.Add($"Invalid OpenAI {label} ConstructionOptions: {ex.Message}");
             }
         }
 
@@ -432,7 +432,7 @@ public sealed class OpenAIAudioProvider : ISpeechToTextClientProvider, ITextToSp
 
     private static OpenAISttConfig ReadProviderConfig(ClientProviderConfig config)
     {
-        var providerOptionsJson = config.GetProviderOptionsRawJson();
+        var providerOptionsJson = config.GetConstructionOptionsRawJson();
         if (string.IsNullOrWhiteSpace(providerOptionsJson))
         {
             return new OpenAISttConfig();
@@ -446,7 +446,7 @@ public sealed class OpenAIAudioProvider : ISpeechToTextClientProvider, ITextToSp
 
     private static OpenAITtsConfig ReadTtsProviderConfig(ClientProviderConfig config)
     {
-        var providerOptionsJson = config.GetProviderOptionsRawJson();
+        var providerOptionsJson = config.GetConstructionOptionsRawJson();
         if (string.IsNullOrWhiteSpace(providerOptionsJson))
         {
             return new OpenAITtsConfig();
@@ -460,7 +460,7 @@ public sealed class OpenAIAudioProvider : ISpeechToTextClientProvider, ITextToSp
 
     private static OpenAIRealtimeConfig ReadRealtimeProviderConfig(ClientProviderConfig config)
     {
-        var providerOptionsJson = config.GetProviderOptionsRawJson();
+        var providerOptionsJson = config.GetConstructionOptionsRawJson();
         if (string.IsNullOrWhiteSpace(providerOptionsJson))
         {
             return new OpenAIRealtimeConfig();

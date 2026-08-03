@@ -54,9 +54,15 @@ public interface IProvider
 
 public interface IChatClientProvider : IProvider
 {
-    IChatClient CreateChatClient(
+    /// <summary>Creates a Chat client without blocking asynchronous dependencies.</summary>
+    /// <param name="config">The resolved provider construction configuration.</param>
+    /// <param name="services">Application services available to the provider.</param>
+    /// <param name="cancellationToken">Cancels client creation and secret resolution.</param>
+    /// <returns>The created Chat client.</returns>
+    ValueTask<IChatClient> CreateChatClientAsync(
         ClientProviderConfig config,
-        IServiceProvider? services = null);
+        IServiceProvider? services = null,
+        CancellationToken cancellationToken = default);
 }
 
 public interface ITextToSpeechClientProvider : IProvider

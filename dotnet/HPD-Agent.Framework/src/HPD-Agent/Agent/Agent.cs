@@ -278,7 +278,7 @@ public sealed class Agent
                 _baseClient,
                 AgentChatClientSource.AgentDefault,
                 clientSet?.GetResolvedConfig(Providers.ProviderClientFamily.Chat));
-        _chatClientResolver = new AgentChatClientResolver(providerRegistry, serviceProvider);
+        _chatClientResolver = new AgentChatClientResolver(providerRegistry, serviceProvider, config.ClientMiddleware);
         _name = config.Name ?? "Agent"; // Default to "Agent" to prevent null dictionary key exceptions
 
         // Initialize unified middleware pipeline
@@ -3843,6 +3843,7 @@ public sealed class Agent
             _clientSet.Dispose();
         else
             _baseClient?.Dispose();
+        _chatClientResolver.Dispose();
         _realtimeModelTurnExecutor.DisposeAsync().AsTask().GetAwaiter().GetResult();
         (_eventCoordinator as IDisposable)?.Dispose();
         if (_ownedHttpClients != null)

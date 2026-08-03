@@ -82,11 +82,6 @@ internal sealed class ReplicateProvider : IImageGeneratorProvider
         if (family != ProviderClientFamily.ImageGeneration)
             errors.Add("Replicate currently supports only image generation in HPD Agent.");
 
-        if (string.IsNullOrWhiteSpace(config.ApiKey))
-        {
-            errors.Add("API key is required for Replicate. " +
-                       "Set it via the apiKey parameter, REPLICATE_API_KEY or REPLICATE_API_TOKEN environment variable, or configuration.");
-        }
 
         var replicateConfig = config.GetProviderConfig<ReplicateProviderConfig>(ProviderClientFamily.ImageGeneration)
             ?? config.GetProviderConfig<ReplicateProviderConfig>();

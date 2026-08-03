@@ -702,7 +702,7 @@ public static class RunEvals
             ApiKey = source.ApiKey,
             ProviderEndpoint = source.ProviderEndpoint,
             CustomHeaders = source.CustomHeaders is null ? null : new(source.CustomHeaders),
-            ProviderOptions = source.ProviderOptions,
+            ConstructionOptions = source.ConstructionOptions,
             OverrideChatClient = source.OverrideChatClient,
             SystemInstructions = source.SystemInstructions,
             AdditionalSystemInstructions = source.AdditionalSystemInstructions,

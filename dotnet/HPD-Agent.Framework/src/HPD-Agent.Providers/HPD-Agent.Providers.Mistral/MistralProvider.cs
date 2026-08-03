@@ -20,7 +20,7 @@ internal class MistralProvider : IChatClientProvider
     public string DisplayName => "Mistral";
 
     [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Provider registers AOT-compatible deserializer in provider module")]
-    public IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null)
+    public async ValueTask<IChatClient> CreateChatClientAsync(ClientProviderConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
     {
         var secrets = services?.GetService<ISecretResolver>();
         if (secrets == null)
@@ -30,9 +30,7 @@ internal class MistralProvider : IChatClientProvider
                 "Ensure the agent builder is properly configured with secret resolution.");
         }
 
-        string apiKey = secrets.RequireAsync("mistral:ApiKey", "Mistral", config.ApiKey, CancellationToken.None)
-            .GetAwaiter()
-            .GetResult();
+        string apiKey = await secrets.RequireAsync("mistral:ApiKey", "Mistral", config.ApiKey, cancellationToken).ConfigureAwait(false);
 
         string? modelName = config.ModelName;
         if (string.IsNullOrWhiteSpace(modelName))

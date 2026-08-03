@@ -55,4 +55,36 @@ public class AgentRunConfigTests
         Assert.Equal(42, merged!.Seed);
         Assert.Equal(0.2f, merged.Temperature);
     }
+
+    [Fact]
+    public void ApiKey_IsExcludedFromSourceGeneratedJson()
+    {
+        var runConfig = new AgentRunConfig
+        {
+            ProviderKey = "openai",
+            ModelId = "gpt-test",
+            ApiKey = "must-not-serialize",
+            AuthenticationKey = "openai-work"
+        };
+
+        var json = JsonSerializer.Serialize(runConfig, HPDJsonContext.Default.AgentRunConfig);
+
+        Assert.DoesNotContain("must-not-serialize", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("ApiKey", json, StringComparison.Ordinal);
+        Assert.Contains("openai-work", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ConstructionOptions_UsesV6PropertyName()
+    {
+        var runConfig = new AgentRunConfig
+        {
+            ConstructionOptions = JsonDocument.Parse("""{"region":"us-east"}""").RootElement.Clone()
+        };
+
+        var json = JsonSerializer.Serialize(runConfig, HPDJsonContext.Default.AgentRunConfig);
+
+        Assert.Contains("ConstructionOptions", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("ProviderOptions", json, StringComparison.OrdinalIgnoreCase);
+    }
 }

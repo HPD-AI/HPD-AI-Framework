@@ -35,7 +35,7 @@ internal sealed class XaiProvider : IChatClientProvider
     public string DisplayName => "xAI";
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider registers an AOT-compatible config deserializer in XaiProviderModule.")]
-    public IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null)
+    public async ValueTask<IChatClient> CreateChatClientAsync(ClientProviderConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(config);
 
@@ -47,11 +47,8 @@ internal sealed class XaiProvider : IChatClientProvider
                 "Ensure the agent builder is properly configured with secret resolution.");
         }
 
-        var apiKeyTask = secrets.RequireAsync("xai:ApiKey", DisplayName, config.ApiKey, CancellationToken.None);
-        var apiKey = apiKeyTask.GetAwaiter().GetResult();
-
-        var endpointTask = secrets.ResolveOrDefaultAsync("xai:Endpoint", config.Endpoint, CancellationToken.None);
-        var endpointValue = endpointTask.GetAwaiter().GetResult();
+        var apiKey = await secrets.RequireAsync("xai:ApiKey", DisplayName, config.ApiKey, cancellationToken).ConfigureAwait(false);
+        var endpointValue = await secrets.ResolveOrDefaultAsync("xai:Endpoint", config.Endpoint, cancellationToken).ConfigureAwait(false);
         var endpoint = string.IsNullOrWhiteSpace(endpointValue)
             ? DefaultEndpoint
             : EnsureTrailingSlash(new Uri(endpointValue, UriKind.Absolute));
@@ -124,11 +121,6 @@ internal sealed class XaiProvider : IChatClientProvider
             errors.Add("Endpoint must be a valid, absolute URI");
         }
 
-        if (string.IsNullOrWhiteSpace(config.ApiKey))
-        {
-            errors.Add("API key is required for xAI. " +
-                       "Set it via the apiKey parameter, XAI_API_KEY environment variable, or configuration.");
-        }
 
         return errors.Count > 0
             ? ProviderValidationResult.Failure(errors.ToArray())

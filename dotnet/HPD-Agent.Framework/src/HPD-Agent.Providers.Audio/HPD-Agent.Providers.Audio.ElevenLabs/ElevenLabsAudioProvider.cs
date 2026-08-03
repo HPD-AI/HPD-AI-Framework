@@ -121,7 +121,7 @@ public sealed class ElevenLabsAudioProvider : ITextToSpeechClientProvider, ISpee
 
         ElevenLabsTtsConfig? providerConfig = null;
         ElevenLabsSttConfig? sttProviderConfig = null;
-        if (!string.IsNullOrWhiteSpace(config.GetProviderOptionsRawJson()))
+        if (!string.IsNullOrWhiteSpace(config.GetConstructionOptionsRawJson()))
         {
             try
             {
@@ -137,7 +137,7 @@ public sealed class ElevenLabsAudioProvider : ITextToSpeechClientProvider, ISpee
             catch (JsonException ex)
             {
                 var label = family == ProviderClientFamily.SpeechToText ? "STT" : "TTS";
-                errors.Add($"Invalid ElevenLabs {label} ProviderOptions: {ex.Message}");
+                errors.Add($"Invalid ElevenLabs {label} ConstructionOptions: {ex.Message}");
             }
         }
 
@@ -201,7 +201,7 @@ public sealed class ElevenLabsAudioProvider : ITextToSpeechClientProvider, ISpee
 
     private static ElevenLabsTtsConfig ReadProviderConfig(ClientProviderConfig config)
     {
-        var providerOptionsJson = config.GetProviderOptionsRawJson();
+        var providerOptionsJson = config.GetConstructionOptionsRawJson();
         if (string.IsNullOrWhiteSpace(providerOptionsJson))
         {
             return new ElevenLabsTtsConfig();
@@ -215,7 +215,7 @@ public sealed class ElevenLabsAudioProvider : ITextToSpeechClientProvider, ISpee
 
     private static ElevenLabsSttConfig ReadSttProviderConfig(ClientProviderConfig config)
     {
-        var providerOptionsJson = config.GetProviderOptionsRawJson();
+        var providerOptionsJson = config.GetConstructionOptionsRawJson();
         if (string.IsNullOrWhiteSpace(providerOptionsJson))
         {
             return new ElevenLabsSttConfig();

@@ -61,7 +61,7 @@ public class AnthropicProviderConfigTests
 
         var chatConfig = builder.Config.EnsureChatClientConfig();
 
-        chatConfig.ProviderOptions.Should().BeNull();
+        chatConfig.ConstructionOptions.Should().BeNull();
         chatConfig.ChatDefaults.Should().NotBeNull();
         chatConfig.ChatDefaults!.AdditionalProperties.Should().Contain("serviceTier", AnthropicServiceTier.StandardOnly);
         chatConfig.ChatDefaults.AdditionalProperties.Should().Contain("thinkingBudgetTokens", 4096L);

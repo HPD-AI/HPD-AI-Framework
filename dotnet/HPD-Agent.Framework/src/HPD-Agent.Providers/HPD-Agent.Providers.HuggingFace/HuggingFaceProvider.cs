@@ -45,7 +45,7 @@ internal class HuggingFaceProvider : IChatClientProvider
     public string DisplayName => "Hugging Face";
 
     [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Provider properly registers AOT-compatible deserializer in provider module")]
-    public IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null)
+    public async ValueTask<IChatClient> CreateChatClientAsync(ClientProviderConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
     {
         // Get secret resolver from services
         var secrets = services?.GetService<ISecretResolver>();
@@ -57,8 +57,7 @@ internal class HuggingFaceProvider : IChatClientProvider
         }
 
         // Resolve API key using ISecretResolver
-        var apiKeyTask = secrets.RequireAsync("huggingface:ApiKey", "Hugging Face", config.ApiKey, CancellationToken.None);
-        string apiKey = apiKeyTask.GetAwaiter().GetResult();
+        string apiKey = await secrets.RequireAsync("huggingface:ApiKey", "Hugging Face", config.ApiKey, cancellationToken).ConfigureAwait(false);
 
         string? modelName = config.ModelName;
         if (string.IsNullOrEmpty(modelName))
@@ -109,11 +108,6 @@ internal class HuggingFaceProvider : IChatClientProvider
 
         // Note: API key validation is now deferred to CreateChatClient where ISecretResolver is available
         // This method only validates config structure, not secret resolution
-        if (string.IsNullOrEmpty(config.ApiKey))
-        {
-            errors.Add("API key is required for Hugging Face. " +
-                      "Set it via the apiKey parameter, HUGGINGFACE_API_KEY environment variable, or configuration.");
-        }
 
         if (string.IsNullOrEmpty(config.ModelName))
             errors.Add("Model name (repository ID like 'meta-llama/Meta-Llama-3-8B-Instruct') is required");

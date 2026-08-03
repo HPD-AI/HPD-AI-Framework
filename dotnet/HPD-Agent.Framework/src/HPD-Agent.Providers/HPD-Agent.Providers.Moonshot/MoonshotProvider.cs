@@ -35,7 +35,7 @@ internal sealed class MoonshotProvider : IChatClientProvider
     public string DisplayName => "Moonshot";
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider registers an AOT-compatible config deserializer in MoonshotProviderModule.")]
-    public IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null)
+    public async ValueTask<IChatClient> CreateChatClientAsync(ClientProviderConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(config);
 
@@ -47,11 +47,8 @@ internal sealed class MoonshotProvider : IChatClientProvider
                 "Ensure the agent builder is properly configured with secret resolution.");
         }
 
-        var apiKeyTask = secrets.RequireAsync("moonshot:ApiKey", DisplayName, config.ApiKey, CancellationToken.None);
-        var apiKey = apiKeyTask.GetAwaiter().GetResult();
-
-        var endpointTask = secrets.ResolveOrDefaultAsync("moonshot:Endpoint", config.Endpoint, CancellationToken.None);
-        var endpointValue = endpointTask.GetAwaiter().GetResult();
+        var apiKey = await secrets.RequireAsync("moonshot:ApiKey", DisplayName, config.ApiKey, cancellationToken).ConfigureAwait(false);
+        var endpointValue = await secrets.ResolveOrDefaultAsync("moonshot:Endpoint", config.Endpoint, cancellationToken).ConfigureAwait(false);
         var endpoint = string.IsNullOrWhiteSpace(endpointValue)
             ? DefaultEndpoint
             : EnsureTrailingSlash(new Uri(endpointValue, UriKind.Absolute));
@@ -119,11 +116,6 @@ internal sealed class MoonshotProvider : IChatClientProvider
             errors.Add("Moonshot currently supports only the chat provider family");
         }
 
-        if (string.IsNullOrWhiteSpace(config.ApiKey))
-        {
-            errors.Add("API key is required for Moonshot. " +
-                       "Set it via the apiKey parameter, MOONSHOT_API_KEY or KIMI_API_KEY environment variable, or configuration.");
-        }
 
         if (!string.IsNullOrWhiteSpace(config.Endpoint) &&
             !Uri.IsWellFormedUriString(config.Endpoint, UriKind.Absolute))

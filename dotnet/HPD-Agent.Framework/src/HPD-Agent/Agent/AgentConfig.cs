@@ -501,7 +501,17 @@ public class ClientProviderConfig
     public string ProviderKey { get; set; } = string.Empty;
 
     public string ModelName { get; set; } = string.Empty;
+    /// <summary>
+    /// Gets or sets a runtime-only API-key override.
+    /// Secret values are deliberately excluded from serialized provider configuration.
+    /// </summary>
+    [JsonIgnore]
     public string? ApiKey { get; set; }
+
+    /// <summary>
+    /// Gets or sets the opaque name of a host-registered static credential.
+    /// </summary>
+    public string? AuthenticationKey { get; set; }
     public string? Endpoint { get; set; }
 
     /// <summary>
@@ -519,15 +529,15 @@ public class ClientProviderConfig
 
     /// <summary>
     /// Custom HTTP headers to include in all requests to this provider.
-    /// Used for OAuth flows that require additional headers (e.g., ChatGPT-Account-Id for OpenAI Codex).
+    /// Authentication headers are rejected; use static authentication registration instead.
     /// </summary>
     public Dictionary<string, string>? CustomHeaders { get; set; }
 
     /// <summary>
-    /// Provider-specific configuration as a JSON/YAML object.
+    /// Provider-specific client-construction configuration as a JSON/YAML object.
     /// The value is deserialized using the provider's registered source-generated deserializer.
     /// </summary>
-    public JsonElement? ProviderOptions { get; set; }
+    public JsonElement? ConstructionOptions { get; set; }
 
     /// <summary>
     /// Optional OpenRouter HTTP-Referer attribution header.
@@ -558,7 +568,7 @@ public class ClientProviderConfig
     private object? _cachedProviderConfig;
 
     /// <summary>
-    /// Gets provider-specific configuration from <see cref="ProviderOptions"/> using the provider's
+    /// Gets provider-specific configuration from <see cref="ConstructionOptions"/> using the provider's
     /// registered source-generated serializer.
     /// </summary>
     public T? GetProviderConfig<T>() where T : class
@@ -567,7 +577,7 @@ public class ClientProviderConfig
     }
 
     /// <summary>
-    /// Gets provider-specific configuration for a client family from <see cref="ProviderOptions"/>
+    /// Gets provider-specific configuration for a client family from <see cref="ConstructionOptions"/>
     /// using the provider's registered source-generated serializer.
     /// </summary>
     public T? GetProviderConfig<T>(HPD.Agent.Providers.ProviderClientFamily family) where T : class
@@ -575,7 +585,7 @@ public class ClientProviderConfig
         if (_cachedProviderConfig is T cached)
             return cached;
 
-        var providerOptionsJson = GetProviderOptionsRawJson();
+        var providerOptionsJson = GetConstructionOptionsRawJson();
         if (string.IsNullOrWhiteSpace(providerOptionsJson))
             return null;
 
@@ -589,7 +599,7 @@ public class ClientProviderConfig
     }
 
     /// <summary>
-    /// Sets the provider-specific configuration and updates ProviderOptions.
+    /// Sets the provider-specific configuration and updates ConstructionOptions.
     /// Uses the provider's registered serializer from ProviderDiscovery for AOT compatibility.
     /// </summary>
     /// <typeparam name="T">The strongly-typed configuration class</typeparam>
@@ -600,7 +610,7 @@ public class ClientProviderConfig
     }
 
     /// <summary>
-    /// Sets the provider-specific configuration for a client family and updates ProviderOptions.
+    /// Sets the provider-specific configuration for a client family and updates ConstructionOptions.
     /// Uses the provider's registered serializer from ProviderDiscovery for AOT compatibility.
     /// </summary>
     public void SetProviderConfig<T>(T config, HPD.Agent.Providers.ProviderClientFamily family) where T : class
@@ -611,16 +621,16 @@ public class ClientProviderConfig
         var registration = HPD.Agent.Providers.ProviderDiscovery.GetProviderConfigType(ProviderKey, family);
         if (registration != null && registration.ConfigType == typeof(T))
         {
-            SetProviderOptionsRawJson(registration.Serialize(config));
+            SetConstructionOptionsRawJson(registration.Serialize(config));
         }
     }
 
-    public string? GetProviderOptionsRawJson()
-        => ProviderOptions?.GetRawText();
+    public string? GetConstructionOptionsRawJson()
+        => ConstructionOptions?.GetRawText();
 
-    public void SetProviderOptionsRawJson(string? json)
+    public void SetConstructionOptionsRawJson(string? json)
     {
-        ProviderOptions = string.IsNullOrWhiteSpace(json)
+        ConstructionOptions = string.IsNullOrWhiteSpace(json)
             ? null
             : JsonDocument.Parse(json).RootElement.Clone();
     }
@@ -721,15 +731,18 @@ internal static class ClientProviderConfigResolver
     {
         var agentFamily = agentClients?.GetFamilyConfig(family);
 
-        var providerKey = agentFamily?.ProviderKey;
-        var agentShared = GetShared(agentClients, providerKey);
-
         var runFamily = runClients?.GetFamilyConfig(family);
+        var agentProviderKey = agentFamily?.ProviderKey;
+        var effectiveProviderKey = FirstNonEmpty(runFamily?.ProviderKey, agentProviderKey);
+        var providerChanged = !string.IsNullOrWhiteSpace(runFamily?.ProviderKey) &&
+            !string.IsNullOrWhiteSpace(agentProviderKey) &&
+            !string.Equals(runFamily.ProviderKey, agentProviderKey, StringComparison.Ordinal);
 
-        var runProviderKey = FirstNonEmpty(runFamily?.ProviderKey, providerKey);
-        var runShared = GetShared(runClients, runProviderKey);
+        var agentShared = GetShared(agentClients, effectiveProviderKey);
+        var compatibleAgentFamily = providerChanged ? null : agentFamily;
+        var runShared = GetShared(runClients, effectiveProviderKey);
 
-        return Merge(agentShared, agentFamily, runShared, runFamily);
+        return Merge(agentShared, compatibleAgentFamily, runShared, runFamily);
     }
 
     public static ClientProviderConfig? Merge(params ClientProviderConfig?[] configs)
@@ -775,6 +788,7 @@ internal static class ClientProviderConfigResolver
             target.ModelName = source.ModelName;
 
         target.ApiKey = source.ApiKey ?? target.ApiKey;
+        target.AuthenticationKey = source.AuthenticationKey ?? target.AuthenticationKey;
         target.Endpoint = source.Endpoint ?? target.Endpoint;
         target.ChatDefaults = source.ChatDefaults ?? target.ChatDefaults;
         target.DefaultMicrosoftChatOptions = source.DefaultMicrosoftChatOptions ?? target.DefaultMicrosoftChatOptions;
@@ -789,12 +803,12 @@ internal static class ClientProviderConfigResolver
                 target.CustomHeaders[pair.Key] = pair.Value;
         }
 
-        target.SetProviderOptionsRawJson(MergeProviderOptions(
-            target.GetProviderOptionsRawJson(),
-            source.GetProviderOptionsRawJson()));
+        target.SetConstructionOptionsRawJson(MergeConstructionOptions(
+            target.GetConstructionOptionsRawJson(),
+            source.GetConstructionOptionsRawJson()));
     }
 
-    private static string? MergeProviderOptions(string? lowerPriority, string? higherPriority)
+    private static string? MergeConstructionOptions(string? lowerPriority, string? higherPriority)
     {
         if (string.IsNullOrWhiteSpace(lowerPriority))
             return higherPriority;
@@ -813,9 +827,9 @@ internal static class ClientProviderConfigResolver
         return lower.ToJsonString();
     }
 
-    private static JsonElement? MergeProviderOptions(JsonElement? lowerPriority, JsonElement? higherPriority)
+    private static JsonElement? MergeConstructionOptions(JsonElement? lowerPriority, JsonElement? higherPriority)
     {
-        var merged = MergeProviderOptions(
+        var merged = MergeConstructionOptions(
             lowerPriority?.GetRawText(),
             higherPriority?.GetRawText());
 
@@ -828,7 +842,7 @@ internal static class ClientProviderConfigResolver
     {
         var node = JsonNode.Parse(json);
         if (node is not JsonObject obj)
-            throw new InvalidOperationException("ProviderOptions merge requires each non-empty value to be a JSON object.");
+            throw new InvalidOperationException("ConstructionOptions merge requires each non-empty value to be a JSON object.");
 
         return obj;
     }
@@ -838,11 +852,12 @@ internal static class ClientProviderConfigResolver
         (string.IsNullOrWhiteSpace(config.ProviderKey) &&
          string.IsNullOrWhiteSpace(config.ModelName) &&
          string.IsNullOrWhiteSpace(config.ApiKey) &&
+         string.IsNullOrWhiteSpace(config.AuthenticationKey) &&
          string.IsNullOrWhiteSpace(config.Endpoint) &&
          config.ChatDefaults == null &&
          config.DefaultMicrosoftChatOptions == null &&
          config.CustomHeaders == null &&
-         config.ProviderOptions is null &&
+         config.ConstructionOptions is null &&
          string.IsNullOrWhiteSpace(config.HttpReferer) &&
          string.IsNullOrWhiteSpace(config.AppName) &&
          config.PromptFormatter == null);

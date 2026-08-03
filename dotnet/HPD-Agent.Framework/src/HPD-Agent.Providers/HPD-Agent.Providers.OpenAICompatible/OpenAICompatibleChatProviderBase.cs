@@ -22,7 +22,7 @@ public abstract class OpenAICompatibleChatProviderBase<TConfig> : IChatClientPro
     public string DisplayName => Definition.DisplayName;
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider packages register AOT-compatible config deserializers through ProviderDiscovery.")]
-    public virtual IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null)
+    public virtual async ValueTask<IChatClient> CreateChatClientAsync(ClientProviderConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(config);
 

@@ -315,7 +315,7 @@ public class ProviderConfigConsolidationTests
             .WithOnnxRuntime(modelPath, onnx =>
             {
                 onnx.Providers = ["cuda", "cpu"];
-                onnx.ProviderOptions = new Dictionary<string, Dictionary<string, string>>
+                onnx.ConstructionOptions = new Dictionary<string, Dictionary<string, string>>
                 {
                     ["cuda"] = new()
                     {
@@ -334,7 +334,7 @@ public class ProviderConfigConsolidationTests
         providerConfig.Should().NotBeNull();
         providerConfig!.ModelPath.Should().Be(modelPath);
         providerConfig.Providers.Should().Equal("cuda", "cpu");
-        providerConfig.ProviderOptions!["cuda"]["device_id"].Should().Be("0");
+        providerConfig.ConstructionOptions!["cuda"]["device_id"].Should().Be("0");
         providerConfig.HardwareDeviceType.Should().Be("gpu");
         providerConfig.HardwareDeviceId.Should().Be(0);
         providerConfig.EnableCaching.Should().BeTrue();

@@ -17,7 +17,7 @@ internal class AnthropicProvider : IChatClientProvider
     public string ProviderKey => "anthropic";
     public string DisplayName => "Anthropic (Claude)";
 
-    public IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null)
+    public async ValueTask<IChatClient> CreateChatClientAsync(ClientProviderConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
     {
         // Get secret resolver from services
         var secrets = services?.GetService<ISecretResolver>();
@@ -29,8 +29,7 @@ internal class AnthropicProvider : IChatClientProvider
         }
 
         // Resolve API key using ISecretResolver
-        var apiKeyTask = secrets.RequireAsync("anthropic:ApiKey", "Anthropic", config.ApiKey, CancellationToken.None);
-        string apiKey = apiKeyTask.GetAwaiter().GetResult();
+        string apiKey = await secrets.RequireAsync("anthropic:ApiKey", "Anthropic", config.ApiKey, cancellationToken).ConfigureAwait(false);
 
         // Create the official Anthropic client
         var anthropicClient = new AnthropicClient(new ClientOptions
@@ -83,11 +82,6 @@ internal class AnthropicProvider : IChatClientProvider
     {
         // Note: API key validation is now deferred to CreateChatClient where ISecretResolver is available
         // This method only validates config structure, not secret resolution
-        if (string.IsNullOrEmpty(config.ApiKey))
-        {
-            return ProviderValidationResult.Failure("API key is required for Anthropic. " +
-                "Set it via the apiKey parameter, ANTHROPIC_API_KEY environment variable, or configuration.");
-        }
 
         if (string.IsNullOrEmpty(config.ModelName))
             return ProviderValidationResult.Failure("Model name is required");

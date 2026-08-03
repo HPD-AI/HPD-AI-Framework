@@ -121,7 +121,7 @@ public static class AudioRuntimeAttachmentSpeechToTextProviderExtensions
             CustomHeaders = source.CustomHeaders is null
                 ? null
                 : new Dictionary<string, string>(source.CustomHeaders, StringComparer.OrdinalIgnoreCase),
-            ProviderOptions = source.ProviderOptions,
+            ConstructionOptions = source.ConstructionOptions,
             HttpReferer = source.HttpReferer,
             AppName = source.AppName,
             PromptFormatter = source.PromptFormatter

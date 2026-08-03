@@ -45,7 +45,7 @@ internal class AzureAIProvider : IChatClientProvider
     public string ProviderKey => "azure-ai";
     public string DisplayName => "Azure AI (Projects)";
 
-    public IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null)
+    public async ValueTask<IChatClient> CreateChatClientAsync(ClientProviderConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
     {
         // Get secret resolver from services
         var secrets = services?.GetService<ISecretResolver>();
@@ -57,8 +57,7 @@ internal class AzureAIProvider : IChatClientProvider
         }
 
         // Resolve required endpoint using ISecretResolver (Azure requires endpoint)
-        var endpointTask = secrets.RequireAsync("azure-ai:Endpoint", "Azure AI", config.Endpoint, CancellationToken.None);
-        string endpoint = endpointTask.GetAwaiter().GetResult();
+        string endpoint = await secrets.RequireAsync("azure-ai:Endpoint", "Azure AI", config.Endpoint, cancellationToken).ConfigureAwait(false);
 
         string? modelName = config.ModelName;
         if (string.IsNullOrEmpty(modelName))

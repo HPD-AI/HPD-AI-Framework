@@ -27,7 +27,7 @@ namespace HPD.Agent.Providers.Ollama;
 /// - Remote: http://your-server:11434
 /// </para>
 /// <para>
-/// Provider-specific options are stored in ProviderOptions and validated through
+/// Provider-specific options are stored in ConstructionOptions and validated through
 /// OllamaProviderConfig.
 /// </para>
 /// </remarks>
@@ -37,7 +37,7 @@ internal class OllamaProvider : IChatClientProvider
     public string DisplayName => "Ollama";
 
     [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Provider properly registers AOT-compatible deserializer in provider module")]
-    public IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null)
+    public async ValueTask<IChatClient> CreateChatClientAsync(ClientProviderConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
     {
         var secrets = services?.GetService<ISecretResolver>();
         var resolvedEndpoint = config.Endpoint

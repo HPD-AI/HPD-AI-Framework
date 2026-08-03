@@ -32,7 +32,7 @@ public class OnnxRuntimeProviderConfig
     /// The first key is the provider name; the nested keys and values are passed to Config.SetProviderOption.
     /// </summary>
     [JsonPropertyName("providerOptions")]
-    public Dictionary<string, Dictionary<string, string>>? ProviderOptions { get; set; }
+    public Dictionary<string, Dictionary<string, string>>? ConstructionOptions { get; set; }
 
     /// <summary>
     /// Hardware device type for decoder execution, such as cpu, gpu, or npu.

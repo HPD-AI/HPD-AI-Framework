@@ -144,7 +144,7 @@ internal static class AgentRunConfigInheritance
             result.ApiKey = source.ApiKey;
             result.ProviderEndpoint = source.ProviderEndpoint;
             result.CustomHeaders = source.CustomHeaders is null ? null : new(source.CustomHeaders);
-            result.ProviderOptions = source.ProviderOptions?.Clone();
+            result.ConstructionOptions = source.ConstructionOptions?.Clone();
             result.OverrideChatClient = source.OverrideChatClient;
             result.OverrideRealtimeClient = source.OverrideRealtimeClient;
             result.RealtimeTranscriptionOptions = source.RealtimeTranscriptionOptions;
