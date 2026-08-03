@@ -2680,12 +2680,12 @@ public class AgentBuilder
     private AgentClientSet CreateAuxiliaryClientSet()
     {
         var resolvedConfigs = new Dictionary<ProviderClientFamily, ProviderClientConfig>();
-        var textToSpeech = ResolveClientFamily<ITextToSpeechClientProvider, ITextToSpeechClient>(ProviderClientFamily.TextToSpeech, static (p, c, s) => p.CreateTextToSpeechClient(c, s), resolvedConfigs);
-        var speechToText = ResolveClientFamily<ISpeechToTextClientProvider, ISpeechToTextClient>(ProviderClientFamily.SpeechToText, static (p, c, s) => p.CreateSpeechToTextClient(c, s), resolvedConfigs);
-        var realtime = ResolveClientFamily<IRealtimeClientProvider, IRealtimeClient>(ProviderClientFamily.Realtime, static (p, c, s) => p.CreateRealtimeClient(c, s), resolvedConfigs);
-        var imageGenerator = ResolveClientFamily<IImageGeneratorProvider, IImageGenerator>(ProviderClientFamily.ImageGeneration, static (p, c, s) => p.CreateImageGenerator(c, s), resolvedConfigs);
-        var embeddingGenerator = ResolveClientFamily<IEmbeddingGeneratorProvider, IEmbeddingGenerator>(ProviderClientFamily.Embeddings, static (p, c, s) => p.CreateEmbeddingGenerator(c, s), resolvedConfigs);
-        var hostedFiles = ResolveClientFamily<IHostedFileClientProvider, IHostedFileClient>(ProviderClientFamily.HostedFiles, static (p, c, s) => p.CreateHostedFileClient(c, s), resolvedConfigs);
+        var textToSpeech = CaptureOverride(ProviderClientFamily.TextToSpeech, _config.Clients.TextToSpeech, _config.Clients.TextToSpeech?.Override?.Client, resolvedConfigs);
+        var speechToText = CaptureOverride(ProviderClientFamily.SpeechToText, _config.Clients.SpeechToText, _config.Clients.SpeechToText?.Override?.Client, resolvedConfigs);
+        var realtime = CaptureOverride(ProviderClientFamily.Realtime, _config.Clients.Realtime, _config.Clients.Realtime?.Override?.Client, resolvedConfigs);
+        var imageGenerator = CaptureOverride(ProviderClientFamily.ImageGeneration, _config.Clients.ImageGeneration, _config.Clients.ImageGeneration?.Override?.Client, resolvedConfigs);
+        var embeddingGenerator = CaptureOverride(ProviderClientFamily.Embeddings, _config.Clients.Embeddings, _config.Clients.Embeddings?.Override?.Client, resolvedConfigs);
+        var hostedFiles = CaptureOverride(ProviderClientFamily.HostedFiles, _config.Clients.HostedFiles, _config.Clients.HostedFiles?.Override?.Client, resolvedConfigs);
         var vadFactory = ResolveComponentFactory<IVoiceActivityDetectorProvider, IVoiceActivityDetector>(ProviderClientFamily.VoiceActivityDetection, ProviderFamilyLifetime.StatefulPerAudioSession, static (p, c, x, s) => p.CreateVoiceActivityDetector(c, x, s), resolvedConfigs);
         var eotFactory = ResolveComponentFactory<IEndOfTurnDetectorProvider, IEotDetector>(ProviderClientFamily.EndOfTurnDetection, ProviderFamilyLifetime.StatefulPerAudioSession, static (p, c, x, s) => p.CreateEndOfTurnDetector(c, x, s), resolvedConfigs);
 
@@ -2703,19 +2703,19 @@ public class AgentBuilder
         };
     }
 
-    private TClient? ResolveClientFamily<TProvider, TClient>(
+    private static TClient? CaptureOverride<TClient>(
         ProviderClientFamily family,
-        Func<TProvider, ProviderClientConfig, IServiceProvider?, TClient> createClient,
+        ProviderClientConfig? config,
+        TClient? client,
         Dictionary<ProviderClientFamily, ProviderClientConfig> resolvedConfigs)
-        where TProvider : class, IProvider
+        where TClient : class
     {
-        var config = _config.ResolveClientConfig(family);
-        if (config == null || string.IsNullOrWhiteSpace(config.ProviderKey))
-            return default;
+        if (client is null)
+            return null;
 
-        var provider = _providerRegistry.GetRequiredProvider<TProvider>(config.ProviderKey);
-        resolvedConfigs[family] = ProviderClientConfigResolver.Clone(config);
-        return ApplyClientMiddleware(family, createClient(provider, config, _serviceProvider));
+        if (config is not null)
+            resolvedConfigs[family] = ProviderClientConfigResolver.Clone(config);
+        return client;
     }
 
     private Func<ProviderComponentLifetimeContext, TComponent>? ResolveComponentFactory<TProvider, TComponent>(
@@ -2739,17 +2739,6 @@ public class AgentBuilder
             return ApplyComponentMiddleware(family, createComponent(provider, capturedConfig, scopedContext, _serviceProvider), scopedContext);
         };
     }
-
-    private TClient ApplyClientMiddleware<TClient>(ProviderClientFamily family, TClient client)
-        => family switch
-        {
-            ProviderClientFamily.TextToSpeech when client is ITextToSpeechClient value => (TClient)(object)ApplyMiddleware(value, _config.ClientMiddleware?.TextToSpeech, "text-to-speech client"),
-            ProviderClientFamily.SpeechToText when client is ISpeechToTextClient value => (TClient)(object)ApplyMiddleware(value, _config.ClientMiddleware?.SpeechToText, "speech-to-text client"),
-            ProviderClientFamily.ImageGeneration when client is IImageGenerator value => (TClient)(object)ApplyMiddleware(value, _config.ClientMiddleware?.ImageGeneration, "image generator"),
-            ProviderClientFamily.Embeddings when client is IEmbeddingGenerator value => (TClient)(object)ApplyMiddleware(value, _config.ClientMiddleware?.Embeddings, "embedding generator"),
-            ProviderClientFamily.HostedFiles when client is IHostedFileClient value => (TClient)(object)ApplyMiddleware(value, _config.ClientMiddleware?.HostedFiles, "hosted file client"),
-            _ => client
-        };
 
     private TComponent ApplyComponentMiddleware<TComponent>(ProviderClientFamily family, TComponent component, ProviderComponentLifetimeContext context)
         => family switch

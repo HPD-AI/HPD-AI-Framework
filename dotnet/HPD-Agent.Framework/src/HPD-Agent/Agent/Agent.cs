@@ -5182,7 +5182,9 @@ public sealed class Agent
             Providers.ProviderClientFamily.Embeddings,
             Providers.ProviderClientFamily.HostedFiles
         };
-        if (!families.Any(family => runClients.GetFamilyConfig(family) is not null))
+        if (!families.Any(family =>
+                runClients.GetFamilyConfig(family) is not null ||
+                Config?.ResolveClientConfig(family) is { ProviderKey.Length: > 0 }))
             return null;
 
         var owned = new HashSet<object>(ReferenceEqualityComparer.Instance);
@@ -5272,21 +5274,22 @@ public sealed class Agent
         where TProvider : class, Providers.IProvider
         where TClient : class
     {
-        if (runClients.GetFamilyConfig(family) is null)
+        var hasRunConfig = runClients.GetFamilyConfig(family) is not null;
+        if (!hasRunConfig && builderDefault is not null)
             return builderDefault;
         if (runOverride is not null)
             return runOverride;
 
-        var effective = Config?.ResolveClientConfig(family, runClients)
-            ?? throw new AgentRunConfigurationException(
+        var effective = hasRunConfig
+            ? Config?.ResolveClientConfig(family, runClients)
+            : Config?.ResolveClientConfig(family);
+        if (effective is null || string.IsNullOrWhiteSpace(effective.ProviderKey))
+            return null;
+        if (_providerRegistry is null)
+            throw new AgentRunConfigurationException(
                 "ProviderFamilyResolutionFailed",
                 $"Clients.{family}",
-                $"The runtime {family} configuration could not be resolved.");
-        if (string.IsNullOrWhiteSpace(effective.ProviderKey))
-            throw new AgentRunConfigurationException(
-                "ProviderKeyRequired",
-                $"Clients.{family}.ProviderKey",
-                $"A provider key is required for runtime {family} resolution.");
+                $"The {family} provider '{effective.ProviderKey}' cannot be resolved because no provider registry is available.");
 
         var provider = _providerRegistry.GetRequiredProvider<TProvider>(effective.ProviderKey);
         var client = factory(provider, effective, _serviceProvider);

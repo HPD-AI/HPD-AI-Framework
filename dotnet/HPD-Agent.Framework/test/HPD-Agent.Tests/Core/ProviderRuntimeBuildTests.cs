@@ -40,6 +40,30 @@ public sealed class ProviderRuntimeBuildTests
         agent.Dispose();
     }
 
+    [Fact]
+    public async Task BuildAsync_WithConfiguredAuxiliaryDefault_DoesNotCreateClient()
+    {
+        var provider = new BuildTrackingTextToSpeechProvider();
+        var registry = new ProviderRegistry();
+        registry.Register(provider);
+        var config = new AgentConfig
+        {
+            Clients = new AgentClientsConfig
+            {
+                TextToSpeech = new TextToSpeechClientConfig
+                {
+                    ProviderKey = provider.ProviderKey,
+                    ModelName = "speech-model"
+                }
+            }
+        };
+
+        var agent = await new AgentBuilder(config, registry).BuildAsync();
+
+        Assert.Equal(0, provider.CreateCount);
+        agent.Dispose();
+    }
+
     private sealed class CountingSecretResolver : ISecretResolver
     {
         public int ResolveCount { get; private set; }
@@ -61,6 +85,24 @@ public sealed class ProviderRuntimeBuildTests
         {
             CreateCount++;
             return ValueTask.FromResult<IChatClient>(new FakeChatClient());
+        }
+
+        public IProviderErrorHandler CreateErrorHandler() => new GenericErrorHandler();
+        public ProviderMetadata GetMetadata() => new() { ProviderKey = ProviderKey, DisplayName = DisplayName };
+        public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
+            => ProviderValidationResult.Success();
+    }
+
+    private sealed class BuildTrackingTextToSpeechProvider : ITextToSpeechClientProvider
+    {
+        public string ProviderKey => "build-tracking-tts";
+        public string DisplayName => "Build Tracking TTS";
+        public int CreateCount { get; private set; }
+
+        public ITextToSpeechClient CreateTextToSpeechClient(ProviderClientConfig config, IServiceProvider? services = null)
+        {
+            CreateCount++;
+            return null!;
         }
 
         public IProviderErrorHandler CreateErrorHandler() => new GenericErrorHandler();
