@@ -1056,8 +1056,14 @@ public class AgentBuilder
     /// </summary>
     public AgentBuilder WithServiceProvider(IServiceProvider serviceProvider)
     {
+        ArgumentNullException.ThrowIfNull(serviceProvider);
         _serviceProvider = serviceProvider;
         _logger = serviceProvider.GetService<ILoggerFactory>();
+        if (serviceProvider.GetService<ProviderComposition>() is { } composition)
+        {
+            foreach (var registration in composition.Runtime.Registrations)
+                _providerRegistry.Register(registration.Factory());
+        }
         return this;
     }
 
@@ -1884,7 +1890,8 @@ public class AgentBuilder
             }
             else
             {
-                resolvers.Add(new EnvironmentSecretResolver());
+                resolvers.Add(new EnvironmentSecretResolver(
+                    _serviceProvider?.GetService<IProviderSecretAliasRegistry>()));
                 resolvers.AddRange(_additionalResolvers);
                 if (_configuration != null)
                     resolvers.Add(new ConfigurationSecretResolver(_configuration));

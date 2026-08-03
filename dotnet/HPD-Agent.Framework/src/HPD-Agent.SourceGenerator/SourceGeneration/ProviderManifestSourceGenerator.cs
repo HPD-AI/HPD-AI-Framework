@@ -16,6 +16,7 @@ public sealed class ProviderManifestSourceGenerator : IIncrementalGenerator
     private const string FamilyAttributeName = "HPD.Agent.Providers.HpdProviderFamilyAttribute";
     private const string AliasAttributeName = "HPD.Agent.Providers.HpdProviderAliasAttribute";
     private const string PayloadAttributeName = "HPD.Agent.Providers.HpdProviderPayloadAttribute";
+    private const string SecretAliasAttributeName = "HPD.Agent.Providers.HpdProviderSecretAliasAttribute";
 
     private static readonly DiagnosticDescriptor InvalidProviderKey = new(
         "HPDP002",
@@ -77,6 +78,7 @@ public sealed class ProviderManifestSourceGenerator : IIncrementalGenerator
         var families = ImmutableArray.CreateBuilder<FamilyInfo>();
         var aliases = ImmutableArray.CreateBuilder<string>();
         var payloads = ImmutableArray.CreateBuilder<PayloadInfo>();
+        var secretAliases = ImmutableArray.CreateBuilder<SecretAliasInfo>();
         foreach (var attribute in type.GetAttributes())
         {
             var metadataName = attribute.AttributeClass?.ToDisplayString();
@@ -105,6 +107,13 @@ public sealed class ProviderManifestSourceGenerator : IIncrementalGenerator
                     payloadType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                     contextType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)));
             }
+            else if (metadataName == SecretAliasAttributeName && attribute.ConstructorArguments.Length == 2 &&
+                     attribute.ConstructorArguments[0].Value is string secretKey)
+            {
+                secretAliases.Add(new SecretAliasInfo(
+                    secretKey,
+                    attribute.ConstructorArguments[1].Values.Select(static value => (string)value.Value!).ToImmutableArray()));
+            }
         }
 
         var hasAccessibleParameterlessConstructor = type.InstanceConstructors.Any(static constructor =>
@@ -120,6 +129,7 @@ public sealed class ProviderManifestSourceGenerator : IIncrementalGenerator
             families.ToImmutable(),
             aliases.ToImmutable(),
             payloads.ToImmutable(),
+            secretAliases.ToImmutable(),
             hasAccessibleParameterlessConstructor,
             type.Locations.FirstOrDefault());
     }
@@ -209,6 +219,13 @@ public sealed class ProviderManifestSourceGenerator : IIncrementalGenerator
         {
             source.AppendLine($"            new({Literal(info.ProviderKey)}, (global::HPD.Agent.Providers.ProviderClientFamily){payload.Family}, (global::HPD.Agent.Providers.ProviderPayloadKind){payload.Kind}, typeof({payload.PayloadType}), {payload.ContextType}.Default.GetTypeInfo(typeof({payload.PayloadType}))!),");
         }
+        source.AppendLine("        },");
+        source.AppendLine("        new global::HPD.Agent.Providers.ProviderSecretAliasRegistration[]");
+        source.AppendLine("        {");
+        foreach (var secretAlias in info.SecretAliases.OrderBy(static x => x.SecretKey, StringComparer.Ordinal))
+        {
+            source.AppendLine($"            new({Literal(secretAlias.SecretKey)}, new string[] {{ {string.Join(", ", secretAlias.EnvironmentVariables.Select(Literal))} }}),");
+        }
         source.AppendLine("        });");
         source.AppendLine("}");
 
@@ -262,6 +279,7 @@ public sealed class ProviderManifestSourceGenerator : IIncrementalGenerator
             ImmutableArray<FamilyInfo> families,
             ImmutableArray<string> aliases,
             ImmutableArray<PayloadInfo> payloads,
+            ImmutableArray<SecretAliasInfo> secretAliases,
             bool hasAccessibleParameterlessConstructor,
             Location? location)
         {
@@ -273,6 +291,7 @@ public sealed class ProviderManifestSourceGenerator : IIncrementalGenerator
             Families = families;
             Aliases = aliases;
             Payloads = payloads;
+            SecretAliases = secretAliases;
             HasAccessibleParameterlessConstructor = hasAccessibleParameterlessConstructor;
             Location = location;
         }
@@ -285,6 +304,7 @@ public sealed class ProviderManifestSourceGenerator : IIncrementalGenerator
         public ImmutableArray<FamilyInfo> Families { get; }
         public ImmutableArray<string> Aliases { get; }
         public ImmutableArray<PayloadInfo> Payloads { get; }
+        public ImmutableArray<SecretAliasInfo> SecretAliases { get; }
         public bool HasAccessibleParameterlessConstructor { get; }
         public Location? Location { get; }
     }
@@ -304,6 +324,8 @@ public sealed class ProviderManifestSourceGenerator : IIncrementalGenerator
         public string PayloadType { get; }
         public string ContextType { get; }
     }
+
+    private sealed record SecretAliasInfo(string SecretKey, ImmutableArray<string> EnvironmentVariables);
 
     private sealed class FamilyInfo
     {

@@ -6,7 +6,7 @@ namespace HPD.Agent.Tests.Core;
 public sealed class ProviderFamilyPlanResolverTests
 {
     private static readonly IProviderDescriptorRegistry Descriptors = ProviderComposition.Create([
-        new([new Descriptor("openai", ["azure-openai"]), new Descriptor("anthropic", [])], [], [])
+        new([new Descriptor("openai", ["azure-openai"]), new Descriptor("anthropic", [])], [], [], [])
     ]).Descriptors;
 
     [Fact]

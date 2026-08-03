@@ -25,6 +25,7 @@ public sealed class ProviderManifestSourceGeneratorTests
             [HpdProviderAlias("sample-ai")]
             [HpdProviderFamily(ProviderClientFamily.Chat, DefaultModelName = "sample-model")]
             [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(ProviderClientConfig), typeof(HPDJsonContext))]
+            [HpdProviderSecretAlias("sample:ApiKey", "SAMPLE_API_KEY")]
             internal sealed class SampleProvider : IChatClientProvider
             {
                 public string ProviderKey => "sample";
@@ -46,6 +47,8 @@ public sealed class ProviderManifestSourceGeneratorTests
         Assert.Contains("sample-model", generated);
         Assert.Contains("ProviderPayloadJsonContract", generated);
         Assert.Contains("HPDJsonContext.Default.GetTypeInfo", generated);
+        Assert.Contains("ProviderSecretAliasRegistration", generated);
+        Assert.Contains("SAMPLE_API_KEY", generated);
         Assert.DoesNotContain("ModuleInitializer", generated);
         Assert.DoesNotContain("ProviderDiscovery", generated);
     }
@@ -82,13 +85,17 @@ public sealed class ProviderManifestSourceGeneratorTests
                 public static ProviderManifestFragment Fragment { get; } = new(
                     Array.Empty<IProviderDescriptor>(),
                     Array.Empty<ProviderRuntimeFactoryRegistration>(),
-                    Array.Empty<ProviderPayloadJsonContract>());
+                    Array.Empty<ProviderPayloadJsonContract>(),
+                    Array.Empty<ProviderSecretAliasRegistration>());
             }
             """;
 
         var parseOptions = CSharpParseOptions.Default.WithLanguageVersion(LanguageVersion.Latest);
         var references = AppDomain.CurrentDomain.GetAssemblies()
             .Where(static assembly => !assembly.IsDynamic && !string.IsNullOrEmpty(assembly.Location))
+            .Append(typeof(Microsoft.Extensions.DependencyInjection.IServiceCollection).Assembly)
+            .Append(typeof(Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions).Assembly)
+            .Distinct()
             .Select(static assembly => MetadataReference.CreateFromFile(assembly.Location));
         var compilation = CSharpCompilation.Create(
             "GeneratedProviderComposition",
@@ -112,6 +119,7 @@ public sealed class ProviderManifestSourceGeneratorTests
         Assert.Contains("internal static class GeneratedProviderComposition", generated);
         Assert.Contains("global::SampleManifest.Fragment", generated);
         Assert.Contains("ProviderComposition.Create", generated);
+        Assert.Contains("AddHpdGeneratedProviders", generated);
         Assert.DoesNotContain("Assembly.Load", generated);
         Assert.DoesNotContain("GetTypes", generated);
     }

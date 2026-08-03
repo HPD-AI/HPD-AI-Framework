@@ -22,6 +22,9 @@ public interface IProviderDescriptorRegistry
 /// <summary>Provides immutable lookup of statically reachable provider factories.</summary>
 public interface IProviderRuntimeRegistry
 {
+    /// <summary>Gets every generated runtime registration.</summary>
+    IReadOnlyCollection<ProviderRuntimeFactoryRegistration> Registrations { get; }
+
     /// <summary>Gets the factory for a provider and client family.</summary>
     /// <exception cref="KeyNotFoundException">No matching factory is registered.</exception>
     ProviderRuntimeFactoryRegistration GetFactory(string providerKey, ProviderClientFamily family);
@@ -50,12 +53,14 @@ public sealed class ProviderComposition
         IReadOnlyList<ProviderManifestFragment> fragments,
         IProviderDescriptorRegistry descriptors,
         IProviderRuntimeRegistry runtime,
-        IProviderSerializationRegistry serialization)
+        IProviderSerializationRegistry serialization,
+        IProviderSecretAliasRegistry secretAliases)
     {
         Fragments = fragments;
         Descriptors = descriptors;
         Runtime = runtime;
         Serialization = serialization;
+        SecretAliases = secretAliases;
     }
 
     /// <summary>Gets the manifest fragments used to construct this composition.</summary>
@@ -69,6 +74,9 @@ public sealed class ProviderComposition
 
     /// <summary>Gets the generated provider payload serialization registry.</summary>
     public IProviderSerializationRegistry Serialization { get; }
+
+    /// <summary>Gets provider-owned environment-variable aliases.</summary>
+    public IProviderSecretAliasRegistry SecretAliases { get; }
 
     /// <summary>Validates an explicitly supplied provider-bound payload without resolving credentials.</summary>
     public void ValidatePayload(
@@ -113,7 +121,8 @@ public sealed class ProviderComposition
             fragmentCopy,
             registry,
             RuntimeRegistry.Create(fragmentCopy, registry),
-            SerializationRegistry.Create(fragmentCopy, registry));
+            SerializationRegistry.Create(fragmentCopy, registry),
+            SecretAliasRegistry.Create(fragmentCopy));
     }
 
     private sealed class DescriptorRegistry : IProviderDescriptorRegistry
@@ -209,7 +218,10 @@ public sealed class ProviderComposition
         {
             _descriptors = descriptors;
             _factories = new ReadOnlyDictionary<(string, ProviderClientFamily), ProviderRuntimeFactoryRegistration>(factories);
+            Registrations = Array.AsReadOnly(factories.Values.Distinct().OrderBy(x => x.ProviderKey, StringComparer.Ordinal).ToArray());
         }
+
+        public IReadOnlyCollection<ProviderRuntimeFactoryRegistration> Registrations { get; }
 
         public ProviderRuntimeFactoryRegistration GetFactory(string providerKey, ProviderClientFamily family) =>
             TryGetFactory(providerKey, family, out var registration)
@@ -270,6 +282,30 @@ public sealed class ProviderComposition
                     throw Error("HPDP013", $"Provider '{canonical}' has more than one '{contract.Kind}' JSON contract for client family '{contract.Family}'.");
             }
             return new SerializationRegistry(descriptors, contracts);
+        }
+    }
+
+    private sealed class SecretAliasRegistry : IProviderSecretAliasRegistry
+    {
+        private readonly IReadOnlyDictionary<string, IReadOnlyList<string>> _aliases;
+
+        private SecretAliasRegistry(IReadOnlyDictionary<string, IReadOnlyList<string>> aliases) => _aliases = aliases;
+
+        public IReadOnlyList<string>? GetEnvironmentVariables(string secretKey) =>
+            _aliases.TryGetValue(secretKey, out var aliases) ? aliases : null;
+
+        public static SecretAliasRegistry Create(IReadOnlyList<ProviderManifestFragment> fragments)
+        {
+            var aliases = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
+            foreach (var registration in fragments.SelectMany(x => x.SecretAliases))
+            {
+                if (aliases.TryGetValue(registration.SecretKey, out var existing) &&
+                    !existing.SequenceEqual(registration.EnvironmentVariables, StringComparer.Ordinal))
+                    throw Error("HPDP014", $"Provider secret key '{registration.SecretKey}' has conflicting environment aliases.");
+                aliases[registration.SecretKey] = Array.AsReadOnly(registration.EnvironmentVariables.ToArray());
+            }
+
+            return new SecretAliasRegistry(new ReadOnlyDictionary<string, IReadOnlyList<string>>(aliases));
         }
     }
 

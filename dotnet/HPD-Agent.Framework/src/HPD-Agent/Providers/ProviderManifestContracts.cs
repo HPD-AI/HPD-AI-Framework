@@ -93,6 +93,43 @@ public sealed class HpdProviderPayloadAttribute : Attribute
     public Type JsonContextType { get; }
 }
 
+/// <summary>Declares environment-variable aliases for a canonical provider secret key.</summary>
+[AttributeUsage(AttributeTargets.Class, AllowMultiple = true, Inherited = false)]
+public sealed class HpdProviderSecretAliasAttribute : Attribute
+{
+    /// <summary>Initializes a secret-alias declaration.</summary>
+    public HpdProviderSecretAliasAttribute(string secretKey, params string[] environmentVariables)
+    {
+        SecretKey = secretKey;
+        EnvironmentVariables = environmentVariables;
+    }
+
+    /// <summary>Gets the canonical resolver key.</summary>
+    public string SecretKey { get; }
+
+    /// <summary>Gets environment variable names in priority order.</summary>
+    public IReadOnlyList<string> EnvironmentVariables { get; }
+}
+
+/// <summary>Contains immutable aliases for one canonical provider secret.</summary>
+public sealed class ProviderSecretAliasRegistration
+{
+    /// <summary>Initializes an alias registration.</summary>
+    public ProviderSecretAliasRegistration(string secretKey, IReadOnlyList<string> environmentVariables)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(secretKey);
+        ArgumentNullException.ThrowIfNull(environmentVariables);
+        SecretKey = secretKey;
+        EnvironmentVariables = new List<string>(environmentVariables).AsReadOnly();
+    }
+
+    /// <summary>Gets the canonical resolver key.</summary>
+    public string SecretKey { get; }
+
+    /// <summary>Gets environment variable names in priority order.</summary>
+    public IReadOnlyList<string> EnvironmentVariables { get; }
+}
+
 /// <summary>Identifies the role of a provider-specific payload.</summary>
 public enum ProviderPayloadKind
 {
@@ -146,6 +183,13 @@ public interface IProviderSerializationRegistry
         ProviderClientFamily family,
         ProviderPayloadKind kind,
         out ProviderPayloadJsonContract? contract);
+}
+
+/// <summary>Provides immutable provider secret aliases without global registration.</summary>
+public interface IProviderSecretAliasRegistry
+{
+    /// <summary>Gets environment variable aliases for a canonical resolver key.</summary>
+    IReadOnlyList<string>? GetEnvironmentVariables(string secretKey);
 }
 
 /// <summary>Identifies a generated provider manifest exposed by a provider assembly.</summary>
@@ -243,14 +287,17 @@ public sealed class ProviderManifestFragment
     public ProviderManifestFragment(
         IReadOnlyList<IProviderDescriptor> descriptors,
         IReadOnlyList<ProviderRuntimeFactoryRegistration> runtimeFactories,
-        IReadOnlyList<ProviderPayloadJsonContract> serializationContracts)
+        IReadOnlyList<ProviderPayloadJsonContract> serializationContracts,
+        IReadOnlyList<ProviderSecretAliasRegistration> secretAliases)
     {
         ArgumentNullException.ThrowIfNull(descriptors);
         ArgumentNullException.ThrowIfNull(runtimeFactories);
         ArgumentNullException.ThrowIfNull(serializationContracts);
+        ArgumentNullException.ThrowIfNull(secretAliases);
         Descriptors = new List<IProviderDescriptor>(descriptors).AsReadOnly();
         RuntimeFactories = new List<ProviderRuntimeFactoryRegistration>(runtimeFactories).AsReadOnly();
         SerializationContracts = new List<ProviderPayloadJsonContract>(serializationContracts).AsReadOnly();
+        SecretAliases = new List<ProviderSecretAliasRegistration>(secretAliases).AsReadOnly();
     }
 
     /// <summary>Gets immutable provider descriptor contributions.</summary>
@@ -261,4 +308,7 @@ public sealed class ProviderManifestFragment
 
     /// <summary>Gets immutable source-generated provider payload contracts.</summary>
     public IReadOnlyList<ProviderPayloadJsonContract> SerializationContracts { get; }
+
+    /// <summary>Gets immutable provider secret-alias registrations.</summary>
+    public IReadOnlyList<ProviderSecretAliasRegistration> SecretAliases { get; }
 }

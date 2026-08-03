@@ -12,6 +12,19 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Agent.Providers.Anthropic;
 
+[HpdProvider("anthropic", "Anthropic (Claude)", DocumentationUrl = "https://docs.anthropic.com/")]
+[HpdProviderFamily(ProviderClientFamily.Chat)]
+[HpdProviderPayload(
+    ProviderClientFamily.Chat,
+    ProviderPayloadKind.Configuration,
+    typeof(AnthropicProviderConfig),
+    typeof(AnthropicJsonContext))]
+[HpdProviderPayload(
+    ProviderClientFamily.Chat,
+    ProviderPayloadKind.OperationOptions,
+    typeof(AnthropicChatRequestOptions),
+    typeof(AnthropicJsonContext))]
+[HpdProviderSecretAlias("anthropic:ApiKey", "ANTHROPIC_API_KEY")]
 internal class AnthropicProvider : IChatClientProvider
 {
     public string ProviderKey => "anthropic";
