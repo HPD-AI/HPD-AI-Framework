@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using FluentAssertions;
 using HPD.Gateway.Abstractions;
+using HPD.Gateway.Effective;
 using HPD.Gateway.Yarp;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -324,11 +325,8 @@ public sealed class YarpPublicationTests
     [InlineData("native\nrevision")]
     public void NativeRevisionIdentityMustBeBoundedAndSafe(string revision)
     {
-        var action = () => NativePublicationBundle.Create(
-            new PublicationCandidateIdentity(new CandidateId("candidate"), "authority", "epoch", 1, Hash('a')),
-            [],
-            [],
-            revision);
+        var identity = new PublicationCandidateIdentity(new CandidateId("candidate"), "authority", "epoch", 1, Hash('a'));
+        var action = () => NativePublicationBundle.Create(identity, [], [], revision, Effective(identity));
 
         action.Should().Throw<ArgumentException>();
     }
@@ -336,11 +334,9 @@ public sealed class YarpPublicationTests
     [Fact]
     public void NativeRevisionIdentityRejectsOversizedValue()
     {
-        var action = () => NativePublicationBundle.Create(
-            new PublicationCandidateIdentity(new CandidateId("candidate"), "authority", "epoch", 1, Hash('a')),
-            [],
-            [],
-            new string('r', NativePublicationBundle.MaximumNativeRevisionIdLength + 1));
+        var identity = new PublicationCandidateIdentity(new CandidateId("candidate"), "authority", "epoch", 1, Hash('a'));
+        var action = () => NativePublicationBundle.Create(identity, [], [],
+            new string('r', NativePublicationBundle.MaximumNativeRevisionIdLength + 1), Effective(identity));
 
         action.Should().Throw<ArgumentException>();
     }
@@ -350,13 +346,13 @@ public sealed class YarpPublicationTests
     {
         var identity = new PublicationCandidateIdentity(new CandidateId("replay"), "authority", "epoch-1", 7, Hash('a'));
         using var first = new PublisherFixture();
-        var firstBundle = NativePublicationBundle.Create(identity, [], [], "native-before-restart");
+        var firstBundle = NativePublicationBundle.Create(identity, [], [], "native-before-restart", Effective(identity));
         var firstTask = first.Publisher.PublishAsync(firstBundle, TimeSpan.FromSeconds(2));
         first.Listener.ConfigurationApplied([await first.WaitForRevision(firstBundle.NativeRevisionId)]);
         (await firstTask).State.Should().Be(GatewayPublicationState.ActiveAcknowledged);
 
         using var restarted = new PublisherFixture();
-        var replay = NativePublicationBundle.Create(identity, [], [], "native-after-restart");
+        var replay = NativePublicationBundle.Create(identity, [], [], "native-after-restart", Effective(identity));
         var replayTask = restarted.Publisher.PublishAsync(replay, TimeSpan.FromSeconds(2));
         restarted.Listener.ConfigurationApplied([await restarted.WaitForRevision(replay.NativeRevisionId)]);
 
@@ -365,17 +361,20 @@ public sealed class YarpPublicationTests
         outcome.Active!.NativeRevisionId.Should().Be("native-after-restart");
     }
 
-    private static NativePublicationBundle Bundle(ulong version, ContentHash? hash = null) => NativePublicationBundle.Create(
-        new PublicationCandidateIdentity(new CandidateId($"candidate-{version}"), "authority", "epoch-1", version, hash ?? Hash('a')),
-        ImmutableArray<RouteConfig>.Empty,
-        ImmutableArray<ClusterConfig>.Empty,
-        $"native-{version}-{Guid.NewGuid():N}");
+    private static NativePublicationBundle Bundle(ulong version, ContentHash? hash = null)
+    {
+        var identity = new PublicationCandidateIdentity(new CandidateId($"candidate-{version}"), "authority", "epoch-1", version, hash ?? Hash('a'));
+        return NativePublicationBundle.Create(identity, [], [], $"native-{version}-{Guid.NewGuid():N}", Effective(identity));
+    }
 
-    private static NativePublicationBundle AuthorityBundle(int authority) => NativePublicationBundle.Create(
-        new PublicationCandidateIdentity(new CandidateId($"candidate-{authority}"), $"authority-{authority}", "epoch-1", 1, Hash('a')),
-        [],
-        [],
-        $"native-authority-{authority}");
+    private static NativePublicationBundle AuthorityBundle(int authority)
+    {
+        var identity = new PublicationCandidateIdentity(new CandidateId($"candidate-{authority}"), $"authority-{authority}", "epoch-1", 1, Hash('a'));
+        return NativePublicationBundle.Create(identity, [], [], $"native-authority-{authority}", Effective(identity));
+    }
+
+    private static GatewayEffectiveSnapshot Effective(PublicationCandidateIdentity identity) =>
+        new(1, identity.CandidateId, identity.ContentHash, [], false);
 
     private static ContentHash Hash(char value) => new("sha-256", new string(value, 64));
 

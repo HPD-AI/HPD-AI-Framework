@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Text.Json;
 using FluentAssertions;
 using HPD.Gateway.Abstractions;
@@ -5,7 +6,13 @@ using HPD.Gateway.Abstractions.Serialization;
 using HPD.Gateway.Core;
 using HPD.Gateway.Effective;
 using HPD.Gateway.Effective.Serialization;
+using HPD.Gateway.Inspection;
+using HPD.Gateway.OutputCaching;
 using HPD.Gateway.Yarp;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.DependencyInjection;
+using Yarp.ReverseProxy;
 using Yarp.ReverseProxy.Configuration;
 using Xunit;
 
@@ -137,6 +144,325 @@ public sealed class EffectiveProvenanceTests
         result.Bundle.Should().BeNull();
     }
 
+    [Fact]
+    public void PublicationHandoffRejectsMissingTruncatedAndStructurallyInvalidSnapshots()
+    {
+        var identity = new PublicationCandidateIdentity(new CandidateId("candidate"), "authority", "epoch", 1, new ContentHash("sha-256", new string('a', 64)));
+        var valid = new GatewayEffectiveSnapshot(1, identity.CandidateId, identity.ContentHash, [], false);
+
+        var missing = () => NativePublicationBundle.Create(identity, [], [], "native", null!);
+        var truncated = () => NativePublicationBundle.Create(identity, [], [], "native", valid with { IsTruncated = true });
+        var defaultRecords = () => NativePublicationBundle.Create(identity, [], [], "native", valid with { Records = default });
+        var wrongSchema = () => NativePublicationBundle.Create(identity, [], [], "native", valid with { SchemaVersion = 2 });
+
+        missing.Should().Throw<ArgumentNullException>();
+        truncated.Should().Throw<ArgumentException>();
+        defaultRecords.Should().Throw<ArgumentException>();
+        wrongSchema.Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public async Task SharedDefinitionFansOutWithStableDefinitionIdentity()
+    {
+        var configuration = Configuration() with
+        {
+            Definitions = new GatewayDefinitions
+            {
+                Authorization = [new DeclarationDefinition<NamedAuthorizationPolicy>
+                {
+                    Id = new DefinitionId("shared"),
+                    Specification = new NamedAuthorizationPolicy("orders.write")
+                }]
+            },
+            Routes =
+            [
+                Route() with { Id = new RouteId("a"), Match = new HttpRouteMatch { Path = "/a" }, Declarations = AuthorizationDefinition("shared") },
+                Route() with { Id = new RouteId("b"), Match = new HttpRouteMatch { Path = "/b" }, Declarations = AuthorizationDefinition("shared") }
+            ]
+        };
+
+        var records = (await Materialize(configuration)).EffectiveSnapshot!.Records;
+
+        records.Select(item => item.TargetId).Should().Equal("a", "b");
+        records.Select(item => item.Contributions.Single().Definition).Should().OnlyContain(item => item == new DefinitionId("shared"));
+        records.Select(item => item.EffectiveContentHash).Distinct().Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task CanonicallyEquivalentResourceOrderProducesIdenticalRecords()
+    {
+        var routes = new[]
+        {
+            Route() with { Id = new RouteId("a"), Match = new HttpRouteMatch { Path = "/a" }, Declarations = InlineCors() },
+            Route() with { Id = new RouteId("b"), Match = new HttpRouteMatch { Path = "/b" }, Declarations = InlineCors() }
+        };
+        var first = Configuration() with { Routes = [.. routes] };
+        var second = Configuration() with { Routes = [.. routes.Reverse()] };
+
+        var firstResult = await Materialize(first);
+        var secondResult = await Materialize(second);
+
+        firstResult.EffectiveSnapshot!.CandidateContentHash.Should().Be(secondResult.EffectiveSnapshot!.CandidateContentHash);
+        JsonSerializer.SerializeToUtf8Bytes(firstResult.EffectiveSnapshot, GatewayEffectiveJsonSerializerContext.Default.GatewayEffectiveSnapshot)
+            .Should().Equal(JsonSerializer.SerializeToUtf8Bytes(secondResult.EffectiveSnapshot, GatewayEffectiveJsonSerializerContext.Default.GatewayEffectiveSnapshot));
+    }
+
+    [Fact]
+    public void PublicationHandoffRejectsUnsortedDuplicateAndOverBoundContributions()
+    {
+        var identity = new PublicationCandidateIdentity(new CandidateId("candidate"), "authority", "epoch", 1, new ContentHash("sha-256", new string('a', 64)));
+        var contribution = Contribution(0);
+        var first = Record("b", [contribution]);
+        var second = Record("a", [contribution]);
+        var unsorted = new GatewayEffectiveSnapshot(1, identity.CandidateId, identity.ContentHash, [first, second], false);
+        var duplicate = unsorted with { Records = [first, first] };
+        var overBound = unsorted with
+        {
+            Records = [Record("a", Enumerable.Range(0, GatewayEffectiveBounds.MaximumContributionsPerRecord + 1).Select(Contribution).ToImmutableArray())]
+        };
+        var overRecordBound = unsorted with
+        {
+            Records = Enumerable.Repeat(Record("a", [contribution]), GatewayEffectiveBounds.MaximumRecords + 1).ToImmutableArray()
+        };
+
+        Action publishUnsorted = () => NativePublicationBundle.Create(identity, [], [], "native", unsorted);
+        Action publishDuplicate = () => NativePublicationBundle.Create(identity, [], [], "native", duplicate);
+        Action publishOverBound = () => NativePublicationBundle.Create(identity, [], [], "native", overBound);
+        Action publishOverRecordBound = () => NativePublicationBundle.Create(identity, [], [], "native", overRecordBound);
+        publishUnsorted.Should().Throw<ArgumentException>();
+        publishDuplicate.Should().Throw<ArgumentException>();
+        publishOverBound.Should().Throw<ArgumentException>();
+        publishOverRecordBound.Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public async Task EveryNonCacheFamilyCorrelatesWithTheExactNativeRoute()
+    {
+        var inspection = new RequestInspectionBinding
+        {
+            InspectorName = "inspector",
+            Mode = RequestInspectionMode.BoundedPrefix,
+            MaximumAcceptedBodyBytes = 1024,
+            MaximumInspectedBytes = 64,
+            SpillPolicy = RequestInspectionSpillPolicy.Disabled
+        };
+        var configuration = Configuration() with
+        {
+            RootDefaults = new GatewayRootDeclarations
+            {
+                Authorization = Inline(new NamedAuthorizationPolicy("authenticated")),
+                Cors = Inline(new CorsPolicyBinding("cors-policy")),
+                TrafficAdmission = Inline(new TrafficAdmissionBinding("admission")),
+                RequestTimeout = Inline(new RequestTimeoutBinding { Timeout = TimeSpan.FromSeconds(7) }),
+                Inspection = Inline(inspection),
+                CredentialDisposition = Inline(new CredentialDispositionBinding { Kind = CredentialDispositionKind.Strip })
+            },
+            Routes = [Route() with { Declarations = new RouteDeclarations
+            {
+                RequestTransforms = new OrderedRequestTransforms
+                {
+                    Headers = [new RequestHeaderTransform { Kind = HeaderTransformKind.Set, Name = "x-request", Value = "value" }]
+                },
+                ResponseTransforms = new OrderedResponseTransforms
+                {
+                    Headers = [new ResponseHeaderTransform { Kind = HeaderTransformKind.Append, Name = "x-response", Value = "value" }],
+                    Trailers = [new ResponseHeaderTransform { Kind = HeaderTransformKind.Set, Name = "x-trailer", Value = "value" }]
+                }
+            }}]
+        };
+        var capabilities = HostCapabilitySnapshot.Create(new HostCapabilityRegistration
+        {
+            InstalledFamilies = GatewayDeclarationFamilies.Authorization | GatewayDeclarationFamilies.Cors |
+                GatewayDeclarationFamilies.TrafficAdmission | GatewayDeclarationFamilies.RequestTimeout |
+                GatewayDeclarationFamilies.Inspection | GatewayDeclarationFamilies.CredentialDisposition |
+                GatewayDeclarationFamilies.RequestTransforms | GatewayDeclarationFamilies.ResponseTransforms,
+            AuthorizationPolicies = ["authenticated"],
+            CorsPolicies = ["cors-policy"],
+            TrafficAdmissionPolicies = ["admission"],
+            RequestInspectors = ["inspector"],
+            ProtectedCredentialHeaders = ["x-api-key"]
+        });
+        var registry = new GatewayInspectionRegistry(
+            ImmutableDictionary<string, IGatewayRequestInspector>.Empty.Add("inspector", new AllowingInspector()));
+        var accepted = Read(configuration, capabilities);
+        var result = await new GatewayNativeMaterializer(new AcceptingValidator(), registry)
+            .MaterializeAsync(accepted, Identity(accepted), "all-family-native");
+
+        var native = result.Bundle!.Routes.Single();
+        native.AuthorizationPolicy.Should().Be("authenticated");
+        native.CorsPolicy.Should().Be("cors-policy");
+        native.RateLimiterPolicy.Should().Be("admission");
+        native.Timeout.Should().Be(TimeSpan.FromSeconds(7));
+        native.Metadata![GatewayInspectionMetadata.Inspector].Should().Be("inspector");
+        native.Transforms.Should().NotBeEmpty();
+        result.EffectiveSnapshot!.Records.Select(item => item.Family).Should().Equal(
+            GatewayEffectiveFamilies.Authorization,
+            GatewayEffectiveFamilies.Cors,
+            GatewayEffectiveFamilies.CredentialDisposition,
+            GatewayEffectiveFamilies.Inspection,
+            GatewayEffectiveFamilies.RequestHeaderTransforms,
+            GatewayEffectiveFamilies.RequestTimeout,
+            GatewayEffectiveFamilies.ResponseHeaderTransforms,
+            GatewayEffectiveFamilies.ResponseTrailerTransforms,
+            GatewayEffectiveFamilies.TrafficAdmission);
+        result.EffectiveSnapshot.Records.Single(item => item.Family == GatewayEffectiveFamilies.Inspection)
+            .Contributions.Last().ContentHash.Should().Be(GatewayEffectiveProjectionBuilder.Hash("hpd.gateway/inspector/v1", "inspector"));
+        result.EffectiveSnapshot.Records.Single(item => item.Family == GatewayEffectiveFamilies.CredentialDisposition)
+            .Contributions.Last().ContentHash.Should().Be(GatewayEffectiveProjectionBuilder.Hash(
+                "hpd.gateway/protected-credential-catalog/v1", "authorization\ncookie\nproxy-authorization\nx-api-key"));
+    }
+
+    [Fact]
+    public async Task OutputCacheProfileHashExactlyMatchesAcceptedAndRuntimeCapability()
+    {
+        var profile = new GatewayOutputCacheProfile
+        {
+            Name = "cache",
+            Version = 7,
+            Expiration = TimeSpan.FromMinutes(2),
+            QueryKeys = ["tenant"],
+            HeaderNames = ["x-region"]
+        };
+        var capability = new OutputCacheCapability(
+            profile.Name, profile.Version, true, "memory", OutputCacheStoreScope.ProcessLocal,
+            profile.Expiration, 1_048_576, 16_777_216, profile.QueryKeys, profile.HeaderNames);
+        var configuration = Configuration() with
+        {
+            RootDefaults = new GatewayRootDeclarations
+            {
+                CredentialDisposition = Inline(new CredentialDispositionBinding { Kind = CredentialDispositionKind.Strip })
+            },
+            Routes = [Route() with
+            {
+                Match = new HttpRouteMatch { Path = "/{**catch-all}", Methods = ["GET"] },
+                Declarations = new RouteDeclarations
+                {
+                    OutputCache = Inline(new OutputCacheBinding("cache"))
+                }
+            }]
+        };
+        var capabilities = HostCapabilitySnapshot.Create(new HostCapabilityRegistration
+        {
+            InstalledFamilies = GatewayDeclarationFamilies.OutputCache | GatewayDeclarationFamilies.CredentialDisposition,
+            OutputCacheProfiles = [capability]
+        });
+        var accepted = Read(configuration, capabilities);
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddReverseProxy();
+        services.AddSingleton<IConfigValidator>(new AcceptingValidator());
+        services.AddHpdGatewayYarpMaterialization();
+        services.AddHpdGatewayOutputCaching(builder => builder.Add(profile));
+        await using var provider = services.BuildServiceProvider();
+
+        var result = await provider.GetRequiredService<GatewayNativeMaterializer>()
+            .MaterializeAsync(accepted, Identity(accepted), "cache-native");
+
+        result.Bundle!.Routes.Single().OutputCachePolicy.Should().Be("cache");
+        var record = result.EffectiveSnapshot!.Records.Single(item => item.Family == GatewayEffectiveFamilies.OutputCache);
+        record.Contributions.Last().ContentHash.Should().Be(GatewayEffectiveProjectionBuilder.Hash(
+            "hpd.gateway/output-cache-profile/v1", "cache", "7", bool.TrueString, "memory",
+            OutputCacheStoreScope.ProcessLocal.ToString(), profile.Expiration.Ticks.ToString(), "1048576", "16777216", "tenant", "x-region"));
+        record.EffectiveContentHash.Should().Be(GatewayEffectiveProjectionBuilder.Hash(
+            "hpd.gateway/effective-value/v1", GatewayEffectiveFamilies.OutputCache,
+            GatewayEffectiveProjectionBuilder.Hash("output-cache/v1", "cache").Value,
+            record.Contributions.Last().ContentHash.Value));
+    }
+
+    [Fact]
+    public async Task PreparationIsNotActiveAndRealYarpReloadTracksAddChangeRemoveReadd()
+    {
+        var capabilities = HostCapabilitySnapshot.Create(new HostCapabilityRegistration
+        {
+            InstalledFamilies = GatewayDeclarationFamilies.Authorization | GatewayDeclarationFamilies.Cors,
+            AuthorizationPolicies = ["authenticated"],
+            CorsPolicies = ["cors-policy"]
+        });
+        var added = Configuration() with { Routes = [Route() with { Declarations = InlineCors() }] };
+        var changed = Configuration() with { Routes = [Route() with { Declarations = new RouteDeclarations
+        {
+            Authorization = Inline(new NamedAuthorizationPolicy("authenticated"))
+        }}] };
+        var removed = Configuration() with { Routes = [] };
+
+        var builder = WebApplication.CreateSlimBuilder();
+        builder.WebHost.UseUrls("http://127.0.0.1:0");
+        builder.Services.AddAuthorizationBuilder().AddPolicy("authenticated", policy => policy.RequireAssertion(_ => true));
+        builder.Services.AddCors(options => options.AddPolicy("cors-policy", policy => policy.AllowAnyOrigin()));
+        builder.Services.AddReverseProxy();
+        builder.Services.AddHpdGatewayYarpPublication();
+        builder.Services.AddHpdGatewayYarpMaterialization();
+        await using var application = builder.Build();
+        application.MapReverseProxy();
+        await application.StartAsync();
+        var materializer = application.Services.GetRequiredService<GatewayNativeMaterializer>();
+        var publisher = application.Services.GetRequiredService<GatewayYarpPublisher>();
+
+        var first = await Prepare(materializer, added, capabilities, 1);
+        publisher.GetCurrent().Active.Should().BeNull("preparation is not activation");
+        (await publisher.PublishAsync(first.Bundle!, TimeSpan.FromSeconds(5))).State.Should().Be(GatewayPublicationState.ActiveAcknowledged);
+        first.EffectiveSnapshot!.Records.Should().ContainSingle(item => item.Family == GatewayEffectiveFamilies.Cors);
+
+        var second = await Prepare(materializer, changed, capabilities, 2);
+        (await publisher.PublishAsync(second.Bundle!, TimeSpan.FromSeconds(5))).State.Should().Be(GatewayPublicationState.ActiveAcknowledged);
+        second.EffectiveSnapshot!.Records.Should().ContainSingle(item => item.Family == GatewayEffectiveFamilies.Authorization);
+
+        var third = await Prepare(materializer, removed, capabilities, 3);
+        third.EffectiveSnapshot!.Records.Should().BeEmpty();
+        (await publisher.PublishAsync(third.Bundle!, TimeSpan.FromSeconds(5))).State.Should().Be(GatewayPublicationState.ActiveAcknowledged);
+
+        var fourth = await Prepare(materializer, added, capabilities, 4);
+        (await publisher.PublishAsync(fourth.Bundle!, TimeSpan.FromSeconds(5))).State.Should().Be(GatewayPublicationState.ActiveAcknowledged);
+        fourth.EffectiveSnapshot!.Records.Should().BeEquivalentTo(first.EffectiveSnapshot.Records);
+        publisher.GetCurrent().Active!.Candidate.CandidateId.Should().Be(new CandidateId("candidate-4"));
+    }
+
+    private static async Task<GatewayMaterializationResult> Prepare(
+        GatewayNativeMaterializer materializer,
+        GatewayConfiguration configuration,
+        HostCapabilitySnapshot capabilities,
+        ulong version)
+    {
+        var accepted = Read(configuration, capabilities);
+        var identity = new PublicationCandidateIdentity(new CandidateId($"candidate-{version}"), "authority", "epoch", version, accepted.CanonicalDocument!.ContentHash);
+        var result = await materializer.MaterializeAsync(accepted, identity, $"effective-native-{version}");
+        result.IsMaterialized.Should().BeTrue(string.Join(", ", result.Diagnostics.Select(item => item.Code)));
+        return result;
+    }
+
+    private static RouteDeclarations AuthorizationDefinition(string id) => new()
+    {
+        Authorization = new DeclarationReference<NamedAuthorizationPolicy> { Definition = new DefinitionId(id) }
+    };
+
+    private static RouteDeclarations InlineCors() => new()
+    {
+        Cors = new DeclarationReference<CorsPolicyBinding> { Inline = new CorsPolicyBinding("cors-policy") }
+    };
+
+    private static GatewayEffectiveContribution Contribution(int order) => new(
+        GatewayContributionSourceKind.Inline,
+        GatewayContributionScope.RouteLocal,
+        GatewayContributionDisposition.Selected,
+        "routes/a",
+        null,
+        order,
+        new ContentHash("sha-256", new string('b', 64)));
+
+    private static GatewayEffectiveRecord Record(string target, ImmutableArray<GatewayEffectiveContribution> contributions) => new(
+        1,
+        GatewayEffectiveTargetKind.Route,
+        target,
+        GatewayEffectiveFamilies.Authorization,
+        GatewayEffectiveComposition.ReplaceMoreSpecific,
+        contributions,
+        new GatewayNativeProjection("ASP.NET Core/YARP", "RouteConfig.AuthorizationPolicy", "Yarp.ReverseProxy/2.3.0"),
+        "HPD.Gateway.Yarp",
+        "1.0.0",
+        GatewayMaterializationDisposition.Materialized,
+        new ContentHash("sha-256", new string('c', 64)),
+        []);
+
     private static async Task<GatewayMaterializationResult> Materialize(GatewayConfiguration configuration)
     {
         var accepted = Read(configuration);
@@ -144,9 +470,9 @@ public sealed class EffectiveProvenanceTests
             .MaterializeAsync(accepted, Identity(accepted), "effective-native");
     }
 
-    private static GatewayCandidateReadResult Read(GatewayConfiguration configuration)
+    private static GatewayCandidateReadResult Read(GatewayConfiguration configuration, HostCapabilitySnapshot? capabilities = null)
     {
-        var capabilities = HostCapabilitySnapshot.Create(new HostCapabilityRegistration
+        capabilities ??= HostCapabilitySnapshot.Create(new HostCapabilityRegistration
         {
             InstalledFamilies = GatewayDeclarationFamilies.Authorization | GatewayDeclarationFamilies.Cors |
                 GatewayDeclarationFamilies.RequestTransforms,
@@ -187,6 +513,14 @@ public sealed class EffectiveProvenanceTests
         Match = new HttpRouteMatch { Path = "/{**catch-all}" },
         Upstream = new UpstreamId("upstream")
     };
+
+    private static DeclarationReference<T> Inline<T>(T value) where T : class => new() { Inline = value };
+
+    private sealed class AllowingInspector : IGatewayRequestInspector
+    {
+        public ValueTask<GatewayInspectionDecision> InspectAsync(GatewayInspectionContext context, CancellationToken cancellationToken) =>
+            ValueTask.FromResult(GatewayInspectionDecision.Allow());
+    }
 
     private sealed class AcceptingValidator : IConfigValidator
     {

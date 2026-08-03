@@ -4,6 +4,7 @@ using System.Net;
 using System.Text.Json;
 using FluentAssertions;
 using HPD.Gateway.Abstractions;
+using HPD.Gateway.Effective;
 using HPD.Gateway.Hosting;
 using HPD.Gateway.Status;
 using HPD.Gateway.Yarp;
@@ -267,9 +268,9 @@ public sealed class GatewayStatusTests
                 Active = new ActiveHealthCheckConfig { Enabled = true, Interval = TimeSpan.FromHours(1), Timeout = TimeSpan.FromSeconds(1), Path = "/health", Policy = "ConsecutiveFailures" }
             } : null
         };
-        return NativePublicationBundle.Create(
-            new PublicationCandidateIdentity(new CandidateId($"candidate-{version}"), "authority", "epoch", version, new ContentHash("sha-256", new string((char)('a' + version - 1), 64))),
-            [route], [cluster], $"native-{version}-{Guid.NewGuid():N}");
+        var identity = new PublicationCandidateIdentity(new CandidateId($"candidate-{version}"), "authority", "epoch", version, new ContentHash("sha-256", new string((char)('a' + version - 1), 64)));
+        return NativePublicationBundle.Create(identity, [route], [cluster], $"native-{version}-{Guid.NewGuid():N}",
+            new GatewayEffectiveSnapshot(1, identity.CandidateId, identity.ContentHash, [], false));
     }
 
     private static GatewayHostCandidate HostCandidate(ushort port) => GatewayHostCandidateReader.Create(new GatewayHostConfiguration
