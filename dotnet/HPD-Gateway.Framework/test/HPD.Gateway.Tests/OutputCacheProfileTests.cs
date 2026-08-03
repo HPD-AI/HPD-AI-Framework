@@ -276,6 +276,33 @@ public sealed class OutputCacheProfileTests
         second.Body.Should().NotBe(first.Body);
     }
 
+    [Theory]
+    [InlineData("/mismatch")]
+    [InlineData("/abort")]
+    public async Task PartialOrAbortedUpstreamResponsesAreNeverReused(string path)
+    {
+        await using var fixture = await CacheFixture.Start();
+        await fixture.Publish(cached: true, version: 1);
+
+        await fixture.SendPartial(path);
+        await fixture.SendPartial(path);
+
+        fixture.UpstreamCalls.Should().Be(2);
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task NativeStoreReadOrWriteFailureDegradesToForwarding(bool failRead, bool failWrite)
+    {
+        await using var fixture = await NativeFailureFixture.Start(failRead, failWrite);
+
+        using var response = await fixture.Client.GetAsync("/value");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        fixture.UpstreamCalls.Should().Be(1);
+    }
+
     [Fact]
     public async Task ReloadRemovalAndReaddUseEndpointMetadataWithoutPurgingOrChangingNativeNoBindingBehavior()
     {
@@ -422,6 +449,19 @@ public sealed class OutputCacheProfileTests
                     held.TrySetResult();
                     await release.Task;
                 }
+                if (path == "/mismatch")
+                {
+                    context.Response.ContentLength = 100;
+                    await context.Response.WriteAsync("partial");
+                    return;
+                }
+                if (path == "/abort")
+                {
+                    context.Response.ContentLength = 100;
+                    await context.Response.WriteAsync("partial");
+                    context.Abort();
+                    return;
+                }
                 var body = path == "/oversize" ? new string('x', 2_048) + call : call.ToString(System.Globalization.CultureInfo.InvariantCulture);
                 await context.Response.WriteAsync(body);
             });
@@ -547,6 +587,21 @@ public sealed class OutputCacheProfileTests
             return (response.StatusCode, await response.Content.ReadAsStringAsync());
         }
 
+        internal async Task SendPartial(string path)
+        {
+            using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+            try
+            {
+                using var response = await Client.GetAsync(path, cancellation.Token);
+                _ = await response.Content.ReadAsByteArrayAsync(cancellation.Token);
+            }
+            catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException)
+            {
+                // A length mismatch may surface to the downstream client. The
+                // cache invariant is that the incomplete result is not reused.
+            }
+        }
+
         public async ValueTask DisposeAsync()
         {
             Client.Dispose();
@@ -581,6 +636,74 @@ public sealed class OutputCacheProfileTests
     {
         public ValueTask<byte[]?> GetAsync(string key, CancellationToken cancellationToken) => ValueTask.FromResult<byte[]?>(null);
         public ValueTask SetAsync(string key, byte[] value, string[]? tags, TimeSpan validFor, CancellationToken cancellationToken) => ValueTask.CompletedTask;
+        public ValueTask EvictByTagAsync(string tag, CancellationToken cancellationToken) => ValueTask.CompletedTask;
+    }
+
+    private sealed class NativeFailureFixture : IAsyncDisposable
+    {
+        private readonly WebApplication _backend;
+        private readonly WebApplication _proxy;
+        private int _calls;
+
+        private NativeFailureFixture(WebApplication backend, WebApplication proxy)
+        {
+            _backend = backend;
+            _proxy = proxy;
+            Client = new HttpClient { BaseAddress = new Uri(CacheFixture.Address(proxy)) };
+        }
+
+        internal HttpClient Client { get; }
+        internal int UpstreamCalls => Volatile.Read(ref _calls);
+
+        internal static async Task<NativeFailureFixture> Start(bool failRead, bool failWrite)
+        {
+            NativeFailureFixture? fixture = null;
+            var backendBuilder = WebApplication.CreateSlimBuilder();
+            backendBuilder.WebHost.UseUrls("http://127.0.0.1:0");
+            var backend = backendBuilder.Build();
+            backend.Run(async context =>
+            {
+                Interlocked.Increment(ref fixture!._calls);
+                await context.Response.WriteAsync("ok");
+            });
+            await backend.StartAsync();
+
+            var proxyBuilder = WebApplication.CreateSlimBuilder();
+            proxyBuilder.WebHost.UseUrls("http://127.0.0.1:0");
+            proxyBuilder.Services.AddSingleton<IOutputCacheStore>(new FailingOutputCacheStore(failRead, failWrite));
+            proxyBuilder.Services.AddOutputCache(options => options.AddPolicy("safe", policy =>
+            {
+                policy.SetCacheKeyPrefix("hpd:safe:v1");
+                policy.AddPolicy<GatewayConservativeOutputCachePolicy>();
+            }));
+            proxyBuilder.Services.AddSingleton<GatewayConservativeOutputCachePolicy>();
+            proxyBuilder.Services.AddReverseProxy().LoadFromMemory(
+                [new RouteConfig { RouteId = "direct", ClusterId = "direct", Match = new RouteMatch { Path = "/{**path}" }, OutputCachePolicy = "safe" }],
+                [new ClusterConfig { ClusterId = "direct", Destinations = new Dictionary<string, DestinationConfig> { ["one"] = new() { Address = CacheFixture.Address(backend) } } }]);
+            var proxy = proxyBuilder.Build();
+            proxy.UseOutputCache();
+            proxy.MapReverseProxy();
+            await proxy.StartAsync();
+            fixture = new NativeFailureFixture(backend, proxy);
+            return fixture;
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            Client.Dispose();
+            await _proxy.DisposeAsync();
+            await _backend.DisposeAsync();
+        }
+    }
+
+    private sealed class FailingOutputCacheStore(bool failRead, bool failWrite) : IOutputCacheStore
+    {
+        public ValueTask<byte[]?> GetAsync(string key, CancellationToken cancellationToken) =>
+            failRead ? ValueTask.FromException<byte[]?>(new IOException("bounded read failure")) : ValueTask.FromResult<byte[]?>(null);
+
+        public ValueTask SetAsync(string key, byte[] value, string[]? tags, TimeSpan validFor, CancellationToken cancellationToken) =>
+            failWrite ? ValueTask.FromException(new IOException("bounded write failure")) : ValueTask.CompletedTask;
+
         public ValueTask EvictByTagAsync(string tag, CancellationToken cancellationToken) => ValueTask.CompletedTask;
     }
 }

@@ -605,6 +605,44 @@ using var cachedHit = await liveClient.GetAsync("/retry");
 if (cachedResponse.StatusCode != HttpStatusCode.OK || cachedHit.StatusCode != HttpStatusCode.OK || liveAttempts != 3)
     throw new InvalidOperationException("Native AOT real Output Cache hit did not suppress upstream forwarding.");
 
+var uncachedConfiguration = liveConfiguration with
+{
+    Routes =
+    [
+        liveConfiguration.Routes[0] with
+        {
+            Declarations = new RouteDeclarations
+            {
+                CredentialDisposition = liveConfiguration.Routes[0].Declarations!.CredentialDisposition
+            }
+        }
+    ]
+};
+var uncachedJson = JsonSerializer.SerializeToUtf8Bytes(uncachedConfiguration, GatewayJsonSerializerContext.Default.GatewayConfiguration);
+var uncachedAccepted = GatewayCandidateReader.Read(uncachedJson, liveCapabilities);
+if (!uncachedAccepted.IsAccepted) throw new InvalidOperationException("Native AOT uncached replacement was rejected.");
+var uncachedMaterialized = await liveProxy.Services.GetRequiredService<GatewayNativeMaterializer>().MaterializeAsync(
+    uncachedAccepted,
+    new PublicationCandidateIdentity(new CandidateId("aot-live-2"), "aot-live-authority", "epoch-1", 2, uncachedAccepted.CanonicalDocument!.ContentHash),
+    "aot-live-native-2");
+if (!uncachedMaterialized.IsMaterialized ||
+    (await liveProxy.Services.GetRequiredService<GatewayYarpPublisher>().PublishAsync(uncachedMaterialized.Bundle!, TimeSpan.FromSeconds(5))).State != GatewayPublicationState.ActiveAcknowledged)
+    throw new InvalidOperationException("Native AOT Output Cache removal was not acknowledged.");
+using var uncachedResponse = await liveClient.GetAsync("/retry");
+if (uncachedResponse.StatusCode != HttpStatusCode.OK || liveAttempts != 4)
+    throw new InvalidOperationException("Native AOT Output Cache removal did not restore forwarding.");
+
+var readdedMaterialized = await liveProxy.Services.GetRequiredService<GatewayNativeMaterializer>().MaterializeAsync(
+    liveAccepted,
+    new PublicationCandidateIdentity(new CandidateId("aot-live-3"), "aot-live-authority", "epoch-1", 3, liveAccepted.CanonicalDocument!.ContentHash),
+    "aot-live-native-3");
+if (!readdedMaterialized.IsMaterialized ||
+    (await liveProxy.Services.GetRequiredService<GatewayYarpPublisher>().PublishAsync(readdedMaterialized.Bundle!, TimeSpan.FromSeconds(5))).State != GatewayPublicationState.ActiveAcknowledged)
+    throw new InvalidOperationException("Native AOT Output Cache re-add was not acknowledged.");
+using var readdedResponse = await liveClient.GetAsync("/retry");
+if (readdedResponse.StatusCode != HttpStatusCode.OK || liveAttempts != 4)
+    throw new InvalidOperationException("Native AOT Output Cache re-add did not restore the store-owned cached entry.");
+
 _ = JsonSerializer.SerializeToUtf8Bytes(validation, GatewayJsonSerializerContext.Default.GatewayValidationResult);
 _ = JsonSerializer.SerializeToUtf8Bytes(canonical, GatewayJsonSerializerContext.Default.GatewayCanonicalizationResult);
 
