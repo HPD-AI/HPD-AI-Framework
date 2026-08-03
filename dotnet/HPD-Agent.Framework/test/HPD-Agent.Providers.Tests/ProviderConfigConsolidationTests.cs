@@ -423,7 +423,7 @@ public class ProviderConfigConsolidationTests
     }
 
     [Fact]
-    public void AgentBuilder_WithReasoning_ShouldWriteChatDefaults()
+    public void AgentBuilder_WithReasoning_ShouldWriteChatConfig()
     {
         var builder = new AgentBuilder()
             .WithReasoning(

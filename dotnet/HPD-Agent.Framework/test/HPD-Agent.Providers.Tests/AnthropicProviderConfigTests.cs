@@ -49,7 +49,7 @@ public class AnthropicProviderConfigTests
     }
 
     [Fact]
-    public void WithAnthropicChatRequestOptions_ShouldStoreOptionsInChatDefaults()
+    public void WithAnthropicChatRequestOptions_ShouldStoreOptionsInChatConfig()
     {
         var builder = new AgentBuilder()
             .WithAnthropic("claude-sonnet-4-5-20250929", "key")
