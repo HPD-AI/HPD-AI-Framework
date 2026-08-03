@@ -79,10 +79,7 @@ static async Task VerifyProjectionAsync(WebApplication app)
             && upsert.Record.Id == upsertId,
             "Standalone upsert projection returned an invalid response.");
 
-        var batchResponse = await client.PostAsync(
-            "/base/records/batch",
-            JsonContent.Create(
-                new BaseRecordBatchRequest
+        var batchRequest = new BaseRecordBatchRequest
                 {
                     Mode = BaseRecordBatchExecutionMode.Atomic,
                     Operations =
@@ -107,9 +104,24 @@ static async Task VerifyProjectionAsync(WebApplication app)
                             Patch = new RecordPatchRequest { Patch = Patch("after") }
                         }
                     ]
-                },
-                HPDBaseJsonSerializerContext.Default.BaseRecordBatchRequest));
+                };
+        async Task<HttpResponseMessage> SendBatchAsync()
+        {
+            var message = new HttpRequestMessage(HttpMethod.Post, "/base/records/batch")
+            {
+                Content = JsonContent.Create(batchRequest, HPDBaseJsonSerializerContext.Default.BaseRecordBatchRequest),
+            };
+            message.Headers.Add(BaseHttpHeaders.IdempotencyKey, "aot-request-1");
+            return await client.SendAsync(message);
+        }
+        var batchResponse = await SendBatchAsync();
+        var duplicateResponse = await SendBatchAsync();
         Require(batchResponse.StatusCode == System.Net.HttpStatusCode.OK, "Atomic batch projection failed.");
+        Require(duplicateResponse.StatusCode == System.Net.HttpStatusCode.OK, "Atomic batch duplicate projection failed.");
+        Require(
+            batchResponse.Headers.GetValues(BaseHttpHeaders.RequestDisposition).Single() == "committed"
+            && duplicateResponse.Headers.GetValues(BaseHttpHeaders.RequestDisposition).Single() == "duplicate",
+            "Atomic batch request disposition headers were invalid.");
         var batch = await batchResponse.Content.ReadFromJsonAsync(
             HPDBaseJsonSerializerContext.Default.BaseRecordBatchResult);
         Require(
@@ -118,6 +130,11 @@ static async Task VerifyProjectionAsync(WebApplication app)
             && batch.Items.All(item => item.Disposition == BaseRecordBatchItemDisposition.Committed)
             && batch.Items[1].Record?.Payload.Fields?["title"].GetString() == "after",
             "Atomic batch projection returned an invalid response.");
+        var duplicateBatch = await duplicateResponse.Content.ReadFromJsonAsync(
+            HPDBaseJsonSerializerContext.Default.BaseRecordBatchResult);
+        Require(
+            duplicateBatch?.RequestDisposition == BaseMutationRequestDisposition.Duplicate,
+            "Atomic batch duplicate body was invalid.");
         Require(!JsonSerializer.IsReflectionEnabledByDefault, "JSON reflection fallback must be disabled.");
     }
     finally
