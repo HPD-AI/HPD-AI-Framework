@@ -44,6 +44,7 @@ public sealed partial class SqliteRecordStore :
     private long _nextQuarantinedMutationId;
     private long _nextQuarantinedAdministrationId;
     private long _schemaGeneration;
+    private int _restoreInstallationActive;
     private int _disposed;
 
     /// <summary>
@@ -753,6 +754,8 @@ FROM {_names.MutationJournal};
 
     private async ValueTask<SqliteConnection> OpenInitializedAsync(CancellationToken cancellationToken)
     {
+        if (RestoreRecoveryPending && Volatile.Read(ref _restoreInstallationActive) == 0)
+            throw new InvalidOperationException("HPD.BASE SQLite restore recovery is incomplete; the store is unavailable.");
         await EnsureKeepAliveAsync(cancellationToken).ConfigureAwait(false);
         var connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
         RegisterPortableRelationalFunctions(connection);

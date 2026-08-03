@@ -31,7 +31,12 @@ internal sealed class SqliteHealthContributor : IBaseHealthContributor
         var quarantinedMutations = _store.QuarantinedMutationCount;
         var quarantinedAdministration = _store.QuarantinedAdministrationCount;
         var restoreRecoveryPending = _store.RestoreRecoveryPending;
-        try
+        if (restoreRecoveryPending)
+        {
+            status = HealthStatus.Unhealthy;
+            summary = "SQLite restore recovery is incomplete and the store is unavailable.";
+        }
+        else try
         {
             var factory = new SqliteConnectionFactory(_options);
             SqliteConnectionFactory.InitializeBatteries(_options);
@@ -58,12 +63,10 @@ internal sealed class SqliteHealthContributor : IBaseHealthContributor
             status = HealthStatus.Degraded;
             summary = "SQLite has indeterminate mutation work in quarantine.";
         }
-        if ((quarantinedAdministration != 0 || restoreRecoveryPending) && status == HealthStatus.Healthy)
+        if (quarantinedAdministration != 0 && status == HealthStatus.Healthy)
         {
             status = HealthStatus.Degraded;
-            summary = restoreRecoveryPending
-                ? "SQLite has pending restore recovery state."
-                : "SQLite has indeterminate administration work in quarantine.";
+            summary = "SQLite has indeterminate administration work in quarantine.";
         }
 
         return

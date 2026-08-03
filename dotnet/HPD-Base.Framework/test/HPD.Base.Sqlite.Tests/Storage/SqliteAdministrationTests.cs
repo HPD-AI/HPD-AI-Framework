@@ -364,23 +364,58 @@ public sealed class SqliteAdministrationTests
         finally { Cleanup(path); }
     }
 
+    [Fact]
+    public async Task UnrecoverablePostInstallFailureLeavesProviderClosedAndUnhealthy()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"hpd-base-admin-unrecoverable-{Guid.NewGuid():N}.db");
+        using BaseOpaqueTokenProtector protector = Protector(14, Enumerable.Repeat((byte)0x14, 32).ToArray());
+        HPDBaseSqliteOptions options = OptionsFor(path);
+        try
+        {
+            await using SqliteRecordStore store = Store(path, protector);
+            typeof(SqliteRecordStore)
+                .GetMethod("WriteRestoreMarker", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .Invoke(store,
+                ["ReplacementInstalled", path + ".restore-staging", path + ".missing-recovery", new string('1', 64), new string('2', 64)]);
+            store.RestoreRecoveryPending.Should().BeTrue();
+
+            Func<Task> ordinaryOpen = async () => await store.GetMutationJournalBoundsAsync();
+            await ordinaryOpen.Should().ThrowAsync<InvalidOperationException>()
+                .WithMessage("*restore recovery is incomplete*");
+
+            HealthDescriptor health = (await new SqliteHealthContributor(Options.Create(options), store).GetHealthAsync()).Single();
+            health.Status.Should().Be(HealthStatus.Unhealthy);
+            health.Summary.Should().Be("SQLite restore recovery is incomplete and the store is unavailable.");
+        }
+        finally { Cleanup(path); }
+    }
+
     private static SqliteRecordStore Store(
         string path,
         BaseOpaqueTokenProtector protector,
         TimeSpan? restoreStagingTimeout = null,
         ISqliteAdministrationOperationController? administrationOperations = null)
     {
-        SqliteRecordStore store = SqliteTestFactory.Create(new HPDBaseSqliteOptions
-        {
-            StoreId = "sqlite",
-            DataSource = path,
-            AdministrationEnabled = true,
-            RestoreStagingTimeout = restoreStagingTimeout ?? TimeSpan.FromMinutes(10),
-            IntegrityCheckTimeout = restoreStagingTimeout ?? TimeSpan.FromMinutes(5),
-            AdministrationAcquisitionTimeout = restoreStagingTimeout ?? TimeSpan.FromSeconds(30),
-            MaxBackupArtifactBytes = 16 * 1024 * 1024,
-            Collections = [SqliteTestFactory.Collection()],
-        }, administrationOperations: administrationOperations, tokenProtector: protector);
+        HPDBaseSqliteOptions options = OptionsFor(path, restoreStagingTimeout);
+        SqliteRecordStore store = SqliteTestFactory.Create(options, administrationOperations: administrationOperations, tokenProtector: protector);
+        InitializeAuthorityMetadata(path);
+        return store;
+    }
+
+    private static HPDBaseSqliteOptions OptionsFor(string path, TimeSpan? restoreStagingTimeout = null) => new()
+    {
+        StoreId = "sqlite",
+        DataSource = path,
+        AdministrationEnabled = true,
+        RestoreStagingTimeout = restoreStagingTimeout ?? TimeSpan.FromMinutes(10),
+        IntegrityCheckTimeout = restoreStagingTimeout ?? TimeSpan.FromMinutes(5),
+        AdministrationAcquisitionTimeout = restoreStagingTimeout ?? TimeSpan.FromSeconds(30),
+        MaxBackupArtifactBytes = 16 * 1024 * 1024,
+        Collections = [SqliteTestFactory.Collection()],
+    };
+
+    private static void InitializeAuthorityMetadata(string path)
+    {
         using var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path};Pooling=False");
         connection.Open();
         using var command = connection.CreateCommand();
@@ -390,7 +425,6 @@ public sealed class SqliteAdministrationTests
             VALUES ('administration-test','administration-test-instance','baseline-1','checksum-1',1,'plan-1','2026-08-03T00:00:00Z');
             """;
         command.ExecuteNonQuery();
-        return store;
     }
 
     private static BaseOpaqueTokenProtector Protector(
@@ -452,4 +486,5 @@ public sealed class SqliteAdministrationTests
                 : ValueTask.CompletedTask;
         }
     }
+
 }

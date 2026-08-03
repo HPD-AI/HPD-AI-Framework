@@ -287,6 +287,7 @@ public sealed partial class SqliteRecordStore
             using var acquisition = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             acquisition.CancelAfter(_options.AdministrationAcquisitionTimeout);
             await using IAsyncDisposable lease = await _schemaGenerationGate.AcquireExclusiveAsync(acquisition.Token).ConfigureAwait(false);
+            Volatile.Write(ref _restoreInstallationActive, 1);
             (string ActiveIdentity, long PreRestoreEpoch) = await ReadActiveIdentityAsync(acquisition.Token).ConfigureAwait(false);
             if (!FixedHexEquals(request.ExpectedCurrentStoreIdentityDigest, ActiveIdentity)
                 || request.IdentityMode == BaseRestoreIdentityMode.RequireCurrentStoreIdentity
@@ -379,6 +380,7 @@ public sealed partial class SqliteRecordStore
         }
         finally
         {
+            Volatile.Write(ref _restoreInstallationActive, 0);
             if (staging is not null) DeleteStaging(staging);
             if (!retainRecovery && !replacementInstalled) DeleteRecoverySet(recovery);
             if (administrationSlot) _administrationExecutionSlots.Release();
@@ -623,6 +625,8 @@ public sealed partial class SqliteRecordStore
         if (!originalMoved) return true;
         try
         {
+            if (!File.Exists(recovery))
+                return false;
             await CloseKeepAliveForMaintenanceAsync().ConfigureAwait(false);
             if (replacementInstalled && File.Exists(activePath)) DeleteStaging(activePath);
             if (File.Exists(recovery)) File.Move(recovery, activePath);
