@@ -16,6 +16,11 @@ namespace HPD.Agent.Providers.OnnxRuntime;
 /// <summary>
 /// ONNX Runtime GenAI provider implementation for local model inference.
 /// </summary>
+[HpdProvider("onnx-runtime", "ONNX Runtime GenAI", DocumentationUrl = "https://onnxruntime.ai/docs/genai/")]
+[HpdProviderFamily(ProviderClientFamily.Chat)]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(OnnxRuntimeProviderConfig), typeof(OnnxRuntimeJsonContext))]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.OperationOptions, typeof(OnnxRuntimeChatRequestOptions), typeof(OnnxRuntimeJsonContext))]
+[HpdProviderSecretAlias("onnx-runtime:ModelPath", "ONNX_MODEL_PATH", "ONNX_RUNTIME_MODEL_PATH")]
 internal class OnnxRuntimeProvider : IChatClientProvider
 {
     public string ProviderKey => "onnx-runtime";

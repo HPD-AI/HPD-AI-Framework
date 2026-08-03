@@ -31,6 +31,12 @@ namespace HPD.Agent.Providers.Ollama;
 /// OllamaProviderConfig.
 /// </para>
 /// </remarks>
+[HpdProvider("ollama", "Ollama", DocumentationUrl = "https://ollama.com/")]
+[HpdProviderFamily(ProviderClientFamily.Chat)]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(OllamaProviderConfig), typeof(OllamaJsonContext))]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.OperationOptions, typeof(OllamaChatRequestOptions), typeof(OllamaJsonContext))]
+[HpdProviderSecretAlias("ollama:Endpoint", "OLLAMA_ENDPOINT")]
+[HpdProviderSecretAlias("ollama:Host", "OLLAMA_HOST")]
 internal class OllamaProvider : IChatClientProvider
 {
     public string ProviderKey => "ollama";

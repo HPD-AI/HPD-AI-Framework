@@ -24,6 +24,16 @@ public sealed class GeneratedProviderCompositionIntegrationTests
         Assert.Equal(["ANTHROPIC_API_KEY"],
             composition.SecretAliases.GetEnvironmentVariables("anthropic:ApiKey"));
         Assert.Equal("anthropic", registration.Factory().ProviderKey);
+        Assert.True(composition.Descriptors.TryGet("ollama", out _));
+        Assert.True(composition.Descriptors.TryGet("onnx-runtime", out _));
+        Assert.True(composition.Serialization.TryGet(
+            "ollama",
+            ProviderClientFamily.Chat,
+            ProviderPayloadKind.OperationOptions,
+            out _));
+        Assert.Equal(
+            ["ONNX_MODEL_PATH", "ONNX_RUNTIME_MODEL_PATH"],
+            composition.SecretAliases.GetEnvironmentVariables("onnx-runtime:ModelPath"));
     }
 
     [Fact]
