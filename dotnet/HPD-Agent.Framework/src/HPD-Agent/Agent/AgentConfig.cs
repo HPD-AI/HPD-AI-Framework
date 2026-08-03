@@ -56,6 +56,8 @@ public class AgentConfig
         Clients.SetFamilyConfig(family, config);
     }
 
+    /// <summary>Replaces the agent-default Chat family configuration.</summary>
+    /// <param name="config">The new Chat configuration, or <see langword="null"/> to clear it.</param>
     public void SetChatClientConfig(ChatClientConfig? config) =>
         SetClientConfig(HPD.Agent.Providers.ProviderClientFamily.Chat, config);
 
@@ -84,6 +86,8 @@ public class AgentConfig
         return config;
     }
 
+    /// <summary>Gets the Chat family configuration, creating it when absent.</summary>
+    /// <returns>The mutable agent-default Chat configuration.</returns>
     public ChatClientConfig EnsureChatClientConfig() =>
         (ChatClientConfig)EnsureClientConfig(HPD.Agent.Providers.ProviderClientFamily.Chat);
 
@@ -516,6 +520,7 @@ public class ProviderClientConfig
     /// </summary>
     public string? ProviderKey { get; set; }
 
+    /// <summary>Gets or sets the portable model name selected for this client family.</summary>
     public string? ModelName { get; set; }
     /// <summary>
     /// Gets or sets a runtime-only API-key override.
@@ -528,6 +533,7 @@ public class ProviderClientConfig
     /// Gets or sets the opaque name of a host-registered static credential.
     /// </summary>
     public string? AuthenticationKey { get; set; }
+    /// <summary>Gets or sets the optional provider endpoint override used for client construction.</summary>
     public string? Endpoint { get; set; }
 
     /// <summary>
@@ -552,16 +558,28 @@ public class AgentClientsConfig
     /// <summary>Gets or sets the model transport that drives the agent turn.</summary>
     public AgentModelTransportMode Transport { get; set; } = AgentModelTransportMode.Auto;
 
+    /// <summary>Gets or sets Chat client selection and defaults.</summary>
     public ChatClientConfig? Chat { get; set; }
+    /// <summary>Gets or sets text-to-speech client selection and defaults.</summary>
     public TextToSpeechClientConfig? TextToSpeech { get; set; }
+    /// <summary>Gets or sets speech-to-text client selection and defaults.</summary>
     public SpeechToTextClientConfig? SpeechToText { get; set; }
+    /// <summary>Gets or sets realtime client selection and defaults.</summary>
     public RealtimeClientConfig? Realtime { get; set; }
+    /// <summary>Gets or sets image-generation client selection and defaults.</summary>
     public ImageGenerationClientConfig? ImageGeneration { get; set; }
+    /// <summary>Gets or sets embedding client selection and defaults.</summary>
     public EmbeddingsClientConfig? Embeddings { get; set; }
+    /// <summary>Gets or sets hosted-file client selection and defaults.</summary>
     public HostedFilesClientConfig? HostedFiles { get; set; }
+    /// <summary>Gets or sets voice-activity-detection component selection.</summary>
     public VoiceActivityDetectionClientConfig? VoiceActivityDetection { get; set; }
+    /// <summary>Gets or sets end-of-turn-detection component selection.</summary>
     public EndOfTurnDetectionClientConfig? EndOfTurnDetection { get; set; }
 
+    /// <summary>Gets the configuration stored for one provider client family.</summary>
+    /// <param name="family">The family to inspect.</param>
+    /// <returns>The configured family value, or <see langword="null"/> when absent.</returns>
     public ProviderClientConfig? GetFamilyConfig(HPD.Agent.Providers.ProviderClientFamily family) =>
         family switch
         {
@@ -577,6 +595,9 @@ public class AgentClientsConfig
             _ => null
         };
 
+    /// <summary>Replaces the configuration stored for one provider client family.</summary>
+    /// <param name="family">The family to update.</param>
+    /// <param name="config">The new family value, or <see langword="null"/> to clear it.</param>
     public void SetFamilyConfig(HPD.Agent.Providers.ProviderClientFamily family, ProviderClientConfig? config)
     {
         switch (family)
@@ -660,14 +681,23 @@ public sealed class AgentProviderProfile
 /// </summary>
 public class AgentClientMiddlewareConfig
 {
+    /// <summary>Gets or sets wrappers applied to resolved Chat clients.</summary>
     public List<Func<IChatClient, IServiceProvider?, IChatClient>>? Chat { get; set; }
+    /// <summary>Gets or sets wrappers applied to resolved text-to-speech clients.</summary>
     public List<Func<ITextToSpeechClient, IServiceProvider?, ITextToSpeechClient>>? TextToSpeech { get; set; }
+    /// <summary>Gets or sets wrappers applied to resolved speech-to-text clients.</summary>
     public List<Func<ISpeechToTextClient, IServiceProvider?, ISpeechToTextClient>>? SpeechToText { get; set; }
+    /// <summary>Gets or sets wrappers applied to resolved realtime clients.</summary>
     public List<Func<IRealtimeClient, IServiceProvider?, IRealtimeClient>>? Realtime { get; set; }
+    /// <summary>Gets or sets wrappers applied to resolved image-generation clients.</summary>
     public List<Func<IImageGenerator, IServiceProvider?, IImageGenerator>>? ImageGeneration { get; set; }
+    /// <summary>Gets or sets wrappers applied to resolved embedding clients.</summary>
     public List<Func<IEmbeddingGenerator, IServiceProvider?, IEmbeddingGenerator>>? Embeddings { get; set; }
+    /// <summary>Gets or sets wrappers applied to resolved hosted-file clients.</summary>
     public List<Func<IHostedFileClient, IServiceProvider?, IHostedFileClient>>? HostedFiles { get; set; }
+    /// <summary>Gets or sets wrappers applied to scoped voice-activity detectors.</summary>
     public List<Func<IVoiceActivityDetector, HPD.Agent.Providers.ProviderComponentLifetimeContext, IServiceProvider?, IVoiceActivityDetector>>? VoiceActivityDetection { get; set; }
+    /// <summary>Gets or sets wrappers applied to scoped end-of-turn detectors.</summary>
     public List<Func<IEotDetector, HPD.Agent.Providers.ProviderComponentLifetimeContext, IServiceProvider?, IEotDetector>>? EndOfTurnDetection { get; set; }
 }
 

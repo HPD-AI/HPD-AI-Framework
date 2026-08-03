@@ -32,6 +32,13 @@ public sealed record CompactionEvent(
     CompactionContinuation Continuation = CompactionContinuation.Continue,
     CompactionOrigin Origin = CompactionOrigin.Automatic) : AgentEvent;
 
+/// <summary>Provides resolved thread, model history, and summarizer dependencies for one compaction.</summary>
+/// <param name="Thread">The thread being compacted.</param>
+/// <param name="ModelHistory">The model-visible history selected for compaction.</param>
+/// <param name="Publisher">The optional durable thread-event publisher.</param>
+/// <param name="SummarizerClient">The resolved specialized Chat client, when summarization is required.</param>
+/// <param name="RebaseSeedProvider">The optional provider of control facts preserved across destructive rebases.</param>
+/// <param name="SummarizerOptions">The compiled request options for the resolved summarizer.</param>
 public sealed record ThreadCompactionContext(
     Thread Thread,
     IReadOnlyList<ChatMessage> ModelHistory,

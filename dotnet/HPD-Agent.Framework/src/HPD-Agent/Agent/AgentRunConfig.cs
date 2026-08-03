@@ -311,6 +311,7 @@ public sealed class AudioRunConfig
 
     public AssistantAudioArtifactCapturePolicy? ArtifactCapturePolicy { get; set; }
 
+    /// <summary>Gets or sets the preferred audio media type for this run.</summary>
     public string? ContentType { get; set; }
 
     public bool? EnablePlayback { get; set; }
