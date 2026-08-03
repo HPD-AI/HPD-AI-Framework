@@ -17,9 +17,7 @@ namespace HPD.Agent.Providers.Together;
 [HpdProvider("together", "Together AI")]
 [HpdProviderFamily(ProviderClientFamily.Chat)]
 [HpdProviderFamily(ProviderClientFamily.Embeddings)]
-[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(TogetherProviderConfig), typeof(TogetherJsonContext))]
 [HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.OperationOptions, typeof(TogetherChatRequestOptions), typeof(TogetherJsonContext))]
-[HpdProviderPayload(ProviderClientFamily.Embeddings, ProviderPayloadKind.Configuration, typeof(TogetherProviderConfig), typeof(TogetherJsonContext))]
 [HpdProviderSecretAlias("together:ApiKey", "TOGETHER_API_KEY")]
 internal class TogetherProvider : IChatClientProvider, IEmbeddingGeneratorProvider
 {
@@ -51,12 +49,8 @@ internal class TogetherProvider : IChatClientProvider, IEmbeddingGeneratorProvid
         ArgumentNullException.ThrowIfNull(config);
 
         var client = CreateTogetherClient(config, services);
-        var togetherConfig = config.ProviderConfig as TogetherProviderConfig
-            ?? config.ProviderConfig as TogetherProviderConfig;
-
         var modelName =
             !string.IsNullOrWhiteSpace(config.ModelName) ? config.ModelName :
-            !string.IsNullOrWhiteSpace(togetherConfig?.EmbeddingModelId) ? togetherConfig.EmbeddingModelId :
             DefaultEmbeddingModel;
 
         Meai.IEmbeddingGenerator<string, Meai.Embedding<float>> generator = client;
@@ -118,25 +112,9 @@ internal class TogetherProvider : IChatClientProvider, IEmbeddingGeneratorProvid
             errors.Add("Endpoint must be a valid, absolute URI");
         }
 
-        if (family == ProviderClientFamily.Embeddings)
-        {
-            var togetherConfig = config.ProviderConfig as TogetherProviderConfig
-                ?? config.ProviderConfig as TogetherProviderConfig;
-            if (togetherConfig is not null)
-            {
-                ValidateProviderOptions(togetherConfig, errors);
-            }
-        }
-
         return errors.Count > 0
             ? ProviderValidationResult.Failure(errors.ToArray())
             : ProviderValidationResult.Success();
-    }
-
-    internal static void ValidateProviderOptions(TogetherProviderConfig config, List<string> errors)
-    {
-        if (config.EmbeddingModelId is { Length: 0 })
-            errors.Add("EmbeddingModelId cannot be empty");
     }
 
     private static global::Together.TogetherClient CreateTogetherClient(ProviderClientConfig config, IServiceProvider? services)

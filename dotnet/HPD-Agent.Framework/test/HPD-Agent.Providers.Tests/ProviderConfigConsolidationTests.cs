@@ -113,7 +113,6 @@ public class ProviderConfigConsolidationTests
         yield return [typeof(MiniMaxProviderConfig)];
 
 #if NET10_0_OR_GREATER
-        yield return [typeof(CohereProviderConfig)];
         yield return [typeof(DashScopeProviderConfig)];
         yield return [typeof(DeepInfraProviderConfig)];
         yield return [typeof(FireworksProviderConfig)];
@@ -121,7 +120,6 @@ public class ProviderConfigConsolidationTests
         yield return [typeof(HuggingFaceProviderConfig)];
         yield return [typeof(MoonshotProviderConfig)];
         yield return [typeof(ReplicateProviderConfig)];
-        yield return [typeof(TogetherProviderConfig)];
 #endif
     }
 
@@ -801,17 +799,15 @@ public class ProviderConfigConsolidationTests
 
 #if NET10_0_OR_GREATER
     [Fact]
-    public void CohereProviderConfig_ShouldOwnEmbeddingDefaultsOnly()
+    public void CohereEmbeddingConfig_ShouldOwnPortableModelDefault()
     {
         var builder = new AgentBuilder()
             .WithCohereEmbeddings("embed-v4.0");
 
         var embeddingConfig = builder.Config.Clients!.Embeddings;
         embeddingConfig.Should().NotBeNull();
-        var providerConfig = embeddingConfig!.ProviderConfig as CohereProviderConfig;
-
-        providerConfig.Should().NotBeNull();
-        providerConfig!.EmbeddingModelId.Should().Be("embed-v4.0");
+        embeddingConfig!.ModelName.Should().Be("embed-v4.0");
+        embeddingConfig.ProviderConfig.Should().BeNull();
     }
 
 #if NET10_0_OR_GREATER
@@ -1029,17 +1025,15 @@ public class ProviderConfigConsolidationTests
     }
 
     [Fact]
-    public void TogetherProviderConfig_ShouldOwnEmbeddingDefaultsOnly()
+    public void TogetherEmbeddingConfig_ShouldOwnPortableModelDefault()
     {
         var builder = new AgentBuilder()
             .WithTogetherEmbeddings("BAAI/bge-large-en-v1.5");
 
         var embeddingConfig = builder.Config.Clients!.Embeddings;
         embeddingConfig.Should().NotBeNull();
-        var providerConfig = embeddingConfig!.ProviderConfig as TogetherProviderConfig;
-
-        providerConfig.Should().NotBeNull();
-        providerConfig!.EmbeddingModelId.Should().Be("BAAI/bge-large-en-v1.5");
+        embeddingConfig!.ModelName.Should().Be("BAAI/bge-large-en-v1.5");
+        embeddingConfig.ProviderConfig.Should().BeNull();
     }
 
     [Fact]

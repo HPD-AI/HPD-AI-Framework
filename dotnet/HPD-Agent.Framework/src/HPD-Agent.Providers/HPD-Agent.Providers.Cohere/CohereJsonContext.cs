@@ -13,7 +13,6 @@ namespace HPD.Agent.Providers.Cohere;
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
     UseStringEnumConverter = true)]
-[JsonSerializable(typeof(CohereProviderConfig))]
 [JsonSerializable(typeof(CohereChatRequestOptions))]
 [JsonSerializable(typeof(CohereChatDocument))]
 [JsonSerializable(typeof(List<CohereChatDocument>))]

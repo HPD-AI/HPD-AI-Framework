@@ -51,6 +51,7 @@ public static class AgentBuilderExtensions
         string model = "text-embedding-v4",
         string? apiKey = null,
         string? endpoint = null,
+        int? dimensions = null,
         Action<DashScopeProviderConfig>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
@@ -58,10 +59,10 @@ public static class AgentBuilderExtensions
         if (string.IsNullOrWhiteSpace(model))
             throw new ArgumentException("Model is required for DashScope embeddings.", nameof(model));
 
-        var providerConfig = new DashScopeProviderConfig
-        {
-            EmbeddingModelId = model
-        };
+        if (dimensions is <= 0)
+            throw new ArgumentOutOfRangeException(nameof(dimensions), dimensions, "Dimensions must be greater than zero.");
+
+        var providerConfig = new DashScopeProviderConfig();
         configure?.Invoke(providerConfig);
         ValidateProviderConfig(providerConfig, configure);
 
@@ -70,7 +71,8 @@ public static class AgentBuilderExtensions
             ProviderKey = "dashscope",
             ApiKey = apiKey,
             Endpoint = endpoint,
-            ModelName = model
+            ModelName = model,
+            Dimensions = dimensions
         };
 
         builder.Config.SetClientConfig(ProviderClientFamily.Embeddings, embeddingConfig);

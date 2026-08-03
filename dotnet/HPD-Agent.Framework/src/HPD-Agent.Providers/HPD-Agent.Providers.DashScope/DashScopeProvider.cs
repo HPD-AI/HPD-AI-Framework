@@ -58,13 +58,14 @@ internal class DashScopeProvider : IChatClientProvider, IEmbeddingGeneratorProvi
 
         var modelName =
             !string.IsNullOrWhiteSpace(config.ModelName) ? config.ModelName :
-            !string.IsNullOrWhiteSpace(dashScopeConfig?.EmbeddingModelId) ? dashScopeConfig.EmbeddingModelId :
             "text-embedding-v4";
 
-        var client = CreateDashScopeClient(config, dashScopeConfig, services);
-        var generator = client.AsEmbeddingGenerator(modelName, dashScopeConfig?.EmbeddingDimensions);
+        var dimensions = (config as EmbeddingsClientConfig)?.Dimensions;
 
-        return new DashScopeConfiguredEmbeddingGenerator(generator, modelName, dashScopeConfig?.EmbeddingDimensions);
+        var client = CreateDashScopeClient(config, dashScopeConfig, services);
+        var generator = client.AsEmbeddingGenerator(modelName, dimensions);
+
+        return new DashScopeConfiguredEmbeddingGenerator(generator, modelName, dimensions);
     }
 
     public IProviderErrorHandler CreateErrorHandler()
@@ -149,11 +150,6 @@ internal class DashScopeProvider : IChatClientProvider, IEmbeddingGeneratorProvi
         if (config.TimeoutSeconds.HasValue && config.TimeoutSeconds.Value <= 0)
             errors.Add("TimeoutSeconds must be greater than 0");
 
-        if (config.EmbeddingModelId is { Length: 0 })
-            errors.Add("EmbeddingModelId cannot be empty");
-
-        if (config.EmbeddingDimensions.HasValue && config.EmbeddingDimensions.Value <= 0)
-            errors.Add("EmbeddingDimensions must be greater than 0");
     }
 
     private static DashScopeClient CreateDashScopeClient(

@@ -44,15 +44,4 @@ public class DashScopeProviderConfig : global::HPD.Agent.IEmbeddingGenerationPro
     [JsonPropertyName("defaultUseVl")]
     public bool? DefaultUseVl { get; set; }
 
-    /// <summary>
-    /// Default embedding model.
-    /// </summary>
-    [JsonPropertyName("embeddingModelId")]
-    public string? EmbeddingModelId { get; set; }
-
-    /// <summary>
-    /// Optional embedding dimensions.
-    /// </summary>
-    [JsonPropertyName("embeddingDimensions")]
-    public int? EmbeddingDimensions { get; set; }
 }
