@@ -159,6 +159,8 @@ public sealed class ProviderFamilyDescriptor
 {
     public ProviderClientFamily Family { get; init; }
     public ProviderFamilyLifetime Lifetime { get; init; } = ProviderFamilyLifetime.ReusableClient;
+    /// <summary>Gets whether the provider binds the model while constructing this client family.</summary>
+    public bool BindsModelToClient { get; init; } = true;
     public IReadOnlyList<string>? SupportedModels { get; init; }
     public string? DefaultModelId { get; init; }
     public IReadOnlyDictionary<string, object?>? Capabilities { get; init; }

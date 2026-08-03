@@ -90,7 +90,11 @@ public sealed class ProviderManifestSourceGenerator : IIncrementalGenerator
 
                 var family = Convert.ToInt32(familyValue, System.Globalization.CultureInfo.InvariantCulture);
                 var lifetime = GetNamedEnum(attribute, "Lifetime", defaultValue: 0);
-                families.Add(new FamilyInfo(family, lifetime, GetNamedString(attribute, "DefaultModelName")));
+                families.Add(new FamilyInfo(
+                    family,
+                    lifetime,
+                    GetNamedString(attribute, "DefaultModelName"),
+                    GetNamedBool(attribute, "BindsModelToClient", defaultValue: true)));
             }
             else if (metadataName == AliasAttributeName && attribute.ConstructorArguments.Length == 1 &&
                      attribute.ConstructorArguments[0].Value is string alias)
@@ -192,6 +196,7 @@ public sealed class ProviderManifestSourceGenerator : IIncrementalGenerator
             source.AppendLine("            {");
             source.AppendLine($"                Family = (global::HPD.Agent.Providers.ProviderClientFamily){family.Family},");
             source.AppendLine($"                Lifetime = (global::HPD.Agent.Providers.ProviderFamilyLifetime){family.Lifetime},");
+            source.AppendLine($"                BindsModelToClient = {(family.BindsModelToClient ? "true" : "false")},");
             if (family.DefaultModelName is not null)
                 source.AppendLine($"                DefaultModelId = {Literal(family.DefaultModelName)},");
             source.AppendLine("            },");
@@ -239,6 +244,12 @@ public sealed class ProviderManifestSourceGenerator : IIncrementalGenerator
     {
         var value = attribute.NamedArguments.FirstOrDefault(pair => pair.Key == name).Value.Value;
         return value is null ? defaultValue : Convert.ToInt32(value, System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    private static bool GetNamedBool(AttributeData attribute, string name, bool defaultValue)
+    {
+        var value = attribute.NamedArguments.FirstOrDefault(pair => pair.Key == name).Value.Value;
+        return value is bool boolean ? boolean : defaultValue;
     }
 
     private static bool IsValidProviderKey(string value)
@@ -329,15 +340,17 @@ public sealed class ProviderManifestSourceGenerator : IIncrementalGenerator
 
     private sealed class FamilyInfo
     {
-        public FamilyInfo(int family, int lifetime, string? defaultModelName)
+        public FamilyInfo(int family, int lifetime, string? defaultModelName, bool bindsModelToClient)
         {
             Family = family;
             Lifetime = lifetime;
             DefaultModelName = defaultModelName;
+            BindsModelToClient = bindsModelToClient;
         }
 
         public int Family { get; }
         public int Lifetime { get; }
         public string? DefaultModelName { get; }
+        public bool BindsModelToClient { get; }
     }
 }

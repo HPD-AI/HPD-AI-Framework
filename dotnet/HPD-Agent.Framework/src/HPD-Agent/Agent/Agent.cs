@@ -5393,7 +5393,9 @@ public sealed class Agent
                     ProviderConfigFingerprint = ProviderClientFingerprint.Combine(
                         GetAuxiliaryProviderConfigFingerprint(effective, family),
                         effective.CustomHeaders),
-                    ClientBoundModel = effective.ModelName
+                    ClientBoundModel = BindsModelToClient(effective.ProviderKey, family)
+                        ? effective.ModelName
+                        : null
                 },
                 _ => ValueTask.FromResult(CreateClient()),
                 cancellationToken).ConfigureAwait(false);
@@ -5544,6 +5546,16 @@ public sealed class Agent
                 canonical);
         var bytes = JsonSerializer.SerializeToUtf8Bytes(config.ProviderConfig, contract.JsonTypeInfo);
         return Convert.ToHexString(SHA256.HashData(bytes));
+    }
+
+    private bool BindsModelToClient(string? providerKey, ProviderClientFamily family)
+    {
+        var composition = _chatClientResolver.Composition;
+        if (composition is null || string.IsNullOrWhiteSpace(providerKey) ||
+            !composition.Descriptors.TryGet(providerKey, out var descriptor) || descriptor is null ||
+            !descriptor.Families.TryGetValue(family, out var familyDescriptor))
+            return true;
+        return familyDescriptor.BindsModelToClient;
     }
 
     private sealed record AuxiliaryAuthenticationResolution(

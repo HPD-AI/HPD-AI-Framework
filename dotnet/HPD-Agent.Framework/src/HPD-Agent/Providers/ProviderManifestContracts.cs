@@ -49,6 +49,9 @@ public sealed class HpdProviderFamilyAttribute : Attribute
 
     /// <summary>Gets or sets the built-in model used only as the final host fallback.</summary>
     public string? DefaultModelName { get; set; }
+
+    /// <summary>Gets or sets whether model identity participates in reusable client construction.</summary>
+    public bool BindsModelToClient { get; set; } = true;
 }
 
 /// <summary>Declares an alternate key that canonicalizes to the provider key.</summary>

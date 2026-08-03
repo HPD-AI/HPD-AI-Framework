@@ -292,8 +292,18 @@ internal sealed class AgentChatClientResolver : IDisposable
             resolvedConfig,
             authenticationIdentity,
             providerConfigFingerprint,
+            BindsModelToClient(resolvedConfig.ProviderKey, ProviderClientFamily.Chat),
             source,
             cancellationToken).ConfigureAwait(false);
+    }
+
+    private bool BindsModelToClient(string? providerKey, ProviderClientFamily family)
+    {
+        if (_composition is null || string.IsNullOrWhiteSpace(providerKey) ||
+            !_composition.Descriptors.TryGet(providerKey, out var descriptor) || descriptor is null ||
+            !descriptor.Families.TryGetValue(family, out var familyDescriptor))
+            return true;
+        return familyDescriptor.BindsModelToClient;
     }
 
     private ProviderPayloadJsonContract RequirePayloadContract(
@@ -507,6 +517,7 @@ internal sealed class AgentProviderChatClientManager : IDisposable
         ProviderClientConfig config,
         string? authenticationIdentity,
         string? providerConfigFingerprint,
+        bool bindsModelToClient,
         AgentChatClientSource source,
         CancellationToken cancellationToken)
     {
@@ -526,7 +537,7 @@ internal sealed class AgentProviderChatClientManager : IDisposable
             AuthenticationIdentity = authenticationIdentity,
             Endpoint = config.Endpoint,
             ProviderConfigFingerprint = providerConfigFingerprint,
-            ClientBoundModel = config.ModelName
+            ClientBoundModel = bindsModelToClient ? config.ModelName : null
         };
         var lease = await _clients.AcquireAsync(
             key,
