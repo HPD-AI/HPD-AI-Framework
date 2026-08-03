@@ -238,10 +238,10 @@ public sealed class ExecuteCommandTests : IDisposable
         using var document = JsonDocument.Parse(workspaceJson);
         var runConfig = new AgentRunConfig
         {
-            ContextOverrides = new()
+            Context = new AgentContextRunConfig { Properties = new Dictionary<string, object>()
             {
                 [AgentWorkspace.ContextKey] = document.RootElement.Clone()
-            }
+            } }
         };
 
         var result = await new CodingToolHarness().ExecuteCommandCore(
@@ -300,11 +300,14 @@ public sealed class ExecuteCommandTests : IDisposable
     {
         var runner = new FakeProcessProvider();
         var runConfig = CreateWorkspaceRunConfig();
-        runConfig.Security = new AgentSecurityProfile
+        runConfig.Security = new AgentSecurityRunConfig
         {
             Approval = AgentApprovalPolicy.AutoApprove,
-            Sandbox = AgentSandboxPolicy.Disabled,
-            SandboxEscape = AgentSandboxEscapePolicy.Deny
+            Sandbox = new AgentSandboxRunConfig
+            {
+                Mode = AgentSandboxPolicy.Disabled,
+                Escape = AgentSandboxEscapePolicy.Deny
+            }
         };
 
         await new CodingToolHarness().ExecuteCommandCore(
@@ -320,7 +323,11 @@ public sealed class ExecuteCommandTests : IDisposable
     {
         var runner = new FakeProcessProvider();
         var runConfig = CreateWorkspaceRunConfig();
-        runConfig.Sandbox = new AgentSandboxConfiguration
+        runConfig.Security = runConfig.Security with
+        {
+            Sandbox = runConfig.Security.Sandbox with
+            {
+                Capabilities = new AgentSandboxConfiguration
         {
             Filesystem =
             [
@@ -338,6 +345,8 @@ public sealed class ExecuteCommandTests : IDisposable
                 AllowPty = true,
                 AllowLocalBinding = true,
                 AllowedMachLookups = ["com.apple.securityd"]
+            }
+                }
             }
         };
 
@@ -528,9 +537,9 @@ public sealed class ExecuteCommandTests : IDisposable
             new ExecuteCommandOptions(),
             new ExecuteCommandShellScope { Executable = "zsh", Family = ExecuteCommandShellFamily.Zsh });
         var unsandboxedConfig = CreateWorkspaceRunConfig();
-        unsandboxedConfig.Security = new AgentSecurityProfile
+        unsandboxedConfig.Security = new AgentSecurityRunConfig
         {
-            Sandbox = AgentSandboxPolicy.Disabled
+            Sandbox = new AgentSandboxRunConfig { Mode = AgentSandboxPolicy.Disabled }
         };
         var unsandboxed = ExecuteCommandPermissionMiddleware.ExecuteCommandPermissionAnalyzer.Analyze(
             RunArguments("npm install"),
@@ -568,11 +577,14 @@ public sealed class ExecuteCommandTests : IDisposable
         {
             var runner = new FakeProcessProvider();
             var runConfig = CreateWorkspaceRunConfig(_tempRoot);
-            runConfig.Security = new AgentSecurityProfile
+            runConfig.Security = new AgentSecurityRunConfig
             {
                 Approval = AgentApprovalPolicy.AutoApprove,
-                Sandbox = AgentSandboxPolicy.Disabled,
-                SandboxEscape = AgentSandboxEscapePolicy.Deny
+                Sandbox = new AgentSandboxRunConfig
+                {
+                    Mode = AgentSandboxPolicy.Disabled,
+                    Escape = AgentSandboxEscapePolicy.Deny
+                }
             };
 
             _ = await new CodingToolHarness().ExecuteCommandCore(
@@ -1661,13 +1673,13 @@ public sealed class ExecuteCommandTests : IDisposable
 
         return new AgentRunConfig
         {
-            ContextOverrides = new()
+            Context = new AgentContextRunConfig { Properties = new Dictionary<string, object>()
             {
                 [AgentWorkspace.ContextKey] = new AgentWorkspace(
                     "default",
                     cwd,
                     roots)
-            }
+            } }
         };
     }
 

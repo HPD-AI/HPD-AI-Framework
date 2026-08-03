@@ -92,11 +92,14 @@ public sealed class ListDirectoryTests : IDisposable
         try
         {
             var runConfig = CreateWorkspaceRunConfig(_tempRoot);
-            runConfig.Security = new AgentSecurityProfile
+            runConfig.Security = new AgentSecurityRunConfig
             {
                 Approval = AgentApprovalPolicy.AutoApprove,
-                Sandbox = AgentSandboxPolicy.Disabled,
-                SandboxEscape = AgentSandboxEscapePolicy.Deny
+                Sandbox = new AgentSandboxRunConfig
+                {
+                    Mode = AgentSandboxPolicy.Disabled,
+                    Escape = AgentSandboxEscapePolicy.Deny
+                }
             };
             var result = await new CodingToolHarness().ListDirectory(
                 outside,
@@ -499,13 +502,13 @@ public sealed class ListDirectoryTests : IDisposable
 
         return new AgentRunConfig
         {
-            ContextOverrides = new()
+            Context = new AgentContextRunConfig { Properties = new Dictionary<string, object>()
             {
                 [AgentWorkspace.ContextKey] = new AgentWorkspace(
                     "default",
                     Path.GetFullPath(defaultRoot),
                     roots)
-            }
+            } }
         };
     }
 

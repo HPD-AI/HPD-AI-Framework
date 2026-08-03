@@ -320,13 +320,13 @@ public class CodingToolHarnessAgentBuilderTests
         var cwd = Directory.GetCurrentDirectory();
         var runConfig = new AgentRunConfig
         {
-            ContextOverrides = new()
+            Context = new AgentContextRunConfig { Properties = new Dictionary<string, object>()
             {
                 [AgentWorkspace.ContextKey] = new AgentWorkspace(
                     "default",
                     cwd,
                     [new AgentWorkspaceRoot("default", cwd)])
-            }
+            } }
         };
         var beforeContext = agentContext.AsBeforeFunction(
             function,

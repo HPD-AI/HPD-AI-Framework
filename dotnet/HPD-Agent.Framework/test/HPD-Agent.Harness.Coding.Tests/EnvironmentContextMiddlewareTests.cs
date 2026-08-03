@@ -238,13 +238,13 @@ public sealed class EnvironmentContextMiddlewareTests
                 messages,
                 new AgentRunConfig
                 {
-                    ContextOverrides = new Dictionary<string, object>
+                    Context = new AgentContextRunConfig { Properties = new Dictionary<string, object>
                     {
                         [AgentWorkspace.ContextKey] = new AgentWorkspace(
                             "default",
                             selectedWorkspace,
                             [new AgentWorkspaceRoot("default", selectedWorkspace)])
-                    }
+                    } }
                 });
 
             await middleware.BeforeIterationAsync(context, CancellationToken.None);

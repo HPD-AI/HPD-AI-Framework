@@ -1032,10 +1032,10 @@ public sealed class DebugPublicHostedRealAdapterTests
                 [new("root", workspaceRoot)]);
             var runConfig = new AgentRunConfig
             {
-                ContextOverrides = new Dictionary<string, object>
+                Context = new AgentContextRunConfig { Properties = new Dictionary<string, object>
                 {
                     [AgentWorkspace.ContextKey] = workspace
-                }
+                } }
             };
             var initial = AgentLoopState.InitialSafe(
                 [], "run", "conversation", "DebugPublicReal");

@@ -473,13 +473,13 @@ public sealed class WriteFileTests : IDisposable
         var cwd = Directory.GetCurrentDirectory();
         return new AgentRunConfig
         {
-            ContextOverrides = new()
+            Context = new AgentContextRunConfig { Properties = new Dictionary<string, object>()
             {
                 [AgentWorkspace.ContextKey] = new AgentWorkspace(
                     "default",
                     cwd,
                     [new AgentWorkspaceRoot("default", cwd)])
-            }
+            } }
         };
     }
 

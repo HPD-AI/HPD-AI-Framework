@@ -612,7 +612,10 @@ public sealed class ExecuteCommandPermissionMiddlewareTests : IDisposable
                 {
                     Security = plan.RequestedSandbox.Security with
                     {
-                        Sandbox = AgentSandboxPolicy.Disabled
+                        Sandbox = plan.RequestedSandbox.Security.Sandbox with
+                        {
+                            Mode = AgentSandboxPolicy.Disabled
+                        }
                     }
                 })
                     .Canonicalize(plan.WorkingDirectory)
@@ -1248,7 +1251,7 @@ public sealed class ExecuteCommandPermissionMiddlewareTests : IDisposable
         using var subscription = RespondToPermissionRequests(coordinator, requests, _ => "deny");
         var agentContext = CreateAgentContext(coordinator);
         var runConfig = CreateWorkspaceRunConfig();
-        runConfig.Security = new AgentSecurityProfile
+        runConfig.Security = new AgentSecurityRunConfig
         {
             Approval = AgentApprovalPolicy.AutoApprove
         };
@@ -1587,8 +1590,14 @@ public sealed class ExecuteCommandPermissionMiddlewareTests : IDisposable
         };
         return new AgentRunConfig
         {
-            ContextOverrides = overrides,
-            Sandbox = sandboxPolicy ?? new AgentSandboxConfiguration()
+            Context = new AgentContextRunConfig { Properties = overrides },
+            Security = new AgentSecurityRunConfig
+            {
+                Sandbox = new AgentSandboxRunConfig
+                {
+                    Capabilities = sandboxPolicy ?? new AgentSandboxConfiguration()
+                }
+            }
         };
     }
 }

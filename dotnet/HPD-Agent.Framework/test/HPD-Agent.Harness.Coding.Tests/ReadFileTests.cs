@@ -516,11 +516,14 @@ public sealed class ReadFileTests : IDisposable
         try
         {
             var runConfig = CreateWorkspaceRunConfig(_tempRoot);
-            runConfig.Security = new AgentSecurityProfile
+            runConfig.Security = new AgentSecurityRunConfig
             {
                 Approval = AgentApprovalPolicy.AutoApprove,
-                Sandbox = AgentSandboxPolicy.Disabled,
-                SandboxEscape = AgentSandboxEscapePolicy.Deny
+                Sandbox = new AgentSandboxRunConfig
+                {
+                    Mode = AgentSandboxPolicy.Disabled,
+                    Escape = AgentSandboxEscapePolicy.Deny
+                }
             };
             var result = await ReadFileTextAsync(
                 new CodingToolHarness(),
@@ -545,11 +548,14 @@ public sealed class ReadFileTests : IDisposable
         try
         {
             var runConfig = CreateWorkspaceRunConfig(_tempRoot);
-            runConfig.Security = new AgentSecurityProfile
+            runConfig.Security = new AgentSecurityRunConfig
             {
                 Approval = AgentApprovalPolicy.AutoApprove,
-                Sandbox = AgentSandboxPolicy.Enforced,
-                SandboxEscape = AgentSandboxEscapePolicy.Deny
+                Sandbox = new AgentSandboxRunConfig
+                {
+                    Mode = AgentSandboxPolicy.Enforced,
+                    Escape = AgentSandboxEscapePolicy.Deny
+                }
             };
 
             var result = await ReadFileTextAsync(new CodingToolHarness(), outside, runConfig: runConfig);
@@ -726,13 +732,13 @@ public sealed class ReadFileTests : IDisposable
 
         return new AgentRunConfig
         {
-            ContextOverrides = new()
+            Context = new AgentContextRunConfig { Properties = new Dictionary<string, object>()
             {
                 [AgentWorkspace.ContextKey] = new AgentWorkspace(
                     "default",
                     cwd,
                     roots)
-            }
+            } }
         };
     }
 

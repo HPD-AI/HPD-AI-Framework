@@ -39,10 +39,10 @@ public sealed class AgentWorkspaceTests : IDisposable
         using var document = JsonDocument.Parse(json);
         var runConfig = new AgentRunConfig
         {
-            ContextOverrides = new()
+            Context = new AgentContextRunConfig { Properties = new Dictionary<string, object>()
             {
                 [AgentWorkspace.ContextKey] = document.RootElement.Clone()
-            }
+            } }
         };
 
         var workspace = AgentWorkspace.From(runConfig);
@@ -105,7 +105,7 @@ public sealed class AgentWorkspaceTests : IDisposable
     private AgentWorkspace CreateWorkspace()
         => AgentWorkspace.From(new AgentRunConfig
         {
-            ContextOverrides = new()
+            Context = new AgentContextRunConfig { Properties = new Dictionary<string, object>()
             {
                 [AgentWorkspace.ContextKey] = new AgentWorkspace(
                     "os",
@@ -114,7 +114,7 @@ public sealed class AgentWorkspaceTests : IDisposable
                         new AgentWorkspaceRoot("os", _root),
                         new AgentWorkspaceRoot("docs", _docs, "Docs")
                     ])
-            }
+            } }
         });
 
     private static string JsonEscape(string value)
