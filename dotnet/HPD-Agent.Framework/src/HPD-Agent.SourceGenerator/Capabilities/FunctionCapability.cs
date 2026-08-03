@@ -215,6 +215,7 @@ $@"({asyncKeyword} (arguments, functionContext, cancellationToken) =>
         options.AppendLine($"                        DeclarationMemberName = @\"{Name.Replace("\"", "\"\"")}\",");
         options.AppendLine($"                        ParentContainerIds = System.Collections.Immutable.ImmutableArray.Create<CapabilityId>({string.Join(", ", capabilityParents.Select(id => $"CapabilityId.Create(@\"{id.Replace("\"", "\"\"")}\")"))})");
         options.AppendLine("                    },");
+        options.AppendLine($"                    [\"ToolHarnessName\"] = @\"{ToolHarness.EffectiveName.Replace("\"", "\"\"")}\",");
 
         // Add Kind if it's an output tool (structured output)
         if (Kind == "Output")
