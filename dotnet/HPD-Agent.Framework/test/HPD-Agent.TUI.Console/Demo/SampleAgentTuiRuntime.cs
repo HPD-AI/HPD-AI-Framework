@@ -66,11 +66,13 @@ internal sealed class SampleAgentTuiRuntime : IHpdAgentTuiRuntime, IAsyncDisposa
             _activeExecution));
     }
 
-    public Task AnswerRequestAsync(
+    public Task<AgentRespondResult> AnswerRequestAsync(
         AgentTuiRuntimeScope scope,
         AgentEvent response,
         CancellationToken cancellationToken = default)
-        => Task.CompletedTask;
+        => Task.FromResult(new AgentRespondResult(
+            AgentRespondStatus.Accepted,
+            response.EventId));
 
     public Task<AgentTuiThreadState> GetThreadStateAsync(
         AgentTuiRuntimeScope scope,

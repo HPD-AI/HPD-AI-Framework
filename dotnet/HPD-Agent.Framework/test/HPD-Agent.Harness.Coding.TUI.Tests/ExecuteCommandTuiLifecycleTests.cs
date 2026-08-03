@@ -1212,11 +1212,13 @@ public sealed class ExecuteCommandTuiLifecycleTests
                 "run",
                 new AgentTuiThreadExecution("run", scope.AgentId, scope.SessionId, scope.ThreadId, "active", DateTimeOffset.UtcNow)));
 
-        public Task AnswerRequestAsync(
+        public Task<AgentRespondResult> AnswerRequestAsync(
             AgentTuiRuntimeScope scope,
             AgentEvent response,
             CancellationToken cancellationToken = default)
-            => Task.CompletedTask;
+            => Task.FromResult(new AgentRespondResult(
+                AgentRespondStatus.Accepted,
+                response.EventId));
 
         public Task<AgentTuiThreadState> GetThreadStateAsync(
             AgentTuiRuntimeScope scope,

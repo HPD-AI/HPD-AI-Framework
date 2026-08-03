@@ -41,7 +41,7 @@ public sealed class RemoteAgentFamilySelectionDtoTests
         bound.AuthenticationKey.Should().Be("tenant-a");
         bound.Temperature.Should().Be(0.25f);
         restored.Deadline.Should().Be(deadline);
-        json.Should().NotContain("apiKey", StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("apiKey", json, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -63,7 +63,10 @@ public sealed class RemoteAgentFamilySelectionDtoTests
             ProviderClientFamily.Chat,
             new ChatClientConfig
             {
-                Override = ClientOverride<IChatClient>.Borrowed(new Mock<IChatClient>().Object)
+                Override = new ClientOverride<IChatClient>
+                {
+                    Client = new Mock<IChatClient>().Object
+                }
             },
             EmptyComposition);
 
