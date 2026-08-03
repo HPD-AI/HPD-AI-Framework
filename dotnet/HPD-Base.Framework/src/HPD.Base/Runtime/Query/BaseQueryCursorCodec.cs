@@ -202,7 +202,7 @@ internal sealed class BaseQueryCursorCodec(
             {
                 Mode = QueryPaginationMode.Cursor,
                 Limit = limit,
-                CursorDirection = query.Page?.CursorDirection ?? QueryCursorDirection.After
+                CursorDirection = QueryCursorDirection.After
             },
             Count = QueryCountMode.None
         };

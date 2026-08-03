@@ -89,6 +89,97 @@ public sealed class SqliteCursorPaginationTests
         }
     }
 
+    [Fact]
+    public async Task CursorReportsExactQueryDirectionVersionAndPurgeOutcomes()
+    {
+        string path = TempPath();
+        CollectionDefinition collection = Collection(BaseCollectionMutationMode.AppendOnlyWithAdministrativePurge);
+        try
+        {
+            await using SqliteRecordStore store = CreateStore(StoreOptions(path, collection));
+            await CreateAsync(store, collection, "one", "one");
+            await CreateAsync(store, collection, "two", "two");
+            RecordQuery firstQuery = FirstQuery();
+            string cursor = (await store.ListAsync(collection, firstQuery, Operation())).Value!.Page.NextCursor!;
+            RecordQuery continuation = firstQuery with
+            {
+                Page = new QueryPage { Mode = QueryPaginationMode.Cursor, Limit = 1, Cursor = cursor },
+            };
+
+            OperationResult<RecordPage> queryMismatch = await store.ListAsync(
+                collection,
+                continuation with { Sort = [new QuerySort("title", QuerySortDirection.Desc)] },
+                Operation());
+            OperationResult<RecordPage> directionMismatch = await store.ListAsync(
+                collection,
+                continuation with { Page = continuation.Page! with { CursorDirection = QueryCursorDirection.Before } },
+                Operation());
+            byte[] futureWire = Decode(cursor);
+            futureWire[1] = 2;
+            OperationResult<RecordPage> futureVersion = await store.ListAsync(
+                collection,
+                continuation with { Page = continuation.Page! with { Cursor = Encode(futureWire) } },
+                Operation());
+
+            var processor = new PurgeGenerationProcessor(collection);
+            RecordMutationExecutionResult purge = await store.ExecuteAtomicAsync(processor, ExecutionRequest());
+            OperationResult<RecordPage> expired = await store.ListAsync(collection, continuation, Operation());
+
+            queryMismatch.Error!.Code.Should().Be(BaseQueryErrorCodes.CursorQueryMismatch);
+            directionMismatch.Error!.Code.Should().Be(BaseQueryErrorCodes.CursorDirectionUnsupported);
+            futureVersion.Error!.Code.Should().Be(BaseQueryErrorCodes.CursorVersionUnsupported);
+            purge.Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
+            expired.Error!.Code.Should().Be(BaseQueryErrorCodes.CursorExpired);
+        }
+        finally { Delete(path); }
+    }
+
+    [Fact]
+    public async Task CursorExpiresAfterItsBoundedLifetime()
+    {
+        string path = TempPath();
+        CollectionDefinition collection = Collection(BaseCollectionMutationMode.Mutable);
+        var time = new AdjustableTimeProvider(new DateTimeOffset(2026, 8, 3, 0, 0, 0, TimeSpan.Zero));
+        try
+        {
+            await using SqliteRecordStore store = SqliteTestFactory.Create(
+                StoreOptions(path, collection),
+                timeProvider: time,
+                tokenProtector: Protector());
+            await CreateAsync(store, collection, "one", "one");
+            await CreateAsync(store, collection, "two", "two");
+            RecordQuery first = FirstQuery();
+            string cursor = (await store.ListAsync(collection, first, Operation())).Value!.Page.NextCursor!;
+            time.Advance(TimeSpan.FromDays(8));
+
+            OperationResult<RecordPage> expired = await store.ListAsync(
+                collection,
+                first with { Page = new QueryPage { Mode = QueryPaginationMode.Cursor, Limit = 1, Cursor = cursor } },
+                Operation());
+
+            expired.Error!.Code.Should().Be(BaseQueryErrorCodes.CursorExpired);
+        }
+        finally { Delete(path); }
+    }
+
+    [Fact]
+    public async Task CursorFailsClosedWhenAnOrderingKeyExceedsItsWireBound()
+    {
+        string path = TempPath();
+        CollectionDefinition collection = Collection(BaseCollectionMutationMode.Mutable);
+        try
+        {
+            await using SqliteRecordStore store = CreateStore(StoreOptions(path, collection));
+            await CreateAsync(store, collection, "one", new string('a', 4_097));
+            await CreateAsync(store, collection, "two", new string('b', 4_097));
+
+            OperationResult<RecordPage> result = await store.ListAsync(collection, FirstQuery(), Operation());
+
+            result.Error!.Code.Should().Be(BaseQueryErrorCodes.CursorKeyTooLarge);
+        }
+        finally { Delete(path); }
+    }
+
     private static SqliteRecordStore CreateStore(HPDBaseSqliteOptions options)
     {
         SqliteRecordStore store = SqliteTestFactory.Create(
@@ -175,6 +266,36 @@ public sealed class SqliteCursorPaginationTests
     {
         string text = value.Replace('-', '+').Replace('_', '/');
         return Convert.FromBase64String(text.PadRight(text.Length + ((4 - text.Length % 4) % 4), '='));
+    }
+
+    private static string Encode(byte[] value) =>
+        Convert.ToBase64String(value).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+
+    private static RecordMutationExecutionRequest ExecutionRequest() => new()
+    {
+        AcquisitionTimeout = TimeSpan.FromSeconds(5),
+        TransactionTimeout = TimeSpan.FromSeconds(5),
+        CommitCompletionTimeout = TimeSpan.FromSeconds(5),
+    };
+
+    private sealed class PurgeGenerationProcessor(CollectionDefinition collection) : IAtomicMutationProcessor
+    {
+        public async ValueTask<AtomicMutationProcessingResult> ProcessAsync(
+            IAtomicRecordSession session,
+            CancellationToken cancellationToken = default)
+        {
+            OperationResult<long> generation = await session.AdvancePurgeGenerationAsync(collection, 0, cancellationToken);
+            return generation.IsSuccess()
+                ? new AtomicMutationProcessingResult(AtomicMutationProcessingOutcome.ReadyToCommit, [])
+                : new AtomicMutationProcessingResult(AtomicMutationProcessingOutcome.Failed, [], generation.Error!);
+        }
+    }
+
+    private sealed class AdjustableTimeProvider(DateTimeOffset value) : TimeProvider
+    {
+        private DateTimeOffset _value = value;
+        public override DateTimeOffset GetUtcNow() => _value;
+        public void Advance(TimeSpan duration) => _value += duration;
     }
 
     private static string TempPath() =>
