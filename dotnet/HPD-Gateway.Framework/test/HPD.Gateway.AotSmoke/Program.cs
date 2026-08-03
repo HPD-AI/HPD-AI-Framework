@@ -693,10 +693,11 @@ try
         certificates.Add(new(new ProviderId("aot"), new ProviderObjectId("exact"), "v1"), new GatewayPfxCertificateSource { Path = exactCertificate.Path, Password = exactCertificate.Password });
         certificates.Add(new(new ProviderId("aot"), new ProviderObjectId("wildcard"), "v1"), new GatewayPfxCertificateSource { Path = wildcardCertificate.Path, Password = wildcardCertificate.Password });
     });
+    GatewayHostRuntimeStatus? tlsStatus = null;
     await using (var tlsHost = tlsBuilder.Build())
     {
         tlsHost.Run(context => { Interlocked.Increment(ref tlsExecutions); return context.Response.WriteAsync("aot-tls"); });
-        await tlsHost.StartAsync();
+        await tlsHost.StartHpdGatewayAsync();
         if (await SendAotTls(tlsPort, "aot.example") != exactCertificate.Thumbprint ||
             await SendAotTls(tlsPort, "other.example") != wildcardCertificate.Thumbprint)
             throw new InvalidOperationException("Native AOT Kestrel SNI certificate selection failed.");
@@ -705,7 +706,20 @@ try
         try { await SendAotTlsWithoutSni(tlsPort); throw new InvalidOperationException("Missing SNI unexpectedly succeeded."); }
         catch (IOException) { }
         if (tlsExecutions != 2) throw new InvalidOperationException("Rejected Native AOT TLS handshakes reached HTTP execution.");
+        tlsStatus = tlsHost.Services.GetRequiredService<GatewayHostRuntimeStatus>();
+        if (tlsStatus.GetSnapshot().State != GatewayHostRealizationState.Ready)
+            throw new InvalidOperationException("Native AOT host did not reach Ready.");
+        var changedConfiguration = tlsConfiguration with
+        {
+            DataListeners = [tlsConfiguration.DataListeners[0] with { Port = checked((ushort)AvailableAotPort()) }]
+        };
+        var changedCandidate = GatewayHostCandidateReader.Create(changedConfiguration);
+        if (!changedCandidate.IsAccepted || tlsStatus.EvaluateDesired(changedCandidate.Candidate!).State != GatewayHostRealizationState.RestartRequired)
+            throw new InvalidOperationException("Native AOT host did not report RestartRequired for changed host identity.");
+        await tlsHost.StopHpdGatewayAsync();
     }
+    if (tlsStatus?.GetSnapshot().State != GatewayHostRealizationState.Stopped)
+        throw new InvalidOperationException("Native AOT host did not report Stopped after disposal.");
 }
 finally
 {

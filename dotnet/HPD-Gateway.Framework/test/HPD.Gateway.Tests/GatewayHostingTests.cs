@@ -63,10 +63,14 @@ public sealed class GatewayHostingTests
         var numeric = GatewayHostCandidateReader.Read(Encoding.UTF8.GetBytes("""
             {"schemaVersion":{"major":1,"minor":0},"canonicalizationVersion":1,"hostId":{"value":"host"},"dataListeners":[{"id":{"value":"https"},"binding":0,"port":443,"protocols":"Http1","tls":{"fallback":"RejectUnmatchedOrMissingSni","sni":[{"hostnamePattern":"exact.example","certificate":{"provider":{"value":"test"},"name":{"value":"one"},"version":"v1"}}]}}]}
             """));
+        var duplicate = GatewayHostCandidateReader.Read(Encoding.UTF8.GetBytes("""
+            {"schemaVersion":{"major":1,"minor":0},"canonicalizationVersion":1,"canonicalizationVersion":1,"hostId":{"value":"host"},"dataListeners":[]}
+            """));
         var version = GatewayHostCandidateReader.Create(Configuration([Sni("exact.example", "one")]) with { SchemaVersion = new(2, 0) });
 
         unknown.IsAccepted.Should().BeFalse();
         numeric.IsAccepted.Should().BeFalse();
+        duplicate.Errors.Should().ContainSingle(error => error.Code == "host.duplicate-property");
         version.IsAccepted.Should().BeFalse();
     }
 
@@ -97,7 +101,7 @@ public sealed class GatewayHostingTests
             });
             await using var application = builder.Build();
             application.Run(context => { Interlocked.Increment(ref executions); return context.Response.WriteAsync("ok"); });
-            await application.StartAsync();
+            await application.StartHpdGatewayAsync();
 
             (await Send(port, "exact.example")).Thumbprint.Should().Be(exact.Thumbprint);
             (await Send(port, "a.example")).Thumbprint.Should().Be(wildcard.Thumbprint);
@@ -112,8 +116,59 @@ public sealed class GatewayHostingTests
             status.GetSnapshot().State.Should().Be(GatewayHostRealizationState.Ready);
             var desired = GatewayHostCandidateReader.Create(ConfigurationWithPort([Sni("exact.example", "exact")], AvailablePort()));
             status.EvaluateDesired(desired.Candidate!).State.Should().Be(GatewayHostRealizationState.RestartRequired);
-            await application.StopAsync();
+            await application.StopHpdGatewayAsync();
             status.GetSnapshot().State.Should().Be(GatewayHostRealizationState.Stopped);
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LifecycleReportsBindFailureAndRestartReplacement()
+    {
+        var directory = Directory.CreateTempSubdirectory("hpd-gateway-lifecycle-");
+        try
+        {
+            var certificate = CreateCertificate("exact.example", Path.Combine(directory.FullName, "exact.pfx"));
+            var occupiedPort = AvailablePort();
+            using var occupied = new TcpListener(IPAddress.Loopback, occupiedPort);
+            occupied.Start();
+            await using (var failed = BuildHost(occupiedPort, certificate))
+            {
+                await FluentActions.Awaiting(() => failed.StartHpdGatewayAsync()).Should().ThrowAsync<IOException>();
+                failed.Services.GetRequiredService<GatewayHostRuntimeStatus>().GetSnapshot().State
+                    .Should().Be(GatewayHostRealizationState.Failed);
+            }
+
+            occupied.Stop();
+            await using (var canceled = BuildHost(AvailablePort(), certificate))
+            {
+                using var cancellation = new CancellationTokenSource();
+                cancellation.Cancel();
+                await FluentActions.Awaiting(() => canceled.StartHpdGatewayAsync(cancellation.Token))
+                    .Should().ThrowAsync<OperationCanceledException>();
+                canceled.Services.GetRequiredService<GatewayHostRuntimeStatus>().GetSnapshot().State
+                    .Should().Be(GatewayHostRealizationState.Failed);
+            }
+
+            var replacementPort = AvailablePort();
+            await using (var first = BuildHost(replacementPort, certificate))
+            {
+                await first.StartHpdGatewayAsync();
+                (await Send(replacementPort, "exact.example")).Thumbprint.Should().Be(certificate.Thumbprint);
+                await first.StopHpdGatewayAsync();
+            }
+
+            await using (var replacement = BuildHost(replacementPort, certificate))
+            {
+                await replacement.StartHpdGatewayAsync();
+                (await Send(replacementPort, "exact.example")).Thumbprint.Should().Be(certificate.Thumbprint);
+                await replacement.StopHpdGatewayAsync();
+                replacement.Services.GetRequiredService<GatewayHostRuntimeStatus>().GetSnapshot().State
+                    .Should().Be(GatewayHostRealizationState.Stopped);
+            }
         }
         finally
         {
@@ -239,5 +294,23 @@ public sealed class GatewayHostingTests
         await client.ConnectAsync(IPAddress.Loopback, port);
         using var stream = new SslStream(client.GetStream(), false, static (_, _, _, _) => true);
         await stream.AuthenticateAsClientAsync(new SslClientAuthenticationOptions { TargetHost = string.Empty });
+    }
+
+    private static WebApplication BuildHost(
+        int port,
+        (string Path, string Password, string Thumbprint) certificate)
+    {
+        var candidate = GatewayHostCandidateReader.Create(
+            ConfigurationWithPort([Sni("exact.example", "exact")], port)).Candidate!;
+        var builder = WebApplication.CreateSlimBuilder();
+        builder.WebHost.UseHpdGatewayHost(candidate, sources =>
+            sources.Add(Reference("exact"), new GatewayPfxCertificateSource
+            {
+                Path = certificate.Path,
+                Password = certificate.Password
+            }));
+        var application = builder.Build();
+        application.Run(static context => context.Response.WriteAsync("ok"));
+        return application;
     }
 }

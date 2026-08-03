@@ -1,4 +1,6 @@
 using System.Collections.Immutable;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
 namespace HPD.Gateway.Hosting;
@@ -52,6 +54,41 @@ public sealed class GatewayHostRuntimeStatus
     internal void SetState(GatewayHostRealizationState state) { lock (_sync) _state = state; }
 }
 
+/// <summary>
+/// Owns the observable startup and shutdown boundary for an HPD Gateway host.
+/// Use these methods when lifecycle outcome reporting is required.
+/// </summary>
+public static class GatewayHostLifecycleExtensions
+{
+    public static async Task StartHpdGatewayAsync(
+        this WebApplication application,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(application);
+        var status = application.Services.GetRequiredService<GatewayHostRuntimeStatus>();
+        status.SetState(GatewayHostRealizationState.Starting);
+        try
+        {
+            await application.StartAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            status.SetState(GatewayHostRealizationState.Failed);
+            throw;
+        }
+    }
+
+    public static Task StopHpdGatewayAsync(
+        this WebApplication application,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(application);
+        application.Services.GetRequiredService<GatewayHostRuntimeStatus>()
+            .SetState(GatewayHostRealizationState.Stopping);
+        return application.StopAsync(cancellationToken);
+    }
+}
+
 internal sealed class GatewayHostLifetimeObserver(
     GatewayHostRuntimeStatus status,
     IHostApplicationLifetime lifetime) : IHostedService
@@ -71,8 +108,6 @@ internal sealed class GatewayHostLifetimeObserver(
     {
         status.SetState(GatewayHostRealizationState.Stopping);
         _started?.Dispose();
-        _stopped?.Dispose();
-        status.SetState(GatewayHostRealizationState.Stopped);
         return Task.CompletedTask;
     }
 }
