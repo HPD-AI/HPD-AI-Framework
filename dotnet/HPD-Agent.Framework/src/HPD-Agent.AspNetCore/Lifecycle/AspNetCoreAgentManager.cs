@@ -3,6 +3,8 @@ using HPD.Agent.Hosting.Configuration;
 using HPD.Agent.Hosting.Lifecycle;
 using HPD.Agent.Serialization;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.DependencyInjection;
+using HPD.Agent.Providers;
 using HostingAgentFactory = HPD.Agent.Hosting.Configuration.IAgentFactory;
 
 namespace HPD.Agent.AspNetCore.Lifecycle;
@@ -52,25 +54,26 @@ internal class AspNetCoreAgentManager : AgentManager
         // Priority 4: DefaultAgentPath file
         // Priority 5: Empty builder (fallback)
         AgentBuilder builder;
+        var providerComposition = _serviceProvider.GetService<ProviderComposition>();
         var stored = await AgentStore.LoadAsync(agentId, ct).ConfigureAwait(false);
         if (stored?.Config != null)
         {
-            builder = new AgentBuilder(stored.Config);
+            builder = providerComposition is null ? new AgentBuilder(stored.Config) : new AgentBuilder(stored.Config, providerComposition);
         }
         else if (opts.DefaultAgent != null)
         {
-            builder = new AgentBuilder(opts.DefaultAgent);
+            builder = providerComposition is null ? new AgentBuilder(opts.DefaultAgent) : new AgentBuilder(opts.DefaultAgent, providerComposition);
         }
         else if (opts.DefaultAgentPath != null)
         {
             var loaded = await HpdAgentConfigSerializer.ReadFileAsync(opts.DefaultAgentPath, ct)
                 ?? throw new InvalidOperationException(
                     $"Failed to deserialize default agent definition from {opts.DefaultAgentPath}");
-            builder = new AgentBuilder(loaded);
+            builder = providerComposition is null ? new AgentBuilder(loaded) : new AgentBuilder(loaded, providerComposition);
         }
         else
         {
-            builder = new AgentBuilder();
+            builder = providerComposition is null ? new AgentBuilder() : new AgentBuilder(providerComposition);
         }
 
         builder

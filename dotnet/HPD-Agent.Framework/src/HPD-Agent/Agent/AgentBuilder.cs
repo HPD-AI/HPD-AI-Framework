@@ -301,6 +301,24 @@ public class AgentBuilder
         RegisterDiscoveredProviders();
     }
 
+    /// <summary>Creates a builder backed by an immutable generated provider composition.</summary>
+    /// <param name="config">The agent defaults.</param>
+    /// <param name="providerComposition">The closed provider composition generated for the host.</param>
+    public AgentBuilder(AgentConfig config, ProviderComposition providerComposition)
+    {
+        _config = config ?? throw new ArgumentNullException(nameof(config));
+        ArgumentNullException.ThrowIfNull(providerComposition);
+        _providerRegistry = new ProviderRegistry();
+        LoadGeneratedRegistries();
+        RegisterGeneratedProviders(providerComposition.Runtime);
+    }
+
+    /// <summary>Creates a default-configured builder backed by a generated provider composition.</summary>
+    public AgentBuilder(ProviderComposition providerComposition)
+        : this(new AgentConfig(), providerComposition)
+    {
+    }
+
     /// <summary>
     /// Creates a builder from a JSON or YAML agent configuration file.
     /// </summary>
@@ -376,6 +394,12 @@ public class AgentBuilder
                 _logger?.CreateLogger<AgentBuilder>().LogWarning(ex, "Failed to register provider from discovery");
             }
         }
+    }
+
+    private void RegisterGeneratedProviders(IProviderRuntimeRegistry runtime)
+    {
+        foreach (var registration in runtime.Registrations)
+            _providerRegistry.Register(registration.Factory());
     }
 
     /// <summary>

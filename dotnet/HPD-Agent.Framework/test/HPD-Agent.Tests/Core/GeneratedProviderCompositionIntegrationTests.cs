@@ -21,4 +21,17 @@ public sealed class GeneratedProviderCompositionIntegrationTests
             composition.SecretAliases.GetEnvironmentVariables("anthropic:ApiKey"));
         Assert.Equal("anthropic", registration.Factory().ProviderKey);
     }
+
+    [Fact]
+    public void AgentBuilder_CompositionConstructor_MaterializesGeneratedProviders()
+    {
+        var services = new ServiceCollection();
+        services.AddHpdGeneratedProviders();
+        using var provider = services.BuildServiceProvider();
+        var composition = provider.GetRequiredService<ProviderComposition>();
+
+        var builder = new AgentBuilder(new AgentConfig(), composition);
+
+        Assert.True(builder.ProviderRegistry.IsRegistered("anthropic"));
+    }
 }
