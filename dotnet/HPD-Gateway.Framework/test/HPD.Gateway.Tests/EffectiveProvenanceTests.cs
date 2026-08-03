@@ -55,6 +55,9 @@ public sealed class EffectiveProvenanceTests
         record.Contributions.Select(item => item.Disposition).Should().Equal(
             GatewayContributionDisposition.Overridden,
             GatewayContributionDisposition.Selected);
+        record.Contributions.Select(item => item.Scope).Should().Equal(
+            GatewayContributionScope.RootDefault,
+            GatewayContributionScope.RouteLocal);
         record.Contributions[1].Definition.Should().Be(new DefinitionId("orders"));
         result.Bundle!.Routes.Single().AuthorizationPolicy.Should().Be("orders.write");
     }

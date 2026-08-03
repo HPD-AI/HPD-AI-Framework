@@ -47,12 +47,14 @@ internal sealed class GatewayEffectiveProjectionBuilder(
         if (root is not null)
         {
             value = ResolveReference(root, definitions, family, "gateway", GatewayContributionSourceKind.RootDefault,
+                GatewayContributionScope.RootDefault,
                 local is null ? GatewayContributionDisposition.Selected : GatewayContributionDisposition.Overridden,
                 0, hashValue, contributions);
         }
         if (local is not null)
         {
             value = ResolveReference(local, definitions, family, $"routes/{routeId.Value}", GatewayContributionSourceKind.Inline,
+                GatewayContributionScope.RouteLocal,
                 GatewayContributionDisposition.Selected, contributions.Count, hashValue, contributions);
         }
         if (value is null) return new EffectiveSelection<T>(null, []);
@@ -83,6 +85,7 @@ internal sealed class GatewayEffectiveProjectionBuilder(
 
     internal GatewayEffectiveContribution HostProfile(string identity, ContentHash hash) => new(
         GatewayContributionSourceKind.HostProfile,
+        GatewayContributionScope.Host,
         GatewayContributionDisposition.Correlated,
         identity,
         null,
@@ -110,6 +113,7 @@ internal sealed class GatewayEffectiveProjectionBuilder(
     {
         var contributions = headers.Select((header, order) => new GatewayEffectiveContribution(
                 GatewayContributionSourceKind.Inline,
+                GatewayContributionScope.RouteLocal,
                 GatewayContributionDisposition.Selected,
                 $"routes/{routeId.Value}",
                 null,
@@ -151,6 +155,7 @@ internal sealed class GatewayEffectiveProjectionBuilder(
         string family,
         string sourceIdentity,
         GatewayContributionSourceKind inlineSourceKind,
+        GatewayContributionScope scope,
         GatewayContributionDisposition disposition,
         int order,
         Func<T, ContentHash> hashValue,
@@ -159,7 +164,7 @@ internal sealed class GatewayEffectiveProjectionBuilder(
     {
         if (reference.Inline is { } inline)
         {
-            contributions.Add(new GatewayEffectiveContribution(inlineSourceKind, disposition, sourceIdentity, null, order, hashValue(inline)));
+            contributions.Add(new GatewayEffectiveContribution(inlineSourceKind, scope, disposition, sourceIdentity, null, order, hashValue(inline)));
             return inline;
         }
         if (reference.Definition is { } id)
@@ -168,6 +173,7 @@ internal sealed class GatewayEffectiveProjectionBuilder(
                 ?? throw new InvalidOperationException("Accepted definition reference is unresolved.");
             contributions.Add(new GatewayEffectiveContribution(
                 GatewayContributionSourceKind.ReusableDefinition,
+                scope,
                 disposition,
                 $"definitions/{family}/{id.Value}",
                 id,

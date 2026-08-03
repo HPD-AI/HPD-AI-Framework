@@ -39,6 +39,9 @@ public enum GatewayContributionSourceKind : byte { RootDefault = 0, Inline = 1, 
 [JsonConverter(typeof(StrictStringEnumJsonConverter<GatewayContributionDisposition>))]
 public enum GatewayContributionDisposition : byte { Selected = 0, Overridden = 1, Correlated = 2 }
 
+[JsonConverter(typeof(StrictStringEnumJsonConverter<GatewayContributionScope>))]
+public enum GatewayContributionScope : byte { RootDefault = 0, RouteLocal = 1, Host = 2 }
+
 [JsonConverter(typeof(StrictStringEnumJsonConverter<GatewayMaterializationDisposition>))]
 public enum GatewayMaterializationDisposition : byte { Materialized = 0 }
 
@@ -46,6 +49,7 @@ public sealed record GatewayNativeProjection(string Owner, string Seam, string P
 
 public sealed record GatewayEffectiveContribution(
     GatewayContributionSourceKind SourceKind,
+    GatewayContributionScope Scope,
     GatewayContributionDisposition Disposition,
     string SourceIdentity,
     DefinitionId? Definition,
