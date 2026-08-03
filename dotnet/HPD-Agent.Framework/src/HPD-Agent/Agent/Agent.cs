@@ -366,9 +366,7 @@ public sealed class Agent
     /// <summary>
     /// Default chat options
     /// </summary>
-    public ChatOptions? DefaultOptions =>
-        (Config?.ResolveClientConfig(Providers.ProviderClientFamily.Chat) as ChatClientConfig)?.ToMicrosoftChatOptions()
-        ?? _messageProcessor.DefaultOptions;
+    public ChatOptions? DefaultOptions => _messageProcessor.DefaultOptions;
 
     internal void SetSkillCatalog(
         SkillCatalog catalog,
