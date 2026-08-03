@@ -10,6 +10,7 @@ using HPD.Gateway.Abstractions.Serialization;
 using HPD.Gateway.Core;
 using HPD.Gateway.Effective.Serialization;
 using HPD.Gateway.Inspection;
+using HPD.Gateway.Management;
 using HPD.Gateway.Hosting;
 using HPD.Gateway.OutputCaching;
 using HPD.Gateway.Resilience;
@@ -27,6 +28,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Yarp.ReverseProxy;
 using Yarp.ReverseProxy.Configuration;
 using Yarp.ReverseProxy.Model;
+
+SmokeManagementSchema();
 
 var smokeResilienceProfile = new GatewayResilienceProfile
 {
@@ -819,6 +822,48 @@ Console.WriteLine(
 
 static string Address(WebApplication application) => application.Services
     .GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.Single();
+
+static void SmokeManagementSchema()
+{
+    _ = GatewayAcceptedRevision.Collection.Definition;
+    _ = GatewayValidationRecord.Collection.Definition;
+    _ = GatewayAdministrativeAuditRecord.Collection.Definition;
+    _ = GatewayTargetOwnership.Collection.Definition;
+    _ = GatewayDesiredState.Collection.Definition;
+    _ = GatewayNodeDeliveryAuthorityState.Collection.Definition;
+    _ = GatewayActivationIntent.Collection.Definition;
+    _ = GatewayDeliveryOutboxItem.Collection.Definition;
+    _ = GatewayNodeActivationOutcome.Collection.Definition;
+    _ = GatewayCommandReceipt.Collection.Definition;
+    _ = GatewayAdministrativeOperationIntent.Collection.Definition;
+    _ = GatewayAdministrativeOperationObservation.Collection.Definition;
+    _ = GatewayAdministrativeOperationCompletion.Collection.Definition;
+
+    object[] records =
+    [
+        new GatewayAcceptedRevision { NamespaceId = "ns", ContentHashAlgorithm = "sha-256", ContentHashValue = "hash", CanonicalConfigurationUtf8 = [1], SchemaVersion = "1.0", CanonicalizationVersion = "1", ValidationId = "validation", ActorId = "actor", SourceKind = "code", SourceId = "source", CorrelationId = "correlation" },
+        new GatewayValidationRecord { NamespaceId = "ns", Outcome = GatewayValidationOutcome.Valid, ContentHashValue = "hash", DiagnosticsJson = [], CorrelationId = "correlation" },
+        new GatewayAdministrativeAuditRecord { NamespaceId = "ns", ActorId = "actor", AuthenticationScheme = "test", AuthorizationPolicy = "admin", Operation = "submit", ResultCode = "accepted", CorrelationId = "correlation", SubjectId = "revision" },
+        new GatewayTargetOwnership { ManagementAuthorityId = "management", TargetNodeId = "node", NamespaceId = "ns" },
+        new GatewayDesiredState { ManagementAuthorityId = "management", TargetNodeId = "node", NamespaceId = "ns", ActivationIntentId = "intent", RevisionId = "revision", CandidateId = "candidate" },
+        new GatewayNodeDeliveryAuthorityState { ManagementAuthorityId = "management", TargetNodeId = "node", NamespaceId = "ns", AuthorityId = "authority", AuthorityEpoch = "epoch", NextAuthorityVersion = 2 },
+        new GatewayActivationIntent { NamespaceId = "ns", TargetNodeId = "node", RevisionId = "revision", CandidateId = "candidate", ContentHashValue = "hash", AuthorityId = "authority", AuthorityEpoch = "epoch", AuthorityVersion = 1 },
+        new GatewayDeliveryOutboxItem { NamespaceId = "ns", TargetNodeId = "node", ActivationIntentId = "intent", State = GatewayDeliveryState.Immediate, AttemptCount = 0 },
+        new GatewayNodeActivationOutcome { NamespaceId = "ns", TargetNodeId = "node", ActivationIntentId = "intent", AuthorityId = "authority", AuthorityEpoch = "epoch", AuthorityVersion = 1, Kind = GatewayNodeOutcomeKind.ActiveAcknowledged, Code = "active" },
+        new GatewayCommandReceipt { NamespaceId = "ns", Operation = "submit", IdempotencyKey = "key", Fingerprint = new byte[32], StableResultCode = "accepted", StableOperationId = "revision" },
+        new GatewayAdministrativeOperationIntent { NamespaceId = "ns", Operation = GatewayAdministrativeOperationKind.Backup, ActorId = "actor", SubjectDigest = "digest" },
+        new GatewayAdministrativeOperationObservation { IntentId = "admin", Kind = GatewayAdministrativeObservationKind.Succeeded, ResultCode = "created", ResultJson = [] },
+        new GatewayAdministrativeOperationCompletion { IntentId = "admin", ObservationId = "observation", State = GatewayAdministrativeCompletionState.Completed },
+    ];
+
+    foreach (object record in records)
+    {
+        var typeInfo = GatewayManagementJsonContext.Default.GetTypeInfo(record.GetType())
+            ?? throw new InvalidOperationException("Management JSON metadata is unavailable.");
+        if (JsonSerializer.SerializeToUtf8Bytes(record, typeInfo).Length == 0)
+            throw new InvalidOperationException("Management record serialization failed.");
+    }
+}
 
 static (string Path, string Password, string Thumbprint) CreateAotCertificate(string dnsName, string path)
 {
