@@ -161,15 +161,11 @@ public sealed class BotStreamingRunner(
                 contents.Add(new TextContent(request.Text));
             contents.AddRange(request.Attachments);
 
-            var runConfig = request.RunConfig ?? new AgentRunConfig();
-            runConfig.UserMessage ??= request.Text;
-            runConfig.Attachments ??= request.Attachments;
-
             await agent.RunAsync(new UserMessagesInputEvent { Messages = [new ChatMessage(ChatRole.User, contents)],
                 AgentId = request.AgentId,
                 SessionId = request.SessionId,
                 ThreadId = request.ThreadId,
-                RunConfig = runConfig,
+                RunConfig = request.RunConfig,
             }, ct).ConfigureAwait(false);
         }
         else

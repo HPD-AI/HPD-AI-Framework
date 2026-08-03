@@ -214,13 +214,7 @@ public sealed class TeamsBot(
                 AgentId = agentId,
                 SessionId = sessionId,
                 ThreadId = threadId,
-                RunConfig = attachments.Count > 0
-                    ? new AgentRunConfig
-                    {
-                        UserMessage = text,
-                        Attachments = attachments,
-                    }
-                    : null,
+                RunConfig = null,
             }, ct);
             await DrainEventsUntilRunCompletesAsync(subscription, runTask, HandleEventAsync, ct);
             await runTask.ConfigureAwait(false);

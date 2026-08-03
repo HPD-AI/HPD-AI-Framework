@@ -224,7 +224,7 @@ public static class RunEvals
         // capture middleware adds per-attempt request state.
         var caseRunConfig = CloneRunConfig(options.BaseRunConfig);
         caseRunConfig.SuppressEvaluation(EvaluationSuppressionReason.BatchExecution);
-        caseRunConfig.UserMessage = evalCase.Input?.ToString() ?? string.Empty;
+        var caseInput = evalCase.Input?.ToString() ?? string.Empty;
 
         if (evalCase.GroundTruth is not null)
         {
@@ -242,7 +242,7 @@ public static class RunEvals
                 {
                     var attemptRunConfig = CloneRunConfig(caseRunConfig);
                     runConfig = attemptRunConfig;
-                    return RunAgentAndCaptureAsync(agent, attemptRunConfig, ct);
+                    return RunAgentAndCaptureAsync(agent, caseInput, attemptRunConfig, ct);
                 },
                 options.TaskRetryPolicy,
                 ct).ConfigureAwait(false);
@@ -393,6 +393,7 @@ public static class RunEvals
 
     private static async Task<TurnEvaluationContext> RunAgentAndCaptureAsync(
         HPD.Agent.Agent agent,
+        string input,
         AgentRunConfig runConfig,
         CancellationToken ct)
     {
@@ -409,7 +410,7 @@ public static class RunEvals
         await agent.RunAsync(new HPD.Agent.UserMessagesInputEvent
         {
             Messages = [
-                new ChatMessage(ChatRole.User, runConfig.UserMessage ?? string.Empty)
+                new ChatMessage(ChatRole.User, input)
             ],
             RunConfig = runConfig,
         }, ct).ConfigureAwait(false);
@@ -759,10 +760,8 @@ public static class RunEvals
                 PollingInterval = source.BackgroundResponses.PollingInterval,
                 Timeout = source.BackgroundResponses.Timeout
             },
-            Attachments = source.Attachments,
             Audio = source.Audio,
             Compaction = source.Compaction,
-            UserMessage = source.UserMessage,
             Evaluations = source.Evaluations?.Snapshot(),
         };
     }

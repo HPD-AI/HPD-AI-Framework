@@ -33,11 +33,8 @@ public enum SubAgentRunConfigFields
     /// <summary>Runtime tools, tool mode, client tools, and client app providers.</summary>
     Tools = 1 << 7,
 
-    /// <summary>Invocation input, attachments, and conversation override.</summary>
-    Input = 1 << 8,
-
     /// <summary>Structured output and custom streaming output behavior.</summary>
-    Output = 1 << 9,
+    Output = 1 << 8,
 
     /// <summary>
     /// The framework default: inherit the execution environment without replacing the child agent's
@@ -46,7 +43,7 @@ public enum SubAgentRunConfigFields
     Default = Model | Chat | Permissions | Execution | Compaction | Context,
 
     /// <summary>Inherits every run-configuration group.</summary>
-    All = Default | Instructions | Tools | Input | Output
+    All = Default | Instructions | Tools | Output
 }
 
 /// <summary>
@@ -219,12 +216,6 @@ internal static class AgentRunConfigInheritance
             };
             result.RuntimeTools = source.RuntimeTools is null ? null : new(source.RuntimeTools);
             result.RuntimeToolMode = source.RuntimeToolMode;
-        }
-
-        if (Has(fields, SubAgentRunConfigFields.Input))
-        {
-            result.UserMessage = source.UserMessage;
-            result.Attachments = source.Attachments?.ToArray();
         }
 
         if (Has(fields, SubAgentRunConfigFields.Output))

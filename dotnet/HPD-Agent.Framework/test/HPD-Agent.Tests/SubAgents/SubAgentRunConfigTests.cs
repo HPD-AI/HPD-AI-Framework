@@ -56,7 +56,6 @@ public sealed class SubAgentRunConfigTests
             },
             Streaming = new StreamingRunConfig { CoalesceDeltas = true },
             SystemInstructions = new SystemInstructionsRunConfig { Override = "Parent persona" },
-            UserMessage = "Parent input",
             StructuredOutput = new StructuredOutputOptions()
         };
 
@@ -69,7 +68,6 @@ public sealed class SubAgentRunConfigTests
         child.Clients.Chat.Temperature.Should().Be(0.25);
         child.Streaming!.CoalesceDeltas.Should().BeTrue();
         child.SystemInstructions.Should().BeNull();
-        child.UserMessage.Should().BeNull();
         child.StructuredOutput.Should().BeNull();
     }
 
@@ -92,7 +90,6 @@ public sealed class SubAgentRunConfigTests
         var parent = new AgentRunConfig
         {
             SystemInstructions = new SystemInstructionsRunConfig { Override = "Parent persona" },
-            UserMessage = "Parent input",
             Context = new AgentContextRunConfig
             {
                 Properties = new Dictionary<string, object> { ["tenant"] = "one" }
@@ -109,7 +106,6 @@ public sealed class SubAgentRunConfigTests
 
         child.Should().NotBeSameAs(parent);
         child.SystemInstructions!.Override.Should().Be("Parent persona");
-        child.UserMessage.Should().Be("Parent input");
         child.Context!.Properties.Should().NotBeSameAs(parent.Context!.Properties);
         child.Security.PermissionOverrides.Should().NotBeSameAs(parent.Security.PermissionOverrides);
     }

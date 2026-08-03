@@ -167,49 +167,6 @@ public class AgentRunConfig
     [JsonIgnore]
     public IReadOnlyList<IAgentMiddleware>? RuntimeMiddleware { get; set; }
 
-    #region Content Attachments
-
-    /// <summary>
-    /// User message text for this run.
-    /// Combined with Attachments to form the user ChatMessage.
-    /// If only Attachments are provided (no UserMessage), runtime integrations handle
-    /// the content transformation (for example, audio may be transcribed before the model call).
-    /// </summary>
-    public string? UserMessage { get; set; }
-
-    /// <summary>
-    /// Binary content attachments (images, audio, documents, video) for this run.
-    /// Use typed classes: ImageContent, AudioContent, DocumentContent, VideoContent.
-    /// Combined with UserMessage to form the user ChatMessage.
-    /// Middleware processes each content type appropriately.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Attachments can be sent without a UserMessage. For example:
-    /// - Audio-only: Audio runtime integration transcribes → becomes the message
-    /// - Image-only: Sent to vision model for description
-    /// - Document-only: DocumentHandlingMiddleware extracts text
-    /// </para>
-    /// <para>
-    /// <b>Type Constraint:</b> IReadOnlyList&lt;DataContent&gt; (not AIContent) ensures only binary
-    /// content can be attached. TextContent must go in UserMessage string, not as attachments.
-    /// This provides clear semantics: text vs. binary content separation.
-    /// </para>
-    /// <para>
-    /// <b>Example:</b>
-    /// <code>
-    /// var options = new AgentRunConfig
-    /// {
-    ///     UserMessage = "Analyze this document",
-    ///     Attachments = [await DocumentContent.FromFileAsync("report.pdf")]
-    /// };
-    /// await agent.RunAsync(options);
-    /// </code>
-    /// </para>
-    /// </remarks>
-    [JsonIgnore]  // DataContent derivatives not JSON-serializable
-    public IReadOnlyList<DataContent>? Attachments { get; set; }
-
     /// <summary>
     /// Controls how DataContent attachments are uploaded: via provider-native HostedFileClient,
     /// framework IContentStore, or Auto (prefer hosted if available).
@@ -247,8 +204,6 @@ public class AgentRunConfig
     /// </para>
     /// </remarks>
     public UploadStrategy UploadStrategy { get; set; } = UploadStrategy.Auto;
-
-    #endregion
 
     #region Audio
 
