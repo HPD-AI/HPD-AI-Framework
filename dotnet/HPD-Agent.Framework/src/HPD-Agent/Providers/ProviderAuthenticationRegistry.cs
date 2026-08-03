@@ -27,6 +27,9 @@ public sealed record ProviderAuthenticationRegistration
     /// </summary>
     public IReadOnlySet<ProviderClientFamily> Families { get; init; }
         = new HashSet<ProviderClientFamily>();
+
+    /// <summary>Gets an optional exact trust scope required to use this registration.</summary>
+    public ProviderAuthorizationScope? RequiredScope { get; init; }
 }
 
 /// <summary>
@@ -46,6 +49,9 @@ public sealed record ProviderAuthenticationContext
 
     /// <summary>Gets an optional host tenant identifier.</summary>
     public string? TenantId { get; init; }
+
+    /// <summary>Gets the caller's explicit authorization scope.</summary>
+    public ProviderAuthorizationScope? AuthorizationScope { get; init; }
 }
 
 /// <summary>
@@ -76,7 +82,7 @@ public sealed class InMemoryProviderAuthenticationRegistry : IProviderAuthentica
         new(StringComparer.Ordinal);
     private readonly object _gate = new();
 
-    /// <summary>Adds or replaces a registration with the same opaque name.</summary>
+    /// <summary>Adds a registration, allowing only semantically identical repetition.</summary>
     public void Register(ProviderAuthenticationRegistration registration)
     {
         ArgumentNullException.ThrowIfNull(registration);
@@ -85,7 +91,17 @@ public sealed class InMemoryProviderAuthenticationRegistry : IProviderAuthentica
         ArgumentException.ThrowIfNullOrWhiteSpace(registration.SecretKey);
 
         lock (_gate)
-            _registrations[registration.Key] = registration;
+        {
+            if (_registrations.TryGetValue(registration.Key, out var existing))
+            {
+                if (Equivalent(existing, registration))
+                    return;
+                throw new ProviderAuthenticationRegistrationException(
+                    "DuplicateCredentialRegistration",
+                    $"Authentication registration '{registration.Key}' is already registered with different resolver identity or access policy.");
+            }
+            _registrations.Add(registration.Key, registration);
+        }
     }
 
     /// <inheritdoc />
@@ -131,5 +147,27 @@ public sealed class InMemoryProviderAuthenticationRegistry : IProviderAuthentica
         ProviderAuthenticationRegistration registration,
         ProviderAuthenticationContext context)
         => string.Equals(registration.ProviderKey, context.ProviderKey, StringComparison.Ordinal) &&
-           (registration.Families.Count == 0 || registration.Families.Contains(context.Family));
+           (registration.Families.Count == 0 || registration.Families.Contains(context.Family)) &&
+           (registration.RequiredScope is null || registration.RequiredScope == context.AuthorizationScope);
+
+    private static bool Equivalent(
+        ProviderAuthenticationRegistration first,
+        ProviderAuthenticationRegistration second) =>
+        string.Equals(first.ProviderKey, second.ProviderKey, StringComparison.Ordinal) &&
+        string.Equals(first.SecretKey, second.SecretKey, StringComparison.Ordinal) &&
+        string.Equals(first.DisplayName, second.DisplayName, StringComparison.Ordinal) &&
+        first.IsDefault == second.IsDefault &&
+        first.RequiredScope == second.RequiredScope &&
+        first.Families.Count == second.Families.Count &&
+        first.Families.All(second.Families.Contains);
+}
+
+/// <summary>Reports a stable static-authentication registration failure.</summary>
+public sealed class ProviderAuthenticationRegistrationException : InvalidOperationException
+{
+    /// <summary>Initializes the exception.</summary>
+    public ProviderAuthenticationRegistrationException(string code, string message) : base(message) => Code = code;
+
+    /// <summary>Gets the stable error code.</summary>
+    public string Code { get; }
 }

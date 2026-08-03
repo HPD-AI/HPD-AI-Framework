@@ -67,4 +67,56 @@ public sealed class ProviderAuthenticationRegistryTests
         Assert.Single(registrations);
         Assert.Equal("openai-work", registrations[0].Key);
     }
+
+    [Fact]
+    public void Register_IsIdempotentOnlyForEquivalentRegistration()
+    {
+        var registry = new InMemoryProviderAuthenticationRegistry();
+        var registration = new ProviderAuthenticationRegistration
+        {
+            Key = "openai-work",
+            ProviderKey = "openai",
+            SecretKey = "openai:work:ApiKey",
+            Families = new HashSet<ProviderClientFamily> { ProviderClientFamily.Chat }
+        };
+
+        registry.Register(registration);
+        registry.Register(registration with { Families = new HashSet<ProviderClientFamily> { ProviderClientFamily.Chat } });
+        var exception = Assert.Throws<ProviderAuthenticationRegistrationException>(() =>
+            registry.Register(registration with { SecretKey = "openai:other:ApiKey" }));
+
+        Assert.Equal("DuplicateCredentialRegistration", exception.Code);
+    }
+
+    [Fact]
+    public async Task FindAsync_RequiresExactConfiguredTrustScope()
+    {
+        var registry = new InMemoryProviderAuthenticationRegistry();
+        registry.Register(new ProviderAuthenticationRegistration
+        {
+            Key = "tenant-key",
+            ProviderKey = "openai",
+            SecretKey = "openai:tenant:ApiKey",
+            RequiredScope = new ProviderAuthorizationScope
+            {
+                TrustDomainId = "host",
+                TenantId = "tenant-a",
+                PrincipalId = "user-a"
+            }
+        });
+
+        var denied = await registry.FindAsync("tenant-key", new ProviderAuthenticationContext
+        {
+            ProviderKey = "openai",
+            Family = ProviderClientFamily.Chat,
+            AuthorizationScope = new ProviderAuthorizationScope
+            {
+                TrustDomainId = "host",
+                TenantId = "tenant-b",
+                PrincipalId = "user-a"
+            }
+        });
+
+        Assert.Null(denied);
+    }
 }
