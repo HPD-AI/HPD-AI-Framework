@@ -74,7 +74,7 @@ public class ContentUploadMiddleware : IAgentMiddleware
         // Zero-cost exit when no upload path is configured for this agent/run.
         if (_providerRegistry == null
             && _contentStore == null
-            && context.RunConfig.OverrideHostedFileClient == null
+            && context.RunConfig.Clients.HostedFiles?.Override?.Client == null
             && context.ClientSet?.HostedFiles == null)
         {
             return;
@@ -276,7 +276,7 @@ public class ContentUploadMiddleware : IAgentMiddleware
 
     private IHostedFileClient? GetHostedFileClient(BeforeMessageTurnContext context)
     {
-        if (context.RunConfig.OverrideHostedFileClient is { } runClient)
+        if (context.RunConfig.Clients.HostedFiles?.Override?.Client is { } runClient)
             return runClient;
 
         if (context.ClientSet?.HostedFiles is { } buildClient)

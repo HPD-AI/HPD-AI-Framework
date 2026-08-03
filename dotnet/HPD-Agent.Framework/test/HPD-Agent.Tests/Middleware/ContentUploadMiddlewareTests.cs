@@ -1,5 +1,6 @@
 using HPD.Agent;
 using HPD.Agent.Middleware;
+using HPD.Agent.Providers;
 using HPD.Events.Core;
 using Microsoft.Extensions.AI;
 using Xunit;
@@ -99,7 +100,13 @@ public class ContentUploadMiddlewareTests
         var runConfig = new AgentRunConfig
         {
             UploadStrategy = UploadStrategy.Hosted,
-            OverrideHostedFileClient = hostedClient
+            Clients = new AgentClientsConfig
+            {
+                HostedFiles = new HostedFilesClientConfig
+                {
+                    Override = new ClientOverride<IHostedFileClient> { Client = hostedClient }
+                }
+            }
         };
         var context = CreateBeforeMessageTurnContext(session, message, capture.Coordinator, runConfig);
 

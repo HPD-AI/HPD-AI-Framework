@@ -406,8 +406,14 @@ public sealed class OpenAIAudioProviderTests
                     "Reply with exactly three words.",
                 runConfig: new AgentRunConfig
                 {
-                    Clients = new AgentClientsConfig { Transport = AgentModelTransportMode.Realtime },
-                    OverrideRealtimeClient = realtimeClient
+                    Clients = new AgentClientsConfig
+                    {
+                        Transport = AgentModelTransportMode.Realtime,
+                        Realtime = new RealtimeClientConfig
+                        {
+                            Override = new ClientOverride<IRealtimeClient> { Client = realtimeClient }
+                        }
+                    }
                 },
                 cancellationToken: cts.Token);
 

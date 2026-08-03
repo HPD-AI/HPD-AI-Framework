@@ -65,7 +65,7 @@ public static class AgentBuilderExtensions
         configure?.Invoke(providerConfig);
         ValidateProviderConfig(providerConfig, configure);
 
-        var embeddingConfig = new ProviderClientConfig
+        var embeddingConfig = new EmbeddingsClientConfig
         {
             ProviderKey = "dashscope",
             ApiKey = apiKey,

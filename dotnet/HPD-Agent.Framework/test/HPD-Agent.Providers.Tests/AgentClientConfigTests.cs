@@ -15,18 +15,20 @@ public class AgentClientsConfigTests
     {
         var config = new AgentConfig
         {
-            Clients = new AgentClientsConfig
+            ProviderProfiles = new Dictionary<string, AgentProviderProfile>
             {
-                Providers = new()
+                ["openai"] = new AgentProviderProfile
                 {
-                    ["openai"] = new ChatClientConfig
+                    Chat = new ChatClientConfig
                     {
-                        ProviderKey = "openai",
                         ApiKey = "agent-key",
                         Endpoint = "https://agent.example",
                         ConstructionOptions = JsonDocument.Parse("""{"organizationId":"org_1","projectId":"proj_agent"}""").RootElement.Clone()
                     }
-                },
+                }
+            },
+            Clients = new AgentClientsConfig
+            {
                 Chat = new ChatClientConfig
                 {
                     ProviderKey = "openai",
@@ -38,18 +40,11 @@ public class AgentClientsConfigTests
 
         var runClients = new AgentClientsConfig
         {
-            Providers = new()
-            {
-                ["openai"] = new ChatClientConfig
-                {
-                    Endpoint = "https://run.example",
-                    ConstructionOptions = JsonDocument.Parse("""{"projectId":"proj_run"}""").RootElement.Clone()
-                }
-            },
             Chat = new ChatClientConfig
             {
                 ModelName = "gpt-run",
-                ConstructionOptions = JsonDocument.Parse("""{"requestProfile":"interactive"}""").RootElement.Clone()
+                Endpoint = "https://run.example",
+                ConstructionOptions = JsonDocument.Parse("""{"projectId":"proj_run","requestProfile":"interactive"}""").RootElement.Clone()
             }
         };
 
@@ -74,16 +69,18 @@ public class AgentClientsConfigTests
     {
         var config = new AgentConfig
         {
-            Clients = new AgentClientsConfig
+            ProviderProfiles = new Dictionary<string, AgentProviderProfile>
             {
-                Providers = new()
+                ["openai"] = new AgentProviderProfile
                 {
-                    ["openai"] = new ChatClientConfig
+                    Chat = new ChatClientConfig
                     {
-                        ProviderKey = "openai",
                         ConstructionOptions = JsonDocument.Parse("[]").RootElement.Clone()
                     }
-                },
+                }
+            },
+            Clients = new AgentClientsConfig
+            {
                 Chat = new ChatClientConfig
                 {
                     ProviderKey = "openai",
@@ -103,25 +100,29 @@ public class AgentClientsConfigTests
     {
         var config = new AgentConfig
         {
-            Clients = new AgentClientsConfig
+            ProviderProfiles = new Dictionary<string, AgentProviderProfile>
             {
-                Providers = new()
+                ["anthropic"] = new AgentProviderProfile
                 {
-                    ["anthropic"] = new ChatClientConfig
+                    Chat = new ChatClientConfig
                     {
-                        ProviderKey = "anthropic",
                         Endpoint = "https://anthropic.example",
                         AuthenticationKey = "anthropic-default",
                         ConstructionOptions = JsonDocument.Parse("""{"thinkingBudget":4096}""").RootElement.Clone()
-                    },
-                    ["openai"] = new ChatClientConfig
+                    }
+                },
+                ["openai"] = new AgentProviderProfile
+                {
+                    Chat = new ChatClientConfig
                     {
-                        ProviderKey = "openai",
                         Endpoint = "https://openai.example",
                         AuthenticationKey = "openai-default",
                         ConstructionOptions = JsonDocument.Parse("""{"organizationId":"org_1"}""").RootElement.Clone()
                     }
-                },
+                }
+            },
+            Clients = new AgentClientsConfig
+            {
                 Chat = new ChatClientConfig
                 {
                     ProviderKey = "anthropic",

@@ -85,6 +85,7 @@ using Microsoft.Extensions.AI;
 [JsonSerializable(typeof(ProgressiveTextToSpeechRouteMode))]
 [JsonSerializable(typeof(PushTextInputAggregationMode))]
 [JsonSerializable(typeof(AgentClientsConfig))]
+[JsonSerializable(typeof(AgentProviderProfile))]
 [JsonSerializable(typeof(ProviderClientConfig))]
 [JsonSerializable(typeof(string))]
 [JsonSerializable(typeof(McpConfig))]
@@ -101,7 +102,8 @@ using Microsoft.Extensions.AI;
 
 // --- Per-invocation run options (AgentRunConfig) ---
 [JsonSerializable(typeof(AgentRunConfig))]
-[JsonSerializable(typeof(AgentSecurityProfile))]
+[JsonSerializable(typeof(AgentSecurityRunConfig))]
+[JsonSerializable(typeof(AgentSandboxRunConfig))]
 [JsonSerializable(typeof(AgentApprovalPolicy))]
 [JsonSerializable(typeof(AgentSandboxPolicy))]
 [JsonSerializable(typeof(AgentSandboxEscapePolicy))]
@@ -116,6 +118,16 @@ using Microsoft.Extensions.AI;
 [JsonSerializable(typeof(ThreadContextUsage))]
 [JsonSerializable(typeof(AudioRunConfig))]
 [JsonSerializable(typeof(ChatClientConfig))]
+[JsonSerializable(typeof(RealtimeClientConfig))]
+[JsonSerializable(typeof(ImageGenerationClientConfig))]
+[JsonSerializable(typeof(EmbeddingsClientConfig))]
+[JsonSerializable(typeof(TextToSpeechClientConfig))]
+[JsonSerializable(typeof(SpeechToTextClientConfig))]
+[JsonSerializable(typeof(HostedFilesClientConfig))]
+[JsonSerializable(typeof(VoiceActivityDetectionClientConfig))]
+[JsonSerializable(typeof(EndOfTurnDetectionClientConfig))]
+[JsonSerializable(typeof(RealtimeAudioFormatRunConfig))]
+[JsonSerializable(typeof(RealtimeTranscriptionRunConfig))]
 [JsonSerializable(typeof(Dictionary<string, bool>))]  // For PermissionOverrides
 
 // --- HPD-Agent Typed Content Classes (Phase 1 - Typed Content) ---

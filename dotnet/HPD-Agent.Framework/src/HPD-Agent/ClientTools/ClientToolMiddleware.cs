@@ -53,9 +53,9 @@ public class ClientToolMiddleware : IAgentMiddleware
     public async Task BeforeMessageTurnAsync(BeforeMessageTurnContext context, CancellationToken ct)
     {
         // Get AgentClientInput from RunConfig (if provided)
-        var clientinput = context.RunConfig.ClientToolInput;
+        var clientinput = context.RunConfig.Tools?.ClientInput;
 
-        var providerReferences = context.RunConfig.ClientAppProviders;
+        var providerReferences = context.RunConfig.Tools?.ClientAppProviders;
         if (clientinput == null &&
             (providerReferences is null || providerReferences.Count == 0))
         {
@@ -163,7 +163,7 @@ public class ClientToolMiddleware : IAgentMiddleware
         List<clientToolHarnessDefinition> pendingToolHarnesses,
         CancellationToken cancellationToken)
     {
-        var references = context.RunConfig.ClientAppProviders;
+        var references = context.RunConfig.Tools?.ClientAppProviders;
         if (references is null || references.Count == 0)
             return state;
 

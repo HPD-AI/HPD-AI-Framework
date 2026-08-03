@@ -65,7 +65,7 @@ internal static class TurnEvaluationContextBuilder
             Metrics = new Dictionary<string, double>(evalData.Metrics),
             StopKind = stopKind,
             GroundTruth = groundTruth,
-            ExperimentContext = context.RunConfig.ContextOverrides,
+            ExperimentContext = context.RunConfig.Context?.Properties,
         };
     }
 

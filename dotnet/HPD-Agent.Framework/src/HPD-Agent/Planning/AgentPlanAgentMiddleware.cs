@@ -74,14 +74,15 @@ public class AgentPlanAgentMiddleware : IAgentMiddleware
             var planModeInstructions = _config.CustomInstructions ?? GetDefaultPlanModeInstructions();
 
             // Append to existing additional instructions (if any)
-            if (string.IsNullOrEmpty(context.RunConfig.AdditionalSystemInstructions))
+            context.RunConfig.SystemInstructions ??= new SystemInstructionsRunConfig();
+            if (string.IsNullOrEmpty(context.RunConfig.SystemInstructions.Append))
             {
-                context.RunConfig.AdditionalSystemInstructions = planModeInstructions;
+                context.RunConfig.SystemInstructions.Append = planModeInstructions;
             }
-            else if (!context.RunConfig.AdditionalSystemInstructions.Contains("[PLAN MODE ENABLED]"))
+            else if (!context.RunConfig.SystemInstructions.Append.Contains("[PLAN MODE ENABLED]"))
             {
                 // Only add if not already present
-                context.RunConfig.AdditionalSystemInstructions += "\n\n" + planModeInstructions;
+                context.RunConfig.SystemInstructions.Append += "\n\n" + planModeInstructions;
             }
 
             _logger?.LogDebug("Injected plan mode instructions for agent {AgentName}", context.AgentName);

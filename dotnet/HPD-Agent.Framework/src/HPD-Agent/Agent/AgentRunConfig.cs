@@ -69,16 +69,29 @@ public enum AgentSandboxEscapePolicy
 /// <summary>
 /// Independent security controls applied to one agent run.
 /// </summary>
-public sealed record AgentSecurityProfile
+public sealed record AgentSecurityRunConfig
 {
     /// <summary>Gets the protected-operation approval policy.</summary>
     public AgentApprovalPolicy Approval { get; init; } = AgentApprovalPolicy.ReviewProtectedActions;
 
     /// <summary>Gets the host sandbox policy.</summary>
-    public AgentSandboxPolicy Sandbox { get; init; } = AgentSandboxPolicy.Enforced;
+    public AgentSandboxRunConfig Sandbox { get; init; } = new();
+
+    /// <summary>Gets per-tool permission decisions for this run.</summary>
+    public IReadOnlyDictionary<string, bool>? PermissionOverrides { get; init; }
+}
+
+/// <summary>Sandbox policy and host capabilities applied to one agent run.</summary>
+public sealed record AgentSandboxRunConfig
+{
+    /// <summary>Gets the host sandbox policy.</summary>
+    public AgentSandboxPolicy Mode { get; init; } = AgentSandboxPolicy.Enforced;
 
     /// <summary>Gets the behavior for capabilities outside enforced sandbox grants.</summary>
-    public AgentSandboxEscapePolicy SandboxEscape { get; init; } = AgentSandboxEscapePolicy.Ask;
+    public AgentSandboxEscapePolicy Escape { get; init; } = AgentSandboxEscapePolicy.Ask;
+
+    /// <summary>Gets filesystem, network, and process capabilities granted by the host.</summary>
+    public AgentSandboxConfiguration Capabilities { get; init; } = new();
 }
 
 /// <summary>
@@ -109,97 +122,27 @@ public class AgentRunConfig
     /// <summary>
     /// Security controls for this run.
     /// </summary>
-    public AgentSecurityProfile Security { get; set; } = new();
-
-    /// <summary>Capabilities granted to the enforced sandbox for this run.</summary>
-    public AgentSandboxConfiguration Sandbox { get; set; } = new();
+    public AgentSecurityRunConfig Security { get; set; } = new();
 
     /// <summary>
     /// Provider-created client-family overrides for this run.
     /// </summary>
     public AgentClientsConfig Clients { get; set; } = new();
 
-    /// <summary>
-    /// Override the realtime client for this specific run.
-    /// Highest priority when <see cref="AgentClientsConfig.Transport"/> resolves to realtime.
-    /// </summary>
-    [JsonIgnore]
-    public IRealtimeClient? OverrideRealtimeClient { get; set; }
+    /// <summary>Gets or sets per-run system-instruction behavior.</summary>
+    public SystemInstructionsRunConfig? SystemInstructions { get; set; }
 
-    /// <summary>
-    /// Realtime input transcription options for native realtime turns.
-    /// When set, providers that support realtime transcription can emit readable user transcripts.
-    /// </summary>
-    [JsonIgnore]
-    public TranscriptionOptions? RealtimeTranscriptionOptions { get; set; }
+    /// <summary>Gets or sets per-run tool behavior.</summary>
+    public AgentToolsRunConfig? Tools { get; set; }
 
-    [JsonIgnore]
-    public IImageGenerator? OverrideImageGenerator { get; set; }
+    /// <summary>Gets or sets per-run context values.</summary>
+    public AgentContextRunConfig? Context { get; set; }
 
-    [JsonIgnore]
-    public IEmbeddingGenerator? OverrideEmbeddingGenerator { get; set; }
+    /// <summary>Gets or sets per-run background-response behavior.</summary>
+    public BackgroundResponsesRunConfig? BackgroundResponses { get; set; }
 
-    [JsonIgnore]
-    public IHostedFileClient? OverrideHostedFileClient { get; set; }
-
-    [JsonIgnore]
-    public Func<Providers.ProviderComponentLifetimeContext, IVoiceActivityDetector>? OverrideVoiceActivityDetectorFactory { get; set; }
-
-    [JsonIgnore]
-    public Func<Providers.ProviderComponentLifetimeContext, IEotDetector>? OverrideEndOfTurnDetectorFactory { get; set; }
-
-    /// <summary>
-    /// System instructions to use for this run (completely replaces configured instructions).
-    /// Useful for completely different personas or behaviors.
-    /// Example: "You are a strict code reviewer" vs "You are a brainstorming partner"
-    /// If both this and AdditionalSystemInstructions are set, both are used.
-    /// </summary>
-    public string? SystemInstructions { get; set; }
-
-    /// <summary>
-    /// Additional system instructions to append to the base instructions.
-    /// Useful for one-off adjustments without replacing base instructions.
-    /// Example: Base="helpful assistant" + Additional="For this request, prioritize security"
-    /// If SystemInstructions is set, this appends to that instead of base config.
-    /// </summary>
-    public string? AdditionalSystemInstructions { get; set; }
-
-    /// <summary>
-    /// Context values to inject or override for this run.
-    /// Available to middleware via AgentMiddlewareContext.Properties.
-    /// Useful for request-specific data: user ID, tenant ID, request metadata, etc.
-    /// </summary>
-    public Dictionary<string, object>? ContextOverrides { get; set; }
-
-    /// <summary>
-    /// Timeout for the entire run (overrides config).
-    /// Useful for varying timeout based on message complexity or user tier.
-    /// Null = use config default.
-    /// </summary>
-    public TimeSpan? RunTimeout { get; set; }
-
-    /// <summary>
-    /// Whether to use cached responses for this run.
-    /// Null = use config default, true = always cache, false = skip cache.
-    /// Useful for dry-runs or when freshness is critical.
-    /// </summary>
-    public bool? UseCache { get; set; }
-
-    /// <summary>
-    /// Skip tool/function execution for this run (dry-run mode).
-    /// Useful for testing agent planning without side effects.
-    /// Agent will plan and call functions, but they won't execute.
-    /// </summary>
-    public bool SkipTools { get; set; } = false;
-
-    /// <summary>
-    /// When true, coalesces streaming deltas into single complete events.
-    /// - Text: Multiple TextDeltaEvent("Hello"), TextDeltaEvent(" world") → Single TextDeltaEvent("Hello world")
-    /// - Reasoning: Multiple ReasoningDeltaEvent chunks → Single ReasoningDeltaEvent with complete reasoning
-    /// Reduces event count and simplifies processing at the cost of increased latency.
-    /// When null, uses the agent's config default (AgentConfig.CoalesceDeltas).
-    /// </summary>
-    public bool? CoalesceDeltas { get; set; }
+    /// <summary>Gets or sets per-run streaming behavior.</summary>
+    public StreamingRunConfig? Streaming { get; set; }
 
     /// <summary>
     /// Runtime middleware to inject only for this run.
@@ -210,125 +153,6 @@ public class AgentRunConfig
     /// </summary>
     [JsonIgnore]
     public IReadOnlyList<IAgentMiddleware>? RuntimeMiddleware { get; set; }
-
-    /// <summary>
-    /// Permission requirement overrides for this specific run.
-    /// Key = function/tool name, Value = whether permission is required.
-    /// Overrides the generic <c>PermissionMiddleware</c> requirement temporarily.
-    /// Command-specific permission middleware may apply additional policy.
-    /// Ignored when <see cref="Security"/> uses <see cref="AgentApprovalPolicy.AutoApprove"/>.
-    /// Unknown function names are ignored because overrides are only read when
-    /// that function is invoked.
-    /// Example: { "ReadFile": false, "ExecuteCommand": true }
-    /// </summary>
-    public Dictionary<string, bool>? PermissionOverrides { get; set; }
-
-    /// <summary>
-    /// Client tool configuration for this run.
-    /// Allows dynamic ToolHarness/tool registration without rebuilding agent.
-    /// </summary>
-    public ClientTools.AgentClientInput? ClientToolInput { get; set; }
-
-    /// <summary>
-    /// Live client app providers to bind for this run.
-    /// </summary>
-    /// <remarks>
-    /// These references do not define tools. They select connected providers whose manifests
-    /// advertise client tool harnesses that can be exposed after a binding lease is created.
-    /// </remarks>
-    public List<ClientTools.ClientAppProviderReference>? ClientAppProviders { get; set; }
-
-    /// <summary>
-    /// Conversation ID override (for multi-tenant scenarios or threading).
-    /// Null = use thread's conversation ID.
-    /// </summary>
-    public string? ConversationIdOverride { get; set; }
-
-    /// <summary>
-    /// Custom streaming callback (for native bindings).
-    /// Not JSON-serializable.
-    /// Allows native code to handle streaming updates differently.
-    /// </summary>
-    [JsonIgnore]
-    public Func<AgentEvent, Task>? CustomStreamCallback { get; set; }
-
-    /// <summary>
-    /// Runtime context instances for tools (Runtime Context Injection).
-    /// Maps tool name -> context instance (e.g., "SearchTools" -> ProviderContext instance).
-    /// Enables dynamic, per-invocation context injection WITHOUT rebuilding the agent.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <b>Priority (for context resolution):</b>
-    /// 1. Runtime context from ContextInstances (highest - per-invocation override)
-    /// 2. Builder-time context from .WithTools&lt;T&gt;(context)
-    /// 3. Default context from .WithDefaultMetadata(context)
-    /// 4. Null (no context - templates unresolved, conditions skipped)
-    /// </para>
-    /// <para>
-    /// <b>How It Works:</b>
-    /// The source generator creates CreateTools() methods that accept context.
-    /// Each tool's CreateFunctions(instance, context) is invoked with the selected context.
-    /// This means descriptions are resolved, conditions evaluated, parameters filtered - all at runtime!
-    /// </para>
-    /// <para>
-    /// <b>Use Cases:</b>
-    /// - Multi-tenant SaaS: Different contexts per user/tenant
-    /// - A/B Testing: Run variants with different contexts
-    /// - Dynamic feature flags: Context can control function visibility
-    /// - Request metadata: Inject tracing, user info, etc. per-call
-    /// </para>
-    /// <para>
-    /// <b>Example:</b>
-    /// <code>
-    /// var options = new AgentRunConfig
-    /// {
-    ///     ContextInstances = new()
-    ///     {
-    ///         ["SearchTools"] = new ProviderContext { ProviderName = "OpenAI" },
-    ///         ["DatabaseTools"] = new DbContext { TenantId = user.TenantId }
-    ///     }
-    /// };
-    /// await agent.RunAsync("Search for tenant-specific records.", runConfig: options);
-    /// </code>
-    /// </para>
-    /// </remarks>
-    [JsonIgnore]
-    public Dictionary<string, IToolMetadata>? ContextInstances { get; set; }
-
-    #region Background Responses
-
-    /// <summary>
-    /// Allow the provider to run the operation in background mode.
-    /// When true, operation may return immediately with a ContinuationToken.
-    /// When false, operation blocks until complete (traditional behavior).
-    /// When null, uses default from AgentConfig.BackgroundResponses.DefaultAllow.
-    /// Provider-dependent: Unsupporting providers will ignore this and behave synchronously.
-    /// </summary>
-    public bool? AllowBackgroundResponses { get; set; }
-
-    /// <summary>
-    /// Continuation token for polling/resuming a background operation.
-    /// For polling: Set this to the token from a previous response to poll for completion.
-    /// For streaming resumption: Set this to resume streaming from where it was interrupted.
-    /// Uses Microsoft.Extensions.AI.ResponseContinuationToken type directly.
-    /// </summary>
-    [JsonIgnore]
-    public ResponseContinuationToken? ContinuationToken { get; set; }
-
-    /// <summary>
-    /// Override polling interval for this specific run.
-    /// Null = use config default (BackgroundResponsesConfig.DefaultPollingInterval).
-    /// </summary>
-    public TimeSpan? BackgroundPollingInterval { get; set; }
-
-    /// <summary>
-    /// Override timeout for this specific run.
-    /// Null = use config default (BackgroundResponsesConfig.DefaultTimeout).
-    /// </summary>
-    public TimeSpan? BackgroundTimeout { get; set; }
-
-    #endregion
 
     #region Content Attachments
 
@@ -464,46 +288,6 @@ public class AgentRunConfig
     /// </para>
     /// </remarks>
     public StructuredOutputOptions? StructuredOutput { get; set; }
-
-    /// <summary>
-    /// Additional tools to add for this run only.
-    /// These are merged with the agent's configured tools during RunAsync.
-    /// Useful for injecting dynamic tools like handoff functions in multi-agent workflows.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <b>Use Cases:</b>
-    /// - Multi-agent handoffs: Inject handoff_to_X() tools dynamically
-    /// - Per-request tools: Add user-specific or context-specific tools
-    /// - Testing: Inject mock tools for testing agent behavior
-    /// </para>
-    /// <para>
-    /// <b>Example:</b>
-    /// <code>
-    /// var handoffTool = AIFunctionFactory.Create(() => "solver", "handoff_to_solver", "Route to math solver");
-    /// var options = new AgentRunConfig
-    /// {
-    ///     AdditionalTools = new List&lt;AIFunction&gt; { handoffTool }
-    /// };
-    /// await agent.RunAsync("Route this to the right specialist.", runConfig: options);
-    /// </code>
-    /// </para>
-    /// </remarks>
-    [JsonIgnore]
-    public IReadOnlyList<AIFunction>? AdditionalTools { get; set; }
-
-    /// <summary>
-    /// Tool mode override for this run only.
-    /// When set, overrides the agent's configured ToolMode.
-    /// </summary>
-    /// <remarks>
-    /// Common values:
-    /// - <c>ChatToolMode.Auto</c>: Model decides whether to use tools
-    /// - <c>ChatToolMode.RequireAny</c>: Model must call at least one tool
-    /// - <c>ChatToolMode.RequireTool("name")</c>: Model must call specific tool
-    /// </remarks>
-    [JsonIgnore]
-    public ChatToolMode? ToolModeOverride { get; set; }
 
     /// <summary>
     /// Runtime tools to add for this run only.

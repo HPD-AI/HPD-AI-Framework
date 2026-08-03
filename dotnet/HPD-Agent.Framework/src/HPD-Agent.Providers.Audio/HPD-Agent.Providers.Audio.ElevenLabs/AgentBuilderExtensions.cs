@@ -27,7 +27,7 @@ public static class AgentBuilderExtensions
         };
         configure?.Invoke(providerConfig);
 
-        var clientConfig = new ProviderClientConfig
+        var clientConfig = new SpeechToTextClientConfig
         {
             ProviderKey = ElevenLabsAudioProvider.Key,
             ApiKey = apiKey,
@@ -61,7 +61,7 @@ public static class AgentBuilderExtensions
         };
         configure?.Invoke(providerConfig);
 
-        var clientConfig = new ProviderClientConfig
+        var clientConfig = new TextToSpeechClientConfig
         {
             ProviderKey = ElevenLabsAudioProvider.Key,
             ApiKey = apiKey,

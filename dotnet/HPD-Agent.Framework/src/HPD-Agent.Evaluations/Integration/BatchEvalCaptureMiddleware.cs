@@ -47,7 +47,7 @@ internal sealed class BatchEvalCaptureMiddleware : IAgentMiddleware
         if (runConfig.IsInternalEvalJudgeCall)
             return null;
 
-        if (runConfig.ContextOverrides?.TryGetValue(CaptureRequestIdKey, out var value) != true)
+        if (runConfig.Context?.Properties?.TryGetValue(CaptureRequestIdKey, out var value) != true)
             return null;
 
         return value as string;

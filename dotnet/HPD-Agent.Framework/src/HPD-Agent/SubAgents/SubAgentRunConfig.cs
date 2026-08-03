@@ -138,25 +138,15 @@ internal static class AgentRunConfigInheritance
         if (Has(fields, SubAgentRunConfigFields.Model))
         {
             result.Clients.Transport = source.Clients.Transport;
-            result.Clients.Providers = source.Clients.Providers is null
-                ? null
-                : new(source.Clients.Providers);
             result.Clients.Chat = CloneChat(source.Clients.Chat);
-            result.Clients.Realtime = source.Clients.Realtime;
-            result.Clients.TextToSpeech = source.Clients.TextToSpeech;
-            result.Clients.SpeechToText = source.Clients.SpeechToText;
-            result.Clients.ImageGeneration = source.Clients.ImageGeneration;
-            result.Clients.Embeddings = source.Clients.Embeddings;
-            result.Clients.HostedFiles = source.Clients.HostedFiles;
-            result.Clients.VoiceActivityDetection = source.Clients.VoiceActivityDetection;
-            result.Clients.EndOfTurnDetection = source.Clients.EndOfTurnDetection;
-            result.OverrideRealtimeClient = source.OverrideRealtimeClient;
-            result.RealtimeTranscriptionOptions = source.RealtimeTranscriptionOptions;
-            result.OverrideImageGenerator = source.OverrideImageGenerator;
-            result.OverrideEmbeddingGenerator = source.OverrideEmbeddingGenerator;
-            result.OverrideHostedFileClient = source.OverrideHostedFileClient;
-            result.OverrideVoiceActivityDetectorFactory = source.OverrideVoiceActivityDetectorFactory;
-            result.OverrideEndOfTurnDetectorFactory = source.OverrideEndOfTurnDetectorFactory;
+            result.Clients.Realtime = Clone<RealtimeClientConfig>(source.Clients.Realtime);
+            result.Clients.TextToSpeech = Clone<TextToSpeechClientConfig>(source.Clients.TextToSpeech);
+            result.Clients.SpeechToText = Clone<SpeechToTextClientConfig>(source.Clients.SpeechToText);
+            result.Clients.ImageGeneration = Clone<ImageGenerationClientConfig>(source.Clients.ImageGeneration);
+            result.Clients.Embeddings = Clone<EmbeddingsClientConfig>(source.Clients.Embeddings);
+            result.Clients.HostedFiles = Clone<HostedFilesClientConfig>(source.Clients.HostedFiles);
+            result.Clients.VoiceActivityDetection = Clone<VoiceActivityDetectionClientConfig>(source.Clients.VoiceActivityDetection);
+            result.Clients.EndOfTurnDetection = Clone<EndOfTurnDetectionClientConfig>(source.Clients.EndOfTurnDetection);
         }
 
         if (Has(fields, SubAgentRunConfigFields.Chat))
@@ -164,26 +154,37 @@ internal static class AgentRunConfigInheritance
 
         if (Has(fields, SubAgentRunConfigFields.Permissions))
         {
-            result.Security = source.Security with { };
-            result.Sandbox = source.Sandbox with
+            result.Security = source.Security with
             {
-                Filesystem = source.Sandbox.Filesystem
-                    .Select(static grant => grant with { })
-                    .ToArray()
+                PermissionOverrides = source.Security.PermissionOverrides is null
+                    ? null
+                    : new Dictionary<string, bool>(source.Security.PermissionOverrides),
+                Sandbox = source.Security.Sandbox with
+                {
+                    Capabilities = source.Security.Sandbox.Capabilities with
+                    {
+                        Filesystem = source.Security.Sandbox.Capabilities.Filesystem
+                            .Select(static grant => grant with { })
+                            .ToArray()
+                    }
+                }
             };
-            result.PermissionOverrides = source.PermissionOverrides is null ? null : new(source.PermissionOverrides);
         }
 
         if (Has(fields, SubAgentRunConfigFields.Execution))
         {
-            result.RunTimeout = source.RunTimeout;
-            result.UseCache = source.UseCache;
-            result.SkipTools = source.SkipTools;
-            result.CoalesceDeltas = source.CoalesceDeltas;
-            result.AllowBackgroundResponses = source.AllowBackgroundResponses;
-            result.ContinuationToken = source.ContinuationToken;
-            result.BackgroundPollingInterval = source.BackgroundPollingInterval;
-            result.BackgroundTimeout = source.BackgroundTimeout;
+            result.Streaming = source.Streaming is null ? null : new StreamingRunConfig
+            {
+                CoalesceDeltas = source.Streaming.CoalesceDeltas,
+                Callback = source.Streaming.Callback
+            };
+            result.BackgroundResponses = source.BackgroundResponses is null ? null : new BackgroundResponsesRunConfig
+            {
+                Allow = source.BackgroundResponses.Allow,
+                ContinuationToken = source.BackgroundResponses.ContinuationToken,
+                PollingInterval = source.BackgroundResponses.PollingInterval,
+                Timeout = source.BackgroundResponses.Timeout
+            };
             result.UploadStrategy = source.UploadStrategy;
             result.Audio = source.Audio;
         }
@@ -193,37 +194,49 @@ internal static class AgentRunConfigInheritance
 
         if (Has(fields, SubAgentRunConfigFields.Context))
         {
-            result.ContextOverrides = source.ContextOverrides is null ? null : new(source.ContextOverrides);
-            result.ContextInstances = source.ContextInstances is null ? null : new(source.ContextInstances);
+            result.Context = source.Context is null ? null : new AgentContextRunConfig
+            {
+                Properties = source.Context.Properties is null ? null : new Dictionary<string, object>(source.Context.Properties),
+                ToolInstances = source.Context.ToolInstances is null ? null : new Dictionary<string, IToolMetadata>(source.Context.ToolInstances)
+            };
         }
 
         if (Has(fields, SubAgentRunConfigFields.Instructions))
         {
-            result.SystemInstructions = source.SystemInstructions;
-            result.AdditionalSystemInstructions = source.AdditionalSystemInstructions;
+            result.SystemInstructions = source.SystemInstructions is null ? null : new SystemInstructionsRunConfig
+            {
+                Override = source.SystemInstructions.Override,
+                Append = source.SystemInstructions.Append
+            };
         }
 
         if (Has(fields, SubAgentRunConfigFields.Tools))
         {
             result.RuntimeMiddleware = source.RuntimeMiddleware?.ToArray();
-            result.ClientToolInput = source.ClientToolInput;
-            result.ClientAppProviders = source.ClientAppProviders is null ? null : new(source.ClientAppProviders);
-            result.AdditionalTools = source.AdditionalTools?.ToArray();
-            result.ToolModeOverride = source.ToolModeOverride;
+            result.Tools = source.Tools is null ? null : new AgentToolsRunConfig
+            {
+                ClientInput = source.Tools.ClientInput,
+                ClientAppProviders = source.Tools.ClientAppProviders?.ToArray(),
+                Additional = source.Tools.Additional?.ToArray(),
+                Mode = source.Tools.Mode
+            };
             result.RuntimeTools = source.RuntimeTools is null ? null : new(source.RuntimeTools);
             result.RuntimeToolMode = source.RuntimeToolMode;
         }
 
         if (Has(fields, SubAgentRunConfigFields.Input))
         {
-            result.ConversationIdOverride = source.ConversationIdOverride;
             result.UserMessage = source.UserMessage;
             result.Attachments = source.Attachments?.ToArray();
         }
 
         if (Has(fields, SubAgentRunConfigFields.Output))
         {
-            result.CustomStreamCallback = source.CustomStreamCallback;
+            result.Streaming = source.Streaming is null ? null : new StreamingRunConfig
+            {
+                CoalesceDeltas = source.Streaming.CoalesceDeltas,
+                Callback = source.Streaming.Callback
+            };
             result.StructuredOutput = source.StructuredOutput;
         }
 
@@ -238,6 +251,10 @@ internal static class AgentRunConfigInheritance
 
         return result;
     }
+
+    private static TConfig? Clone<TConfig>(TConfig? source)
+        where TConfig : ProviderClientConfig
+        => source is null ? null : (TConfig)ProviderClientConfigResolver.Clone(source);
 
     private static bool Has(SubAgentRunConfigFields fields, SubAgentRunConfigFields value)
         => (fields & value) == value;

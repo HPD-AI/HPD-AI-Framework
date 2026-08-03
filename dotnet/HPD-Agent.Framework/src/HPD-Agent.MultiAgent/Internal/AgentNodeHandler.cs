@@ -370,19 +370,21 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
         var handoffTools = HandoffToolGenerator.CreateHandoffTools(options.HandoffTargets);
         if (handoffTools.Count > 0)
         {
-            runConfig.AdditionalTools = handoffTools;
+            runConfig.Tools ??= new AgentToolsRunConfig();
+            runConfig.Tools.Additional = handoffTools;
 
             // Force tool calling mode so the agent must call a handoff
-            runConfig.ToolModeOverride = ChatToolMode.RequireAny;
+            runConfig.Tools.Mode = ChatToolMode.RequireAny;
         }
 
         // Append handoff instructions to system prompt
         var handoffInstructions = HandoffToolGenerator.CreateHandoffSystemPrompt(options.HandoffTargets);
         if (!string.IsNullOrEmpty(handoffInstructions))
         {
-            runConfig.AdditionalSystemInstructions = string.IsNullOrEmpty(runConfig.AdditionalSystemInstructions)
+            runConfig.SystemInstructions ??= new SystemInstructionsRunConfig();
+            runConfig.SystemInstructions.Append = string.IsNullOrEmpty(runConfig.SystemInstructions.Append)
                 ? handoffInstructions
-                : runConfig.AdditionalSystemInstructions + handoffInstructions;
+                : runConfig.SystemInstructions.Append + handoffInstructions;
         }
 
         using (agent.SubscribeAny(evt =>
@@ -448,11 +450,15 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
 
         await using var routeLease = await context.Conversation.EnterRouteAsync(route, ct).ConfigureAwait(false);
 
+        using var timeoutSource = options.Timeout.HasValue
+            ? CancellationTokenSource.CreateLinkedTokenSource(ct)
+            : null;
+        timeoutSource?.CancelAfter(options.Timeout!.Value);
         await agent.RunAsync(new UserMessagesInputEvent { Messages = messages,
             SessionId = route.SessionId,
             ThreadId = route.ThreadId,
             RunConfig = runConfig
-        }, ct).ConfigureAwait(false);
+        }, timeoutSource?.Token ?? ct).ConfigureAwait(false);
     }
 
     private static AgentRunConfig BuildRunConfig(AgentNodeOptions options, AgentGraphContext? graphContext = null)
@@ -461,24 +467,25 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
 
         if (!string.IsNullOrEmpty(options.AdditionalSystemInstructions))
         {
-            runConfig.AdditionalSystemInstructions = options.AdditionalSystemInstructions;
+            runConfig.SystemInstructions = new SystemInstructionsRunConfig
+            {
+                Append = options.AdditionalSystemInstructions
+            };
         }
 
         if (options.ContextInstances != null && options.ContextInstances.Count > 0)
         {
-            runConfig.ContextInstances = new Dictionary<string, IToolMetadata>();
+            runConfig.Context = new AgentContextRunConfig
+            {
+                ToolInstances = new Dictionary<string, IToolMetadata>()
+            };
             foreach (var kvp in options.ContextInstances)
             {
                 if (kvp.Value is IToolMetadata metadata)
                 {
-                    runConfig.ContextInstances[kvp.Key] = metadata;
+                    runConfig.Context.ToolInstances[kvp.Key] = metadata;
                 }
             }
-        }
-
-        if (options.Timeout.HasValue)
-        {
-            runConfig.RunTimeout = options.Timeout.Value;
         }
 
         // Use fallback chat client from parent agent if available

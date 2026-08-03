@@ -518,10 +518,10 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
         string permissionKey,
         bool attributeRequiresPermission)
     {
-        if (runConfig.PermissionOverrides?.TryGetValue(permissionKey, out var scopedRunOverride) == true)
+        if (runConfig.Security.PermissionOverrides?.TryGetValue(permissionKey, out var scopedRunOverride) == true)
             return scopedRunOverride;
 
-        if (runConfig.PermissionOverrides?.TryGetValue(functionName, out var runOverride) == true)
+        if (runConfig.Security.PermissionOverrides?.TryGetValue(functionName, out var runOverride) == true)
             return runOverride;
 
         var scopedBuilderOverride = _overrideRegistry?.TryGetOverride(permissionKey);

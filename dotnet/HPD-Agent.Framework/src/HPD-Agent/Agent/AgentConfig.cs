@@ -45,7 +45,11 @@ public class AgentConfig
     /// <summary>
     /// Configuration for provider-created client families.
     /// </summary>
-    public AgentClientsConfig? Clients { get; set; }
+    public AgentClientsConfig Clients { get; set; } = new();
+
+    /// <summary>Gets or sets provider-indexed family defaults used when a run switches providers.</summary>
+    public IDictionary<string, AgentProviderProfile> ProviderProfiles { get; set; }
+        = new Dictionary<string, AgentProviderProfile>(StringComparer.OrdinalIgnoreCase);
 
     public void SetClientConfig(HPD.Agent.Providers.ProviderClientFamily family, ProviderClientConfig? config)
     {
@@ -64,9 +68,19 @@ public class AgentConfig
         if (config is not null)
             return config;
 
-        config = family == HPD.Agent.Providers.ProviderClientFamily.Chat
-            ? new ChatClientConfig()
-            : new ProviderClientConfig();
+        config = family switch
+        {
+            HPD.Agent.Providers.ProviderClientFamily.Chat => new ChatClientConfig(),
+            HPD.Agent.Providers.ProviderClientFamily.Realtime => new RealtimeClientConfig(),
+            HPD.Agent.Providers.ProviderClientFamily.ImageGeneration => new ImageGenerationClientConfig(),
+            HPD.Agent.Providers.ProviderClientFamily.Embeddings => new EmbeddingsClientConfig(),
+            HPD.Agent.Providers.ProviderClientFamily.TextToSpeech => new TextToSpeechClientConfig(),
+            HPD.Agent.Providers.ProviderClientFamily.SpeechToText => new SpeechToTextClientConfig(),
+            HPD.Agent.Providers.ProviderClientFamily.HostedFiles => new HostedFilesClientConfig(),
+            HPD.Agent.Providers.ProviderClientFamily.VoiceActivityDetection => new VoiceActivityDetectionClientConfig(),
+            HPD.Agent.Providers.ProviderClientFamily.EndOfTurnDetection => new EndOfTurnDetectionClientConfig(),
+            _ => throw new ArgumentOutOfRangeException(nameof(family), family, "Unknown provider client family.")
+        };
         Clients.SetFamilyConfig(family, config);
         return config;
     }
@@ -248,7 +262,8 @@ public class AgentConfig
         return ProviderClientConfigResolver.Resolve(
             Clients,
             family,
-            runClients);
+            runClients,
+            ProviderProfiles);
     }
 
     /// <summary>
@@ -628,17 +643,15 @@ public class AgentClientsConfig
     /// <summary>Gets or sets the model transport that drives the agent turn.</summary>
     public AgentModelTransportMode Transport { get; set; } = AgentModelTransportMode.Auto;
 
-    public Dictionary<string, ProviderClientConfig>? Providers { get; set; }
-
     public ChatClientConfig? Chat { get; set; }
-    public ProviderClientConfig? TextToSpeech { get; set; }
-    public ProviderClientConfig? SpeechToText { get; set; }
-    public ProviderClientConfig? Realtime { get; set; }
-    public ProviderClientConfig? ImageGeneration { get; set; }
-    public ProviderClientConfig? Embeddings { get; set; }
-    public ProviderClientConfig? HostedFiles { get; set; }
-    public ProviderClientConfig? VoiceActivityDetection { get; set; }
-    public ProviderClientConfig? EndOfTurnDetection { get; set; }
+    public TextToSpeechClientConfig? TextToSpeech { get; set; }
+    public SpeechToTextClientConfig? SpeechToText { get; set; }
+    public RealtimeClientConfig? Realtime { get; set; }
+    public ImageGenerationClientConfig? ImageGeneration { get; set; }
+    public EmbeddingsClientConfig? Embeddings { get; set; }
+    public HostedFilesClientConfig? HostedFiles { get; set; }
+    public VoiceActivityDetectionClientConfig? VoiceActivityDetection { get; set; }
+    public EndOfTurnDetectionClientConfig? EndOfTurnDetection { get; set; }
 
     public ProviderClientConfig? GetFamilyConfig(HPD.Agent.Providers.ProviderClientFamily family) =>
         family switch
@@ -666,31 +679,71 @@ public class AgentClientsConfig
                         $"Chat configuration must be {nameof(ChatClientConfig)}.", nameof(config));
                 break;
             case HPD.Agent.Providers.ProviderClientFamily.TextToSpeech:
-                TextToSpeech = config;
+                TextToSpeech = RequireFamilyType<TextToSpeechClientConfig>(config, family);
                 break;
             case HPD.Agent.Providers.ProviderClientFamily.SpeechToText:
-                SpeechToText = config;
+                SpeechToText = RequireFamilyType<SpeechToTextClientConfig>(config, family);
                 break;
             case HPD.Agent.Providers.ProviderClientFamily.Realtime:
-                Realtime = config;
+                Realtime = RequireFamilyType<RealtimeClientConfig>(config, family);
                 break;
             case HPD.Agent.Providers.ProviderClientFamily.ImageGeneration:
-                ImageGeneration = config;
+                ImageGeneration = RequireFamilyType<ImageGenerationClientConfig>(config, family);
                 break;
             case HPD.Agent.Providers.ProviderClientFamily.Embeddings:
-                Embeddings = config;
+                Embeddings = RequireFamilyType<EmbeddingsClientConfig>(config, family);
                 break;
             case HPD.Agent.Providers.ProviderClientFamily.HostedFiles:
-                HostedFiles = config;
+                HostedFiles = RequireFamilyType<HostedFilesClientConfig>(config, family);
                 break;
             case HPD.Agent.Providers.ProviderClientFamily.VoiceActivityDetection:
-                VoiceActivityDetection = config;
+                VoiceActivityDetection = RequireFamilyType<VoiceActivityDetectionClientConfig>(config, family);
                 break;
             case HPD.Agent.Providers.ProviderClientFamily.EndOfTurnDetection:
-                EndOfTurnDetection = config;
+                EndOfTurnDetection = RequireFamilyType<EndOfTurnDetectionClientConfig>(config, family);
                 break;
         }
     }
+
+    private static TConfig? RequireFamilyType<TConfig>(
+        ProviderClientConfig? config,
+        HPD.Agent.Providers.ProviderClientFamily family)
+        where TConfig : ProviderClientConfig
+        => config is null
+            ? null
+            : config as TConfig ?? throw new ArgumentException(
+                $"{family} configuration must be {typeof(TConfig).Name}.", nameof(config));
+}
+
+/// <summary>Family defaults associated with one provider identity.</summary>
+public sealed class AgentProviderProfile
+{
+    /// <summary>Gets or sets Chat defaults.</summary>
+    public ChatClientConfig? Chat { get; set; }
+    /// <summary>Gets or sets Realtime defaults.</summary>
+    public RealtimeClientConfig? Realtime { get; set; }
+    /// <summary>Gets or sets image-generation defaults.</summary>
+    public ImageGenerationClientConfig? ImageGeneration { get; set; }
+    /// <summary>Gets or sets embedding defaults.</summary>
+    public EmbeddingsClientConfig? Embeddings { get; set; }
+    /// <summary>Gets or sets text-to-speech defaults.</summary>
+    public TextToSpeechClientConfig? TextToSpeech { get; set; }
+    /// <summary>Gets or sets speech-to-text defaults.</summary>
+    public SpeechToTextClientConfig? SpeechToText { get; set; }
+    /// <summary>Gets or sets hosted-file defaults.</summary>
+    public HostedFilesClientConfig? HostedFiles { get; set; }
+
+    internal ProviderClientConfig? GetFamilyConfig(HPD.Agent.Providers.ProviderClientFamily family) => family switch
+    {
+        HPD.Agent.Providers.ProviderClientFamily.Chat => Chat,
+        HPD.Agent.Providers.ProviderClientFamily.Realtime => Realtime,
+        HPD.Agent.Providers.ProviderClientFamily.ImageGeneration => ImageGeneration,
+        HPD.Agent.Providers.ProviderClientFamily.Embeddings => Embeddings,
+        HPD.Agent.Providers.ProviderClientFamily.TextToSpeech => TextToSpeech,
+        HPD.Agent.Providers.ProviderClientFamily.SpeechToText => SpeechToText,
+        HPD.Agent.Providers.ProviderClientFamily.HostedFiles => HostedFiles,
+        _ => null
+    };
 }
 
 /// <summary>
@@ -714,10 +767,16 @@ public class AgentClientMiddlewareConfig
 /// </summary>
 public static class ProviderClientConfigResolver
 {
+    /// <summary>Resolves agent and run layers for one client family.</summary>
+    /// <param name="agentClients">Agent-default client configuration.</param>
+    /// <param name="family">The family to resolve.</param>
+    /// <param name="runClients">Optional per-run client configuration.</param>
+    /// <returns>The merged family configuration, or <see langword="null"/> when empty.</returns>
     public static ProviderClientConfig? Resolve(
         AgentClientsConfig? agentClients,
         HPD.Agent.Providers.ProviderClientFamily family,
-        AgentClientsConfig? runClients = null)
+        AgentClientsConfig? runClients = null,
+        IDictionary<string, AgentProviderProfile>? providerProfiles = null)
     {
         var agentFamily = agentClients?.GetFamilyConfig(family);
 
@@ -728,13 +787,15 @@ public static class ProviderClientConfigResolver
             !string.IsNullOrWhiteSpace(agentProviderKey) &&
             !string.Equals(runFamily.ProviderKey, agentProviderKey, StringComparison.Ordinal);
 
-        var agentShared = GetShared(agentClients, effectiveProviderKey);
+        var profile = GetProfile(providerProfiles, effectiveProviderKey)?.GetFamilyConfig(family);
         var compatibleAgentFamily = providerChanged ? null : agentFamily;
-        var runShared = GetShared(runClients, effectiveProviderKey);
 
-        return Merge(agentShared, compatibleAgentFamily, runShared, runFamily);
+        return Merge(profile, compatibleAgentFamily, runFamily);
     }
 
+    /// <summary>Merges provider client configurations in ascending precedence order.</summary>
+    /// <param name="configs">Configuration layers, from lowest to highest precedence.</param>
+    /// <returns>The merged configuration, or <see langword="null"/> when empty.</returns>
     public static ProviderClientConfig? Merge(params ProviderClientConfig?[] configs)
     {
         ProviderClientConfig? result = null;
@@ -744,30 +805,50 @@ public static class ProviderClientConfigResolver
             if (config == null)
                 continue;
 
-            result ??= configs.Any(static value => value is ChatClientConfig)
-                ? new ChatClientConfig()
-                : new ProviderClientConfig();
+            result ??= CreateLike(
+                configs.FirstOrDefault(static value => value is not null && value.GetType() != typeof(ProviderClientConfig))
+                ?? config);
             Apply(result, config);
         }
 
         return IsEmpty(result) ? null : result;
     }
 
+    /// <summary>Clones a provider client configuration while preserving its family type.</summary>
+    /// <param name="config">The configuration to clone.</param>
+    /// <returns>An independent configuration instance.</returns>
     public static ProviderClientConfig Clone(ProviderClientConfig config)
     {
-        var clone = config is ChatClientConfig ? new ChatClientConfig() : new ProviderClientConfig();
+        ArgumentNullException.ThrowIfNull(config);
+        var clone = CreateLike(config);
         Apply(clone, config);
         return clone;
     }
 
-    private static ProviderClientConfig? GetShared(AgentClientsConfig? clients, string? providerKey)
+    private static ProviderClientConfig CreateLike(ProviderClientConfig config) => config switch
     {
-        if (clients?.Providers == null || string.IsNullOrWhiteSpace(providerKey))
+        ChatClientConfig => new ChatClientConfig(),
+        RealtimeClientConfig => new RealtimeClientConfig(),
+        ImageGenerationClientConfig => new ImageGenerationClientConfig(),
+        EmbeddingsClientConfig => new EmbeddingsClientConfig(),
+        TextToSpeechClientConfig => new TextToSpeechClientConfig(),
+        SpeechToTextClientConfig => new SpeechToTextClientConfig(),
+        HostedFilesClientConfig => new HostedFilesClientConfig(),
+        VoiceActivityDetectionClientConfig => new VoiceActivityDetectionClientConfig(),
+        EndOfTurnDetectionClientConfig => new EndOfTurnDetectionClientConfig(),
+        _ => new ProviderClientConfig()
+    };
+
+    private static AgentProviderProfile? GetProfile(
+        IDictionary<string, AgentProviderProfile>? profiles,
+        string? providerKey)
+    {
+        if (profiles is null || string.IsNullOrWhiteSpace(providerKey))
             return null;
 
-        return clients.Providers.TryGetValue(providerKey, out var exact)
+        return profiles.TryGetValue(providerKey, out var exact)
             ? exact
-            : clients.Providers.FirstOrDefault(pair =>
+            : profiles.FirstOrDefault(pair =>
                 string.Equals(pair.Key, providerKey, StringComparison.OrdinalIgnoreCase)).Value;
     }
 
@@ -796,6 +877,62 @@ public static class ProviderClientConfigResolver
             targetChat.ProviderOptions = sourceChat.ProviderOptions ?? targetChat.ProviderOptions;
             targetChat.Override = sourceChat.Override ?? targetChat.Override;
         }
+        else if (target is RealtimeClientConfig targetRealtime && source is RealtimeClientConfig sourceRealtime)
+        {
+            targetRealtime.OutputAudioFormat = sourceRealtime.OutputAudioFormat ?? targetRealtime.OutputAudioFormat;
+            targetRealtime.Voice = sourceRealtime.Voice ?? targetRealtime.Voice;
+            targetRealtime.MaxOutputTokens = sourceRealtime.MaxOutputTokens ?? targetRealtime.MaxOutputTokens;
+            targetRealtime.OutputModalities = sourceRealtime.OutputModalities ?? targetRealtime.OutputModalities;
+            targetRealtime.Transcription = sourceRealtime.Transcription ?? targetRealtime.Transcription;
+            targetRealtime.ProviderOptions = sourceRealtime.ProviderOptions ?? targetRealtime.ProviderOptions;
+            targetRealtime.Override = sourceRealtime.Override ?? targetRealtime.Override;
+        }
+        else if (target is ImageGenerationClientConfig targetImage && source is ImageGenerationClientConfig sourceImage)
+        {
+            targetImage.Count = sourceImage.Count ?? targetImage.Count;
+            targetImage.ImageSize = sourceImage.ImageSize ?? targetImage.ImageSize;
+            targetImage.MediaType = sourceImage.MediaType ?? targetImage.MediaType;
+            targetImage.StreamingCount = sourceImage.StreamingCount ?? targetImage.StreamingCount;
+            targetImage.ProviderOptions = sourceImage.ProviderOptions ?? targetImage.ProviderOptions;
+            targetImage.Override = sourceImage.Override ?? targetImage.Override;
+        }
+        else if (target is EmbeddingsClientConfig targetEmbeddings && source is EmbeddingsClientConfig sourceEmbeddings)
+        {
+            targetEmbeddings.Dimensions = sourceEmbeddings.Dimensions ?? targetEmbeddings.Dimensions;
+            targetEmbeddings.ProviderOptions = sourceEmbeddings.ProviderOptions ?? targetEmbeddings.ProviderOptions;
+            targetEmbeddings.Override = sourceEmbeddings.Override ?? targetEmbeddings.Override;
+        }
+        else if (target is TextToSpeechClientConfig targetTts && source is TextToSpeechClientConfig sourceTts)
+        {
+            targetTts.VoiceId = sourceTts.VoiceId ?? targetTts.VoiceId;
+            targetTts.Language = sourceTts.Language ?? targetTts.Language;
+            targetTts.AudioFormat = sourceTts.AudioFormat ?? targetTts.AudioFormat;
+            targetTts.Speed = sourceTts.Speed ?? targetTts.Speed;
+            targetTts.Pitch = sourceTts.Pitch ?? targetTts.Pitch;
+            targetTts.Volume = sourceTts.Volume ?? targetTts.Volume;
+            targetTts.ProviderOptions = sourceTts.ProviderOptions ?? targetTts.ProviderOptions;
+            targetTts.Override = sourceTts.Override ?? targetTts.Override;
+        }
+        else if (target is SpeechToTextClientConfig targetStt && source is SpeechToTextClientConfig sourceStt)
+        {
+            targetStt.SpeechLanguage = sourceStt.SpeechLanguage ?? targetStt.SpeechLanguage;
+            targetStt.SpeechSampleRate = sourceStt.SpeechSampleRate ?? targetStt.SpeechSampleRate;
+            targetStt.TextLanguage = sourceStt.TextLanguage ?? targetStt.TextLanguage;
+            targetStt.ProviderOptions = sourceStt.ProviderOptions ?? targetStt.ProviderOptions;
+            targetStt.Override = sourceStt.Override ?? targetStt.Override;
+        }
+        else if (target is HostedFilesClientConfig targetFiles && source is HostedFilesClientConfig sourceFiles)
+        {
+            targetFiles.Scope = sourceFiles.Scope ?? targetFiles.Scope;
+            targetFiles.Purpose = sourceFiles.Purpose ?? targetFiles.Purpose;
+            targetFiles.Limit = sourceFiles.Limit ?? targetFiles.Limit;
+            targetFiles.ProviderOptions = sourceFiles.ProviderOptions ?? targetFiles.ProviderOptions;
+            targetFiles.Override = sourceFiles.Override ?? targetFiles.Override;
+        }
+        else if (target is VoiceActivityDetectionClientConfig targetVad && source is VoiceActivityDetectionClientConfig sourceVad)
+            targetVad.OverrideFactory = sourceVad.OverrideFactory ?? targetVad.OverrideFactory;
+        else if (target is EndOfTurnDetectionClientConfig targetEot && source is EndOfTurnDetectionClientConfig sourceEot)
+            targetEot.OverrideFactory = sourceEot.OverrideFactory ?? targetEot.OverrideFactory;
         target.HttpReferer = source.HttpReferer ?? target.HttpReferer;
         target.AppName = source.AppName ?? target.AppName;
         target.PromptFormatter = source.PromptFormatter ?? target.PromptFormatter;

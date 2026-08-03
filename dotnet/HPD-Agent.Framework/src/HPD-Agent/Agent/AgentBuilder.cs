@@ -1815,26 +1815,6 @@ public class AgentBuilder
     }
 
     /// <summary>
-    /// Sets serializable default chat run options.
-    /// </summary>
-    public AgentBuilder WithChatDefaults(ChatClientConfig defaults)
-    {
-        ArgumentNullException.ThrowIfNull(defaults);
-        _config.SetChatClientConfig(defaults);
-        return this;
-    }
-
-    /// <summary>
-    /// Configures serializable default chat run options.
-    /// </summary>
-    public AgentBuilder WithChatDefaults(Action<ChatClientConfig> configure)
-    {
-        ArgumentNullException.ThrowIfNull(configure);
-        configure(EnsureChatClientConfig());
-        return this;
-    }
-
-    /// <summary>
     /// Configures validation behavior for provider configuration during agent building.
     /// </summary>
     /// <param name="enableAsync">Whether to perform async validation (network calls)</param>

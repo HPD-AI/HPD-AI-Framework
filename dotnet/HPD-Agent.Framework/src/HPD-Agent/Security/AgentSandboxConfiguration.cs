@@ -18,7 +18,7 @@ public sealed record AgentSandboxConfiguration
 
     /// <summary>Creates the process-isolation policy for one working directory.</summary>
     public ProcessIsolationPolicy CreateProcessIsolationPolicy(
-        AgentSecurityProfile security,
+        AgentSecurityRunConfig security,
         string workingDirectory)
     {
         ArgumentNullException.ThrowIfNull(security);
@@ -26,12 +26,12 @@ public sealed record AgentSandboxConfiguration
 
         return ProcessIsolationPolicy.Default with
         {
-            Mode = security.Sandbox switch
+            Mode = security.Sandbox.Mode switch
             {
                 AgentSandboxPolicy.Enforced => ProcessIsolationMode.Isolated,
                 AgentSandboxPolicy.Disabled => ProcessIsolationMode.Disabled,
                 _ => throw new InvalidOperationException(
-                    $"Agent sandbox policy '{security.Sandbox}' is not supported.")
+                    $"Agent sandbox policy '{security.Sandbox.Mode}' is not supported.")
             },
             Filesystem = new FilesystemAccessPolicy
             {
@@ -87,13 +87,13 @@ public sealed record AgentSandboxRuntime
     public static AgentSandboxRuntime Default { get; } = Capture(new AgentRunConfig());
 
     /// <summary>Gets the run security profile.</summary>
-    public AgentSecurityProfile Security { get; init; } = new();
+    public AgentSecurityRunConfig Security { get; init; } = new();
 
     /// <summary>Gets the capabilities supplied by the host.</summary>
     public AgentSandboxConfiguration Configuration { get; init; } = new();
 
     /// <summary>Gets whether host isolation is enforced.</summary>
-    public bool IsEnforced => Security.Sandbox == AgentSandboxPolicy.Enforced;
+    public bool IsEnforced => Security.Sandbox.Mode == AgentSandboxPolicy.Enforced;
 
     /// <summary>Gets the configured filesystem grants.</summary>
     public IReadOnlyList<AgentSandboxPathGrant> Filesystem => Configuration.Filesystem;
@@ -111,9 +111,9 @@ public sealed record AgentSandboxRuntime
         return new AgentSandboxRuntime
         {
             Security = runConfig.Security with { },
-            Configuration = runConfig.Sandbox with
+            Configuration = runConfig.Security.Sandbox.Capabilities with
             {
-                Filesystem = runConfig.Sandbox.Filesystem
+                Filesystem = runConfig.Security.Sandbox.Capabilities.Filesystem
                     .Select(static grant => grant with { })
                     .ToArray()
             }

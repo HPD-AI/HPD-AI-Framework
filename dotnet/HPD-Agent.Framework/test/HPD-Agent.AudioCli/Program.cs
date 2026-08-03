@@ -670,13 +670,26 @@ for (var turnIndex = 0; turnIndex < audioPaths.Count; turnIndex++)
             ThreadId = threadId,
             RunConfig = new AgentRunConfig
             {
-                ModelTransport = realtimeRequested
-                    ? AgentModelTransportMode.Realtime
-                    : AgentModelTransportMode.Auto,
+                Clients = new AgentClientsConfig
+                {
+                    Transport = realtimeRequested
+                        ? AgentModelTransportMode.Realtime
+                        : AgentModelTransportMode.Auto,
+                    Realtime = realtimeTranscriptionOptions is null
+                        ? null
+                        : new RealtimeClientConfig
+                        {
+                            Transcription = new RealtimeTranscriptionRunConfig
+                            {
+                                ModelName = realtimeTranscriptionOptions.ModelId,
+                                SpeechLanguage = realtimeTranscriptionOptions.SpeechLanguage,
+                                Prompt = realtimeTranscriptionOptions.Prompt
+                            }
+                        }
+                },
                 AdditionalSystemInstructions = realtimeRequested
                     ? realtimeInstructions
                     : null,
-                RealtimeTranscriptionOptions = realtimeTranscriptionOptions,
                 AdditionalTools = realtimeMathToolsRequested
                     ? realtimeMathTools
                     : null,
@@ -746,13 +759,26 @@ for (var textTurnIndex = 0; textTurnIndex < textOnlyTurns.Count; textTurnIndex++
             ThreadId = threadId,
             RunConfig = new AgentRunConfig
             {
-                ModelTransport = realtimeRequested
-                    ? AgentModelTransportMode.Realtime
-                    : AgentModelTransportMode.Auto,
+                Clients = new AgentClientsConfig
+                {
+                    Transport = realtimeRequested
+                        ? AgentModelTransportMode.Realtime
+                        : AgentModelTransportMode.Auto,
+                    Realtime = realtimeTranscriptionOptions is null
+                        ? null
+                        : new RealtimeClientConfig
+                        {
+                            Transcription = new RealtimeTranscriptionRunConfig
+                            {
+                                ModelName = realtimeTranscriptionOptions.ModelId,
+                                SpeechLanguage = realtimeTranscriptionOptions.SpeechLanguage,
+                                Prompt = realtimeTranscriptionOptions.Prompt
+                            }
+                        }
+                },
                 AdditionalSystemInstructions = realtimeRequested
                     ? realtimeInstructions
                     : null,
-                RealtimeTranscriptionOptions = realtimeTranscriptionOptions,
                 AdditionalTools = realtimeMathToolsRequested
                     ? realtimeMathTools
                     : null,

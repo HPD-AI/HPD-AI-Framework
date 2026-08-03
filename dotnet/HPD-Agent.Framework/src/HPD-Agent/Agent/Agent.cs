@@ -2230,7 +2230,7 @@ public sealed class Agent
             var overrideRealtimeClient = ResolveRealtimeClientForOptions(runConfig);
 
             // Resolve background responses settings from AgentRunConfig → Config → false
-            var allowBackgroundResponses = runConfig?.AllowBackgroundResponses
+            var allowBackgroundResponses = runConfig?.BackgroundResponses?.Allow
                 ?? Config?.BackgroundResponses?.DefaultAllow
                 ?? false;
 
@@ -2240,12 +2240,12 @@ public sealed class Agent
 
             // Apply background responses settings to effectiveOptions
             // Note: This requires pragma suppression for experimental M.E.AI feature
-            if (allowBackgroundResponses || runConfig?.ContinuationToken != null)
+            if (allowBackgroundResponses || runConfig?.BackgroundResponses?.ContinuationToken != null)
             {
                 effectiveOptions = ApplyBackgroundResponsesOptions(
                     effectiveOptions,
                     allowBackgroundResponses,
-                    runConfig?.ContinuationToken);
+                    runConfig?.BackgroundResponses?.ContinuationToken);
             }
 
             // OBSERVABILITY: Start telemetry and logging
@@ -2481,7 +2481,7 @@ public sealed class Agent
                     // Only merge once - subsequent iterations reuse the merged options
                     // ═══════════════════════════════════════════════════════════════
                     var hasRuntimeTools = runConfig?.RuntimeTools?.Count > 0;
-                    var hasAdditionalTools = runConfig?.AdditionalTools?.Count > 0;
+                    var hasAdditionalTools = runConfig?.Tools?.Additional?.Count > 0;
 
                     if ((hasRuntimeTools || hasAdditionalTools) && state.Iteration == 0)
                     {
@@ -2499,7 +2499,7 @@ public sealed class Agent
 
                         // Add user-provided additional tools
                         if (hasAdditionalTools)
-                            allTools.AddRange(runConfig!.AdditionalTools!);
+                            allTools.AddRange(runConfig!.Tools!.Additional!);
 
                         effectiveOptions.Tools = allTools;
                     }
@@ -2510,7 +2510,7 @@ public sealed class Agent
                     // Only apply on first iteration - subsequent iterations follow same mode
                     // ═══════════════════════════════════════════════════════════════
                     // Public ToolModeOverride takes precedence over internal RuntimeToolMode
-                    var toolModeOverride = runConfig?.ToolModeOverride ?? runConfig?.RuntimeToolMode;
+                    var toolModeOverride = runConfig?.Tools?.Mode ?? runConfig?.RuntimeToolMode;
                     if (toolModeOverride != null && state.Iteration == 0)
                     {
                         effectiveOptions = effectiveOptions?.Clone() ?? new ChatOptions();
@@ -2696,7 +2696,7 @@ public sealed class Agent
                         if (selectedTransport is Middleware.AgentModelTransport.Realtime && realtimeModel is null)
                         {
                             throw new InvalidOperationException(
-                                "No realtime model is configured for this agent run. Configure Clients.Realtime on AgentConfig, pass AgentRunConfig.Clients.Realtime, or pass OverrideRealtimeClient.");
+                                "No realtime model is configured for this agent run. Configure Clients.Realtime on AgentConfig or AgentRunConfig.");
                         }
 
                         var modelMessages = ProjectMessagesForModelHistory(
@@ -2787,7 +2787,7 @@ public sealed class Agent
                         }
 
                         // Check if we should coalesce deltas (run options override config default)
-                        bool coalesceDeltas = effectiveRunConfig.CoalesceDeltas ?? Config?.CoalesceDeltas ?? false;
+                        bool coalesceDeltas = effectiveRunConfig.Streaming?.CoalesceDeltas ?? Config?.CoalesceDeltas ?? false;
 
                         static ChatResponseUpdate? ToChatResponseUpdate(Middleware.AgentModelUpdate modelUpdate)
                         {
@@ -4364,11 +4364,11 @@ public sealed class Agent
                 cancellationToken).ConfigureAwait(false);
 
             // Custom streaming callback if provided
-            if (options?.CustomStreamCallback != null)
+            if (options?.Streaming?.Callback != null)
             {
                 try
                 {
-                    await options.CustomStreamCallback(outputEvent).ConfigureAwait(false);
+                    await options.Streaming.Callback(outputEvent).ConfigureAwait(false);
                 }
                 catch (Exception ex) when (!turnFinished && !cancellationToken.IsCancellationRequested)
                 {
@@ -5158,10 +5158,10 @@ public sealed class Agent
         Dictionary<string, object>? properties = null;
 
         // Add ClientToolInput if present
-        if (options.ClientToolInput != null)
+        if (options.Tools?.ClientInput != null)
         {
             properties ??= new Dictionary<string, object>();
-            properties["AgentClientInput"] = options.ClientToolInput;
+            properties["AgentClientInput"] = options.Tools.ClientInput;
         }
 
         // Add AgentRunConfig itself for middleware access
@@ -5169,10 +5169,10 @@ public sealed class Agent
         properties["AgentRunConfig"] = options;
 
         // Merge context overrides
-        if (options.ContextOverrides != null)
+        if (options.Context?.Properties != null)
         {
             properties ??= new Dictionary<string, object>();
-            foreach (var kvp in options.ContextOverrides)
+            foreach (var kvp in options.Context.Properties)
             {
                 properties[kvp.Key] = kvp.Value;
             }
@@ -5183,8 +5183,8 @@ public sealed class Agent
 
     private IRealtimeClient? ResolveRealtimeClientForOptions(AgentRunConfig? options)
     {
-        if (options?.OverrideRealtimeClient != null)
-            return options.OverrideRealtimeClient;
+        if (options?.Clients.Realtime?.Override?.Client is { } overrideClient)
+            return overrideClient;
 
         var hasRunClientOverride =
             options?.Clients?.GetFamilyConfig(Providers.ProviderClientFamily.Realtime) != null;
@@ -5235,16 +5235,16 @@ public sealed class Agent
     private string? ResolveSystemInstructions(AgentRunConfig? options)
     {
         // Use override if provided, otherwise fall back to config
-        var instructions = options?.SystemInstructions
+        var instructions = options?.SystemInstructions?.Override
             ?? Config?.SystemInstructions
             ?? _messageProcessor.SystemInstructions;
 
         // Append additional instructions if provided
-        if (!string.IsNullOrEmpty(options?.AdditionalSystemInstructions))
+        if (!string.IsNullOrEmpty(options?.SystemInstructions?.Append))
         {
             instructions = string.IsNullOrEmpty(instructions)
-                ? options.AdditionalSystemInstructions
-                : $"{instructions}\n\n{options.AdditionalSystemInstructions}";
+                ? options.SystemInstructions.Append
+                : $"{instructions}\n\n{options.SystemInstructions.Append}";
         }
 
         return instructions;
@@ -5263,8 +5263,8 @@ public sealed class Agent
     {
         // If no overrides, return as-is
         if (runConfig == null ||
-            (string.IsNullOrEmpty(runConfig.SystemInstructions) &&
-             string.IsNullOrEmpty(runConfig.AdditionalSystemInstructions)))
+            (string.IsNullOrEmpty(runConfig.SystemInstructions?.Override) &&
+             string.IsNullOrEmpty(runConfig.SystemInstructions?.Append)))
         {
             return chatOptions;
         }
@@ -5291,11 +5291,11 @@ public sealed class Agent
         int messageCount)
     {
         // Skip validation if no background-related settings are used
-        if (!allowBackgroundResponses && runConfig?.ContinuationToken == null)
+        if (!allowBackgroundResponses && runConfig?.BackgroundResponses?.ContinuationToken == null)
             return;
 
         // Warning 1: Messages provided with ContinuationToken (messages will be ignored)
-        if (runConfig?.ContinuationToken != null && messageCount > 0)
+        if (runConfig?.BackgroundResponses?.ContinuationToken != null && messageCount > 0)
         {
             _agentLogger?.LogWarning(
                 "Background responses: Messages provided with ContinuationToken will be ignored during polling. " +
@@ -5304,7 +5304,7 @@ public sealed class Agent
 
         // Warning 2: ContinuationToken provided without AllowBackgroundResponses explicitly set
         // This might indicate the user doesn't realize they're in polling mode
-        if (runConfig?.ContinuationToken != null && runConfig.AllowBackgroundResponses != true)
+        if (runConfig?.BackgroundResponses?.ContinuationToken != null && runConfig.BackgroundResponses.Allow != true)
         {
             _agentLogger?.LogInformation(
                 "Background responses: ContinuationToken provided without AllowBackgroundResponses=true. " +
@@ -5313,7 +5313,7 @@ public sealed class Agent
 
         // Warning 3: AutoPollToCompletion enabled with manual ContinuationToken
         // Auto-poll handles polling automatically - manual token might cause confusion
-        if (Config?.BackgroundResponses?.AutoPollToCompletion == true && runConfig?.ContinuationToken != null)
+        if (Config?.BackgroundResponses?.AutoPollToCompletion == true && runConfig?.BackgroundResponses?.ContinuationToken != null)
         {
             _agentLogger?.LogWarning(
                 "Background responses: Manual ContinuationToken provided with AutoPollToCompletion enabled. " +
@@ -5395,10 +5395,11 @@ public sealed class Agent
 
         // Auto-poll mode: Enable background responses and poll until completion
         options ??= new AgentRunConfig();
-        options.AllowBackgroundResponses = true;
+        options.BackgroundResponses ??= new BackgroundResponsesRunConfig();
+        options.BackgroundResponses.Allow = true;
 
-        var pollInterval = options.BackgroundPollingInterval ?? config!.DefaultPollingInterval;
-        var timeout = options.BackgroundTimeout ?? config!.DefaultTimeout;
+        var pollInterval = options.BackgroundResponses.PollingInterval ?? config!.DefaultPollingInterval;
+        var timeout = options.BackgroundResponses.Timeout ?? config!.DefaultTimeout;
         var maxAttempts = config!.MaxPollAttempts;
 
         ResponseContinuationToken? lastToken = null;
@@ -5431,7 +5432,7 @@ public sealed class Agent
             // Set continuation token for polling (not on first run)
             if (!isFirstRun && lastToken != null)
             {
-                options.ContinuationToken = lastToken;
+                options.BackgroundResponses!.ContinuationToken = lastToken;
                 attempts++;
 
                 // Emit polling status event

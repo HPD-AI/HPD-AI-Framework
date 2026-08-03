@@ -228,7 +228,7 @@ public class ContentReferenceResolverMiddleware : IAgentMiddleware
 
     private IHostedFileClient? GetHostedFileClient(BeforeIterationContext context)
     {
-        if (context.RunConfig.OverrideHostedFileClient is { } runClient)
+        if (context.RunConfig.Clients.HostedFiles?.Override?.Client is { } runClient)
             return runClient;
 
         if (context.ClientSet?.HostedFiles is { } buildClient)
