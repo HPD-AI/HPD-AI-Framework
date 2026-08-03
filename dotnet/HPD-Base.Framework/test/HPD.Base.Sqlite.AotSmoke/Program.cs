@@ -90,6 +90,7 @@ try
     BaseBackupManifest manifest = (await application.Administration.CreateBackupAsync(
         artifact,
         new BaseBackupRequest { StoreId = "smoke.sqlite", Principal = principal })).RequireValue();
+    Require(manifest.NativeSqliteVersion == "3.53.4", "Unexpected native SQLite dependency graph.");
     artifact.Position = 0;
     Require((await application.Administration.ValidateBackupAsync(
         artifact,
