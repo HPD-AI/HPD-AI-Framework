@@ -122,6 +122,63 @@ public sealed class SqliteAdministrationTests
         finally { Cleanup(path); }
     }
 
+    [Theory]
+    [InlineData("Prepared")]
+    [InlineData("ReplacementInstalled")]
+    [InlineData("ReplacementValidated")]
+    [InlineData("Completed")]
+    public async Task StartupResolvesEveryOtherDurableRestoreMarkerState(string state)
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"hpd-base-admin-marker-{state}-{Guid.NewGuid():N}.db");
+        string staging = path + ".restore-staging";
+        string recovery = path + ".recovery-test";
+        using BaseOpaqueTokenProtector protector = Protector(10, Enumerable.Repeat((byte)0x10, 32).ToArray());
+        try
+        {
+            await using (SqliteRecordStore store = Store(path, protector))
+            {
+                File.Copy(path, staging);
+                if (state is "ReplacementInstalled" or "ReplacementValidated" or "Completed")
+                    File.Copy(path, recovery);
+                typeof(SqliteRecordStore)
+                    .GetMethod("WriteRestoreMarker", BindingFlags.Instance | BindingFlags.NonPublic)!
+                    .Invoke(store, [state, staging, recovery, new string('1', 64), new string('2', 64)]);
+            }
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+
+            await using SqliteRecordStore restarted = Store(path, protector);
+
+            File.Exists(path).Should().BeTrue();
+            File.Exists(staging).Should().BeFalse();
+            File.Exists(path + ".restore-state").Should().BeFalse();
+            restarted.RestoreRecoveryPending.Should().BeFalse();
+            if (state == "ReplacementInstalled")
+                File.Exists(recovery).Should().BeFalse("the preserved original must be restored");
+            else if (state is "ReplacementValidated" or "Completed")
+                File.Exists(recovery).Should().BeTrue("the completed marker cannot override the requested recovery retention");
+        }
+        finally { Cleanup(path); }
+    }
+
+    [Fact]
+    public void InvalidRestoreMarkerFailsClosedBeforeAnyDatabaseOpen()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"hpd-base-admin-invalid-marker-{Guid.NewGuid():N}.db");
+        using BaseOpaqueTokenProtector protector = Protector(11, Enumerable.Repeat((byte)0x11, 32).ToArray());
+        try
+        {
+            SqliteRecordStore initialized = Store(path, protector);
+            initialized.DisposeAsync().AsTask().GetAwaiter().GetResult();
+            File.WriteAllText(path + ".restore-state", "not-authenticated-restore-state");
+
+            Action restart = () => _ = Store(path, protector);
+
+            restart.Should().Throw<InvalidOperationException>()
+                .WithMessage("*restore recovery state is invalid*");
+        }
+        finally { Cleanup(path); }
+    }
+
     [Fact]
     public async Task NonCooperativeRestoreStagingIsBoundedAndRetainsCapacityUntilCompletion()
     {

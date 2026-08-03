@@ -722,8 +722,18 @@ public sealed partial class SqliteRecordStore
         if (!IsFileBacked(_options)) return;
         string markerPath = RestoreMarkerPath();
         if (!File.Exists(markerPath)) return;
-        SqliteRestoreMarker marker = JsonSerializer.Deserialize(File.ReadAllBytes(markerPath), SqliteAdministrationJsonContext.Default.SqliteRestoreMarker)
-            ?? throw new InvalidOperationException("SQLite restore recovery state is invalid.");
+        SqliteRestoreMarker marker;
+        try
+        {
+            marker = JsonSerializer.Deserialize(
+                File.ReadAllBytes(markerPath),
+                SqliteAdministrationJsonContext.Default.SqliteRestoreMarker)
+                ?? throw new InvalidOperationException("SQLite restore recovery state is invalid.");
+        }
+        catch (Exception exception) when (exception is JsonException or IOException or UnauthorizedAccessException)
+        {
+            throw new InvalidOperationException("SQLite restore recovery state is invalid.");
+        }
         string expected = HexDigest($"{marker.Version}\0{marker.State}\0{marker.StagingName}\0{marker.RecoveryName}\0{marker.CurrentIdentityDigest}\0{marker.ArtifactIdentityDigest}");
         if (marker.Version != 1 || !FixedHexEquals(marker.Checksum, expected)
             || Path.GetFileName(marker.StagingName) != marker.StagingName || Path.GetFileName(marker.RecoveryName) != marker.RecoveryName)
