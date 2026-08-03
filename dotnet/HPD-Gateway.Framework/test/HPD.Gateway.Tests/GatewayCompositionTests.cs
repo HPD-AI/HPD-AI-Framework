@@ -241,6 +241,46 @@ public sealed class GatewayCompositionTests
             .GetCurrent().Publication.State.Should().Be(GatewayStatusPublicationState.ActiveAcknowledged);
     }
 
+    [Fact]
+    public async Task NodeActivationChangesRemovesReaddsAndPreservesInflightGeneration()
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var oldBuilder = WebApplication.CreateSlimBuilder();
+        oldBuilder.WebHost.UseUrls("http://127.0.0.1:0");
+        await using var oldBackend = oldBuilder.Build();
+        oldBackend.Map("/{**path}", async context =>
+        {
+            entered.TrySetResult();
+            await release.Task.WaitAsync(context.RequestAborted);
+            await context.Response.WriteAsync("old");
+        });
+        await oldBackend.StartAsync();
+        await using var newBackend = await StartBackend("new");
+        await using var proxy = await StartGateway();
+        var activator = proxy.Services.GetRequiredService<IGatewayNodeActivator>();
+        using var client = new HttpClient { BaseAddress = new Uri(Address(proxy)) };
+
+        (await activator.ActivateAsync(Request("old", 1,
+            Bytes(GatewayConfigurationFor(new Uri(Address(oldBackend))))))).IsActiveAcknowledged.Should().BeTrue();
+        var inflight = client.GetStringAsync("/held");
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        (await activator.ActivateAsync(Request("new", 2,
+            Bytes(GatewayConfigurationFor(new Uri(Address(newBackend))))))).IsActiveAcknowledged.Should().BeTrue();
+        (await client.GetStringAsync("/new")).Should().Be("new:/new");
+        release.TrySetResult();
+        (await inflight).Should().Be("old");
+
+        (await activator.ActivateAsync(Request("removed", 3,
+            Bytes(EmptyGatewayConfiguration())))).IsActiveAcknowledged.Should().BeTrue();
+        (await client.GetAsync("/removed")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+
+        (await activator.ActivateAsync(Request("readded", 4,
+            Bytes(GatewayConfigurationFor(new Uri(Address(newBackend))))))).IsActiveAcknowledged.Should().BeTrue();
+        (await client.GetStringAsync("/again")).Should().Be("new:/again");
+    }
+
     private static GatewayHostConfiguration HostConfiguration() => new()
     {
         SchemaVersion = new(1, 0),
@@ -357,6 +397,16 @@ public sealed class GatewayCompositionTests
                 Declarations = new RouteDeclarations()
             }
         ]
+    };
+
+    private static GatewayConfiguration EmptyGatewayConfiguration() => new()
+    {
+        SchemaVersion = new(1, 0),
+        CanonicalizationVersion = 1,
+        Definitions = new(),
+        RootDefaults = new(),
+        Upstreams = [],
+        Routes = []
     };
 
     private static async Task<WebApplication> StartBackend(string name)

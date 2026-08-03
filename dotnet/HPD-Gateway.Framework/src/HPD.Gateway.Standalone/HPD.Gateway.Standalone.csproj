@@ -16,5 +16,7 @@
     <ProjectReference Include="../HPD.Gateway/HPD.Gateway.csproj" />
     <ProjectReference Include="../HPD.Gateway.Abstractions/HPD.Gateway.Abstractions.csproj" />
     <ProjectReference Include="../HPD.Gateway.Hosting/HPD.Gateway.Hosting.csproj" />
+    <ProjectReference Include="../HPD.Gateway.OutputCaching/HPD.Gateway.OutputCaching.csproj" />
+    <ProjectReference Include="../HPD.Gateway.Resilience/HPD.Gateway.Resilience.csproj" />
   </ItemGroup>
 </Project>
