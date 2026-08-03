@@ -1,17 +1,6 @@
 using System.Reflection;
-using System.Runtime.CompilerServices;
 using HPD.Agent.ModelsDev;
 using HPD.Agent.Providers;
-using HPD.Agent.Providers.Anthropic;
-using HPD.Agent.Providers.AzureAI;
-using HPD.Agent.Providers.Bedrock;
-using HPD.Agent.Providers.DashScope;
-using HPD.Agent.Providers.GoogleAI;
-using HPD.Agent.Providers.HuggingFace;
-using HPD.Agent.Providers.Mistral;
-using HPD.Agent.Providers.Ollama;
-using HPD.Agent.Providers.OpenAI;
-using HPD.Agent.Providers.OpenRouter;
 using HPD.Agent.Secrets;
 using HPD.Agent.TUI.Models;
 using Microsoft.Extensions.Configuration;
@@ -54,14 +43,13 @@ internal sealed class ConsoleProviderContext
 
     public static ConsoleProviderContext Create()
     {
-        LoadConsoleProviders();
-
+        var composition = HPD.Agent.Providers.Generated.GeneratedProviderComposition.Composition;
         var configuration = BuildConfiguration();
         var secrets = new ChainedSecretResolver(
             new EnvironmentSecretResolver(),
             new ConfigurationSecretResolver(configuration));
 
-        var registryProbe = new AgentBuilder()
+        var registryProbe = new AgentBuilder(composition)
             .WithAPIConfiguration(configuration);
 
         var providerState = new HpdModelsDevProviderState(registryProbe.ProviderRegistry, secrets);
@@ -77,11 +65,11 @@ internal sealed class ConsoleProviderContext
             providerState,
             modelCatalog,
             new AgentTuiModelSelectionState(),
-            KnownProviders);
+            CreateProviderMetadata(composition));
     }
 
     public AgentBuilder CreateAgentBuilder()
-        => new AgentBuilder()
+        => new AgentBuilder(HPD.Agent.Providers.Generated.GeneratedProviderComposition.Composition)
             .WithAPIConfiguration(Configuration);
 
     private static IConfiguration BuildConfiguration()
@@ -111,37 +99,23 @@ internal sealed class ConsoleProviderContext
             .Build();
     }
 
-    private static void LoadConsoleProviders()
+    private static IReadOnlyList<ConsoleProviderMetadata> CreateProviderMetadata(
+        ProviderComposition composition)
     {
-        LoadProviderModule(typeof(AnthropicProviderModule));
-        LoadProviderModule(typeof(AzureAIProviderModule));
-        LoadProviderModule(typeof(BedrockProviderModule));
-        LoadProviderModule(typeof(DashScopeProviderModule));
-        LoadProviderModule(typeof(GoogleAIProviderModule));
-        LoadProviderModule(typeof(HuggingFaceProviderModule));
-        LoadProviderModule(typeof(MistralProviderModule));
-        LoadProviderModule(typeof(OllamaProviderModule));
-        LoadProviderModule(typeof(OpenAIProviderModule));
-        LoadProviderModule(typeof(OpenRouterProviderModule));
+        var secretKeys = composition.Fragments
+            .SelectMany(static fragment => fragment.SecretAliases)
+            .Select(static alias => alias.SecretKey)
+            .ToArray();
+        return composition.Descriptors.Providers
+            .Where(static descriptor => descriptor.Families.ContainsKey(ProviderClientFamily.Chat))
+            .Select(descriptor => new ConsoleProviderMetadata(
+                descriptor.ProviderKey,
+                descriptor.DisplayName,
+                secretKeys.Where(key => key.StartsWith(
+                    descriptor.ProviderKey + ":",
+                    StringComparison.Ordinal)).ToArray()))
+            .ToArray();
     }
-
-    private static void LoadProviderModule(Type moduleType)
-        => RuntimeHelpers.RunModuleConstructor(moduleType.Module.ModuleHandle);
-
-    private static readonly ConsoleProviderMetadata[] KnownProviders =
-    [
-        new("anthropic", "Anthropic", ["anthropic:ApiKey"]),
-        new("azure-openai", "Azure OpenAI", ["azure-openai:ApiKey", "azure-openai:Endpoint"]),
-        new("azure-ai", "Azure AI", ["azure-ai:ApiKey", "azure-ai:Endpoint"]),
-        new("bedrock", "Amazon Bedrock", ["bedrock:AccessKeyId", "bedrock:SecretAccessKey"]),
-        new("dashscope", "DashScope", ["dashscope:ApiKey"]),
-        new("google-ai", "Google AI", ["google-ai:ApiKey"]),
-        new("huggingface", "Hugging Face", ["huggingface:ApiKey"]),
-        new("mistral", "Mistral", ["mistral:ApiKey"]),
-        new("ollama", "Ollama", []),
-        new("openai", "OpenAI", ["openai:ApiKey"]),
-        new("openrouter", "OpenRouter", ["openrouter:ApiKey"])
-    ];
 }
 
 internal sealed record ConsoleProviderMetadata(

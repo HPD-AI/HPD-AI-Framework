@@ -66,7 +66,7 @@ internal static class CodingMode
                 {
                     var runConfig = providers.ModelSelection.ToRunConfig() ?? new AgentRunConfig();
                     runConfig.Context ??= new AgentContextRunConfig();
-                    runConfig.Context.Properties ??= [];
+                    runConfig.Context.Properties ??= new Dictionary<string, object>();
                     runConfig.Context.Properties[AgentWorkspace.ContextKey] = workspace;
                     return runConfig;
                 })
