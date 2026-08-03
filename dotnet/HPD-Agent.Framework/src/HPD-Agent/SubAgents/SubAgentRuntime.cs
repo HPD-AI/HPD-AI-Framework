@@ -297,12 +297,16 @@ public static class SubAgentRuntime
                 route,
                 cancellationToken).ConfigureAwait(false);
 
+            using var inheritedClientLease = request.ParentContext?.ClientSet?.AcquireBorrowedLease();
             await agent.RunAsync(new UserMessagesInputEvent { Messages = [
                 new ChatMessage(ChatRole.User, request.Input)
             ],
                 SessionId = route.SessionId,
                 ThreadId = route.ThreadId,
-                RunConfig = definition.RunConfig.Resolve(request.ParentContext?.RunConfig),
+                RunConfig = definition.RunConfig.Resolve(
+                    request.ParentContext?.RunConfig,
+                    request.ParentContext?.ClientSet,
+                    agent.Config),
                 InheritedChatClient = request.ParentContext?.GetEffectiveChatClientHandle(),
                 InheritedChatMode = definition.RunConfig.Clients.Chat
             }, cancellationToken).ConfigureAwait(false);

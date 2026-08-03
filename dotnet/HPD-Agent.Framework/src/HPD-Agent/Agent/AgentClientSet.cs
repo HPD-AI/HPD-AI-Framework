@@ -8,8 +8,12 @@ namespace HPD.Agent;
 /// </summary>
 public sealed class AgentClientSet : IDisposable
 {
+    private readonly object _lifetimeGate = new();
     private IReadOnlySet<object>? _ownedClients;
     private IReadOnlyList<IAsyncDisposable>? _leases;
+    private int _borrowCount;
+    private bool _disposeRequested;
+    private bool _disposed;
     public IChatClient? Chat { get; init; }
     public ITextToSpeechClient? TextToSpeech { get; init; }
     public ISpeechToTextClient? SpeechToText { get; init; }
@@ -52,7 +56,48 @@ public sealed class AgentClientSet : IDisposable
     internal void SetLeases(IReadOnlyList<IAsyncDisposable> leases)
         => _leases = leases;
 
+    internal IDisposable AcquireBorrowedLease()
+    {
+        lock (_lifetimeGate)
+        {
+            ObjectDisposedException.ThrowIf(_disposeRequested || _disposed, this);
+            _borrowCount++;
+            return new BorrowedLease(this);
+        }
+    }
+
     public void Dispose()
+    {
+        lock (_lifetimeGate)
+        {
+            if (_disposeRequested || _disposed)
+                return;
+            _disposeRequested = true;
+            if (_borrowCount != 0)
+                return;
+            _disposed = true;
+        }
+        DisposeCore();
+    }
+
+    private void ReleaseBorrowedLease()
+    {
+        var dispose = false;
+        lock (_lifetimeGate)
+        {
+            if (_borrowCount > 0)
+                _borrowCount--;
+            if (_borrowCount == 0 && _disposeRequested && !_disposed)
+            {
+                _disposed = true;
+                dispose = true;
+            }
+        }
+        if (dispose)
+            DisposeCore();
+    }
+
+    private void DisposeCore()
     {
         var disposed = new HashSet<object>(ReferenceEqualityComparer.Instance);
 
@@ -69,6 +114,12 @@ public sealed class AgentClientSet : IDisposable
             for (var index = _leases.Count - 1; index >= 0; index--)
                 _leases[index].DisposeAsync().AsTask().GetAwaiter().GetResult();
         }
+    }
+
+    private sealed class BorrowedLease(AgentClientSet owner) : IDisposable
+    {
+        private AgentClientSet? _owner = owner;
+        public void Dispose() => Interlocked.Exchange(ref _owner, null)?.ReleaseBorrowedLease();
     }
 
     private static void DisposeOnce(object? value, HashSet<object> disposed, IReadOnlySet<object>? ownedClients)

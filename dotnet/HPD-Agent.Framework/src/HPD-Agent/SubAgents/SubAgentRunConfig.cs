@@ -1,3 +1,5 @@
+using HPD.Agent.Providers;
+
 namespace HPD.Agent;
 
 /// <summary>
@@ -151,13 +153,100 @@ public sealed class SubAgentRunConfig
         HostedFiles = ClientFamilyInheritanceMode.UseOwn
     };
 
-    internal AgentRunConfig Resolve(AgentRunConfig? parent)
+    internal AgentRunConfig Resolve(
+        AgentRunConfig? parent,
+        AgentClientSet? parentClients = null,
+        AgentConfig? childDefaults = null)
     {
         var result = parent is null
             ? new AgentRunConfig()
             : AgentRunConfigInheritance.CreateSnapshot(parent, InheritedFields);
         _configure?.Invoke(result);
+        ApplyClientInheritance(result, parentClients, childDefaults);
         return result;
+    }
+
+    private void ApplyClientInheritance(
+        AgentRunConfig result,
+        AgentClientSet? parentClients,
+        AgentConfig? childDefaults)
+    {
+        if (parentClients is null)
+            return;
+
+        InheritFamily(ProviderClientFamily.Realtime, Clients.Realtime);
+        InheritFamily(ProviderClientFamily.ImageGeneration, Clients.ImageGeneration);
+        InheritFamily(ProviderClientFamily.Embeddings, Clients.Embeddings);
+        InheritFamily(ProviderClientFamily.TextToSpeech, Clients.TextToSpeech);
+        InheritFamily(ProviderClientFamily.SpeechToText, Clients.SpeechToText);
+        InheritFamily(ProviderClientFamily.HostedFiles, Clients.HostedFiles);
+
+        void InheritFamily(ProviderClientFamily family, ClientFamilyInheritanceMode mode)
+        {
+            if (mode == ClientFamilyInheritanceMode.UseOwn)
+                return;
+
+            var own = result.Clients.GetFamilyConfig(family);
+            if (mode == ClientFamilyInheritanceMode.FallbackToParent &&
+                (own is not null || childDefaults?.ResolveClientConfig(family) is not null))
+                return;
+
+            var parent = parentClients.GetResolvedConfig(family);
+            var parentClient = GetClient(parentClients, family);
+            if (parent is null || parentClient is null)
+                return;
+
+            var inherited = ProviderClientConfigResolver.Clone(parent);
+            SetOverride(inherited, family, parentClient);
+            if (own is not null)
+            {
+                var baseline = new AgentClientsConfig();
+                baseline.SetFamilyConfig(family, inherited);
+                var overrides = new AgentClientsConfig();
+                overrides.SetFamilyConfig(family, own);
+                inherited = ProviderClientConfigResolver.Resolve(baseline, family, overrides)!;
+            }
+            result.Clients.SetFamilyConfig(family, inherited);
+        }
+    }
+
+    private static object? GetClient(AgentClientSet clients, ProviderClientFamily family) => family switch
+    {
+        ProviderClientFamily.Realtime => clients.Realtime,
+        ProviderClientFamily.ImageGeneration => clients.ImageGenerator,
+        ProviderClientFamily.Embeddings => clients.EmbeddingGenerator,
+        ProviderClientFamily.TextToSpeech => clients.TextToSpeech,
+        ProviderClientFamily.SpeechToText => clients.SpeechToText,
+        ProviderClientFamily.HostedFiles => clients.HostedFiles,
+        _ => null
+    };
+
+    private static void SetOverride(
+        ProviderClientConfig config,
+        ProviderClientFamily family,
+        object client)
+    {
+        switch (family)
+        {
+            case ProviderClientFamily.Realtime:
+                ((RealtimeClientConfig)config).Override = new() { Client = (Microsoft.Extensions.AI.IRealtimeClient)client };
+                break;
+            case ProviderClientFamily.ImageGeneration:
+                ((ImageGenerationClientConfig)config).Override = new() { Client = (Microsoft.Extensions.AI.IImageGenerator)client };
+                break;
+            case ProviderClientFamily.Embeddings:
+                ((EmbeddingsClientConfig)config).Override = new() { Client = (Microsoft.Extensions.AI.IEmbeddingGenerator)client };
+                break;
+            case ProviderClientFamily.TextToSpeech:
+                ((TextToSpeechClientConfig)config).Override = new() { Client = (Microsoft.Extensions.AI.ITextToSpeechClient)client };
+                break;
+            case ProviderClientFamily.SpeechToText:
+                ((SpeechToTextClientConfig)config).Override = new() { Client = (Microsoft.Extensions.AI.ISpeechToTextClient)client };
+                break;
+            case ProviderClientFamily.HostedFiles:
+                ((HostedFilesClientConfig)config).Override = new() { Client = (Microsoft.Extensions.AI.IHostedFileClient)client };
+                break;
+        }
     }
 
     private static SubAgentRunConfigFields ValidateFields(SubAgentRunConfigFields fields)

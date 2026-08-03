@@ -1,6 +1,10 @@
 using FluentAssertions;
 using HPD.Agent.StructuredOutput;
+using HPD.Agent.Providers;
+using Microsoft.Extensions.AI;
 using Xunit;
+
+#pragma warning disable MEAI001
 
 namespace HPD.Agent.Tests.SubAgents;
 
@@ -159,5 +163,112 @@ public sealed class SubAgentRunConfigTests
         child.Clients.Chat!.ProviderKey.Should().Be("child-provider");
         child.Clients.Chat.Temperature.Should().Be(0.1);
         parent.Clients.Chat!.Temperature.Should().Be(0.8);
+    }
+
+    [Fact]
+    public void InheritResolved_NonChatFamily_UsesCurrentParentPlanAndClient()
+    {
+        var client = new FakeTextToSpeechClient();
+        var parentClients = new AgentClientSet
+        {
+            TextToSpeech = client,
+            ResolvedConfigs = new Dictionary<ProviderClientFamily, ProviderClientConfig>
+            {
+                [ProviderClientFamily.TextToSpeech] = new TextToSpeechClientConfig
+                {
+                    ProviderKey = "parent-speech",
+                    ModelName = "parent-model",
+                    VoiceId = "parent-voice"
+                }
+            }
+        };
+        var selection = SubAgentRunConfig.Inherit().Override(config =>
+            config.Clients.TextToSpeech = new TextToSpeechClientConfig { Speed = 1.25f });
+
+        var child = selection.Resolve(new AgentRunConfig(), parentClients, new AgentConfig());
+
+        child.Clients.TextToSpeech!.ProviderKey.Should().Be("parent-speech");
+        child.Clients.TextToSpeech.ModelName.Should().Be("parent-model");
+        child.Clients.TextToSpeech.VoiceId.Should().Be("parent-voice");
+        child.Clients.TextToSpeech.Speed.Should().Be(1.25f);
+        child.Clients.TextToSpeech.Override!.Client.Should().BeSameAs(client);
+    }
+
+    [Fact]
+    public void InheritResolved_ExplicitProviderSwitch_DiscardsParentBoundClient()
+    {
+        var parentClients = new AgentClientSet
+        {
+            TextToSpeech = new FakeTextToSpeechClient(),
+            ResolvedConfigs = new Dictionary<ProviderClientFamily, ProviderClientConfig>
+            {
+                [ProviderClientFamily.TextToSpeech] = new TextToSpeechClientConfig
+                {
+                    ProviderKey = "parent-speech",
+                    ModelName = "parent-model"
+                }
+            }
+        };
+        var selection = SubAgentRunConfig.Inherit().Override(config =>
+            config.Clients.TextToSpeech = new TextToSpeechClientConfig
+            {
+                ProviderKey = "child-speech",
+                ModelName = "child-model"
+            });
+
+        var child = selection.Resolve(new AgentRunConfig(), parentClients, new AgentConfig());
+
+        child.Clients.TextToSpeech!.ProviderKey.Should().Be("child-speech");
+        child.Clients.TextToSpeech.Override.Should().BeNull();
+    }
+
+    [Fact]
+    public void FallbackToParent_NonChatFamily_PreservesUsableChildDefault()
+    {
+        var parentClients = new AgentClientSet
+        {
+            HostedFiles = null,
+            ResolvedConfigs = new Dictionary<ProviderClientFamily, ProviderClientConfig>()
+        };
+        var childDefaults = new AgentConfig
+        {
+            Clients = new AgentClientsConfig
+            {
+                HostedFiles = new HostedFilesClientConfig { ProviderKey = "child-files" }
+            }
+        };
+
+        var child = SubAgentRunConfig.Inherit().Resolve(new AgentRunConfig(), parentClients, childDefaults);
+
+        child.Clients.HostedFiles.Should().BeNull();
+    }
+
+    [Fact]
+    public void ParentClientSet_BorrowedLease_DefersRunOwnedClientDisposal()
+    {
+        var client = new FakeTextToSpeechClient();
+        var clients = new AgentClientSet { TextToSpeech = client };
+        clients.SetOwnedClients(new HashSet<object>(ReferenceEqualityComparer.Instance) { client });
+        var childLease = clients.AcquireBorrowedLease();
+
+        clients.Dispose();
+        client.DisposeCount.Should().Be(0);
+
+        childLease.Dispose();
+        client.DisposeCount.Should().Be(1);
+    }
+
+    private sealed class FakeTextToSpeechClient : ITextToSpeechClient
+    {
+        public int DisposeCount { get; private set; }
+        public Task<TextToSpeechResponse> GetAudioAsync(string text, TextToSpeechOptions? options = null, CancellationToken cancellationToken = default)
+            => Task.FromResult(new TextToSpeechResponse([]));
+        public async IAsyncEnumerable<TextToSpeechResponseUpdate> GetStreamingAudioAsync(string text, TextToSpeechOptions? options = null, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            await Task.CompletedTask;
+            yield break;
+        }
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+        public void Dispose() => DisposeCount++;
     }
 }

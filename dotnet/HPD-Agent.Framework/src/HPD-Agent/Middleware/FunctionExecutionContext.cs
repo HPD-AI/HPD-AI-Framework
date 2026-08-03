@@ -24,6 +24,7 @@ public sealed class FunctionExecutionContext
     private readonly IAgentStore? _parentAgentStore;
     private readonly IContentStore? _contentStore;
     private readonly AgentConfig? _parentConfig;
+    private readonly AgentClientSet? _clientSet;
 
     internal FunctionExecutionContext(
         HookContext hookContext,
@@ -60,6 +61,7 @@ public sealed class FunctionExecutionContext
         _parentSessionStore = hookContext.Session?.Store;
         _parentAgentStore = hookContext.GetParentAgentStore();
         _parentConfig = hookContext.Config;
+        _clientSet = hookContext.Base.ClientSet;
     }
 
     public FunctionInvocationSnapshot InvocationSnapshot { get; }
@@ -102,6 +104,8 @@ public sealed class FunctionExecutionContext
     public IRuntimeCapabilityRegistry RuntimeCapabilities { get; }
 
     public IContentStore? ContentStore => _contentStore;
+
+    internal AgentClientSet? ClientSet => _clientSet;
 
 
     public IAgentBackgroundTaskRegistry? BackgroundTasks { get; }
