@@ -53,7 +53,7 @@ public class BackgroundResponsesIntegrationTests : AgentTestBase
         thread.AddMessage(UserMessage("Test"));
 
         // Act: Override at run level to disable
-        var options = new AgentRunConfig { AllowBackgroundResponses = false };
+        var options = new AgentRunConfig { BackgroundResponses = new BackgroundResponsesRunConfig { Allow = false } };
         var messages = thread.Messages;
         var events = await RunAndCollectAsync(agent, messages, session, thread, options);
 
@@ -74,11 +74,11 @@ public class BackgroundResponsesIntegrationTests : AgentTestBase
 
         var options = new AgentRunConfig
         {
-            BackgroundPollingInterval = TimeSpan.FromSeconds(1)
+            BackgroundResponses = new BackgroundResponsesRunConfig { PollingInterval = TimeSpan.FromSeconds(1) }
         };
 
         // Act
-        var resolvedInterval = options.BackgroundPollingInterval
+        var resolvedInterval = options.BackgroundResponses?.PollingInterval
             ?? config.BackgroundResponses.DefaultPollingInterval;
 
         // Assert: Options should override config
@@ -98,11 +98,11 @@ public class BackgroundResponsesIntegrationTests : AgentTestBase
 
         var options = new AgentRunConfig
         {
-            BackgroundTimeout = TimeSpan.FromMinutes(5)
+            BackgroundResponses = new BackgroundResponsesRunConfig { Timeout = TimeSpan.FromMinutes(5) }
         };
 
         // Act
-        var resolvedTimeout = options.BackgroundTimeout
+        var resolvedTimeout = options.BackgroundResponses?.Timeout
             ?? config.BackgroundResponses.DefaultTimeout;
 
         // Assert: Options should override config
@@ -290,8 +290,7 @@ public class BackgroundResponsesIntegrationTests : AgentTestBase
 
         var options = new AgentRunConfig
         {
-            AllowBackgroundResponses = true,
-            ContinuationToken = token
+            BackgroundResponses = new BackgroundResponsesRunConfig { Allow = true, ContinuationToken = token }
         };
 
         // Act: This tests that the token is accepted and passed through
@@ -370,7 +369,7 @@ public class BackgroundResponsesIntegrationTests : AgentTestBase
         var session2 = new global::HPD.Agent.Session("test-session-2");
         var thread2 = new global::HPD.Agent.Thread("test-session-2", "test-agent");
         thread2.AddMessage(UserMessage("Request 2"));
-        var options2 = new AgentRunConfig { AllowBackgroundResponses = false };
+        var options2 = new AgentRunConfig { BackgroundResponses = new BackgroundResponsesRunConfig { Allow = false } };
         var events2 = new List<AgentEvent>();
         var messages2 = thread2.Messages;
         events2.AddRange(await RunAndCollectAsync(agent, messages2, session2, thread2, options2));

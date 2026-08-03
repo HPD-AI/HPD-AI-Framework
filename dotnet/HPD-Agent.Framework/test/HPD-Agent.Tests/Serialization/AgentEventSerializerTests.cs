@@ -136,7 +136,7 @@ public class AgentEventSerializerTests
             ThreadId = "main",
             RunConfig = new AgentRunConfig
             {
-                CoalesceDeltas = true,
+                Streaming = new StreamingRunConfig { CoalesceDeltas = true },
                 Clients = new AgentClientsConfig { Chat = new ChatClientConfig
                 {
                     ProviderKey = "openai",
@@ -166,7 +166,7 @@ public class AgentEventSerializerTests
         Assert.NotNull(result.RunConfig);
         Assert.Equal("openai", result.RunConfig!.Clients.Chat!.ProviderKey);
         Assert.Equal("gpt-5.5", result.RunConfig.Clients.Chat.ModelName);
-        Assert.True(result.RunConfig!.CoalesceDeltas);
+        Assert.True(result.RunConfig!.Streaming?.CoalesceDeltas);
         Assert.Equal(0.7, result.RunConfig.Clients.Chat!.Temperature);
         Assert.Equal(123, result.RunConfig.Clients.Chat.MaxOutputTokens);
         Assert.Equal(42, result.RunConfig.Clients.Chat.Seed);

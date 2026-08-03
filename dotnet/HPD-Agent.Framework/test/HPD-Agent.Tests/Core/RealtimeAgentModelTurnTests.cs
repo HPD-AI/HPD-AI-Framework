@@ -882,9 +882,8 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
                         }
                 }
             },
-            AdditionalTools = tools,
-            ToolModeOverride = ChatToolMode.Auto,
-            CoalesceDeltas = coalesceDeltas,
+            Tools = new AgentToolsRunConfig { Additional = tools, Mode = ChatToolMode.Auto },
+            Streaming = new StreamingRunConfig { CoalesceDeltas = coalesceDeltas },
         };
 
     private static IReadOnlyList<AIFunction> CreateMathTools() =>

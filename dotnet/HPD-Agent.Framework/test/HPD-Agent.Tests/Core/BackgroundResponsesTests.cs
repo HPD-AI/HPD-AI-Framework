@@ -18,7 +18,7 @@ public class BackgroundResponsesTests : AgentTestBase
     public void AllowBackgroundResponses_ResolvesFromOptions_WhenExplicitlySet()
     {
         // Arrange
-        var options = new AgentRunConfig { AllowBackgroundResponses = true };
+        var options = new AgentRunConfig { BackgroundResponses = new BackgroundResponsesRunConfig { Allow = true } };
         var config = new BackgroundResponsesConfig { DefaultAllow = false };
 
         // Act
@@ -32,7 +32,7 @@ public class BackgroundResponsesTests : AgentTestBase
     public void AllowBackgroundResponses_FallsBackToConfig_WhenOptionsNotSet()
     {
         // Arrange
-        var options = new AgentRunConfig { AllowBackgroundResponses = null };
+        var options = new AgentRunConfig { BackgroundResponses = new BackgroundResponsesRunConfig { Allow = null } };
         var config = new BackgroundResponsesConfig { DefaultAllow = true };
 
         // Act
@@ -46,7 +46,7 @@ public class BackgroundResponsesTests : AgentTestBase
     public void AllowBackgroundResponses_OptionsOverridesConfig_WhenBothSet()
     {
         // Arrange
-        var options = new AgentRunConfig { AllowBackgroundResponses = false };
+        var options = new AgentRunConfig { BackgroundResponses = new BackgroundResponsesRunConfig { Allow = false } };
         var config = new BackgroundResponsesConfig { DefaultAllow = true };
 
         // Act
@@ -89,7 +89,7 @@ public class BackgroundResponsesTests : AgentTestBase
     /// </summary>
     private static bool ResolveBackgroundSetting(AgentRunConfig? options, BackgroundResponsesConfig? config)
     {
-        return options?.AllowBackgroundResponses
+        return options?.BackgroundResponses?.Allow
             ?? config?.DefaultAllow
             ?? false;
     }
@@ -144,10 +144,10 @@ public class BackgroundResponsesTests : AgentTestBase
         var options = new AgentRunConfig();
 
         // Assert
-        Assert.Null(options.AllowBackgroundResponses);
-        Assert.Null(options.ContinuationToken);
-        Assert.Null(options.BackgroundPollingInterval);
-        Assert.Null(options.BackgroundTimeout);
+        Assert.Null(options.BackgroundResponses?.Allow);
+        Assert.Null(options.BackgroundResponses?.ContinuationToken);
+        Assert.Null(options.BackgroundResponses?.PollingInterval);
+        Assert.Null(options.BackgroundResponses?.Timeout);
     }
 
     [Fact]
@@ -161,17 +161,20 @@ public class BackgroundResponsesTests : AgentTestBase
         // Act
         var options = new AgentRunConfig
         {
-            AllowBackgroundResponses = true,
-            ContinuationToken = token,
-            BackgroundPollingInterval = TimeSpan.FromSeconds(3),
-            BackgroundTimeout = TimeSpan.FromMinutes(5)
+            BackgroundResponses = new BackgroundResponsesRunConfig
+            {
+                Allow = true,
+                ContinuationToken = token,
+                PollingInterval = TimeSpan.FromSeconds(3),
+                Timeout = TimeSpan.FromMinutes(5)
+            }
         };
 
         // Assert
-        Assert.True(options.AllowBackgroundResponses);
-        Assert.NotNull(options.ContinuationToken);
-        Assert.Equal(TimeSpan.FromSeconds(3), options.BackgroundPollingInterval);
-        Assert.Equal(TimeSpan.FromMinutes(5), options.BackgroundTimeout);
+        Assert.True(options.BackgroundResponses?.Allow);
+        Assert.NotNull(options.BackgroundResponses?.ContinuationToken);
+        Assert.Equal(TimeSpan.FromSeconds(3), options.BackgroundResponses?.PollingInterval);
+        Assert.Equal(TimeSpan.FromMinutes(5), options.BackgroundResponses?.Timeout);
     }
 
     #endregion
@@ -527,7 +530,7 @@ public class BackgroundResponsesTests : AgentTestBase
         // Arrange
         var options = new AgentRunConfig
         {
-            BackgroundPollingInterval = TimeSpan.FromSeconds(10)
+            BackgroundResponses = new BackgroundResponsesRunConfig { PollingInterval = TimeSpan.FromSeconds(10) }
         };
         var config = new BackgroundResponsesConfig
         {
@@ -535,7 +538,7 @@ public class BackgroundResponsesTests : AgentTestBase
         };
 
         // Act
-        var resolved = options.BackgroundPollingInterval ?? config.DefaultPollingInterval;
+        var resolved = options.BackgroundResponses?.PollingInterval ?? config.DefaultPollingInterval;
 
         // Assert
         Assert.Equal(TimeSpan.FromSeconds(10), resolved);
@@ -552,7 +555,7 @@ public class BackgroundResponsesTests : AgentTestBase
         };
 
         // Act
-        var resolved = options.BackgroundPollingInterval ?? config.DefaultPollingInterval;
+        var resolved = options.BackgroundResponses?.PollingInterval ?? config.DefaultPollingInterval;
 
         // Assert
         Assert.Equal(TimeSpan.FromSeconds(5), resolved);
@@ -568,7 +571,7 @@ public class BackgroundResponsesTests : AgentTestBase
         // Arrange
         var options = new AgentRunConfig
         {
-            BackgroundTimeout = TimeSpan.FromMinutes(15)
+            BackgroundResponses = new BackgroundResponsesRunConfig { Timeout = TimeSpan.FromMinutes(15) }
         };
         var config = new BackgroundResponsesConfig
         {
@@ -576,7 +579,7 @@ public class BackgroundResponsesTests : AgentTestBase
         };
 
         // Act
-        var resolved = options.BackgroundTimeout ?? config.DefaultTimeout;
+        var resolved = options.BackgroundResponses?.Timeout ?? config.DefaultTimeout;
 
         // Assert
         Assert.Equal(TimeSpan.FromMinutes(15), resolved);
@@ -593,7 +596,7 @@ public class BackgroundResponsesTests : AgentTestBase
         };
 
         // Act
-        var resolved = options.BackgroundTimeout ?? config.DefaultTimeout;
+        var resolved = options.BackgroundResponses?.Timeout ?? config.DefaultTimeout;
 
         // Assert
         Assert.Equal(TimeSpan.FromMinutes(30), resolved);
@@ -607,7 +610,7 @@ public class BackgroundResponsesTests : AgentTestBase
         var config = new BackgroundResponsesConfig(); // DefaultTimeout is null by default
 
         // Act
-        var resolved = options.BackgroundTimeout ?? config.DefaultTimeout;
+        var resolved = options.BackgroundResponses?.Timeout ?? config.DefaultTimeout;
 
         // Assert
         Assert.Null(resolved);

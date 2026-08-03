@@ -88,16 +88,16 @@ public sealed class FunctionExecutionContextTests
     {
         var runConfig = new AgentRunConfig
         {
-            ContextOverrides = new Dictionary<string, object>
+            Context = new AgentContextRunConfig
             {
-                ["coding.workspaceRoot"] = "/tmp/workspace"
+                Properties = new Dictionary<string, object> { ["coding.workspaceRoot"] = "/tmp/workspace" }
             }
         };
 
         var context = CreateContext(runConfig: runConfig);
 
         context.RunConfig.Should().BeSameAs(runConfig);
-        context.RunConfig.ContextOverrides.Should().ContainKey("coding.workspaceRoot");
+        context.RunConfig.Context!.Properties.Should().ContainKey("coding.workspaceRoot");
     }
 
     [Fact]

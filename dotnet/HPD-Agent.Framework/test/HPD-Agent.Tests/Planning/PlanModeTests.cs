@@ -242,7 +242,7 @@ public class PlanModeTests
 
         await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
 
-        Assert.Contains("[PLAN MODE ENABLED]", context.RunConfig.AdditionalSystemInstructions ?? "");
+        Assert.Contains("[PLAN MODE ENABLED]", context.RunConfig.SystemInstructions?.Append ?? "");
     }
 
     [Fact]
@@ -258,8 +258,8 @@ public class PlanModeTests
 
         await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
 
-        Assert.Contains("Custom: always make a plan first.", context.RunConfig.AdditionalSystemInstructions ?? "");
-        Assert.DoesNotContain("[PLAN MODE ENABLED]", context.RunConfig.AdditionalSystemInstructions ?? "");
+        Assert.Contains("Custom: always make a plan first.", context.RunConfig.SystemInstructions?.Append ?? "");
+        Assert.DoesNotContain("[PLAN MODE ENABLED]", context.RunConfig.SystemInstructions?.Append ?? "");
     }
 
     [Fact]
@@ -272,7 +272,7 @@ public class PlanModeTests
         await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
 
         // No instructions added when disabled
-        Assert.True(string.IsNullOrEmpty(context.RunConfig.AdditionalSystemInstructions));
+        Assert.True(string.IsNullOrEmpty(context.RunConfig.SystemInstructions?.Append));
     }
 
     [Fact]
@@ -287,11 +287,11 @@ public class PlanModeTests
 
         // Simulate the RunConfig being reused / instructions already present
         var ctx2 = CreateContext();
-        ctx2.RunConfig.AdditionalSystemInstructions = ctx1.RunConfig.AdditionalSystemInstructions;
+        ctx2.RunConfig.SystemInstructions = new SystemInstructionsRunConfig { Append = ctx1.RunConfig.SystemInstructions?.Append };
         await middleware.BeforeMessageTurnAsync(ctx2, CancellationToken.None);
 
         // [PLAN MODE ENABLED] marker should appear exactly once
-        var count = CountOccurrences(ctx2.RunConfig.AdditionalSystemInstructions ?? "", "[PLAN MODE ENABLED]");
+        var count = CountOccurrences(ctx2.RunConfig.SystemInstructions?.Append ?? "", "[PLAN MODE ENABLED]");
         Assert.Equal(1, count);
     }
 
