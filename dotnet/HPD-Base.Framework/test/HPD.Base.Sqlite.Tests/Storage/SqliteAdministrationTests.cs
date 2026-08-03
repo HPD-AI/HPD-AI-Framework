@@ -317,6 +317,53 @@ public sealed class SqliteAdministrationTests
         }
     }
 
+    [Fact]
+    public async Task FailedPostInstallValidationRestoresAndReopensTheVerifiedOriginal()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"hpd-base-admin-post-install-failure-{Guid.NewGuid():N}.db");
+        using BaseOpaqueTokenProtector protector = Protector(13, Enumerable.Repeat((byte)0x13, 32).ToArray());
+        var operations = new FailingAdministrationOperations("postInstallValidation");
+        try
+        {
+            await using SqliteRecordStore store = Store(path, protector, administrationOperations: operations);
+            var destination = new MemoryStream();
+            BaseBackupManifest manifest = (await store.CreateBackupAsync(destination, BackupRequest())).Value!;
+            destination.Position = 0;
+
+            using (var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path};Pooling=False"))
+            {
+                connection.Open();
+                using var command = connection.CreateCommand();
+                command.CommandText = "INSERT INTO hpd_base_provider_state(key,value) VALUES ('original_sentinel','preserved');";
+                command.ExecuteNonQuery();
+            }
+
+            OperationResult<BaseRestoreResult> failed = await store.RestoreAsync(
+                destination,
+                new BaseRestoreRequest
+                {
+                    StoreId = "sqlite",
+                    Principal = Principal(),
+                    ExpectedCurrentStoreIdentityDigest = manifest.StoreIdentityDigest,
+                    ExpectedArtifactStoreIdentityDigest = manifest.StoreIdentityDigest,
+                    IdentityMode = BaseRestoreIdentityMode.RequireCurrentStoreIdentity,
+                    RecoveryImageRetention = BaseRecoveryImageRetention.DeleteAfterSuccessfulRestore,
+                    ConfirmDestructiveReplacement = true,
+                });
+
+            failed.Error!.Code.Should().Be(BaseAdministrationErrorCodes.RestoreFailed);
+            failed.Error.RestoreFailureDisposition.Should().Be(BaseRestoreFailureDisposition.RecoveryRestoredOriginal);
+            store.RestoreRecoveryPending.Should().BeFalse();
+
+            using var verified = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path};Pooling=False");
+            verified.Open();
+            using var read = verified.CreateCommand();
+            read.CommandText = "SELECT value FROM hpd_base_provider_state WHERE key='original_sentinel';";
+            read.ExecuteScalar().Should().Be("preserved");
+        }
+        finally { Cleanup(path); }
+    }
+
     private static SqliteRecordStore Store(
         string path,
         BaseOpaqueTokenProtector protector,
@@ -393,5 +440,16 @@ public sealed class SqliteAdministrationTests
             string.Equals(phase, "postInstallValidation", StringComparison.Ordinal)
                 ? new ValueTask(_release.Task)
                 : ValueTask.CompletedTask;
+    }
+
+    private sealed class FailingAdministrationOperations(string phase) : ISqliteAdministrationOperationController
+    {
+        public ValueTask BeforePhaseAsync(string currentPhase, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return string.Equals(currentPhase, phase, StringComparison.Ordinal)
+                ? ValueTask.FromException(new InvalidOperationException("Injected administration failure."))
+                : ValueTask.CompletedTask;
+        }
     }
 }
