@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using HPD.Base;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 
 namespace HPD.Gateway.Management;
 
@@ -13,6 +14,7 @@ public sealed class GatewayManagementOptions
     public GatewayAuthorityDurability RequiredDurability { get; set; } = GatewayAuthorityDurability.ProcessLocal;
     public int MaximumTargets { get; set; } = 4_096;
     public int MaximumCommandUtf8Bytes { get; set; } = 4 * 1024 * 1024;
+    public TimeSpan ReconciliationInterval { get; set; } = TimeSpan.FromSeconds(5);
     public byte[]? DesiredStateTokenKey
     {
         get => _desiredStateTokenKey is null ? null : [.. _desiredStateTokenKey];
@@ -80,6 +82,9 @@ public static class GatewayManagementServiceCollectionExtensions
             provider.GetRequiredService<GatewayAuthorityRuntime>());
         services.TryAddSingleton<IGatewayManagementCommandCoordinator, GatewayManagementCommandCoordinator>();
         services.TryAddSingleton<IGatewayDeliveryCoordinator, GatewayDeliveryCoordinator>();
+        services.TryAddSingleton<GatewayManagementReconciliationWorker>();
+        services.AddSingleton<IHostedService>(static provider =>
+            provider.GetRequiredService<GatewayManagementReconciliationWorker>());
         services.TryAddSingleton<IGatewayManagementReader, GatewayManagementReader>();
         services.TryAddSingleton<IGatewayManagementAdministration, GatewayManagementAdministration>();
         services.TryAddSingleton<IGatewayManagementStatusReader, GatewayManagementStatusReader>();
@@ -96,6 +101,9 @@ public static class GatewayManagementServiceCollectionExtensions
             throw new ArgumentOutOfRangeException(nameof(options.MaximumTargets));
         if (options.MaximumCommandUtf8Bytes is < 1_024 or > 16 * 1024 * 1024)
             throw new ArgumentOutOfRangeException(nameof(options.MaximumCommandUtf8Bytes));
+        if (options.ReconciliationInterval < TimeSpan.FromMilliseconds(100) ||
+            options.ReconciliationInterval > TimeSpan.FromMinutes(5))
+            throw new ArgumentOutOfRangeException(nameof(options.ReconciliationInterval));
         if (options.DesiredStateTokenKey is { Length: not 32 })
             throw new ArgumentException("DesiredStateTokenKey must contain exactly 32 bytes.", nameof(options));
         if (options.RequiredDurability == GatewayAuthorityDurability.RestartDurable && options.DesiredStateTokenKey is null)

@@ -4,6 +4,7 @@ using System.Text;
 using HPD.Base;
 using HPD.Gateway.Abstractions;
 using HPD.Gateway.Yarp;
+using Microsoft.Extensions.Hosting;
 
 namespace HPD.Gateway.Management;
 
@@ -35,10 +36,8 @@ internal sealed class GatewayDeliveryCoordinator(
         try
         {
             BaseSession session = Session();
-            BaseRecord<GatewayDeliveryOutboxItem>[] items = (await session
-                .Collection(GatewayDeliveryOutboxItem.Collection)
-                .Query().Take(options.MaximumTargets).ToArrayAsync(options.MaximumTargets, cancellationToken)
-                .ConfigureAwait(false)).RequireValue();
+            BaseRecord<GatewayDeliveryOutboxItem>[] items = await LoadEligible(
+                session, cancellationToken).ConfigureAwait(false);
             int claimed = 0, completed = 0, pending = 0, failed = 0;
             foreach (BaseRecord<GatewayDeliveryOutboxItem> item in items)
             {
@@ -121,6 +120,33 @@ internal sealed class GatewayDeliveryCoordinator(
             return new(items.Length, claimed, completed, pending, failed);
         }
         finally { _lease.Release(); }
+    }
+
+    private async ValueTask<BaseRecord<GatewayDeliveryOutboxItem>[]> LoadEligible(
+        BaseSession session,
+        CancellationToken cancellationToken)
+    {
+        var records = new Dictionary<string, BaseRecord<GatewayDeliveryOutboxItem>>(StringComparer.Ordinal);
+        GatewayDeliveryState[] states =
+        [
+            GatewayDeliveryState.OutcomePersistencePending,
+            GatewayDeliveryState.Immediate,
+            GatewayDeliveryState.RetryScheduled,
+            GatewayDeliveryState.Claimed,
+        ];
+        foreach (GatewayDeliveryState state in states)
+        {
+            int remaining = options.MaximumTargets - records.Count;
+            if (remaining == 0) break;
+            BaseRecord<GatewayDeliveryOutboxItem>[] page = (await session
+                .Collection(GatewayDeliveryOutboxItem.Collection).Query()
+                .Where(GatewayDeliveryOutboxItem.Fields.State, state)
+                .Take(remaining).ToArrayAsync(remaining, cancellationToken)
+                .ConfigureAwait(false)).RequireValue();
+            foreach (BaseRecord<GatewayDeliveryOutboxItem> record in page)
+                records.TryAdd(record.Id.Value, record);
+        }
+        return records.Values.OrderBy(static value => value.Id.Value, StringComparer.Ordinal).ToArray();
     }
 
     private static async ValueTask<bool> PersistOutcome(
@@ -214,5 +240,44 @@ internal sealed class GatewayDeliveryCoordinator(
                 ? GatewayManagementCommandState.Duplicate : GatewayManagementCommandState.Accepted,
                 "management.outcome.persisted", id)
             : new(GatewayManagementCommandState.Unavailable, value.Error?.Code ?? "management.outcome.persistence-failed");
+    }
+}
+
+internal sealed class GatewayManagementReconciliationWorker(
+    IGatewayDeliveryCoordinator delivery,
+    IGatewayManagementAdministration administration,
+    GatewayManagementOptions options) : BackgroundService
+{
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        using var timer = new PeriodicTimer(options.ReconciliationInterval);
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            if (!await RunDelivery(stoppingToken).ConfigureAwait(false)) break;
+            if (!await RunAdministration(stoppingToken).ConfigureAwait(false)) break;
+            if (!await timer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false)) break;
+        }
+    }
+
+    private async ValueTask<bool> RunDelivery(CancellationToken stoppingToken)
+    {
+        try { await delivery.ReconcileOnceAsync(stoppingToken).ConfigureAwait(false); }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { return false; }
+        catch (Exception exception) when (exception is not (OutOfMemoryException or StackOverflowException))
+        {
+            // Status readers expose unavailable/pending truth; periodic reconciliation retries.
+        }
+        return true;
+    }
+
+    private async ValueTask<bool> RunAdministration(CancellationToken stoppingToken)
+    {
+        try { await administration.ReconcilePendingAsync(stoppingToken).ConfigureAwait(false); }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { return false; }
+        catch (Exception exception) when (exception is not (OutOfMemoryException or StackOverflowException))
+        {
+            // Administration remains pending and retries independently of delivery.
+        }
+        return true;
     }
 }

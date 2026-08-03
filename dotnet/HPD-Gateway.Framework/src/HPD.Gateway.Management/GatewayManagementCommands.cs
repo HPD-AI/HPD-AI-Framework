@@ -181,7 +181,7 @@ internal sealed class GatewayManagementCommandCoordinator(
                     GatewayManagementCommandState.Duplicate,
                     "management.duplicate",
                     priorReceipt.Value.StableOperationId,
-                    desired is null ? null : ProtectDesiredToken(command.NamespaceId, command.TargetNodeId, desiredId, desired.Revision));
+                    priorReceipt.Value.StableDesiredStateToken);
             }
             if (!ValidateDesiredToken(command, desired))
                 return new(GatewayManagementCommandState.Conflict, "management.desired-token.conflict");
@@ -235,6 +235,7 @@ internal sealed class GatewayManagementCommandCoordinator(
                 RevisionId = revisionId.Value,
                 CandidateId = candidateId,
             };
+            string selectedDesiredToken = ProtectDesiredToken(nextDesired);
             BaseBatchItem<GatewayDesiredState> desiredItem = batch.Upsert(
                 GatewayDesiredState.Collection, desiredId, nextDesired, nextDesired,
                 desired is null ? RecordUpsertExistenceCondition.CreateOnly : RecordUpsertExistenceCondition.UpdateOnly,
@@ -269,10 +270,11 @@ internal sealed class GatewayManagementCommandCoordinator(
             }
 
             batch.Create(GatewayCommandReceipt.Collection, receiptId, Receipt(
-                command.NamespaceId, operation, command.IdempotencyKey, fingerprint, "accepted", revisionId.Value));
+                command.NamespaceId, operation, command.IdempotencyKey, fingerprint,
+                "accepted", revisionId.Value, selectedDesiredToken));
             return await CommitDesiredAsync(
                 batch, desiredItem, command.NamespaceId, command.TargetNodeId,
-                desiredId, revisionId.Value, cancellationToken).ConfigureAwait(false);
+                desiredId, revisionId.Value, selectedDesiredToken, cancellationToken).ConfigureAwait(false);
         }
         finally { _commands.Release(); }
     }
@@ -329,6 +331,7 @@ internal sealed class GatewayManagementCommandCoordinator(
         string targetNodeId,
         RecordId desiredId,
         string operationId,
+        string selectedDesiredToken,
         CancellationToken cancellationToken)
     {
         BaseResult<BaseBatchResult> result = await batch.CommitAsync(cancellationToken).ConfigureAwait(false);
@@ -357,7 +360,7 @@ internal sealed class GatewayManagementCommandCoordinator(
                 ? "management.duplicate"
                 : "management.accepted",
             operationId,
-            ProtectDesiredToken(namespaceId, targetNodeId, desiredId, selected.Revision));
+            selectedDesiredToken);
     }
 
     private bool ValidateDesiredToken(GatewaySubmitCommand command, BaseRecord<GatewayDesiredState>? desired)
@@ -367,13 +370,12 @@ internal sealed class GatewayManagementCommandCoordinator(
         return command.ExpectedDesiredStateToken is not null &&
             CryptographicOperations.FixedTimeEquals(
                 Encoding.ASCII.GetBytes(command.ExpectedDesiredStateToken),
-                Encoding.ASCII.GetBytes(ProtectDesiredToken(command.NamespaceId, command.TargetNodeId,
-                    GatewayAuthorityRecordIds.DesiredState(options.ManagementAuthorityId, command.TargetNodeId), desired.Revision)));
+                Encoding.ASCII.GetBytes(ProtectDesiredToken(desired.Value)));
     }
 
-    private string ProtectDesiredToken(string namespaceId, string targetNodeId, RecordId id, RevisionToken? revision)
+    private string ProtectDesiredToken(GatewayDesiredState desired)
     {
-        string payload = $"v1\n{namespaceId}\n{targetNodeId}\n{id.Value}\n{revision?.Value ?? "pending"}";
+        string payload = $"v1\n{desired.ManagementAuthorityId}\n{desired.NamespaceId}\n{desired.TargetNodeId}\n{desired.ActivationIntentId}\n{desired.RevisionId}\n{desired.CandidateId}";
         byte[] signature = HMACSHA256.HashData(options.GetTokenKey(), Encoding.UTF8.GetBytes(payload));
         return Convert.ToBase64String(Encoding.UTF8.GetBytes(payload)) + "." + Convert.ToHexStringLower(signature);
     }
@@ -394,7 +396,7 @@ internal sealed class GatewayManagementCommandCoordinator(
 
     private static GatewayCommandReceipt Receipt(
         string namespaceId, string operation, string key, byte[] fingerprint,
-        string result, string operationId) => new()
+        string result, string operationId, string? desiredStateToken = null) => new()
     {
         NamespaceId = namespaceId,
         Operation = operation,
@@ -402,6 +404,7 @@ internal sealed class GatewayManagementCommandCoordinator(
         Fingerprint = fingerprint,
         StableResultCode = result,
         StableOperationId = operationId,
+        StableDesiredStateToken = desiredStateToken,
     };
 
     private static byte[] Fingerprint(params string[] values)

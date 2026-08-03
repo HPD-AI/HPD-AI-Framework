@@ -4,6 +4,8 @@ using HPD.Base.Sqlite;
 using HPD.Gateway.Management;
 using HPD.Gateway;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 using Xunit;
 using System.Collections.Immutable;
 using System.Text.Json;
@@ -130,6 +132,224 @@ public sealed class GatewayManagementCompositionTests
     }
 
     [Fact]
+    public async Task Older_duplicate_returns_its_receipt_owned_token_after_desired_advances()
+    {
+        await using ServiceProvider provider = InMemoryProvider();
+        var commands = provider.GetRequiredService<IGatewayManagementCommandCoordinator>();
+        var actor = new GatewayManagementActor("actor-a", "test", "manage");
+        await commands.ProvisionTargetAsync(new(
+            "namespace-a", "node-a", "provision-a", actor, "correlation-a", "epoch-a"));
+        ImmutableArray<byte> configuration = ConfigurationBytes();
+        var firstCommand = new GatewaySubmitCommand(
+            "namespace-a", "node-a", "submit-a", actor, "correlation-b",
+            "test", "source-a", "first", configuration, Activate: false);
+        GatewayManagementCommandResult first = await commands.SubmitAsync(firstCommand);
+        var secondCommand = firstCommand with
+        {
+            IdempotencyKey = "submit-b",
+            CorrelationId = "correlation-c",
+            Description = "second",
+            ExpectedDesiredStateToken = first.DesiredStateToken,
+        };
+        GatewayManagementCommandResult second = await commands.SubmitAsync(secondCommand);
+        GatewayManagementCommandResult replay = await commands.SubmitAsync(firstCommand);
+
+        second.State.Should().Be(GatewayManagementCommandState.Accepted, second.Code);
+        second.DesiredStateToken.Should().NotBe(first.DesiredStateToken);
+        replay.State.Should().Be(GatewayManagementCommandState.Duplicate, replay.Code);
+        replay.DesiredStateToken.Should().Be(first.DesiredStateToken);
+    }
+
+    [Fact]
+    public async Task Hosted_reconciler_delivers_new_work_when_terminal_history_fills_the_bound()
+    {
+        var activator = new RecordingNodeActivator();
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddHpdGateway(static builder => builder.AddCoreFamilies());
+        services.AddHpdGatewayManagement(options =>
+        {
+            options.ManagementAuthorityId = "authority-a";
+            options.MaximumTargets = 1;
+            options.ReconciliationInterval = TimeSpan.FromMilliseconds(100);
+        });
+        services.Replace(ServiceDescriptor.Singleton<IGatewayNodeActivator>(activator));
+        await using ServiceProvider provider = services.BuildServiceProvider();
+        var commands = provider.GetRequiredService<IGatewayManagementCommandCoordinator>();
+        var actor = new GatewayManagementActor("actor-a", "test", "manage");
+        await commands.ProvisionTargetAsync(new(
+            "namespace-a", "node-a", "provision-a", actor, "correlation-a", "epoch-a"));
+        ImmutableArray<byte> configuration = ConfigurationBytes();
+        var firstCommand = new GatewaySubmitCommand(
+            "namespace-a", "node-a", "submit-a", actor, "correlation-b",
+            "test", "source-a", "first", configuration, Activate: true);
+
+        IHostedService worker = provider.GetRequiredService<GatewayManagementReconciliationWorker>();
+        await worker.StartAsync(CancellationToken.None);
+        try
+        {
+            GatewayManagementCommandResult first = await commands.SubmitAsync(firstCommand);
+            await WaitUntil(() => activator.Count >= 1);
+            GatewayManagementCommandResult second = await commands.SubmitAsync(firstCommand with
+            {
+                IdempotencyKey = "submit-b",
+                CorrelationId = "correlation-c",
+                Description = "second",
+                ExpectedDesiredStateToken = first.DesiredStateToken,
+            });
+            second.State.Should().Be(GatewayManagementCommandState.Accepted, second.Code);
+            await WaitUntil(() => activator.Count >= 2);
+        }
+        finally
+        {
+            await worker.StopAsync(CancellationToken.None);
+        }
+    }
+
+    [Fact]
+    public async Task Administrative_purge_replay_does_not_execute_the_provider_twice()
+    {
+        await WithSqlite(async provider =>
+        {
+            var commands = provider.GetRequiredService<IGatewayManagementCommandCoordinator>();
+            var actor = new GatewayManagementActor("actor-a", "test", "manage");
+            await commands.ProvisionTargetAsync(new(
+                "namespace-a", "node-a", "provision-a", actor, "correlation-a", "epoch-a"));
+            BaseRecord<GatewayCommandReceipt> receipt = (await TrustedSession(provider)
+                .Collection(GatewayCommandReceipt.Collection).Query()
+                .Where(GatewayCommandReceipt.Fields.Operation, "provision-target")
+                .Take(1).ToArrayAsync(1)).RequireValue().Single();
+            var administration = provider.GetRequiredService<IGatewayManagementAdministration>();
+
+            GatewayAdministrativeResult first = await administration.PurgeAsync(
+                "namespace-a", "purge-a", actor, GatewayAuthoritySchema.CommandReceipts,
+                [receipt.Id.Value], null);
+            GatewayAdministrativeResult replay = await administration.PurgeAsync(
+                "namespace-a", "purge-a", actor, GatewayAuthoritySchema.CommandReceipts,
+                [receipt.Id.Value], null);
+
+            first.State.Should().Be(GatewayAdministrativeCompletionState.Completed, first.Code);
+            replay.Should().Be(first);
+        });
+    }
+
+    [Fact]
+    public async Task Restarted_sqlite_worker_scans_and_delivers_committed_outbox_work()
+    {
+        string database = Path.Combine(Path.GetTempPath(), $"hpd-gateway-{Guid.NewGuid():N}.db");
+        var activator = new RecordingNodeActivator();
+        try
+        {
+            await using (ServiceProvider first = SqliteProvider(database, activator))
+            {
+                await InitializeSqlite(first);
+                var commands = first.GetRequiredService<IGatewayManagementCommandCoordinator>();
+                var actor = new GatewayManagementActor("actor-a", "test", "manage");
+                await commands.ProvisionTargetAsync(new(
+                    "namespace-a", "node-a", "provision-a", actor, "correlation-a", "epoch-a"));
+                GatewayManagementCommandResult accepted = await commands.SubmitAsync(new(
+                    "namespace-a", "node-a", "submit-a", actor, "correlation-b",
+                    "test", "source-a", null, ConfigurationBytes(), Activate: true));
+                accepted.State.Should().Be(GatewayManagementCommandState.Accepted, accepted.Code);
+                activator.Count.Should().Be(0);
+            }
+
+            await using (ServiceProvider restarted = SqliteProvider(database, activator))
+            {
+                await InitializeSqlite(restarted);
+                IHostedService worker = restarted.GetRequiredService<GatewayManagementReconciliationWorker>();
+                await worker.StartAsync(CancellationToken.None);
+                try { await WaitUntil(() => activator.Count == 1); }
+                finally { await worker.StopAsync(CancellationToken.None); }
+            }
+        }
+        finally
+        {
+            if (File.Exists(database)) File.Delete(database);
+            if (File.Exists(database + "-wal")) File.Delete(database + "-wal");
+            if (File.Exists(database + "-shm")) File.Delete(database + "-shm");
+        }
+    }
+
+    [Fact]
+    public async Task Concurrent_reconciliation_claims_each_outbox_item_once()
+    {
+        var activator = new RecordingNodeActivator();
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddHpdGateway(static builder => builder.AddCoreFamilies());
+        services.AddHpdGatewayManagement(options => options.ManagementAuthorityId = "authority-a");
+        services.Replace(ServiceDescriptor.Singleton<IGatewayNodeActivator>(activator));
+        await using ServiceProvider provider = services.BuildServiceProvider();
+        var commands = provider.GetRequiredService<IGatewayManagementCommandCoordinator>();
+        var actor = new GatewayManagementActor("actor-a", "test", "manage");
+        await commands.ProvisionTargetAsync(new(
+            "namespace-a", "node-a", "provision-a", actor, "correlation-a", "epoch-a"));
+        GatewayManagementCommandResult accepted = await commands.SubmitAsync(new(
+            "namespace-a", "node-a", "submit-a", actor, "correlation-b",
+            "test", "source-a", null, ConfigurationBytes(), Activate: true));
+        accepted.State.Should().Be(GatewayManagementCommandState.Accepted, accepted.Code);
+        var delivery = provider.GetRequiredService<IGatewayDeliveryCoordinator>();
+
+        await Task.WhenAll(
+            delivery.ReconcileOnceAsync().AsTask(),
+            delivery.ReconcileOnceAsync().AsTask());
+
+        activator.Count.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Purge_rejects_current_and_transitively_referenced_records()
+    {
+        var activator = new RecordingNodeActivator();
+        await WithSqlite(async provider =>
+        {
+            var commands = provider.GetRequiredService<IGatewayManagementCommandCoordinator>();
+            var actor = new GatewayManagementActor("actor-a", "test", "manage");
+            await commands.ProvisionTargetAsync(new(
+                "namespace-a", "node-a", "provision-a", actor, "correlation-a", "epoch-a"));
+            ImmutableArray<byte> configuration = ConfigurationBytes();
+            var firstCommand = new GatewaySubmitCommand(
+                "namespace-a", "node-a", "submit-a", actor, "correlation-b",
+                "test", "source-a", "first", configuration, Activate: false);
+            GatewayManagementCommandResult first = await commands.SubmitAsync(firstCommand);
+            GatewayManagementCommandResult second = await commands.SubmitAsync(firstCommand with
+            {
+                IdempotencyKey = "submit-b",
+                CorrelationId = "correlation-c",
+                Description = "second",
+                ExpectedDesiredStateToken = first.DesiredStateToken,
+                Activate = true,
+            });
+            second.State.Should().Be(GatewayManagementCommandState.Accepted, second.Code);
+            (await provider.GetRequiredService<IGatewayDeliveryCoordinator>().ReconcileOnceAsync())
+                .Failed.Should().Be(1);
+            BaseSession session = TrustedSession(provider);
+            BaseRecord<GatewayAcceptedRevision> firstRevision = (await session
+                .Collection(GatewayAcceptedRevision.Collection)
+                .GetAsync(RecordId.Create(first.OperationId!))).RequireValue();
+            BaseRecord<GatewayCommandReceipt> firstReceipt = (await session
+                .Collection(GatewayCommandReceipt.Collection).Query()
+                .Where(GatewayCommandReceipt.Fields.StableOperationId, first.OperationId!)
+                .Take(1).ToArrayAsync(1)).RequireValue().Single();
+            BaseRecord<GatewayAdministrativeAuditRecord> firstAudit = (await session
+                .Collection(GatewayAdministrativeAuditRecord.Collection).Query()
+                .Where(GatewayAdministrativeAuditRecord.Fields.SubjectId, first.OperationId!)
+                .Take(1).ToArrayAsync(1)).RequireValue().Single();
+            BaseRecord<GatewayNodeActivationOutcome> outcome = (await session
+                .Collection(GatewayNodeActivationOutcome.Collection).Query()
+                .Take(1).ToArrayAsync(1)).RequireValue().Single();
+            var administration = provider.GetRequiredService<IGatewayManagementAdministration>();
+
+            await AssertProtected(administration, actor, GatewayAuthoritySchema.AcceptedRevisions, first.OperationId!, "revision");
+            await AssertProtected(administration, actor, GatewayAuthoritySchema.ValidationRecords, firstRevision.Value.ValidationId, "validation");
+            await AssertProtected(administration, actor, GatewayAuthoritySchema.CommandReceipts, firstReceipt.Id.Value, "receipt");
+            await AssertProtected(administration, actor, GatewayAuthoritySchema.AdministrativeAudit, firstAudit.Id.Value, "audit");
+            await AssertProtected(administration, actor, GatewayAuthoritySchema.NodeOutcomes, outcome.Id.Value, "outcome");
+        }, activator);
+    }
+
+    [Fact]
     public async Task Sqlite_is_restart_durable_and_replays_the_exact_provisioning_receipt()
     {
         string database = Path.Combine(Path.GetTempPath(), $"hpd-gateway-{Guid.NewGuid():N}.db");
@@ -166,7 +386,7 @@ public sealed class GatewayManagementCompositionTests
         }
     }
 
-    private static ServiceProvider SqliteProvider(string database)
+    private static ServiceProvider SqliteProvider(string database, IGatewayNodeActivator? activator = null)
     {
         var services = new ServiceCollection();
         services.AddLogging();
@@ -194,7 +414,92 @@ public sealed class GatewayManagementCompositionTests
                     sqlite.AllowClientRequestedIds = true;
                 });
             });
+        if (activator is not null)
+            services.Replace(ServiceDescriptor.Singleton(activator));
         return services.BuildServiceProvider();
+    }
+
+    private static ServiceProvider InMemoryProvider()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddHpdGateway(static builder => builder.AddCoreFamilies());
+        services.AddHpdGatewayManagement(options => options.ManagementAuthorityId = "authority-a");
+        return services.BuildServiceProvider();
+    }
+
+    private static async Task WithSqlite(
+        Func<ServiceProvider, Task> action,
+        IGatewayNodeActivator? activator = null)
+    {
+        string database = Path.Combine(Path.GetTempPath(), $"hpd-gateway-{Guid.NewGuid():N}.db");
+        try
+        {
+            await using ServiceProvider provider = SqliteProvider(database, activator);
+            await InitializeSqlite(provider);
+            await action(provider);
+        }
+        finally
+        {
+            if (File.Exists(database)) File.Delete(database);
+            if (File.Exists(database + "-wal")) File.Delete(database + "-wal");
+            if (File.Exists(database + "-shm")) File.Delete(database + "-shm");
+        }
+    }
+
+    private static BaseSession TrustedSession(ServiceProvider provider) =>
+        provider.GetRequiredService<IBaseSessionFactory>().For(new PrincipalContext
+        {
+            AuthenticationState = PrincipalAuthenticationState.System,
+            SubjectId = "gateway-tests",
+            AuthSource = GatewayManagementBasePolicy.TrustedSource,
+        }, options => options.Mode = OperationMode.System);
+
+    private static async Task AssertProtected(
+        IGatewayManagementAdministration administration,
+        GatewayManagementActor actor,
+        string collectionId,
+        string recordId,
+        string key) =>
+        await administration.Invoking(value => value.PurgeAsync(
+                "namespace-a", "protected-" + key, actor, collectionId, [recordId], null).AsTask())
+            .Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*reference closure*");
+
+    private static async Task WaitUntil(Func<bool> predicate)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        while (!predicate())
+            await Task.Delay(20, timeout.Token);
+    }
+
+    private sealed class RecordingNodeActivator : IGatewayNodeActivator
+    {
+        private int _count;
+        public int Count => Volatile.Read(ref _count);
+
+        public ValueTask<GatewayNodeActivationResult> ActivateAsync(
+            GatewayNodeActivationRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            Interlocked.Increment(ref _count);
+            return ValueTask.FromResult(new GatewayNodeActivationResult(
+                GatewayNodeActivationState.RejectedBeforeMaterialization,
+                null,
+                null,
+                [new GatewayNodeActivationDiagnostic("test.rejected", "$", "Expected test rejection.")]));
+        }
+    }
+
+    private static ImmutableArray<byte> ConfigurationBytes()
+    {
+        var valid = GatewayConfigurationTests.CreateValidConfiguration();
+        var configuration = valid with
+        {
+            Routes = [valid.Routes[0] with { Declarations = new HPD.Gateway.Abstractions.RouteDeclarations() }],
+        };
+        return ImmutableArray.Create(JsonSerializer.SerializeToUtf8Bytes(
+            configuration, GatewayJsonSerializerContext.Default.GatewayConfiguration));
     }
 
     private static async Task InitializeSqlite(ServiceProvider provider)

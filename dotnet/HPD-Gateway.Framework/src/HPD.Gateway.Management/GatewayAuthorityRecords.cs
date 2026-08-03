@@ -98,6 +98,7 @@ public sealed partial record GatewayActivationIntent
 }
 
 [BaseCollection(GatewayAuthoritySchema.DeliveryOutbox, typeof(GatewayManagementJsonContext), MutationMode = BaseCollectionMutationMode.Mutable)]
+[BaseIndex("gateway.outbox.state", nameof(State), Required = false)]
 [BaseIndex("gateway.outbox.state-target", nameof(State), nameof(TargetNodeId), Required = false)]
 public sealed partial record GatewayDeliveryOutboxItem
 {
@@ -138,6 +139,7 @@ public sealed partial record GatewayCommandReceipt
     [BaseField("receipt.fingerprint")] public required byte[] Fingerprint { get => [.. _fingerprint]; init => _fingerprint = value is null ? throw new ArgumentNullException(nameof(value)) : [.. value]; }
     [BaseField("receipt.result-code")] public required string StableResultCode { get; init; }
     [BaseField("receipt.operation-id")] public required string StableOperationId { get; init; }
+    [BaseField("receipt.desired-state-token")] public string? StableDesiredStateToken { get; init; }
 }
 
 [BaseCollection(GatewayAuthoritySchema.AdministrativeOperationIntents, typeof(GatewayManagementJsonContext), MutationMode = BaseCollectionMutationMode.AppendOnly)]
