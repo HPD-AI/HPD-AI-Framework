@@ -32,12 +32,14 @@ internal sealed class GatewayMaterializationResult
 internal sealed class GatewayNativeMaterializer(
     IConfigValidator nativeValidator,
     GatewayInspectionRegistry? inspectionRegistry = null,
-    GatewayUpstreamResilienceProvider? resilienceRegistry = null)
+    GatewayUpstreamResilienceProvider? resilienceRegistry = null,
+    IGatewayOutputCacheRuntimeCapabilityProvider? outputCacheRuntime = null)
 {
     private const int MaximumDiagnostics = 256;
     private readonly IConfigValidator _nativeValidator = nativeValidator;
     private readonly GatewayInspectionRegistry? _inspectionRegistry = inspectionRegistry;
     private readonly GatewayUpstreamResilienceProvider? _resilienceRegistry = resilienceRegistry;
+    private readonly IGatewayOutputCacheRuntimeCapabilityProvider? _outputCacheRuntime = outputCacheRuntime;
 
     internal async ValueTask<GatewayMaterializationResult> MaterializeAsync(
         GatewayCandidateReadResult candidate,
@@ -51,7 +53,6 @@ internal sealed class GatewayNativeMaterializer(
             return Reject("materialization.candidate-not-accepted", "$", "Only an authoritative accepted candidate can be materialized.");
         if (candidate.CanonicalDocument.ContentHash != identity.ContentHash)
             return Reject("materialization.content-identity-mismatch", "$", "Publication identity does not match the accepted canonical content.");
-
         var configuration = candidate.Configuration;
         var diagnostics = ImmutableArray.CreateBuilder<GatewayMaterializationDiagnostic>();
         RejectUnrealizedSelections(configuration, candidate.ProtectedCredentialHeaders, diagnostics);
@@ -70,6 +71,13 @@ internal sealed class GatewayNativeMaterializer(
                 .OrderBy(static route => route.Id.Value, StringComparer.Ordinal)
                 .Select(route => MaterializeRoute(route, configuration.RootDefaults!, configuration.Definitions!, candidate.ProtectedCredentialHeaders))
                 .ToImmutableArray();
+            if (!OutputCacheCapabilitiesMatch(
+                    candidate.OutputCacheProfiles,
+                    _outputCacheRuntime?.Capabilities,
+                    routes.Where(static route => route.OutputCachePolicy is not null)
+                        .Select(static route => route.OutputCachePolicy!)
+                        .Distinct(StringComparer.Ordinal)))
+                return Reject("materialization.output-cache-capability-mismatch", "$", "Accepted selected Output Cache capabilities do not match the installed runtime registry.");
         }
         catch (Exception)
         {
@@ -114,6 +122,29 @@ internal sealed class GatewayNativeMaterializer(
         {
             return Reject("materialization.bundle-invalid", "$", "Native publication identity or bundle data is invalid.");
         }
+    }
+
+    private static bool OutputCacheCapabilitiesMatch(
+        ImmutableDictionary<string, OutputCacheCapability> accepted,
+        ImmutableDictionary<string, OutputCacheCapability>? runtime,
+        IEnumerable<string> selectedProfiles)
+    {
+        foreach (var name in selectedProfiles)
+        {
+            if (runtime is null || !accepted.TryGetValue(name, out var expected) || !runtime.TryGetValue(name, out var installed)) return false;
+            if (!StringComparer.Ordinal.Equals(expected.Name, installed.Name) ||
+                expected.Version != installed.Version ||
+                expected.RetainsDefaultSafetyPolicy != installed.RetainsDefaultSafetyPolicy ||
+                !StringComparer.Ordinal.Equals(expected.StoreId, installed.StoreId) ||
+                expected.StoreScope != installed.StoreScope ||
+                expected.Expiration != installed.Expiration ||
+                expected.MaximumBodyBytes != installed.MaximumBodyBytes ||
+                expected.StoreCapacityBytes != installed.StoreCapacityBytes ||
+                !expected.QueryKeys.SequenceEqual(installed.QueryKeys, StringComparer.Ordinal) ||
+                !expected.HeaderNames.SequenceEqual(installed.HeaderNames, StringComparer.Ordinal))
+                return false;
+        }
+        return true;
     }
 
     private RouteConfig MaterializeRoute(RouteDeclaration route, GatewayRootDeclarations root, GatewayDefinitions definitions, ImmutableArray<string> protectedCredentialHeaders)

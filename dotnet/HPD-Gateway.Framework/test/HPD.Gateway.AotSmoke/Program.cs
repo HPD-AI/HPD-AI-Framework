@@ -304,6 +304,7 @@ var capabilities = HostCapabilitySnapshot.Create(new HostCapabilityRegistration
             true,
             "memory",
             OutputCacheStoreScope.ProcessLocal,
+            TimeSpan.FromMinutes(1),
             1_048_576,
             16_777_216,
             [],
@@ -396,7 +397,12 @@ services.AddRateLimiter(options => options.AddFixedWindowLimiter("GatewayAdmissi
     limiter.PermitLimit = 10;
     limiter.Window = TimeSpan.FromMinutes(1);
 }));
-services.AddOutputCache(options => options.AddPolicy("gateway-cache", policy => policy.Expire(TimeSpan.FromSeconds(10))));
+services.AddHpdGatewayOutputCaching(builder => builder.Add(new GatewayOutputCacheProfile
+{
+    Name = "gateway-cache",
+    Version = 1,
+    Expiration = TimeSpan.FromMinutes(1)
+}));
 services.AddReverseProxy();
 services.AddHpdGatewayYarpPublication();
 services.AddHpdGatewayYarpResilience(registry => registry.Add(smokeResilienceProfile));

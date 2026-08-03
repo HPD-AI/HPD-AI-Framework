@@ -66,6 +66,7 @@ public sealed record OutputCacheCapability(
     bool RetainsDefaultSafetyPolicy,
     string StoreId,
     OutputCacheStoreScope StoreScope,
+    TimeSpan Expiration,
     long MaximumBodyBytes,
     long StoreCapacityBytes,
     ImmutableArray<string> QueryKeys,
@@ -260,6 +261,7 @@ public sealed class HostCapabilitySnapshot
             if (profile is null || !GatewayIdentifier.IsCanonical(profile.Name) || profile.Version <= 0 ||
                 !profile.RetainsDefaultSafetyPolicy || !GatewayIdentifier.IsCanonical(profile.StoreId) ||
                 profile.StoreScope != OutputCacheStoreScope.ProcessLocal ||
+                profile.Expiration < TimeSpan.FromSeconds(1) || profile.Expiration > TimeSpan.FromDays(1) ||
                 profile.MaximumBodyBytes is < 1_024 or > 67_108_864 ||
                 profile.StoreCapacityBytes < profile.MaximumBodyBytes || profile.StoreCapacityBytes > 1_073_741_824 ||
                 !ValidDimensions(profile.QueryKeys, header: false, protectedHeaders) ||

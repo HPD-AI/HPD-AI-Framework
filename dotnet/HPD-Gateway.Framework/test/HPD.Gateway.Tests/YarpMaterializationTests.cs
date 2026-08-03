@@ -7,6 +7,7 @@ using HPD.Gateway.Abstractions;
 using HPD.Gateway.Abstractions.Serialization;
 using HPD.Gateway.Core;
 using HPD.Gateway.Inspection;
+using HPD.Gateway.OutputCaching;
 using HPD.Gateway.Yarp;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -235,7 +236,12 @@ public sealed class YarpMaterializationTests
             limiter.Window = TimeSpan.FromMinutes(1);
         }));
         services.AddRequestTimeouts(options => options.AddPolicy("root-timeout", TimeSpan.FromSeconds(10)));
-        services.AddOutputCache(options => options.AddPolicy("root-cache", policy => policy.Expire(TimeSpan.FromSeconds(10))));
+        services.AddHpdGatewayOutputCaching(builder => builder.Add(new GatewayOutputCacheProfile
+        {
+            Name = "root-cache",
+            Version = 1,
+            Expiration = TimeSpan.FromMinutes(1)
+        }));
         services.AddReverseProxy();
         services.AddHpdGatewayYarpPublication();
         services.AddHpdGatewayYarpMaterialization();
@@ -579,6 +585,18 @@ public sealed class YarpMaterializationTests
     private static async Task<GatewayMaterializationResult> Materialize(GatewayConfiguration configuration, HostCapabilitySnapshot? capabilities = null)
     {
         var accepted = Read(configuration, capabilities ?? Capabilities());
+        if (configuration.RootDefaults?.OutputCache is not null || configuration.Routes.Any(static route => route.Declarations?.OutputCache is not null))
+        {
+            var services = new ServiceCollection();
+            services.AddLogging();
+            services.AddReverseProxy();
+            services.AddSingleton<IConfigValidator>(new AcceptingConfigValidator());
+            services.AddHpdGatewayYarpMaterialization();
+            services.AddHpdGatewayOutputCaching(builder => builder.Add(new GatewayOutputCacheProfile { Name = "root-cache", Version = 1 }));
+            await using var provider = services.BuildServiceProvider();
+            return await provider.GetRequiredService<GatewayNativeMaterializer>()
+                .MaterializeAsync(accepted, Identity(accepted), $"native-{Guid.NewGuid():N}");
+        }
         return await new GatewayNativeMaterializer(new AcceptingConfigValidator())
             .MaterializeAsync(accepted, Identity(accepted), $"native-{Guid.NewGuid():N}");
     }
@@ -649,6 +667,7 @@ public sealed class YarpMaterializationTests
         true,
         "memory",
         OutputCacheStoreScope.ProcessLocal,
+        TimeSpan.FromMinutes(1),
         1_048_576,
         16_777_216,
         [],

@@ -155,6 +155,60 @@ public sealed class OutputCacheProfileTests
         inspection.Errors.Should().Contain(error => error.Path.EndsWith("inspection", StringComparison.Ordinal));
     }
 
+    [Theory]
+    [InlineData("version")]
+    [InlineData("expiration")]
+    [InlineData("query")]
+    [InlineData("header")]
+    [InlineData("body-bound")]
+    [InlineData("store-bound")]
+    [InlineData("store-id")]
+    public async Task MaterializationRejectsAnAcceptedCatalogThatDiffersFromTheInstalledRuntimeRegistry(string difference)
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddReverseProxy();
+        services.AddHpdGatewayYarpMaterialization();
+        services.AddHpdGatewayOutputCaching(builder =>
+        {
+            builder.MaximumBodyBytes = 1_024;
+            builder.StoreCapacityBytes = 65_536;
+            builder.Add(new GatewayOutputCacheProfile
+            {
+                Name = "public-cache",
+                Version = 1,
+                QueryKeys = ["lang"],
+                HeaderNames = ["accept-language"]
+            });
+        });
+        using var provider = services.BuildServiceProvider();
+        var capability = Capability("public-cache");
+        var mismatched = difference switch
+        {
+            "version" => capability with { Version = 2 },
+            "expiration" => capability with { Expiration = TimeSpan.FromMinutes(2) },
+            "query" => capability with { QueryKeys = ["other"] },
+            "header" => capability with { HeaderNames = ["x-other"] },
+            "body-bound" => capability with { MaximumBodyBytes = 2_048 },
+            "store-bound" => capability with { StoreCapacityBytes = 131_072 },
+            "store-id" => capability with { StoreId = "other-memory" },
+            _ => throw new InvalidOperationException()
+        };
+        var accepted = Read(Configuration("http://127.0.0.1:5001", strip: true), HostCapabilitySnapshot.Create(new()
+        {
+            InstalledFamilies = GatewayDeclarationFamilies.OutputCache | GatewayDeclarationFamilies.CredentialDisposition,
+            OutputCacheProfiles = [mismatched],
+            ProtectedCredentialHeaders = ["X-Api-Key"]
+        }));
+        var result = await provider.GetRequiredService<GatewayNativeMaterializer>().MaterializeAsync(
+            accepted,
+            new PublicationCandidateIdentity(new CandidateId("mismatch"), "authority", "epoch", 1, accepted.CanonicalDocument!.ContentHash),
+            "mismatch-native");
+
+        result.IsMaterialized.Should().BeFalse();
+        result.Diagnostics.Should().ContainSingle(error => error.Code == "materialization.output-cache-capability-mismatch");
+    }
+
     [Fact]
     public async Task RealYarpCachesAnonymousSafeResponsesAndVariesByDeclaredDimensions()
     {
@@ -216,12 +270,24 @@ public sealed class OutputCacheProfileTests
     }
 
     [Theory]
-    [InlineData("CONNECT", false)]
-    [InlineData("GET", true)]
-    public async Task ConservativePolicyFailsClosedForConnectAndUpgrade(string method, bool upgrade)
+    [InlineData("CONNECT", false, "HTTP/1.1", null, null)]
+    [InlineData("GET", true, "HTTP/1.1", null, null)]
+    [InlineData("GET", false, "HTTP/3", null, null)]
+    [InlineData("GET", false, "HTTP/1.1", "text/event-stream", null)]
+    [InlineData("GET", false, "HTTP/1.1", "application/grpc", null)]
+    [InlineData("GET", false, "HTTP/1.1", null, "application/grpc+proto")]
+    public async Task ConservativePolicyFailsClosedForUnsupportedRequestShapes(
+        string method,
+        bool upgrade,
+        string protocol,
+        string? accept,
+        string? contentType)
     {
         var context = new DefaultHttpContext();
         context.Request.Method = method;
+        context.Request.Protocol = protocol;
+        if (accept is not null) context.Request.Headers.Accept = accept;
+        if (contentType is not null) context.Request.ContentType = contentType;
         if (upgrade)
         {
             context.Request.Headers.Connection = "Upgrade";
@@ -236,6 +302,23 @@ public sealed class OutputCacheProfileTests
         output.AllowCacheLookup.Should().BeFalse();
         output.AllowCacheStorage.Should().BeFalse();
         output.AllowLocking.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("text/event-stream", null)]
+    [InlineData("application/grpc", null)]
+    [InlineData(null, "application/grpc+proto")]
+    public async Task UnsupportedNegotiationCannotReadAnOrdinaryCachedRepresentation(string? accept, string? contentType)
+    {
+        await using var fixture = await CacheFixture.Start();
+        await fixture.Publish(cached: true, version: 1);
+        (await fixture.Get("/negotiated")).Body.Should().Be("1");
+        (await fixture.Get("/negotiated")).Body.Should().Be("1");
+
+        var unsupported = await fixture.Get("/negotiated", accept: accept, contentType: contentType);
+
+        unsupported.Body.Should().Be("2");
+        fixture.UpstreamCalls.Should().Be(2);
     }
 
     [Fact]
@@ -351,7 +434,7 @@ public sealed class OutputCacheProfileTests
     private static GatewayOutputCacheProfile Profile(string name) => new() { Name = name, Version = 1 };
 
     private static OutputCacheCapability Capability(string name) => new(
-        name, 1, true, "memory", OutputCacheStoreScope.ProcessLocal, 1_024, 65_536, ["lang"], ["accept-language"]);
+        name, 1, true, "memory", OutputCacheStoreScope.ProcessLocal, TimeSpan.FromMinutes(1), 1_024, 65_536, ["lang"], ["accept-language"]);
 
     private static HostCapabilitySnapshot Capabilities() => HostCapabilitySnapshot.Create(new()
     {
@@ -538,10 +621,8 @@ public sealed class OutputCacheProfileTests
         {
             var capabilities = HostCapabilitySnapshot.Create(new()
             {
-                InstalledFamilies = cached
-                    ? GatewayDeclarationFamilies.OutputCache | GatewayDeclarationFamilies.CredentialDisposition
-                    : GatewayDeclarationFamilies.None,
-                OutputCacheProfiles = cached ? _proxy.Services.GetHpdGatewayOutputCacheCapabilities() : [],
+                InstalledFamilies = GatewayDeclarationFamilies.OutputCache | GatewayDeclarationFamilies.CredentialDisposition,
+                OutputCacheProfiles = _proxy.Services.GetHpdGatewayOutputCacheCapabilities(),
                 ProtectedCredentialHeaders = ["X-Api-Key"]
             });
             var configuration = cached
@@ -571,7 +652,9 @@ public sealed class OutputCacheProfileTests
             bool authorization = false,
             bool authenticated = false,
             bool credentials = false,
-            bool range = false)
+            bool range = false,
+            string? accept = null,
+            string? contentType = null)
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, path);
             if (language is not null) request.Headers.TryAddWithoutValidation("Accept-Language", language);
@@ -583,6 +666,8 @@ public sealed class OutputCacheProfileTests
                 request.Headers.TryAddWithoutValidation("X-Api-Key", "secret");
             }
             if (range) request.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(0, 1);
+            if (accept is not null) request.Headers.TryAddWithoutValidation("Accept", accept);
+            if (contentType is not null) request.Content = new ByteArrayContent([]) { Headers = { ContentType = System.Net.Http.Headers.MediaTypeHeaderValue.Parse(contentType) } };
             using var response = await Client.SendAsync(request);
             return (response.StatusCode, await response.Content.ReadAsStringAsync());
         }

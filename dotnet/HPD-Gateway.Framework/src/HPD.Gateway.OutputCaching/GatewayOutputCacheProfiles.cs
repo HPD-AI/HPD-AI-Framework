@@ -89,12 +89,12 @@ public sealed class GatewayOutputCacheRegistryBuilder
 internal sealed class GatewayOutputCacheRegistry(
     ImmutableDictionary<string, GatewayOutputCacheProfile> profiles,
     long maximumBodyBytes,
-    long storeCapacityBytes)
+    long storeCapacityBytes) : IGatewayOutputCacheRuntimeCapabilityProvider
 {
     internal ImmutableDictionary<string, GatewayOutputCacheProfile> Profiles { get; } = profiles;
     internal long MaximumBodyBytes { get; } = maximumBodyBytes;
     internal long StoreCapacityBytes { get; } = storeCapacityBytes;
-    internal ImmutableArray<OutputCacheCapability> Capabilities => Profiles.Values
+    private ImmutableArray<OutputCacheCapability> CapabilityArray => Profiles.Values
         .OrderBy(static profile => profile.Name, StringComparer.Ordinal)
         .Select(profile => new OutputCacheCapability(
             profile.Name,
@@ -102,11 +102,17 @@ internal sealed class GatewayOutputCacheRegistry(
             true,
             "memory",
             OutputCacheStoreScope.ProcessLocal,
+            profile.Expiration,
             MaximumBodyBytes,
             StoreCapacityBytes,
             profile.QueryKeys,
             profile.HeaderNames))
         .ToImmutableArray();
+
+    internal ImmutableArray<OutputCacheCapability> Capabilities => CapabilityArray;
+
+    ImmutableDictionary<string, OutputCacheCapability> IGatewayOutputCacheRuntimeCapabilityProvider.Capabilities =>
+        CapabilityArray.ToImmutableDictionary(static capability => capability.Name, StringComparer.Ordinal);
 }
 
 public sealed class GatewayConservativeOutputCachePolicy : IOutputCachePolicy
@@ -116,8 +122,11 @@ public sealed class GatewayConservativeOutputCachePolicy : IOutputCachePolicy
     public ValueTask CacheRequestAsync(OutputCacheContext context, CancellationToken cancellationToken)
     {
         var request = context.HttpContext.Request;
-        if (HttpMethods.IsConnect(request.Method) || request.Headers.ContainsKey(HeaderNames.Range) ||
+        if (HttpMethods.IsConnect(request.Method) || request.Protocol.Equals(HttpProtocol.Http3, StringComparison.Ordinal) ||
+            request.Headers.ContainsKey(HeaderNames.Range) ||
             request.Headers.ContainsKey(HeaderNames.Upgrade) || request.Headers.Connection.Contains("Upgrade", StringComparer.OrdinalIgnoreCase))
+            Disable(context);
+        else if (IsUnsupportedNegotiation(request))
             Disable(context);
         return ValueTask.CompletedTask;
     }
@@ -142,6 +151,20 @@ public sealed class GatewayConservativeOutputCachePolicy : IOutputCachePolicy
         context.AllowCacheLookup = false;
         context.AllowCacheStorage = false;
         context.AllowLocking = false;
+    }
+
+    private static bool IsUnsupportedNegotiation(HttpRequest request)
+    {
+        if (request.ContentType?.StartsWith("application/grpc", StringComparison.OrdinalIgnoreCase) == true)
+            return true;
+        foreach (var accept in request.Headers.Accept)
+        {
+            if (accept is not null &&
+                (accept.Contains("text/event-stream", StringComparison.OrdinalIgnoreCase) ||
+                 accept.Contains("application/grpc", StringComparison.OrdinalIgnoreCase)))
+                return true;
+        }
+        return false;
     }
 }
 
@@ -185,6 +208,7 @@ public static class GatewayOutputCacheExtensions
         configure(builder);
         var registry = builder.Build();
         services.AddSingleton(registry);
+        services.AddSingleton<IGatewayOutputCacheRuntimeCapabilityProvider>(registry);
         services.AddOutputCache(options =>
         {
             options.MaximumBodySize = registry.MaximumBodyBytes;
