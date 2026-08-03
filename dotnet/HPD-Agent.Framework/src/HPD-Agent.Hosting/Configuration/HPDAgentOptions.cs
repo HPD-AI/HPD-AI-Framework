@@ -67,7 +67,11 @@ public class HPDAgentConfig
     /// JSON agent definition deferred until the hosting container can bind provider-specific
     /// payloads through its generated provider composition.
     /// </summary>
-    /// <remarks>Normally populated by the ASP.NET Core configuration registration extensions.</remarks>
+    /// <remarks>
+    /// Normally populated by the ASP.NET Core configuration registration extensions.
+    /// <see cref="DefaultAgent"/> takes precedence; this property takes precedence over
+    /// <see cref="DefaultAgentPath"/>.
+    /// </remarks>
     public string? DefaultAgentDocument { get; set; }
 
     /// <summary>

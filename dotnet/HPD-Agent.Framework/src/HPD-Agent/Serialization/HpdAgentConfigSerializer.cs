@@ -17,10 +17,17 @@ public static class HpdAgentConfigSerializer
         => ReadPortableFileAsync(path, cancellationToken);
 
     /// <summary>Reads JSON or YAML and binds its provider-specific payloads through a generated composition.</summary>
+    /// <param name="path">The configuration file path. The <c>.yaml</c> and <c>.yml</c> extensions select YAML; all others select JSON.</param>
+    /// <param name="providerComposition">The consuming host's generated provider composition.</param>
+    /// <returns>The deserialized configuration, or <see langword="null"/> when the document is null.</returns>
     public static AgentConfig? ReadFile(string path, ProviderComposition providerComposition)
         => Deserialize(File.ReadAllText(path), providerComposition, GetFileFormat(path));
 
     /// <summary>Reads JSON or YAML asynchronously and binds its provider-specific payloads through a generated composition.</summary>
+    /// <param name="path">The configuration file path. The <c>.yaml</c> and <c>.yml</c> extensions select YAML; all others select JSON.</param>
+    /// <param name="providerComposition">The consuming host's generated provider composition.</param>
+    /// <param name="cancellationToken">A token that cancels file reading.</param>
+    /// <returns>The deserialized configuration, or <see langword="null"/> when the document is null.</returns>
     public static async ValueTask<AgentConfig?> ReadFileAsync(
         string path,
         ProviderComposition providerComposition,
