@@ -687,14 +687,15 @@ for (var turnIndex = 0; turnIndex < audioPaths.Count; turnIndex++)
                             }
                         }
                 },
-                AdditionalSystemInstructions = realtimeRequested
-                    ? realtimeInstructions
+                SystemInstructions = realtimeRequested
+                    ? new SystemInstructionsRunConfig { Append = realtimeInstructions }
                     : null,
-                AdditionalTools = realtimeMathToolsRequested
-                    ? realtimeMathTools
-                    : null,
-                ToolModeOverride = realtimeMathToolsRequested
-                    ? ChatToolMode.Auto
+                Tools = realtimeMathToolsRequested
+                    ? new AgentToolsRunConfig
+                    {
+                        Additional = realtimeMathTools,
+                        Mode = ChatToolMode.Auto
+                    }
                     : null
             }
         };
@@ -776,14 +777,15 @@ for (var textTurnIndex = 0; textTurnIndex < textOnlyTurns.Count; textTurnIndex++
                             }
                         }
                 },
-                AdditionalSystemInstructions = realtimeRequested
-                    ? realtimeInstructions
+                SystemInstructions = realtimeRequested
+                    ? new SystemInstructionsRunConfig { Append = realtimeInstructions }
                     : null,
-                AdditionalTools = realtimeMathToolsRequested
-                    ? realtimeMathTools
-                    : null,
-                ToolModeOverride = realtimeMathToolsRequested
-                    ? ChatToolMode.Auto
+                Tools = realtimeMathToolsRequested
+                    ? new AgentToolsRunConfig
+                    {
+                        Additional = realtimeMathTools,
+                        Mode = ChatToolMode.Auto
+                    }
                     : null
             }
         };

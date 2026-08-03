@@ -100,9 +100,8 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
                 Temperature = 0.7,
                 MaxOutputTokens = 1000
             } },
-            AdditionalSystemInstructions = "Be concise",
-            CoalesceDeltas = true,
-            SkipTools = false
+            SystemInstructions = new SystemInstructionsRunConfig { Append = "Be concise" },
+            Streaming = new StreamingRunConfig { CoalesceDeltas = true }
         }));
 
         response.StatusCode.Should().Be(HttpStatusCode.Accepted);
