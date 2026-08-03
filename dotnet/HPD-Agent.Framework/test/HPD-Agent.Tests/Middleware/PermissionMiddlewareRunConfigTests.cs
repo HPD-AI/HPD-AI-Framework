@@ -21,7 +21,7 @@ public class PermissionMiddlewareRunConfigTests
             function,
             new AgentRunConfig
             {
-                Security = new AgentSecurityProfile
+                Security = new AgentSecurityRunConfig
                 {
                     Approval = AgentApprovalPolicy.AutoApprove
                 }
@@ -42,10 +42,7 @@ public class PermissionMiddlewareRunConfigTests
             function,
             new AgentRunConfig
             {
-                PermissionOverrides = new Dictionary<string, bool>
-                {
-                    ["SensitiveTool"] = false
-                }
+                Security = new AgentSecurityRunConfig { PermissionOverrides = new Dictionary<string, bool> { ["SensitiveTool"] = false } }
             });
 
         await middleware.BeforeFunctionAsync(context, CancellationToken.None);
@@ -65,10 +62,7 @@ public class PermissionMiddlewareRunConfigTests
             function,
             new AgentRunConfig
             {
-                PermissionOverrides = new Dictionary<string, bool>
-                {
-                    ["NormallyRequiredByBuilder"] = false
-                }
+                Security = new AgentSecurityRunConfig { PermissionOverrides = new Dictionary<string, bool> { ["NormallyRequiredByBuilder"] = false } }
             });
 
         await middleware.BeforeFunctionAsync(context, CancellationToken.None);
@@ -86,10 +80,7 @@ public class PermissionMiddlewareRunConfigTests
             function,
             new AgentRunConfig
             {
-                PermissionOverrides = new Dictionary<string, bool>
-                {
-                    ["MissingTool"] = true
-                }
+                Security = new AgentSecurityRunConfig { PermissionOverrides = new Dictionary<string, bool> { ["MissingTool"] = true } }
             });
 
         await middleware.BeforeFunctionAsync(context, CancellationToken.None);

@@ -228,8 +228,9 @@ public static class RunEvals
 
         if (evalCase.GroundTruth is not null)
         {
-            caseRunConfig.ContextOverrides ??= new Dictionary<string, object>();
-            caseRunConfig.ContextOverrides["groundTruth"] = evalCase.GroundTruth;
+            caseRunConfig.Context ??= new AgentContextRunConfig();
+            caseRunConfig.Context.Properties ??= new Dictionary<string, object>();
+            caseRunConfig.Context.Properties["groundTruth"] = evalCase.GroundTruth;
         }
 
         TurnEvaluationContext turnCtx;
@@ -397,8 +398,9 @@ public static class RunEvals
         var requestId = Guid.NewGuid().ToString();
         var capture = new BatchEvalCaptureMiddleware();
 
-        runConfig.ContextOverrides ??= new Dictionary<string, object>();
-        runConfig.ContextOverrides[BatchEvalCaptureMiddleware.CaptureRequestIdKey] = requestId;
+        runConfig.Context ??= new AgentContextRunConfig();
+        runConfig.Context.Properties ??= new Dictionary<string, object>();
+        runConfig.Context.Properties[BatchEvalCaptureMiddleware.CaptureRequestIdKey] = requestId;
         runConfig.RuntimeMiddleware = PrependRuntimeMiddleware(runConfig.RuntimeMiddleware, capture);
 
         using var subscription = agent.SubscribeAny(capture.HandleAsync);
@@ -567,7 +569,7 @@ public static class RunEvals
             Metrics = source.Metrics,
             StopKind = source.StopKind,
             GroundTruth = source.GroundTruth ?? groundTruth,
-            ExperimentContext = SanitizeExperimentContext(source.ExperimentContext ?? runConfig.ContextOverrides),
+            ExperimentContext = SanitizeExperimentContext(source.ExperimentContext ?? runConfig.Context?.Properties),
         };
     }
 
@@ -689,38 +691,66 @@ public static class RunEvals
 
         return new AgentRunConfig
         {
-            Security = source.Security with { },
-            Sandbox = source.Sandbox with
+            Security = source.Security with
             {
-                Filesystem = source.Sandbox.Filesystem
-                    .Select(static grant => grant with { })
-                    .ToArray()
+                PermissionOverrides = source.Security.PermissionOverrides is null
+                    ? null
+                    : new Dictionary<string, bool>(source.Security.PermissionOverrides),
+                Sandbox = source.Security.Sandbox with
+                {
+                    Capabilities = source.Security.Sandbox.Capabilities with
+                    {
+                        Filesystem = source.Security.Sandbox.Capabilities.Filesystem
+                            .Select(static grant => grant with { })
+                            .ToArray()
+                    }
+                }
             },
             Clients = new AgentClientsConfig
             {
                 Transport = source.Clients.Transport,
                 Chat = source.Clients.Chat is null
                     ? null
-                    : (ChatClientConfig)ProviderClientConfigResolver.Clone(source.Clients.Chat)
+                    : (ChatClientConfig)ProviderClientConfigResolver.Clone(source.Clients.Chat),
+                Realtime = CloneClient(source.Clients.Realtime),
+                ImageGeneration = CloneClient(source.Clients.ImageGeneration),
+                Embeddings = CloneClient(source.Clients.Embeddings),
+                TextToSpeech = CloneClient(source.Clients.TextToSpeech),
+                SpeechToText = CloneClient(source.Clients.SpeechToText),
+                HostedFiles = CloneClient(source.Clients.HostedFiles),
+                VoiceActivityDetection = CloneClient(source.Clients.VoiceActivityDetection),
+                EndOfTurnDetection = CloneClient(source.Clients.EndOfTurnDetection)
             },
-            SystemInstructions = source.SystemInstructions,
-            AdditionalSystemInstructions = source.AdditionalSystemInstructions,
-            ContextOverrides = source.ContextOverrides is null ? null : new(source.ContextOverrides),
-            RunTimeout = source.RunTimeout,
-            UseCache = source.UseCache,
-            SkipTools = source.SkipTools,
-            CoalesceDeltas = source.CoalesceDeltas,
+            SystemInstructions = source.SystemInstructions is null ? null : new SystemInstructionsRunConfig
+            {
+                Override = source.SystemInstructions.Override,
+                Append = source.SystemInstructions.Append
+            },
+            Context = source.Context is null ? null : new AgentContextRunConfig
+            {
+                Properties = source.Context.Properties is null ? null : new Dictionary<string, object>(source.Context.Properties),
+                ToolInstances = source.Context.ToolInstances is null ? null : new Dictionary<string, IToolMetadata>(source.Context.ToolInstances)
+            },
+            Streaming = source.Streaming is null ? null : new StreamingRunConfig
+            {
+                CoalesceDeltas = source.Streaming.CoalesceDeltas,
+                Callback = source.Streaming.Callback
+            },
             RuntimeMiddleware = source.RuntimeMiddleware,
-            PermissionOverrides = source.PermissionOverrides is null ? null : new(source.PermissionOverrides),
-            ClientToolInput = source.ClientToolInput,
-            ClientAppProviders = source.ClientAppProviders is null ? null : new(source.ClientAppProviders),
-            ConversationIdOverride = source.ConversationIdOverride,
-            CustomStreamCallback = source.CustomStreamCallback,
-            ContextInstances = source.ContextInstances is null ? null : new(source.ContextInstances),
-            AllowBackgroundResponses = source.AllowBackgroundResponses,
-            ContinuationToken = source.ContinuationToken,
-            BackgroundPollingInterval = source.BackgroundPollingInterval,
-            BackgroundTimeout = source.BackgroundTimeout,
+            Tools = source.Tools is null ? null : new AgentToolsRunConfig
+            {
+                Mode = source.Tools.Mode,
+                Additional = source.Tools.Additional?.ToArray(),
+                ClientInput = source.Tools.ClientInput,
+                ClientAppProviders = source.Tools.ClientAppProviders?.ToArray()
+            },
+            BackgroundResponses = source.BackgroundResponses is null ? null : new BackgroundResponsesRunConfig
+            {
+                Allow = source.BackgroundResponses.Allow,
+                ContinuationToken = source.BackgroundResponses.ContinuationToken,
+                PollingInterval = source.BackgroundResponses.PollingInterval,
+                Timeout = source.BackgroundResponses.Timeout
+            },
             Attachments = source.Attachments,
             Audio = source.Audio,
             Compaction = source.Compaction,
@@ -732,4 +762,8 @@ public static class RunEvals
             EvalJudgeConfigOverride = source.EvalJudgeConfigOverride,
         };
     }
+
+    private static TConfig? CloneClient<TConfig>(TConfig? source)
+        where TConfig : ProviderClientConfig
+        => source is null ? null : (TConfig)ProviderClientConfigResolver.Clone(source);
 }

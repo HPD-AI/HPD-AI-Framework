@@ -11,8 +11,8 @@ public class AgentRunConfigTests
         var runConfig = new AgentRunConfig();
 
         Assert.Equal(AgentApprovalPolicy.ReviewProtectedActions, runConfig.Security.Approval);
-        Assert.Equal(AgentSandboxPolicy.Enforced, runConfig.Security.Sandbox);
-        Assert.Equal(AgentSandboxEscapePolicy.Ask, runConfig.Security.SandboxEscape);
+        Assert.Equal(AgentSandboxPolicy.Enforced, runConfig.Security.Sandbox.Mode);
+        Assert.Equal(AgentSandboxEscapePolicy.Ask, runConfig.Security.Sandbox.Escape);
     }
 
     [Fact]
@@ -20,11 +20,14 @@ public class AgentRunConfigTests
     {
         var runConfig = new AgentRunConfig
         {
-            Security = new AgentSecurityProfile
+            Security = new AgentSecurityRunConfig
             {
                 Approval = AgentApprovalPolicy.AutoApprove,
-                Sandbox = AgentSandboxPolicy.Disabled,
-                SandboxEscape = AgentSandboxEscapePolicy.Deny
+                Sandbox = new AgentSandboxRunConfig
+                {
+                    Mode = AgentSandboxPolicy.Disabled,
+                    Escape = AgentSandboxEscapePolicy.Deny
+                }
             }
         };
 

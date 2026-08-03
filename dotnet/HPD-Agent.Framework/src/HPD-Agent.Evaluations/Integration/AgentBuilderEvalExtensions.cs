@@ -220,7 +220,8 @@ public static class AgentBuilderEvalExtensions
 
                 config.DisableEvaluators = true;
                 config.IsInternalEvalJudgeCall = true;
-                config.SkipTools = true;
+                config.Tools ??= new AgentToolsRunConfig();
+                config.Tools.Mode = ChatToolMode.None;
 
                 await judgeAgent.RunAsync(new UserMessagesInputEvent { Messages = [
                     new ChatMessage(ChatRole.User, userMessage)
@@ -229,7 +230,7 @@ public static class AgentBuilderEvalExtensions
                 }, ct).ConfigureAwait(false);
 
                 using var waitCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                waitCts.CancelAfter(config.RunTimeout ?? TimeSpan.FromSeconds(30));
+                waitCts.CancelAfter(TimeSpan.FromSeconds(30));
                 await finishedSignal.Task.WaitAsync(waitCts.Token).ConfigureAwait(false);
 
                 return new Microsoft.Extensions.AI.ChatResponse(
