@@ -21,7 +21,7 @@ public abstract class OpenAICompatibleChatProviderBase<TConfig> : IChatClientPro
     public string ProviderKey => Definition.ProviderKey;
     public string DisplayName => Definition.DisplayName;
 
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider packages register AOT-compatible config deserializers through ProviderDiscovery.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider packages use generated AOT-compatible payload contracts.")]
     public virtual async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(config);
@@ -65,7 +65,7 @@ public abstract class OpenAICompatibleChatProviderBase<TConfig> : IChatClientPro
             }
         };
 
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider packages register AOT-compatible config deserializers through ProviderDiscovery.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider packages use generated AOT-compatible payload contracts.")]
     public virtual ProviderValidationResult ValidateConfiguration(
         ProviderClientConfig config,
         ProviderClientFamily family)

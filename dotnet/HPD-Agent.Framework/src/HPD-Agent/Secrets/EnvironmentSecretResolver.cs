@@ -4,7 +4,7 @@ namespace HPD.Agent.Secrets;
 
 /// <summary>
 /// Resolves secrets from environment variables.
-/// Generated provider aliases are preferred; the legacy registry remains as a migration fallback.
+/// Aliases come from the immutable generated provider composition installed by the host.
 /// </summary>
 public sealed class EnvironmentSecretResolver : ISecretResolver
 {
@@ -17,7 +17,7 @@ public sealed class EnvironmentSecretResolver : ISecretResolver
     /// <inheritdoc />
     public ValueTask<ResolvedSecret?> ResolveAsync(string key, CancellationToken ct = default)
     {
-        var registeredAliases = _generatedAliases?.GetEnvironmentVariables(key) ?? SecretAliasRegistry.GetAliases(key);
+        var registeredAliases = _generatedAliases?.GetEnvironmentVariables(key);
         if (registeredAliases == null)
             return default;
 

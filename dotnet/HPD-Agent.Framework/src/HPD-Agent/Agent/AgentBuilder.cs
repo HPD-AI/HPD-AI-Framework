@@ -277,7 +277,7 @@ public class AgentBuilder
 
     /// <summary>
     /// Creates a new builder with default configuration.
-    /// Provider assemblies are automatically discovered via ProviderAutoDiscovery ModuleInitializer.
+    /// Providers may be added explicitly by provider builder extensions.
     /// </summary>
     public AgentBuilder()
     {
@@ -285,12 +285,11 @@ public class AgentBuilder
         _providerRegistry = new ProviderRegistry();
 
         LoadGeneratedRegistries();
-        RegisterDiscoveredProviders();
     }
 
     /// <summary>
     /// Creates a builder from existing configuration.
-    /// Provider assemblies are automatically discovered via ProviderAutoDiscovery ModuleInitializer.
+    /// Providers may be added explicitly by provider builder extensions.
     /// </summary>
     public AgentBuilder(AgentConfig config)
     {
@@ -298,7 +297,6 @@ public class AgentBuilder
         _providerRegistry = new ProviderRegistry();
 
         LoadGeneratedRegistries();
-        RegisterDiscoveredProviders();
     }
 
     /// <summary>Creates a builder backed by an immutable generated provider composition.</summary>
@@ -371,99 +369,11 @@ public class AgentBuilder
             _stateFactories.TryAdd(factory.FullyQualifiedName, factory);
     }
 
-    /// <summary>
-    /// Registers all providers that were discovered by ProviderAutoDiscovery ModuleInitializer.
-    /// Provider assemblies are loaded and their ModuleInitializers run before this is called.
-    /// For PublishSingleFile scenarios, also force-loads provider assemblies from the calling assembly.
-    /// </summary>
-    private void RegisterDiscoveredProviders()
-    {
-        // For PublishSingleFile, ModuleInitializers may not fire until assemblies are explicitly loaded
-        // Force load provider assemblies referenced by the entry/calling assembly
-        ForceLoadProviderAssembliesFromCallingAssembly();
-
-        foreach (var factory in ProviderDiscovery.GetFactories())
-        {
-            try
-            {
-                var provider = factory();
-                _providerRegistry.Register(provider);
-            }
-            catch (Exception ex)
-            {
-                _logger?.CreateLogger<AgentBuilder>().LogWarning(ex, "Failed to register provider from discovery");
-            }
-        }
-    }
-
     private void RegisterGeneratedProviders(IProviderRuntimeRegistry runtime)
     {
         foreach (var registration in runtime.Registrations)
             _providerRegistry.Register(registration.Factory());
     }
-
-    /// <summary>
-    /// Force-loads provider assemblies by trying to load known provider names.
-    /// This triggers ModuleInitializers in PublishSingleFile scenarios.
-    /// For PublishSingleFile, GetReferencedAssemblies() may not work reliably, so we try known names.
-    /// </summary>
-    private void ForceLoadProviderAssembliesFromCallingAssembly()
-    {
-        // Known provider assembly names to try loading
-        string[] knownProviders = {
-            "HPD-Agent.Providers.OpenRouter",
-            "HPD-Agent.Providers.Anthropic",
-            "HPD-Agent.Providers.Cohere",
-            "HPD-Agent.Providers.Cerebras",
-            "HPD-Agent.Providers.DeepSeek",
-            "HPD-Agent.Providers.Xai",
-            "HPD-Agent.Providers.SambaNova",
-            "HPD-Agent.Providers.Hyperbolic",
-            "HPD-Agent.Providers.OVHcloud",
-            "HPD-Agent.Providers.Nscale",
-            "HPD-Agent.Providers.Venice",
-            "HPD-Agent.Providers.Perplexity",
-            "HPD-Agent.Providers.LMStudio",
-            "HPD-Agent.Providers.Nebius",
-            "HPD-Agent.Providers.NvidiaNim",
-            "HPD-Agent.Providers.SiliconFlow",
-            "HPD-Agent.Providers.Scaleway",
-            "HPD-Agent.Providers.Zai",
-            "HPD-Agent.Providers.MiniMax",
-            "HPD-Agent.Providers.AzureAI",
-            "HPD-Agent.Providers.OpenAI",
-            "HPD-Agent.Providers.Ollama",
-            "HPD-Agent.Providers.GoogleAI",
-            "HPD-Agent.Providers.HuggingFace",
-            "HPD-Agent.Providers.Bedrock",
-            "HPD-Agent.Providers.Mistral",
-            "HPD-Agent.Providers.OnnxRuntime",
-            "HPD.Agent.Audio",
-            "HPD-Agent.Providers.Audio.OpenAI",
-            "HPD-Agent.Providers.Audio.ElevenLabs",
-            "HPD-Agent.Providers.Audio.Meai",
-            "HPD-Agent.Providers.Audio.Silero"
-        };
-
-        foreach (var providerName in knownProviders)
-        {
-            try
-            {
-                // Try to load the assembly by name - if it's referenced, this will load it
-                var assembly = Assembly.Load(new AssemblyName(providerName));
-                if (assembly != null)
-                {
-                    // Trigger the module initializer
-                    RuntimeHelpers.RunModuleConstructor(assembly.ManifestModule.ModuleHandle);
-                }
-            }
-            catch
-            {
-                // Ignore - provider not referenced/available in this application
-            }
-        }
-    }
-
 
     /// <summary>
     /// Loads ToolHarnesses, Middlewares, and Middleware States from the generated registries in the specified assembly
