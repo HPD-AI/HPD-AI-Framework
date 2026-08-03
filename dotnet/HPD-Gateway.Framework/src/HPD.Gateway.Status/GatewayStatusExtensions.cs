@@ -14,7 +14,7 @@ public static class GatewayStatusExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
         services.AddSingleton(static provider => new GatewayStatusCoordinator(
-            provider.GetRequiredService<HPD.Gateway.Yarp.IGatewayPublicationObservationReader>(),
+            provider.GetServices<HPD.Gateway.Yarp.IGatewayPublicationObservationReader>(),
             provider.GetRequiredService<global::Yarp.ReverseProxy.IProxyStateLookup>(),
             provider.GetServices<HPD.Gateway.Hosting.GatewayHostRuntimeStatus>(),
             provider.GetRequiredService<IHostApplicationLifetime>()));

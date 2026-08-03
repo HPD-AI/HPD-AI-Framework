@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
 using System.Net;
 using System.Text.Json;
 using FluentAssertions;
@@ -9,6 +10,7 @@ using HPD.Gateway.Yarp;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Primitives;
 using Xunit;
 using Yarp.ReverseProxy;
@@ -133,6 +135,65 @@ public sealed class GatewayStatusTests
         snapshot.Readiness.Serving.Should().Be(GatewayReadinessState.NotReady);
     }
 
+    [Fact]
+    public async Task PublicationObserversCannotCorruptAcknowledgementAndSeePublishedObservation()
+    {
+        await using var application = await StartApplication();
+        var observation = application.Services.GetRequiredService<IGatewayPublicationObservationReader>();
+        GatewayPublicationObservation? seen = null;
+        using var registration = observation.GetChangeToken().RegisterChangeCallback(_ =>
+        {
+            seen = observation.GetCurrent();
+            throw new InvalidOperationException("observer must be isolated");
+        }, null);
+
+        var outcome = await application.Services.GetRequiredService<GatewayYarpPublisher>()
+            .PublishAsync(Bundle(1, destination: true), TimeSpan.FromSeconds(5));
+
+        outcome.State.Should().Be(GatewayPublicationState.ActiveAcknowledged);
+        seen.Should().NotBeNull();
+        seen!.LatestOutcome!.State.Should().Be(GatewayPublicationState.ActiveAcknowledged);
+        seen.Active.Should().NotBeNull();
+    }
+
+    [Fact]
+    public void StatusProjectionTruncatesDeterministicallyAtBound()
+    {
+        var active = new ActivePublicationIdentity(
+            new PublicationCandidateIdentity(new CandidateId("candidate"), "authority", "epoch", 1, new ContentHash("sha-256", new string('a', 64))),
+            "native", DateTimeOffset.UtcNow);
+        var upstreams = Enumerable.Range(0, 4_097)
+            .Select(index => new GatewayPublishedUpstream($"upstream-{index:D5}", "HealthyOrPanic"))
+            .ToImmutableArray();
+        using var publication = new FixedPublicationReader(new(1, DateTimeOffset.UtcNow,
+            new GatewayPublicationOutcome(GatewayPublicationState.ActiveAcknowledged, active.Candidate, active, active, active.NativeRevisionId, []),
+            active, active, upstreams));
+        using var coordinator = new GatewayStatusCoordinator([publication], new EmptyProxyLookup(), [], new TestLifetime());
+
+        var snapshot = coordinator.GetCurrent();
+
+        snapshot.Upstreams.Should().HaveCount(4_096);
+        snapshot.Upstreams.Select(static item => item.UpstreamId).Should().BeInAscendingOrder(StringComparer.Ordinal);
+        snapshot.DetailsTruncated.Should().BeTrue();
+        snapshot.Readiness.Reasons.Should().Contain(item => item.Code == "gateway.status.details_truncated");
+        JsonSerializer.SerializeToUtf8Bytes(snapshot, GatewayStatusJsonContext.Default.GatewayStatusSnapshot).Should().NotBeEmpty();
+    }
+
+    [Fact]
+    public async Task MultiplePublicationStatusAuthoritiesFailHostStartup()
+    {
+        var builder = WebApplication.CreateSlimBuilder();
+        builder.WebHost.UseUrls("http://127.0.0.1:0");
+        builder.Services.AddReverseProxy();
+        builder.Services.AddHpdGatewayYarpPublication();
+        builder.Services.AddSingleton<IGatewayPublicationObservationReader>(new FixedPublicationReader(
+            new GatewayPublicationObservation(0, DateTimeOffset.UtcNow, null, null, null, [])));
+        builder.Services.AddHpdGatewayStatus();
+        await using var application = builder.Build();
+
+        await FluentActions.Awaiting(() => application.StartAsync()).Should().ThrowAsync<InvalidOperationException>();
+    }
+
     private static async Task<WebApplication> StartApplication(GatewayHostRuntimeStatus? host = null)
     {
         var builder = WebApplication.CreateSlimBuilder();
@@ -196,4 +257,27 @@ public sealed class GatewayStatusTests
             }
         ]
     }).Candidate!;
+
+    private sealed class FixedPublicationReader(GatewayPublicationObservation observation) : IGatewayPublicationObservationReader, IDisposable
+    {
+        public GatewayPublicationObservation GetCurrent() => observation;
+        public IChangeToken GetChangeToken() => new CancellationChangeToken(CancellationToken.None);
+        public void Dispose() { }
+    }
+
+    private sealed class EmptyProxyLookup : IProxyStateLookup
+    {
+        public bool TryGetRoute(string id, [NotNullWhen(true)] out RouteModel? route) { route = null; return false; }
+        public IEnumerable<RouteModel> GetRoutes() => [];
+        public bool TryGetCluster(string id, [NotNullWhen(true)] out ClusterState? cluster) { cluster = null; return false; }
+        public IEnumerable<ClusterState> GetClusters() => [];
+    }
+
+    private sealed class TestLifetime : IHostApplicationLifetime
+    {
+        public CancellationToken ApplicationStarted => CancellationToken.None;
+        public CancellationToken ApplicationStopping => CancellationToken.None;
+        public CancellationToken ApplicationStopped => CancellationToken.None;
+        public void StopApplication() { }
+    }
 }

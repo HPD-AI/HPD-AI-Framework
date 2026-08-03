@@ -262,7 +262,7 @@ internal sealed class GatewayYarpPublisher : IGatewayPublicationObservationReade
         lock (_stateLock)
         {
             _observation = new GatewayPublicationObservation(
-                checked(_observation.Sequence + 1),
+                _observation.Sequence == ulong.MaxValue ? ulong.MaxValue : _observation.Sequence + 1,
                 DateTimeOffset.UtcNow,
                 outcome,
                 _active,
@@ -271,7 +271,8 @@ internal sealed class GatewayYarpPublisher : IGatewayPublicationObservationReade
             previous = _observationChanged;
             _observationChanged = new();
         }
-        previous.Cancel();
+        try { previous.Cancel(); }
+        catch (AggregateException) { }
         previous.Dispose();
     }
 
@@ -325,11 +326,14 @@ internal sealed class GatewayYarpPublisher : IGatewayPublicationObservationReade
             _lifetime.Cancel();
         }
         _listener.Dispose();
+        CancellationTokenSource changed;
         lock (_stateLock)
         {
-            _observationChanged.Cancel();
-            _observationChanged.Dispose();
+            changed = _observationChanged;
         }
+        try { changed.Cancel(); }
+        catch (AggregateException) { }
+        changed.Dispose();
     }
 
     private readonly record struct AttemptKey(string Authority, string Epoch, ulong Version)

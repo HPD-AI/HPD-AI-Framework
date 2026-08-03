@@ -27,12 +27,15 @@ internal sealed class GatewayStatusCoordinator : BackgroundService, IGatewayStat
     private bool _disposed;
 
     internal GatewayStatusCoordinator(
-        IGatewayPublicationObservationReader publication,
+        IEnumerable<IGatewayPublicationObservationReader> publications,
         IProxyStateLookup proxy,
         IEnumerable<GatewayHostRuntimeStatus> hosts,
         IHostApplicationLifetime lifetime)
     {
-        _publication = publication;
+        var installedPublications = publications.ToArray();
+        if (installedPublications.Length != 1)
+            throw new InvalidOperationException("Exactly one HPD Gateway publication status authority must be installed.");
+        _publication = installedPublications[0];
         _proxy = proxy;
         _lifetime = lifetime;
         var installedHosts = hosts.ToArray();
@@ -72,14 +75,17 @@ internal sealed class GatewayStatusCoordinator : BackgroundService, IGatewayStat
 
     public override void Dispose()
     {
+        CancellationTokenSource changed;
         lock (_sync)
         {
             if (_disposed) return;
             _disposed = true;
-            _publicationSubscription.Dispose();
-            _changed.Cancel();
-            _changed.Dispose();
+            changed = _changed;
         }
+        _publicationSubscription.Dispose();
+        try { changed.Cancel(); }
+        catch (AggregateException) { }
+        changed.Dispose();
         base.Dispose();
     }
 
@@ -103,7 +109,8 @@ internal sealed class GatewayStatusCoordinator : BackgroundService, IGatewayStat
             previous = _changed;
             _changed = new();
         }
-        previous.Cancel();
+        try { previous.Cancel(); }
+        catch (AggregateException) { }
         previous.Dispose();
     }
 
@@ -111,7 +118,7 @@ internal sealed class GatewayStatusCoordinator : BackgroundService, IGatewayStat
     {
         var publication = _publication.GetCurrent();
         var host = BuildHost(sequence, now, forceStopping);
-        var publicationStatus = BuildPublication(publication, sequence, now);
+        var publicationStatus = BuildPublication(publication);
         var upstreams = BuildUpstreams(publication, sequence, now, out var truncated);
         var reasons = ImmutableArray.CreateBuilder<GatewayStatusReason>();
         var configurationReady = publicationStatus.Active is not null &&
@@ -121,7 +128,7 @@ internal sealed class GatewayStatusCoordinator : BackgroundService, IGatewayStat
                 ? "gateway.publication.indeterminate" : "gateway.config.no_active_acknowledgement", "Configuration is not positively acknowledged."));
         var hostReady = host.State is GatewayStatusHostState.NotApplicable or GatewayStatusHostState.Ready or GatewayStatusHostState.RestartRequired;
         if (!hostReady) reasons.Add(Reason("gateway.host.not_ready", "The required host is not ready."));
-        var destinationsReady = upstreams.All(static upstream => upstream.AvailableDestinationCount > 0);
+        var destinationsReady = !truncated && upstreams.All(static upstream => upstream.AvailableDestinationCount > 0);
         if (!destinationsReady) reasons.Add(Reason("gateway.destination.none_eligible", "At least one active Upstream has no eligible destination."));
         if (truncated) reasons.Add(Reason("gateway.status.details_truncated", "Status details were truncated at the configured bound."));
         var boundedReasons = reasons.DistinctBy(static reason => reason.Code).OrderBy(static reason => reason.Code, StringComparer.Ordinal).Take(MaximumReasons).ToImmutableArray();
@@ -169,7 +176,7 @@ internal sealed class GatewayStatusCoordinator : BackgroundService, IGatewayStat
             Stamp("hpd.hosting", source.HostId.Value, sequence, source.RunningConfigurationHash, now));
     }
 
-    private GatewayPublicationStatus BuildPublication(GatewayPublicationObservation source, ulong sequence, DateTimeOffset now)
+    private GatewayPublicationStatus BuildPublication(GatewayPublicationObservation source)
     {
         var outcome = source.LatestOutcome;
         var state = outcome?.State switch
@@ -187,7 +194,8 @@ internal sealed class GatewayStatusCoordinator : BackgroundService, IGatewayStat
         var reasons = outcome?.Diagnostics.OrderBy(static value => value.Code, StringComparer.Ordinal)
             .Take(4).Select(static value => new GatewayStatusReason(value.Code, null, null, value.SafeMessage)).ToImmutableArray() ?? [];
         return new(state, outcome?.Attempted.CandidateId.Value, Convert(source.Active), Convert(source.LastKnownGood), reasons,
-            Stamp("hpd.yarp", "publication", sequence, source.Active?.NativeRevisionId, now));
+            new GatewayStatusObservationStamp("hpd.yarp", "publication", _processInstanceId,
+                source.Sequence, source.Active?.NativeRevisionId, source.ObservedAt));
     }
 
     private ImmutableArray<GatewayNativeUpstreamStatus> BuildUpstreams(
@@ -198,7 +206,9 @@ internal sealed class GatewayStatusCoordinator : BackgroundService, IGatewayStat
     {
         truncated = publication.ActiveUpstreams.Length > MaximumUpstreams;
         var result = ImmutableArray.CreateBuilder<GatewayNativeUpstreamStatus>();
-        foreach (var expected in publication.ActiveUpstreams.Take(MaximumUpstreams))
+        foreach (var expected in publication.ActiveUpstreams
+            .OrderBy(static value => value.UpstreamId, StringComparer.Ordinal)
+            .Take(MaximumUpstreams))
         {
             if (!_proxy.TryGetCluster(expected.UpstreamId, out var cluster))
             {
@@ -280,7 +290,8 @@ internal sealed class GatewayStatusCoordinator : BackgroundService, IGatewayStat
         var builder = new StringBuilder();
         builder.Append(snapshot.Host.State).Append('|').Append(snapshot.Host.RunningConfigurationHash).Append('|').Append(snapshot.Host.DesiredConfigurationHash)
             .Append('|').Append(snapshot.Publication.State).Append('|').Append(snapshot.Publication.AttemptedCandidateId).Append('|').Append(snapshot.Publication.Active?.NativeRevisionId)
-            .Append('|').Append(snapshot.Publication.LastKnownGood?.NativeRevisionId).Append('|').Append(snapshot.DetailsTruncated);
+            .Append('|').Append(snapshot.Publication.LastKnownGood?.NativeRevisionId).Append('|').Append(snapshot.Publication.Stamp.ObservationSequence)
+            .Append('|').Append(snapshot.DetailsTruncated);
         foreach (var reason in snapshot.Publication.Reasons) builder.Append('|').Append(reason.Code);
         foreach (var upstream in snapshot.Upstreams)
             builder.Append('|').Append(upstream.UpstreamId).Append(':').Append(upstream.AllDestinationCount).Append(':').Append(upstream.AvailableDestinationCount)

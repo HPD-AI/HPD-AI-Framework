@@ -58,6 +58,14 @@ so missing and unmatched SNI fail during the native TLS handshake. Certificate
 material is supplied through a startup-only PFX source catalog and remains
 outside host declarations, identity, YARP publication, and diagnostics.
 
+`HPD.Gateway.Status` adds one bounded immutable process-local snapshot over
+the HPD publication observation, optional Hosting state, and YARP's public
+native Cluster/destination-health view. It derives configuration and serving
+readiness without treating generic health aggregation or telemetry as an
+authority, and maps redacted `/health/live` and `/health/ready` endpoints.
+Change notification is snapshot invalidation through `IChangeToken`, not an
+event stream or durable history.
+
 Management, downstream credential replacement/delegation, shared cache-store
 providers, dynamic listener reload, mTLS, HTTP/3 hosting, and L4 proxying are
 not implemented.
