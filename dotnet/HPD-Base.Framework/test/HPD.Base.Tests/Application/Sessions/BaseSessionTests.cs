@@ -345,6 +345,32 @@ public sealed class BaseSessionTests
     }
 
     [Fact]
+    public async Task TypedSessionRejectsForbiddenMutationModesBeforeRuntime()
+    {
+        var runtime = new RecordingRuntime();
+        using var services = Services(runtime, TimeProvider.System);
+        BaseSession session = services.GetRequiredService<IBaseSessionFactory>().For(Principal());
+        BaseCollection<GeneratedProject> appendOnly = Collection(BaseCollectionMutationMode.AppendOnly);
+        BaseCollection<GeneratedProject> readOnly = Collection(BaseCollectionMutationMode.ReadOnly);
+        var value = new GeneratedProject { OrganizationId = "org_1", Name = "history" };
+
+        (await session.Collection(appendOnly).ReplaceAsync(new RecordId("record_1"), value))
+            .Should().BeOfType<BaseFailure<BaseRecord<GeneratedProject>>>()
+            .Which.Error.Code.Should().Be(BaseCollectionErrorCodes.AppendOnlyUpdateForbidden);
+        (await session.Collection(appendOnly).DeleteAsync(new RecordId("record_1")))
+            .Should().BeOfType<BaseFailure<DeleteResult>>()
+            .Which.Error.Code.Should().Be(BaseCollectionErrorCodes.AppendOnlyDeleteForbidden);
+        (await session.Collection(appendOnly).UpsertAsync(new RecordId("record_1"), value, value))
+            .Should().BeOfType<BaseFailure<BaseUpsertResult<GeneratedProject>>>()
+            .Which.Error.Code.Should().Be(BaseCollectionErrorCodes.AppendOnlyUpdateForbidden);
+        (await session.Collection(readOnly).CreateAsync(new RecordId("record_1"), value))
+            .Should().BeOfType<BaseFailure<BaseRecord<GeneratedProject>>>()
+            .Which.Error.Code.Should().Be(BaseCollectionErrorCodes.ReadOnlyMutationForbidden);
+
+        runtime.Operation.Should().BeNull("the application boundary must reject before Runtime");
+    }
+
+    [Fact]
     public async Task AtomicBatchReturnsTypedRecordsOnlyAfterCommitProof()
     {
         var firstEnvelope = Envelope(new GeneratedProject
@@ -463,6 +489,12 @@ public sealed class BaseSessionTests
             SubjectKind = AccessSubjectKind.User,
             CurrentTenantId = "tenant_1",
         };
+
+    private static BaseCollection<GeneratedProject> Collection(BaseCollectionMutationMode mode) =>
+        BaseCollection<GeneratedProject>.Create(
+            GeneratedProject.Collection.Definition with { MutationMode = mode },
+            GeneratedProject.Collection.JsonTypeInfo,
+            static _ => { });
 
     private static OperationResult<RecordEnvelope> Success(RecordEnvelope envelope) =>
         new()

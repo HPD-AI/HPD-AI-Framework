@@ -47,6 +47,9 @@ public sealed class BaseCollectionSession<T>
         T value,
         CancellationToken cancellationToken = default)
     {
+        if (MutationFailure<BaseRecord<T>>(BaseRecordMutationKind.Create) is { } failure)
+            return failure;
+
         var request = new RecordCreateRequest
         {
             RequestedId = id,
@@ -71,6 +74,9 @@ public sealed class BaseCollectionSession<T>
         RevisionToken? expectedRevision = null,
         CancellationToken cancellationToken = default)
     {
+        if (MutationFailure<BaseRecord<T>>(BaseRecordMutationKind.Replace) is { } failure)
+            return failure;
+
         var request = new RecordReplaceRequest
         {
             ExpectedRevision = expectedRevision,
@@ -97,6 +103,9 @@ public sealed class BaseCollectionSession<T>
         RevisionToken? expectedRevision = null,
         CancellationToken cancellationToken = default)
     {
+        if (MutationFailure<BaseRecord<T>>(BaseRecordMutationKind.Patch) is { } failure)
+            return failure;
+
         var request = new RecordPatchRequest
         {
             ExpectedRevision = expectedRevision,
@@ -122,6 +131,9 @@ public sealed class BaseCollectionSession<T>
         bool returnPrevious = false,
         CancellationToken cancellationToken = default)
     {
+        if (MutationFailure<DeleteResult>(BaseRecordMutationKind.Delete) is { } failure)
+            return failure;
+
         var request = new RecordDeleteRequest
         {
             ExpectedRevision = expectedRevision,
@@ -149,6 +161,9 @@ public sealed class BaseCollectionSession<T>
         RevisionToken? expectedRevision = null,
         CancellationToken cancellationToken = default)
     {
+        if (MutationFailure<BaseUpsertResult<T>>(BaseRecordMutationKind.Upsert, condition) is { } failure)
+            return failure;
+
         var request = new RecordUpsertRequest
         {
             Id = id,
@@ -184,6 +199,9 @@ public sealed class BaseCollectionSession<T>
         RevisionToken? expectedRevision = null,
         CancellationToken cancellationToken = default)
     {
+        if (MutationFailure<BaseUpsertResult<T>>(BaseRecordMutationKind.Upsert, condition) is { } failure)
+            return failure;
+
         var request = new RecordUpsertRequest
         {
             Id = id,
@@ -267,5 +285,41 @@ public sealed class BaseCollectionSession<T>
                 getFailure.Error,
                 getFailure.Warnings,
                 getFailure.Diagnostics));
+    }
+
+    private BaseFailure<TResult>? MutationFailure<TResult>(
+        BaseRecordMutationKind kind,
+        RecordUpsertExistenceCondition? upsertCondition = null)
+    {
+        BaseCollectionMutationMode mode = _collection.Definition.MutationMode;
+        bool allowed = mode switch
+        {
+            BaseCollectionMutationMode.Mutable => true,
+            BaseCollectionMutationMode.AppendOnly or BaseCollectionMutationMode.AppendOnlyWithAdministrativePurge =>
+                kind == BaseRecordMutationKind.Create
+                || kind == BaseRecordMutationKind.Upsert && upsertCondition == RecordUpsertExistenceCondition.CreateOnly,
+            BaseCollectionMutationMode.ReadOnly => false,
+            _ => false,
+        };
+        if (allowed)
+            return null;
+
+        string code = !Enum.IsDefined(mode)
+            ? BaseCollectionErrorCodes.MutationModeInvalid
+            : mode == BaseCollectionMutationMode.ReadOnly
+                ? BaseCollectionErrorCodes.ReadOnlyMutationForbidden
+                : kind is BaseRecordMutationKind.Patch or BaseRecordMutationKind.Replace or BaseRecordMutationKind.Upsert
+                    ? BaseCollectionErrorCodes.AppendOnlyUpdateForbidden
+                    : BaseCollectionErrorCodes.AppendOnlyDeleteForbidden;
+        return new BaseFailure<TResult>(
+            OperationStatus.ValidationFailed,
+            new BaseError
+            {
+                Code = code,
+                Message = "The collection mutation mode does not permit this operation.",
+                Category = ErrorCategory.Validation,
+            },
+            null,
+            null);
     }
 }
