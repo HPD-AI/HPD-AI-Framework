@@ -345,16 +345,12 @@ if (realtimeRequested)
 {
     builder.Config.SetClientConfig(
         ProviderClientFamily.Realtime,
-        new ProviderClientConfig
+        new RealtimeClientConfig
         {
             ProviderKey = OpenAIAudioProvider.Key,
             ModelName = realtimeModel,
             ApiKey = apiKey,
-            Endpoint = openAIEndpoint,
-            ConstructionOptions = JsonDocument.Parse(JsonSerializer.Serialize(new OpenAIRealtimeConfig
-            {
-                DefaultModelId = realtimeModel
-            })).RootElement.Clone()
+            Endpoint = openAIEndpoint
         });
 }
 
@@ -372,14 +368,16 @@ if (ttsRequested)
         return 2;
     }
 
-    var ttsProviderConfig = new ProviderClientConfig
+    var ttsProviderConfig = new TextToSpeechClientConfig
     {
         ProviderKey = ElevenLabsAudioProvider.Key,
         ModelName = ttsModel!,
-        ApiKey = elevenLabsApiKey
+        ApiKey = elevenLabsApiKey,
+        VoiceId = ttsVoice,
+        AudioFormat = ttsFormat,
+        Speed = ttsSpeed.HasValue ? (float)ttsSpeed.Value : null
     };
-    ttsProviderConfig.SetProviderConfig(
-        new ElevenLabsTtsConfig
+    ttsProviderConfig.ProviderConfig = new ElevenLabsTtsConfig
         {
             DefaultModelId = ttsModel,
             DefaultVoiceId = ttsVoice,
@@ -390,19 +388,18 @@ if (ttsRequested)
             PushTextAggregationMode = ttsPushAggregationMode == PushTextInputAggregationMode.ProviderDefault
                 ? PushTextInputAggregationMode.Sentence
                 : ttsPushAggregationMode
-        },
-        ProviderClientFamily.TextToSpeech);
+        };
     builder.Config.SetClientConfig(ProviderClientFamily.TextToSpeech, ttsProviderConfig);
 }
 
 var sttProviderConfig = sttUsesElevenLabs
-    ? new ProviderClientConfig
+    ? new SpeechToTextClientConfig
     {
         ProviderKey = ElevenLabsAudioProvider.Key,
         ModelName = sttModel,
         ApiKey = elevenLabsApiKey
     }
-    : new ProviderClientConfig
+    : new SpeechToTextClientConfig
     {
         ProviderKey = OpenAIAudioProvider.Key,
         ModelName = sttModel,
@@ -411,8 +408,7 @@ var sttProviderConfig = sttUsesElevenLabs
     };
 if (sttUsesElevenLabs)
 {
-    sttProviderConfig.SetProviderConfig(
-        new ElevenLabsSttConfig
+    sttProviderConfig.ProviderConfig = new ElevenLabsSttConfig
         {
             DefaultModelId = sttModel,
             RealtimeModelId = options.SttStreamingSmoke
@@ -431,22 +427,18 @@ if (sttUsesElevenLabs)
             TimestampsGranularity = sttTimestampGranularities.Count > 0
                 ? sttTimestampGranularities[0]
                 : null
-        },
-        ProviderClientFamily.SpeechToText);
+        };
 }
 else
 {
-    sttProviderConfig.SetProviderConfig(
-        new OpenAISttConfig
-        {
-            DefaultModelId = sttModel,
-            Prompt = sttPrompt,
-            Temperature = sttTemperature,
-            ResponseFormat = sttResponseFormat,
-            TimestampGranularities = sttTimestampGranularities.Count > 0 ? [.. sttTimestampGranularities] : null,
-            IncludeLogprobs = includeLogprobs
-        },
-        ProviderClientFamily.SpeechToText);
+    sttProviderConfig.ProviderOptions = new OpenAISttOptions
+    {
+        Prompt = sttPrompt,
+        Temperature = sttTemperature,
+        ResponseFormat = sttResponseFormat,
+        TimestampGranularities = sttTimestampGranularities.Count > 0 ? [.. sttTimestampGranularities] : null,
+        IncludeLogprobs = includeLogprobs
+    };
 }
 builder.Config.SetClientConfig(ProviderClientFamily.SpeechToText, sttProviderConfig);
 

@@ -21,8 +21,7 @@ namespace HPD.Agent.Providers.Audio.OpenAI;
 [HpdProviderFamily(ProviderClientFamily.SpeechToText)]
 [HpdProviderFamily(ProviderClientFamily.TextToSpeech)]
 [HpdProviderFamily(ProviderClientFamily.Realtime)]
-[HpdProviderPayload(ProviderClientFamily.SpeechToText, ProviderPayloadKind.Configuration, typeof(OpenAISttConfig), typeof(OpenAISttJsonContext))]
-[HpdProviderPayload(ProviderClientFamily.TextToSpeech, ProviderPayloadKind.Configuration, typeof(OpenAITtsConfig), typeof(OpenAITtsJsonContext))]
+[HpdProviderPayload(ProviderClientFamily.SpeechToText, ProviderPayloadKind.OperationOptions, typeof(OpenAISttOptions), typeof(OpenAISttJsonContext))]
 [HpdProviderPayload(ProviderClientFamily.Realtime, ProviderPayloadKind.Configuration, typeof(OpenAIRealtimeConfig), typeof(OpenAIRealtimeJsonContext))]
 [HpdProviderSecretAlias("openai:ApiKey", "OPENAI_API_KEY")]
 [HpdProviderSecretAlias("openai:Endpoint", "OPENAI_ENDPOINT")]
@@ -45,16 +44,14 @@ public sealed class OpenAIAudioProvider : ISpeechToTextClientProvider, ITextToSp
     {
         ArgumentNullException.ThrowIfNull(config);
 
-        var providerConfig = ReadProviderConfig(config);
-        var modelName = FirstNonWhiteSpace(
-            config.ModelName,
-            providerConfig.DefaultModelId,
-            DefaultSpeechToTextModel)!;
-        var openAIClient = CreateOpenAIClient(config, providerConfig, services);
+        var providerOptions = (config as SpeechToTextClientConfig)?.ProviderOptions as OpenAISttOptions
+            ?? new OpenAISttOptions();
+        var modelName = FirstNonWhiteSpace(config.ModelName, DefaultSpeechToTextModel)!;
+        var openAIClient = CreateOpenAIClient(config, services, "speech-to-text");
 
         return new OpenAIConfiguringSpeechToTextClient(
             openAIClient.GetAudioClient(modelName).AsISpeechToTextClient(),
-            providerConfig);
+            providerOptions);
     }
 
     public ITextToSpeechClient CreateTextToSpeechClient(
@@ -63,22 +60,14 @@ public sealed class OpenAIAudioProvider : ISpeechToTextClientProvider, ITextToSp
     {
         ArgumentNullException.ThrowIfNull(config);
 
-        var providerConfig = ReadTtsProviderConfig(config);
-        var modelName = FirstNonWhiteSpace(
-            config.ModelName,
-            providerConfig.DefaultModelId,
-            DefaultTextToSpeechModel)!;
-        var voiceId = FirstNonWhiteSpace(
-            providerConfig.DefaultVoiceId,
-            DefaultTextToSpeechVoice)!;
-        var outputFormat = FirstNonWhiteSpace(
-            providerConfig.OutputFormat,
-            DefaultTextToSpeechOutputFormat)!;
-        var openAIClient = CreateOpenAIClient(config, providerConfig, services);
+        var familyConfig = config as TextToSpeechClientConfig;
+        var modelName = FirstNonWhiteSpace(config.ModelName, DefaultTextToSpeechModel)!;
+        var voiceId = FirstNonWhiteSpace(familyConfig?.VoiceId, DefaultTextToSpeechVoice)!;
+        var outputFormat = FirstNonWhiteSpace(familyConfig?.AudioFormat, DefaultTextToSpeechOutputFormat)!;
+        var openAIClient = CreateOpenAIClient(config, services, "text-to-speech");
 
         return new OpenAITextToSpeechClient(
             openAIClient.GetAudioClient(modelName),
-            providerConfig,
             modelName,
             voiceId,
             outputFormat);
@@ -91,10 +80,7 @@ public sealed class OpenAIAudioProvider : ISpeechToTextClientProvider, ITextToSp
         ArgumentNullException.ThrowIfNull(config);
 
         var providerConfig = ReadRealtimeProviderConfig(config);
-        var modelName = FirstNonWhiteSpace(
-            config.ModelName,
-            providerConfig.DefaultModelId,
-            DefaultRealtimeModel)!;
+        var modelName = FirstNonWhiteSpace(config.ModelName, DefaultRealtimeModel)!;
         var realtimeClient = CreateOpenAIRealtimeClient(config, providerConfig, services);
 
         return new OpenAIRealtimeClient(realtimeClient, modelName);
@@ -183,29 +169,19 @@ public sealed class OpenAIAudioProvider : ISpeechToTextClientProvider, ITextToSp
             errors.Add($"OpenAI audio does not support provider family '{family}'.");
         }
 
-        OpenAISttConfig? providerConfig = null;
-        OpenAITtsConfig? ttsProviderConfig = null;
-        OpenAIRealtimeConfig? realtimeProviderConfig = null;
         if (config.ProviderConfig is not null)
         {
-            if (family == ProviderClientFamily.TextToSpeech)
+            if (family == ProviderClientFamily.Realtime)
             {
-                ttsProviderConfig = ReadTtsProviderConfig(config);
-            }
-            else if (family == ProviderClientFamily.Realtime)
-            {
-                realtimeProviderConfig = ReadRealtimeProviderConfig(config);
+                _ = ReadRealtimeProviderConfig(config);
             }
             else
             {
-                providerConfig = ReadProviderConfig(config);
+                errors.Add($"OpenAI {family} does not define provider client configuration; use portable family fields and ProviderOptions.");
             }
         }
 
-        if (string.IsNullOrWhiteSpace(config.ApiKey) &&
-            string.IsNullOrWhiteSpace(providerConfig?.ApiKey) &&
-            string.IsNullOrWhiteSpace(ttsProviderConfig?.ApiKey) &&
-            string.IsNullOrWhiteSpace(realtimeProviderConfig?.ApiKey))
+        if (string.IsNullOrWhiteSpace(config.ApiKey))
         {
             errors.Add("OpenAI API key is required for audio.");
         }
@@ -217,45 +193,12 @@ public sealed class OpenAIAudioProvider : ISpeechToTextClientProvider, ITextToSp
 
     private static OpenAIClient CreateOpenAIClient(
         ProviderClientConfig config,
-        OpenAISttConfig providerConfig,
-        IServiceProvider? services)
+        IServiceProvider? services,
+        string familyLabel)
     {
         var secrets = services?.GetService(typeof(ISecretResolver)) as ISecretResolver;
-        var apiKey = ResolveApiKey(config, providerConfig, secrets);
-        var endpoint = ResolveEndpoint(config, providerConfig, secrets);
-        var hasCustomEndpoint = !string.IsNullOrWhiteSpace(endpoint);
-        var hasCustomHeaders = config.CustomHeaders?.Count > 0;
-        var options = new OpenAIClientOptions();
-
-        if (hasCustomEndpoint)
-        {
-            options.Endpoint = new Uri(endpoint!, UriKind.Absolute);
-        }
-
-        if (hasCustomHeaders)
-        {
-            var httpClient = new HttpClient();
-            foreach (var header in config.CustomHeaders!)
-            {
-                httpClient.DefaultRequestHeaders.TryAddWithoutValidation(header.Key, header.Value);
-            }
-
-            httpClient.DefaultRequestHeaders.Authorization =
-                new AuthenticationHeaderValue("Bearer", apiKey);
-            options.Transport = new HttpClientPipelineTransport(httpClient);
-        }
-
-        return new OpenAIClient(new ApiKeyCredential(apiKey), options);
-    }
-
-    private static OpenAIClient CreateOpenAIClient(
-        ProviderClientConfig config,
-        OpenAITtsConfig providerConfig,
-        IServiceProvider? services)
-    {
-        var secrets = services?.GetService(typeof(ISecretResolver)) as ISecretResolver;
-        var apiKey = ResolveApiKey(config, providerConfig, secrets);
-        var endpoint = ResolveEndpoint(config, providerConfig, secrets);
+        var apiKey = ResolveApiKey(config, secrets, familyLabel);
+        var endpoint = ResolveEndpoint(config, secrets);
         var hasCustomEndpoint = !string.IsNullOrWhiteSpace(endpoint);
         var hasCustomHeaders = config.CustomHeaders?.Count > 0;
         var options = new OpenAIClientOptions();
@@ -287,8 +230,8 @@ public sealed class OpenAIAudioProvider : ISpeechToTextClientProvider, ITextToSp
         IServiceProvider? services)
     {
         var secrets = services?.GetService(typeof(ISecretResolver)) as ISecretResolver;
-        var apiKey = ResolveApiKey(config, providerConfig, secrets);
-        var endpoint = ResolveEndpoint(config, providerConfig, secrets);
+        var apiKey = ResolveApiKey(config, secrets, "realtime");
+        var endpoint = ResolveEndpoint(config, secrets);
         var options = new RealtimeClientOptions
         {
             OrganizationId = FirstNonWhiteSpace(providerConfig.OrganizationId),
@@ -305,10 +248,10 @@ public sealed class OpenAIAudioProvider : ISpeechToTextClientProvider, ITextToSp
 
     private static string ResolveApiKey(
         ProviderClientConfig config,
-        OpenAISttConfig providerConfig,
-        ISecretResolver? secrets)
+        ISecretResolver? secrets,
+        string familyLabel)
     {
-        var configured = FirstNonWhiteSpace(config.ApiKey, providerConfig.ApiKey);
+        var configured = FirstNonWhiteSpace(config.ApiKey);
         if (configured is not null)
         {
             return configured;
@@ -323,64 +266,15 @@ public sealed class OpenAIAudioProvider : ISpeechToTextClientProvider, ITextToSp
         }
 
         throw new InvalidOperationException(
-            "OpenAI API key is required for speech-to-text. " +
-            "Set ProviderClientConfig.ApiKey, provider options apiKey, or provide an ISecretResolver with key 'openai:ApiKey'.");
-    }
-
-    private static string ResolveApiKey(
-        ProviderClientConfig config,
-        OpenAITtsConfig providerConfig,
-        ISecretResolver? secrets)
-    {
-        var configured = FirstNonWhiteSpace(config.ApiKey, providerConfig.ApiKey);
-        if (configured is not null)
-        {
-            return configured;
-        }
-
-        if (secrets is not null)
-        {
-            return secrets
-                .RequireAsync("openai:ApiKey", "OpenAI API Key", cancellationToken: CancellationToken.None)
-                .GetAwaiter()
-                .GetResult();
-        }
-
-        throw new InvalidOperationException(
-            "OpenAI API key is required for text-to-speech. " +
-            "Set ProviderClientConfig.ApiKey, provider options apiKey, or provide an ISecretResolver with key 'openai:ApiKey'.");
-    }
-
-    private static string ResolveApiKey(
-        ProviderClientConfig config,
-        OpenAIRealtimeConfig providerConfig,
-        ISecretResolver? secrets)
-    {
-        var configured = FirstNonWhiteSpace(config.ApiKey, providerConfig.ApiKey);
-        if (configured is not null)
-        {
-            return configured;
-        }
-
-        if (secrets is not null)
-        {
-            return secrets
-                .RequireAsync("openai:ApiKey", "OpenAI API Key", cancellationToken: CancellationToken.None)
-                .GetAwaiter()
-                .GetResult();
-        }
-
-        throw new InvalidOperationException(
-            "OpenAI API key is required for realtime. " +
-            "Set ProviderClientConfig.ApiKey, provider options apiKey, or provide an ISecretResolver with key 'openai:ApiKey'.");
+            $"OpenAI API key is required for {familyLabel}. " +
+            "Set ProviderClientConfig.ApiKey or provide an ISecretResolver with key 'openai:ApiKey'.");
     }
 
     private static string? ResolveEndpoint(
         ProviderClientConfig config,
-        OpenAISttConfig providerConfig,
         ISecretResolver? secrets)
     {
-        var configured = FirstNonWhiteSpace(config.Endpoint, providerConfig.BaseUrl);
+        var configured = FirstNonWhiteSpace(config.Endpoint);
         if (configured is not null || secrets is null)
         {
             return configured;
@@ -390,50 +284,6 @@ public sealed class OpenAIAudioProvider : ISpeechToTextClientProvider, ITextToSp
             .ResolveOrDefaultAsync("openai:Endpoint", cancellationToken: CancellationToken.None)
             .GetAwaiter()
             .GetResult();
-    }
-
-    private static string? ResolveEndpoint(
-        ProviderClientConfig config,
-        OpenAITtsConfig providerConfig,
-        ISecretResolver? secrets)
-    {
-        var configured = FirstNonWhiteSpace(config.Endpoint, providerConfig.BaseUrl);
-        if (configured is not null || secrets is null)
-        {
-            return configured;
-        }
-
-        return secrets
-            .ResolveOrDefaultAsync("openai:Endpoint", cancellationToken: CancellationToken.None)
-            .GetAwaiter()
-            .GetResult();
-    }
-
-    private static string? ResolveEndpoint(
-        ProviderClientConfig config,
-        OpenAIRealtimeConfig providerConfig,
-        ISecretResolver? secrets)
-    {
-        var configured = FirstNonWhiteSpace(config.Endpoint, providerConfig.BaseUrl);
-        if (configured is not null || secrets is null)
-        {
-            return configured;
-        }
-
-        return secrets
-            .ResolveOrDefaultAsync("openai:Endpoint", cancellationToken: CancellationToken.None)
-            .GetAwaiter()
-            .GetResult();
-    }
-
-    private static OpenAISttConfig ReadProviderConfig(ProviderClientConfig config)
-    {
-        return config.ProviderConfig as OpenAISttConfig ?? new OpenAISttConfig();
-    }
-
-    private static OpenAITtsConfig ReadTtsProviderConfig(ProviderClientConfig config)
-    {
-        return config.ProviderConfig as OpenAITtsConfig ?? new OpenAITtsConfig();
     }
 
     private static OpenAIRealtimeConfig ReadRealtimeProviderConfig(ProviderClientConfig config)

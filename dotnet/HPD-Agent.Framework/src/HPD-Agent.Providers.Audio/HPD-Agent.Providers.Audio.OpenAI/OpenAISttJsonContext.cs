@@ -10,7 +10,7 @@ namespace HPD.Agent.Providers.Audio.OpenAI;
     WriteIndented = false,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
-[JsonSerializable(typeof(OpenAISttConfig))]
+[JsonSerializable(typeof(OpenAISttOptions))]
 public partial class OpenAISttJsonContext : JsonSerializerContext
 {
 }

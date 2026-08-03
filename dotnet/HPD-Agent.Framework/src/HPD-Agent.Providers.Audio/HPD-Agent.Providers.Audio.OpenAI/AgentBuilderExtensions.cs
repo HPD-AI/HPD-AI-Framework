@@ -17,15 +17,9 @@ public static class AgentBuilderExtensions
         this AgentBuilder builder,
         string? model = null,
         string? apiKey = null,
-        Action<OpenAISttConfig>? configure = null)
+        Action<OpenAISttOptions>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
-
-        var providerConfig = new OpenAISttConfig
-        {
-            DefaultModelId = model
-        };
-        configure?.Invoke(providerConfig);
 
         var clientConfig = new SpeechToTextClientConfig
         {
@@ -35,7 +29,12 @@ public static class AgentBuilderExtensions
         };
 
         builder.Config.SetClientConfig(ProviderClientFamily.SpeechToText, clientConfig);
-        clientConfig.ProviderConfig = providerConfig;
+        if (configure is not null)
+        {
+            var providerOptions = new OpenAISttOptions();
+            configure(providerOptions);
+            clientConfig.ProviderOptions = providerOptions;
+        }
 
         return builder;
     }
@@ -49,28 +48,21 @@ public static class AgentBuilderExtensions
         string? apiKey = null,
         string? voice = null,
         string? outputFormat = null,
-        Action<OpenAITtsConfig>? configure = null)
+        float? speed = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
-
-        var providerConfig = new OpenAITtsConfig
-        {
-            DefaultModelId = model,
-            DefaultVoiceId = voice,
-            OutputFormat = outputFormat
-        };
-        configure?.Invoke(providerConfig);
 
         var clientConfig = new TextToSpeechClientConfig
         {
             ProviderKey = OpenAIAudioProvider.Key,
             ApiKey = apiKey,
-            ModelName = model
+            ModelName = model,
+            VoiceId = voice,
+            AudioFormat = outputFormat,
+            Speed = speed
         };
 
         builder.Config.SetClientConfig(ProviderClientFamily.TextToSpeech, clientConfig);
-        clientConfig.ProviderConfig = providerConfig;
-
         return builder;
     }
 
@@ -85,10 +77,7 @@ public static class AgentBuilderExtensions
     {
         ArgumentNullException.ThrowIfNull(builder);
 
-        var providerConfig = new OpenAIRealtimeConfig
-        {
-            DefaultModelId = model
-        };
+        var providerConfig = new OpenAIRealtimeConfig();
         configure?.Invoke(providerConfig);
 
         var clientConfig = new RealtimeClientConfig

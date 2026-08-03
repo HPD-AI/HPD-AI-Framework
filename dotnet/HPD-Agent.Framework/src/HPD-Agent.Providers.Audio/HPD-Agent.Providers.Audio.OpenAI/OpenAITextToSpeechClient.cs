@@ -16,7 +16,6 @@ namespace HPD.Agent.Providers.Audio.OpenAI;
 public sealed class OpenAITextToSpeechClient : ITextToSpeechClient
 {
     private readonly AudioClient _audioClient;
-    private readonly OpenAITtsConfig _providerConfig;
     private readonly string _defaultModelId;
     private readonly string _defaultVoiceId;
     private readonly string _defaultOutputFormat;
@@ -24,13 +23,11 @@ public sealed class OpenAITextToSpeechClient : ITextToSpeechClient
 
     public OpenAITextToSpeechClient(
         AudioClient audioClient,
-        OpenAITtsConfig providerConfig,
         string defaultModelId,
         string defaultVoiceId,
         string defaultOutputFormat)
     {
         _audioClient = audioClient ?? throw new ArgumentNullException(nameof(audioClient));
-        _providerConfig = providerConfig ?? throw new ArgumentNullException(nameof(providerConfig));
         _defaultModelId = defaultModelId;
         _defaultVoiceId = defaultVoiceId;
         _defaultOutputFormat = defaultOutputFormat;
@@ -45,7 +42,7 @@ public sealed class OpenAITextToSpeechClient : ITextToSpeechClient
         ArgumentException.ThrowIfNullOrWhiteSpace(text);
 
         var voiceId = FirstNonWhiteSpace(options?.VoiceId, _defaultVoiceId)!;
-        var outputFormat = FirstNonWhiteSpace(options?.AudioFormat, _providerConfig.OutputFormat, _defaultOutputFormat)!;
+        var outputFormat = FirstNonWhiteSpace(options?.AudioFormat, _defaultOutputFormat)!;
         var speechOptions = CreateSpeechOptions(options, outputFormat);
         BinaryData audioData = await _audioClient.GenerateSpeechAsync(
             text,
@@ -84,9 +81,6 @@ public sealed class OpenAITextToSpeechClient : ITextToSpeechClient
         if (serviceType == typeof(AudioClient))
             return _audioClient;
 
-        if (serviceType == typeof(OpenAITtsConfig))
-            return _providerConfig;
-
         if (serviceType == typeof(TextToSpeechClientMetadata))
             return new TextToSpeechClientMetadata(
                 OpenAIAudioProvider.Key,
@@ -122,7 +116,7 @@ public sealed class OpenAITextToSpeechClient : ITextToSpeechClient
             ResponseFormat = ResolveFormat(outputFormat)
         };
 
-        var speed = options?.Speed ?? _providerConfig.Speed;
+        var speed = options?.Speed;
         if (speed.HasValue)
         {
             speechOptions.SpeedRatio = speed.Value;

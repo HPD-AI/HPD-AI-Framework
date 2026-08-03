@@ -11,11 +11,11 @@ namespace HPD.Agent.Providers.Audio.OpenAI;
 internal sealed class OpenAIConfiguringSpeechToTextClient : ISpeechToTextClient
 {
     private readonly ISpeechToTextClient _innerClient;
-    private readonly OpenAISttConfig _providerConfig;
+    private readonly OpenAISttOptions _providerConfig;
 
     public OpenAIConfiguringSpeechToTextClient(
         ISpeechToTextClient innerClient,
-        OpenAISttConfig providerConfig)
+        OpenAISttOptions providerConfig)
     {
         _innerClient = innerClient ?? throw new ArgumentNullException(nameof(innerClient));
         _providerConfig = providerConfig ?? throw new ArgumentNullException(nameof(providerConfig));
