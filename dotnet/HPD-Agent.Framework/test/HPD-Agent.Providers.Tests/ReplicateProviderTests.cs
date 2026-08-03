@@ -75,7 +75,7 @@ public class ReplicateProviderTests
             ModelName = "flux-schnell",
             ApiKey = "test-key"
         };
-        config.SetProviderConfig(new ReplicateProviderConfig { ModelOwner = "black-forest-labs" }, ProviderClientFamily.ImageGeneration);
+        config.ProviderConfig = new ReplicateProviderConfig { ModelOwner = "black-forest-labs" };
 
         var result = _provider.ValidateConfiguration(config, ProviderClientFamily.ImageGeneration);
 
@@ -83,7 +83,7 @@ public class ReplicateProviderTests
     }
 
     [Fact]
-    public void ValidateConfiguration_WithMissingApiKey_ShouldFail()
+    public void ValidateConfiguration_DefersMissingApiKeyToSecretResolution()
     {
         var config = new ProviderClientConfig
         {
@@ -93,8 +93,8 @@ public class ReplicateProviderTests
 
         var result = _provider.ValidateConfiguration(config, ProviderClientFamily.ImageGeneration);
 
-        result.IsValid.Should().BeFalse();
-        result.Errors.Should().Contain(e => e.Contains("API key") && e.Contains("Replicate"));
+        result.IsValid.Should().BeTrue();
+        result.Errors.Should().BeEmpty();
     }
 
     [Fact]
@@ -138,12 +138,12 @@ public class ReplicateProviderTests
             ModelName = "black-forest-labs/flux-schnell",
             ApiKey = "test-key"
         };
-        config.SetProviderConfig(new ReplicateProviderConfig
+        config.ProviderConfig = new ReplicateProviderConfig
         {
             TimeoutSeconds = 0,
             PollingIntervalSeconds = -1,
             OutputMediaType = string.Empty
-        }, ProviderClientFamily.ImageGeneration);
+        };
 
         var result = _provider.ValidateConfiguration(config, ProviderClientFamily.ImageGeneration);
 

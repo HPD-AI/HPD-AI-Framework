@@ -2,6 +2,8 @@ using HPD.Agent.Providers;
 using HPD.Agent.Secrets;
 using Microsoft.Extensions.AI;
 using System.Collections.Concurrent;
+using System.Security.Cryptography;
+using System.Text.Json;
 
 namespace HPD.Agent;
 
@@ -197,43 +199,82 @@ internal sealed class AgentChatClientResolver : IDisposable
         AgentChatClientSource source,
         CancellationToken cancellationToken)
     {
-        if (config.ProviderConfig is not null)
+        var ownedConfig = ProviderClientConfigResolver.Clone(config);
+        if (ownedConfig.ProviderConfig is not null)
         {
-            _composition?.ValidatePayload(
-                config.ProviderKey,
+            var contract = RequirePayloadContract(
+                ownedConfig.ProviderKey,
                 ProviderClientFamily.Chat,
                 ProviderPayloadKind.Configuration,
-                config.ProviderConfig,
+                ownedConfig.ProviderConfig,
                 "Clients.Chat.ProviderConfig");
+            ownedConfig.ProviderConfig = (IProviderConfig)contract.Snapshot(ownedConfig.ProviderConfig);
         }
-        if (config is ChatClientConfig { ProviderOptions: not null } chatConfig)
+        if (ownedConfig is ChatClientConfig { ProviderOptions: not null } chatConfig)
         {
-            _composition?.ValidatePayload(
-                config.ProviderKey,
+            var contract = RequirePayloadContract(
+                ownedConfig.ProviderKey,
                 ProviderClientFamily.Chat,
                 ProviderPayloadKind.OperationOptions,
                 chatConfig.ProviderOptions,
                 "Clients.Chat.ProviderOptions");
+            chatConfig.ProviderOptions = (IChatRequestOptions)contract.Snapshot(chatConfig.ProviderOptions);
         }
-        if (string.IsNullOrWhiteSpace(config.ProviderKey))
+        if (string.IsNullOrWhiteSpace(ownedConfig.ProviderKey))
             throw new InvalidOperationException("A chat provider key is required to resolve an invocation client.");
 
-        if (string.IsNullOrWhiteSpace(config.ModelName))
+        if (string.IsNullOrWhiteSpace(ownedConfig.ModelName))
             throw new InvalidOperationException(
-                $"No model is configured for provider '{config.ProviderKey}'. Configure the agent client or the invocation override.");
+                $"No model is configured for provider '{ownedConfig.ProviderKey}'. Configure the agent client or the invocation override.");
 
-        var resolvedConfig = await ResolveNamedAuthenticationAsync(config, cancellationToken)
+        var resolvedConfig = await ResolveNamedAuthenticationAsync(ownedConfig, cancellationToken)
             .ConfigureAwait(false);
         var authenticationIdentity = !string.IsNullOrWhiteSpace(resolvedConfig.AuthenticationKey)
             ? $"registration:{resolvedConfig.AuthenticationKey}"
-            : string.IsNullOrWhiteSpace(config.ApiKey)
+            : string.IsNullOrWhiteSpace(ownedConfig.ApiKey)
                 ? "canonical"
                 : null;
+        var providerConfigFingerprint = GetProviderConfigFingerprint(resolvedConfig);
         return await _clientManager.AcquireAsync(
             resolvedConfig,
             authenticationIdentity,
+            providerConfigFingerprint,
             source,
             cancellationToken).ConfigureAwait(false);
+    }
+
+    private ProviderPayloadJsonContract RequirePayloadContract(
+        string? providerKey,
+        ProviderClientFamily family,
+        ProviderPayloadKind kind,
+        object payload,
+        string path)
+    {
+        if (_composition is null)
+            throw new AgentRunConfigurationException(
+                "ProviderCompositionNotInstalled",
+                path,
+                $"A generated provider composition is required to use the typed payload at '{path}'.",
+                providerKey);
+
+        _composition.ValidatePayload(providerKey, family, kind, payload, path);
+        var canonical = _composition.Descriptors.Canonicalize(providerKey!);
+        _composition.Serialization.TryGet(canonical, family, kind, out var contract);
+        return contract!;
+    }
+
+    private string? GetProviderConfigFingerprint(ProviderClientConfig config)
+    {
+        if (config.ProviderConfig is null)
+            return null;
+        var contract = RequirePayloadContract(
+            config.ProviderKey,
+            ProviderClientFamily.Chat,
+            ProviderPayloadKind.Configuration,
+            config.ProviderConfig,
+            "Clients.Chat.ProviderConfig");
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(config.ProviderConfig, contract.JsonTypeInfo);
+        return Convert.ToHexString(SHA256.HashData(bytes));
     }
 
     /// <summary>Disposes provider clients cached by this resolver.</summary>
@@ -348,6 +389,7 @@ internal sealed class AgentProviderChatClientManager : IDisposable
     public async ValueTask<AgentChatClientLease> AcquireAsync(
         ProviderClientConfig config,
         string? authenticationIdentity,
+        string? providerConfigFingerprint,
         AgentChatClientSource source,
         CancellationToken cancellationToken)
     {
@@ -360,7 +402,7 @@ internal sealed class AgentProviderChatClientManager : IDisposable
             return AgentChatClientHandle.Owned(uncached, source, config).AcquireLease();
         }
 
-        var key = ChatClientCacheKey.Create(config, authenticationIdentity);
+        var key = ChatClientCacheKey.Create(config, authenticationIdentity, providerConfigFingerprint);
         var lazy = _clients.GetOrAdd(
             key,
             _ => new Lazy<Task<IChatClient>>(
@@ -446,21 +488,20 @@ internal sealed class AgentProviderChatClientManager : IDisposable
         string ModelName,
         string AuthenticationIdentity,
         string? Endpoint,
-        string? ConstructionOptions,
-        string? Headers,
-        int? MaxOutputTokens)
+        string? ProviderConfigFingerprint,
+        string? Headers)
     {
         public static ChatClientCacheKey Create(
             ProviderClientConfig config,
-            string authenticationIdentity)
+            string authenticationIdentity,
+            string? providerConfigFingerprint)
             => new(
                 config.ProviderKey,
                 config.ModelName,
                 authenticationIdentity,
                 config.Endpoint,
-                config.GetConstructionOptionsRawJson(),
-                NormalizeHeaders(config.CustomHeaders),
-                (config as ChatClientConfig)?.MaxOutputTokens);
+                providerConfigFingerprint,
+                NormalizeHeaders(config.CustomHeaders));
 
         private static string? NormalizeHeaders(IReadOnlyDictionary<string, string>? headers)
             => headers is null

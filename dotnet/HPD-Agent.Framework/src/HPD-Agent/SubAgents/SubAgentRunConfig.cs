@@ -270,7 +270,7 @@ internal static class AgentRunConfigInheritance
                 AuthenticationKey = source.AuthenticationKey,
                 ApiKey = source.ApiKey,
                 CustomHeaders = source.CustomHeaders is null ? null : new(source.CustomHeaders),
-                ConstructionOptions = source.ConstructionOptions?.Clone(),
+                ProviderConfig = source.ProviderConfig,
                 Override = source.Override,
                 Temperature = source.Temperature,
                 TopP = source.TopP,

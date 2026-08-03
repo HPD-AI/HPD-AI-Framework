@@ -1,5 +1,4 @@
 using System;
-using System.Text.Json.Nodes;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using HPD.Agent.Audio;
@@ -537,12 +536,6 @@ public class ProviderClientConfig
     /// </summary>
     public Dictionary<string, string>? CustomHeaders { get; set; }
 
-    /// <summary>
-    /// Provider-specific client-construction configuration as a JSON/YAML object.
-    /// The value is deserialized using the provider's registered source-generated deserializer.
-    /// </summary>
-    public JsonElement? ConstructionOptions { get; set; }
-
     /// <summary>Gets or sets the strongly typed provider-specific client configuration.</summary>
     [JsonIgnore]
     public IProviderConfig? ProviderConfig { get; set; }
@@ -562,16 +555,6 @@ public class ProviderClientConfig
     /// </summary>
     [JsonIgnore]
     public Func<IEnumerable<ChatMessage>, ChatOptions?, string>? PromptFormatter { get; set; }
-
-    public string? GetConstructionOptionsRawJson()
-        => ConstructionOptions?.GetRawText();
-
-    public void SetConstructionOptionsRawJson(string? json)
-    {
-        ConstructionOptions = string.IsNullOrWhiteSpace(json)
-            ? null
-            : JsonDocument.Parse(json).RootElement.Clone();
-    }
 
 }
 
@@ -887,48 +870,6 @@ public static class ProviderClientConfigResolver
                 target.CustomHeaders[pair.Key] = pair.Value;
         }
 
-        target.SetConstructionOptionsRawJson(MergeConstructionOptions(
-            target.GetConstructionOptionsRawJson(),
-            source.GetConstructionOptionsRawJson()));
-    }
-
-    private static string? MergeConstructionOptions(string? lowerPriority, string? higherPriority)
-    {
-        if (string.IsNullOrWhiteSpace(lowerPriority))
-            return higherPriority;
-
-        if (string.IsNullOrWhiteSpace(higherPriority))
-            return lowerPriority;
-
-        var lower = ParseObject(lowerPriority);
-        var higher = ParseObject(higherPriority);
-
-        foreach (var pair in higher)
-        {
-            lower[pair.Key] = pair.Value?.DeepClone();
-        }
-
-        return lower.ToJsonString();
-    }
-
-    private static JsonElement? MergeConstructionOptions(JsonElement? lowerPriority, JsonElement? higherPriority)
-    {
-        var merged = MergeConstructionOptions(
-            lowerPriority?.GetRawText(),
-            higherPriority?.GetRawText());
-
-        return string.IsNullOrWhiteSpace(merged)
-            ? null
-            : JsonDocument.Parse(merged).RootElement.Clone();
-    }
-
-    private static JsonObject ParseObject(string json)
-    {
-        var node = JsonNode.Parse(json);
-        if (node is not JsonObject obj)
-            throw new InvalidOperationException("ConstructionOptions merge requires each non-empty value to be a JSON object.");
-
-        return obj;
     }
 
     private static bool IsEmpty(ProviderClientConfig? config) =>
@@ -945,7 +886,6 @@ public static class ProviderClientConfigResolver
            chat.StopSequences is null && chat.Reasoning is null &&
            chat.ProviderOptions is null && chat.Override is null)) &&
          config.CustomHeaders == null &&
-         config.ConstructionOptions is null &&
          string.IsNullOrWhiteSpace(config.HttpReferer) &&
          string.IsNullOrWhiteSpace(config.AppName) &&
          config.PromptFormatter == null);

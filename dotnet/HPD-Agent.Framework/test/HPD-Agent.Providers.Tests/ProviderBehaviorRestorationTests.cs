@@ -260,11 +260,11 @@ public sealed class ProviderBehaviorRestorationTests
             ProviderKey = "azure-ai",
             ModelName = "gpt-4o"
         };
-        config.SetProviderConfig(new AzureAIProviderConfig
+        config.ProviderConfig = new AzureAIProviderConfig
         {
             AuthMode = (AzureAIAuthMode)999,
             NetworkTimeoutMs = 0
-        });
+        };
 
         var result = provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
@@ -283,10 +283,10 @@ public sealed class ProviderBehaviorRestorationTests
             ModelName = "gpt-4o",
             Endpoint = "https://example.openai.azure.com/"
         };
-        config.SetProviderConfig(new AzureAIProviderConfig
+        config.ProviderConfig = new AzureAIProviderConfig
         {
             AuthMode = AzureAIAuthMode.ApiKey
-        });
+        };
 
         var action = async () => await provider.CreateChatClientAsync(config, ServicesWithSecrets());
 
@@ -320,10 +320,10 @@ public sealed class ProviderBehaviorRestorationTests
         {
             ProviderKey = "google-ai"
         };
-        config.SetProviderConfig(new GoogleAIProviderConfig
+        config.ProviderConfig = new GoogleAIProviderConfig
         {
             Platform = (GoogleAIPlatform)999
-        });
+        };
 
         var result = provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 

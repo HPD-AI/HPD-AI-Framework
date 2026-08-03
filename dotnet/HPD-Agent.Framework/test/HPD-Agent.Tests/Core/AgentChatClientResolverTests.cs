@@ -165,9 +165,7 @@ public sealed class AgentChatClientResolverTests
     [Theory]
     [InlineData("endpoint")]
     [InlineData("headers")]
-    [InlineData("options")]
-    [InlineData("max-output")]
-    public async Task ResolveAsync_DifferentConstructionInputs_UseDifferentCacheEntries(string difference)
+    public async Task ResolveAsync_DifferentAcquisitionInputs_UseDifferentCacheEntries(string difference)
     {
         var provider = new CreatingTrackingProvider();
         var registry = new ProviderRegistry();
@@ -179,8 +177,6 @@ public sealed class AgentChatClientResolverTests
         {
             case "endpoint": secondConfig.Endpoint = "https://example.test"; break;
             case "headers": secondConfig.CustomHeaders = new() { ["X-Tenant"] = "two" }; break;
-            case "options": secondConfig.SetConstructionOptionsRawJson("{\"region\":\"two\"}"); break;
-            case "max-output": secondConfig.MaxOutputTokens = 42; break;
         }
 
         await using var first = await resolver.ResolveAsync(new AgentChatClientResolutionRequest

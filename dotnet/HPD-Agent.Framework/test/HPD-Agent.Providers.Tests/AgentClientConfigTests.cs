@@ -1,4 +1,3 @@
-using System.Text.Json;
 using FluentAssertions;
 using HPD.Agent.ErrorHandling;
 using HPD.Agent.Providers;
@@ -10,6 +9,11 @@ namespace HPD.Agent.Providers.Tests;
 
 public class AgentClientsConfigTests
 {
+    private sealed class TestProviderConfig : IProviderConfig
+    {
+        public string? Value { get; init; }
+    }
+
     [Fact]
     public void ResolveClientConfig_MergesProviderDefaultsFamilyAndRunOverrides()
     {
@@ -23,7 +27,7 @@ public class AgentClientsConfigTests
                     {
                         ApiKey = "agent-key",
                         Endpoint = "https://agent.example",
-                        ConstructionOptions = JsonDocument.Parse("""{"organizationId":"org_1","projectId":"proj_agent"}""").RootElement.Clone()
+                        ProviderConfig = new TestProviderConfig { Value = "profile" }
                     }
                 }
             },
@@ -33,7 +37,7 @@ public class AgentClientsConfigTests
                 {
                     ProviderKey = "openai",
                     ModelName = "gpt-agent",
-                    ConstructionOptions = JsonDocument.Parse("""{"providerFeature":"agent-default"}""").RootElement.Clone()
+                    ProviderConfig = new TestProviderConfig { Value = "agent" }
                 }
             }
         };
@@ -44,7 +48,7 @@ public class AgentClientsConfigTests
             {
                 ModelName = "gpt-run",
                 Endpoint = "https://run.example",
-                ConstructionOptions = JsonDocument.Parse("""{"projectId":"proj_run","requestProfile":"interactive"}""").RootElement.Clone()
+                ProviderConfig = new TestProviderConfig { Value = "run" }
             }
         };
 
@@ -56,16 +60,12 @@ public class AgentClientsConfigTests
         resolved.ApiKey.Should().Be("agent-key");
         resolved.Endpoint.Should().Be("https://run.example");
 
-        using var json = JsonDocument.Parse(resolved.GetConstructionOptionsRawJson()!);
-        var root = json.RootElement;
-        root.GetProperty("organizationId").GetString().Should().Be("org_1");
-        root.GetProperty("projectId").GetString().Should().Be("proj_run");
-        root.GetProperty("providerFeature").GetString().Should().Be("agent-default");
-        root.GetProperty("requestProfile").GetString().Should().Be("interactive");
+        resolved.ProviderConfig.Should().BeOfType<TestProviderConfig>()
+            .Which.Value.Should().Be("run");
     }
 
     [Fact]
-    public void ResolveClientConfig_RejectsNonObjectProviderOptionsWhenMerging()
+    public void ResolveClientConfig_UsesTypedProviderPayloadAsOneAtomicValue()
     {
         var config = new AgentConfig
         {
@@ -75,7 +75,7 @@ public class AgentClientsConfigTests
                 {
                     Chat = new ChatClientConfig
                     {
-                        ConstructionOptions = JsonDocument.Parse("[]").RootElement.Clone()
+                        ProviderConfig = new TestProviderConfig { Value = "profile" }
                     }
                 }
             },
@@ -84,15 +84,15 @@ public class AgentClientsConfigTests
                 Chat = new ChatClientConfig
                 {
                     ProviderKey = "openai",
-                    ConstructionOptions = JsonDocument.Parse("""{"ok":true}""").RootElement.Clone()
+                    ProviderConfig = new TestProviderConfig { Value = "agent" }
                 }
             }
         };
 
-        var act = () => config.ResolveClientConfig(ProviderClientFamily.Chat);
+        var resolved = config.ResolveClientConfig(ProviderClientFamily.Chat);
 
-        act.Should().Throw<InvalidOperationException>()
-            .WithMessage("*ConstructionOptions merge requires*JSON object*");
+        resolved!.ProviderConfig.Should().BeOfType<TestProviderConfig>()
+            .Which.Value.Should().Be("agent");
     }
 
     [Fact]
@@ -108,7 +108,7 @@ public class AgentClientsConfigTests
                     {
                         Endpoint = "https://anthropic.example",
                         AuthenticationKey = "anthropic-default",
-                        ConstructionOptions = JsonDocument.Parse("""{"thinkingBudget":4096}""").RootElement.Clone()
+                        ProviderConfig = new TestProviderConfig { Value = "anthropic" }
                     }
                 },
                 ["openai"] = new AgentProviderProfile
@@ -117,7 +117,7 @@ public class AgentClientsConfigTests
                     {
                         Endpoint = "https://openai.example",
                         AuthenticationKey = "openai-default",
-                        ConstructionOptions = JsonDocument.Parse("""{"organizationId":"org_1"}""").RootElement.Clone()
+                        ProviderConfig = new TestProviderConfig { Value = "openai" }
                     }
                 }
             },
@@ -128,7 +128,7 @@ public class AgentClientsConfigTests
                     ProviderKey = "anthropic",
                     ModelName = "claude-agent",
                     CustomHeaders = new() { ["anthropic-version"] = "2023-06-01" },
-                    ConstructionOptions = JsonDocument.Parse("""{"anthropicOnly":true}""").RootElement.Clone()
+                    ProviderConfig = new TestProviderConfig { Value = "anthropic-agent" }
                 }
             }
         };
@@ -151,9 +151,8 @@ public class AgentClientsConfigTests
         resolved.AuthenticationKey.Should().Be("openai-default");
         resolved.CustomHeaders.Should().BeNull();
 
-        using var json = JsonDocument.Parse(resolved.GetConstructionOptionsRawJson()!);
-        json.RootElement.GetProperty("organizationId").GetString().Should().Be("org_1");
-        json.RootElement.TryGetProperty("anthropicOnly", out _).Should().BeFalse();
+        resolved.ProviderConfig.Should().BeOfType<TestProviderConfig>()
+            .Which.Value.Should().Be("openai");
     }
 
     [Fact]

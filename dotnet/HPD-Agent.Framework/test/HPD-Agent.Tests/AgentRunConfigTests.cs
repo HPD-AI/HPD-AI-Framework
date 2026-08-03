@@ -35,7 +35,9 @@ public class AgentRunConfigTests
         var deserialized = JsonSerializer.Deserialize(json, HPDJsonContext.Default.AgentRunConfig);
 
         Assert.NotNull(deserialized);
-        Assert.Equal(runConfig.Security, deserialized.Security);
+        Assert.Equal(AgentApprovalPolicy.AutoApprove, deserialized.Security.Approval);
+        Assert.Equal(AgentSandboxPolicy.Disabled, deserialized.Security.Sandbox.Mode);
+        Assert.Equal(AgentSandboxEscapePolicy.Deny, deserialized.Security.Sandbox.Escape);
     }
 
     [Fact]
@@ -81,19 +83,20 @@ public class AgentRunConfigTests
     }
 
     [Fact]
-    public void ConstructionOptions_UsesV6PropertyName()
+    public void StaticJsonContext_DoesNotSerializeTypedProviderPayloadWithoutComposition()
     {
         var runConfig = new AgentRunConfig
         {
             Clients = new AgentClientsConfig { Chat = new ChatClientConfig
             {
-                ConstructionOptions = JsonDocument.Parse("""{"region":"us-east"}""").RootElement.Clone()
+                ProviderConfig = new TestProviderConfig()
             } }
         };
 
         var json = JsonSerializer.Serialize(runConfig, HPDJsonContext.Default.AgentRunConfig);
 
-        Assert.Contains("ConstructionOptions", json, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("ProviderOptions", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("ProviderConfig", json, StringComparison.OrdinalIgnoreCase);
     }
+
+    private sealed class TestProviderConfig : IProviderConfig;
 }

@@ -2,22 +2,20 @@ using HPD.Agent.ErrorHandling;
 using HPD.Agent.Providers;
 using HPD.Agent.Tests.Infrastructure;
 using Microsoft.Extensions.AI;
-using System.Text.Json;
 using Xunit;
 
 namespace HPD.Agent.Tests.Core;
 
-public sealed class ConstructionOptionsRunConfigTests : AgentTestBase
+public sealed class ProviderOptionsRunConfigTests : AgentTestBase
 {
     [Fact]
-    public async Task RunConfigProviderOptions_IsPassedToRuntimeProviderConfig()
+    public async Task RunConfigClientSelection_IsPassedToRuntimeProviderConfig()
     {
         var fakeClient = new FakeChatClient();
         fakeClient.EnqueueTextResponse("ok");
         var provider = new CapturingChatClientProvider(fakeClient);
         var registry = new CapturingProviderRegistry(provider);
         var config = DefaultConfig();
-        config.Clients!.Chat!.ConstructionOptions = JsonDocument.Parse("""{"base":true}""").RootElement.Clone();
 
         var agent = await new AgentBuilder(config, registry)
             .WithCircuitBreaker(5)
@@ -33,13 +31,11 @@ public sealed class ConstructionOptionsRunConfigTests : AgentTestBase
                 Clients = new AgentClientsConfig { Chat = new ChatClientConfig
                 {
                     ProviderKey = "test",
-                    ModelName = "run-model",
-                    ConstructionOptions = JsonDocument.Parse("""{"run":true}""").RootElement.Clone()
+                    ModelName = "run-model"
                 } }
             },
             cancellationToken: TestCancellationToken);
 
-        Assert.Equal("""{"base":true,"run":true}""", provider.CreatedConfigs.Last().GetConstructionOptionsRawJson());
         Assert.Equal("run-model", provider.CreatedConfigs.Last().ModelName);
     }
 
@@ -64,14 +60,14 @@ public sealed class ConstructionOptionsRunConfigTests : AgentTestBase
     }
 
     [Fact]
-    public async Task RunConfigProviderOptions_InheritsBaseOptionsForSameProvider()
+    public async Task RunConfigClientSelection_InheritsBaseEndpointForSameProvider()
     {
         var fakeClient = new FakeChatClient();
         fakeClient.EnqueueTextResponse("ok");
         var provider = new CapturingChatClientProvider(fakeClient);
         var registry = new CapturingProviderRegistry(provider);
         var config = DefaultConfig();
-        config.Clients!.Chat!.ConstructionOptions = JsonDocument.Parse("""{"base":true}""").RootElement.Clone();
+        config.Clients!.Chat!.Endpoint = "https://base.example";
 
         var agent = await new AgentBuilder(config, registry)
             .WithCircuitBreaker(5)
@@ -90,7 +86,7 @@ public sealed class ConstructionOptionsRunConfigTests : AgentTestBase
             },
             cancellationToken: TestCancellationToken);
 
-        Assert.Equal("""{"base":true}""", provider.CreatedConfigs.Last().GetConstructionOptionsRawJson());
+        Assert.Equal("https://base.example", provider.CreatedConfigs.Last().Endpoint);
         Assert.Equal("run-model", provider.CreatedConfigs.Last().ModelName);
     }
 

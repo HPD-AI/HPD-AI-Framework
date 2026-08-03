@@ -61,7 +61,6 @@ public class AnthropicProviderConfigTests
 
         var chatConfig = builder.Config.EnsureChatClientConfig();
 
-        chatConfig.ConstructionOptions.Should().BeNull();
         chatConfig.Should().NotBeNull();
         var providerOptions = chatConfig!.ProviderOptions.Should().BeOfType<AnthropicChatRequestOptions>().Subject;
         providerOptions.ServiceTier.Should().Be(AnthropicServiceTier.StandardOnly);

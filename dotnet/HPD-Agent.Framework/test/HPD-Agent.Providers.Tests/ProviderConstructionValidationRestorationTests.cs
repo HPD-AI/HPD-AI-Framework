@@ -16,14 +16,14 @@ public sealed class ProviderConstructionValidationRestorationTests
             ProviderKey = "bedrock",
             ModelName = "anthropic.claude-3-5-sonnet-20240620-v1:0"
         };
-        config.SetProviderConfig(new BedrockProviderConfig
+        config.ProviderConfig = new BedrockProviderConfig
         {
             AccessKeyId = "access-key",
             RequestTimeoutMs = 0,
             ConnectTimeoutMs = -1,
             MaxRetryAttempts = -1,
             ProxyPort = 70000
-        });
+        };
 
         var result = provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
@@ -44,10 +44,10 @@ public sealed class ProviderConstructionValidationRestorationTests
             ProviderKey = "bedrock",
             ModelName = "anthropic.claude-3-5-sonnet-20240620-v1:0"
         };
-        config.SetProviderConfig(new BedrockProviderConfig
+        config.ProviderConfig = new BedrockProviderConfig
         {
             SecretAccessKey = "secret-key"
-        });
+        };
 
         var result = provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
@@ -63,10 +63,10 @@ public sealed class ProviderConstructionValidationRestorationTests
         {
             ProviderKey = "onnx-runtime"
         };
-        config.SetProviderConfig(new OnnxRuntimeProviderConfig
+        config.ProviderConfig = new OnnxRuntimeProviderConfig
         {
             ModelPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"))
-        });
+        };
 
         var result = provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
@@ -82,7 +82,7 @@ public sealed class ProviderConstructionValidationRestorationTests
         {
             ProviderKey = "onnx-runtime"
         };
-        config.SetProviderConfig(new OnnxRuntimeProviderConfig
+        config.ProviderConfig = new OnnxRuntimeProviderConfig
         {
             ModelPath = Directory.GetCurrentDirectory(),
             Providers = [""],
@@ -94,7 +94,7 @@ public sealed class ProviderConstructionValidationRestorationTests
                 }
             },
             HardwareDeviceType = "gpu"
-        });
+        };
 
         var result = provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
@@ -112,11 +112,11 @@ public sealed class ProviderConstructionValidationRestorationTests
         {
             ProviderKey = "onnx-runtime"
         };
-        config.SetProviderConfig(new OnnxRuntimeProviderConfig
+        config.ProviderConfig = new OnnxRuntimeProviderConfig
         {
             ModelPath = Directory.GetCurrentDirectory(),
             HardwareDeviceType = "gpu"
-        });
+        };
 
         var result = provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
@@ -134,10 +134,10 @@ public sealed class ProviderConstructionValidationRestorationTests
             ModelName = "qwen3",
             Endpoint = "not-a-uri"
         };
-        config.SetProviderConfig(new OllamaProviderConfig
+        config.ProviderConfig = new OllamaProviderConfig
         {
             TimeoutMs = 0
-        });
+        };
 
         var result = provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
