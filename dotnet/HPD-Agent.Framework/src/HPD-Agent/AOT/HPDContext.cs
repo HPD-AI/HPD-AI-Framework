@@ -237,6 +237,7 @@ using Microsoft.Extensions.AI;
 [JsonSerializable(typeof(BackgroundResponsesConfig))]
 [JsonSerializable(typeof(OperationStatus))]
 [JsonSerializable(typeof(ThreadExecutionStartedEvent))]
+[JsonSerializable(typeof(AgentRequestTerminatedEvent))]
 [JsonSerializable(typeof(ThreadExecutionFinishedEvent))]
 [JsonSerializable(typeof(ThreadExecutionError))]
 [JsonSerializable(typeof(SubAgentInvocationStartedEvent))]

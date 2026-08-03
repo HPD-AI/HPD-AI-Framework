@@ -19,7 +19,8 @@ public sealed class FunctionExecutionContextTests
             functionName: "Search",
             invocation: invocation,
             metadata: metadata,
-            traceId: "trace-1");
+            traceId: "trace-1",
+            threadExecutionId: "execution-1");
 
         context.InvocationSnapshot.Should().BeEquivalentTo(new FunctionInvocationSnapshot
         {
@@ -28,6 +29,7 @@ public sealed class FunctionExecutionContextTests
             SessionId = "session-1",
             ThreadId = "thread-1",
             TraceId = "trace-1",
+            ThreadExecutionId = "execution-1",
             FunctionCallId = "tool-call-1",
             FunctionName = "Search",
             Invocation = invocation
@@ -38,6 +40,7 @@ public sealed class FunctionExecutionContextTests
         context.SessionId.Should().Be("session-1");
         context.ThreadId.Should().Be("thread-1");
         context.TraceId.Should().Be("trace-1");
+        context.ThreadExecutionId.Should().Be("execution-1");
         context.FunctionCallId.Should().Be("tool-call-1");
         context.FunctionName.Should().Be("Search");
         context.Invocation.Should().Be(invocation);
@@ -101,7 +104,9 @@ public sealed class FunctionExecutionContextTests
     public void FunctionExecutionContext_ExposesEventCoordinatorAndStreams()
     {
         var coordinator = new EventCoordinator();
-        var context = CreateContext(eventCoordinator: coordinator);
+        var context = CreateContext(
+            eventCoordinator: coordinator,
+            threadExecutionId: "execution-1");
 
         context.EventCoordinator.Should().BeSameAs(coordinator);
         context.EventFlows.Should().BeSameAs(coordinator.EventFlows);
@@ -239,7 +244,9 @@ public sealed class FunctionExecutionContextTests
             new TestRequestEvent("request-1", "test"),
             cancellation.Token);
 
-        coordinator.GetPendingRequests().Should().ContainSingle();
+        var pending = coordinator.GetPendingRequests().Should().ContainSingle().Subject;
+        pending.Request.Should().BeOfType<TestRequestEvent>()
+            .Which.ThreadExecutionId.Should().Be("execution-1");
 
         cancellation.Cancel();
 
@@ -337,6 +344,7 @@ public sealed class FunctionExecutionContextTests
         ToolResultMetadata? metadata = null,
         EventCoordinator? eventCoordinator = null,
         string? traceId = null,
+        string? threadExecutionId = null,
         IServiceProvider? services = null,
         IAgentBackgroundTaskRegistry? backgroundTasks = null,
         IStructEventHub? structEvents = null,
@@ -363,7 +371,8 @@ public sealed class FunctionExecutionContextTests
             thread,
             CancellationToken.None,
             services: services,
-            traceId: traceId);
+            traceId: traceId,
+            threadExecutionId: threadExecutionId);
         var beforeContext = agentContext.AsBeforeFunction(
             function,
             callId,
@@ -395,13 +404,13 @@ public sealed class FunctionExecutionContextTests
     }
 
     private sealed record TestRequestEvent(string RequestId, string SourceName)
-        : AgentEvent, HPD.Events.IRequestEvent
+        : AgentEvent, IAgentRequestEvent<TestResponseEvent>
     {
         public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
     }
 
     private sealed record TestResponseEvent(string RequestId, string SourceName)
-        : AgentEvent, HPD.Events.IResponseEvent
+        : AgentEvent, IAgentResponseEvent
     {
         public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
     }

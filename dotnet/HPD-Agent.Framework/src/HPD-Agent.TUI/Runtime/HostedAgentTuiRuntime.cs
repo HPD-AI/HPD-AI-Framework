@@ -840,7 +840,7 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
             };
     }
 
-    public async Task AnswerRequestAsync(
+    public async Task<AgentRespondResult> AnswerRequestAsync(
         AgentTuiRuntimeScope scope,
         AgentEvent response,
         CancellationToken cancellationToken = default)
@@ -848,7 +848,7 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
         ArgumentNullException.ThrowIfNull(scope);
         ArgumentNullException.ThrowIfNull(response);
 
-        if (response is not HPD.Events.IResponseEvent)
+        if (response is not IAgentResponseEvent)
         {
             throw new NotSupportedException(
                 $"Response event '{response.GetType().Name}' is not a request response event.");
@@ -866,6 +866,15 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
             await ThrowForUnexpectedResponseAsync(httpResponse, "send response", cancellationToken)
                 .ConfigureAwait(false);
         }
+
+        await using var stream = await httpResponse.Content.ReadAsStreamAsync(cancellationToken)
+            .ConfigureAwait(false);
+        return await JsonSerializer.DeserializeAsync<AgentRespondResult>(
+                stream,
+                JsonOptions,
+                cancellationToken)
+            .ConfigureAwait(false)
+            ?? throw new InvalidOperationException("Hosted response endpoint returned an empty Agent response result.");
     }
 
     public async Task<AgentTuiThreadState> GetThreadStateAsync(

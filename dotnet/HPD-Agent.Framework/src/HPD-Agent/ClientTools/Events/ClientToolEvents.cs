@@ -23,7 +23,7 @@ public record ClientToolInvokeRequestEvent(
     string CallId,
     IReadOnlyDictionary<string, object?> Arguments,
     string? Description = null
-) : AgentEvent, IAgentRequestEvent
+) : AgentEvent, IAgentRequestEvent<ClientToolInvokeOutcomeEvent>
 {
     public override EventChannel Channel { get; init; } = EventChannel.Interactive;
     public override EventKind Kind { get; init; } = EventKind.Control;
@@ -108,8 +108,7 @@ public record ClientToolInvokeOutcomeEvent : AgentEvent, IAgentResponseEvent
     public string SourceName => "HPD.Agent.ClientTools";
     public string? ResponderId { get; init; }
     public string? ResponderGroup { get; init; }
-    public HashSet<string> Capabilities { get; init; } = [];
-    IReadOnlySet<string> IResponseEvent.Capabilities => Capabilities;
+    public IReadOnlySet<string> Capabilities { get; init; } = new HashSet<string>();
 }
 
 /// <summary>

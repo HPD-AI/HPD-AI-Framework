@@ -219,9 +219,25 @@ public sealed class AgentStreamingService : IAgentStreamingService
         Exception? error,
         CancellationToken cancellationToken)
     {
-        await publisher.CommitAndPublishAsync(
-            new ThreadKey(execution.SessionId, execution.ThreadId),
-            new ThreadExecutionFinishedEvent(
+        var key = new ThreadKey(execution.SessionId, execution.ThreadId);
+        var journal = await _sessionManager.Store.CollectThreadEventsAsync(key, cancellationToken)
+            .ConfigureAwait(false) ?? [];
+        var terminalEvents = AgentRequestProjector
+            .ProjectPending(journal, execution.ThreadExecutionId)
+            .OfType<IAgentRequestEvent>()
+            .Select(request => (AgentEvent)new AgentRequestTerminatedEvent(
+                request.RequestId,
+                request.SourceName,
+                AgentRequestTerminalKind.Abandoned,
+                "The owning thread execution finished before the request received a response.",
+                DateTimeOffset.UtcNow)
+            {
+                SessionId = execution.SessionId,
+                ThreadId = execution.ThreadId,
+                ThreadExecutionId = execution.ThreadExecutionId
+            })
+            .ToList();
+        terminalEvents.Add(new ThreadExecutionFinishedEvent(
                 execution.ThreadExecutionId,
                 execution.AgentId,
                 cancelled
@@ -234,8 +250,12 @@ public sealed class AgentStreamingService : IAgentStreamingService
             {
                 SessionId = execution.SessionId,
                 ThreadId = execution.ThreadId
-            },
-            cancellationToken).ConfigureAwait(false);
+            });
+
+        await publisher.CommitAndPublishAsync(
+            key,
+            terminalEvents,
+            cancellationToken: cancellationToken).ConfigureAwait(false);
 
         if (!_sessionManager.ReleaseThreadExecution(execution.SessionId, execution.ThreadId, execution.ThreadExecutionId))
         {
@@ -250,30 +270,128 @@ public sealed class AgentStreamingService : IAgentStreamingService
         string threadId,
         CancellationToken cancellationToken = default)
     {
-        var head = await _sessionManager.Store.GetThreadEventHeadAsync(
-            new ThreadKey(sessionId, threadId), cancellationToken).ConfigureAwait(false);
-        if (head is null)
+        var key = new ThreadKey(sessionId, threadId);
+        var journal = await _sessionManager.Store.CollectThreadEventsAsync(key, cancellationToken)
+            .ConfigureAwait(false);
+        if (journal is null)
             return AgentServiceResult<ThreadRuntimeStateDto>.NotFound;
 
         var activeState = _sessionManager.GetActiveThreadExecution(sessionId, threadId);
+        journal = await ReconcileInterruptedExecutionsAsync(
+            agentId,
+            key,
+            journal,
+            activeState?.ThreadExecutionId,
+            cancellationToken).ConfigureAwait(false);
+        var head = await _sessionManager.Store.GetThreadEventHeadAsync(key, cancellationToken)
+            .ConfigureAwait(false)
+            ?? throw new InvalidOperationException($"Thread '{sessionId}/{threadId}' lost its journal during state reconciliation.");
         ThreadExecutionDto? activeExecution = activeState is not null && activeState.AgentId == agentId
             ? ToExecutionDto(activeState)
             : null;
 
-        var pendingRequests = _agentManager
-            .GetRuntimeAgent(agentId, sessionId, threadId)?
-            .EventCoordinator
-            .GetPendingRequests()
-            .Where(item => item.Request is AgentEvent)
-            .Select(item => new PendingAgentRequestDto(
-                (AgentEvent)item.Request,
-                item.Session.CreatedAt))
-            .ToArray() ?? [];
+        var pendingRequests = AgentRequestProjector
+            .ProjectPending(journal, activeExecution?.ThreadExecutionId)
+            .Select(item => new PendingAgentRequestDto(item, item.Timestamp))
+            .ToArray();
 
         return AgentServiceResult<ThreadRuntimeStateDto>.Success(new ThreadRuntimeStateDto(
             head.Cursor,
             activeExecution,
             pendingRequests));
+    }
+
+    private async ValueTask<IReadOnlyList<AgentEvent>> ReconcileInterruptedExecutionsAsync(
+        string agentId,
+        ThreadKey thread,
+        IReadOnlyList<AgentEvent> journal,
+        string? activeThreadExecutionId,
+        CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            var head = await _sessionManager.Store.GetThreadEventHeadAsync(thread, cancellationToken)
+                .ConfigureAwait(false);
+            if (head is null)
+                return journal;
+
+            journal = await _sessionManager.Store.CollectThreadEventsAsync(thread, cancellationToken)
+                .ConfigureAwait(false) ?? journal;
+            var verifiedHead = await _sessionManager.Store.GetThreadEventHeadAsync(thread, cancellationToken)
+                .ConfigureAwait(false);
+            if (verifiedHead?.Cursor != head.Cursor)
+                continue;
+
+            var interrupted = ThreadExecutionProjector.Project(
+                    agentId,
+                    thread.SessionId,
+                    thread.ThreadId,
+                    journal,
+                    activeThreadExecutionId)
+                .Where(item => item.Status == ThreadExecutionStatus.Interrupted)
+                .ToArray();
+            if (interrupted.Length == 0)
+                return journal;
+
+            var terminalEvents = new List<AgentEvent>();
+            foreach (var execution in interrupted)
+            {
+                terminalEvents.AddRange(AgentRequestProjector
+                    .ProjectPending(journal, execution.ThreadExecutionId)
+                    .OfType<IAgentRequestEvent>()
+                    .Select(request => (AgentEvent)new AgentRequestTerminatedEvent(
+                        request.RequestId,
+                        request.SourceName,
+                        AgentRequestTerminalKind.Abandoned,
+                        "The host recovered an interrupted thread execution.",
+                        DateTimeOffset.UtcNow)
+                    {
+                        SessionId = thread.SessionId,
+                        ThreadId = thread.ThreadId,
+                        ThreadExecutionId = execution.ThreadExecutionId
+                    }));
+                terminalEvents.Add(new ThreadExecutionFinishedEvent(
+                    execution.ThreadExecutionId,
+                    execution.AgentId,
+                    ThreadExecutionOutcome.Failed,
+                    DateTimeOffset.UtcNow,
+                    new ThreadExecutionError(
+                        "HostExecutionLost",
+                        "The host recovered an execution that had no live runtime owner."))
+                {
+                    SessionId = thread.SessionId,
+                    ThreadId = thread.ThreadId
+                });
+            }
+
+            var runtimeAgent = _agentManager.GetRuntimeAgent(
+                agentId, thread.SessionId, thread.ThreadId);
+            var coordinator = runtimeAgent?.EventCoordinator ??
+                new global::HPD.Events.Core.EventCoordinator();
+            var ownsCoordinator = runtimeAgent is null;
+            try
+            {
+                await new ThreadEventPublisher(_sessionManager.Store, coordinator)
+                    .CommitAndPublishAsync(
+                        thread,
+                        terminalEvents,
+                        new ThreadAppendCondition(head.Cursor),
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (ThreadAppendConflictException)
+            {
+                continue;
+            }
+            finally
+            {
+                if (ownsCoordinator)
+                    ((IDisposable)coordinator).Dispose();
+            }
+
+            return await _sessionManager.Store.CollectThreadEventsAsync(thread, cancellationToken)
+                .ConfigureAwait(false) ?? journal;
+        }
     }
 
     public async Task<AgentServiceResult<ThreadContextUsage>> EstimateContextUsageAsync(

@@ -126,6 +126,7 @@ namespace HPD.Agent.Serialization;
 [JsonSerializable(typeof(AgentTurnFinishedEvent))]
 [JsonSerializable(typeof(StateSnapshotEvent))]
 [JsonSerializable(typeof(ThreadExecutionStartedEvent))]
+[JsonSerializable(typeof(AgentRequestTerminatedEvent))]
 [JsonSerializable(typeof(ThreadExecutionFinishedEvent))]
 [JsonSerializable(typeof(ThreadExecutionError))]
 [JsonSerializable(typeof(SubAgentInvocationStartedEvent))]

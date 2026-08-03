@@ -112,6 +112,9 @@ public static partial class AgentEventSerializer
         [typeof(ClientTools.ClientToolInvokeRequestEvent)] = EventTypes.ClientTool.CLIENT_TOOL_INVOKE_REQUEST,
         [typeof(ClientTools.ClientToolInvokeOutcomeEvent)] = EventTypes.ClientTool.CLIENT_TOOL_INVOKE_OUTCOME,
 
+        // Agent request lifecycle
+        [typeof(AgentRequestTerminatedEvent)] = "AGENT_REQUEST_TERMINATED",
+
         // Middleware Events
         [typeof(MiddlewareErrorEvent)] = EventTypes.Middleware.MIDDLEWARE_ERROR,
         [typeof(CompactionEvent)] = EventTypes.Middleware.COMPACTION,

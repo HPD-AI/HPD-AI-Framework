@@ -103,7 +103,9 @@ public class AgentEventSerializerTests
         var rehydrated = Assert.IsType<ThreadExecutionFinishedEvent>(AgentEventSerializer.FromJson(json));
 
         Assert.Contains("\"type\":\"THREAD_EXECUTION_FINISHED\"", json);
+        Assert.Contains("\"threadExecutionId\":\"execution-1\"", json);
         Assert.Contains("\"outcome\":\"Failed\"", json);
+        Assert.Equal("execution-1", rehydrated.ThreadExecutionId);
         Assert.Equal(ThreadExecutionOutcome.Failed, rehydrated.Outcome);
         Assert.Equal(finishedAt, rehydrated.FinishedAt);
         Assert.Equal(new ThreadExecutionError("InvalidOperationException", "provider failed"), rehydrated.Error);

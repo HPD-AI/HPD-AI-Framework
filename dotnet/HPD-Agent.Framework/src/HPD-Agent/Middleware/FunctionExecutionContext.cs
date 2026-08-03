@@ -39,6 +39,7 @@ public sealed class FunctionExecutionContext
             SessionId = hookContext.SessionId,
             ThreadId = hookContext.ThreadId,
             TraceId = hookContext.TraceId,
+            ThreadExecutionId = hookContext.ThreadExecutionId,
             FunctionCallId = request.CallId,
             FunctionName = request.FunctionName,
             Invocation = request.Invocation
@@ -72,6 +73,8 @@ public sealed class FunctionExecutionContext
     public string? ThreadId => InvocationSnapshot.ThreadId;
 
     public string? TraceId => InvocationSnapshot.TraceId;
+
+    public string? ThreadExecutionId => InvocationSnapshot.ThreadExecutionId;
 
     public string FunctionCallId => InvocationSnapshot.FunctionCallId;
 
@@ -156,8 +159,8 @@ public sealed class FunctionExecutionContext
         TRequest request,
         CancellationToken cancellationToken,
         TimeSpan? timeout = null)
-        where TRequest : AgentEvent, HPD.Events.IRequestEvent
-        where TResponse : AgentEvent, HPD.Events.IResponseEvent
+        where TRequest : AgentEvent, IAgentRequestEvent<TResponse>
+        where TResponse : AgentEvent, IAgentResponseEvent
     {
         ArgumentNullException.ThrowIfNull(request);
 
@@ -173,6 +176,7 @@ public sealed class FunctionExecutionContext
                 CancellationToken = cancellationToken
             });
 
+        var durableRequestPublished = false;
         try
         {
             if (!string.IsNullOrWhiteSpace(tracedRequest.SessionId) &&
@@ -183,6 +187,7 @@ public sealed class FunctionExecutionContext
                     new ThreadKey(tracedRequest.SessionId, tracedRequest.ThreadId),
                     tracedRequest,
                     cancellationToken).ConfigureAwait(false);
+                durableRequestPublished = true;
             }
             else
             {
@@ -191,11 +196,53 @@ public sealed class FunctionExecutionContext
 
             return (TResponse)await handle.Response.ConfigureAwait(false);
         }
+        catch (TimeoutException)
+        {
+            if (durableRequestPublished)
+                await CommitRequestTerminalAsync(tracedRequest, AgentRequestTerminalKind.Expired, "The request deadline elapsed.").ConfigureAwait(false);
+            throw;
+        }
+        catch (OperationCanceledException)
+        {
+            if (durableRequestPublished)
+                await CommitRequestTerminalAsync(tracedRequest, AgentRequestTerminalKind.Cancelled, "The owning function execution was cancelled.").ConfigureAwait(false);
+            throw;
+        }
         catch
         {
             handle.Cancel("Request publication or wait failed.");
+            if (durableRequestPublished)
+                await CommitRequestTerminalAsync(tracedRequest, AgentRequestTerminalKind.Cancelled, "Request publication or wait failed.").ConfigureAwait(false);
             throw;
         }
+    }
+
+    private async ValueTask CommitRequestTerminalAsync(
+        AgentEvent requestEvent,
+        AgentRequestTerminalKind terminalKind,
+        string reason)
+    {
+        if (ThreadEvents is null ||
+            string.IsNullOrWhiteSpace(requestEvent.SessionId) ||
+            string.IsNullOrWhiteSpace(requestEvent.ThreadId) ||
+            requestEvent is not IAgentRequestEvent request)
+        {
+            return;
+        }
+
+        await ThreadEvents.CommitAndPublishAsync(
+            new ThreadKey(requestEvent.SessionId, requestEvent.ThreadId),
+            new AgentRequestTerminatedEvent(
+                request.RequestId,
+                request.SourceName,
+                terminalKind,
+                reason,
+                DateTimeOffset.UtcNow)
+            {
+                ThreadExecutionId = requestEvent.ThreadExecutionId,
+                TraceId = requestEvent.TraceId
+            },
+            CancellationToken.None).ConfigureAwait(false);
     }
 
     [EditorBrowsable(EditorBrowsableState.Never)]
@@ -300,6 +347,7 @@ public sealed class FunctionExecutionContext
         where TEvent : AgentEvent
     {
         if ((TraceId is null || evt.TraceId is not null) &&
+            (ThreadExecutionId is null || evt.ThreadExecutionId is not null) &&
             (SessionId is null || evt.SessionId is not null) &&
             (ThreadId is null || evt.ThreadId is not null))
         {
@@ -309,6 +357,7 @@ public sealed class FunctionExecutionContext
         return (TEvent)(evt with
         {
             TraceId = evt.TraceId ?? TraceId,
+            ThreadExecutionId = evt.ThreadExecutionId ?? ThreadExecutionId,
             SessionId = evt.SessionId ?? SessionId,
             ThreadId = evt.ThreadId ?? ThreadId
         });

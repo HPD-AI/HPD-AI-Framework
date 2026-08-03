@@ -116,6 +116,9 @@ public sealed class AgentContext
     /// </summary>
     public string? TraceId { get; }
 
+    /// <summary>The accepted thread execution that owns this middleware context.</summary>
+    public string? ThreadExecutionId { get; }
+
     /// <summary>
     /// The session metadata container.
     /// May be null if no session was provided.
@@ -378,6 +381,8 @@ public sealed class AgentContext
         ArgumentNullException.ThrowIfNull(evt);
         if (TraceId is not null && evt.TraceId is null)
             evt = evt with { TraceId = TraceId };
+        if (ThreadExecutionId is not null && evt.ThreadExecutionId is null)
+            evt = evt with { ThreadExecutionId = ThreadExecutionId };
 
         if (_thread is not null)
         {
@@ -401,13 +406,15 @@ public sealed class AgentContext
     public async Task<TResponse> RequestAsync<TRequest, TResponse>(
         TRequest request,
         TimeSpan? timeout = null)
-        where TRequest : AgentEvent, HPD.Events.IRequestEvent
-        where TResponse : AgentEvent, HPD.Events.IResponseEvent
+        where TRequest : AgentEvent, IAgentRequestEvent<TResponse>
+        where TResponse : AgentEvent, IAgentResponseEvent
     {
         ArgumentNullException.ThrowIfNull(request);
 
         if (TraceId is not null && request.TraceId is null)
             request = (TRequest)(request with { TraceId = TraceId });
+        if (ThreadExecutionId is not null && request.ThreadExecutionId is null)
+            request = (TRequest)(request with { ThreadExecutionId = ThreadExecutionId });
 
         if (_thread is not null)
         {
@@ -425,6 +432,7 @@ public sealed class AgentContext
                 CancellationToken = _cancellationToken
             });
 
+        var durableRequestPublished = false;
         try
         {
             if (_thread is not null && _threadEvents is not null)
@@ -433,6 +441,7 @@ public sealed class AgentContext
                     new ThreadKey(_thread.SessionId, _thread.Id),
                     request,
                     _cancellationToken).ConfigureAwait(false);
+                durableRequestPublished = true;
             }
             else
             {
@@ -441,11 +450,48 @@ public sealed class AgentContext
 
             return (TResponse)await handle.Response.ConfigureAwait(false);
         }
+        catch (TimeoutException)
+        {
+            if (durableRequestPublished)
+                await CommitRequestTerminalAsync(request, AgentRequestTerminalKind.Expired, "The request deadline elapsed.").ConfigureAwait(false);
+            throw;
+        }
+        catch (OperationCanceledException)
+        {
+            if (durableRequestPublished)
+                await CommitRequestTerminalAsync(request, AgentRequestTerminalKind.Cancelled, "The owning execution was cancelled.").ConfigureAwait(false);
+            throw;
+        }
         catch
         {
             handle.Cancel("Request publication or wait failed.");
+            if (durableRequestPublished)
+                await CommitRequestTerminalAsync(request, AgentRequestTerminalKind.Cancelled, "Request publication or wait failed.").ConfigureAwait(false);
             throw;
         }
+    }
+
+    private async ValueTask CommitRequestTerminalAsync(
+        AgentEvent requestEvent,
+        AgentRequestTerminalKind terminalKind,
+        string reason)
+    {
+        if (_thread is null || _threadEvents is null || requestEvent is not IAgentRequestEvent request)
+            return;
+
+        await _threadEvents.CommitAndPublishAsync(
+            new ThreadKey(_thread.SessionId, _thread.Id),
+            new AgentRequestTerminatedEvent(
+                request.RequestId,
+                request.SourceName,
+                terminalKind,
+                reason,
+                DateTimeOffset.UtcNow)
+            {
+                ThreadExecutionId = requestEvent.ThreadExecutionId,
+                TraceId = requestEvent.TraceId
+            },
+            CancellationToken.None).ConfigureAwait(false);
     }
 
     public async ValueTask RunAsync(
@@ -494,6 +540,7 @@ public sealed class AgentContext
         IServiceProvider? services = null,
         IRuntimeCapabilityRegistry? runtimeCapabilities = null,
         string? traceId = null,
+        string? threadExecutionId = null,
         string? agentId = null,
         AgentMetadata? parentAgentMetadata = null,
         IAgentStore? parentAgentStore = null,
@@ -506,6 +553,7 @@ public sealed class AgentContext
         AgentName = agentName ?? throw new ArgumentNullException(nameof(agentName));
         ConversationId = conversationId;
         TraceId = traceId;
+        ThreadExecutionId = threadExecutionId;
         _config = config;
         _clientSet = clientSet;
         _contentStore = contentStore;

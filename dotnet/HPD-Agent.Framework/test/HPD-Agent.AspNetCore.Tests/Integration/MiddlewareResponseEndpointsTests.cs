@@ -34,7 +34,7 @@ public class MiddlewareResponseEndpointsTests : IClassFixture<TestWebApplication
     #region POST /agents/{agentId}/sessions/{sid}/threads/{bid}/responses
 
     [Fact]
-    public async Task Respond_AcceptsPermissionResponseEvent_ReturnsConflictWhenRuntimeInactive()
+    public async Task Respond_AcceptsPermissionResponseEvent_ReturnsTypedNotFoundWhenRequestIsAbsent()
     {
         // Arrange
         var sessionId = await CreateTestSession();
@@ -51,9 +51,9 @@ public class MiddlewareResponseEndpointsTests : IClassFixture<TestWebApplication
             evt);
 
         // Assert - the thread exists, but no live thread runtime is waiting for this response.
-        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
-        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
-        body.GetProperty("errors").TryGetProperty("ThreadRuntimeNotActive", out _).Should().BeTrue();
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<AgentRespondResult>();
+        body!.Status.Should().Be(AgentRespondStatus.NotFound);
     }
 
     [Fact]
@@ -72,7 +72,7 @@ public class MiddlewareResponseEndpointsTests : IClassFixture<TestWebApplication
             evt);
 
         // Assert
-        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
     [Fact]
@@ -92,7 +92,7 @@ public class MiddlewareResponseEndpointsTests : IClassFixture<TestWebApplication
             evt);
 
         // Assert
-        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
     [Fact]
@@ -113,7 +113,7 @@ public class MiddlewareResponseEndpointsTests : IClassFixture<TestWebApplication
             evt);
 
         // Assert
-        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
     [Fact]

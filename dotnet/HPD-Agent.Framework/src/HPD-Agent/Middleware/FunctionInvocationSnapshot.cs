@@ -19,6 +19,8 @@ public sealed record FunctionInvocationSnapshot
 
     public string? TraceId { get; init; }
 
+    public string? ThreadExecutionId { get; init; }
+
     public ToolInvocationInfo? Invocation { get; init; }
 
     public string? BatchId => Invocation?.BatchId;

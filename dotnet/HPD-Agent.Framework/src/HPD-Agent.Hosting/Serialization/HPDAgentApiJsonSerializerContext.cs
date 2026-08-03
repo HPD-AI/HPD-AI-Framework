@@ -168,8 +168,7 @@ namespace HPD.Agent.Hosting.Serialization;
 [JsonSerializable(typeof(ProgressiveTextToSpeechRouteMode))]
 [JsonSerializable(typeof(PushTextInputAggregationMode))]
 // Note: Agent input/output events are covered by AgentEventJsonContext.
-[JsonSerializable(typeof(RespondResult))]
-[JsonSerializable(typeof(RespondStatus))]
+[JsonSerializable(typeof(AgentRespondResult))]
 [JsonSerializable(typeof(ClientToolContentDto))]
 [JsonSerializable(typeof(ClientToolContentDto[]))]
 [JsonSerializable(typeof(List<ClientToolContentDto>))]

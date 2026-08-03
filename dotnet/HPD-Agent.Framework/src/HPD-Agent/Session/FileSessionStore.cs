@@ -115,7 +115,8 @@ public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore
                 TraceId = first.TraceId,
                 SpanId = first.SpanId,
                 ParentSpanId = first.ParentSpanId,
-                EventFlowId = first.EventFlowId
+                EventFlowId = first.EventFlowId,
+                ThreadExecutionId = first.ThreadExecutionId
             };
             await AppendThreadEventsAsync(
                 thread,

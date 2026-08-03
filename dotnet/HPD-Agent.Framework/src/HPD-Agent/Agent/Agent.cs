@@ -727,10 +727,15 @@ public sealed class Agent
 
     // ─────────────────────────────────────────────────────────────────────────
 
-    private AgentEvent EnrichOutputEvent(AgentEvent evt) =>
-        AgentMetadata != null
-            ? evt with { Metadata = AgentMetadata }
-            : evt;
+    private AgentEvent EnrichOutputEvent(AgentEvent evt)
+    {
+        var threadExecutionId = _activeRuntimeInput?.ThreadExecutionId;
+        return evt with
+        {
+            Metadata = evt.Metadata ?? AgentMetadata,
+            ThreadExecutionId = evt.ThreadExecutionId ?? threadExecutionId
+        };
+    }
 
     private async Task CommitThreadMessagesAsync(
         Session? session,
@@ -1959,8 +1964,8 @@ public sealed class Agent
     /// <summary>
     /// Routes a response event to the request session matching its request ID.
     /// </summary>
-    public async Task<HPD.Events.RespondResult> AnswerRequestAsync(
-        HPD.Events.IResponseEvent response,
+    public async Task<AgentRespondResult> AnswerRequestAsync(
+        IAgentResponseEvent response,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(response);
@@ -1976,8 +1981,8 @@ public sealed class Agent
     /// <summary>
     /// Attempts to route a response event to the request session matching its request ID.
     /// </summary>
-    public async Task<HPD.Events.RespondResult> TryAnswerRequestAsync(
-        HPD.Events.IResponseEvent response,
+    public async Task<AgentRespondResult> TryAnswerRequestAsync(
+        IAgentResponseEvent response,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(response);
@@ -1990,8 +1995,8 @@ public sealed class Agent
             .ConfigureAwait(false);
     }
 
-    private async ValueTask<HPD.Events.RespondResult> CompleteRequestResponseAsync(
-        HPD.Events.IResponseEvent response,
+    private async ValueTask<AgentRespondResult> CompleteRequestResponseAsync(
+        IAgentResponseEvent response,
         HPD.Events.Event responseEvent,
         CancellationToken cancellationToken)
     {
@@ -2000,7 +2005,7 @@ public sealed class Agent
             string.IsNullOrWhiteSpace(agentResponse.SessionId) ||
             string.IsNullOrWhiteSpace(agentResponse.ThreadId))
         {
-            return coordinator.Respond(response.RequestId, responseEvent);
+            return coordinator.Respond(response.RequestId, responseEvent).ToAgentResult();
         }
 
         var store = Config?.SessionStore
@@ -2009,7 +2014,7 @@ public sealed class Agent
         var publisher = new ThreadEventPublisher(store, coordinator);
         var key = new ThreadKey(agentResponse.SessionId, agentResponse.ThreadId);
 
-        return await coordinator.RespondAsync(
+        var result = await coordinator.RespondAsync(
             response.RequestId,
             responseEvent,
             async (accepted, _) =>
@@ -2020,6 +2025,7 @@ public sealed class Agent
                     CancellationToken.None).ConfigureAwait(false);
             },
             cancellationToken).ConfigureAwait(false);
+        return result.ToAgentResult();
     }
 
     /// <summary>
@@ -2263,6 +2269,7 @@ public sealed class Agent
                 services: _serviceProvider,     // Pass service provider for DI
                 runtimeCapabilities: _runtimeContext?.RuntimeCapabilities,
                 traceId: traceId,                // Propagate trace ID to all middleware-emitted events
+                threadExecutionId: activeInput?.ThreadExecutionId,
                 agentId: AgentId,
                 parentAgentMetadata: AgentMetadata,
                 parentAgentStore: Config?.AgentStore,
