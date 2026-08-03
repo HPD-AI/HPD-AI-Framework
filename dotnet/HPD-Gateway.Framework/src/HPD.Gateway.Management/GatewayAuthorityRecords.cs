@@ -128,7 +128,7 @@ public sealed partial record GatewayNodeActivationOutcome
     [BaseField("outcome.code")] public required string Code { get; init; }
 }
 
-[BaseCollection(GatewayAuthoritySchema.CommandReceipts, typeof(GatewayManagementJsonContext), MutationMode = BaseCollectionMutationMode.AppendOnlyWithAdministrativePurge)]
+[BaseCollection(GatewayAuthoritySchema.CommandReceipts, typeof(GatewayManagementJsonContext), MutationMode = BaseCollectionMutationMode.AppendOnly)]
 [BaseIndex("gateway.receipts.lookup", nameof(NamespaceId), nameof(Operation), nameof(IdempotencyKey), Required = false)]
 public sealed partial record GatewayCommandReceipt
 {
@@ -145,11 +145,25 @@ public sealed partial record GatewayCommandReceipt
 [BaseCollection(GatewayAuthoritySchema.AdministrativeOperationIntents, typeof(GatewayManagementJsonContext), MutationMode = BaseCollectionMutationMode.AppendOnly)]
 public sealed partial record GatewayAdministrativeOperationIntent
 {
+    private byte[]? _purgeRecordIdsJson;
     [BaseField("admin-intent.namespace-id")] public required string NamespaceId { get; init; }
     [BaseField("admin-intent.operation")] public required GatewayAdministrativeOperationKind Operation { get; init; }
     [BaseField("admin-intent.actor-id")] public required string ActorId { get; init; }
+    [BaseField("admin-intent.authentication-scheme")] public required string AuthenticationScheme { get; init; }
+    [BaseField("admin-intent.authorization-policy")] public required string AuthorizationPolicy { get; init; }
     [BaseField("admin-intent.subject-digest")] public required string SubjectDigest { get; init; }
     [BaseField("admin-intent.expected-generation")] public long? ExpectedGeneration { get; init; }
+    [BaseField("admin-intent.purge-collection-id")] public string? PurgeCollectionId { get; init; }
+    [BaseField("admin-intent.purge-record-ids-json")] public byte[]? PurgeRecordIdsJson { get => _purgeRecordIdsJson is null ? null : [.. _purgeRecordIdsJson]; init => _purgeRecordIdsJson = value is null ? null : [.. value]; }
+}
+
+[BaseCollection(GatewayAuthoritySchema.PurgeAuthorities, typeof(GatewayManagementJsonContext), MutationMode = BaseCollectionMutationMode.Mutable)]
+public sealed partial record GatewayPurgeAuthorityState
+{
+    [BaseField("purge-authority.management-authority-id")] public required string ManagementAuthorityId { get; init; }
+    [BaseField("purge-authority.collection-id")] public required string CollectionId { get; init; }
+    [BaseField("purge-authority.confirmed-generation")] public required long ConfirmedGeneration { get; init; }
+    [BaseField("purge-authority.pending-intent-id")] public string? PendingIntentId { get; init; }
 }
 
 [BaseCollection(GatewayAuthoritySchema.AdministrativeObservations, typeof(GatewayManagementJsonContext), MutationMode = BaseCollectionMutationMode.AppendOnly)]
@@ -185,4 +199,6 @@ public sealed partial record GatewayAdministrativeOperationCompletion
 [JsonSerializable(typeof(GatewayAdministrativeOperationIntent))]
 [JsonSerializable(typeof(GatewayAdministrativeOperationObservation))]
 [JsonSerializable(typeof(GatewayAdministrativeOperationCompletion))]
+[JsonSerializable(typeof(GatewayPurgeAuthorityState))]
+[JsonSerializable(typeof(string[]))]
 public sealed partial class GatewayManagementJsonContext : JsonSerializerContext;

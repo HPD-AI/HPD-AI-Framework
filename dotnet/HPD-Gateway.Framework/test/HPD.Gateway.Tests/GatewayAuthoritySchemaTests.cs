@@ -25,6 +25,7 @@ public sealed class GatewayAuthoritySchemaTests
             GatewayAdministrativeOperationIntent.Collection.Definition,
             GatewayAdministrativeOperationObservation.Collection.Definition,
             GatewayAdministrativeOperationCompletion.Collection.Definition,
+            GatewayPurgeAuthorityState.Collection.Definition,
         };
 
         collections.Select(static value => value.Id).Should().OnlyHaveUniqueItems();
@@ -37,6 +38,8 @@ public sealed class GatewayAuthoritySchemaTests
         GatewayDesiredState.Collection.Definition.MutationMode.Should().Be(BaseCollectionMutationMode.Mutable);
         GatewayNodeDeliveryAuthorityState.Collection.Definition.MutationMode.Should().Be(BaseCollectionMutationMode.Mutable);
         GatewayDeliveryOutboxItem.Collection.Definition.MutationMode.Should().Be(BaseCollectionMutationMode.Mutable);
+        GatewayPurgeAuthorityState.Collection.Definition.MutationMode.Should().Be(BaseCollectionMutationMode.Mutable);
+        GatewayCommandReceipt.Collection.Definition.MutationMode.Should().Be(BaseCollectionMutationMode.AppendOnly);
         GatewayAcceptedRevision.Collection.Definition.MutationMode.Should().Be(BaseCollectionMutationMode.AppendOnlyWithAdministrativePurge);
         GatewayAdministrativeAuditRecord.Collection.Definition.MutationMode.Should().Be(BaseCollectionMutationMode.AppendOnlyWithAdministrativePurge);
     }

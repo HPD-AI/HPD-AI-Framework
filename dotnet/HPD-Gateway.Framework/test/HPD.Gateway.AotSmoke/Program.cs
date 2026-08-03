@@ -841,6 +841,7 @@ static async Task SmokeManagementRuntimeAsync()
     _ = GatewayAdministrativeOperationIntent.Collection.Definition;
     _ = GatewayAdministrativeOperationObservation.Collection.Definition;
     _ = GatewayAdministrativeOperationCompletion.Collection.Definition;
+    _ = GatewayPurgeAuthorityState.Collection.Definition;
 
     object[] records =
     [
@@ -854,9 +855,10 @@ static async Task SmokeManagementRuntimeAsync()
         new GatewayDeliveryOutboxItem { NamespaceId = "ns", TargetNodeId = "node", ActivationIntentId = "intent", State = GatewayDeliveryState.Immediate, AttemptCount = 0 },
         new GatewayNodeActivationOutcome { NamespaceId = "ns", TargetNodeId = "node", ActivationIntentId = "intent", AuthorityId = "authority", AuthorityEpoch = "epoch", AuthorityVersion = 1, Kind = GatewayNodeOutcomeKind.ActiveAcknowledged, Code = "active" },
         new GatewayCommandReceipt { NamespaceId = "ns", Operation = "submit", IdempotencyKey = "key", Fingerprint = new byte[32], StableResultCode = "accepted", StableOperationId = "revision" },
-        new GatewayAdministrativeOperationIntent { NamespaceId = "ns", Operation = GatewayAdministrativeOperationKind.Backup, ActorId = "actor", SubjectDigest = "digest" },
+        new GatewayAdministrativeOperationIntent { NamespaceId = "ns", Operation = GatewayAdministrativeOperationKind.Backup, ActorId = "actor", AuthenticationScheme = "test", AuthorizationPolicy = "admin", SubjectDigest = "digest" },
         new GatewayAdministrativeOperationObservation { IntentId = "admin", Kind = GatewayAdministrativeObservationKind.Succeeded, ResultCode = "created", ResultJson = [] },
         new GatewayAdministrativeOperationCompletion { IntentId = "admin", ObservationId = "observation", State = GatewayAdministrativeCompletionState.Completed },
+        new GatewayPurgeAuthorityState { ManagementAuthorityId = "management", CollectionId = GatewayAuthoritySchema.AdministrativeAudit, ConfirmedGeneration = 0 },
     ];
 
     foreach (object record in records)

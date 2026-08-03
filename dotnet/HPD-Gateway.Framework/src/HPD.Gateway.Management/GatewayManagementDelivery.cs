@@ -28,6 +28,7 @@ internal sealed class GatewayDeliveryCoordinator(
     TimeProvider timeProvider) : IGatewayDeliveryCoordinator
 {
     private readonly SemaphoreSlim _lease = new(1, 1);
+    private int _fairnessCursor = -1;
 
     public async ValueTask<GatewayDeliveryRunResult> ReconcileOnceAsync(CancellationToken cancellationToken = default)
     {
@@ -63,13 +64,22 @@ internal sealed class GatewayDeliveryCoordinator(
                     continue;
                 }
 
+                if (item.Value.AttemptCount >= options.MaximumDeliveryAttempts)
+                {
+                    bool exhausted = await PersistOutcome(
+                        session, item, GatewayNodeOutcomeKind.RejectedBeforePublish,
+                        "management.delivery.attempt-limit", cancellationToken).ConfigureAwait(false);
+                    if (exhausted) failed++; else pending++;
+                    continue;
+                }
+
                 string claimId = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16));
                 var claimedValue = item.Value with
                 {
                     State = GatewayDeliveryState.Claimed,
                     ClaimId = claimId,
-                    ClaimExpiresAt = timeProvider.GetUtcNow().AddSeconds(30),
-                    AttemptCount = checked(item.Value.AttemptCount + 1),
+                    ClaimExpiresAt = timeProvider.GetUtcNow().Add(options.DeliveryClaimLease),
+                    AttemptCount = item.Value.AttemptCount + 1,
                 };
                 BaseResult<BaseRecord<GatewayDeliveryOutboxItem>> claim = await session
                     .Collection(GatewayDeliveryOutboxItem.Collection)
@@ -134,14 +144,18 @@ internal sealed class GatewayDeliveryCoordinator(
             GatewayDeliveryState.RetryScheduled,
             GatewayDeliveryState.Claimed,
         ];
-        foreach (GatewayDeliveryState state in states)
+        int first = (int)((uint)Interlocked.Increment(ref _fairnessCursor) % (uint)states.Length);
+        int baseQuota = options.MaximumTargets / states.Length;
+        int extra = options.MaximumTargets % states.Length;
+        for (int offset = 0; offset < states.Length; offset++)
         {
-            int remaining = options.MaximumTargets - records.Count;
-            if (remaining == 0) break;
+            GatewayDeliveryState state = states[(first + offset) % states.Length];
+            int quota = baseQuota + (offset < extra ? 1 : 0);
+            if (quota == 0) continue;
             BaseRecord<GatewayDeliveryOutboxItem>[] page = (await session
                 .Collection(GatewayDeliveryOutboxItem.Collection).Query()
                 .Where(GatewayDeliveryOutboxItem.Fields.State, state)
-                .Take(remaining).ToArrayAsync(remaining, cancellationToken)
+                .Take(quota).ToArrayAsync(quota, cancellationToken)
                 .ConfigureAwait(false)).RequireValue();
             foreach (BaseRecord<GatewayDeliveryOutboxItem> record in page)
                 records.TryAdd(record.Id.Value, record);

@@ -14,6 +14,8 @@ public sealed class GatewayManagementOptions
     public GatewayAuthorityDurability RequiredDurability { get; set; } = GatewayAuthorityDurability.ProcessLocal;
     public int MaximumTargets { get; set; } = 4_096;
     public int MaximumCommandUtf8Bytes { get; set; } = 4 * 1024 * 1024;
+    public int MaximumDeliveryAttempts { get; set; } = 8;
+    public TimeSpan DeliveryClaimLease { get; set; } = TimeSpan.FromSeconds(30);
     public TimeSpan ReconciliationInterval { get; set; } = TimeSpan.FromSeconds(5);
     public byte[]? DesiredStateTokenKey
     {
@@ -101,6 +103,11 @@ public static class GatewayManagementServiceCollectionExtensions
             throw new ArgumentOutOfRangeException(nameof(options.MaximumTargets));
         if (options.MaximumCommandUtf8Bytes is < 1_024 or > 16 * 1024 * 1024)
             throw new ArgumentOutOfRangeException(nameof(options.MaximumCommandUtf8Bytes));
+        if (options.MaximumDeliveryAttempts is < 1 or > 64)
+            throw new ArgumentOutOfRangeException(nameof(options.MaximumDeliveryAttempts));
+        if (options.DeliveryClaimLease < TimeSpan.FromSeconds(1) ||
+            options.DeliveryClaimLease > TimeSpan.FromMinutes(5))
+            throw new ArgumentOutOfRangeException(nameof(options.DeliveryClaimLease));
         if (options.ReconciliationInterval < TimeSpan.FromMilliseconds(100) ||
             options.ReconciliationInterval > TimeSpan.FromMinutes(5))
             throw new ArgumentOutOfRangeException(nameof(options.ReconciliationInterval));

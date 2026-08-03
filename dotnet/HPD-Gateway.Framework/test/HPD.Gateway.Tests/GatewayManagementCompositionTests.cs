@@ -62,6 +62,13 @@ public sealed class GatewayManagementCompositionTests
         Action compose = () => services.AddHpdGatewayManagement(options =>
             options.MaximumTargets = 0);
         compose.Should().Throw<ArgumentOutOfRangeException>();
+
+        Action attempts = () => new ServiceCollection().AddHpdGatewayManagement(options =>
+            options.MaximumDeliveryAttempts = 0);
+        Action lease = () => new ServiceCollection().AddHpdGatewayManagement(options =>
+            options.DeliveryClaimLease = TimeSpan.FromMilliseconds(999));
+        attempts.Should().Throw<ArgumentOutOfRangeException>();
+        lease.Should().Throw<ArgumentOutOfRangeException>();
     }
 
     [Fact]
@@ -215,22 +222,134 @@ public sealed class GatewayManagementCompositionTests
             var actor = new GatewayManagementActor("actor-a", "test", "manage");
             await commands.ProvisionTargetAsync(new(
                 "namespace-a", "node-a", "provision-a", actor, "correlation-a", "epoch-a"));
-            BaseRecord<GatewayCommandReceipt> receipt = (await TrustedSession(provider)
-                .Collection(GatewayCommandReceipt.Collection).Query()
-                .Where(GatewayCommandReceipt.Fields.Operation, "provision-target")
+            BaseRecord<GatewayAdministrativeAuditRecord> audit = (await TrustedSession(provider)
+                .Collection(GatewayAdministrativeAuditRecord.Collection).Query()
+                .Where(GatewayAdministrativeAuditRecord.Fields.Operation, "provision-target")
                 .Take(1).ToArrayAsync(1)).RequireValue().Single();
             var administration = provider.GetRequiredService<IGatewayManagementAdministration>();
 
             GatewayAdministrativeResult first = await administration.PurgeAsync(
-                "namespace-a", "purge-a", actor, GatewayAuthoritySchema.CommandReceipts,
-                [receipt.Id.Value], null);
+                "namespace-a", "purge-a", actor, GatewayAuthoritySchema.AdministrativeAudit,
+                [audit.Id.Value], null);
             GatewayAdministrativeResult replay = await administration.PurgeAsync(
-                "namespace-a", "purge-a", actor, GatewayAuthoritySchema.CommandReceipts,
-                [receipt.Id.Value], null);
+                "namespace-a", "purge-a", actor, GatewayAuthoritySchema.AdministrativeAudit,
+                [audit.Id.Value], null);
 
             first.State.Should().Be(GatewayAdministrativeCompletionState.Completed, first.Code);
             replay.Should().Be(first);
         });
+    }
+
+    [Fact]
+    public async Task Administrative_replay_binds_complete_actor_attribution()
+    {
+        await WithSqlite(async provider =>
+        {
+            var commands = provider.GetRequiredService<IGatewayManagementCommandCoordinator>();
+            var actor = new GatewayManagementActor("actor-a", "test", "manage");
+            await commands.ProvisionTargetAsync(new(
+                "namespace-a", "node-a", "provision-a", actor, "correlation-a", "epoch-a"));
+            BaseRecord<GatewayAdministrativeAuditRecord> audit = (await TrustedSession(provider)
+                .Collection(GatewayAdministrativeAuditRecord.Collection).Query()
+                .Where(GatewayAdministrativeAuditRecord.Fields.Operation, "provision-target")
+                .Take(1).ToArrayAsync(1)).RequireValue().Single();
+            var administration = provider.GetRequiredService<IGatewayManagementAdministration>();
+            (await administration.PurgeAsync(
+                "namespace-a", "purge-a", actor, GatewayAuthoritySchema.AdministrativeAudit,
+                [audit.Id.Value], null)).State.Should().Be(GatewayAdministrativeCompletionState.Completed);
+
+            await administration.Invoking(value => value.PurgeAsync(
+                    "namespace-a", "purge-a", actor with { AuthorizationPolicy = "other-policy" },
+                    GatewayAuthoritySchema.AdministrativeAudit, [audit.Id.Value], null).AsTask())
+                .Should().ThrowAsync<InvalidOperationException>()
+                .WithMessage("*different semantics*");
+        });
+    }
+
+    [Fact]
+    public async Task Sqlite_restart_recovers_committed_purge_without_an_observation()
+    {
+        string database = Path.Combine(Path.GetTempPath(), $"hpd-gateway-{Guid.NewGuid():N}.db");
+        const string intentKey = "crash-window-purge";
+        RecordId intentId = GatewayAuthorityRecordIds.CommandFact(
+            "admin-intent", "namespace-a", "purge", intentKey, "v1");
+        try
+        {
+            await using (ServiceProvider first = SqliteProvider(database))
+            {
+                await InitializeSqlite(first);
+                var commands = first.GetRequiredService<IGatewayManagementCommandCoordinator>();
+                var actor = new GatewayManagementActor("actor-a", "test", "manage");
+                await commands.ProvisionTargetAsync(new(
+                    "namespace-a", "node-a", "provision-a", actor, "correlation-a", "epoch-a"));
+                BaseSession session = TrustedSession(first);
+                BaseRecord<GatewayAdministrativeAuditRecord> audit = (await session
+                    .Collection(GatewayAdministrativeAuditRecord.Collection).Query()
+                    .Where(GatewayAdministrativeAuditRecord.Fields.Operation, "provision-target")
+                    .Take(1).ToArrayAsync(1)).RequireValue().Single();
+                string[] ids = [audit.Id.Value];
+                await session.Collection(GatewayAdministrativeOperationIntent.Collection).CreateAsync(
+                    intentId, new GatewayAdministrativeOperationIntent
+                    {
+                        NamespaceId = "namespace-a",
+                        Operation = GatewayAdministrativeOperationKind.Purge,
+                        ActorId = actor.ActorId,
+                        AuthenticationScheme = actor.AuthenticationScheme,
+                        AuthorizationPolicy = actor.AuthorizationPolicy,
+                        SubjectDigest = "crash-window",
+                        PurgeCollectionId = GatewayAuthoritySchema.AdministrativeAudit,
+                        PurgeRecordIdsJson = JsonSerializer.SerializeToUtf8Bytes(
+                            ids, GatewayManagementJsonContext.Default.StringArray),
+                    }).AsTask();
+                await session.Collection(GatewayPurgeAuthorityState.Collection).CreateAsync(
+                    GatewayAuthorityRecordIds.PurgeAuthority("authority-a", GatewayAuthoritySchema.AdministrativeAudit),
+                    new GatewayPurgeAuthorityState
+                    {
+                        ManagementAuthorityId = "authority-a",
+                        CollectionId = GatewayAuthoritySchema.AdministrativeAudit,
+                        ConfirmedGeneration = 0,
+                        PendingIntentId = intentId.Value,
+                    }).AsTask();
+                BaseResult<BasePurgeResult> purged = await first.GetRequiredService<IHPDBaseAdministration>()
+                    .PurgeAsync(new BasePurgeRequest
+                    {
+                        CollectionId = GatewayAuthoritySchema.AdministrativeAudit,
+                        RecordIds = [audit.Id],
+                        Principal = TrustedPrincipal(),
+                        ReasonCode = "gateway.retention",
+                        AuditReference = intentId.Value,
+                        EvaluatedAt = DateTimeOffset.UtcNow,
+                        ExpectedPurgeGeneration = 0,
+                    });
+                purged.RequireValue().PurgeGeneration.Should().Be(1);
+            }
+
+            await using (ServiceProvider restarted = SqliteProvider(database))
+            {
+                await InitializeSqlite(restarted);
+                (await restarted.GetRequiredService<IGatewayManagementAdministration>()
+                    .ReconcilePendingAsync()).Should().BeGreaterThan(0);
+                BaseSession session = TrustedSession(restarted);
+                BaseRecord<GatewayAdministrativeOperationObservation> observation = (await session
+                    .Collection(GatewayAdministrativeOperationObservation.Collection).Query()
+                    .Take(1).ToArrayAsync(1)).RequireValue().Single();
+                observation.Value.IntentId.Should().Be(intentId.Value);
+                observation.Value.Kind.Should().Be(GatewayAdministrativeObservationKind.Succeeded);
+                observation.Value.ProviderGeneration.Should().Be(1);
+                BaseRecord<GatewayPurgeAuthorityState> fence = (await session
+                    .Collection(GatewayPurgeAuthorityState.Collection)
+                    .GetAsync(GatewayAuthorityRecordIds.PurgeAuthority(
+                        "authority-a", GatewayAuthoritySchema.AdministrativeAudit))).RequireValue();
+                fence.Value.ConfirmedGeneration.Should().Be(1);
+                fence.Value.PendingIntentId.Should().BeNull();
+            }
+        }
+        finally
+        {
+            if (File.Exists(database)) File.Delete(database);
+            if (File.Exists(database + "-wal")) File.Delete(database + "-wal");
+            if (File.Exists(database + "-shm")) File.Delete(database + "-shm");
+        }
     }
 
     [Fact]
@@ -299,6 +418,104 @@ public sealed class GatewayManagementCompositionTests
     }
 
     [Fact]
+    public async Task Delivery_attempt_limit_terminalizes_without_another_node_call()
+    {
+        var activator = new RecordingNodeActivator();
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddHpdGateway(static builder => builder.AddCoreFamilies());
+        services.AddHpdGatewayManagement(options =>
+        {
+            options.ManagementAuthorityId = "authority-a";
+            options.MaximumDeliveryAttempts = 1;
+        });
+        services.Replace(ServiceDescriptor.Singleton<IGatewayNodeActivator>(activator));
+        await using ServiceProvider provider = services.BuildServiceProvider();
+        var commands = provider.GetRequiredService<IGatewayManagementCommandCoordinator>();
+        var actor = new GatewayManagementActor("actor-a", "test", "manage");
+        await commands.ProvisionTargetAsync(new(
+            "namespace-a", "node-a", "provision-a", actor, "correlation-a", "epoch-a"));
+        (await commands.SubmitAsync(new(
+            "namespace-a", "node-a", "submit-a", actor, "correlation-b",
+            "test", "source-a", null, ConfigurationBytes(), Activate: true)))
+            .State.Should().Be(GatewayManagementCommandState.Accepted);
+        BaseSession session = TrustedSession(provider);
+        BaseRecord<GatewayDeliveryOutboxItem> item = (await session
+            .Collection(GatewayDeliveryOutboxItem.Collection).Query()
+            .Take(1).ToArrayAsync(1)).RequireValue().Single();
+        (await session.Collection(GatewayDeliveryOutboxItem.Collection).ReplaceAsync(
+            item.Id, item.Value with { AttemptCount = 1 }, item.Revision)).RequireValue();
+
+        GatewayDeliveryRunResult run = await provider.GetRequiredService<IGatewayDeliveryCoordinator>()
+            .ReconcileOnceAsync();
+
+        run.Failed.Should().Be(1);
+        activator.Count.Should().Be(0);
+        BaseRecord<GatewayNodeActivationOutcome> outcome = (await session
+            .Collection(GatewayNodeActivationOutcome.Collection).Query()
+            .Take(1).ToArrayAsync(1)).RequireValue().Single();
+        outcome.Value.Code.Should().Be("management.delivery.attempt-limit");
+    }
+
+    [Fact]
+    public async Task Fair_state_budget_serves_immediate_work_while_outcome_pending_remains()
+    {
+        var activator = new RecordingNodeActivator();
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddHpdGateway(static builder => builder.AddCoreFamilies());
+        services.AddHpdGatewayManagement(options =>
+        {
+            options.ManagementAuthorityId = "authority-a";
+            options.MaximumTargets = 1;
+        });
+        services.Replace(ServiceDescriptor.Singleton<IGatewayNodeActivator>(activator));
+        await using ServiceProvider provider = services.BuildServiceProvider();
+        var commands = provider.GetRequiredService<IGatewayManagementCommandCoordinator>();
+        var actor = new GatewayManagementActor("actor-a", "test", "manage");
+        await commands.ProvisionTargetAsync(new(
+            "namespace-a", "node-a", "provision-a", actor, "correlation-a", "epoch-a"));
+        var firstCommand = new GatewaySubmitCommand(
+            "namespace-a", "node-a", "submit-a", actor, "correlation-b",
+            "test", "source-a", "first", ConfigurationBytes(), Activate: true);
+        GatewayManagementCommandResult first = await commands.SubmitAsync(firstCommand);
+        (await commands.SubmitAsync(firstCommand with
+        {
+            IdempotencyKey = "submit-b",
+            CorrelationId = "correlation-c",
+            Description = "second",
+            ExpectedDesiredStateToken = first.DesiredStateToken,
+        })).State.Should().Be(GatewayManagementCommandState.Accepted);
+        BaseSession session = TrustedSession(provider);
+        BaseRecord<GatewayDeliveryOutboxItem>[] items = (await session
+            .Collection(GatewayDeliveryOutboxItem.Collection).Query()
+            .Take(2).ToArrayAsync(2)).RequireValue();
+        BaseRecord<GatewayDeliveryOutboxItem> pending = items.OrderBy(value => value.Id.Value, StringComparer.Ordinal).First();
+        pending = (await session.Collection(GatewayDeliveryOutboxItem.Collection).ReplaceAsync(
+            pending.Id, pending.Value with
+            {
+                State = GatewayDeliveryState.OutcomePersistencePending,
+                PendingOutcomeKind = GatewayNodeOutcomeKind.RejectedBeforePublish,
+                PendingOutcomeCode = "test.pending",
+            }, pending.Revision)).RequireValue();
+        var delivery = provider.GetRequiredService<IGatewayDeliveryCoordinator>();
+
+        await delivery.ReconcileOnceAsync();
+        BaseRecord<GatewayDeliveryOutboxItem> terminal = (await session
+            .Collection(GatewayDeliveryOutboxItem.Collection).GetAsync(pending.Id)).RequireValue();
+        await session.Collection(GatewayDeliveryOutboxItem.Collection).ReplaceAsync(
+            terminal.Id, terminal.Value with
+            {
+                State = GatewayDeliveryState.OutcomePersistencePending,
+                PendingOutcomeKind = GatewayNodeOutcomeKind.RejectedBeforePublish,
+                PendingOutcomeCode = "test.pending",
+            }, terminal.Revision);
+        await delivery.ReconcileOnceAsync();
+
+        activator.Count.Should().Be(1, "the rotating one-item budget must reach Immediate work");
+    }
+
+    [Fact]
     public async Task Purge_rejects_current_and_transitively_referenced_records()
     {
         var activator = new RecordingNodeActivator();
@@ -328,10 +545,6 @@ public sealed class GatewayManagementCompositionTests
             BaseRecord<GatewayAcceptedRevision> firstRevision = (await session
                 .Collection(GatewayAcceptedRevision.Collection)
                 .GetAsync(RecordId.Create(first.OperationId!))).RequireValue();
-            BaseRecord<GatewayCommandReceipt> firstReceipt = (await session
-                .Collection(GatewayCommandReceipt.Collection).Query()
-                .Where(GatewayCommandReceipt.Fields.StableOperationId, first.OperationId!)
-                .Take(1).ToArrayAsync(1)).RequireValue().Single();
             BaseRecord<GatewayAdministrativeAuditRecord> firstAudit = (await session
                 .Collection(GatewayAdministrativeAuditRecord.Collection).Query()
                 .Where(GatewayAdministrativeAuditRecord.Fields.SubjectId, first.OperationId!)
@@ -343,9 +556,13 @@ public sealed class GatewayManagementCompositionTests
 
             await AssertProtected(administration, actor, GatewayAuthoritySchema.AcceptedRevisions, first.OperationId!, "revision");
             await AssertProtected(administration, actor, GatewayAuthoritySchema.ValidationRecords, firstRevision.Value.ValidationId, "validation");
-            await AssertProtected(administration, actor, GatewayAuthoritySchema.CommandReceipts, firstReceipt.Id.Value, "receipt");
             await AssertProtected(administration, actor, GatewayAuthoritySchema.AdministrativeAudit, firstAudit.Id.Value, "audit");
             await AssertProtected(administration, actor, GatewayAuthoritySchema.NodeOutcomes, outcome.Id.Value, "outcome");
+            await administration.Invoking(value => value.PurgeAsync(
+                    "namespace-a", "receipt-purge", actor, GatewayAuthoritySchema.CommandReceipts,
+                    ["gwm.receipt.unavailable"], null).AsTask())
+                .Should().ThrowAsync<ArgumentException>()
+                .WithMessage("*not Gateway purge-enabled*");
         }, activator);
     }
 
@@ -448,12 +665,15 @@ public sealed class GatewayManagementCompositionTests
     }
 
     private static BaseSession TrustedSession(ServiceProvider provider) =>
-        provider.GetRequiredService<IBaseSessionFactory>().For(new PrincipalContext
-        {
-            AuthenticationState = PrincipalAuthenticationState.System,
-            SubjectId = "gateway-tests",
-            AuthSource = GatewayManagementBasePolicy.TrustedSource,
-        }, options => options.Mode = OperationMode.System);
+        provider.GetRequiredService<IBaseSessionFactory>().For(TrustedPrincipal(),
+            options => options.Mode = OperationMode.System);
+
+    private static PrincipalContext TrustedPrincipal() => new()
+    {
+        AuthenticationState = PrincipalAuthenticationState.System,
+        SubjectId = "gateway-tests",
+        AuthSource = GatewayManagementBasePolicy.TrustedSource,
+    };
 
     private static async Task AssertProtected(
         IGatewayManagementAdministration administration,

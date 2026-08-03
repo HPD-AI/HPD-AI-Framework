@@ -19,6 +19,9 @@ internal static class GatewayAuthorityRecordIds
     internal static RecordId DesiredState(string managementAuthorityId, string targetNodeId) =>
         Create("desired-state", managementAuthorityId, targetNodeId);
 
+    internal static RecordId PurgeAuthority(string managementAuthorityId, string collectionId) =>
+        Create("purge-authority", managementAuthorityId, collectionId);
+
     internal static RecordId CommandFact(string role, string namespaceId, string operation, string idempotencyKey, params string[] additional) =>
         Create(role, [namespaceId, operation, idempotencyKey, .. additional]);
 

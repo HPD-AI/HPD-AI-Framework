@@ -18,6 +18,7 @@ public static class GatewayAuthoritySchema
     public const string AdministrativeOperationIntents = "gateway.management.admin-intents";
     public const string AdministrativeObservations = "gateway.management.admin-observations";
     public const string AdministrativeCompletions = "gateway.management.admin-completions";
+    public const string PurgeAuthorities = "gateway.management.purge-authorities";
 
     public static System.Collections.Immutable.ImmutableArray<string> CollectionIds { get; } =
         new[]
@@ -26,7 +27,7 @@ public static class GatewayAuthoritySchema
             AdministrativeCompletions, AdministrativeObservations,
             AdministrativeOperationIntents, CommandReceipts, DeliveryOutbox,
             DesiredStates, NodeDeliveryAuthorities, NodeOutcomes,
-            TargetOwnership, ValidationRecords,
+            PurgeAuthorities, TargetOwnership, ValidationRecords,
         }.Order(StringComparer.Ordinal).ToImmutableArray();
 
     public static void AddTo(HPDBaseBuilder builder)
@@ -45,5 +46,6 @@ public static class GatewayAuthoritySchema
         builder.AddCollection(GatewayAdministrativeOperationIntent.Collection);
         builder.AddCollection(GatewayAdministrativeOperationObservation.Collection);
         builder.AddCollection(GatewayAdministrativeOperationCompletion.Collection);
+        builder.AddCollection(GatewayPurgeAuthorityState.Collection);
     }
 }
