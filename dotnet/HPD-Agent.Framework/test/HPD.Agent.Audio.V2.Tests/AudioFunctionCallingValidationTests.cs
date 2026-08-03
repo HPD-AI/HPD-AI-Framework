@@ -115,7 +115,7 @@ public sealed class AudioFunctionCallingValidationTests
             SessionStore = store,
             Clients = new AgentClientsConfig
             {
-                Chat = new ProviderClientConfig
+                Chat = new ChatClientConfig
                 {
                     ProviderKey = "test",
                     ModelName = "test-model"

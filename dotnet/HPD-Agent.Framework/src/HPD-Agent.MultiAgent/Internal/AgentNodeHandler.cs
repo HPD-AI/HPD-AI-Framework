@@ -484,7 +484,11 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
         // Use fallback chat client from parent agent if available
         if (graphContext?.FallbackChatClient != null)
         {
-            runConfig.OverrideChatClient = graphContext.FallbackChatClient;
+            runConfig.Clients.Chat ??= new ChatClientConfig();
+            runConfig.Clients.Chat.Override = new HPD.Agent.Providers.ClientOverride<Microsoft.Extensions.AI.IChatClient>
+            {
+                Client = graphContext.FallbackChatClient
+            };
         }
 
         return runConfig;

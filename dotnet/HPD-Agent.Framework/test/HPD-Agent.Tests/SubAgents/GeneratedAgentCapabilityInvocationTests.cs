@@ -24,10 +24,7 @@ public sealed class GeneratedAgentCapabilityInvocationTests
         var subAgentFunction = CreateGeneratedShapeSubAgentFunction();
         var multiAgentFunction = CreateGeneratedShapeMultiAgentFunction();
         var config = DefaultConfig();
-        config.EnsureChatClientConfig().DefaultMicrosoftChatOptions = new ChatOptions
-        {
-            Tools = [subAgentFunction, multiAgentFunction],
-        };
+        config.ServerConfiguredTools = [subAgentFunction, multiAgentFunction];
 
         var agent = await new AgentBuilder(config, new TestProviderRegistry(parentClient))
             .BuildAsync(CancellationToken.None);
@@ -136,7 +133,7 @@ public sealed class GeneratedAgentCapabilityInvocationTests
         MaxAgenticIterations = 10,
         Clients = new AgentClientsConfig
         {
-            Chat = new ProviderClientConfig
+            Chat = new ChatClientConfig
             {
                 ProviderKey = "test",
                 ModelName = "test-model",

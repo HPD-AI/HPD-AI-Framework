@@ -22,7 +22,7 @@ public static class AgentBuilderExtensions
         if (string.IsNullOrWhiteSpace(model))
             throw new ArgumentException("Model is required for Groq provider.", nameof(model));
 
-        var chatConfig = new ProviderClientConfig
+        var chatConfig = new ChatClientConfig
         {
             ProviderKey = "groq",
             ApiKey = apiKey,

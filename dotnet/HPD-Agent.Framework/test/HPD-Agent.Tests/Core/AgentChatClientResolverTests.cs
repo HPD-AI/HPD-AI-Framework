@@ -10,6 +10,14 @@ namespace HPD.Agent.Tests.Core;
 
 public sealed class AgentChatClientResolverTests
 {
+    private static AgentRunConfig RuntimeChat(string providerKey, string modelName) => new()
+    {
+        Clients = new AgentClientsConfig
+        {
+            Chat = new ChatClientConfig { ProviderKey = providerKey, ModelName = modelName }
+        }
+    };
+
     [Fact]
     public async Task ResolveAsync_AgentDefault_BeatsInheritedFallback()
     {
@@ -36,7 +44,16 @@ public sealed class AgentChatClientResolverTests
         await using var lease = await resolver.ResolveAsync(new AgentChatClientResolutionRequest
         {
             AgentConfig = new AgentConfig(),
-            RunConfig = new AgentRunConfig { OverrideChatClient = overrideClient },
+            RunConfig = new AgentRunConfig
+            {
+                Clients = new AgentClientsConfig
+                {
+                    Chat = new ChatClientConfig
+                    {
+                        Override = new ClientOverride<IChatClient> { Client = overrideClient }
+                    }
+                }
+            },
             AgentDefault = AgentChatClientHandle.Borrowed(new FakeChatClient(), AgentChatClientSource.AgentDefault)
         });
 
@@ -55,7 +72,7 @@ public sealed class AgentChatClientResolverTests
         var lease = await resolver.ResolveAsync(new AgentChatClientResolutionRequest
         {
             AgentConfig = new AgentConfig(),
-            RunConfig = new AgentRunConfig { ProviderKey = "tracking", ModelId = "model" }
+            RunConfig = RuntimeChat("tracking", "model")
         });
         var childLease = lease.Handle.AcquireLease();
 
@@ -68,7 +85,7 @@ public sealed class AgentChatClientResolverTests
         await using var second = await resolver.ResolveAsync(new AgentChatClientResolutionRequest
         {
             AgentConfig = new AgentConfig(),
-            RunConfig = new AgentRunConfig { ProviderKey = "tracking", ModelId = "model" }
+            RunConfig = RuntimeChat("tracking", "model")
         });
 
         Assert.Same(client, second.Client);
@@ -88,13 +105,9 @@ public sealed class AgentChatClientResolverTests
         var request = new AgentChatClientResolutionRequest
         {
             AgentConfig = new AgentConfig(),
-            RunConfig = new AgentRunConfig
-            {
-                ProviderKey = "creating",
-                ModelId = "model",
-                ApiKey = "runtime-only"
-            }
+            RunConfig = RuntimeChat("creating", "model")
         };
+        request.RunConfig.Clients.Chat!.ApiKey = "runtime-only";
 
         await using (var first = await resolver.ResolveAsync(request)) { }
         await using (var second = await resolver.ResolveAsync(request)) { }
@@ -113,7 +126,7 @@ public sealed class AgentChatClientResolverTests
         var request = new AgentChatClientResolutionRequest
         {
             AgentConfig = new AgentConfig(),
-            RunConfig = new AgentRunConfig { ProviderKey = "delayed", ModelId = "model" }
+            RunConfig = RuntimeChat("delayed", "model")
         };
 
         var leases = await Task.WhenAll(
@@ -137,12 +150,12 @@ public sealed class AgentChatClientResolverTests
         await using var first = await resolver.ResolveAsync(new AgentChatClientResolutionRequest
         {
             AgentConfig = new AgentConfig(),
-            RunConfig = new AgentRunConfig { ProviderKey = "creating", ModelId = "model-a" }
+            RunConfig = RuntimeChat("creating", "model-a")
         });
         await using var second = await resolver.ResolveAsync(new AgentChatClientResolutionRequest
         {
             AgentConfig = new AgentConfig(),
-            RunConfig = new AgentRunConfig { ProviderKey = "creating", ModelId = "model-b" }
+            RunConfig = RuntimeChat("creating", "model-b")
         });
 
         Assert.Equal(2, provider.CreateCount);
@@ -160,14 +173,14 @@ public sealed class AgentChatClientResolverTests
         var registry = new ProviderRegistry();
         registry.Register(provider);
         using var resolver = new AgentChatClientResolver(registry, null);
-        var firstConfig = new ProviderClientConfig { ProviderKey = "creating", ModelName = "model" };
-        var secondConfig = ProviderClientConfigResolver.Clone(firstConfig);
+        var firstConfig = new ChatClientConfig { ProviderKey = "creating", ModelName = "model" };
+        var secondConfig = (ChatClientConfig)ProviderClientConfigResolver.Clone(firstConfig);
         switch (difference)
         {
             case "endpoint": secondConfig.Endpoint = "https://example.test"; break;
             case "headers": secondConfig.CustomHeaders = new() { ["X-Tenant"] = "two" }; break;
             case "options": secondConfig.SetConstructionOptionsRawJson("{\"region\":\"two\"}"); break;
-            case "max-output": secondConfig.ChatDefaults = new() { MaxOutputTokens = 42 }; break;
+            case "max-output": secondConfig.MaxOutputTokens = 42; break;
         }
 
         await using var first = await resolver.ResolveAsync(new AgentChatClientResolutionRequest
@@ -197,7 +210,7 @@ public sealed class AgentChatClientResolverTests
             {
                 Clients = new AgentClientsConfig
                 {
-                    Chat = new ProviderClientConfig { ProviderKey = "creating", ModelName = "model", CustomHeaders = headers }
+                    Chat = new ChatClientConfig { ProviderKey = "creating", ModelName = "model", CustomHeaders = headers }
                 }
             }
         };
@@ -219,7 +232,7 @@ public sealed class AgentChatClientResolverTests
         var request = new AgentChatClientResolutionRequest
         {
             AgentConfig = new AgentConfig(),
-            RunConfig = new AgentRunConfig { ProviderKey = "delayed", ModelId = "model" }
+            RunConfig = RuntimeChat("delayed", "model")
         };
         using var cancellation = new CancellationTokenSource(1);
 
@@ -240,7 +253,7 @@ public sealed class AgentChatClientResolverTests
         var request = new AgentChatClientResolutionRequest
         {
             AgentConfig = new AgentConfig(),
-            RunConfig = new AgentRunConfig { ProviderKey = "fail-once", ModelId = "model" }
+            RunConfig = RuntimeChat("fail-once", "model")
         };
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => resolver.ResolveAsync(request).AsTask());
@@ -273,15 +286,12 @@ public sealed class AgentChatClientResolverTests
             .BuildServiceProvider();
         var resolver = new AgentChatClientResolver(providers, services);
 
+        var runConfig = RuntimeChat("tracking", "model");
+        runConfig.Clients.Chat!.AuthenticationKey = "tracking-work";
         await using var lease = await resolver.ResolveAsync(new AgentChatClientResolutionRequest
         {
             AgentConfig = new AgentConfig(),
-            RunConfig = new AgentRunConfig
-            {
-                ProviderKey = "tracking",
-                ModelId = "model",
-                AuthenticationKey = "tracking-work"
-            }
+            RunConfig = runConfig
         });
 
         Assert.Equal("resolved-key", provider.LastConfig?.ApiKey);
@@ -315,7 +325,7 @@ public sealed class AgentChatClientResolverTests
             resolver.ResolveAsync(new AgentChatClientResolutionRequest
             {
                 AgentConfig = new AgentConfig(),
-                RunConfig = new AgentRunConfig { ProviderKey = "tracking", ModelId = "model" }
+                RunConfig = RuntimeChat("tracking", "model")
             }).AsTask());
 
         Assert.Contains("AuthenticationSelectionRequired", exception.Message, StringComparison.Ordinal);
@@ -353,7 +363,7 @@ public sealed class AgentChatClientResolverTests
         await using var lease = await resolver.ResolveAsync(new AgentChatClientResolutionRequest
         {
             AgentConfig = new AgentConfig(),
-            RunConfig = new AgentRunConfig { ProviderKey = "tracking", ModelId = "model" }
+            RunConfig = RuntimeChat("tracking", "model")
         });
 
         Assert.Equal("tracking-default", provider.LastConfig?.AuthenticationKey);
@@ -372,16 +382,13 @@ public sealed class AgentChatClientResolverTests
         providers.Register(new TrackingProvider(new TrackingChatClient()));
         using var resolver = new AgentChatClientResolver(providers, null);
 
+        var runConfig = RuntimeChat("tracking", "model");
+        runConfig.Clients.Chat!.CustomHeaders = new() { [header] = "secret" };
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             resolver.ResolveAsync(new AgentChatClientResolutionRequest
             {
                 AgentConfig = new AgentConfig(),
-                RunConfig = new AgentRunConfig
-                {
-                    ProviderKey = "tracking",
-                    ModelId = "model",
-                    CustomHeaders = new() { [header] = "secret" }
-                }
+                RunConfig = runConfig
             }).AsTask());
 
         Assert.Contains("cannot be used for provider authentication", exception.Message, StringComparison.Ordinal);

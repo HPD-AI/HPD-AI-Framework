@@ -205,7 +205,7 @@ public class AgentSessionManagerRegistryTests
             var config = new AgentConfig
             {
                 Name = "TestAgent",
-                Clients = new AgentClientsConfig { Chat = new ProviderClientConfig {
+                Clients = new AgentClientsConfig { Chat = new ChatClientConfig {
                     ProviderKey = "test",
                     ModelName = "test-model"
                 } }

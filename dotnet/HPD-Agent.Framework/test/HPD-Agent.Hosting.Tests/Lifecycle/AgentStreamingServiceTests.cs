@@ -56,8 +56,11 @@ public sealed class AgentStreamingServiceTests : IDisposable
         };
         var runConfig = new AgentRunConfig
         {
-            ProviderKey = "openrouter",
-            ModelId = "model-1",
+            Clients = new AgentClientsConfig { Chat = new ChatClientConfig
+            {
+                ProviderKey = "openrouter",
+                ModelName = "model-1"
+            } },
             ContextOverrides = new Dictionary<string, object>
             {
                 ["workspace"] = workspaceOverride
@@ -95,8 +98,11 @@ public sealed class AgentStreamingServiceTests : IDisposable
     {
         var runConfig = new AgentRunConfig
         {
-            ProviderKey = "openrouter",
-            ModelId = "model-1"
+            Clients = new AgentClientsConfig { Chat = new ChatClientConfig
+            {
+                ProviderKey = "openrouter",
+                ModelName = "model-1"
+            } }
         };
         var input = new BackgroundTaskNotificationInputEvent(
             [
@@ -193,7 +199,7 @@ public sealed class AgentStreamingServiceTests : IDisposable
                 MaxAgenticIterations = 1,
                 Clients = new AgentClientsConfig
                 {
-                    Chat = new ProviderClientConfig
+                    Chat = new ChatClientConfig
                     {
                         ProviderKey = "test",
                         ModelName = "test-model"
@@ -245,7 +251,7 @@ public sealed class AgentStreamingServiceTests : IDisposable
             Name = "agent-1",
             Clients = new AgentClientsConfig
             {
-                Chat = new ProviderClientConfig { ProviderKey = "test", ModelName = "test-model" }
+                Chat = new ChatClientConfig { ProviderKey = "test", ModelName = "test-model" }
             }
         }, "agent-1");
 
@@ -278,7 +284,7 @@ public sealed class AgentStreamingServiceTests : IDisposable
                 MaxAgenticIterations = 1,
                 Clients = new AgentClientsConfig
                 {
-                    Chat = new ProviderClientConfig
+                    Chat = new ChatClientConfig
                     {
                         ProviderKey = "test",
                         ModelName = "test-model"
@@ -355,7 +361,7 @@ public sealed class AgentStreamingServiceTests : IDisposable
                     MaxAgenticIterations = 1,
                     Clients = new AgentClientsConfig
                     {
-                        Chat = new ProviderClientConfig
+                        Chat = new ChatClientConfig
                         {
                             ProviderKey = "test",
                             ModelName = "test-model"

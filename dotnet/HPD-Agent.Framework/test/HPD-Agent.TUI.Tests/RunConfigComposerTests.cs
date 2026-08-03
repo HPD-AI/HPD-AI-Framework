@@ -30,8 +30,11 @@ public sealed class RunConfigComposerTests
 
                     return new AgentRunConfig
                     {
-                        ProviderKey = "openrouter",
-                        ModelId = "deepseek/deepseek-chat"
+                        Clients = new AgentClientsConfig { Chat = new ChatClientConfig
+                        {
+                            ProviderKey = "openrouter",
+                            ModelName = "deepseek/deepseek-chat"
+                        } }
                     };
                 }),
             new TestTerminal(80, 24));
@@ -41,8 +44,8 @@ public sealed class RunConfigComposerTests
 
         runtime.LastInput.Should().BeOfType<UserMessagesInputEvent>()
             .Which.RunConfig.Should().NotBeNull();
-        runtime.LastInput!.RunConfig!.ProviderKey.Should().Be("openrouter");
-        runtime.LastInput.RunConfig.ModelId.Should().Be("deepseek/deepseek-chat");
+        runtime.LastInput!.RunConfig!.Clients.Chat!.ProviderKey.Should().Be("openrouter");
+        runtime.LastInput.RunConfig.Clients.Chat.ModelName.Should().Be("deepseek/deepseek-chat");
     }
 
     [Fact]

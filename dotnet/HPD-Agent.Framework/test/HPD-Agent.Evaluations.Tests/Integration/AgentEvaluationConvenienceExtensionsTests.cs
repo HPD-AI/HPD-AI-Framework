@@ -102,11 +102,10 @@ public sealed class AgentEvaluationConvenienceExtensionsTests
                 Name = "EvalConvenienceAgent",
                 Clients = new AgentClientsConfig
                 {
-                    Chat = new ProviderClientConfig
+                    Chat = new ChatClientConfig
                     {
                         ProviderKey = "test",
                         ModelName = "gpt-test",
-                        DefaultMicrosoftChatOptions = options,
                     },
                 },
             },

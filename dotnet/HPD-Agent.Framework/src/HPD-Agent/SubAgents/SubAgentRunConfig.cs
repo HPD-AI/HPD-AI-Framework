@@ -137,15 +137,19 @@ internal static class AgentRunConfigInheritance
 
         if (Has(fields, SubAgentRunConfigFields.Model))
         {
-            result.ModelTransport = source.ModelTransport;
-            result.Clients = source.Clients;
-            result.ProviderKey = source.ProviderKey;
-            result.ModelId = source.ModelId;
-            result.ApiKey = source.ApiKey;
-            result.ProviderEndpoint = source.ProviderEndpoint;
-            result.CustomHeaders = source.CustomHeaders is null ? null : new(source.CustomHeaders);
-            result.ConstructionOptions = source.ConstructionOptions?.Clone();
-            result.OverrideChatClient = source.OverrideChatClient;
+            result.Clients.Transport = source.Clients.Transport;
+            result.Clients.Providers = source.Clients.Providers is null
+                ? null
+                : new(source.Clients.Providers);
+            result.Clients.Chat = CloneChat(source.Clients.Chat);
+            result.Clients.Realtime = source.Clients.Realtime;
+            result.Clients.TextToSpeech = source.Clients.TextToSpeech;
+            result.Clients.SpeechToText = source.Clients.SpeechToText;
+            result.Clients.ImageGeneration = source.Clients.ImageGeneration;
+            result.Clients.Embeddings = source.Clients.Embeddings;
+            result.Clients.HostedFiles = source.Clients.HostedFiles;
+            result.Clients.VoiceActivityDetection = source.Clients.VoiceActivityDetection;
+            result.Clients.EndOfTurnDetection = source.Clients.EndOfTurnDetection;
             result.OverrideRealtimeClient = source.OverrideRealtimeClient;
             result.RealtimeTranscriptionOptions = source.RealtimeTranscriptionOptions;
             result.OverrideImageGenerator = source.OverrideImageGenerator;
@@ -156,7 +160,7 @@ internal static class AgentRunConfigInheritance
         }
 
         if (Has(fields, SubAgentRunConfigFields.Chat))
-            result.Chat = CloneChat(source.Chat);
+            result.Clients.Chat = CloneChat(source.Clients.Chat);
 
         if (Has(fields, SubAgentRunConfigFields.Permissions))
         {
@@ -238,11 +242,19 @@ internal static class AgentRunConfigInheritance
     private static bool Has(SubAgentRunConfigFields fields, SubAgentRunConfigFields value)
         => (fields & value) == value;
 
-    private static ChatRunConfig? CloneChat(ChatRunConfig? source)
+    private static ChatClientConfig? CloneChat(ChatClientConfig? source)
         => source is null
             ? null
-            : new ChatRunConfig
+            : new ChatClientConfig
             {
+                ProviderKey = source.ProviderKey,
+                ModelName = source.ModelName,
+                Endpoint = source.Endpoint,
+                AuthenticationKey = source.AuthenticationKey,
+                ApiKey = source.ApiKey,
+                CustomHeaders = source.CustomHeaders is null ? null : new(source.CustomHeaders),
+                ConstructionOptions = source.ConstructionOptions?.Clone(),
+                Override = source.Override,
                 Temperature = source.Temperature,
                 TopP = source.TopP,
                 TopK = source.TopK,
@@ -250,9 +262,8 @@ internal static class AgentRunConfigInheritance
                 FrequencyPenalty = source.FrequencyPenalty,
                 PresencePenalty = source.PresencePenalty,
                 Seed = source.Seed,
-                ModelId = source.ModelId,
                 StopSequences = source.StopSequences?.ToArray(),
-                AdditionalProperties = source.AdditionalProperties is null ? null : new(source.AdditionalProperties),
+                ProviderOptions = source.ProviderOptions,
                 Reasoning = source.Reasoning is null
                     ? null
                     : new ReasoningOptions { Effort = source.Reasoning.Effort, Output = source.Reasoning.Output },

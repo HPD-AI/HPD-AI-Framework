@@ -37,7 +37,7 @@ internal static class ServerMode
                 SystemInstructions = "You are a server-hosted HPD Agent. Be concise and helpful.",
                 Clients = new AgentClientsConfig
                 {
-                    Chat = new ProviderClientConfig
+                    Chat = new ChatClientConfig
                     {
                         ProviderKey = "openrouter",
                         ModelName = model

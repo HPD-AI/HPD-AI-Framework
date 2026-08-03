@@ -171,7 +171,7 @@ public class AspNetCoreAgentManagerTests : IDisposable
         var stored = await manager.CreateDefinitionAsync(new AgentConfig
         {
             Name = "Coding",
-            Clients = new AgentClientsConfig { Chat = new ProviderClientConfig { ProviderKey = "test", ModelName = "test-model" } },
+            Clients = new AgentClientsConfig { Chat = new ChatClientConfig { ProviderKey = "test", ModelName = "test-model" } },
             ToolHarnesses = [nameof(CodingToolHarness)]
         }, "Coding");
 
@@ -285,19 +285,19 @@ public class AspNetCoreAgentManagerTests : IDisposable
         return await manager.CreateDefinitionAsync(new AgentConfig
         {
             Name = "Default",
-            Clients = new AgentClientsConfig { Chat = new ProviderClientConfig { ProviderKey = "test", ModelName = "test-model" } }
+            Clients = new AgentClientsConfig { Chat = new ChatClientConfig { ProviderKey = "test", ModelName = "test-model" } }
         }, "Default");
     }
 
     private static AgentConfig MakeConfig(string name) => new AgentConfig
     {
         Name = name,
-        Clients = new AgentClientsConfig { Chat = new ProviderClientConfig { ProviderKey = "test", ModelName = "test-model" } }
+        Clients = new AgentClientsConfig { Chat = new ChatClientConfig { ProviderKey = "test", ModelName = "test-model" } }
     };
 
     private static void InjectTestProvider(AgentBuilder builder)
     {
-        builder.Config.SetChatClientConfig(new ProviderClientConfig
+        builder.Config.SetChatClientConfig(new ChatClientConfig
         {
             ProviderKey = "test",
             ModelName = "test-model"
@@ -349,7 +349,7 @@ public class AspNetCoreAgentManagerTests : IDisposable
         private static AgentConfig MakeConfig(string name) => new AgentConfig
         {
             Name = name,
-            Clients = new AgentClientsConfig { Chat = new ProviderClientConfig { ProviderKey = "test", ModelName = "test-model" } }
+            Clients = new AgentClientsConfig { Chat = new ChatClientConfig { ProviderKey = "test", ModelName = "test-model" } }
         };
     }
 

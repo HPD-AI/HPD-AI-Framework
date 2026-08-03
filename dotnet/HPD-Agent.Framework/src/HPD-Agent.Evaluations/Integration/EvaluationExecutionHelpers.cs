@@ -193,7 +193,10 @@ internal sealed class AgentBackedJudgeChatClient(IJudgeAgent agent) : IChatClien
         var runConfig = new AgentRunConfig
         {
             UserMessage = prompt,
-            Chat = options is null ? null : new ChatRunConfig(options),
+            Clients = new AgentClientsConfig
+            {
+                Chat = options is null ? null : new ChatClientConfig(options)
+            },
             DisableEvaluators = true,
             IsInternalEvalJudgeCall = true,
         };

@@ -13,9 +13,9 @@ namespace HPD.Agent.Providers.Cohere;
 /// <remarks>
 /// Generic runtime settings such as model, temperature, top-p, top-k, max output tokens,
 /// seed, stop sequences, response format, tools, and reasoning belong on
-/// <see cref="ChatRunConfig"/> or <see cref="ChatOptions"/>.
+/// <see cref="ChatClientConfig"/> or <see cref="ChatOptions"/>.
 /// </remarks>
-public sealed class CohereChatRequestOptions
+public sealed class CohereChatRequestOptions : IChatRequestOptions
 {
     /// <summary>
     /// Forces tool calls to follow their tool definitions strictly.
@@ -79,19 +79,10 @@ public sealed class CohereChatRequestOptions
     /// <summary>
     /// Applies these options to a serializable HPD chat run configuration.
     /// </summary>
-    public void ApplyTo(ChatRunConfig chat)
+    public void ApplyTo(ChatClientConfig chat)
     {
         ArgumentNullException.ThrowIfNull(chat);
-
-        var properties = ToAdditionalProperties();
-        if (properties.Count == 0)
-            return;
-
-        chat.AdditionalProperties ??= new Dictionary<string, object>();
-        foreach (var property in properties)
-        {
-            chat.AdditionalProperties[property.Key] = property.Value;
-        }
+        chat.ProviderOptions = this;
     }
 
     /// <summary>
@@ -256,8 +247,8 @@ public static class CohereChatRequestOptionExtensions
     /// <summary>
     /// Applies Cohere-specific runtime options to a serializable HPD chat run configuration.
     /// </summary>
-    public static ChatRunConfig UseCohereChatRequestOptions(
-        this ChatRunConfig chat,
+    public static ChatClientConfig UseCohereChatRequestOptions(
+        this ChatClientConfig chat,
         CohereChatRequestOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);

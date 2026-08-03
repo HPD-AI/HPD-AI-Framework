@@ -12,9 +12,9 @@ namespace HPD.Agent.Providers.HuggingFace;
 /// <remarks>
 /// Generic runtime settings such as model, temperature, top-p, max output tokens,
 /// frequency penalty, presence penalty, seed, stop sequences, response format, and tools
-/// belong on <see cref="ChatRunConfig"/> or <see cref="ChatOptions"/>.
+/// belong on <see cref="ChatClientConfig"/> or <see cref="ChatOptions"/>.
 /// </remarks>
-public sealed class HuggingFaceChatRequestOptions
+public sealed class HuggingFaceChatRequestOptions : IChatRequestOptions
 {
     /// <summary>
     /// Returns output token log probabilities.
@@ -60,19 +60,10 @@ public sealed class HuggingFaceChatRequestOptions
     /// <summary>
     /// Applies these options to a serializable HPD chat run configuration.
     /// </summary>
-    public void ApplyTo(ChatRunConfig chat)
+    public void ApplyTo(ChatClientConfig chat)
     {
         ArgumentNullException.ThrowIfNull(chat);
-
-        var properties = ToAdditionalProperties();
-        if (properties.Count == 0)
-            return;
-
-        chat.AdditionalProperties ??= new Dictionary<string, object>();
-        foreach (var property in properties)
-        {
-            chat.AdditionalProperties[property.Key] = property.Value;
-        }
+        chat.ProviderOptions = this;
     }
 
     /// <summary>
@@ -122,8 +113,8 @@ public static class HuggingFaceChatRequestOptionExtensions
     /// <summary>
     /// Applies Hugging Face-specific runtime options to a serializable HPD chat run configuration.
     /// </summary>
-    public static ChatRunConfig UseHuggingFaceChatRequestOptions(
-        this ChatRunConfig chat,
+    public static ChatClientConfig UseHuggingFaceChatRequestOptions(
+        this ChatClientConfig chat,
         HuggingFaceChatRequestOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);

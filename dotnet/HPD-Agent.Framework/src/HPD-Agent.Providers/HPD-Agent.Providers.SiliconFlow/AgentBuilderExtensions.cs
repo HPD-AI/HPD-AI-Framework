@@ -19,7 +19,7 @@ public static class SiliconFlowAgentBuilderExtensions
             throw new ArgumentException("Model is required for SiliconFlow provider.", nameof(model));
         }
 
-        var chatConfig = new ProviderClientConfig
+        var chatConfig = new ChatClientConfig
         {
             ProviderKey = "siliconflow",
             ApiKey = apiKey,

@@ -79,7 +79,7 @@ public class OpenAIProviderConfig
 {
     /// <summary>
     /// Selects the OpenAI chat API used to construct chat clients.
-    /// Runtime model-call behavior belongs in ChatRunConfig.
+    /// Runtime model-call behavior belongs in ChatClientConfig.
     /// </summary>
     [JsonPropertyName("chatApi")]
     public OpenAIChatApi ChatApi { get; set; } = OpenAIChatApi.Responses;
@@ -122,7 +122,7 @@ public class AzureOpenAIProviderConfig
 {
     /// <summary>
     /// Selects the Azure OpenAI chat API used to construct chat clients.
-    /// Runtime model-call behavior belongs in ChatRunConfig.
+    /// Runtime model-call behavior belongs in ChatClientConfig.
     /// </summary>
     [JsonPropertyName("chatApi")]
     public OpenAIChatApi ChatApi { get; set; } = OpenAIChatApi.Responses;

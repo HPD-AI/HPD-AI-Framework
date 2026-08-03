@@ -49,7 +49,7 @@ public sealed class RealtimeConsumerSetupTests
                     ThreadId = "main",
                     RunConfig = new AgentRunConfig
                     {
-                        ModelTransport = AgentModelTransportMode.Realtime,
+                        Clients = new AgentClientsConfig { Transport = AgentModelTransportMode.Realtime },
                         OverrideRealtimeClient = new ConsumerRealtimeClient(realtimeSession)
                     }
                 });

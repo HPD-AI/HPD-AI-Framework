@@ -26,7 +26,7 @@ public class GoogleAIProviderConfig
 {
     /// <summary>
     /// Selects the Google platform adapter used to construct chat clients.
-    /// Runtime model-call behavior belongs in ChatRunConfig.
+    /// Runtime model-call behavior belongs in ChatClientConfig.
     /// </summary>
     public GoogleAIPlatform Platform { get; set; } = GoogleAIPlatform.GeminiDeveloperApi;
 

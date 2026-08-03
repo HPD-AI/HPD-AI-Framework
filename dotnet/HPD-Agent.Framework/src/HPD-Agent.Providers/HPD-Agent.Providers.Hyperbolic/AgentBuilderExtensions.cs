@@ -19,7 +19,7 @@ public static class HyperbolicAgentBuilderExtensions
             throw new ArgumentException("Model is required for Hyperbolic provider.", nameof(model));
         }
 
-        var chatConfig = new ProviderClientConfig
+        var chatConfig = new ChatClientConfig
         {
             ProviderKey = "hyperbolic",
             ApiKey = apiKey,

@@ -21,7 +21,7 @@ public static class AgentBuilderExtensions
         if (string.IsNullOrWhiteSpace(model))
             throw new ArgumentException("Model is required for Moonshot provider.", nameof(model));
 
-        var chatConfig = new ProviderClientConfig
+        var chatConfig = new ChatClientConfig
         {
             ProviderKey = "moonshot",
             ApiKey = apiKey,
@@ -45,8 +45,7 @@ public static class AgentBuilderExtensions
         ArgumentNullException.ThrowIfNull(options);
 
         var chatConfig = builder.Config.EnsureChatClientConfig();
-        chatConfig.ChatDefaults ??= new ChatRunConfig();
-        options.ApplyTo(chatConfig.ChatDefaults);
+        options.ApplyTo(chatConfig);
 
         return builder;
     }

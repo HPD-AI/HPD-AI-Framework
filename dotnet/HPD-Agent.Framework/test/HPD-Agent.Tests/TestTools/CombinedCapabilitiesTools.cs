@@ -66,7 +66,7 @@ public partial class CombinedCapabilitiesTools
                 Name = "Data Expert",
                 SystemInstructions = "You are an expert in data analysis. Help users understand their data.",
                 MaxAgenticIterations = 10,
-                Clients = new AgentClientsConfig { Chat = new ProviderClientConfig {
+                Clients = new AgentClientsConfig { Chat = new ChatClientConfig {
                     ProviderKey = "test",
                     ModelName = "test-model"
                 } }
@@ -85,7 +85,7 @@ public partial class CombinedCapabilitiesTools
                 Name = "Data Processor",
                 SystemInstructions = "You process large amounts of data efficiently.",
                 MaxAgenticIterations = 20,
-                Clients = new AgentClientsConfig { Chat = new ProviderClientConfig {
+                Clients = new AgentClientsConfig { Chat = new ChatClientConfig {
                     ProviderKey = "test",
                     ModelName = "test-model"
                 } }
@@ -118,7 +118,7 @@ public partial class FunctionsAndSubAgentsToolHarness
                 Name = "Search Expert",
                 SystemInstructions = "You help users find information efficiently.",
                 MaxAgenticIterations = 5,
-                Clients = new AgentClientsConfig { Chat = new ProviderClientConfig {
+                Clients = new AgentClientsConfig { Chat = new ChatClientConfig {
                     ProviderKey = "test",
                     ModelName = "test-model"
                 } }
@@ -157,7 +157,7 @@ public partial class SkillsAndSubAgentsToolHarness
                 Name = "File Assistant",
                 SystemInstructions = "You help users manage their files.",
                 MaxAgenticIterations = 8,
-                Clients = new AgentClientsConfig { Chat = new ProviderClientConfig {
+                Clients = new AgentClientsConfig { Chat = new ChatClientConfig {
                     ProviderKey = "test",
                     ModelName = "test-model"
                 } }

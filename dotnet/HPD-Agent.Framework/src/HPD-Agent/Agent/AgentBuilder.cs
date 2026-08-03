@@ -1642,8 +1642,7 @@ public class AgentBuilder
     public AgentBuilder WithReasoning(ReasoningEffort effort = ReasoningEffort.Medium, ReasoningOutput output = ReasoningOutput.Full)
     {
         var chatConfig = _config.EnsureChatClientConfig();
-        chatConfig.ChatDefaults ??= new ChatRunConfig();
-        chatConfig.ChatDefaults.Reasoning = new ReasoningOptions
+        chatConfig.Reasoning = new ReasoningOptions
         {
             Effort = effort,
             Output = output
@@ -1818,33 +1817,20 @@ public class AgentBuilder
     /// <summary>
     /// Sets serializable default chat run options.
     /// </summary>
-    public AgentBuilder WithChatDefaults(ChatRunConfig defaults)
+    public AgentBuilder WithChatDefaults(ChatClientConfig defaults)
     {
         ArgumentNullException.ThrowIfNull(defaults);
-        EnsureChatClientConfig().ChatDefaults = defaults;
+        _config.SetChatClientConfig(defaults);
         return this;
     }
 
     /// <summary>
     /// Configures serializable default chat run options.
     /// </summary>
-    public AgentBuilder WithChatDefaults(Action<ChatRunConfig> configure)
+    public AgentBuilder WithChatDefaults(Action<ChatClientConfig> configure)
     {
         ArgumentNullException.ThrowIfNull(configure);
-        var chatConfig = EnsureChatClientConfig();
-        chatConfig.ChatDefaults ??= new ChatRunConfig();
-        configure(chatConfig.ChatDefaults);
-        return this;
-    }
-
-    /// <summary>
-    /// Sets runtime-only MEAI chat options for advanced in-process scenarios such as tools.
-    /// Prefer WithChatDefaults for serializable defaults.
-    /// </summary>
-    public AgentBuilder WithDefaultMicrosoftChatOptions(ChatOptions options)
-    {
-        ArgumentNullException.ThrowIfNull(options);
-        EnsureChatClientConfig().SetDefaultMicrosoftChatOptions(options);
+        configure(EnsureChatClientConfig());
         return this;
     }
 
@@ -2519,7 +2505,9 @@ public class AgentBuilder
         _ = CapabilityGraph.CreateFromFunctions(toolFunctions);
 
         return new AgentToolBuildResult(
-            MergeToolFunctions(_config.ResolveClientConfig(ProviderClientFamily.Chat)?.BuildEffectiveChatOptions(), toolFunctions),
+            MergeToolFunctions(
+                (_config.ResolveClientConfig(ProviderClientFamily.Chat) as ChatClientConfig)?.ToMicrosoftChatOptions(),
+                toolFunctions),
             openApiResult?.OwnedHttpClients.Count > 0 ? openApiResult.OwnedHttpClients : null);
     }
 
@@ -2773,34 +2761,7 @@ public class AgentBuilder
         return HPDCapabilityKind.Function;
     }
 
-    private static AgentClientsConfig? CreateRunClientOverrides(AgentRunConfig? options)
-    {
-        if (options is null)
-            return null;
-
-        if (options.Clients?.GetFamilyConfig(ProviderClientFamily.Chat) != null)
-            return options.Clients;
-
-        var chat = options.GetChatProviderOverride();
-        if (chat is null)
-            return options.Clients;
-
-        return options.Clients is null
-            ? new AgentClientsConfig { Chat = chat }
-            : new AgentClientsConfig
-            {
-                Providers = options.Clients.Providers,
-                Chat = chat,
-                TextToSpeech = options.Clients.TextToSpeech,
-                SpeechToText = options.Clients.SpeechToText,
-                Realtime = options.Clients.Realtime,
-                ImageGeneration = options.Clients.ImageGeneration,
-                Embeddings = options.Clients.Embeddings,
-                HostedFiles = options.Clients.HostedFiles,
-                VoiceActivityDetection = options.Clients.VoiceActivityDetection,
-                EndOfTurnDetection = options.Clients.EndOfTurnDetection
-            };
-    }
+    private static AgentClientsConfig? CreateRunClientOverrides(AgentRunConfig? options) => options?.Clients;
 
     private AgentClientSet CreateAuxiliaryClientSet()
     {
@@ -2992,7 +2953,7 @@ public class AgentBuilder
         return false;
     }
 
-    private ProviderClientConfig EnsureChatClientConfig()
+    private ChatClientConfig EnsureChatClientConfig()
     {
         return _config.EnsureChatClientConfig();
     }
@@ -3159,19 +3120,9 @@ public class AgentBuilder
     /// </summary>
     public AgentBuilder WithNativeFunction(AIFunction function)
     {
-        // Get or create default chat options
-        var chatConfig = EnsureChatClientConfig();
-        if (chatConfig.DefaultMicrosoftChatOptions == null)
-            chatConfig.DefaultMicrosoftChatOptions = new ChatOptions();
-
-        // Add to tools list
-        var tools = chatConfig.DefaultMicrosoftChatOptions.Tools?.ToList() ?? new List<AITool>();
-        tools.Add(function);
-        chatConfig.DefaultMicrosoftChatOptions.Tools = tools;
-
-        // Enable auto tool mode if not already set
-        if (chatConfig.DefaultMicrosoftChatOptions.ToolMode == null)
-            chatConfig.DefaultMicrosoftChatOptions.ToolMode = ChatToolMode.Auto;
+        ArgumentNullException.ThrowIfNull(function);
+        _config.ServerConfiguredTools ??= new List<AITool>();
+        _config.ServerConfiguredTools.Add(function);
 
         return this;
     }
@@ -4506,7 +4457,7 @@ public static class AgentBuilderProviderExtensions
     /// <returns>The builder.</returns>
     public static AgentBuilder WithProvider(this AgentBuilder builder, string providerKey, string modelName, string? apiKey = null)
     {
-        builder.Config.SetChatClientConfig(new ProviderClientConfig
+        builder.Config.SetChatClientConfig(new ChatClientConfig
         {
             ProviderKey = providerKey,
             ModelName = modelName

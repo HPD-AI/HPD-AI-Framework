@@ -19,7 +19,7 @@ public sealed class ProviderRuntimeBuildTests
         {
             Clients = new AgentClientsConfig
             {
-                Chat = new ProviderClientConfig { ProviderKey = "build-tracking", ModelName = "model" }
+                Chat = new ChatClientConfig { ProviderKey = "build-tracking", ModelName = "model" }
             }
         };
 

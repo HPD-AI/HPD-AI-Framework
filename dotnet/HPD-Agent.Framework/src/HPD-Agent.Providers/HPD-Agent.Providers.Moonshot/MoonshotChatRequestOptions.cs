@@ -13,9 +13,9 @@ namespace HPD.Agent.Providers.Moonshot;
 /// <remarks>
 /// Generic runtime settings such as model, temperature, top-p, max output tokens,
 /// seed, stop sequences, tools, response format, and reasoning belong on
-/// <see cref="ChatRunConfig"/> or <see cref="ChatOptions"/>.
+/// <see cref="ChatClientConfig"/> or <see cref="ChatOptions"/>.
 /// </remarks>
-public sealed class MoonshotChatRequestOptions
+public sealed class MoonshotChatRequestOptions : IChatRequestOptions
 {
     /// <summary>
     /// Preserves reasoning content from historical assistant messages.
@@ -38,19 +38,10 @@ public sealed class MoonshotChatRequestOptions
     /// <summary>
     /// Applies these options to a serializable HPD chat run configuration.
     /// </summary>
-    public void ApplyTo(ChatRunConfig chat)
+    public void ApplyTo(ChatClientConfig chat)
     {
         ArgumentNullException.ThrowIfNull(chat);
-
-        var properties = ToAdditionalProperties();
-        if (properties.Count == 0)
-            return;
-
-        chat.AdditionalProperties ??= new Dictionary<string, object>();
-        foreach (var property in properties)
-        {
-            chat.AdditionalProperties[property.Key] = property.Value;
-        }
+        chat.ProviderOptions = this;
     }
 
     /// <summary>
@@ -115,8 +106,8 @@ public static class MoonshotChatRequestOptionExtensions
     /// <summary>
     /// Applies Moonshot/Kimi-specific runtime options to a serializable HPD chat run configuration.
     /// </summary>
-    public static ChatRunConfig UseMoonshotChatRequestOptions(
-        this ChatRunConfig chat,
+    public static ChatClientConfig UseMoonshotChatRequestOptions(
+        this ChatClientConfig chat,
         MoonshotChatRequestOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);

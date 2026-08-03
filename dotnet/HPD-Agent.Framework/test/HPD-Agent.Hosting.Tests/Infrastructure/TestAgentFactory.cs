@@ -34,9 +34,9 @@ public static class TestAgentFactory
         // Add tools to config if provided
         if (tools.Length > 0)
         {
-            config.EnsureChatClientConfig();
-            config.EnsureChatClientConfig().DefaultMicrosoftChatOptions ??= new Microsoft.Extensions.AI.ChatOptions();
-            config.EnsureChatClientConfig().DefaultMicrosoftChatOptions.Tools = tools.Cast<Microsoft.Extensions.AI.AITool>().ToList();
+            config.ServerConfiguredTools ??= new List<Microsoft.Extensions.AI.AITool>();
+            foreach (var tool in tools)
+                config.ServerConfiguredTools.Add(tool);
         }
 
         // Register standard iteration middlewares for loop protection
@@ -62,7 +62,7 @@ public static class TestAgentFactory
             Name = "TestAgent",
             MaxAgenticIterations = 50,
             SystemInstructions = "You are a helpful test agent.",
-            Clients = new AgentClientsConfig { Chat = new ProviderClientConfig {
+            Clients = new AgentClientsConfig { Chat = new ChatClientConfig {
                 ProviderKey = "test",  // Required by validation
                 ModelName = "test-model"
             } },

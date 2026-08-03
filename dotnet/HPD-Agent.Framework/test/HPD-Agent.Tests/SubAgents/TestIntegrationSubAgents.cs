@@ -19,7 +19,7 @@ public class TestIntegrationSubAgents
                 Name = "Weather Expert",
                 SystemInstructions = "You are a meteorology expert. Provide weather information.",
                 MaxAgenticIterations = 10,
-                Clients = new AgentClientsConfig { Chat = new ProviderClientConfig {
+                Clients = new AgentClientsConfig { Chat = new ChatClientConfig {
                     ProviderKey = "openrouter",
                     ModelName = "google/gemini-2.0-flash-exp:free"
                 } }
@@ -38,7 +38,7 @@ public class TestIntegrationSubAgents
                 Name = "Math Expert",
                 SystemInstructions = "You are a mathematics expert. Solve problems step-by-step.",
                 MaxAgenticIterations = 15,
-                Clients = new AgentClientsConfig { Chat = new ProviderClientConfig {
+                Clients = new AgentClientsConfig { Chat = new ChatClientConfig {
                     ProviderKey = "openrouter",
                     ModelName = "google/gemini-2.0-flash-exp:free"
                 } }
@@ -57,7 +57,7 @@ public class TestIntegrationSubAgents
                 Name = "Code Reviewer",
                 SystemInstructions = "You are a senior software engineer. Review code for quality and security.",
                 MaxAgenticIterations = 20,
-                Clients = new AgentClientsConfig { Chat = new ProviderClientConfig {
+                Clients = new AgentClientsConfig { Chat = new ChatClientConfig {
                     ProviderKey = "openrouter",
                     ModelName = "google/gemini-2.0-flash-exp:free"
                 } }

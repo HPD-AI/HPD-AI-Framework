@@ -306,7 +306,7 @@ public sealed class Agent
         // Plan mode instructions now injected by AgentPlanAgentMiddleware (middleware-based)
         _messageProcessor = new MessageProcessor(
             config.SystemInstructions, // Use base instructions; middleware adds plan mode guidance
-            mergedOptions ?? chatConfig?.BuildEffectiveChatOptions());
+            mergedOptions ?? (chatConfig as ChatClientConfig)?.ToMicrosoftChatOptions());
         _functionExecutionCore = new FunctionExecutionCore(
             _middlewarePipeline,
             config.ErrorHandling,
@@ -366,7 +366,9 @@ public sealed class Agent
     /// <summary>
     /// Default chat options
     /// </summary>
-    public ChatOptions? DefaultOptions => Config?.ResolveClientConfig(Providers.ProviderClientFamily.Chat)?.BuildEffectiveChatOptions() ?? _messageProcessor.DefaultOptions;
+    public ChatOptions? DefaultOptions =>
+        (Config?.ResolveClientConfig(Providers.ProviderClientFamily.Chat) as ChatClientConfig)?.ToMicrosoftChatOptions()
+        ?? _messageProcessor.DefaultOptions;
 
     internal void SetSkillCatalog(
         SkillCatalog catalog,
@@ -3987,7 +3989,7 @@ public sealed class Agent
     /// {
     ///     ProviderKey = "anthropic",
     ///     ModelId = "claude-opus",
-    ///     Chat = new ChatRunConfig { Temperature = 0.7 }
+    ///     Chat = new ChatClientConfig { Temperature = 0.7 }
     /// };
     /// await agent.RunTurnStreamAsync("Hello", session, options);
     /// </code>
@@ -4204,8 +4206,9 @@ public sealed class Agent
         }
 
         // Resolve chat options from AgentRunConfig and apply system instruction overrides.
-        var baseDefaultOptions = Config?.ResolveClientConfig(Providers.ProviderClientFamily.Chat)?.BuildEffectiveChatOptions();
-        var chatOptions = options?.Chat?.MergeWith(baseDefaultOptions) ?? baseDefaultOptions;
+        var baseDefaultOptions =
+            (Config?.ResolveClientConfig(Providers.ProviderClientFamily.Chat) as ChatClientConfig)?.ToMicrosoftChatOptions();
+        var chatOptions = options?.Clients.Chat?.MergeWith(baseDefaultOptions) ?? baseDefaultOptions;
         chatOptions = ApplySystemInstructionOverrides(chatOptions, options);
 
         // Prepare turn
@@ -4778,8 +4781,8 @@ public sealed class Agent
         AgentRunConfig options,
         JsonSerializerOptions serializerOptions) where T : class
     {
-        options.Chat ??= new ChatRunConfig();
-        var chatOptions = options.Chat;
+        options.Clients.Chat ??= new ChatClientConfig();
+        var chatOptions = options.Clients.Chat;
         var structuredOpts = options.StructuredOutput!;
         var schemaName = structuredOpts.SchemaName ?? typeof(T).Name;
         var schemaDesc = structuredOpts.SchemaDescription ?? $"Response of type {schemaName}";
@@ -5215,11 +5218,11 @@ public sealed class Agent
     }
 
     private static Middleware.AgentModelTransport ResolveModelTransport(AgentRunConfig runConfig)
-        => runConfig.ModelTransport switch
+        => runConfig.Clients.Transport switch
         {
             AgentModelTransportMode.Chat or AgentModelTransportMode.Auto => Middleware.AgentModelTransport.Chat,
             AgentModelTransportMode.Realtime => Middleware.AgentModelTransport.Realtime,
-            _ => throw new InvalidOperationException($"Unsupported model transport '{runConfig.ModelTransport}'.")
+            _ => throw new InvalidOperationException($"Unsupported model transport '{runConfig.Clients.Transport}'.")
         };
 
     /// <summary>
@@ -5247,34 +5250,7 @@ public sealed class Agent
         return instructions;
     }
 
-    private static AgentClientsConfig? CreateRunClientOverrides(AgentRunConfig? options)
-    {
-        if (options is null)
-            return null;
-
-        if (options.Clients?.GetFamilyConfig(Providers.ProviderClientFamily.Chat) != null)
-            return options.Clients;
-
-        var chat = options.GetChatProviderOverride();
-        if (chat is null)
-            return options.Clients;
-
-        return options.Clients is null
-            ? new AgentClientsConfig { Chat = chat }
-            : new AgentClientsConfig
-            {
-                Providers = options.Clients.Providers,
-                Chat = chat,
-                TextToSpeech = options.Clients.TextToSpeech,
-                SpeechToText = options.Clients.SpeechToText,
-                Realtime = options.Clients.Realtime,
-                ImageGeneration = options.Clients.ImageGeneration,
-                Embeddings = options.Clients.Embeddings,
-                HostedFiles = options.Clients.HostedFiles,
-                VoiceActivityDetection = options.Clients.VoiceActivityDetection,
-                EndOfTurnDetection = options.Clients.EndOfTurnDetection
-            };
-    }
+    private static AgentClientsConfig? CreateRunClientOverrides(AgentRunConfig? options) => options?.Clients;
 
     /// <summary>
     /// Applies system instruction overrides from AgentRunConfig to ChatOptions.

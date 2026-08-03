@@ -88,7 +88,7 @@ namespace HPD.Agent.Serialization;
 [JsonSerializable(typeof(TextToSpeechEmojiPolicy))]
 [JsonSerializable(typeof(ProgressiveTextToSpeechRouteMode))]
 [JsonSerializable(typeof(PushTextInputAggregationMode))]
-[JsonSerializable(typeof(ChatRunConfig))]
+[JsonSerializable(typeof(ChatClientConfig))]
 [JsonSerializable(typeof(ReasoningOptions))]
 [JsonSerializable(typeof(ChatMessage), TypeInfoPropertyName = "MicrosoftExtensionsAiChatMessage")]
 [JsonSerializable(typeof(AIContent), TypeInfoPropertyName = "MicrosoftExtensionsAiAIContent")]

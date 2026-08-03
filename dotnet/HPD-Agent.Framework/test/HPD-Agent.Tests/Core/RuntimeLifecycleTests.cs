@@ -3,6 +3,7 @@ using System.Threading.Channels;
 using HPD.Agent.Tests.Infrastructure;
 using HPD.Agent.ClientTools;
 using HPD.Agent.Middleware;
+using HPD.Agent.Providers;
 using HPD.Events;
 using HPD.Events.Struct;
 using Microsoft.Extensions.AI;
@@ -3014,7 +3015,16 @@ public class RuntimeLifecycleTests : AgentTestBase
                 SessionId = "session-1",
                 ThreadId = "thread-1",
                 ThreadExecutionId = "user-run",
-                RunConfig = new AgentRunConfig { OverrideChatClient = fakeClient }
+                RunConfig = new AgentRunConfig
+                {
+                    Clients = new AgentClientsConfig
+                    {
+                        Chat = new ChatClientConfig
+                        {
+                            Override = new ClientOverride<IChatClient> { Client = fakeClient }
+                        }
+                    }
+                }
             },
             TestCancellationToken);
 

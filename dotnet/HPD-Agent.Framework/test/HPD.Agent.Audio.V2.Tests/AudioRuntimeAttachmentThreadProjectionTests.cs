@@ -319,7 +319,7 @@ public sealed class AudioRuntimeAttachmentThreadProjectionTests
             message,
             runConfig: new AgentRunConfig
             {
-                ModelTransport = AgentModelTransportMode.Realtime
+                Clients = new AgentClientsConfig { Transport = AgentModelTransportMode.Realtime }
             });
 
         await attachment.BeforeMessageTurnAsync(context, CancellationToken.None);
@@ -353,7 +353,7 @@ public sealed class AudioRuntimeAttachmentThreadProjectionTests
             new ChatMessage(ChatRole.User, [audio]),
             runConfig: new AgentRunConfig
             {
-                ModelTransport = AgentModelTransportMode.Realtime
+                Clients = new AgentClientsConfig { Transport = AgentModelTransportMode.Realtime }
             });
 
         await attachment.BeforeMessageTurnAsync(context, CancellationToken.None);

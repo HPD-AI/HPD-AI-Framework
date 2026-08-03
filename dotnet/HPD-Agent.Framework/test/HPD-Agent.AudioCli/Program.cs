@@ -333,7 +333,7 @@ foreach (var tool in realtimeMathTools)
     builder.WithNativeFunction(tool);
 }
 
-builder.Config.SetChatClientConfig(new ProviderClientConfig
+builder.Config.SetChatClientConfig(new ChatClientConfig
 {
     ProviderKey = OpenAIAudioProvider.Key,
     ModelName = chatModel,

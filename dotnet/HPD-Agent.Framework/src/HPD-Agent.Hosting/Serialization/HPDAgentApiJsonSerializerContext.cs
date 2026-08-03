@@ -103,7 +103,7 @@ namespace HPD.Agent.Hosting.Serialization;
 [JsonSerializable(typeof(AgentClientsConfig))]
 [JsonSerializable(typeof(ProviderClientConfig))]
 [JsonSerializable(typeof(AudioRunConfig))]
-[JsonSerializable(typeof(ChatRunConfig))]
+[JsonSerializable(typeof(ChatClientConfig))]
 [JsonSerializable(typeof(UploadStrategy))]
 [JsonSerializable(typeof(CompactionContinuation))]
 [JsonSerializable(typeof(StructuredOutputOptions))]

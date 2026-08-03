@@ -286,7 +286,7 @@ public class ContentUploadMiddleware : IAgentMiddleware
             return null;
 
         // Try to get provider key from run config or agent config
-        var providerKey = context.RunConfig?.ProviderKey
+        var providerKey = context.RunConfig?.Clients.Chat?.ProviderKey
             ?? context.Config?.Clients?.Chat?.ProviderKey;
 
         if (string.IsNullOrWhiteSpace(providerKey))

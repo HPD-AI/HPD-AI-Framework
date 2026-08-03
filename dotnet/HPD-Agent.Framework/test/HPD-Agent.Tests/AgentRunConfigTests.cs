@@ -36,7 +36,7 @@ public class AgentRunConfigTests
     }
 
     [Fact]
-    public void ChatRunConfig_MergeWith_ShouldLetRunSeedOverrideDefaultSeed()
+    public void ChatClientConfig_MergeWith_ShouldLetRunSeedOverrideDefaultSeed()
     {
         var defaults = new ChatOptions
         {
@@ -44,7 +44,7 @@ public class AgentRunConfigTests
             Temperature = 0.2f
         };
 
-        var runConfig = new ChatRunConfig
+        var runConfig = new ChatClientConfig
         {
             Seed = 42
         };
@@ -61,10 +61,13 @@ public class AgentRunConfigTests
     {
         var runConfig = new AgentRunConfig
         {
-            ProviderKey = "openai",
-            ModelId = "gpt-test",
-            ApiKey = "must-not-serialize",
-            AuthenticationKey = "openai-work"
+            Clients = new AgentClientsConfig { Chat = new ChatClientConfig
+            {
+                ProviderKey = "openai",
+                ModelName = "gpt-test",
+                ApiKey = "must-not-serialize",
+                AuthenticationKey = "openai-work"
+            } }
         };
 
         var json = JsonSerializer.Serialize(runConfig, HPDJsonContext.Default.AgentRunConfig);
@@ -79,7 +82,10 @@ public class AgentRunConfigTests
     {
         var runConfig = new AgentRunConfig
         {
-            ConstructionOptions = JsonDocument.Parse("""{"region":"us-east"}""").RootElement.Clone()
+            Clients = new AgentClientsConfig { Chat = new ChatClientConfig
+            {
+                ConstructionOptions = JsonDocument.Parse("""{"region":"us-east"}""").RootElement.Clone()
+            } }
         };
 
         var json = JsonSerializer.Serialize(runConfig, HPDJsonContext.Default.AgentRunConfig);

@@ -39,15 +39,18 @@ public sealed class SubAgentRunConfigTests
     {
         var parent = new AgentRunConfig
         {
-            ProviderKey = "openrouter",
-            ModelId = "parent-model",
+            Clients = new AgentClientsConfig { Chat = new ChatClientConfig
+            {
+                ProviderKey = "openrouter",
+                ModelName = "parent-model",
+                Temperature = 0.25
+            } },
             Security = new AgentSecurityProfile
             {
                 Approval = AgentApprovalPolicy.AutoApprove,
                 Sandbox = AgentSandboxPolicy.Disabled,
                 SandboxEscape = AgentSandboxEscapePolicy.Deny
             },
-            Chat = new ChatRunConfig { Temperature = 0.25 },
             CoalesceDeltas = true,
             SystemInstructions = "Parent persona",
             UserMessage = "Parent input",
@@ -56,11 +59,11 @@ public sealed class SubAgentRunConfigTests
 
         var child = SubAgentRunConfig.Inherit().Resolve(parent);
 
-        child.ProviderKey.Should().Be("openrouter");
-        child.ModelId.Should().Be("parent-model");
+        child.Clients.Chat!.ProviderKey.Should().Be("openrouter");
+        child.Clients.Chat.ModelName.Should().Be("parent-model");
         child.Security.Should().Be(parent.Security);
         child.Security.Should().NotBeSameAs(parent.Security);
-        child.Chat!.Temperature.Should().Be(0.25);
+        child.Clients.Chat.Temperature.Should().Be(0.25);
         child.CoalesceDeltas.Should().BeTrue();
         child.SystemInstructions.Should().BeNull();
         child.UserMessage.Should().BeNull();
@@ -107,7 +110,7 @@ public sealed class SubAgentRunConfigTests
     {
         var parent = new AgentRunConfig
         {
-            ProviderKey = "parent-provider",
+            Clients = new AgentClientsConfig { Chat = new ChatClientConfig { ProviderKey = "parent-provider" } },
             SystemInstructions = "Parent persona"
         };
 
@@ -115,12 +118,13 @@ public sealed class SubAgentRunConfigTests
             .Isolated()
             .Override(config =>
             {
-                config.ProviderKey = "child-provider";
+                config.Clients.Chat ??= new ChatClientConfig();
+                config.Clients.Chat.ProviderKey = "child-provider";
                 config.SystemInstructions = "Child override";
             })
             .Resolve(parent);
 
-        child.ProviderKey.Should().Be("child-provider");
+        child.Clients.Chat!.ProviderKey.Should().Be("child-provider");
         child.SystemInstructions.Should().Be("Child override");
     }
 
@@ -129,17 +133,20 @@ public sealed class SubAgentRunConfigTests
     {
         var parent = new AgentRunConfig
         {
-            ProviderKey = "parent-provider",
-            Chat = new ChatRunConfig { Temperature = 0.8 }
+            Clients = new AgentClientsConfig { Chat = new ChatClientConfig
+            {
+                ProviderKey = "parent-provider",
+                Temperature = 0.8
+            } }
         };
 
         var child = SubAgentRunConfig
             .Inherit()
-            .Override(config => config.Chat!.Temperature = 0.1)
+            .Override(config => config.Clients.Chat!.Temperature = 0.1)
             .Resolve(parent);
 
-        child.ProviderKey.Should().Be("parent-provider");
-        child.Chat!.Temperature.Should().Be(0.1);
-        parent.Chat!.Temperature.Should().Be(0.8);
+        child.Clients.Chat!.ProviderKey.Should().Be("parent-provider");
+        child.Clients.Chat.Temperature.Should().Be(0.1);
+        parent.Clients.Chat!.Temperature.Should().Be(0.8);
     }
 }

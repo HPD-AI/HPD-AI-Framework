@@ -323,7 +323,7 @@ public class AgentBuilderAgentStoreDxTests
             SystemInstructions = name == "HPD-Agent"
                 ? "You are a helpful assistant."
                 : "Stored instructions",
-            Clients = new AgentClientsConfig { Chat = new ProviderClientConfig {
+            Clients = new AgentClientsConfig { Chat = new ChatClientConfig {
                 ProviderKey = "test",
                 ModelName = "test-model"
             } }

@@ -30,9 +30,12 @@ public sealed class ConstructionOptionsRunConfigTests : AgentTestBase
             "hello",
             runConfig: new AgentRunConfig
             {
-                ProviderKey = "test",
-                ModelId = "run-model",
-                ConstructionOptions = JsonDocument.Parse("""{"run":true}""").RootElement.Clone()
+                Clients = new AgentClientsConfig { Chat = new ChatClientConfig
+                {
+                    ProviderKey = "test",
+                    ModelName = "run-model",
+                    ConstructionOptions = JsonDocument.Parse("""{"run":true}""").RootElement.Clone()
+                } }
             },
             cancellationToken: TestCancellationToken);
 
@@ -79,8 +82,11 @@ public sealed class ConstructionOptionsRunConfigTests : AgentTestBase
             "hello",
             runConfig: new AgentRunConfig
             {
-                ProviderKey = "test",
-                ModelId = "run-model"
+                Clients = new AgentClientsConfig { Chat = new ChatClientConfig
+                {
+                    ProviderKey = "test",
+                    ModelName = "run-model"
+                } }
             },
             cancellationToken: TestCancellationToken);
 

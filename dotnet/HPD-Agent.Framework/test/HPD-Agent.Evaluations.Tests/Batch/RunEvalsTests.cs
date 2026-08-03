@@ -28,9 +28,12 @@ public sealed class RunEvalsTests
         var dataset = SingleCaseDataset("hello");
         var baseConfig = new AgentRunConfig
         {
-            ProviderKey = "openai",
-            ModelId = "gpt-test",
-            ConstructionOptions = JsonDocument.Parse("""{"reasoningEffort":"high"}""").RootElement.Clone(),
+            Clients = new AgentClientsConfig { Chat = new ChatClientConfig
+            {
+                ProviderKey = "openai",
+                ModelName = "gpt-test",
+                ConstructionOptions = JsonDocument.Parse("""{"reasoningEffort":"high"}""").RootElement.Clone()
+            } },
             DisableEvaluators = false,
             ContextOverrides = new() { ["tenant"] = "alpha" },
         };
@@ -44,9 +47,9 @@ public sealed class RunEvalsTests
 
         agent.Configs.Should().ContainSingle();
         agent.Configs[0].Should().NotBeSameAs(baseConfig);
-        agent.Configs[0].ProviderKey.Should().Be("openai");
-        agent.Configs[0].ModelId.Should().Be("gpt-test");
-        agent.Configs[0].GetConstructionOptionsRawJson().Should().Be("""{"reasoningEffort":"high"}""");
+        agent.Configs[0].Clients.Chat!.ProviderKey.Should().Be("openai");
+        agent.Configs[0].Clients.Chat.ModelName.Should().Be("gpt-test");
+        agent.Configs[0].Clients.Chat.GetConstructionOptionsRawJson().Should().Be("""{"reasoningEffort":"high"}""");
         agent.Configs[0].DisableEvaluators.Should().BeTrue();
         agent.Configs[0].ContextOverrides.Should().ContainKey("tenant");
 
@@ -131,8 +134,11 @@ public sealed class RunEvalsTests
             {
                 BaseRunConfig = new AgentRunConfig
                 {
-                    ProviderKey = "openai",
-                    ModelId = "gpt-test",
+                    Clients = new AgentClientsConfig { Chat = new ChatClientConfig
+                    {
+                        ProviderKey = "openai",
+                        ModelName = "gpt-test"
+                    } }
                 },
                 PersistResults = true,
                 ScoreStore = store,
@@ -281,8 +287,11 @@ public sealed class RunEvalsTests
             {
                 BaseRunConfig = new AgentRunConfig
                 {
-                    ProviderKey = "openai",
-                    ModelId = "gpt-test",
+                    Clients = new AgentClientsConfig { Chat = new ChatClientConfig
+                    {
+                        ProviderKey = "openai",
+                        ModelName = "gpt-test"
+                    } }
                 },
                 PersistResults = true,
                 ScoreStore = store,
@@ -837,10 +846,9 @@ public sealed class RunEvalsTests
                 new AgentConfig
                 {
                     Name = nameof(CapturingAgent),
-                    Clients = new AgentClientsConfig { Chat = new ProviderClientConfig {
+                    Clients = new AgentClientsConfig { Chat = new ChatClientConfig {
                         ProviderKey = "openai",
                         ModelName = "gpt-test",
-                        DefaultMicrosoftChatOptions = options,
                     } },
                 },
                 _chatClient,

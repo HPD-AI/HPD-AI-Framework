@@ -51,9 +51,7 @@ internal class AnthropicProvider : IChatClientProvider
             BaseUrl = config.Endpoint ?? "https://api.anthropic.com"
         });
 
-        var maxTokens = config.ChatDefaults?.MaxOutputTokens
-            ?? config.DefaultMicrosoftChatOptions?.MaxOutputTokens
-            ?? 4096;
+        var maxTokens = (config as ChatClientConfig)?.MaxOutputTokens ?? 4096;
         var chatClient = anthropicClient.AsIChatClient(config.ModelName, maxTokens);
 
         return new AnthropicConfiguredChatClient(

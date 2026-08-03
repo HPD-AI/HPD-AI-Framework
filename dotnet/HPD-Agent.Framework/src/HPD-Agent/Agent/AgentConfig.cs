@@ -53,7 +53,7 @@ public class AgentConfig
         Clients.SetFamilyConfig(family, config);
     }
 
-    public void SetChatClientConfig(ProviderClientConfig? config) =>
+    public void SetChatClientConfig(ChatClientConfig? config) =>
         SetClientConfig(HPD.Agent.Providers.ProviderClientFamily.Chat, config);
 
     public ProviderClientConfig EnsureClientConfig(HPD.Agent.Providers.ProviderClientFamily family)
@@ -64,13 +64,15 @@ public class AgentConfig
         if (config is not null)
             return config;
 
-        config = new ProviderClientConfig();
+        config = family == HPD.Agent.Providers.ProviderClientFamily.Chat
+            ? new ChatClientConfig()
+            : new ProviderClientConfig();
         Clients.SetFamilyConfig(family, config);
         return config;
     }
 
-    public ProviderClientConfig EnsureChatClientConfig() =>
-        EnsureClientConfig(HPD.Agent.Providers.ProviderClientFamily.Chat);
+    public ChatClientConfig EnsureChatClientConfig() =>
+        (ChatClientConfig)EnsureClientConfig(HPD.Agent.Providers.ProviderClientFamily.Chat);
 
     /// <summary>
     /// Configuration for provider validation behavior during agent building.
@@ -373,7 +375,7 @@ public class AgentConfig
     /// </para>
     /// </remarks>
     [JsonIgnore] // Don't serialize AIFunction instances
-    public IList<AITool>? ServerConfiguredTools { get; set; }
+    public IList<AITool>? ServerConfiguredTools { get; set; } = new List<AITool>();
 
     /// <summary>
     /// Optional callback to configure or transform ChatOptions before each LLM call.
@@ -498,9 +500,9 @@ public class ProviderClientConfig
     /// Provider identifier (lowercase, e.g., "openai", "anthropic", "ollama").
     /// This is the primary key for provider resolution.
     /// </summary>
-    public string ProviderKey { get; set; } = string.Empty;
+    public string? ProviderKey { get; set; }
 
-    public string ModelName { get; set; } = string.Empty;
+    public string? ModelName { get; set; }
     /// <summary>
     /// Gets or sets a runtime-only API-key override.
     /// Secret values are deliberately excluded from serialized provider configuration.
@@ -513,19 +515,6 @@ public class ProviderClientConfig
     /// </summary>
     public string? AuthenticationKey { get; set; }
     public string? Endpoint { get; set; }
-
-    /// <summary>
-    /// Serializable default chat run options for this provider.
-    /// Per-run values from AgentRunConfig.Chat override these defaults.
-    /// </summary>
-    public ChatRunConfig? ChatDefaults { get; set; }
-
-    /// <summary>
-    /// Runtime-only MEAI chat options for advanced in-process scenarios such as tools.
-    /// Prefer ChatDefaults for serializable configuration.
-    /// </summary>
-    [JsonIgnore]
-    public ChatOptions? DefaultMicrosoftChatOptions { get; set; }
 
     /// <summary>
     /// Custom HTTP headers to include in all requests to this provider.
@@ -554,14 +543,6 @@ public class ProviderClientConfig
     /// </summary>
     [JsonIgnore]
     public Func<IEnumerable<ChatMessage>, ChatOptions?, string>? PromptFormatter { get; set; }
-
-    internal ChatOptions? BuildEffectiveChatOptions()
-        => ChatDefaults?.MergeWith(DefaultMicrosoftChatOptions) ?? DefaultMicrosoftChatOptions;
-
-    internal void SetDefaultMicrosoftChatOptions(ChatOptions? options)
-    {
-        DefaultMicrosoftChatOptions = options;
-    }
 
     // Cache for deserialized provider config (avoids repeated deserialization)
     [System.Text.Json.Serialization.JsonIgnore]
@@ -644,9 +625,12 @@ public class ProviderClientConfig
 /// </summary>
 public class AgentClientsConfig
 {
+    /// <summary>Gets or sets the model transport that drives the agent turn.</summary>
+    public AgentModelTransportMode Transport { get; set; } = AgentModelTransportMode.Auto;
+
     public Dictionary<string, ProviderClientConfig>? Providers { get; set; }
 
-    public ProviderClientConfig? Chat { get; set; }
+    public ChatClientConfig? Chat { get; set; }
     public ProviderClientConfig? TextToSpeech { get; set; }
     public ProviderClientConfig? SpeechToText { get; set; }
     public ProviderClientConfig? Realtime { get; set; }
@@ -676,7 +660,10 @@ public class AgentClientsConfig
         switch (family)
         {
             case HPD.Agent.Providers.ProviderClientFamily.Chat:
-                Chat = config;
+                Chat = config is null
+                    ? null
+                    : config as ChatClientConfig ?? throw new ArgumentException(
+                        $"Chat configuration must be {nameof(ChatClientConfig)}.", nameof(config));
                 break;
             case HPD.Agent.Providers.ProviderClientFamily.TextToSpeech:
                 TextToSpeech = config;
@@ -722,7 +709,10 @@ public class AgentClientMiddlewareConfig
     public List<Func<IEotDetector, HPD.Agent.Providers.ProviderComponentLifetimeContext, IServiceProvider?, IEotDetector>>? EndOfTurnDetection { get; set; }
 }
 
-internal static class ProviderClientConfigResolver
+/// <summary>
+/// Provides centralized cloning and precedence-aware merging for provider client configuration.
+/// </summary>
+public static class ProviderClientConfigResolver
 {
     public static ProviderClientConfig? Resolve(
         AgentClientsConfig? agentClients,
@@ -754,7 +744,9 @@ internal static class ProviderClientConfigResolver
             if (config == null)
                 continue;
 
-            result ??= new ProviderClientConfig();
+            result ??= configs.Any(static value => value is ChatClientConfig)
+                ? new ChatClientConfig()
+                : new ProviderClientConfig();
             Apply(result, config);
         }
 
@@ -763,7 +755,7 @@ internal static class ProviderClientConfigResolver
 
     public static ProviderClientConfig Clone(ProviderClientConfig config)
     {
-        var clone = new ProviderClientConfig();
+        var clone = config is ChatClientConfig ? new ChatClientConfig() : new ProviderClientConfig();
         Apply(clone, config);
         return clone;
     }
@@ -790,8 +782,20 @@ internal static class ProviderClientConfigResolver
         target.ApiKey = source.ApiKey ?? target.ApiKey;
         target.AuthenticationKey = source.AuthenticationKey ?? target.AuthenticationKey;
         target.Endpoint = source.Endpoint ?? target.Endpoint;
-        target.ChatDefaults = source.ChatDefaults ?? target.ChatDefaults;
-        target.DefaultMicrosoftChatOptions = source.DefaultMicrosoftChatOptions ?? target.DefaultMicrosoftChatOptions;
+        if (target is ChatClientConfig targetChat && source is ChatClientConfig sourceChat)
+        {
+            targetChat.Temperature = sourceChat.Temperature ?? targetChat.Temperature;
+            targetChat.TopP = sourceChat.TopP ?? targetChat.TopP;
+            targetChat.TopK = sourceChat.TopK ?? targetChat.TopK;
+            targetChat.MaxOutputTokens = sourceChat.MaxOutputTokens ?? targetChat.MaxOutputTokens;
+            targetChat.FrequencyPenalty = sourceChat.FrequencyPenalty ?? targetChat.FrequencyPenalty;
+            targetChat.PresencePenalty = sourceChat.PresencePenalty ?? targetChat.PresencePenalty;
+            targetChat.Seed = sourceChat.Seed ?? targetChat.Seed;
+            targetChat.StopSequences = sourceChat.StopSequences ?? targetChat.StopSequences;
+            targetChat.Reasoning = sourceChat.Reasoning ?? targetChat.Reasoning;
+            targetChat.ProviderOptions = sourceChat.ProviderOptions ?? targetChat.ProviderOptions;
+            targetChat.Override = sourceChat.Override ?? targetChat.Override;
+        }
         target.HttpReferer = source.HttpReferer ?? target.HttpReferer;
         target.AppName = source.AppName ?? target.AppName;
         target.PromptFormatter = source.PromptFormatter ?? target.PromptFormatter;
@@ -854,8 +858,12 @@ internal static class ProviderClientConfigResolver
          string.IsNullOrWhiteSpace(config.ApiKey) &&
          string.IsNullOrWhiteSpace(config.AuthenticationKey) &&
          string.IsNullOrWhiteSpace(config.Endpoint) &&
-         config.ChatDefaults == null &&
-         config.DefaultMicrosoftChatOptions == null &&
+         (config is not ChatClientConfig chat ||
+          (chat.Temperature is null && chat.TopP is null && chat.TopK is null &&
+           chat.MaxOutputTokens is null && chat.FrequencyPenalty is null &&
+           chat.PresencePenalty is null && chat.Seed is null &&
+           chat.StopSequences is null && chat.Reasoning is null &&
+           chat.ProviderOptions is null && chat.Override is null)) &&
          config.CustomHeaders == null &&
          config.ConstructionOptions is null &&
          string.IsNullOrWhiteSpace(config.HttpReferer) &&

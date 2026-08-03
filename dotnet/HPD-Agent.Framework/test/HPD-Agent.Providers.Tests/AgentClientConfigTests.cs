@@ -19,7 +19,7 @@ public class AgentClientsConfigTests
             {
                 Providers = new()
                 {
-                    ["openai"] = new ProviderClientConfig
+                    ["openai"] = new ChatClientConfig
                     {
                         ProviderKey = "openai",
                         ApiKey = "agent-key",
@@ -27,7 +27,7 @@ public class AgentClientsConfigTests
                         ConstructionOptions = JsonDocument.Parse("""{"organizationId":"org_1","projectId":"proj_agent"}""").RootElement.Clone()
                     }
                 },
-                Chat = new ProviderClientConfig
+                Chat = new ChatClientConfig
                 {
                     ProviderKey = "openai",
                     ModelName = "gpt-agent",
@@ -40,13 +40,13 @@ public class AgentClientsConfigTests
         {
             Providers = new()
             {
-                ["openai"] = new ProviderClientConfig
+                ["openai"] = new ChatClientConfig
                 {
                     Endpoint = "https://run.example",
                     ConstructionOptions = JsonDocument.Parse("""{"projectId":"proj_run"}""").RootElement.Clone()
                 }
             },
-            Chat = new ProviderClientConfig
+            Chat = new ChatClientConfig
             {
                 ModelName = "gpt-run",
                 ConstructionOptions = JsonDocument.Parse("""{"requestProfile":"interactive"}""").RootElement.Clone()
@@ -78,13 +78,13 @@ public class AgentClientsConfigTests
             {
                 Providers = new()
                 {
-                    ["openai"] = new ProviderClientConfig
+                    ["openai"] = new ChatClientConfig
                     {
                         ProviderKey = "openai",
                         ConstructionOptions = JsonDocument.Parse("[]").RootElement.Clone()
                     }
                 },
-                Chat = new ProviderClientConfig
+                Chat = new ChatClientConfig
                 {
                     ProviderKey = "openai",
                     ConstructionOptions = JsonDocument.Parse("""{"ok":true}""").RootElement.Clone()
@@ -107,14 +107,14 @@ public class AgentClientsConfigTests
             {
                 Providers = new()
                 {
-                    ["anthropic"] = new ProviderClientConfig
+                    ["anthropic"] = new ChatClientConfig
                     {
                         ProviderKey = "anthropic",
                         Endpoint = "https://anthropic.example",
                         AuthenticationKey = "anthropic-default",
                         ConstructionOptions = JsonDocument.Parse("""{"thinkingBudget":4096}""").RootElement.Clone()
                     },
-                    ["openai"] = new ProviderClientConfig
+                    ["openai"] = new ChatClientConfig
                     {
                         ProviderKey = "openai",
                         Endpoint = "https://openai.example",
@@ -122,7 +122,7 @@ public class AgentClientsConfigTests
                         ConstructionOptions = JsonDocument.Parse("""{"organizationId":"org_1"}""").RootElement.Clone()
                     }
                 },
-                Chat = new ProviderClientConfig
+                Chat = new ChatClientConfig
                 {
                     ProviderKey = "anthropic",
                     ModelName = "claude-agent",
@@ -136,7 +136,7 @@ public class AgentClientsConfigTests
             ProviderClientFamily.Chat,
             new AgentClientsConfig
             {
-                Chat = new ProviderClientConfig
+                Chat = new ChatClientConfig
                 {
                     ProviderKey = "openai",
                     ModelName = "gpt-run"

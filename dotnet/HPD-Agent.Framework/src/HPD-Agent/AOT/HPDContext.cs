@@ -115,7 +115,7 @@ using Microsoft.Extensions.AI;
 [JsonSerializable(typeof(CompactionRunPolicy))]
 [JsonSerializable(typeof(ThreadContextUsage))]
 [JsonSerializable(typeof(AudioRunConfig))]
-[JsonSerializable(typeof(ChatRunConfig))]
+[JsonSerializable(typeof(ChatClientConfig))]
 [JsonSerializable(typeof(Dictionary<string, bool>))]  // For PermissionOverrides
 
 // --- HPD-Agent Typed Content Classes (Phase 1 - Typed Content) ---

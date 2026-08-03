@@ -114,7 +114,7 @@ public static class AgentBuilderExtensions
         configure?.Invoke(providerConfig);
 
         // Build provider config
-        var chatConfig = new ProviderClientConfig
+        var chatConfig = new ChatClientConfig
         {
             ProviderKey = "azure-ai",
             Endpoint = endpoint,

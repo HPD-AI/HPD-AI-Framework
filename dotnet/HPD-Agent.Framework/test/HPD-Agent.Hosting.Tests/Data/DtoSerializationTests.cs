@@ -298,18 +298,18 @@ public class DtoSerializationTests
             AgentId = "default",
             RunConfig = new AgentRunConfig
             {
-                ProviderKey = "anthropic",
-                ModelId = "claude-sonnet-4-5",
+                Clients = new AgentClientsConfig { Chat = new ChatClientConfig
+                {
+                    ProviderKey = "anthropic",
+                    ModelName = "claude-sonnet-4-5",
+                    Temperature = 0.7,
+                    MaxOutputTokens = 4000
+                } },
                 AdditionalSystemInstructions = "Be concise",
                 ContextOverrides = new Dictionary<string, object> { ["key"] = "value" },
                 PermissionOverrides = new Dictionary<string, bool> { ["file_write"] = true },
                 CoalesceDeltas = true,
-                SkipTools = false,
-                Chat = new ChatRunConfig
-                {
-                    Temperature = 0.7,
-                    MaxOutputTokens = 4000
-                }
+                SkipTools = false
             }
         };
 
@@ -325,10 +325,10 @@ public class DtoSerializationTests
         deserialized.ThreadId.Should().Be(original.ThreadId);
         deserialized.AgentId.Should().Be(original.AgentId);
         deserialized.RunConfig.Should().NotBeNull();
-        deserialized.RunConfig!.Chat.Should().NotBeNull();
-        deserialized.RunConfig.Chat!.Temperature.Should().Be(0.7);
-        deserialized.RunConfig.Chat.MaxOutputTokens.Should().Be(4000);
-        deserialized.RunConfig.ModelId.Should().Be("claude-sonnet-4-5");
+        deserialized.RunConfig!.Clients.Chat.Should().NotBeNull();
+        deserialized.RunConfig.Clients.Chat!.Temperature.Should().Be(0.7);
+        deserialized.RunConfig.Clients.Chat.MaxOutputTokens.Should().Be(4000);
+        deserialized.RunConfig.Clients.Chat.ModelName.Should().Be("claude-sonnet-4-5");
     }
 
     [Fact]

@@ -14,7 +14,7 @@ public class SubAgentRuntimeTests
     {
         Name = "SubAgentUnderTest",
         SystemInstructions = "Test sub-agent.",
-        Clients = new AgentClientsConfig { Chat = new ProviderClientConfig { ProviderKey = "test", ModelName = "test-model" } }
+        Clients = new AgentClientsConfig { Chat = new ChatClientConfig { ProviderKey = "test", ModelName = "test-model" } }
     };
 
     [Fact]

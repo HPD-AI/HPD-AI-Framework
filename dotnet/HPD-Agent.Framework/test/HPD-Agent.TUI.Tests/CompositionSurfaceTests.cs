@@ -374,8 +374,11 @@ public sealed class CompositionSurfaceTests
     {
         AgentTuiRunConfigComposer composer = context => new AgentRunConfig
         {
-            ProviderKey = context.Scope.AgentId,
-            ModelId = context.Prompt
+            Clients = new AgentClientsConfig { Chat = new ChatClientConfig
+            {
+                ProviderKey = context.Scope.AgentId,
+                ModelName = context.Prompt
+            } }
         };
 
         var registry = new HpdAgentTuiBuilder()

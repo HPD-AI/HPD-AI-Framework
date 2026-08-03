@@ -57,7 +57,7 @@ public static class AgentBuilderExtensions
             throw new ArgumentException("Model is required for Mistral provider.", nameof(model));
 
         // Build provider config
-        var chatConfig = new ProviderClientConfig
+        var chatConfig = new ChatClientConfig
         {
             ProviderKey = "mistral",
             ApiKey = apiKey, // May be null - AgentBuilder.Build() will resolve via ISecretResolver
@@ -80,8 +80,7 @@ public static class AgentBuilderExtensions
         ArgumentNullException.ThrowIfNull(options);
 
         var chatConfig = builder.Config.EnsureChatClientConfig();
-        chatConfig.ChatDefaults ??= new ChatRunConfig();
-        options.ApplyTo(chatConfig.ChatDefaults);
+        options.ApplyTo(chatConfig);
         return builder;
     }
 

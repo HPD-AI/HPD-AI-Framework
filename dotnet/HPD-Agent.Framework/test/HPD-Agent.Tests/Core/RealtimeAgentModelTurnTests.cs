@@ -865,7 +865,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
         TranscriptionOptions? realtimeTranscriptionOptions = null)
         => new()
         {
-            ModelTransport = AgentModelTransportMode.Realtime,
+            Clients = new AgentClientsConfig { Transport = AgentModelTransportMode.Realtime },
             OverrideRealtimeClient = new FakeRealtimeClient(session),
             AdditionalTools = tools,
             ToolModeOverride = ChatToolMode.Auto,

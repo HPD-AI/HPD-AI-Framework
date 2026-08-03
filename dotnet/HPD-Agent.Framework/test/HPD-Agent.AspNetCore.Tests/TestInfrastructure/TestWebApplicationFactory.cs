@@ -124,7 +124,7 @@ internal class TestWebApplicationAgentFactory : IAgentFactory
         {
             Name = sessionId,
             MaxAgenticIterations = 50,
-            Clients = new AgentClientsConfig { Chat = new ProviderClientConfig {
+            Clients = new AgentClientsConfig { Chat = new ChatClientConfig {
                 ProviderKey = "test",
                 ModelName = "test-model"
             } }

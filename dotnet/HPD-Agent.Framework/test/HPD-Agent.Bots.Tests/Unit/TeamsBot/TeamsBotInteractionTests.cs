@@ -149,7 +149,7 @@ public class TeamsBotInteractionTests
             Name = "TeamsPermissionTestAgent",
             MaxAgenticIterations = 1,
             SystemInstructions = "You are a Teams permission test agent.",
-            Clients = new AgentClientsConfig { Chat = new ProviderClientConfig {
+            Clients = new AgentClientsConfig { Chat = new ChatClientConfig {
                 ProviderKey = "test",
                 ModelName = "test-model",
             } },

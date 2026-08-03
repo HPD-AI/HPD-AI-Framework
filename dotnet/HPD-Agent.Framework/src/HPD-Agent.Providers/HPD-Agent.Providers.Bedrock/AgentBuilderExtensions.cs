@@ -124,7 +124,7 @@ public static class AgentBuilderExtensions
         ValidateProviderConfig(providerConfig, model, configure);
 
         // Build provider config
-        var chatConfig = new ProviderClientConfig
+        var chatConfig = new ChatClientConfig
         {
             ProviderKey = "bedrock",
             ModelName = model

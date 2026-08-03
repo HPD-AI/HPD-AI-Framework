@@ -136,15 +136,15 @@ public class AgentEventSerializerTests
             ThreadId = "main",
             RunConfig = new AgentRunConfig
             {
-                ProviderKey = "openai",
-                ModelId = "gpt-5.5",
                 CoalesceDeltas = true,
-                Chat = new ChatRunConfig
+                Clients = new AgentClientsConfig { Chat = new ChatClientConfig
                 {
+                    ProviderKey = "openai",
+                    ModelName = "gpt-5.5",
                     Temperature = 0.7,
                     MaxOutputTokens = 123,
                     Seed = 42
-                },
+                } },
                 Audio = new AudioRunConfig
                 {
                     OutputMode = AudioOutputMode.TextToSpeech,
@@ -164,12 +164,12 @@ public class AgentEventSerializerTests
         Assert.Equal(ChatRole.User, result.Messages[0].Role);
         Assert.Equal("hello", result.Messages[0].Text);
         Assert.NotNull(result.RunConfig);
-        Assert.Equal("openai", result.RunConfig!.ProviderKey);
-        Assert.Equal("gpt-5.5", result.RunConfig.ModelId);
+        Assert.Equal("openai", result.RunConfig!.Clients.Chat!.ProviderKey);
+        Assert.Equal("gpt-5.5", result.RunConfig.Clients.Chat.ModelName);
         Assert.True(result.RunConfig!.CoalesceDeltas);
-        Assert.Equal(0.7, result.RunConfig.Chat!.Temperature);
-        Assert.Equal(123, result.RunConfig.Chat.MaxOutputTokens);
-        Assert.Equal(42, result.RunConfig.Chat.Seed);
+        Assert.Equal(0.7, result.RunConfig.Clients.Chat!.Temperature);
+        Assert.Equal(123, result.RunConfig.Clients.Chat.MaxOutputTokens);
+        Assert.Equal(42, result.RunConfig.Clients.Chat.Seed);
         Assert.NotNull(result.RunConfig.Audio);
         Assert.Equal(AudioOutputMode.TextToSpeech, result.RunConfig.Audio!.OutputMode);
         Assert.Equal(AssistantOutputSynthesisMode.Progressive, result.RunConfig.Audio.AssistantOutputMode);

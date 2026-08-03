@@ -205,7 +205,7 @@ public class HPDAgentRegistryTests
 
     private static void InjectTestProvider(AgentBuilder builder)
     {
-        builder.Config.SetChatClientConfig(new ProviderClientConfig
+        builder.Config.SetChatClientConfig(new ChatClientConfig
         {
             ProviderKey = "test",
             ModelName = "test-model"

@@ -19,7 +19,7 @@ public static class DeepSeekAgentBuilderExtensions
             throw new ArgumentException("Model is required for DeepSeek provider.", nameof(model));
         }
 
-        var chatConfig = new ProviderClientConfig
+        var chatConfig = new ChatClientConfig
         {
             ProviderKey = "deepseek",
             ApiKey = apiKey,

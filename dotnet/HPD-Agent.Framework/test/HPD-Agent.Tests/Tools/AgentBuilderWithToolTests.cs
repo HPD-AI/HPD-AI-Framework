@@ -255,7 +255,7 @@ public class AgentBuilderWithToolTests
             MaxAgenticIterations = 5,
             Clients = new AgentClientsConfig
             {
-                Chat = new ProviderClientConfig
+                Chat = new ChatClientConfig
                 {
                     ProviderKey = "test",
                     ModelName = "test-model"

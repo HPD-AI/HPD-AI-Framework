@@ -35,16 +35,13 @@ public sealed class NativeAgentExecutionFFITests
             MaxAgenticIterations = 5,
             Clients = new AgentClientsConfig
             {
-                Chat = new ProviderClientConfig
+                Chat = new ChatClientConfig
                 {
                     ProviderKey = "test",
                     ModelName = "test-model",
-                    DefaultMicrosoftChatOptions = new ChatOptions
-                    {
-                        Tools = [tool],
-                    },
                 },
             },
+            ServerConfiguredTools = [tool],
             AgenticLoop = new AgenticLoopConfig
             {
                 MaxTurnDuration = TimeSpan.FromSeconds(10),

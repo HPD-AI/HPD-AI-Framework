@@ -19,7 +19,7 @@ public class CodingToolHarnessAgentBuilderTests
         using var chatClient = new TestChatClient();
         var config = new AgentConfig
         {
-            Clients = new AgentClientsConfig { Chat = new ProviderClientConfig
+            Clients = new AgentClientsConfig { Chat = new ChatClientConfig
             {
                 ProviderKey = "test",
                 ModelName = "test-model"
@@ -94,7 +94,7 @@ public class CodingToolHarnessAgentBuilderTests
         var config = GetConfig(subAgent);
         config.Clients = new AgentClientsConfig
         {
-            Chat = new ProviderClientConfig
+            Chat = new ChatClientConfig
             {
                 ProviderKey = "test",
                 ModelName = "test-model"
@@ -201,7 +201,7 @@ public class CodingToolHarnessAgentBuilderTests
             var agent = await new AgentBuilder(
                     new AgentConfig
                     {
-                        Clients = new AgentClientsConfig { Chat = new ProviderClientConfig
+                        Clients = new AgentClientsConfig { Chat = new ChatClientConfig
                         {
                             ProviderKey = "test",
                             ModelName = "test-model"
@@ -295,7 +295,7 @@ public class CodingToolHarnessAgentBuilderTests
         MaxAgenticIterations = 3,
         Clients = new AgentClientsConfig
         {
-            Chat = new ProviderClientConfig
+            Chat = new ChatClientConfig
             {
                 ProviderKey = "test",
                 ModelName = "test-model"

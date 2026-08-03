@@ -101,7 +101,7 @@ public class AgentMiddlewareResponseServiceTests : IDisposable
         MaxAgenticIterations = 5,
         Clients = new AgentClientsConfig
         {
-            Chat = new ProviderClientConfig
+            Chat = new ChatClientConfig
             {
                 ProviderKey = "test",
                 ModelName = "test-model"

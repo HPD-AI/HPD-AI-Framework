@@ -35,7 +35,7 @@ public static class AgentBuilderExtensions
         configure?.Invoke(providerConfig);
         ValidateProviderConfig(providerConfig, configure);
 
-        var chatConfig = new ProviderClientConfig
+        var chatConfig = new ChatClientConfig
         {
             ProviderKey = "onnx-runtime",
             ModelName = Path.GetFileName(modelPath)
@@ -58,8 +58,7 @@ public static class AgentBuilderExtensions
         ArgumentNullException.ThrowIfNull(options);
 
         var chatConfig = builder.Config.EnsureChatClientConfig();
-        chatConfig.ChatDefaults ??= new ChatRunConfig();
-        options.ApplyTo(chatConfig.ChatDefaults);
+        options.ApplyTo(chatConfig);
 
         return builder;
     }

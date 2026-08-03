@@ -252,8 +252,8 @@ public static class RunEvals
             // Task failure — return a case with an error result
             return new ReportCase(
                 caseName,
-                caseRunConfig.ProviderKey,
-                caseRunConfig.ModelId,
+                caseRunConfig.Clients.Chat?.ProviderKey,
+                caseRunConfig.Clients.Chat?.ModelName,
                 null,
                 new EvaluationResult(),
                 [new EvaluatorFailure("Agent", ex.Message)],
@@ -560,9 +560,9 @@ public static class RunEvals
             IterationUsage = source.IterationUsage,
             IterationCount = source.IterationCount,
             Duration = source.Duration == TimeSpan.Zero ? taskDuration : source.Duration,
-            ModelId = source.ModelId ?? runConfig.ModelId ?? source.FinalResponse?.ModelId,
+            ModelId = source.ModelId ?? runConfig.Clients.Chat?.ModelName ?? source.FinalResponse?.ModelId,
             ResponseModelId = source.ResponseModelId ?? source.FinalResponse?.ModelId,
-            ProviderKey = source.ProviderKey ?? runConfig.ProviderKey,
+            ProviderKey = source.ProviderKey ?? runConfig.Clients.Chat?.ProviderKey,
             Attributes = attributes,
             Metrics = source.Metrics,
             StopKind = source.StopKind,
@@ -696,14 +696,13 @@ public static class RunEvals
                     .Select(static grant => grant with { })
                     .ToArray()
             },
-            Chat = source.Chat,
-            ProviderKey = source.ProviderKey,
-            ModelId = source.ModelId,
-            ApiKey = source.ApiKey,
-            ProviderEndpoint = source.ProviderEndpoint,
-            CustomHeaders = source.CustomHeaders is null ? null : new(source.CustomHeaders),
-            ConstructionOptions = source.ConstructionOptions,
-            OverrideChatClient = source.OverrideChatClient,
+            Clients = new AgentClientsConfig
+            {
+                Transport = source.Clients.Transport,
+                Chat = source.Clients.Chat is null
+                    ? null
+                    : (ChatClientConfig)ProviderClientConfigResolver.Clone(source.Clients.Chat)
+            },
             SystemInstructions = source.SystemInstructions,
             AdditionalSystemInstructions = source.AdditionalSystemInstructions,
             ContextOverrides = source.ContextOverrides is null ? null : new(source.ContextOverrides),

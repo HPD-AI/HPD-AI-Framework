@@ -6,9 +6,9 @@ using Microsoft.Extensions.AI;
 namespace HPD.Agent.Providers.Mistral;
 
 /// <summary>
-/// Mistral-specific per-request chat options not represented by generic <see cref="ChatRunConfig"/>.
+/// Mistral-specific per-request chat options not represented by generic <see cref="ChatClientConfig"/>.
 /// </summary>
-public sealed class MistralChatRequestOptions
+public sealed class MistralChatRequestOptions : IChatRequestOptions
 {
     internal const string AdditionalPropertiesKey = "hpd.mistral.chatRequestOptions";
 
@@ -39,11 +39,10 @@ public sealed class MistralChatRequestOptions
     /// <summary>
     /// Applies these options to serializable HPD chat run configuration.
     /// </summary>
-    public void ApplyTo(ChatRunConfig chat)
+    public void ApplyTo(ChatClientConfig chat)
     {
         ArgumentNullException.ThrowIfNull(chat);
-        chat.AdditionalProperties ??= [];
-        chat.AdditionalProperties[AdditionalPropertiesKey] = this;
+        chat.ProviderOptions = this;
     }
 
     /// <summary>
@@ -73,8 +72,8 @@ public static class MistralChatRequestOptionsExtensions
     /// <summary>
     /// Applies Mistral-specific per-request chat options to HPD chat run configuration.
     /// </summary>
-    public static ChatRunConfig UseMistralChatRequestOptions(
-        this ChatRunConfig chat,
+    public static ChatClientConfig UseMistralChatRequestOptions(
+        this ChatClientConfig chat,
         MistralChatRequestOptions options)
     {
         options.ApplyTo(chat);
@@ -84,8 +83,8 @@ public static class MistralChatRequestOptionsExtensions
     /// <summary>
     /// Applies Mistral-specific per-request chat options to HPD chat run configuration.
     /// </summary>
-    public static ChatRunConfig UseMistralChatRequestOptions(
-        this ChatRunConfig chat,
+    public static ChatClientConfig UseMistralChatRequestOptions(
+        this ChatClientConfig chat,
         Action<MistralChatRequestOptions> configure)
     {
         ArgumentNullException.ThrowIfNull(configure);

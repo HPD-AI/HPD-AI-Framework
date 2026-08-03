@@ -287,7 +287,7 @@ public sealed class SkillHotReloadTests
             Name = "skill-event-test",
             Clients = new AgentClientsConfig
             {
-                Chat = new ProviderClientConfig { ProviderKey = "test", ModelName = "test-model" }
+                Chat = new ChatClientConfig { ProviderKey = "test", ModelName = "test-model" }
             }
         };
         var agent = await new AgentBuilder(config, new TestProviderRegistry(client))
@@ -343,7 +343,7 @@ public sealed class SkillHotReloadTests
             Name = "script-event-test",
             Clients = new AgentClientsConfig
             {
-                Chat = new ProviderClientConfig { ProviderKey = "test", ModelName = "test-model" }
+                Chat = new ChatClientConfig { ProviderKey = "test", ModelName = "test-model" }
             }
         };
         var agent = await new AgentBuilder(config, new TestProviderRegistry(client))
@@ -387,7 +387,7 @@ public sealed class SkillHotReloadTests
             Name = "leased-epoch-test",
             Clients = new AgentClientsConfig
             {
-                Chat = new ProviderClientConfig { ProviderKey = "test", ModelName = "test-model" }
+                Chat = new ChatClientConfig { ProviderKey = "test", ModelName = "test-model" }
             }
         };
         var agent = await new AgentBuilder(config, new TestProviderRegistry(client))

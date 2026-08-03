@@ -45,7 +45,7 @@ public sealed class AnnotationMiddlewareTests
         Name = name,
         SystemInstructions = "You are a test agent.",
         MaxAgenticIterations = 3,
-        Clients = new AgentClientsConfig { Chat = new ProviderClientConfig { ProviderKey = "test", ModelName = "test-model" } },
+        Clients = new AgentClientsConfig { Chat = new ChatClientConfig { ProviderKey = "test", ModelName = "test-model" } },
         AgenticLoop = new AgenticLoopConfig { MaxTurnDuration = TimeSpan.FromSeconds(10) },
     };
 

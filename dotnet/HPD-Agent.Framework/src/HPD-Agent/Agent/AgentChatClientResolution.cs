@@ -149,14 +149,14 @@ internal sealed class AgentChatClientResolver : IDisposable
                 AgentChatClientSource.DedicatedProvider,
                 cancellationToken).ConfigureAwait(false);
 
-        if (request.RunConfig?.OverrideChatClient is { } overrideClient)
+        if (request.RunConfig?.Clients?.Chat?.Override is { } overrideClient)
         {
             return AgentChatClientHandle
-                .Borrowed(overrideClient, AgentChatClientSource.InjectedOverride)
+                .Borrowed(overrideClient.Client, AgentChatClientSource.InjectedOverride)
                 .AcquireLease();
         }
 
-        var runClients = CreateRunClientOverrides(request.RunConfig);
+        var runClients = request.RunConfig?.Clients;
         if (runClients?.GetFamilyConfig(ProviderClientFamily.Chat) is not null)
         {
             var effectiveConfig = request.AgentConfig.ResolveClientConfig(
@@ -305,34 +305,6 @@ internal sealed class AgentChatClientResolver : IDisposable
         }
     }
 
-    private static AgentClientsConfig? CreateRunClientOverrides(AgentRunConfig? options)
-    {
-        if (options is null)
-            return null;
-
-        if (options.Clients?.GetFamilyConfig(ProviderClientFamily.Chat) is not null)
-            return options.Clients;
-
-        var chat = options.GetChatProviderOverride();
-        if (chat is null)
-            return options.Clients;
-
-        return options.Clients is null
-            ? new AgentClientsConfig { Chat = chat }
-            : new AgentClientsConfig
-            {
-                Providers = options.Clients.Providers,
-                Chat = chat,
-                Realtime = options.Clients.Realtime,
-                TextToSpeech = options.Clients.TextToSpeech,
-                SpeechToText = options.Clients.SpeechToText,
-                ImageGeneration = options.Clients.ImageGeneration,
-                Embeddings = options.Clients.Embeddings,
-                HostedFiles = options.Clients.HostedFiles,
-                VoiceActivityDetection = options.Clients.VoiceActivityDetection,
-                EndOfTurnDetection = options.Clients.EndOfTurnDetection
-            };
-    }
 }
 
 internal sealed class AgentProviderChatClientManager : IDisposable
@@ -468,7 +440,7 @@ internal sealed class AgentProviderChatClientManager : IDisposable
                 config.Endpoint,
                 config.GetConstructionOptionsRawJson(),
                 NormalizeHeaders(config.CustomHeaders),
-                config.ChatDefaults?.MaxOutputTokens ?? config.DefaultMicrosoftChatOptions?.MaxOutputTokens);
+                (config as ChatClientConfig)?.MaxOutputTokens);
 
         private static string? NormalizeHeaders(IReadOnlyDictionary<string, string>? headers)
             => headers is null

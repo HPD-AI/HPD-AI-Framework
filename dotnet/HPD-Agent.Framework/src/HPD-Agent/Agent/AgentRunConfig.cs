@@ -10,6 +10,7 @@ using HPD.Agent.Audio;
 using HPD.Agent.Audio.Output;
 using Microsoft.Extensions.AI;
 using HPD.Agent.Middleware;
+using HPD.Agent.Providers;
 using HPD.Agent.StructuredOutput;
 
 namespace HPD.Agent;
@@ -114,106 +115,13 @@ public class AgentRunConfig
     public AgentSandboxConfiguration Sandbox { get; set; } = new();
 
     /// <summary>
-    /// Chat parameters (temperature, tokens, etc.)
-    /// JSON-serializable, no Microsoft.Extensions.AI dependency.
-    /// </summary>
-    public ChatRunConfig? Chat { get; set; }
-
-    /// <summary>
-    /// Model transport to use for the agent turn.
-    /// </summary>
-    public AgentModelTransportMode ModelTransport { get; set; } = AgentModelTransportMode.Auto;
-
-    /// <summary>
     /// Provider-created client-family overrides for this run.
     /// </summary>
-    public AgentClientsConfig? Clients { get; set; }
-
-    /// <summary>
-    /// Provider key to switch to (e.g., "openai", "anthropic", "ollama").
-    /// Works with ModelId to create the client via provider registry.
-    /// Useful for simple provider switching without manual client creation.
-    /// </summary>
-    public string? ProviderKey { get; set; }
-
-    /// <summary>
-    /// Model ID to use for the switched provider (e.g., "gpt-4", "claude-opus").
-    /// If ProviderKey is not set, uses the provider from AgentConfig.
-    /// If null with ProviderKey, uses the model from AgentConfig.
-    /// </summary>
-    public string? ModelId { get; set; }
-
-    /// <summary>
-    /// Runtime-only API key to use for this invocation.
-    /// This value is never serialized. Serializable runs should select a named
-    /// authentication registration through <see cref="AuthenticationKey"/>.
-    /// </summary>
-    [JsonIgnore]
-    public string? ApiKey { get; set; }
-
-    /// <summary>
-    /// Gets or sets the opaque name of a host-registered static credential.
-    /// The name is serializable; the credential value is resolved locally at run time.
-    /// </summary>
-    public string? AuthenticationKey { get; set; }
-
-    /// <summary>
-    /// Endpoint URL override for the provider.
-    /// Useful for custom/self-hosted endpoints (e.g., local Ollama, Azure OpenAI).
-    /// </summary>
-    public string? ProviderEndpoint { get; set; }
-
-    /// <summary>
-    /// Custom HTTP headers to include in provider requests.
-    /// Authentication headers are rejected; these values are for non-secret request metadata.
-    /// </summary>
-    public Dictionary<string, string>? CustomHeaders { get; set; }
-
-    /// <summary>
-    /// Provider-specific client-construction options for this run.
-    /// Prefer this object-shaped property for JSON/YAML config.
-    /// </summary>
-    public JsonElement? ConstructionOptions { get; set; }
-
-    /// <summary>Gets the raw JSON for provider-specific construction options.</summary>
-    public string? GetConstructionOptionsRawJson()
-        => ConstructionOptions?.GetRawText();
-
-    internal ProviderClientConfig? GetChatProviderOverride()
-    {
-        if (string.IsNullOrWhiteSpace(ProviderKey) &&
-            string.IsNullOrWhiteSpace(ModelId) &&
-            string.IsNullOrWhiteSpace(ApiKey) &&
-            string.IsNullOrWhiteSpace(AuthenticationKey) &&
-            string.IsNullOrWhiteSpace(ProviderEndpoint) &&
-            CustomHeaders == null &&
-            ConstructionOptions is null)
-            return null;
-
-        return new ProviderClientConfig
-        {
-            ProviderKey = ProviderKey ?? string.Empty,
-            ModelName = ModelId ?? string.Empty,
-            ApiKey = ApiKey,
-            AuthenticationKey = AuthenticationKey,
-            Endpoint = ProviderEndpoint,
-            CustomHeaders = CustomHeaders,
-            ConstructionOptions = ConstructionOptions
-        };
-    }
-
-    /// <summary>
-    /// Override the chat client for this specific run.
-    /// Highest priority - used if provided, overriding ProviderKey/ModelId.
-    /// Enables dynamic provider switching without rebuilding.
-    /// Not JSON-serializable (for direct C# usage).
-    /// </summary>
-    [JsonIgnore]
-    public IChatClient? OverrideChatClient { get; set; }
+    public AgentClientsConfig Clients { get; set; } = new();
 
     /// <summary>
     /// Override the realtime client for this specific run.
-    /// Highest priority when <see cref="ModelTransport"/> resolves to realtime.
+    /// Highest priority when <see cref="AgentClientsConfig.Transport"/> resolves to realtime.
     /// </summary>
     [JsonIgnore]
     public IRealtimeClient? OverrideRealtimeClient { get; set; }
@@ -698,18 +606,21 @@ public sealed class AudioRunConfig
 /// Subset of Microsoft.Extensions.AI.ChatOptions with only JSON primitives.
 /// FFI-friendly - no complex types, no dependencies.
 /// </summary>
-public class ChatRunConfig
+public sealed class ChatClientConfig : ProviderClientConfig
 {
+    /// <summary>Gets or sets a borrowed Chat client used only for this configuration scope.</summary>
+    [JsonIgnore]
+    public ClientOverride<IChatClient>? Override { get; set; }
     /// <summary>
-    /// Creates a new instance of ChatRunConfig.
+    /// Creates a new instance of ChatClientConfig.
     /// </summary>
-    public ChatRunConfig() { }
+    public ChatClientConfig() { }
 
     /// <summary>
-    /// Creates a new instance of ChatRunConfig from Microsoft.Extensions.AI.ChatOptions.
+    /// Creates a new instance of ChatClientConfig from Microsoft.Extensions.AI.ChatOptions.
     /// </summary>
     /// <param name="options">The ChatOptions to convert from</param>
-    public ChatRunConfig(ChatOptions options)
+    public ChatClientConfig(ChatOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
 
@@ -720,18 +631,10 @@ public class ChatRunConfig
         FrequencyPenalty = options.FrequencyPenalty.HasValue ? (double)options.FrequencyPenalty.Value : null;
         PresencePenalty = options.PresencePenalty.HasValue ? (double)options.PresencePenalty.Value : null;
         Seed = options.Seed;
-        ModelId = options.ModelId;
+        ModelName = options.ModelId;
         StopSequences = options.StopSequences as IReadOnlyList<string>;
         Reasoning = ReasoningOptions.FromMicrosoftReasoningOptions(options.Reasoning);
 
-        if (options.AdditionalProperties?.Count > 0)
-        {
-            AdditionalProperties = new Dictionary<string, object>();
-            foreach (var kvp in options.AdditionalProperties)
-            {
-                AdditionalProperties[kvp.Key] = kvp.Value;
-            }
-        }
     }
 
     /// <summary>
@@ -785,25 +688,15 @@ public class ChatRunConfig
     public long? Seed { get; set; }
 
     /// <summary>
-    /// Model ID to use (e.g., "gpt-4-turbo").
-    /// Note: Prefer using ProviderKey/ModelId in AgentRunConfig for provider switching.
-    /// This is for fine-tuning within a provider.
-    /// Null = use config default.
-    /// </summary>
-    [JsonPropertyName("modelId")]
-    public string? ModelId { get; set; }
-
-    /// <summary>
     /// Stop sequences that signal end of generation.
     /// </summary>
     [JsonPropertyName("stopSequences")]
     public IReadOnlyList<string>? StopSequences { get; set; }
 
     /// <summary>
-    /// Provider-specific additional properties (for advanced use).
+    /// Provider-specific operation options for the selected Chat provider.
     /// </summary>
-    [JsonPropertyName("additionalProperties")]
-    public Dictionary<string, object>? AdditionalProperties { get; set; }
+    public IChatRequestOptions? ProviderOptions { get; set; }
 
     /// <summary>
     /// Reasoning options for the chat request.
@@ -837,9 +730,9 @@ public class ChatRunConfig
         if (Temperature == null && TopP == null && TopK == null && MaxOutputTokens == null &&
             FrequencyPenalty == null && PresencePenalty == null &&
             Seed == null &&
-            string.IsNullOrEmpty(ModelId) && StopSequences == null &&
+            string.IsNullOrEmpty(ModelName) && StopSequences == null &&
             ResponseFormat == null && Reasoning == null &&
-            (AdditionalProperties == null || AdditionalProperties.Count == 0))
+            ProviderOptions == null)
         {
             return null;  // No overrides
         }
@@ -860,8 +753,8 @@ public class ChatRunConfig
             options.PresencePenalty = (float)PresencePenalty.Value;
         if (Seed.HasValue)
             options.Seed = Seed.Value;
-        if (!string.IsNullOrEmpty(ModelId))
-            options.ModelId = ModelId;
+        if (!string.IsNullOrEmpty(ModelName))
+            options.ModelId = ModelName;
 
         if (StopSequences?.Count > 0)
         {
@@ -874,14 +767,7 @@ public class ChatRunConfig
         if (Reasoning != null)
             options.Reasoning = Reasoning.ToMicrosoftReasoningOptions();
 
-        if (AdditionalProperties?.Count > 0)
-        {
-            options.AdditionalProperties ??= new AdditionalPropertiesDictionary();
-            foreach (var kvp in AdditionalProperties)
-            {
-                options.AdditionalProperties[kvp.Key] = kvp.Value;
-            }
-        }
+        ProviderOptions?.ApplyTo(options);
 
         return options;
     }
@@ -946,6 +832,14 @@ public class ChatRunConfig
 
         return merged;
     }
+}
+
+/// <summary>Applies typed provider-specific options to one Chat operation.</summary>
+public interface IChatRequestOptions
+{
+    /// <summary>Applies the provider-owned values to the final MEAI operation options.</summary>
+    /// <param name="options">The final operation options being compiled.</param>
+    void ApplyTo(ChatOptions options);
 }
 
 /// <summary>

@@ -19,7 +19,7 @@ public static class MiniMaxAgentBuilderExtensions
             throw new ArgumentException("Model is required for MiniMax provider.", nameof(model));
         }
 
-        var chatConfig = new ProviderClientConfig
+        var chatConfig = new ChatClientConfig
         {
             ProviderKey = "minimax",
             ApiKey = apiKey,
