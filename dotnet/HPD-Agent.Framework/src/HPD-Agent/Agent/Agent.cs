@@ -2755,7 +2755,7 @@ public sealed class Agent
                         if (selectedTransport is Middleware.AgentModelTransport.Chat && chatModel is null)
                         {
                             throw new InvalidOperationException(
-                                "No chat model is configured for this agent run. Configure Provider/ModelName on AgentConfig or pass ProviderKey/ModelId or OverrideChatClient in AgentRunConfig.");
+                                "No chat model is configured for this agent run. Configure Clients.Chat on AgentConfig or AgentRunConfig, including Clients.Chat.Override when supplying a client directly.");
                         }
 
                         if (selectedTransport is Middleware.AgentModelTransport.Realtime && realtimeModel is null)
@@ -4036,7 +4036,7 @@ public sealed class Agent
     /// <remarks>
     /// <para>
     /// <b>Provider Switching Priority:</b>
-    /// 1. options.OverrideChatClient (highest - direct client override)
+    /// 1. options.Clients.Chat.Override (highest - direct client override)
     /// 2. options.ProviderKey + options.ModelId (via registry)
     /// 3. Agent's default client (lowest)
     /// </para>
@@ -4140,7 +4140,7 @@ public sealed class Agent
     /// <para>
     /// <b>Options:</b>
     /// Use <see cref="AgentRunConfig"/> for per-invocation customization:
-    /// - Provider switching via ProviderKey/ModelId or OverrideChatClient
+    /// - Provider switching via Clients.Chat provider/model configuration or a client override
     /// - System instruction overrides
     /// - Chat parameters (temperature, tokens, etc.) via Chat property
     /// - Client tool configuration via ClientToolInput
@@ -8866,7 +8866,7 @@ internal class AgentTurn
         if (effectiveClient == null)
         {
             throw new InvalidOperationException(
-                "No chat model is configured for this agent run. Configure Provider/ModelName on AgentConfig or pass ProviderKey/ModelId or OverrideChatClient in AgentRunConfig.");
+                "No chat model is configured for this agent run. Configure Clients.Chat on AgentConfig or AgentRunConfig, including Clients.Chat.Override when supplying a client directly.");
         }
 
         if (_middleware != null && _middleware.Count > 0)

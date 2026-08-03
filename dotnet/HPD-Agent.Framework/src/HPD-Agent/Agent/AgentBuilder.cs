@@ -1726,7 +1726,7 @@ public class AgentBuilder
 
     /// <summary>
     /// Marks this agent as using a deferred provider - the chat client will be provided at runtime
-    /// via AgentRunConfig.OverrideChatClient (typically inherited from a parent agent in workflows).
+    /// via AgentRunConfig.Clients.Chat.Override or resolved-plan inheritance.
     /// This skips provider validation during Build() and allows building agents without configuring a provider.
     /// </summary>
     /// <remarks>

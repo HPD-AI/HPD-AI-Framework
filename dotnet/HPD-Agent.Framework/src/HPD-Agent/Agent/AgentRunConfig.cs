@@ -124,7 +124,7 @@ public sealed record AgentSandboxRunConfig
 /// </para>
 /// <para>
 /// <b>Priority Rules:</b>
-/// - OverrideChatClient > ProviderKey/ModelId > Agent's default client
+/// - Clients.Chat.Override > runtime Clients.Chat selection > agent Clients.Chat defaults
 /// - SystemInstructions > Config.SystemInstructions (complete replacement)
 /// - SystemInstructions.Append appends to resolved instructions
 /// - ContextInstances > Builder-time contexts > Default context
