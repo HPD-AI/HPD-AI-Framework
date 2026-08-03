@@ -56,17 +56,5 @@ public sealed class QueryBindingTests
 
         (await client.SendAsync(patch)).StatusCode.Should().Be(HttpStatusCode.OK);
 
-        using var create = new HttpRequestMessage(HttpMethod.Post, "/base/collections/items/records")
-        {
-            Content = JsonContent.Create(new RecordCreateRequest
-            {
-                IdempotencyKey = "idem-1",
-                Payload = TestBaseApp.Payload(("title", "idempotent"))
-            }, HPDBaseJsonSerializerContext.Default.RecordCreateRequest)
-        };
-        create.Headers.Add("Idempotency-Key", "idem-1");
-        var createResponse = await client.SendAsync(create);
-        createResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        (await createResponse.Content.ReadAsStringAsync()).Should().Contain("idempotencyUnsupported");
     }
 }

@@ -90,6 +90,22 @@ internal sealed class DefaultBaseMutationCoordinator(
         ArgumentNullException.ThrowIfNull(operation);
         cancellationToken.ThrowIfCancellationRequested();
 
+        if (request.RequestIdentity is not null)
+        {
+            if (request.Mode != BaseRecordBatchExecutionMode.Atomic)
+            {
+                return OperationResults.ValidationFailed<BaseRecordBatchResult>(Error(
+                    "base.runtime.request.invalid",
+                    "Mutation request identity is valid only for an atomic batch.",
+                    ErrorCategory.Validation));
+            }
+
+            return OperationResults.Unsupported<BaseRecordBatchResult>(Error(
+                "base.runtime.request.unsupported",
+                "The selected runtime does not yet support durable atomic request receipts.",
+                ErrorCategory.Unsupported));
+        }
+
         var prepared = await PrepareAsync(request, principal, operation, isPublicBatch: true, cancellationToken)
             .ConfigureAwait(false);
         if (!prepared.IsSuccess() || prepared.Value is null)
@@ -517,11 +533,6 @@ internal sealed class DefaultBaseMutationCoordinator(
         var mutation = store.Store.Capabilities.Mutation;
         if (item.Create is { } create)
         {
-            if (!string.IsNullOrWhiteSpace(create.IdempotencyKey))
-                return OperationResults.Unsupported<BaseMutationCommand>(Error(
-                    "base.runtime.create.idempotencyUnsupported",
-                    "Idempotency keys are not supported.",
-                    ErrorCategory.Unsupported));
             if (create.RequestedId is { } requestedId
                 && (string.IsNullOrWhiteSpace(requestedId.Value)
                     || mutation.IdAuthority is not (IdAuthority.Client or IdAuthority.Hybrid)))

@@ -401,14 +401,6 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             return ValueTask.FromResult(collectionError);
         }
 
-        if (!string.IsNullOrWhiteSpace(request.IdempotencyKey))
-        {
-            return ValueTask.FromResult(InMemoryResultFactory.Unsupported<RecordEnvelope>(
-                InMemoryErrorCodes.IdempotencyUnsupported,
-                "Idempotency keys are not supported by HPD.BASE InMemory.",
-                collection.Id));
-        }
-
         var normalizedCreatePayload = NormalizeObjectPayload<RecordEnvelope>(request.Payload);
         if (normalizedCreatePayload.Value is not { } payload)
         {

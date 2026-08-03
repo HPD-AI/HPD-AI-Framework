@@ -25,7 +25,6 @@ internal static class SqliteErrorCodes
     /// <summary>Provides the unsafe query value.</summary>
     public const string UnsafeQuery = "sqlite.query.unsafePlan";
     /// <summary>Provides the idempotency unsupported value.</summary>
-    public const string IdempotencyUnsupported = "sqlite.record.idempotencyUnsupported";
     /// <summary>Provides the requested ID unsupported value.</summary>
     public const string RequestedIdUnsupported = "sqlite.record.requestedIdUnsupported";
     /// <summary>Provides the database busy value.</summary>

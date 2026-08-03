@@ -45,22 +45,10 @@ public sealed class ContractHardeningTests
     }
 
     [Fact]
-    public async Task RevisionAndIdempotencyHeaderConflictsReturnProblemDetails()
+    public async Task RevisionHeaderConflictsReturnProblemDetails()
     {
         await using var app = await TestBaseApp.CreateAsync();
         var client = app.GetTestClient();
-
-        using var createRequest = new HttpRequestMessage(HttpMethod.Post, "/base/collections/items/records")
-        {
-            Content = JsonContent.Create(new RecordCreateRequest
-            {
-                IdempotencyKey = "body",
-                Payload = TestBaseApp.Payload(("title", "hello"))
-            }, HPDBaseJsonSerializerContext.Default.RecordCreateRequest)
-        };
-        createRequest.Headers.Add(BaseHttpHeaders.IdempotencyKey, "header");
-        var createResponse = await client.SendAsync(createRequest);
-        createResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
 
         using var patchRequest = new HttpRequestMessage(HttpMethod.Patch, "/base/collections/items/records/abc")
         {

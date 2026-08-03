@@ -788,11 +788,6 @@ public sealed partial class SqliteRecordStore
                 return collectionError;
             if (_owner.ValidateRegisteredCollection<RecordMutationSessionResult>(collection.Id) is { } registrationError)
                 return registrationError;
-            if (!string.IsNullOrWhiteSpace(request.IdempotencyKey))
-                return SqliteResultFactory.Unsupported<RecordMutationSessionResult>(
-                    SqliteErrorCodes.IdempotencyUnsupported,
-                    "Idempotency keys are not supported by HPD.BASE SQLite.");
-
             var id = request.RequestedId ?? new RecordId(NextRecordId());
             if (request.RequestedId is not null && !_owner._options.AllowClientRequestedIds)
                 return SqliteResultFactory.Unsupported<RecordMutationSessionResult>(

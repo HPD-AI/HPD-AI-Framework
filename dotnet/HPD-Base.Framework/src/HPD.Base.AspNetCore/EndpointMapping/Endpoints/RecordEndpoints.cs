@@ -207,15 +207,6 @@ internal static class RecordEndpoints
     {
         var principal = await principalFactory.CreateAsync(httpContext, HPDBaseEndpointKind.Records, cancellationToken);
         var operation = operationFactory.Create(httpContext, principal, BaseOperationKind.Create, collectionId);
-        var headerKey = BaseIdempotencyKeyBinder.Bind(httpContext);
-        if (!string.IsNullOrWhiteSpace(headerKey))
-        {
-            if (!string.IsNullOrWhiteSpace(request.IdempotencyKey) && !string.Equals(request.IdempotencyKey, headerKey, StringComparison.Ordinal))
-                return resultMapper.ToHttpResult(Validation<RecordEnvelope>("base.http.idempotency.conflict", "Idempotency-Key header conflicts with request body.", "idempotencyKey"), httpContext, Mapping(operation));
-
-            request = request with { IdempotencyKey = headerKey };
-        }
-
         var result = await runtime.Records.CreateAsync(collectionId, request, principal, operation, cancellationToken);
         var location = result.Value is null ? null : $"{httpContext.Request.Path}/{Uri.EscapeDataString(result.Value.Id.Value)}";
         return resultMapper.ToHttpResult(result, httpContext, Mapping(operation) with { Location = location });

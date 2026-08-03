@@ -11,7 +11,6 @@ internal static class InMemoryErrorCodes
     /// <summary>Provides the invalid collection ID value.</summary>
     public const string InvalidCollectionId = "base.inmemory.collectionId.invalid";
     /// <summary>Provides the idempotency unsupported value.</summary>
-    public const string IdempotencyUnsupported = "base.inmemory.create.idempotencyUnsupported";
     /// <summary>Provides the requested ID unsupported value.</summary>
     public const string RequestedIdUnsupported = "base.inmemory.create.requestedIdUnsupported";
     /// <summary>Provides the payload required value.</summary>

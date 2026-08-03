@@ -82,9 +82,11 @@ public sealed class OpenApiDocumentTests
         create.GetProperty("x-hpd-required-feature-ids").EnumerateArray()
             .Select(featureId => featureId.GetString())
             .Should().Contain("records.create");
-        create.GetProperty("parameters").EnumerateArray()
+        var createParameters = create.GetProperty("parameters").EnumerateArray()
             .Select(parameter => parameter.GetProperty("name").GetString())
-            .Should().Contain(["collectionId", BaseHttpHeaders.IdempotencyKey, BaseHttpHeaders.CorrelationId]);
+            .ToArray();
+        createParameters.Should().Contain(["collectionId", BaseHttpHeaders.CorrelationId]);
+        createParameters.Should().NotContain(BaseHttpHeaders.IdempotencyKey);
 
         var list = Operation(publicDoc, "/base/collections/{collectionId}/records", "get");
         list.GetProperty("parameters").EnumerateArray()

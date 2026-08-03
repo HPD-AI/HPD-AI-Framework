@@ -37,7 +37,7 @@ public sealed class BaseCollection<T>
     internal IReadOnlyDictionary<string, object> Fields => _fields;
 
     /// <summary>Performs create.</summary>
-    public BaseCreate<T> Create(RecordId id, T value, string? idempotencyKey = null) => new(this, id, value, idempotencyKey);
+    public BaseCreate<T> Create(RecordId id, T value) => new(this, id, value);
     /// <summary>Performs replace.</summary>
     public BaseReplace<T> Replace(RecordId id, T value, RevisionToken? expectedRevision = null) => new(this, id, value, expectedRevision);
     /// <summary>Performs patch.</summary>

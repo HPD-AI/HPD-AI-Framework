@@ -23,6 +23,9 @@ public sealed class BaseBatchResult
     /// <summary>Gets the bounded number of post-commit warnings.</summary>
     public int PostCommitWarningCount => _result.PostCommitWarningCount;
 
+    /// <summary>Gets whether this request newly committed or resolved a prior commit.</summary>
+    public BaseMutationRequestDisposition RequestDisposition => _result.RequestDisposition;
+
     /// <summary>Gets the safe aggregate failure, when present.</summary>
     public BaseError? Error => _result.Error;
 

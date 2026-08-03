@@ -53,6 +53,13 @@ public sealed class BaseSession
     public BaseBatchBuilder Atomic() =>
         new(this, BaseRecordBatchExecutionMode.Atomic);
 
+    /// <summary>Begins an identified provider-required atomic mutation batch.</summary>
+    public BaseBatchBuilder Atomic(BaseMutationRequestIdentity requestIdentity)
+    {
+        ArgumentNullException.ThrowIfNull(requestIdentity);
+        return new(this, BaseRecordBatchExecutionMode.Atomic, requestIdentity);
+    }
+
     /// <summary>Begins an ordered independent-commit mutation batch.</summary>
     public BaseBatchBuilder OrderedIndependent() =>
         new(this, BaseRecordBatchExecutionMode.OrderedIndependent);

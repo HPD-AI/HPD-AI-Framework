@@ -139,31 +139,6 @@ public abstract class RecordStoreCrudConformanceTests<TFixture> : RecordStoreCon
     }
 
     [Fact]
-    public async Task IdempotencyKeyFailsClosedUntilAdvertised()
-    {
-        if (!Capabilities.Mutation.Create)
-        {
-            return;
-        }
-
-        var store = await CreateStoreAsync();
-        var result = await store.CreateAsync(
-            Collection,
-            new RecordCreateRequest
-            {
-                IdempotencyKey = "same-request",
-                Payload = RecordStoreConformanceData.Payload(("title", "one"))
-            },
-            Operation(BaseOperationKind.Create));
-
-        RecordStoreConformanceAssertions.Failure(
-            result,
-            OperationStatus.Unsupported,
-            OperationStatus.CapabilityUnavailable,
-            OperationStatus.ValidationFailed);
-    }
-
-    [Fact]
     public async Task MalformedCreatePayloadFailsClosedWhenCreateIsSupported()
     {
         if (!Capabilities.Mutation.Create)

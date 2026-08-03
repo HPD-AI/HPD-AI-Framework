@@ -45,13 +45,11 @@ public sealed class BaseCollectionSession<T>
     public async ValueTask<BaseResult<BaseRecord<T>>> CreateAsync(
         RecordId id,
         T value,
-        string? idempotencyKey = null,
         CancellationToken cancellationToken = default)
     {
         var request = new RecordCreateRequest
         {
             RequestedId = id,
-            IdempotencyKey = idempotencyKey,
             Payload = BaseRecordCodec.Encode(_collection, value),
         };
         var result = await _session.Runtime.CreateAsync(

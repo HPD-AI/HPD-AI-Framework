@@ -135,6 +135,9 @@ public sealed record BaseRecordBatchRequest
 
     /// <summary>Gets the mutations in execution order.</summary>
     public required BaseRecordBatchItem[] Operations { get; init; }
+
+    /// <summary>Gets the durable identity for an atomic request, when requested.</summary>
+    public BaseMutationRequestIdentity? RequestIdentity { get; init; }
 }
 
 /// <summary>Describes one closed, typed mutation in a record batch.</summary>
@@ -185,6 +188,10 @@ public sealed record BaseRecordBatchResult
 
     /// <summary>Gets the bounded number of post-commit warnings across committed items.</summary>
     public int PostCommitWarningCount { get; init; }
+
+    /// <summary>Gets whether this result newly committed or resolved a prior commit.</summary>
+    public BaseMutationRequestDisposition RequestDisposition { get; init; } =
+        BaseMutationRequestDisposition.Committed;
 }
 
 /// <summary>Returns the normalized result and transaction disposition of one batch item.</summary>

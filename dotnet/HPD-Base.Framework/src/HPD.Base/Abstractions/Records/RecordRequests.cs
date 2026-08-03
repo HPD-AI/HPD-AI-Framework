@@ -8,8 +8,6 @@ public sealed record RecordCreateRequest
     public required RecordPayload Payload { get; init; }
     /// <summary>Gets or sets the requested ID.</summary>
     public RecordId? RequestedId { get; init; }
-    /// <summary>Gets or sets the idempotency key.</summary>
-    public string? IdempotencyKey { get; init; }
 }
 
 /// <summary>

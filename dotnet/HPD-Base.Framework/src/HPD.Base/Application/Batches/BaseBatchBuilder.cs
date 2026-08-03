@@ -9,7 +9,7 @@ public sealed class BaseBatchBuilder
 {
     /// <summary>Executes the add operation.</summary>
     public BaseBatchItem<T> Add<T>(BaseCreate<T> command) =>
-        Create(command.Collection, command.Id, command.Value, command.IdempotencyKey);
+        Create(command.Collection, command.Id, command.Value);
 
     /// <summary>Executes the add operation.</summary>
     public BaseBatchItem<T> Add<T>(BaseReplace<T> command) =>
@@ -44,24 +44,26 @@ public sealed class BaseBatchBuilder
 
     private readonly BaseSession _session;
     private readonly BaseRecordBatchExecutionMode _mode;
+    private readonly BaseMutationRequestIdentity? _requestIdentity;
     private readonly object _owner = new();
     private readonly List<BaseRecordBatchItem> _items = [];
     private bool _committed;
 
     internal BaseBatchBuilder(
         BaseSession session,
-        BaseRecordBatchExecutionMode mode)
+        BaseRecordBatchExecutionMode mode,
+        BaseMutationRequestIdentity? requestIdentity = null)
     {
         _session = session;
         _mode = mode;
+        _requestIdentity = requestIdentity;
     }
 
     /// <summary>Adds a typed create command.</summary>
     public BaseBatchItem<T> Create<T>(
         BaseCollection<T> collection,
         RecordId id,
-        T value,
-        string? idempotencyKey = null)
+        T value)
     {
         EnsureMutable();
         string itemId = NextItemId();
@@ -73,7 +75,6 @@ public sealed class BaseBatchBuilder
             Create = new RecordCreateRequest
             {
                 RequestedId = id,
-                IdempotencyKey = idempotencyKey,
                 Payload = BaseRecordCodec.Encode(collection, value),
             },
         });
@@ -248,6 +249,7 @@ public sealed class BaseBatchBuilder
         {
             Mode = _mode,
             Operations = [.. _items],
+            RequestIdentity = _requestIdentity,
         };
         var result = await _session.Runtime.BatchAsync(
             request,

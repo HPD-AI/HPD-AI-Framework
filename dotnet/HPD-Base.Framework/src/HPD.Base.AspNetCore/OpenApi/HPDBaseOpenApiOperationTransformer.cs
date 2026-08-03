@@ -45,9 +45,6 @@ internal sealed class HPDBaseOpenApiOperationTransformer(IOptions<HPDBaseOpenApi
         AddQueryParameters(operation, metadata.OperationId);
         AddRequestHeader(operation, BaseHttpHeaders.CorrelationId, required: false, "Safe caller-provided correlation id echoed in responses.");
 
-        if (metadata.OperationId is BaseRouteIds.RecordsCreate)
-            AddRequestHeader(operation, BaseHttpHeaders.IdempotencyKey, required: false, "Idempotency key for record creation.");
-
         if (metadata.OperationId is BaseRouteIds.RecordsPatch
             or BaseRouteIds.RecordsReplace
             or BaseRouteIds.RecordsDelete

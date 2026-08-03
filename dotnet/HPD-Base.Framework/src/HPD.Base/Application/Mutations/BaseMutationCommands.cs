@@ -21,20 +21,17 @@ public abstract class BaseMutation
 /// <summary>Represents a base create.</summary>
 public sealed class BaseCreate<T> : BaseMutation
 {
-    internal BaseCreate(BaseCollection<T> collection, RecordId id, T value, string? idempotencyKey)
+    internal BaseCreate(BaseCollection<T> collection, RecordId id, T value)
         : base(collection.Id, id)
     {
         Collection = collection;
         Value = value;
-        IdempotencyKey = idempotencyKey;
     }
 
     /// <summary>Gets the collection.</summary>
     public BaseCollection<T> Collection { get; }
     /// <summary>Gets the value.</summary>
     public T Value { get; }
-    /// <summary>Gets the idempotency key.</summary>
-    public string? IdempotencyKey { get; }
 }
 
 /// <summary>Represents a base patch.</summary>

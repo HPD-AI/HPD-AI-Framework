@@ -79,24 +79,6 @@ public sealed class CreateGetDeleteSemanticsTests
         duplicate.Error.Should().NotBeNull();
     }
 
-    [Fact]
-    public async Task IdempotencyKeyIsUnsupported()
-    {
-        var store = new InMemoryRecordStore();
-
-        var result = await InMemoryMutationTestDriver.CreateAsync(store,
-            InMemoryTestData.Collection(),
-            new RecordCreateRequest
-            {
-                IdempotencyKey = "same-request",
-                Payload = InMemoryTestData.Payload(("title", "one"))
-            },
-            InMemoryTestData.Operation(BaseOperationKind.Create));
-
-        result.Status.Should().Be(OperationStatus.Unsupported);
-        result.Error.Should().NotBeNull();
-    }
-
     [Theory]
     [InlineData("")]
     [InlineData(" ")]

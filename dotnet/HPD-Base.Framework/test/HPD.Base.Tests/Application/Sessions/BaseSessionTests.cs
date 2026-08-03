@@ -39,8 +39,7 @@ public sealed class BaseSessionTests
             {
                 OrganizationId = "org_1",
                 Name = "created",
-            },
-            idempotencyKey: "idem_1");
+            });
 
         result.Should().BeOfType<BaseSuccess<BaseRecord<GeneratedProject>>>();
         result.RequireValue().Value.Name.Should().Be("created");
@@ -58,7 +57,6 @@ public sealed class BaseSessionTests
             Now = time.GetUtcNow(),
         });
         runtime.CreateRequest!.RequestedId.Should().Be(new RecordId("record_1"));
-        runtime.CreateRequest.IdempotencyKey.Should().Be("idem_1");
         JsonSerializer.Deserialize(
             runtime.CreateRequest.Payload.Json,
             GeneratedProject.Collection.JsonTypeInfo)!.Name.Should().Be("created");
