@@ -1117,6 +1117,26 @@ public sealed class Agent
         InterruptionRequestEvent interruption,
         CancellationToken cancellationToken)
     {
+        var eventCoordinator = GetActiveEventCoordinator();
+
+        // A targeted interruption owns only the named event flow. It remains useful
+        // even when no model input is active and must never cancel an unrelated input.
+        if (!string.IsNullOrWhiteSpace(interruption.EventFlowId))
+        {
+            eventCoordinator.EventFlows.InterruptFlow(interruption.EventFlowId);
+            await PublishScopedRuntimeEventAsync(new InterruptionHandledEvent(
+                interruption.EventFlowId,
+                interruption.Reason,
+                interruption.Source)
+            {
+                SessionId = interruption.SessionId,
+                ThreadId = interruption.ThreadId
+            }, eventCoordinator, cancellationToken).ConfigureAwait(false);
+
+            lock (_runtimeLock)
+                return ControlResult(AgentInputDisposition.Accepted, _activeRuntimeInput?.ThreadExecutionId);
+        }
+
         ActiveRuntimeInput? activeInput;
         lock (_runtimeLock)
         {
@@ -1129,16 +1149,7 @@ public sealed class Agent
                 return ControlResult(AgentInputDisposition.ExecutionFinishing, activeInput.ThreadExecutionId);
         }
 
-        var eventCoordinator = GetActiveEventCoordinator();
-
-        if (!string.IsNullOrWhiteSpace(interruption.EventFlowId))
-        {
-            eventCoordinator.EventFlows.InterruptFlow(interruption.EventFlowId);
-        }
-        else
-        {
-            eventCoordinator.EventFlows.InterruptAll();
-        }
+        eventCoordinator.EventFlows.InterruptAll();
 
         activeInput.Cancellation.Cancel();
 
@@ -1566,7 +1577,7 @@ public sealed class Agent
                 runtimeInbox.Writer,
                 async (runtimeInput, ct) =>
                 {
-                    await RunAsync(TargetActiveExecution(runtimeInput), ct).ConfigureAwait(false);
+                    await runtimeInbox.Writer.WriteAsync(runtimeInput, ct).ConfigureAwait(false);
                 },
                 HasActiveRuntimeInputs,
                 runtimeCts.Token,

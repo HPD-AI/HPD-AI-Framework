@@ -237,7 +237,9 @@ public sealed class FunctionExecutionContextTests
     public async Task FunctionExecutionContext_RequestAsync_CancellationRemovesPendingRequest()
     {
         var coordinator = new EventCoordinator();
-        var context = CreateContext(eventCoordinator: coordinator);
+        var context = CreateContext(
+            eventCoordinator: coordinator,
+            threadExecutionId: "execution-1");
         using var cancellation = new CancellationTokenSource();
 
         var responseTask = context.RequestAsync<TestRequestEvent, TestResponseEvent>(

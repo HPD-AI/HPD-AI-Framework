@@ -2851,13 +2851,19 @@ public class AgentBuilder
     /// </summary>
     private ChatOptions? MergeToolFunctions(ChatOptions? defaultOptions, List<AIFunction> toolFunctions)
     {
-        if (toolFunctions.Count == 0)
+        var serverFunctions = _config.ServerConfiguredTools?.OfType<AIFunction>().ToArray() ?? [];
+        if (toolFunctions.Count == 0 && serverFunctions.Length == 0)
             return defaultOptions;
 
         var options = defaultOptions?.Clone() ?? new ChatOptions();
 
         // Add ToolHarness functions to existing tools
         var allTools = new List<AITool>(options.Tools ?? []);
+        foreach (var function in serverFunctions)
+        {
+            if (!allTools.Contains(function))
+                allTools.Add(function);
+        }
         allTools.AddRange(toolFunctions);
 
         // Translate ToolSelectionConfig to ChatToolMode (FFI-friendly → M.E.AI)

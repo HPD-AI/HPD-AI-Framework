@@ -45,16 +45,17 @@ public static class TestAgentFactory
         config ??= CreateDefaultConfig();
         chatClient ??= new FakeChatClient();
 
-        // Create builder with test provider registry that knows about our chat client
-        var builder = new AgentBuilder(config, new TestProviderRegistry(chatClient));
-
-        // Add tools to config if provided
+        // Add tools before constructing the builder. AgentBuilder owns a configuration
+        // snapshot, so mutations made afterward intentionally do not affect the agent.
         if (tools.Length > 0)
         {
             config.ServerConfiguredTools ??= new List<Microsoft.Extensions.AI.AITool>();
             foreach (var tool in tools)
                 config.ServerConfiguredTools.Add(tool);
         }
+
+        // Create builder with test provider registry that knows about our chat client
+        var builder = new AgentBuilder(config, new TestProviderRegistry(chatClient));
 
         // Register standard iteration middlewares for loop protection
         // These are essential for preventing infinite loops in tests
