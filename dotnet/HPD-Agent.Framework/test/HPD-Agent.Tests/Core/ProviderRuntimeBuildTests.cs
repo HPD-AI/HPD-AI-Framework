@@ -3,6 +3,7 @@ using HPD.Agent.Providers;
 using HPD.Agent.Secrets;
 using HPD.Agent.Tests.Infrastructure;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.DependencyInjection;
 
 #pragma warning disable MEAI001
 
@@ -129,6 +130,54 @@ public sealed class ProviderRuntimeBuildTests
         Assert.All(provider.Clients, client => Assert.Equal(1, client.DisposeCount));
         agent.Dispose();
         Assert.All(provider.Clients, client => Assert.Equal(1, client.DisposeCount));
+    }
+
+    [Fact]
+    public async Task Runs_WithNamedAuxiliaryAuthentication_ResolveLocallyAndReuseByIdentity()
+    {
+        var provider = new BuildTrackingTextToSpeechProvider();
+        var providers = new ProviderRegistry();
+        providers.Register(provider);
+        var registrations = new InMemoryProviderAuthenticationRegistry();
+        registrations.Register(new ProviderAuthenticationRegistration
+        {
+            Key = "speech-work",
+            ProviderKey = provider.ProviderKey,
+            SecretKey = "speech:work",
+            Families = new HashSet<ProviderClientFamily> { ProviderClientFamily.TextToSpeech }
+        });
+        var secrets = new ExplicitSecretResolver();
+        secrets.Set("speech:work", "resolved-secret");
+        var services = new ServiceCollection()
+            .AddSingleton<IProviderAuthenticationRegistry>(registrations)
+            .AddSingleton<IProviderCredentialResolver>(new SecretResolverProviderCredentialResolver(secrets))
+            .BuildServiceProvider();
+        var chat = new FakeChatClient();
+        chat.EnqueueTextResponse("first");
+        chat.EnqueueTextResponse("second");
+        var agent = await new AgentBuilder(new AgentConfig
+        {
+            Clients = new AgentClientsConfig
+            {
+                TextToSpeech = new TextToSpeechClientConfig
+                {
+                    ProviderKey = provider.ProviderKey,
+                    ModelName = "speech-model",
+                    AuthenticationKey = "speech-work"
+                }
+            }
+        }, providers)
+            .WithServiceProvider(services)
+            .WithChatClient(chat)
+            .BuildAsync();
+
+        await agent.RunAsync("one");
+        await agent.RunAsync("two");
+
+        Assert.Equal(1, provider.CreateCount);
+        Assert.Equal("resolved-secret", Assert.Single(provider.ApiKeys));
+        agent.Dispose();
+        await services.DisposeAsync();
     }
 
     private sealed class CountingSecretResolver : ISecretResolver
