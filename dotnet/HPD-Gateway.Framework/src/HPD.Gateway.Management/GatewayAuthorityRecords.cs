@@ -4,7 +4,7 @@ using HPD.Base;
 namespace HPD.Gateway.Management;
 
 [BaseCollection(GatewayAuthoritySchema.AcceptedRevisions, typeof(GatewayManagementJsonContext), MutationMode = BaseCollectionMutationMode.AppendOnlyWithAdministrativePurge)]
-[BaseIndex("namespace", nameof(NamespaceId))]
+[BaseIndex("gateway.revisions.namespace", nameof(NamespaceId), Required = false)]
 public sealed partial record GatewayAcceptedRevision
 {
     private byte[] _canonicalConfigurationUtf8 = [];
@@ -25,7 +25,7 @@ public sealed partial record GatewayAcceptedRevision
 }
 
 [BaseCollection(GatewayAuthoritySchema.ValidationRecords, typeof(GatewayManagementJsonContext), MutationMode = BaseCollectionMutationMode.AppendOnlyWithAdministrativePurge)]
-[BaseIndex("namespace", nameof(NamespaceId))]
+[BaseIndex("gateway.validations.namespace", nameof(NamespaceId), Required = false)]
 public sealed partial record GatewayValidationRecord
 {
     private byte[] _diagnosticsJson = [];
@@ -37,8 +37,8 @@ public sealed partial record GatewayValidationRecord
 }
 
 [BaseCollection(GatewayAuthoritySchema.AdministrativeAudit, typeof(GatewayManagementJsonContext), MutationMode = BaseCollectionMutationMode.AppendOnlyWithAdministrativePurge)]
-[BaseIndex("namespace", nameof(NamespaceId))]
-[BaseIndex("actor", nameof(ActorId))]
+[BaseIndex("gateway.audit.namespace", nameof(NamespaceId), Required = false)]
+[BaseIndex("gateway.audit.actor", nameof(ActorId), Required = false)]
 public sealed partial record GatewayAdministrativeAuditRecord
 {
     [BaseField("audit.namespace-id")] public required string NamespaceId { get; init; }
@@ -52,7 +52,7 @@ public sealed partial record GatewayAdministrativeAuditRecord
 }
 
 [BaseCollection(GatewayAuthoritySchema.TargetOwnership, typeof(GatewayManagementJsonContext), MutationMode = BaseCollectionMutationMode.AppendOnly)]
-[BaseIndex("namespace", nameof(NamespaceId))]
+[BaseIndex("gateway.ownership.namespace", nameof(NamespaceId), Required = false)]
 public sealed partial record GatewayTargetOwnership
 {
     [BaseField("ownership.management-authority-id")] public required string ManagementAuthorityId { get; init; }
@@ -61,7 +61,7 @@ public sealed partial record GatewayTargetOwnership
 }
 
 [BaseCollection(GatewayAuthoritySchema.DesiredStates, typeof(GatewayManagementJsonContext), MutationMode = BaseCollectionMutationMode.Mutable)]
-[BaseIndex("namespace", nameof(NamespaceId))]
+[BaseIndex("gateway.desired.namespace", nameof(NamespaceId), Required = false)]
 public sealed partial record GatewayDesiredState
 {
     [BaseField("desired.management-authority-id")] public required string ManagementAuthorityId { get; init; }
@@ -84,7 +84,7 @@ public sealed partial record GatewayNodeDeliveryAuthorityState
 }
 
 [BaseCollection(GatewayAuthoritySchema.ActivationIntents, typeof(GatewayManagementJsonContext), MutationMode = BaseCollectionMutationMode.AppendOnly)]
-[BaseIndex("target", nameof(TargetNodeId))]
+[BaseIndex("gateway.intents.target", nameof(TargetNodeId), Required = false)]
 public sealed partial record GatewayActivationIntent
 {
     [BaseField("intent.namespace-id")] public required string NamespaceId { get; init; }
@@ -98,7 +98,7 @@ public sealed partial record GatewayActivationIntent
 }
 
 [BaseCollection(GatewayAuthoritySchema.DeliveryOutbox, typeof(GatewayManagementJsonContext), MutationMode = BaseCollectionMutationMode.Mutable)]
-[BaseIndex("state", nameof(State), nameof(TargetNodeId))]
+[BaseIndex("gateway.outbox.state-target", nameof(State), nameof(TargetNodeId), Required = false)]
 public sealed partial record GatewayDeliveryOutboxItem
 {
     [BaseField("outbox.namespace-id")] public required string NamespaceId { get; init; }
@@ -109,10 +109,12 @@ public sealed partial record GatewayDeliveryOutboxItem
     [BaseField("outbox.next-attempt-at")] public DateTimeOffset? NextAttemptAt { get; init; }
     [BaseField("outbox.claim-id")] public string? ClaimId { get; init; }
     [BaseField("outbox.claim-expires-at")] public DateTimeOffset? ClaimExpiresAt { get; init; }
+    [BaseField("outbox.pending-outcome-kind")] public GatewayNodeOutcomeKind? PendingOutcomeKind { get; init; }
+    [BaseField("outbox.pending-outcome-code")] public string? PendingOutcomeCode { get; init; }
 }
 
 [BaseCollection(GatewayAuthoritySchema.NodeOutcomes, typeof(GatewayManagementJsonContext), MutationMode = BaseCollectionMutationMode.AppendOnlyWithAdministrativePurge)]
-[BaseIndex("intent", nameof(ActivationIntentId))]
+[BaseIndex("gateway.outcomes.intent", nameof(ActivationIntentId), Required = false)]
 public sealed partial record GatewayNodeActivationOutcome
 {
     [BaseField("outcome.namespace-id")] public required string NamespaceId { get; init; }
@@ -126,7 +128,7 @@ public sealed partial record GatewayNodeActivationOutcome
 }
 
 [BaseCollection(GatewayAuthoritySchema.CommandReceipts, typeof(GatewayManagementJsonContext), MutationMode = BaseCollectionMutationMode.AppendOnlyWithAdministrativePurge)]
-[BaseIndex("lookup", nameof(NamespaceId), nameof(Operation), nameof(IdempotencyKey))]
+[BaseIndex("gateway.receipts.lookup", nameof(NamespaceId), nameof(Operation), nameof(IdempotencyKey), Required = false)]
 public sealed partial record GatewayCommandReceipt
 {
     private byte[] _fingerprint = [];

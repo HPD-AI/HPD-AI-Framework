@@ -22,6 +22,12 @@ internal static class GatewayAuthorityRecordIds
     internal static RecordId CommandFact(string role, string namespaceId, string operation, string idempotencyKey, params string[] additional) =>
         Create(role, [namespaceId, operation, idempotencyKey, .. additional]);
 
+    internal static bool IsCanonicalComponent(string? value)
+    {
+        try { Validate(value!, nameof(value)); return true; }
+        catch (ArgumentException) { return false; }
+    }
+
     private static RecordId Create(string purpose, params string[] values)
     {
         Validate(purpose, nameof(purpose));

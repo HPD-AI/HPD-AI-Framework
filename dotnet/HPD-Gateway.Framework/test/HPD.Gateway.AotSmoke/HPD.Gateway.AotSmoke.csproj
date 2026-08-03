@@ -20,5 +20,6 @@
     <ProjectReference Include="../../src/HPD.Gateway.Resilience/HPD.Gateway.Resilience.csproj" />
     <ProjectReference Include="../../src/HPD.Gateway.Status/HPD.Gateway.Status.csproj" />
     <ProjectReference Include="../../src/HPD.Gateway.Yarp/HPD.Gateway.Yarp.csproj" />
+    <ProjectReference Include="../../../HPD-Base.Framework/src/HPD.Base.Sqlite/HPD.Base.Sqlite.csproj" />
   </ItemGroup>
 </Project>

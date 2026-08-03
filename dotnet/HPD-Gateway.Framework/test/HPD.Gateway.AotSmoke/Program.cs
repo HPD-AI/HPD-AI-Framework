@@ -5,7 +5,10 @@ using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
+using HPD.Base;
+using HPD.Base.Sqlite;
 using HPD.Gateway.Abstractions;
+using HPD.Gateway;
 using HPD.Gateway.Abstractions.Serialization;
 using HPD.Gateway.Core;
 using HPD.Gateway.Effective.Serialization;
@@ -29,7 +32,7 @@ using Yarp.ReverseProxy;
 using Yarp.ReverseProxy.Configuration;
 using Yarp.ReverseProxy.Model;
 
-SmokeManagementSchema();
+await SmokeManagementRuntimeAsync();
 
 var smokeResilienceProfile = new GatewayResilienceProfile
 {
@@ -823,7 +826,7 @@ Console.WriteLine(
 static string Address(WebApplication application) => application.Services
     .GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.Single();
 
-static void SmokeManagementSchema()
+static async Task SmokeManagementRuntimeAsync()
 {
     _ = GatewayAcceptedRevision.Collection.Definition;
     _ = GatewayValidationRecord.Collection.Definition;
@@ -863,6 +866,95 @@ static void SmokeManagementSchema()
         if (JsonSerializer.SerializeToUtf8Bytes(record, typeInfo).Length == 0)
             throw new InvalidOperationException("Management record serialization failed.");
     }
+
+    var services = new ServiceCollection();
+    services.AddLogging();
+    services.AddHpdGateway(static gateway => gateway.AddCoreFamilies());
+    services.AddHpdGatewayManagement(options => options.ManagementAuthorityId = "aot-authority");
+    await using ServiceProvider provider = services.BuildServiceProvider();
+    GatewayAuthorityCapabilitySnapshot capabilities = await provider
+        .GetRequiredService<IGatewayAuthorityRuntime>().InitializeAsync();
+    if (capabilities.Durability != GatewayAuthorityDurability.ProcessLocal)
+        throw new InvalidOperationException("AOT InMemory authority durability is incorrect.");
+    GatewayManagementCommandResult provisioned = await provider
+        .GetRequiredService<IGatewayManagementCommandCoordinator>()
+        .ProvisionTargetAsync(new GatewayProvisionTargetCommand(
+            "aot-ns", "aot-node", "aot-key",
+            new GatewayManagementActor("aot-actor", "aot", "manage"),
+            "aot-correlation", "aot-epoch"));
+    if (!provisioned.IsAccepted)
+        throw new InvalidOperationException("AOT authority provisioning failed: " + provisioned.Code);
+
+    string database = Path.Combine(Path.GetTempPath(), $"hpd-gateway-aot-{Guid.NewGuid():N}.db");
+    try
+    {
+        GatewayProvisionTargetCommand durableCommand = new(
+            "aot-durable-ns", "aot-durable-node", "aot-durable-key",
+            new GatewayManagementActor("aot-actor", "aot", "manage"),
+            "aot-durable-correlation", "aot-durable-epoch");
+        await using (ServiceProvider durable = BuildDurable(database))
+        {
+            await PrepareSqlite(durable);
+            GatewayAuthorityCapabilitySnapshot durableCapabilities = await durable
+                .GetRequiredService<IGatewayAuthorityRuntime>().InitializeAsync();
+            if (durableCapabilities.Durability != GatewayAuthorityDurability.RestartDurable)
+                throw new InvalidOperationException("AOT SQLite durability is incorrect.");
+            if (!(await durable.GetRequiredService<IGatewayManagementCommandCoordinator>()
+                    .ProvisionTargetAsync(durableCommand)).IsAccepted)
+                throw new InvalidOperationException("AOT SQLite provisioning failed.");
+        }
+        await using (ServiceProvider restarted = BuildDurable(database))
+        {
+            await PrepareSqlite(restarted);
+            GatewayManagementCommandResult replay = await restarted
+                .GetRequiredService<IGatewayManagementCommandCoordinator>()
+                .ProvisionTargetAsync(durableCommand);
+            if (replay.State != GatewayManagementCommandState.Duplicate)
+                throw new InvalidOperationException("AOT SQLite restart replay failed: " + replay.Code);
+        }
+    }
+    finally
+    {
+        foreach (string suffix in new[] { "", "-wal", "-shm" })
+            if (File.Exists(database + suffix)) File.Delete(database + suffix);
+    }
+}
+
+static ServiceProvider BuildDurable(string database)
+{
+    var services = new ServiceCollection();
+    services.AddLogging();
+    services.AddHpdGateway(static gateway => gateway.AddCoreFamilies());
+    services.AddHpdGatewayManagement(options =>
+    {
+        options.ManagementAuthorityId = "aot-durable-authority";
+        options.RequiredDurability = GatewayAuthorityDurability.RestartDurable;
+        options.DesiredStateTokenKey = Enumerable.Repeat((byte)0x61, 32).ToArray();
+    }, builder =>
+    {
+        builder.ConfigureSchema(schema => schema.PlanProtectionKey = Enumerable.Repeat((byte)0x62, 32).ToArray());
+        builder.ConfigureTokenProtection(tokens => tokens.ActiveKey = new BaseOpaqueTokenKey
+        {
+            Id = 1,
+            Key = Enumerable.Repeat((byte)0x63, 32).ToArray(),
+        });
+        builder.UseSqlite(sqlite =>
+        {
+            sqlite.StoreId = "gateway-aot";
+            sqlite.DataSource = database;
+            sqlite.AllowClientRequestedIds = true;
+            sqlite.AdministrationEnabled = true;
+        });
+    });
+    return services.BuildServiceProvider();
+}
+
+static async Task PrepareSqlite(ServiceProvider provider)
+{
+    IBaseSchemaManager schemas = provider.GetRequiredService<IBaseSchemaManager>();
+    BaseSchemaPlan plan = (await schemas.PlanAsync(new BaseSchemaPlanRequest { StoreId = "gateway-aot" })).Value!;
+    if (!(await schemas.ApplyAsync(new BaseSchemaApplyRequest { ProtectedArtifact = plan.ProtectedArtifact })).IsSuccess())
+        throw new InvalidOperationException("AOT SQLite schema apply failed.");
 }
 
 static (string Path, string Password, string Thumbprint) CreateAotCertificate(string dnsName, string path)
