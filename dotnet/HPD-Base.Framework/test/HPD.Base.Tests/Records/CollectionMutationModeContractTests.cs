@@ -49,6 +49,9 @@ public sealed class CollectionMutationModeContractTests
     {
         PropertyInfo cursor = typeof(PaginationCapability).GetProperty(nameof(PaginationCapability.Cursor))!;
         Assert.Equal(typeof(QueryCursorGuarantee), cursor.PropertyType);
+        PropertyInfo descriptorCursor = typeof(QueryPaginationCapabilityConstraints)
+            .GetProperty(nameof(QueryPaginationCapabilityConstraints.Cursor))!;
+        Assert.Equal(typeof(QueryCursorGuarantee), descriptorCursor.PropertyType);
         Assert.Equal(
             ["None", "Seek", "StableHistory"],
             Enum.GetNames<QueryCursorGuarantee>());
