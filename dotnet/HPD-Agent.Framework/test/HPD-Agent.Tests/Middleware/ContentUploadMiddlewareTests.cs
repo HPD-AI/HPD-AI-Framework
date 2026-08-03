@@ -31,7 +31,7 @@ public class ContentUploadMiddlewareTests
     public async Task BeforeMessageTurnAsync_StrategyLocal_WithContentStore_UploadsToStore()
     {
         var contentStore = new InMemoryContentStore();
-        var middleware = new ContentUploadMiddleware(providerRegistry: null, contentStore);
+        var middleware = new ContentUploadMiddleware(contentStore);
         var session = new SessionModel("test-session");
         var imageBytes = new byte[] { 0x89, 0x50, 0x4E, 0x47 };
         var message = new ChatMessage(ChatRole.User, [
@@ -61,7 +61,7 @@ public class ContentUploadMiddlewareTests
     public async Task BeforeMessageTurnAsync_TransformedMessage_PreservesMessageIdentity()
     {
         var contentStore = new InMemoryContentStore();
-        var middleware = new ContentUploadMiddleware(providerRegistry: null, contentStore);
+        var middleware = new ContentUploadMiddleware(contentStore);
         var session = new SessionModel("test-session");
         var createdAt = new DateTimeOffset(2026, 6, 2, 12, 0, 0, TimeSpan.Zero);
         var raw = new object();
@@ -92,7 +92,7 @@ public class ContentUploadMiddlewareTests
     public async Task BeforeMessageTurnAsync_StrategyHosted_UsesRunConfigHostedClient()
     {
         var hostedClient = new FakeHostedFileClient();
-        var middleware = new ContentUploadMiddleware(providerRegistry: null, contentStore: null);
+        var middleware = new ContentUploadMiddleware(contentStore: null);
         var session = new SessionModel("test-session");
         var data = new DataContent(new byte[] { 1, 2, 3 }, "application/pdf") { Name = "report.pdf" };
         var message = new ChatMessage(ChatRole.User, [data]);
@@ -125,7 +125,7 @@ public class ContentUploadMiddlewareTests
     {
         var contentStore = new InMemoryContentStore();
         var hostedClient = new FakeHostedFileClient();
-        var middleware = new ContentUploadMiddleware(providerRegistry: null, contentStore);
+        var middleware = new ContentUploadMiddleware(contentStore);
         var session = new SessionModel("test-session");
         var message = new ChatMessage(ChatRole.User, [new DataContent(new byte[] { 1 }, "image/png")]);
         using var capture = new EventCapture();
@@ -143,11 +143,47 @@ public class ContentUploadMiddlewareTests
     }
 
     [Fact]
+    public async Task BeforeMessageTurnAsync_Hosted_CompilesResolvedFamilyOptions()
+    {
+        var hostedClient = new FakeHostedFileClient();
+        var middleware = new ContentUploadMiddleware();
+        var session = new SessionModel("test-session");
+        var message = new ChatMessage(ChatRole.User, [new DataContent(new byte[] { 1 }, "image/png")]);
+        using var capture = new EventCapture();
+        var context = CreateBeforeMessageTurnContext(
+            session,
+            message,
+            capture.Coordinator,
+            new AgentRunConfig { UploadStrategy = UploadStrategy.Hosted },
+            new AgentClientSet
+            {
+                HostedFiles = hostedClient,
+                ResolvedConfigs = new Dictionary<ProviderClientFamily, ProviderClientConfig>
+                {
+                    [ProviderClientFamily.HostedFiles] = new HostedFilesClientConfig
+                    {
+                        Scope = "project-7",
+                        Purpose = "vision",
+                        Limit = 25
+                    }
+                }
+            });
+
+        await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
+
+        var options = Assert.Single(hostedClient.Uploads).Options;
+        Assert.NotNull(options);
+        Assert.Equal("project-7", options.Scope);
+        Assert.Equal("vision", options.Purpose);
+        Assert.Equal(25, options.Limit);
+    }
+
+    [Fact]
     public async Task BeforeMessageTurnAsync_Auto_HostedFailureFallsBackToLocal()
     {
         var contentStore = new InMemoryContentStore();
         var hostedClient = new FakeHostedFileClient { ThrowOnUpload = true };
-        var middleware = new ContentUploadMiddleware(providerRegistry: null, contentStore);
+        var middleware = new ContentUploadMiddleware(contentStore);
         var session = new SessionModel("test-session");
         var bytes = new byte[] { 9, 8, 7 };
         var message = new ChatMessage(ChatRole.User, [new DataContent(bytes, "image/png")]);
@@ -173,7 +209,7 @@ public class ContentUploadMiddlewareTests
     public async Task BeforeMessageTurnAsync_StrategyHosted_NoHostedClient_EmitsFailureKeepsOriginal()
     {
         var contentStore = new InMemoryContentStore();
-        var middleware = new ContentUploadMiddleware(providerRegistry: null, contentStore);
+        var middleware = new ContentUploadMiddleware(contentStore);
         var session = new SessionModel("test-session");
         var data = new DataContent(new byte[] { 1, 2, 3 }, "image/png");
         var message = new ChatMessage(ChatRole.User, [data]);
@@ -191,7 +227,7 @@ public class ContentUploadMiddlewareTests
     public async Task BeforeMessageTurnAsync_MultipleDataContents_AllTransformed()
     {
         var contentStore = new InMemoryContentStore();
-        var middleware = new ContentUploadMiddleware(providerRegistry: null, contentStore);
+        var middleware = new ContentUploadMiddleware(contentStore);
         var session = new SessionModel("test-session");
         var message = new ChatMessage(ChatRole.User, [
             new TextContent("Compare:"),
@@ -402,7 +438,7 @@ public class ContentReferenceResolverMiddlewareTests
     public async Task RoundTrip_Upload_Then_Resolve()
     {
         var contentStore = new InMemoryContentStore();
-        var uploadMiddleware = new ContentUploadMiddleware(providerRegistry: null, contentStore);
+        var uploadMiddleware = new ContentUploadMiddleware(contentStore);
         var resolveMiddleware = new ContentReferenceResolverMiddleware(contentStore);
         var session = new SessionModel("test-session");
         var imageBytes = new byte[] { 0x89, 0x50, 0x4E, 0x47 };
@@ -427,7 +463,7 @@ public class ContentReferenceResolverMiddlewareTests
     public async Task RoundTrip_ContentReference_DoesNotResolveFromOtherThreadScope()
     {
         var contentStore = new InMemoryContentStore();
-        var uploadMiddleware = new ContentUploadMiddleware(providerRegistry: null, contentStore);
+        var uploadMiddleware = new ContentUploadMiddleware(contentStore);
         var resolveMiddleware = new ContentReferenceResolverMiddleware(contentStore);
         var session = new SessionModel("test-session");
         var imageBytes = new byte[] { 0x89, 0x50, 0x4E, 0x47 };

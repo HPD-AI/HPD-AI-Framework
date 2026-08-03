@@ -2055,7 +2055,7 @@ public class AgentBuilder
         // Routes DataContent to HostedFileClient (provider-native) or IContentStore based on
         // provider capabilities and RunConfig.UploadStrategy (Auto/Hosted/Local).
         // _contentStore is guaranteed to be non-null due to auto-initialization in Build().
-        _middlewares.Add(new Middleware.ContentUploadMiddleware(_providerRegistry, _contentStore));
+        _middlewares.Add(new Middleware.ContentUploadMiddleware(_contentStore));
 
         // Register ContentReferenceResolverMiddleware immediately after ContentUploadMiddleware.
         // Converts hpd-content:// URIs to provider-facing UriContent, HostedFileContent, or DataContent.

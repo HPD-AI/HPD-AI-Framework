@@ -14,12 +14,12 @@ namespace HPD.Agent.Middleware;
 /// <remarks>
 /// <para>
 /// This middleware is automatically registered in AgentBuilder. It checks at runtime
-/// if a content store or provider registry is available — zero cost when unused.
+/// if a content store or resolved hosted-file client is available — zero cost when unused.
 /// </para>
 /// <para><b>Behavior:</b></para>
 /// <list type="bullet">
 /// <item>Scans messages for DataContent with binary data</item>
-/// <item>Queries provider registry to detect HostedFileClient support</item>
+/// <item>Uses the run's resolved Hosted Files family client when available</item>
 /// <item>Routes based on UploadStrategy (Auto/Hosted/Local) and provider capability</item>
 /// <item>Uploads via HostedFileClient or IContentStore accordingly</item>
 /// <item>Emits corresponding upload events for observability</item>
@@ -32,23 +32,18 @@ namespace HPD.Agent.Middleware;
 /// </remarks>
 public class ContentUploadMiddleware : IAgentMiddleware
 {
-    private readonly IProviderRegistry? _providerRegistry;
     private readonly IContentStore? _contentStore;
 
     /// <summary>
-    /// Creates a ContentUploadMiddleware with optional provider registry and content store.
+    /// Creates a ContentUploadMiddleware with an optional content store.
     /// </summary>
-    /// <param name="providerRegistry">Optional provider registry for detecting HostedFileClient support</param>
     /// <param name="contentStore">Optional content store for local/framework-managed uploads</param>
     /// <remarks>
-    /// If both are null, middleware is a no-op (zero cost).
-    /// If only contentStore is provided, only local uploads are available.
-    /// If only providerRegistry is provided, only hosted uploads are available.
-    /// If both provided, middleware intelligently routes based on UploadStrategy.
+    /// Without a content store or a run-resolved hosted-file client, the middleware is a no-op.
+    /// When both are available, it routes according to <see cref="UploadStrategy"/>.
     /// </remarks>
-    public ContentUploadMiddleware(IProviderRegistry? providerRegistry = null, IContentStore? contentStore = null)
+    public ContentUploadMiddleware(IContentStore? contentStore = null)
     {
-        _providerRegistry = providerRegistry;
         _contentStore = contentStore;
     }
 
@@ -72,8 +67,7 @@ public class ContentUploadMiddleware : IAgentMiddleware
             return;
 
         // Zero-cost exit when no upload path is configured for this agent/run.
-        if (_providerRegistry == null
-            && _contentStore == null
+        if (_contentStore == null
             && context.RunConfig.Clients.HostedFiles?.Override?.Client == null
             && context.ClientSet?.HostedFiles == null)
         {
@@ -204,10 +198,10 @@ public class ContentUploadMiddleware : IAgentMiddleware
             using var stream = new MemoryStream(data.Data.ToArray());
             var fileName = data.Name ?? ExtractFileName(data) ?? $"upload_{Guid.NewGuid():N}";
 
-            var uploadOptions = new HostedFileClientOptions
-            {
-                Purpose = "assistants"  // Standard OpenAI purpose
-            };
+            var uploadOptions = HostedFileOperationOptionsCompiler.Compile(
+                context.RunConfig,
+                context.ClientSet,
+                omittedPurposeFallback: "assistants");
 
             var hostedContent = await hostedClient.UploadAsync(
                 stream,
@@ -282,31 +276,7 @@ public class ContentUploadMiddleware : IAgentMiddleware
         if (context.ClientSet?.HostedFiles is { } buildClient)
             return buildClient;
 
-        if (_providerRegistry == null)
-            return null;
-
-        // Try to get provider key from run config or agent config
-        var providerKey = context.RunConfig?.Clients.Chat?.ProviderKey
-            ?? context.Config?.Clients?.Chat?.ProviderKey;
-
-        if (string.IsNullOrWhiteSpace(providerKey))
-            return null;
-
-        try
-        {
-            var provider = _providerRegistry.GetProvider<IHostedFileClientProvider>(providerKey);
-            var config = context.ClientSet?.GetResolvedConfig(ProviderClientFamily.HostedFiles)
-                ?? context.Config?.Clients?.HostedFiles
-                ?? context.Config?.Clients?.Chat
-                ?? new ProviderClientConfig();
-
-            return provider.CreateHostedFileClient(config, context.Services);
-        }
-        catch
-        {
-            // Provider exists but doesn't implement IHostedFileClientProvider
-            return null;
-        }
+        return null;
     }
 
     private static string? ExtractFileName(AIContent content)

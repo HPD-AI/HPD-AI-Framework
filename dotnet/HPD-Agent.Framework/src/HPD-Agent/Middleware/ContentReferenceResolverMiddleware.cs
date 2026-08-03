@@ -179,7 +179,10 @@ public class ContentReferenceResolverMiddleware : IAgentMiddleware
                 result.Content,
                 info.ContentType,
                 info.Name,
-                new HostedFileClientOptions { Purpose = "assistants" },
+                HostedFileOperationOptionsCompiler.Compile(
+                    context.RunConfig,
+                    context.ClientSet,
+                    omittedPurposeFallback: "assistants"),
                 cancellationToken).ConfigureAwait(false);
 
             await context.PublishAsync(new ContentReferenceResolvedEvent(
