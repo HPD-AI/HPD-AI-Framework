@@ -342,10 +342,13 @@ WHERE event_id = $eventId
             _administrationExecutionSlots.Release(acquiredAdministrationSlots);
     }
 
-    private void TrackQuarantinedMutation(Task<bool> cleanup, object resourceOwner)
+    private void TrackQuarantinedMutation(
+        Task<bool> cleanup,
+        object resourceOwner,
+        string? requestIdentity)
     {
         var id = Interlocked.Increment(ref _nextQuarantinedMutationId);
-        _quarantinedMutations[id] = new QuarantinedMutation(cleanup, resourceOwner);
+        _quarantinedMutations[id] = new QuarantinedMutation(cleanup, resourceOwner, requestIdentity);
         _ = cleanup.ContinueWith(
             completed =>
             {
@@ -362,7 +365,10 @@ WHERE event_id = $eventId
             TaskScheduler.Default);
     }
 
-    private sealed record QuarantinedMutation(Task<bool> Cleanup, object ResourceOwner);
+    private sealed record QuarantinedMutation(
+        Task<bool> Cleanup,
+        object ResourceOwner,
+        string? RequestIdentity);
 
     /// <inheritdoc />
     public ValueTask<OperationResult<RecordPage>> ListAsync(CollectionDefinition collection, RecordQuery query, OperationContext context, CancellationToken cancellationToken = default) =>

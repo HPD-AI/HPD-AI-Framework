@@ -35,6 +35,11 @@ public sealed partial class SqliteRecordStore
         ArgumentNullException.ThrowIfNull(processor);
         ArgumentNullException.ThrowIfNull(request);
         ValidateExecutionRequest(request);
+        string? quarantinedRequestIdentity = QuarantineRequestIdentity(request.AtomicRequest?.Identity);
+        if (quarantinedRequestIdentity is not null
+            && _quarantinedMutations.Values.Any(value =>
+                string.Equals(value.RequestIdentity, quarantinedRequestIdentity, StringComparison.Ordinal)))
+            return Indeterminate();
 
         var acquisitionStarted = Stopwatch.GetTimestamp();
         using var acquisitionLifetime =
@@ -114,7 +119,13 @@ public sealed partial class SqliteRecordStore
             return FailedBeforeCommit(MapSchemaFailure<object>(ex).Error!);
         }
 
-        var resources = new TransactionResources(this, connection, transaction, executionSlot!, generationLease!);
+        var resources = new TransactionResources(
+            this,
+            connection,
+            transaction,
+            executionSlot!,
+            generationLease!,
+            quarantinedRequestIdentity);
         try
         {
             using var processingLifetime =
@@ -521,7 +532,8 @@ public sealed partial class SqliteRecordStore
         SqliteConnection connection,
         SqliteTransaction transaction,
         MutationExecutionSlot executionSlot,
-        IAsyncDisposable generationLease)
+        IAsyncDisposable generationLease,
+        string? requestIdentity)
     {
         private bool _transferred;
 
@@ -529,7 +541,7 @@ public sealed partial class SqliteRecordStore
         public void TransferTo(Task operation)
         {
             _transferred = true;
-            owner.TrackQuarantinedMutation(DisposeAfterCompletionAsync(operation), this);
+            owner.TrackQuarantinedMutation(DisposeAfterCompletionAsync(operation), this, requestIdentity);
         }
 
         /// <summary>Executes the dispose if owned async operation.</summary>
@@ -545,12 +557,12 @@ public sealed partial class SqliteRecordStore
                     .WaitAsync(completionTimeout)
                     .ConfigureAwait(false);
                 if (!disposed)
-                    owner.TrackQuarantinedMutation(cleanup, this);
+                    owner.TrackQuarantinedMutation(cleanup, this, requestIdentity);
             }
             catch
             {
                 if (!cleanup.IsCompleted)
-                    owner.TrackQuarantinedMutation(cleanup, this);
+                    owner.TrackQuarantinedMutation(cleanup, this, requestIdentity);
                 else
                     ObserveCompletion(cleanup);
             }
@@ -686,6 +698,15 @@ public sealed partial class SqliteRecordStore
             CancellationToken.None,
             TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
             TaskScheduler.Default);
+
+    private static string? QuarantineRequestIdentity(BaseMutationRequestIdentity? identity)
+    {
+        if (identity is null) return null;
+        byte[] bytes = System.Text.Encoding.UTF8.GetBytes(string.Join(
+            '\0', identity.Scope, identity.Operation, identity.IdempotencyKey));
+        try { return Convert.ToHexStringLower(SHA256.HashData(bytes)); }
+        finally { CryptographicOperations.ZeroMemory(bytes); }
+    }
 
     private sealed class SqliteAtomicRecordSession : IAtomicRecordSession
     {

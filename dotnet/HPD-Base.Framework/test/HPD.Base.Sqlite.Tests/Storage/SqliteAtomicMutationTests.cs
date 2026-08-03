@@ -604,6 +604,52 @@ public sealed class SqliteAtomicMutationTests
     }
 
     [Fact]
+    public async Task IdentifiedRetryRemainsIndeterminateUntilLateCommitResolvesToReceipt()
+    {
+        var transactions = new FaultingTransactionController { BlockCommit = true };
+        var options = new HPDBaseSqliteOptions
+        {
+            StoreId = $"atomic-{Guid.NewGuid():N}",
+            Collections = [Collection("items")],
+            MaxTrackedMutationExecutions = 1,
+        };
+        await using SqliteRecordStore store = SqliteTestFactory.Create(options, transactions: transactions);
+        CollectionDefinition collection = Collection("items");
+        BaseMutationRequestIdentity identity = BaseMutationRequestIdentity.Create(
+            "scope", "operation", "request",
+            BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("request"u8)));
+        RecordMutationExecutionRequest request = ExecutionRequest() with
+        {
+            CommitCompletionTimeout = TimeSpan.FromSeconds(1),
+            AtomicRequest = new BaseAtomicMutationExecutionRequest
+            {
+                Identity = identity,
+                StructuralDigest = System.Security.Cryptography.SHA256.HashData("structure"u8),
+                ExpiresAt = DateTimeOffset.UtcNow.AddDays(1),
+                MaxReceiptBytes = 4_096,
+            },
+        };
+        CallbackProcessor processor = CreateProcessor(collection, "identified", "evt-identified");
+
+        RecordMutationExecutionResult first = await store.ExecuteAtomicAsync(processor, request);
+        var retryTimer = System.Diagnostics.Stopwatch.StartNew();
+        RecordMutationExecutionResult unresolvedRetry = await store.ExecuteAtomicAsync(processor, request);
+        retryTimer.Stop();
+
+        first.Outcome.Should().Be(RecordMutationExecutionOutcome.Indeterminate);
+        unresolvedRetry.Outcome.Should().Be(RecordMutationExecutionOutcome.Indeterminate);
+        retryTimer.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(1));
+
+        transactions.ReleaseCommit();
+        await transactions.CommitExited.WaitAsync(TimeSpan.FromSeconds(3));
+        await WaitForAsync(() => store.QuarantinedMutationCount == 0);
+        RecordMutationExecutionResult resolvedRetry = await store.ExecuteAtomicAsync(processor, request);
+
+        resolvedRetry.Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
+        resolvedRetry.RequestDisposition.Should().Be(BaseMutationRequestDisposition.Duplicate);
+    }
+
+    [Fact]
     public async Task DescriptorAdvertisesOnlyProvenL30Guarantees()
     {
         await using var store = Store();
@@ -756,6 +802,14 @@ public sealed class SqliteAtomicMutationTests
             IAtomicRecordSession session,
             CancellationToken cancellationToken = default) =>
             callback(session, cancellationToken);
+
+        public ValueTask<AtomicMutationProcessingResult> ResolveReceiptAsync(
+            BaseRecordMutationFact[] committedMutations,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.FromResult(Ready(committedMutations));
+        }
     }
 
     private sealed class CountingTimeProvider : TimeProvider
