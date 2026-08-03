@@ -12,6 +12,14 @@ internal static class TestServices
     {
         var services = new ServiceCollection();
         services.AddLogging();
+        services.AddSingleton<IOptions<HPDBaseTokenProtectionOptions>>(Options.Create(new HPDBaseTokenProtectionOptions
+        {
+            ActiveKey = new BaseOpaqueTokenKey
+            {
+                Id = 11,
+                Key = Enumerable.Repeat((byte)0x6B, 32).ToArray(),
+            },
+        }));
         if (enableDependencies)
             services.AddHPDBaseDependencies(options =>
             {

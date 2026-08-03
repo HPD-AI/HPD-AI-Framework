@@ -7,7 +7,8 @@ public readonly record struct BaseMutationJournalPosition(long Value);
 /// <summary>Describes the currently retained provider-journal position range.</summary>
 public readonly record struct BaseMutationJournalBounds(
     BaseMutationJournalPosition Earliest,
-    BaseMutationJournalPosition HighWatermark);
+    BaseMutationJournalPosition HighWatermark,
+    long RestoreEpoch);
 
 /// <summary>Contains immutable facts for one transactionally committed record mutation.</summary>
 public sealed record BaseMutationJournalEntry

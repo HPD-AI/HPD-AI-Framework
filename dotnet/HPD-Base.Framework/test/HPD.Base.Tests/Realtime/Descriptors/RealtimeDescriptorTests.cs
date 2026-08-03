@@ -3,7 +3,7 @@ namespace HPD.Base.Tests.Realtime.Descriptors;
 public sealed class RealtimeDescriptorTests
 {
     [Fact]
-    public async Task DescriptorAdvertisesWebSocketEventFeedsWithoutReplayOrLiveQuery()
+    public async Task DescriptorAdvertisesProviderConditionalReplayWithoutLiveQuery()
     {
         await using var provider = await TestServices.CreateAsync();
         var snapshot = provider.GetRequiredService<IBaseDescriptorRegistry>().Current;
@@ -17,8 +17,8 @@ public sealed class RealtimeDescriptorTests
             .Single(item => item.FeatureId == BaseRealtimeFeatureIds.RecordChanges);
 
         feature.Constraints!.Realtime!.Subscribe.Should().BeTrue();
-        feature.Constraints.Realtime.Extensions!["replayable"].GetBoolean().Should().BeFalse();
-        feature.Constraints.Realtime.Extensions!["resumable"].GetBoolean().Should().BeFalse();
+        feature.Constraints.Realtime.Extensions!["replayable"].GetBoolean().Should().BeTrue();
+        feature.Constraints.Realtime.Extensions!["resumable"].GetBoolean().Should().BeTrue();
         feature.Constraints.Realtime.Extensions!["liveQuery"].GetBoolean().Should().BeFalse();
         feature.RouteRefs.Should().Contain(BaseRealtimeRouteIds.WebSocket);
 
@@ -52,8 +52,7 @@ public sealed class RealtimeDescriptorTests
     public async Task DescriptorAdvertisesConfiguredDurabilityAsProviderConditional()
     {
         await using var provider = await TestServices.CreateAsync(
-            configureRealtime: options =>
-                options.CursorProtectionKey = "test-only-cursor-signing-key-32-bytes-minimum");
+            configureRealtime: null);
         var snapshot = provider.GetRequiredService<IBaseDescriptorRegistry>().Current;
         var family = snapshot.Capabilities.Families
             .Single(item => item.FamilyId == "base.realtime");

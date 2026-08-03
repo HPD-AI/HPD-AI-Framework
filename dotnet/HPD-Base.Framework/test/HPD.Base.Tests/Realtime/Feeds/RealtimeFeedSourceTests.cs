@@ -92,7 +92,6 @@ public sealed class RealtimeFeedSourceTests
         await using var provider = await TestServices.CreateAsync(
             configureRealtime: options =>
             {
-                options.CursorProtectionKey = "l27-dependency-failure-cursor-key";
                 options.Limits = options.Limits with { DurablePollIntervalMilliseconds = 1 };
             },
             journalEntries: [TestServices.JournalEntry(1, "initial", "initial")],
@@ -133,7 +132,6 @@ public sealed class RealtimeFeedSourceTests
         await using var provider = await TestServices.CreateAsync(
             configureRealtime: options =>
             {
-                options.CursorProtectionKey = "l27-throwing-rule-durable-cursor-key";
                 options.Limits = options.Limits with { DurablePollIntervalMilliseconds = 1 };
             },
             journalEntries: [TestServices.JournalEntry(1, "initial", "initial")],
@@ -263,7 +261,6 @@ public sealed class RealtimeFeedSourceTests
         await using var provider = await TestServices.CreateAsync(
             configureRealtime: options =>
             {
-                options.CursorProtectionKey = "l27-durable-cursor-protection-key";
                 options.Limits = options.Limits with { DurablePollIntervalMilliseconds = 1 };
             },
             journalEntries: [journal],
@@ -617,7 +614,6 @@ public sealed class RealtimeFeedSourceTests
         await using var provider = await TestServices.CreateAsync(
             configureRealtime: options =>
             {
-                options.CursorProtectionKey = CursorKey;
                 options.Limits = options.Limits with { DurablePollIntervalMilliseconds = 1 };
             },
             journalEntries:
@@ -671,8 +667,7 @@ public sealed class RealtimeFeedSourceTests
     public async Task DurableCursorCannotMoveToAnotherScopeOrAcceptTampering()
     {
         await using var provider = await TestServices.CreateAsync(
-            configureRealtime: options => options.CursorProtectionKey = CursorKey,
-            journalEntries: [TestServices.JournalEntry(1, "one", "first")]);
+                        journalEntries: [TestServices.JournalEntry(1, "one", "first")]);
         var feed = provider.GetRequiredService<IBaseRealtimeFeedSource>();
         var join = new BaseRealtimeChannelJoinRequest
         {
@@ -719,6 +714,40 @@ public sealed class RealtimeFeedSourceTests
     }
 
     [Fact]
+    public async Task DurableCursorIssuedBeforeRestoreReturnsDistinctInvalidation()
+    {
+        await using var provider = await TestServices.CreateAsync(
+            journalEntries: [TestServices.JournalEntry(1, "one", "first")]);
+        var feed = provider.GetRequiredService<IBaseRealtimeFeedSource>();
+        var join = new BaseRealtimeChannelJoinRequest
+        {
+            Kind = BaseRealtimeChannelKinds.RecordChanges,
+            CollectionId = "items",
+            Durable = true
+        };
+        var request = new BaseRealtimeFeedRequest
+        {
+            Channel = "durable-items",
+            Principal = TestServices.Principal(),
+            Operation = TestServices.Operation(),
+            Join = join
+        };
+        var opened = await feed.OpenAsync(request);
+        var journal = (TestMutationJournalStore)provider
+            .GetRequiredService<IRecordStoreRegistry>()
+            .GetStoreForCollection("items")!;
+        journal.RestoreEpoch++;
+
+        var resumed = await feed.OpenAsync(request with
+        {
+            Join = join with { ResumeCursor = opened.Value!.Descriptor.Cursor }
+        });
+
+        resumed.Succeeded.Should().BeFalse();
+        resumed.Error!.Code.Should().Be(BaseRealtimeErrorCodes.CursorRestoreInvalidated);
+    }
+
+    [Fact]
     public async Task DurableCursorOlderThanRetainedJournalReturnsExpiredError()
     {
         var join = new BaseRealtimeChannelJoinRequest
@@ -728,15 +757,13 @@ public sealed class RealtimeFeedSourceTests
             Durable = true
         };
         await using var originalProvider = await TestServices.CreateAsync(
-            configureRealtime: options => options.CursorProtectionKey = CursorKey,
-            journalEntries: [TestServices.JournalEntry(1, "one", "first")]);
+                        journalEntries: [TestServices.JournalEntry(1, "one", "first")]);
         var original = await originalProvider.GetRequiredService<IBaseRealtimeFeedSource>()
             .OpenAsync(Request(join));
         var cursor = original.Value!.Descriptor.Cursor!;
 
         await using var retainedProvider = await TestServices.CreateAsync(
-            configureRealtime: options => options.CursorProtectionKey = CursorKey,
-            journalEntries: [TestServices.JournalEntry(3, "three", "third")]);
+                        journalEntries: [TestServices.JournalEntry(3, "three", "third")]);
         var resumed = await retainedProvider.GetRequiredService<IBaseRealtimeFeedSource>()
             .OpenAsync(Request(join with { ResumeCursor = cursor }));
 
@@ -750,7 +777,6 @@ public sealed class RealtimeFeedSourceTests
         await using var provider = await TestServices.CreateAsync(
             configureRealtime: options =>
             {
-                options.CursorProtectionKey = CursorKey;
                 options.Limits = options.Limits with { DurablePollIntervalMilliseconds = 1 };
             },
             journalEntries: []);
@@ -783,14 +809,7 @@ public sealed class RealtimeFeedSourceTests
             CollectionId = "items",
             Durable = true
         };
-        await using var noKeyProvider = await TestServices.CreateAsync(
-            journalEntries: [TestServices.JournalEntry(1, "one", "first")]);
-        var noKey = await noKeyProvider.GetRequiredService<IBaseRealtimeFeedSource>()
-            .OpenAsync(Request(join));
-        noKey.Error!.Code.Should().Be(BaseRealtimeErrorCodes.CapabilityUnavailable);
-
-        await using var noJournalProvider = await TestServices.CreateAsync(
-            configureRealtime: options => options.CursorProtectionKey = CursorKey);
+        await using var noJournalProvider = await TestServices.CreateAsync();
         var noJournal = await noJournalProvider.GetRequiredService<IBaseRealtimeFeedSource>()
             .OpenAsync(Request(join));
         noJournal.Error!.Code.Should().Be(BaseRealtimeErrorCodes.CapabilityUnavailable);
@@ -806,7 +825,6 @@ public sealed class RealtimeFeedSourceTests
         await using var provider = await TestServices.CreateAsync(
             configureRealtime: options =>
             {
-                options.CursorProtectionKey = CursorKey;
                 options.Limits = options.Limits with { DurablePollIntervalMilliseconds = 1 };
             },
             journalEntries: [TestServices.JournalEntry(1, "initial", "initial", "tenant-a")]);
@@ -856,7 +874,6 @@ public sealed class RealtimeFeedSourceTests
         await using var provider = await TestServices.CreateAsync(
             configureRealtime: options =>
             {
-                options.CursorProtectionKey = CursorKey;
                 options.Limits = options.Limits with { DurablePollIntervalMilliseconds = 1 };
             },
             journalEntries: [TestServices.JournalEntry(1, "initial", "initial")]);

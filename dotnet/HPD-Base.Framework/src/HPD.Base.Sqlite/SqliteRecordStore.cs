@@ -520,7 +520,8 @@ SELECT
   COALESCE(
     MAX(position),
     (SELECT seq FROM sqlite_sequence WHERE name = $journal),
-    0)
+    0),
+  COALESCE((SELECT CAST(value AS INTEGER) FROM {_names.ProviderState} WHERE key = 'restore_epoch'), 0)
 FROM {_names.MutationJournal};
 """;
         command.CommandTimeout = TimeoutSeconds();
@@ -529,12 +530,14 @@ FROM {_names.MutationJournal};
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         await reader.ReadAsync(cancellationToken).ConfigureAwait(false);
         var highWatermark = reader.GetInt64(1);
+        var restoreEpoch = reader.GetInt64(2);
         var earliest = reader.IsDBNull(0)
             ? highWatermark == 0 ? 0 : checked(highWatermark + 1)
             : reader.GetInt64(0);
         return new BaseMutationJournalBounds(
             new BaseMutationJournalPosition(earliest),
-            new BaseMutationJournalPosition(highWatermark));
+            new BaseMutationJournalPosition(highWatermark),
+            restoreEpoch);
     }
 
     private string MutationJournalCutoff() =>

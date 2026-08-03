@@ -27,14 +27,6 @@ internal static class BaseRealtimeOptionsValidator
         Positive(limits.CursorLifetimeSeconds, nameof(limits.CursorLifetimeSeconds));
         Positive(limits.DurablePollIntervalMilliseconds, nameof(limits.DurablePollIntervalMilliseconds));
 
-        if (options.CursorProtectionKey is not null
-            && System.Text.Encoding.UTF8.GetByteCount(options.CursorProtectionKey) < 32)
-        {
-            throw new ArgumentException(
-                "Realtime cursor protection key must contain at least 32 UTF-8 bytes.",
-                nameof(options));
-        }
-
         if (options.Backpressure is not (
             AsyncStreamBackpressureMode.DropOldest
             or AsyncStreamBackpressureMode.DropNewest

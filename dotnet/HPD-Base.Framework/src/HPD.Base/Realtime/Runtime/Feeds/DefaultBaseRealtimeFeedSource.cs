@@ -183,6 +183,7 @@ internal sealed class DefaultBaseRealtimeFeedSource : IBaseRealtimeFeedSource
         {
             var cursor = _cursors.Unprotect(
                 request.Join.ResumeCursor,
+                bounds.RestoreEpoch,
                 resolved.Value.Capabilities.StoreId,
                 cursorScope);
             if (cursor.Status != BaseRealtimeCursorStatus.Valid)
@@ -217,6 +218,7 @@ internal sealed class DefaultBaseRealtimeFeedSource : IBaseRealtimeFeedSource
                     StreamId = RecordChangesStreamId,
                     Cursor = _cursors.Protect(
                         position,
+                        bounds.RestoreEpoch,
                         resolved.Value.Capabilities.StoreId,
                         cursorScope),
                     Replayable = true,
@@ -230,6 +232,7 @@ internal sealed class DefaultBaseRealtimeFeedSource : IBaseRealtimeFeedSource
                     resolved.Value.Capabilities.StoreId,
                     cursorScope,
                     position,
+                    bounds.RestoreEpoch,
                     cancellationToken)
             });
     }
@@ -240,6 +243,7 @@ internal sealed class DefaultBaseRealtimeFeedSource : IBaseRealtimeFeedSource
         string storeId,
         BaseRealtimeChannelJoinRequest cursorScope,
         BaseMutationJournalPosition startingPosition,
+        long restoreEpoch,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         _stats.RecordChannelOpened();
@@ -318,7 +322,7 @@ internal sealed class DefaultBaseRealtimeFeedSource : IBaseRealtimeFeedSource
                     _stats.RecordDurableEventProjected();
                     yield return projected with
                     {
-                        Cursor = _cursors.Protect(position, storeId, cursorScope)
+                        Cursor = _cursors.Protect(position, restoreEpoch, storeId, cursorScope)
                     };
                 }
 
@@ -377,6 +381,11 @@ internal sealed class DefaultBaseRealtimeFeedSource : IBaseRealtimeFeedSource
             BaseRealtimeErrorCodes.CursorVersionUnsupported,
             "The resume cursor version is not supported.",
             AsyncStreamErrorCategory.Unsupported),
+        BaseRealtimeCursorStatus.RestoreInvalidated => Failure(
+            AsyncStreamOpenStatus.ValidationFailed,
+            BaseRealtimeErrorCodes.CursorRestoreInvalidated,
+            "The resume cursor was invalidated by a provider restore.",
+            AsyncStreamErrorCategory.Validation),
         _ => Failure(
             AsyncStreamOpenStatus.ValidationFailed,
             BaseRealtimeErrorCodes.CursorInvalid,

@@ -15,6 +15,8 @@ internal sealed class TestMutationJournalStore : ITransactionalMutationJournalSt
 
     public StoreCapabilityDescriptor Capabilities => _inner.Capabilities;
 
+    public long RestoreEpoch { get; set; }
+
     public void Add(BaseMutationJournalEntry entry)
     {
         lock (_entries)
@@ -31,7 +33,8 @@ internal sealed class TestMutationJournalStore : ITransactionalMutationJournalSt
         {
             return ValueTask.FromResult(new BaseMutationJournalBounds(
                 new BaseMutationJournalPosition(_entries.Count == 0 ? 0 : _entries[0].Position.Value),
-                new BaseMutationJournalPosition(_entries.Count == 0 ? 0 : _entries[^1].Position.Value)));
+                new BaseMutationJournalPosition(_entries.Count == 0 ? 0 : _entries[^1].Position.Value),
+                RestoreEpoch));
         }
     }
 

@@ -186,8 +186,7 @@ internal sealed class BaseRealtimeDescriptorContributor : IBaseDescriptorContrib
     private static JsonElement JsonTrue() => JsonDocument.Parse("true").RootElement.Clone();
     private static JsonElement JsonBoolean(bool value) => value ? JsonTrue() : JsonFalse();
 
-    private bool DurableConfigured =>
-        _options.Enabled && !string.IsNullOrWhiteSpace(_options.CursorProtectionKey);
+    private bool DurableConfigured => _options.Enabled;
 
     private bool FeatureAvailable(string featureId) =>
         _options.Enabled

@@ -8,7 +8,6 @@ namespace HPD.Base.Tests.Realtime.Durability;
 
 public sealed class RealtimeCursorProtectorTests
 {
-    private const string ProtectionKey = "test-only-cursor-protection-key-32-bytes-minimum";
     private static readonly DateTimeOffset Now = new(2026, 7, 28, 12, 0, 0, TimeSpan.Zero);
 
     [Fact]
@@ -17,16 +16,18 @@ public sealed class RealtimeCursorProtectorTests
         var time = new ManualTimeProvider(Now);
         var protector = Create(time);
         var join = Join();
-        var cursor = protector.Protect(new BaseMutationJournalPosition(42), "private-store-marker", join);
+        var cursor = protector.Protect(new BaseMutationJournalPosition(42), 7, "private-store-marker", join);
 
-        var valid = protector.Unprotect(cursor, "private-store-marker", join);
-        var wrongStore = protector.Unprotect(cursor, "other-store", join);
-        var wrongTenant = protector.Unprotect(cursor, "private-store-marker", join with { TenantId = "tenant-b" });
+        var valid = protector.Unprotect(cursor, 7, "private-store-marker", join);
+        var wrongStore = protector.Unprotect(cursor, 7, "other-store", join);
+        var wrongTenant = protector.Unprotect(cursor, 7, "private-store-marker", join with { TenantId = "tenant-b" });
+        var restored = protector.Unprotect(cursor, 8, "private-store-marker", join);
 
         valid.Status.Should().Be(BaseRealtimeCursorStatus.Valid);
         valid.Position.Value.Should().Be(42);
         wrongStore.Status.Should().Be(BaseRealtimeCursorStatus.ScopeMismatch);
         wrongTenant.Status.Should().Be(BaseRealtimeCursorStatus.ScopeMismatch);
+        restored.Status.Should().Be(BaseRealtimeCursorStatus.RestoreInvalidated);
         cursor.Should().NotContain("private-store-marker");
         cursor.Should().NotContain("tenant-a");
         cursor.Should().NotContain("items");
@@ -38,6 +39,7 @@ public sealed class RealtimeCursorProtectorTests
         var protector = Create(new ManualTimeProvider(Now));
         var cursor = protector.Protect(
             new BaseMutationJournalPosition(0x0102030405060708),
+            7,
             "private-store-marker",
             Join());
         var token = Decode(cursor);
@@ -52,6 +54,7 @@ public sealed class RealtimeCursorProtectorTests
         ContainsSequence(token, storeHash).Should().BeFalse();
         protector.Protect(
                 new BaseMutationJournalPosition(0x0102030405060708),
+                7,
                 "private-store-marker",
                 Join())
             .Should().NotBe(cursor);
@@ -63,17 +66,17 @@ public sealed class RealtimeCursorProtectorTests
         var time = new ManualTimeProvider(Now);
         var protector = Create(time, lifetimeSeconds: 5);
         var join = Join();
-        var cursor = protector.Protect(new BaseMutationJournalPosition(7), "store", join);
+        var cursor = protector.Protect(new BaseMutationJournalPosition(7), 0, "store", join);
 
-        protector.Unprotect("not_base64!", "store", join).Status
+        protector.Unprotect("not_base64!", 0, "store", join).Status
             .Should().Be(BaseRealtimeCursorStatus.Invalid);
 
         time.Advance(TimeSpan.FromSeconds(6));
-        protector.Unprotect(cursor, "store", join).Status
+        protector.Unprotect(cursor, 0, "store", join).Status
             .Should().Be(BaseRealtimeCursorStatus.Expired);
 
-        var unsupported = WithVersion(cursor, 2);
-        protector.Unprotect(unsupported, "store", join).Status
+        var unsupported = WithVersion(cursor, 3);
+        protector.Unprotect(unsupported, 0, "store", join).Status
             .Should().Be(BaseRealtimeCursorStatus.VersionUnsupported);
     }
 
@@ -81,9 +84,12 @@ public sealed class RealtimeCursorProtectorTests
         TimeProvider timeProvider,
         int lifetimeSeconds = 60) =>
         new(
+            new BaseOpaqueTokenProtector(Options.Create(new HPDBaseTokenProtectionOptions
+            {
+                ActiveKey = new BaseOpaqueTokenKey { Id = 3, Key = Enumerable.Repeat((byte)0x55, 32).ToArray() },
+            })),
             Options.Create(new BaseRealtimeOptions
             {
-                CursorProtectionKey = ProtectionKey,
                 Limits = new BaseRealtimeLimits
                 {
                     CursorLifetimeSeconds = lifetimeSeconds
@@ -103,7 +109,7 @@ public sealed class RealtimeCursorProtectorTests
     private static string WithVersion(string cursor, byte version)
     {
         var token = Decode(cursor);
-        token[0] = version;
+        token[1] = version;
         return Encode(token);
     }
 

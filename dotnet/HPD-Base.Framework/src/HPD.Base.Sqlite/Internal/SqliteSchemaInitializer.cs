@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS {_names.ProviderState} (
   key TEXT NOT NULL PRIMARY KEY,
   value TEXT NOT NULL
 );
+INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('restore_epoch', '0');
 CREATE TABLE IF NOT EXISTS {_names.SchemaIdentity} (
   singleton INTEGER NOT NULL PRIMARY KEY CHECK (singleton = 1),
   store_instance_id TEXT NOT NULL
@@ -156,6 +157,7 @@ CREATE TABLE IF NOT EXISTS {_names.ProviderState} (
   key TEXT NOT NULL PRIMARY KEY,
   value TEXT NOT NULL
 );
+INSERT OR IGNORE INTO {_names.ProviderState}(key, value) VALUES ('restore_epoch', '0');
 """, cancellationToken).ConfigureAwait(false);
 
         await ExecuteAsync(connection, $"""

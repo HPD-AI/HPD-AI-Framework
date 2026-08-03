@@ -5,196 +5,70 @@ using Microsoft.Extensions.Options;
 
 namespace HPD.Base;
 
-internal enum BaseRealtimeCursorStatus
+internal enum BaseRealtimeCursorStatus { Valid, Invalid, ScopeMismatch, Expired, VersionUnsupported, RestoreInvalidated }
+internal readonly record struct BaseRealtimeCursorReadResult(BaseRealtimeCursorStatus Status, BaseMutationJournalPosition Position);
+
+internal sealed class BaseRealtimeCursorProtector(
+    BaseOpaqueTokenProtector tokens,
+    IOptions<BaseRealtimeOptions> options,
+    TimeProvider timeProvider)
 {
-Valid,
-Invalid,
-ScopeMismatch,
-Expired,
-VersionUnsupported
-}
+    private const byte Version = 2;
+    private const string Purpose = "hpd.base.realtime.cursor";
+    private const int PlaintextLength = 56;
+    private readonly TimeSpan _lifetime = TimeSpan.FromSeconds(options.Value.Limits.CursorLifetimeSeconds);
 
-internal readonly record struct BaseRealtimeCursorReadResult(
-    BaseRealtimeCursorStatus Status,
-    BaseMutationJournalPosition Position);
+    public bool Enabled => true;
 
-internal sealed class BaseRealtimeCursorProtector
-{
-    private const byte Version = 1;
-    private const int PlaintextLength = 80;
-    private const int NonceLength = 12;
-    private const int TagLength = 16;
-    private const int TokenLength = 1 + NonceLength + PlaintextLength + TagLength;
-    private readonly byte[]? _key;
-    private readonly TimeProvider _timeProvider;
-    private readonly TimeSpan _lifetime;
-
-    /// <summary>Initializes a new instance.</summary>
-    public BaseRealtimeCursorProtector(
-        IOptions<BaseRealtimeOptions> options,
-        TimeProvider timeProvider)
+    public string Protect(BaseMutationJournalPosition position, long restoreEpoch, string storeId, BaseRealtimeChannelJoinRequest join)
     {
-        ArgumentNullException.ThrowIfNull(options);
-        ArgumentNullException.ThrowIfNull(timeProvider);
-        _key = options.Value.CursorProtectionKey is null
-            ? null
-            : SHA256.HashData(Encoding.UTF8.GetBytes(
-                "HPD.BASE realtime cursor encryption v1\0" + options.Value.CursorProtectionKey));
-        _timeProvider = timeProvider;
-        _lifetime = TimeSpan.FromSeconds(options.Value.Limits.CursorLifetimeSeconds);
-    }
-
-    /// <summary>Gets the enabled.</summary>
-    public bool Enabled => _key is not null;
-
-    /// <summary>Executes the protect operation.</summary>
-    public string Protect(
-        BaseMutationJournalPosition position,
-        string storeId,
-        BaseRealtimeChannelJoinRequest join)
-    {
-        if (_key is null)
-            throw new InvalidOperationException("Durable realtime cursors are not configured.");
-        if (position.Value < 0)
-            throw new ArgumentOutOfRangeException(nameof(position));
-
+        if (position.Value < 0) throw new ArgumentOutOfRangeException(nameof(position));
+        if (restoreEpoch < 0) throw new ArgumentOutOfRangeException(nameof(restoreEpoch));
         Span<byte> plaintext = stackalloc byte[PlaintextLength];
         BinaryPrimitives.WriteInt64BigEndian(plaintext[..8], position.Value);
-        BinaryPrimitives.WriteInt64BigEndian(
-            plaintext[8..16],
-            _timeProvider.GetUtcNow().ToUnixTimeSeconds());
-        SHA256.HashData(Encoding.UTF8.GetBytes(storeId), plaintext[16..48]);
-        ScopeHash(join, plaintext[48..80]);
-
-        Span<byte> token = stackalloc byte[TokenLength];
-        token[0] = Version;
-        var nonce = token.Slice(1, NonceLength);
-        RandomNumberGenerator.Fill(nonce);
-        var ciphertext = token.Slice(1 + NonceLength, PlaintextLength);
-        var tag = token.Slice(1 + NonceLength + PlaintextLength, TagLength);
-        using var aes = new AesGcm(_key, TagLength);
-        aes.Encrypt(nonce, plaintext, ciphertext, tag, token[..1]);
-        CryptographicOperations.ZeroMemory(plaintext);
-        return Base64UrlEncode(token);
+        BinaryPrimitives.WriteInt64BigEndian(plaintext[8..], timeProvider.GetUtcNow().ToUnixTimeSeconds());
+        BinaryPrimitives.WriteInt64BigEndian(plaintext[16..], restoreEpoch);
+        Span<byte> scope = stackalloc byte[32];
+        ScopeHash(storeId, join, scope);
+        scope.CopyTo(plaintext[24..]);
+        Span<byte> binding = stackalloc byte[32];
+        return tokens.Protect(Purpose, Version, plaintext, binding);
     }
 
-    /// <summary>Executes the unprotect operation.</summary>
-    public BaseRealtimeCursorReadResult Unprotect(
-        string cursor,
-        string storeId,
-        BaseRealtimeChannelJoinRequest join)
+    public BaseRealtimeCursorReadResult Unprotect(string cursor, long restoreEpoch, string storeId, BaseRealtimeChannelJoinRequest join)
     {
-        if (_key is null || string.IsNullOrWhiteSpace(cursor))
-            return new BaseRealtimeCursorReadResult(BaseRealtimeCursorStatus.Invalid, default);
-
-        byte[] token;
+        Span<byte> scope = stackalloc byte[32];
+        ScopeHash(storeId, join, scope);
+        Span<byte> binding = stackalloc byte[32];
+        BaseOpaqueTokenResult result = tokens.Unprotect(Purpose, Version, cursor, PlaintextLength, binding);
+        if (result.Status == BaseOpaqueTokenStatus.VersionUnsupported) return new(BaseRealtimeCursorStatus.VersionUnsupported, default);
+        if (result.Status != BaseOpaqueTokenStatus.Valid || result.Plaintext is null) return new(BaseRealtimeCursorStatus.Invalid, default);
+        byte[] plaintext = result.Plaintext;
         try
         {
-            token = Base64UrlDecode(cursor);
+            long position = BinaryPrimitives.ReadInt64BigEndian(plaintext.AsSpan(0, 8));
+            if (!CryptographicOperations.FixedTimeEquals(plaintext.AsSpan(24, 32), scope))
+                return new(BaseRealtimeCursorStatus.ScopeMismatch, default);
+            long tokenRestoreEpoch = BinaryPrimitives.ReadInt64BigEndian(plaintext.AsSpan(16, 8));
+            if (tokenRestoreEpoch != restoreEpoch)
+                return new(BaseRealtimeCursorStatus.RestoreInvalidated, default);
+            DateTimeOffset issuedAt = DateTimeOffset.FromUnixTimeSeconds(BinaryPrimitives.ReadInt64BigEndian(plaintext.AsSpan(8, 8)));
+            TimeSpan age = timeProvider.GetUtcNow() - issuedAt;
+            if (position < 0 || age < TimeSpan.Zero) return new(BaseRealtimeCursorStatus.Invalid, default);
+            if (age > _lifetime) return new(BaseRealtimeCursorStatus.Expired, default);
+            return new(BaseRealtimeCursorStatus.Valid, new BaseMutationJournalPosition(position));
         }
-        catch (FormatException)
-        {
-            return new BaseRealtimeCursorReadResult(BaseRealtimeCursorStatus.Invalid, default);
-        }
-
-        if (token.Length != TokenLength)
-            return new BaseRealtimeCursorReadResult(BaseRealtimeCursorStatus.Invalid, default);
-
-        if (token[0] != Version)
-            return new BaseRealtimeCursorReadResult(BaseRealtimeCursorStatus.VersionUnsupported, default);
-
-        Span<byte> plaintext = stackalloc byte[PlaintextLength];
-        try
-        {
-            using var aes = new AesGcm(_key, TagLength);
-            aes.Decrypt(
-                token.AsSpan(1, NonceLength),
-                token.AsSpan(1 + NonceLength, PlaintextLength),
-                token.AsSpan(1 + NonceLength + PlaintextLength, TagLength),
-                plaintext,
-                token.AsSpan(0, 1));
-        }
-        catch (CryptographicException)
-        {
-            CryptographicOperations.ZeroMemory(plaintext);
-            return new BaseRealtimeCursorReadResult(BaseRealtimeCursorStatus.Invalid, default);
-        }
-
-        Span<byte> expectedStore = stackalloc byte[32];
-        SHA256.HashData(Encoding.UTF8.GetBytes(storeId), expectedStore);
-        Span<byte> expectedScope = stackalloc byte[32];
-        ScopeHash(join, expectedScope);
-        if (!CryptographicOperations.FixedTimeEquals(plaintext[16..48], expectedStore)
-            || !CryptographicOperations.FixedTimeEquals(plaintext[48..80], expectedScope))
-        {
-            CryptographicOperations.ZeroMemory(plaintext);
-            return new BaseRealtimeCursorReadResult(BaseRealtimeCursorStatus.ScopeMismatch, default);
-        }
-
-        var issuedAt = DateTimeOffset.FromUnixTimeSeconds(BinaryPrimitives.ReadInt64BigEndian(plaintext[8..16]));
-        var age = _timeProvider.GetUtcNow() - issuedAt;
-        if (age < TimeSpan.Zero)
-        {
-            CryptographicOperations.ZeroMemory(plaintext);
-            return new BaseRealtimeCursorReadResult(BaseRealtimeCursorStatus.Invalid, default);
-        }
-        if (age > _lifetime)
-        {
-            CryptographicOperations.ZeroMemory(plaintext);
-            return new BaseRealtimeCursorReadResult(BaseRealtimeCursorStatus.Expired, default);
-        }
-
-        var position = BinaryPrimitives.ReadInt64BigEndian(plaintext[..8]);
-        CryptographicOperations.ZeroMemory(plaintext);
-        return position < 0
-            ? new BaseRealtimeCursorReadResult(BaseRealtimeCursorStatus.Invalid, default)
-            : new BaseRealtimeCursorReadResult(
-                BaseRealtimeCursorStatus.Valid,
-                new BaseMutationJournalPosition(position));
+        finally { CryptographicOperations.ZeroMemory(plaintext); }
     }
 
-    private static void ScopeHash(BaseRealtimeChannelJoinRequest join, Span<byte> destination)
+    private static void ScopeHash(string storeId, BaseRealtimeChannelJoinRequest join, Span<byte> destination)
     {
-        var builder = new StringBuilder();
-        Append(builder, join.Kind);
-        Append(builder, join.Private ? "1" : "0");
-        Append(builder, join.CollectionId);
-        Append(builder, join.RecordId);
-        Append(builder, join.TenantId);
-        Append(builder, join.IncludeSnapshots ? "1" : "0");
-        Append(builder, join.IncludeBefore ? "1" : "0");
-        foreach (var operation in (join.Operations ?? []).Order())
-            Append(builder, ((int)operation).ToString(System.Globalization.CultureInfo.InvariantCulture));
-        foreach (var eventType in (join.EventTypes ?? []).Order(StringComparer.Ordinal))
-            Append(builder, eventType);
+        var builder = new StringBuilder(storeId);
+        Append(builder, join.Kind); Append(builder, join.Private ? "1" : "0"); Append(builder, join.CollectionId);
+        Append(builder, join.RecordId); Append(builder, join.TenantId); Append(builder, join.IncludeSnapshots ? "1" : "0"); Append(builder, join.IncludeBefore ? "1" : "0");
+        foreach (BaseOperationKind operation in (join.Operations ?? []).Order()) Append(builder, ((int)operation).ToString(System.Globalization.CultureInfo.InvariantCulture));
+        foreach (string eventType in (join.EventTypes ?? []).Order(StringComparer.Ordinal)) Append(builder, eventType);
         SHA256.HashData(Encoding.UTF8.GetBytes(builder.ToString()), destination);
     }
-
-    private static void Append(StringBuilder builder, string? value)
-    {
-        value ??= string.Empty;
-        builder.Append(value.Length)
-            .Append(':')
-            .Append(value)
-            .Append(';');
-    }
-
-    private static string Base64UrlEncode(ReadOnlySpan<byte> value) =>
-        Convert.ToBase64String(value)
-            .TrimEnd('=')
-            .Replace('+', '-')
-            .Replace('/', '_');
-
-    private static byte[] Base64UrlDecode(string value)
-    {
-        var padded = value.Replace('-', '+').Replace('_', '/');
-        padded += (padded.Length % 4) switch
-        {
-            0 => string.Empty,
-            2 => "==",
-            3 => "=",
-            _ => throw new FormatException("Invalid Base64Url length.")
-        };
-        return Convert.FromBase64String(padded);
-    }
+    private static void Append(StringBuilder builder, string? value) { value ??= string.Empty; builder.Append(value.Length).Append(':').Append(value).Append(';'); }
 }

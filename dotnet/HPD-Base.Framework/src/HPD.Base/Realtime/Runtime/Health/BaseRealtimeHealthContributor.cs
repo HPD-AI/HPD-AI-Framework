@@ -92,9 +92,7 @@ internal sealed class BaseRealtimeHealthContributor : IBaseHealthContributor, IB
         [
             Diagnostic(
                 BaseRealtimeDescriptorContributor.DiagnosticIds.Options,
-                _options.CursorProtectionKey is null
-                    ? "Realtime options are registered; durable replay/resume is not configured."
-                    : "Realtime options are registered; durable replay/resume requires a transactional journal store per collection.",
+                "Realtime options are registered; durable replay/resume requires a transactional journal store per collection.",
                 now),
             Diagnostic(BaseRealtimeDescriptorContributor.DiagnosticIds.StreamOpenFailures, $"HPD.Events stream open failures: {_stats.StreamOpenFailures}.", now),
             Diagnostic("hpd.base.realtime.hpdEventsCoordinatorStats", $"HPD.Events stats: subscribers={eventStats.SubscriberCount}, inboxes={eventStats.InboxCount}, queued={eventStats.TotalQueued}, dropped={eventStats.TotalDropped}, maxDepth={eventStats.MaxSubscriberDepth}.", now),

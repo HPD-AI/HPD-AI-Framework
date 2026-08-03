@@ -130,6 +130,8 @@ public static class BaseRealtimeErrorCodes
     public const string CursorExpired = "base.realtime.cursor.expired";
     /// <summary>Provides the cursor version unsupported value.</summary>
     public const string CursorVersionUnsupported = "base.realtime.cursor.versionUnsupported";
+    /// <summary>Identifies a cursor issued before the active provider state was restored.</summary>
+    public const string CursorRestoreInvalidated = "base.realtime.cursor.restoreInvalidated";
     /// <summary>Provides the durable collection required value.</summary>
     public const string DurableCollectionRequired = "base.realtime.durable.collectionRequired";
 }

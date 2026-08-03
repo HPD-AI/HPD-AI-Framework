@@ -151,9 +151,12 @@ public sealed class BaseSessionModuleTests
                 builder => builder
                     .UseSqlite(options => options.DataSource = database)
                     .AddCollection(GeneratedProject.Collection)
-                    .AddRealtime(options =>
-                        options.CursorProtectionKey =
-                            "application-realtime-cursor-protection-key"));
+                    .ConfigureTokenProtection(options => options.ActiveKey = new BaseOpaqueTokenKey
+                    {
+                        Id = 7,
+                        Key = Enumerable.Repeat((byte)0x47, 32).ToArray(),
+                    })
+                    .AddRealtime());
             var session = host.Session(
                 BaseTestPrincipal.User("realtime-user", "tenant-a"));
 
@@ -182,11 +185,8 @@ public sealed class BaseSessionModuleTests
     {
         await using BaseTestHost host = await BaseTestHost.CreateAsync(
             builder => builder
-
                 .AddCollection(GeneratedProject.Collection)
-                .AddRealtime(options =>
-                    options.CursorProtectionKey =
-                        "application-realtime-cursor-protection-key"));
+                .AddRealtime());
         var session = host.Session(
             BaseTestPrincipal.User("realtime-user", "tenant-a"));
 

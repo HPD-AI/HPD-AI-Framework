@@ -50,6 +50,7 @@ public sealed class HPDBaseBuilder
     private Action<HPDBaseRelationalOptions>? _relational;
     /// <summary>Provides _schema.</summary>
     private Action<HPDBaseSchemaOptions>? _schema;
+    private Action<HPDBaseTokenProtectionOptions>? _tokenProtection;
     /// <summary>Provides _built.</summary>
     private bool _built;
     internal HPDBaseBuilder(IServiceCollection services) => _services = services;
@@ -74,6 +75,14 @@ public sealed class HPDBaseBuilder
     {
         ArgumentNullException.ThrowIfNull(configure);
         _schema += configure;
+        return this;
+    }
+
+    /// <summary>Configures the shared key ring for durable purpose-bound BASE tokens and artifacts.</summary>
+    public HPDBaseBuilder ConfigureTokenProtection(Action<HPDBaseTokenProtectionOptions> configure)
+    {
+        ArgumentNullException.ThrowIfNull(configure);
+        _tokenProtection += configure;
         return this;
     }
 
@@ -207,6 +216,11 @@ public sealed class HPDBaseBuilder
         _services.AddHPDBaseRuntime(_runtime).UseFailClosedPolicy();
         _services.AddSingleton(Microsoft.Extensions.Options.Options.Create(relationalOptions));
         _services.AddSingleton(Microsoft.Extensions.Options.Options.Create(schemaOptions));
+        HPDBaseTokenProtectionOptions tokenOptions = CreateTokenOptions();
+        _tokenProtection?.Invoke(tokenOptions);
+        ValidateTokenOptions(tokenOptions);
+        _services.AddSingleton(Microsoft.Extensions.Options.Options.Create(tokenOptions));
+        _services.TryAddSingleton<BaseOpaqueTokenProtector>();
         _services.AddSingleton<IBaseSchemaPlanProtector, DefaultBaseSchemaPlanProtector>();
         _services.AddSingleton<IBaseSchemaManager, DefaultBaseSchemaManager>();
         _services.AddSingleton<BaseSchemaCommandHost>();
@@ -249,6 +263,18 @@ public sealed class HPDBaseBuilder
         _services.TryAddSingleton<IHPDBaseApplication, DefaultHPDBaseApplication>();
         _services.TryAddSingleton<IHPDBaseAdministration, UnavailableHPDBaseAdministration>();
         _services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseHealthContributor, BaseApplicationHealthContributor>());
+    }
+
+    private static HPDBaseTokenProtectionOptions CreateTokenOptions() => new()
+    {
+        ActiveKey = new BaseOpaqueTokenKey { Id = 0, Key = System.Security.Cryptography.RandomNumberGenerator.GetBytes(32) },
+    };
+
+    private static void ValidateTokenOptions(HPDBaseTokenProtectionOptions options)
+    {
+        BaseOpaqueTokenKey[] keys = [options.ActiveKey, .. options.DecryptionKeys ?? []];
+        if (keys.Any(static key => key?.Key is not { Length: 32 }) || keys.Select(static key => key.Id).Distinct().Count() != keys.Length)
+            throw new ArgumentException("Token protection keys must have unique IDs and exactly 32 bytes.", nameof(options));
     }
 
     /// <summary>Performs validate Index Capabilities.</summary>
