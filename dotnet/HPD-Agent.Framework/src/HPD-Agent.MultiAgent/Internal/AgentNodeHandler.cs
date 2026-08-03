@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using HPD.Agent;
 using HPD.Agent.StructuredOutput;
+using HPD.Agent.Providers;
 using HPD.MultiAgent.Config;
 using HPD.Graph.Abstractions.Events;
 using HPD.Graph.Abstractions.Execution;
@@ -47,6 +48,9 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
         }
 
         var options = context.GetAgentOptions(_nodeId) ?? new AgentNodeOptions();
+        var deadline = options.Timeout is { } timeout
+            ? AgentInvocationDeadline.FromTimeout(timeout)
+            : null;
 
         try
         {
@@ -83,6 +87,15 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
                 duration: stopwatch.Elapsed,
                 metadata: new NodeExecutionMetadata()
             );
+        }
+        catch (OperationCanceledException ex) when (deadline?.IsExpired(DateTimeOffset.UtcNow) == true)
+        {
+            return new NodeExecutionResult.Failure(
+                Exception: new TimeoutException($"Agent node '{_nodeId}' exceeded its invocation deadline.", ex),
+                Severity: ErrorSeverity.Transient,
+                IsTransient: true,
+                Duration: stopwatch.Elapsed,
+                ErrorCode: "DEADLINE_EXCEEDED");
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -450,15 +463,11 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
 
         await using var routeLease = await context.Conversation.EnterRouteAsync(route, ct).ConfigureAwait(false);
 
-        using var timeoutSource = options.Timeout.HasValue
-            ? CancellationTokenSource.CreateLinkedTokenSource(ct)
-            : null;
-        timeoutSource?.CancelAfter(options.Timeout!.Value);
         await agent.RunAsync(new UserMessagesInputEvent { Messages = messages,
             SessionId = route.SessionId,
             ThreadId = route.ThreadId,
             RunConfig = runConfig
-        }, timeoutSource?.Token ?? ct).ConfigureAwait(false);
+        }, ct).ConfigureAwait(false);
     }
 
     private static AgentRunConfig BuildRunConfig(
@@ -467,18 +476,45 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
         AgentGraphContext? graphContext = null)
     {
         var runConfig = agent.CaptureRunConfig(options.RunConfig);
-
-        // Use fallback chat client from parent agent if available
-        if (graphContext?.FallbackChatClient != null)
-        {
-            runConfig.Clients.Chat ??= new ChatClientConfig();
-            runConfig.Clients.Chat.Override = new HPD.Agent.Providers.ClientOverride<Microsoft.Extensions.AI.IChatClient>
-            {
-                Client = graphContext.FallbackChatClient
-            };
-        }
+        var parentContext = graphContext?.ParentExecutionContext;
+        SubAgentRunConfig.ApplyClientInheritance(
+            runConfig,
+            parentContext?.ClientSet,
+            agent.Config,
+            options.ClientInheritance);
+        ApplyChatInheritance(runConfig, agent, options.ClientInheritance.Chat, parentContext);
 
         return runConfig;
+    }
+
+    private static void ApplyChatInheritance(
+        AgentRunConfig runConfig,
+        Agent.Agent agent,
+        ClientFamilyInheritanceMode mode,
+        HPD.Agent.Middleware.FunctionExecutionContext? parentContext)
+    {
+        if (mode == ClientFamilyInheritanceMode.UseOwn || parentContext?.GetParentChatClient() is not { } parentClient)
+            return;
+
+        var own = runConfig.Clients.Chat;
+        if (mode == ClientFamilyInheritanceMode.FallbackToParent &&
+            (own is not null || agent.Config?.ResolveClientConfig(ProviderClientFamily.Chat) is not null))
+            return;
+
+        var parent = parentContext.GetEffectiveChatClientHandle()?.ResolvedConfig as ChatClientConfig;
+        var inherited = parent is null
+            ? new ChatClientConfig()
+            : (ChatClientConfig)ProviderClientConfigResolver.Clone(parent);
+        inherited.Override = new ClientOverride<IChatClient> { Client = parentClient };
+        if (own is not null)
+        {
+            var baseline = new AgentClientsConfig { Chat = inherited };
+            inherited = (ChatClientConfig)ProviderClientConfigResolver.Resolve(
+                baseline,
+                ProviderClientFamily.Chat,
+                new AgentClientsConfig { Chat = own })!;
+        }
+        runConfig.Clients.Chat = inherited;
     }
 
     private static Dictionary<string, object> FlattenToOutputs(object? result, Type? type)

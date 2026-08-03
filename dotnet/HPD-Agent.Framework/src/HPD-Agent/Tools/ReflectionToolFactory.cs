@@ -313,7 +313,8 @@ internal static class ReflectionToolFactory
                 var result = await MultiAgentRuntime.InvokeAsync(
                     new MultiAgentRuntime.MultiAgentInvocationRequest
                     {
-                        Workflow = workflow ?? throw new InvalidOperationException("Multi-agent method returned null."),
+                        Workflow = workflow as IMultiAgentWorkflow
+                            ?? throw new InvalidOperationException("Multi-agent method must return an IMultiAgentWorkflow implementation."),
                         Name = name,
                         Input = input,
                         ParentContext = functionContext,

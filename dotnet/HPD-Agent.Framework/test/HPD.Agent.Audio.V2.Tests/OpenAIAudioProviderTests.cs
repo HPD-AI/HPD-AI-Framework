@@ -380,7 +380,6 @@ public sealed class OpenAIAudioProviderTests
             });
         var agent = await AgentBuilder
             .Create()
-            .WithDeferredProvider()
             .BuildAsync();
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(90));
 

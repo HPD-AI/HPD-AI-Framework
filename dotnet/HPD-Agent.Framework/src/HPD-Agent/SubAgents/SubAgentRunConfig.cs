@@ -42,8 +42,8 @@ public enum SubAgentRunConfigFields
     All = Default | Instructions | Tools | Output
 }
 
-/// <summary>Controls how each subagent client family relates to the invoking run.</summary>
-public sealed record SubAgentClientInheritance
+/// <summary>Controls how each child client family relates to the invoking run.</summary>
+public sealed record AgentClientInheritance
 {
     /// <summary>Gets the Chat-family inheritance policy.</summary>
     public ClientFamilyInheritanceMode Chat { get; init; } = ClientFamilyInheritanceMode.InheritResolved;
@@ -80,7 +80,7 @@ public sealed class SubAgentRunConfig
 
     private SubAgentRunConfig(
         SubAgentRunConfigFields inheritedFields,
-        SubAgentClientInheritance clients,
+        AgentClientInheritance clients,
         Action<AgentRunConfig>? configure)
     {
         InheritedFields = inheritedFields;
@@ -92,16 +92,16 @@ public sealed class SubAgentRunConfig
     public SubAgentRunConfigFields InheritedFields { get; }
 
     /// <summary>Gets the explicit inheritance policy for every client family.</summary>
-    public SubAgentClientInheritance Clients { get; }
+    public AgentClientInheritance Clients { get; }
 
     /// <summary>Creates the default parent run-configuration inheritance selection.</summary>
     public static SubAgentRunConfig Inherit()
-        => new(SubAgentRunConfigFields.Default, new SubAgentClientInheritance(), configure: null);
+        => new(SubAgentRunConfigFields.Default, new AgentClientInheritance(), configure: null);
 
     /// <summary>Creates a selection that inherits exactly the supplied groups.</summary>
     /// <param name="fields">The complete set of groups to inherit.</param>
     public static SubAgentRunConfig InheritOnly(SubAgentRunConfigFields fields)
-        => new(ValidateFields(fields), new SubAgentClientInheritance(), configure: null);
+        => new(ValidateFields(fields), new AgentClientInheritance(), configure: null);
 
     /// <summary>Creates an isolated child run configuration with no inherited parent values.</summary>
     public static SubAgentRunConfig Isolated()
@@ -109,7 +109,7 @@ public sealed class SubAgentRunConfig
 
     /// <summary>Returns a new selection with the supplied per-family client inheritance policy.</summary>
     /// <param name="clients">The complete client-family inheritance policy.</param>
-    public SubAgentRunConfig WithClients(SubAgentClientInheritance clients)
+    public SubAgentRunConfig WithClients(AgentClientInheritance clients)
     {
         ArgumentNullException.ThrowIfNull(clients);
         return new SubAgentRunConfig(InheritedFields, clients, _configure);
@@ -142,7 +142,7 @@ public sealed class SubAgentRunConfig
                 });
     }
 
-    private static SubAgentClientInheritance CreateUseOwnClients() => new()
+    private static AgentClientInheritance CreateUseOwnClients() => new()
     {
         Chat = ClientFamilyInheritanceMode.UseOwn,
         Realtime = ClientFamilyInheritanceMode.UseOwn,
@@ -162,24 +162,25 @@ public sealed class SubAgentRunConfig
             ? new AgentRunConfig()
             : AgentRunConfigInheritance.CreateSnapshot(parent, InheritedFields);
         _configure?.Invoke(result);
-        ApplyClientInheritance(result, parentClients, childDefaults);
+        ApplyClientInheritance(result, parentClients, childDefaults, Clients);
         return result;
     }
 
-    private void ApplyClientInheritance(
+    internal static void ApplyClientInheritance(
         AgentRunConfig result,
         AgentClientSet? parentClients,
-        AgentConfig? childDefaults)
+        AgentConfig? childDefaults,
+        AgentClientInheritance clients)
     {
         if (parentClients is null)
             return;
 
-        InheritFamily(ProviderClientFamily.Realtime, Clients.Realtime);
-        InheritFamily(ProviderClientFamily.ImageGeneration, Clients.ImageGeneration);
-        InheritFamily(ProviderClientFamily.Embeddings, Clients.Embeddings);
-        InheritFamily(ProviderClientFamily.TextToSpeech, Clients.TextToSpeech);
-        InheritFamily(ProviderClientFamily.SpeechToText, Clients.SpeechToText);
-        InheritFamily(ProviderClientFamily.HostedFiles, Clients.HostedFiles);
+        InheritFamily(ProviderClientFamily.Realtime, clients.Realtime);
+        InheritFamily(ProviderClientFamily.ImageGeneration, clients.ImageGeneration);
+        InheritFamily(ProviderClientFamily.Embeddings, clients.Embeddings);
+        InheritFamily(ProviderClientFamily.TextToSpeech, clients.TextToSpeech);
+        InheritFamily(ProviderClientFamily.SpeechToText, clients.SpeechToText);
+        InheritFamily(ProviderClientFamily.HostedFiles, clients.HostedFiles);
 
         void InheritFamily(ProviderClientFamily family, ClientFamilyInheritanceMode mode)
         {

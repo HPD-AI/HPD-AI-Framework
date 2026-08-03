@@ -12,7 +12,6 @@ public sealed class AppleVirtualizationSandboxDxTests
     public async Task Expected_builder_dx_builds_agent_with_apple_virtualization_sandbox()
     {
         Agent agent = await new AgentBuilder()
-            .WithDeferredProvider()
             .WithAppleVirtualizationSandbox(FakeAppleVirtualizationOptions())
             .BuildAsync();
 

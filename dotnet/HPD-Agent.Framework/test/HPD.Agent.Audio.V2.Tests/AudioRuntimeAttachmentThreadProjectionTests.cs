@@ -34,7 +34,6 @@ public sealed class AudioRuntimeAttachmentThreadProjectionTests
                 OutputMode = AudioOutputMode.TextOnly
             }
         })
-            .WithDeferredProvider()
             .BuildAsync();
 
         var audioIndex = IndexOfMiddleware<AudioRuntimeAttachment>(agent.Middlewares);
@@ -55,7 +54,6 @@ public sealed class AudioRuntimeAttachmentThreadProjectionTests
                 OutputMode = AudioOutputMode.TextToSpeech
             }
         })
-            .WithDeferredProvider()
             .WithAudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
             {
                 Enabled = false
@@ -70,7 +68,6 @@ public sealed class AudioRuntimeAttachmentThreadProjectionTests
     {
         var contentStore = new InMemoryContentStore();
         var agent = await AgentBuilder.Create()
-            .WithDeferredProvider()
             .WithContentStore(contentStore)
             .WithAudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
             {

@@ -71,7 +71,6 @@ public class AgentBuilder
     internal IChatClient? _baseClient;
     internal IConfiguration? _configuration;
     internal IToolMetadata? _defaulTMetadata;
-    internal bool _deferredProvider; // Skip provider validation - chat client will be provided at runtime
 
     /// <summary>
     /// Instance-based registrations for DI-required ToolHarnesses (e.g., AgentPlanToolHarness, DynamicMemoryToolHarness).
@@ -1721,21 +1720,6 @@ public class AgentBuilder
     {
         ArgumentNullException.ThrowIfNull(client);
         _baseClient = client;
-        return this;
-    }
-
-    /// <summary>
-    /// Marks this agent as using a deferred provider - the chat client will be provided at runtime
-    /// via AgentRunConfig.Clients.Chat.Override or resolved-plan inheritance.
-    /// This skips provider validation during Build() and allows building agents without configuring a provider.
-    /// </summary>
-    /// <remarks>
-    /// Use this for agents that will run inside multi-agent workflows where the chat client
-    /// is inherited from the parent agent at execution time.
-    /// </remarks>
-    public AgentBuilder WithDeferredProvider()
-    {
-        _deferredProvider = true;
         return this;
     }
 

@@ -56,15 +56,14 @@ public sealed record WorkflowResult
 }
 
 /// <summary>
-/// Factory for creating agents lazily with optional chat client inheritance.
+/// Factory for creating reusable agents lazily; provider families are selected per run.
 /// </summary>
 public abstract class AgentFactory
 {
     /// <summary>
-    /// Build the agent, optionally with a fallback chat client.
+    /// Build the agent without binding an invocation-specific provider client.
     /// </summary>
     public abstract Task<Agent.Agent> BuildAsync(
-        IChatClient? fallbackChatClient,
         ISessionStore? workflowSessionStore,
         bool requireWorkflowSessionStore,
         CancellationToken cancellationToken);
@@ -86,7 +85,6 @@ internal sealed class PrebuiltAgentFactory : AgentFactory
     public PrebuiltAgentFactory(Agent.Agent agent) => _agent = agent;
 
     public override Task<Agent.Agent> BuildAsync(
-        IChatClient? fallbackChatClient,
         ISessionStore? workflowSessionStore,
         bool requireWorkflowSessionStore,
         CancellationToken cancellationToken)
@@ -116,7 +114,6 @@ internal sealed class ConfigAgentFactory : AgentFactory
     }
 
     public override async Task<Agent.Agent> BuildAsync(
-        IChatClient? fallbackChatClient,
         ISessionStore? workflowSessionStore,
         bool requireWorkflowSessionStore,
         CancellationToken cancellationToken)
@@ -131,12 +128,6 @@ internal sealed class ConfigAgentFactory : AgentFactory
         {
             throw new InvalidOperationException(
                 "A workflow session store is required when multi-agent conversation policies are enabled.");
-        }
-
-        // If no provider configured and we have a fallback, use it
-        if (_config.ResolveClientConfig(HPD.Agent.Providers.ProviderClientFamily.Chat) == null && fallbackChatClient != null)
-        {
-            builder.WithChatClient(fallbackChatClient);
         }
 
         return await builder.BuildAsync(cancellationToken);
@@ -158,7 +149,6 @@ internal sealed class InlineAgentFactory : AgentFactory
     }
 
     public override async Task<Agent.Agent> BuildAsync(
-        IChatClient? fallbackChatClient,
         ISessionStore? workflowSessionStore,
         bool requireWorkflowSessionStore,
         CancellationToken cancellationToken)
@@ -178,11 +168,6 @@ internal sealed class InlineAgentFactory : AgentFactory
 
         _builderAction(builder);
 
-        if (config.ResolveClientConfig(HPD.Agent.Providers.ProviderClientFamily.Chat) == null && fallbackChatClient != null)
-        {
-            builder.WithChatClient(fallbackChatClient);
-        }
-
         return await builder.BuildAsync(cancellationToken);
     }
 
@@ -192,7 +177,7 @@ internal sealed class InlineAgentFactory : AgentFactory
 /// <summary>
 /// A built multi-agent workflow ready for execution.
 /// </summary>
-public sealed class AgentWorkflowInstance
+public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
 {
     private readonly GraphDefinition _graph;
     private readonly Dictionary<string, AgentFactory> _agentFactories;
@@ -301,10 +286,9 @@ public sealed class AgentWorkflowInstance
 
     /// <summary>
     /// Build agents lazily, caching the result for subsequent executions.
-    /// If a fallback chat client is provided, agents without their own provider will use it.
+    /// Invocation-specific provider selection is applied later by each node run.
     /// </summary>
     private async Task<Dictionary<string, Agent.Agent>> BuildAgentsAsync(
-        IChatClient? fallbackChatClient,
         CancellationToken cancellationToken)
     {
         // Return cached agents if already built (for workflows used standalone without parent)
@@ -316,7 +300,6 @@ public sealed class AgentWorkflowInstance
         foreach (var (id, factory) in _agentFactories)
         {
             agents[id] = await factory.BuildAsync(
-                fallbackChatClient,
                 _workflowSessionStore,
                 requireWorkflowSessionStore,
                 cancellationToken);
@@ -334,11 +317,7 @@ public sealed class AgentWorkflowInstance
             }
         }
 
-        // Cache for subsequent executions (only if no fallback was used, as different parents may have different clients)
-        if (fallbackChatClient == null)
-        {
-            _builtAgents = agents;
-        }
+        _builtAgents = agents;
 
         return agents;
     }
@@ -445,6 +424,39 @@ public sealed class AgentWorkflowInstance
         }
     }
 
+    async IAsyncEnumerable<Event> IMultiAgentWorkflow.ExecuteStreamingAsync(
+        string input,
+        HPD.Agent.Middleware.FunctionExecutionContext? parentContext,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        await foreach (var evt in ExecuteStreamingCoreAsync(
+            input,
+            parentContext?.GetParentEventCoordinator(),
+            parentContext?.GetParentAgentMetadata(),
+            parentContext?.GetParentChatClient(),
+            parentContext,
+            cancellationToken).ConfigureAwait(false))
+        {
+            yield return evt;
+        }
+    }
+
+    async Task<string> IMultiAgentWorkflow.RunAsync(
+        string input,
+        HPD.Agent.Middleware.FunctionExecutionContext? parentContext,
+        CancellationToken cancellationToken)
+    {
+        var text = new System.Text.StringBuilder();
+        await foreach (var evt in ((IMultiAgentWorkflow)this)
+            .ExecuteStreamingAsync(input, parentContext, cancellationToken)
+            .ConfigureAwait(false))
+        {
+            if (evt is TextDeltaEvent delta)
+                text.Append(delta.Text);
+        }
+        return text.ToString();
+    }
+
     /// <summary>
     /// Execute the workflow with streaming events, with optional parent coordinator for event bubbling.
     /// When a parent coordinator is provided, events will automatically bubble up to it.
@@ -495,8 +507,29 @@ public sealed class AgentWorkflowInstance
         IChatClient? parentChatClient,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
+        await foreach (var evt in ExecuteStreamingCoreAsync(
+            input,
+            parentCoordinator,
+            parentAgentMetadata,
+            parentChatClient,
+            parentContext: null,
+            cancellationToken).ConfigureAwait(false))
+        {
+            yield return evt;
+        }
+    }
+
+    private async IAsyncEnumerable<Event> ExecuteStreamingCoreAsync(
+        string input,
+        HPD.Events.IEventCoordinator? parentCoordinator,
+        AgentMetadata? parentAgentMetadata,
+        IChatClient? parentChatClient,
+        HPD.Agent.Middleware.FunctionExecutionContext? parentContext,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        using var inheritedClientLease = parentContext?.ClientSet?.AcquireBorrowedLease();
         // Build agents lazily (with chat client inheritance if no provider configured)
-        var agents = await BuildAgentsAsync(parentChatClient, cancellationToken);
+        var agents = await BuildAgentsAsync(cancellationToken);
 
         // Create event coordinator for unified streaming
         var eventCoordinator = new EventCoordinator();
@@ -550,7 +583,8 @@ public sealed class AgentWorkflowInstance
             conversation: conversationRuntime)
         {
             EventCoordinator = eventCoordinator,
-            FallbackChatClient = parentChatClient
+            FallbackChatClient = parentChatClient,
+            ParentExecutionContext = parentContext
         };
 
         // Set initial input in channels

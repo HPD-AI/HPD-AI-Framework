@@ -26,7 +26,6 @@ public sealed class RealtimeConsumerSetupTests
         var store = new InMemorySessionStore();
         var agent = await AgentBuilder
             .Create()
-            .WithDeferredProvider()
             .WithSessionStore(store)
             .BuildAsync();
 

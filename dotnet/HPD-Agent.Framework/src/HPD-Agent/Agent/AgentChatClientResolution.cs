@@ -285,7 +285,9 @@ internal sealed class AgentChatClientResolver : IDisposable
             : string.IsNullOrWhiteSpace(ownedConfig.ApiKey)
                 ? "canonical"
                 : null;
-        var providerConfigFingerprint = GetProviderConfigFingerprint(resolvedConfig);
+        var providerConfigFingerprint = ProviderClientFingerprint.Combine(
+            GetProviderConfigFingerprint(resolvedConfig),
+            resolvedConfig.CustomHeaders);
         return await _clientManager.AcquireAsync(
             resolvedConfig,
             authenticationIdentity,

@@ -83,6 +83,22 @@ public sealed class AgentNodeOptions
     /// <remarks>The runtime captures an owned snapshot for every node execution.</remarks>
     public AgentRunConfig RunConfig { get; set; } = new();
 
+    /// <summary>Gets or sets how every provider-client family relates to the invoking parent run.</summary>
+    /// <remarks>
+    /// Node-owned defaults win by default. A parent family is used only when the node has neither
+    /// an explicit run selection nor a usable agent default for that family.
+    /// </remarks>
+    public AgentClientInheritance ClientInheritance { get; set; } = new()
+    {
+        Chat = ClientFamilyInheritanceMode.FallbackToParent,
+        Realtime = ClientFamilyInheritanceMode.FallbackToParent,
+        ImageGeneration = ClientFamilyInheritanceMode.FallbackToParent,
+        Embeddings = ClientFamilyInheritanceMode.FallbackToParent,
+        TextToSpeech = ClientFamilyInheritanceMode.FallbackToParent,
+        SpeechToText = ClientFamilyInheritanceMode.FallbackToParent,
+        HostedFiles = ClientFamilyInheritanceMode.FallbackToParent
+    };
+
     /// <summary>
     /// Per-invocation timeout for this agent.
     /// </summary>
