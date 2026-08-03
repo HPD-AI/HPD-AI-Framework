@@ -210,17 +210,14 @@ internal sealed class GatewayStatusCoordinator : BackgroundService, IGatewayStat
             .OrderBy(static value => value.UpstreamId, StringComparer.Ordinal)
             .Take(MaximumUpstreams))
         {
-            if (!_proxy.TryGetCluster(expected.UpstreamId, out var cluster))
-            {
-                result.Add(new(expected.UpstreamId, 0, 0, 0, 0, 0, 0, 0, 0,
-                    GatewayNativeEligibilityState.NotObserved, expected.AvailabilityPolicy, false,
-                    [Reason("gateway.destination.cluster_not_observed", "The active native Cluster was not observed.", "Upstream", expected.UpstreamId)],
-                    Stamp("yarp", expected.UpstreamId, sequence, null, now)));
-                continue;
-            }
-
             try
             {
+                if (!_proxy.TryGetCluster(expected.UpstreamId, out var cluster))
+                {
+                    result.Add(NotObserved(expected, sequence, now,
+                        "gateway.destination.cluster_not_observed", "The active native Cluster was not observed."));
+                    continue;
+                }
                 var state = cluster.DestinationsState;
                 var all = state.AllDestinations.ToArray();
                 var available = state.AvailableDestinations.Count;
@@ -239,10 +236,8 @@ internal sealed class GatewayStatusCoordinator : BackgroundService, IGatewayStat
             }
             catch (Exception exception) when (exception is not OutOfMemoryException and not StackOverflowException)
             {
-                result.Add(new(expected.UpstreamId, 0, 0, 0, 0, 0, 0, 0, 0,
-                    GatewayNativeEligibilityState.NotObserved, expected.AvailabilityPolicy, false,
-                    [Reason("gateway.destination.observation_failed", "Native destination state could not be observed.", "Upstream", expected.UpstreamId)],
-                    Stamp("yarp", expected.UpstreamId, sequence, null, now)));
+                result.Add(NotObserved(expected, sequence, now,
+                    "gateway.destination.observation_failed", "Native destination state could not be observed."));
             }
         }
         return result.ToImmutable();
@@ -250,6 +245,13 @@ internal sealed class GatewayStatusCoordinator : BackgroundService, IGatewayStat
 
     private static int Count(DestinationState[] values, bool active, DestinationHealth expected) =>
         values.Count(destination => (active ? destination.Health.Active : destination.Health.Passive) == expected);
+
+    private GatewayNativeUpstreamStatus NotObserved(
+        GatewayPublishedUpstream expected, ulong sequence, DateTimeOffset now, string code, string message) =>
+        new(expected.UpstreamId, 0, 0, 0, 0, 0, 0, 0, 0,
+            GatewayNativeEligibilityState.NotObserved, expected.AvailabilityPolicy, false,
+            [Reason(code, message, "Upstream", expected.UpstreamId)],
+            Stamp("yarp", expected.UpstreamId, sequence, null, now));
 
     private ImmutableArray<GatewayCondition> BuildConditions(
         ulong sequence, DateTimeOffset now, bool configurationReady, bool servingReady,
@@ -291,8 +293,12 @@ internal sealed class GatewayStatusCoordinator : BackgroundService, IGatewayStat
         builder.Append(snapshot.Host.State).Append('|').Append(snapshot.Host.RunningConfigurationHash).Append('|').Append(snapshot.Host.DesiredConfigurationHash)
             .Append('|').Append(snapshot.Publication.State).Append('|').Append(snapshot.Publication.AttemptedCandidateId).Append('|').Append(snapshot.Publication.Active?.NativeRevisionId)
             .Append('|').Append(snapshot.Publication.LastKnownGood?.NativeRevisionId).Append('|').Append(snapshot.Publication.Stamp.ObservationSequence)
+            .Append('|').Append(snapshot.Readiness.Configuration).Append('|').Append(snapshot.Readiness.Serving)
             .Append('|').Append(snapshot.DetailsTruncated);
         foreach (var reason in snapshot.Publication.Reasons) builder.Append('|').Append(reason.Code);
+        foreach (var reason in snapshot.Readiness.Reasons) builder.Append('|').Append(reason.Code);
+        foreach (var condition in snapshot.Conditions)
+            builder.Append('|').Append(condition.Type).Append(':').Append(condition.Value).Append(':').Append(condition.ReasonCode);
         foreach (var upstream in snapshot.Upstreams)
             builder.Append('|').Append(upstream.UpstreamId).Append(':').Append(upstream.AllDestinationCount).Append(':').Append(upstream.AvailableDestinationCount)
                 .Append(':').Append(upstream.ActiveHealthyCount).Append(':').Append(upstream.ActiveUnhealthyCount).Append(':').Append(upstream.ActiveUnknownCount)

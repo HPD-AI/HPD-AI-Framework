@@ -750,6 +750,19 @@ finally
     tlsDirectory.Delete(recursive: true);
 }
 
+var shutdownStatus = liveProxy.Services.GetRequiredService<IGatewayStatusReader>();
+if (shutdownStatus.GetCurrent().Readiness.Serving != GatewayReadinessState.Ready)
+    throw new InvalidOperationException("Native AOT readiness did not recover before shutdown.");
+var shutdownSignal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+using (shutdownStatus.GetChangeToken().RegisterChangeCallback(
+    static state => ((TaskCompletionSource)state!).TrySetResult(), shutdownSignal))
+{
+    await liveProxy.StopAsync();
+    await shutdownSignal.Task.WaitAsync(TimeSpan.FromSeconds(5));
+}
+if (shutdownStatus.GetCurrent().Readiness.Serving != GatewayReadinessState.NotReady)
+    throw new InvalidOperationException("Native AOT shutdown left readiness published as ready.");
+
 _ = JsonSerializer.SerializeToUtf8Bytes(validation, GatewayJsonSerializerContext.Default.GatewayValidationResult);
 _ = JsonSerializer.SerializeToUtf8Bytes(canonical, GatewayJsonSerializerContext.Default.GatewayCanonicalizationResult);
 

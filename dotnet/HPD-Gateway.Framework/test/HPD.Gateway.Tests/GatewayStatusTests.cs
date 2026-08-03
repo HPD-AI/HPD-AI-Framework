@@ -194,6 +194,45 @@ public sealed class GatewayStatusTests
         await FluentActions.Awaiting(() => application.StartAsync()).Should().ThrowAsync<InvalidOperationException>();
     }
 
+    [Fact]
+    public async Task EmbeddedShutdownPublishesNotReadyAndSignalsExistingToken()
+    {
+        await using var application = await StartApplication();
+        var publisher = application.Services.GetRequiredService<GatewayYarpPublisher>();
+        (await publisher.PublishAsync(Bundle(1, destination: true), TimeSpan.FromSeconds(5))).State
+            .Should().Be(GatewayPublicationState.ActiveAcknowledged);
+        var reader = application.Services.GetRequiredService<IGatewayStatusReader>();
+        reader.GetCurrent().Readiness.Serving.Should().Be(GatewayReadinessState.Ready);
+        var signaled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var registration = reader.GetChangeToken().RegisterChangeCallback(
+            static state => ((TaskCompletionSource)state!).TrySetResult(), signaled);
+
+        await application.StopAsync();
+        await signaled.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var stopped = reader.GetCurrent();
+        stopped.Readiness.Serving.Should().Be(GatewayReadinessState.NotReady);
+        stopped.Conditions.Should().ContainSingle(condition =>
+            condition.Type == GatewayConditionType.ServingReady && condition.Value == GatewayConditionValue.False);
+    }
+
+    [Fact]
+    public void ThrowingNativeLookupReturnsBoundedNotObservedStatus()
+    {
+        var active = ActiveIdentity();
+        using var publication = new FixedPublicationReader(new(1, DateTimeOffset.UtcNow,
+            new GatewayPublicationOutcome(GatewayPublicationState.ActiveAcknowledged, active.Candidate, active, active, active.NativeRevisionId, []),
+            active, active, [new GatewayPublishedUpstream("orders", "HealthyOrPanic")]));
+        using var coordinator = new GatewayStatusCoordinator([publication], new ThrowingProxyLookup(), [], new TestLifetime());
+
+        var snapshot = coordinator.GetCurrent();
+
+        snapshot.Upstreams.Should().ContainSingle(item =>
+            item.UpstreamId == "orders" && item.Eligibility == GatewayNativeEligibilityState.NotObserved &&
+            item.Reasons.Any(reason => reason.Code == "gateway.destination.observation_failed"));
+        snapshot.Readiness.Serving.Should().Be(GatewayReadinessState.NotReady);
+    }
+
     private static async Task<WebApplication> StartApplication(GatewayHostRuntimeStatus? host = null)
     {
         var builder = WebApplication.CreateSlimBuilder();
@@ -258,6 +297,11 @@ public sealed class GatewayStatusTests
         ]
     }).Candidate!;
 
+    private static ActivePublicationIdentity ActiveIdentity() => new(
+        new PublicationCandidateIdentity(new CandidateId("candidate"), "authority", "epoch", 1,
+            new ContentHash("sha-256", new string('a', 64))),
+        "native", DateTimeOffset.UtcNow);
+
     private sealed class FixedPublicationReader(GatewayPublicationObservation observation) : IGatewayPublicationObservationReader, IDisposable
     {
         public GatewayPublicationObservation GetCurrent() => observation;
@@ -271,6 +315,14 @@ public sealed class GatewayStatusTests
         public IEnumerable<RouteModel> GetRoutes() => [];
         public bool TryGetCluster(string id, [NotNullWhen(true)] out ClusterState? cluster) { cluster = null; return false; }
         public IEnumerable<ClusterState> GetClusters() => [];
+    }
+
+    private sealed class ThrowingProxyLookup : IProxyStateLookup
+    {
+        public bool TryGetRoute(string id, [NotNullWhen(true)] out RouteModel? route) => throw new InvalidOperationException("native lookup failed");
+        public IEnumerable<RouteModel> GetRoutes() => throw new InvalidOperationException("native lookup failed");
+        public bool TryGetCluster(string id, [NotNullWhen(true)] out ClusterState? cluster) => throw new InvalidOperationException("native lookup failed");
+        public IEnumerable<ClusterState> GetClusters() => throw new InvalidOperationException("native lookup failed");
     }
 
     private sealed class TestLifetime : IHostApplicationLifetime
