@@ -1101,12 +1101,15 @@ internal static class ExecuteCommandPermissionRuleLifecycle
     {
         var runConfig = new AgentRunConfig
         {
-            ContextOverrides = new Dictionary<string, object>
+            Context = new AgentContextRunConfig
             {
-                [AgentWorkspace.ContextKey] = new AgentWorkspace(
-                    rule.Workspace.RootId,
-                    rule.Workspace.RootPath,
-                    [new AgentWorkspaceRoot(rule.Workspace.RootId, rule.Workspace.RootPath)]),
+                Properties = new Dictionary<string, object>
+                {
+                    [AgentWorkspace.ContextKey] = new AgentWorkspace(
+                        rule.Workspace.RootId,
+                        rule.Workspace.RootPath,
+                        [new AgentWorkspaceRoot(rule.Workspace.RootId, rule.Workspace.RootPath)]),
+                }
             }
         };
 

@@ -657,7 +657,7 @@ public partial class CodingToolHarness
         string failureSummary,
         CancellationToken cancellationToken)
     {
-        if (context.RunConfig.Security.SandboxEscape == AgentSandboxEscapePolicy.Deny)
+        if (context.RunConfig.Security.Sandbox.Escape == AgentSandboxEscapePolicy.Deny)
             return false;
 
         var requestId = Guid.NewGuid().ToString("N");

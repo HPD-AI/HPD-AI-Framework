@@ -45,14 +45,17 @@ public sealed class SubAgentRunConfigTests
                 ModelName = "parent-model",
                 Temperature = 0.25
             } },
-            Security = new AgentSecurityProfile
+            Security = new AgentSecurityRunConfig
             {
                 Approval = AgentApprovalPolicy.AutoApprove,
-                Sandbox = AgentSandboxPolicy.Disabled,
-                SandboxEscape = AgentSandboxEscapePolicy.Deny
+                Sandbox = new AgentSandboxRunConfig
+                {
+                    Mode = AgentSandboxPolicy.Disabled,
+                    Escape = AgentSandboxEscapePolicy.Deny
+                }
             },
-            CoalesceDeltas = true,
-            SystemInstructions = "Parent persona",
+            Streaming = new StreamingRunConfig { CoalesceDeltas = true },
+            SystemInstructions = new SystemInstructionsRunConfig { Override = "Parent persona" },
             UserMessage = "Parent input",
             StructuredOutput = new StructuredOutputOptions()
         };
@@ -64,7 +67,7 @@ public sealed class SubAgentRunConfigTests
         child.Security.Should().Be(parent.Security);
         child.Security.Should().NotBeSameAs(parent.Security);
         child.Clients.Chat.Temperature.Should().Be(0.25);
-        child.CoalesceDeltas.Should().BeTrue();
+        child.Streaming!.CoalesceDeltas.Should().BeTrue();
         child.SystemInstructions.Should().BeNull();
         child.UserMessage.Should().BeNull();
         child.StructuredOutput.Should().BeNull();
@@ -88,10 +91,16 @@ public sealed class SubAgentRunConfigTests
     {
         var parent = new AgentRunConfig
         {
-            SystemInstructions = "Parent persona",
+            SystemInstructions = new SystemInstructionsRunConfig { Override = "Parent persona" },
             UserMessage = "Parent input",
-            ContextOverrides = new Dictionary<string, object> { ["tenant"] = "one" },
-            PermissionOverrides = new Dictionary<string, bool> { ["shell"] = true }
+            Context = new AgentContextRunConfig
+            {
+                Properties = new Dictionary<string, object> { ["tenant"] = "one" }
+            },
+            Security = new AgentSecurityRunConfig
+            {
+                PermissionOverrides = new Dictionary<string, bool> { ["shell"] = true }
+            }
         };
 
         var child = SubAgentRunConfig
@@ -99,10 +108,10 @@ public sealed class SubAgentRunConfigTests
             .Resolve(parent);
 
         child.Should().NotBeSameAs(parent);
-        child.SystemInstructions.Should().Be("Parent persona");
+        child.SystemInstructions!.Override.Should().Be("Parent persona");
         child.UserMessage.Should().Be("Parent input");
-        child.ContextOverrides.Should().NotBeSameAs(parent.ContextOverrides);
-        child.PermissionOverrides.Should().NotBeSameAs(parent.PermissionOverrides);
+        child.Context!.Properties.Should().NotBeSameAs(parent.Context!.Properties);
+        child.Security.PermissionOverrides.Should().NotBeSameAs(parent.Security.PermissionOverrides);
     }
 
     [Fact]
@@ -111,7 +120,7 @@ public sealed class SubAgentRunConfigTests
         var parent = new AgentRunConfig
         {
             Clients = new AgentClientsConfig { Chat = new ChatClientConfig { ProviderKey = "parent-provider" } },
-            SystemInstructions = "Parent persona"
+            SystemInstructions = new SystemInstructionsRunConfig { Override = "Parent persona" }
         };
 
         var child = SubAgentRunConfig
@@ -120,12 +129,12 @@ public sealed class SubAgentRunConfigTests
             {
                 config.Clients.Chat ??= new ChatClientConfig();
                 config.Clients.Chat.ProviderKey = "child-provider";
-                config.SystemInstructions = "Child override";
+                config.SystemInstructions = new SystemInstructionsRunConfig { Override = "Child override" };
             })
             .Resolve(parent);
 
         child.Clients.Chat!.ProviderKey.Should().Be("child-provider");
-        child.SystemInstructions.Should().Be("Child override");
+        child.SystemInstructions!.Override.Should().Be("Child override");
     }
 
     [Fact]

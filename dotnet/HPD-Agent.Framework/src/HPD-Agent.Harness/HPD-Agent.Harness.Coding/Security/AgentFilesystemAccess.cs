@@ -69,14 +69,14 @@ internal static class AgentFilesystemAccess
             return new AgentFilesystemAuthorization(canonical, Escalated: false);
 
         var security = context.RunConfig.Security;
-        if (security.Sandbox == AgentSandboxPolicy.Disabled)
+        if (security.Sandbox.Mode == AgentSandboxPolicy.Disabled)
             return new AgentFilesystemAuthorization(canonical, Escalated: false);
 
         var sandbox = CodingSandboxRuntime.Capture(context.RunConfig);
         if (HasGrant(sandbox.Filesystem, canonical, capability))
             return new AgentFilesystemAuthorization(canonical, Escalated: false);
 
-        if (security.SandboxEscape == AgentSandboxEscapePolicy.Deny)
+        if (security.Sandbox.Escape == AgentSandboxEscapePolicy.Deny)
             throw new AgentCapabilityDeniedException(capability, canonical);
 
         var requestId = Guid.NewGuid().ToString("N");
