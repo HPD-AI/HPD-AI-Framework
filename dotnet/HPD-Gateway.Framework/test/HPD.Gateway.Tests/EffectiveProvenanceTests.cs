@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Reflection;
 using System.Text.Json;
 using FluentAssertions;
 using HPD.Gateway.Abstractions;
@@ -150,10 +151,10 @@ public sealed class EffectiveProvenanceTests
         var identity = new PublicationCandidateIdentity(new CandidateId("candidate"), "authority", "epoch", 1, new ContentHash("sha-256", new string('a', 64)));
         var valid = new GatewayEffectiveSnapshot(1, identity.CandidateId, identity.ContentHash, [], false);
 
-        var missing = () => NativePublicationBundle.Create(identity, [], [], "native", null!);
-        var truncated = () => NativePublicationBundle.Create(identity, [], [], "native", valid with { IsTruncated = true });
-        var defaultRecords = () => NativePublicationBundle.Create(identity, [], [], "native", valid with { Records = default });
-        var wrongSchema = () => NativePublicationBundle.Create(identity, [], [], "native", valid with { SchemaVersion = 2 });
+        var missing = () => NativeBundleTestFactory.Create(identity, [], [], "native", null!);
+        var truncated = () => NativeBundleTestFactory.Create(identity, [], [], "native", valid with { IsTruncated = true });
+        var defaultRecords = () => NativeBundleTestFactory.Create(identity, [], [], "native", valid with { Records = default });
+        var wrongSchema = () => NativeBundleTestFactory.Create(identity, [], [], "native", valid with { SchemaVersion = 2 });
 
         missing.Should().Throw<ArgumentNullException>();
         truncated.Should().Throw<ArgumentException>();
@@ -225,14 +226,68 @@ public sealed class EffectiveProvenanceTests
             Records = Enumerable.Repeat(Record("a", [contribution]), GatewayEffectiveBounds.MaximumRecords + 1).ToImmutableArray()
         };
 
-        Action publishUnsorted = () => NativePublicationBundle.Create(identity, [], [], "native", unsorted);
-        Action publishDuplicate = () => NativePublicationBundle.Create(identity, [], [], "native", duplicate);
-        Action publishOverBound = () => NativePublicationBundle.Create(identity, [], [], "native", overBound);
-        Action publishOverRecordBound = () => NativePublicationBundle.Create(identity, [], [], "native", overRecordBound);
+        Action publishUnsorted = () => NativeBundleTestFactory.Create(identity, [], [], "native", unsorted);
+        Action publishDuplicate = () => NativeBundleTestFactory.Create(identity, [], [], "native", duplicate);
+        Action publishOverBound = () => NativeBundleTestFactory.Create(identity, [], [], "native", overBound);
+        Action publishOverRecordBound = () => NativeBundleTestFactory.Create(identity, [], [], "native", overRecordBound);
         publishUnsorted.Should().Throw<ArgumentException>();
         publishDuplicate.Should().Throw<ArgumentException>();
         publishOverBound.Should().Throw<ArgumentException>();
         publishOverRecordBound.Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void SealedHandoffRejectsMissingTargetsWrongCompositionAndImpossibleContributions()
+    {
+        var identity = new PublicationCandidateIdentity(new CandidateId("candidate"), "authority", "epoch", 1, new ContentHash("sha-256", new string('a', 64)));
+        var native = new RouteConfig
+        {
+            RouteId = "route",
+            ClusterId = "upstream",
+            Match = new RouteMatch { Path = "/{**catch-all}" },
+            AuthorizationPolicy = "authenticated"
+        };
+        var empty = new GatewayEffectiveSnapshot(1, identity.CandidateId, identity.ContentHash, [], false);
+        var missingTarget = empty with { Records = [Record("ghost", [Contribution(0)])] };
+        var wrongComposition = empty with
+        {
+            Records = [Record("route", [Contribution(0)]) with { Composition = GatewayEffectiveComposition.AdditiveOrdered }]
+        };
+        var impossibleContribution = Contribution(0) with
+        {
+            SourceKind = GatewayContributionSourceKind.HostProfile,
+            Scope = GatewayContributionScope.RouteLocal,
+            Disposition = GatewayContributionDisposition.Selected
+        };
+        var impossible = empty with { Records = [Record("route", [impossibleContribution])] };
+
+        Action missingRecord = () => NativeBundleTestFactory.Create(identity, [native], [], "native", empty);
+        Action absentTarget = () => NativeBundleTestFactory.Create(identity, [native], [], "native", missingTarget);
+        Action invalidComposition = () => NativeBundleTestFactory.Create(identity, [native], [], "native", wrongComposition);
+        Action invalidContribution = () => NativeBundleTestFactory.Create(identity, [native], [], "native", impossible);
+
+        missingRecord.Should().Throw<ArgumentException>();
+        absentTarget.Should().Throw<ArgumentException>();
+        invalidComposition.Should().Throw<ArgumentException>();
+        invalidContribution.Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void ProductionHandoffAcceptsOnlyThePrivatePreparedProjectionToken()
+    {
+        typeof(GatewayEffectiveProjectionBuilder.PreparedProjection)
+            .GetConstructors(BindingFlags.Instance | BindingFlags.NonPublic)
+            .Should().ContainSingle();
+        typeof(GatewayEffectiveProjectionBuilder)
+            .GetField("PreparationKey", BindingFlags.Static | BindingFlags.NonPublic)
+            .Should().NotBeNull().And.Match<FieldInfo>(field => field.IsPrivate && field.IsInitOnly);
+        typeof(NativePublicationBundle).GetMethods(BindingFlags.Static | BindingFlags.NonPublic)
+            .Single(method => method.Name == "Create").GetParameters().Last().ParameterType
+            .Should().Be(typeof(GatewayEffectiveProjectionBuilder.PreparedProjection));
+        typeof(NativePublicationBundle).GetMethods(BindingFlags.Static | BindingFlags.NonPublic)
+            .Where(static method => method.Name == "Create")
+            .SelectMany(static method => method.GetParameters())
+            .Should().NotContain(parameter => parameter.ParameterType == typeof(GatewayEffectiveSnapshot));
     }
 
     [Fact]

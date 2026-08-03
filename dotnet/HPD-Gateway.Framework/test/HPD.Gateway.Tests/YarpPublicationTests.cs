@@ -326,7 +326,7 @@ public sealed class YarpPublicationTests
     public void NativeRevisionIdentityMustBeBoundedAndSafe(string revision)
     {
         var identity = new PublicationCandidateIdentity(new CandidateId("candidate"), "authority", "epoch", 1, Hash('a'));
-        var action = () => NativePublicationBundle.Create(identity, [], [], revision, Effective(identity));
+        var action = () => NativeBundleTestFactory.Create(identity, [], [], revision, Effective(identity));
 
         action.Should().Throw<ArgumentException>();
     }
@@ -335,7 +335,7 @@ public sealed class YarpPublicationTests
     public void NativeRevisionIdentityRejectsOversizedValue()
     {
         var identity = new PublicationCandidateIdentity(new CandidateId("candidate"), "authority", "epoch", 1, Hash('a'));
-        var action = () => NativePublicationBundle.Create(identity, [], [],
+        var action = () => NativeBundleTestFactory.Create(identity, [], [],
             new string('r', NativePublicationBundle.MaximumNativeRevisionIdLength + 1), Effective(identity));
 
         action.Should().Throw<ArgumentException>();
@@ -346,13 +346,13 @@ public sealed class YarpPublicationTests
     {
         var identity = new PublicationCandidateIdentity(new CandidateId("replay"), "authority", "epoch-1", 7, Hash('a'));
         using var first = new PublisherFixture();
-        var firstBundle = NativePublicationBundle.Create(identity, [], [], "native-before-restart", Effective(identity));
+        var firstBundle = NativeBundleTestFactory.Create(identity, [], [], "native-before-restart", Effective(identity));
         var firstTask = first.Publisher.PublishAsync(firstBundle, TimeSpan.FromSeconds(2));
         first.Listener.ConfigurationApplied([await first.WaitForRevision(firstBundle.NativeRevisionId)]);
         (await firstTask).State.Should().Be(GatewayPublicationState.ActiveAcknowledged);
 
         using var restarted = new PublisherFixture();
-        var replay = NativePublicationBundle.Create(identity, [], [], "native-after-restart", Effective(identity));
+        var replay = NativeBundleTestFactory.Create(identity, [], [], "native-after-restart", Effective(identity));
         var replayTask = restarted.Publisher.PublishAsync(replay, TimeSpan.FromSeconds(2));
         restarted.Listener.ConfigurationApplied([await restarted.WaitForRevision(replay.NativeRevisionId)]);
 
@@ -364,13 +364,13 @@ public sealed class YarpPublicationTests
     private static NativePublicationBundle Bundle(ulong version, ContentHash? hash = null)
     {
         var identity = new PublicationCandidateIdentity(new CandidateId($"candidate-{version}"), "authority", "epoch-1", version, hash ?? Hash('a'));
-        return NativePublicationBundle.Create(identity, [], [], $"native-{version}-{Guid.NewGuid():N}", Effective(identity));
+        return NativeBundleTestFactory.Create(identity, [], [], $"native-{version}-{Guid.NewGuid():N}", Effective(identity));
     }
 
     private static NativePublicationBundle AuthorityBundle(int authority)
     {
         var identity = new PublicationCandidateIdentity(new CandidateId($"candidate-{authority}"), $"authority-{authority}", "epoch-1", 1, Hash('a'));
-        return NativePublicationBundle.Create(identity, [], [], $"native-authority-{authority}", Effective(identity));
+        return NativeBundleTestFactory.Create(identity, [], [], $"native-authority-{authority}", Effective(identity));
     }
 
     private static GatewayEffectiveSnapshot Effective(PublicationCandidateIdentity identity) =>

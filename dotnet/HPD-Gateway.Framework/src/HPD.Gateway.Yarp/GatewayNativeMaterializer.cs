@@ -63,7 +63,7 @@ internal sealed class GatewayNativeMaterializer(
 
         ImmutableArray<ClusterConfig> clusters;
         ImmutableArray<RouteConfig> routes;
-        GatewayEffectiveSnapshot effectiveSnapshot;
+        GatewayEffectiveProjectionBuilder.PreparedProjection preparedEffective;
         try
         {
             var effective = new GatewayEffectiveProjectionBuilder(candidate, identity);
@@ -83,7 +83,7 @@ internal sealed class GatewayNativeMaterializer(
                         .Select(static route => route.OutputCachePolicy!)
                         .Distinct(StringComparer.Ordinal)))
                 return Reject("materialization.output-cache-capability-mismatch", "$", "Accepted selected Output Cache capabilities do not match the installed runtime registry.");
-            effectiveSnapshot = effective.Build();
+            preparedEffective = effective.Build(routes);
         }
         catch (Exception)
         {
@@ -122,7 +122,9 @@ internal sealed class GatewayNativeMaterializer(
 
         try
         {
-            return GatewayMaterializationResult.Accepted(NativePublicationBundle.Create(identity, routes, clusters, nativeRevisionId, effectiveSnapshot), effectiveSnapshot);
+            return GatewayMaterializationResult.Accepted(
+                NativePublicationBundle.Create(identity, routes, clusters, nativeRevisionId, preparedEffective),
+                preparedEffective.Snapshot);
         }
         catch (Exception)
         {

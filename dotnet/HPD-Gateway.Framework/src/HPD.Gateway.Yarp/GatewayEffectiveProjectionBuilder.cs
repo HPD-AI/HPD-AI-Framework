@@ -5,6 +5,7 @@ using System.Text;
 using HPD.Gateway.Abstractions;
 using HPD.Gateway.Core;
 using HPD.Gateway.Effective;
+using Yarp.ReverseProxy.Configuration;
 
 namespace HPD.Gateway.Yarp;
 
@@ -16,19 +17,38 @@ internal sealed class GatewayEffectiveProjectionBuilder(
     PublicationCandidateIdentity identity)
 {
     private const ushort SchemaVersion = 1;
+    private static readonly object PreparationKey = new();
     private readonly GatewayCandidateReadResult _candidate = candidate;
     private readonly PublicationCandidateIdentity _identity = identity;
     private readonly ImmutableArray<GatewayEffectiveRecord>.Builder _records = ImmutableArray.CreateBuilder<GatewayEffectiveRecord>();
 
-    internal GatewayEffectiveSnapshot Build()
+    internal sealed class PreparedProjection
     {
+        internal PreparedProjection(GatewayEffectiveSnapshot snapshot, ImmutableArray<RouteConfig> routes, object preparationKey)
+        {
+            if (!ReferenceEquals(preparationKey, PreparationKey))
+                throw new InvalidOperationException("Prepared projections may only be created by the effective projection builder.");
+            Snapshot = snapshot;
+            Routes = routes;
+        }
+
+        internal GatewayEffectiveSnapshot Snapshot { get; }
+        internal ImmutableArray<RouteConfig> Routes { get; }
+    }
+
+    internal PreparedProjection Build(ImmutableArray<RouteConfig> routes)
+    {
+        if (routes.IsDefault) throw new ArgumentException("Native Routes must be initialized.", nameof(routes));
         if (_records.Count > GatewayEffectiveBounds.MaximumRecords)
             throw new InvalidOperationException("The effective projection exceeds its record bound.");
         var records = _records
             .OrderBy(static item => item.TargetId, StringComparer.Ordinal)
             .ThenBy(static item => item.Family, StringComparer.Ordinal)
             .ToImmutableArray();
-        return new GatewayEffectiveSnapshot(SchemaVersion, _identity.CandidateId, _identity.ContentHash, records, false);
+        return new PreparedProjection(
+            new GatewayEffectiveSnapshot(SchemaVersion, _identity.CandidateId, _identity.ContentHash, records, false),
+            routes,
+            PreparationKey);
     }
 
     internal EffectiveSelection<T> Resolve<T>(

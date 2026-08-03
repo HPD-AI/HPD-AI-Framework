@@ -269,7 +269,7 @@ public sealed class GatewayStatusTests
             } : null
         };
         var identity = new PublicationCandidateIdentity(new CandidateId($"candidate-{version}"), "authority", "epoch", version, new ContentHash("sha-256", new string((char)('a' + version - 1), 64)));
-        return NativePublicationBundle.Create(identity, [route], [cluster], $"native-{version}-{Guid.NewGuid():N}",
+        return NativeBundleTestFactory.Create(identity, [route], [cluster], $"native-{version}-{Guid.NewGuid():N}",
             new GatewayEffectiveSnapshot(1, identity.CandidateId, identity.ContentHash, [], false));
     }
 
