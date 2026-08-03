@@ -263,6 +263,11 @@ public sealed class BaseRecordIdTests
         duplicate.Value.RequireCommitted().Should().NotBeNull();
         observer.Count.Should().Be(1);
 
+        BaseBatchBuilder structuralConflict = session.Atomic(identity);
+        structuralConflict.Create(TypedIdOwner.Collection, new RecordId("owner_2"), new TypedIdOwner { Name = "Different" });
+        ((BaseFailure<BaseBatchResult>)await structuralConflict.CommitAsync()).Error.Code
+            .Should().Be(BaseMutationRequestErrorCodes.FingerprintConflict);
+
         BaseMutationRequestIdentity conflictingIdentity = BaseMutationRequestIdentity.Create(
             "tenant_1", "create-owner", "request_1",
             BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("different"u8)));
@@ -270,6 +275,55 @@ public sealed class BaseRecordIdTests
         conflict.Create(TypedIdOwner.Collection, new RecordId("owner_2"), new TypedIdOwner { Name = "Different" });
         BaseFailure<BaseBatchResult> conflictResult = (BaseFailure<BaseBatchResult>)await conflict.CommitAsync();
         conflictResult.Error.Code.Should().Be(BaseMutationRequestErrorCodes.FingerprintConflict);
+    }
+
+    [Fact]
+    public async Task ReceiptDisclosureAuthorizationPrecedesBothDigestComparisons()
+    {
+        var services = new ServiceCollection().AddLogging();
+        var policy = new ToggleReceiptPolicyEvaluator();
+        services.AddSingleton<IPolicyEvaluator>(policy);
+        services.AddHPDBase(builder => builder.AddCollection(TypedIdOwner.Collection));
+        await using ServiceProvider provider = services.BuildServiceProvider();
+        provider.GetRequiredService<IPolicyEvaluator>().Should().BeSameAs(policy);
+        (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
+        BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(new PrincipalContext
+        {
+            AuthenticationState = PrincipalAuthenticationState.Authenticated,
+            SubjectId = "receipt-user",
+        });
+        BaseMutationRequestFingerprint fingerprint = BaseMutationRequestFingerprint.Create(
+            System.Security.Cryptography.SHA256.HashData("request"u8));
+        BaseMutationRequestIdentity identity = BaseMutationRequestIdentity.Create(
+            "tenant_1", "create-owner", "request_1", fingerprint);
+        BaseBatchBuilder initial = session.Atomic(identity);
+        initial.Create(TypedIdOwner.Collection, new RecordId("owner_1"), new TypedIdOwner { Name = "Owner" });
+        (await initial.CommitAsync()).Should().BeOfType<BaseSuccess<BaseBatchResult>>();
+
+        policy.Allow = false;
+        BaseSession deniedSession = provider.GetRequiredService<IBaseSessionFactory>().For(new PrincipalContext
+        {
+            AuthenticationState = PrincipalAuthenticationState.Authenticated,
+            SubjectId = "denied-receipt-user",
+        });
+        BaseBatchBuilder matching = deniedSession.Atomic(identity);
+        matching.Create(TypedIdOwner.Collection, new RecordId("owner_1"), new TypedIdOwner { Name = "Owner" });
+        BaseMutationRequestIdentity differentFingerprint = BaseMutationRequestIdentity.Create(
+            "tenant_1", "create-owner", "request_1",
+            BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("different"u8)));
+        BaseBatchBuilder conflicting = deniedSession.Atomic(differentFingerprint);
+        conflicting.Create(TypedIdOwner.Collection, new RecordId("owner_2"), new TypedIdOwner { Name = "Different" });
+
+        BaseResult<BaseBatchResult> matchingResult = await matching.CommitAsync();
+        policy.DenyCalls.Should().BeGreaterThan(0);
+        BaseResult<BaseBatchResult> conflictingResult = await conflicting.CommitAsync();
+        BaseFailure<BaseBatchResult> matchingDenied = matchingResult.Should().BeOfType<BaseFailure<BaseBatchResult>>().Subject;
+        BaseFailure<BaseBatchResult> conflictingDenied = conflictingResult.Should().BeOfType<BaseFailure<BaseBatchResult>>().Subject;
+
+        matchingDenied.Status.Should().Be(conflictingDenied.Status);
+        matchingDenied.Error.Code.Should().Be("base.policy.denied");
+        conflictingDenied.Error.Code.Should().Be(matchingDenied.Error.Code);
+        conflictingDenied.Error.Code.Should().NotBe(BaseMutationRequestErrorCodes.FingerprintConflict);
     }
 
     [Fact]
@@ -305,10 +359,48 @@ public sealed class BaseRecordIdTests
         }
     }
 
-    private static ServiceProvider BuildSqliteReceiptProvider(string database)
+    [Fact]
+    public async Task SqliteReceiptAuthorizationAlsoPrecedesConflictDisclosure()
+    {
+        string database = Path.Combine(Path.GetTempPath(), "hpd-base-receipt-policy-" + Guid.NewGuid().ToString("N") + ".db");
+        var policy = new ToggleReceiptPolicyEvaluator();
+        try
+        {
+            await using ServiceProvider provider = BuildSqliteReceiptProvider(database, policy);
+            provider.GetRequiredService<IPolicyEvaluator>().Should().BeSameAs(policy);
+            IBaseSchemaManager schemas = provider.GetRequiredService<IBaseSchemaManager>();
+            BaseSchemaPlan plan = (await schemas.PlanAsync(new BaseSchemaPlanRequest { StoreId = "sqlite" })).Value!;
+            (await schemas.ApplyAsync(new BaseSchemaApplyRequest { ProtectedArtifact = plan.ProtectedArtifact })).IsSuccess().Should().BeTrue();
+            (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
+            BaseMutationRequestIdentity identity = BaseMutationRequestIdentity.Create(
+                "tenant_1", "create-owner", "request_1",
+                BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("sqlite-policy"u8)));
+            (await ReceiptBatch(provider, identity).CommitAsync()).Should().BeOfType<BaseSuccess<BaseBatchResult>>();
+
+            policy.Allow = false;
+            BaseMutationRequestIdentity conflict = BaseMutationRequestIdentity.Create(
+                "tenant_1", "create-owner", "request_1",
+                BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("sqlite-conflict"u8)));
+            BaseResult<BaseBatchResult> deniedResult = await ReceiptBatch(provider, conflict).CommitAsync();
+            policy.DenyCalls.Should().BeGreaterThan(0);
+            BaseFailure<BaseBatchResult> denied = deniedResult.Should().BeOfType<BaseFailure<BaseBatchResult>>().Subject;
+
+            denied.Status.Should().Be(OperationStatus.PolicyDenied);
+            denied.Error.Code.Should().Be("base.policy.denied");
+            denied.Error.Code.Should().NotBe(BaseMutationRequestErrorCodes.FingerprintConflict);
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            if (File.Exists(database)) File.Delete(database);
+        }
+    }
+
+    private static ServiceProvider BuildSqliteReceiptProvider(string database, IPolicyEvaluator? policy = null)
     {
         var services = new ServiceCollection().AddLogging();
-        services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
+        if (policy is null) services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
+        else services.AddSingleton(policy);
         services.AddHPDBase(builder => builder
             .ConfigureSchema(options => options.PlanProtectionKey = Enumerable.Repeat((byte)0x41, 32).ToArray())
             .AddCollection(TypedIdOwner.Collection)
@@ -1000,6 +1092,23 @@ internal sealed class ReceiptMutationObserver : IBaseCommittedMutationObserver
     {
         Count++;
         return ValueTask.CompletedTask;
+    }
+}
+
+internal sealed class ToggleReceiptPolicyEvaluator : IPolicyEvaluator
+{
+    public bool Allow { get; set; } = true;
+    public int DenyCalls { get; private set; }
+
+    public ValueTask<PolicyDecision> EvaluateAsync(
+        PolicyEvaluationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (Allow)
+            return ValueTask.FromResult(PolicyDecision.Allow());
+        DenyCalls++;
+        return ValueTask.FromResult(PolicyDecision.Deny("base.policy.denied", "The operation is not permitted."));
     }
 }
 

@@ -44,9 +44,11 @@ internal sealed class DefaultBaseMutationProcessor(
                 RecordId = resource?.Id,
                 ExistingRecord = resource,
             }, cancellationToken).ConfigureAwait(false);
-            if (!policyResult.IsSuccess() || policyResult.Value?.Decision.Effect != PolicyEffect.Allow
+            if (!policyResult.IsSuccess())
+                return Failed(policyResult.Error ?? Error("base.runtime.policy.denied", "Policy denied the operation.", ErrorCategory.Authorization));
+            if (policyResult.Value?.Decision.Effect != PolicyEffect.Allow
                 || resource is not null && !BaseRecordFilterMatcher.Matches(resource, policyResult.Value.EffectiveRecordFilter))
-                return Failed(Error(BaseMutationRequestErrorCodes.ReceiptUnavailable, "The stored receipt is unavailable.", ErrorCategory.Authorization));
+                return Failed(Error("base.runtime.policy.denied", "Policy denied the operation.", ErrorCategory.Authorization));
 
             _attempts.Add(new BaseMutationAttempt
             {

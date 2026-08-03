@@ -478,7 +478,7 @@ public sealed partial class SqliteRecordStore
         try
         {
             await rollbackTask.WaitAsync(rollbackLifetime.Token).ConfigureAwait(false);
-            return new RecordMutationExecutionResult(confirmedOutcome, processing);
+            return new RecordMutationExecutionResult(confirmedOutcome, processing, processing.Error);
         }
         catch (OperationCanceledException) when (!rollbackTask.IsCompleted)
         {

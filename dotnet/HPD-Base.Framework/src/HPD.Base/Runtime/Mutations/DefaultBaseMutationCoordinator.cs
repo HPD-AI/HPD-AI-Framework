@@ -349,6 +349,8 @@ internal sealed class DefaultBaseMutationCoordinator(
                 BaseMutationRequestErrorCodes.ReceiptTooLarge,
                 "The mutation receipt exceeds its configured bound.",
                 ErrorCategory.Validation));
+        if (requestIdentity is not null && execution.Value.Failure?.Category == ErrorCategory.Authorization)
+            return OperationResults.PolicyDenied<BaseRecordBatchResult>(execution.Value.Failure);
 
         var attempts = execution.Value.Attempts;
         if (execution.Value.AggregateFailure)
