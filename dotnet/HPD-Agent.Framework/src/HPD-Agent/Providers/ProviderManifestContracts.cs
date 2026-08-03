@@ -72,10 +72,29 @@ public sealed class HpdProviderManifestAttribute : Attribute
 {
     /// <summary>Initializes a manifest marker.</summary>
     /// <param name="manifestType">The generated public static manifest type.</param>
-    public HpdProviderManifestAttribute(Type manifestType) => ManifestType = manifestType;
+    /// <param name="providerKey">The canonical provider key contributed by the manifest.</param>
+    /// <param name="families">The client families contributed by the manifest.</param>
+    public HpdProviderManifestAttribute(
+        Type manifestType,
+        string providerKey,
+        params ProviderClientFamily[] families)
+    {
+        ManifestType = manifestType;
+        ProviderKey = providerKey;
+        Families = Array.AsReadOnly((ProviderClientFamily[])families.Clone());
+    }
 
     /// <summary>Gets the generated manifest type.</summary>
     public Type ManifestType { get; }
+
+    /// <summary>Gets the canonical provider key contributed by the manifest.</summary>
+    public string ProviderKey { get; }
+
+    /// <summary>Gets the client families contributed by the manifest.</summary>
+    public IReadOnlyList<ProviderClientFamily> Families { get; }
+
+    /// <summary>Gets or sets aliases contributed by the manifest.</summary>
+    public string[] Aliases { get; set; } = Array.Empty<string>();
 }
 
 /// <summary>Describes one immutable provider contribution before same-key composition.</summary>
@@ -98,11 +117,31 @@ public interface IProviderDescriptor
 }
 
 /// <summary>Provides a closed runtime factory contributed by a provider manifest.</summary>
-/// <param name="ProviderKey">The canonical provider key.</param>
-/// <param name="Factory">The statically reachable provider factory.</param>
-public sealed record ProviderRuntimeFactoryRegistration(
-    string ProviderKey,
-    Func<IProvider> Factory);
+public sealed class ProviderRuntimeFactoryRegistration
+{
+    /// <summary>Initializes a closed provider factory registration.</summary>
+    public ProviderRuntimeFactoryRegistration(
+        string providerKey,
+        IReadOnlyList<ProviderClientFamily> families,
+        Func<IProvider> factory)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(providerKey);
+        ArgumentNullException.ThrowIfNull(families);
+        ArgumentNullException.ThrowIfNull(factory);
+        ProviderKey = providerKey;
+        Families = new List<ProviderClientFamily>(families).AsReadOnly();
+        Factory = factory;
+    }
+
+    /// <summary>Gets the canonical provider key.</summary>
+    public string ProviderKey { get; }
+
+    /// <summary>Gets the client families created by this factory.</summary>
+    public IReadOnlyList<ProviderClientFamily> Families { get; }
+
+    /// <summary>Gets the statically reachable provider factory.</summary>
+    public Func<IProvider> Factory { get; }
+}
 
 /// <summary>
 /// Contains the immutable descriptor and runtime-factory contributions emitted by one

@@ -72,7 +72,7 @@ public sealed class ProviderManifestSourceGeneratorTests
             using System;
             using HPD.Agent.Providers;
 
-            [assembly: HpdProviderManifest(typeof(SampleManifest))]
+            [assembly: HpdProviderManifest(typeof(SampleManifest), "sample", ProviderClientFamily.Chat)]
 
             public static class SampleManifest
             {
@@ -107,6 +107,7 @@ public sealed class ProviderManifestSourceGeneratorTests
         Assert.Empty(errors);
         Assert.Contains("internal static class GeneratedProviderComposition", generated);
         Assert.Contains("global::SampleManifest.Fragment", generated);
+        Assert.Contains("ProviderComposition.Create", generated);
         Assert.DoesNotContain("Assembly.Load", generated);
         Assert.DoesNotContain("GetTypes", generated);
     }

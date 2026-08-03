@@ -12,26 +12,50 @@ namespace HPD.Agent.SourceGenerator.SourceGeneration;
 public sealed class ProviderCompositionSourceGenerator : IIncrementalGenerator
 {
     private const string ManifestAttributeName = "HPD.Agent.Providers.HpdProviderManifestAttribute";
+    private static readonly DiagnosticDescriptor DuplicateFamily = new(
+        "HPDP010", "Duplicate provider family", "Provider '{0}' contributes client family '{1}' more than once",
+        "HPD.Provider", DiagnosticSeverity.Error, true);
+    private static readonly DiagnosticDescriptor KeyCollision = new(
+        "HPDP011", "Provider key collision", "Provider key or alias '{0}' is claimed by both '{1}' and '{2}'",
+        "HPD.Provider", DiagnosticSeverity.Error, true);
 
     /// <inheritdoc />
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
         var manifests = context.CompilationProvider.Select(static (compilation, _) =>
         {
-            var builder = ImmutableArray.CreateBuilder<string>();
-            AddManifestTypes(compilation.Assembly, builder);
-            foreach (var referencedAssembly in compilation.SourceModule.ReferencedAssemblySymbols)
-                AddManifestTypes(referencedAssembly, builder);
-
-            return builder
-                .Distinct(StringComparer.Ordinal)
-                .OrderBy(static value => value, StringComparer.Ordinal)
-                .ToImmutableArray();
+            var builder = ImmutableArray.CreateBuilder<ManifestInfo>();
+            AddManifests(compilation.Assembly, builder);
+            foreach (var assembly in compilation.SourceModule.ReferencedAssemblySymbols)
+                AddManifests(assembly, builder);
+            return builder.Distinct(ManifestInfoComparer.Instance).OrderBy(x => x.ManifestType, StringComparer.Ordinal).ToImmutableArray();
         });
 
-        context.RegisterSourceOutput(manifests, static (productionContext, manifestTypes) =>
+        context.RegisterSourceOutput(manifests, static (context, manifests) =>
         {
-            if (manifestTypes.IsDefaultOrEmpty)
+            if (manifests.IsDefaultOrEmpty)
+                return;
+
+            var invalid = false;
+            foreach (var group in manifests.SelectMany(x => x.Families.Select(f => (x.ProviderKey, Family: f)))
+                         .GroupBy(x => x, ProviderFamilyComparer.Instance).Where(x => x.Count() > 1))
+            {
+                context.ReportDiagnostic(Diagnostic.Create(DuplicateFamily, Location.None, group.Key.ProviderKey, group.Key.Family));
+                invalid = true;
+            }
+
+            var claims = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var manifest in manifests)
+                foreach (var key in manifest.Aliases.Insert(0, manifest.ProviderKey))
+                {
+                    if (claims.TryGetValue(key, out var existing) && !StringComparer.OrdinalIgnoreCase.Equals(existing, manifest.ProviderKey))
+                    {
+                        context.ReportDiagnostic(Diagnostic.Create(KeyCollision, Location.None, key, existing, manifest.ProviderKey));
+                        invalid = true;
+                    }
+                    else claims[key] = manifest.ProviderKey;
+                }
+            if (invalid)
                 return;
 
             var source = new StringBuilder();
@@ -42,31 +66,45 @@ public sealed class ProviderCompositionSourceGenerator : IIncrementalGenerator
             source.AppendLine("/// <summary>Provides the closed provider composition generated for this assembly.</summary>");
             source.AppendLine("internal static class GeneratedProviderComposition");
             source.AppendLine("{");
-            source.AppendLine("    /// <summary>Gets all statically referenced provider manifest fragments.</summary>");
             source.AppendLine("    public static global::System.Collections.Generic.IReadOnlyList<global::HPD.Agent.Providers.ProviderManifestFragment> Fragments { get; } =");
             source.AppendLine("        new global::HPD.Agent.Providers.ProviderManifestFragment[]");
             source.AppendLine("        {");
-            foreach (var manifestType in manifestTypes)
-                source.AppendLine($"            {manifestType}.Fragment,");
+            foreach (var manifest in manifests)
+                source.AppendLine($"            {manifest.ManifestType}.Fragment,");
             source.AppendLine("        };");
+            source.AppendLine("    public static global::HPD.Agent.Providers.ProviderComposition Composition { get; } = global::HPD.Agent.Providers.ProviderComposition.Create(Fragments);");
+            source.AppendLine("    public static global::HPD.Agent.Providers.IProviderDescriptorRegistry Descriptors => Composition.Descriptors;");
+            source.AppendLine("    public static global::HPD.Agent.Providers.IProviderRuntimeRegistry Runtime => Composition.Runtime;");
             source.AppendLine("}");
-
-            productionContext.AddSource("GeneratedProviderComposition.g.cs", source.ToString());
+            context.AddSource("GeneratedProviderComposition.g.cs", source.ToString());
         });
     }
 
-    private static void AddManifestTypes(
-        IAssemblySymbol assembly,
-        ImmutableArray<string>.Builder builder)
+    private static void AddManifests(IAssemblySymbol assembly, ImmutableArray<ManifestInfo>.Builder builder)
     {
         foreach (var attribute in assembly.GetAttributes())
         {
-            if (attribute.AttributeClass?.ToDisplayString() != ManifestAttributeName ||
-                attribute.ConstructorArguments.Length != 1 ||
-                attribute.ConstructorArguments[0].Value is not INamedTypeSymbol manifestType)
+            if (attribute.AttributeClass?.ToDisplayString() != ManifestAttributeName || attribute.ConstructorArguments.Length < 3 ||
+                attribute.ConstructorArguments[0].Value is not INamedTypeSymbol type || attribute.ConstructorArguments[1].Value is not string key)
                 continue;
-
-            builder.Add(manifestType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat));
+            var families = attribute.ConstructorArguments[2].Values.Select(x => Convert.ToInt32(x.Value)).ToImmutableArray();
+            var aliasesArg = attribute.NamedArguments.FirstOrDefault(x => x.Key == "Aliases").Value;
+            var aliases = aliasesArg.IsNull ? ImmutableArray<string>.Empty : aliasesArg.Values.Select(x => (string)x.Value!).ToImmutableArray();
+            builder.Add(new ManifestInfo(type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), key, families, aliases));
         }
+    }
+
+    private sealed record ManifestInfo(string ManifestType, string ProviderKey, ImmutableArray<int> Families, ImmutableArray<string> Aliases);
+    private sealed class ManifestInfoComparer : IEqualityComparer<ManifestInfo>
+    {
+        public static ManifestInfoComparer Instance { get; } = new();
+        public bool Equals(ManifestInfo? x, ManifestInfo? y) => x?.ManifestType == y?.ManifestType;
+        public int GetHashCode(ManifestInfo obj) => StringComparer.Ordinal.GetHashCode(obj.ManifestType);
+    }
+    private sealed class ProviderFamilyComparer : IEqualityComparer<(string ProviderKey, int Family)>
+    {
+        public static ProviderFamilyComparer Instance { get; } = new();
+        public bool Equals((string ProviderKey, int Family) x, (string ProviderKey, int Family) y) => x.Family == y.Family && StringComparer.OrdinalIgnoreCase.Equals(x.ProviderKey, y.ProviderKey);
+        public int GetHashCode((string ProviderKey, int Family) obj) => unchecked((StringComparer.OrdinalIgnoreCase.GetHashCode(obj.ProviderKey) * 397) ^ obj.Family);
     }
 }
