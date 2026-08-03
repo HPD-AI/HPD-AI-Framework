@@ -149,13 +149,17 @@ public sealed class ProviderPayloadJsonContract
         ProviderClientFamily family,
         ProviderPayloadKind kind,
         Type runtimeType,
-        JsonTypeInfo jsonTypeInfo)
+        JsonTypeInfo jsonTypeInfo,
+        Func<object, object>? snapshot = null,
+        Func<object, ProviderValidationResult>? validate = null)
     {
         ProviderKey = providerKey;
         Family = family;
         Kind = kind;
         RuntimeType = runtimeType;
         JsonTypeInfo = jsonTypeInfo;
+        Snapshot = snapshot ?? (value => value);
+        Validate = validate ?? (_ => ProviderValidationResult.Success());
     }
 
     /// <summary>Gets the canonical provider key.</summary>
@@ -172,6 +176,12 @@ public sealed class ProviderPayloadJsonContract
 
     /// <summary>Gets the source-generated JSON metadata.</summary>
     public JsonTypeInfo JsonTypeInfo { get; }
+
+    /// <summary>Gets the closed, AOT-safe immutable snapshot operation.</summary>
+    public Func<object, object> Snapshot { get; }
+
+    /// <summary>Gets the closed provider payload validation operation.</summary>
+    public Func<object, ProviderValidationResult> Validate { get; }
 }
 
 /// <summary>Looks up generated provider payload JSON contracts.</summary>

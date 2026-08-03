@@ -217,7 +217,7 @@ public sealed class ProviderManifestSourceGenerator : IIncrementalGenerator
         source.AppendLine("        {");
         foreach (var payload in info.Payloads.OrderBy(static x => x.Family).ThenBy(static x => x.Kind))
         {
-            source.AppendLine($"            new({Literal(info.ProviderKey)}, (global::HPD.Agent.Providers.ProviderClientFamily){payload.Family}, (global::HPD.Agent.Providers.ProviderPayloadKind){payload.Kind}, typeof({payload.PayloadType}), {payload.ContextType}.Default.GetTypeInfo(typeof({payload.PayloadType}))!),");
+            source.AppendLine($"            new({Literal(info.ProviderKey)}, (global::HPD.Agent.Providers.ProviderClientFamily){payload.Family}, (global::HPD.Agent.Providers.ProviderPayloadKind){payload.Kind}, typeof({payload.PayloadType}), {payload.ContextType}.Default.GetTypeInfo(typeof({payload.PayloadType}))!, static value => global::System.Text.Json.JsonSerializer.Deserialize(global::System.Text.Json.JsonSerializer.SerializeToElement(value, {payload.ContextType}.Default.GetTypeInfo(typeof({payload.PayloadType}))!), {payload.ContextType}.Default.GetTypeInfo(typeof({payload.PayloadType}))!)!),");
         }
         source.AppendLine("        },");
         source.AppendLine("        new global::HPD.Agent.Providers.ProviderSecretAliasRegistration[]");
