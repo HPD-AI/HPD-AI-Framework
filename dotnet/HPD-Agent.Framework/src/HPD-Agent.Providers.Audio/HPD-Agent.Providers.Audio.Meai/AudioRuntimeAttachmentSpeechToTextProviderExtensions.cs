@@ -120,7 +120,6 @@ public static class AudioRuntimeAttachmentSpeechToTextProviderExtensions
                 ? null
                 : new Dictionary<string, string>(source.CustomHeaders, StringComparer.OrdinalIgnoreCase),
             ProviderConfig = source.ProviderConfig,
-            PromptFormatter = source.PromptFormatter
         };
 
     private static string? EmptyAsNull(string? value)

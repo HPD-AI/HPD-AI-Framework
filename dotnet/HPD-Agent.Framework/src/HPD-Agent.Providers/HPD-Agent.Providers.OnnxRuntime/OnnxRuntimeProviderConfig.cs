@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
+using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.Providers.OnnxRuntime;
 
@@ -31,8 +32,13 @@ public class OnnxRuntimeProviderConfig : global::HPD.Agent.IProviderConfig
     /// Provider-specific ONNX Runtime execution options.
     /// The first key is the provider name; the nested keys and values are passed to Config.SetProviderOption.
     /// </summary>
-    [JsonPropertyName("providerOptions")]
-    public Dictionary<string, Dictionary<string, string>>? ConstructionOptions { get; set; }
+    [JsonPropertyName("executionProviderOptions")]
+    public Dictionary<string, Dictionary<string, string>>? ExecutionProviderOptions { get; set; }
+
+    /// <summary>Gets or sets a process-local formatter used to create the native model prompt.</summary>
+    /// <remarks>This executable delegate is runtime-only and is never serialized.</remarks>
+    [JsonIgnore]
+    public Func<IEnumerable<ChatMessage>, ChatOptions?, string>? PromptFormatter { get; set; }
 
     /// <summary>
     /// Hardware device type for decoder execution, such as cpu, gpu, or npu.

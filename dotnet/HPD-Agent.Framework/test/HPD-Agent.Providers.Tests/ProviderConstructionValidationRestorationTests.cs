@@ -75,7 +75,7 @@ public sealed class ProviderConstructionValidationRestorationTests
     }
 
     [Fact]
-    public void OnnxRuntime_ValidateConfiguration_ShouldRejectInvalidProviderAndHardwareConstructionOptions()
+    public void OnnxRuntime_ValidateConfiguration_ShouldRejectInvalidExecutionProviderAndHardwareOptions()
     {
         var provider = new OnnxRuntimeProvider();
         var config = new ProviderClientConfig
@@ -86,7 +86,7 @@ public sealed class ProviderConstructionValidationRestorationTests
         {
             ModelPath = Directory.GetCurrentDirectory(),
             Providers = [""],
-            ConstructionOptions = new Dictionary<string, Dictionary<string, string>>
+            ExecutionProviderOptions = new Dictionary<string, Dictionary<string, string>>
             {
                 [""] = new()
                 {

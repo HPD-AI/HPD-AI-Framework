@@ -540,12 +540,6 @@ public class ProviderClientConfig
     [JsonIgnore]
     public IProviderConfig? ProviderConfig { get; set; }
 
-    /// <summary>
-    /// Optional runtime-only prompt formatter for local providers that expose formatter hooks.
-    /// </summary>
-    [JsonIgnore]
-    public Func<IEnumerable<ChatMessage>, ChatOptions?, string>? PromptFormatter { get; set; }
-
 }
 
 /// <summary>
@@ -848,7 +842,6 @@ public static class ProviderClientConfigResolver
             targetVad.OverrideFactory = sourceVad.OverrideFactory ?? targetVad.OverrideFactory;
         else if (target is EndOfTurnDetectionClientConfig targetEot && source is EndOfTurnDetectionClientConfig sourceEot)
             targetEot.OverrideFactory = sourceEot.OverrideFactory ?? targetEot.OverrideFactory;
-        target.PromptFormatter = source.PromptFormatter ?? target.PromptFormatter;
         target.ProviderConfig = source.ProviderConfig ?? target.ProviderConfig;
 
         if (source.CustomHeaders != null)
@@ -873,8 +866,7 @@ public static class ProviderClientConfigResolver
            chat.PresencePenalty is null && chat.Seed is null &&
            chat.StopSequences is null && chat.Reasoning is null &&
            chat.ProviderOptions is null && chat.Override is null)) &&
-         config.CustomHeaders == null &&
-         config.PromptFormatter == null);
+         config.CustomHeaders == null);
 
     private static string? FirstNonEmpty(params string?[] values) =>
         values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));

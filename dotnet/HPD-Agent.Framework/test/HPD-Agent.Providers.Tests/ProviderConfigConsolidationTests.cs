@@ -296,14 +296,14 @@ public class ProviderConfigConsolidationTests
     }
 
     [Fact]
-    public void OnnxRuntimeProviderConfig_ShouldOwnProviderConstructionOptions()
+    public void OnnxRuntimeProviderConfig_ShouldOwnExecutionProviderOptions()
     {
         var modelPath = Directory.GetCurrentDirectory();
         var builder = new AgentBuilder()
             .WithOnnxRuntime(modelPath, onnx =>
             {
                 onnx.Providers = ["cuda", "cpu"];
-                onnx.ConstructionOptions = new Dictionary<string, Dictionary<string, string>>
+                onnx.ExecutionProviderOptions = new Dictionary<string, Dictionary<string, string>>
                 {
                     ["cuda"] = new()
                     {
@@ -322,7 +322,7 @@ public class ProviderConfigConsolidationTests
         providerConfig.Should().NotBeNull();
         providerConfig!.ModelPath.Should().Be(modelPath);
         providerConfig.Providers.Should().Equal("cuda", "cpu");
-        providerConfig.ConstructionOptions!["cuda"]["device_id"].Should().Be("0");
+        providerConfig.ExecutionProviderOptions!["cuda"]["device_id"].Should().Be("0");
         providerConfig.HardwareDeviceType.Should().Be("gpu");
         providerConfig.HardwareDeviceId.Should().Be(0);
         providerConfig.EnableCaching.Should().BeTrue();
