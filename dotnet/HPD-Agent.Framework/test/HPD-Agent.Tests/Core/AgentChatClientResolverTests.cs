@@ -19,7 +19,7 @@ public sealed class AgentChatClientResolverTests
     };
 
     [Fact]
-    public async Task ResolveAsync_AgentDefault_BeatsInheritedFallback()
+    public async Task ResolveAsync_FallbackToParent_PrefersBuilderDefault()
     {
         var agentClient = new FakeChatClient();
         var inheritedClient = new FakeChatClient();
@@ -28,15 +28,34 @@ public sealed class AgentChatClientResolverTests
         await using var lease = await resolver.ResolveAsync(new AgentChatClientResolutionRequest
         {
             AgentConfig = new AgentConfig(),
-            AgentDefault = AgentChatClientHandle.Borrowed(agentClient, AgentChatClientSource.AgentDefault),
-            InheritedFallback = AgentChatClientHandle.Borrowed(inheritedClient, AgentChatClientSource.InheritedFallback)
+            BuilderDefault = AgentChatClientHandle.Borrowed(agentClient, AgentChatClientSource.BuilderDefault),
+            ParentResolved = AgentChatClientHandle.Borrowed(inheritedClient, AgentChatClientSource.ParentResolved),
+            ParentInheritance = ClientFamilyInheritanceMode.FallbackToParent
         });
 
         Assert.Same(agentClient, lease.Client);
     }
 
     [Fact]
-    public async Task ResolveAsync_Override_BeatsAgentDefault()
+    public async Task ResolveAsync_InheritResolved_PrefersParentOverBuilderDefault()
+    {
+        var agentClient = new FakeChatClient();
+        var inheritedClient = new FakeChatClient();
+        var resolver = new AgentChatClientResolver(null, null);
+
+        await using var lease = await resolver.ResolveAsync(new AgentChatClientResolutionRequest
+        {
+            AgentConfig = new AgentConfig(),
+            BuilderDefault = AgentChatClientHandle.Borrowed(agentClient, AgentChatClientSource.BuilderDefault),
+            ParentResolved = AgentChatClientHandle.Borrowed(inheritedClient, AgentChatClientSource.ParentResolved),
+            ParentInheritance = ClientFamilyInheritanceMode.InheritResolved
+        });
+
+        Assert.Same(inheritedClient, lease.Client);
+    }
+
+    [Fact]
+    public async Task ResolveAsync_Override_BeatsBuilderDefault()
     {
         var overrideClient = new FakeChatClient();
         var resolver = new AgentChatClientResolver(null, null);
@@ -54,7 +73,7 @@ public sealed class AgentChatClientResolverTests
                     }
                 }
             },
-            AgentDefault = AgentChatClientHandle.Borrowed(new FakeChatClient(), AgentChatClientSource.AgentDefault)
+            BuilderDefault = AgentChatClientHandle.Borrowed(new FakeChatClient(), AgentChatClientSource.BuilderDefault)
         });
 
         Assert.Same(overrideClient, lease.Client);

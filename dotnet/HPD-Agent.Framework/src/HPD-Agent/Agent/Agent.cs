@@ -276,7 +276,7 @@ public sealed class Agent
             ? null
             : AgentChatClientHandle.Borrowed(
                 _baseClient,
-                AgentChatClientSource.AgentDefault,
+                AgentChatClientSource.BuilderDefault,
                 clientSet?.GetResolvedConfig(Providers.ProviderClientFamily.Chat));
         _chatClientResolver = new AgentChatClientResolver(providerRegistry, serviceProvider, config.ClientMiddleware);
         _name = config.Name ?? "Agent"; // Default to "Agent" to prevent null dictionary key exceptions
@@ -1215,7 +1215,8 @@ public sealed class Agent
                 input.ClientInputId,
                 activeInput,
                 cancellationToken,
-                input.InheritedChatClient).ConfigureAwait(false))
+                input.InheritedChatClient,
+                input.InheritedChatMode).ConfigureAwait(false))
             {
                 result.Add(evt);
             }
@@ -1240,7 +1241,8 @@ public sealed class Agent
                 input.ClientInputId,
                 activeInput,
                 cancellationToken,
-                input.InheritedChatClient).ConfigureAwait(false))
+                input.InheritedChatClient,
+                input.InheritedChatMode).ConfigureAwait(false))
             {
                 result.Add(evt);
             }
@@ -1263,7 +1265,8 @@ public sealed class Agent
             input.ClientInputId,
             activeInput,
             cancellationToken,
-            input.InheritedChatClient).ConfigureAwait(false))
+            input.InheritedChatClient,
+            input.InheritedChatMode).ConfigureAwait(false))
         {
             unsessionedResult.Add(evt);
         }
@@ -2143,7 +2146,8 @@ public sealed class Agent
         string? clientInputId = null,
         ActiveRuntimeInput? activeInput = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default,
-        AgentChatClientHandle? inheritedChatClient = null)
+        AgentChatClientHandle? inheritedChatClient = null,
+        ClientFamilyInheritanceMode inheritedChatMode = ClientFamilyInheritanceMode.UseOwn)
     {
         eventCoordinator ??= _eventCoordinator;
         var orchestrationStartTime = DateTime.UtcNow;
@@ -2279,8 +2283,9 @@ public sealed class Agent
                     {
                         AgentConfig = Config ?? throw new InvalidOperationException("Agent configuration is not available."),
                         RunConfig = effectiveRunConfig,
-                        AgentDefault = _defaultChatClientHandle,
-                        InheritedFallback = inheritedChatClient
+                        BuilderDefault = _defaultChatClientHandle,
+                        ParentResolved = inheritedChatClient,
+                        ParentInheritance = inheritedChatMode
                     },
                     effectiveCancellationToken).ConfigureAwait(false);
             }
@@ -4168,7 +4173,8 @@ public sealed class Agent
         string? clientInputId,
         ActiveRuntimeInput? activeInput,
         [EnumeratorCancellation] CancellationToken cancellationToken,
-        AgentChatClientHandle? inheritedChatClient = null)
+        AgentChatClientHandle? inheritedChatClient = null,
+        ClientFamilyInheritanceMode inheritedChatMode = ClientFamilyInheritanceMode.UseOwn)
     {
         // Validation
         if (thread != null)
@@ -4229,7 +4235,8 @@ public sealed class Agent
             clientInputId: clientInputId,
             activeInput: activeInput,
             cancellationToken: cancellationToken,
-            inheritedChatClient: inheritedChatClient);
+            inheritedChatClient: inheritedChatClient,
+            inheritedChatMode: inheritedChatMode);
 
         await using var enumerator = internalStream.GetAsyncEnumerator(cancellationToken);
         string? messageTurnId = null;

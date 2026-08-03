@@ -62,7 +62,7 @@ internal sealed class AgentRuntimeFunctionExecutor : IRuntimeFunctionExecutor
                 {
                     AgentConfig = _config ?? throw new InvalidOperationException("Agent configuration is not available."),
                     RunConfig = effectiveRunConfig,
-                    AgentDefault = _defaultChatClient
+                    BuilderDefault = _defaultChatClient
                 },
                 cancellationToken).ConfigureAwait(false)
             : null;

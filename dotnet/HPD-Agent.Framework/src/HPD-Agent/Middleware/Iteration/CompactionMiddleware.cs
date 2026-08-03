@@ -153,7 +153,7 @@ public sealed class CompactionMiddleware : IAgentMiddleware
                     BeforeIterationContext iteration => iteration.RunConfig,
                     _ => null
                 },
-                AgentDefault = context.Base.EffectiveChatClient,
+                BuilderDefault = context.Base.EffectiveChatClient,
                 SpecializedChat = summarizing.Summarizer
             },
             cancellationToken).ConfigureAwait(false);

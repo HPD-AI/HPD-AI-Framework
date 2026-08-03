@@ -11,8 +11,8 @@ internal enum AgentChatClientSource
 {
     InjectedOverride,
     RuntimeProvider,
-    AgentDefault,
-    InheritedFallback,
+    BuilderDefault,
+    ParentResolved,
     SpecializedRole
 }
 
@@ -117,8 +117,9 @@ internal sealed record AgentChatClientResolutionRequest
 {
     public required AgentConfig AgentConfig { get; init; }
     public AgentRunConfig? RunConfig { get; init; }
-    public AgentChatClientHandle? AgentDefault { get; init; }
-    public AgentChatClientHandle? InheritedFallback { get; init; }
+    public AgentChatClientHandle? BuilderDefault { get; init; }
+    public AgentChatClientHandle? ParentResolved { get; init; }
+    public ClientFamilyInheritanceMode ParentInheritance { get; init; } = ClientFamilyInheritanceMode.UseOwn;
     public ChatClientConfig? SpecializedChat { get; init; }
     public ClientFamilyInheritanceMode SpecializedInheritance { get; init; } =
         ClientFamilyInheritanceMode.InheritResolved;
@@ -166,7 +167,7 @@ internal sealed class AgentChatClientResolver : IDisposable
                     ? request.AgentConfig.ResolveClientConfig(
                         ProviderClientFamily.Chat,
                         request.RunConfig.Clients) as ChatClientConfig
-                    : request.AgentDefault?.ResolvedConfig as ChatClientConfig
+                    : request.BuilderDefault?.ResolvedConfig as ChatClientConfig
                         ?? request.AgentConfig.ResolveClientConfig(ProviderClientFamily.Chat) as ChatClientConfig;
             var specializedClients = new AgentClientsConfig { Chat = specialized };
             var primaryClients = primary is null ? null : new AgentClientsConfig { Chat = primary };
@@ -206,8 +207,12 @@ internal sealed class AgentChatClientResolver : IDisposable
                 cancellationToken).ConfigureAwait(false);
         }
 
-        if (request.AgentDefault is not null)
-            return request.AgentDefault.AcquireLease();
+        if (request.ParentInheritance == ClientFamilyInheritanceMode.InheritResolved &&
+            request.ParentResolved is not null)
+            return request.ParentResolved.AcquireLease();
+
+        if (request.BuilderDefault is not null)
+            return request.BuilderDefault.AcquireLease();
 
         var configuredDefault = request.AgentConfig.ResolveClientConfig(ProviderClientFamily.Chat);
         if (configuredDefault is not null &&
@@ -215,12 +220,13 @@ internal sealed class AgentChatClientResolver : IDisposable
         {
             return await CreateProviderLeaseAsync(
                 configuredDefault,
-                AgentChatClientSource.AgentDefault,
+                AgentChatClientSource.BuilderDefault,
                 cancellationToken).ConfigureAwait(false);
         }
 
-        if (request.InheritedFallback is not null)
-            return request.InheritedFallback.AcquireLease();
+        if (request.ParentInheritance == ClientFamilyInheritanceMode.FallbackToParent &&
+            request.ParentResolved is not null)
+            return request.ParentResolved.AcquireLease();
 
         throw new InvalidOperationException(
             "No chat model is available for this invocation. Configure the agent, provide a runtime provider/model, supply an explicit client override, or invoke it from a parent with an inheritable chat client.");
@@ -449,7 +455,7 @@ internal sealed class AgentSpecializedChatClient(
         {
             AgentConfig = agentConfig,
             RunConfig = runConfig,
-            AgentDefault = resolvedPrimary,
+            BuilderDefault = resolvedPrimary,
             SpecializedChat = specialized,
             SpecializedInheritance = inheritance
         }, cancellationToken);

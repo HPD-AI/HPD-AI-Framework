@@ -303,7 +303,8 @@ public static class SubAgentRuntime
                 SessionId = route.SessionId,
                 ThreadId = route.ThreadId,
                 RunConfig = definition.RunConfig.Resolve(request.ParentContext?.RunConfig),
-                InheritedChatClient = request.ParentContext?.GetEffectiveChatClientHandle()
+                InheritedChatClient = request.ParentContext?.GetEffectiveChatClientHandle(),
+                InheritedChatMode = definition.RunConfig.Clients.Chat
             }, cancellationToken).ConfigureAwait(false);
 
             var text = await ResolveAssistantTextAfterAsync(

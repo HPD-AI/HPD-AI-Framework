@@ -9,41 +9,60 @@ public enum SubAgentRunConfigFields
     /// <summary>Inherits no parent run-configuration values.</summary>
     None = 0,
 
-    /// <summary>Provider, model, transport, and provider-client selections.</summary>
-    Model = 1 << 0,
-
-    /// <summary>Chat generation and reasoning options.</summary>
-    Chat = 1 << 1,
-
     /// <summary>Permission mode and per-tool permission overrides.</summary>
-    Permissions = 1 << 2,
+    Permissions = 1 << 0,
 
     /// <summary>Timeout, caching, streaming, upload, background-response, and audio behavior.</summary>
-    Execution = 1 << 3,
+    Execution = 1 << 1,
 
     /// <summary>Per-run compaction behavior.</summary>
-    Compaction = 1 << 4,
+    Compaction = 1 << 2,
 
     /// <summary>Runtime context overrides and instances.</summary>
-    Context = 1 << 5,
+    Context = 1 << 3,
 
     /// <summary>Replacement and additional system instructions.</summary>
-    Instructions = 1 << 6,
+    Instructions = 1 << 4,
 
     /// <summary>Runtime tools, tool mode, client tools, and client app providers.</summary>
-    Tools = 1 << 7,
+    Tools = 1 << 5,
 
     /// <summary>Structured output and custom streaming output behavior.</summary>
-    Output = 1 << 8,
+    Output = 1 << 6,
 
     /// <summary>
     /// The framework default: inherit the execution environment without replacing the child agent's
     /// instructions, tools, input, output contract, or evaluation behavior.
     /// </summary>
-    Default = Model | Chat | Permissions | Execution | Compaction | Context,
+    Default = Permissions | Execution | Compaction | Context,
 
     /// <summary>Inherits every run-configuration group.</summary>
     All = Default | Instructions | Tools | Output
+}
+
+/// <summary>Controls how each subagent client family relates to the invoking run.</summary>
+public sealed record SubAgentClientInheritance
+{
+    /// <summary>Gets the Chat-family inheritance policy.</summary>
+    public ClientFamilyInheritanceMode Chat { get; init; } = ClientFamilyInheritanceMode.InheritResolved;
+
+    /// <summary>Gets the Realtime-family inheritance policy.</summary>
+    public ClientFamilyInheritanceMode Realtime { get; init; } = ClientFamilyInheritanceMode.InheritResolved;
+
+    /// <summary>Gets the image-generation-family inheritance policy.</summary>
+    public ClientFamilyInheritanceMode ImageGeneration { get; init; } = ClientFamilyInheritanceMode.UseOwn;
+
+    /// <summary>Gets the embeddings-family inheritance policy.</summary>
+    public ClientFamilyInheritanceMode Embeddings { get; init; } = ClientFamilyInheritanceMode.UseOwn;
+
+    /// <summary>Gets the text-to-speech-family inheritance policy.</summary>
+    public ClientFamilyInheritanceMode TextToSpeech { get; init; } = ClientFamilyInheritanceMode.InheritResolved;
+
+    /// <summary>Gets the speech-to-text-family inheritance policy.</summary>
+    public ClientFamilyInheritanceMode SpeechToText { get; init; } = ClientFamilyInheritanceMode.InheritResolved;
+
+    /// <summary>Gets the hosted-files-family inheritance policy.</summary>
+    public ClientFamilyInheritanceMode HostedFiles { get; init; } = ClientFamilyInheritanceMode.FallbackToParent;
 }
 
 /// <summary>
@@ -57,35 +76,50 @@ public sealed class SubAgentRunConfig
 {
     private readonly Action<AgentRunConfig>? _configure;
 
-    private SubAgentRunConfig(SubAgentRunConfigFields inheritedFields, Action<AgentRunConfig>? configure)
+    private SubAgentRunConfig(
+        SubAgentRunConfigFields inheritedFields,
+        SubAgentClientInheritance clients,
+        Action<AgentRunConfig>? configure)
     {
         InheritedFields = inheritedFields;
+        Clients = clients;
         _configure = configure;
     }
 
     /// <summary>Gets the parent run-configuration groups selected for inheritance.</summary>
     public SubAgentRunConfigFields InheritedFields { get; }
 
+    /// <summary>Gets the explicit inheritance policy for every client family.</summary>
+    public SubAgentClientInheritance Clients { get; }
+
     /// <summary>Creates the default parent run-configuration inheritance selection.</summary>
     public static SubAgentRunConfig Inherit()
-        => new(SubAgentRunConfigFields.Default, configure: null);
+        => new(SubAgentRunConfigFields.Default, new SubAgentClientInheritance(), configure: null);
 
     /// <summary>Creates a selection that inherits exactly the supplied groups.</summary>
     /// <param name="fields">The complete set of groups to inherit.</param>
     public static SubAgentRunConfig InheritOnly(SubAgentRunConfigFields fields)
-        => new(ValidateFields(fields), configure: null);
+        => new(ValidateFields(fields), new SubAgentClientInheritance(), configure: null);
 
     /// <summary>Creates an isolated child run configuration with no inherited parent values.</summary>
     public static SubAgentRunConfig Isolated()
-        => new(SubAgentRunConfigFields.None, configure: null);
+        => new(SubAgentRunConfigFields.None, CreateUseOwnClients(), configure: null);
+
+    /// <summary>Returns a new selection with the supplied per-family client inheritance policy.</summary>
+    /// <param name="clients">The complete client-family inheritance policy.</param>
+    public SubAgentRunConfig WithClients(SubAgentClientInheritance clients)
+    {
+        ArgumentNullException.ThrowIfNull(clients);
+        return new SubAgentRunConfig(InheritedFields, clients, _configure);
+    }
 
     /// <summary>Adds groups to the inheritance selection.</summary>
     public SubAgentRunConfig Include(SubAgentRunConfigFields fields)
-        => new(InheritedFields | ValidateFields(fields), _configure);
+        => new(InheritedFields | ValidateFields(fields), Clients, _configure);
 
     /// <summary>Removes groups from the inheritance selection.</summary>
     public SubAgentRunConfig Exclude(SubAgentRunConfigFields fields)
-        => new(InheritedFields & ~ValidateFields(fields), _configure);
+        => new(InheritedFields & ~ValidateFields(fields), Clients, _configure);
 
     /// <summary>
     /// Applies explicit child-only overrides after inherited values have been copied.
@@ -96,6 +130,7 @@ public sealed class SubAgentRunConfig
         ArgumentNullException.ThrowIfNull(configure);
         return new SubAgentRunConfig(
             InheritedFields,
+            Clients,
             _configure is null
                 ? configure
                 : config =>
@@ -104,6 +139,17 @@ public sealed class SubAgentRunConfig
                     configure(config);
                 });
     }
+
+    private static SubAgentClientInheritance CreateUseOwnClients() => new()
+    {
+        Chat = ClientFamilyInheritanceMode.UseOwn,
+        Realtime = ClientFamilyInheritanceMode.UseOwn,
+        ImageGeneration = ClientFamilyInheritanceMode.UseOwn,
+        Embeddings = ClientFamilyInheritanceMode.UseOwn,
+        TextToSpeech = ClientFamilyInheritanceMode.UseOwn,
+        SpeechToText = ClientFamilyInheritanceMode.UseOwn,
+        HostedFiles = ClientFamilyInheritanceMode.UseOwn
+    };
 
     internal AgentRunConfig Resolve(AgentRunConfig? parent)
     {
@@ -128,23 +174,6 @@ internal static class AgentRunConfigInheritance
     {
         ArgumentNullException.ThrowIfNull(source);
         var result = new AgentRunConfig();
-
-        if (Has(fields, SubAgentRunConfigFields.Model))
-        {
-            result.Clients.Transport = source.Clients.Transport;
-            result.Clients.Chat = CloneChat(source.Clients.Chat);
-            result.Clients.Realtime = Clone<RealtimeClientConfig>(source.Clients.Realtime);
-            result.Clients.TextToSpeech = Clone<TextToSpeechClientConfig>(source.Clients.TextToSpeech);
-            result.Clients.SpeechToText = Clone<SpeechToTextClientConfig>(source.Clients.SpeechToText);
-            result.Clients.ImageGeneration = Clone<ImageGenerationClientConfig>(source.Clients.ImageGeneration);
-            result.Clients.Embeddings = Clone<EmbeddingsClientConfig>(source.Clients.Embeddings);
-            result.Clients.HostedFiles = Clone<HostedFilesClientConfig>(source.Clients.HostedFiles);
-            result.Clients.VoiceActivityDetection = Clone<VoiceActivityDetectionClientConfig>(source.Clients.VoiceActivityDetection);
-            result.Clients.EndOfTurnDetection = Clone<EndOfTurnDetectionClientConfig>(source.Clients.EndOfTurnDetection);
-        }
-
-        if (Has(fields, SubAgentRunConfigFields.Chat))
-            result.Clients.Chat = CloneChat(source.Clients.Chat);
 
         if (Has(fields, SubAgentRunConfigFields.Permissions))
         {
@@ -231,38 +260,6 @@ internal static class AgentRunConfigInheritance
         return result;
     }
 
-    private static TConfig? Clone<TConfig>(TConfig? source)
-        where TConfig : ProviderClientConfig
-        => source is null ? null : (TConfig)ProviderClientConfigResolver.Clone(source);
-
     private static bool Has(SubAgentRunConfigFields fields, SubAgentRunConfigFields value)
         => (fields & value) == value;
-
-    private static ChatClientConfig? CloneChat(ChatClientConfig? source)
-        => source is null
-            ? null
-            : new ChatClientConfig
-            {
-                ProviderKey = source.ProviderKey,
-                ModelName = source.ModelName,
-                Endpoint = source.Endpoint,
-                AuthenticationKey = source.AuthenticationKey,
-                ApiKey = source.ApiKey,
-                CustomHeaders = source.CustomHeaders is null ? null : new(source.CustomHeaders),
-                ProviderConfig = source.ProviderConfig,
-                Override = source.Override,
-                Temperature = source.Temperature,
-                TopP = source.TopP,
-                TopK = source.TopK,
-                MaxOutputTokens = source.MaxOutputTokens,
-                FrequencyPenalty = source.FrequencyPenalty,
-                PresencePenalty = source.PresencePenalty,
-                Seed = source.Seed,
-                StopSequences = source.StopSequences?.ToArray(),
-                ProviderOptions = source.ProviderOptions,
-                Reasoning = source.Reasoning is null
-                    ? null
-                    : new ReasoningOptions { Effort = source.Reasoning.Effort, Output = source.Reasoning.Output },
-                ResponseFormat = source.ResponseFormat
-            };
 }

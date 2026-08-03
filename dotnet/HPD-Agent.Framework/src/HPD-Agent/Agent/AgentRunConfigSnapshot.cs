@@ -15,6 +15,7 @@ internal static class AgentRunConfigSnapshot
             return null;
 
         var snapshot = AgentRunConfigInheritance.CreateSnapshot(source, SubAgentRunConfigFields.All);
+        snapshot.Clients = CloneClients(source.Clients);
         SnapshotProviderPayloads(snapshot.Clients, composition);
         snapshot.Audio = CloneAudio(source.Audio);
         snapshot.Compaction = CloneCompaction(source.Compaction, composition);
@@ -22,6 +23,24 @@ internal static class AgentRunConfigSnapshot
         snapshot.Evaluations = SnapshotEvaluations(source.Evaluations);
         return snapshot;
     }
+
+    private static AgentClientsConfig CloneClients(AgentClientsConfig source) => new()
+    {
+        Transport = source.Transport,
+        Chat = CloneClient<ChatClientConfig>(source.Chat),
+        Realtime = CloneClient<RealtimeClientConfig>(source.Realtime),
+        ImageGeneration = CloneClient<ImageGenerationClientConfig>(source.ImageGeneration),
+        Embeddings = CloneClient<EmbeddingsClientConfig>(source.Embeddings),
+        TextToSpeech = CloneClient<TextToSpeechClientConfig>(source.TextToSpeech),
+        SpeechToText = CloneClient<SpeechToTextClientConfig>(source.SpeechToText),
+        HostedFiles = CloneClient<HostedFilesClientConfig>(source.HostedFiles),
+        VoiceActivityDetection = CloneClient<VoiceActivityDetectionClientConfig>(source.VoiceActivityDetection),
+        EndOfTurnDetection = CloneClient<EndOfTurnDetectionClientConfig>(source.EndOfTurnDetection)
+    };
+
+    private static TConfig? CloneClient<TConfig>(TConfig? source)
+        where TConfig : ProviderClientConfig
+        => source is null ? null : (TConfig)ProviderClientConfigResolver.Clone(source);
 
     private static void SnapshotProviderPayloads(AgentClientsConfig clients, ProviderComposition? composition)
     {

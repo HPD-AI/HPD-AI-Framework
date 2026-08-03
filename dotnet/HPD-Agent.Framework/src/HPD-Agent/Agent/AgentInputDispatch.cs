@@ -240,7 +240,7 @@ internal sealed class CompactThreadInputHandler : IAgentInputHandler<CompactThre
                 {
                     AgentConfig = context.Config,
                     RunConfig = input.RunConfig ?? context.RuntimeRunConfig,
-                    AgentDefault = context.DefaultChatClient,
+                    BuilderDefault = context.DefaultChatClient,
                     SpecializedChat = summarizing.Summarizer
                 },
                 cancellationToken).ConfigureAwait(false)

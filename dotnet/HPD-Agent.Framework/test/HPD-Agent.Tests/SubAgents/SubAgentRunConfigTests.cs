@@ -16,6 +16,9 @@ public sealed class SubAgentRunConfigTests
             new AgentConfig { Name = "Reviewer" });
 
         definition.RunConfig.InheritedFields.Should().Be(SubAgentRunConfigFields.Default);
+        definition.RunConfig.Clients.Chat.Should().Be(ClientFamilyInheritanceMode.InheritResolved);
+        definition.RunConfig.Clients.ImageGeneration.Should().Be(ClientFamilyInheritanceMode.UseOwn);
+        definition.RunConfig.Clients.HostedFiles.Should().Be(ClientFamilyInheritanceMode.FallbackToParent);
     }
 
     [Fact]
@@ -31,6 +34,7 @@ public sealed class SubAgentRunConfigTests
 
         isolated.Should().NotBeSameAs(definition);
         isolated.RunConfig.InheritedFields.Should().Be(SubAgentRunConfigFields.None);
+        isolated.RunConfig.Clients.Chat.Should().Be(ClientFamilyInheritanceMode.UseOwn);
         definition.RunConfig.InheritedFields.Should().Be(SubAgentRunConfigFields.Default);
     }
 
@@ -61,11 +65,9 @@ public sealed class SubAgentRunConfigTests
 
         var child = SubAgentRunConfig.Inherit().Resolve(parent);
 
-        child.Clients.Chat!.ProviderKey.Should().Be("openrouter");
-        child.Clients.Chat.ModelName.Should().Be("parent-model");
+        child.Clients.Chat.Should().BeNull();
         child.Security.Should().Be(parent.Security);
         child.Security.Should().NotBeSameAs(parent.Security);
-        child.Clients.Chat.Temperature.Should().Be(0.25);
         child.Streaming!.CoalesceDeltas.Should().BeTrue();
         child.SystemInstructions.Should().BeNull();
         child.StructuredOutput.Should().BeNull();
@@ -76,12 +78,12 @@ public sealed class SubAgentRunConfigTests
     {
         var defaults = SubAgentRunConfig.Inherit();
         var instructions = defaults.Include(SubAgentRunConfigFields.Instructions);
-        var withoutChat = instructions.Exclude(SubAgentRunConfigFields.Chat);
+        var withoutContext = instructions.Exclude(SubAgentRunConfigFields.Context);
 
         defaults.InheritedFields.Should().Be(SubAgentRunConfigFields.Default);
         instructions.InheritedFields.Should().HaveFlag(SubAgentRunConfigFields.Instructions);
-        withoutChat.InheritedFields.Should().NotHaveFlag(SubAgentRunConfigFields.Chat);
-        withoutChat.InheritedFields.Should().HaveFlag(SubAgentRunConfigFields.Instructions);
+        withoutContext.InheritedFields.Should().NotHaveFlag(SubAgentRunConfigFields.Context);
+        withoutContext.InheritedFields.Should().HaveFlag(SubAgentRunConfigFields.Instructions);
     }
 
     [Fact]
@@ -147,10 +149,14 @@ public sealed class SubAgentRunConfigTests
 
         var child = SubAgentRunConfig
             .Inherit()
-            .Override(config => config.Clients.Chat!.Temperature = 0.1)
+            .Override(config => config.Clients.Chat = new ChatClientConfig
+            {
+                ProviderKey = "child-provider",
+                Temperature = 0.1
+            })
             .Resolve(parent);
 
-        child.Clients.Chat!.ProviderKey.Should().Be("parent-provider");
+        child.Clients.Chat!.ProviderKey.Should().Be("child-provider");
         child.Clients.Chat.Temperature.Should().Be(0.1);
         parent.Clients.Chat!.Temperature.Should().Be(0.8);
     }

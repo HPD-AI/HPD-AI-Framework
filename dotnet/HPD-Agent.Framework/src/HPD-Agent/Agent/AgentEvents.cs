@@ -452,6 +452,9 @@ public sealed record UserMessagesInputEvent : AgentInputEvent
 
     [JsonIgnore]
     internal AgentChatClientHandle? InheritedChatClient { get; init; }
+
+    [JsonIgnore]
+    internal ClientFamilyInheritanceMode InheritedChatMode { get; init; } = ClientFamilyInheritanceMode.UseOwn;
 }
 
 /// <summary>Explicitly compacts the scoped thread without creating a user message or model turn.</summary>
