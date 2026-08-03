@@ -9,20 +9,17 @@ var builder = WebApplication.CreateSlimBuilder(
     args.Where(argument => !string.Equals(argument, "--verify", StringComparison.Ordinal)).ToArray());
 
 builder.Services.AddSingleton<IPolicyEvaluator, SmokePolicyEvaluator>();
-var items = BaseCollection<JsonElement>.Create(
-    new CollectionDefinition
-    {
-        Id = "items",
-        Name = "items",
-        Kind = BaseCollectionKinds.Document,
-        SchemaMode = SchemaMode.Loose,
-        UnknownFields = UnknownFieldPolicy.Preserve,
-        MutationMode = BaseCollectionMutationMode.Mutable
-    },
+var items = BaseCollection.Define(
+    "items",
     HPDBaseJsonSerializerContext.Default.JsonElement,
-    static _ => { });
+    static schema => schema.String("item.title", "title"));
 builder.Services.AddHPDBase(hpd => hpd
     .AddAspNetCore()
+    .ConfigureTokenProtection(options => options.ActiveKey = new BaseOpaqueTokenKey
+    {
+        Id = 1,
+        Key = Enumerable.Repeat((byte)0x37, 32).ToArray(),
+    })
     .AddCollection(items));
 
 var app = builder.Build();
@@ -45,6 +42,9 @@ static async Task VerifyProjectionAsync(WebApplication app)
     await app.StartAsync();
     try
     {
+        Require(
+            (await app.Services.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess(),
+            "BASE application initialization failed.");
         var addresses = app.Services
             .GetRequiredService<IServer>()
             .Features
@@ -136,14 +136,17 @@ static async Task VerifyProjectionAsync(WebApplication app)
             duplicateBatch?.RequestDisposition == BaseMutationRequestDisposition.Duplicate,
             "Atomic batch duplicate body was invalid.");
         var firstPageResponse = await client.GetAsync(
-            "/base/collections/items/records?sort=title&limit=1");
-        Require(firstPageResponse.StatusCode == System.Net.HttpStatusCode.OK, "Cursor first page failed.");
+            "/base/collections/items/records?sort=item.title&cursor=&limit=1");
+        if (firstPageResponse.StatusCode != System.Net.HttpStatusCode.OK)
+            throw new InvalidOperationException(
+                $"Cursor first page failed: {await firstPageResponse.Content.ReadAsStringAsync()}");
         RecordPage? firstPage = await firstPageResponse.Content.ReadFromJsonAsync(
             HPDBaseJsonSerializerContext.Default.RecordPage);
-        Require(firstPage?.Page.NextCursor is not null, "Cursor first page did not return continuation.");
+        string cursor = firstPage?.Page.NextCursor
+            ?? throw new InvalidOperationException("Cursor first page did not return continuation.");
         var continuedResponse = await client.GetAsync(
-            "/base/collections/items/records?sort=title&limit=1&cursor="
-            + Uri.EscapeDataString(firstPage.Page.NextCursor));
+            "/base/collections/items/records?sort=item.title&limit=1&cursor="
+            + Uri.EscapeDataString(cursor));
         Require(continuedResponse.StatusCode == System.Net.HttpStatusCode.OK, "Cursor continuation failed.");
         RecordPage? continuedPage = await continuedResponse.Content.ReadFromJsonAsync(
             HPDBaseJsonSerializerContext.Default.RecordPage);
