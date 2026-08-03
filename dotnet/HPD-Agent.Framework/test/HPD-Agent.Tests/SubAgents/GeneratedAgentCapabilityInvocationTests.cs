@@ -18,7 +18,6 @@ public sealed class GeneratedAgentCapabilityInvocationTests
             "GeneratedWorkflow",
             "call-multiagent",
             new Dictionary<string, object?> { ["input"] = "coordinate this fixture" });
-        parentClient.EnqueueTextResponse("generated workflow child completed");
         parentClient.EnqueueTextResponse("generated capabilities completed");
 
         var subAgentFunction = CreateGeneratedShapeSubAgentFunction();
@@ -87,11 +86,9 @@ public sealed class GeneratedAgentCapabilityInvocationTests
                     .BuildAsync();
 
                 var text = new System.Text.StringBuilder();
-                await foreach (var evt in workflow.ExecuteStreamingAsync(
+                await foreach (var evt in ((IMultiAgentWorkflow)workflow).ExecuteStreamingAsync(
                                    input,
-                                   functionContext?.GetParentEventCoordinator(),
-                                   functionContext?.GetParentAgentMetadata(),
-                                   functionContext?.GetParentChatClient(),
+                                   functionContext,
                                    cancellationToken))
                 {
                     if (evt is TextDeltaEvent delta)

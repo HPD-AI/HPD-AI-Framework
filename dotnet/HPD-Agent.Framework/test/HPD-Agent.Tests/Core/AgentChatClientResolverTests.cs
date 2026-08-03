@@ -386,6 +386,44 @@ public sealed class AgentChatClientResolverTests
         Assert.Equal("default-key", provider.LastConfig?.ApiKey);
     }
 
+    [Fact]
+    public async Task ResolveAsync_CredentialGeneration_PartitionsCacheAndReleasesEveryLease()
+    {
+        var provider = new CreatingTrackingProvider();
+        var providers = new ProviderRegistry();
+        providers.Register(provider);
+        var authentication = new InMemoryProviderAuthenticationRegistry();
+        authentication.Register(new ProviderAuthenticationRegistration
+        {
+            Key = "tracking-work",
+            ProviderKey = "creating",
+            SecretKey = "tracking:work:ApiKey"
+        });
+        var credentials = new TrackingCredentialResolver();
+        var services = new ServiceCollection()
+            .AddSingleton<IProviderAuthenticationRegistry>(authentication)
+            .AddSingleton<IProviderCredentialResolver>(credentials)
+            .BuildServiceProvider();
+        using var resolver = new AgentChatClientResolver(providers, services);
+        var runConfig = RuntimeChat("creating", "model");
+        runConfig.Clients.Chat!.AuthenticationKey = "tracking-work";
+        var request = new AgentChatClientResolutionRequest
+        {
+            AgentConfig = new AgentConfig(),
+            RunConfig = runConfig
+        };
+
+        await using (await resolver.ResolveAsync(request)) { }
+        await using (await resolver.ResolveAsync(request)) { }
+        Assert.Equal(1, provider.CreateCount);
+
+        credentials.Generation = 2;
+        await using (await resolver.ResolveAsync(request)) { }
+
+        Assert.Equal(2, provider.CreateCount);
+        Assert.Equal(3, credentials.DisposeCount);
+    }
+
     [Theory]
     [InlineData("Authorization")]
     [InlineData("authorization")]
@@ -538,5 +576,30 @@ public sealed class AgentChatClientResolverTests
         public ProviderErrorDetails? ParseError(Exception exception) => null;
         public TimeSpan? GetRetryDelay(ProviderErrorDetails details, int attempt, TimeSpan initialDelay, double multiplier, TimeSpan maxDelay) => null;
         public bool RequiresSpecialHandling(ProviderErrorDetails details) => false;
+    }
+
+    private sealed class TrackingCredentialResolver : IProviderCredentialResolver
+    {
+        public long Generation { get; set; } = 1;
+        public int DisposeCount { get; private set; }
+
+        public ValueTask<IProviderCredentialLease> AcquireAsync(
+            ProviderCredentialRequest request,
+            CancellationToken cancellationToken = default)
+            => ValueTask.FromResult<IProviderCredentialLease>(new Lease(this, Generation));
+
+        private sealed class Lease(TrackingCredentialResolver owner, long generation) : IProviderCredentialLease
+        {
+            public ReadOnlyMemory<char> Secret => "resolved-key".AsMemory();
+            public string Identity => "registration:tracking-work";
+            public long Generation => generation;
+            public DateTimeOffset? ExpiresAt => null;
+            public CancellationToken RotationToken => CancellationToken.None;
+            public ValueTask DisposeAsync()
+            {
+                owner.DisposeCount++;
+                return ValueTask.CompletedTask;
+            }
+        }
     }
 }

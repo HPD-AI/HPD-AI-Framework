@@ -51,14 +51,32 @@ internal sealed class AgentChatClientHandle
     public static AgentChatClientHandle Owned(
         IChatClient client,
         AgentChatClientSource source,
-        ProviderClientConfig? resolvedConfig = null)
-        => new(client, source, resolvedConfig, ownsClient: true);
+        ProviderClientConfig? resolvedConfig = null,
+        IProviderCredentialLease? credential = null)
+        => new(
+            client,
+            source,
+            resolvedConfig,
+            ownsClient: true,
+            credential is null ? null : () => credential.DisposeAsync());
 
     public static AgentChatClientHandle Leased(
         IProviderClientLease<IChatClient> lease,
         AgentChatClientSource source,
-        ProviderClientConfig? resolvedConfig = null)
-        => new(lease.Client, source, resolvedConfig, ownsClient: false, lease.DisposeAsync);
+        ProviderClientConfig? resolvedConfig = null,
+        IProviderCredentialLease? credential = null)
+        => new(
+            lease.Client,
+            source,
+            resolvedConfig,
+            ownsClient: false,
+            credential is null
+                ? lease.DisposeAsync
+                : async () =>
+                {
+                    await lease.DisposeAsync().ConfigureAwait(false);
+                    await credential.DisposeAsync().ConfigureAwait(false);
+                });
 
     public AgentChatClientLease AcquireLease()
     {
@@ -278,23 +296,30 @@ internal sealed class AgentChatClientResolver : IDisposable
             throw new InvalidOperationException(
                 $"No model is configured for provider '{ownedConfig.ProviderKey}'. Configure the agent client or the invocation override.");
 
-        var resolvedConfig = await ResolveNamedAuthenticationAsync(ownedConfig, cancellationToken)
+        var authentication = await ResolveAuthenticationAsync(ownedConfig, cancellationToken)
             .ConfigureAwait(false);
-        var authenticationIdentity = !string.IsNullOrWhiteSpace(resolvedConfig.AuthenticationKey)
-            ? $"registration:{resolvedConfig.AuthenticationKey}"
-            : string.IsNullOrWhiteSpace(ownedConfig.ApiKey)
-                ? "canonical"
-                : null;
+        var resolvedConfig = authentication.Config;
         var providerConfigFingerprint = ProviderClientFingerprint.Combine(
             GetProviderConfigFingerprint(resolvedConfig),
             resolvedConfig.CustomHeaders);
-        return await _clientManager.AcquireAsync(
-            resolvedConfig,
-            authenticationIdentity,
-            providerConfigFingerprint,
-            BindsModelToClient(resolvedConfig.ProviderKey, ProviderClientFamily.Chat),
-            source,
-            cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return await _clientManager.AcquireAsync(
+                resolvedConfig,
+                authentication.CacheIdentity,
+                authentication.Generation,
+                authentication.Credential,
+                providerConfigFingerprint,
+                BindsModelToClient(resolvedConfig.ProviderKey, ProviderClientFamily.Chat),
+                source,
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            if (authentication.Credential is not null)
+                await authentication.Credential.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
     }
 
     private bool BindsModelToClient(string? providerKey, ProviderClientFamily family)
@@ -343,26 +368,39 @@ internal sealed class AgentChatClientResolver : IDisposable
     /// <summary>Disposes provider clients cached by this resolver.</summary>
     public void Dispose() => _clientManager.Dispose();
 
-    private async ValueTask<ProviderClientConfig> ResolveNamedAuthenticationAsync(
+    private async ValueTask<ChatAuthenticationResolution> ResolveAuthenticationAsync(
         ProviderClientConfig config,
         CancellationToken cancellationToken)
     {
         RejectAuthenticationHeaders(config);
+        if (!string.IsNullOrWhiteSpace(config.ApiKey))
+        {
+            var explicitCredential = ProviderCredentialLease.CreateExplicit(config.ApiKey);
+            var explicitConfig = ProviderClientConfigResolver.Clone(config);
+            explicitConfig.ApiKey = explicitCredential.Secret.ToString();
+            return new ChatAuthenticationResolution(explicitConfig, null, 0, explicitCredential);
+        }
+
         var authenticationRegistry = _services?.GetService(typeof(IProviderAuthenticationRegistry))
             as IProviderAuthenticationRegistry;
         var authenticationKey = config.AuthenticationKey;
+        var scope = _services?.GetService(typeof(ProviderAuthorizationScope)) as ProviderAuthorizationScope
+            ?? new ProviderAuthorizationScope { TrustDomainId = "local-process" };
+        var context = new ProviderAuthenticationContext
+        {
+            ProviderKey = config.ProviderKey,
+            Family = ProviderClientFamily.Chat,
+            AuthorizationScope = scope
+        };
+        ProviderAuthenticationRegistration? registration = null;
         if (string.IsNullOrWhiteSpace(authenticationKey))
         {
             if (authenticationRegistry is null)
-                return config;
+                return new ChatAuthenticationResolution(config, "canonical", 0, null);
 
             var compatible = new List<ProviderAuthenticationRegistration>();
             await foreach (var candidate in authenticationRegistry.ListCompatibleAsync(
-                new ProviderAuthenticationContext
-                {
-                    ProviderKey = config.ProviderKey,
-                    Family = ProviderClientFamily.Chat
-                },
+                context,
                 cancellationToken).ConfigureAwait(false))
             {
                 compatible.Add(candidate);
@@ -375,10 +413,10 @@ internal sealed class AgentChatClientResolver : IDisposable
                     $"AuthenticationSelectionRequired: provider '{config.ProviderKey}' has multiple compatible authentication registrations and no unique host default.");
             }
 
-            if (defaults.Length == 0)
-                return config;
-
-            authenticationKey = defaults[0].Key;
+            registration = defaults.Length == 1 ? defaults[0] : compatible.Count == 1 ? compatible[0] : null;
+            if (registration is null)
+                return new ChatAuthenticationResolution(config, "canonical", 0, null);
+            authenticationKey = registration.Key;
         }
         else if (authenticationRegistry is null)
         {
@@ -386,30 +424,40 @@ internal sealed class AgentChatClientResolver : IDisposable
                 $"Authentication registration '{authenticationKey}' cannot be resolved because no {nameof(IProviderAuthenticationRegistry)} is available.");
         }
 
-        var registration = await authenticationRegistry.FindAsync(
-            authenticationKey,
-            new ProviderAuthenticationContext
-            {
-                ProviderKey = config.ProviderKey,
-                Family = ProviderClientFamily.Chat
-            },
-            cancellationToken).ConfigureAwait(false)
+        registration ??= await authenticationRegistry.FindAsync(authenticationKey, context, cancellationToken)
+            .ConfigureAwait(false)
             ?? throw new InvalidOperationException(
                 $"Authentication registration '{authenticationKey}' was not found or is not compatible with provider '{config.ProviderKey}' and family '{ProviderClientFamily.Chat}'.");
 
-        var secretResolver = _services?.GetService(typeof(ISecretResolver)) as ISecretResolver
-            ?? throw new InvalidOperationException(
-                $"Authentication registration '{authenticationKey}' cannot resolve its secret because no {nameof(ISecretResolver)} is available.");
-        var secret = await secretResolver.ResolveAsync(registration.SecretKey, cancellationToken)
-            .ConfigureAwait(false)
-            ?? throw new InvalidOperationException(
-                $"Authentication registration '{authenticationKey}' did not resolve secret key '{registration.SecretKey}'.");
+        var credentialResolver = _services?.GetService(typeof(IProviderCredentialResolver))
+            as IProviderCredentialResolver;
+        if (credentialResolver is null)
+        {
+            var secretResolver = _services?.GetService(typeof(ISecretResolver)) as ISecretResolver
+                ?? throw new InvalidOperationException(
+                    $"Authentication registration '{authenticationKey}' cannot resolve its secret because no credential resolver is available.");
+            credentialResolver = new SecretResolverProviderCredentialResolver(secretResolver);
+        }
+        var credential = await credentialResolver.AcquireAsync(new ProviderCredentialRequest
+        {
+            ProviderKey = config.ProviderKey,
+            Family = ProviderClientFamily.Chat,
+            Identity = $"registration:{authenticationKey}",
+            SecretKey = registration.SecretKey,
+            AuthorizationScope = scope
+        }, cancellationToken).ConfigureAwait(false);
 
         var resolved = ProviderClientConfigResolver.Clone(config);
         resolved.AuthenticationKey = authenticationKey;
-        resolved.ApiKey = secret.Value;
-        return resolved;
+        resolved.ApiKey = credential.Secret.ToString();
+        return new ChatAuthenticationResolution(resolved, credential.Identity, credential.Generation, credential);
     }
+
+    private sealed record ChatAuthenticationResolution(
+        ProviderClientConfig Config,
+        string? CacheIdentity,
+        long Generation,
+        IProviderCredentialLease? Credential);
 
     private static void RejectAuthenticationHeaders(ProviderClientConfig config)
     {
@@ -516,6 +564,8 @@ internal sealed class AgentProviderChatClientManager : IDisposable
     public async ValueTask<AgentChatClientLease> AcquireAsync(
         ProviderClientConfig config,
         string? authenticationIdentity,
+        long authenticationGeneration,
+        IProviderCredentialLease? credential,
         string? providerConfigFingerprint,
         bool bindsModelToClient,
         AgentChatClientSource source,
@@ -527,7 +577,7 @@ internal sealed class AgentProviderChatClientManager : IDisposable
         if (authenticationIdentity is null)
         {
             var uncached = await CreateClientAsync(config, cancellationToken).ConfigureAwait(false);
-            return AgentChatClientHandle.Owned(uncached, source, config).AcquireLease();
+            return AgentChatClientHandle.Owned(uncached, source, config, credential).AcquireLease();
         }
 
         var key = new ProviderClientCacheKey
@@ -535,6 +585,7 @@ internal sealed class AgentProviderChatClientManager : IDisposable
             ProviderKey = config.ProviderKey,
             Family = ProviderClientFamily.Chat,
             AuthenticationIdentity = authenticationIdentity,
+            AuthenticationGeneration = authenticationGeneration,
             Endpoint = config.Endpoint,
             ProviderConfigFingerprint = providerConfigFingerprint,
             ClientBoundModel = bindsModelToClient ? config.ModelName : null
@@ -543,7 +594,7 @@ internal sealed class AgentProviderChatClientManager : IDisposable
             key,
             ct => CreateClientAsync(config, ct),
             cancellationToken).ConfigureAwait(false);
-        return AgentChatClientHandle.Leased(lease, source, config).AcquireLease();
+        return AgentChatClientHandle.Leased(lease, source, config, credential).AcquireLease();
     }
 
     public void Dispose()
