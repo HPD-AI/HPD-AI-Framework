@@ -11,6 +11,15 @@ try
         "items",
         SmokeJsonContext.Default.SmokeRecord,
         schema => schema.String("title", "Title"));
+    BaseCollection<JsonElement>[] authorityCollections =
+    [
+        AuthorityCollection("authority.revisions", BaseCollectionMutationMode.AppendOnlyWithAdministrativePurge),
+        AuthorityCollection("authority.validations", BaseCollectionMutationMode.AppendOnly),
+        AuthorityCollection("authority.audit", BaseCollectionMutationMode.AppendOnlyWithAdministrativePurge),
+        AuthorityCollection("authority.intents", BaseCollectionMutationMode.AppendOnly),
+        AuthorityCollection("authority.desired", BaseCollectionMutationMode.Mutable),
+        AuthorityCollection("authority.outbox", BaseCollectionMutationMode.AppendOnly),
+    ];
     var services = new ServiceCollection();
     services.AddLogging();
     services.AddHPDBase(builder =>
@@ -32,6 +41,8 @@ try
             options.AdministrationEnabled = true;
         });
         builder.AddCollection(items);
+        foreach (BaseCollection<JsonElement> collection in authorityCollections)
+            builder.AddCollection(collection);
         builder.ReplacePolicyEvaluator<SmokePolicyEvaluator>();
     });
 
@@ -76,6 +87,32 @@ try
     BaseSuccess<BaseBatchResult> duplicate = (BaseSuccess<BaseBatchResult>)duplicateResult;
     Require(committed.Value.RequestDisposition == BaseMutationRequestDisposition.Committed, "Identified request did not commit.");
     Require(duplicate.Value.RequestDisposition == BaseMutationRequestDisposition.Duplicate, "Identified request did not replay its receipt.");
+
+    OperationResult<RecordEnvelope> desired = await runtime.CreateAsync(
+        "authority.desired",
+        new RecordCreateRequest { RequestedId = new RecordId("desired"), Payload = JsonPayload("generation", "1") },
+        principal,
+        Operation(BaseOperationKind.Create, "authority.desired"));
+    Require(desired.Status == OperationStatus.Created, "Authority desired-state seed failed.");
+    BaseMutationRequestIdentity authorityIdentity = BaseMutationRequestIdentity.Create(
+        "aot", "authority-accept", "authority-request-1",
+        BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("authority-request"u8)));
+    BaseRecordBatchRequest authorityRequest = AuthorityRequest(authorityIdentity, desired.Value!.Metadata.Revision!.Value);
+    OperationResult<BaseRecordBatchResult> authorityCommit = await runtime.BatchAsync(
+        authorityRequest,
+        principal,
+        Operation(BaseOperationKind.Batch, "authority.revisions"));
+    OperationResult<BaseRecordBatchResult> authorityDuplicate = await runtime.BatchAsync(
+        authorityRequest,
+        principal,
+        Operation(BaseOperationKind.Batch, "authority.revisions"));
+    Require(
+        authorityCommit.Value?.RequestDisposition == BaseMutationRequestDisposition.Committed
+        && authorityCommit.Value.Items.Length == 6,
+        "Complete authority graph did not commit atomically.");
+    Require(
+        authorityDuplicate.Value?.RequestDisposition == BaseMutationRequestDisposition.Duplicate,
+        "Complete authority graph receipt did not replay.");
 
     var cursorQuery = new RecordQuery
     {
@@ -150,7 +187,67 @@ finally
     }
 }
 
-static OperationContext Operation(BaseOperationKind kind) => new() { Operation = kind, CollectionId = "items", Now = DateTimeOffset.UtcNow };
+static OperationContext Operation(BaseOperationKind kind, string collectionId = "items") => new() { Operation = kind, CollectionId = collectionId, Now = DateTimeOffset.UtcNow };
+
+static BaseCollection<JsonElement> AuthorityCollection(string id, BaseCollectionMutationMode mode) =>
+    BaseCollection<JsonElement>.Create(
+        new CollectionDefinition
+        {
+            Id = id,
+            Name = id,
+            Kind = BaseCollectionKinds.Document,
+            SchemaMode = SchemaMode.Loose,
+            UnknownFields = UnknownFieldPolicy.Preserve,
+            MutationMode = mode,
+        },
+        HPDBaseJsonSerializerContext.Default.JsonElement,
+        static _ => { });
+
+static BaseRecordBatchRequest AuthorityRequest(
+    BaseMutationRequestIdentity identity,
+    RevisionToken desiredRevision) => new()
+    {
+        Mode = BaseRecordBatchExecutionMode.Atomic,
+        RequestIdentity = identity,
+        Operations =
+        [
+            AuthorityCreate("revision", "authority.revisions", "revision-1", JsonPayload("kind", "\"accepted\"")),
+            AuthorityCreate("validation", "authority.validations", "validation-1", JsonPayload("valid", "true")),
+            AuthorityCreate("audit", "authority.audit", "audit-1", JsonPayload("action", "\"accepted\"")),
+            AuthorityCreate("intent", "authority.intents", "intent-1", JsonPayload("state", "\"pending\"")),
+            new BaseRecordBatchItem
+            {
+                ItemId = "desired",
+                CollectionId = "authority.desired",
+                Kind = BaseRecordMutationKind.Replace,
+                RecordId = new RecordId("desired"),
+                Replace = new RecordReplaceRequest
+                {
+                    ExpectedRevision = desiredRevision,
+                    Payload = JsonPayload("generation", "2"),
+                },
+            },
+            AuthorityCreate("outbox", "authority.outbox", "outbox-1", JsonPayload("delivery", "\"pending\"")),
+        ],
+    };
+
+static BaseRecordBatchItem AuthorityCreate(
+    string itemId,
+    string collectionId,
+    string recordId,
+    RecordPayload payload) => new()
+    {
+        ItemId = itemId,
+        CollectionId = collectionId,
+        Kind = BaseRecordMutationKind.Create,
+        Create = new RecordCreateRequest { RequestedId = new RecordId(recordId), Payload = payload },
+    };
+
+static RecordPayload JsonPayload(string name, string jsonValue)
+{
+    using JsonDocument document = JsonDocument.Parse($$"""{"{{name}}":{{jsonValue}}}""");
+    return new RecordPayload { Kind = RecordPayloadKind.Json, Json = document.RootElement.Clone() };
+}
 
 static RecordPayload Payload(string title)
 {
