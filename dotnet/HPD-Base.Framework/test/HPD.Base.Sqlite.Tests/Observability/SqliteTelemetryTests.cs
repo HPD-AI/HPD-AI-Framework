@@ -150,7 +150,8 @@ public sealed class SqliteTelemetryTests
 
             result.Status.Should().Be(OperationStatus.CapabilityUnavailable);
             Activity span = activities.Stopped.Should().ContainSingle(activity =>
-                activity.OperationName == HPDBaseTelemetrySpans.SqliteAdministration).Subject;
+                activity.OperationName == HPDBaseTelemetrySpans.SqliteAdministration
+                && activity.TagObjects.Any(tag => tag.Key == HPDBaseTelemetryTags.StoreId && Equals(tag.Value, "primary"))).Subject;
             span.TagObjects.Should().Contain(tag => tag.Key == HPDBaseTelemetryTags.OperationKind && Equals(tag.Value, "backup"));
             metrics.InstrumentNames.Should().Contain(HPDBaseTelemetryInstruments.SqliteAdministrationOperations);
             metrics.InstrumentNames.Should().Contain(HPDBaseTelemetryInstruments.SqliteAdministrationDuration);

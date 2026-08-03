@@ -37,7 +37,7 @@ public sealed partial class SqliteRecordStore
             return AdminUnsupported<BaseBackupManifest>();
         if (!destination.CanWrite || !ValidStoreRequest(request.StoreId))
             return AdminValidation<BaseBackupManifest>(BaseAdministrationErrorCodes.Invalid, "The backup request is invalid.");
-        if (!OwnedRegularDatabasePath())
+        if (!TryCaptureAdministrationPath(out SqliteAdministrationPathGuard pathGuard))
             return AdminUnsupported<BaseBackupManifest>();
 
         string? staging = RandomSiblingPath("backup");
@@ -45,11 +45,13 @@ public sealed partial class SqliteRecordStore
         bool slot = false;
         try
         {
+            pathGuard.ValidateSibling(staging, mustExist: false);
             using var acquisition = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             acquisition.CancelAfter(_options.AdministrationAcquisitionTimeout);
             await _administrationExecutionSlots.WaitAsync(acquisition.Token).ConfigureAwait(false);
             slot = true;
             lease = await _schemaGenerationGate.AcquireExclusiveAsync(acquisition.Token).ConfigureAwait(false);
+            pathGuard.RevalidateActive();
             await EnsureKeepAliveAsync(acquisition.Token).ConfigureAwait(false);
 
             Task native = RunNativeBackupAsync(staging);
@@ -60,9 +62,11 @@ public sealed partial class SqliteRecordStore
             catch (OperationCanceledException) { QuarantineAdministration(native, lease, staging, "backup"); lease = null; staging = null; slot = false; throw; }
             catch (TimeoutException) { QuarantineAdministration(native, lease, staging, "backup"); lease = null; staging = null; slot = false; throw new OperationCanceledException(); }
 
-            await ValidateDatabaseFileAsync(staging, cancellationToken).ConfigureAwait(false);
+            pathGuard.ValidateSibling(staging, mustExist: true);
+            SqliteBackupDatabaseFacts stagedFacts = await ValidateDatabaseFileAsync(staging, null, cancellationToken).ConfigureAwait(false);
             await using SqliteConnection source = await OpenInitializedAsync(cancellationToken).ConfigureAwait(false);
             BaseBackupManifest manifest = await ReadManifestAsync(source, new FileInfo(staging).Length, cancellationToken).ConfigureAwait(false);
+            EnsureManifestMatchesDatabase(manifest, stagedFacts);
 
             if (request.ExpectedStoreIdentityDigest is { } expected
                 && !FixedHexEquals(expected, manifest.StoreIdentityDigest))
@@ -114,21 +118,26 @@ public sealed partial class SqliteRecordStore
         if (!source.CanRead || !ValidStoreRequest(request.StoreId))
             return AdminValidation<BaseBackupManifest>(BaseAdministrationErrorCodes.Invalid, "The backup-validation request is invalid.");
 
+        if (!TryCaptureAdministrationPath(out SqliteAdministrationPathGuard pathGuard))
+            return AdminUnsupported<BaseBackupManifest>();
         string? staging = RandomSiblingPath("validation");
         bool slot = false;
         try
         {
+            pathGuard.ValidateSibling(staging, mustExist: false);
             using var acquisition = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             acquisition.CancelAfter(_options.AdministrationAcquisitionTimeout);
             await _administrationExecutionSlots.WaitAsync(acquisition.Token).ConfigureAwait(false);
             slot = true;
             (BaseBackupManifest Manifest, byte KeyId, byte[] Header, byte[] ManifestBytes, byte[] Digest) artifact =
                 await ReadEnvelopeAsync(source, staging!, cancellationToken).ConfigureAwait(false);
+            pathGuard.RevalidateActive();
+            pathGuard.ValidateSibling(staging!, mustExist: true);
             if (request.ExpectedArtifactStoreIdentityDigest is { } expected
                 && !FixedHexEquals(expected, artifact.Manifest.StoreIdentityDigest))
                 return AdminConflict<BaseBackupManifest>(BaseAdministrationErrorCodes.ArtifactIdentityMismatch, "The artifact store identity does not match the request.");
             string validationPath = staging!;
-            Task validation = Task.Run(async () => await ValidateDatabaseFileAsync(validationPath, CancellationToken.None).ConfigureAwait(false), CancellationToken.None);
+            Task validation = Task.Run(async () => await ValidateDatabaseFileAsync(validationPath, artifact.Manifest, CancellationToken.None).ConfigureAwait(false), CancellationToken.None);
             try { await validation.WaitAsync(_options.IntegrityCheckTimeout, cancellationToken).ConfigureAwait(false); }
             catch (OperationCanceledException) { QuarantineAdministration(validation, null, staging, "validation"); staging = null; slot = false; throw; }
             catch (TimeoutException) { QuarantineAdministration(validation, null, staging, "validation"); staging = null; slot = false; throw new OperationCanceledException(); }
@@ -210,7 +219,7 @@ public sealed partial class SqliteRecordStore
         if (!source.CanRead || !ValidStoreRequest(request.StoreId)
             || !Enum.IsDefined(request.IdentityMode) || !Enum.IsDefined(request.RecoveryImageRetention))
             return RestoreValidation(BaseAdministrationErrorCodes.Invalid, "The restore request is invalid.", BaseRestoreFailureDisposition.RejectedBeforeChange);
-        if (!OwnedRegularDatabasePath())
+        if (!TryCaptureAdministrationPath(out SqliteAdministrationPathGuard pathGuard))
             return AdminUnsupported<BaseRestoreResult>();
         if (!request.ConfirmDestructiveReplacement)
             return RestoreValidation(BaseAdministrationErrorCodes.RestoreConfirmationRequired, "Destructive replacement was not confirmed.", BaseRestoreFailureDisposition.RejectedBeforeChange);
@@ -218,7 +227,7 @@ public sealed partial class SqliteRecordStore
             return RestoreValidation(BaseAdministrationErrorCodes.Invalid, "Restore identity digests are invalid.", BaseRestoreFailureDisposition.RejectedBeforeChange);
 
         string? staging = RandomSiblingPath("restore");
-        string activePath = DatabasePath();
+        string activePath = pathGuard.DatabasePath;
         string recovery = activePath + ".recovery." + Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16));
         bool originalMoved = false;
         bool replacementInstalled = false;
@@ -227,6 +236,9 @@ public sealed partial class SqliteRecordStore
         RestoreFilePolicy? filePolicy = null;
         try
         {
+            pathGuard.ValidateSibling(staging, mustExist: false);
+            pathGuard.ValidateSibling(recovery, mustExist: false);
+            pathGuard.ValidateSibling(RestoreMarkerPath(), mustExist: false);
             using var slotAcquisition = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             slotAcquisition.CancelAfter(_options.AdministrationAcquisitionTimeout);
             await _administrationExecutionSlots.WaitAsync(slotAcquisition.Token).ConfigureAwait(false);
@@ -257,10 +269,12 @@ public sealed partial class SqliteRecordStore
                     BaseRestoreFailureDisposition.RejectedBeforeChange);
             }
             BaseBackupManifest manifest = artifact.Manifest;
+            pathGuard.RevalidateActive();
+            pathGuard.ValidateSibling(stagingPath, mustExist: true);
             if (!FixedHexEquals(request.ExpectedArtifactStoreIdentityDigest, manifest.StoreIdentityDigest))
                 return RestoreConflict(BaseAdministrationErrorCodes.RestoreIdentityMismatch, "The artifact identity does not match the restore request.", BaseRestoreFailureDisposition.RejectedBeforeChange);
             Task validationWork = Task.Run(
-                async () => await ValidateDatabaseFileAsync(stagingPath, CancellationToken.None).ConfigureAwait(false),
+                async () => await ValidateDatabaseFileAsync(stagingPath, manifest, CancellationToken.None).ConfigureAwait(false),
                 CancellationToken.None);
             try
             {
@@ -288,6 +302,7 @@ public sealed partial class SqliteRecordStore
             acquisition.CancelAfter(_options.AdministrationAcquisitionTimeout);
             await using IAsyncDisposable lease = await _schemaGenerationGate.AcquireExclusiveAsync(acquisition.Token).ConfigureAwait(false);
             Volatile.Write(ref _restoreInstallationActive, 1);
+            pathGuard.RevalidateActive();
             (string ActiveIdentity, long PreRestoreEpoch) = await ReadActiveIdentityAsync(acquisition.Token).ConfigureAwait(false);
             if (!FixedHexEquals(request.ExpectedCurrentStoreIdentityDigest, ActiveIdentity)
                 || request.IdentityMode == BaseRestoreIdentityMode.RequireCurrentStoreIdentity
@@ -300,23 +315,41 @@ public sealed partial class SqliteRecordStore
 
             filePolicy = CaptureFilePolicy(activePath);
 
-            WriteRestoreMarker("Prepared", stagingPath, recovery, ActiveIdentity, manifest.StoreIdentityDigest);
+            await _administrationOperations.BeforePhaseAsync("beforeCheckpointPathValidation", cancellationToken).ConfigureAwait(false);
+            pathGuard.RevalidateActive();
             await CheckpointWalAsync(cancellationToken).ConfigureAwait(false);
+            pathGuard.RevalidateActive();
             await CloseKeepAliveForMaintenanceAsync().ConfigureAwait(false);
             using (var anchor = new SqliteConnection(_connections.BuildConnectionString()))
                 SqliteConnection.ClearPool(anchor);
+            pathGuard.RevalidateActive();
+            pathGuard.ValidateSibling(stagingPath, mustExist: true);
+            pathGuard.ValidateSibling(recovery, mustExist: false);
+            pathGuard.ValidateSibling(RestoreMarkerPath(), mustExist: false);
+            WriteRestoreMarker("Prepared", stagingPath, recovery, ActiveIdentity, manifest.StoreIdentityDigest);
+            await _administrationOperations.BeforePhaseAsync("beforeOriginalMovePathValidation", cancellationToken).ConfigureAwait(false);
+            pathGuard.RevalidateActive();
             File.Move(activePath, recovery);
             MoveIfPresent(activePath + "-wal", recovery + "-wal");
             MoveIfPresent(activePath + "-shm", recovery + "-shm");
             originalMoved = true;
+            pathGuard.ValidateSibling(recovery, mustExist: true, expectedDatabaseIdentity: true);
+            pathGuard.ValidateSibling(stagingPath, mustExist: true);
             WriteRestoreMarker("OriginalRenamed", staging, recovery, ActiveIdentity, manifest.StoreIdentityDigest);
+            await _administrationOperations.BeforePhaseAsync("beforeReplacementInstallPathValidation", cancellationToken).ConfigureAwait(false);
+            pathGuard.RevalidateDirectory();
+            pathGuard.ValidateSibling(recovery, mustExist: true, expectedDatabaseIdentity: true);
+            pathGuard.ValidateSibling(stagingPath, mustExist: true);
             File.Move(stagingPath, activePath);
             staging = null;
             replacementInstalled = true;
+            pathGuard.ValidateReplacementActive();
+            pathGuard.ValidateSibling(recovery, mustExist: true, expectedDatabaseIdentity: true);
             ApplyFilePolicy(activePath, filePolicy);
+            pathGuard.ValidateReplacementActive();
             WriteRestoreMarker("ReplacementInstalled", stagingPath, recovery, ActiveIdentity, manifest.StoreIdentityDigest);
             await _administrationOperations.BeforePhaseAsync("postInstallValidation", CancellationToken.None).ConfigureAwait(false);
-            await ValidateDatabaseFileAsync(activePath, cancellationToken).ConfigureAwait(false);
+            await ValidateDatabaseFileAsync(activePath, manifest, cancellationToken).ConfigureAwait(false);
 
             long epoch = checked(Math.Max(PreRestoreEpoch, manifest.RestoreEpoch) + 1);
             var installedBuilder = new SqliteConnectionStringBuilder { DataSource = activePath, Mode = SqliteOpenMode.ReadWrite, Pooling = false };
@@ -331,9 +364,18 @@ public sealed partial class SqliteRecordStore
             Volatile.Write(ref _schemaGeneration, manifest.SchemaGeneration);
             WriteRestoreMarker("ReplacementValidated", stagingPath, recovery, ActiveIdentity, manifest.StoreIdentityDigest);
             retainRecovery = request.RecoveryImageRetention == BaseRecoveryImageRetention.RetainUntilHostRemoves;
-            if (!retainRecovery) DeleteRecoverySet(recovery);
+            if (!retainRecovery)
+            {
+                await _administrationOperations.BeforePhaseAsync("beforeRecoverySetDeletion", CancellationToken.None).ConfigureAwait(false);
+                DeleteRecoverySetStrict(recovery);
+            }
+            else
+            {
+                pathGuard.ValidateSibling(recovery, mustExist: true, expectedDatabaseIdentity: true);
+            }
             WriteRestoreMarker("Completed", stagingPath, recovery, ActiveIdentity, manifest.StoreIdentityDigest);
-            DeleteStaging(RestoreMarkerPath());
+            await _administrationOperations.BeforePhaseAsync("beforeCompletedMarkerDeletion", CancellationToken.None).ConfigureAwait(false);
+            DeleteRequiredFile(RestoreMarkerPath());
             SqliteAdministrationDurability.FlushDirectory(Path.GetDirectoryName(activePath)!);
             await EnsureKeepAliveAsync(CancellationToken.None).ConfigureAwait(false);
             return OperationResults.Ok(new BaseRestoreResult
@@ -367,6 +409,19 @@ public sealed partial class SqliteRecordStore
         catch (BackupArtifactTooLargeException)
         {
             return RestoreValidation(BaseAdministrationErrorCodes.ArtifactTooLarge, "The backup artifact exceeds the configured bound.", BaseRestoreFailureDisposition.RejectedBeforeChange);
+        }
+        catch (BackupManifestMismatchException)
+        {
+            bool recovered = await RecoverOriginalAsync(activePath, recovery, originalMoved, replacementInstalled).ConfigureAwait(false);
+            return !originalMoved || recovered
+                ? RestoreConflict(
+                    BaseAdministrationErrorCodes.RestoreIdentityMismatch,
+                    "The authenticated manifest does not match the staged database.",
+                    !originalMoved ? BaseRestoreFailureDisposition.RejectedBeforeChange : BaseRestoreFailureDisposition.RecoveryRestoredOriginal)
+                : RestoreStoreError(
+                    BaseAdministrationErrorCodes.RestoreIndeterminate,
+                    "The restored store state is indeterminate and unavailable.",
+                    BaseRestoreFailureDisposition.IndeterminateUnavailable);
         }
         catch (Exception) when (!cancellationToken.IsCancellationRequested)
         {
@@ -568,7 +623,10 @@ public sealed partial class SqliteRecordStore
         return (manifest, keyId, header, manifestBytes, digest);
     }
 
-    private async Task ValidateDatabaseFileAsync(string path, CancellationToken cancellationToken)
+    private async Task<SqliteBackupDatabaseFacts> ValidateDatabaseFileAsync(
+        string path,
+        BaseBackupManifest? manifest,
+        CancellationToken cancellationToken)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(_options.IntegrityCheckTimeout);
@@ -576,11 +634,54 @@ public sealed partial class SqliteRecordStore
         await using var connection = new SqliteConnection(builder.ToString());
         await connection.OpenAsync(timeout.Token).ConfigureAwait(false);
         await using var command = connection.CreateCommand();
-        command.CommandText = $"PRAGMA integrity_check; SELECT COUNT(*) FROM sqlite_schema WHERE type='table' AND name IN ('{_names.Collections}','{_names.ProviderState}','{_names.MutationJournal}','{_names.OperationReceipts}','{_names.SchemaIdentity}','{_names.SchemaBaseline}');";
+        command.CommandText = "PRAGMA integrity_check;";
         command.CommandTimeout = TimeoutSeconds(_options.IntegrityCheckTimeout);
-        await using SqliteDataReader reader = await command.ExecuteReaderAsync(timeout.Token).ConfigureAwait(false);
-        if (!await reader.ReadAsync(timeout.Token).ConfigureAwait(false) || !string.Equals(reader.GetString(0), "ok", StringComparison.Ordinal)) throw new InvalidDataException();
-        if (!await reader.NextResultAsync(timeout.Token).ConfigureAwait(false) || !await reader.ReadAsync(timeout.Token).ConfigureAwait(false) || reader.GetInt64(0) != 6) throw new InvalidDataException();
+        object? integrity = await command.ExecuteScalarAsync(timeout.Token).ConfigureAwait(false);
+        if (!string.Equals(integrity as string, "ok", StringComparison.Ordinal))
+            throw new InvalidDataException();
+
+        string[] missing = await _schema.GetMissingSchemaPartsAsync(connection, timeout.Token).ConfigureAwait(false);
+        if (missing.Length != 0)
+            throw new InvalidDataException("The provider schema is incomplete: " + string.Join(",", missing));
+
+        await using var factsCommand = connection.CreateCommand();
+        factsCommand.CommandText = $"""
+            SELECT i.store_instance_id,
+                   b.baseline_id,
+                   b.checksum,
+                   b.generation,
+                   COALESCE((SELECT CAST(value AS INTEGER) FROM {_names.ProviderState} WHERE key='restore_epoch'), -1),
+                   sqlite_version()
+            FROM {_names.SchemaIdentity} i
+            JOIN {_names.SchemaBaseline} b ON b.store_instance_id=i.store_instance_id;
+            """;
+        factsCommand.CommandTimeout = TimeoutSeconds(_options.IntegrityCheckTimeout);
+        await using SqliteDataReader reader = await factsCommand.ExecuteReaderAsync(timeout.Token).ConfigureAwait(false);
+        if (!await reader.ReadAsync(timeout.Token).ConfigureAwait(false))
+            throw new InvalidDataException();
+        var facts = new SqliteBackupDatabaseFacts(
+            HexDigest(reader.GetString(0)),
+            reader.GetString(1),
+            reader.GetString(2),
+            reader.GetInt64(3),
+            reader.GetInt64(4),
+            reader.GetString(5));
+        if (facts.SchemaGeneration < 0 || facts.RestoreEpoch < 0 || await reader.ReadAsync(timeout.Token).ConfigureAwait(false))
+            throw new InvalidDataException();
+        if (manifest is not null)
+            EnsureManifestMatchesDatabase(manifest, facts);
+        return facts;
+    }
+
+    private static void EnsureManifestMatchesDatabase(BaseBackupManifest manifest, SqliteBackupDatabaseFacts facts)
+    {
+        if (!FixedHexEquals(manifest.StoreIdentityDigest, facts.StoreIdentityDigest)
+            || !string.Equals(manifest.SchemaBaselineId, facts.SchemaBaselineId, StringComparison.Ordinal)
+            || !string.Equals(manifest.SchemaChecksum, facts.SchemaChecksum, StringComparison.Ordinal)
+            || manifest.SchemaGeneration != facts.SchemaGeneration
+            || manifest.RestoreEpoch != facts.RestoreEpoch
+            || !string.Equals(manifest.NativeSqliteVersion, facts.NativeSqliteVersion, StringComparison.Ordinal))
+            throw new BackupManifestMismatchException();
     }
 
     private string RandomSiblingPath(string kind)
@@ -628,14 +729,14 @@ public sealed partial class SqliteRecordStore
             if (!File.Exists(recovery))
                 return false;
             await CloseKeepAliveForMaintenanceAsync().ConfigureAwait(false);
-            if (replacementInstalled && File.Exists(activePath)) DeleteStaging(activePath);
+            if (replacementInstalled && File.Exists(activePath)) DeleteRequiredFile(activePath);
             if (File.Exists(recovery)) File.Move(recovery, activePath);
             MoveIfPresent(recovery + "-wal", activePath + "-wal");
             MoveIfPresent(recovery + "-shm", activePath + "-shm");
             using (var anchor = new SqliteConnection(_connections.BuildConnectionString())) SqliteConnection.ClearPool(anchor);
-            await ValidateDatabaseFileAsync(activePath, CancellationToken.None).ConfigureAwait(false);
+            await ValidateDatabaseFileAsync(activePath, null, CancellationToken.None).ConfigureAwait(false);
             await EnsureKeepAliveAsync(CancellationToken.None).ConfigureAwait(false);
-            DeleteStaging(RestoreMarkerPath());
+            DeleteRequiredFile(RestoreMarkerPath());
             return true;
         }
         catch { return false; }
@@ -667,18 +768,16 @@ public sealed partial class SqliteRecordStore
     private bool ValidStoreRequest(string storeId) =>
         string.Equals(storeId, _options.StoreId, StringComparison.Ordinal);
 
-    private bool OwnedRegularDatabasePath()
+    private bool TryCaptureAdministrationPath(out SqliteAdministrationPathGuard guard)
     {
         try
         {
-            string path = DatabasePath();
-            if (!File.Exists(path)) return false;
-            FileAttributes attributes = File.GetAttributes(path);
-            return (attributes & (FileAttributes.Directory | FileAttributes.ReparsePoint)) == 0
-                && new FileInfo(path).LinkTarget is null;
+            guard = SqliteAdministrationPathGuard.Capture(DatabasePath());
+            return true;
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or NotSupportedException)
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or NotSupportedException or PlatformNotSupportedException)
         {
+            guard = null!;
             return false;
         }
     }
@@ -721,6 +820,23 @@ public sealed partial class SqliteRecordStore
         if (!IsFileBacked(_options)) return;
         string markerPath = RestoreMarkerPath();
         if (!File.Exists(markerPath)) return;
+        try
+        {
+            RecoverRestoreMarkerCore(markerPath);
+            Volatile.Write(ref _restoreRecoveryIndeterminate, 0);
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or InvalidDataException or IOException or UnauthorizedAccessException or JsonException or SqliteException)
+        {
+            // Recovery evidence is deliberately retained. The provider remains
+            // constructible for health/diagnostics but every ordinary open is closed.
+            Volatile.Write(ref _restoreRecoveryIndeterminate, 1);
+        }
+    }
+
+    private void RecoverRestoreMarkerCore(string markerPath)
+    {
+        SqliteAdministrationPathGuard pathGuard = SqliteAdministrationPathGuard.Capture(DatabasePath(), activeRequired: false);
+        pathGuard.ValidateSibling(markerPath, mustExist: true);
         SqliteRestoreMarker marker;
         try
         {
@@ -741,28 +857,36 @@ public sealed partial class SqliteRecordStore
         string staging = Path.Combine(directory, marker.StagingName);
         string recovery = Path.Combine(directory, marker.RecoveryName);
         string active = DatabasePath();
+        pathGuard.ValidateSibling(staging, mustExist: File.Exists(staging));
+        pathGuard.ValidateSibling(recovery, mustExist: File.Exists(recovery));
+        pathGuard.RevalidateDirectory();
         switch (marker.State)
         {
             case "Prepared":
-                DeleteStaging(staging);
+                DeleteRequiredFile(staging);
                 break;
             case "OriginalRenamed":
             case "ReplacementInstalled":
-                if (File.Exists(active)) DeleteStaging(active);
                 if (!File.Exists(recovery)) throw new InvalidOperationException("SQLite restore recovery image is unavailable.");
-                File.Move(recovery, active);
-                MoveIfPresent(recovery + "-wal", active + "-wal");
-                MoveIfPresent(recovery + "-shm", active + "-shm");
-                DeleteStaging(staging);
+                pathGuard.ValidateSibling(recovery, mustExist: true);
+                ValidateDatabaseFileAsync(recovery, null, CancellationToken.None).GetAwaiter().GetResult();
+                if (File.Exists(active)) DeleteRequiredFile(active);
+                pathGuard.RevalidateDirectory();
+                File.Copy(recovery, active, overwrite: false);
+                CopyIfPresent(recovery + "-wal", active + "-wal");
+                CopyIfPresent(recovery + "-shm", active + "-shm");
+                ValidateDatabaseFileAsync(active, null, CancellationToken.None).GetAwaiter().GetResult();
+                DeleteRecoverySetStrict(recovery);
+                DeleteRequiredFile(staging);
                 break;
             case "ReplacementValidated":
             case "Completed":
-                DeleteStaging(staging);
+                DeleteRequiredFile(staging);
                 break;
             default:
                 throw new InvalidOperationException("SQLite restore recovery state is invalid.");
         }
-        DeleteStaging(markerPath);
+        DeleteRequiredFile(markerPath);
     }
 
     private async ValueTask CheckpointWalAsync(CancellationToken cancellationToken)
@@ -781,11 +905,31 @@ public sealed partial class SqliteRecordStore
         if (File.Exists(source)) File.Move(source, destination);
     }
 
+    private static void CopyIfPresent(string source, string destination)
+    {
+        if (File.Exists(source)) File.Copy(source, destination, overwrite: false);
+    }
+
     private static void DeleteRecoverySet(string recovery)
     {
         DeleteStaging(recovery);
         DeleteStaging(recovery + "-wal");
         DeleteStaging(recovery + "-shm");
+    }
+
+    private void DeleteRecoverySetStrict(string recovery)
+    {
+        DeleteRequiredFile(recovery);
+        DeleteRequiredFile(recovery + "-wal");
+        DeleteRequiredFile(recovery + "-shm");
+    }
+
+    private void DeleteRequiredFile(string path)
+    {
+        if (!File.Exists(path)) return;
+        _administrationOperations.DeleteFile(path);
+        if (File.Exists(path))
+            throw new IOException("SQLite administration cleanup could not be confirmed.");
     }
 
     [System.Runtime.Versioning.UnsupportedOSPlatform("windows")]
@@ -851,4 +995,12 @@ public sealed partial class SqliteRecordStore
         };
     private sealed class BackupKeyUnavailableException : Exception;
     private sealed class BackupArtifactTooLargeException : Exception;
+    private sealed class BackupManifestMismatchException : Exception;
+    private sealed record SqliteBackupDatabaseFacts(
+        string StoreIdentityDigest,
+        string SchemaBaselineId,
+        string SchemaChecksum,
+        long SchemaGeneration,
+        long RestoreEpoch,
+        string NativeSqliteVersion);
 }

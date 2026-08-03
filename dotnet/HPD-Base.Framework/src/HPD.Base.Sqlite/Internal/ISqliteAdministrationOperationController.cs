@@ -3,6 +3,7 @@ namespace HPD.Base.Sqlite;
 internal interface ISqliteAdministrationOperationController
 {
     ValueTask BeforePhaseAsync(string phase, CancellationToken cancellationToken);
+    void DeleteFile(string path);
 }
 
 internal sealed class DefaultSqliteAdministrationOperationController : ISqliteAdministrationOperationController
@@ -15,4 +16,6 @@ internal sealed class DefaultSqliteAdministrationOperationController : ISqliteAd
         cancellationToken.ThrowIfCancellationRequested();
         return ValueTask.CompletedTask;
     }
+
+    public void DeleteFile(string path) => File.Delete(path);
 }

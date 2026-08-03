@@ -31,7 +31,12 @@ internal sealed class SqliteHealthContributor : IBaseHealthContributor
         var quarantinedMutations = _store.QuarantinedMutationCount;
         var quarantinedAdministration = _store.QuarantinedAdministrationCount;
         var restoreRecoveryPending = _store.RestoreRecoveryPending;
-        if (restoreRecoveryPending)
+        if (_store.RestoreRecoveryIndeterminate)
+        {
+            status = HealthStatus.Unhealthy;
+            summary = "SQLite restore outcome is indeterminate and the store is maintenance-closed.";
+        }
+        else if (restoreRecoveryPending)
         {
             status = HealthStatus.Unhealthy;
             summary = "SQLite restore recovery is incomplete and the store is unavailable.";
@@ -88,7 +93,8 @@ internal sealed class SqliteHealthContributor : IBaseHealthContributor
                     new HealthMetric { Name = "missingSchemaParts", Kind = HealthMetricValueKind.Number, NumberValue = missing.Length },
                     new HealthMetric { Name = "quarantinedMutations", Kind = HealthMetricValueKind.Number, NumberValue = quarantinedMutations },
                     new HealthMetric { Name = "quarantinedAdministration", Kind = HealthMetricValueKind.Number, NumberValue = quarantinedAdministration },
-                    new HealthMetric { Name = "restoreRecoveryPending", Kind = HealthMetricValueKind.Boolean, BooleanValue = restoreRecoveryPending }
+                    new HealthMetric { Name = "restoreRecoveryPending", Kind = HealthMetricValueKind.Boolean, BooleanValue = restoreRecoveryPending },
+                    new HealthMetric { Name = "restoreRecoveryIndeterminate", Kind = HealthMetricValueKind.Boolean, BooleanValue = _store.RestoreRecoveryIndeterminate }
                 ],
                 Dependencies = missing.Length == 0
                     ? null

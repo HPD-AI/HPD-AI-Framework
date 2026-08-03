@@ -529,7 +529,10 @@ public sealed class ApplicationHostBuilderTests
     [Fact]
     public async Task SqliteAdministrationCreatesValidatesAndRestoresAuthenticatedBackup()
     {
-        string path = Path.Combine(Path.GetTempPath(), "hpd-base-administration-" + Guid.NewGuid().ToString("N") + ".db");
+        string temporaryDirectory = Path.GetFullPath(Path.GetTempPath());
+        if (OperatingSystem.IsMacOS() && temporaryDirectory.StartsWith("/var/", StringComparison.Ordinal))
+            temporaryDirectory = "/private" + temporaryDirectory;
+        string path = Path.Combine(temporaryDirectory, "hpd-base-administration-" + Guid.NewGuid().ToString("N") + ".db");
         byte[] tokenKey = Enumerable.Repeat((byte)0x71, 32).ToArray();
         try
         {

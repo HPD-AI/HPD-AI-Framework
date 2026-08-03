@@ -45,6 +45,23 @@ internal sealed class SqliteDiagnosticContributor : IBaseDiagnosticContributor
             }
         };
 
+        if (_store.RestoreRecoveryIndeterminate)
+        {
+            diagnostics.Add(new DiagnosticDescriptor
+            {
+                Id = _options.DiagnosticRefId + ".restore",
+                Code = "base.sqlite.restore.indeterminate",
+                Severity = DiagnosticSeverity.Error,
+                TargetRef = _options.StoreId,
+                Message = "SQLite restore recovery is indeterminate; recovery evidence is retained and the store is maintenance-closed.",
+                PublicMessage = "SQLite restore recovery requires operator attention.",
+                Category = DiagnosticCategory.Store,
+                Visibility = VisibilityLevel.Admin,
+                EmittedAt = DateTimeOffset.UtcNow
+            });
+            return diagnostics.ToArray();
+        }
+
         try
         {
             var factory = new SqliteConnectionFactory(_options);

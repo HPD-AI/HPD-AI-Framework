@@ -45,6 +45,7 @@ public sealed partial class SqliteRecordStore :
     private long _nextQuarantinedAdministrationId;
     private long _schemaGeneration;
     private int _restoreInstallationActive;
+    private int _restoreRecoveryIndeterminate;
     private int _disposed;
 
     /// <summary>
@@ -85,10 +86,10 @@ public sealed partial class SqliteRecordStore :
         _schemaCommands = schemaCommands ?? DefaultSqliteSchemaCommandController.Instance;
         _administrationOperations = administrationOperations ?? DefaultSqliteAdministrationOperationController.Instance;
         _connections = new SqliteConnectionFactory(_options);
-        RecoverRestoreMarkerIfPresent();
         _schema = new SqliteSchemaInitializer(_options);
         _names = new SqliteNames(_options);
         _physical = new SqlitePhysicalModel(_options);
+        RecoverRestoreMarkerIfPresent();
         _queryCursors = tokenProtector is null ? null : new BaseQueryCursorCodec(tokenProtector, timeProvider);
         _tokenProtector = tokenProtector;
         Includes = new RecordIncludeExecutionCapability
@@ -125,6 +126,7 @@ public sealed partial class SqliteRecordStore :
     internal int QuarantinedMutationCount => _quarantinedMutations.Count;
     internal int QuarantinedAdministrationCount => _quarantinedAdministration.Count;
     internal bool RestoreRecoveryPending => IsFileBacked(_options) && File.Exists(RestoreMarkerPath());
+    internal bool RestoreRecoveryIndeterminate => Volatile.Read(ref _restoreRecoveryIndeterminate) != 0;
 
     /// <inheritdoc />
     public StoreCapabilityDescriptor Capabilities { get; }
@@ -754,7 +756,11 @@ FROM {_names.MutationJournal};
 
     private async ValueTask<SqliteConnection> OpenInitializedAsync(CancellationToken cancellationToken)
     {
-        if (RestoreRecoveryPending && Volatile.Read(ref _restoreInstallationActive) == 0)
+        if (RestoreRecoveryIndeterminate
+            && Volatile.Read(ref _restoreInstallationActive) == 0)
+            throw new InvalidOperationException("HPD.BASE SQLite restore outcome is indeterminate; the store is maintenance-closed.");
+        if (RestoreRecoveryPending
+            && Volatile.Read(ref _restoreInstallationActive) == 0)
             throw new InvalidOperationException("HPD.BASE SQLite restore recovery is incomplete; the store is unavailable.");
         await EnsureKeepAliveAsync(cancellationToken).ConfigureAwait(false);
         var connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);

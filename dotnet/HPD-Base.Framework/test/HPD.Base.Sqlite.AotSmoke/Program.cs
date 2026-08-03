@@ -4,7 +4,10 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
 
-var dataSource = Path.Combine(Path.GetTempPath(), "hpd-base-sqlite-aot-" + Guid.NewGuid().ToString("N") + ".db");
+string temporaryDirectory = Path.GetFullPath(Path.GetTempPath());
+if (OperatingSystem.IsMacOS() && temporaryDirectory.StartsWith("/var/", StringComparison.Ordinal))
+    temporaryDirectory = "/private" + temporaryDirectory;
+var dataSource = Path.Combine(temporaryDirectory, "hpd-base-sqlite-aot-" + Guid.NewGuid().ToString("N") + ".db");
 try
 {
     BaseCollection<SmokeRecord> items = BaseCollection.Define(

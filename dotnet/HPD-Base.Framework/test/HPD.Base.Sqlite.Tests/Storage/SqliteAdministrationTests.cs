@@ -1,8 +1,11 @@
 using System.Buffers.Binary;
 using System.Reflection;
+using System.Security.Cryptography;
+using System.Text.Json;
 using FluentAssertions;
 using HPD.Base;
 using HPD.Base.Sqlite;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using System.Security.AccessControl;
 
@@ -13,7 +16,7 @@ public sealed class SqliteAdministrationTests
     [Fact]
     public async Task ArtifactValidationDistinguishesRetainedUnknownOversizedAndTruncatedInputs()
     {
-        string path = Path.Combine(Path.GetTempPath(), $"hpd-base-admin-{Guid.NewGuid():N}.db");
+        string path = Path.Combine(AdministrationTempDirectory(), $"hpd-base-admin-{Guid.NewGuid():N}.db");
         byte[] oldKey = Enumerable.Repeat((byte)0x41, 32).ToArray();
         byte[] newKey = Enumerable.Repeat((byte)0x42, 32).ToArray();
         try
@@ -54,9 +57,95 @@ public sealed class SqliteAdministrationTests
     }
 
     [Fact]
+    public async Task AuthenticatedManifestFactsMustMatchTheStagedDatabase()
+    {
+        string path = Path.Combine(AdministrationTempDirectory(), $"hpd-base-admin-manifest-binding-{Guid.NewGuid():N}.db");
+        using BaseOpaqueTokenProtector protector = Protector(17, Enumerable.Repeat((byte)0x17, 32).ToArray());
+        try
+        {
+            await using SqliteRecordStore store = Store(path, protector);
+            var destination = new MemoryStream();
+            BaseBackupManifest manifest = (await store.CreateBackupAsync(destination, BackupRequest())).Value!;
+            byte[] altered = RewriteAuthenticatedArtifact(
+                destination.ToArray(),
+                protector,
+                value => value with { SchemaGeneration = value.SchemaGeneration + 1 });
+
+            (await store.ValidateBackupAsync(new MemoryStream(altered), ValidationRequest()))
+                .Error!.Code.Should().Be(BaseAdministrationErrorCodes.ArtifactInvalid);
+
+            OperationResult<BaseRestoreResult> restore = await store.RestoreAsync(
+                new MemoryStream(altered),
+                RestoreRequest(manifest));
+            restore.Error!.Code.Should().Be(BaseAdministrationErrorCodes.RestoreIdentityMismatch);
+            restore.Error.RestoreFailureDisposition.Should().Be(BaseRestoreFailureDisposition.RejectedBeforeChange);
+        }
+        finally { Cleanup(path); }
+    }
+
+    [Theory]
+    [InlineData("hpd_base_schema_assets")]
+    [InlineData("hpd_base_schema_history")]
+    [InlineData("hpd_base_schema_lease")]
+    [InlineData("hpd_base_operation_receipts")]
+    [InlineData("hpd_base_mutation_journal")]
+    public async Task AuthenticatedArtifactWithIncompleteProviderSchemaIsInvalid(string table)
+    {
+        string path = Path.Combine(AdministrationTempDirectory(), $"hpd-base-admin-schema-validation-{Guid.NewGuid():N}.db");
+        using BaseOpaqueTokenProtector protector = Protector(18, Enumerable.Repeat((byte)0x18, 32).ToArray());
+        try
+        {
+            await using SqliteRecordStore store = Store(path, protector);
+            var destination = new MemoryStream();
+            (await store.CreateBackupAsync(destination, BackupRequest())).IsSuccess().Should().BeTrue();
+            byte[] altered = RewriteAuthenticatedArtifact(
+                destination.ToArray(),
+                protector,
+                manifest => manifest,
+                payloadPath => ExecuteSql(payloadPath, $"DROP TABLE {table};"));
+
+            (await store.ValidateBackupAsync(new MemoryStream(altered), ValidationRequest()))
+                .Error!.Code.Should().Be(BaseAdministrationErrorCodes.ArtifactInvalid);
+        }
+        finally { Cleanup(path); }
+    }
+
+    [Fact]
+    public async Task AuthenticatedArtifactWithMalformedReceiptShapeIsInvalid()
+    {
+        string path = Path.Combine(AdministrationTempDirectory(), $"hpd-base-admin-malformed-receipts-{Guid.NewGuid():N}.db");
+        using BaseOpaqueTokenProtector protector = Protector(22, Enumerable.Repeat((byte)0x22, 32).ToArray());
+        try
+        {
+            await using SqliteRecordStore store = Store(path, protector);
+            var destination = new MemoryStream();
+            (await store.CreateBackupAsync(destination, BackupRequest())).IsSuccess().Should().BeTrue();
+            byte[] altered = RewriteAuthenticatedArtifact(
+                destination.ToArray(),
+                protector,
+                manifest => manifest,
+                payloadPath => ExecuteSql(payloadPath, """
+                    ALTER TABLE hpd_base_operation_receipts RENAME TO hpd_base_operation_receipts_old;
+                    CREATE TABLE hpd_base_operation_receipts (
+                      scope TEXT NOT NULL, operation TEXT NOT NULL, idempotency_key TEXT NOT NULL,
+                      fingerprint TEXT NOT NULL, structural_digest BLOB NOT NULL, result_json BLOB NOT NULL,
+                      result_format_version INTEGER NOT NULL, schema_generation INTEGER NOT NULL,
+                      store_instance_id TEXT NOT NULL, committed_at TEXT NOT NULL, expires_at TEXT NOT NULL,
+                      PRIMARY KEY(scope, operation, idempotency_key)
+                    ) WITHOUT ROWID;
+                    DROP TABLE hpd_base_operation_receipts_old;
+                    """));
+
+            (await store.ValidateBackupAsync(new MemoryStream(altered), ValidationRequest()))
+                .Error!.Code.Should().Be(BaseAdministrationErrorCodes.ArtifactInvalid);
+        }
+        finally { Cleanup(path); }
+    }
+
+    [Fact]
     public async Task RestoreRejectsMissingConfirmationAndBothIdentityMismatchesBeforeReplacement()
     {
-        string path = Path.Combine(Path.GetTempPath(), $"hpd-base-admin-restore-{Guid.NewGuid():N}.db");
+        string path = Path.Combine(AdministrationTempDirectory(), $"hpd-base-admin-restore-{Guid.NewGuid():N}.db");
         using BaseOpaqueTokenProtector protector = Protector(3, Enumerable.Repeat((byte)0x33, 32).ToArray());
         try
         {
@@ -96,7 +185,7 @@ public sealed class SqliteAdministrationTests
     [Fact]
     public async Task SuccessfulRestorePreservesProviderOwnedFileSecurityPolicy()
     {
-        string path = Path.Combine(Path.GetTempPath(), $"hpd-base-admin-permissions-{Guid.NewGuid():N}.db");
+        string path = Path.Combine(AdministrationTempDirectory(), $"hpd-base-admin-permissions-{Guid.NewGuid():N}.db");
         using BaseOpaqueTokenProtector protector = Protector(12, Enumerable.Repeat((byte)0x12, 32).ToArray());
         try
         {
@@ -146,9 +235,154 @@ public sealed class SqliteAdministrationTests
     }
 
     [Fact]
+    public async Task AdministrationRejectsSymlinkedParentDirectory()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        string root = Path.Combine(AdministrationTempDirectory(), $"hpd-base-admin-real-{Guid.NewGuid():N}");
+        string alias = root + "-alias";
+        Directory.CreateDirectory(root);
+        Directory.CreateSymbolicLink(alias, root);
+        string path = Path.Combine(alias, "store.db");
+        using BaseOpaqueTokenProtector protector = Protector(19, Enumerable.Repeat((byte)0x19, 32).ToArray());
+        try
+        {
+            await using SqliteRecordStore store = Store(path, protector);
+            OperationResult<BaseBackupManifest> result = await store.CreateBackupAsync(new MemoryStream(), BackupRequest());
+            result.Error!.Code.Should().Be(BaseAdministrationErrorCodes.CapabilityUnavailable);
+            File.Exists(Path.Combine(root, "store.db")).Should().BeTrue();
+            File.Exists(path + ".restore-state").Should().BeFalse();
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            if (Directory.Exists(alias)) Directory.Delete(alias);
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task RestoreRejectsDirectoryIdentitySwapBeforeMaintenanceBegins()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        string root = Path.Combine(AdministrationTempDirectory(), $"hpd-base-admin-path-swap-{Guid.NewGuid():N}");
+        string moved = root + "-original";
+        Directory.CreateDirectory(root);
+        string path = Path.Combine(root, "store.db");
+        using BaseOpaqueTokenProtector protector = Protector(20, Enumerable.Repeat((byte)0x20, 32).ToArray());
+        byte[] artifact;
+        BaseBackupManifest manifest;
+        try
+        {
+            await using (SqliteRecordStore creator = Store(path, protector))
+            {
+                var destination = new MemoryStream();
+                manifest = (await creator.CreateBackupAsync(destination, BackupRequest())).Value!;
+                artifact = destination.ToArray();
+            }
+
+            var swap = new CallbackAdministrationOperations("beforeCheckpointPathValidation", () =>
+            {
+                Directory.Move(root, moved);
+                Directory.CreateDirectory(root);
+            });
+            await using SqliteRecordStore store = Store(path, protector, administrationOperations: swap);
+            OperationResult<BaseRestoreResult> result = await store.RestoreAsync(new MemoryStream(artifact), RestoreRequest(manifest));
+
+            result.IsSuccess().Should().BeFalse();
+            result.Error!.RestoreFailureDisposition.Should().Be(BaseRestoreFailureDisposition.OriginalPreserved);
+            File.Exists(Path.Combine(moved, "store.db")).Should().BeTrue();
+            File.Exists(Path.Combine(root, "store.db.restore-state")).Should().BeFalse();
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+            if (Directory.Exists(moved)) Directory.Delete(moved, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("completedMarker")]
+    [InlineData("recoveryDatabase")]
+    [InlineData("recoveryWal")]
+    [InlineData("recoveryShm")]
+    public async Task RestoreNeverReportsSuccessWhenRequiredFinalizationDeletionFails(string failure)
+    {
+        string path = Path.Combine(AdministrationTempDirectory(), $"hpd-base-admin-cleanup-{failure}-{Guid.NewGuid():N}.db");
+        using BaseOpaqueTokenProtector protector = Protector(23, Enumerable.Repeat((byte)0x23, 32).ToArray());
+        byte[] artifact;
+        BaseBackupManifest manifest;
+        try
+        {
+            await using (SqliteRecordStore creator = Store(path, protector))
+            {
+                var destination = new MemoryStream();
+                manifest = (await creator.CreateBackupAsync(destination, BackupRequest())).Value!;
+                artifact = destination.ToArray();
+            }
+
+            await using SqliteRecordStore store = Store(
+                path,
+                protector,
+                administrationOperations: new DeletionFailureAdministrationOperations(failure, path));
+            OperationResult<BaseRestoreResult> result = await store.RestoreAsync(new MemoryStream(artifact), RestoreRequest(manifest));
+
+            result.IsSuccess().Should().BeFalse();
+            if (failure == "recoveryDatabase")
+            {
+                result.Error!.RestoreFailureDisposition.Should().Be(BaseRestoreFailureDisposition.RecoveryRestoredOriginal);
+                store.RestoreRecoveryPending.Should().BeFalse();
+            }
+            else
+            {
+                result.Error!.Code.Should().Be(BaseAdministrationErrorCodes.RestoreIndeterminate);
+                result.Error.RestoreFailureDisposition.Should().Be(BaseRestoreFailureDisposition.IndeterminateUnavailable);
+                store.RestoreRecoveryPending.Should().BeTrue();
+            }
+        }
+        finally { Cleanup(path); }
+    }
+
+    [Theory]
+    [InlineData("startupMarker")]
+    [InlineData("startupStaging")]
+    public async Task StartupCleanupFailureRetainsEvidenceAndConstructsIndeterminateProvider(string failure)
+    {
+        string path = Path.Combine(AdministrationTempDirectory(), $"hpd-base-admin-startup-cleanup-{failure}-{Guid.NewGuid():N}.db");
+        string staging = path + ".restore-staging";
+        string recovery = path + ".recovery-test";
+        using BaseOpaqueTokenProtector protector = Protector(24, Enumerable.Repeat((byte)0x24, 32).ToArray());
+        HPDBaseSqliteOptions options = OptionsFor(path);
+        try
+        {
+            await using (SqliteRecordStore initialized = Store(path, protector))
+            {
+                if (failure == "startupStaging") BackupCopy(path, staging);
+                typeof(SqliteRecordStore)
+                    .GetMethod("WriteRestoreMarker", BindingFlags.Instance | BindingFlags.NonPublic)!
+                    .Invoke(initialized, ["Prepared", staging, recovery, new string('1', 64), new string('2', 64)]);
+            }
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+
+            await using SqliteRecordStore restarted = SqliteTestFactory.Create(
+                options,
+                administrationOperations: new DeletionFailureAdministrationOperations(failure, path),
+                tokenProtector: protector,
+                initializeSchema: false);
+
+            restarted.RestoreRecoveryIndeterminate.Should().BeTrue();
+            File.Exists(path + ".restore-state").Should().BeTrue();
+            if (failure == "startupStaging") File.Exists(staging).Should().BeTrue();
+            HealthDescriptor health = (await new SqliteHealthContributor(Options.Create(options), restarted).GetHealthAsync()).Single();
+            health.Status.Should().Be(HealthStatus.Unhealthy);
+        }
+        finally { Cleanup(path); }
+    }
+
+    [Fact]
     public async Task StartupRecoversOriginalRenamedCrashStateBeforeOpeningStore()
     {
-        string path = Path.Combine(Path.GetTempPath(), $"hpd-base-admin-recovery-{Guid.NewGuid():N}.db");
+        string path = Path.Combine(AdministrationTempDirectory(), $"hpd-base-admin-recovery-{Guid.NewGuid():N}.db");
         string staging = path + ".restore-staging";
         string recovery = path + ".recovery-test";
         using BaseOpaqueTokenProtector protector = Protector(4, Enumerable.Repeat((byte)0x44, 32).ToArray());
@@ -156,7 +390,7 @@ public sealed class SqliteAdministrationTests
         {
             await using (SqliteRecordStore store = Store(path, protector))
             {
-                File.Copy(path, staging);
+                BackupCopy(path, staging);
                 typeof(SqliteRecordStore)
                     .GetMethod("WriteRestoreMarker", BindingFlags.Instance | BindingFlags.NonPublic)!
                     .Invoke(store, ["OriginalRenamed", staging, recovery, new string('1', 64), new string('2', 64)]);
@@ -166,6 +400,7 @@ public sealed class SqliteAdministrationTests
 
             await using SqliteRecordStore restarted = Store(path, protector);
 
+            restarted.RestoreRecoveryIndeterminate.Should().BeFalse();
             File.Exists(path).Should().BeTrue();
             File.Exists(recovery).Should().BeFalse();
             File.Exists(staging).Should().BeFalse();
@@ -182,7 +417,7 @@ public sealed class SqliteAdministrationTests
     [InlineData("Completed")]
     public async Task StartupResolvesEveryOtherDurableRestoreMarkerState(string state)
     {
-        string path = Path.Combine(Path.GetTempPath(), $"hpd-base-admin-marker-{state}-{Guid.NewGuid():N}.db");
+        string path = Path.Combine(AdministrationTempDirectory(), $"hpd-base-admin-marker-{state}-{Guid.NewGuid():N}.db");
         string staging = path + ".restore-staging";
         string recovery = path + ".recovery-test";
         using BaseOpaqueTokenProtector protector = Protector(10, Enumerable.Repeat((byte)0x10, 32).ToArray());
@@ -190,9 +425,9 @@ public sealed class SqliteAdministrationTests
         {
             await using (SqliteRecordStore store = Store(path, protector))
             {
-                File.Copy(path, staging);
+                BackupCopy(path, staging);
                 if (state is "ReplacementInstalled" or "ReplacementValidated" or "Completed")
-                    File.Copy(path, recovery);
+                    BackupCopy(path, recovery);
                 typeof(SqliteRecordStore)
                     .GetMethod("WriteRestoreMarker", BindingFlags.Instance | BindingFlags.NonPublic)!
                     .Invoke(store, [state, staging, recovery, new string('1', 64), new string('2', 64)]);
@@ -214,9 +449,9 @@ public sealed class SqliteAdministrationTests
     }
 
     [Fact]
-    public async Task InvalidRestoreMarkerFailsClosedBeforeAnyDatabaseOpen()
+    public async Task InvalidRestoreMarkerConstructsMaintenanceClosedProviderWithHealthAndDiagnostics()
     {
-        string path = Path.Combine(Path.GetTempPath(), $"hpd-base-admin-invalid-marker-{Guid.NewGuid():N}.db");
+        string path = Path.Combine(AdministrationTempDirectory(), $"hpd-base-admin-invalid-marker-{Guid.NewGuid():N}.db");
         using BaseOpaqueTokenProtector protector = Protector(11, Enumerable.Repeat((byte)0x11, 32).ToArray());
         try
         {
@@ -224,10 +459,77 @@ public sealed class SqliteAdministrationTests
             await initialized.DisposeAsync();
             File.WriteAllText(path + ".restore-state", "not-authenticated-restore-state");
 
-            Action restart = () => _ = Store(path, protector);
+            HPDBaseSqliteOptions options = OptionsFor(path);
+            await using SqliteRecordStore restarted = SqliteTestFactory.Create(
+                options,
+                tokenProtector: protector,
+                initializeSchema: false);
 
-            restart.Should().Throw<InvalidOperationException>()
-                .WithMessage("*restore recovery state is invalid*");
+            restarted.RestoreRecoveryIndeterminate.Should().BeTrue();
+            File.Exists(path + ".restore-state").Should().BeTrue("invalid recovery evidence must be retained");
+
+            Func<Task> ordinaryOpen = async () => await restarted.GetMutationJournalBoundsAsync();
+            await ordinaryOpen.Should().ThrowAsync<InvalidOperationException>()
+                .WithMessage("*restore outcome is indeterminate*");
+
+            HealthDescriptor health = (await new SqliteHealthContributor(Options.Create(options), restarted).GetHealthAsync()).Single();
+            health.Status.Should().Be(HealthStatus.Unhealthy);
+            health.Summary.Should().Be("SQLite restore outcome is indeterminate and the store is maintenance-closed.");
+
+            DiagnosticDescriptor[] diagnostics = await new SqliteDiagnosticContributor(
+                Options.Create(options),
+                restarted,
+                NullLogger<SqliteDiagnosticContributor>.Instance).GetDiagnosticsAsync();
+            diagnostics.Should().ContainSingle(item => item.Code == "base.sqlite.restore.indeterminate");
+        }
+        finally { Cleanup(path); }
+    }
+
+    [Theory]
+    [InlineData("checksumMismatch")]
+    [InlineData("missingRecovery")]
+    [InlineData("invalidRecovery")]
+    public async Task InvalidStartupRecoveryStatesRetainEvidenceAndExposeUnhealthyProvider(string failure)
+    {
+        string path = Path.Combine(AdministrationTempDirectory(), $"hpd-base-admin-invalid-recovery-{failure}-{Guid.NewGuid():N}.db");
+        string staging = path + ".restore-staging";
+        string recovery = path + ".recovery-test";
+        using BaseOpaqueTokenProtector protector = Protector(21, Enumerable.Repeat((byte)0x21, 32).ToArray());
+        HPDBaseSqliteOptions options = OptionsFor(path);
+        try
+        {
+            await using (SqliteRecordStore initialized = Store(path, protector))
+            {
+                typeof(SqliteRecordStore)
+                    .GetMethod("WriteRestoreMarker", BindingFlags.Instance | BindingFlags.NonPublic)!
+                    .Invoke(initialized, [failure == "checksumMismatch" ? "Prepared" : "ReplacementInstalled", staging, recovery, new string('1', 64), new string('2', 64)]);
+            }
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+
+            if (failure == "checksumMismatch")
+            {
+                SqliteRestoreMarker marker = JsonSerializer.Deserialize(
+                    File.ReadAllBytes(path + ".restore-state"),
+                    SqliteAdministrationJsonContext.Default.SqliteRestoreMarker)!;
+                File.WriteAllBytes(
+                    path + ".restore-state",
+                    JsonSerializer.SerializeToUtf8Bytes(marker with { Checksum = new string('0', 64) }, SqliteAdministrationJsonContext.Default.SqliteRestoreMarker));
+            }
+            else if (failure == "invalidRecovery")
+            {
+                File.WriteAllText(recovery, "not-a-sqlite-database");
+            }
+
+            await using SqliteRecordStore restarted = SqliteTestFactory.Create(options, tokenProtector: protector, initializeSchema: false);
+            restarted.RestoreRecoveryIndeterminate.Should().BeTrue();
+            File.Exists(path + ".restore-state").Should().BeTrue();
+            File.Exists(path).Should().BeTrue("failed recovery must not destroy the active database");
+            if (failure == "invalidRecovery") File.Exists(recovery).Should().BeTrue();
+
+            HealthDescriptor health = (await new SqliteHealthContributor(Options.Create(options), restarted).GetHealthAsync()).Single();
+            health.Status.Should().Be(HealthStatus.Unhealthy);
+            Func<Task> ordinaryOpen = async () => await restarted.GetMutationJournalBoundsAsync();
+            await ordinaryOpen.Should().ThrowAsync<InvalidOperationException>();
         }
         finally { Cleanup(path); }
     }
@@ -235,7 +537,7 @@ public sealed class SqliteAdministrationTests
     [Fact]
     public async Task NonCooperativeRestoreStagingIsBoundedAndRetainsCapacityUntilCompletion()
     {
-        string path = Path.Combine(Path.GetTempPath(), $"hpd-base-admin-staging-{Guid.NewGuid():N}.db");
+        string path = Path.Combine(AdministrationTempDirectory(), $"hpd-base-admin-staging-{Guid.NewGuid():N}.db");
         using BaseOpaqueTokenProtector protector = Protector(5, Enumerable.Repeat((byte)0x55, 32).ToArray());
         var source = new BlockingReadStream();
         try
@@ -273,7 +575,7 @@ public sealed class SqliteAdministrationTests
     [Fact]
     public async Task NonCooperativePostInstallValidationKeepsRestoreMaintenanceClosedUntilCompletion()
     {
-        string path = Path.Combine(Path.GetTempPath(), $"hpd-base-admin-post-install-{Guid.NewGuid():N}.db");
+        string path = Path.Combine(AdministrationTempDirectory(), $"hpd-base-admin-post-install-{Guid.NewGuid():N}.db");
         using BaseOpaqueTokenProtector protector = Protector(6, Enumerable.Repeat((byte)0x66, 32).ToArray());
         var operations = new BlockingAdministrationOperations();
         try
@@ -320,7 +622,7 @@ public sealed class SqliteAdministrationTests
     [Fact]
     public async Task FailedPostInstallValidationRestoresAndReopensTheVerifiedOriginal()
     {
-        string path = Path.Combine(Path.GetTempPath(), $"hpd-base-admin-post-install-failure-{Guid.NewGuid():N}.db");
+        string path = Path.Combine(AdministrationTempDirectory(), $"hpd-base-admin-post-install-failure-{Guid.NewGuid():N}.db");
         using BaseOpaqueTokenProtector protector = Protector(13, Enumerable.Repeat((byte)0x13, 32).ToArray());
         var operations = new FailingAdministrationOperations("postInstallValidation");
         try
@@ -367,7 +669,7 @@ public sealed class SqliteAdministrationTests
     [Fact]
     public async Task UnrecoverablePostInstallFailureLeavesProviderClosedAndUnhealthy()
     {
-        string path = Path.Combine(Path.GetTempPath(), $"hpd-base-admin-unrecoverable-{Guid.NewGuid():N}.db");
+        string path = Path.Combine(AdministrationTempDirectory(), $"hpd-base-admin-unrecoverable-{Guid.NewGuid():N}.db");
         using BaseOpaqueTokenProtector protector = Protector(14, Enumerable.Repeat((byte)0x14, 32).ToArray());
         HPDBaseSqliteOptions options = OptionsFor(path);
         try
@@ -427,6 +729,15 @@ public sealed class SqliteAdministrationTests
         command.ExecuteNonQuery();
     }
 
+    private static void BackupCopy(string sourcePath, string destinationPath)
+    {
+        using var source = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={sourcePath};Pooling=False");
+        using var destination = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={destinationPath};Mode=ReadWriteCreate;Pooling=False");
+        source.Open();
+        destination.Open();
+        source.BackupDatabase(destination);
+    }
+
     private static BaseOpaqueTokenProtector Protector(
         byte id,
         byte[] key,
@@ -439,6 +750,77 @@ public sealed class SqliteAdministrationTests
     private static BaseBackupRequest BackupRequest() => new() { StoreId = "sqlite", Principal = Principal() };
     private static BaseBackupValidationRequest ValidationRequest() => new() { StoreId = "sqlite", Principal = Principal() };
     private static PrincipalContext Principal() => new() { AuthenticationState = PrincipalAuthenticationState.System };
+
+    private static BaseRestoreRequest RestoreRequest(BaseBackupManifest manifest) => new()
+    {
+        StoreId = "sqlite",
+        Principal = Principal(),
+        ExpectedCurrentStoreIdentityDigest = manifest.StoreIdentityDigest,
+        ExpectedArtifactStoreIdentityDigest = manifest.StoreIdentityDigest,
+        IdentityMode = BaseRestoreIdentityMode.RequireCurrentStoreIdentity,
+        RecoveryImageRetention = BaseRecoveryImageRetention.DeleteAfterSuccessfulRestore,
+        ConfirmDestructiveReplacement = true,
+    };
+
+    private static byte[] RewriteAuthenticatedArtifact(
+        byte[] artifact,
+        BaseOpaqueTokenProtector protector,
+        Func<BaseBackupManifest, BaseBackupManifest> rewriteManifest,
+        Action<string>? rewritePayload = null)
+    {
+        int manifestLength = checked((int)BinaryPrimitives.ReadUInt32BigEndian(artifact.AsSpan(12, 4)));
+        long payloadLength = checked((long)BinaryPrimitives.ReadUInt64BigEndian(artifact.AsSpan(16, 8)));
+        BaseBackupManifest manifest = JsonSerializer.Deserialize(
+            artifact.AsSpan(24, manifestLength),
+            SqliteAdministrationJsonContext.Default.BaseBackupManifest)!;
+        byte[] payload = artifact.AsSpan(24 + manifestLength, checked((int)payloadLength)).ToArray();
+        if (rewritePayload is not null)
+        {
+            string temporary = Path.Combine(AdministrationTempDirectory(), $"hpd-base-artifact-rewrite-{Guid.NewGuid():N}.db");
+            try
+            {
+                File.WriteAllBytes(temporary, payload);
+                rewritePayload(temporary);
+                payload = File.ReadAllBytes(temporary);
+            }
+            finally { Cleanup(temporary); }
+        }
+
+        byte[] digest = SHA256.HashData(payload);
+        manifest = rewriteManifest(manifest) with
+        {
+            ProviderPayloadLength = payload.LongLength,
+            ProviderPayloadSha256 = Convert.ToHexStringLower(digest),
+        };
+        byte[] manifestBytes = JsonSerializer.SerializeToUtf8Bytes(manifest, SqliteAdministrationJsonContext.Default.BaseBackupManifest);
+        byte[] header = new byte[24];
+        "HPDBAK01"u8.CopyTo(header);
+        BinaryPrimitives.WriteUInt16BigEndian(header.AsSpan(8, 2), 1);
+        header[10] = 1;
+        header[11] = protector.ActiveKeyId;
+        BinaryPrimitives.WriteUInt32BigEndian(header.AsSpan(12, 4), checked((uint)manifestBytes.Length));
+        BinaryPrimitives.WriteUInt64BigEndian(header.AsSpan(16, 8), checked((ulong)payload.LongLength));
+        byte[] authenticated = [.. header, .. manifestBytes, .. digest];
+        byte[] tag = protector.Authenticate("hpd.base.backup.manifest.v1", protector.ActiveKeyId, authenticated);
+        return [.. header, .. manifestBytes, .. payload, .. tag];
+    }
+
+    private static void ExecuteSql(string path, string sql)
+    {
+        using var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path};Pooling=False");
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        command.ExecuteNonQuery();
+    }
+
+    private static string AdministrationTempDirectory()
+    {
+        string path = Path.GetFullPath(Path.GetTempPath());
+        return OperatingSystem.IsMacOS() && path.StartsWith("/var/", StringComparison.Ordinal)
+            ? "/private" + path
+            : path;
+    }
 
     private static void Cleanup(string path)
     {
@@ -474,6 +856,7 @@ public sealed class SqliteAdministrationTests
             string.Equals(phase, "postInstallValidation", StringComparison.Ordinal)
                 ? new ValueTask(_release.Task)
                 : ValueTask.CompletedTask;
+        public void DeleteFile(string path) => File.Delete(path);
     }
 
     private sealed class FailingAdministrationOperations(string phase) : ISqliteAdministrationOperationController
@@ -484,6 +867,57 @@ public sealed class SqliteAdministrationTests
             return string.Equals(currentPhase, phase, StringComparison.Ordinal)
                 ? ValueTask.FromException(new InvalidOperationException("Injected administration failure."))
                 : ValueTask.CompletedTask;
+        }
+        public void DeleteFile(string path) => File.Delete(path);
+    }
+
+    private sealed class CallbackAdministrationOperations(string phase, Action callback) : ISqliteAdministrationOperationController
+    {
+        private int _invoked;
+
+        public ValueTask BeforePhaseAsync(string currentPhase, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (string.Equals(currentPhase, phase, StringComparison.Ordinal)
+                && Interlocked.Exchange(ref _invoked, 1) == 0)
+                callback();
+            return ValueTask.CompletedTask;
+        }
+        public void DeleteFile(string path) => File.Delete(path);
+    }
+
+    private sealed class DeletionFailureAdministrationOperations(string failure, string databasePath) : ISqliteAdministrationOperationController
+    {
+        public ValueTask BeforePhaseAsync(string phase, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (phase == "beforeRecoverySetDeletion" && failure is "recoveryWal" or "recoveryShm")
+            {
+                string extension = failure == "recoveryWal" ? "-wal" : "-shm";
+                string recovery = Directory.GetFiles(Path.GetDirectoryName(databasePath)!, Path.GetFileName(databasePath) + ".recovery.*")
+                    .Single(path => path.Contains(".recovery.", StringComparison.Ordinal)
+                        && !path.EndsWith("-wal", StringComparison.Ordinal)
+                        && !path.EndsWith("-shm", StringComparison.Ordinal));
+                File.WriteAllBytes(recovery + extension, [0x01]);
+            }
+            return ValueTask.CompletedTask;
+        }
+
+        public void DeleteFile(string path)
+        {
+            bool fail = failure switch
+            {
+                "completedMarker" or "startupMarker" => path.EndsWith(".restore-state", StringComparison.Ordinal),
+                "recoveryDatabase" => path.Contains(".recovery.", StringComparison.Ordinal)
+                    && !path.EndsWith("-wal", StringComparison.Ordinal)
+                    && !path.EndsWith("-shm", StringComparison.Ordinal),
+                "recoveryWal" => path.EndsWith("-wal", StringComparison.Ordinal),
+                "recoveryShm" => path.EndsWith("-shm", StringComparison.Ordinal),
+                "startupStaging" => path.EndsWith(".restore-staging", StringComparison.Ordinal),
+                _ => false,
+            };
+            if (fail) throw new IOException("Injected deletion failure.");
+            File.Delete(path);
         }
     }
 

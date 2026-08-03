@@ -336,6 +336,8 @@ ON CONFLICT(collection_id) DO UPDATE SET native_name = excluded.native_name, mut
             }
             missing.AddRange(await GetMissingMutationJournalColumnsAsync(connection, cancellationToken).ConfigureAwait(false));
             missing.AddRange(await GetMissingReceiptColumnsAsync(connection, cancellationToken).ConfigureAwait(false));
+            missing.AddRange(await GetMalformedMutationJournalColumnsAsync(connection, cancellationToken).ConfigureAwait(false));
+            missing.AddRange(await GetMalformedReceiptColumnsAsync(connection, cancellationToken).ConfigureAwait(false));
             missing.AddRange(await GetMissingSchemaAuthorityColumnsAsync(connection, cancellationToken).ConfigureAwait(false));
             missing.AddRange(await GetMissingCollectionStateAsync(connection, cancellationToken).ConfigureAwait(false));
 
@@ -525,6 +527,21 @@ ON CONFLICT(collection_id) DO UPDATE SET native_name = excluded.native_name, mut
         return missing.ToArray();
     }
 
+    private async ValueTask<string[]> GetMalformedMutationJournalColumnsAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        Dictionary<string, ColumnShape> shapes = await GetColumnShapesAsync(connection, _names.MutationJournal, cancellationToken).ConfigureAwait(false);
+        var malformed = new List<string>();
+        Check(shapes, malformed, _names.MutationJournal, "position", "INTEGER", false, true);
+        foreach (string column in new[] { "event_id", "event_type", "schema_version", "occurred_at", "collection_id", "record_id" })
+            Check(shapes, malformed, _names.MutationJournal, column, "TEXT", true, false);
+        Check(shapes, malformed, _names.MutationJournal, "tenant_id", "TEXT", false, false);
+        Check(shapes, malformed, _names.MutationJournal, "operation", "INTEGER", true, false);
+        Check(shapes, malformed, _names.MutationJournal, "visibility", "INTEGER", true, false);
+        Check(shapes, malformed, _names.MutationJournal, "before_json", "TEXT", false, false);
+        Check(shapes, malformed, _names.MutationJournal, "after_json", "TEXT", false, false);
+        return malformed.ToArray();
+    }
+
     private async ValueTask<string[]> GetMissingReceiptColumnsAsync(SqliteConnection connection, CancellationToken cancellationToken)
     {
         var missing = new List<string>();
@@ -532,6 +549,21 @@ ON CONFLICT(collection_id) DO UPDATE SET native_name = excluded.native_name, mut
             if (!await ColumnExistsAsync(connection, _names.OperationReceipts, column, cancellationToken).ConfigureAwait(false))
                 missing.Add("column:" + _names.OperationReceipts + "." + column);
         return missing.ToArray();
+    }
+
+    private async ValueTask<string[]> GetMalformedReceiptColumnsAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        Dictionary<string, ColumnShape> shapes = await GetColumnShapesAsync(connection, _names.OperationReceipts, cancellationToken).ConfigureAwait(false);
+        var malformed = new List<string>();
+        foreach (string column in new[] { "scope", "operation", "idempotency_key" })
+            Check(shapes, malformed, _names.OperationReceipts, column, "TEXT", true, true);
+        foreach (string column in new[] { "fingerprint", "structural_digest", "result_json" })
+            Check(shapes, malformed, _names.OperationReceipts, column, "BLOB", true, false);
+        Check(shapes, malformed, _names.OperationReceipts, "result_format_version", "INTEGER", true, false);
+        Check(shapes, malformed, _names.OperationReceipts, "schema_generation", "INTEGER", true, false);
+        foreach (string column in new[] { "store_instance_id", "committed_at", "expires_at" })
+            Check(shapes, malformed, _names.OperationReceipts, column, "TEXT", true, false);
+        return malformed.ToArray();
     }
 
     private async ValueTask<string[]> GetMissingCollectionStateAsync(
