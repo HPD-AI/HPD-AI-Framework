@@ -150,10 +150,8 @@ public class ServiceRegistrationTests
             var provider = services.BuildServiceProvider();
 
             var options = provider.GetRequiredService<IOptionsMonitor<HPDAgentConfig>>().Get("hosted");
-            options.DefaultAgent.Should().NotBeNull();
-            options.DefaultAgent!.Name.Should().Be("Hosted YAML Agent");
-            options.DefaultAgent.SystemInstructions.Should().Be("Run from hosting config.");
-            options.DefaultAgent.MaxAgenticIterations.Should().Be(7);
+            options.DefaultAgent.Should().BeNull();
+            options.DefaultAgentPath.Should().Be(path);
             options.AgentIdleTimeout.Should().Be(TimeSpan.FromMinutes(5));
         }
         finally
@@ -180,11 +178,9 @@ public class ServiceRegistrationTests
         var provider = services.BuildServiceProvider();
 
         var options = provider.GetRequiredService<IOptionsMonitor<HPDAgentConfig>>().Get("configured");
-        options.DefaultAgent.Should().NotBeNull();
-        options.DefaultAgent!.Name.Should().Be("Hosted IConfiguration Agent");
-        options.DefaultAgent.SystemInstructions.Should().Be("Run from IConfiguration.");
-        options.DefaultAgent.ToolHarnesses.Should().ContainSingle();
-        options.DefaultAgent.ToolHarnesses[0].Name.Should().Be("CodingToolHarness");
+        options.DefaultAgent.Should().BeNull();
+        options.DefaultAgentDocument.Should().Contain("Hosted IConfiguration Agent");
+        options.DefaultAgentDocument.Should().Contain("CodingToolHarness");
     }
 
     [Fact]

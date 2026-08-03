@@ -51,8 +51,9 @@ internal class AspNetCoreAgentManager : AgentManager
 
         // Priority 2: stored.Config loaded from the hosted agent store
         // Priority 3: DefaultAgent object
-        // Priority 4: DefaultAgentPath file
-        // Priority 5: Empty builder (fallback)
+        // Priority 4: deferred configuration document
+        // Priority 5: DefaultAgentPath file
+        // Priority 6: Empty builder (fallback)
         AgentBuilder builder;
         var providerComposition = _serviceProvider.GetService<ProviderComposition>();
         var stored = await AgentStore.LoadAsync(agentId, ct).ConfigureAwait(false);
@@ -64,10 +65,22 @@ internal class AspNetCoreAgentManager : AgentManager
         {
             builder = providerComposition is null ? new AgentBuilder(opts.DefaultAgent) : new AgentBuilder(opts.DefaultAgent, providerComposition);
         }
+        else if (opts.DefaultAgentDocument != null)
+        {
+            var loaded = providerComposition is null
+                ? HpdAgentConfigSerializer.Deserialize(opts.DefaultAgentDocument)
+                : HpdAgentConfigSerializer.Deserialize(opts.DefaultAgentDocument, providerComposition);
+            if (loaded is null)
+                throw new InvalidOperationException("Failed to deserialize the configured default agent definition.");
+            builder = providerComposition is null ? new AgentBuilder(loaded) : new AgentBuilder(loaded, providerComposition);
+        }
         else if (opts.DefaultAgentPath != null)
         {
-            var loaded = await HpdAgentConfigSerializer.ReadFileAsync(opts.DefaultAgentPath, ct)
-                ?? throw new InvalidOperationException(
+            var loaded = providerComposition is null
+                ? await HpdAgentConfigSerializer.ReadFileAsync(opts.DefaultAgentPath, ct)
+                : await HpdAgentConfigSerializer.ReadFileAsync(opts.DefaultAgentPath, providerComposition, ct);
+            if (loaded is null)
+                throw new InvalidOperationException(
                     $"Failed to deserialize default agent definition from {opts.DefaultAgentPath}");
             builder = providerComposition is null ? new AgentBuilder(loaded) : new AgentBuilder(loaded, providerComposition);
         }

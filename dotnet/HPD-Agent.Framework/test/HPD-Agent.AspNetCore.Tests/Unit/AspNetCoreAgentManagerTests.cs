@@ -90,6 +90,24 @@ public class AspNetCoreAgentManagerTests : IDisposable
     }
 
     [Fact]
+    public async Task BuildAgentAsync_UsesDeferredDefaultAgentDocument_WhenProvided()
+    {
+        _optionsMonitor.CurrentValue.DefaultAgentDocument = """
+            { "name": "Configured Agent", "systemInstructions": "Configured at runtime." }
+            """;
+        _optionsMonitor.CurrentValue.ConfigureAgent = InjectTestProvider;
+
+        var manager = MakeManager();
+        var stored = new StoredAgent { Id = Guid.NewGuid().ToString(), Name = "Deferred", Config = null! };
+        await _agentStore.SaveAsync(stored);
+
+        var agent = await manager.GetOrBuildAgentAsync(stored.Id);
+
+        agent.Config!.Name.Should().Be("Configured Agent");
+        agent.Config.SystemInstructions.Should().Be("Configured at runtime.");
+    }
+
+    [Fact]
     public async Task BuildAgentAsync_FallsBackToEmptyBuilder_WhenNoConfig()
     {
         // No DefaultAgent, no path, no factory — falls back to empty AgentBuilder

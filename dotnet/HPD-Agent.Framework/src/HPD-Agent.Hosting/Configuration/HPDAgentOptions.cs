@@ -64,6 +64,13 @@ public class HPDAgentConfig
     public string? DefaultAgentPath { get; set; }
 
     /// <summary>
+    /// JSON agent definition deferred until the hosting container can bind provider-specific
+    /// payloads through its generated provider composition.
+    /// </summary>
+    /// <remarks>Normally populated by the ASP.NET Core configuration registration extensions.</remarks>
+    public string? DefaultAgentDocument { get; set; }
+
+    /// <summary>
     /// Agent store for resolving stored agent definitions.
     /// Defaults to <see cref="InMemoryAgentStore"/> if not set.
     /// </summary>

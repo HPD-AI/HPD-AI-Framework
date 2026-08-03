@@ -109,6 +109,12 @@ public class SubAgentRuntimeTests
         client.EnqueueTextResponse("Review complete.");
         var agent = await BuildAgentAsync(store, client);
         await agent.CreateSessionAsync("parent-session");
+        var parentThread = (await store.ProjectThreadAsync(
+            "parent-session",
+            "main",
+            ThreadProjectionPurpose.ThreadHistory))!;
+        parentThread.AddMessage(new ChatMessage(ChatRole.User, "Please review this input."));
+        await AppendMessagesAsync(store, parentThread);
         var services = new ServiceCollection()
             .AddSingleton<IAgentRuntimeResolver>(new FixedAgentRuntimeResolver(agent))
             .BuildServiceProvider();

@@ -19,6 +19,20 @@ public static class HpdAgentConfigSerializer
             HPDJsonContext.Default.AgentConfig,
             cancellationToken);
 
+    /// <summary>Reads JSON or YAML and binds its provider-specific payloads through a generated composition.</summary>
+    public static AgentConfig? ReadFile(string path, ProviderComposition providerComposition)
+        => Deserialize(File.ReadAllText(path), providerComposition, GetFileFormat(path));
+
+    /// <summary>Reads JSON or YAML asynchronously and binds its provider-specific payloads through a generated composition.</summary>
+    public static async ValueTask<AgentConfig?> ReadFileAsync(
+        string path,
+        ProviderComposition providerComposition,
+        CancellationToken cancellationToken = default)
+        => Deserialize(
+            await File.ReadAllTextAsync(path, cancellationToken).ConfigureAwait(false),
+            providerComposition,
+            GetFileFormat(path));
+
     public static void WriteFile(string path, AgentConfig config)
         => HpdConfigSerializer.WriteFile(path, config, HPDJsonContext.Default.AgentConfig);
 
@@ -37,6 +51,13 @@ public static class HpdAgentConfigSerializer
 
     public static AgentConfig? Deserialize(string text, HpdConfigFormat format = HpdConfigFormat.Json)
         => HpdConfigSerializer.Deserialize(text, HPDJsonContext.Default.AgentConfig, format);
+
+    private static HpdConfigFormat GetFileFormat(string path)
+        => Path.GetExtension(path).ToLowerInvariant() switch
+        {
+            ".yaml" or ".yml" => HpdConfigFormat.Yaml,
+            _ => HpdConfigFormat.Json
+        };
 
     /// <summary>
     /// Deserializes an agent configuration and binds provider-specific family payloads through

@@ -47,12 +47,9 @@ public static class HPDAgentServiceCollectionExtensions
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(configPath);
 
-        var agentConfig = HpdAgentConfigSerializer.ReadFile(configPath)
-            ?? throw new InvalidOperationException($"Failed to load HPD agent config from '{configPath}'.");
-
         return services.AddHPDAgent(name, options =>
         {
-            options.DefaultAgent = agentConfig;
+            options.DefaultAgentPath = configPath;
             configure?.Invoke(options);
         });
     }
@@ -77,12 +74,9 @@ public static class HPDAgentServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(configuration);
 
-        var agentConfig = HpdAgentConfigSerializer.Deserialize(ConfigurationToJson(configuration))
-            ?? throw new InvalidOperationException("Failed to load HPD agent config from IConfiguration.");
-
         return services.AddHPDAgent(name, options =>
         {
-            options.DefaultAgent = agentConfig;
+            options.DefaultAgentDocument = ConfigurationToJson(configuration);
             configure?.Invoke(options);
         });
     }
@@ -135,6 +129,7 @@ public static class HPDAgentServiceCollectionExtensions
                 sp.GetRequiredService<HPD.Agent.Hosting.Lifecycle.SessionManager>()));
 
         // Register JSON serialization context for AOT (once)
+        services.AddOptions<JsonOptions>();
         services.TryAddEnumerable(
             ServiceDescriptor.Singleton<IConfigureOptions<JsonOptions>,
                 HPDAgentApiJsonOptionsSetup>());
