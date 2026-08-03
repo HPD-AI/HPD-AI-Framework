@@ -27,8 +27,8 @@ namespace HPD.Agent.Providers.Ollama;
 /// - Remote: http://your-server:11434
 /// </para>
 /// <para>
-/// Provider-specific options are stored in ConstructionOptions and validated through
-/// OllamaProviderConfig.
+/// Provider-specific acquisition settings are stored in <c>Clients.Chat.ProviderConfig</c>
+/// and validated as <see cref="OllamaProviderConfig"/> through generated composition.
 /// </para>
 /// </remarks>
 [HpdProvider("ollama", "Ollama", DocumentationUrl = "https://ollama.com/")]

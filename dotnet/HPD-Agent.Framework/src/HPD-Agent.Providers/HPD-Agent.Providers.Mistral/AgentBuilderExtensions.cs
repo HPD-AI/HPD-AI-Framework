@@ -27,8 +27,8 @@ public static class AgentBuilderExtensions
     /// 3. appsettings.json: "mistral:ApiKey" or "Mistral:ApiKey"
     /// </para>
     /// <para>
-    /// Runtime chat behavior is configured through <see cref="ProviderClientConfig.ChatDefaults"/>
-    /// and per-run <see cref="AgentRunConfig.Chat"/>.
+    /// Runtime chat behavior is configured through <see cref="AgentConfig.Clients"/>
+    /// and per-run <see cref="AgentRunConfig.Clients"/>.
     /// </remarks>
     /// <example>
     /// <code>

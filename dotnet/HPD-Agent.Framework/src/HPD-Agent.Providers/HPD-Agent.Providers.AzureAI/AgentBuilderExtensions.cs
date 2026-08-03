@@ -41,8 +41,8 @@ public static class AgentBuilderExtensions
     /// </para>
     /// <para>
     /// This method creates an <see cref="AzureAIProviderConfig"/> that is:
-    /// - Stored in <c>ProviderClientConfig.ConstructionOptions</c> as a structured JSON/YAML object
-    /// - Applied during <c>AzureAIProvider.CreateChatClientAsync()</c> via the registered deserializer
+    /// - Stored in <c>Clients.Chat.ProviderConfig</c> as a typed JSON/YAML object
+    /// - Applied during <c>AzureAIProvider.CreateChatClientAsync()</c> through generated provider composition
     /// </para>
     /// <para>
     /// For FFI/JSON configuration, you can use the same config structure directly:

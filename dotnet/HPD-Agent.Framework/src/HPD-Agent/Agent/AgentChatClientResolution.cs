@@ -1,7 +1,6 @@
 using HPD.Agent.Providers;
 using HPD.Agent.Secrets;
 using Microsoft.Extensions.AI;
-using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text.Json;
 
@@ -20,6 +19,7 @@ internal sealed class AgentChatClientHandle
 {
     private readonly object _gate = new();
     private readonly bool _ownsClient;
+    private readonly Func<ValueTask>? _release;
     private int _leaseCount;
     private bool _closed;
     private bool _disposed;
@@ -28,12 +28,14 @@ internal sealed class AgentChatClientHandle
         IChatClient client,
         AgentChatClientSource source,
         ProviderClientConfig? resolvedConfig,
-        bool ownsClient)
+        bool ownsClient,
+        Func<ValueTask>? release = null)
     {
         Client = client ?? throw new ArgumentNullException(nameof(client));
         Source = source;
         ResolvedConfig = resolvedConfig;
         _ownsClient = ownsClient;
+        _release = release;
     }
 
     public IChatClient Client { get; }
@@ -52,6 +54,12 @@ internal sealed class AgentChatClientHandle
         ProviderClientConfig? resolvedConfig = null)
         => new(client, source, resolvedConfig, ownsClient: true);
 
+    public static AgentChatClientHandle Leased(
+        IProviderClientLease<IChatClient> lease,
+        AgentChatClientSource source,
+        ProviderClientConfig? resolvedConfig = null)
+        => new(lease.Client, source, resolvedConfig, ownsClient: false, lease.DisposeAsync);
+
     public AgentChatClientLease AcquireLease()
     {
         lock (_gate)
@@ -67,6 +75,7 @@ internal sealed class AgentChatClientHandle
     internal async ValueTask ReleaseAsync()
     {
         IChatClient? clientToDispose = null;
+        Func<ValueTask>? release = null;
 
         lock (_gate)
         {
@@ -74,11 +83,13 @@ internal sealed class AgentChatClientHandle
                 return;
 
             _leaseCount--;
-            if (_ownsClient && _leaseCount == 0 && !_disposed)
+            if (_leaseCount == 0 && !_disposed && (_ownsClient || _release is not null))
             {
                 _closed = true;
                 _disposed = true;
-                clientToDispose = Client;
+                if (_ownsClient)
+                    clientToDispose = Client;
+                release = _release;
             }
         }
 
@@ -86,6 +97,8 @@ internal sealed class AgentChatClientHandle
             await asyncDisposable.DisposeAsync().ConfigureAwait(false);
         else
             clientToDispose?.Dispose();
+        if (release is not null)
+            await release().ConfigureAwait(false);
     }
 }
 
@@ -475,7 +488,7 @@ internal sealed class AgentProviderChatClientManager : IDisposable
     private readonly IProviderRegistry? _providerRegistry;
     private readonly IServiceProvider? _services;
     private readonly IReadOnlyList<Func<IChatClient, IServiceProvider?, IChatClient>>? _middleware;
-    private readonly ConcurrentDictionary<ChatClientCacheKey, Lazy<Task<IChatClient>>> _clients = new();
+    private readonly ProviderClientManager<IChatClient> _clients = new();
     private int _disposed;
 
     public AgentProviderChatClientManager(
@@ -504,28 +517,20 @@ internal sealed class AgentProviderChatClientManager : IDisposable
             return AgentChatClientHandle.Owned(uncached, source, config).AcquireLease();
         }
 
-        var key = ChatClientCacheKey.Create(config, authenticationIdentity, providerConfigFingerprint);
-        var lazy = _clients.GetOrAdd(
+        var key = new ProviderClientCacheKey
+        {
+            ProviderKey = config.ProviderKey,
+            Family = ProviderClientFamily.Chat,
+            AuthenticationIdentity = authenticationIdentity,
+            Endpoint = config.Endpoint,
+            ProviderConfigFingerprint = providerConfigFingerprint,
+            ClientBoundModel = config.ModelName
+        };
+        var lease = await _clients.AcquireAsync(
             key,
-            _ => new Lazy<Task<IChatClient>>(
-                // Cached construction belongs to the resolver, not whichever caller
-                // happened to win the race to populate the cache.
-                () => CreateClientAsync(config, CancellationToken.None).AsTask(),
-                LazyThreadSafetyMode.ExecutionAndPublication));
-
-        try
-        {
-            var client = await lazy.Value.WaitAsync(cancellationToken).ConfigureAwait(false);
-            return AgentChatClientHandle.Borrowed(client, source, config).AcquireLease();
-        }
-        catch
-        {
-            // A caller abandoning its wait must not evict construction shared by
-            // other invocations. Only the construction task itself poisons a key.
-            if (lazy.IsValueCreated && lazy.Value.IsCompleted && !lazy.Value.IsCompletedSuccessfully)
-                _clients.TryRemove(key, out _);
-            throw;
-        }
+            ct => CreateClientAsync(config, ct),
+            cancellationToken).ConfigureAwait(false);
+        return AgentChatClientHandle.Leased(lease, source, config).AcquireLease();
     }
 
     public void Dispose()
@@ -533,20 +538,7 @@ internal sealed class AgentProviderChatClientManager : IDisposable
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
 
-        var disposed = new HashSet<object>(ReferenceEqualityComparer.Instance);
-        foreach (var lazy in _clients.Values)
-        {
-            if (!lazy.IsValueCreated)
-                continue;
-
-            var client = lazy.Value.GetAwaiter().GetResult();
-            if (!disposed.Add(client))
-                continue;
-
-            client.Dispose();
-        }
-
-        _clients.Clear();
+        _clients.DisposeAsync().AsTask().GetAwaiter().GetResult();
     }
 
     private ValueTask<IChatClient> CreateClientAsync(
@@ -585,32 +577,4 @@ internal sealed class AgentProviderChatClientManager : IDisposable
         return client;
     }
 
-    private readonly record struct ChatClientCacheKey(
-        string ProviderKey,
-        string ModelName,
-        string AuthenticationIdentity,
-        string? Endpoint,
-        string? ProviderConfigFingerprint,
-        string? Headers)
-    {
-        public static ChatClientCacheKey Create(
-            ProviderClientConfig config,
-            string authenticationIdentity,
-            string? providerConfigFingerprint)
-            => new(
-                config.ProviderKey,
-                config.ModelName,
-                authenticationIdentity,
-                config.Endpoint,
-                providerConfigFingerprint,
-                NormalizeHeaders(config.CustomHeaders));
-
-        private static string? NormalizeHeaders(IReadOnlyDictionary<string, string>? headers)
-            => headers is null
-                ? null
-                : string.Join(
-                    "\n",
-                    headers.OrderBy(static pair => pair.Key, StringComparer.OrdinalIgnoreCase)
-                        .Select(static pair => $"{pair.Key}:{pair.Value}"));
-    }
 }
