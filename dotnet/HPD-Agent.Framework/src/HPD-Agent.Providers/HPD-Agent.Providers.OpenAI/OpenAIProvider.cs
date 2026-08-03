@@ -30,6 +30,16 @@ namespace HPD.Agent.Providers.OpenAI;
 /// - Native reasoning content support
 /// Supports both OpenAI and Azure OpenAI endpoints.
 /// </summary>
+[HpdProvider("openai", "OpenAI")]
+[HpdProviderFamily(ProviderClientFamily.Chat)]
+[HpdProviderFamily(ProviderClientFamily.ImageGeneration)]
+[HpdProviderFamily(ProviderClientFamily.Embeddings)]
+[HpdProviderFamily(ProviderClientFamily.HostedFiles)]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(OpenAIProviderConfig), typeof(OpenAIJsonContext))]
+[HpdProviderPayload(ProviderClientFamily.ImageGeneration, ProviderPayloadKind.Configuration, typeof(OpenAIProviderConfig), typeof(OpenAIJsonContext))]
+[HpdProviderPayload(ProviderClientFamily.Embeddings, ProviderPayloadKind.Configuration, typeof(OpenAIProviderConfig), typeof(OpenAIJsonContext))]
+[HpdProviderPayload(ProviderClientFamily.HostedFiles, ProviderPayloadKind.Configuration, typeof(OpenAIProviderConfig), typeof(OpenAIJsonContext))]
+[HpdProviderSecretAlias("openai:ApiKey", "OPENAI_API_KEY")]
 internal class OpenAIProvider :
     IChatClientProvider,
     IImageGeneratorProvider,
@@ -264,6 +274,17 @@ internal static class OpenAIProviderConfigValidation
 /// Uses the newer Responses API (ResponsesClient) for enhanced capabilities.
 /// For modern Azure AI Projects/Foundry, use the AzureAI provider instead.
 /// </summary>
+[HpdProvider("azure-openai", "Azure OpenAI (Traditional)")]
+[HpdProviderFamily(ProviderClientFamily.Chat)]
+[HpdProviderFamily(ProviderClientFamily.ImageGeneration)]
+[HpdProviderFamily(ProviderClientFamily.Embeddings)]
+[HpdProviderFamily(ProviderClientFamily.HostedFiles)]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(AzureOpenAIProviderConfig), typeof(OpenAIJsonContext))]
+[HpdProviderPayload(ProviderClientFamily.ImageGeneration, ProviderPayloadKind.Configuration, typeof(AzureOpenAIProviderConfig), typeof(OpenAIJsonContext))]
+[HpdProviderPayload(ProviderClientFamily.Embeddings, ProviderPayloadKind.Configuration, typeof(AzureOpenAIProviderConfig), typeof(OpenAIJsonContext))]
+[HpdProviderPayload(ProviderClientFamily.HostedFiles, ProviderPayloadKind.Configuration, typeof(AzureOpenAIProviderConfig), typeof(OpenAIJsonContext))]
+[HpdProviderSecretAlias("azure-openai:ApiKey", "AZURE_OPENAI_API_KEY")]
+[HpdProviderSecretAlias("azure-openai:Endpoint", "AZURE_OPENAI_ENDPOINT")]
 internal class AzureOpenAIProvider :
     IChatClientProvider,
     IImageGeneratorProvider,
