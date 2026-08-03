@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using HPD.Gateway.Abstractions;
 
@@ -35,7 +36,8 @@ public sealed class GatewayCertificateSourceRegistryBuilder
             try
             {
                 using var certificate = X509CertificateLoader.LoadPkcs12FromFile(source.Path, source.Password, X509KeyStorageFlags.DefaultKeySet);
-                if (!certificate.HasPrivateKey || certificate.NotBefore > DateTime.Now || certificate.NotAfter <= DateTime.Now)
+                if (!certificate.HasPrivateKey || certificate.NotBefore > DateTime.Now || certificate.NotAfter <= DateTime.Now ||
+                    !IsSuitableForServerAuthentication(certificate))
                     throw new InvalidOperationException("Certificate source is invalid for server authentication.");
             }
             catch (InvalidOperationException) { throw; }
@@ -45,6 +47,20 @@ public sealed class GatewayCertificateSourceRegistryBuilder
             }
         }
         return new(_sources.ToImmutableDictionary());
+    }
+
+    private static bool IsSuitableForServerAuthentication(X509Certificate2 certificate)
+    {
+        const string serverAuthenticationOid = "1.3.6.1.5.5.7.3.1";
+        var enhancedKeyUsage = certificate.Extensions.OfType<X509EnhancedKeyUsageExtension>().FirstOrDefault();
+        if (enhancedKeyUsage is not null &&
+            !enhancedKeyUsage.EnhancedKeyUsages.Cast<Oid>()
+                .Any(oid => StringComparer.Ordinal.Equals(oid.Value, serverAuthenticationOid)))
+            return false;
+
+        var keyUsage = certificate.Extensions.OfType<X509KeyUsageExtension>().FirstOrDefault();
+        return keyUsage is null ||
+            (keyUsage.KeyUsages & (X509KeyUsageFlags.DigitalSignature | X509KeyUsageFlags.KeyEncipherment)) != 0;
     }
 }
 

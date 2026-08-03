@@ -716,6 +716,8 @@ try
         var changedCandidate = GatewayHostCandidateReader.Create(changedConfiguration);
         if (!changedCandidate.IsAccepted || tlsStatus.EvaluateDesired(changedCandidate.Candidate!).State != GatewayHostRealizationState.RestartRequired)
             throw new InvalidOperationException("Native AOT host did not report RestartRequired for changed host identity.");
+        if (tlsStatus.GetSnapshot().State != GatewayHostRealizationState.RestartRequired)
+            throw new InvalidOperationException("Native AOT host did not persist RestartRequired.");
         await tlsHost.StopHpdGatewayAsync();
     }
     if (tlsStatus?.GetSnapshot().State != GatewayHostRealizationState.Stopped)

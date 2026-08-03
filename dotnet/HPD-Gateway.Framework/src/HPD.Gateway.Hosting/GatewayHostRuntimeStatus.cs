@@ -45,8 +45,10 @@ public sealed class GatewayHostRuntimeStatus
         lock (_sync)
         {
             _desiredHash = desired.Sha256;
-            if (_state == GatewayHostRealizationState.Ready && !StringComparer.Ordinal.Equals(Running.Sha256, desired.Sha256))
-                return new(GatewayHostRealizationState.RestartRequired, Running.Configuration.HostId, Running.Sha256, _desiredHash, []);
+            if (_state is GatewayHostRealizationState.Ready or GatewayHostRealizationState.RestartRequired)
+                _state = StringComparer.Ordinal.Equals(Running.Sha256, desired.Sha256)
+                    ? GatewayHostRealizationState.Ready
+                    : GatewayHostRealizationState.RestartRequired;
             return new(_state, Running.Configuration.HostId, Running.Sha256, _desiredHash, []);
         }
     }

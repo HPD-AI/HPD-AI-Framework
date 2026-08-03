@@ -116,6 +116,7 @@ public sealed class GatewayHostingTests
             status.GetSnapshot().State.Should().Be(GatewayHostRealizationState.Ready);
             var desired = GatewayHostCandidateReader.Create(ConfigurationWithPort([Sni("exact.example", "exact")], AvailablePort()));
             status.EvaluateDesired(desired.Candidate!).State.Should().Be(GatewayHostRealizationState.RestartRequired);
+            status.GetSnapshot().State.Should().Be(GatewayHostRealizationState.RestartRequired);
             await application.StopHpdGatewayAsync();
             status.GetSnapshot().State.Should().Be(GatewayHostRealizationState.Stopped);
         }
@@ -177,7 +178,7 @@ public sealed class GatewayHostingTests
     }
 
     [Fact]
-    public void CertificateSourcesRejectWrongSanExpiredAndMissingPrivateKeyBeforeBind()
+    public void CertificateSourcesRejectWrongSanExpiredMissingPrivateKeyAndClientAuthOnlyBeforeBind()
     {
         var directory = Directory.CreateTempSubdirectory("hpd-gateway-cert-invalid-");
         try
@@ -186,6 +187,8 @@ public sealed class GatewayHostingTests
             var expired = CreateCertificate("exact.example", Path.Combine(directory.FullName, "expired.pfx"),
                 DateTimeOffset.UtcNow.AddDays(-2), DateTimeOffset.UtcNow.AddDays(-1));
             var valid = CreateCertificate("exact.example", Path.Combine(directory.FullName, "valid.pfx"));
+            var clientOnly = CreateCertificate("exact.example", Path.Combine(directory.FullName, "client-only.pfx"),
+                enhancedKeyUsageOid: "1.3.6.1.5.5.7.3.2");
             using (var certificate = X509CertificateLoader.LoadPkcs12FromFile(valid.Path, valid.Password))
                 File.WriteAllBytes(Path.Combine(directory.FullName, "public-only.pfx"), certificate.Export(X509ContentType.Cert));
             var candidate = GatewayHostCandidateReader.Create(ConfigurationWithPort([Sni("exact.example", "one")], AvailablePort())).Candidate!;
@@ -196,10 +199,13 @@ public sealed class GatewayHostingTests
                 sources => sources.Add(Reference("one"), new GatewayPfxCertificateSource { Path = expired.Path, Password = expired.Password }));
             Action noPrivateKey = () => WebApplication.CreateSlimBuilder().WebHost.UseHpdGatewayHost(candidate,
                 sources => sources.Add(Reference("one"), new GatewayPfxCertificateSource { Path = Path.Combine(directory.FullName, "public-only.pfx") }));
+            Action clientAuthOnly = () => WebApplication.CreateSlimBuilder().WebHost.UseHpdGatewayHost(candidate,
+                sources => sources.Add(Reference("one"), new GatewayPfxCertificateSource { Path = clientOnly.Path, Password = clientOnly.Password }));
 
             wrongSan.Should().Throw<InvalidOperationException>();
             expiredSource.Should().Throw<InvalidOperationException>();
             noPrivateKey.Should().Throw<InvalidOperationException>();
+            clientAuthOnly.Should().Throw<InvalidOperationException>();
         }
         finally
         {
@@ -238,13 +244,14 @@ public sealed class GatewayHostingTests
         string dnsName,
         string path,
         DateTimeOffset? notBefore = null,
-        DateTimeOffset? notAfter = null)
+        DateTimeOffset? notAfter = null,
+        string enhancedKeyUsageOid = "1.3.6.1.5.5.7.3.1")
     {
         using var key = RSA.Create(2048);
         var request = new CertificateRequest($"CN={dnsName}", key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
         request.CertificateExtensions.Add(new X509BasicConstraintsExtension(false, false, 0, true));
         request.CertificateExtensions.Add(new X509KeyUsageExtension(X509KeyUsageFlags.DigitalSignature, true));
-        request.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension([new Oid("1.3.6.1.5.5.7.3.1")], true));
+        request.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension([new Oid(enhancedKeyUsageOid)], true));
         var san = new SubjectAlternativeNameBuilder();
         san.AddDnsName(dnsName);
         request.CertificateExtensions.Add(san.Build());
