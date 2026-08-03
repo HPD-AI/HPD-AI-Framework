@@ -96,6 +96,7 @@ public sealed class ProviderCompositionSourceGenerator : IIncrementalGenerator
             services.AppendLine("        global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddSingleton<global::HPD.Agent.Providers.IProviderRuntimeRegistry>(services, composition.Runtime);");
             services.AppendLine("        global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddSingleton<global::HPD.Agent.Providers.IProviderSerializationRegistry>(services, composition.Serialization);");
             services.AppendLine("        global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddSingleton<global::HPD.Agent.Providers.IProviderSecretAliasRegistry>(services, composition.SecretAliases);");
+            services.AppendLine("        global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddSingleton<global::HPD.Agent.IAgentConfigFactory>(services, static provider => new global::HPD.Agent.AgentFactory(providerComposition: provider.GetRequiredService<global::HPD.Agent.Providers.ProviderComposition>()));");
             services.AppendLine("        return services;");
             services.AppendLine("    }");
             services.AppendLine("}");

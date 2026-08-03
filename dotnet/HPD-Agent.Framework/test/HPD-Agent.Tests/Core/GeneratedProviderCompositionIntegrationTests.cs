@@ -13,6 +13,7 @@ public sealed class GeneratedProviderCompositionIntegrationTests
         using var provider = services.BuildServiceProvider();
 
         var composition = provider.GetRequiredService<ProviderComposition>();
+        Assert.IsType<AgentFactory>(provider.GetRequiredService<IAgentConfigFactory>());
         Assert.True(composition.Descriptors.TryGet("anthropic", out var descriptor));
         var registration = composition.Runtime.GetFactory("anthropic", ProviderClientFamily.Chat);
 
