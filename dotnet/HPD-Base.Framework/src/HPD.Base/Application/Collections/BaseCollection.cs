@@ -36,16 +36,6 @@ public sealed class BaseCollection<T>
     /// </summary>
     internal IReadOnlyDictionary<string, object> Fields => _fields;
 
-    /// <summary>Performs create.</summary>
-    public BaseCreate<T> Create(RecordId id, T value) => new(this, id, value);
-    /// <summary>Performs replace.</summary>
-    public BaseReplace<T> Replace(RecordId id, T value, RevisionToken? expectedRevision = null) => new(this, id, value, expectedRevision);
-    /// <summary>Performs patch.</summary>
-    public BasePatch<T, TPatch> Patch<TPatch>(RecordId id, TPatch value, JsonTypeInfo<TPatch> jsonTypeInfo, RevisionToken? expectedRevision = null) => new(this, id, value, jsonTypeInfo, expectedRevision);
-    /// <summary>Performs delete.</summary>
-    public BaseDelete<T> Delete(RecordId id, RevisionToken? expectedRevision = null, bool returnPrevious = false) => new(this, id, expectedRevision, returnPrevious);
-    /// <summary>Performs upsert.</summary>
-    public BaseUpsert<T> Upsert(RecordId id, T createValue, T updateValue, RecordUpsertExistenceCondition condition = RecordUpsertExistenceCondition.Any, RevisionToken? expectedRevision = null) => new(this, id, createValue, updateValue, condition, expectedRevision);
     /// <summary>
     /// Creates a validated manual collection contract.
     /// </summary>

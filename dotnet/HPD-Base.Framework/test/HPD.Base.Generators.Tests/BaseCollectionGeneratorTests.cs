@@ -113,6 +113,26 @@ public sealed class BaseCollectionGeneratorTests
     }
 
     [Fact]
+    public void InvalidMutationModeReportsStableDiagnosticInsteadOfDowngradingToMutable()
+    {
+        const string source = """
+            using HPD.Base;
+            using System.Text.Json.Serialization;
+
+            [BaseCollection("history", typeof(AppJsonContext), MutationMode = (BaseCollectionMutationMode)99)]
+            public partial record History;
+
+            [JsonSerializable(typeof(History))]
+            public partial class AppJsonContext : JsonSerializerContext;
+            """;
+
+        GeneratorResult result = Run(source);
+
+        result.Diagnostics.Should().ContainSingle(item => item.Id == "HPDBASE013");
+        result.GeneratedSource.Should().BeEmpty();
+    }
+
+    [Fact]
     public void UnsupportedPayloadFieldReportsAtTheField()
     {
         const string source = """

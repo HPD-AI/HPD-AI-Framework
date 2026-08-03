@@ -124,6 +124,14 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         DiagnosticSeverity.Error,
         true);
 
+    private static readonly DiagnosticDescriptor InvalidMutationMode = new DiagnosticDescriptor(
+        "HPDBASE013",
+        "Invalid BASE collection mutation mode",
+        "Collection '{0}' declares unsupported mutation mode value '{1}'",
+        "HPD.Base.Generation",
+        DiagnosticSeverity.Error,
+        true);
+
     /// <summary>Executes the initialize operation.</summary>
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
@@ -215,6 +223,18 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         AttributeData collection,
         string collectionId)
     {
+        string mutationMode;
+        int mutationModeValue;
+        if (!TryGetMutationMode(collection, out mutationMode, out mutationModeValue))
+        {
+            context.ReportDiagnostic(Diagnostic.Create(
+                InvalidMutationMode,
+                GetLocation(collection, symbol),
+                collectionId,
+                mutationModeValue));
+            return null;
+        }
+
         INamedTypeSymbol jsonContext = GetConstructorType(collection, 1);
         if (jsonContext == null || !HasJsonRegistration(jsonContext, symbol))
         {
@@ -532,7 +552,7 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
             CollectionName = GetNamedString(collection, "Name") ?? collectionId,
             CollectionKind = GetNamedString(collection, "Kind") ?? "record",
             Strict = GetNamedBoolean(collection, "Strict", true),
-            MutationMode = GetMutationMode(collection),
+            MutationMode = mutationMode,
             Fields = fields,
             Indexes = indexes,
             ContextTypeName =
@@ -875,26 +895,34 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         return fallback;
     }
 
-    private static string GetMutationMode(AttributeData attribute)
+    private static bool TryGetMutationMode(
+        AttributeData attribute,
+        out string mutationMode,
+        out int rawValue)
     {
+        rawValue = 0;
         if (attribute != null)
         {
             foreach (KeyValuePair<string, TypedConstant> argument in attribute.NamedArguments)
             {
                 if (argument.Key == "MutationMode" && argument.Value.Value is int value)
                 {
-                    return value switch
+                    rawValue = value;
+                    mutationMode = value switch
                     {
+                        0 => "Mutable",
                         1 => "AppendOnly",
                         2 => "AppendOnlyWithAdministrativePurge",
                         3 => "ReadOnly",
-                        _ => "Mutable",
+                        _ => string.Empty,
                     };
+                    return mutationMode.Length != 0;
                 }
             }
         }
 
-        return "Mutable";
+        mutationMode = "Mutable";
+        return true;
     }
 
     private static long GetNamedInt64(

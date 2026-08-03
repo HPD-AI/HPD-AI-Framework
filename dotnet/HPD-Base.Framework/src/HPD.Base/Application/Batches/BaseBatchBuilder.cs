@@ -7,41 +7,6 @@ namespace HPD.Base;
 /// </summary>
 public sealed class BaseBatchBuilder
 {
-    /// <summary>Executes the add operation.</summary>
-    public BaseBatchItem<T> Add<T>(BaseCreate<T> command) =>
-        Create(command.Collection, command.Id, command.Value);
-
-    /// <summary>Executes the add operation.</summary>
-    public BaseBatchItem<T> Add<T>(BaseReplace<T> command) =>
-        Replace(command.Collection, command.Id, command.Value, command.ExpectedRevision);
-
-    /// <summary>Executes the add operation.</summary>
-    public BaseBatchItem<T> Add<T, TPatch>(BasePatch<T, TPatch> command) =>
-        Patch(
-            command.Collection,
-            command.Id,
-            command.Value,
-            command.JsonTypeInfo,
-            command.ExpectedRevision);
-
-    /// <summary>Executes the add operation.</summary>
-    public BaseDeleteBatchItem Add<T>(BaseDelete<T> command) =>
-        Delete(
-            command.Collection,
-            command.Id,
-            command.ExpectedRevision,
-            command.ReturnPrevious);
-
-    /// <summary>Executes the add operation.</summary>
-    public BaseBatchItem<T> Add<T>(BaseUpsert<T> command) =>
-        Upsert(
-            command.Collection,
-            command.Id,
-            command.CreateValue,
-            command.UpdateValue,
-            command.Condition,
-            command.ExpectedRevision);
-
     private readonly BaseSession _session;
     private readonly BaseRecordBatchExecutionMode _mode;
     private readonly BaseMutationRequestIdentity? _requestIdentity;
@@ -66,6 +31,7 @@ public sealed class BaseBatchBuilder
         T value)
     {
         EnsureMutable();
+        EnsureCollectionAllows(collection.Definition, BaseRecordMutationKind.Create);
         string itemId = NextItemId();
         _items.Add(new BaseRecordBatchItem
         {
@@ -93,6 +59,7 @@ public sealed class BaseBatchBuilder
         RevisionToken? expectedRevision = null)
     {
         EnsureMutable();
+        EnsureCollectionAllows(collection.Definition, BaseRecordMutationKind.Replace);
         string itemId = NextItemId();
         _items.Add(new BaseRecordBatchItem
         {
@@ -123,6 +90,7 @@ public sealed class BaseBatchBuilder
         RevisionToken? expectedRevision = null)
     {
         EnsureMutable();
+        EnsureCollectionAllows(collection.Definition, BaseRecordMutationKind.Upsert, condition);
         string itemId = NextItemId();
         _items.Add(new BaseRecordBatchItem
         {
@@ -155,6 +123,7 @@ public sealed class BaseBatchBuilder
         RevisionToken? expectedRevision = null)
     {
         EnsureMutable();
+        EnsureCollectionAllows(collection.Definition, BaseRecordMutationKind.Patch);
         string itemId = NextItemId();
         _items.Add(new BaseRecordBatchItem
         {
@@ -186,6 +155,7 @@ public sealed class BaseBatchBuilder
         RevisionToken? expectedRevision = null)
     {
         EnsureMutable();
+        EnsureCollectionAllows(collection.Definition, BaseRecordMutationKind.Upsert, condition);
         string itemId = NextItemId();
         _items.Add(new BaseRecordBatchItem
         {
@@ -217,6 +187,7 @@ public sealed class BaseBatchBuilder
         bool returnPrevious = false)
     {
         EnsureMutable();
+        EnsureCollectionAllows(collection.Definition, BaseRecordMutationKind.Delete);
         string itemId = NextItemId();
         _items.Add(new BaseRecordBatchItem
         {
@@ -272,5 +243,32 @@ public sealed class BaseBatchBuilder
             throw new InvalidOperationException(
                 "A batch cannot be changed or committed more than once.");
         }
+    }
+
+    private static void EnsureCollectionAllows(
+        CollectionDefinition collection,
+        BaseRecordMutationKind kind,
+        RecordUpsertExistenceCondition? condition = null)
+    {
+        bool allowed = collection.MutationMode switch
+        {
+            BaseCollectionMutationMode.Mutable => true,
+            BaseCollectionMutationMode.AppendOnly or BaseCollectionMutationMode.AppendOnlyWithAdministrativePurge =>
+                kind == BaseRecordMutationKind.Create
+                || kind == BaseRecordMutationKind.Upsert && condition == RecordUpsertExistenceCondition.CreateOnly,
+            BaseCollectionMutationMode.ReadOnly => false,
+            _ => false,
+        };
+        if (allowed)
+            return;
+
+        string code = !Enum.IsDefined(collection.MutationMode)
+            ? BaseCollectionErrorCodes.MutationModeInvalid
+            : collection.MutationMode == BaseCollectionMutationMode.ReadOnly
+                ? BaseCollectionErrorCodes.ReadOnlyMutationForbidden
+                : kind is BaseRecordMutationKind.Patch or BaseRecordMutationKind.Replace or BaseRecordMutationKind.Upsert
+                    ? BaseCollectionErrorCodes.AppendOnlyUpdateForbidden
+                    : BaseCollectionErrorCodes.AppendOnlyDeleteForbidden;
+        throw new InvalidOperationException($"{code}: The collection mutation mode does not permit this batch operation.");
     }
 }

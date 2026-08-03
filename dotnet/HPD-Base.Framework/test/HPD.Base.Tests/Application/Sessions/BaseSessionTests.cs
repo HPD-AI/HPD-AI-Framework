@@ -371,6 +371,32 @@ public sealed class BaseSessionTests
     }
 
     [Fact]
+    public void TypedBatchBuilderRejectsForbiddenMutationModesBeforeEncodingOrRuntime()
+    {
+        var runtime = new RecordingRuntime();
+        using var services = Services(runtime, TimeProvider.System);
+        BaseSession session = services.GetRequiredService<IBaseSessionFactory>().For(Principal());
+        BaseCollection<GeneratedProject> appendOnly = Collection(BaseCollectionMutationMode.AppendOnly);
+        var value = new GeneratedProject { OrganizationId = "org_1", Name = "history" };
+
+        Action replace = () => session.Atomic().Replace(appendOnly, new RecordId("record_1"), value);
+        Action unsafeUpsert = () => session.Atomic().Upsert(appendOnly, new RecordId("record_1"), value, value);
+        Action createOnlyUpsert = () => session.Atomic().Upsert(
+            appendOnly,
+            new RecordId("record_1"),
+            value,
+            value,
+            RecordUpsertExistenceCondition.CreateOnly);
+
+        replace.Should().Throw<InvalidOperationException>()
+            .WithMessage($"{BaseCollectionErrorCodes.AppendOnlyUpdateForbidden}:*");
+        unsafeUpsert.Should().Throw<InvalidOperationException>()
+            .WithMessage($"{BaseCollectionErrorCodes.AppendOnlyUpdateForbidden}:*");
+        createOnlyUpsert.Should().NotThrow();
+        runtime.Operation.Should().BeNull();
+    }
+
+    [Fact]
     public async Task AtomicBatchReturnsTypedRecordsOnlyAfterCommitProof()
     {
         var firstEnvelope = Envelope(new GeneratedProject

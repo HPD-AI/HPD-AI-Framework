@@ -52,7 +52,10 @@ public sealed class MutationRequestContractTests
     public void CreateLevelIdempotencySurfaceIsGone()
     {
         Assert.Null(typeof(RecordCreateRequest).GetProperty("IdempotencyKey"));
-        Assert.Null(typeof(BaseCreate<>).GetProperty("IdempotencyKey"));
+        Assert.Null(typeof(BaseCollection<>).Assembly.GetType("HPD.Base.BaseCreate`1"));
+        Assert.DoesNotContain(
+            typeof(BaseCollection<>).GetMethods(BindingFlags.Public | BindingFlags.Instance),
+            method => method.Name is "Create" or "Patch" or "Replace" or "Upsert" or "Delete");
         Assert.DoesNotContain(
             typeof(BaseCollectionSession<>).GetMethods(BindingFlags.Public | BindingFlags.Instance),
             method => method.Name == "CreateAsync"
