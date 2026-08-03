@@ -1,0 +1,190 @@
+using System.Collections.Immutable;
+using System.Net;
+using System.Net.Security;
+using System.Net.Sockets;
+using System.Security.Authentication;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
+using System.Text;
+using FluentAssertions;
+using HPD.Gateway.Abstractions;
+using HPD.Gateway.Hosting;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
+using Xunit;
+
+namespace HPD.Gateway.Tests;
+
+public sealed class GatewayHostingTests
+{
+    [Fact]
+    public void HostCandidateNormalizesOrderingIdnaAndProducesDeterministicIdentity()
+    {
+        var first = Configuration([
+            Sni("BÜCHER.example.", "one"),
+            Sni("*.Sub.Example", "two")
+        ]);
+        var second = Configuration([
+            Sni("*.sub.example", "two"),
+            Sni("xn--bcher-kva.example", "one")
+        ]);
+
+        var a = GatewayHostCandidateReader.Create(first);
+        var b = GatewayHostCandidateReader.Create(second);
+
+        a.IsAccepted.Should().BeTrue();
+        b.IsAccepted.Should().BeTrue();
+        a.Candidate!.Sha256.Should().Be(b.Candidate!.Sha256);
+        a.Candidate.Configuration.DataListeners[0].Tls.Sni.Select(static value => value.HostnamePattern)
+            .Should().Equal("*.sub.example", "xn--bcher-kva.example");
+    }
+
+    [Theory]
+    [InlineData("*")]
+    [InlineData("127.0.0.1")]
+    [InlineData("bad/path")]
+    [InlineData("bad:443")]
+    [InlineData("a.*.example")]
+    public void HostCandidateRejectsUnsupportedSniPatterns(string pattern)
+    {
+        var result = GatewayHostCandidateReader.Create(Configuration([Sni(pattern, "one")]));
+        result.IsAccepted.Should().BeFalse();
+        result.Errors.Should().Contain(error => error.Code == "host.invalid-sni");
+    }
+
+    [Fact]
+    public void StrictReaderRejectsUnknownMembersNumericEnumsAndVersions()
+    {
+        var unknown = GatewayHostCandidateReader.Read(Encoding.UTF8.GetBytes("""
+            {"schemaVersion":{"major":1,"minor":0},"canonicalizationVersion":1,"hostId":{"value":"host"},"dataListeners":[],"unknown":true}
+            """));
+        var numeric = GatewayHostCandidateReader.Read(Encoding.UTF8.GetBytes("""
+            {"schemaVersion":{"major":1,"minor":0},"canonicalizationVersion":1,"hostId":{"value":"host"},"dataListeners":[{"id":{"value":"https"},"binding":0,"port":443,"protocols":"Http1","tls":{"fallback":"RejectUnmatchedOrMissingSni","sni":[{"hostnamePattern":"exact.example","certificate":{"provider":{"value":"test"},"name":{"value":"one"},"version":"v1"}}]}}]}
+            """));
+        var version = GatewayHostCandidateReader.Create(Configuration([Sni("exact.example", "one")]) with { SchemaVersion = new(2, 0) });
+
+        unknown.IsAccepted.Should().BeFalse();
+        numeric.IsAccepted.Should().BeFalse();
+        version.IsAccepted.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task KestrelSelectsExactAndLongestWildcardAndRejectsUnknownOrMissingSniBeforeHttp()
+    {
+        var directory = Directory.CreateTempSubdirectory("hpd-gateway-sni-");
+        try
+        {
+            var exact = CreateCertificate("exact.example", Path.Combine(directory.FullName, "exact.pfx"));
+            var wildcard = CreateCertificate("*.example", Path.Combine(directory.FullName, "wildcard.pfx"));
+            var nested = CreateCertificate("*.sub.example", Path.Combine(directory.FullName, "nested.pfx"));
+            var port = AvailablePort();
+            var configuration = Configuration([
+                Sni("exact.example", "exact"),
+                Sni("*.example", "wildcard"),
+                Sni("*.sub.example", "nested")
+            ]) with
+            {
+                DataListeners = [Configuration([]).DataListeners[0] with { Port = checked((ushort)port), Tls = Configuration([]).DataListeners[0].Tls with { Sni = [Sni("exact.example", "exact"), Sni("*.example", "wildcard"), Sni("*.sub.example", "nested")] } }]
+            };
+            var accepted = GatewayHostCandidateReader.Create(configuration);
+            accepted.IsAccepted.Should().BeTrue(string.Join(", ", accepted.Errors.Select(static error => error.SafeMessage)));
+            var executions = 0;
+            var builder = WebApplication.CreateSlimBuilder();
+            builder.WebHost.UseHpdGatewayHost(accepted.Candidate!, certificates =>
+            {
+                certificates.Add(Reference("exact"), new GatewayPfxCertificateSource { Path = exact.Path, Password = exact.Password });
+                certificates.Add(Reference("wildcard"), new GatewayPfxCertificateSource { Path = wildcard.Path, Password = wildcard.Password });
+                certificates.Add(Reference("nested"), new GatewayPfxCertificateSource { Path = nested.Path, Password = nested.Password });
+            });
+            await using var application = builder.Build();
+            application.Run(context => { Interlocked.Increment(ref executions); return context.Response.WriteAsync("ok"); });
+            await application.StartAsync();
+
+            (await Send(port, "exact.example")).Should().Be(exact.Thumbprint);
+            (await Send(port, "a.example")).Should().Be(wildcard.Thumbprint);
+            (await Send(port, "b.sub.example")).Should().Be(nested.Thumbprint);
+            await FluentActions.Awaiting(() => Send(port, "unknown.test")).Should().ThrowAsync<HttpRequestException>();
+            await FluentActions.Awaiting(() => SendWithoutSni(port)).Should().ThrowAsync<IOException>();
+            Volatile.Read(ref executions).Should().Be(3);
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    private static GatewayHostConfiguration Configuration(ImmutableArray<GatewaySniTlsDeclaration> sni) => new()
+    {
+        SchemaVersion = new(1, 0),
+        CanonicalizationVersion = 1,
+        HostId = new("host"),
+        DataListeners =
+        [
+            new GatewayHttpsListenerDeclaration
+            {
+                Id = new ListenerId("https"),
+                Binding = GatewayListenerBindingKind.Loopback,
+                Port = 443,
+                Protocols = GatewayListenerProtocols.Http1 | GatewayListenerProtocols.Http2,
+                Tls = new GatewayInboundTlsDeclaration { Sni = sni }
+            }
+        ]
+    };
+
+    private static GatewaySniTlsDeclaration Sni(string pattern, string name) => new() { HostnamePattern = pattern, Certificate = Reference(name) };
+    private static SecretReference Reference(string name) => new(new ProviderId("test"), new ProviderObjectId(name), "v1");
+
+    private static (string Path, string Password, string Thumbprint) CreateCertificate(string dnsName, string path)
+    {
+        using var key = RSA.Create(2048);
+        var request = new CertificateRequest($"CN={dnsName}", key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        request.CertificateExtensions.Add(new X509BasicConstraintsExtension(false, false, 0, true));
+        request.CertificateExtensions.Add(new X509KeyUsageExtension(X509KeyUsageFlags.DigitalSignature, true));
+        request.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension([new Oid("1.3.6.1.5.5.7.3.1")], true));
+        var san = new SubjectAlternativeNameBuilder();
+        san.AddDnsName(dnsName);
+        request.CertificateExtensions.Add(san.Build());
+        using var certificate = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow.AddDays(1));
+        const string password = "test-password";
+        File.WriteAllBytes(path, certificate.Export(X509ContentType.Pfx, password));
+        return (path, password, certificate.Thumbprint);
+    }
+
+    private static int AvailablePort()
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        return ((IPEndPoint)listener.LocalEndpoint).Port;
+    }
+
+    private static async Task<string> Send(int port, string serverName)
+    {
+        string? thumbprint = null;
+        var handler = new SocketsHttpHandler
+        {
+            ConnectCallback = async (_, cancellationToken) =>
+            {
+                var socket = new Socket(SocketType.Stream, ProtocolType.Tcp);
+                await socket.ConnectAsync(IPAddress.Loopback, port, cancellationToken);
+                return new NetworkStream(socket, ownsSocket: true);
+            },
+            SslOptions = new SslClientAuthenticationOptions
+            {
+                RemoteCertificateValidationCallback = (_, certificate, _, _) => { thumbprint = certificate?.GetCertHashString(); return true; }
+            }
+        };
+        using var client = new HttpClient(handler);
+        using var response = await client.GetAsync($"https://{serverName}:{port}/");
+        response.EnsureSuccessStatusCode();
+        return thumbprint!;
+    }
+
+    private static async Task SendWithoutSni(int port)
+    {
+        using var client = new TcpClient();
+        await client.ConnectAsync(IPAddress.Loopback, port);
+        using var stream = new SslStream(client.GetStream(), false, static (_, _, _, _) => true);
+        await stream.AuthenticateAsClientAsync(new SslClientAuthenticationOptions { TargetHost = string.Empty });
+    }
+}

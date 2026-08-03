@@ -12,6 +12,7 @@
     <ProjectReference Include="../../src/HPD.Gateway.Abstractions/HPD.Gateway.Abstractions.csproj" />
     <ProjectReference Include="../../src/HPD.Gateway.Core/HPD.Gateway.Core.csproj" />
     <ProjectReference Include="../../src/HPD.Gateway.Inspection/HPD.Gateway.Inspection.csproj" />
+    <ProjectReference Include="../../src/HPD.Gateway.Hosting/HPD.Gateway.Hosting.csproj" />
     <ProjectReference Include="../../src/HPD.Gateway.OutputCaching/HPD.Gateway.OutputCaching.csproj" />
     <ProjectReference Include="../../src/HPD.Gateway.Resilience/HPD.Gateway.Resilience.csproj" />
     <ProjectReference Include="../../src/HPD.Gateway.Yarp/HPD.Gateway.Yarp.csproj" />

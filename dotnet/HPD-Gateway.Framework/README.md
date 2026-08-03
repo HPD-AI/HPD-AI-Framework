@@ -51,5 +51,13 @@ must strip protected credentials, and cannot also select request inspection.
 ASP.NET Core continues to own lookup, capture, entries, storage, and serving;
 HPD does not provide a cache engine or purge authority.
 
+`HPD.Gateway.Hosting` begins the separate restart-bound standalone host
+surface. Its first closed mode materializes exact and wildcard SNI entries
+through Kestrel configuration without a `*` or default-certificate fallback,
+so missing and unmatched SNI fail during the native TLS handshake. Certificate
+material is supplied through a startup-only PFX source catalog and remains
+outside host declarations, identity, YARP publication, and diagnostics.
+
 Management, downstream credential replacement/delegation, shared cache-store
-providers, and standalone-host support are not implemented.
+providers, dynamic listener reload, mTLS, HTTP/3 hosting, and L4 proxying are
+not implemented.

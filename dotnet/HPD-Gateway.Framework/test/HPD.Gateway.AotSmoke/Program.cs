@@ -1,10 +1,15 @@
 using System.Collections.Immutable;
 using System.Net;
+using System.Net.Security;
+using System.Net.Sockets;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
 using HPD.Gateway.Abstractions;
 using HPD.Gateway.Abstractions.Serialization;
 using HPD.Gateway.Core;
 using HPD.Gateway.Inspection;
+using HPD.Gateway.Hosting;
 using HPD.Gateway.OutputCaching;
 using HPD.Gateway.Resilience;
 using HPD.Gateway.Yarp;
@@ -649,6 +654,64 @@ using var readdedResponse = await liveClient.GetAsync("/retry");
 if (readdedResponse.StatusCode != HttpStatusCode.OK || liveAttempts != 4)
     throw new InvalidOperationException("Native AOT Output Cache re-add did not restore the store-owned cached entry.");
 
+var tlsDirectory = Directory.CreateTempSubdirectory("hpd-gateway-aot-sni-");
+try
+{
+    var exactCertificate = CreateAotCertificate("aot.example", Path.Combine(tlsDirectory.FullName, "exact.pfx"));
+    var wildcardCertificate = CreateAotCertificate("*.example", Path.Combine(tlsDirectory.FullName, "wildcard.pfx"));
+    var tlsPort = AvailableAotPort();
+    var tlsConfiguration = new GatewayHostConfiguration
+    {
+        SchemaVersion = new(1, 0),
+        CanonicalizationVersion = 1,
+        HostId = new("aot-host"),
+        DataListeners =
+        [
+            new GatewayHttpsListenerDeclaration
+            {
+                Id = new ListenerId("aot-https"),
+                Binding = GatewayListenerBindingKind.Loopback,
+                Port = checked((ushort)tlsPort),
+                Protocols = GatewayListenerProtocols.Http1 | GatewayListenerProtocols.Http2,
+                Tls = new GatewayInboundTlsDeclaration
+                {
+                    Sni =
+                    [
+                        new GatewaySniTlsDeclaration { HostnamePattern = "aot.example", Certificate = new(new ProviderId("aot"), new ProviderObjectId("exact"), "v1") },
+                        new GatewaySniTlsDeclaration { HostnamePattern = "*.example", Certificate = new(new ProviderId("aot"), new ProviderObjectId("wildcard"), "v1") }
+                    ]
+                }
+            }
+        ]
+    };
+    var tlsAccepted = GatewayHostCandidateReader.Create(tlsConfiguration);
+    if (!tlsAccepted.IsAccepted) throw new InvalidOperationException("Native AOT host candidate was rejected.");
+    var tlsExecutions = 0;
+    var tlsBuilder = WebApplication.CreateSlimBuilder();
+    tlsBuilder.WebHost.UseHpdGatewayHost(tlsAccepted.Candidate!, certificates =>
+    {
+        certificates.Add(new(new ProviderId("aot"), new ProviderObjectId("exact"), "v1"), new GatewayPfxCertificateSource { Path = exactCertificate.Path, Password = exactCertificate.Password });
+        certificates.Add(new(new ProviderId("aot"), new ProviderObjectId("wildcard"), "v1"), new GatewayPfxCertificateSource { Path = wildcardCertificate.Path, Password = wildcardCertificate.Password });
+    });
+    await using (var tlsHost = tlsBuilder.Build())
+    {
+        tlsHost.Run(context => { Interlocked.Increment(ref tlsExecutions); return context.Response.WriteAsync("aot-tls"); });
+        await tlsHost.StartAsync();
+        if (await SendAotTls(tlsPort, "aot.example") != exactCertificate.Thumbprint ||
+            await SendAotTls(tlsPort, "other.example") != wildcardCertificate.Thumbprint)
+            throw new InvalidOperationException("Native AOT Kestrel SNI certificate selection failed.");
+        try { _ = await SendAotTls(tlsPort, "unknown.test"); throw new InvalidOperationException("Unknown SNI unexpectedly succeeded."); }
+        catch (HttpRequestException) { }
+        try { await SendAotTlsWithoutSni(tlsPort); throw new InvalidOperationException("Missing SNI unexpectedly succeeded."); }
+        catch (IOException) { }
+        if (tlsExecutions != 2) throw new InvalidOperationException("Rejected Native AOT TLS handshakes reached HTTP execution.");
+    }
+}
+finally
+{
+    tlsDirectory.Delete(recursive: true);
+}
+
 _ = JsonSerializer.SerializeToUtf8Bytes(validation, GatewayJsonSerializerContext.Default.GatewayValidationResult);
 _ = JsonSerializer.SerializeToUtf8Bytes(canonical, GatewayJsonSerializerContext.Default.GatewayCanonicalizationResult);
 
@@ -658,6 +721,59 @@ Console.WriteLine(
 
 static string Address(WebApplication application) => application.Services
     .GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.Single();
+
+static (string Path, string Password, string Thumbprint) CreateAotCertificate(string dnsName, string path)
+{
+    using var key = RSA.Create(2048);
+    var request = new CertificateRequest($"CN={dnsName}", key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+    request.CertificateExtensions.Add(new X509BasicConstraintsExtension(false, false, 0, true));
+    request.CertificateExtensions.Add(new X509KeyUsageExtension(X509KeyUsageFlags.DigitalSignature, true));
+    request.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension([new Oid("1.3.6.1.5.5.7.3.1")], true));
+    var san = new SubjectAlternativeNameBuilder();
+    san.AddDnsName(dnsName);
+    request.CertificateExtensions.Add(san.Build());
+    using var certificate = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow.AddDays(1));
+    const string password = "aot-test-password";
+    File.WriteAllBytes(path, certificate.Export(X509ContentType.Pfx, password));
+    return (path, password, certificate.Thumbprint);
+}
+
+static int AvailableAotPort()
+{
+    using var listener = new TcpListener(IPAddress.Loopback, 0);
+    listener.Start();
+    return ((IPEndPoint)listener.LocalEndpoint).Port;
+}
+
+static async Task<string> SendAotTls(int port, string serverName)
+{
+    string? thumbprint = null;
+    var handler = new SocketsHttpHandler
+    {
+        ConnectCallback = async (_, cancellationToken) =>
+        {
+            var socket = new Socket(SocketType.Stream, ProtocolType.Tcp);
+            await socket.ConnectAsync(IPAddress.Loopback, port, cancellationToken);
+            return new NetworkStream(socket, ownsSocket: true);
+        },
+        SslOptions = new SslClientAuthenticationOptions
+        {
+            RemoteCertificateValidationCallback = (_, certificate, _, _) => { thumbprint = certificate?.GetCertHashString(); return true; }
+        }
+    };
+    using var client = new HttpClient(handler);
+    using var response = await client.GetAsync($"https://{serverName}:{port}/");
+    response.EnsureSuccessStatusCode();
+    return thumbprint!;
+}
+
+static async Task SendAotTlsWithoutSni(int port)
+{
+    using var client = new TcpClient();
+    await client.ConnectAsync(IPAddress.Loopback, port);
+    using var stream = new SslStream(client.GetStream(), false, static (_, _, _, _) => true);
+    await stream.AuthenticateAsClientAsync(new SslClientAuthenticationOptions { TargetHost = string.Empty });
+}
 
 file sealed class SmokeInspector : IGatewayRequestInspector
 {
