@@ -15,7 +15,7 @@ namespace HPD.Agent.Providers.Audio.ElevenLabs;
 internal sealed class ElevenLabsPushTextToSpeechStreamFactory : IPushTextToSpeechStreamFactory
 {
     private readonly string _apiKey;
-    private readonly ElevenLabsTtsConfig _providerConfig;
+    private readonly ElevenLabsTtsRuntimeSettings _providerConfig;
     private readonly string _defaultModelId;
     private readonly string _defaultVoiceId;
     private readonly string _defaultOutputFormat;
@@ -23,7 +23,7 @@ internal sealed class ElevenLabsPushTextToSpeechStreamFactory : IPushTextToSpeec
 
     public ElevenLabsPushTextToSpeechStreamFactory(
         string apiKey,
-        ElevenLabsTtsConfig providerConfig,
+        ElevenLabsTtsRuntimeSettings providerConfig,
         string defaultModelId,
         string defaultVoiceId,
         string defaultOutputFormat,
@@ -111,7 +111,7 @@ internal sealed class ElevenLabsPushTextToSpeechStreamFactory : IPushTextToSpeec
         return builder.Uri;
     }
 
-    private static Uri ResolveWebSocketBaseUri(ElevenLabsTtsConfig config)
+    private static Uri ResolveWebSocketBaseUri(ElevenLabsTtsRuntimeSettings config)
     {
         if (!string.IsNullOrWhiteSpace(config.WebSocketBaseUrl))
         {
@@ -148,7 +148,7 @@ internal sealed class ElevenLabsPushTextToSpeechStream : IPushTextToSpeechStream
 {
     private readonly ClientWebSocket _webSocket;
     private readonly string _apiKey;
-    private readonly ElevenLabsTtsConfig _providerConfig;
+    private readonly ElevenLabsTtsRuntimeSettings _providerConfig;
     private readonly Uri _uri;
     private readonly string _outputFormat;
     private readonly PushTextInputAggregationMode _aggregationMode;
@@ -158,7 +158,7 @@ internal sealed class ElevenLabsPushTextToSpeechStream : IPushTextToSpeechStream
     public ElevenLabsPushTextToSpeechStream(
         ClientWebSocket webSocket,
         string apiKey,
-        ElevenLabsTtsConfig providerConfig,
+        ElevenLabsTtsRuntimeSettings providerConfig,
         Uri uri,
         string outputFormat,
         PushTextInputAggregationMode aggregationMode)

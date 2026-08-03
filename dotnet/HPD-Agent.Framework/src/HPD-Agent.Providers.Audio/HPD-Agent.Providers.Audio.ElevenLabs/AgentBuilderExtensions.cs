@@ -17,26 +17,28 @@ public static class AgentBuilderExtensions
         this AgentBuilder builder,
         string? model = null,
         string? apiKey = null,
-        Action<ElevenLabsSttConfig>? configure = null)
+        string? language = null,
+        Action<ElevenLabsSttConfig>? configureClient = null,
+        Action<ElevenLabsSttOptions>? configureOptions = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
 
-        var providerConfig = new ElevenLabsSttConfig
-        {
-            DefaultModelId = model
-        };
-        configure?.Invoke(providerConfig);
+        var providerConfig = new ElevenLabsSttConfig();
+        configureClient?.Invoke(providerConfig);
+        var providerOptions = new ElevenLabsSttOptions();
+        configureOptions?.Invoke(providerOptions);
 
         var clientConfig = new SpeechToTextClientConfig
         {
             ProviderKey = ElevenLabsAudioProvider.Key,
             ApiKey = apiKey,
-            ModelName = model
+            ModelName = model,
+            SpeechLanguage = language,
+            ProviderConfig = providerConfig,
+            ProviderOptions = providerOptions
         };
 
         builder.Config.SetClientConfig(ProviderClientFamily.SpeechToText, clientConfig);
-        clientConfig.ProviderConfig = providerConfig;
-
         return builder;
     }
 
@@ -49,28 +51,30 @@ public static class AgentBuilderExtensions
         string? apiKey = null,
         string? voice = null,
         string? outputFormat = null,
-        Action<ElevenLabsTtsConfig>? configure = null)
+        float? speed = null,
+        Action<ElevenLabsTtsConfig>? configureClient = null,
+        Action<ElevenLabsTtsOptions>? configureOptions = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
 
-        var providerConfig = new ElevenLabsTtsConfig
-        {
-            DefaultModelId = model,
-            DefaultVoiceId = voice,
-            OutputFormat = outputFormat
-        };
-        configure?.Invoke(providerConfig);
+        var providerConfig = new ElevenLabsTtsConfig();
+        configureClient?.Invoke(providerConfig);
+        var providerOptions = new ElevenLabsTtsOptions();
+        configureOptions?.Invoke(providerOptions);
 
         var clientConfig = new TextToSpeechClientConfig
         {
             ProviderKey = ElevenLabsAudioProvider.Key,
             ApiKey = apiKey,
-            ModelName = model
+            ModelName = model,
+            VoiceId = voice,
+            AudioFormat = outputFormat,
+            Speed = speed,
+            ProviderConfig = providerConfig,
+            ProviderOptions = providerOptions
         };
 
         builder.Config.SetClientConfig(ProviderClientFamily.TextToSpeech, clientConfig);
-        clientConfig.ProviderConfig = providerConfig;
-
         return builder;
     }
 }

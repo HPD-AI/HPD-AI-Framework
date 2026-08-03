@@ -20,13 +20,13 @@ public sealed class ElevenLabsSpeechToTextClient : ISpeechToTextClient
     private readonly Uri _baseUri;
     private readonly string _defaultModelId;
     private readonly string _defaultRealtimeModelId;
-    private readonly ElevenLabsSttConfig _providerConfig;
+    private readonly ElevenLabsSttRuntimeSettings _providerConfig;
     private readonly Func<ClientWebSocket> _webSocketFactory;
     private bool _disposed;
 
-    public ElevenLabsSpeechToTextClient(
+    internal ElevenLabsSpeechToTextClient(
         string apiKey,
-        ElevenLabsSttConfig providerConfig,
+        ElevenLabsSttRuntimeSettings providerConfig,
         HttpClient? httpClient = null,
         Func<ClientWebSocket>? webSocketFactory = null)
     {
@@ -171,9 +171,6 @@ public sealed class ElevenLabsSpeechToTextClient : ISpeechToTextClient
 
         if (serviceType == typeof(Func<ClientWebSocket>))
             return _webSocketFactory;
-
-        if (serviceType == typeof(ElevenLabsSttConfig))
-            return _providerConfig;
 
         if (serviceType == typeof(SpeechToTextClientMetadata))
             return new SpeechToTextClientMetadata(
@@ -644,7 +641,7 @@ public sealed class ElevenLabsSpeechToTextClient : ISpeechToTextClient
         return update;
     }
 
-    private static Uri ResolveWebSocketBaseUri(ElevenLabsSttConfig config)
+    private static Uri ResolveWebSocketBaseUri(ElevenLabsSttRuntimeSettings config)
     {
         if (!string.IsNullOrWhiteSpace(config.WebSocketBaseUrl))
         {

@@ -378,17 +378,10 @@ if (ttsRequested)
         Speed = ttsSpeed.HasValue ? (float)ttsSpeed.Value : null
     };
     ttsProviderConfig.ProviderConfig = new ElevenLabsTtsConfig
-        {
-            DefaultModelId = ttsModel,
-            DefaultVoiceId = ttsVoice,
-            OutputFormat = ttsFormat,
-            Speed = ttsSpeed,
-            WebSocketBaseUrl = elevenLabsWebSocketBaseUrl,
-            EnablePushTextStreaming = ttsPushTextRequested,
-            PushTextAggregationMode = ttsPushAggregationMode == PushTextInputAggregationMode.ProviderDefault
-                ? PushTextInputAggregationMode.Sentence
-                : ttsPushAggregationMode
-        };
+    {
+        WebSocketBaseUrl = elevenLabsWebSocketBaseUrl,
+        EnablePushTextStreaming = ttsPushTextRequested
+    };
     builder.Config.SetClientConfig(ProviderClientFamily.TextToSpeech, ttsProviderConfig);
 }
 
@@ -397,7 +390,8 @@ var sttProviderConfig = sttUsesElevenLabs
     {
         ProviderKey = ElevenLabsAudioProvider.Key,
         ModelName = sttModel,
-        ApiKey = elevenLabsApiKey
+        ApiKey = elevenLabsApiKey,
+        SpeechLanguage = language
     }
     : new SpeechToTextClientConfig
     {
@@ -409,25 +403,20 @@ var sttProviderConfig = sttUsesElevenLabs
 if (sttUsesElevenLabs)
 {
     sttProviderConfig.ProviderConfig = new ElevenLabsSttConfig
-        {
-            DefaultModelId = sttModel,
-            RealtimeModelId = options.SttStreamingSmoke
-                ? sttModel
-                : null,
-            LanguageCode = language,
-            WebSocketBaseUrl = elevenLabsWebSocketBaseUrl,
-            AudioFormat = options.SttStreamingSmoke
-                ? FirstNonWhiteSpace(mediaType, "pcm_16000")
-                : null,
-            CommitStrategy = options.SttStreamingSmoke
-                ? "manual"
-                : null,
-            IncludeTimestamps = options.SttStreamingSmoke,
-            IncludeLanguageDetection = options.SttStreamingSmoke,
-            TimestampsGranularity = sttTimestampGranularities.Count > 0
-                ? sttTimestampGranularities[0]
-                : null
-        };
+    {
+        WebSocketBaseUrl = elevenLabsWebSocketBaseUrl
+    };
+    sttProviderConfig.ProviderOptions = new ElevenLabsSttOptions
+    {
+        RealtimeModelId = options.SttStreamingSmoke ? sttModel : null,
+        AudioFormat = options.SttStreamingSmoke ? FirstNonWhiteSpace(mediaType, "pcm_16000") : null,
+        CommitStrategy = options.SttStreamingSmoke ? "manual" : null,
+        IncludeTimestamps = options.SttStreamingSmoke,
+        IncludeLanguageDetection = options.SttStreamingSmoke,
+        TimestampsGranularity = sttTimestampGranularities.Count > 0
+            ? sttTimestampGranularities[0]
+            : null
+    };
 }
 else
 {

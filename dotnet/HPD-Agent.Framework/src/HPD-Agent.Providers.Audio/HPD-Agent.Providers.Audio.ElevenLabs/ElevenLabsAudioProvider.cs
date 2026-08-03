@@ -14,6 +14,8 @@ namespace HPD.Agent.Providers.Audio.ElevenLabs;
 [HpdProviderFamily(ProviderClientFamily.SpeechToText)]
 [HpdProviderPayload(ProviderClientFamily.TextToSpeech, ProviderPayloadKind.Configuration, typeof(ElevenLabsTtsConfig), typeof(ElevenLabsTtsJsonContext))]
 [HpdProviderPayload(ProviderClientFamily.SpeechToText, ProviderPayloadKind.Configuration, typeof(ElevenLabsSttConfig), typeof(ElevenLabsTtsJsonContext))]
+[HpdProviderPayload(ProviderClientFamily.TextToSpeech, ProviderPayloadKind.OperationOptions, typeof(ElevenLabsTtsOptions), typeof(ElevenLabsTtsJsonContext))]
+[HpdProviderPayload(ProviderClientFamily.SpeechToText, ProviderPayloadKind.OperationOptions, typeof(ElevenLabsSttOptions), typeof(ElevenLabsTtsJsonContext))]
 [HpdProviderSecretAlias("elevenlabs:ApiKey", "ELEVENLABS_API_KEY")]
 public sealed class ElevenLabsAudioProvider : ITextToSpeechClientProvider, ISpeechToTextClientProvider
 {
@@ -37,14 +39,34 @@ public sealed class ElevenLabsAudioProvider : ITextToSpeechClientProvider, ISpee
         ArgumentNullException.ThrowIfNull(config);
 
         var providerConfig = ReadSttProviderConfig(config);
-        providerConfig.DefaultModelId = FirstNonWhiteSpace(
-            config.ModelName,
-            providerConfig.DefaultModelId,
-            DefaultSpeechToTextModel);
-
-        var apiKey = ResolveApiKey(config, providerConfig.ApiKey, services, "speech-to-text");
+        var providerOptions = (config as SpeechToTextClientConfig)?.ProviderOptions as ElevenLabsSttOptions;
+        var familyConfig = config as SpeechToTextClientConfig;
+        var runtimeSettings = new ElevenLabsSttRuntimeSettings
+        {
+            BaseUrl = config.Endpoint,
+            WebSocketBaseUrl = providerConfig.WebSocketBaseUrl,
+            DefaultModelId = FirstNonWhiteSpace(config.ModelName, DefaultSpeechToTextModel),
+            RealtimeModelId = providerOptions?.RealtimeModelId,
+            LanguageCode = familyConfig?.SpeechLanguage,
+            Diarize = providerOptions?.Diarize,
+            TagAudioEvents = providerOptions?.TagAudioEvents,
+            TimestampsGranularity = providerOptions?.TimestampsGranularity,
+            AudioFormat = providerOptions?.AudioFormat,
+            CommitStrategy = providerOptions?.CommitStrategy,
+            IncludeTimestamps = providerOptions?.IncludeTimestamps,
+            IncludeLanguageDetection = providerOptions?.IncludeLanguageDetection,
+            Keyterms = providerOptions?.Keyterms,
+            NoVerbatim = providerOptions?.NoVerbatim,
+            VadSilenceThresholdSeconds = providerOptions?.VadSilenceThresholdSeconds,
+            VadThreshold = providerOptions?.VadThreshold,
+            MinSpeechDurationMilliseconds = providerOptions?.MinSpeechDurationMilliseconds,
+            MinSilenceDurationMilliseconds = providerOptions?.MinSilenceDurationMilliseconds,
+            EnableLogging = providerOptions?.EnableLogging,
+            StreamingChunkSizeBytes = providerOptions?.StreamingChunkSizeBytes
+        };
+        var apiKey = ResolveApiKey(config, services, "speech-to-text");
         var httpClient = services?.GetService(typeof(HttpClient)) as HttpClient;
-        return new ElevenLabsSpeechToTextClient(apiKey, providerConfig, httpClient);
+        return new ElevenLabsSpeechToTextClient(apiKey, runtimeSettings, httpClient);
     }
 
     public ITextToSpeechClient CreateTextToSpeechClient(
@@ -54,14 +76,29 @@ public sealed class ElevenLabsAudioProvider : ITextToSpeechClientProvider, ISpee
         ArgumentNullException.ThrowIfNull(config);
 
         var providerConfig = ReadProviderConfig(config);
-        providerConfig.DefaultModelId = FirstNonWhiteSpace(
-            config.ModelName,
-            providerConfig.DefaultModelId,
-            DefaultTextToSpeechModel);
-
-        var apiKey = ResolveApiKey(config, providerConfig.ApiKey, services, "text-to-speech");
+        var providerOptions = (config as TextToSpeechClientConfig)?.ProviderOptions as ElevenLabsTtsOptions;
+        var familyConfig = config as TextToSpeechClientConfig;
+        var runtimeSettings = new ElevenLabsTtsRuntimeSettings
+        {
+            BaseUrl = config.Endpoint,
+            WebSocketBaseUrl = providerConfig.WebSocketBaseUrl,
+            DefaultModelId = FirstNonWhiteSpace(config.ModelName, DefaultTextToSpeechModel),
+            DefaultVoiceId = FirstNonWhiteSpace(familyConfig?.VoiceId, DefaultVoiceId),
+            OutputFormat = FirstNonWhiteSpace(familyConfig?.AudioFormat, DefaultOutputFormat),
+            Speed = familyConfig?.Speed,
+            Stability = providerOptions?.Stability,
+            SimilarityBoost = providerOptions?.SimilarityBoost,
+            Style = providerOptions?.Style,
+            UseSpeakerBoost = providerOptions?.UseSpeakerBoost,
+            ApplyTextNormalization = providerOptions?.ApplyTextNormalization,
+            EnablePushTextStreaming = providerConfig.EnablePushTextStreaming,
+            AutoMode = providerOptions?.AutoMode,
+            SyncAlignment = providerOptions?.SyncAlignment,
+            InactivityTimeout = providerOptions?.InactivityTimeout
+        };
+        var apiKey = ResolveApiKey(config, services, "text-to-speech");
         var httpClient = services?.GetService(typeof(HttpClient)) as HttpClient;
-        return new ElevenLabsTextToSpeechClient(apiKey, providerConfig, httpClient);
+        return new ElevenLabsTextToSpeechClient(apiKey, runtimeSettings, httpClient);
     }
 
     public IProviderErrorHandler CreateErrorHandler() => new ElevenLabsErrorHandler();
@@ -125,34 +162,30 @@ public sealed class ElevenLabsAudioProvider : ITextToSpeechClientProvider, ISpee
             errors.Add($"ElevenLabs audio does not support provider family '{family}'.");
         }
 
-        ElevenLabsTtsConfig? providerConfig = null;
-        ElevenLabsSttConfig? sttProviderConfig = null;
         if (config.ProviderConfig is not null)
         {
             if (family == ProviderClientFamily.SpeechToText)
             {
-                sttProviderConfig = ReadSttProviderConfig(config);
+                _ = ReadSttProviderConfig(config);
             }
             else
             {
-                providerConfig = ReadProviderConfig(config);
+                _ = ReadProviderConfig(config);
             }
         }
 
         if (string.IsNullOrWhiteSpace(config.ApiKey) &&
-            string.IsNullOrWhiteSpace(providerConfig?.ApiKey) &&
-            string.IsNullOrWhiteSpace(sttProviderConfig?.ApiKey) &&
             string.IsNullOrWhiteSpace(System.Environment.GetEnvironmentVariable("ELEVENLABS_API_KEY")))
         {
             var label = family == ProviderClientFamily.SpeechToText ? "speech-to-text" : "text-to-speech";
             errors.Add($"ElevenLabs API key is required for {label}.");
         }
 
-        if (providerConfig is not null)
+        if ((config as TextToSpeechClientConfig)?.ProviderOptions is ElevenLabsTtsOptions options)
         {
-            AddRangeError(errors, providerConfig.Stability, "stability");
-            AddRangeError(errors, providerConfig.SimilarityBoost, "similarityBoost");
-            AddRangeError(errors, providerConfig.Style, "style");
+            AddRangeError(errors, options.Stability, "stability");
+            AddRangeError(errors, options.SimilarityBoost, "similarityBoost");
+            AddRangeError(errors, options.Style, "style");
         }
 
         return errors.Count == 0
@@ -162,11 +195,10 @@ public sealed class ElevenLabsAudioProvider : ITextToSpeechClientProvider, ISpee
 
     private static string ResolveApiKey(
         ProviderClientConfig config,
-        string? providerApiKey,
         IServiceProvider? services,
         string familyLabel)
     {
-        var configured = FirstNonWhiteSpace(config.ApiKey, providerApiKey);
+        var configured = FirstNonWhiteSpace(config.ApiKey);
         if (configured is not null)
         {
             return configured;
@@ -193,7 +225,7 @@ public sealed class ElevenLabsAudioProvider : ITextToSpeechClientProvider, ISpee
 
         throw new InvalidOperationException(
             $"ElevenLabs API key is required for {familyLabel}. " +
-            "Set ProviderClientConfig.ApiKey, provider options apiKey, provide an ISecretResolver with key " +
+            "Set ProviderClientConfig.ApiKey, provide an ISecretResolver with key " +
             "'elevenlabs:ApiKey', or set ELEVENLABS_API_KEY.");
     }
 

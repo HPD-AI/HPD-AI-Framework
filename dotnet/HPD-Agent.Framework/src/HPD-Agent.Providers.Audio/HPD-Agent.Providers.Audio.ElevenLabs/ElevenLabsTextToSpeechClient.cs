@@ -20,13 +20,13 @@ public sealed class ElevenLabsTextToSpeechClient : ITextToSpeechClient
     private readonly string _defaultModelId;
     private readonly string _defaultVoiceId;
     private readonly string _defaultOutputFormat;
-    private readonly ElevenLabsTtsConfig _providerConfig;
+    private readonly ElevenLabsTtsRuntimeSettings _providerConfig;
     private readonly IPushTextToSpeechStreamFactory? _pushTextStreamFactory;
     private bool _disposed;
 
-    public ElevenLabsTextToSpeechClient(
+    internal ElevenLabsTextToSpeechClient(
         string apiKey,
-        ElevenLabsTtsConfig providerConfig,
+        ElevenLabsTtsRuntimeSettings providerConfig,
         HttpClient? httpClient = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(apiKey);
@@ -117,9 +117,6 @@ public sealed class ElevenLabsTextToSpeechClient : ITextToSpeechClient
     {
         if (serviceType == typeof(HttpClient))
             return _httpClient;
-
-        if (serviceType == typeof(ElevenLabsTtsConfig))
-            return _providerConfig;
 
         if (serviceType == typeof(TextToSpeechClientMetadata))
             return new TextToSpeechClientMetadata(
