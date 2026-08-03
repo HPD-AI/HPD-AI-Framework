@@ -96,7 +96,7 @@ public abstract class OpenAICompatibleChatProviderBase<TConfig> : IChatClientPro
     }
 
     protected virtual TConfig? ResolveProviderConfig(ProviderClientConfig config)
-        => config.GetProviderConfig<TConfig>(ProviderClientFamily.Chat);
+        => config.ProviderConfig as TConfig;
 
     protected virtual IChatClient CreateOpenAICompatibleChatClient(
         HttpClient httpClient,

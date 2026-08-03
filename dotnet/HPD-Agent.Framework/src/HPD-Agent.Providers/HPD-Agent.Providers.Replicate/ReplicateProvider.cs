@@ -39,8 +39,8 @@ internal sealed class ReplicateProvider : IImageGeneratorProvider
         var modelName = string.IsNullOrWhiteSpace(config.ModelName)
             ? DefaultModel
             : config.ModelName;
-        var replicateConfig = config.GetProviderConfig<ReplicateProviderConfig>(ProviderClientFamily.ImageGeneration)
-            ?? config.GetProviderConfig<ReplicateProviderConfig>();
+        var replicateConfig = config.ProviderConfig as ReplicateProviderConfig
+            ?? config.ProviderConfig as ReplicateProviderConfig;
         var model = ParseModel(modelName!, replicateConfig?.ModelOwner);
         var client = CreateReplicateClient(config, services);
 
@@ -83,8 +83,8 @@ internal sealed class ReplicateProvider : IImageGeneratorProvider
             errors.Add("Replicate currently supports only image generation in HPD Agent.");
 
 
-        var replicateConfig = config.GetProviderConfig<ReplicateProviderConfig>(ProviderClientFamily.ImageGeneration)
-            ?? config.GetProviderConfig<ReplicateProviderConfig>();
+        var replicateConfig = config.ProviderConfig as ReplicateProviderConfig
+            ?? config.ProviderConfig as ReplicateProviderConfig;
         var modelName = string.IsNullOrWhiteSpace(config.ModelName) ? DefaultModel : config.ModelName;
         ValidateModel(modelName!, replicateConfig?.ModelOwner, errors);
 

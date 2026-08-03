@@ -133,7 +133,7 @@ public static class AgentBuilderExtensions
         builder.Config.SetChatClientConfig(chatConfig);
 
         // Store the typed config
-        chatConfig.SetProviderConfig(providerConfig);
+        chatConfig.ProviderConfig = providerConfig;
 
         return builder;
     }

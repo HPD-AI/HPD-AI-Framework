@@ -58,7 +58,7 @@ internal class OpenAIProvider :
 
         IChatClient client;
 
-        var openAIConfig = config.GetProviderConfig<OpenAIProviderConfig>();
+        var openAIConfig = config.ProviderConfig as OpenAIProviderConfig;
         var openAIClient = CreateOpenAIClient(config, secrets);
         client = openAIConfig?.ChatApi == OpenAIChatApi.ChatCompletions
             ? openAIClient.GetChatClient(modelName).AsIChatClient()
@@ -182,7 +182,7 @@ internal class OpenAIProvider :
         var endpoint = endpointTask.GetAwaiter().GetResult();
         var hasCustomEndpoint = !string.IsNullOrEmpty(endpoint);
         var hasCustomHeaders = config.CustomHeaders?.Count > 0;
-        var openAIConfig = config.GetProviderConfig<OpenAIProviderConfig>();
+        var openAIConfig = config.ProviderConfig as OpenAIProviderConfig;
 
         var options = new OpenAIClientOptions();
         ApplyOpenAIOptions(options, openAIConfig);
@@ -247,7 +247,7 @@ internal static class OpenAIProviderConfigValidation
 {
     public static void Validate(ProviderClientConfig config, List<string> errors)
     {
-        var openAIConfig = config.GetProviderConfig<OpenAIProviderConfig>();
+        var openAIConfig = config.ProviderConfig as OpenAIProviderConfig;
         if (openAIConfig is null)
             return;
 
@@ -281,7 +281,7 @@ internal class AzureOpenAIProvider :
             throw new InvalidOperationException("For Azure OpenAI, the ModelName (deployment name) must be configured.");
         }
 
-        var openAIConfig = config.GetProviderConfig<AzureOpenAIProviderConfig>();
+        var openAIConfig = config.ProviderConfig as AzureOpenAIProviderConfig;
         var azureClient = CreateAzureOpenAIClient(config, GetSecretResolver(services));
         IChatClient client = openAIConfig?.ChatApi == OpenAIChatApi.ChatCompletions
             ? azureClient.GetChatClient(modelName).AsIChatClient()
@@ -400,7 +400,7 @@ internal class AzureOpenAIProvider :
 
         var apiKeyTask = secrets.RequireAsync("azure-openai:ApiKey", "Azure OpenAI", config.ApiKey, CancellationToken.None);
         var apiKey = apiKeyTask.GetAwaiter().GetResult();
-        var azureConfig = config.GetProviderConfig<AzureOpenAIProviderConfig>();
+        var azureConfig = config.ProviderConfig as AzureOpenAIProviderConfig;
         var options = CreateAzureOpenAIClientOptions(azureConfig);
 
         return new AzureOpenAIClient(
@@ -455,7 +455,7 @@ internal static class AzureOpenAIProviderConfigValidation
 {
     public static void Validate(ProviderClientConfig config, List<string> errors)
     {
-        var azureConfig = config.GetProviderConfig<AzureOpenAIProviderConfig>();
+        var azureConfig = config.ProviderConfig as AzureOpenAIProviderConfig;
         if (azureConfig is null)
             return;
 

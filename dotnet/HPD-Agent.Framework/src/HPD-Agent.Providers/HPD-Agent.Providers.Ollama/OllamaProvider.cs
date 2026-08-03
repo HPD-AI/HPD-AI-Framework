@@ -54,7 +54,7 @@ internal class OllamaProvider : IChatClientProvider
             throw new InvalidOperationException("Model name is required for Ollama provider.");
         }
 
-        var providerConfig = config.GetProviderConfig<OllamaProviderConfig>();
+        var providerConfig = config.ProviderConfig as OllamaProviderConfig;
 
         var httpClient = new HttpClient { BaseAddress = endpoint };
         if (providerConfig?.TimeoutMs is { } timeoutMs)
@@ -114,7 +114,7 @@ internal class OllamaProvider : IChatClientProvider
         if (!string.IsNullOrEmpty(config.Endpoint) && !Uri.IsWellFormedUriString(config.Endpoint, UriKind.Absolute))
             errors.Add("Endpoint must be a valid, absolute URI");
 
-        var providerConfig = config.GetProviderConfig<OllamaProviderConfig>();
+        var providerConfig = config.ProviderConfig as OllamaProviderConfig;
         if (providerConfig?.TimeoutMs is <= 0)
             errors.Add("TimeoutMs must be greater than zero when specified.");
 

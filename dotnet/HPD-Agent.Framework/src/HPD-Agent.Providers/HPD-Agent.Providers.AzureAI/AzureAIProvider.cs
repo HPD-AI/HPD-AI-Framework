@@ -66,7 +66,7 @@ internal class AzureAIProvider : IChatClientProvider
         }
 
         // Get typed config
-        var azureConfig = config.GetProviderConfig<AzureAIProviderConfig>();
+        var azureConfig = config.ProviderConfig as AzureAIProviderConfig;
 
         var authMode = azureConfig?.AuthMode ?? AzureAIAuthMode.Auto;
         string? apiKey = authMode == AzureAIAuthMode.DefaultAzureCredential
@@ -295,7 +295,7 @@ internal class AzureAIProvider : IChatClientProvider
         if (string.IsNullOrEmpty(config.ModelName))
             errors.Add("Model name (deployment name) is required for Azure AI");
 
-        var azureConfig = config.GetProviderConfig<AzureAIProviderConfig>();
+        var azureConfig = config.ProviderConfig as AzureAIProviderConfig;
         if (azureConfig is not null)
         {
             if (!Enum.IsDefined(azureConfig.AuthMode))

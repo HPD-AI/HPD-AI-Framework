@@ -35,7 +35,7 @@ public static class AgentBuilderExtensions
         };
 
         builder.Config.SetClientConfig(ProviderClientFamily.SpeechToText, clientConfig);
-        clientConfig.SetProviderConfig(providerConfig, ProviderClientFamily.SpeechToText);
+        clientConfig.ProviderConfig = providerConfig;
 
         return builder;
     }
@@ -69,7 +69,7 @@ public static class AgentBuilderExtensions
         };
 
         builder.Config.SetClientConfig(ProviderClientFamily.TextToSpeech, clientConfig);
-        clientConfig.SetProviderConfig(providerConfig, ProviderClientFamily.TextToSpeech);
+        clientConfig.ProviderConfig = providerConfig;
 
         return builder;
     }

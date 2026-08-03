@@ -46,7 +46,7 @@ internal class GoogleAIProvider : IChatClientProvider
                 "Ensure the agent builder is properly configured with secret resolution.");
         }
 
-        var googleConfig = config.GetProviderConfig<GoogleAIProviderConfig>() ?? new GoogleAIProviderConfig();
+        var googleConfig = config.ProviderConfig as GoogleAIProviderConfig ?? new GoogleAIProviderConfig();
         var apiKey = ResolveApiKey(secrets, config, googleConfig);
 
         string? modelName = config.ModelName;
@@ -148,7 +148,7 @@ internal class GoogleAIProvider : IChatClientProvider
     public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
     {
         var errors = new List<string>();
-        var googleConfig = config.GetProviderConfig<GoogleAIProviderConfig>() ?? new GoogleAIProviderConfig();
+        var googleConfig = config.ProviderConfig as GoogleAIProviderConfig ?? new GoogleAIProviderConfig();
 
         // API key validation is deferred to CreateChatClient where ISecretResolver is available.
         // This method only validates config structure, not secret resolution.

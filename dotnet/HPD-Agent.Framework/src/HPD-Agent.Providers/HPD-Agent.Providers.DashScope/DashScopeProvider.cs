@@ -34,7 +34,7 @@ internal class DashScopeProvider : IChatClientProvider, IEmbeddingGeneratorProvi
             throw new InvalidOperationException("For DashScope, the ModelName must be configured.");
         }
 
-        var dashScopeConfig = config.GetProviderConfig<DashScopeProviderConfig>();
+        var dashScopeConfig = config.ProviderConfig as DashScopeProviderConfig;
         var client = CreateDashScopeClient(config, dashScopeConfig, services);
         var chatClient = client.AsChatClient(config.ModelName, dashScopeConfig?.DefaultUseVl);
 
@@ -46,8 +46,8 @@ internal class DashScopeProvider : IChatClientProvider, IEmbeddingGeneratorProvi
     {
         ArgumentNullException.ThrowIfNull(config);
 
-        var dashScopeConfig = config.GetProviderConfig<DashScopeProviderConfig>(ProviderClientFamily.Embeddings)
-            ?? config.GetProviderConfig<DashScopeProviderConfig>();
+        var dashScopeConfig = config.ProviderConfig as DashScopeProviderConfig
+            ?? config.ProviderConfig as DashScopeProviderConfig;
 
         var modelName =
             !string.IsNullOrWhiteSpace(config.ModelName) ? config.ModelName :
@@ -115,7 +115,7 @@ internal class DashScopeProvider : IChatClientProvider, IEmbeddingGeneratorProvi
             errors.Add("Endpoint must be a valid, absolute URI");
         }
 
-        var dashScopeConfig = config.GetProviderConfig<DashScopeProviderConfig>(family);
+        var dashScopeConfig = config.ProviderConfig as DashScopeProviderConfig;
         if (dashScopeConfig is not null)
         {
             ValidateProviderOptions(dashScopeConfig, errors);

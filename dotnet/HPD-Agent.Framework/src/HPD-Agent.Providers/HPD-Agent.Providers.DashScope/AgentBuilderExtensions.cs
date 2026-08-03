@@ -38,7 +38,7 @@ public static class AgentBuilderExtensions
         };
 
         builder.Config.SetChatClientConfig(chatConfig);
-        chatConfig.SetProviderConfig(providerConfig);
+        chatConfig.ProviderConfig = providerConfig;
 
         return builder;
     }
@@ -74,7 +74,7 @@ public static class AgentBuilderExtensions
         };
 
         builder.Config.SetClientConfig(ProviderClientFamily.Embeddings, embeddingConfig);
-        embeddingConfig.SetProviderConfig(providerConfig, ProviderClientFamily.Embeddings);
+        embeddingConfig.ProviderConfig = providerConfig;
 
         return builder;
     }

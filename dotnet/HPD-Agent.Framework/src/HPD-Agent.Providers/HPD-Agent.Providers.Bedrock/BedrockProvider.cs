@@ -53,7 +53,7 @@ internal class BedrockProvider : IChatClientProvider
     public async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
     {
         // Get typed config
-        var bedrockConfig = config.GetProviderConfig<BedrockProviderConfig>();
+        var bedrockConfig = config.ProviderConfig as BedrockProviderConfig;
 
         var secrets = services?.GetService<ISecretResolver>();
 
@@ -308,7 +308,7 @@ internal class BedrockProvider : IChatClientProvider
             errors.Add("Model name (model ID) is required for AWS Bedrock");
 
         // Get typed config for validation
-        var bedrockConfig = config.GetProviderConfig<BedrockProviderConfig>();
+        var bedrockConfig = config.ProviderConfig as BedrockProviderConfig;
 
         // Validate Bedrock-specific config if present
         if (bedrockConfig != null)

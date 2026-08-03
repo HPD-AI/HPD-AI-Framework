@@ -97,7 +97,7 @@ public static class AgentBuilderExtensions
         };
 
         builder.Config.SetClientConfig(ProviderClientFamily.Embeddings, embeddingConfig);
-        embeddingConfig.SetProviderConfig(providerConfig, ProviderClientFamily.Embeddings);
+        embeddingConfig.ProviderConfig = providerConfig;
 
         return builder;
     }

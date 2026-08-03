@@ -38,7 +38,7 @@ public static class AgentBuilderExtensions
         };
 
         builder.Config.SetClientConfig(ProviderClientFamily.ImageGeneration, imageConfig);
-        imageConfig.SetProviderConfig(providerConfig, ProviderClientFamily.ImageGeneration);
+        imageConfig.ProviderConfig = providerConfig;
 
         return builder;
     }

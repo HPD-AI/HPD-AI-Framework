@@ -44,8 +44,8 @@ internal class TogetherProvider : IChatClientProvider, IEmbeddingGeneratorProvid
         ArgumentNullException.ThrowIfNull(config);
 
         var client = CreateTogetherClient(config, services);
-        var togetherConfig = config.GetProviderConfig<TogetherProviderConfig>(ProviderClientFamily.Embeddings)
-            ?? config.GetProviderConfig<TogetherProviderConfig>();
+        var togetherConfig = config.ProviderConfig as TogetherProviderConfig
+            ?? config.ProviderConfig as TogetherProviderConfig;
 
         var modelName =
             !string.IsNullOrWhiteSpace(config.ModelName) ? config.ModelName :
@@ -113,8 +113,8 @@ internal class TogetherProvider : IChatClientProvider, IEmbeddingGeneratorProvid
 
         if (family == ProviderClientFamily.Embeddings)
         {
-            var togetherConfig = config.GetProviderConfig<TogetherProviderConfig>(family)
-                ?? config.GetProviderConfig<TogetherProviderConfig>();
+            var togetherConfig = config.ProviderConfig as TogetherProviderConfig
+                ?? config.ProviderConfig as TogetherProviderConfig;
             if (togetherConfig is not null)
             {
                 ValidateProviderOptions(togetherConfig, errors);

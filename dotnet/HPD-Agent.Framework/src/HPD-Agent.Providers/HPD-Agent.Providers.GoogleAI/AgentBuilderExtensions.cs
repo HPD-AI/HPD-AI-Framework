@@ -31,7 +31,7 @@ public static class AgentBuilderExtensions
             ApiKey = apiKey,
             ModelName = model
         };
-        chatConfig.SetProviderConfig(providerConfig);
+        chatConfig.ProviderConfig = providerConfig;
 
         builder.Config.SetChatClientConfig(chatConfig);
 

@@ -25,7 +25,7 @@ internal class OnnxRuntimeProvider : IChatClientProvider
     {
         ArgumentNullException.ThrowIfNull(config);
 
-        var onnxConfig = config.GetProviderConfig<OnnxRuntimeProviderConfig>();
+        var onnxConfig = config.ProviderConfig as OnnxRuntimeProviderConfig;
         var secrets = services?.GetService<ISecretResolver>();
 
         var modelPath = onnxConfig?.ModelPath
@@ -90,7 +90,7 @@ internal class OnnxRuntimeProvider : IChatClientProvider
         ArgumentNullException.ThrowIfNull(config);
 
         var errors = new List<string>();
-        var onnxConfig = config.GetProviderConfig<OnnxRuntimeProviderConfig>();
+        var onnxConfig = config.ProviderConfig as OnnxRuntimeProviderConfig;
         var modelPath = onnxConfig?.ModelPath ?? global::System.Environment.GetEnvironmentVariable("ONNX_MODEL_PATH");
 
         if (string.IsNullOrWhiteSpace(modelPath))

@@ -42,8 +42,8 @@ internal class CohereProvider : IChatClientProvider, IEmbeddingGeneratorProvider
         ArgumentNullException.ThrowIfNull(config);
 
         var client = CreateCohereClient(config, services);
-        var cohereConfig = config.GetProviderConfig<CohereProviderConfig>(ProviderClientFamily.Embeddings)
-            ?? config.GetProviderConfig<CohereProviderConfig>();
+        var cohereConfig = config.ProviderConfig as CohereProviderConfig
+            ?? config.ProviderConfig as CohereProviderConfig;
 
         var modelName =
             !string.IsNullOrWhiteSpace(config.ModelName) ? config.ModelName :
@@ -110,8 +110,8 @@ internal class CohereProvider : IChatClientProvider, IEmbeddingGeneratorProvider
 
         if (family == ProviderClientFamily.Embeddings)
         {
-            var cohereConfig = config.GetProviderConfig<CohereProviderConfig>(family)
-                ?? config.GetProviderConfig<CohereProviderConfig>();
+            var cohereConfig = config.ProviderConfig as CohereProviderConfig
+                ?? config.ProviderConfig as CohereProviderConfig;
             if (cohereConfig is not null)
             {
                 ValidateProviderOptions(cohereConfig, errors);
