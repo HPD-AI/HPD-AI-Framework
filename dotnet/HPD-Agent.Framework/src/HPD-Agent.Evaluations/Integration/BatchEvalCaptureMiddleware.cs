@@ -7,8 +7,6 @@ namespace HPD.Agent.Evaluations.Integration;
 
 internal sealed class BatchEvalCaptureMiddleware : IAgentMiddleware
 {
-    internal const string CaptureRequestIdKey = "eval_capture_request_id";
-
     private readonly EvalTurnCapture _capture = new();
     private readonly TaskCompletionSource<TurnEvaluationContext> _captured =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -47,9 +45,6 @@ internal sealed class BatchEvalCaptureMiddleware : IAgentMiddleware
         if (runConfig.Get()?.SuppressionReason == EvaluationSuppressionReason.JudgeCall)
             return null;
 
-        if (runConfig.Context?.Properties?.TryGetValue(CaptureRequestIdKey, out var value) != true)
-            return null;
-
-        return value as string;
+        return runConfig.Get()?.ExecutionState.CaptureRequestId;
     }
 }

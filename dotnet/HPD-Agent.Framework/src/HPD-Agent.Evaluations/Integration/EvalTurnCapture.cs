@@ -48,9 +48,7 @@ internal sealed class EvalTurnCapture
         EvalContext.Deactivate();
         _evalData.Value = null;
 
-        var groundTruth = context.RunConfig.Context?.Properties?.TryGetValue("groundTruth", out var gt) == true
-            ? gt?.ToString()
-            : null;
+        var groundTruth = context.RunConfig.Get()?.ExecutionState.GroundTruth;
 
         try
         {

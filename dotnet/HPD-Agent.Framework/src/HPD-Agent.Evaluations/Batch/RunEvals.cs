@@ -222,15 +222,13 @@ public static class RunEvals
         // Build the case-level AgentRunConfig with DisableEvaluators to prevent
         // live double-firing. Each retry attempt clones this config before the
         // capture middleware adds per-attempt request state.
-        var caseRunConfig = CloneRunConfig(options.BaseRunConfig);
+        var caseRunConfig = CloneRunConfig(agent, options.BaseRunConfig);
         caseRunConfig.SuppressEvaluation(EvaluationSuppressionReason.BatchExecution);
         var caseInput = evalCase.Input?.ToString() ?? string.Empty;
 
         if (evalCase.GroundTruth is not null)
         {
-            caseRunConfig.Context ??= new AgentContextRunConfig();
-            caseRunConfig.Context.Properties ??= new Dictionary<string, object>();
-            caseRunConfig.Context.Properties["groundTruth"] = evalCase.GroundTruth;
+            caseRunConfig.Ensure().ExecutionState.GroundTruth = evalCase.GroundTruth;
         }
 
         TurnEvaluationContext turnCtx;
@@ -240,7 +238,7 @@ public static class RunEvals
             turnCtx = await ExecuteWithRetryAsync(
                 () =>
                 {
-                    var attemptRunConfig = CloneRunConfig(caseRunConfig);
+                    var attemptRunConfig = CloneRunConfig(agent, caseRunConfig);
                     runConfig = attemptRunConfig;
                     return RunAgentAndCaptureAsync(agent, caseInput, attemptRunConfig, ct);
                 },
@@ -400,9 +398,7 @@ public static class RunEvals
         var requestId = Guid.NewGuid().ToString();
         var capture = new BatchEvalCaptureMiddleware();
 
-        runConfig.Context ??= new AgentContextRunConfig();
-        runConfig.Context.Properties ??= new Dictionary<string, object>();
-        runConfig.Context.Properties[BatchEvalCaptureMiddleware.CaptureRequestIdKey] = requestId;
+        runConfig.Ensure().ExecutionState.CaptureRequestId = requestId;
         runConfig.RuntimeMiddleware = PrependRuntimeMiddleware(runConfig.RuntimeMiddleware, capture);
 
         using var subscription = agent.SubscribeAny(capture.HandleAsync);
@@ -578,19 +574,8 @@ public static class RunEvals
             Metrics = source.Metrics,
             StopKind = source.StopKind,
             GroundTruth = source.GroundTruth ?? groundTruth,
-            ExperimentContext = SanitizeExperimentContext(source.ExperimentContext ?? runConfig.Context?.Properties),
+            ExperimentContext = source.ExperimentContext ?? runConfig.Context?.Properties,
         };
-    }
-
-    private static IDictionary<string, object>? SanitizeExperimentContext(
-        IDictionary<string, object>? context)
-    {
-        if (context is null || !context.ContainsKey(BatchEvalCaptureMiddleware.CaptureRequestIdKey))
-            return context;
-
-        var sanitized = new Dictionary<string, object>(context);
-        sanitized.Remove(BatchEvalCaptureMiddleware.CaptureRequestIdKey);
-        return sanitized;
     }
 
     private static IReadOnlyDictionary<string, object> BuildBatchAttributes(TurnEvaluationContext source)
@@ -693,80 +678,6 @@ public static class RunEvals
         return TimeSpan.FromMilliseconds(capped);
     }
 
-    private static AgentRunConfig CloneRunConfig(AgentRunConfig? source)
-    {
-        if (source is null)
-            return new AgentRunConfig();
-
-        return new AgentRunConfig
-        {
-            Security = source.Security with
-            {
-                PermissionOverrides = source.Security.PermissionOverrides is null
-                    ? null
-                    : new Dictionary<string, bool>(source.Security.PermissionOverrides),
-                Sandbox = source.Security.Sandbox with
-                {
-                    Capabilities = source.Security.Sandbox.Capabilities with
-                    {
-                        Filesystem = source.Security.Sandbox.Capabilities.Filesystem
-                            .Select(static grant => grant with { })
-                            .ToArray()
-                    }
-                }
-            },
-            Clients = new AgentClientsConfig
-            {
-                Transport = source.Clients.Transport,
-                Chat = source.Clients.Chat is null
-                    ? null
-                    : (ChatClientConfig)ProviderClientConfigResolver.Clone(source.Clients.Chat),
-                Realtime = CloneClient(source.Clients.Realtime),
-                ImageGeneration = CloneClient(source.Clients.ImageGeneration),
-                Embeddings = CloneClient(source.Clients.Embeddings),
-                TextToSpeech = CloneClient(source.Clients.TextToSpeech),
-                SpeechToText = CloneClient(source.Clients.SpeechToText),
-                HostedFiles = CloneClient(source.Clients.HostedFiles),
-                VoiceActivityDetection = CloneClient(source.Clients.VoiceActivityDetection),
-                EndOfTurnDetection = CloneClient(source.Clients.EndOfTurnDetection)
-            },
-            SystemInstructions = source.SystemInstructions is null ? null : new SystemInstructionsRunConfig
-            {
-                Override = source.SystemInstructions.Override,
-                Append = source.SystemInstructions.Append
-            },
-            Context = source.Context is null ? null : new AgentContextRunConfig
-            {
-                Properties = source.Context.Properties is null ? null : new Dictionary<string, object>(source.Context.Properties),
-                ToolInstances = source.Context.ToolInstances is null ? null : new Dictionary<string, IToolMetadata>(source.Context.ToolInstances)
-            },
-            Streaming = source.Streaming is null ? null : new StreamingRunConfig
-            {
-                CoalesceDeltas = source.Streaming.CoalesceDeltas,
-                Callback = source.Streaming.Callback
-            },
-            RuntimeMiddleware = source.RuntimeMiddleware,
-            Tools = source.Tools is null ? null : new AgentToolsRunConfig
-            {
-                Mode = source.Tools.Mode,
-                Additional = source.Tools.Additional?.ToArray(),
-                ClientInput = source.Tools.ClientInput,
-                ClientAppProviders = source.Tools.ClientAppProviders?.ToArray()
-            },
-            BackgroundResponses = source.BackgroundResponses is null ? null : new BackgroundResponsesRunConfig
-            {
-                Allow = source.BackgroundResponses.Allow,
-                ContinuationToken = source.BackgroundResponses.ContinuationToken,
-                PollingInterval = source.BackgroundResponses.PollingInterval,
-                Timeout = source.BackgroundResponses.Timeout
-            },
-            Audio = source.Audio,
-            Compaction = source.Compaction,
-            Evaluations = source.Evaluations?.Snapshot(),
-        };
-    }
-
-    private static TConfig? CloneClient<TConfig>(TConfig? source)
-        where TConfig : ProviderClientConfig
-        => source is null ? null : (TConfig)ProviderClientConfigResolver.Clone(source);
+    private static AgentRunConfig CloneRunConfig(HPD.Agent.Agent agent, AgentRunConfig? source) =>
+        agent.CaptureRunConfig(source);
 }

@@ -31,6 +31,8 @@ public sealed class EvaluationRunConfig : IAgentRunEvaluationConfig
 
     internal EvaluationSuppressionReason SuppressionReason { get; set; }
 
+    internal EvaluationExecutionState ExecutionState { get; set; } = new();
+
     /// <inheritdoc />
     public IAgentRunEvaluationConfig Snapshot() => new EvaluationRunConfig
     {
@@ -38,7 +40,20 @@ public sealed class EvaluationRunConfig : IAgentRunEvaluationConfig
         SamplingRate = SamplingRate,
         AdditionalEvaluators = AdditionalEvaluators?.ToArray(),
         Judge = Judge?.Snapshot(),
-        SuppressionReason = SuppressionReason
+        SuppressionReason = SuppressionReason,
+        ExecutionState = ExecutionState.SnapshotInputs()
+    };
+}
+
+internal sealed class EvaluationExecutionState
+{
+    internal string? GroundTruth { get; set; }
+    internal string? CaptureRequestId { get; set; }
+
+    internal EvaluationExecutionState SnapshotInputs() => new()
+    {
+        GroundTruth = GroundTruth,
+        CaptureRequestId = CaptureRequestId
     };
 }
 
