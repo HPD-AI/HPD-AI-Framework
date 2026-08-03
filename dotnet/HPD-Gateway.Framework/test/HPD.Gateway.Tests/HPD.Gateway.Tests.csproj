@@ -26,6 +26,7 @@
     <ProjectReference Include="../../src/HPD.Gateway.OutputCaching/HPD.Gateway.OutputCaching.csproj" />
     <ProjectReference Include="../../src/HPD.Gateway.Resilience/HPD.Gateway.Resilience.csproj" />
     <ProjectReference Include="../../src/HPD.Gateway.Status/HPD.Gateway.Status.csproj" />
+    <ProjectReference Include="../../src/HPD.Gateway.Standalone/HPD.Gateway.Standalone.csproj" />
     <ProjectReference Include="../../src/HPD.Gateway.Yarp/HPD.Gateway.Yarp.csproj" />
   </ItemGroup>
 </Project>
