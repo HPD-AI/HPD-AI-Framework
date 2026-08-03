@@ -2,6 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/HPD.Gateway.Abstractions/HPD.Gateway.Abstractions.csproj" />
     <Project Path="src/HPD.Gateway.Core/HPD.Gateway.Core.csproj" />
+    <Project Path="src/HPD.Gateway.Effective/HPD.Gateway.Effective.csproj" />
     <Project Path="src/HPD.Gateway.Inspection/HPD.Gateway.Inspection.csproj" />
     <Project Path="src/HPD.Gateway.Hosting/HPD.Gateway.Hosting.csproj" />
     <Project Path="src/HPD.Gateway.OutputCaching/HPD.Gateway.OutputCaching.csproj" />

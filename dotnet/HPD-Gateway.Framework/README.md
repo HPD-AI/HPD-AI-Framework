@@ -66,6 +66,14 @@ authority, and maps redacted `/health/live` and `/health/ready` endpoints.
 Change notification is snapshot invalidation through `IChangeToken`, not an
 event stream or durable history.
 
+`HPD.Gateway.Effective` adds a source-generated, immutable preparation-time
+projection explaining which root default, Route-local inline declaration,
+reusable definition, and correlated host profile produced each emitted Route
+policy. The projection contains bounded identities and hashes rather than
+declaration values or runtime objects. It is produced beside native
+materialization and is never consulted during request forwarding; no Admin
+endpoint or process-wide current-effective authority is added.
+
 Management, downstream credential replacement/delegation, shared cache-store
 providers, dynamic listener reload, mTLS, HTTP/3 hosting, and L4 proxying are
 not implemented.

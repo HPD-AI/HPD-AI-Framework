@@ -8,6 +8,7 @@ using System.Text.Json;
 using HPD.Gateway.Abstractions;
 using HPD.Gateway.Abstractions.Serialization;
 using HPD.Gateway.Core;
+using HPD.Gateway.Effective.Serialization;
 using HPD.Gateway.Inspection;
 using HPD.Gateway.Hosting;
 using HPD.Gateway.OutputCaching;
@@ -389,12 +390,22 @@ var materializableConfiguration = configuration with
                 RequestTransforms = supportedRouteDeclarations.RequestTransforms,
                 ResponseTransforms = supportedRouteDeclarations.ResponseTransforms
             }
+        },
+        configuration.Routes[0] with
+        {
+            Id = new RouteId("inspection-route"),
+            Listener = null,
+            Match = new HttpRouteMatch { Path = "/inspect/{**catch-all}", Methods = ["GET"] },
+            Declarations = new RouteDeclarations
+            {
+                Inspection = new DeclarationReference<RequestInspectionBinding> { Definition = new DefinitionId("inspection") }
+            }
         }
     ]
 };
 var materializableJson = JsonSerializer.SerializeToUtf8Bytes(materializableConfiguration, GatewayJsonSerializerContext.Default.GatewayConfiguration);
 var materializableRead = GatewayCandidateReader.Read(materializableJson, capabilities);
-if (!materializableRead.IsAccepted) throw new InvalidOperationException("Materializable AOT candidate was rejected.");
+if (!materializableRead.IsAccepted) throw new InvalidOperationException($"Materializable AOT candidate was rejected: {string.Join(", ", materializableRead.Errors.Select(static item => $"{item.Code}@{item.Path}"))}");
 
 var services = new ServiceCollection();
 services.AddLogging();
@@ -430,6 +441,42 @@ var materialized = await materializer.MaterializeAsync(
     "native-aot-smoke");
 if (!materialized.IsMaterialized)
     throw new InvalidOperationException($"Native AOT materialization failed: {string.Join(", ", materialized.Diagnostics.Select(item => $"{item.Code}@{item.Path}"))}");
+if (materialized.EffectiveSnapshot is null || materialized.EffectiveSnapshot.Records.IsEmpty)
+    throw new InvalidOperationException("Native AOT effective provenance was not produced.");
+var effectiveFamilies = materialized.EffectiveSnapshot.Records.Select(static item => item.Family).ToHashSet(StringComparer.Ordinal);
+foreach (var requiredFamily in new[]
+{
+    "hpd.gateway/authorization",
+    "hpd.gateway/cors",
+    "hpd.gateway/traffic-admission",
+    "hpd.gateway/request-timeout",
+    "hpd.gateway/output-cache",
+    "hpd.gateway/inspection",
+    "hpd.gateway/credential-disposition",
+    "hpd.gateway/request-header-transforms",
+    "hpd.gateway/response-header-transforms",
+    "hpd.gateway/response-trailer-transforms"
+})
+{
+    if (!effectiveFamilies.Contains(requiredFamily))
+        throw new InvalidOperationException($"Native AOT effective provenance omitted {requiredFamily}.");
+}
+foreach (var correlatedFamily in new[]
+{
+    "hpd.gateway/output-cache",
+    "hpd.gateway/inspection",
+    "hpd.gateway/credential-disposition"
+})
+{
+    if (!materialized.EffectiveSnapshot.Records.Where(item => item.Family == correlatedFamily)
+        .All(static record => record.Contributions.Any(static item => item.SourceKind == HPD.Gateway.Effective.GatewayContributionSourceKind.HostProfile)))
+        throw new InvalidOperationException($"Native AOT effective provenance omitted host correlation for {correlatedFamily}.");
+}
+var effectiveJson = JsonSerializer.SerializeToUtf8Bytes(
+    materialized.EffectiveSnapshot,
+    GatewayEffectiveJsonSerializerContext.Default.GatewayEffectiveSnapshot);
+if (effectiveJson.Length == 0 || effectiveJson.AsSpan().IndexOf("hpd.gateway/"u8) < 0)
+    throw new InvalidOperationException("Native AOT effective provenance serialization failed.");
 
 var inspectionExecutor = serviceProvider.GetRequiredService<GatewayInspectionExecutor>();
 var inspectionContext = new DefaultHttpContext();

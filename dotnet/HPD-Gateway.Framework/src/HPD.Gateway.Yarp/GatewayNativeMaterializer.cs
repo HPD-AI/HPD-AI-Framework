@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http;
 using HPD.Gateway.Abstractions;
 using HPD.Gateway.Core;
+using HPD.Gateway.Effective;
 using HPD.Gateway.Inspection;
 using Yarp.ReverseProxy.Configuration;
 using Yarp.ReverseProxy.Forwarder;
@@ -15,18 +16,20 @@ internal sealed record GatewayMaterializationDiagnostic(string Code, string Path
 
 internal sealed class GatewayMaterializationResult
 {
-    private GatewayMaterializationResult(NativePublicationBundle? bundle, ImmutableArray<GatewayMaterializationDiagnostic> diagnostics)
+    private GatewayMaterializationResult(NativePublicationBundle? bundle, GatewayEffectiveSnapshot? effectiveSnapshot, ImmutableArray<GatewayMaterializationDiagnostic> diagnostics)
     {
         Bundle = bundle;
+        EffectiveSnapshot = effectiveSnapshot;
         Diagnostics = diagnostics;
     }
 
     internal NativePublicationBundle? Bundle { get; }
+    internal GatewayEffectiveSnapshot? EffectiveSnapshot { get; }
     internal ImmutableArray<GatewayMaterializationDiagnostic> Diagnostics { get; }
     internal bool IsMaterialized => Bundle is not null && Diagnostics.IsEmpty;
 
-    internal static GatewayMaterializationResult Accepted(NativePublicationBundle bundle) => new(bundle, []);
-    internal static GatewayMaterializationResult Rejected(ImmutableArray<GatewayMaterializationDiagnostic> diagnostics) => new(null, diagnostics);
+    internal static GatewayMaterializationResult Accepted(NativePublicationBundle bundle, GatewayEffectiveSnapshot effectiveSnapshot) => new(bundle, effectiveSnapshot, []);
+    internal static GatewayMaterializationResult Rejected(ImmutableArray<GatewayMaterializationDiagnostic> diagnostics) => new(null, null, diagnostics);
 }
 
 internal sealed class GatewayNativeMaterializer(
@@ -60,8 +63,10 @@ internal sealed class GatewayNativeMaterializer(
 
         ImmutableArray<ClusterConfig> clusters;
         ImmutableArray<RouteConfig> routes;
+        GatewayEffectiveSnapshot effectiveSnapshot;
         try
         {
+            var effective = new GatewayEffectiveProjectionBuilder(candidate, identity);
             clusters = configuration.Upstreams
                 .OrderBy(static upstream => upstream.Id.Value, StringComparer.Ordinal)
                 .Select(MaterializeCluster)
@@ -69,7 +74,7 @@ internal sealed class GatewayNativeMaterializer(
             routes = configuration.Routes
                 .Where(static route => route.Enabled)
                 .OrderBy(static route => route.Id.Value, StringComparer.Ordinal)
-                .Select(route => MaterializeRoute(route, configuration.RootDefaults!, configuration.Definitions!, candidate.ProtectedCredentialHeaders))
+                .Select(route => MaterializeRoute(route, configuration.RootDefaults!, configuration.Definitions!, candidate.ProtectedCredentialHeaders, effective))
                 .ToImmutableArray();
             if (!OutputCacheCapabilitiesMatch(
                     candidate.OutputCacheProfiles,
@@ -78,6 +83,7 @@ internal sealed class GatewayNativeMaterializer(
                         .Select(static route => route.OutputCachePolicy!)
                         .Distinct(StringComparer.Ordinal)))
                 return Reject("materialization.output-cache-capability-mismatch", "$", "Accepted selected Output Cache capabilities do not match the installed runtime registry.");
+            effectiveSnapshot = effective.Build();
         }
         catch (Exception)
         {
@@ -116,7 +122,7 @@ internal sealed class GatewayNativeMaterializer(
 
         try
         {
-            return GatewayMaterializationResult.Accepted(NativePublicationBundle.Create(identity, routes, clusters, nativeRevisionId));
+            return GatewayMaterializationResult.Accepted(NativePublicationBundle.Create(identity, routes, clusters, nativeRevisionId, effectiveSnapshot), effectiveSnapshot);
         }
         catch (Exception)
         {
@@ -147,12 +153,28 @@ internal sealed class GatewayNativeMaterializer(
         return true;
     }
 
-    private RouteConfig MaterializeRoute(RouteDeclaration route, GatewayRootDeclarations root, GatewayDefinitions definitions, ImmutableArray<string> protectedCredentialHeaders)
+    private RouteConfig MaterializeRoute(RouteDeclaration route, GatewayRootDeclarations root, GatewayDefinitions definitions, ImmutableArray<string> protectedCredentialHeaders, GatewayEffectiveProjectionBuilder effective)
     {
         var declarations = route.Declarations!;
-        var timeout = Resolve(declarations.RequestTimeout ?? root.RequestTimeout, definitions.RequestTimeout);
-        var inspection = Resolve(declarations.Inspection ?? root.Inspection, definitions.Inspection);
-        var credentialDisposition = Resolve(declarations.CredentialDisposition ?? root.CredentialDisposition, definitions.CredentialDisposition);
+        var authorization = effective.Resolve(route.Id, GatewayEffectiveFamilies.Authorization, "RouteConfig.AuthorizationPolicy", root.Authorization, declarations.Authorization, definitions.Authorization,
+            static value => GatewayEffectiveProjectionBuilder.Hash("authorization/v1", value.PolicyName));
+        var cors = effective.Resolve(route.Id, GatewayEffectiveFamilies.Cors, "RouteConfig.CorsPolicy", root.Cors, declarations.Cors, definitions.Cors,
+            static value => GatewayEffectiveProjectionBuilder.Hash("cors/v1", value.PolicyName));
+        var admission = effective.Resolve(route.Id, GatewayEffectiveFamilies.TrafficAdmission, "RouteConfig.RateLimiterPolicy", root.TrafficAdmission, declarations.TrafficAdmission, definitions.TrafficAdmission,
+            static value => GatewayEffectiveProjectionBuilder.Hash("traffic-admission/v1", value.PolicyName));
+        var timeoutSelection = effective.Resolve(route.Id, GatewayEffectiveFamilies.RequestTimeout, "RouteConfig.TimeoutPolicy/Timeout", root.RequestTimeout, declarations.RequestTimeout, definitions.RequestTimeout,
+            static value => GatewayEffectiveProjectionBuilder.Hash("request-timeout/v1", value.PolicyName, value.Timeout?.Ticks.ToString()));
+        var outputCache = effective.Resolve(route.Id, GatewayEffectiveFamilies.OutputCache, "RouteConfig.OutputCachePolicy", root.OutputCache, declarations.OutputCache, definitions.OutputCache,
+            static value => GatewayEffectiveProjectionBuilder.Hash("output-cache/v1", value.PolicyName), effective.OutputCacheProfile);
+        var inspectionSelection = effective.Resolve(route.Id, GatewayEffectiveFamilies.Inspection, "RouteConfig.Metadata/HPD inspection", root.Inspection, declarations.Inspection, definitions.Inspection,
+            static value => GatewayEffectiveProjectionBuilder.Hash("inspection/v1", value.InspectorName, value.Mode.ToString(), value.MaximumAcceptedBodyBytes.ToString(), value.MaximumInspectedBytes?.ToString(), value.MemoryThresholdBytes?.ToString(), value.SpillPolicy.ToString()),
+            value => effective.InspectorProfile(value));
+        var credentialSelection = effective.Resolve(route.Id, GatewayEffectiveFamilies.CredentialDisposition, "RouteConfig.Transforms/request-header-remove", root.CredentialDisposition, declarations.CredentialDisposition, definitions.CredentialDisposition,
+            static value => GatewayEffectiveProjectionBuilder.Hash("credential-disposition/v1", value.Kind.ToString()), value => effective.CredentialCatalog(value));
+        effective.AddTransforms(route.Id, declarations.RequestTransforms, declarations.ResponseTransforms);
+        var timeout = timeoutSelection.Value;
+        var inspection = inspectionSelection.Value;
+        var credentialDisposition = credentialSelection.Value;
         var metadata = ImmutableDictionary.CreateBuilder<string, string>(StringComparer.Ordinal);
         metadata.Add("hpd.gateway.route-id", route.Id.Value);
         if (inspection is not null)
@@ -174,10 +196,10 @@ internal sealed class GatewayNativeMaterializer(
             ClusterId = route.Upstream.Value,
             Order = route.Order,
             Match = MaterializeMatch(route.Match),
-            AuthorizationPolicy = Resolve(declarations.Authorization ?? root.Authorization, definitions.Authorization)?.PolicyName,
-            CorsPolicy = Resolve(declarations.Cors ?? root.Cors, definitions.Cors)?.PolicyName,
-            RateLimiterPolicy = Resolve(declarations.TrafficAdmission ?? root.TrafficAdmission, definitions.TrafficAdmission)?.PolicyName,
-            OutputCachePolicy = Resolve(declarations.OutputCache ?? root.OutputCache, definitions.OutputCache)?.PolicyName,
+            AuthorizationPolicy = authorization.Value?.PolicyName,
+            CorsPolicy = cors.Value?.PolicyName,
+            RateLimiterPolicy = admission.Value?.PolicyName,
+            OutputCachePolicy = outputCache.Value?.PolicyName,
             TimeoutPolicy = timeout?.PolicyName,
             Timeout = timeout?.Timeout,
             Metadata = metadata.ToImmutable()

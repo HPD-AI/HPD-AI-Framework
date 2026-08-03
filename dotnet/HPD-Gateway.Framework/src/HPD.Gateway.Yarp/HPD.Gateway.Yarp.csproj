@@ -16,6 +16,7 @@
     <PackageReference Include="Yarp.ReverseProxy" Version="2.3.0" />
     <ProjectReference Include="../HPD.Gateway.Abstractions/HPD.Gateway.Abstractions.csproj" />
     <ProjectReference Include="../HPD.Gateway.Core/HPD.Gateway.Core.csproj" />
+    <ProjectReference Include="../HPD.Gateway.Effective/HPD.Gateway.Effective.csproj" />
     <ProjectReference Include="../HPD.Gateway.Inspection/HPD.Gateway.Inspection.csproj" />
   </ItemGroup>
 </Project>
