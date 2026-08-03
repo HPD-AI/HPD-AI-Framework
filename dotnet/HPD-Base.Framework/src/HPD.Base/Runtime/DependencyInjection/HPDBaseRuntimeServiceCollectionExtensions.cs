@@ -106,6 +106,10 @@ public static class HPDBaseRuntimeServiceCollectionExtensions
             throw new ArgumentOutOfRangeException(parameterName, "Maximum canonical mutation payload bytes must be between 1,024 and 16,777,216.");
         if (options.MaxItemIdLength is < 1 or > 256)
             throw new ArgumentOutOfRangeException(parameterName, "Maximum batch item identifier length must be between 1 and 256.");
+        if (options.ReceiptLifetime < TimeSpan.FromHours(1) || options.ReceiptLifetime > TimeSpan.FromDays(90))
+            throw new ArgumentOutOfRangeException(parameterName, "Receipt lifetime must be between 1 hour and 90 days.");
+        if (options.MaxReceiptBytes is < 4_096 or > 16_777_216)
+            throw new ArgumentOutOfRangeException(parameterName, "Maximum receipt bytes must be between 4,096 and 16,777,216.");
         if (options.MaxTransactionDuration < TimeSpan.FromMilliseconds(10) || options.MaxTransactionDuration > TimeSpan.FromSeconds(60))
         {
             throw new ArgumentOutOfRangeException(parameterName, "Maximum transaction duration must be between 10 milliseconds and 60 seconds.");

@@ -48,6 +48,12 @@ public sealed class HPDBaseRuntimeOptions
 /// <summary>Configures validated Runtime mutation and transaction limits.</summary>
 public sealed class HPDBaseRuntimeMutationOptions
 {
+    /// <summary>Gets or sets the lifetime of an identified atomic-request receipt.</summary>
+    public TimeSpan ReceiptLifetime { get; set; } = TimeSpan.FromDays(7);
+
+    /// <summary>Gets or sets the maximum canonical stored receipt size.</summary>
+    public int MaxReceiptBytes { get; set; } = 1_048_576;
+
     /// <summary>Gets or sets the maximum number of operations in one batch.</summary>
     public int MaxOperations { get; set; } = 100;
 

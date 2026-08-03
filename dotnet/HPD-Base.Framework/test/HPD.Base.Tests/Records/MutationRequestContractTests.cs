@@ -62,4 +62,33 @@ public sealed class MutationRequestContractTests
             method => method.Name == "Create"
                 && method.GetParameters().Any(parameter => parameter.Name == "idempotencyKey"));
     }
+
+    [Fact]
+    public void AtomicRequestCapabilityExposesTheClosedDurabilityContract()
+    {
+        Enum.GetNames<BaseAtomicRequestDurability>()
+            .Should().Equal("None", "ProcessLocal", "Durable");
+        typeof(StoreCapabilityDescriptor).GetProperty("AtomicRequest").Should().NotBeNull();
+        BaseMutationRequestErrorCodes.OutcomeUnknown.Should().Be("base.runtime.request.outcomeUnknown");
+    }
+
+    [Fact]
+    public void AdministrationCollectionsAreDefensivelyCopied()
+    {
+        RecordId[] ids = [new("record_1")];
+        var request = new BasePurgeRequest
+        {
+            CollectionId = "history",
+            RecordIds = ids,
+            Principal = new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.System },
+            ReasonCode = "expired",
+            AuditReference = "audit_1",
+            EvaluatedAt = DateTimeOffset.UnixEpoch,
+        };
+        ids[0] = new RecordId("changed");
+        RecordId[] exposed = request.RecordIds;
+        exposed[0] = new RecordId("changed_again");
+
+        request.RecordIds.Should().Equal(new RecordId("record_1"));
+    }
 }

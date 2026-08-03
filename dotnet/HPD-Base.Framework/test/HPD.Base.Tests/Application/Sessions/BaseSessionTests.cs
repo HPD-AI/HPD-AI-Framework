@@ -364,6 +364,8 @@ public sealed class BaseSessionTests
 
     private sealed class ReadyApplication : IHPDBaseApplication
     {
+        public IHPDBaseAdministration Administration { get; } = null!;
+
         public BaseApplicationReadiness CurrentReadiness { get; } = new()
         {
             State = BaseApplicationReadinessState.Ready,

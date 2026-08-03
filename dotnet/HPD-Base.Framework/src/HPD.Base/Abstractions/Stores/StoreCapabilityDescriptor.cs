@@ -23,6 +23,8 @@ public sealed record StoreCapabilityDescriptor
     public StoreBatchCapability? Batch { get; init; }
     /// <summary>Gets atomic record-ID upsert guarantees, when implemented.</summary>
     public StoreUpsertCapability? Upsert { get; init; }
+    /// <summary>Gets identified atomic-request receipt guarantees.</summary>
+    public AtomicRequestCapability? AtomicRequest { get; init; }
     /// <summary>Gets or sets the streaming.</summary>
     public StreamingCapability? Streaming { get; init; }
     /// <summary>Gets or sets the extensions.</summary>

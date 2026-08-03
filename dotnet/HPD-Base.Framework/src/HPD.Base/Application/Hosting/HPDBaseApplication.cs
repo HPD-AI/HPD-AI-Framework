@@ -35,11 +35,14 @@ public interface IHPDBaseApplication
     /// <summary>Gets the atomically published readiness snapshot.</summary>
     BaseApplicationReadiness CurrentReadiness { get; }
 
+    /// <summary>Gets host-only provider administration after successful initialization.</summary>
+    IHPDBaseAdministration Administration { get; }
+
     /// <summary>Initializes the selected provider and accepted schema once.</summary>
     ValueTask<OperationResult<BaseApplicationReadiness>> InitializeAsync(CancellationToken cancellationToken = default);
 }
 
-internal sealed class DefaultHPDBaseApplication(IBaseProviderBootstrap bootstrap, HPDBaseInstalledFeatures features, IRecordStoreRegistry stores, IBaseApplicationLifetime lifetime, Microsoft.Extensions.Options.IOptions<HPDBaseSchemaOptions> schemaOptions) : IHPDBaseApplication
+internal sealed class DefaultHPDBaseApplication(IBaseProviderBootstrap bootstrap, HPDBaseInstalledFeatures features, IRecordStoreRegistry stores, IBaseApplicationLifetime lifetime, Microsoft.Extensions.Options.IOptions<HPDBaseSchemaOptions> schemaOptions, IHPDBaseAdministration administration) : IHPDBaseApplication
 {
     private readonly Lock _gate = new();
     private Task<OperationResult<BaseApplicationReadiness>>? _initialization;
@@ -49,6 +52,11 @@ internal sealed class DefaultHPDBaseApplication(IBaseProviderBootstrap bootstrap
     };
     /// <summary>Gets current Readiness.</summary>
     public BaseApplicationReadiness CurrentReadiness => Volatile.Read(ref _readiness);
+
+    /// <summary>Gets host-only provider administration after readiness.</summary>
+    public IHPDBaseAdministration Administration => CurrentReadiness.State == BaseApplicationReadinessState.Ready
+        ? administration
+        : throw new InvalidOperationException("HPD.BASE administration is unavailable before successful initialization.");
 
     /// <summary>Performs initialize Async.</summary>
     public async ValueTask<OperationResult<BaseApplicationReadiness>> InitializeAsync(CancellationToken cancellationToken = default)

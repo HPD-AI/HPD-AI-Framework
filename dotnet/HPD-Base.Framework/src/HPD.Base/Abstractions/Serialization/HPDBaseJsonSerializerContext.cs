@@ -486,6 +486,20 @@ using AtomicMutationProcessingOutcomeConverter = LowerCamelJsonStringEnumConvert
 [JsonSerializable(typeof(OperationResult<BaseSchemaPlan>))]
 [JsonSerializable(typeof(OperationResult<BaseSchemaApplyResult>))]
 [JsonSerializable(typeof(OperationResult<BaseSchemaHistoryPage>))]
+[JsonSerializable(typeof(BaseAtomicRequestDurability))]
+[JsonSerializable(typeof(AtomicRequestCapability))]
+[JsonSerializable(typeof(BaseAdministrationCapability))]
+[JsonSerializable(typeof(BaseBackupRequest))]
+[JsonSerializable(typeof(BaseBackupValidationRequest))]
+[JsonSerializable(typeof(BaseRestoreIdentityMode))]
+[JsonSerializable(typeof(BaseRecoveryImageRetention))]
+[JsonSerializable(typeof(BaseRestoreRequest))]
+[JsonSerializable(typeof(BaseRestoreStatus))]
+[JsonSerializable(typeof(BaseRestoreFailureDisposition))]
+[JsonSerializable(typeof(BaseRestoreResult))]
+[JsonSerializable(typeof(BaseBackupManifest))]
+[JsonSerializable(typeof(BasePurgeRequest))]
+[JsonSerializable(typeof(BasePurgeResult))]
 public partial class HPDBaseJsonSerializerContext : JsonSerializerContext
 {
     /// <summary>Performs create Options.</summary>

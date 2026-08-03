@@ -506,6 +506,27 @@ public sealed class ApplicationHostBuilderTests
     }
 
     [Fact]
+    public async Task AdministrationIsHostOnlyReadinessBoundAndCapabilityHonest()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddHPDBase(builder => builder.AddCollection(GeneratedProject.Collection));
+        using ServiceProvider provider = services.BuildServiceProvider();
+
+        IHPDBaseApplication application = provider.GetRequiredService<IHPDBaseApplication>();
+        Action beforeReady = () => _ = application.Administration;
+        beforeReady.Should().Throw<InvalidOperationException>();
+
+        (await application.InitializeAsync()).Status.Should().Be(OperationStatus.Ok);
+        BaseAdministrationCapability capability = application.Administration.Capability;
+        capability.Backup.Should().BeFalse();
+        capability.Validate.Should().BeFalse();
+        capability.Restore.Should().BeFalse();
+        capability.AdministrativePurge.Should().BeFalse();
+        typeof(BaseSession).GetProperty("Administration").Should().BeNull();
+    }
+
+    [Fact]
     public async Task UnifiedBuilderInstallsCollectionProviderAndManifest()
     {
         var services = new ServiceCollection();

@@ -115,3 +115,54 @@ public enum BaseMutationRequestDisposition
     /// <summary>The same request had already committed.</summary>
     Duplicate
 }
+
+/// <summary>Classifies how long atomic request receipts survive.</summary>
+public enum BaseAtomicRequestDurability
+{
+    /// <summary>Atomic request receipts are unavailable.</summary>
+    None,
+    /// <summary>Receipts survive only for the current process.</summary>
+    ProcessLocal,
+    /// <summary>Receipts survive provider and process restart.</summary>
+    Durable
+}
+
+/// <summary>Declares a store's atomic request receipt guarantees and bounds.</summary>
+public sealed record AtomicRequestCapability
+{
+    /// <summary>Gets whether identified atomic requests are supported.</summary>
+    public required bool Supported { get; init; }
+    /// <summary>Gets the receipt durability classification.</summary>
+    public required BaseAtomicRequestDurability Durability { get; init; }
+    /// <summary>Gets whether duplicates return the stored committed result.</summary>
+    public required bool DuplicateResultReplay { get; init; }
+    /// <summary>Gets whether fingerprint conflicts are detected.</summary>
+    public required bool FingerprintConflictDetection { get; init; }
+    /// <summary>Gets whether an indeterminate commit can be resolved by exact retry.</summary>
+    public required bool IndeterminateResolution { get; init; }
+    /// <summary>Gets the maximum normalized identity size in UTF-8 bytes.</summary>
+    public required int MaxIdentityBytes { get; init; }
+    /// <summary>Gets the maximum stored canonical receipt size.</summary>
+    public required int MaxReceiptBytes { get; init; }
+    /// <summary>Gets the minimum supported receipt lifetime.</summary>
+    public required TimeSpan MinReceiptLifetime { get; init; }
+    /// <summary>Gets the maximum supported receipt lifetime.</summary>
+    public required TimeSpan MaxReceiptLifetime { get; init; }
+}
+
+/// <summary>Stable errors for identified atomic mutation requests.</summary>
+public static class BaseMutationRequestErrorCodes
+{
+    /// <summary>The request identity is invalid.</summary>
+    public const string Invalid = "base.runtime.request.invalid";
+    /// <summary>The selected store does not support identified requests.</summary>
+    public const string Unsupported = "base.runtime.request.unsupported";
+    /// <summary>The identity was reused with different bound semantics.</summary>
+    public const string FingerprintConflict = "base.runtime.request.fingerprintConflict";
+    /// <summary>The canonical receipt exceeds its configured bound.</summary>
+    public const string ReceiptTooLarge = "base.runtime.request.receiptTooLarge";
+    /// <summary>The stored receipt cannot be projected through the current schema.</summary>
+    public const string ReceiptUnavailable = "base.runtime.request.receiptUnavailable";
+    /// <summary>The provider cannot yet determine whether the request committed.</summary>
+    public const string OutcomeUnknown = "base.runtime.request.outcomeUnknown";
+}
