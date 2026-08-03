@@ -17,7 +17,7 @@ public sealed class EvaluationRunConfigTests
         {
             SamplingRate = 0.25,
             AdditionalEvaluators = [evaluator],
-            Judge = new EvaluationJudgeRunConfig { TimeoutSeconds = 17 }
+            Judge = new EvaluationJudgeRunConfig { Timeout = TimeSpan.FromSeconds(17) }
         };
 
         var snapshot = source.Snapshot().Should().BeOfType<EvaluationRunConfig>().Subject;

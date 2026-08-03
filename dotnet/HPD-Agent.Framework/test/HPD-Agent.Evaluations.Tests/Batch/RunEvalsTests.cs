@@ -498,7 +498,7 @@ public sealed class RunEvalsTests
             [new AspectCriticEvaluator("passes")],
             new RunEvalsOptions<string>
             {
-                JudgeConfig = new EvaluationJudgeRunConfig { OverrideChatClient = overrideJudge },
+                JudgeConfig = new EvaluationJudgeRunConfig { Chat = new ChatClientConfig { Override = new ClientOverride<IChatClient> { Client = overrideJudge } } },
             },
             experimentName: "override-chat-client");
 
@@ -524,7 +524,7 @@ public sealed class RunEvalsTests
             {
                 PersistResults = true,
                 ScoreStore = store,
-                JudgeConfig = new EvaluationJudgeRunConfig { OverrideChatClient = judge },
+                JudgeConfig = new EvaluationJudgeRunConfig { Chat = new ChatClientConfig { Override = new ClientOverride<IChatClient> { Client = judge } } },
             },
             experimentName: "judge-trace");
 
@@ -565,7 +565,7 @@ public sealed class RunEvalsTests
             {
                 PersistResults = true,
                 ScoreStore = store,
-                JudgeConfig = new EvaluationJudgeRunConfig { OverrideChatClient = judge },
+                JudgeConfig = new EvaluationJudgeRunConfig { Chat = new ChatClientConfig { Override = new ClientOverride<IChatClient> { Client = judge } } },
             },
             experimentName: "judge-trace-failure");
 
@@ -586,117 +586,6 @@ public sealed class RunEvalsTests
 
         runs.Should().ContainSingle().Which.JudgeCalls.Should().ContainSingle()
             .Which.ErrorMessage.Should().Contain("judge boom");
-    }
-
-    [Fact]
-    public async Task ExecuteAsync_JudgeOverrideAgent_MarksInternalEvalJudgeCall()
-    {
-        var agent = new CapturingAgent();
-        var judgeAgent = new CapturingAgent
-        {
-            ResponseText = "<S0>ok</S0><S1>agent judge</S1><S2>true</S2>",
-        };
-
-        var report = await RunEvals.ExecuteAsync(
-            agent,
-            SingleCaseDataset("hello"),
-            [new AspectCriticEvaluator("passes")],
-            new RunEvalsOptions<string>
-            {
-                JudgeConfig = new EvaluationJudgeRunConfig { OverrideAgent = judgeAgent },
-            },
-            experimentName: "agent-judge");
-
-        report.Failures.Should().BeEmpty();
-        report.Cases.Should().ContainSingle();
-        report.Cases[0].EvaluatorFailures.Should().BeEmpty();
-        judgeAgent.Configs.Should().ContainSingle();
-        judgeAgent.Configs[0].Evaluations.Should().BeOfType<EvaluationRunConfig>();
-    }
-
-    [Fact]
-    public async Task ExecuteAsync_JudgeOverrideAgent_DoesNotPersistRawPreMiddlewarePrompt()
-    {
-        var agent = new CapturingAgent();
-        var store = new InMemoryScoreStore();
-        var judgeAgent = new CapturingAgent
-        {
-            ResponseText = "<S0>ok</S0><S1>agent judge</S1><S2>true</S2>",
-        };
-
-        await RunEvals.ExecuteAsync(
-            agent,
-            SingleCaseDataset("email alice@example.com ssn 123-45-6789"),
-            [new AspectCriticEvaluator("passes")],
-            new RunEvalsOptions<string>
-            {
-                PersistResults = true,
-                ScoreStore = store,
-                JudgeConfig = new EvaluationJudgeRunConfig { OverrideAgent = judgeAgent },
-            },
-            experimentName: "agent-judge-trace");
-
-        var scores = new List<ScoreRecord>();
-        await foreach (var score in store.GetScoresAsync(sessionId: "agent-judge-trace"))
-            scores.Add(score);
-
-        var call = scores.Should().ContainSingle().Which.JudgeCalls.Should().ContainSingle().Which;
-        call.Prompt.Should().ContainSingle();
-        call.Prompt[0].Text.Should().Contain("raw prompt is not captured");
-        call.Prompt[0].Text.Should().NotContain("alice@example.com");
-        call.Prompt[0].Text.Should().NotContain("123-45-6789");
-        call.Response!.Text.Should().Contain("<S2>true</S2>");
-    }
-
-    [Fact]
-    public async Task ExecuteAsync_JudgeOverrideAgent_PromptContainsResponseContext()
-    {
-        var agent = new CapturingAgent();
-        var judgeAgent = new CapturingAgent
-        {
-            ResponseText = "<S0>ok</S0><S1>agent judge</S1><S2>true</S2>",
-        };
-
-        await RunEvals.ExecuteAsync(
-            agent,
-            SingleCaseDataset("hello"),
-            [new AspectCriticEvaluator("passes")],
-            new RunEvalsOptions<string>
-            {
-                JudgeConfig = new EvaluationJudgeRunConfig { OverrideAgent = judgeAgent },
-            },
-            experimentName: "agent-judge");
-
-        judgeAgent.Configs.Should().ContainSingle();
-        judgeAgent.Configs[0].UserMessage.Should().Contain("Evaluate whether the response satisfies");
-        judgeAgent.Configs[0].UserMessage.Should().Contain("Response: response to hello");
-    }
-
-    [Fact]
-    public async Task ExecuteAsync_JudgeOverrideAgent_ThrowingJudgeProducesDiagnostic()
-    {
-        var agent = new CapturingAgent();
-        var judgeAgent = new CapturingAgent
-        {
-            FailuresBeforeSuccess = 1,
-            FailureFactory = () => new InvalidOperationException("judge exploded"),
-        };
-
-        var report = await RunEvals.ExecuteAsync(
-            agent,
-            SingleCaseDataset("hello"),
-            [new AspectCriticEvaluator("passes")],
-            new RunEvalsOptions<string>
-            {
-                JudgeConfig = new EvaluationJudgeRunConfig { OverrideAgent = judgeAgent },
-            },
-            experimentName: "agent-judge");
-
-        report.Failures.Should().BeEmpty();
-        report.Cases.Should().ContainSingle();
-        report.Cases[0].EvaluatorFailures.Should().BeEmpty();
-        var metric = report.Cases[0].EvaluationResult.Metrics[AspectCriticEvaluator.MetricName];
-        metric.Diagnostics.Should().Contain(d => d.Message.Contains("judge exploded"));
     }
 
     [Fact]
@@ -815,7 +704,7 @@ public sealed class RunEvalsTests
         ],
     };
 
-    private sealed class CapturingAgent : IJudgeAgent
+    private sealed class CapturingAgent
     {
         public const string ResponseModelId = "provider-reported-gpt-test";
 
@@ -828,7 +717,6 @@ public sealed class RunEvalsTests
 
         private readonly CapturingChatClient _chatClient;
         private readonly HPD.Agent.Agent _agent;
-        private int _judgeAttempts;
 
         public CapturingAgent()
         {
@@ -857,18 +745,6 @@ public sealed class RunEvalsTests
         }
 
         public static implicit operator HPD.Agent.Agent(CapturingAgent agent) => agent._agent;
-
-        public Task<ChatResponse> RunAsync(AgentRunConfig config, CancellationToken ct = default)
-        {
-            Configs.Add(config);
-            _judgeAttempts++;
-
-            if (_judgeAttempts <= FailuresBeforeSuccess)
-                throw FailureFactory?.Invoke() ?? new InvalidOperationException("failure");
-
-            return Task.FromResult(new ChatResponse(
-                [new ChatMessage(ChatRole.Assistant, ResponseText ?? $"response to {config.UserMessage}")]));
-        }
 
         private sealed class RecordingMiddleware(CapturingAgent owner) : IAgentMiddleware
         {

@@ -46,6 +46,19 @@ public enum AgentApprovalPolicy
     AutoApprove = 1
 }
 
+/// <summary>Controls how a specialized client role obtains its family acquisition defaults.</summary>
+public enum ClientFamilyInheritanceMode
+{
+    /// <summary>Layer role-specific values over the current run's resolved family.</summary>
+    InheritResolved = 0,
+
+    /// <summary>Use only role-owned selection and host fallback.</summary>
+    UseOwn = 1,
+
+    /// <summary>Use role-owned selection first and fall back to the resolved parent family.</summary>
+    FallbackToParent = 2
+}
+
 /// <summary>Controls host isolation for agent-initiated operations.</summary>
 public enum AgentSandboxPolicy
 {

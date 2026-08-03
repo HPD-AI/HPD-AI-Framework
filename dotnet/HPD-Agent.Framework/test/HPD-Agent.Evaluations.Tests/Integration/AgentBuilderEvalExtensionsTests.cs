@@ -21,7 +21,7 @@ namespace HPD.Agent.Evaluations.Tests.Integration;
 /// 1. AddEvaluator registers LiveEvaluationMiddleware in builder.Middlewares.
 /// 2. All AddEvaluator calls share ONE LiveEvaluationMiddleware instance.
 /// 3. UseScoreStore injects store onto the middleware.
-/// 4. UseEvalJudgeConfig injects judge config onto the middleware.
+/// 4. Judge configuration is attached to evaluator registrations or the run aggregate.
 /// 5. Multiple evaluators → all tracked on single middleware instance.
 /// 6. LiveEvaluationMiddleware is also registered as an HPD.Events subscription (verified indirectly).
 /// </summary>
@@ -151,96 +151,6 @@ public sealed class AgentBuilderEvalExtensionsTests
         result.Should().BeSameAs(builder);
     }
 
-    // ── UseEvalJudgeConfig ────────────────────────────────────────────────────
-
-    [Fact]
-    public void UseEvalJudgeConfig_SetsConfigOnMiddleware()
-    {
-        var builder = MakeBuilder();
-        var judgeConfig = new EvaluationJudgeRunConfig { TimeoutSeconds = 60 };
-
-        builder.AddEvaluator(new StubDeterministicEvaluator("Score")).UseEvalJudgeConfig(judgeConfig);
-
-        var middleware = builder.Middlewares.OfType<LiveEvaluationMiddleware>().Single();
-        middleware.GlobalJudgeConfig.Should().BeSameAs(judgeConfig);
-    }
-
-    [Fact]
-    public void UseEvalJudgeConfig_ReturnsBuilderForChaining()
-    {
-        var builder = MakeBuilder();
-        var result = builder.UseEvalJudgeConfig(new EvaluationJudgeRunConfig());
-        result.Should().BeSameAs(builder);
-    }
-
-    [Fact]
-    public void UseEvalJudgeAgent_SetsOverrideAgentOnMiddleware()
-    {
-        var builder = MakeBuilder();
-        var judgeAgent = new CapturingJudgeAgent();
-
-        builder.UseEvalJudgeAgent(judgeAgent);
-
-        var middleware = builder.Middlewares.OfType<LiveEvaluationMiddleware>().Single();
-        middleware.GlobalJudgeConfig.Should().NotBeNull();
-        middleware.GlobalJudgeConfig!.OverrideAgent.Should().BeSameAs(judgeAgent);
-    }
-
-    [Fact]
-    public async Task UseEvalJudgeAgentAsync_BuildsSingleTurnJudgeAgentAndRegistersIt()
-    {
-        var builder = MakeBuilder();
-        var judgeClient = new FakeJudgeChatClient();
-        judgeClient.EnqueueResponse("<S2>true</S2>");
-
-#pragma warning disable IL2026
-        await builder.UseEvalJudgeAgentAsync(judge => judge
-            .WithChatClient(judgeClient)
-            .WithValidation(false));
-#pragma warning restore IL2026
-
-        var middleware = builder.Middlewares.OfType<LiveEvaluationMiddleware>().Single();
-        var judgeAgent = middleware.GlobalJudgeConfig!.OverrideAgent;
-        judgeAgent.Should().NotBeNull();
-
-        var response = await judgeAgent!.RunAsync(new AgentRunConfig { UserMessage = "judge this" });
-
-        response.Text.Should().Be("<S2>true</S2>");
-        judgeClient.CallCount.Should().Be(1);
-        judgeClient.CapturedRequests[0].Single(m => m.Role == ChatRole.User)
-            .Text.Should().Be("judge this");
-    }
-
-    [Fact]
-    public async Task UseEvalJudgeAgentAsync_TraceCapturesSanitizedPostMiddlewarePrompt()
-    {
-        var builder = MakeBuilder();
-        var judgeClient = new FakeJudgeChatClient();
-        judgeClient.EnqueueResponse("<S2>true</S2>");
-
-#pragma warning disable IL2026
-        await builder.UseEvalJudgeAgentAsync(judge => judge
-            .WithMiddleware(new PIIMiddleware())
-            .WithChatClient(judgeClient)
-            .WithValidation(false));
-#pragma warning restore IL2026
-
-        var middleware = builder.Middlewares.OfType<LiveEvaluationMiddleware>().Single();
-        var judgeAgent = middleware.GlobalJudgeConfig!.OverrideAgent!;
-        var chatClient = new AgentBackedJudgeChatClient(judgeAgent);
-
-        using var scope = EvalTraceContext.Activate("Judge");
-        await chatClient.GetResponseAsync(
-            [new ChatMessage(ChatRole.User, "judge email alice@example.com")]);
-
-        var call = scope.Snapshot().Should().ContainSingle().Which;
-        var capturedPromptText = string.Join("\n", call.Prompt.Select(message => message.Text));
-
-        capturedPromptText.Should().Contain("[EMAIL_REDACTED]");
-        capturedPromptText.Should().NotContain("alice@example.com");
-        capturedPromptText.Should().NotContain("raw prompt is not captured");
-    }
-
     // ── Sampling / policy stored correctly ────────────────────────────────────
 
     [Fact]
@@ -280,11 +190,6 @@ public sealed class AgentBuilderEvalExtensionsTests
         return list!.Cast<EvaluatorRegistration>().ToList();
     }
 
-    private sealed class CapturingJudgeAgent : IJudgeAgent
-    {
-        public Task<ChatResponse> RunAsync(AgentRunConfig config, CancellationToken ct = default) =>
-            Task.FromResult(new ChatResponse([new ChatMessage(ChatRole.Assistant, "<S2>true</S2>")]));
-    }
 
     private sealed class NoopMiddleware : IAgentMiddleware;
 }

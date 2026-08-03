@@ -218,15 +218,17 @@ public sealed class LiveEvaluationMiddlewareFlagTests
 
         var builder = new AgentBuilder(MakeConfig(), new StubProviderRegistry(client));
         builder
-            .AddEvaluator(new AspectCriticEvaluator("passes"), policy: EvalPolicy.TrackTrend)
-            .UseEvalJudgeConfig(new EvaluationJudgeRunConfig { OverrideChatClient = globalJudge });
+            .AddEvaluator(
+                new AspectCriticEvaluator("passes"),
+                policy: EvalPolicy.TrackTrend,
+                judgeConfig: new EvaluationJudgeRunConfig { Chat = new ChatClientConfig { Override = new ClientOverride<IChatClient> { Client = globalJudge } } });
         var agent = await builder.BuildAsync(CancellationToken.None);
 
         var runConfig = new AgentRunConfig
         {
             Evaluations = new EvaluationRunConfig
             {
-                Judge = new EvaluationJudgeRunConfig { OverrideChatClient = runJudge }
+                Judge = new EvaluationJudgeRunConfig { Chat = new ChatClientConfig { Override = new ClientOverride<IChatClient> { Client = runJudge } } }
             }
         };
 
@@ -238,7 +240,7 @@ public sealed class LiveEvaluationMiddlewareFlagTests
     }
 
     [Fact]
-    public async Task PerEvaluatorJudgeConfig_WinsOverRunAndGlobalJudgeConfig()
+    public async Task RunJudgeConfig_WinsOverPerEvaluatorJudgeConfig()
     {
         var client = new StubChatClient();
         client.EnqueueText("Done.");
@@ -252,23 +254,22 @@ public sealed class LiveEvaluationMiddlewareFlagTests
             .AddEvaluator(
                 new AspectCriticEvaluator("passes"),
                 policy: EvalPolicy.TrackTrend,
-                judgeConfig: new EvaluationJudgeRunConfig { OverrideChatClient = perEvaluatorJudge })
-            .UseEvalJudgeConfig(new EvaluationJudgeRunConfig { OverrideChatClient = globalJudge });
+                judgeConfig: new EvaluationJudgeRunConfig { Chat = new ChatClientConfig { Override = new ClientOverride<IChatClient> { Client = perEvaluatorJudge } } });
         var agent = await builder.BuildAsync(CancellationToken.None);
 
         var runConfig = new AgentRunConfig
         {
             Evaluations = new EvaluationRunConfig
             {
-                Judge = new EvaluationJudgeRunConfig { OverrideChatClient = runJudge }
+                Judge = new EvaluationJudgeRunConfig { Chat = new ChatClientConfig { Override = new ClientOverride<IChatClient> { Client = runJudge } } }
             }
         };
 
         await RunAgentAsync(agent, "Hello", runConfig);
 
         await Task.Delay(200);
-        perEvaluatorJudge.CallCount.Should().Be(1);
-        runJudge.CallCount.Should().Be(0);
+        perEvaluatorJudge.CallCount.Should().Be(0);
+        runJudge.CallCount.Should().Be(1);
         globalJudge.CallCount.Should().Be(0);
     }
 
@@ -287,7 +288,7 @@ public sealed class LiveEvaluationMiddlewareFlagTests
             .AddEvaluator(
                 new AspectCriticEvaluator("passes"),
                 policy: EvalPolicy.TrackTrend,
-                judgeConfig: new EvaluationJudgeRunConfig { OverrideChatClient = judge });
+                judgeConfig: new EvaluationJudgeRunConfig { Chat = new ChatClientConfig { Override = new ClientOverride<IChatClient> { Client = judge } } });
         var agent = await builder.BuildAsync(CancellationToken.None);
 
         await RunAgentAsync(agent, "Hello");
@@ -317,13 +318,13 @@ public sealed class LiveEvaluationMiddlewareFlagTests
     [Fact]
     public void LiveEvaluationMiddleware_GlobalJudgeConfig_PropertySetAndReadable()
     {
-        var config = new EvaluationJudgeRunConfig { TimeoutSeconds = 45 };
+        var config = new EvaluationJudgeRunConfig { Timeout = TimeSpan.FromSeconds(45) };
         var middleware = new LiveEvaluationMiddleware();
 
         middleware.GlobalJudgeConfig = config;
 
         middleware.GlobalJudgeConfig.Should().BeSameAs(config);
-        middleware.GlobalJudgeConfig!.TimeoutSeconds.Should().Be(45);
+        middleware.GlobalJudgeConfig!.Timeout.TotalSeconds.Should().Be(45);
     }
 
     [Fact]

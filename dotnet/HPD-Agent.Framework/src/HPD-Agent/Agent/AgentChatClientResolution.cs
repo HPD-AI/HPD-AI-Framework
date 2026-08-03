@@ -120,6 +120,8 @@ internal sealed record AgentChatClientResolutionRequest
     public AgentChatClientHandle? AgentDefault { get; init; }
     public AgentChatClientHandle? InheritedFallback { get; init; }
     public ChatClientConfig? SpecializedChat { get; init; }
+    public ClientFamilyInheritanceMode SpecializedInheritance { get; init; } =
+        ClientFamilyInheritanceMode.InheritResolved;
 }
 
 internal sealed class AgentChatClientResolver : IDisposable
@@ -158,10 +160,14 @@ internal sealed class AgentChatClientResolver : IDisposable
                     .AcquireLease();
             }
 
-            var primary = request.AgentDefault?.ResolvedConfig as ChatClientConfig
-                ?? request.AgentConfig.ResolveClientConfig(
-                    ProviderClientFamily.Chat,
-                    request.RunConfig?.Clients) as ChatClientConfig;
+            var primary = request.SpecializedInheritance == ClientFamilyInheritanceMode.UseOwn
+                ? null
+                : request.RunConfig?.Clients.Chat is not null
+                    ? request.AgentConfig.ResolveClientConfig(
+                        ProviderClientFamily.Chat,
+                        request.RunConfig.Clients) as ChatClientConfig
+                    : request.AgentDefault?.ResolvedConfig as ChatClientConfig
+                        ?? request.AgentConfig.ResolveClientConfig(ProviderClientFamily.Chat) as ChatClientConfig;
             var specializedClients = new AgentClientsConfig { Chat = specialized };
             var primaryClients = primary is null ? null : new AgentClientsConfig { Chat = primary };
             var effective = ProviderClientConfigResolver.Resolve(
@@ -392,6 +398,70 @@ internal sealed class AgentChatClientResolver : IDisposable
         }
     }
 
+}
+
+/// <summary>
+/// Adapts a specialized Chat role to MEAI while acquiring and releasing a normal
+/// runtime-manager lease for each operation.
+/// </summary>
+internal sealed class AgentSpecializedChatClient(
+    AgentChatClientResolver resolver,
+    AgentConfig agentConfig,
+    AgentRunConfig runConfig,
+    AgentChatClientHandle? resolvedPrimary,
+    ChatClientConfig? specialized,
+    ClientFamilyInheritanceMode inheritance) : IChatClient
+{
+    public async Task<ChatResponse> GetResponseAsync(
+        IEnumerable<ChatMessage> messages,
+        ChatOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        await using var lease = await AcquireAsync(cancellationToken).ConfigureAwait(false);
+        return await lease.Client.GetResponseAsync(messages, CompileOptions(options), cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
+        IEnumerable<ChatMessage> messages,
+        ChatOptions? options = null,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        await using var lease = await AcquireAsync(cancellationToken).ConfigureAwait(false);
+        await foreach (var update in lease.Client.GetStreamingResponseAsync(
+            messages,
+            CompileOptions(options),
+            cancellationToken).ConfigureAwait(false))
+        {
+            yield return update;
+        }
+    }
+
+    public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+    public void Dispose()
+    {
+        // Resolver and borrowed clients belong to the hosting Agent.
+    }
+
+    private ValueTask<AgentChatClientLease> AcquireAsync(CancellationToken cancellationToken) =>
+        resolver.ResolveAsync(new AgentChatClientResolutionRequest
+        {
+            AgentConfig = agentConfig,
+            RunConfig = runConfig,
+            AgentDefault = resolvedPrimary,
+            SpecializedChat = specialized,
+            SpecializedInheritance = inheritance
+        }, cancellationToken);
+
+    private ChatOptions CompileOptions(ChatOptions? options)
+    {
+        var compiled = specialized?.MergeWith(options) ?? options?.Clone() ?? new ChatOptions();
+        compiled.Tools = [];
+        compiled.ToolMode = ChatToolMode.None;
+        compiled.AllowMultipleToolCalls = false;
+        return compiled;
+    }
 }
 
 internal sealed class AgentProviderChatClientManager : IDisposable

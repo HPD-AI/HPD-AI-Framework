@@ -304,6 +304,7 @@ public static class RunEvals
             try
             {
                 var output = await RunEvaluatorAsync(
+                    agent,
                     evaluator,
                     messages,
                     agentResponse,
@@ -450,6 +451,7 @@ public static class RunEvals
     }
 
     private static async Task<EvaluatorRunOutput> RunEvaluatorAsync<TInput>(
+        HPD.Agent.Agent agent,
         IEvaluator evaluator,
         IReadOnlyList<ChatMessage> messages,
         ChatResponse agentResponse,
@@ -467,8 +469,14 @@ public static class RunEvals
         var evaluatorName = evaluator.GetType().Name;
         using var traceScope = EvalTraceContext.Activate(evaluatorName);
 
+        var effectiveJudge = judgeConfig ?? new EvaluationJudgeRunConfig();
         var chatConfig = NeedsJudgeChatConfiguration(evaluator)
-            ? EvaluationExecutionHelpers.BuildChatConfiguration(judgeConfig)
+            ? EvaluationExecutionHelpers.BuildChatConfiguration(
+                effectiveJudge,
+                agent.CreateSpecializedChatClient(
+                    runConfig,
+                    effectiveJudge.Chat,
+                    effectiveJudge.Inheritance))
             : null;
 
         var result = await evaluator.EvaluateAsync(

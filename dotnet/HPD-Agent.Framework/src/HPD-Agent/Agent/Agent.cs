@@ -2113,6 +2113,18 @@ public sealed class Agent
         };
     }
 
+    internal IChatClient CreateSpecializedChatClient(
+        AgentRunConfig runConfig,
+        ChatClientConfig? chat,
+        ClientFamilyInheritanceMode inheritance) =>
+        new AgentSpecializedChatClient(
+            _chatClientResolver,
+            Config ?? throw new InvalidOperationException("Agent configuration is not available."),
+            runConfig,
+            _defaultChatClientHandle,
+            chat,
+            inheritance);
+
     /// <summary>
     /// - Accepts PreparedTurn (functional preparation from MessageProcessor.PrepareTurnAsync)
     /// - Uses AgentDecisionEngine (pure, testable) for all decision logic

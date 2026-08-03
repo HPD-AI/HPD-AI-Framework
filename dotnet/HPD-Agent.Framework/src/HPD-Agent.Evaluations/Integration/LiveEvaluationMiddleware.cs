@@ -151,18 +151,28 @@ public sealed class LiveEvaluationMiddleware : IAgentMiddleware
         if (registration.Evaluator is not HpdDeterministicEvaluatorBase &&
             registration.Evaluator is not TaskOracleEvaluator)
         {
-            var judgeConfig = registration.JudgeConfig ??
-                hookCtx.RunConfig.GetEvalJudgeConfigOverride() ??
-                GlobalJudgeConfig;
-            chatConfig = EvaluationExecutionHelpers.BuildChatConfiguration(judgeConfig);
+            var judgeConfig = hookCtx.RunConfig.GetEvalJudgeConfigOverride() ??
+                registration.JudgeConfig ??
+                GlobalJudgeConfig ??
+                new EvaluationJudgeRunConfig();
+            var judgeClient = new AgentSpecializedChatClient(
+                    hookCtx.Base.ChatClientResolver
+                        ?? throw new InvalidOperationException("Evaluation judge resolution requires the invocation Chat resolver."),
+                    hookCtx.Config
+                        ?? throw new InvalidOperationException("Evaluation judge resolution requires the agent configuration."),
+                    hookCtx.RunConfig,
+                    hookCtx.Base.EffectiveChatClient,
+                    judgeConfig.Chat,
+                    judgeConfig.Inheritance);
+            chatConfig = EvaluationExecutionHelpers.BuildChatConfiguration(judgeConfig, judgeClient);
         }
 
         // Build timeout CTS
-        var judgeConfig2 = registration.JudgeConfig ??
-            hookCtx.RunConfig.GetEvalJudgeConfigOverride() ??
+        var judgeConfig2 = hookCtx.RunConfig.GetEvalJudgeConfigOverride() ??
+            registration.JudgeConfig ??
             GlobalJudgeConfig;
-        int timeoutSeconds = judgeConfig2?.TimeoutSeconds ?? 30;
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds));
+        var timeout = judgeConfig2?.Timeout ?? TimeSpan.FromSeconds(30);
+        using var cts = new CancellationTokenSource(timeout);
 
         EvaluationResult result;
         var evaluatorStart = DateTimeOffset.UtcNow;
@@ -179,7 +189,7 @@ public sealed class LiveEvaluationMiddleware : IAgentMiddleware
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested)
         {
-            var errorMessage = $"Evaluator '{evaluatorName}' timed out after {timeoutSeconds}s.";
+            var errorMessage = $"Evaluator '{evaluatorName}' timed out after {timeout}.";
 
             await hookCtx.PublishAsync(new EvalFailedEvent
             {

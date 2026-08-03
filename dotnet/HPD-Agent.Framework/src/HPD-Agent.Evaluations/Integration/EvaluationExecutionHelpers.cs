@@ -15,13 +15,19 @@ internal static class EvaluationExecutionHelpers
 {
     internal static ChatConfiguration? BuildChatConfiguration(EvaluationJudgeRunConfig? config)
     {
-        if (config?.OverrideAgent is not null)
-            return new ChatConfiguration(new AgentBackedJudgeChatClient(config.OverrideAgent));
-
-        if (config?.OverrideChatClient is not null)
-            return new ChatConfiguration(new TracingEvalChatClient(config.OverrideChatClient));
+        if (config?.Chat?.Override is { } chatOverride)
+            return new ChatConfiguration(new TracingEvalChatClient(chatOverride.Client));
 
         return null;
+    }
+
+    internal static ChatConfiguration? BuildChatConfiguration(
+        EvaluationJudgeRunConfig? config,
+        IChatClient? resolvedClient)
+    {
+        if (resolvedClient is not null)
+            return new ChatConfiguration(new TracingEvalChatClient(resolvedClient));
+        return BuildChatConfiguration(config);
     }
 
     internal static ChatConfiguration? WithTracing(ChatConfiguration? chatConfiguration)
@@ -174,100 +180,4 @@ internal sealed class TracingEvalChatClient(IChatClient inner) : IChatClient
     {
         // The wrapped client is caller-owned.
     }
-}
-
-/// <summary>
-/// Compatibility facade that lets MS-compatible evaluators call an HPD judge agent
-/// through the IChatClient-shaped ChatConfiguration contract.
-/// </summary>
-internal sealed class AgentBackedJudgeChatClient(IJudgeAgent agent) : IChatClient
-{
-    public async Task<ChatResponse> GetResponseAsync(
-        IEnumerable<ChatMessage> chatMessages,
-        ChatOptions? options = null,
-        CancellationToken cancellationToken = default)
-    {
-        var prompt = string.Join("\n\n", chatMessages.Select(message =>
-            $"{message.Role.Value}: {message.Text}"));
-
-        var runConfig = new AgentRunConfig
-        {
-            UserMessage = prompt,
-            Clients = new AgentClientsConfig
-            {
-                Chat = options is null ? null : new ChatClientConfig(options)
-            },
-            Evaluations = new EvaluationRunConfig
-            {
-                SuppressionReason = EvaluationSuppressionReason.JudgeCall
-            },
-        };
-
-        if (EvalTraceContext.CurrentEvaluatorName is not { } evaluatorName)
-            return await agent.RunAsync(runConfig, cancellationToken).ConfigureAwait(false);
-
-        var sw = Stopwatch.StartNew();
-        try
-        {
-            var response = await agent.RunAsync(runConfig, cancellationToken).ConfigureAwait(false);
-            sw.Stop();
-
-            EvalTraceContext.AddJudgeCall(new JudgeCallRecord(
-                EvaluatorName: evaluatorName,
-                Phase: "judge",
-                Prompt: GetJudgePromptForTrace(),
-                Response: response,
-                ModelId: response.ModelId,
-                Usage: response.Usage,
-                Duration: sw.Elapsed,
-                Succeeded: true,
-                ErrorMessage: null));
-
-            return response;
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            sw.Stop();
-
-            EvalTraceContext.AddJudgeCall(new JudgeCallRecord(
-                EvaluatorName: evaluatorName,
-                Phase: "judge",
-                Prompt: GetJudgePromptForTrace(),
-                Response: null,
-                ModelId: null,
-                Usage: null,
-                Duration: sw.Elapsed,
-                Succeeded: false,
-                ErrorMessage: ex.Message));
-
-            throw;
-        }
-    }
-
-    public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
-        IEnumerable<ChatMessage> chatMessages,
-        ChatOptions? options = null,
-        [EnumeratorCancellation] CancellationToken cancellationToken = default)
-    {
-        var response = await GetResponseAsync(chatMessages, options, cancellationToken)
-            .ConfigureAwait(false);
-
-        foreach (var message in response.Messages)
-            yield return new ChatResponseUpdate { Contents = message.Contents };
-    }
-
-    public object? GetService(Type serviceType, object? serviceKey = null) => null;
-
-    public void Dispose()
-    {
-    }
-
-    private static IReadOnlyList<ChatMessage> GetJudgePromptForTrace() =>
-        EvalTraceContext.TryGetLatestCapturedJudgePrompt(out var prompt)
-            ? prompt
-            :
-            [
-                new ChatMessage(ChatRole.System,
-                    "Judge prompt executed through OverrideAgent; raw prompt is not captured by eval tracing.")
-            ];
 }
