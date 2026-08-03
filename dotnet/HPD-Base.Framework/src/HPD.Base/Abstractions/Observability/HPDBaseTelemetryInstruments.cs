@@ -55,6 +55,10 @@ public static class HPDBaseTelemetryInstruments
     public const string SqliteQueryPlans = "hpd.base.sqlite.query.plans";
     /// <summary>SQLite error counter.</summary>
     public const string SqliteErrors = "hpd.base.sqlite.errors";
+    /// <summary>SQLite host-administration operation counter.</summary>
+    public const string SqliteAdministrationOperations = "hpd.base.sqlite.administration.operations";
+    /// <summary>SQLite host-administration duration histogram.</summary>
+    public const string SqliteAdministrationDuration = "hpd.base.sqlite.administration.duration";
 
     /// <summary>Files operation counter.</summary>
     public const string FilesOperations = "hpd.base.files.operations";

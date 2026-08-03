@@ -51,6 +51,35 @@ internal static class HPDBaseSqliteTelemetry
         unit: "{error}",
         description: "Counts HPD.BASE SQLite provider errors.");
 
+    private static readonly Counter<long> AdministrationOperations = HPDBaseSqliteObservability.Meter.CreateCounter<long>(
+        HPDBaseTelemetryInstruments.SqliteAdministrationOperations,
+        unit: "{operation}",
+        description: "Counts bounded HPD.BASE SQLite administration operations.");
+
+    private static readonly Histogram<double> AdministrationDuration = HPDBaseSqliteObservability.Meter.CreateHistogram<double>(
+        HPDBaseTelemetryInstruments.SqliteAdministrationDuration,
+        unit: "s",
+        description: "Records HPD.BASE SQLite administration duration.");
+
+    public static async ValueTask<OperationResult<T>> TraceAdministrationAsync<T>(
+        string operationKind,
+        string storeId,
+        Func<ValueTask<OperationResult<T>>> invoke)
+    {
+        using Activity? activity = StartProviderSpan(HPDBaseTelemetrySpans.SqliteAdministration, storeId);
+        activity?.SetTag(HPDBaseTelemetryTags.OperationKind, operationKind);
+        long startedAt = Stopwatch.GetTimestamp();
+        OperationResult<T> result = await invoke().ConfigureAwait(false);
+        activity?.SetTag(HPDBaseTelemetryTags.ResultStatus, StatusValue(result.Status));
+        if (activity is not null && result.Error is { } error) SetErrorTags(activity, error);
+        activity?.SetStatus(result.Status.IsSuccess() ? ActivityStatusCode.Ok : ActivityStatusCode.Error);
+        TagList tags = ProviderTags(storeId, StatusValue(result.Status));
+        tags.Add(HPDBaseTelemetryTags.OperationKind, operationKind);
+        AdministrationOperations.Add(1, tags);
+        AdministrationDuration.Record((double)(Stopwatch.GetTimestamp() - startedAt) / Stopwatch.Frequency, tags);
+        return result;
+    }
+
     /// <summary>Executes the trace store async operation.</summary>
     public static async ValueTask<OperationResult<T>> TraceStoreAsync<T>(
         string spanName,

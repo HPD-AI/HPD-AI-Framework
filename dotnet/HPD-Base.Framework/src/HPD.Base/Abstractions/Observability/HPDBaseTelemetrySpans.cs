@@ -83,6 +83,8 @@ public static class HPDBaseTelemetrySpans
     public const string SqliteQueryPlan = "hpd.base.sqlite.query.plan";
     /// <summary>SQLite transaction span.</summary>
     public const string SqliteTransaction = "hpd.base.sqlite.transaction";
+    /// <summary>SQLite host-administration span.</summary>
+    public const string SqliteAdministration = "hpd.base.sqlite.administration";
 
     /// <summary>File upload span.</summary>
     public const string FilesObjectUpload = "hpd.base.files.object.upload";

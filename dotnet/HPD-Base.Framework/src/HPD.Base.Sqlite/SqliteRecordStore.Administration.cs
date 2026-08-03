@@ -16,7 +16,16 @@ public sealed partial class SqliteRecordStore
     private const string BackupAuthenticationPurpose = "hpd.base.backup.manifest.v1";
 
     /// <inheritdoc />
-    public async ValueTask<OperationResult<BaseBackupManifest>> CreateBackupAsync(
+    public ValueTask<OperationResult<BaseBackupManifest>> CreateBackupAsync(
+        Stream destination,
+        BaseBackupRequest request,
+        CancellationToken cancellationToken = default) =>
+        HPDBaseSqliteTelemetry.TraceAdministrationAsync(
+            "backup",
+            _options.StoreId,
+            () => CreateBackupCoreAsync(destination, request, cancellationToken));
+
+    private async ValueTask<OperationResult<BaseBackupManifest>> CreateBackupCoreAsync(
         Stream destination,
         BaseBackupRequest request,
         CancellationToken cancellationToken = default)
@@ -47,8 +56,8 @@ public sealed partial class SqliteRecordStore
             {
                 await native.WaitAsync(_options.NativeBackupCompletionWait, cancellationToken).ConfigureAwait(false);
             }
-            catch (OperationCanceledException) { QuarantineAdministration(native, lease, staging); lease = null; staging = null; slot = false; throw; }
-            catch (TimeoutException) { QuarantineAdministration(native, lease, staging); lease = null; staging = null; slot = false; throw new OperationCanceledException(); }
+            catch (OperationCanceledException) { QuarantineAdministration(native, lease, staging, "backup"); lease = null; staging = null; slot = false; throw; }
+            catch (TimeoutException) { QuarantineAdministration(native, lease, staging, "backup"); lease = null; staging = null; slot = false; throw new OperationCanceledException(); }
 
             await ValidateDatabaseFileAsync(staging, cancellationToken).ConfigureAwait(false);
             await using SqliteConnection source = await OpenInitializedAsync(cancellationToken).ConfigureAwait(false);
@@ -83,7 +92,16 @@ public sealed partial class SqliteRecordStore
     }
 
     /// <inheritdoc />
-    public async ValueTask<OperationResult<BaseBackupManifest>> ValidateBackupAsync(
+    public ValueTask<OperationResult<BaseBackupManifest>> ValidateBackupAsync(
+        Stream source,
+        BaseBackupValidationRequest request,
+        CancellationToken cancellationToken = default) =>
+        HPDBaseSqliteTelemetry.TraceAdministrationAsync(
+            "validation",
+            _options.StoreId,
+            () => ValidateBackupCoreAsync(source, request, cancellationToken));
+
+    private async ValueTask<OperationResult<BaseBackupManifest>> ValidateBackupCoreAsync(
         Stream source,
         BaseBackupValidationRequest request,
         CancellationToken cancellationToken = default)
@@ -111,8 +129,8 @@ public sealed partial class SqliteRecordStore
             string validationPath = staging!;
             Task validation = Task.Run(async () => await ValidateDatabaseFileAsync(validationPath, CancellationToken.None).ConfigureAwait(false), CancellationToken.None);
             try { await validation.WaitAsync(_options.IntegrityCheckTimeout, cancellationToken).ConfigureAwait(false); }
-            catch (OperationCanceledException) { QuarantineAdministration(validation, null, staging); staging = null; slot = false; throw; }
-            catch (TimeoutException) { QuarantineAdministration(validation, null, staging); staging = null; slot = false; throw new OperationCanceledException(); }
+            catch (OperationCanceledException) { QuarantineAdministration(validation, null, staging, "validation"); staging = null; slot = false; throw; }
+            catch (TimeoutException) { QuarantineAdministration(validation, null, staging, "validation"); staging = null; slot = false; throw new OperationCanceledException(); }
             return OperationResults.Ok(artifact.Manifest);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
@@ -140,7 +158,16 @@ public sealed partial class SqliteRecordStore
     }
 
     /// <inheritdoc />
-    public async ValueTask<OperationResult<BaseRestoreResult>> RestoreAsync(
+    public ValueTask<OperationResult<BaseRestoreResult>> RestoreAsync(
+        Stream source,
+        BaseRestoreRequest request,
+        CancellationToken cancellationToken = default) =>
+        HPDBaseSqliteTelemetry.TraceAdministrationAsync(
+            "restore",
+            _options.StoreId,
+            () => RestoreCoreAsync(source, request, cancellationToken));
+
+    private async ValueTask<OperationResult<BaseRestoreResult>> RestoreCoreAsync(
         Stream source,
         BaseRestoreRequest request,
         CancellationToken cancellationToken = default)
@@ -303,8 +330,9 @@ public sealed partial class SqliteRecordStore
         }, CancellationToken.None);
     }
 
-    private void QuarantineAdministration(Task work, IAsyncDisposable? lease, string staging)
+    private void QuarantineAdministration(Task work, IAsyncDisposable? lease, string staging, string operationKind)
     {
+        HPDBaseSqliteLog.AdministrationQuarantined(_logger, operationKind);
         long id = Interlocked.Increment(ref _nextQuarantinedAdministrationId);
         Task cleanup = work.ContinueWith(async antecedent =>
         {

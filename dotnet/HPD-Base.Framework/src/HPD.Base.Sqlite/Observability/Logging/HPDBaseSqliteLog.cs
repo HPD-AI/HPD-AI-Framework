@@ -85,6 +85,16 @@ internal static partial class HPDBaseSqliteLog
         int nativeErrorCode,
         int nativeExtendedErrorCode);
 
+    /// <summary>Reports bounded administration work retained after the caller's wait ended.</summary>
+    [LoggerMessage(
+        EventId = 3009,
+        Level = LogLevel.Warning,
+        EventName = "AdministrationQuarantined",
+        Message = "SQLite administration work remains in bounded quarantine for {OperationKind}.")]
+    public static partial void AdministrationQuarantined(
+        ILogger logger,
+        string operationKind);
+
     /// <summary>Executes the operation kind operation.</summary>
     public static string OperationKind(BaseOperationKind operation) => operation switch
     {

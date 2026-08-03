@@ -124,6 +124,45 @@ public sealed class SqliteTelemetryTests
         }
     }
 
+    [Fact]
+    public async Task AdministrationProjectionUsesBoundedOperationAndStatusTelemetry()
+    {
+        using var activities = new ActivityCollector(HPDBaseActivitySourceNames.Sqlite);
+        using var metrics = new MeterCollector(HPDBaseMeterNames.Sqlite);
+        string path = TempPath("administration-telemetry");
+        try
+        {
+            await using SqliteRecordStore store = SqliteTestFactory.Create(new HPDBaseSqliteOptions
+            {
+                StoreId = "primary",
+                DataSource = path,
+                Collections = [Collection()],
+                AdministrationEnabled = false,
+            });
+
+            OperationResult<BaseBackupManifest> result = await store.CreateBackupAsync(
+                new MemoryStream(),
+                new BaseBackupRequest
+                {
+                    StoreId = "primary",
+                    Principal = new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.System },
+                });
+
+            result.Status.Should().Be(OperationStatus.CapabilityUnavailable);
+            Activity span = activities.Stopped.Should().ContainSingle(activity =>
+                activity.OperationName == HPDBaseTelemetrySpans.SqliteAdministration).Subject;
+            span.TagObjects.Should().Contain(tag => tag.Key == HPDBaseTelemetryTags.OperationKind && Equals(tag.Value, "backup"));
+            metrics.InstrumentNames.Should().Contain(HPDBaseTelemetryInstruments.SqliteAdministrationOperations);
+            metrics.InstrumentNames.Should().Contain(HPDBaseTelemetryInstruments.SqliteAdministrationDuration);
+            TagValues(span).Should().NotContain(value => value.Contains(path, StringComparison.Ordinal));
+        }
+        finally
+        {
+            foreach (string candidate in new[] { path, path + "-wal", path + "-shm" })
+                if (File.Exists(candidate)) File.Delete(candidate);
+        }
+    }
+
     private static CollectionDefinition Collection() => new()
     {
         Id = "items",
