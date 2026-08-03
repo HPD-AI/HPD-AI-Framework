@@ -532,6 +532,7 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
             CollectionName = GetNamedString(collection, "Name") ?? collectionId,
             CollectionKind = GetNamedString(collection, "Kind") ?? "record",
             Strict = GetNamedBoolean(collection, "Strict", true),
+            MutationMode = GetMutationMode(collection),
             Fields = fields,
             Indexes = indexes,
             ContextTypeName =
@@ -631,16 +632,8 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
             .Append(model.Strict ? "Strict" : "Loose").AppendLine(",");
         source.Append("                UnknownFields = global::HPD.Base.UnknownFieldPolicy.")
             .Append(model.Strict ? "Reject" : "Preserve").AppendLine(",");
-        source.AppendLine("                Operations = new global::HPD.Base.CollectionOperationMatrix");
-        source.AppendLine("                {");
-        source.AppendLine("                    List = true,");
-        source.AppendLine("                    Get = true,");
-        source.AppendLine("                    Create = true,");
-        source.AppendLine("                    Patch = true,");
-        source.AppendLine("                    Replace = true,");
-        source.AppendLine("                    Upsert = true,");
-        source.AppendLine("                    Delete = true,");
-        source.AppendLine("                },");
+        source.Append("                MutationMode = global::HPD.Base.BaseCollectionMutationMode.")
+            .Append(model.MutationMode).AppendLine(",");
         source.AppendLine("                Source = new global::HPD.Base.SchemaSourceDescriptor");
         source.AppendLine("                {");
         source.AppendLine("                    Id = \"hpd.base.application.generated\",");
@@ -880,6 +873,28 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         }
 
         return fallback;
+    }
+
+    private static string GetMutationMode(AttributeData attribute)
+    {
+        if (attribute != null)
+        {
+            foreach (KeyValuePair<string, TypedConstant> argument in attribute.NamedArguments)
+            {
+                if (argument.Key == "MutationMode" && argument.Value.Value is int value)
+                {
+                    return value switch
+                    {
+                        1 => "AppendOnly",
+                        2 => "AppendOnlyWithAdministrativePurge",
+                        3 => "ReadOnly",
+                        _ => "Mutable",
+                    };
+                }
+            }
+        }
+
+        return "Mutable";
     }
 
     private static long GetNamedInt64(
@@ -1145,6 +1160,8 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         public string CollectionKind;
         /// <summary>Provides the strict value.</summary>
         public bool Strict;
+        /// <summary>Provides the collection mutation mode value.</summary>
+        public string MutationMode;
         /// <summary>Provides the fields value.</summary>
         public List<FieldModel> Fields;
         /// <summary>Provides the indexes value.</summary>

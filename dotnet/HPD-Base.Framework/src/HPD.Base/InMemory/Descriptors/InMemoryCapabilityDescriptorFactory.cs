@@ -56,7 +56,7 @@ internal static class InMemoryCapabilityDescriptorFactory
                         {
                             Page = storeCapabilities.Query.Pagination.Page,
                             Offset = storeCapabilities.Query.Pagination.Offset,
-                            Cursor = storeCapabilities.Query.Pagination.Cursor,
+                            Cursor = storeCapabilities.Query.Pagination.Cursor != QueryCursorGuarantee.None,
                             DefaultLimit = storeCapabilities.Query.Pagination.DefaultLimit,
                             MaxLimit = storeCapabilities.Query.Pagination.MaxLimit,
                             CursorRequiresStableSort = storeCapabilities.Query.Pagination.CursorRequiresStableSort

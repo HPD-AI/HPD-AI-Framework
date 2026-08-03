@@ -32,4 +32,7 @@ public sealed class BaseCollectionAttribute(
     /// Gets or sets whether unknown stored fields are rejected.
     /// </summary>
     public bool Strict { get; set; } = true;
+
+    /// <summary>Gets or sets the authoritative collection mutation mode.</summary>
+    public BaseCollectionMutationMode MutationMode { get; set; } = BaseCollectionMutationMode.Mutable;
 }

@@ -60,16 +60,7 @@ internal static class OperationTestServices
                     new FieldDefinition { Id = "title", Name = "title", Type = BaseFieldTypes.String },
                     new FieldDefinition { Id = "tenantId", Name = "tenantId", Type = BaseFieldTypes.String },
                 ],
-                Operations = new CollectionOperationMatrix
-                {
-                    List = true,
-                    Get = true,
-                    Create = true,
-                    Patch = true,
-                    Replace = true,
-                    Delete = true,
-                    Upsert = true
-                }
+                MutationMode = BaseCollectionMutationMode.Mutable
             });
         }
     }

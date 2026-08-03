@@ -46,15 +46,7 @@ internal static class TestServices
                                 Visibility = new FieldVisibilityAnnotation { WriteOnly = true }
                             }
                         ],
-                        Operations = new CollectionOperationMatrix
-                        {
-                            List = true,
-                            Get = true,
-                            Create = true,
-                            Patch = true,
-                            Replace = true,
-                            Delete = true
-                        }
+                        MutationMode = BaseCollectionMutationMode.Mutable
                     },
                     new CollectionDefinition
                     {

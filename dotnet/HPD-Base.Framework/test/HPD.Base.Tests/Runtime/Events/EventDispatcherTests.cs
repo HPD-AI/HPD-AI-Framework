@@ -351,10 +351,7 @@ public sealed class EventDispatcherTests
                 Kind = BaseCollectionKinds.Document,
                 SchemaMode = SchemaMode.Loose,
                 UnknownFields = UnknownFieldPolicy.Preserve,
-                Operations = new CollectionOperationMatrix
-                {
-                    Create = true
-                }
+                MutationMode = BaseCollectionMutationMode.Mutable
             });
         }
     }

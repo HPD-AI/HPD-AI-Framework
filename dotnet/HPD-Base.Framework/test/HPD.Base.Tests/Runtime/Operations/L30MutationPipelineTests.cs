@@ -577,16 +577,7 @@ public sealed class L30MutationPipelineTests
             {
                 builder.AddCollection(Collection(id) with
                 {
-                    Operations = new CollectionOperationMatrix
-                    {
-                        List = true,
-                        Get = true,
-                        Create = true,
-                        Patch = true,
-                        Replace = true,
-                        Delete = true,
-                        Upsert = true
-                    }
+                    MutationMode = BaseCollectionMutationMode.Mutable
                 });
             }
         }

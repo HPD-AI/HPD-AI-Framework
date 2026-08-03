@@ -700,16 +700,7 @@ public sealed class SqliteAtomicMutationTests
         Kind = BaseCollectionKinds.Document,
         SchemaMode = SchemaMode.Loose,
         UnknownFields = UnknownFieldPolicy.Preserve,
-        Operations = new CollectionOperationMatrix
-        {
-            List = true,
-            Get = true,
-            Create = true,
-            Patch = true,
-            Replace = true,
-            Delete = true,
-            Upsert = true
-        }
+        MutationMode = BaseCollectionMutationMode.Mutable
     };
 
     private static OperationContext Operation(BaseOperationKind kind, string collectionId) => new()

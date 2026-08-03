@@ -109,7 +109,7 @@ public sealed class SqliteRelationStorageTests
     {
         Id = id, Name = id, Kind = BaseCollectionKinds.Document, SchemaMode = SchemaMode.Strict,
         UnknownFields = UnknownFieldPolicy.Reject,
-        Operations = new CollectionOperationMatrix { List = true, Get = true, Create = true, Patch = true, Replace = true, Delete = true }
+        MutationMode = BaseCollectionMutationMode.Mutable
     };
 
     private static RecordPayload EmptyPayload()

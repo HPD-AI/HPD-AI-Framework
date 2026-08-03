@@ -56,6 +56,16 @@ Cursor }
 public enum QueryCursorDirection { /// <summary>Identifies after.</summary>
 After, /// <summary>Identifies before.</summary>
 Before }
+/// <summary>Defines the strongest query cursor guarantee a provider can supply.</summary>
+public enum QueryCursorGuarantee
+{
+    /// <summary>No cursor continuation is supported.</summary>
+    None,
+    /// <summary>Deterministic keyset continuation without a fixed snapshot claim.</summary>
+    Seek,
+    /// <summary>Fixed append-history continuation with explicit purge invalidation.</summary>
+    StableHistory
+}
 /// <summary>Defines the query count mode contract.</summary>
 public enum QueryCountMode { /// <summary>Identifies none.</summary>
 None, /// <summary>Identifies if available.</summary>

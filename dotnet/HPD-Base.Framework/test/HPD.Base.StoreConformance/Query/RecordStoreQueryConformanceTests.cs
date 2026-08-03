@@ -259,7 +259,7 @@ public abstract class RecordStoreQueryConformanceTests<TFixture> : RecordStoreCo
         Assert.Equal(2, first.Value!.Items.Length);
         Assert.True(first.Value.Page.HasMore);
 
-        if (Capabilities.Query.Pagination.Cursor)
+        if (Capabilities.Query.Pagination.Cursor != QueryCursorGuarantee.None)
         {
             Assert.False(string.IsNullOrWhiteSpace(first.Value.Page.NextCursor));
             var second = await store.ListAsync(

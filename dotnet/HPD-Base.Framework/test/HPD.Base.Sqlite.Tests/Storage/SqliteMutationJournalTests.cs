@@ -317,7 +317,7 @@ public sealed class SqliteMutationJournalTests
         {
             var collection = Collection() with
             {
-                Operations = new CollectionOperationMatrix { Create = true }
+                MutationMode = BaseCollectionMutationMode.Mutable
             };
             var services = new ServiceCollection();
             services.AddLogging();

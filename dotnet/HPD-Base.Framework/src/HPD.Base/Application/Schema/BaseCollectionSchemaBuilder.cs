@@ -12,7 +12,7 @@ public sealed class BaseCollectionSchemaBuilder<T>
     private readonly Dictionary<string, IndexEntry> _indexes = new(StringComparer.Ordinal);
     private SchemaMode _schemaMode = SchemaMode.Strict;
     private UnknownFieldPolicy _unknownFields = UnknownFieldPolicy.Reject;
-    private bool _readOnly;
+    private BaseCollectionMutationMode _mutationMode = BaseCollectionMutationMode.Mutable;
     private bool _system;
     internal BaseCollectionSchemaBuilder(string id, JsonTypeInfo<T> jsonTypeInfo)
     {
@@ -46,7 +46,16 @@ public sealed class BaseCollectionSchemaBuilder<T>
     /// <summary>Marks the collection as read-only.</summary>
     public BaseCollectionSchemaBuilder<T> ReadOnly()
     {
-        _readOnly = true;
+        _mutationMode = BaseCollectionMutationMode.ReadOnly;
+        return this;
+    }
+
+    /// <summary>Allows creates only, optionally with host administrative purge.</summary>
+    public BaseCollectionSchemaBuilder<T> AppendOnly(bool allowAdministrativePurge = false)
+    {
+        _mutationMode = allowAdministrativePurge
+            ? BaseCollectionMutationMode.AppendOnlyWithAdministrativePurge
+            : BaseCollectionMutationMode.AppendOnly;
         return this;
     }
 
@@ -175,23 +184,7 @@ public sealed class BaseCollectionSchemaBuilder<T>
             Kind = "record",
             System = _system,
             Exposed = !_system,
-            ReadOnly = _readOnly,
-            Operations = _readOnly ? new CollectionOperationMatrix
-            {
-                List = true,
-                Get = true
-            }
-
-            : new CollectionOperationMatrix
-            {
-                List = true,
-                Get = true,
-                Create = true,
-                Patch = true,
-                Replace = true,
-                Upsert = true,
-                Delete = true,
-            },
+            MutationMode = _mutationMode,
             SchemaMode = _schemaMode,
             UnknownFields = _unknownFields,
             Fields = fields,

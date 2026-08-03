@@ -60,16 +60,7 @@ internal static class TestBaseApp
                 Type = BaseFieldTypes.String,
             },
         ],
-        Operations = new CollectionOperationMatrix
-        {
-            List = true,
-            Get = true,
-            Create = true,
-            Patch = true,
-            Replace = true,
-            Upsert = true,
-            Delete = true
-        }
+        MutationMode = BaseCollectionMutationMode.Mutable
     };
 
     public static RecordPayload Payload(params (string Name, string Value)[] fields)

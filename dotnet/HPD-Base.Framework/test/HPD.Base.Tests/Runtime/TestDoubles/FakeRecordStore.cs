@@ -216,7 +216,7 @@ internal class FakeRecordStore : IAtomicRecordStore
         {
             Page = true,
             Offset = true,
-            Cursor = true,
+            Cursor = QueryCursorGuarantee.Seek,
             MaxLimit = 1_000
         },
         Count = new CountCapability

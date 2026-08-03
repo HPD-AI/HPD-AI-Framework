@@ -442,8 +442,7 @@ internal sealed class DefaultBaseMutationCoordinator(
             var collection = collectionResult.Value;
             if (!collection.Enabled
                 || !collection.Exposed
-                || collection.ReadOnly
-                || !CollectionAllows(collection.Operations, item.Kind))
+                || !CollectionAllows(collection, item))
             {
                 return OperationResults.Unsupported<BaseMutationCommand[]>(Error(
                     "base.runtime.collection.operationDisabled",
@@ -722,15 +721,19 @@ internal sealed class DefaultBaseMutationCoordinator(
         && (!requiresDelete || capability.Delete);
     }
 
-    private static bool CollectionAllows(CollectionOperationMatrix? matrix, BaseRecordMutationKind kind) =>
-        matrix is null
-        || kind switch
+    private static bool CollectionAllows(CollectionDefinition collection, BaseRecordBatchItem item) =>
+        collection.MutationMode switch
         {
-            BaseRecordMutationKind.Create => matrix.Create,
-            BaseRecordMutationKind.Patch => matrix.Patch,
-            BaseRecordMutationKind.Replace => matrix.Replace,
-            BaseRecordMutationKind.Delete => matrix.Delete,
-            BaseRecordMutationKind.Upsert => matrix.Upsert,
+            BaseCollectionMutationMode.Mutable => true,
+            BaseCollectionMutationMode.AppendOnly or
+            BaseCollectionMutationMode.AppendOnlyWithAdministrativePurge =>
+                item.Kind == BaseRecordMutationKind.Create
+                || item is
+                {
+                    Kind: BaseRecordMutationKind.Upsert,
+                    Upsert.Condition: RecordUpsertExistenceCondition.CreateOnly
+                },
+            BaseCollectionMutationMode.ReadOnly => false,
             _ => false
         };
 

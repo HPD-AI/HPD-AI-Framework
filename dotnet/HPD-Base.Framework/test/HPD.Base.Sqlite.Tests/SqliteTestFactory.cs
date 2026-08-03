@@ -46,14 +46,6 @@ internal static class SqliteTestFactory
         Kind = BaseCollectionKinds.Document,
         SchemaMode = SchemaMode.Loose,
         UnknownFields = UnknownFieldPolicy.Preserve,
-        Operations = new CollectionOperationMatrix
-        {
-            List = true,
-            Get = true,
-            Create = true,
-            Patch = true,
-            Replace = true,
-            Delete = true
-        }
+        MutationMode = BaseCollectionMutationMode.Mutable
     };
 }

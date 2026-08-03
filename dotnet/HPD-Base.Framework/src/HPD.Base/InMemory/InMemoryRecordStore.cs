@@ -1604,7 +1604,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             {
                 Page = true,
                 Offset = true,
-                Cursor = true,
+                Cursor = QueryCursorGuarantee.Seek,
                 DefaultLimit = options.DefaultPageSize,
                 MaxLimit = options.MaxPageSize,
                 CursorRequiresStableSort = true

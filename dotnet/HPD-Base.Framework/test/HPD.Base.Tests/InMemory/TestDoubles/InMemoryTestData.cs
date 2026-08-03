@@ -9,16 +9,7 @@ internal static class InMemoryTestData
         Kind = BaseCollectionKinds.Document,
         SchemaMode = SchemaMode.Loose,
         UnknownFields = UnknownFieldPolicy.Preserve,
-        Operations = new CollectionOperationMatrix
-        {
-            List = true,
-            Get = true,
-            Create = true,
-            Patch = true,
-            Replace = true,
-            Delete = true,
-            Upsert = true
-        }
+        MutationMode = BaseCollectionMutationMode.Mutable
     };
 
     public static OperationContext Operation(BaseOperationKind operation, string collectionId = "items") => new()

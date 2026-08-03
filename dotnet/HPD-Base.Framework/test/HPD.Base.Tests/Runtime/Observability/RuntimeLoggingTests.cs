@@ -287,12 +287,7 @@ public sealed class RuntimeLoggingTests
                 Kind = BaseCollectionKinds.Document,
                 SchemaMode = SchemaMode.Loose,
                 UnknownFields = UnknownFieldPolicy.Preserve,
-                Operations = new CollectionOperationMatrix
-                {
-                    List = true,
-                    Get = true,
-                    Create = true
-                }
+                MutationMode = BaseCollectionMutationMode.Mutable
             });
         }
     }

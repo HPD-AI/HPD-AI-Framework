@@ -44,7 +44,7 @@ public sealed class SqliteConformanceFixture : IConfigurableRuntimeStoreConforma
             new FieldDefinition { Id = "profile", Name = "profile", Type = BaseFieldTypes.Object },
             new FieldDefinition { Id = "nullable", Name = "nullable", Type = BaseFieldTypes.String, Nullable = true }
         ],
-        Operations = new CollectionOperationMatrix { List = true, Get = true, Create = true, Patch = true, Replace = true, Delete = true }
+        MutationMode = BaseCollectionMutationMode.Mutable
     };
 
     public OperationContext Operation(BaseOperationKind operation, RecordId? id = null) => new()

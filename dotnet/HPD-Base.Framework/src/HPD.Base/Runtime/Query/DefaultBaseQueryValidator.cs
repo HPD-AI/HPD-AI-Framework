@@ -263,7 +263,7 @@ internal sealed class DefaultBaseQueryValidator : IBaseQueryValidator
             return Unsupported("base.runtime.query.page.modeUnsupported", "Offset pagination is not supported by the selected store.");
         }
 
-        if (page.Mode == QueryPaginationMode.Cursor && !capability.Cursor)
+        if (page.Mode == QueryPaginationMode.Cursor && capability.Cursor == QueryCursorGuarantee.None)
         {
             return Unsupported("base.runtime.query.page.modeUnsupported", "Cursor pagination is not supported by the selected store.");
         }

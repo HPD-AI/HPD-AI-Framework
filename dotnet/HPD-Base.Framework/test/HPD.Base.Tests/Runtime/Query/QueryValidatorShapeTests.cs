@@ -305,7 +305,7 @@ public sealed class QueryValidatorShapeTests
             Operators = [FilterOperator.Equal]
         },
         Sort = new SortCapability { Supported = sortSupported },
-        Pagination = new PaginationCapability { Page = true, Offset = true, Cursor = true, MaxLimit = 100 },
+        Pagination = new PaginationCapability { Page = true, Offset = true, Cursor = QueryCursorGuarantee.Seek, MaxLimit = 100 },
         Count = new CountCapability { SupportedModes = [QueryCountMode.None, QueryCountMode.IfAvailable] },
         Select = new SelectCapability { PayloadFields = true },
         Include = new QueryIncludeCapability { Supported = true },

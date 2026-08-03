@@ -95,8 +95,8 @@ public sealed record PaginationCapability
     public bool Page { get; init; }
     /// <summary>Gets or sets the offset.</summary>
     public bool Offset { get; init; }
-    /// <summary>Gets or sets the cursor.</summary>
-    public bool Cursor { get; init; }
+    /// <summary>Gets or sets the strongest cursor guarantee.</summary>
+    public QueryCursorGuarantee Cursor { get; init; }
     /// <summary>Gets or sets the default limit.</summary>
     public int DefaultLimit { get; init; }
     /// <summary>Gets or sets the max limit.</summary>

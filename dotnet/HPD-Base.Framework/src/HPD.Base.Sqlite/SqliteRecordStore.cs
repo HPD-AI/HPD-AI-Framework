@@ -752,7 +752,7 @@ FROM {_names.MutationJournal};
         {
             Filter = new FilterCapability { Supported = true, Operators = [FilterOperator.Equal, FilterOperator.NotEqual, FilterOperator.LessThan, FilterOperator.LessThanOrEqual, FilterOperator.GreaterThan, FilterOperator.GreaterThanOrEqual], BooleanComposition = true, Not = true, NullChecks = true, MissingFieldChecks = true, NestedFieldPaths = false, ArrayMembership = false, MaxDepth = options.MaxFilterDepth, MaxNodes = options.MaxFilterNodes, ExecutionMode = QueryExecutionMode.Native },
             Sort = new SortCapability { Supported = true, MaxFields = options.MaxSortFields, NestedFieldPaths = false, NullOrdering = false, StableTieBreaker = true, DefaultSort = ["updatedAt", "id"] },
-            Pagination = new PaginationCapability { Page = true, Offset = true, Cursor = false, DefaultLimit = options.DefaultPageSize, MaxLimit = options.MaxPageSize, CursorRequiresStableSort = false },
+            Pagination = new PaginationCapability { Page = true, Offset = true, Cursor = QueryCursorGuarantee.None, DefaultLimit = options.DefaultPageSize, MaxLimit = options.MaxPageSize, CursorRequiresStableSort = false },
             Count = new CountCapability { SupportedModes = [QueryCountMode.None, QueryCountMode.IfAvailable, QueryCountMode.Exact], CountMayBeExpensive = false },
             Select = new SelectCapability { PayloadFields = true, SystemFields = false, NestedFieldPaths = false },
             Include = new QueryIncludeCapability { Supported = true, MaxDepth = 3, BackRelations = true, IncludeFilters = true, IncludeSort = true, IncludeLimit = true, ExecutionMode = QueryExecutionMode.Native }

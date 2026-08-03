@@ -34,16 +34,7 @@ public sealed class InMemoryConformanceFixture :
         Kind = BaseCollectionKinds.Document,
         SchemaMode = SchemaMode.Loose,
         UnknownFields = UnknownFieldPolicy.Preserve,
-        Operations = new CollectionOperationMatrix
-        {
-            List = true,
-            Get = true,
-            Create = true,
-            Patch = true,
-            Replace = true,
-            Delete = true,
-            Upsert = true
-        }
+        MutationMode = BaseCollectionMutationMode.Mutable
     };
 
     public OperationContext Operation(BaseOperationKind operation, RecordId? id = null) => new()

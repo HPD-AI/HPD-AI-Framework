@@ -186,15 +186,7 @@ public sealed class HPDAuthBasePolicyExplainIntegrationTests
                     new FieldDefinition { Id = "body", Name = "body", Type = BaseFieldTypes.String },
                     new FieldDefinition { Id = "secret", Name = "secret", Type = BaseFieldTypes.String },
                 ],
-                Operations = new CollectionOperationMatrix
-                {
-                    List = true,
-                    Get = true,
-                    Create = true,
-                    Patch = true,
-                    Replace = true,
-                    Delete = true
-                }
+                MutationMode = BaseCollectionMutationMode.Mutable
             });
         }
     }
@@ -240,7 +232,7 @@ public sealed class HPDAuthBasePolicyExplainIntegrationTests
                 {
                     Page = true,
                     Offset = true,
-                    Cursor = true,
+                    Cursor = QueryCursorGuarantee.Seek,
                     MaxLimit = 1_000
                 },
                 Count = new CountCapability

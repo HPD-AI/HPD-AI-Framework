@@ -666,7 +666,7 @@ internal sealed class DefaultBasePolicyExplainService : IBasePolicyExplainServic
         store = null;
         failure = default!;
 
-        if (collection.ReadOnly && operation is BaseOperationKind.Create or BaseOperationKind.Patch or BaseOperationKind.Replace or BaseOperationKind.Delete)
+        if (collection.MutationMode == BaseCollectionMutationMode.ReadOnly && operation is BaseOperationKind.Create or BaseOperationKind.Patch or BaseOperationKind.Replace or BaseOperationKind.Delete)
         {
             failure = OperationResults.Unsupported<BasePolicyExplainResponse>(new BaseError
             {

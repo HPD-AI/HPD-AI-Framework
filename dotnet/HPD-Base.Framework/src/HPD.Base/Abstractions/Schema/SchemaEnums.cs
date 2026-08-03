@@ -21,6 +21,19 @@ Native,
 Hybrid
 }
 
+/// <summary>Defines the canonical mutation behavior of a collection.</summary>
+public enum BaseCollectionMutationMode
+{
+    /// <summary>Ordinary create, update, upsert, and delete are allowed.</summary>
+    Mutable,
+    /// <summary>Only creates and create-only upserts are allowed.</summary>
+    AppendOnly,
+    /// <summary>Append-only with explicit host administrative purge support.</summary>
+    AppendOnlyWithAdministrativePurge,
+    /// <summary>No record mutation is allowed.</summary>
+    ReadOnly
+}
+
 /// <summary>Defines unknown Field Policy.</summary>
 public enum UnknownFieldPolicy
 {

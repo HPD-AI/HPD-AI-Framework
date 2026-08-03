@@ -19,12 +19,10 @@ public sealed record CollectionDefinition
     public bool Exposed { get; init; } = true;
     /// <summary>Gets or sets the system.</summary>
     public bool System { get; init; }
-    /// <summary>Gets or sets the read only.</summary>
-    public bool ReadOnly { get; init; }
-    /// <summary>Gets or sets the read only reason.</summary>
-    public string? ReadOnlyReason { get; init; }
-    /// <summary>Gets or sets the operations.</summary>
-    public CollectionOperationMatrix? Operations { get; init; }
+    /// <summary>Gets or sets the single authoritative collection mutation mode.</summary>
+    public BaseCollectionMutationMode MutationMode { get; init; } = BaseCollectionMutationMode.Mutable;
+    /// <summary>Gets the operation projection derived from <see cref="MutationMode"/>.</summary>
+    public CollectionOperationMatrix Operations => CollectionOperationMatrix.From(MutationMode);
     /// <summary>Gets or sets the schema mode.</summary>
     public required SchemaMode SchemaMode { get; init; }
     /// <summary>Gets or sets the unknown fields.</summary>
@@ -58,18 +56,35 @@ public sealed record CollectionDefinition
 /// <summary>Represents a collection operation matrix.</summary>
 public sealed record CollectionOperationMatrix
 {
+    private CollectionOperationMatrix() { }
     /// <summary>Gets or sets the list.</summary>
-    public bool List { get; init; }
+    public bool List { get; private init; }
     /// <summary>Gets or sets the get.</summary>
-    public bool Get { get; init; }
+    public bool Get { get; private init; }
     /// <summary>Gets or sets the create.</summary>
-    public bool Create { get; init; }
+    public bool Create { get; private init; }
     /// <summary>Gets or sets the patch.</summary>
-    public bool Patch { get; init; }
+    public bool Patch { get; private init; }
     /// <summary>Gets or sets the replace.</summary>
-    public bool Replace { get; init; }
+    public bool Replace { get; private init; }
     /// <summary>Gets or sets the upsert.</summary>
-    public bool Upsert { get; init; }
+    public bool Upsert { get; private init; }
     /// <summary>Gets or sets the delete.</summary>
-    public bool Delete { get; init; }
+    public bool Delete { get; private init; }
+
+    internal static CollectionOperationMatrix From(BaseCollectionMutationMode mode) => mode switch
+    {
+        BaseCollectionMutationMode.Mutable => new()
+        {
+            List = true, Get = true, Create = true, Patch = true,
+            Replace = true, Upsert = true, Delete = true
+        },
+        BaseCollectionMutationMode.AppendOnly or
+        BaseCollectionMutationMode.AppendOnlyWithAdministrativePurge => new()
+        {
+            List = true, Get = true, Create = true, Upsert = true
+        },
+        BaseCollectionMutationMode.ReadOnly => new() { List = true, Get = true },
+        _ => throw new InvalidOperationException("The collection mutation mode is invalid.")
+    };
 }
