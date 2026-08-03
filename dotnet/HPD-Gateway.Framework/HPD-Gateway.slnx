@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/HPD.Gateway/HPD.Gateway.csproj" />
     <Project Path="src/HPD.Gateway.Abstractions/HPD.Gateway.Abstractions.csproj" />
     <Project Path="src/HPD.Gateway.Core/HPD.Gateway.Core.csproj" />
     <Project Path="src/HPD.Gateway.Effective/HPD.Gateway.Effective.csproj" />

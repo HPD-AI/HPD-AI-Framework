@@ -168,12 +168,21 @@ public sealed class GatewayConservativeOutputCachePolicy : IOutputCachePolicy
     }
 }
 
-internal sealed class HpdOutputCachePipelineMarker : IGatewayEndpointMappingParticipant
+internal sealed class HpdOutputCachePipelineMarker :
+    IGatewayEndpointMappingParticipant,
+    IGatewayApplicationPipelineParticipant
 {
     internal int UseCount { get; set; }
     internal bool IsMapped { get; set; }
     bool IGatewayEndpointMappingParticipant.IsMapped => IsMapped;
     void IGatewayEndpointMappingParticipant.MarkMapped() => IsMapped = true;
+
+    void IGatewayApplicationPipelineParticipant.Configure(IApplicationBuilder application)
+    {
+        UseCount++;
+        if (UseCount > 1) throw new InvalidOperationException("HPD Output Cache middleware can be installed only once.");
+        application.UseOutputCache();
+    }
 }
 
 internal sealed class HpdOutputCacheStartupGuard(
@@ -244,8 +253,7 @@ public static class GatewayOutputCacheExtensions
     {
         ArgumentNullException.ThrowIfNull(application);
         var marker = application.ApplicationServices.GetRequiredService<HpdOutputCachePipelineMarker>();
-        marker.UseCount++;
-        if (marker.UseCount > 1) throw new InvalidOperationException("HPD Output Cache middleware can be installed only once.");
-        return application.UseOutputCache();
+        ((IGatewayApplicationPipelineParticipant)marker).Configure(application);
+        return application;
     }
 }
