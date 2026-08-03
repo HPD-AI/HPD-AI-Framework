@@ -8,6 +8,9 @@ internal interface IBaseMutationPostCommitDispatcher
     ValueTask<BaseRecordBatchItemResult> DispatchAsync(
         BaseMutationAttempt attempt,
         PrincipalContext principal);
+
+    /// <summary>Projects a stored committed receipt without publishing post-commit work.</summary>
+    ValueTask<BaseRecordBatchItemResult> ReplayAsync(BaseMutationAttempt attempt, PrincipalContext principal);
 }
 
 internal sealed class DefaultBaseMutationPostCommitDispatcher(
@@ -19,6 +22,12 @@ internal sealed class DefaultBaseMutationPostCommitDispatcher(
     public async ValueTask<BaseRecordBatchItemResult> DispatchAsync(
         BaseMutationAttempt attempt,
         PrincipalContext principal)
+        => await ProjectAsync(attempt, principal, dispatch: true).ConfigureAwait(false);
+
+    public ValueTask<BaseRecordBatchItemResult> ReplayAsync(BaseMutationAttempt attempt, PrincipalContext principal) =>
+        ProjectAsync(attempt, principal, dispatch: false);
+
+    private async ValueTask<BaseRecordBatchItemResult> ProjectAsync(BaseMutationAttempt attempt, PrincipalContext principal, bool dispatch)
     {
         var command = attempt.Command;
         var mutation = attempt.Mutation!;
@@ -43,38 +52,31 @@ internal sealed class DefaultBaseMutationPostCommitDispatcher(
                 : mutation.Delete with { Previous = previous };
         }
 
-        var operation = mutation.CommittedOperation switch
+        EventReference[] events;
+        OperationWarning[]? warnings;
+        if (dispatch)
         {
-            BaseCommittedRecordMutationKind.Create => BaseOperationKind.Create,
-            BaseCommittedRecordMutationKind.Patch => BaseOperationKind.Patch,
-            BaseCommittedRecordMutationKind.Replace => BaseOperationKind.Replace,
-            BaseCommittedRecordMutationKind.Delete => BaseOperationKind.Delete,
-            _ => throw new InvalidOperationException("Unsupported committed mutation kind.")
-        };
-        var @event = eventFactory.CreateRecordMutationEvent(
-            operation,
-            command.Context,
-            principal,
-            command.Collection,
-            before,
-            after,
-            mutation.ChangedFields,
-            mutation.Event.EventId);
-        var guarantee = mutation.Event.Guarantee;
-        using var activity = HPDBaseRuntimeTelemetry.StartEventDispatch(command.Context, @event.Type);
-        var startedAt = Stopwatch.GetTimestamp();
-        var dispatched = await eventDispatcher.DispatchMutationAsync(
-            @event,
-            guarantee,
-            CancellationToken.None).ConfigureAwait(false);
-        dispatched = HPDBaseRuntimeTelemetry.FinishEventDispatch(
-            activity,
-            dispatched,
-            command.Context,
-            startedAt);
-
-        var events = Merge(mutation.Event, dispatched.Value);
-        var warnings = dispatched.Warnings;
+            var operation = mutation.CommittedOperation switch
+            {
+                BaseCommittedRecordMutationKind.Create => BaseOperationKind.Create,
+                BaseCommittedRecordMutationKind.Patch => BaseOperationKind.Patch,
+                BaseCommittedRecordMutationKind.Replace => BaseOperationKind.Replace,
+                BaseCommittedRecordMutationKind.Delete => BaseOperationKind.Delete,
+                _ => throw new InvalidOperationException("Unsupported committed mutation kind.")
+            };
+            var @event = eventFactory.CreateRecordMutationEvent(operation, command.Context, principal, command.Collection, before, after, mutation.ChangedFields, mutation.Event.EventId);
+            using var activity = HPDBaseRuntimeTelemetry.StartEventDispatch(command.Context, @event.Type);
+            var startedAt = Stopwatch.GetTimestamp();
+            var dispatched = await eventDispatcher.DispatchMutationAsync(@event, mutation.Event.Guarantee, CancellationToken.None).ConfigureAwait(false);
+            dispatched = HPDBaseRuntimeTelemetry.FinishEventDispatch(activity, dispatched, command.Context, startedAt);
+            events = Merge(mutation.Event, dispatched.Value);
+            warnings = dispatched.Warnings;
+        }
+        else
+        {
+            events = [mutation.Event];
+            warnings = null;
+        }
         return new BaseRecordBatchItemResult
         {
             ItemId = command.ItemId,

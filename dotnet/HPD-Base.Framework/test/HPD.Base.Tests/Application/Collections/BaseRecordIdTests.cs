@@ -232,6 +232,47 @@ public sealed class BaseRecordIdTests
     }
 
     [Fact]
+    public async Task InMemoryIdentifiedAtomicRequestReplaysWithoutMutatingAgain()
+    {
+        var services = new ServiceCollection().AddLogging();
+        var observer = new ReceiptMutationObserver();
+        services.AddSingleton<IBaseCommittedMutationObserver>(observer);
+        services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
+        services.AddHPDBase(builder => builder.AddCollection(TypedIdOwner.Collection));
+        await using ServiceProvider provider = services.BuildServiceProvider();
+        (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
+        BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(new PrincipalContext
+        {
+            AuthenticationState = PrincipalAuthenticationState.Authenticated,
+            SubjectId = "receipt-user",
+        });
+        BaseMutationRequestIdentity identity = BaseMutationRequestIdentity.Create(
+            "tenant_1", "create-owner", "request_1",
+            BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("request_1"u8)));
+
+        BaseBatchBuilder first = session.Atomic(identity);
+        first.Create(TypedIdOwner.Collection, new RecordId("owner_1"), new TypedIdOwner { Name = "Owner" });
+        BaseBatchBuilder retry = session.Atomic(identity);
+        retry.Create(TypedIdOwner.Collection, new RecordId("owner_1"), new TypedIdOwner { Name = "Owner" });
+
+        BaseSuccess<BaseBatchResult> committed = (BaseSuccess<BaseBatchResult>)await first.CommitAsync();
+        BaseSuccess<BaseBatchResult> duplicate = (BaseSuccess<BaseBatchResult>)await retry.CommitAsync();
+
+        committed.Value.RequestDisposition.Should().Be(BaseMutationRequestDisposition.Committed);
+        duplicate.Value.RequestDisposition.Should().Be(BaseMutationRequestDisposition.Duplicate);
+        duplicate.Value.RequireCommitted().Should().NotBeNull();
+        observer.Count.Should().Be(1);
+
+        BaseMutationRequestIdentity conflictingIdentity = BaseMutationRequestIdentity.Create(
+            "tenant_1", "create-owner", "request_1",
+            BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("different"u8)));
+        BaseBatchBuilder conflict = session.Atomic(conflictingIdentity);
+        conflict.Create(TypedIdOwner.Collection, new RecordId("owner_2"), new TypedIdOwner { Name = "Different" });
+        BaseFailure<BaseBatchResult> conflictResult = (BaseFailure<BaseBatchResult>)await conflict.CommitAsync();
+        conflictResult.Error.Code.Should().Be(BaseMutationRequestErrorCodes.FingerprintConflict);
+    }
+
+    [Fact]
     public async Task RelationPolicyDenialIsIndistinguishableFromAMissingTargetAndRollsBackSource()
     {
         var services = new ServiceCollection().AddLogging();
@@ -893,6 +934,16 @@ internal sealed class HostileIncludeStore() : FakeRecordStore("hostile-include")
     {
         ExecutionCalls++;
         return ValueTask.FromResult(OperationResults.Ok(Response!));
+    }
+}
+
+internal sealed class ReceiptMutationObserver : IBaseCommittedMutationObserver
+{
+    public int Count { get; private set; }
+    public ValueTask ObserveAsync(BaseRecordMutationEvent mutation, CancellationToken cancellationToken = default)
+    {
+        Count++;
+        return ValueTask.CompletedTask;
     }
 }
 

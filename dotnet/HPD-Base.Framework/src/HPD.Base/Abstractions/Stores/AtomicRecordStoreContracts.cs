@@ -36,6 +36,22 @@ public sealed record RecordMutationExecutionRequest
 
     /// <summary>Gets the internal maximum duration allowed to classify commit completion.</summary>
     public required TimeSpan CommitCompletionTimeout { get; init; }
+
+    /// <summary>Gets the identified atomic request contract, when durable resolution is requested.</summary>
+    public BaseAtomicMutationExecutionRequest? AtomicRequest { get; init; }
+}
+
+/// <summary>Supplies provider-neutral receipt identity and bounds for one atomic execution.</summary>
+public sealed record BaseAtomicMutationExecutionRequest
+{
+    /// <summary>Gets the normalized request identity.</summary>
+    public required BaseMutationRequestIdentity Identity { get; init; }
+    /// <summary>Gets BASE's canonical 256-bit batch-structure digest.</summary>
+    public required byte[] StructuralDigest { get; init; }
+    /// <summary>Gets the provider time at which the receipt becomes semantically expired.</summary>
+    public required DateTimeOffset ExpiresAt { get; init; }
+    /// <summary>Gets the maximum canonical receipt size.</summary>
+    public required int MaxReceiptBytes { get; init; }
 }
 
 /// <summary>Returns the fixed decision produced by the framework-owned mutation processor.</summary>
@@ -187,6 +203,9 @@ public sealed record RecordMutationExecutionResult
 
     /// <summary>Gets a bounded normalized provider failure.</summary>
     public BaseError? Error { get; }
+
+    /// <summary>Gets whether commit was new or resolved from an existing receipt.</summary>
+    public BaseMutationRequestDisposition RequestDisposition { get; init; } = BaseMutationRequestDisposition.Committed;
 }
 
 /// <summary>
@@ -275,4 +294,18 @@ public interface IAtomicMutationProcessor
     ValueTask<AtomicMutationProcessingResult> ProcessAsync(
         IAtomicRecordSession session,
         CancellationToken cancellationToken = default);
+
+    /// <summary>Authorizes and projects one bounded stored receipt before fingerprint disclosure.</summary>
+    ValueTask<AtomicMutationProcessingResult> ResolveReceiptAsync(
+        BaseRecordMutationFact[] committedMutations,
+        CancellationToken cancellationToken = default) =>
+        ValueTask.FromResult(new AtomicMutationProcessingResult(
+            AtomicMutationProcessingOutcome.Failed,
+            [],
+            new BaseError
+            {
+                Code = BaseMutationRequestErrorCodes.ReceiptUnavailable,
+                Message = "The stored mutation receipt cannot be resolved.",
+                Category = ErrorCategory.Authorization,
+            }));
 }

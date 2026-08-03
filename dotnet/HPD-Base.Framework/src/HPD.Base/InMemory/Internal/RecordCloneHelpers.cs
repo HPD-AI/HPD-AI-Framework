@@ -4,6 +4,12 @@ namespace HPD.Base;
 
 internal static class RecordCloneHelpers
 {
+    public static RecordEnvelope CloneEnvelope(RecordEnvelope record) => record with
+    {
+        Payload = ClonePayload(record.Payload),
+        Metadata = CloneMetadata(record.Metadata),
+    };
+
     /// <summary>Executes the clone envelope operation.</summary>
     public static RecordEnvelope CloneEnvelope(StoredRecord record) => new()
     {
@@ -56,4 +62,15 @@ internal static class RecordCloneHelpers
 
         return clone;
     }
+
+    public static BaseRecordMutationFact CloneMutationFact(BaseRecordMutationFact fact) => fact with
+    {
+        Before = fact.Before is null ? null : CloneEnvelope(fact.Before),
+        After = fact.After is null ? null : CloneEnvelope(fact.After),
+        Delete = fact.Delete is null ? null : fact.Delete with
+        {
+            Previous = fact.Delete.Previous is null ? null : CloneEnvelope(fact.Delete.Previous),
+        },
+        ChangedFields = fact.ChangedFields is null ? null : [.. fact.ChangedFields],
+    };
 }

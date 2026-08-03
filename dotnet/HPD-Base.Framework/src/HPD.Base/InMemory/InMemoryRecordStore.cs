@@ -84,7 +84,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
 
         var published = Volatile.Read(ref _publishedState);
         var snapshot = GetCollectionOrNull(published, collection.Id)?.RecordsById.Values
-            .OrderBy(record => record.Sequence)
+            .OrderBy(record => record.AppendPosition)
             .ThenBy(record => record.Id.Value, StringComparer.Ordinal)
             .ToArray() ?? [];
 
@@ -243,6 +243,35 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     "The mutation state snapshot could not be acquired in time.");
         }
 
+        string? receiptKey = request.AtomicRequest is null ? null : ReceiptKey(request.AtomicRequest.Identity);
+        if (receiptKey is not null && working.Receipts.TryGetValue(receiptKey, out InMemoryMutationReceipt? receipt))
+        {
+            if (receipt.ExpiresAt <= DateTimeOffset.UtcNow)
+            {
+                working.Receipts.Remove(receiptKey);
+            }
+            else
+            {
+                AtomicMutationProcessingResult resolved = await processor.ResolveReceiptAsync(
+                    receipt.Mutations.Select(RecordCloneHelpers.CloneMutationFact).ToArray(),
+                    cancellationToken).ConfigureAwait(false);
+                if (resolved.Outcome != AtomicMutationProcessingOutcome.ReadyToCommit)
+                    return new RecordMutationExecutionResult(RecordMutationExecutionOutcome.RollbackConfirmed, resolved, resolved.Error);
+
+                bool fingerprintsMatch = CryptographicOperations.FixedTimeEquals(
+                    request.AtomicRequest!.Identity.Fingerprint.ToArray(), receipt.Fingerprint);
+                bool structuresMatch = CryptographicOperations.FixedTimeEquals(
+                    request.AtomicRequest.StructuralDigest, receipt.StructuralDigest);
+                if (!fingerprintsMatch || !structuresMatch)
+                    return Rollback(BaseMutationRequestErrorCodes.FingerprintConflict, "The mutation request identity conflicts with an existing receipt.");
+
+                return new RecordMutationExecutionResult(RecordMutationExecutionOutcome.Committed, resolved)
+                {
+                    RequestDisposition = BaseMutationRequestDisposition.Duplicate,
+                };
+            }
+        }
+
         using var processingLifetime =
             CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         processingLifetime.CancelAfter(request.TransactionTimeout);
@@ -300,6 +329,20 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 processing.Error);
         }
 
+        if (request.AtomicRequest is { } identified)
+        {
+            int receiptBytes = JsonSerializer.SerializeToUtf8Bytes(
+                processing.Mutations,
+                HPDBaseJsonSerializerContext.Default.BaseRecordMutationFactArray).Length;
+            if (receiptBytes > identified.MaxReceiptBytes)
+                return Rollback(BaseMutationRequestErrorCodes.ReceiptTooLarge, "The mutation receipt exceeds its configured bound.", processing);
+            working.Receipts[receiptKey!] = new InMemoryMutationReceipt(
+                identified.Identity.Fingerprint.ToArray(),
+                [.. identified.StructuralDigest],
+                processing.Mutations.Select(RecordCloneHelpers.CloneMutationFact).ToArray(),
+                identified.ExpiresAt);
+        }
+
         using var commitLifetime = new CancellationTokenSource(request.CommitCompletionTimeout);
         try
         {
@@ -345,7 +388,12 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         {
             throw new ArgumentOutOfRangeException(nameof(request), "Execution timeouts must be positive.");
         }
+        if (request.AtomicRequest is { StructuralDigest.Length: not 32 } or { MaxReceiptBytes: < 4096 })
+            throw new ArgumentOutOfRangeException(nameof(request), "The identified mutation request bounds are invalid.");
     }
+
+    private static string ReceiptKey(BaseMutationRequestIdentity identity) =>
+        string.Concat(identity.Scope, "\u001f", identity.Operation, "\u001f", identity.IdempotencyKey);
 
     private static RecordMutationExecutionResult Rollback(
         string code,
@@ -441,7 +489,10 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             ETag = ETag(revision),
             StoreId = _options.StoreId
         };
-        var record = new StoredRecord(collection.Id, id, payload, metadata, ++working.NextSequence);
+        InMemoryCollectionState collectionState = GetOrCreateCollection(working, collection.Id);
+        if (collectionState.NextAppendPosition == long.MaxValue)
+            return ValueTask.FromResult(InMemoryResultFactory.StoreError<RecordEnvelope>("base.collection.appendPosition.exhausted", "The collection append position is exhausted."));
+        var record = new StoredRecord(collection.Id, id, payload, metadata, ++collectionState.NextAppendPosition);
         state.RecordsById.Add(id.Value, record);
         return ValueTask.FromResult(InMemoryResultFactory.WithRevision(
             OperationResults.Created(RecordCloneHelpers.CloneEnvelope(record)), metadata));
@@ -1660,6 +1711,18 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 ExistenceConditions = true
             }
             : null,
+        AtomicRequest = new AtomicRequestCapability
+        {
+            Supported = true,
+            Durability = BaseAtomicRequestDurability.ProcessLocal,
+            DuplicateResultReplay = true,
+            FingerprintConflictDetection = true,
+            IndeterminateResolution = false,
+            MaxIdentityBytes = 512,
+            MaxReceiptBytes = 16_777_216,
+            MinReceiptLifetime = TimeSpan.FromHours(1),
+            MaxReceiptLifetime = TimeSpan.FromDays(90),
+        },
         Streaming = new StreamingCapability
         {
             Supported = options.EnableStreamingCapability,

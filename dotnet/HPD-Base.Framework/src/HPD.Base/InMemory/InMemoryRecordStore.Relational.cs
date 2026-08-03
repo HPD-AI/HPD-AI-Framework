@@ -150,7 +150,7 @@ internal sealed partial class InMemoryRecordStore
             ?? Enumerable.Empty<StoredRecord>();
         return records
             .Where(record => { cancellationToken.ThrowIfCancellationRequested(); return filter is null || MatchesFilter(record, filter); })
-            .OrderBy(static record => record.Sequence).ThenBy(static record => record.Id.Value, StringComparer.Ordinal).ToArray();
+            .OrderBy(static record => record.AppendPosition).ThenBy(static record => record.Id.Value, StringComparer.Ordinal).ToArray();
     }
 
     private static FilterExpression LowerFilter(FilterExpression filter, CollectionDefinition collection)

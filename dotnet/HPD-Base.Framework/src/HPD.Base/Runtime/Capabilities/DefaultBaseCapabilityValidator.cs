@@ -201,6 +201,25 @@ internal sealed class DefaultBaseCapabilityValidator : IBaseCapabilityValidator
                 $"Collection '{collectionId}' advertises atomic execution without the required interface, ordering, and read-your-writes guarantees.",
                 collectionId));
         }
+
+        AtomicRequestCapability? requests = store.Capabilities.AtomicRequest;
+        if (requests?.Supported == true
+            && (store is not IAtomicRecordStore
+                || !batch.Modes.Contains(BaseRecordBatchExecutionMode.Atomic)
+                || requests.Durability == BaseAtomicRequestDurability.None
+                || !requests.DuplicateResultReplay
+                || !requests.FingerprintConflictDetection
+                || requests.MaxIdentityBytes < 1
+                || requests.MaxReceiptBytes < 4_096
+                || requests.MinReceiptLifetime < TimeSpan.FromHours(1)
+                || requests.MaxReceiptLifetime > TimeSpan.FromDays(90)
+                || requests.MinReceiptLifetime > requests.MaxReceiptLifetime))
+        {
+            issues.Add(Fatal(
+                "base.runtime.capability.atomicRequest.interfaceMismatch",
+                $"Collection '{collectionId}' advertises invalid identified atomic-request guarantees.",
+                collectionId));
+        }
     }
 
     private static BaseRuntimeValidationIssue Fatal(string code, string message, string targetRef) => new()

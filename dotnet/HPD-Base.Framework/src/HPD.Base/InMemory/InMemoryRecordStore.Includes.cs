@@ -86,7 +86,7 @@ internal sealed partial class InMemoryRecordStore
 
     private RecordPage IncludePage(CollectionDefinition collection, RecordQuery query, InMemoryIncludeState state, HashSet<string>? restrictedIds)
     {
-        StoredRecord[] records = GetCollectionOrNull(state.Snapshot, collection.Id)?.RecordsById.Values.OrderBy(static record => record.Sequence).ThenBy(static record => record.Id.Value, StringComparer.Ordinal).ToArray() ?? [];
+        StoredRecord[] records = GetCollectionOrNull(state.Snapshot, collection.Id)?.RecordsById.Values.OrderBy(static record => record.AppendPosition).ThenBy(static record => record.Id.Value, StringComparer.Ordinal).ToArray() ?? [];
         var filtered = records.Where(record => (restrictedIds is null || restrictedIds.Contains(record.Id.Value)) && (query.Filter is null || MatchesFilter(record, query.Filter))).ToList();
         var sorted = ApplySort<RecordPage>(filtered, query.Sort); if (sorted.Result is not null) throw new InvalidOperationException();
         var page = ApplyPage<RecordPage>(sorted.Value!, query, out PageInfo pageInfo); if (page.Result is not null) throw new InvalidOperationException();
@@ -109,7 +109,7 @@ internal sealed partial class InMemoryRecordStore
         var parentIds = parents.Select(static parent => parent.Id.Value).ToHashSet(StringComparer.Ordinal);
         var values = parents.ToDictionary(static parent => parent.Id.Value, static _ => new List<string>(), StringComparer.Ordinal);
         IEnumerable<StoredRecord> records = GetCollectionOrNull(state.Snapshot, source.Id)?.RecordsById.Values ?? Enumerable.Empty<StoredRecord>();
-        foreach (StoredRecord record in records.OrderBy(static record => record.Sequence).ThenBy(static record => record.Id.Value, StringComparer.Ordinal))
+        foreach (StoredRecord record in records.OrderBy(static record => record.AppendPosition).ThenBy(static record => record.Id.Value, StringComparer.Ordinal))
             foreach (string targetId in PayloadIds(record.Payload, field.Name))
                 if (parentIds.Contains(targetId)) values[targetId].Add(record.Id.Value);
         return values.ToDictionary(static pair => pair.Key, static pair => pair.Value.ToArray(), StringComparer.Ordinal);

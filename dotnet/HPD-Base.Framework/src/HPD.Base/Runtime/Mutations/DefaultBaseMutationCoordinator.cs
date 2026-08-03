@@ -100,10 +100,6 @@ internal sealed class DefaultBaseMutationCoordinator(
                     ErrorCategory.Validation));
             }
 
-            return OperationResults.Unsupported<BaseRecordBatchResult>(Error(
-                "base.runtime.request.unsupported",
-                "The selected runtime does not yet support durable atomic request receipts.",
-                ErrorCategory.Unsupported));
         }
 
         var prepared = await PrepareAsync(request, principal, operation, isPublicBatch: true, cancellationToken)
@@ -112,12 +108,13 @@ internal sealed class DefaultBaseMutationCoordinator(
             return Failure<BaseRecordBatchResult, BaseMutationCommand[]>(prepared);
 
         return request.Mode == BaseRecordBatchExecutionMode.Atomic
-            ? await ExecuteAtomicBatchAsync(prepared.Value, principal, cancellationToken).ConfigureAwait(false)
+            ? await ExecuteAtomicBatchAsync(prepared.Value, request.RequestIdentity, principal, cancellationToken).ConfigureAwait(false)
             : await ExecuteOrderedBatchAsync(prepared.Value, principal, request.Mode, cancellationToken).ConfigureAwait(false);
     }
 
     private async ValueTask<OperationResult<BaseRecordBatchResult>> ExecuteAtomicBatchAsync(
         BaseMutationCommand[] commands,
+        BaseMutationRequestIdentity? requestIdentity,
         PrincipalContext principal,
         CancellationToken cancellationToken)
     {
@@ -155,7 +152,23 @@ internal sealed class DefaultBaseMutationCoordinator(
                 ErrorCategory.Unsupported));
         }
 
-        var execution = await ExecuteBoundaryAsync(first, commands, principal, atomicGroup: true, cancellationToken)
+        if (requestIdentity is not null && first.Store.Capabilities.AtomicRequest?.Supported != true)
+        {
+            return OperationResults.Unsupported<BaseRecordBatchResult>(Error(
+                BaseMutationRequestErrorCodes.Unsupported,
+                "The selected store does not support identified atomic requests.",
+                ErrorCategory.Unsupported));
+        }
+
+        BaseAtomicMutationExecutionRequest? atomicRequest = requestIdentity is null ? null : new()
+        {
+            Identity = requestIdentity,
+            StructuralDigest = BaseAtomicStructureDigest.Compute(commands),
+            ExpiresAt = DateTimeOffset.UtcNow + _limits.ReceiptLifetime,
+            MaxReceiptBytes = _limits.MaxReceiptBytes,
+        };
+
+        var execution = await ExecuteBoundaryAsync(first, commands, principal, atomicGroup: true, cancellationToken, atomicRequest)
             .ConfigureAwait(false);
         if (!execution.IsSuccess() || execution.Value is null)
             return Failure<BaseRecordBatchResult, BoundaryResult>(execution);
@@ -166,11 +179,17 @@ internal sealed class DefaultBaseMutationCoordinator(
         {
             var committed = new BaseRecordBatchItemResult[commands.Length];
             for (var index = 0; index < committed.Length; index++)
-                committed[index] = await DispatchPostCommitAsync(
-                    execution.Value.Attempts[index],
-                    principal).ConfigureAwait(false);
-            return BatchResult(BaseRecordBatchOutcome.Committed, committed);
+                committed[index] = execution.Value.RequestDisposition == BaseMutationRequestDisposition.Duplicate
+                    ? await postCommit.ReplayAsync(execution.Value.Attempts[index], principal).ConfigureAwait(false)
+                    : await DispatchPostCommitAsync(execution.Value.Attempts[index], principal).ConfigureAwait(false);
+            return BatchResult(BaseRecordBatchOutcome.Committed, committed, disposition: execution.Value.RequestDisposition);
         }
+
+        if (execution.Value.Failure?.Code == BaseMutationRequestErrorCodes.FingerprintConflict)
+            return OperationResults.Conflict<BaseRecordBatchResult>(Error(
+                BaseMutationRequestErrorCodes.FingerprintConflict,
+                "The mutation request identity conflicts with an existing receipt.",
+                ErrorCategory.Conflict));
 
         var attempts = execution.Value.Attempts;
         if (execution.Value.AggregateFailure)
@@ -256,14 +275,16 @@ internal sealed class DefaultBaseMutationCoordinator(
         BaseMutationCommand[] commands,
         PrincipalContext principal,
         bool atomicGroup,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        BaseAtomicMutationExecutionRequest? atomicRequest = null)
     {
         var processor = new DefaultBaseMutationProcessor(commands, principal, policy, normalizer, descriptors.Current.Schema.Collections ?? [], _limits.MaxTransactionDuration);
         var request = new RecordMutationExecutionRequest
         {
             AcquisitionTimeout = _limits.StoreAcquisitionTimeout,
             TransactionTimeout = _limits.MaxTransactionDuration,
-            CommitCompletionTimeout = _limits.CommitCompletionTimeout
+            CommitCompletionTimeout = _limits.CommitCompletionTimeout,
+            AtomicRequest = atomicRequest,
         };
 
         RecordMutationExecutionResult result;
@@ -316,7 +337,10 @@ internal sealed class DefaultBaseMutationCoordinator(
                         ErrorCategory.Store));
                 }
 
-                return OperationResults.Ok(new BoundaryResult(true, false, false, attempts, null));
+                return OperationResults.Ok(new BoundaryResult(true, false, false, attempts, null)
+                {
+                    RequestDisposition = result.RequestDisposition,
+                });
 
             case RecordMutationExecutionOutcome.Indeterminate:
                 return OperationResults.Ok(new BoundaryResult(false, true, false, [], null));
@@ -802,12 +826,14 @@ internal sealed class DefaultBaseMutationCoordinator(
     private static OperationResult<BaseRecordBatchResult> BatchResult(
         BaseRecordBatchOutcome outcome,
         BaseRecordBatchItemResult[] items,
-        BaseError? error = null) =>
+        BaseError? error = null,
+        BaseMutationRequestDisposition disposition = BaseMutationRequestDisposition.Committed) =>
         OperationResults.Ok(new BaseRecordBatchResult
         {
             Outcome = outcome,
             Items = items,
             Error = error,
+            RequestDisposition = disposition,
             PostCommitWarningCount = Math.Min(
                 items.Sum(static item => item.Warnings?.Length ?? 0),
                 1_000)
@@ -991,5 +1017,8 @@ internal sealed class DefaultBaseMutationCoordinator(
         bool Indeterminate,
         bool AggregateFailure,
         IReadOnlyList<BaseMutationAttempt> Attempts,
-        BaseError? Failure);
+        BaseError? Failure)
+    {
+        public BaseMutationRequestDisposition RequestDisposition { get; init; } = BaseMutationRequestDisposition.Committed;
+    }
 }

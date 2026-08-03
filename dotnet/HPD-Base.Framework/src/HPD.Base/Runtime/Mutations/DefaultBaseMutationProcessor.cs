@@ -18,6 +18,62 @@ internal sealed class DefaultBaseMutationProcessor(
     /// <summary>Gets the attempts.</summary>
     public IReadOnlyList<BaseMutationAttempt> Attempts => _attempts;
 
+    public async ValueTask<AtomicMutationProcessingResult> ResolveReceiptAsync(
+        BaseRecordMutationFact[] committedMutations,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(committedMutations);
+        if (_attempts.Count != 0 || committedMutations.Length != commands.Length)
+            return Failed(Error(BaseMutationRequestErrorCodes.ReceiptUnavailable, "The stored receipt is unavailable.", ErrorCategory.Authorization));
+
+        for (var index = 0; index < committedMutations.Length; index++)
+        {
+            BaseMutationCommand command = commands[index];
+            BaseRecordMutationFact mutation = committedMutations[index];
+            if (!string.Equals(mutation.Collection.Id, command.Collection.Id, StringComparison.Ordinal)
+                || mutation.RequestedOperation != command.Kind)
+                return Failed(Error(BaseMutationRequestErrorCodes.ReceiptUnavailable, "The stored receipt is unavailable.", ErrorCategory.Authorization));
+
+            RecordEnvelope? resource = mutation.After ?? mutation.Before;
+            OperationResult<BasePolicyEvaluation> policyResult = await policy.EvaluateReadAsync(new BasePolicyRequest
+            {
+                Principal = principal,
+                Operation = command.Context,
+                Collection = command.Collection,
+                ResourceKind = PolicyResourceKind.Record,
+                RecordId = resource?.Id,
+                ExistingRecord = resource,
+            }, cancellationToken).ConfigureAwait(false);
+            if (!policyResult.IsSuccess() || policyResult.Value?.Decision.Effect != PolicyEffect.Allow
+                || resource is not null && !BaseRecordFilterMatcher.Matches(resource, policyResult.Value.EffectiveRecordFilter))
+                return Failed(Error(BaseMutationRequestErrorCodes.ReceiptUnavailable, "The stored receipt is unavailable.", ErrorCategory.Authorization));
+
+            _attempts.Add(new BaseMutationAttempt
+            {
+                Command = command,
+                Mutation = mutation with { ItemId = command.ItemId },
+                Policy = policyResult.Value,
+                Status = mutation.CommittedOperation switch
+                {
+                    BaseCommittedRecordMutationKind.Create => OperationStatus.Created,
+                    BaseCommittedRecordMutationKind.Delete => OperationStatus.Deleted,
+                    _ => OperationStatus.Updated,
+                },
+                Revision = mutation.After?.Metadata.Revision is { } revision
+                    ? new RevisionInfo
+                    {
+                        Revision = revision.Value,
+                        ETag = mutation.After.Metadata.ETag,
+                        LastModified = mutation.After.Metadata.UpdatedAt,
+                        Guarantee = RevisionGuarantee.Store,
+                    }
+                    : null,
+            });
+        }
+
+        return new AtomicMutationProcessingResult(AtomicMutationProcessingOutcome.ReadyToCommit, committedMutations);
+    }
+
     /// <summary>Executes the process async operation.</summary>
     public async ValueTask<AtomicMutationProcessingResult> ProcessAsync(
         IAtomicRecordSession session,
