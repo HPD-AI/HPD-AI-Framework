@@ -220,6 +220,28 @@ public sealed class GatewayCompositionTests
     }
 
     [Fact]
+    public async Task NodeActivatorBoundsPreAdmissionCancellationAndStopping()
+    {
+        await using var proxy = await StartGateway();
+        var activator = proxy.Services.GetRequiredService<IGatewayNodeActivator>();
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        var canceled = await activator.ActivateAsync(
+            Request("candidate", 1, Bytes(EmptyGatewayConfiguration())),
+            cancellation.Token);
+        canceled.State.Should().Be(GatewayNodeActivationState.RejectedBeforeMaterialization);
+        canceled.Diagnostics.Should().ContainSingle(error =>
+            error.Code == "activation.canceled-before-admission");
+
+        proxy.Services.GetRequiredService<GatewayNodeActivator>().Dispose();
+        var stopping = await activator.ActivateAsync(
+            Request("candidate", 1, Bytes(EmptyGatewayConfiguration())));
+        stopping.State.Should().Be(GatewayNodeActivationState.RejectedBeforeMaterialization);
+        stopping.Diagnostics.Should().ContainSingle(error => error.Code == "activation.stopping");
+    }
+
+    [Fact]
     public async Task InitialCandidateActivatesDuringStartupAndCoherentMappingIsExactlyOnce()
     {
         await using var backend = await StartBackend("initial");

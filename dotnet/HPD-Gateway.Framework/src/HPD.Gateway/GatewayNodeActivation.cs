@@ -51,17 +51,25 @@ internal sealed class GatewayNodeActivator(
     private const int MaximumAuthorityIdentityUtf8Bytes = 256;
     private static readonly TimeSpan AcknowledgementTimeout = TimeSpan.FromSeconds(30);
     private readonly SemaphoreSlim _activationLease = new(1, 1);
-    private bool _disposed;
+    private volatile bool _disposed;
 
     public async ValueTask<GatewayNodeActivationResult> ActivateAsync(
         GatewayNodeActivationRequest request,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        await _activationLease.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
+            await _activationLease.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            return Canceled("activation.canceled-before-admission");
+        }
+        try
+        {
+            if (_disposed)
+                return Canceled("activation.stopping");
             var identityErrors = ValidateRequest(request);
             if (!identityErrors.IsEmpty)
                 return Rejected(GatewayNodeActivationState.RejectedBeforeMaterialization, identityErrors);
@@ -101,6 +109,10 @@ internal sealed class GatewayNodeActivator(
                 publication.Diagnostics.Select(static error => new GatewayNodeActivationDiagnostic(
                     error.Code, "$", error.SafeMessage)).ToImmutableArray());
         }
+        catch (OperationCanceledException)
+        {
+            return Canceled("activation.canceled-before-publication");
+        }
         finally
         {
             _activationLease.Release();
@@ -110,7 +122,6 @@ internal sealed class GatewayNodeActivator(
     public void Dispose()
     {
         _disposed = true;
-        _activationLease.Dispose();
     }
 
     private static ImmutableArray<GatewayNodeActivationDiagnostic> ValidateRequest(
@@ -143,4 +154,9 @@ internal sealed class GatewayNodeActivator(
         GatewayNodeActivationState state,
         ImmutableArray<GatewayNodeActivationDiagnostic> diagnostics) =>
         new(state, null, null, diagnostics);
+
+    private static GatewayNodeActivationResult Canceled(string code) =>
+        Rejected(
+            GatewayNodeActivationState.RejectedBeforeMaterialization,
+            [new(code, "$", "Node activation was canceled before native publication.")]);
 }
