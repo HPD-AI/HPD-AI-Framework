@@ -6,4 +6,4 @@ public enum GatewayDeliveryState { Immediate, Claimed, RetryScheduled, OutcomePe
 public enum GatewayNodeOutcomeKind { ActiveAcknowledged, RejectedBeforePublish, CanceledBeforePublish, PublicationIndeterminate, Superseded, Stale, Conflict }
 public enum GatewayAdministrativeOperationKind { Purge, Backup }
 public enum GatewayAdministrativeObservationKind { Succeeded, Failed, Indeterminate }
-public enum GatewayAdministrativeCompletionState { Completed, ExecutionSucceededCompletionPending, IndeterminatePending }
+public enum GatewayAdministrativeCompletionState { Completed, Failed, ExecutionSucceededCompletionPending, IndeterminatePending }

@@ -100,6 +100,8 @@ public sealed partial record GatewayActivationIntent
 [BaseCollection(GatewayAuthoritySchema.DeliveryOutbox, typeof(GatewayManagementJsonContext), MutationMode = BaseCollectionMutationMode.Mutable)]
 [BaseIndex("gateway.outbox.state", nameof(State), Required = false)]
 [BaseIndex("gateway.outbox.state-target", nameof(State), nameof(TargetNodeId), Required = false)]
+[BaseIndex("gateway.outbox.state-next-attempt", nameof(State), nameof(NextAttemptAt), Required = false)]
+[BaseIndex("gateway.outbox.state-claim-expiry", nameof(State), nameof(ClaimExpiresAt), Required = false)]
 public sealed partial record GatewayDeliveryOutboxItem
 {
     [BaseField("outbox.namespace-id")] public required string NamespaceId { get; init; }
@@ -107,9 +109,9 @@ public sealed partial record GatewayDeliveryOutboxItem
     [BaseField("outbox.activation-intent-id")] public required string ActivationIntentId { get; init; }
     [BaseField("outbox.state")] public required GatewayDeliveryState State { get; init; }
     [BaseField("outbox.attempt-count")] public required int AttemptCount { get; init; }
-    [BaseField("outbox.next-attempt-at")] public DateTimeOffset? NextAttemptAt { get; init; }
+    [BaseField("outbox.next-attempt-at", Operators = BaseFieldOperator.Equal | BaseFieldOperator.Order)] public DateTimeOffset? NextAttemptAt { get; init; }
     [BaseField("outbox.claim-id")] public string? ClaimId { get; init; }
-    [BaseField("outbox.claim-expires-at")] public DateTimeOffset? ClaimExpiresAt { get; init; }
+    [BaseField("outbox.claim-expires-at", Operators = BaseFieldOperator.Equal | BaseFieldOperator.Order)] public DateTimeOffset? ClaimExpiresAt { get; init; }
     [BaseField("outbox.pending-outcome-kind")] public GatewayNodeOutcomeKind? PendingOutcomeKind { get; init; }
     [BaseField("outbox.pending-outcome-code")] public string? PendingOutcomeCode { get; init; }
 }

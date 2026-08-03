@@ -267,6 +267,42 @@ public sealed class GatewayManagementCompositionTests
     }
 
     [Fact]
+    public async Task Confirmed_administrative_failure_reconciles_to_terminal_failed()
+    {
+        await using ServiceProvider provider = InMemoryProvider();
+        await provider.GetRequiredService<IGatewayAuthorityRuntime>().InitializeAsync();
+        BaseSession session = TrustedSession(provider);
+        var intentId = RecordId.Create("gwm.admin.intent.failed-test");
+        var observationId = RecordId.Create("gwm.admin.observation.failed-test");
+        (await session.Collection(GatewayAdministrativeOperationIntent.Collection).CreateAsync(
+            intentId, new GatewayAdministrativeOperationIntent
+            {
+                NamespaceId = "namespace-a",
+                Operation = GatewayAdministrativeOperationKind.Backup,
+                ActorId = "actor-a",
+                AuthenticationScheme = "test",
+                AuthorizationPolicy = "manage",
+                SubjectDigest = "failed-test",
+            })).RequireValue();
+        (await session.Collection(GatewayAdministrativeOperationObservation.Collection).CreateAsync(
+            observationId, new GatewayAdministrativeOperationObservation
+            {
+                IntentId = intentId.Value,
+                Kind = GatewayAdministrativeObservationKind.Failed,
+                ResultCode = "base.admin.rejected",
+                ResultJson = "{}"u8.ToArray(),
+            })).RequireValue();
+
+        (await provider.GetRequiredService<IGatewayManagementAdministration>()
+            .ReconcilePendingAsync()).Should().Be(1);
+
+        BaseRecord<GatewayAdministrativeOperationCompletion> completion = (await session
+            .Collection(GatewayAdministrativeOperationCompletion.Collection).Query()
+            .Take(1).ToArrayAsync(1)).RequireValue().Single();
+        completion.Value.State.Should().Be(GatewayAdministrativeCompletionState.Failed);
+    }
+
+    [Fact]
     public async Task Sqlite_restart_recovers_committed_purge_without_an_observation()
     {
         string database = Path.Combine(Path.GetTempPath(), $"hpd-gateway-{Guid.NewGuid():N}.db");
@@ -513,6 +549,82 @@ public sealed class GatewayManagementCompositionTests
         await delivery.ReconcileOnceAsync();
 
         activator.Count.Should().Be(1, "the rotating one-item budget must reach Immediate work");
+    }
+
+    [Fact]
+    public async Task Eligibility_is_applied_before_retry_and_claim_quotas()
+    {
+        var activator = new RecordingNodeActivator();
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddHpdGateway(static builder => builder.AddCoreFamilies());
+        services.AddHpdGatewayManagement(options =>
+        {
+            options.ManagementAuthorityId = "authority-a";
+            options.MaximumTargets = 4;
+        });
+        services.Replace(ServiceDescriptor.Singleton<IGatewayNodeActivator>(activator));
+        await using ServiceProvider provider = services.BuildServiceProvider();
+        var commands = provider.GetRequiredService<IGatewayManagementCommandCoordinator>();
+        var actor = new GatewayManagementActor("actor-a", "test", "manage");
+        await commands.ProvisionTargetAsync(new(
+            "namespace-a", "node-a", "provision-a", actor, "correlation-a", "epoch-a"));
+        var firstCommand = new GatewaySubmitCommand(
+            "namespace-a", "node-a", "submit-a", actor, "correlation-b",
+            "test", "source-a", "first", ConfigurationBytes(), Activate: true);
+        GatewayManagementCommandResult first = await commands.SubmitAsync(firstCommand);
+        (await commands.SubmitAsync(firstCommand with
+        {
+            IdempotencyKey = "submit-b",
+            CorrelationId = "correlation-c",
+            Description = "second",
+            ExpectedDesiredStateToken = first.DesiredStateToken,
+        })).State.Should().Be(GatewayManagementCommandState.Accepted);
+        BaseSession session = TrustedSession(provider);
+        BaseRecord<GatewayDeliveryOutboxItem>[] items = (await session
+            .Collection(GatewayDeliveryOutboxItem.Collection).Query()
+            .Take(2).ToArrayAsync(2)).RequireValue();
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        BaseRecord<GatewayDeliveryOutboxItem> future = (await session
+            .Collection(GatewayDeliveryOutboxItem.Collection).ReplaceAsync(
+                items[0].Id, items[0].Value with
+                {
+                    State = GatewayDeliveryState.RetryScheduled,
+                    NextAttemptAt = now.AddHours(1),
+                }, items[0].Revision)).RequireValue();
+        BaseRecord<GatewayDeliveryOutboxItem> due = (await session
+            .Collection(GatewayDeliveryOutboxItem.Collection).ReplaceAsync(
+                items[1].Id, items[1].Value with
+                {
+                    State = GatewayDeliveryState.RetryScheduled,
+                    NextAttemptAt = now.AddMinutes(-1),
+                }, items[1].Revision)).RequireValue();
+        var delivery = provider.GetRequiredService<IGatewayDeliveryCoordinator>();
+
+        await delivery.ReconcileOnceAsync();
+        activator.Count.Should().Be(1, "a future retry must not consume the retry quota before a due retry");
+
+        future = (await session.Collection(GatewayDeliveryOutboxItem.Collection).GetAsync(future.Id)).RequireValue();
+        due = (await session.Collection(GatewayDeliveryOutboxItem.Collection).GetAsync(due.Id)).RequireValue();
+        await session.Collection(GatewayDeliveryOutboxItem.Collection).ReplaceAsync(
+            future.Id, future.Value with
+            {
+                State = GatewayDeliveryState.Claimed,
+                NextAttemptAt = null,
+                ClaimId = "live",
+                ClaimExpiresAt = now.AddHours(1),
+            }, future.Revision);
+        await session.Collection(GatewayDeliveryOutboxItem.Collection).ReplaceAsync(
+            due.Id, due.Value with
+            {
+                State = GatewayDeliveryState.Claimed,
+                NextAttemptAt = null,
+                ClaimId = "expired",
+                ClaimExpiresAt = now.AddMinutes(-1),
+            }, due.Revision);
+
+        await delivery.ReconcileOnceAsync();
+        activator.Count.Should().Be(2, "a live claim must not consume the claim quota before an expired claim");
     }
 
     [Fact]

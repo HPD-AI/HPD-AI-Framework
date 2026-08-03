@@ -201,6 +201,31 @@ public sealed class BaseSessionTests
     }
 
     [Fact]
+    public async Task OrderedFieldSupportsTypedLessThanOrEqualPredicate()
+    {
+        var runtime = new RecordingRuntime
+        {
+            ListResult = new OperationResult<RecordPage>
+            {
+                Status = OperationStatus.Ok,
+                Value = new RecordPage { Items = [], Page = new PageInfo() }
+            }
+        };
+        using var services = Services(runtime, TimeProvider.System);
+
+        await services.GetRequiredService<IBaseSessionFactory>().For(Principal())
+            .Collection(GeneratedProject.Collection).Query()
+            .WhereLessThanOrEqual(GeneratedProject.Fields.Name, "project_9")
+            .Take(10).PageAsync();
+
+        runtime.Query!.Filter.Should().Match<FilterExpression>(filter =>
+            filter.Kind == FilterNodeKind.Compare &&
+            filter.Field == "name" &&
+            filter.Operator == FilterOperator.LessThanOrEqual &&
+            filter.Value!.String == "project_9");
+    }
+
+    [Fact]
     public async Task ArrayQueryOwnsPagingWithinTheConfiguredRuntimeLimit()
     {
         var runtime = new RecordingRuntime

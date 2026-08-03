@@ -438,9 +438,12 @@ internal sealed class GatewayManagementAdministration(
         GatewayAdministrativeObservationKind kind, string code, long? generation,
         CancellationToken cancellationToken)
     {
-        GatewayAdministrativeCompletionState state = kind == GatewayAdministrativeObservationKind.Succeeded
-            ? GatewayAdministrativeCompletionState.Completed
-            : GatewayAdministrativeCompletionState.IndeterminatePending;
+        GatewayAdministrativeCompletionState state = kind switch
+        {
+            GatewayAdministrativeObservationKind.Succeeded => GatewayAdministrativeCompletionState.Completed,
+            GatewayAdministrativeObservationKind.Failed => GatewayAdministrativeCompletionState.Failed,
+            _ => GatewayAdministrativeCompletionState.IndeterminatePending,
+        };
         RecordId completionId = GatewayAuthorityRecordIds.CommandFact(
             "admin-completion", namespaceId, "complete", intentId, observationId, "v1");
         BaseResult<BaseEnsureResult<GatewayAdministrativeOperationCompletion>> completed = await Session(namespaceId)

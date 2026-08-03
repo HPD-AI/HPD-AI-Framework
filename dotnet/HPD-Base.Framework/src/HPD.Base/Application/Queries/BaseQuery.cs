@@ -51,6 +51,27 @@ public sealed class BaseQuery<T>
         });
     }
 
+    /// <summary>Adds a typed less-than-or-equal predicate.</summary>
+    public BaseQuery<T> WhereLessThanOrEqual<TValue>(
+        BaseField<T, TValue> field,
+        TValue value)
+    {
+        ArgumentNullException.ThrowIfNull(field);
+        if (!field.Operators.HasFlag(BaseFieldOperator.Order))
+        {
+            throw new InvalidOperationException(
+                $"Field '{field.Id}' does not support ordering queries.");
+        }
+
+        return WithFilter(new FilterExpression
+        {
+            Kind = FilterNodeKind.Compare,
+            Field = field.Id,
+            Operator = FilterOperator.LessThanOrEqual,
+            Value = BaseQueryValue.From(value),
+        });
+    }
+
     /// <summary>Adds an ascending typed sort.</summary>
     public BaseQuery<T> OrderBy<TValue>(BaseField<T, TValue> field) =>
         AddSort(field, QuerySortDirection.Asc);

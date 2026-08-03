@@ -147,16 +147,27 @@ internal sealed class GatewayDeliveryCoordinator(
         int first = (int)((uint)Interlocked.Increment(ref _fairnessCursor) % (uint)states.Length);
         int baseQuota = options.MaximumTargets / states.Length;
         int extra = options.MaximumTargets % states.Length;
+        DateTimeOffset now = timeProvider.GetUtcNow();
         for (int offset = 0; offset < states.Length; offset++)
         {
             GatewayDeliveryState state = states[(first + offset) % states.Length];
             int quota = baseQuota + (offset < extra ? 1 : 0);
             if (quota == 0) continue;
-            BaseRecord<GatewayDeliveryOutboxItem>[] page = (await session
+            BaseQuery<GatewayDeliveryOutboxItem> query = session
                 .Collection(GatewayDeliveryOutboxItem.Collection).Query()
-                .Where(GatewayDeliveryOutboxItem.Fields.State, state)
-                .Take(quota).ToArrayAsync(quota, cancellationToken)
-                .ConfigureAwait(false)).RequireValue();
+                .Where(GatewayDeliveryOutboxItem.Fields.State, state);
+            query = state switch
+            {
+                GatewayDeliveryState.RetryScheduled => query
+                    .WhereLessThanOrEqual(GatewayDeliveryOutboxItem.Fields.NextAttemptAt, (DateTimeOffset?)now)
+                    .OrderBy(GatewayDeliveryOutboxItem.Fields.NextAttemptAt),
+                GatewayDeliveryState.Claimed => query
+                    .WhereLessThanOrEqual(GatewayDeliveryOutboxItem.Fields.ClaimExpiresAt, (DateTimeOffset?)now)
+                    .OrderBy(GatewayDeliveryOutboxItem.Fields.ClaimExpiresAt),
+                _ => query,
+            };
+            BaseRecord<GatewayDeliveryOutboxItem>[] page = (await query
+                .Take(quota).ToArrayAsync(quota, cancellationToken).ConfigureAwait(false)).RequireValue();
             foreach (BaseRecord<GatewayDeliveryOutboxItem> record in page)
                 records.TryAdd(record.Id.Value, record);
         }

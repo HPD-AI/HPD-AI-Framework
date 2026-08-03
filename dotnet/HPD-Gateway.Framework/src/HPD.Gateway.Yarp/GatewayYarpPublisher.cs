@@ -258,7 +258,7 @@ internal sealed class GatewayYarpPublisher : IGatewayPublicationObservationReade
 
     private void PublishObservation(GatewayPublicationOutcome outcome)
     {
-        CancellationTokenSource previous;
+        CancellationTokenSource? previous = null;
         lock (_stateLock)
         {
             _observation = new GatewayPublicationObservation(
@@ -268,12 +268,13 @@ internal sealed class GatewayYarpPublisher : IGatewayPublicationObservationReade
                 _active,
                 _lastKnownGood,
                 _activeUpstreams);
-            previous = _observationChanged;
-            _observationChanged = new();
+            if (!_disposed)
+            {
+                previous = _observationChanged;
+                _observationChanged = new();
+            }
         }
-        try { previous.Cancel(); }
-        catch (AggregateException) { }
-        previous.Dispose();
+        if (previous is not null) CancelAndDispose(previous);
     }
 
     private static ImmutableArray<GatewayPublishedUpstream> GetActiveUpstreams(NativePublicationBundle bundle)
@@ -331,9 +332,15 @@ internal sealed class GatewayYarpPublisher : IGatewayPublicationObservationReade
         {
             changed = _observationChanged;
         }
-        try { changed.Cancel(); }
+        CancelAndDispose(changed);
+    }
+
+    private static void CancelAndDispose(CancellationTokenSource source)
+    {
+        try { source.Cancel(); }
         catch (AggregateException) { }
-        changed.Dispose();
+        catch (ObjectDisposedException) { }
+        source.Dispose();
     }
 
     private readonly record struct AttemptKey(string Authority, string Epoch, ulong Version)
