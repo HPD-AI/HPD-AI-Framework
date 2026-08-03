@@ -31,7 +31,7 @@ internal class DashScopeProvider : IChatClientProvider, IEmbeddingGeneratorProvi
     public string ProviderKey => "dashscope";
     public string DisplayName => "DashScope";
 
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider registers an AOT-compatible config deserializer in DashScopeProviderModule.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
     public async ValueTask<Meai.IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(config);
@@ -51,7 +51,7 @@ internal class DashScopeProvider : IChatClientProvider, IEmbeddingGeneratorProvi
         return new DashScopeConfiguredChatClient(chatClient, config.ModelName, useVl);
     }
 
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider registers an AOT-compatible config deserializer in DashScopeProviderModule.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
     public Meai.IEmbeddingGenerator CreateEmbeddingGenerator(ProviderClientConfig config, IServiceProvider? services = null)
     {
         ArgumentNullException.ThrowIfNull(config);
@@ -107,7 +107,7 @@ internal class DashScopeProvider : IChatClientProvider, IEmbeddingGeneratorProvi
         };
     }
 
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider registers an AOT-compatible config deserializer in DashScopeProviderModule.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
     public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
     {
         ArgumentNullException.ThrowIfNull(config);

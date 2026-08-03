@@ -47,7 +47,7 @@ internal class FireworksProvider : IChatClientProvider
     public string ProviderKey => "fireworks";
     public string DisplayName => "Fireworks AI";
 
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider registers an AOT-compatible config deserializer in FireworksProviderModule.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
     public async ValueTask<Meai.IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(config);
@@ -121,7 +121,7 @@ internal class FireworksProvider : IChatClientProvider
         };
     }
 
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider registers an AOT-compatible config deserializer in FireworksProviderModule.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
     public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
     {
         ArgumentNullException.ThrowIfNull(config);

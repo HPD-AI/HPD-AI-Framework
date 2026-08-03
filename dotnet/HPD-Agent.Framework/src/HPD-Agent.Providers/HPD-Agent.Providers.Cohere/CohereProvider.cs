@@ -26,7 +26,7 @@ internal class CohereProvider : IChatClientProvider, IEmbeddingGeneratorProvider
     public string ProviderKey => "cohere";
     public string DisplayName => "Cohere";
 
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider registers an AOT-compatible config deserializer in CohereProviderModule.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
     public async ValueTask<Meai.IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(config);
@@ -41,7 +41,7 @@ internal class CohereProvider : IChatClientProvider, IEmbeddingGeneratorProvider
         return new CohereConfiguredChatClient(client, config.ModelName);
     }
 
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider registers an AOT-compatible config deserializer in CohereProviderModule.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
     public Meai.IEmbeddingGenerator CreateEmbeddingGenerator(ProviderClientConfig config, IServiceProvider? services = null)
     {
         ArgumentNullException.ThrowIfNull(config);
@@ -90,7 +90,7 @@ internal class CohereProvider : IChatClientProvider, IEmbeddingGeneratorProvider
         };
     }
 
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider registers an AOT-compatible config deserializer in CohereProviderModule.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
     public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
     {
         ArgumentNullException.ThrowIfNull(config);

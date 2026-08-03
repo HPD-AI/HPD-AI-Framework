@@ -36,7 +36,7 @@ internal sealed class ReplicateProvider : IImageGeneratorProvider
     public string ProviderKey => "replicate";
     public string DisplayName => "Replicate";
 
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider registers an AOT-compatible config deserializer in ReplicateProviderModule.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
     public Meai.IImageGenerator CreateImageGenerator(ProviderClientConfig config, IServiceProvider? services = null)
     {
         ArgumentNullException.ThrowIfNull(config);
@@ -78,7 +78,7 @@ internal sealed class ReplicateProvider : IImageGeneratorProvider
         };
     }
 
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider registers an AOT-compatible config deserializer in ReplicateProviderModule.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
     public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
     {
         ArgumentNullException.ThrowIfNull(config);

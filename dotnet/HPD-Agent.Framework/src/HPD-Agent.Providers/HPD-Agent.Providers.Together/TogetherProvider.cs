@@ -28,7 +28,7 @@ internal class TogetherProvider : IChatClientProvider, IEmbeddingGeneratorProvid
     public string ProviderKey => "together";
     public string DisplayName => "Together AI";
 
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider registers an AOT-compatible config deserializer in TogetherProviderModule.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
     public async ValueTask<Meai.IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(config);
@@ -43,7 +43,7 @@ internal class TogetherProvider : IChatClientProvider, IEmbeddingGeneratorProvid
         return new TogetherConfiguredChatClient(client, config.ModelName);
     }
 
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider registers an AOT-compatible config deserializer in TogetherProviderModule.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
     public Meai.IEmbeddingGenerator CreateEmbeddingGenerator(ProviderClientConfig config, IServiceProvider? services = null)
     {
         ArgumentNullException.ThrowIfNull(config);
@@ -93,7 +93,7 @@ internal class TogetherProvider : IChatClientProvider, IEmbeddingGeneratorProvid
         };
     }
 
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider registers an AOT-compatible config deserializer in TogetherProviderModule.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
     public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
     {
         ArgumentNullException.ThrowIfNull(config);
