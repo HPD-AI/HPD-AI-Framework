@@ -37,7 +37,7 @@ internal sealed class StubChatClientProvider(IChatClient client) : IChatClientPr
 {
     public string ProviderKey => "test";
     public string DisplayName => "Test";
-    public async ValueTask<IChatClient> CreateChatClientAsync(ClientProviderConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default) => client;
+    public async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default) => client;
     public HPD.Agent.ErrorHandling.IProviderErrorHandler CreateErrorHandler() => new StubErrorHandler();
     public ProviderMetadata GetMetadata() => new()
     {
@@ -56,7 +56,7 @@ internal sealed class StubChatClientProvider(IChatClient client) : IChatClientPr
             }
         }
     };
-    public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family) => ProviderValidationResult.Success();
+    public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family) => ProviderValidationResult.Success();
 }
 
 internal sealed class StubErrorHandler : HPD.Agent.ErrorHandling.IProviderErrorHandler

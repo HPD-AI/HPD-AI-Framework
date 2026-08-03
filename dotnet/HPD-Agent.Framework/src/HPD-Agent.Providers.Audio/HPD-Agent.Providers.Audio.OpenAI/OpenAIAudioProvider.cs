@@ -31,7 +31,7 @@ public sealed class OpenAIAudioProvider : ISpeechToTextClientProvider, ITextToSp
     public string DisplayName => "OpenAI Audio";
 
     public ISpeechToTextClient CreateSpeechToTextClient(
-        ClientProviderConfig config,
+        ProviderClientConfig config,
         IServiceProvider? services = null)
     {
         ArgumentNullException.ThrowIfNull(config);
@@ -49,7 +49,7 @@ public sealed class OpenAIAudioProvider : ISpeechToTextClientProvider, ITextToSp
     }
 
     public ITextToSpeechClient CreateTextToSpeechClient(
-        ClientProviderConfig config,
+        ProviderClientConfig config,
         IServiceProvider? services = null)
     {
         ArgumentNullException.ThrowIfNull(config);
@@ -76,7 +76,7 @@ public sealed class OpenAIAudioProvider : ISpeechToTextClientProvider, ITextToSp
     }
 
     public IRealtimeClient CreateRealtimeClient(
-        ClientProviderConfig config,
+        ProviderClientConfig config,
         IServiceProvider? services = null)
     {
         ArgumentNullException.ThrowIfNull(config);
@@ -162,7 +162,7 @@ public sealed class OpenAIAudioProvider : ISpeechToTextClientProvider, ITextToSp
     };
 
     public ProviderValidationResult ValidateConfiguration(
-        ClientProviderConfig config,
+        ProviderClientConfig config,
         ProviderClientFamily family)
     {
         ArgumentNullException.ThrowIfNull(config);
@@ -220,7 +220,7 @@ public sealed class OpenAIAudioProvider : ISpeechToTextClientProvider, ITextToSp
     }
 
     private static OpenAIClient CreateOpenAIClient(
-        ClientProviderConfig config,
+        ProviderClientConfig config,
         OpenAISttConfig providerConfig,
         IServiceProvider? services)
     {
@@ -253,7 +253,7 @@ public sealed class OpenAIAudioProvider : ISpeechToTextClientProvider, ITextToSp
     }
 
     private static OpenAIClient CreateOpenAIClient(
-        ClientProviderConfig config,
+        ProviderClientConfig config,
         OpenAITtsConfig providerConfig,
         IServiceProvider? services)
     {
@@ -286,7 +286,7 @@ public sealed class OpenAIAudioProvider : ISpeechToTextClientProvider, ITextToSp
     }
 
     private static RealtimeClient CreateOpenAIRealtimeClient(
-        ClientProviderConfig config,
+        ProviderClientConfig config,
         OpenAIRealtimeConfig providerConfig,
         IServiceProvider? services)
     {
@@ -308,7 +308,7 @@ public sealed class OpenAIAudioProvider : ISpeechToTextClientProvider, ITextToSp
     }
 
     private static string ResolveApiKey(
-        ClientProviderConfig config,
+        ProviderClientConfig config,
         OpenAISttConfig providerConfig,
         ISecretResolver? secrets)
     {
@@ -328,11 +328,11 @@ public sealed class OpenAIAudioProvider : ISpeechToTextClientProvider, ITextToSp
 
         throw new InvalidOperationException(
             "OpenAI API key is required for speech-to-text. " +
-            "Set ClientProviderConfig.ApiKey, provider options apiKey, or provide an ISecretResolver with key 'openai:ApiKey'.");
+            "Set ProviderClientConfig.ApiKey, provider options apiKey, or provide an ISecretResolver with key 'openai:ApiKey'.");
     }
 
     private static string ResolveApiKey(
-        ClientProviderConfig config,
+        ProviderClientConfig config,
         OpenAITtsConfig providerConfig,
         ISecretResolver? secrets)
     {
@@ -352,11 +352,11 @@ public sealed class OpenAIAudioProvider : ISpeechToTextClientProvider, ITextToSp
 
         throw new InvalidOperationException(
             "OpenAI API key is required for text-to-speech. " +
-            "Set ClientProviderConfig.ApiKey, provider options apiKey, or provide an ISecretResolver with key 'openai:ApiKey'.");
+            "Set ProviderClientConfig.ApiKey, provider options apiKey, or provide an ISecretResolver with key 'openai:ApiKey'.");
     }
 
     private static string ResolveApiKey(
-        ClientProviderConfig config,
+        ProviderClientConfig config,
         OpenAIRealtimeConfig providerConfig,
         ISecretResolver? secrets)
     {
@@ -376,11 +376,11 @@ public sealed class OpenAIAudioProvider : ISpeechToTextClientProvider, ITextToSp
 
         throw new InvalidOperationException(
             "OpenAI API key is required for realtime. " +
-            "Set ClientProviderConfig.ApiKey, provider options apiKey, or provide an ISecretResolver with key 'openai:ApiKey'.");
+            "Set ProviderClientConfig.ApiKey, provider options apiKey, or provide an ISecretResolver with key 'openai:ApiKey'.");
     }
 
     private static string? ResolveEndpoint(
-        ClientProviderConfig config,
+        ProviderClientConfig config,
         OpenAISttConfig providerConfig,
         ISecretResolver? secrets)
     {
@@ -397,7 +397,7 @@ public sealed class OpenAIAudioProvider : ISpeechToTextClientProvider, ITextToSp
     }
 
     private static string? ResolveEndpoint(
-        ClientProviderConfig config,
+        ProviderClientConfig config,
         OpenAITtsConfig providerConfig,
         ISecretResolver? secrets)
     {
@@ -414,7 +414,7 @@ public sealed class OpenAIAudioProvider : ISpeechToTextClientProvider, ITextToSp
     }
 
     private static string? ResolveEndpoint(
-        ClientProviderConfig config,
+        ProviderClientConfig config,
         OpenAIRealtimeConfig providerConfig,
         ISecretResolver? secrets)
     {
@@ -430,7 +430,7 @@ public sealed class OpenAIAudioProvider : ISpeechToTextClientProvider, ITextToSp
             .GetResult();
     }
 
-    private static OpenAISttConfig ReadProviderConfig(ClientProviderConfig config)
+    private static OpenAISttConfig ReadProviderConfig(ProviderClientConfig config)
     {
         var providerOptionsJson = config.GetConstructionOptionsRawJson();
         if (string.IsNullOrWhiteSpace(providerOptionsJson))
@@ -444,7 +444,7 @@ public sealed class OpenAIAudioProvider : ISpeechToTextClientProvider, ITextToSp
             ?? new OpenAISttConfig();
     }
 
-    private static OpenAITtsConfig ReadTtsProviderConfig(ClientProviderConfig config)
+    private static OpenAITtsConfig ReadTtsProviderConfig(ProviderClientConfig config)
     {
         var providerOptionsJson = config.GetConstructionOptionsRawJson();
         if (string.IsNullOrWhiteSpace(providerOptionsJson))
@@ -458,7 +458,7 @@ public sealed class OpenAIAudioProvider : ISpeechToTextClientProvider, ITextToSp
             ?? new OpenAITtsConfig();
     }
 
-    private static OpenAIRealtimeConfig ReadRealtimeProviderConfig(ClientProviderConfig config)
+    private static OpenAIRealtimeConfig ReadRealtimeProviderConfig(ProviderClientConfig config)
     {
         var providerOptionsJson = config.GetConstructionOptionsRawJson();
         if (string.IsNullOrWhiteSpace(providerOptionsJson))

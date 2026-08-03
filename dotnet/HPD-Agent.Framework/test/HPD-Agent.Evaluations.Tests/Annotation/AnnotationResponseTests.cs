@@ -121,7 +121,7 @@ public sealed class AnnotationResponseTests
         {
             Name = "AnnotationResponseTestAgent",
             SystemInstructions = "You are a test agent.",
-            Clients = new AgentClientConfig { Chat = new ClientProviderConfig { ProviderKey = "test", ModelName = "test-model" } },
+            Clients = new AgentClientsConfig { Chat = new ProviderClientConfig { ProviderKey = "test", ModelName = "test-model" } },
         };
 
         return await new AgentBuilder(config, new StubProviderRegistry(new StubChatClient()))

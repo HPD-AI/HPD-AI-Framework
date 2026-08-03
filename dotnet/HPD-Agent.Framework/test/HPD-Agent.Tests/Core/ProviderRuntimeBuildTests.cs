@@ -17,9 +17,9 @@ public sealed class ProviderRuntimeBuildTests
         var secrets = new CountingSecretResolver();
         var config = new AgentConfig
         {
-            Clients = new AgentClientConfig
+            Clients = new AgentClientsConfig
             {
-                Chat = new ClientProviderConfig { ProviderKey = "build-tracking", ModelName = "model" }
+                Chat = new ProviderClientConfig { ProviderKey = "build-tracking", ModelName = "model" }
             }
         };
 
@@ -57,7 +57,7 @@ public sealed class ProviderRuntimeBuildTests
         public string DisplayName => "Build Tracking";
         public int CreateCount { get; private set; }
 
-        public ValueTask<IChatClient> CreateChatClientAsync(ClientProviderConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
+        public ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
         {
             CreateCount++;
             return ValueTask.FromResult<IChatClient>(new FakeChatClient());
@@ -65,7 +65,7 @@ public sealed class ProviderRuntimeBuildTests
 
         public IProviderErrorHandler CreateErrorHandler() => new GenericErrorHandler();
         public ProviderMetadata GetMetadata() => new() { ProviderKey = ProviderKey, DisplayName = DisplayName };
-        public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family)
+        public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
             => ProviderValidationResult.Success();
     }
 }

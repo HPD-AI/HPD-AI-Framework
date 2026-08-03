@@ -41,7 +41,7 @@ public static class AgentBuilderExtensions
     /// </para>
     /// <para>
     /// This method creates an <see cref="AzureAIProviderConfig"/> that is:
-    /// - Stored in <c>ClientProviderConfig.ConstructionOptions</c> as a structured JSON/YAML object
+    /// - Stored in <c>ProviderClientConfig.ConstructionOptions</c> as a structured JSON/YAML object
     /// - Applied during <c>AzureAIProvider.CreateChatClientAsync()</c> via the registered deserializer
     /// </para>
     /// <para>
@@ -114,7 +114,7 @@ public static class AgentBuilderExtensions
         configure?.Invoke(providerConfig);
 
         // Build provider config
-        var chatConfig = new ClientProviderConfig
+        var chatConfig = new ProviderClientConfig
         {
             ProviderKey = "azure-ai",
             Endpoint = endpoint,

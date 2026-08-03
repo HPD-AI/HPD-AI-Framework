@@ -19,7 +19,7 @@ public static class NebiusAgentBuilderExtensions
             throw new ArgumentException("Model is required for Nebius Token Factory provider.", nameof(model));
         }
 
-        var chatConfig = new ClientProviderConfig
+        var chatConfig = new ProviderClientConfig
         {
             ProviderKey = "nebius",
             ApiKey = apiKey,

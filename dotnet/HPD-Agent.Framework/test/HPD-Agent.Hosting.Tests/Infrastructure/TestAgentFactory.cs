@@ -62,7 +62,7 @@ public static class TestAgentFactory
             Name = "TestAgent",
             MaxAgenticIterations = 50,
             SystemInstructions = "You are a helpful test agent.",
-            Clients = new AgentClientConfig { Chat = new ClientProviderConfig {
+            Clients = new AgentClientsConfig { Chat = new ProviderClientConfig {
                 ProviderKey = "test",  // Required by validation
                 ModelName = "test-model"
             } },
@@ -142,7 +142,7 @@ internal class TestChatClientProvider : IChatClientProvider
     public string ProviderKey => "test";
     public string DisplayName => "Test Provider";
 
-    public async ValueTask<IChatClient> CreateChatClientAsync(ClientProviderConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
+    public async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
     {
         return _chatClient;
     }
@@ -173,7 +173,7 @@ internal class TestChatClientProvider : IChatClientProvider
         };
     }
 
-    public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family)
+    public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
     {
         return ProviderValidationResult.Success();
     }

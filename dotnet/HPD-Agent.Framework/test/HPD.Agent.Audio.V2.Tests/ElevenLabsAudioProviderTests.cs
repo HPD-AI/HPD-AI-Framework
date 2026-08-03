@@ -191,7 +191,7 @@ public sealed class ElevenLabsAudioProviderTests
         var provider = new ElevenLabsAudioProvider();
 
         var result = provider.ValidateConfiguration(
-            new ClientProviderConfig
+            new ProviderClientConfig
             {
                 ProviderKey = "elevenlabs"
             },
@@ -207,7 +207,7 @@ public sealed class ElevenLabsAudioProviderTests
         var provider = new ElevenLabsAudioProvider();
 
         var result = provider.ValidateConfiguration(
-            new ClientProviderConfig
+            new ProviderClientConfig
             {
                 ProviderKey = "elevenlabs",
                 ConstructionOptions = JsonDocument.Parse("""{"apiKey":"el-test","stability":0.4}""").RootElement.Clone()
@@ -223,7 +223,7 @@ public sealed class ElevenLabsAudioProviderTests
         var provider = new ElevenLabsAudioProvider();
 
         var result = provider.ValidateConfiguration(
-            new ClientProviderConfig
+            new ProviderClientConfig
             {
                 ProviderKey = "elevenlabs",
                 ConstructionOptions = JsonDocument.Parse("""{"apiKey":"el-test","defaultModelId":"scribe_v2"}""").RootElement.Clone()
@@ -239,7 +239,7 @@ public sealed class ElevenLabsAudioProviderTests
         var provider = new ElevenLabsAudioProvider();
 
         var result = provider.ValidateConfiguration(
-            new ClientProviderConfig
+            new ProviderClientConfig
             {
                 ProviderKey = "elevenlabs",
                 ApiKey = "el-test"
@@ -256,7 +256,7 @@ public sealed class ElevenLabsAudioProviderTests
         var provider = new ElevenLabsAudioProvider();
 
         var result = provider.ValidateConfiguration(
-            new ClientProviderConfig
+            new ProviderClientConfig
             {
                 ProviderKey = "elevenlabs",
                 ApiKey = "el-test",
@@ -452,7 +452,7 @@ public sealed class ElevenLabsAudioProviderTests
 
         var exception = Assert.Throws<InvalidOperationException>(() =>
             provider.CreateTextToSpeechClient(
-                new ClientProviderConfig
+                new ProviderClientConfig
                 {
                     ProviderKey = "elevenlabs"
                 }));
@@ -467,7 +467,7 @@ public sealed class ElevenLabsAudioProviderTests
         var provider = new ElevenLabsAudioProvider();
 
         using var client = provider.CreateTextToSpeechClient(
-            new ClientProviderConfig
+            new ProviderClientConfig
             {
                 ProviderKey = "elevenlabs",
                 ModelName = "eleven_flash_v2_5",
@@ -489,7 +489,7 @@ public sealed class ElevenLabsAudioProviderTests
 
         var exception = Assert.Throws<InvalidOperationException>(() =>
             provider.CreateSpeechToTextClient(
-                new ClientProviderConfig
+                new ProviderClientConfig
                 {
                     ProviderKey = "elevenlabs"
                 }));
@@ -505,7 +505,7 @@ public sealed class ElevenLabsAudioProviderTests
         var provider = new ElevenLabsAudioProvider();
 
         using var client = provider.CreateSpeechToTextClient(
-            new ClientProviderConfig
+            new ProviderClientConfig
             {
                 ProviderKey = "elevenlabs",
                 ModelName = "scribe_v2",
@@ -586,7 +586,7 @@ public sealed class ElevenLabsAudioProviderTests
         var provider = new ElevenLabsAudioProvider();
 
         using var client = provider.CreateTextToSpeechClient(
-            new ClientProviderConfig
+            new ProviderClientConfig
             {
                 ProviderKey = "elevenlabs",
                 ApiKey = "el-test"
@@ -609,7 +609,7 @@ public sealed class ElevenLabsAudioProviderTests
         var provider = new ElevenLabsAudioProvider();
 
         using var client = provider.CreateTextToSpeechClient(
-            new ClientProviderConfig
+            new ProviderClientConfig
             {
                 ProviderKey = "elevenlabs",
                 ApiKey = "el-test",
@@ -725,7 +725,7 @@ public sealed class ElevenLabsAudioProviderTests
             }));
 
         using var client = provider.CreateTextToSpeechClient(
-            new ClientProviderConfig
+            new ProviderClientConfig
             {
                 ProviderKey = "elevenlabs"
             },
@@ -741,7 +741,7 @@ public sealed class ElevenLabsAudioProviderTests
         var provider = new ElevenLabsAudioProvider();
 
         using var client = provider.CreateTextToSpeechClient(
-            new ClientProviderConfig
+            new ProviderClientConfig
             {
                 ProviderKey = "elevenlabs"
             });
@@ -861,7 +861,7 @@ public sealed class ElevenLabsAudioProviderTests
 
         var provider = new ElevenLabsAudioProvider();
         using var client = provider.CreateTextToSpeechClient(
-            new ClientProviderConfig
+            new ProviderClientConfig
             {
                 ProviderKey = "elevenlabs",
                 ApiKey = apiKey,

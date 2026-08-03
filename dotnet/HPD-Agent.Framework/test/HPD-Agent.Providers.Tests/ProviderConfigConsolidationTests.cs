@@ -422,9 +422,9 @@ public class ProviderConfigConsolidationTests
     }
 
     [Fact]
-    public void ClientProviderConfig_ChatDefaults_ShouldOwnGenericRuntimeDefaults()
+    public void ProviderClientConfig_ChatDefaults_ShouldOwnGenericRuntimeDefaults()
     {
-        var config = new ClientProviderConfig
+        var config = new ProviderClientConfig
         {
             ProviderKey = "xai",
             ModelName = "grok-4",

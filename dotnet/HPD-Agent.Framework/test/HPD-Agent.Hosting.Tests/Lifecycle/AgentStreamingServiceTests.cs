@@ -191,9 +191,9 @@ public sealed class AgentStreamingServiceTests : IDisposable
             {
                 Name = "agent-1",
                 MaxAgenticIterations = 1,
-                Clients = new AgentClientConfig
+                Clients = new AgentClientsConfig
                 {
-                    Chat = new ClientProviderConfig
+                    Chat = new ProviderClientConfig
                     {
                         ProviderKey = "test",
                         ModelName = "test-model"
@@ -243,9 +243,9 @@ public sealed class AgentStreamingServiceTests : IDisposable
         var stored = await _agentManager.CreateDefinitionAsync(new AgentConfig
         {
             Name = "agent-1",
-            Clients = new AgentClientConfig
+            Clients = new AgentClientsConfig
             {
-                Chat = new ClientProviderConfig { ProviderKey = "test", ModelName = "test-model" }
+                Chat = new ProviderClientConfig { ProviderKey = "test", ModelName = "test-model" }
             }
         }, "agent-1");
 
@@ -276,9 +276,9 @@ public sealed class AgentStreamingServiceTests : IDisposable
             {
                 Name = "agent-1",
                 MaxAgenticIterations = 1,
-                Clients = new AgentClientConfig
+                Clients = new AgentClientsConfig
                 {
-                    Chat = new ClientProviderConfig
+                    Chat = new ProviderClientConfig
                     {
                         ProviderKey = "test",
                         ModelName = "test-model"
@@ -353,9 +353,9 @@ public sealed class AgentStreamingServiceTests : IDisposable
                 {
                     Name = agentId,
                     MaxAgenticIterations = 1,
-                    Clients = new AgentClientConfig
+                    Clients = new AgentClientsConfig
                     {
-                        Chat = new ClientProviderConfig
+                        Chat = new ProviderClientConfig
                         {
                             ProviderKey = "test",
                             ModelName = "test-model"

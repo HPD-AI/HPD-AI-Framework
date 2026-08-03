@@ -19,7 +19,7 @@ internal class OpenRouterProvider : IChatClientProvider
     public string ProviderKey => "openrouter";
     public string DisplayName => "OpenRouter";
 
-    public async ValueTask<IChatClient> CreateChatClientAsync(ClientProviderConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
+    public async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
     {
         // Get secret resolver from services
         var secrets = services?.GetService<ISecretResolver>();
@@ -75,14 +75,14 @@ internal class OpenRouterProvider : IChatClientProvider
                         ["SupportsProviderRouting"] = true,
                         ["SupportsPriceFiltering"] = true,
                         ["SupportsZeroDataRetention"] = true,
-                        ["AttributionRequirements"] = "Set ClientProviderConfig.HttpReferer and ClientProviderConfig.AppName for app rankings"
+                        ["AttributionRequirements"] = "Set ProviderClientConfig.HttpReferer and ProviderClientConfig.AppName for app rankings"
                     }
                 }
             }
         };
     }
 
-    public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family)
+    public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
     {
         // Note: API key validation is now deferred to CreateChatClient where ISecretResolver is available
         // This method only validates config structure, not secret resolution
@@ -93,16 +93,16 @@ internal class OpenRouterProvider : IChatClientProvider
     }
 
     /// <summary>
-    /// Creates a properly configured ClientProviderConfig with attribution headers for OpenRouter app ranking.
+    /// Creates a properly configured ProviderClientConfig with attribution headers for OpenRouter app ranking.
     /// </summary>
     /// <param name="apiKey">Your OpenRouter API key.</param>
     /// <param name="modelName">The model to use.</param>
     /// <param name="appUrl">Your app's URL (for HTTP-Referer header).</param>
     /// <param name="appName">Your app's display name (for X-Title header).</param>
-    /// <returns>A configured ClientProviderConfig with attribution.</returns>
-    public static ClientProviderConfig CreateConfigWithAttribution(string apiKey, string modelName, string appUrl, string appName)
+    /// <returns>A configured ProviderClientConfig with attribution.</returns>
+    public static ProviderClientConfig CreateConfigWithAttribution(string apiKey, string modelName, string appUrl, string appName)
     {
-        return new ClientProviderConfig
+        return new ProviderClientConfig
         {
             ProviderKey = "openrouter",
             ApiKey = apiKey,
@@ -113,13 +113,13 @@ internal class OpenRouterProvider : IChatClientProvider
     }
 
     /// <summary>
-    /// Adds attribution headers to an existing ClientProviderConfig.
+    /// Adds attribution headers to an existing ProviderClientConfig.
     /// </summary>
     /// <param name="config">The existing configuration.</param>
     /// <param name="appUrl">Your app's URL (for HTTP-Referer header).</param>
     /// <param name="appName">Your app's display name (for X-Title header).</param>
     /// <returns>The updated configuration.</returns>
-    public static ClientProviderConfig WithAttribution(ClientProviderConfig config, string appUrl, string appName)
+    public static ProviderClientConfig WithAttribution(ProviderClientConfig config, string appUrl, string appName)
     {
         config.HttpReferer = appUrl;
         config.AppName = appName;
@@ -136,7 +136,7 @@ internal class OpenRouterProvider : IChatClientProvider
     /// <param name="family">The provider client family being validated.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns>A validation result indicating if the key is valid.</returns>
-    public async Task<ProviderValidationResult> ValidateConfigurationAsync(ClientProviderConfig config, ProviderClientFamily family, CancellationToken cancellationToken = default)
+    public async Task<ProviderValidationResult> ValidateConfigurationAsync(ProviderClientConfig config, ProviderClientFamily family, CancellationToken cancellationToken = default)
     {
         var basicValidation = ValidateConfiguration(config, family);
         if (!basicValidation.IsValid)
@@ -197,7 +197,7 @@ internal class OpenRouterProvider : IChatClientProvider
     /// </summary>
     /// <param name="config">The provider configuration.</param>
     /// <returns>Attribution information with referer and title.</returns>
-    private static AttributionInfo ExtractAttributionInfo(ClientProviderConfig config)
+    private static AttributionInfo ExtractAttributionInfo(ProviderClientConfig config)
     {
         var attribution = new AttributionInfo();
 

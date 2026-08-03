@@ -22,7 +22,7 @@ internal class CohereProvider : IChatClientProvider, IEmbeddingGeneratorProvider
     public string DisplayName => "Cohere";
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider registers an AOT-compatible config deserializer in CohereProviderModule.")]
-    public async ValueTask<Meai.IChatClient> CreateChatClientAsync(ClientProviderConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
+    public async ValueTask<Meai.IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(config);
 
@@ -37,7 +37,7 @@ internal class CohereProvider : IChatClientProvider, IEmbeddingGeneratorProvider
     }
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider registers an AOT-compatible config deserializer in CohereProviderModule.")]
-    public Meai.IEmbeddingGenerator CreateEmbeddingGenerator(ClientProviderConfig config, IServiceProvider? services = null)
+    public Meai.IEmbeddingGenerator CreateEmbeddingGenerator(ProviderClientConfig config, IServiceProvider? services = null)
     {
         ArgumentNullException.ThrowIfNull(config);
 
@@ -90,7 +90,7 @@ internal class CohereProvider : IChatClientProvider, IEmbeddingGeneratorProvider
     }
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider registers an AOT-compatible config deserializer in CohereProviderModule.")]
-    public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family)
+    public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
     {
         ArgumentNullException.ThrowIfNull(config);
 
@@ -129,7 +129,7 @@ internal class CohereProvider : IChatClientProvider, IEmbeddingGeneratorProvider
             errors.Add("EmbeddingModelId cannot be empty");
     }
 
-    private static global::Cohere.CohereClient CreateCohereClient(ClientProviderConfig config, IServiceProvider? services)
+    private static global::Cohere.CohereClient CreateCohereClient(ProviderClientConfig config, IServiceProvider? services)
     {
         var secrets = services?.GetService<ISecretResolver>();
         if (secrets is null)

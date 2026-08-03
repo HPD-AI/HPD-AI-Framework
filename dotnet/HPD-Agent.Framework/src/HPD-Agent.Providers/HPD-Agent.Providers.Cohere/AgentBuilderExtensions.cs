@@ -23,7 +23,7 @@ public static class AgentBuilderExtensions
         if (string.IsNullOrWhiteSpace(model))
             throw new ArgumentException("Model is required for Cohere provider.", nameof(model));
 
-        var chatConfig = new ClientProviderConfig
+        var chatConfig = new ProviderClientConfig
         {
             ProviderKey = "cohere",
             ApiKey = apiKey,
@@ -88,7 +88,7 @@ public static class AgentBuilderExtensions
         configure?.Invoke(providerConfig);
         ValidateProviderConfig(providerConfig, configure);
 
-        var embeddingConfig = new ClientProviderConfig
+        var embeddingConfig = new ProviderClientConfig
         {
             ProviderKey = "cohere",
             ApiKey = apiKey,

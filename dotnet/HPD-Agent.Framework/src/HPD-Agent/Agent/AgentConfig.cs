@@ -45,31 +45,31 @@ public class AgentConfig
     /// <summary>
     /// Configuration for provider-created client families.
     /// </summary>
-    public AgentClientConfig? Clients { get; set; }
+    public AgentClientsConfig? Clients { get; set; }
 
-    public void SetClientConfig(HPD.Agent.Providers.ProviderClientFamily family, ClientProviderConfig? config)
+    public void SetClientConfig(HPD.Agent.Providers.ProviderClientFamily family, ProviderClientConfig? config)
     {
-        Clients ??= new AgentClientConfig();
+        Clients ??= new AgentClientsConfig();
         Clients.SetFamilyConfig(family, config);
     }
 
-    public void SetChatClientConfig(ClientProviderConfig? config) =>
+    public void SetChatClientConfig(ProviderClientConfig? config) =>
         SetClientConfig(HPD.Agent.Providers.ProviderClientFamily.Chat, config);
 
-    public ClientProviderConfig EnsureClientConfig(HPD.Agent.Providers.ProviderClientFamily family)
+    public ProviderClientConfig EnsureClientConfig(HPD.Agent.Providers.ProviderClientFamily family)
     {
-        Clients ??= new AgentClientConfig();
+        Clients ??= new AgentClientsConfig();
 
         var config = Clients.GetFamilyConfig(family);
         if (config is not null)
             return config;
 
-        config = new ClientProviderConfig();
+        config = new ProviderClientConfig();
         Clients.SetFamilyConfig(family, config);
         return config;
     }
 
-    public ClientProviderConfig EnsureChatClientConfig() =>
+    public ProviderClientConfig EnsureChatClientConfig() =>
         EnsureClientConfig(HPD.Agent.Providers.ProviderClientFamily.Chat);
 
     /// <summary>
@@ -239,11 +239,11 @@ public class AgentConfig
     /// </remarks>
     public bool IncludeReasoningInModelHistory { get; set; } = false;
 
-    public ClientProviderConfig? ResolveClientConfig(
+    public ProviderClientConfig? ResolveClientConfig(
         HPD.Agent.Providers.ProviderClientFamily family,
-        AgentClientConfig? runClients = null)
+        AgentClientsConfig? runClients = null)
     {
-        return ClientProviderConfigResolver.Resolve(
+        return ProviderClientConfigResolver.Resolve(
             Clients,
             family,
             runClients);
@@ -492,7 +492,7 @@ public class McpConfig
 /// Configuration for AI provider settings.
 /// Based on existing patterns in AgentBuilder.
 /// </summary>
-public class ClientProviderConfig
+public class ProviderClientConfig
 {
     /// <summary>
     /// Provider identifier (lowercase, e.g., "openai", "anthropic", "ollama").
@@ -642,21 +642,21 @@ public class ClientProviderConfig
 /// Shared provider defaults live in <see cref="Providers"/> and are merged with
 /// family-specific settings when a client family is resolved.
 /// </summary>
-public class AgentClientConfig
+public class AgentClientsConfig
 {
-    public Dictionary<string, ClientProviderConfig>? Providers { get; set; }
+    public Dictionary<string, ProviderClientConfig>? Providers { get; set; }
 
-    public ClientProviderConfig? Chat { get; set; }
-    public ClientProviderConfig? TextToSpeech { get; set; }
-    public ClientProviderConfig? SpeechToText { get; set; }
-    public ClientProviderConfig? Realtime { get; set; }
-    public ClientProviderConfig? ImageGeneration { get; set; }
-    public ClientProviderConfig? Embeddings { get; set; }
-    public ClientProviderConfig? HostedFiles { get; set; }
-    public ClientProviderConfig? VoiceActivityDetection { get; set; }
-    public ClientProviderConfig? EndOfTurnDetection { get; set; }
+    public ProviderClientConfig? Chat { get; set; }
+    public ProviderClientConfig? TextToSpeech { get; set; }
+    public ProviderClientConfig? SpeechToText { get; set; }
+    public ProviderClientConfig? Realtime { get; set; }
+    public ProviderClientConfig? ImageGeneration { get; set; }
+    public ProviderClientConfig? Embeddings { get; set; }
+    public ProviderClientConfig? HostedFiles { get; set; }
+    public ProviderClientConfig? VoiceActivityDetection { get; set; }
+    public ProviderClientConfig? EndOfTurnDetection { get; set; }
 
-    public ClientProviderConfig? GetFamilyConfig(HPD.Agent.Providers.ProviderClientFamily family) =>
+    public ProviderClientConfig? GetFamilyConfig(HPD.Agent.Providers.ProviderClientFamily family) =>
         family switch
         {
             HPD.Agent.Providers.ProviderClientFamily.Chat => Chat,
@@ -671,7 +671,7 @@ public class AgentClientConfig
             _ => null
         };
 
-    public void SetFamilyConfig(HPD.Agent.Providers.ProviderClientFamily family, ClientProviderConfig? config)
+    public void SetFamilyConfig(HPD.Agent.Providers.ProviderClientFamily family, ProviderClientConfig? config)
     {
         switch (family)
         {
@@ -722,12 +722,12 @@ public class AgentClientMiddlewareConfig
     public List<Func<IEotDetector, HPD.Agent.Providers.ProviderComponentLifetimeContext, IServiceProvider?, IEotDetector>>? EndOfTurnDetection { get; set; }
 }
 
-internal static class ClientProviderConfigResolver
+internal static class ProviderClientConfigResolver
 {
-    public static ClientProviderConfig? Resolve(
-        AgentClientConfig? agentClients,
+    public static ProviderClientConfig? Resolve(
+        AgentClientsConfig? agentClients,
         HPD.Agent.Providers.ProviderClientFamily family,
-        AgentClientConfig? runClients = null)
+        AgentClientsConfig? runClients = null)
     {
         var agentFamily = agentClients?.GetFamilyConfig(family);
 
@@ -745,30 +745,30 @@ internal static class ClientProviderConfigResolver
         return Merge(agentShared, compatibleAgentFamily, runShared, runFamily);
     }
 
-    public static ClientProviderConfig? Merge(params ClientProviderConfig?[] configs)
+    public static ProviderClientConfig? Merge(params ProviderClientConfig?[] configs)
     {
-        ClientProviderConfig? result = null;
+        ProviderClientConfig? result = null;
 
         foreach (var config in configs)
         {
             if (config == null)
                 continue;
 
-            result ??= new ClientProviderConfig();
+            result ??= new ProviderClientConfig();
             Apply(result, config);
         }
 
         return IsEmpty(result) ? null : result;
     }
 
-    public static ClientProviderConfig Clone(ClientProviderConfig config)
+    public static ProviderClientConfig Clone(ProviderClientConfig config)
     {
-        var clone = new ClientProviderConfig();
+        var clone = new ProviderClientConfig();
         Apply(clone, config);
         return clone;
     }
 
-    private static ClientProviderConfig? GetShared(AgentClientConfig? clients, string? providerKey)
+    private static ProviderClientConfig? GetShared(AgentClientsConfig? clients, string? providerKey)
     {
         if (clients?.Providers == null || string.IsNullOrWhiteSpace(providerKey))
             return null;
@@ -779,7 +779,7 @@ internal static class ClientProviderConfigResolver
                 string.Equals(pair.Key, providerKey, StringComparison.OrdinalIgnoreCase)).Value;
     }
 
-    private static void Apply(ClientProviderConfig target, ClientProviderConfig source)
+    private static void Apply(ProviderClientConfig target, ProviderClientConfig source)
     {
         if (!string.IsNullOrWhiteSpace(source.ProviderKey))
             target.ProviderKey = source.ProviderKey;
@@ -847,7 +847,7 @@ internal static class ClientProviderConfigResolver
         return obj;
     }
 
-    private static bool IsEmpty(ClientProviderConfig? config) =>
+    private static bool IsEmpty(ProviderClientConfig? config) =>
         config == null ||
         (string.IsNullOrWhiteSpace(config.ProviderKey) &&
          string.IsNullOrWhiteSpace(config.ModelName) &&
@@ -1060,7 +1060,7 @@ public sealed record RemovalCompaction : CompactionStrategy;
 
 public sealed record SummarizingCompaction : CompactionStrategy
 {
-    public ClientProviderConfig? Provider { get; init; }
+    public ProviderClientConfig? Provider { get; init; }
     public string? Instructions { get; init; }
 }
 

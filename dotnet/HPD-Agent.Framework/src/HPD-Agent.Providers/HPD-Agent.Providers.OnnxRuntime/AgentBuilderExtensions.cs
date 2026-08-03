@@ -35,7 +35,7 @@ public static class AgentBuilderExtensions
         configure?.Invoke(providerConfig);
         ValidateProviderConfig(providerConfig, configure);
 
-        var chatConfig = new ClientProviderConfig
+        var chatConfig = new ProviderClientConfig
         {
             ProviderKey = "onnx-runtime",
             ModelName = Path.GetFileName(modelPath)

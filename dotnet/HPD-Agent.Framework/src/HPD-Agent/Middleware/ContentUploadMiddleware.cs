@@ -298,7 +298,7 @@ public class ContentUploadMiddleware : IAgentMiddleware
             var config = context.ClientSet?.GetResolvedConfig(ProviderClientFamily.HostedFiles)
                 ?? context.Config?.Clients?.HostedFiles
                 ?? context.Config?.Clients?.Chat
-                ?? new ClientProviderConfig();
+                ?? new ProviderClientConfig();
 
             return provider.CreateHostedFileClient(config, context.Services);
         }

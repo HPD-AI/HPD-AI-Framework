@@ -29,7 +29,7 @@ public static class AgentBuilderExtensions
         configure?.Invoke(providerConfig);
         ValidateProviderConfig(providerConfig, configure);
 
-        var chatConfig = new ClientProviderConfig
+        var chatConfig = new ProviderClientConfig
         {
             ProviderKey = "dashscope",
             ApiKey = apiKey,
@@ -65,7 +65,7 @@ public static class AgentBuilderExtensions
         configure?.Invoke(providerConfig);
         ValidateProviderConfig(providerConfig, configure);
 
-        var embeddingConfig = new ClientProviderConfig
+        var embeddingConfig = new ProviderClientConfig
         {
             ProviderKey = "dashscope",
             ApiKey = apiKey,

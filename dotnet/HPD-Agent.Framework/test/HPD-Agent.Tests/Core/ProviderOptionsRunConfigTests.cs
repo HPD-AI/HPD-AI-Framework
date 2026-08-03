@@ -116,13 +116,13 @@ public sealed class ConstructionOptionsRunConfigTests : AgentTestBase
 
     private sealed class CapturingChatClientProvider(IChatClient chatClient) : IChatClientProvider
     {
-        public List<ClientProviderConfig> CreatedConfigs { get; } = [];
+        public List<ProviderClientConfig> CreatedConfigs { get; } = [];
 
         public string ProviderKey => "test";
 
         public string DisplayName => "Test Provider";
 
-        public async ValueTask<IChatClient> CreateChatClientAsync(ClientProviderConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
+        public async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
         {
             CreatedConfigs.Add(config);
             return chatClient;
@@ -150,7 +150,7 @@ public sealed class ConstructionOptionsRunConfigTests : AgentTestBase
                 }
             };
 
-        public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family)
+        public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
             => ProviderValidationResult.Success();
     }
 

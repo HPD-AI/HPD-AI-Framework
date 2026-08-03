@@ -18,18 +18,18 @@ public sealed class AgentClientSet : IDisposable
     public Func<ProviderComponentLifetimeContext, IVoiceActivityDetector>? VoiceActivityDetectorFactory { get; init; }
     public Func<ProviderComponentLifetimeContext, IEotDetector>? EndOfTurnDetectorFactory { get; init; }
 
-    public IReadOnlyDictionary<ProviderClientFamily, ClientProviderConfig> ResolvedConfigs { get; init; }
-        = new Dictionary<ProviderClientFamily, ClientProviderConfig>();
+    public IReadOnlyDictionary<ProviderClientFamily, ProviderClientConfig> ResolvedConfigs { get; init; }
+        = new Dictionary<ProviderClientFamily, ProviderClientConfig>();
 
     public static AgentClientSet Empty { get; } = new();
 
     public static AgentClientSet ForChat(
         IChatClient? chat,
-        ClientProviderConfig? chatConfig = null)
+        ProviderClientConfig? chatConfig = null)
     {
         var configs = chatConfig == null
-            ? new Dictionary<ProviderClientFamily, ClientProviderConfig>()
-            : new Dictionary<ProviderClientFamily, ClientProviderConfig>
+            ? new Dictionary<ProviderClientFamily, ProviderClientConfig>()
+            : new Dictionary<ProviderClientFamily, ProviderClientConfig>
             {
                 [ProviderClientFamily.Chat] = chatConfig
             };
@@ -41,7 +41,7 @@ public sealed class AgentClientSet : IDisposable
         };
     }
 
-    public ClientProviderConfig? GetResolvedConfig(ProviderClientFamily family)
+    public ProviderClientConfig? GetResolvedConfig(ProviderClientFamily family)
         => ResolvedConfigs.TryGetValue(family, out var config) ? config : null;
 
     public void Dispose()

@@ -837,7 +837,7 @@ public sealed class RunEvalsTests
                 new AgentConfig
                 {
                     Name = nameof(CapturingAgent),
-                    Clients = new AgentClientConfig { Chat = new ClientProviderConfig {
+                    Clients = new AgentClientsConfig { Chat = new ProviderClientConfig {
                         ProviderKey = "openai",
                         ModelName = "gpt-test",
                         DefaultMicrosoftChatOptions = options,
@@ -952,7 +952,7 @@ public sealed class RunEvalsTests
         {
             public string ProviderKey => providerKey;
             public string DisplayName => providerKey;
-            public async ValueTask<IChatClient> CreateChatClientAsync(ClientProviderConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default) => client;
+            public async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default) => client;
             public HPD.Agent.ErrorHandling.IProviderErrorHandler CreateErrorHandler() => new StubErrorHandler();
             public ProviderMetadata GetMetadata() => new()
             {
@@ -971,7 +971,7 @@ public sealed class RunEvalsTests
                     }
                 },
             };
-            public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family)
+            public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
                 => ProviderValidationResult.Success();
         }
     }

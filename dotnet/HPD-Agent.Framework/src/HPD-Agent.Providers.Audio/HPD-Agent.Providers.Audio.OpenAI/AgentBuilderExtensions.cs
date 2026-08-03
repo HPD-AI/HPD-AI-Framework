@@ -27,7 +27,7 @@ public static class AgentBuilderExtensions
         };
         configure?.Invoke(providerConfig);
 
-        var clientConfig = new ClientProviderConfig
+        var clientConfig = new ProviderClientConfig
         {
             ProviderKey = OpenAIAudioProvider.Key,
             ApiKey = apiKey,
@@ -61,7 +61,7 @@ public static class AgentBuilderExtensions
         };
         configure?.Invoke(providerConfig);
 
-        var clientConfig = new ClientProviderConfig
+        var clientConfig = new ProviderClientConfig
         {
             ProviderKey = OpenAIAudioProvider.Key,
             ApiKey = apiKey,
@@ -91,7 +91,7 @@ public static class AgentBuilderExtensions
         };
         configure?.Invoke(providerConfig);
 
-        var clientConfig = new ClientProviderConfig
+        var clientConfig = new ProviderClientConfig
         {
             ProviderKey = OpenAIAudioProvider.Key,
             ApiKey = apiKey,

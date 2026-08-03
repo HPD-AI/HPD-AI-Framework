@@ -27,7 +27,7 @@ public static class AgentBuilderExtensions
     /// 3. appsettings.json: "mistral:ApiKey" or "Mistral:ApiKey"
     /// </para>
     /// <para>
-    /// Runtime chat behavior is configured through <see cref="ClientProviderConfig.ChatDefaults"/>
+    /// Runtime chat behavior is configured through <see cref="ProviderClientConfig.ChatDefaults"/>
     /// and per-run <see cref="AgentRunConfig.Chat"/>.
     /// </remarks>
     /// <example>
@@ -57,7 +57,7 @@ public static class AgentBuilderExtensions
             throw new ArgumentException("Model is required for Mistral provider.", nameof(model));
 
         // Build provider config
-        var chatConfig = new ClientProviderConfig
+        var chatConfig = new ProviderClientConfig
         {
             ProviderKey = "mistral",
             ApiKey = apiKey, // May be null - AgentBuilder.Build() will resolve via ISecretResolver

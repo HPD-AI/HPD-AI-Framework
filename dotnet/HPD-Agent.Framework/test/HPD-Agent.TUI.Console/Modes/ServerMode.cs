@@ -35,9 +35,9 @@ internal static class ServerMode
             {
                 Name = "TUI Console Agent",
                 SystemInstructions = "You are a server-hosted HPD Agent. Be concise and helpful.",
-                Clients = new AgentClientConfig
+                Clients = new AgentClientsConfig
                 {
-                    Chat = new ClientProviderConfig
+                    Chat = new ProviderClientConfig
                     {
                         ProviderKey = "openrouter",
                         ModelName = model

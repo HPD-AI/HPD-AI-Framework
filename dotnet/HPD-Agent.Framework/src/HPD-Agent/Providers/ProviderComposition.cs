@@ -70,6 +70,39 @@ public sealed class ProviderComposition
     /// <summary>Gets the generated provider payload serialization registry.</summary>
     public IProviderSerializationRegistry Serialization { get; }
 
+    /// <summary>Validates an explicitly supplied provider-bound payload without resolving credentials.</summary>
+    public void ValidatePayload(
+        string? providerKey,
+        ProviderClientFamily family,
+        ProviderPayloadKind kind,
+        object? value,
+        string path)
+    {
+        if (value is null)
+            return;
+        if (string.IsNullOrWhiteSpace(providerKey))
+            throw new AgentRunConfigurationException(
+                "ProviderKeyRequired",
+                path,
+                $"A provider key is required when '{path}' is supplied.");
+
+        var canonical = Descriptors.Canonicalize(providerKey);
+        if (!Serialization.TryGet(canonical, family, kind, out var contract) || contract is null ||
+            !contract.RuntimeType.IsInstanceOfType(value))
+        {
+            var code = kind == ProviderPayloadKind.Configuration
+                ? "ProviderConfigTypeMismatch"
+                : "ProviderOptionsTypeMismatch";
+            throw new AgentRunConfigurationException(
+                code,
+                path,
+                $"The value at '{path}' is not compatible with provider '{canonical}' and family '{family}'.",
+                canonical,
+                contract?.RuntimeType,
+                value.GetType());
+        }
+    }
+
     /// <summary>Creates an isolated immutable composition from manifest fragments.</summary>
     public static ProviderComposition Create(IReadOnlyList<ProviderManifestFragment> fragments)
     {

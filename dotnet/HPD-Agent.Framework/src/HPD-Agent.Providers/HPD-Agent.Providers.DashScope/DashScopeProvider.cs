@@ -25,7 +25,7 @@ internal class DashScopeProvider : IChatClientProvider, IEmbeddingGeneratorProvi
     public string DisplayName => "DashScope";
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider registers an AOT-compatible config deserializer in DashScopeProviderModule.")]
-    public async ValueTask<Meai.IChatClient> CreateChatClientAsync(ClientProviderConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
+    public async ValueTask<Meai.IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(config);
 
@@ -42,7 +42,7 @@ internal class DashScopeProvider : IChatClientProvider, IEmbeddingGeneratorProvi
     }
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider registers an AOT-compatible config deserializer in DashScopeProviderModule.")]
-    public Meai.IEmbeddingGenerator CreateEmbeddingGenerator(ClientProviderConfig config, IServiceProvider? services = null)
+    public Meai.IEmbeddingGenerator CreateEmbeddingGenerator(ProviderClientConfig config, IServiceProvider? services = null)
     {
         ArgumentNullException.ThrowIfNull(config);
 
@@ -97,7 +97,7 @@ internal class DashScopeProvider : IChatClientProvider, IEmbeddingGeneratorProvi
     }
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider registers an AOT-compatible config deserializer in DashScopeProviderModule.")]
-    public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family)
+    public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
     {
         ArgumentNullException.ThrowIfNull(config);
 
@@ -150,7 +150,7 @@ internal class DashScopeProvider : IChatClientProvider, IEmbeddingGeneratorProvi
     }
 
     private static DashScopeClient CreateDashScopeClient(
-        ClientProviderConfig config,
+        ProviderClientConfig config,
         DashScopeProviderConfig? dashScopeConfig,
         IServiceProvider? services)
     {

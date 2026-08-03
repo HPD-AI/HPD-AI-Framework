@@ -19,7 +19,7 @@ public static class ZaiAgentBuilderExtensions
             throw new ArgumentException("Model is required for Z.AI provider.", nameof(model));
         }
 
-        var chatConfig = new ClientProviderConfig
+        var chatConfig = new ProviderClientConfig
         {
             ProviderKey = "zai",
             ApiKey = apiKey,

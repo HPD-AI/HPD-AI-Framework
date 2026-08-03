@@ -113,9 +113,9 @@ public sealed class AudioFunctionCallingValidationTests
             Name = "AudioFunctionValidationAgent",
             MaxAgenticIterations = 10,
             SessionStore = store,
-            Clients = new AgentClientConfig
+            Clients = new AgentClientsConfig
             {
-                Chat = new ClientProviderConfig
+                Chat = new ProviderClientConfig
                 {
                     ProviderKey = "test",
                     ModelName = "test-model"
@@ -244,7 +244,7 @@ public sealed class AudioFunctionCallingValidationTests
 
         public string DisplayName => "Test Provider";
 
-        public async ValueTask<IChatClient> CreateChatClientAsync(ClientProviderConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
+        public async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
             => chatClient;
 
         public IProviderErrorHandler CreateErrorHandler() => new GenericErrorHandler();
@@ -268,7 +268,7 @@ public sealed class AudioFunctionCallingValidationTests
                 }
             };
 
-        public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family)
+        public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
             => ProviderValidationResult.Success();
     }
 }

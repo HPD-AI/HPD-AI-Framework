@@ -64,6 +64,37 @@ public sealed class ProviderManifestContractsTests
         Assert.Equal("HPDP011", exception.Code);
     }
 
+    [Fact]
+    public void ValidatePayload_RejectsMissingProviderAndWrongConcreteType()
+    {
+        var descriptor = new TestDescriptor("test", ProviderClientFamily.Chat, []);
+        var contract = new ProviderPayloadJsonContract(
+            "test",
+            ProviderClientFamily.Chat,
+            ProviderPayloadKind.Configuration,
+            typeof(ProviderClientConfig),
+            HPDJsonContext.Default.ProviderClientConfig);
+        var composition = ProviderComposition.Create([new([descriptor], [], [contract])]);
+
+        var missing = Assert.Throws<AgentRunConfigurationException>(() => composition.ValidatePayload(
+            null,
+            ProviderClientFamily.Chat,
+            ProviderPayloadKind.Configuration,
+            new ProviderClientConfig(),
+            "Clients.Chat.ProviderConfig"));
+        var mismatch = Assert.Throws<AgentRunConfigurationException>(() => composition.ValidatePayload(
+            "test",
+            ProviderClientFamily.Chat,
+            ProviderPayloadKind.Configuration,
+            new object(),
+            "Clients.Chat.ProviderConfig"));
+
+        Assert.Equal("ProviderKeyRequired", missing.Code);
+        Assert.Equal("ProviderConfigTypeMismatch", mismatch.Code);
+        Assert.Equal(typeof(ProviderClientConfig), mismatch.ExpectedType);
+        Assert.Equal(typeof(object), mismatch.ActualType);
+    }
+
     private sealed class TestDescriptor : IProviderDescriptor
     {
         public TestDescriptor() : this("test", ProviderClientFamily.Chat, []) { }

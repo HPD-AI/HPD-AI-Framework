@@ -203,7 +203,7 @@ public class StructuredOutputToolModeTests
             Name = "TestAgent",
             MaxAgenticIterations = 50,
             SystemInstructions = "You are a helpful test agent.",
-            Clients = new AgentClientConfig { Chat = new ClientProviderConfig
+            Clients = new AgentClientsConfig { Chat = new ProviderClientConfig
             {
                 ProviderKey = "test",
                 ModelName = "test-model",

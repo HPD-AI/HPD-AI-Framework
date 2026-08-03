@@ -19,7 +19,7 @@ public static class SambaNovaAgentBuilderExtensions
             throw new ArgumentException("Model is required for SambaNova provider.", nameof(model));
         }
 
-        var chatConfig = new ClientProviderConfig
+        var chatConfig = new ProviderClientConfig
         {
             ProviderKey = "sambanova",
             ApiKey = apiKey,

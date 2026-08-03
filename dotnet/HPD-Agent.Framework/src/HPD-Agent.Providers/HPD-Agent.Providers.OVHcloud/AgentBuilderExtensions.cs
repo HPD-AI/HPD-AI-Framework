@@ -19,7 +19,7 @@ public static class OVHcloudAgentBuilderExtensions
             throw new ArgumentException("Model is required for OVHcloud AI Endpoints provider.", nameof(model));
         }
 
-        var chatConfig = new ClientProviderConfig
+        var chatConfig = new ProviderClientConfig
         {
             ProviderKey = "ovhcloud",
             ApiKey = apiKey,

@@ -2766,7 +2766,7 @@ public class AgentBuilder
         return HPDCapabilityKind.Function;
     }
 
-    private static AgentClientConfig? CreateRunClientOverrides(AgentRunConfig? options)
+    private static AgentClientsConfig? CreateRunClientOverrides(AgentRunConfig? options)
     {
         if (options is null)
             return null;
@@ -2779,8 +2779,8 @@ public class AgentBuilder
             return options.Clients;
 
         return options.Clients is null
-            ? new AgentClientConfig { Chat = chat }
-            : new AgentClientConfig
+            ? new AgentClientsConfig { Chat = chat }
+            : new AgentClientsConfig
             {
                 Providers = options.Clients.Providers,
                 Chat = chat,
@@ -2797,7 +2797,7 @@ public class AgentBuilder
 
     private AgentClientSet CreateAuxiliaryClientSet()
     {
-        var resolvedConfigs = new Dictionary<ProviderClientFamily, ClientProviderConfig>();
+        var resolvedConfigs = new Dictionary<ProviderClientFamily, ProviderClientConfig>();
         var textToSpeech = ResolveClientFamily<ITextToSpeechClientProvider, ITextToSpeechClient>(ProviderClientFamily.TextToSpeech, static (p, c, s) => p.CreateTextToSpeechClient(c, s), resolvedConfigs);
         var speechToText = ResolveClientFamily<ISpeechToTextClientProvider, ISpeechToTextClient>(ProviderClientFamily.SpeechToText, static (p, c, s) => p.CreateSpeechToTextClient(c, s), resolvedConfigs);
         var realtime = ResolveClientFamily<IRealtimeClientProvider, IRealtimeClient>(ProviderClientFamily.Realtime, static (p, c, s) => p.CreateRealtimeClient(c, s), resolvedConfigs);
@@ -2823,8 +2823,8 @@ public class AgentBuilder
 
     private TClient? ResolveClientFamily<TProvider, TClient>(
         ProviderClientFamily family,
-        Func<TProvider, ClientProviderConfig, IServiceProvider?, TClient> createClient,
-        Dictionary<ProviderClientFamily, ClientProviderConfig> resolvedConfigs)
+        Func<TProvider, ProviderClientConfig, IServiceProvider?, TClient> createClient,
+        Dictionary<ProviderClientFamily, ProviderClientConfig> resolvedConfigs)
         where TProvider : class, IProvider
     {
         var config = _config.ResolveClientConfig(family);
@@ -2832,15 +2832,15 @@ public class AgentBuilder
             return default;
 
         var provider = _providerRegistry.GetRequiredProvider<TProvider>(config.ProviderKey);
-        resolvedConfigs[family] = ClientProviderConfigResolver.Clone(config);
+        resolvedConfigs[family] = ProviderClientConfigResolver.Clone(config);
         return ApplyClientMiddleware(family, createClient(provider, config, _serviceProvider));
     }
 
     private Func<ProviderComponentLifetimeContext, TComponent>? ResolveComponentFactory<TProvider, TComponent>(
         ProviderClientFamily family,
         ProviderFamilyLifetime defaultLifetime,
-        Func<TProvider, ClientProviderConfig, ProviderComponentLifetimeContext, IServiceProvider?, TComponent> createComponent,
-        Dictionary<ProviderClientFamily, ClientProviderConfig> resolvedConfigs)
+        Func<TProvider, ProviderClientConfig, ProviderComponentLifetimeContext, IServiceProvider?, TComponent> createComponent,
+        Dictionary<ProviderClientFamily, ProviderClientConfig> resolvedConfigs)
         where TProvider : class, IProvider
     {
         var config = _config.ResolveClientConfig(family);
@@ -2848,7 +2848,7 @@ public class AgentBuilder
             return null;
 
         var provider = _providerRegistry.GetRequiredProvider<TProvider>(config.ProviderKey);
-        var capturedConfig = ClientProviderConfigResolver.Clone(config);
+        var capturedConfig = ProviderClientConfigResolver.Clone(config);
         resolvedConfigs[family] = capturedConfig;
         var lifetime = provider.GetMetadata().Families.TryGetValue(family, out var descriptor) ? descriptor.Lifetime : defaultLifetime;
         return context =>
@@ -2985,7 +2985,7 @@ public class AgentBuilder
         return false;
     }
 
-    private ClientProviderConfig EnsureChatClientConfig()
+    private ProviderClientConfig EnsureChatClientConfig()
     {
         return _config.EnsureChatClientConfig();
     }
@@ -4499,7 +4499,7 @@ public static class AgentBuilderProviderExtensions
     /// <returns>The builder.</returns>
     public static AgentBuilder WithProvider(this AgentBuilder builder, string providerKey, string modelName, string? apiKey = null)
     {
-        builder.Config.SetChatClientConfig(new ClientProviderConfig
+        builder.Config.SetChatClientConfig(new ProviderClientConfig
         {
             ProviderKey = providerKey,
             ModelName = modelName

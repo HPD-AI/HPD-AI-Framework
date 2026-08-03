@@ -8,18 +8,18 @@ using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.Providers.Tests;
 
-public class AgentClientConfigTests
+public class AgentClientsConfigTests
 {
     [Fact]
     public void ResolveClientConfig_MergesProviderDefaultsFamilyAndRunOverrides()
     {
         var config = new AgentConfig
         {
-            Clients = new AgentClientConfig
+            Clients = new AgentClientsConfig
             {
                 Providers = new()
                 {
-                    ["openai"] = new ClientProviderConfig
+                    ["openai"] = new ProviderClientConfig
                     {
                         ProviderKey = "openai",
                         ApiKey = "agent-key",
@@ -27,7 +27,7 @@ public class AgentClientConfigTests
                         ConstructionOptions = JsonDocument.Parse("""{"organizationId":"org_1","projectId":"proj_agent"}""").RootElement.Clone()
                     }
                 },
-                Chat = new ClientProviderConfig
+                Chat = new ProviderClientConfig
                 {
                     ProviderKey = "openai",
                     ModelName = "gpt-agent",
@@ -36,17 +36,17 @@ public class AgentClientConfigTests
             }
         };
 
-        var runClients = new AgentClientConfig
+        var runClients = new AgentClientsConfig
         {
             Providers = new()
             {
-                ["openai"] = new ClientProviderConfig
+                ["openai"] = new ProviderClientConfig
                 {
                     Endpoint = "https://run.example",
                     ConstructionOptions = JsonDocument.Parse("""{"projectId":"proj_run"}""").RootElement.Clone()
                 }
             },
-            Chat = new ClientProviderConfig
+            Chat = new ProviderClientConfig
             {
                 ModelName = "gpt-run",
                 ConstructionOptions = JsonDocument.Parse("""{"requestProfile":"interactive"}""").RootElement.Clone()
@@ -74,17 +74,17 @@ public class AgentClientConfigTests
     {
         var config = new AgentConfig
         {
-            Clients = new AgentClientConfig
+            Clients = new AgentClientsConfig
             {
                 Providers = new()
                 {
-                    ["openai"] = new ClientProviderConfig
+                    ["openai"] = new ProviderClientConfig
                     {
                         ProviderKey = "openai",
                         ConstructionOptions = JsonDocument.Parse("[]").RootElement.Clone()
                     }
                 },
-                Chat = new ClientProviderConfig
+                Chat = new ProviderClientConfig
                 {
                     ProviderKey = "openai",
                     ConstructionOptions = JsonDocument.Parse("""{"ok":true}""").RootElement.Clone()
@@ -103,18 +103,18 @@ public class AgentClientConfigTests
     {
         var config = new AgentConfig
         {
-            Clients = new AgentClientConfig
+            Clients = new AgentClientsConfig
             {
                 Providers = new()
                 {
-                    ["anthropic"] = new ClientProviderConfig
+                    ["anthropic"] = new ProviderClientConfig
                     {
                         ProviderKey = "anthropic",
                         Endpoint = "https://anthropic.example",
                         AuthenticationKey = "anthropic-default",
                         ConstructionOptions = JsonDocument.Parse("""{"thinkingBudget":4096}""").RootElement.Clone()
                     },
-                    ["openai"] = new ClientProviderConfig
+                    ["openai"] = new ProviderClientConfig
                     {
                         ProviderKey = "openai",
                         Endpoint = "https://openai.example",
@@ -122,7 +122,7 @@ public class AgentClientConfigTests
                         ConstructionOptions = JsonDocument.Parse("""{"organizationId":"org_1"}""").RootElement.Clone()
                     }
                 },
-                Chat = new ClientProviderConfig
+                Chat = new ProviderClientConfig
                 {
                     ProviderKey = "anthropic",
                     ModelName = "claude-agent",
@@ -134,9 +134,9 @@ public class AgentClientConfigTests
 
         var resolved = config.ResolveClientConfig(
             ProviderClientFamily.Chat,
-            new AgentClientConfig
+            new AgentClientsConfig
             {
-                Chat = new ClientProviderConfig
+                Chat = new ProviderClientConfig
                 {
                     ProviderKey = "openai",
                     ModelName = "gpt-run"
@@ -220,7 +220,7 @@ public class AgentClientConfigTests
         public string ProviderKey => "test";
         public string DisplayName => "Test";
 
-        public async ValueTask<IChatClient> CreateChatClientAsync(ClientProviderConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
+        public async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
         public IProviderErrorHandler CreateErrorHandler() => new GenericErrorHandler();
@@ -238,7 +238,7 @@ public class AgentClientConfigTests
             }
         };
 
-        public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family)
+        public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
             => ProviderValidationResult.Success();
     }
 
@@ -247,7 +247,7 @@ public class AgentClientConfigTests
         public string ProviderKey => "test";
         public string DisplayName => "Test";
 
-        public ITextToSpeechClient CreateTextToSpeechClient(ClientProviderConfig config, IServiceProvider? services = null)
+        public ITextToSpeechClient CreateTextToSpeechClient(ProviderClientConfig config, IServiceProvider? services = null)
             => throw new NotSupportedException();
 
         public IProviderErrorHandler CreateErrorHandler() => new GenericErrorHandler();
@@ -265,7 +265,7 @@ public class AgentClientConfigTests
             }
         };
 
-        public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family)
+        public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
             => ProviderValidationResult.Success();
     }
 }

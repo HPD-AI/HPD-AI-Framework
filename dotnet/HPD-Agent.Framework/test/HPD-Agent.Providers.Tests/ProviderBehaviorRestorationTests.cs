@@ -101,7 +101,7 @@ public sealed class ProviderBehaviorRestorationTests
         metadata.Families[ProviderClientFamily.Chat].DefaultModelId.Should().NotBeNullOrWhiteSpace();
 
         var invalid = provider.ValidateConfiguration(
-            new ClientProviderConfig
+            new ProviderClientConfig
             {
                 ProviderKey = providerCase.ProviderKey,
                 Endpoint = "not-a-uri"
@@ -120,7 +120,7 @@ public sealed class ProviderBehaviorRestorationTests
     public async Task OpenAICompatibleProvider_CreateChatClient_ShouldExposeMetadataAndDefaultModel(ProviderCase providerCase)
     {
         var provider = providerCase.Create();
-        var config = new ClientProviderConfig
+        var config = new ProviderClientConfig
         {
             ProviderKey = providerCase.ProviderKey,
             ModelName = "test-model",
@@ -139,7 +139,7 @@ public sealed class ProviderBehaviorRestorationTests
     public async Task OpenAICompatibleProvider_CreateChatClient_ShouldResolveRequiredApiKeyFromSecretResolver()
     {
         var provider = new DeepSeekProvider();
-        var config = new ClientProviderConfig
+        var config = new ProviderClientConfig
         {
             ProviderKey = "deepseek",
             ModelName = "deepseek-v4-flash"
@@ -159,7 +159,7 @@ public sealed class ProviderBehaviorRestorationTests
     public async Task OpenAICompatibleProvider_CreateChatClient_ShouldFailWhenRequiredApiKeyCannotBeResolved()
     {
         var provider = new DeepSeekProvider();
-        var config = new ClientProviderConfig
+        var config = new ProviderClientConfig
         {
             ProviderKey = "deepseek",
             ModelName = "deepseek-v4-flash"
@@ -255,7 +255,7 @@ public sealed class ProviderBehaviorRestorationTests
     public void AzureAI_ValidateConfiguration_ShouldKeepAuthModeAndSdkOptionGuards()
     {
         var provider = new AzureAIProvider();
-        var config = new ClientProviderConfig
+        var config = new ProviderClientConfig
         {
             ProviderKey = "azure-ai",
             ModelName = "gpt-4o"
@@ -277,7 +277,7 @@ public sealed class ProviderBehaviorRestorationTests
     public async Task AzureAI_CreateChatClient_WithApiKeyAuthModeButNoKey_ShouldFailBeforeSdkClientConstruction()
     {
         var provider = new AzureAIProvider();
-        var config = new ClientProviderConfig
+        var config = new ProviderClientConfig
         {
             ProviderKey = "azure-ai",
             ModelName = "gpt-4o",
@@ -298,7 +298,7 @@ public sealed class ProviderBehaviorRestorationTests
     public async Task AzureAI_CreateChatClient_WithProjectEndpointAndApiKey_ShouldRejectKeyAuth()
     {
         var provider = new AzureAIProvider();
-        var config = new ClientProviderConfig
+        var config = new ProviderClientConfig
         {
             ProviderKey = "azure-ai",
             ModelName = "gpt-4o",
@@ -316,7 +316,7 @@ public sealed class ProviderBehaviorRestorationTests
     public void GoogleAI_ValidateConfiguration_ShouldRequireModelAndSupportedPlatform()
     {
         var provider = new GoogleAIProvider();
-        var config = new ClientProviderConfig
+        var config = new ProviderClientConfig
         {
             ProviderKey = "google-ai"
         };

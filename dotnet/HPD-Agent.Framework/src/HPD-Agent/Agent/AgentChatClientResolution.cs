@@ -25,7 +25,7 @@ internal sealed class AgentChatClientHandle
     private AgentChatClientHandle(
         IChatClient client,
         AgentChatClientSource source,
-        ClientProviderConfig? resolvedConfig,
+        ProviderClientConfig? resolvedConfig,
         bool ownsClient)
     {
         Client = client ?? throw new ArgumentNullException(nameof(client));
@@ -36,18 +36,18 @@ internal sealed class AgentChatClientHandle
 
     public IChatClient Client { get; }
     public AgentChatClientSource Source { get; }
-    public ClientProviderConfig? ResolvedConfig { get; }
+    public ProviderClientConfig? ResolvedConfig { get; }
 
     public static AgentChatClientHandle Borrowed(
         IChatClient client,
         AgentChatClientSource source,
-        ClientProviderConfig? resolvedConfig = null)
+        ProviderClientConfig? resolvedConfig = null)
         => new(client, source, resolvedConfig, ownsClient: false);
 
     public static AgentChatClientHandle Owned(
         IChatClient client,
         AgentChatClientSource source,
-        ClientProviderConfig? resolvedConfig = null)
+        ProviderClientConfig? resolvedConfig = null)
         => new(client, source, resolvedConfig, ownsClient: true);
 
     public AgentChatClientLease AcquireLease()
@@ -117,7 +117,7 @@ internal sealed record AgentChatClientResolutionRequest
     public AgentRunConfig? RunConfig { get; init; }
     public AgentChatClientHandle? AgentDefault { get; init; }
     public AgentChatClientHandle? InheritedFallback { get; init; }
-    public ClientProviderConfig? DedicatedProvider { get; init; }
+    public ProviderClientConfig? DedicatedProvider { get; init; }
 }
 
 internal sealed class AgentChatClientResolver : IDisposable
@@ -191,7 +191,7 @@ internal sealed class AgentChatClientResolver : IDisposable
     }
 
     private async ValueTask<AgentChatClientLease> CreateProviderLeaseAsync(
-        ClientProviderConfig config,
+        ProviderClientConfig config,
         AgentChatClientSource source,
         CancellationToken cancellationToken)
     {
@@ -219,8 +219,8 @@ internal sealed class AgentChatClientResolver : IDisposable
     /// <summary>Disposes provider clients cached by this resolver.</summary>
     public void Dispose() => _clientManager.Dispose();
 
-    private async ValueTask<ClientProviderConfig> ResolveNamedAuthenticationAsync(
-        ClientProviderConfig config,
+    private async ValueTask<ProviderClientConfig> ResolveNamedAuthenticationAsync(
+        ProviderClientConfig config,
         CancellationToken cancellationToken)
     {
         RejectAuthenticationHeaders(config);
@@ -281,13 +281,13 @@ internal sealed class AgentChatClientResolver : IDisposable
             ?? throw new InvalidOperationException(
                 $"Authentication registration '{authenticationKey}' did not resolve secret key '{registration.SecretKey}'.");
 
-        var resolved = ClientProviderConfigResolver.Clone(config);
+        var resolved = ProviderClientConfigResolver.Clone(config);
         resolved.AuthenticationKey = authenticationKey;
         resolved.ApiKey = secret.Value;
         return resolved;
     }
 
-    private static void RejectAuthenticationHeaders(ClientProviderConfig config)
+    private static void RejectAuthenticationHeaders(ProviderClientConfig config)
     {
         if (config.CustomHeaders is null)
             return;
@@ -305,7 +305,7 @@ internal sealed class AgentChatClientResolver : IDisposable
         }
     }
 
-    private static AgentClientConfig? CreateRunClientOverrides(AgentRunConfig? options)
+    private static AgentClientsConfig? CreateRunClientOverrides(AgentRunConfig? options)
     {
         if (options is null)
             return null;
@@ -318,8 +318,8 @@ internal sealed class AgentChatClientResolver : IDisposable
             return options.Clients;
 
         return options.Clients is null
-            ? new AgentClientConfig { Chat = chat }
-            : new AgentClientConfig
+            ? new AgentClientsConfig { Chat = chat }
+            : new AgentClientsConfig
             {
                 Providers = options.Clients.Providers,
                 Chat = chat,
@@ -354,7 +354,7 @@ internal sealed class AgentProviderChatClientManager : IDisposable
     }
 
     public async ValueTask<AgentChatClientLease> AcquireAsync(
-        ClientProviderConfig config,
+        ProviderClientConfig config,
         string? authenticationIdentity,
         AgentChatClientSource source,
         CancellationToken cancellationToken)
@@ -414,7 +414,7 @@ internal sealed class AgentProviderChatClientManager : IDisposable
     }
 
     private ValueTask<IChatClient> CreateClientAsync(
-        ClientProviderConfig config,
+        ProviderClientConfig config,
         CancellationToken cancellationToken)
     {
         var registry = _providerRegistry
@@ -432,7 +432,7 @@ internal sealed class AgentProviderChatClientManager : IDisposable
 
     private async ValueTask<IChatClient> CreateAndWrapAsync(
         IChatClientProvider provider,
-        ClientProviderConfig config,
+        ProviderClientConfig config,
         CancellationToken cancellationToken)
     {
         var client = await provider.CreateChatClientAsync(config, _services, cancellationToken)
@@ -459,7 +459,7 @@ internal sealed class AgentProviderChatClientManager : IDisposable
         int? MaxOutputTokens)
     {
         public static ChatClientCacheKey Create(
-            ClientProviderConfig config,
+            ProviderClientConfig config,
             string authenticationIdentity)
             => new(
                 config.ProviderKey,

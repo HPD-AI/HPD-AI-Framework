@@ -19,7 +19,7 @@ public static class PerplexityAgentBuilderExtensions
             throw new ArgumentException("Model is required for Perplexity provider.", nameof(model));
         }
 
-        var chatConfig = new ClientProviderConfig
+        var chatConfig = new ProviderClientConfig
         {
             ProviderKey = "perplexity",
             ApiKey = apiKey,

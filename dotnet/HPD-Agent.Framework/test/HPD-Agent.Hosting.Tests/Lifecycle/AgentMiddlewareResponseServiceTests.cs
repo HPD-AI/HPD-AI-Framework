@@ -99,9 +99,9 @@ public class AgentMiddlewareResponseServiceTests : IDisposable
     {
         Name = name,
         MaxAgenticIterations = 5,
-        Clients = new AgentClientConfig
+        Clients = new AgentClientsConfig
         {
-            Chat = new ClientProviderConfig
+            Chat = new ProviderClientConfig
             {
                 ProviderKey = "test",
                 ModelName = "test-model"

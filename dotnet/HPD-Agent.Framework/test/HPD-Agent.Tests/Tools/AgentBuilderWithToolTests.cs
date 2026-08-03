@@ -253,9 +253,9 @@ public class AgentBuilderWithToolTests
         {
             Name = "Support Parent",
             MaxAgenticIterations = 5,
-            Clients = new AgentClientConfig
+            Clients = new AgentClientsConfig
             {
-                Chat = new ClientProviderConfig
+                Chat = new ProviderClientConfig
                 {
                     ProviderKey = "test",
                     ModelName = "test-model"

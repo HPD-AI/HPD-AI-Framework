@@ -25,7 +25,7 @@ public sealed class ElevenLabsAudioProvider : ITextToSpeechClientProvider, ISpee
     public string DisplayName => "ElevenLabs Audio";
 
     public ISpeechToTextClient CreateSpeechToTextClient(
-        ClientProviderConfig config,
+        ProviderClientConfig config,
         IServiceProvider? services = null)
     {
         ArgumentNullException.ThrowIfNull(config);
@@ -42,7 +42,7 @@ public sealed class ElevenLabsAudioProvider : ITextToSpeechClientProvider, ISpee
     }
 
     public ITextToSpeechClient CreateTextToSpeechClient(
-        ClientProviderConfig config,
+        ProviderClientConfig config,
         IServiceProvider? services = null)
     {
         ArgumentNullException.ThrowIfNull(config);
@@ -107,7 +107,7 @@ public sealed class ElevenLabsAudioProvider : ITextToSpeechClientProvider, ISpee
     };
 
     public ProviderValidationResult ValidateConfiguration(
-        ClientProviderConfig config,
+        ProviderClientConfig config,
         ProviderClientFamily family)
     {
         ArgumentNullException.ThrowIfNull(config);
@@ -163,7 +163,7 @@ public sealed class ElevenLabsAudioProvider : ITextToSpeechClientProvider, ISpee
     }
 
     private static string ResolveApiKey(
-        ClientProviderConfig config,
+        ProviderClientConfig config,
         string? providerApiKey,
         IServiceProvider? services,
         string familyLabel)
@@ -195,11 +195,11 @@ public sealed class ElevenLabsAudioProvider : ITextToSpeechClientProvider, ISpee
 
         throw new InvalidOperationException(
             $"ElevenLabs API key is required for {familyLabel}. " +
-            "Set ClientProviderConfig.ApiKey, provider options apiKey, provide an ISecretResolver with key " +
+            "Set ProviderClientConfig.ApiKey, provider options apiKey, provide an ISecretResolver with key " +
             "'elevenlabs:ApiKey', or set ELEVENLABS_API_KEY.");
     }
 
-    private static ElevenLabsTtsConfig ReadProviderConfig(ClientProviderConfig config)
+    private static ElevenLabsTtsConfig ReadProviderConfig(ProviderClientConfig config)
     {
         var providerOptionsJson = config.GetConstructionOptionsRawJson();
         if (string.IsNullOrWhiteSpace(providerOptionsJson))
@@ -213,7 +213,7 @@ public sealed class ElevenLabsAudioProvider : ITextToSpeechClientProvider, ISpee
             ?? new ElevenLabsTtsConfig();
     }
 
-    private static ElevenLabsSttConfig ReadSttProviderConfig(ClientProviderConfig config)
+    private static ElevenLabsSttConfig ReadSttProviderConfig(ProviderClientConfig config)
     {
         var providerOptionsJson = config.GetConstructionOptionsRawJson();
         if (string.IsNullOrWhiteSpace(providerOptionsJson))

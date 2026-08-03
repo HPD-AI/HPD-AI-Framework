@@ -33,9 +33,9 @@ public sealed class NativeAgentExecutionFFITests
         {
             Name = "FFIAgent",
             MaxAgenticIterations = 5,
-            Clients = new AgentClientConfig
+            Clients = new AgentClientsConfig
             {
-                Chat = new ClientProviderConfig
+                Chat = new ProviderClientConfig
                 {
                     ProviderKey = "test",
                     ModelName = "test-model",

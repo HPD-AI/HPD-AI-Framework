@@ -38,7 +38,7 @@ public interface IProvider
     /// Validate provider-specific configuration for a specific client family.
     /// </summary>
     ProviderValidationResult ValidateConfiguration(
-        ClientProviderConfig config,
+        ProviderClientConfig config,
         ProviderClientFamily family);
 
     /// <summary>
@@ -46,7 +46,7 @@ public interface IProvider
     /// Providers that don't support async validation should return null.
     /// </summary>
     Task<ProviderValidationResult>? ValidateConfigurationAsync(
-        ClientProviderConfig config,
+        ProviderClientConfig config,
         ProviderClientFamily family,
         CancellationToken cancellationToken = default)
         => null;
@@ -60,7 +60,7 @@ public interface IChatClientProvider : IProvider
     /// <param name="cancellationToken">Cancels client creation and secret resolution.</param>
     /// <returns>The created Chat client.</returns>
     ValueTask<IChatClient> CreateChatClientAsync(
-        ClientProviderConfig config,
+        ProviderClientConfig config,
         IServiceProvider? services = null,
         CancellationToken cancellationToken = default);
 }
@@ -68,49 +68,49 @@ public interface IChatClientProvider : IProvider
 public interface ITextToSpeechClientProvider : IProvider
 {
     ITextToSpeechClient CreateTextToSpeechClient(
-        ClientProviderConfig config,
+        ProviderClientConfig config,
         IServiceProvider? services = null);
 }
 
 public interface ISpeechToTextClientProvider : IProvider
 {
     ISpeechToTextClient CreateSpeechToTextClient(
-        ClientProviderConfig config,
+        ProviderClientConfig config,
         IServiceProvider? services = null);
 }
 
 public interface IRealtimeClientProvider : IProvider
 {
     IRealtimeClient CreateRealtimeClient(
-        ClientProviderConfig config,
+        ProviderClientConfig config,
         IServiceProvider? services = null);
 }
 
 public interface IImageGeneratorProvider : IProvider
 {
     IImageGenerator CreateImageGenerator(
-        ClientProviderConfig config,
+        ProviderClientConfig config,
         IServiceProvider? services = null);
 }
 
 public interface IEmbeddingGeneratorProvider : IProvider
 {
     IEmbeddingGenerator CreateEmbeddingGenerator(
-        ClientProviderConfig config,
+        ProviderClientConfig config,
         IServiceProvider? services = null);
 }
 
 public interface IHostedFileClientProvider : IProvider
 {
     IHostedFileClient CreateHostedFileClient(
-        ClientProviderConfig config,
+        ProviderClientConfig config,
         IServiceProvider? services = null);
 }
 
 public interface IVoiceActivityDetectorProvider : IProvider
 {
     IVoiceActivityDetector CreateVoiceActivityDetector(
-        ClientProviderConfig config,
+        ProviderClientConfig config,
         ProviderComponentLifetimeContext context,
         IServiceProvider? services = null);
 }
@@ -118,7 +118,7 @@ public interface IVoiceActivityDetectorProvider : IProvider
 public interface IEndOfTurnDetectorProvider : IProvider
 {
     IEotDetector CreateEndOfTurnDetector(
-        ClientProviderConfig config,
+        ProviderClientConfig config,
         ProviderComponentLifetimeContext context,
         IServiceProvider? services = null);
 }

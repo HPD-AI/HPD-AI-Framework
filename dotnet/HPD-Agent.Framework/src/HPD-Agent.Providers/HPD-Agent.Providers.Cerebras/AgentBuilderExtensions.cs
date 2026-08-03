@@ -19,7 +19,7 @@ public static class CerebrasAgentBuilderExtensions
             throw new ArgumentException("Model is required for Cerebras provider.", nameof(model));
         }
 
-        var chatConfig = new ClientProviderConfig
+        var chatConfig = new ProviderClientConfig
         {
             ProviderKey = "cerebras",
             ApiKey = apiKey,

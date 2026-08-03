@@ -134,9 +134,9 @@ public sealed class GeneratedAgentCapabilityInvocationTests
     {
         Name = "GeneratedCapabilityParent",
         MaxAgenticIterations = 10,
-        Clients = new AgentClientConfig
+        Clients = new AgentClientsConfig
         {
-            Chat = new ClientProviderConfig
+            Chat = new ProviderClientConfig
             {
                 ProviderKey = "test",
                 ModelName = "test-model",

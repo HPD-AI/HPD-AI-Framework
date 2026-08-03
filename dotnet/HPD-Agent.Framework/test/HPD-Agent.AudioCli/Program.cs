@@ -333,7 +333,7 @@ foreach (var tool in realtimeMathTools)
     builder.WithNativeFunction(tool);
 }
 
-builder.Config.SetChatClientConfig(new ClientProviderConfig
+builder.Config.SetChatClientConfig(new ProviderClientConfig
 {
     ProviderKey = OpenAIAudioProvider.Key,
     ModelName = chatModel,
@@ -345,7 +345,7 @@ if (realtimeRequested)
 {
     builder.Config.SetClientConfig(
         ProviderClientFamily.Realtime,
-        new ClientProviderConfig
+        new ProviderClientConfig
         {
             ProviderKey = OpenAIAudioProvider.Key,
             ModelName = realtimeModel,
@@ -372,7 +372,7 @@ if (ttsRequested)
         return 2;
     }
 
-    var ttsProviderConfig = new ClientProviderConfig
+    var ttsProviderConfig = new ProviderClientConfig
     {
         ProviderKey = ElevenLabsAudioProvider.Key,
         ModelName = ttsModel!,
@@ -396,13 +396,13 @@ if (ttsRequested)
 }
 
 var sttProviderConfig = sttUsesElevenLabs
-    ? new ClientProviderConfig
+    ? new ProviderClientConfig
     {
         ProviderKey = ElevenLabsAudioProvider.Key,
         ModelName = sttModel,
         ApiKey = elevenLabsApiKey
     }
-    : new ClientProviderConfig
+    : new ProviderClientConfig
     {
         ProviderKey = OpenAIAudioProvider.Key,
         ModelName = sttModel,
@@ -1039,7 +1039,7 @@ static string ExtensionFor(string mediaType) =>
 
 static async Task RunStreamingSttSmokeAsync(
     IProviderRegistry providerRegistry,
-    ClientProviderConfig providerConfig,
+    ProviderClientConfig providerConfig,
     IReadOnlyList<string> audioPaths,
     int? sampleRate,
     string? language)

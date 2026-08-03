@@ -33,7 +33,7 @@ public static class AgentBuilderExtensions
     /// </para>
     /// <para>
     /// This method creates a <see cref="BedrockProviderConfig"/> that is:
-    /// - Stored in <c>ClientProviderConfig.ConstructionOptions</c> as a structured JSON/YAML object
+    /// - Stored in <c>ProviderClientConfig.ConstructionOptions</c> as a structured JSON/YAML object
     /// - Applied during <c>BedrockProvider.CreateChatClientAsync()</c> via the registered deserializer
     /// </para>
     /// <para>
@@ -124,7 +124,7 @@ public static class AgentBuilderExtensions
         ValidateProviderConfig(providerConfig, model, configure);
 
         // Build provider config
-        var chatConfig = new ClientProviderConfig
+        var chatConfig = new ProviderClientConfig
         {
             ProviderKey = "bedrock",
             ModelName = model

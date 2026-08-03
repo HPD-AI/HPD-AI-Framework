@@ -25,7 +25,7 @@ public static class AgentBuilderExtensions
         var providerConfig = new OllamaProviderConfig();
         configure?.Invoke(providerConfig);
 
-        var chatConfig = new ClientProviderConfig
+        var chatConfig = new ProviderClientConfig
         {
             ProviderKey = "ollama",
             Endpoint = ResolveEndpoint(endpoint),

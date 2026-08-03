@@ -122,7 +122,7 @@ public sealed class AgentConfigSerializationTests
             json => JsonSerializer.Deserialize<ProviderTestOptions>(json),
             config => JsonSerializer.Serialize(config));
 
-        var config = new ClientProviderConfig
+        var config = new ProviderClientConfig
         {
             ProviderKey = providerKey,
             ConstructionOptions = JsonDocument.Parse("""{"budget":512,"enabled":true}""").RootElement.Clone()

@@ -83,7 +83,7 @@ public sealed class OpenAIAudioProviderTests
         var provider = new OpenAIAudioProvider();
 
         var result = provider.ValidateConfiguration(
-            new ClientProviderConfig
+            new ProviderClientConfig
             {
                 ProviderKey = "openai"
             },
@@ -99,7 +99,7 @@ public sealed class OpenAIAudioProviderTests
         var provider = new OpenAIAudioProvider();
 
         var result = provider.ValidateConfiguration(
-            new ClientProviderConfig
+            new ProviderClientConfig
             {
                 ProviderKey = "openai",
                 ApiKey = "sk-test"
@@ -267,7 +267,7 @@ public sealed class OpenAIAudioProviderTests
 
         var exception = Assert.Throws<InvalidOperationException>(() =>
             provider.CreateSpeechToTextClient(
-                new ClientProviderConfig
+                new ProviderClientConfig
                 {
                     ProviderKey = "openai"
                 }));
@@ -281,7 +281,7 @@ public sealed class OpenAIAudioProviderTests
         var provider = new OpenAIAudioProvider();
 
         using var client = provider.CreateSpeechToTextClient(
-            new ClientProviderConfig
+            new ProviderClientConfig
             {
                 ProviderKey = "openai",
                 ModelName = "whisper-1",
@@ -346,7 +346,7 @@ public sealed class OpenAIAudioProviderTests
 
         var provider = new OpenAIAudioProvider();
         using var client = provider.CreateTextToSpeechClient(
-            new ClientProviderConfig
+            new ProviderClientConfig
             {
                 ProviderKey = "openai",
                 ApiKey = apiKey,
@@ -386,7 +386,7 @@ public sealed class OpenAIAudioProviderTests
 
         var provider = new OpenAIAudioProvider();
         using var realtimeClient = provider.CreateRealtimeClient(
-            new ClientProviderConfig
+            new ProviderClientConfig
             {
                 ProviderKey = "openai",
                 ApiKey = apiKey,

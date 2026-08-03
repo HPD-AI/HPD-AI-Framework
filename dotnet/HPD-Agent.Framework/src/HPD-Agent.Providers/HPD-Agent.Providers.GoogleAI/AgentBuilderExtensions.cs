@@ -25,7 +25,7 @@ public static class AgentBuilderExtensions
         var providerConfig = new GoogleAIProviderConfig();
         configure?.Invoke(providerConfig);
 
-        var chatConfig = new ClientProviderConfig
+        var chatConfig = new ProviderClientConfig
         {
             ProviderKey = "google-ai",
             ApiKey = apiKey,

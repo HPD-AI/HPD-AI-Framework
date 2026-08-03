@@ -11,7 +11,7 @@ public static class AudioRuntimeAttachmentSpeechToTextProviderExtensions
     public static AudioRuntimeAttachmentOptions UseSpeechToTextProvider(
         this AudioRuntimeAttachmentOptions audio,
         IProviderRegistry providerRegistry,
-        ClientProviderConfig providerConfig,
+        ProviderClientConfig providerConfig,
         IServiceProvider? services = null)
     {
         ArgumentNullException.ThrowIfNull(providerConfig);
@@ -72,7 +72,7 @@ public static class AudioRuntimeAttachmentSpeechToTextProviderExtensions
 
     private static ProviderRegistrySpeechToTextInteractionSessionFactory CreateFactory(
         IProviderRegistry providerRegistry,
-        ClientProviderConfig providerConfig,
+        ProviderClientConfig providerConfig,
         IInputContentSourceResolver sourceResolver,
         MeaiBatchSpeechToTextInteractionSessionOptions sessionOptions,
         bool disposeCreatedClient,
@@ -85,7 +85,7 @@ public static class AudioRuntimeAttachmentSpeechToTextProviderExtensions
             disposeCreatedClient,
             services);
 
-    private static ClientProviderConfig ResolveProviderConfig(
+    private static ProviderClientConfig ResolveProviderConfig(
         InputMediaSpeechToTextProviderOptions options)
     {
         var config = Clone(options.ProviderConfig);
@@ -109,7 +109,7 @@ public static class AudioRuntimeAttachmentSpeechToTextProviderExtensions
         return config;
     }
 
-    private static ClientProviderConfig Clone(ClientProviderConfig source)
+    private static ProviderClientConfig Clone(ProviderClientConfig source)
         => new()
         {
             ProviderKey = source.ProviderKey,

@@ -5247,7 +5247,7 @@ public sealed class Agent
         return instructions;
     }
 
-    private static AgentClientConfig? CreateRunClientOverrides(AgentRunConfig? options)
+    private static AgentClientsConfig? CreateRunClientOverrides(AgentRunConfig? options)
     {
         if (options is null)
             return null;
@@ -5260,8 +5260,8 @@ public sealed class Agent
             return options.Clients;
 
         return options.Clients is null
-            ? new AgentClientConfig { Chat = chat }
-            : new AgentClientConfig
+            ? new AgentClientsConfig { Chat = chat }
+            : new AgentClientsConfig
             {
                 Providers = options.Clients.Providers,
                 Chat = chat,

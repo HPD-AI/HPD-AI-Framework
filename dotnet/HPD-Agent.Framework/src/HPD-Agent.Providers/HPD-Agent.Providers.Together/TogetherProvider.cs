@@ -24,7 +24,7 @@ internal class TogetherProvider : IChatClientProvider, IEmbeddingGeneratorProvid
     public string DisplayName => "Together AI";
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider registers an AOT-compatible config deserializer in TogetherProviderModule.")]
-    public async ValueTask<Meai.IChatClient> CreateChatClientAsync(ClientProviderConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
+    public async ValueTask<Meai.IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(config);
 
@@ -39,7 +39,7 @@ internal class TogetherProvider : IChatClientProvider, IEmbeddingGeneratorProvid
     }
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider registers an AOT-compatible config deserializer in TogetherProviderModule.")]
-    public Meai.IEmbeddingGenerator CreateEmbeddingGenerator(ClientProviderConfig config, IServiceProvider? services = null)
+    public Meai.IEmbeddingGenerator CreateEmbeddingGenerator(ProviderClientConfig config, IServiceProvider? services = null)
     {
         ArgumentNullException.ThrowIfNull(config);
 
@@ -93,7 +93,7 @@ internal class TogetherProvider : IChatClientProvider, IEmbeddingGeneratorProvid
     }
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider registers an AOT-compatible config deserializer in TogetherProviderModule.")]
-    public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family)
+    public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
     {
         ArgumentNullException.ThrowIfNull(config);
 
@@ -132,7 +132,7 @@ internal class TogetherProvider : IChatClientProvider, IEmbeddingGeneratorProvid
             errors.Add("EmbeddingModelId cannot be empty");
     }
 
-    private static global::Together.TogetherClient CreateTogetherClient(ClientProviderConfig config, IServiceProvider? services)
+    private static global::Together.TogetherClient CreateTogetherClient(ProviderClientConfig config, IServiceProvider? services)
     {
         var secrets = services?.GetService<ISecretResolver>();
         if (secrets is null)

@@ -160,8 +160,8 @@ public sealed class AgentChatClientResolverTests
         var registry = new ProviderRegistry();
         registry.Register(provider);
         using var resolver = new AgentChatClientResolver(registry, null);
-        var firstConfig = new ClientProviderConfig { ProviderKey = "creating", ModelName = "model" };
-        var secondConfig = ClientProviderConfigResolver.Clone(firstConfig);
+        var firstConfig = new ProviderClientConfig { ProviderKey = "creating", ModelName = "model" };
+        var secondConfig = ProviderClientConfigResolver.Clone(firstConfig);
         switch (difference)
         {
             case "endpoint": secondConfig.Endpoint = "https://example.test"; break;
@@ -172,11 +172,11 @@ public sealed class AgentChatClientResolverTests
 
         await using var first = await resolver.ResolveAsync(new AgentChatClientResolutionRequest
         {
-            AgentConfig = new AgentConfig { Clients = new AgentClientConfig { Chat = firstConfig } }
+            AgentConfig = new AgentConfig { Clients = new AgentClientsConfig { Chat = firstConfig } }
         });
         await using var second = await resolver.ResolveAsync(new AgentChatClientResolutionRequest
         {
-            AgentConfig = new AgentConfig { Clients = new AgentClientConfig { Chat = secondConfig } }
+            AgentConfig = new AgentConfig { Clients = new AgentClientsConfig { Chat = secondConfig } }
         });
 
         Assert.Equal(2, provider.CreateCount);
@@ -195,9 +195,9 @@ public sealed class AgentChatClientResolverTests
         {
             AgentConfig = new AgentConfig
             {
-                Clients = new AgentClientConfig
+                Clients = new AgentClientsConfig
                 {
-                    Chat = new ClientProviderConfig { ProviderKey = "creating", ModelName = "model", CustomHeaders = headers }
+                    Chat = new ProviderClientConfig { ProviderKey = "creating", ModelName = "model", CustomHeaders = headers }
                 }
             }
         };
@@ -415,9 +415,9 @@ public sealed class AgentChatClientResolverTests
     {
         public string ProviderKey => "tracking";
         public string DisplayName => "Tracking";
-        public ClientProviderConfig? LastConfig { get; private set; }
+        public ProviderClientConfig? LastConfig { get; private set; }
         public int CreateCount { get; private set; }
-        public async ValueTask<IChatClient> CreateChatClientAsync(ClientProviderConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
+        public async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
         {
             CreateCount++;
             LastConfig = config;
@@ -430,7 +430,7 @@ public sealed class AgentChatClientResolverTests
             DisplayName = DisplayName,
             Families = new Dictionary<ProviderClientFamily, ProviderFamilyDescriptor>()
         };
-        public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family)
+        public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
             => ProviderValidationResult.Success();
     }
 
@@ -441,7 +441,7 @@ public sealed class AgentChatClientResolverTests
         public int CreateCount { get; private set; }
         public List<TrackingChatClient> Clients { get; } = new();
 
-        public async ValueTask<IChatClient> CreateChatClientAsync(ClientProviderConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
+        public async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
         {
             CreateCount++;
             var client = new TrackingChatClient();
@@ -456,7 +456,7 @@ public sealed class AgentChatClientResolverTests
             DisplayName = DisplayName,
             Families = new Dictionary<ProviderClientFamily, ProviderFamilyDescriptor>()
         };
-        public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family)
+        public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
             => ProviderValidationResult.Success();
     }
 
@@ -468,7 +468,7 @@ public sealed class AgentChatClientResolverTests
         public int CreateCount => Volatile.Read(ref _createCount);
 
         public async ValueTask<IChatClient> CreateChatClientAsync(
-            ClientProviderConfig config,
+            ProviderClientConfig config,
             IServiceProvider? services = null,
             CancellationToken cancellationToken = default)
         {
@@ -483,7 +483,7 @@ public sealed class AgentChatClientResolverTests
             ProviderKey = ProviderKey,
             DisplayName = DisplayName
         };
-        public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family)
+        public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
             => ProviderValidationResult.Success();
     }
 
@@ -495,7 +495,7 @@ public sealed class AgentChatClientResolverTests
         public int CreateCount => Volatile.Read(ref _createCount);
 
         public ValueTask<IChatClient> CreateChatClientAsync(
-            ClientProviderConfig config,
+            ProviderClientConfig config,
             IServiceProvider? services = null,
             CancellationToken cancellationToken = default)
         {
@@ -506,7 +506,7 @@ public sealed class AgentChatClientResolverTests
 
         public IProviderErrorHandler CreateErrorHandler() => new NoopErrorHandler();
         public ProviderMetadata GetMetadata() => new() { ProviderKey = ProviderKey, DisplayName = DisplayName };
-        public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family)
+        public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
             => ProviderValidationResult.Success();
     }
 

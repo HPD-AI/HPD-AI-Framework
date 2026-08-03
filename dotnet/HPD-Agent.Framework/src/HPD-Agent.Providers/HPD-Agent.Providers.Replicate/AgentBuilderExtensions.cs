@@ -29,7 +29,7 @@ public static class AgentBuilderExtensions
         configure?.Invoke(providerConfig);
         ValidateProviderConfig(providerConfig, configure);
 
-        var imageConfig = new ClientProviderConfig
+        var imageConfig = new ProviderClientConfig
         {
             ProviderKey = "replicate",
             ApiKey = apiKey,

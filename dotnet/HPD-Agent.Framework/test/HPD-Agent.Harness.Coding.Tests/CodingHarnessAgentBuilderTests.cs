@@ -19,7 +19,7 @@ public class CodingToolHarnessAgentBuilderTests
         using var chatClient = new TestChatClient();
         var config = new AgentConfig
         {
-            Clients = new AgentClientConfig { Chat = new ClientProviderConfig
+            Clients = new AgentClientsConfig { Chat = new ProviderClientConfig
             {
                 ProviderKey = "test",
                 ModelName = "test-model"
@@ -92,9 +92,9 @@ public class CodingToolHarnessAgentBuilderTests
         using var chatClient = new TestChatClient();
         var subAgent = new CodingToolHarness().Explore();
         var config = GetConfig(subAgent);
-        config.Clients = new AgentClientConfig
+        config.Clients = new AgentClientsConfig
         {
-            Chat = new ClientProviderConfig
+            Chat = new ProviderClientConfig
             {
                 ProviderKey = "test",
                 ModelName = "test-model"
@@ -201,7 +201,7 @@ public class CodingToolHarnessAgentBuilderTests
             var agent = await new AgentBuilder(
                     new AgentConfig
                     {
-                        Clients = new AgentClientConfig { Chat = new ClientProviderConfig
+                        Clients = new AgentClientsConfig { Chat = new ProviderClientConfig
                         {
                             ProviderKey = "test",
                             ModelName = "test-model"
@@ -293,9 +293,9 @@ public class CodingToolHarnessAgentBuilderTests
     private static AgentConfig CreateTestConfig() => new()
     {
         MaxAgenticIterations = 3,
-        Clients = new AgentClientConfig
+        Clients = new AgentClientsConfig
         {
-            Chat = new ClientProviderConfig
+            Chat = new ProviderClientConfig
             {
                 ProviderKey = "test",
                 ModelName = "test-model"
@@ -380,7 +380,7 @@ public class CodingToolHarnessAgentBuilderTests
 
         public string DisplayName => "Test";
 
-        public async ValueTask<IChatClient> CreateChatClientAsync(ClientProviderConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default) => chatClient;
+        public async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default) => chatClient;
 
         public IProviderErrorHandler CreateErrorHandler() => new GenericErrorHandler();
 
@@ -403,7 +403,7 @@ public class CodingToolHarnessAgentBuilderTests
                 }
             };
 
-        public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family) => ProviderValidationResult.Success();
+        public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family) => ProviderValidationResult.Success();
     }
 
     private sealed class TestChatClient : IChatClient

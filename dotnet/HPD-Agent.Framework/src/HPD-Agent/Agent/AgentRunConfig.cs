@@ -127,7 +127,7 @@ public class AgentRunConfig
     /// <summary>
     /// Provider-created client-family overrides for this run.
     /// </summary>
-    public AgentClientConfig? Clients { get; set; }
+    public AgentClientsConfig? Clients { get; set; }
 
     /// <summary>
     /// Provider key to switch to (e.g., "openai", "anthropic", "ollama").
@@ -179,7 +179,7 @@ public class AgentRunConfig
     public string? GetConstructionOptionsRawJson()
         => ConstructionOptions?.GetRawText();
 
-    internal ClientProviderConfig? GetChatProviderOverride()
+    internal ProviderClientConfig? GetChatProviderOverride()
     {
         if (string.IsNullOrWhiteSpace(ProviderKey) &&
             string.IsNullOrWhiteSpace(ModelId) &&
@@ -190,7 +190,7 @@ public class AgentRunConfig
             ConstructionOptions is null)
             return null;
 
-        return new ClientProviderConfig
+        return new ProviderClientConfig
         {
             ProviderKey = ProviderKey ?? string.Empty,
             ModelName = ModelId ?? string.Empty,

@@ -50,7 +50,7 @@ public static class AgentBuilderExtensions
         if (string.IsNullOrWhiteSpace(model))
             throw new ArgumentException("Model repository ID is required for HuggingFace provider.", nameof(model));
 
-        var chatConfig = new ClientProviderConfig
+        var chatConfig = new ProviderClientConfig
         {
             ProviderKey = "huggingface",
             ModelName = model,

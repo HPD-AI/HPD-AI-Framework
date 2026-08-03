@@ -32,7 +32,7 @@ internal sealed class ReplicateProvider : IImageGeneratorProvider
     public string DisplayName => "Replicate";
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider registers an AOT-compatible config deserializer in ReplicateProviderModule.")]
-    public Meai.IImageGenerator CreateImageGenerator(ClientProviderConfig config, IServiceProvider? services = null)
+    public Meai.IImageGenerator CreateImageGenerator(ProviderClientConfig config, IServiceProvider? services = null)
     {
         ArgumentNullException.ThrowIfNull(config);
 
@@ -73,7 +73,7 @@ internal sealed class ReplicateProvider : IImageGeneratorProvider
     }
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider registers an AOT-compatible config deserializer in ReplicateProviderModule.")]
-    public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family)
+    public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
     {
         ArgumentNullException.ThrowIfNull(config);
 
@@ -129,7 +129,7 @@ internal sealed class ReplicateProvider : IImageGeneratorProvider
         }
     }
 
-    private static global::Replicate.ReplicateClient CreateReplicateClient(ClientProviderConfig config, IServiceProvider? services)
+    private static global::Replicate.ReplicateClient CreateReplicateClient(ProviderClientConfig config, IServiceProvider? services)
     {
         var secrets = services?.GetService<ISecretResolver>();
         if (secrets is null)

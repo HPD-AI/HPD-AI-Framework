@@ -24,7 +24,7 @@ public class ErrorHandlingConvenienceMethodTest
         var config = new AgentConfig
         {
             Name = "Test Agent",
-            Clients = new AgentClientConfig { Chat = new ClientProviderConfig {
+            Clients = new AgentClientsConfig { Chat = new ProviderClientConfig {
                 ProviderKey = "openai",
                 ModelName = "gpt-4"
             } }

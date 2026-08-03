@@ -53,7 +53,7 @@ public class ReplicateProviderTests
     [Fact]
     public void ValidateConfiguration_WithValidConfig_ShouldSucceed()
     {
-        var config = new ClientProviderConfig
+        var config = new ProviderClientConfig
         {
             ProviderKey = "replicate",
             ModelName = "black-forest-labs/flux-schnell",
@@ -69,7 +69,7 @@ public class ReplicateProviderTests
     [Fact]
     public void ValidateConfiguration_WithModelOwner_AllowsModelNameWithoutSlash()
     {
-        var config = new ClientProviderConfig
+        var config = new ProviderClientConfig
         {
             ProviderKey = "replicate",
             ModelName = "flux-schnell",
@@ -85,7 +85,7 @@ public class ReplicateProviderTests
     [Fact]
     public void ValidateConfiguration_WithMissingApiKey_ShouldFail()
     {
-        var config = new ClientProviderConfig
+        var config = new ProviderClientConfig
         {
             ProviderKey = "replicate",
             ModelName = "black-forest-labs/flux-schnell"
@@ -100,7 +100,7 @@ public class ReplicateProviderTests
     [Fact]
     public void ValidateConfiguration_WithInvalidModelFormat_ShouldFail()
     {
-        var config = new ClientProviderConfig
+        var config = new ProviderClientConfig
         {
             ProviderKey = "replicate",
             ModelName = "flux-schnell",
@@ -116,7 +116,7 @@ public class ReplicateProviderTests
     [Fact]
     public void ValidateConfiguration_ForChatFamily_ShouldFail()
     {
-        var config = new ClientProviderConfig
+        var config = new ProviderClientConfig
         {
             ProviderKey = "replicate",
             ModelName = "black-forest-labs/flux-schnell",
@@ -132,7 +132,7 @@ public class ReplicateProviderTests
     [Fact]
     public void ValidateConfiguration_WithInvalidOptions_ShouldFail()
     {
-        var config = new ClientProviderConfig
+        var config = new ProviderClientConfig
         {
             ProviderKey = "replicate",
             ModelName = "black-forest-labs/flux-schnell",
@@ -157,7 +157,7 @@ public class ReplicateProviderTests
     public void CreateImageGenerator_WithValidConfig_ShouldCreateClient()
     {
         var services = CreateServices();
-        var config = new ClientProviderConfig
+        var config = new ProviderClientConfig
         {
             ProviderKey = "replicate",
             ModelName = "black-forest-labs/flux-schnell",
@@ -178,7 +178,7 @@ public class ReplicateProviderTests
         global::System.Environment.SetEnvironmentVariable("REPLICATE_API_TOKEN", "env-key");
         try
         {
-            var config = new ClientProviderConfig
+            var config = new ProviderClientConfig
             {
                 ProviderKey = "replicate",
                 ModelName = "black-forest-labs/flux-schnell"

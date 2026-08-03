@@ -11,7 +11,7 @@ public sealed class ProviderConstructionValidationRestorationTests
     public void Bedrock_ValidateConfiguration_ShouldRequireCredentialPairingAndPositiveClientOptions()
     {
         var provider = new BedrockProvider();
-        var config = new ClientProviderConfig
+        var config = new ProviderClientConfig
         {
             ProviderKey = "bedrock",
             ModelName = "anthropic.claude-3-5-sonnet-20240620-v1:0"
@@ -39,7 +39,7 @@ public sealed class ProviderConstructionValidationRestorationTests
     public void Bedrock_ValidateConfiguration_ShouldRequireAccessKeyWhenSecretIsSpecified()
     {
         var provider = new BedrockProvider();
-        var config = new ClientProviderConfig
+        var config = new ProviderClientConfig
         {
             ProviderKey = "bedrock",
             ModelName = "anthropic.claude-3-5-sonnet-20240620-v1:0"
@@ -59,7 +59,7 @@ public sealed class ProviderConstructionValidationRestorationTests
     public void OnnxRuntime_ValidateConfiguration_ShouldRequireExistingModelPath()
     {
         var provider = new OnnxRuntimeProvider();
-        var config = new ClientProviderConfig
+        var config = new ProviderClientConfig
         {
             ProviderKey = "onnx-runtime"
         };
@@ -78,7 +78,7 @@ public sealed class ProviderConstructionValidationRestorationTests
     public void OnnxRuntime_ValidateConfiguration_ShouldRejectInvalidProviderAndHardwareConstructionOptions()
     {
         var provider = new OnnxRuntimeProvider();
-        var config = new ClientProviderConfig
+        var config = new ProviderClientConfig
         {
             ProviderKey = "onnx-runtime"
         };
@@ -108,7 +108,7 @@ public sealed class ProviderConstructionValidationRestorationTests
     public void OnnxRuntime_ValidateConfiguration_ShouldRequireProvidersForHardwareDecoderOptions()
     {
         var provider = new OnnxRuntimeProvider();
-        var config = new ClientProviderConfig
+        var config = new ProviderClientConfig
         {
             ProviderKey = "onnx-runtime"
         };
@@ -128,7 +128,7 @@ public sealed class ProviderConstructionValidationRestorationTests
     public void Ollama_ValidateConfiguration_ShouldRejectInvalidEndpointAndTimeout()
     {
         var provider = new OllamaProvider();
-        var config = new ClientProviderConfig
+        var config = new ProviderClientConfig
         {
             ProviderKey = "ollama",
             ModelName = "qwen3",
