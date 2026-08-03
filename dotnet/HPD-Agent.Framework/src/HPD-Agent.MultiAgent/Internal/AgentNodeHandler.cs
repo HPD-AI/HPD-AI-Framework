@@ -366,7 +366,7 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
 
         var runConfig = BuildRunConfig(agent, options, context);
 
-        // Generate and inject handoff tools via public AdditionalTools API
+        // Generate and inject handoff tools through the consolidated tool configuration.
         var handoffTools = HandoffToolGenerator.CreateHandoffTools(options.HandoffTargets);
         if (handoffTools.Count > 0)
         {

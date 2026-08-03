@@ -68,7 +68,7 @@ public class AgentPlanAgentMiddleware : IAgentMiddleware
         BeforeMessageTurnContext context,
         CancellationToken cancellationToken)
     {
-        // PHASE 1: Inject plan mode instructions via AdditionalSystemInstructions
+        // PHASE 1: Inject plan mode instructions through SystemInstructions.Append.
         if (_config?.Enabled == true)
         {
             var planModeInstructions = _config.CustomInstructions ?? GetDefaultPlanModeInstructions();

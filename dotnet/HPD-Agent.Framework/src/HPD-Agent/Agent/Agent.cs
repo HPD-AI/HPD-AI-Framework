@@ -2348,7 +2348,7 @@ public sealed class Agent
                     _ = await RunAsync(TargetActiveExecution(input), ct).ConfigureAwait(false));
 
             // IMPORTANT: Create runConfig instance ONCE and reuse it throughout the entire turn
-            // Middleware may modify runConfig (e.g., AgentPlanAgentMiddleware sets AdditionalSystemInstructions)
+            // Middleware may modify the consolidated per-run concern objects.
             // We must use the SAME instance for BeforeMessageTurnAsync and BeforeIterationAsync
             var turnPipeline = BuildTurnMiddlewarePipeline(effectiveRunConfig);
             var functionCallProcessor = ReferenceEquals(turnPipeline, _middlewarePipeline)
@@ -2574,7 +2574,7 @@ public sealed class Agent
                     // Forces LLM to call a tool - provider-enforced, not prompt-based
                     // Only apply on first iteration - subsequent iterations follow same mode
                     // ═══════════════════════════════════════════════════════════════
-                    // Public ToolModeOverride takes precedence over internal RuntimeToolMode
+                    // Public Tools.Mode takes precedence over internal RuntimeToolMode.
                     var toolModeOverride = runConfig?.Tools?.Mode ?? runConfig?.RuntimeToolMode;
                     if (toolModeOverride != null && state.Iteration == 0)
                     {
@@ -5136,7 +5136,7 @@ public sealed class Agent
 
     /// <summary>
     /// Builds initial context properties dictionary from AgentRunConfig.
-    /// Merges ClientToolInput and ContextOverrides into a single dictionary.
+    /// Merges client tool input and context properties into a single dictionary.
     /// </summary>
     private static Dictionary<string, object>? BuildInitialContextProperties(AgentRunConfig? options)
     {
@@ -5216,7 +5216,7 @@ public sealed class Agent
     /// <summary>
     /// Resolves system instructions considering AgentRunConfig overrides.
     /// Priority: AgentRunConfig.SystemInstructions > Config.SystemInstructions
-    /// If AdditionalSystemInstructions is set, it's appended.
+    /// Applies the ordered system-instruction override and append policy.
     /// </summary>
     /// <param name="options">Per-invocation options</param>
     /// <returns>Resolved system instructions</returns>
