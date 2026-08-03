@@ -55,6 +55,22 @@ public sealed record UpstreamResilienceCapability(
     ImmutableArray<int> RetryStatusCodes,
     int MaximumRetryAttempts);
 
+public enum OutputCacheStoreScope : byte
+{
+    ProcessLocal = 0
+}
+
+public sealed record OutputCacheCapability(
+    string Name,
+    int Version,
+    bool RetainsDefaultSafetyPolicy,
+    string StoreId,
+    OutputCacheStoreScope StoreScope,
+    long MaximumBodyBytes,
+    long StoreCapacityBytes,
+    ImmutableArray<string> QueryKeys,
+    ImmutableArray<string> HeaderNames);
+
 public sealed record ListenerCapability(
     ListenerId Id,
     ListenerRole Role,
@@ -79,7 +95,7 @@ public sealed record HostCapabilityRegistration
     public IEnumerable<string> CorsPolicies { get; init; } = [];
     public IEnumerable<string> TrafficAdmissionPolicies { get; init; } = [];
     public IEnumerable<string> RequestTimeoutPolicies { get; init; } = [];
-    public IEnumerable<string> OutputCachePolicies { get; init; } = [];
+    public IEnumerable<OutputCacheCapability> OutputCacheProfiles { get; init; } = [];
     public IEnumerable<string> SessionAffinityPolicies { get; init; } = [];
     public IEnumerable<string> SessionAffinityFailurePolicies { get; init; } = [];
     public IEnumerable<string> PassiveHealthPolicies { get; init; } = [];
@@ -106,14 +122,15 @@ public sealed class HostCapabilitySnapshot
         CorsPolicies = Names(registration.CorsPolicies);
         TrafficAdmissionPolicies = Names(registration.TrafficAdmissionPolicies);
         RequestTimeoutPolicies = Names(registration.RequestTimeoutPolicies);
-        OutputCachePolicies = Names(registration.OutputCachePolicies);
+        ProtectedCredentialHeaders = ProtectedHeaders(registration.ProtectedCredentialHeaders);
+        OutputCacheProfiles = CacheProfiles(registration.OutputCacheProfiles, ProtectedCredentialHeaders);
+        OutputCachePolicies = OutputCacheProfiles.Keys.ToImmutableHashSet(StringComparer.Ordinal);
         SessionAffinityPolicies = Names(registration.SessionAffinityPolicies);
         SessionAffinityFailurePolicies = Names(registration.SessionAffinityFailurePolicies);
         PassiveHealthPolicies = Names(registration.PassiveHealthPolicies);
         ActiveHealthPolicies = Names(registration.ActiveHealthPolicies);
         RequestInspectors = Names(registration.RequestInspectors);
         UpstreamResilienceProfiles = ResilienceProfiles(registration.UpstreamResilienceProfiles);
-        ProtectedCredentialHeaders = ProtectedHeaders(registration.ProtectedCredentialHeaders);
         AllowInspectionFileSpill = registration.AllowInspectionFileSpill;
     }
 
@@ -126,6 +143,7 @@ public sealed class HostCapabilitySnapshot
     public ImmutableHashSet<string> TrafficAdmissionPolicies { get; }
     public ImmutableHashSet<string> RequestTimeoutPolicies { get; }
     public ImmutableHashSet<string> OutputCachePolicies { get; }
+    public ImmutableDictionary<string, OutputCacheCapability> OutputCacheProfiles { get; }
     public ImmutableHashSet<string> SessionAffinityPolicies { get; }
     public ImmutableHashSet<string> SessionAffinityFailurePolicies { get; }
     public ImmutableHashSet<string> PassiveHealthPolicies { get; }
@@ -147,7 +165,7 @@ public sealed class HostCapabilitySnapshot
             CorsPolicies = Required(registration.CorsPolicies, nameof(registration.CorsPolicies)).ToArray(),
             TrafficAdmissionPolicies = Required(registration.TrafficAdmissionPolicies, nameof(registration.TrafficAdmissionPolicies)).ToArray(),
             RequestTimeoutPolicies = Required(registration.RequestTimeoutPolicies, nameof(registration.RequestTimeoutPolicies)).ToArray(),
-            OutputCachePolicies = Required(registration.OutputCachePolicies, nameof(registration.OutputCachePolicies)).ToArray(),
+            OutputCacheProfiles = Required(registration.OutputCacheProfiles, nameof(registration.OutputCacheProfiles)).ToArray(),
             SessionAffinityPolicies = Required(registration.SessionAffinityPolicies, nameof(registration.SessionAffinityPolicies)).ToArray(),
             SessionAffinityFailurePolicies = Required(registration.SessionAffinityFailurePolicies, nameof(registration.SessionAffinityFailurePolicies)).ToArray(),
             PassiveHealthPolicies = Required(registration.PassiveHealthPolicies, nameof(registration.PassiveHealthPolicies)).ToArray(),
@@ -194,7 +212,6 @@ public sealed class HostCapabilitySnapshot
         ValidateNames(registration.CorsPolicies, nameof(registration.CorsPolicies));
         ValidateNames(registration.TrafficAdmissionPolicies, nameof(registration.TrafficAdmissionPolicies));
         ValidateNames(registration.RequestTimeoutPolicies, nameof(registration.RequestTimeoutPolicies));
-        ValidateNames(registration.OutputCachePolicies, nameof(registration.OutputCachePolicies));
         ValidateNames(registration.SessionAffinityPolicies, nameof(registration.SessionAffinityPolicies));
         ValidateNames(registration.SessionAffinityFailurePolicies, nameof(registration.SessionAffinityFailurePolicies));
         ValidateNames(registration.PassiveHealthPolicies, nameof(registration.PassiveHealthPolicies));
@@ -202,6 +219,7 @@ public sealed class HostCapabilitySnapshot
         ValidateInspectorNames(registration.RequestInspectors, nameof(registration.RequestInspectors));
         _ = ResilienceProfiles(registration.UpstreamResilienceProfiles);
         _ = ProtectedHeaders(registration.ProtectedCredentialHeaders);
+        _ = CacheProfiles(registration.OutputCacheProfiles, ProtectedHeaders(registration.ProtectedCredentialHeaders));
         return new HostCapabilitySnapshot(listeners.ToImmutable(), discoveries.ToImmutable(), secrets.ToImmutable(), registration);
     }
 
@@ -231,6 +249,33 @@ public sealed class HostCapabilitySnapshot
     }
 
     private static bool IsRetryStatus(int status) => status is 408 or 429 || status is >= 500 and <= 599;
+
+    private static ImmutableDictionary<string, OutputCacheCapability> CacheProfiles(
+        IEnumerable<OutputCacheCapability> values,
+        ImmutableArray<string> protectedHeaders)
+    {
+        var profiles = ImmutableDictionary.CreateBuilder<string, OutputCacheCapability>(StringComparer.Ordinal);
+        foreach (var profile in values)
+        {
+            if (profile is null || !GatewayIdentifier.IsCanonical(profile.Name) || profile.Version <= 0 ||
+                !profile.RetainsDefaultSafetyPolicy || !GatewayIdentifier.IsCanonical(profile.StoreId) ||
+                profile.StoreScope != OutputCacheStoreScope.ProcessLocal ||
+                profile.MaximumBodyBytes is < 1_024 or > 67_108_864 ||
+                profile.StoreCapacityBytes < profile.MaximumBodyBytes || profile.StoreCapacityBytes > 1_073_741_824 ||
+                !ValidDimensions(profile.QueryKeys, header: false, protectedHeaders) ||
+                !ValidDimensions(profile.HeaderNames, header: true, protectedHeaders) ||
+                !profiles.TryAdd(profile.Name, profile))
+                throw new ArgumentException("Output Cache capabilities must be bounded, conservative, process-local, and unique.", nameof(values));
+        }
+        return profiles.ToImmutable();
+    }
+
+    private static bool ValidDimensions(ImmutableArray<string> values, bool header, ImmutableArray<string> protectedHeaders)
+    {
+        if (values.IsDefault || values.Length > 16 || values.Any(static value => string.IsNullOrWhiteSpace(value) || value.Length > 128)) return false;
+        if (!values.SequenceEqual(values.Order(StringComparer.Ordinal)) || values.Distinct(StringComparer.OrdinalIgnoreCase).Count() != values.Length) return false;
+        return values.All(value => IsHttpToken(value) && (!header || !protectedHeaders.Contains(value, StringComparer.OrdinalIgnoreCase)));
+    }
 
     private static ImmutableArray<string> ProtectedHeaders(IEnumerable<string> values)
     {

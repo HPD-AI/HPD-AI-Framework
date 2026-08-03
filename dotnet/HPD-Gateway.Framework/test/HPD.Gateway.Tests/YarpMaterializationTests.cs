@@ -36,7 +36,8 @@ public sealed class YarpMaterializationTests
                 Cors = Inline(new CorsPolicyBinding("root-cors")),
                 TrafficAdmission = Inline(new TrafficAdmissionBinding("root-admission")),
                 RequestTimeout = Inline(new RequestTimeoutBinding { PolicyName = "root-timeout" }),
-                OutputCache = Inline(new OutputCacheBinding("root-cache"))
+                OutputCache = Inline(new OutputCacheBinding("root-cache")),
+                CredentialDisposition = Inline(new CredentialDispositionBinding { Kind = CredentialDispositionKind.Strip })
             },
             Routes =
             [
@@ -46,7 +47,7 @@ public sealed class YarpMaterializationTests
                     Order = -10,
                     Match = new HttpRouteMatch
                     {
-                        Methods = ["post", "GET"],
+                        Methods = ["GET", "HEAD"],
                         Hosts = ["API.EXAMPLE.COM"],
                         Path = "/orders/{id}",
                         Headers = [new HttpHeaderMatch { Name = "X-Tenant", Kind = TextMatchKind.Prefix, Values = ["b", "a"], CaseSensitive = true }],
@@ -117,11 +118,11 @@ public sealed class YarpMaterializationTests
         route.OutputCachePolicy.Should().Be("root-cache");
         route.Timeout.Should().Be(TimeSpan.FromSeconds(7));
         route.TimeoutPolicy.Should().BeNull();
-        route.Match.Methods.Should().Equal("GET", "POST");
+        route.Match.Methods.Should().Equal("GET", "HEAD");
         route.Match.Hosts.Should().Equal("api.example.com");
         route.Match.Headers.Should().ContainSingle(item => item.Name == "x-tenant" && item.Mode == HeaderMatchMode.HeaderPrefix);
         route.Match.QueryParameters.Should().ContainSingle(item => item.Name == "trace" && item.Mode == QueryParameterMatchMode.Exists);
-        route.Transforms.Should().HaveCount(5);
+        route.Transforms.Should().HaveCount(8);
 
         var cluster = result.Bundle.Clusters.Should().ContainSingle().Subject;
         cluster.ClusterId.Should().Be("backend");
@@ -247,8 +248,10 @@ public sealed class YarpMaterializationTests
                 Cors = Inline(new CorsPolicyBinding("root-cors")),
                 TrafficAdmission = Inline(new TrafficAdmissionBinding("root-admission")),
                 RequestTimeout = Inline(new RequestTimeoutBinding { PolicyName = "root-timeout" }),
-                OutputCache = Inline(new OutputCacheBinding("root-cache"))
-            }
+                OutputCache = Inline(new OutputCacheBinding("root-cache")),
+                CredentialDisposition = Inline(new CredentialDispositionBinding { Kind = CredentialDispositionKind.Strip })
+            },
+            Routes = [Route("route") with { Match = new HttpRouteMatch { Path = "/{**catch-all}", Methods = ["GET", "HEAD"] } }]
         };
         var accepted = Read(configuration, Capabilities());
 
@@ -624,12 +627,12 @@ public sealed class YarpMaterializationTests
 
     private static HostCapabilitySnapshot Capabilities(bool withDiscovery = false) => HostCapabilitySnapshot.Create(new HostCapabilityRegistration
     {
-        InstalledFamilies = GatewayDeclarationFamilies.AllBaseline,
+        InstalledFamilies = GatewayDeclarationFamilies.AllBaseline | GatewayDeclarationFamilies.CredentialDisposition,
         AuthorizationPolicies = ["root-auth", "route-auth", "orders.read"],
         CorsPolicies = ["root-cors"],
         TrafficAdmissionPolicies = ["root-admission"],
         RequestTimeoutPolicies = ["root-timeout"],
-        OutputCachePolicies = ["root-cache"],
+        OutputCacheProfiles = [CacheCapability("root-cache")],
         SessionAffinityPolicies = ["Cookie"],
         SessionAffinityFailurePolicies = ["Redistribute"],
         PassiveHealthPolicies = ["TransportFailureRate"],
@@ -639,6 +642,17 @@ public sealed class YarpMaterializationTests
             ? [new DiscoveryProviderCapability(new ProviderId("dns"), [], [], true, false)]
             : []
     });
+
+    private static OutputCacheCapability CacheCapability(string name) => new(
+        name,
+        1,
+        true,
+        "memory",
+        OutputCacheStoreScope.ProcessLocal,
+        1_048_576,
+        16_777_216,
+        [],
+        []);
 
     private static async Task<WebApplication> StartBackend(string name)
     {

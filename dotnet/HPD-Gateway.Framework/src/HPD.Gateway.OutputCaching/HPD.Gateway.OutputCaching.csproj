@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>HPD.Gateway.OutputCaching</RootNamespace>
+    <AssemblyName>HPD.Gateway.OutputCaching</AssemblyName>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD.Gateway.OutputCaching</PackageId>
+    <Description>Closed conservative ASP.NET Core Output Cache profiles for HPD.Gateway.</Description>
+    <PackageTags>hpd;gateway;yarp;output-cache;aot</PackageTags>
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="../HPD.Gateway.Abstractions/HPD.Gateway.Abstractions.csproj" />
+    <ProjectReference Include="../HPD.Gateway.Core/HPD.Gateway.Core.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,5 +1,6 @@
 using System.Globalization;
 using HPD.Gateway.Abstractions;
+using HPD.Gateway.Core;
 using HPD.Gateway.Inspection;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -51,9 +52,11 @@ internal sealed class GatewayInspectionMiddleware(RequestDelegate next, GatewayI
         metadata.TryGetValue(key, out var value) ? int.Parse(value, CultureInfo.InvariantCulture) : null;
 }
 
-internal sealed class HpdInspectionPipelineMarker
+internal sealed class HpdInspectionPipelineMarker : IGatewayEndpointMappingParticipant
 {
     internal bool IsMapped { get; set; }
+    bool IGatewayEndpointMappingParticipant.IsMapped => IsMapped;
+    void IGatewayEndpointMappingParticipant.MarkMapped() => IsMapped = true;
 }
 
 internal sealed class HpdInspectionPipelineGuard(HpdInspectionPipelineMarker marker) : IHostedService
@@ -75,6 +78,7 @@ public static class GatewayInspectionYarpExtensions
             throw new InvalidOperationException("HPD request inspection can be registered only once.");
         services.AddHpdGatewayInspection(configure);
         services.AddSingleton<HpdInspectionPipelineMarker>();
+        services.AddSingleton<IGatewayEndpointMappingParticipant>(static provider => provider.GetRequiredService<HpdInspectionPipelineMarker>());
         services.AddSingleton<IHostedService, HpdInspectionPipelineGuard>();
         return services;
     }
@@ -82,12 +86,14 @@ public static class GatewayInspectionYarpExtensions
     public static ReverseProxyConventionBuilder MapHpdGatewayReverseProxy(this IEndpointRouteBuilder endpoints)
     {
         ArgumentNullException.ThrowIfNull(endpoints);
-        var marker = endpoints.ServiceProvider.GetRequiredService<HpdInspectionPipelineMarker>();
-        if (marker.IsMapped) throw new InvalidOperationException("The HPD reverse-proxy pipeline can be mapped only once.");
-        marker.IsMapped = true;
+        var participants = endpoints.ServiceProvider.GetServices<IGatewayEndpointMappingParticipant>().ToArray();
+        if (participants.Length == 0) throw new InvalidOperationException("The HPD reverse-proxy mapping requires at least one installed pipeline participant.");
+        if (participants.Any(static participant => participant.IsMapped)) throw new InvalidOperationException("The HPD reverse-proxy pipeline can be mapped only once.");
+        foreach (var participant in participants) participant.MarkMapped();
+        var inspectionInstalled = endpoints.ServiceProvider.GetService<GatewayInspectionRegistry>() is not null;
         return endpoints.MapReverseProxy(proxy =>
         {
-            proxy.UseMiddleware<GatewayInspectionMiddleware>();
+            if (inspectionInstalled) proxy.UseMiddleware<GatewayInspectionMiddleware>();
             proxy.UseSessionAffinity();
             proxy.UseLoadBalancing();
             proxy.UsePassiveHealthChecks();

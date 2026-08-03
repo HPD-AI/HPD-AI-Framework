@@ -33,6 +33,7 @@ public static class GatewayCandidateValidator
         ValidateDefinitionPolicies(configuration.Definitions, capabilities, errors);
         ValidateInstalledFamilies(configuration, capabilities, errors);
         ValidateCredentialDisposition(configuration, capabilities, errors);
+        ValidateOutputCache(configuration, capabilities, errors);
         ValidateUpstreamCapabilities(configuration, capabilities, errors);
         return new GatewayValidationResult { Errors = errors.ToImmutable() };
     }
@@ -189,6 +190,36 @@ public static class GatewayCandidateValidator
                     capabilities.ProtectedCredentialHeaders.Contains(transform.Name, StringComparer.OrdinalIgnoreCase))
                     Add(errors, GatewayValidationErrorCode.InvalidValue, $"routes[{index}].declarations.requestTransforms.headers[{transformIndex}].name", "A protected credential header cannot be set or appended after credential stripping is selected.");
             }
+        }
+    }
+
+    private static void ValidateOutputCache(GatewayConfiguration configuration, HostCapabilitySnapshot capabilities, ImmutableArray<GatewayValidationError>.Builder errors)
+    {
+        var definitions = configuration.Definitions;
+        var cacheDefinitions = definitions?.OutputCache ?? [];
+        var credentialDefinitions = definitions?.CredentialDisposition ?? [];
+        var inspectionDefinitions = definitions?.Inspection ?? [];
+        for (var index = 0; index < configuration.Routes.Length; index++)
+        {
+            var route = configuration.Routes[index];
+            if (route?.Declarations is null || !route.Enabled) continue;
+            var cache = ResolveValue(route.Declarations.OutputCache ?? configuration.RootDefaults?.OutputCache, cacheDefinitions);
+            if (cache is null) continue;
+            var path = $"routes[{index}]";
+            if (!capabilities.OutputCacheProfiles.TryGetValue(cache.PolicyName, out var profile) || !profile.RetainsDefaultSafetyPolicy)
+                Add(errors, GatewayValidationErrorCode.InvalidValue, $"{path}.declarations.outputCache", "Output Cache profile is not installed with the conservative default safety policy.");
+
+            var methods = route.Match?.Methods ?? [];
+            if (methods.IsDefaultOrEmpty || methods.Any(static method => !method.Equals("GET", StringComparison.OrdinalIgnoreCase) && !method.Equals("HEAD", StringComparison.OrdinalIgnoreCase)))
+                Add(errors, GatewayValidationErrorCode.InvalidValue, $"{path}.match.methods", "Output Cache requires an explicit GET/HEAD-only method set.");
+
+            var credential = ResolveValue(route.Declarations.CredentialDisposition ?? configuration.RootDefaults?.CredentialDisposition, credentialDefinitions);
+            if (credential?.Kind != CredentialDispositionKind.Strip)
+                Add(errors, GatewayValidationErrorCode.InvalidValue, $"{path}.declarations.credentialDisposition", "Output Cache requires effective protected-credential stripping.");
+
+            var inspection = ResolveValue(route.Declarations.Inspection ?? configuration.RootDefaults?.Inspection, inspectionDefinitions);
+            if (inspection is not null)
+                Add(errors, GatewayValidationErrorCode.InvalidValue, $"{path}.declarations.inspection", "Output Cache and request inspection cannot be selected on the same Route because cache hits bypass the inspector.");
         }
     }
 

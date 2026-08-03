@@ -42,5 +42,14 @@ transforms immediately before forwarding. The candidate cannot provide header
 names, and protected headers cannot be restored by candidate request
 transforms. No disposition preserves ordinary YARP behavior.
 
-Management, downstream credential replacement/delegation, and standalone-host
-support are not implemented.
+`HPD.Gateway.OutputCaching` adds optional bounded startup-registered ASP.NET
+Core Output Cache profiles over the framework's process-local memory store.
+Profiles retain the native default safety policy, explicit bounded query and
+header dimensions, host variation, locking, expiration, body/store limits,
+and a profile-version key namespace. Cached Routes must be explicit GET/HEAD,
+must strip protected credentials, and cannot also select request inspection.
+ASP.NET Core continues to own lookup, capture, entries, storage, and serving;
+HPD does not provide a cache engine or purge authority.
+
+Management, downstream credential replacement/delegation, shared cache-store
+providers, and standalone-host support are not implemented.

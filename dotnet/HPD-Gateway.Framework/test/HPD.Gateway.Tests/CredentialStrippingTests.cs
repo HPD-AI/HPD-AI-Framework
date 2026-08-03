@@ -232,7 +232,8 @@ public sealed class CredentialStrippingTests
             accepted.Configuration,
             accepted.CanonicalDocument,
             ImmutableArray<GatewayValidationError>.Empty,
-            default(ImmutableArray<string>)
+            default(ImmutableArray<string>),
+            accepted.OutputCacheProfiles
         ]);
 
         var materialized = await new GatewayNativeMaterializer(new AcceptingConfigValidator()).MaterializeAsync(

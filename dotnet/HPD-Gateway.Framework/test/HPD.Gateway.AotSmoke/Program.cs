@@ -5,6 +5,7 @@ using HPD.Gateway.Abstractions;
 using HPD.Gateway.Abstractions.Serialization;
 using HPD.Gateway.Core;
 using HPD.Gateway.Inspection;
+using HPD.Gateway.OutputCaching;
 using HPD.Gateway.Resilience;
 using HPD.Gateway.Yarp;
 using Microsoft.AspNetCore.Builder;
@@ -89,7 +90,7 @@ var configuration = new GatewayConfiguration
             new DeclarationDefinition<OutputCacheBinding>
             {
                 Id = new DefinitionId("cache"),
-                Specification = new OutputCacheBinding("GatewayCache")
+                Specification = new OutputCacheBinding("gateway-cache")
             }
         ],
         Telemetry =
@@ -250,10 +251,6 @@ var configuration = new GatewayConfiguration
                 {
                     Definition = new DefinitionId("cache")
                 },
-                Inspection = new DeclarationReference<RequestInspectionBinding>
-                {
-                    Definition = new DefinitionId("inspection")
-                },
                 RequestTransforms = new OrderedRequestTransforms
                 {
                     Headers =
@@ -299,7 +296,19 @@ var capabilities = HostCapabilitySnapshot.Create(new HostCapabilityRegistration
     AuthorizationPolicies = ["GatewayUsers"],
     CorsPolicies = ["GatewayCors"],
     TrafficAdmissionPolicies = ["GatewayAdmission"],
-    OutputCachePolicies = ["GatewayCache"],
+    OutputCacheProfiles =
+    [
+        new OutputCacheCapability(
+            "gateway-cache",
+            1,
+            true,
+            "memory",
+            OutputCacheStoreScope.ProcessLocal,
+            1_048_576,
+            16_777_216,
+            [],
+            [])
+    ],
     SessionAffinityPolicies = ["Cookie"],
     SessionAffinityFailurePolicies = ["Redistribute"],
     PassiveHealthPolicies = ["TransportFailureRate"],
@@ -368,7 +377,6 @@ var materializableConfiguration = configuration with
             {
                 Authorization = supportedRouteDeclarations.Authorization,
                 OutputCache = supportedRouteDeclarations.OutputCache,
-                Inspection = supportedRouteDeclarations.Inspection,
                 RequestTransforms = supportedRouteDeclarations.RequestTransforms,
                 ResponseTransforms = supportedRouteDeclarations.ResponseTransforms
             }
@@ -388,7 +396,7 @@ services.AddRateLimiter(options => options.AddFixedWindowLimiter("GatewayAdmissi
     limiter.PermitLimit = 10;
     limiter.Window = TimeSpan.FromMinutes(1);
 }));
-services.AddOutputCache(options => options.AddPolicy("GatewayCache", policy => policy.Expire(TimeSpan.FromSeconds(10))));
+services.AddOutputCache(options => options.AddPolicy("gateway-cache", policy => policy.Expire(TimeSpan.FromSeconds(10))));
 services.AddReverseProxy();
 services.AddHpdGatewayYarpPublication();
 services.AddHpdGatewayYarpResilience(registry => registry.Add(smokeResilienceProfile));
@@ -518,8 +526,15 @@ liveProxyBuilder.Services.AddReverseProxy();
 liveProxyBuilder.Services.AddHpdGatewayYarpPublication();
 liveProxyBuilder.Services.AddHpdGatewayYarpResilience(registry => registry.Add(smokeResilienceProfile));
 liveProxyBuilder.Services.AddHpdGatewayYarpMaterialization();
+liveProxyBuilder.Services.AddHpdGatewayOutputCaching(builder =>
+{
+    builder.MaximumBodyBytes = 1_024;
+    builder.StoreCapacityBytes = 65_536;
+    builder.Add(new GatewayOutputCacheProfile { Name = "aot-cache", Version = 1, Expiration = TimeSpan.FromMinutes(1) });
+});
 await using var liveProxy = liveProxyBuilder.Build();
-liveProxy.MapReverseProxy();
+liveProxy.UseHpdGatewayOutputCaching();
+liveProxy.MapHpdGatewayReverseProxy();
 await liveProxy.StartAsync();
 
 var liveConfiguration = new GatewayConfiguration
@@ -535,6 +550,10 @@ var liveConfiguration = new GatewayConfiguration
             Upstream = new UpstreamId("live"),
             Declarations = new RouteDeclarations
             {
+                OutputCache = new DeclarationReference<OutputCacheBinding>
+                {
+                    Inline = new OutputCacheBinding("aot-cache")
+                },
                 CredentialDisposition = new DeclarationReference<CredentialDispositionBinding>
                 {
                     Inline = new CredentialDispositionBinding { Kind = CredentialDispositionKind.Strip }
@@ -557,8 +576,9 @@ var liveConfiguration = new GatewayConfiguration
 };
 var liveCapabilities = HostCapabilitySnapshot.Create(new HostCapabilityRegistration
 {
-    InstalledFamilies = GatewayDeclarationFamilies.UpstreamResilience | GatewayDeclarationFamilies.CredentialDisposition,
+    InstalledFamilies = GatewayDeclarationFamilies.UpstreamResilience | GatewayDeclarationFamilies.CredentialDisposition | GatewayDeclarationFamilies.OutputCache,
     ProtectedCredentialHeaders = ["X-Aot-Key"],
+    OutputCacheProfiles = liveProxy.Services.GetHpdGatewayOutputCacheCapabilities(),
     UpstreamResilienceProfiles = liveProxy.Services.GetHpdGatewayResilienceCapabilities()
 });
 var liveJson = JsonSerializer.SerializeToUtf8Bytes(liveConfiguration, GatewayJsonSerializerContext.Default.GatewayConfiguration);
@@ -580,6 +600,10 @@ liveRequest.Headers.TryAddWithoutValidation("X-Aot-Key", "native-aot-secret");
 using var liveResponse = await liveClient.SendAsync(liveRequest);
 if (liveResponse.StatusCode != HttpStatusCode.OK || liveAttempts != 2 || liveCredentialLeak)
     throw new InvalidOperationException("Native AOT real YARP resilience and credential stripping forwarding failed.");
+using var cachedResponse = await liveClient.GetAsync("/retry");
+using var cachedHit = await liveClient.GetAsync("/retry");
+if (cachedResponse.StatusCode != HttpStatusCode.OK || cachedHit.StatusCode != HttpStatusCode.OK || liveAttempts != 3)
+    throw new InvalidOperationException("Native AOT real Output Cache hit did not suppress upstream forwarding.");
 
 _ = JsonSerializer.SerializeToUtf8Bytes(validation, GatewayJsonSerializerContext.Default.GatewayValidationResult);
 _ = JsonSerializer.SerializeToUtf8Bytes(canonical, GatewayJsonSerializerContext.Default.GatewayCanonicalizationResult);
