@@ -4,6 +4,7 @@ using HPD.Agent.Hosting.Configuration;
 using HPD.Agent.Hosting.Lifecycle;
 using HPD.Agent.Hosting.Serialization;
 using HPD.Agent.Serialization;
+using HPD.Agent.Providers;
 using Microsoft.Extensions.Configuration;
 using Microsoft.AspNetCore.Http.Json;
 using Microsoft.Extensions.DependencyInjection;
@@ -171,11 +172,13 @@ public static class HPDAgentServiceCollectionExtensions
 /// <summary>
 /// Configures JSON serialization for HPD Agent API DTOs.
 /// </summary>
-internal class HPDAgentApiJsonOptionsSetup : IConfigureOptions<JsonOptions>
+internal class HPDAgentApiJsonOptionsSetup(IServiceProvider services) : IConfigureOptions<JsonOptions>
 {
     public void Configure(JsonOptions options)
     {
         options.SerializerOptions.Converters.Add(new HPD.Agent.Serialization.AgentEventJsonConverter());
+        if (services.GetService<ProviderComposition>() is { } composition)
+            options.SerializerOptions.Converters.Add(new AgentRunConfigJsonConverter(composition));
 
         // Internal endpoint types (WriteScoreRequest, etc.)
         options.SerializerOptions.TypeInfoResolverChain.Insert(0,

@@ -2,6 +2,8 @@ using FluentAssertions;
 using HPD.Agent.AspNetCore;
 using HPD.Agent.AspNetCore.DependencyInjection;
 using HPD.Agent.Hosting.Configuration;
+using HPD.Agent.Providers;
+using Microsoft.AspNetCore.Http.Json;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -66,6 +68,20 @@ public class ServiceRegistrationTests
         // This is internal implementation detail but verifies AOT compatibility
         var configurators = provider.GetServices<IConfigureOptions<Microsoft.AspNetCore.Http.Json.JsonOptions>>();
         configurators.Should().NotBeEmpty();
+    }
+
+    [Fact]
+    public void AddHPDAgent_WithProviderComposition_InstallsSharedRunConfigConverter()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton(ProviderComposition.Create([]));
+        services.AddHPDAgent();
+        var provider = services.BuildServiceProvider();
+
+        var options = provider.GetRequiredService<IOptions<JsonOptions>>().Value;
+
+        options.SerializerOptions.Converters.Should().ContainSingle(converter =>
+            converter.GetType().Name == "AgentRunConfigJsonConverter");
     }
 
     [Fact]
