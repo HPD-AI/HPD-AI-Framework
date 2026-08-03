@@ -1168,12 +1168,14 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
             metadata);
     }
 
-    private static AgentTuiAgentInfo ParseAgentInfo(JsonElement element)
+    private AgentTuiAgentInfo ParseAgentInfo(JsonElement element)
     {
         var metadata = ReadObjectMap(element, "metadata");
         var config = element.TryGetProperty("config", out var configElement) &&
                      configElement.ValueKind == JsonValueKind.Object
-            ? configElement.Deserialize(HPDJsonContext.Default.AgentConfig)
+            ? _providerComposition is null
+                ? configElement.Deserialize(HPDJsonContext.Default.AgentConfig)
+                : HpdAgentConfigSerializer.Deserialize(configElement.GetRawText(), _providerComposition)
             : null;
         return new AgentTuiAgentInfo(
             GetRequiredString(element, "id"),
