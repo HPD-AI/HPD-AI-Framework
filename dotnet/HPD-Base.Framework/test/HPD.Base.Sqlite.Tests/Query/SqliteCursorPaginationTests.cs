@@ -2,6 +2,9 @@ using FluentAssertions;
 using HPD.Base;
 using HPD.Base.Sqlite;
 using Microsoft.Extensions.Options;
+using Microsoft.Data.Sqlite;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 
 namespace HPD.Base.Sqlite.Tests.Query;
@@ -180,6 +183,64 @@ public sealed class SqliteCursorPaginationTests
         finally { Delete(path); }
     }
 
+    [Fact]
+    public async Task EqualSortValuesContinueDeterministicallyByRecordIdentity()
+    {
+        string path = TempPath();
+        CollectionDefinition collection = Collection(BaseCollectionMutationMode.Mutable);
+        try
+        {
+            await using SqliteRecordStore store = CreateStore(StoreOptions(path, collection));
+            await CreateAsync(store, collection, "c", "same");
+            await CreateAsync(store, collection, "a", "same");
+            await CreateAsync(store, collection, "b", "same");
+            var ids = new List<string>();
+            string? cursor = null;
+            do
+            {
+                RecordQuery query = FirstQuery() with
+                {
+                    Page = cursor is null
+                        ? FirstQuery().Page
+                        : new QueryPage { Mode = QueryPaginationMode.Cursor, Limit = 1, Cursor = cursor },
+                };
+                RecordPage page = (await store.ListAsync(collection, query, Operation())).Value!;
+                ids.AddRange(page.Items.Select(static item => item.Id.Value));
+                cursor = page.Page.NextCursor;
+            } while (cursor is not null);
+
+            ids.Should().Equal("a", "b", "c");
+        }
+        finally { Delete(path); }
+    }
+
+    [Fact]
+    public async Task ConcurrentCommittedCreatesOwnUniqueIncreasingAppendPositions()
+    {
+        string path = TempPath();
+        CollectionDefinition collection = Collection(BaseCollectionMutationMode.AppendOnly);
+        try
+        {
+            await using SqliteRecordStore store = CreateStore(StoreOptions(path, collection));
+            await Task.WhenAll(Enumerable.Range(0, 20).Select(index =>
+                CreateAsync(store, collection, $"id-{index:D2}", $"title-{index:D2}")));
+
+            await using var connection = new SqliteConnection($"Data Source={path};Pooling=False");
+            await connection.OpenAsync();
+            await using SqliteCommand command = connection.CreateCommand();
+            command.CommandText = $"SELECT append_position FROM {PhysicalTable(collection.Id)} ORDER BY append_position;";
+            var positions = new List<long>();
+            await using SqliteDataReader reader = await command.ExecuteReaderAsync();
+            while (await reader.ReadAsync()) positions.Add(reader.GetInt64(0));
+
+            positions.Should().HaveCount(20);
+            positions.Should().OnlyHaveUniqueItems();
+            positions.Should().BeInAscendingOrder();
+            positions.Should().Equal(Enumerable.Range(1, 20).Select(static value => (long)value));
+        }
+        finally { Delete(path); }
+    }
+
     private static SqliteRecordStore CreateStore(HPDBaseSqliteOptions options)
     {
         SqliteRecordStore store = SqliteTestFactory.Create(
@@ -300,6 +361,9 @@ public sealed class SqliteCursorPaginationTests
 
     private static string TempPath() =>
         Path.Combine(Path.GetTempPath(), "hpd-base-sqlite-cursor-" + Guid.NewGuid().ToString("N") + ".db");
+
+    private static string PhysicalTable(string collectionId) => "b_c_" +
+        Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(collectionId)))[..32];
 
     private static void Delete(string path)
     {
