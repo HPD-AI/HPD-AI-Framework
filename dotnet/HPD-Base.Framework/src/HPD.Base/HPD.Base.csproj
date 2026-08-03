@@ -22,7 +22,8 @@
     <ProjectReference Include="../../../shared/src/HPD-Events/HPD-Events.csproj" />
     <ProjectReference Include="../HPD.Base.Generators/HPD.Base.Generators.csproj"
                       OutputItemType="Analyzer"
-                      ReferenceOutputAssembly="false" />
+                      ReferenceOutputAssembly="false"
+                      GlobalPropertiesToRemove="PublishAot;RuntimeIdentifier;SelfContained" />
   </ItemGroup>
 
   <ItemGroup>

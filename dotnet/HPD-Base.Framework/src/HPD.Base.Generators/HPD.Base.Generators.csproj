@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk" TreatAsLocalProperty="PublishAot;RuntimeIdentifier;SelfContained">
   <PropertyGroup>
     <TargetFramework>netstandard2.0</TargetFramework>
     <TargetFrameworks></TargetFrameworks>
@@ -17,6 +17,9 @@
     <IncludeSymbols>false</IncludeSymbols>
     <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
     <DevelopmentDependency>true</DevelopmentDependency>
+    <PublishAot>false</PublishAot>
+    <SelfContained>false</SelfContained>
+    <RuntimeIdentifier></RuntimeIdentifier>
     <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
     <NoWarn>$(NoWarn);RS1035;RS2008</NoWarn>
   </PropertyGroup>
