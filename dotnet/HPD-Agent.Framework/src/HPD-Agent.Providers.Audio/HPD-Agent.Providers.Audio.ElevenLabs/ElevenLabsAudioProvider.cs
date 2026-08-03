@@ -121,23 +121,15 @@ public sealed class ElevenLabsAudioProvider : ITextToSpeechClientProvider, ISpee
 
         ElevenLabsTtsConfig? providerConfig = null;
         ElevenLabsSttConfig? sttProviderConfig = null;
-        if (!string.IsNullOrWhiteSpace(config.GetConstructionOptionsRawJson()))
+        if (config.ProviderConfig is not null)
         {
-            try
+            if (family == ProviderClientFamily.SpeechToText)
             {
-                if (family == ProviderClientFamily.SpeechToText)
-                {
-                    sttProviderConfig = ReadSttProviderConfig(config);
-                }
-                else
-                {
-                    providerConfig = ReadProviderConfig(config);
-                }
+                sttProviderConfig = ReadSttProviderConfig(config);
             }
-            catch (JsonException ex)
+            else
             {
-                var label = family == ProviderClientFamily.SpeechToText ? "STT" : "TTS";
-                errors.Add($"Invalid ElevenLabs {label} ConstructionOptions: {ex.Message}");
+                providerConfig = ReadProviderConfig(config);
             }
         }
 
@@ -201,30 +193,12 @@ public sealed class ElevenLabsAudioProvider : ITextToSpeechClientProvider, ISpee
 
     private static ElevenLabsTtsConfig ReadProviderConfig(ProviderClientConfig config)
     {
-        var providerOptionsJson = config.GetConstructionOptionsRawJson();
-        if (string.IsNullOrWhiteSpace(providerOptionsJson))
-        {
-            return new ElevenLabsTtsConfig();
-        }
-
-        return JsonSerializer.Deserialize(
-            providerOptionsJson,
-            ElevenLabsTtsJsonContext.Default.ElevenLabsTtsConfig)
-            ?? new ElevenLabsTtsConfig();
+        return config.ProviderConfig as ElevenLabsTtsConfig ?? new ElevenLabsTtsConfig();
     }
 
     private static ElevenLabsSttConfig ReadSttProviderConfig(ProviderClientConfig config)
     {
-        var providerOptionsJson = config.GetConstructionOptionsRawJson();
-        if (string.IsNullOrWhiteSpace(providerOptionsJson))
-        {
-            return new ElevenLabsSttConfig();
-        }
-
-        return JsonSerializer.Deserialize(
-            providerOptionsJson,
-            ElevenLabsTtsJsonContext.Default.ElevenLabsSttConfig)
-            ?? new ElevenLabsSttConfig();
+        return config.ProviderConfig as ElevenLabsSttConfig ?? new ElevenLabsSttConfig();
     }
 
     private static void AddRangeError(List<string> errors, double? value, string name)

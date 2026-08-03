@@ -177,32 +177,19 @@ public sealed class OpenAIAudioProvider : ISpeechToTextClientProvider, ITextToSp
         OpenAISttConfig? providerConfig = null;
         OpenAITtsConfig? ttsProviderConfig = null;
         OpenAIRealtimeConfig? realtimeProviderConfig = null;
-        if (!string.IsNullOrWhiteSpace(config.GetConstructionOptionsRawJson()))
+        if (config.ProviderConfig is not null)
         {
-            try
+            if (family == ProviderClientFamily.TextToSpeech)
             {
-                if (family == ProviderClientFamily.TextToSpeech)
-                {
-                    ttsProviderConfig = ReadTtsProviderConfig(config);
-                }
-                else if (family == ProviderClientFamily.Realtime)
-                {
-                    realtimeProviderConfig = ReadRealtimeProviderConfig(config);
-                }
-                else
-                {
-                    providerConfig = ReadProviderConfig(config);
-                }
+                ttsProviderConfig = ReadTtsProviderConfig(config);
             }
-            catch (JsonException ex)
+            else if (family == ProviderClientFamily.Realtime)
             {
-                var label = family switch
-                {
-                    ProviderClientFamily.TextToSpeech => "TTS",
-                    ProviderClientFamily.Realtime => "realtime",
-                    _ => "STT"
-                };
-                errors.Add($"Invalid OpenAI {label} ConstructionOptions: {ex.Message}");
+                realtimeProviderConfig = ReadRealtimeProviderConfig(config);
+            }
+            else
+            {
+                providerConfig = ReadProviderConfig(config);
             }
         }
 
@@ -432,44 +419,17 @@ public sealed class OpenAIAudioProvider : ISpeechToTextClientProvider, ITextToSp
 
     private static OpenAISttConfig ReadProviderConfig(ProviderClientConfig config)
     {
-        var providerOptionsJson = config.GetConstructionOptionsRawJson();
-        if (string.IsNullOrWhiteSpace(providerOptionsJson))
-        {
-            return new OpenAISttConfig();
-        }
-
-        return JsonSerializer.Deserialize(
-            providerOptionsJson,
-            OpenAISttJsonContext.Default.OpenAISttConfig)
-            ?? new OpenAISttConfig();
+        return config.ProviderConfig as OpenAISttConfig ?? new OpenAISttConfig();
     }
 
     private static OpenAITtsConfig ReadTtsProviderConfig(ProviderClientConfig config)
     {
-        var providerOptionsJson = config.GetConstructionOptionsRawJson();
-        if (string.IsNullOrWhiteSpace(providerOptionsJson))
-        {
-            return new OpenAITtsConfig();
-        }
-
-        return JsonSerializer.Deserialize(
-            providerOptionsJson,
-            OpenAITtsJsonContext.Default.OpenAITtsConfig)
-            ?? new OpenAITtsConfig();
+        return config.ProviderConfig as OpenAITtsConfig ?? new OpenAITtsConfig();
     }
 
     private static OpenAIRealtimeConfig ReadRealtimeProviderConfig(ProviderClientConfig config)
     {
-        var providerOptionsJson = config.GetConstructionOptionsRawJson();
-        if (string.IsNullOrWhiteSpace(providerOptionsJson))
-        {
-            return new OpenAIRealtimeConfig();
-        }
-
-        return JsonSerializer.Deserialize(
-            providerOptionsJson,
-            OpenAIRealtimeJsonContext.Default.OpenAIRealtimeConfig)
-            ?? new OpenAIRealtimeConfig();
+        return config.ProviderConfig as OpenAIRealtimeConfig ?? new OpenAIRealtimeConfig();
     }
 
     private static string? FirstNonWhiteSpace(params string?[] values)

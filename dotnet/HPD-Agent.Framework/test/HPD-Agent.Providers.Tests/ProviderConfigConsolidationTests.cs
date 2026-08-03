@@ -188,7 +188,7 @@ public class ProviderConfigConsolidationTests
             });
 
         var chatConfig = builder.Config.EnsureChatClientConfig();
-        var providerConfig = chatConfig.GetProviderConfig<OllamaProviderConfig>();
+        var providerConfig = chatConfig.ProviderConfig as OllamaProviderConfig;
 
         providerConfig.Should().NotBeNull();
         providerConfig!.TimeoutMs.Should().Be(120000);
@@ -329,7 +329,7 @@ public class ProviderConfigConsolidationTests
             });
 
         var chatConfig = builder.Config.EnsureChatClientConfig();
-        var providerConfig = chatConfig.GetProviderConfig<OnnxRuntimeProviderConfig>();
+        var providerConfig = chatConfig.ProviderConfig as OnnxRuntimeProviderConfig;
 
         providerConfig.Should().NotBeNull();
         providerConfig!.ModelPath.Should().Be(modelPath);
@@ -493,7 +493,7 @@ public class ProviderConfigConsolidationTests
             });
 
         var chatConfig = builder.Config.EnsureChatClientConfig();
-        var providerConfig = chatConfig.GetProviderConfig<OpenAIProviderConfig>();
+        var providerConfig = chatConfig.ProviderConfig as OpenAIProviderConfig;
 
         providerConfig.Should().NotBeNull();
         providerConfig!.ChatApi.Should().Be(OpenAIChatApi.ChatCompletions);
@@ -549,7 +549,7 @@ public class ProviderConfigConsolidationTests
                 });
 
         var chatConfig = builder.Config.EnsureChatClientConfig();
-        var providerConfig = chatConfig.GetProviderConfig<AzureOpenAIProviderConfig>();
+        var providerConfig = chatConfig.ProviderConfig as AzureOpenAIProviderConfig;
 
         providerConfig.Should().NotBeNull();
         providerConfig!.ChatApi.Should().Be(OpenAIChatApi.ChatCompletions);
@@ -604,7 +604,7 @@ public class ProviderConfigConsolidationTests
             });
 
         var chatConfig = builder.Config.EnsureChatClientConfig();
-        var providerConfig = chatConfig.GetProviderConfig<GoogleAIProviderConfig>();
+        var providerConfig = chatConfig.ProviderConfig as GoogleAIProviderConfig;
 
         providerConfig.Should().NotBeNull();
         providerConfig!.Platform.Should().Be(GoogleAIPlatform.VertexAI);
@@ -660,7 +660,7 @@ public class ProviderConfigConsolidationTests
                 });
 
         var chatConfig = builder.Config.EnsureChatClientConfig();
-        var providerConfig = chatConfig.GetProviderConfig<AzureAIProviderConfig>();
+        var providerConfig = chatConfig.ProviderConfig as AzureAIProviderConfig;
 
         providerConfig.Should().NotBeNull();
         providerConfig!.AuthMode.Should().Be(AzureAIAuthMode.DefaultAzureCredential);
@@ -749,7 +749,7 @@ public class ProviderConfigConsolidationTests
             });
 
         var chatConfig = builder.Config.EnsureChatClientConfig();
-        var providerConfig = chatConfig.GetProviderConfig<BedrockProviderConfig>();
+        var providerConfig = chatConfig.ProviderConfig as BedrockProviderConfig;
 
         providerConfig.Should().NotBeNull();
         providerConfig!.Region.Should().Be("us-east-1");
@@ -835,7 +835,7 @@ public class ProviderConfigConsolidationTests
 
         var embeddingConfig = builder.Config.Clients!.Embeddings;
         embeddingConfig.Should().NotBeNull();
-        var providerConfig = embeddingConfig!.GetProviderConfig<CohereProviderConfig>(ProviderClientFamily.Embeddings);
+        var providerConfig = embeddingConfig!.ProviderConfig as CohereProviderConfig;
 
         providerConfig.Should().NotBeNull();
         providerConfig!.EmbeddingModelId.Should().Be("embed-v4.0");
@@ -1088,7 +1088,7 @@ public class ProviderConfigConsolidationTests
 
         var embeddingConfig = builder.Config.Clients!.Embeddings;
         embeddingConfig.Should().NotBeNull();
-        var providerConfig = embeddingConfig!.GetProviderConfig<TogetherProviderConfig>(ProviderClientFamily.Embeddings);
+        var providerConfig = embeddingConfig!.ProviderConfig as TogetherProviderConfig;
 
         providerConfig.Should().NotBeNull();
         providerConfig!.EmbeddingModelId.Should().Be("BAAI/bge-large-en-v1.5");
@@ -1391,7 +1391,7 @@ public class ProviderConfigConsolidationTests
             });
 
         var chatConfig = builder.Config.EnsureChatClientConfig();
-        var providerConfig = chatConfig.GetProviderConfig<DashScopeProviderConfig>();
+        var providerConfig = chatConfig.ProviderConfig as DashScopeProviderConfig;
 
         providerConfig.Should().NotBeNull();
         providerConfig!.BaseAddress.Should().Be("https://dashscope.aliyuncs.com/api/v1/");

@@ -35,7 +35,7 @@ public sealed class OpenAIAudioProviderTests
         Assert.Equal(OpenAIAudioProvider.Key, sttConfig.ProviderKey);
         Assert.Equal("gpt-4o-transcribe", sttConfig.ModelName);
         Assert.Equal("sk-stt", sttConfig.ApiKey);
-        var sttProviderConfig = sttConfig.GetProviderConfig<OpenAISttConfig>(ProviderClientFamily.SpeechToText);
+        var sttProviderConfig = sttConfig.ProviderConfig as OpenAISttConfig;
         Assert.NotNull(sttProviderConfig);
         Assert.Equal("gpt-4o-transcribe", sttProviderConfig.DefaultModelId);
         Assert.Equal("names may be product codenames", sttProviderConfig.Prompt);
@@ -45,7 +45,7 @@ public sealed class OpenAIAudioProviderTests
         Assert.Equal(OpenAIAudioProvider.Key, ttsConfig.ProviderKey);
         Assert.Equal("gpt-4o-mini-tts", ttsConfig.ModelName);
         Assert.Equal("sk-tts", ttsConfig.ApiKey);
-        var ttsProviderConfig = ttsConfig.GetProviderConfig<OpenAITtsConfig>(ProviderClientFamily.TextToSpeech);
+        var ttsProviderConfig = ttsConfig.ProviderConfig as OpenAITtsConfig;
         Assert.NotNull(ttsProviderConfig);
         Assert.Equal("gpt-4o-mini-tts", ttsProviderConfig.DefaultModelId);
         Assert.Equal("nova", ttsProviderConfig.DefaultVoiceId);
@@ -57,7 +57,7 @@ public sealed class OpenAIAudioProviderTests
         Assert.Equal(OpenAIAudioProvider.Key, realtimeConfig.ProviderKey);
         Assert.Equal("gpt-realtime", realtimeConfig.ModelName);
         Assert.Equal("sk-realtime", realtimeConfig.ApiKey);
-        var realtimeProviderConfig = realtimeConfig.GetProviderConfig<OpenAIRealtimeConfig>(ProviderClientFamily.Realtime);
+        var realtimeProviderConfig = realtimeConfig.ProviderConfig as OpenAIRealtimeConfig;
         Assert.NotNull(realtimeProviderConfig);
         Assert.Equal("gpt-realtime", realtimeProviderConfig.DefaultModelId);
         Assert.Equal("org_123", realtimeProviderConfig.OrganizationId);

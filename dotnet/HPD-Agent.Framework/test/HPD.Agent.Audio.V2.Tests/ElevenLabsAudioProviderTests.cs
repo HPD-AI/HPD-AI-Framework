@@ -36,7 +36,7 @@ public sealed class ElevenLabsAudioProviderTests
         Assert.Equal("eleven_multilingual_v2", ttsConfig.ModelName);
         Assert.Equal("el-test", ttsConfig.ApiKey);
 
-        var providerConfig = ttsConfig.GetProviderConfig<ElevenLabsTtsConfig>(ProviderClientFamily.TextToSpeech);
+        var providerConfig = ttsConfig.ProviderConfig as ElevenLabsTtsConfig;
         Assert.NotNull(providerConfig);
         Assert.Equal("eleven_multilingual_v2", providerConfig.DefaultModelId);
         Assert.Equal("voice_123", providerConfig.DefaultVoiceId);
@@ -64,7 +64,7 @@ public sealed class ElevenLabsAudioProviderTests
         Assert.Equal("scribe_v2", sttConfig.ModelName);
         Assert.Equal("el-test", sttConfig.ApiKey);
 
-        var providerConfig = sttConfig.GetProviderConfig<ElevenLabsSttConfig>(ProviderClientFamily.SpeechToText);
+        var providerConfig = sttConfig.ProviderConfig as ElevenLabsSttConfig;
         Assert.NotNull(providerConfig);
         Assert.Equal("scribe_v2", providerConfig.DefaultModelId);
         Assert.Equal("en", providerConfig.LanguageCode);

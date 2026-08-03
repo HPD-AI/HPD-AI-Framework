@@ -213,7 +213,7 @@ public class ReplicateProviderTests
         config.ModelName.Should().Be("black-forest-labs/flux-schnell");
         config.ApiKey.Should().Be("test-key");
 
-        var replicateConfig = config.GetProviderConfig<ReplicateProviderConfig>(ProviderClientFamily.ImageGeneration);
+        var replicateConfig = config.ProviderConfig as ReplicateProviderConfig;
         replicateConfig.Should().NotBeNull();
         replicateConfig!.Input.Should().ContainKey("aspect_ratio");
         replicateConfig.TimeoutSeconds.Should().Be(30);

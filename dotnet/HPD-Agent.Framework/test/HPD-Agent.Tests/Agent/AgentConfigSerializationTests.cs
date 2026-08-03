@@ -128,7 +128,7 @@ public sealed class AgentConfigSerializationTests
             ConstructionOptions = JsonDocument.Parse("""{"budget":512,"enabled":true}""").RootElement.Clone()
         };
 
-        var options = config.GetProviderConfig<ProviderTestOptions>();
+        var options = config.ProviderConfig as ProviderTestOptions;
 
         options.Should().NotBeNull();
         options!.budget.Should().Be(512);
