@@ -8,8 +8,8 @@ public static class HPDBaseTelemetryValues
     /// <summary>Runtime module id.</summary>
     public const string ModuleRuntime = "hpd.base.runtime";
 
-    /// <summary>Volatile module id.</summary>
-    public const string ModuleVolatile = "hpd.base.volatile";
+    /// <summary>InMemory module id.</summary>
+    public const string ModuleInMemory = "hpd.base.inmemory";
 
     /// <summary>SQLite module id.</summary>
     public const string ModuleSqlite = "hpd.base.sqlite";
@@ -23,11 +23,11 @@ public static class HPDBaseTelemetryValues
     /// <summary>HPD.Auth adapter module id.</summary>
     public const string ModuleHPDAuth = "hpd.base.auth.hpd_auth";
 
-    /// <summary>Volatile provider kind.</summary>
-    public const string ProviderVolatile = "volatile";
+    /// <summary>InMemory provider kind.</summary>
+    public const string ProviderInMemory = "inmemory";
 
-    /// <summary>Files Volatile provider kind.</summary>
-    public const string ProviderFilesVolatile = "files.volatile";
+    /// <summary>Files InMemory provider kind.</summary>
+    public const string ProviderFilesInMemory = "files.inmemory";
 
     /// <summary>SQLite provider kind.</summary>
     public const string ProviderSqlite = "sqlite";

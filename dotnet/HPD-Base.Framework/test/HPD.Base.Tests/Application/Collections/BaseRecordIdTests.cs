@@ -118,7 +118,7 @@ public sealed class BaseRecordIdTests
     }
 
     [Fact]
-    public async Task VolatileIncludeReturnsDeclaredTargetFromOnePublishedState()
+    public async Task InMemoryIncludeReturnsDeclaredTargetFromOnePublishedState()
     {
         var services = new ServiceCollection().AddLogging();
         services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
@@ -142,7 +142,7 @@ public sealed class BaseRecordIdTests
     }
 
     [Fact]
-    public async Task VolatileBatchesMultipleRootsAndExpandsNestedRelationsBeforeFieldSelection()
+    public async Task InMemoryBatchesMultipleRootsAndExpandsNestedRelationsBeforeFieldSelection()
     {
         var services = new ServiceCollection().AddLogging();
         services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
@@ -192,7 +192,7 @@ public sealed class BaseRecordIdTests
     }
 
     [Fact]
-    public async Task VolatileRelationMutationChecksTargetAndRestrictsItsDeletionInTheAtomicSnapshot()
+    public async Task InMemoryRelationMutationChecksTargetAndRestrictsItsDeletionInTheAtomicSnapshot()
     {
         var services = new ServiceCollection().AddLogging();
         services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();

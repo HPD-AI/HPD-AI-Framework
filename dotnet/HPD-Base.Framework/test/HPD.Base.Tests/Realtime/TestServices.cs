@@ -21,7 +21,7 @@ internal static class TestServices
         services.AddSingleton(evaluator ?? new AllowPolicyEvaluator());
         services.AddHPDBaseRuntime()
             .AddHPDBaseRealtime(configureRealtime)
-            .AddHPDBaseVolatileStore(options =>
+            .AddHPDBaseInMemoryStore(options =>
             {
                 options.StoreId = "primary";
                 options.CollectionIds = ["items", "other"];
@@ -70,7 +70,7 @@ internal static class TestServices
 
         var provider = services.BuildServiceProvider();
         var registry = provider.GetRequiredService<HPD.Base.IRecordStoreRegistry>();
-        registry.AddHPDBaseVolatileStore(provider);
+        registry.AddHPDBaseInMemoryStore(provider);
         if (journalEntries is not null)
         {
             var journal = new TestMutationJournalStore(

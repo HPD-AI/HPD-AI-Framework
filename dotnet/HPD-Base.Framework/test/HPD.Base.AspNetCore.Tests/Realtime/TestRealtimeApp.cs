@@ -26,7 +26,7 @@ internal static class TestRealtimeApp
             .AddHPDBaseAspNetCore()
             .AddHPDBaseRealtime(configureRealtime)
             .AddHPDBaseRealtimeAspNetCore()
-            .AddHPDBaseVolatileStore(options =>
+            .AddHPDBaseInMemoryStore(options =>
             {
                 options.StoreId = "primary";
                 options.CollectionIds = ["items"];
@@ -55,7 +55,7 @@ internal static class TestRealtimeApp
         configureServices?.Invoke(builder.Services);
 
         var app = builder.Build();
-        app.Services.GetRequiredService<IRecordStoreRegistry>().AddHPDBaseVolatileStore(app.Services);
+        app.Services.GetRequiredService<IRecordStoreRegistry>().AddHPDBaseInMemoryStore(app.Services);
         await app.Services.GetRequiredService<IBaseDescriptorRegistry>().RebuildAsync();
         app.MapHPDBaseRealtime();
         await app.StartAsync();

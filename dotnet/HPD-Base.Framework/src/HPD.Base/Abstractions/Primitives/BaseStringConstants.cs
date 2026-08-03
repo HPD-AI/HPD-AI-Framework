@@ -140,8 +140,8 @@ public static class BaseAuthSources
 /// <summary>Represents a base store kinds.</summary>
 public static class BaseStoreKinds
 {
-    /// <summary>Provides the volatile value.</summary>
-    public const string Volatile = "volatile";
+    /// <summary>Provides the InMemory provider kind.</summary>
+    public const string InMemory = "inmemory";
     /// <summary>Provides the document value.</summary>
     public const string Document = "document";
     /// <summary>Provides the relational value.</summary>

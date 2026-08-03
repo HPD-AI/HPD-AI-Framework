@@ -35,11 +35,11 @@ var session = provider.GetRequiredService<IBaseSessionFactory>().For(new Princip
     SubjectId = "aot"
 });
 _ = session.Collection(collection);
-if (provider.GetRequiredService<HPDBaseInstalledFeatures>().Provider != "volatile"
-    || provider.GetRequiredService<IRecordStore>().Capabilities.StoreKind != BaseStoreKinds.Volatile)
+if (provider.GetRequiredService<HPDBaseInstalledFeatures>().Provider != "inmemory"
+    || provider.GetRequiredService<IRecordStore>().Capabilities.StoreKind != BaseStoreKinds.InMemory)
 {
     throw new InvalidOperationException(
-        "The built-in volatile provider must be the Native AOT-safe default.");
+        "The built-in InMemory provider must be the Native AOT-safe default.");
 }
 
 namespace HPD.Base.AotSmoke

@@ -531,7 +531,7 @@ public sealed class ApplicationHostBuilderTests
 
         HPDBaseInstalledFeatures manifest =
             provider.GetRequiredService<HPDBaseInstalledFeatures>();
-        manifest.Provider.Should().Be("volatile");
+        manifest.Provider.Should().Be("inmemory");
         manifest.CollectionIds.Should().Equal("projects");
         provider.GetRequiredService<IRecordStoreRegistry>()
             .GetStoreForCollection("projects")
@@ -551,51 +551,51 @@ public sealed class ApplicationHostBuilderTests
 
         using var provider = defaultServices.BuildServiceProvider();
         provider.GetRequiredService<HPDBaseInstalledFeatures>().Provider
-            .Should().Be("volatile");
+            .Should().Be("inmemory");
         duplicate.Should().Throw<InvalidOperationException>()
             .WithMessage("*at most one explicit*");
     }
 
     [Fact]
-    public void VolatileProviderIsPerHostSingletonAndExplicitProvidersSuppressIt()
+    public void InMemoryProviderIsPerHostSingletonAndExplicitProvidersSuppressIt()
     {
-        static ServiceProvider VolatileHost()
+        static ServiceProvider InMemoryHost()
         {
             var services = new ServiceCollection();
             services.AddHPDBase(builder => builder.AddCollection(GeneratedProject.Collection));
             return services.BuildServiceProvider();
         }
 
-        using var firstHost = VolatileHost();
-        using var secondHost = VolatileHost();
-        var first = firstHost.GetRequiredService<VolatileRecordStore>();
+        using var firstHost = InMemoryHost();
+        using var secondHost = InMemoryHost();
+        var first = firstHost.GetRequiredService<InMemoryRecordStore>();
 
-        firstHost.GetRequiredService<VolatileRecordStore>().Should().BeSameAs(first);
-        secondHost.GetRequiredService<VolatileRecordStore>().Should().NotBeSameAs(first);
+        firstHost.GetRequiredService<InMemoryRecordStore>().Should().BeSameAs(first);
+        secondHost.GetRequiredService<InMemoryRecordStore>().Should().NotBeSameAs(first);
 
         var explicitServices = new ServiceCollection();
         explicitServices.AddHPDBase(builder => builder
             .UseSqlite()
             .AddCollection(GeneratedProject.Collection));
         using var explicitHost = explicitServices.BuildServiceProvider();
-        explicitHost.GetService<VolatileRecordStore>().Should().BeNull();
+        explicitHost.GetService<InMemoryRecordStore>().Should().BeNull();
         explicitHost.GetRequiredService<HPDBaseInstalledFeatures>().Provider.Should().Be("sqlite");
     }
 
     [Fact]
-    public void VolatileConfigurationCannotBeSilentlyIgnoredByExplicitProvider()
+    public void InMemoryConfigurationCannotBeSilentlyIgnoredByExplicitProvider()
     {
         Action register = () => new ServiceCollection().AddHPDBase(builder => builder
-            .ConfigureVolatileStore(options => options.MaxPageSize = 50)
+            .ConfigureInMemoryStore(options => options.MaxPageSize = 50)
             .UseSqlite()
             .AddCollection(GeneratedProject.Collection));
 
         register.Should().Throw<InvalidOperationException>()
-            .WithMessage("*ConfigureVolatileStore*explicit*");
+            .WithMessage("*ConfigureInMemoryStore*explicit*");
     }
 
     [Fact]
-    public void VolatileFileDefaultIsIndependentFromTheRecordProvider()
+    public void InMemoryFileDefaultIsIndependentFromTheRecordProvider()
     {
         var services = new ServiceCollection();
         services.AddHPDBase(builder => builder
@@ -609,10 +609,10 @@ public sealed class ApplicationHostBuilderTests
         using var provider = services.BuildServiceProvider();
         provider.GetServices<IFileStorageProvider>()
             .Should().ContainSingle()
-            .Which.ProviderRef.Should().Be(new FileProviderRef("volatile"));
+            .Which.ProviderRef.Should().Be(new FileProviderRef("inmemory"));
         provider.GetRequiredService<IOptions<HPDBaseFilesOptions>>().Value.Buckets
             .Should().ContainSingle()
-            .Which.ProviderRef.Should().Be(new FileProviderRef("volatile"));
+            .Which.ProviderRef.Should().Be(new FileProviderRef("inmemory"));
     }
 
     [Fact]
@@ -634,7 +634,7 @@ public sealed class ApplicationHostBuilderTests
         Action defaultRegister = () => new ServiceCollection().AddHPDBase(
             builder => builder.AddCollection(required));
         defaultRegister.Should().Throw<InvalidOperationException>()
-            .WithMessage("*cannot be installed*volatile*");
+            .WithMessage("*cannot be installed*InMemory*");
     }
 
     [Fact]

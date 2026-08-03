@@ -14,15 +14,15 @@ public sealed class RelationalExecutionParityTests
     [InlineData(BaseJoinKind.Left, "left-1:right-1,left-1:right-2,left-2:null")]
     [InlineData(BaseJoinKind.Semi, "left-1")]
     [InlineData(BaseJoinKind.Anti, "left-2")]
-    public async Task VolatileAndSqliteSharePortableJoinMultiplicityAndOrdering(BaseJoinKind kind, string expected)
+    public async Task InMemoryAndSqliteSharePortableJoinMultiplicityAndOrdering(BaseJoinKind kind, string expected)
     {
-        string[] volatileRows = await ExecuteJoinAsync(sqlitePath: null, kind);
+        string[] inMemoryRows = await ExecuteJoinAsync(sqlitePath: null, kind);
         string path = Path.Combine(Path.GetTempPath(), "hpd-base-relational-join-" + Guid.NewGuid().ToString("N") + ".db");
         try
         {
             string[] sqliteRows = await ExecuteJoinAsync(path, kind);
-            sqliteRows.Should().Equal(volatileRows);
-            volatileRows.Should().Equal(expected.Split(','));
+            sqliteRows.Should().Equal(inMemoryRows);
+            inMemoryRows.Should().Equal(expected.Split(','));
         }
         finally
         {
@@ -32,23 +32,23 @@ public sealed class RelationalExecutionParityTests
     }
 
     [Fact]
-    public async Task VolatileAndSqliteShareNumericBooleanEmptyAndNullAggregateSemantics()
+    public async Task InMemoryAndSqliteShareNumericBooleanEmptyAndNullAggregateSemantics()
     {
-        BaseRelationalFieldValue[] volatileResult = await ExecuteAsync(sqlitePath: null, seed: true);
+        BaseRelationalFieldValue[] inMemoryResult = await ExecuteAsync(sqlitePath: null, seed: true);
         string path = Path.Combine(Path.GetTempPath(), "hpd-base-relational-parity-" + Guid.NewGuid().ToString("N") + ".db");
         try
         {
             BaseRelationalFieldValue[] sqliteResult = await ExecuteAsync(path, seed: true);
-            sqliteResult.Should().BeEquivalentTo(volatileResult, options => options.WithStrictOrdering());
-            Value(volatileResult, "minimum").Integer.Should().Be(2);
-            Value(volatileResult, "maximum").Integer.Should().Be(10);
-            Value(volatileResult, "sum").Integer.Should().Be(12);
-            Value(volatileResult, "any").Boolean.Should().BeTrue();
-            Value(volatileResult, "all").Boolean.Should().BeTrue();
-            Value(volatileResult, "decimalMinimum").Decimal.Should().Be("2");
-            Value(volatileResult, "decimalMaximum").Decimal.Should().Be("10");
-            Value(volatileResult, "decimalSum").Decimal.Should().Be("12");
-            Value(volatileResult, "decimalAverage").Decimal.Should().Be("6");
+            sqliteResult.Should().BeEquivalentTo(inMemoryResult, options => options.WithStrictOrdering());
+            Value(inMemoryResult, "minimum").Integer.Should().Be(2);
+            Value(inMemoryResult, "maximum").Integer.Should().Be(10);
+            Value(inMemoryResult, "sum").Integer.Should().Be(12);
+            Value(inMemoryResult, "any").Boolean.Should().BeTrue();
+            Value(inMemoryResult, "all").Boolean.Should().BeTrue();
+            Value(inMemoryResult, "decimalMinimum").Decimal.Should().Be("2");
+            Value(inMemoryResult, "decimalMaximum").Decimal.Should().Be("10");
+            Value(inMemoryResult, "decimalSum").Decimal.Should().Be("12");
+            Value(inMemoryResult, "decimalAverage").Decimal.Should().Be("6");
         }
         finally
         {
@@ -58,21 +58,21 @@ public sealed class RelationalExecutionParityTests
     }
 
     [Fact]
-    public async Task VolatileAndSqliteReturnOnePortableAggregateRowForAnEmptySource()
+    public async Task InMemoryAndSqliteReturnOnePortableAggregateRowForAnEmptySource()
     {
-        BaseRelationalFieldValue[] volatileResult = await ExecuteAsync(sqlitePath: null, seed: false);
+        BaseRelationalFieldValue[] inMemoryResult = await ExecuteAsync(sqlitePath: null, seed: false);
         string path = Path.Combine(Path.GetTempPath(), "hpd-base-relational-empty-" + Guid.NewGuid().ToString("N") + ".db");
         try
         {
             BaseRelationalFieldValue[] sqliteResult = await ExecuteAsync(path, seed: false);
-            sqliteResult.Should().BeEquivalentTo(volatileResult, options => options.WithStrictOrdering());
-            Value(volatileResult, "minimum").Kind.Should().Be(QueryValueKind.Null);
-            Value(volatileResult, "maximum").Kind.Should().Be(QueryValueKind.Null);
-            Value(volatileResult, "sum").Integer.Should().Be(0);
-            Value(volatileResult, "any").Boolean.Should().BeFalse();
-            Value(volatileResult, "all").Boolean.Should().BeTrue();
-            Value(volatileResult, "decimalSum").Decimal.Should().Be("0");
-            Value(volatileResult, "decimalAverage").Kind.Should().Be(QueryValueKind.Null);
+            sqliteResult.Should().BeEquivalentTo(inMemoryResult, options => options.WithStrictOrdering());
+            Value(inMemoryResult, "minimum").Kind.Should().Be(QueryValueKind.Null);
+            Value(inMemoryResult, "maximum").Kind.Should().Be(QueryValueKind.Null);
+            Value(inMemoryResult, "sum").Integer.Should().Be(0);
+            Value(inMemoryResult, "any").Boolean.Should().BeFalse();
+            Value(inMemoryResult, "all").Boolean.Should().BeTrue();
+            Value(inMemoryResult, "decimalSum").Decimal.Should().Be("0");
+            Value(inMemoryResult, "decimalAverage").Kind.Should().Be(QueryValueKind.Null);
         }
         finally
         {
@@ -84,15 +84,15 @@ public sealed class RelationalExecutionParityTests
     [Fact]
     public async Task TypedGroupHavingDistinctCountAndPageMatchAcrossProviders()
     {
-        BasePage<GroupedPageRead.Row> volatilePage = await ExecuteGroupedPageAsync(sqlitePath: null);
+        BasePage<GroupedPageRead.Row> inMemoryPage = await ExecuteGroupedPageAsync(sqlitePath: null);
         string path = Path.Combine(Path.GetTempPath(), "hpd-base-relational-group-page-" + Guid.NewGuid().ToString("N") + ".db");
         try
         {
             BasePage<GroupedPageRead.Row> sqlitePage = await ExecuteGroupedPageAsync(path);
-            sqlitePage.Should().BeEquivalentTo(volatilePage);
-            volatilePage.Items.Should().ContainSingle().Which.Should().BeEquivalentTo(new { Category = "B", Total = 8L });
-            volatilePage.Count!.Total.Should().Be(3);
-            volatilePage.Page.HasMore.Should().BeTrue();
+            sqlitePage.Should().BeEquivalentTo(inMemoryPage);
+            inMemoryPage.Items.Should().ContainSingle().Which.Should().BeEquivalentTo(new { Category = "B", Total = 8L });
+            inMemoryPage.Count!.Total.Should().Be(3);
+            inMemoryPage.Page.HasMore.Should().BeTrue();
         }
         finally
         {
@@ -104,16 +104,16 @@ public sealed class RelationalExecutionParityTests
     [Fact]
     public async Task NullAndMissingPredicatesHaveExactPortableSemantics()
     {
-        Dictionary<string, string[]> volatileResults = await ExecuteNullPredicatesAsync(sqlitePath: null);
+        Dictionary<string, string[]> inMemoryResults = await ExecuteNullPredicatesAsync(sqlitePath: null);
         string path = Path.Combine(Path.GetTempPath(), "hpd-base-relational-null-" + Guid.NewGuid().ToString("N") + ".db");
         try
         {
             Dictionary<string, string[]> sqliteResults = await ExecuteNullPredicatesAsync(path);
-            sqliteResults.Should().BeEquivalentTo(volatileResults, options => options.WithStrictOrdering());
-            volatileResults["defined"].Should().Equal("null", "text");
-            volatileResults["null"].Should().Equal("null");
-            volatileResults["equal-null"].Should().Equal("null");
-            volatileResults["not-equal-text"].Should().Equal("null");
+            sqliteResults.Should().BeEquivalentTo(inMemoryResults, options => options.WithStrictOrdering());
+            inMemoryResults["defined"].Should().Equal("null", "text");
+            inMemoryResults["null"].Should().Equal("null");
+            inMemoryResults["equal-null"].Should().Equal("null");
+            inMemoryResults["not-equal-text"].Should().Equal("null");
         }
         finally
         {
@@ -125,13 +125,13 @@ public sealed class RelationalExecutionParityTests
     [Fact]
     public async Task DateTimeOrderingAndComparisonAreChronologicalAcrossProviders()
     {
-        string[] volatileIds = await ExecuteDateTimesAsync(sqlitePath: null);
+        string[] inMemoryIds = await ExecuteDateTimesAsync(sqlitePath: null);
         string path = Path.Combine(Path.GetTempPath(), "hpd-base-relational-datetime-" + Guid.NewGuid().ToString("N") + ".db");
         try
         {
             string[] sqliteIds = await ExecuteDateTimesAsync(path);
-            sqliteIds.Should().Equal(volatileIds);
-            volatileIds.Should().Equal("early", "middle", "late");
+            sqliteIds.Should().Equal(inMemoryIds);
+            inMemoryIds.Should().Equal("early", "middle", "late");
         }
         finally
         {

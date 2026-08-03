@@ -44,8 +44,8 @@ public sealed class HPDBaseBuilder
     private Action<BaseRealtimeOptions>? _realtime;
     /// <summary>Provides _live Queries.</summary>
     private Action<BaseLiveQueryOptions>? _liveQueries;
-    /// <summary>Provides _volatile Store.</summary>
-    private Action<HPDBaseVolatileStoreOptions>? _volatileStore;
+    /// <summary>Provides the optional InMemory store configuration.</summary>
+    private Action<HPDBaseInMemoryStoreOptions>? _inMemoryStore;
     /// <summary>Provides _relational.</summary>
     private Action<HPDBaseRelationalOptions>? _relational;
     /// <summary>Provides _schema.</summary>
@@ -77,12 +77,12 @@ public sealed class HPDBaseBuilder
         return this;
     }
 
-    /// <summary>Configures the built-in process-local volatile provider.</summary>
-    /// <remarks>An explicit record provider cannot be combined with volatile-provider configuration.</remarks>
-    public HPDBaseBuilder ConfigureVolatileStore(Action<HPDBaseVolatileStoreOptions> configure)
+    /// <summary>Configures the built-in process-local InMemory provider.</summary>
+    /// <remarks>An explicit record provider cannot be combined with InMemory-provider configuration.</remarks>
+    public HPDBaseBuilder ConfigureInMemoryStore(Action<HPDBaseInMemoryStoreOptions> configure)
     {
         ArgumentNullException.ThrowIfNull(configure);
-        _volatileStore += configure;
+        _inMemoryStore += configure;
         return this;
     }
 
@@ -188,9 +188,9 @@ public sealed class HPDBaseBuilder
         IHPDBaseBuilderExtension[] explicitProviders = _extensions.Where(static item => item.IsRecordProvider).ToArray();
         if (explicitProviders.Length > 1)
             throw new InvalidOperationException("Select at most one explicit HPD.BASE record provider.");
-        if (explicitProviders.Length == 1 && _volatileStore is not null)
-            throw new InvalidOperationException("ConfigureVolatileStore cannot be combined with an explicit HPD.BASE record provider.");
-        IHPDBaseBuilderExtension provider = explicitProviders.Length == 1 ? explicitProviders[0] : new VolatileProviderInstaller(_volatileStore);
+        if (explicitProviders.Length == 1 && _inMemoryStore is not null)
+            throw new InvalidOperationException("ConfigureInMemoryStore cannot be combined with an explicit HPD.BASE record provider.");
+        IHPDBaseBuilderExtension provider = explicitProviders.Length == 1 ? explicitProviders[0] : new InMemoryProviderInstaller(_inMemoryStore);
         CollectionDefinition[] collections = _collections.Values.ToArray();
         var relationalOptions = new HPDBaseRelationalOptions();
         _relational?.Invoke(relationalOptions);
@@ -223,12 +223,12 @@ public sealed class HPDBaseBuilder
                     {
                         options.Buckets[index] = options.Buckets[index] with
                         {
-                            ProviderRef = new FileProviderRef("volatile")
+                            ProviderRef = new FileProviderRef("inmemory")
                         };
                     }
                 }
             });
-            _services.AddHPDBaseFilesVolatileProvider();
+            _services.AddHPDBaseFilesInMemoryProvider();
         }
 
         if (_dependencies is not null)

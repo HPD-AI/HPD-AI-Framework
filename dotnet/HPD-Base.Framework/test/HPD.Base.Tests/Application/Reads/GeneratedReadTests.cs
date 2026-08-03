@@ -378,7 +378,7 @@ public sealed class GeneratedReadTests
     }
 
     [Fact]
-    public async Task BuiltInVolatileExecutesJoinGroupAggregateFromOneImmutableSnapshot()
+    public async Task BuiltInInMemoryExecutesJoinGroupAggregateFromOneImmutableSnapshot()
     {
         var services = new ServiceCollection().AddLogging();
         services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
