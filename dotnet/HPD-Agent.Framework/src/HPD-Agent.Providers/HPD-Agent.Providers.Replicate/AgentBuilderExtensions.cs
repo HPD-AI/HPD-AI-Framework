@@ -18,7 +18,9 @@ public static class AgentBuilderExtensions
         string model = ReplicateProvider.DefaultModel,
         string? apiKey = null,
         string? endpoint = null,
-        Action<ReplicateProviderConfig>? configure = null)
+        string? mediaType = null,
+        Action<ReplicateProviderConfig>? configureClient = null,
+        Action<ReplicateImageOptions>? configureOptions = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
 
@@ -26,24 +28,27 @@ public static class AgentBuilderExtensions
             throw new ArgumentException("Model is required for Replicate image generation.", nameof(model));
 
         var providerConfig = new ReplicateProviderConfig();
-        configure?.Invoke(providerConfig);
-        ValidateProviderConfig(providerConfig, configure);
+        configureClient?.Invoke(providerConfig);
+        var providerOptions = new ReplicateImageOptions();
+        configureOptions?.Invoke(providerOptions);
+        ValidateProviderOptions(providerOptions, configureOptions);
 
         var imageConfig = new ImageGenerationClientConfig
         {
             ProviderKey = "replicate",
             ApiKey = apiKey,
             Endpoint = endpoint,
-            ModelName = model
+            ModelName = model,
+            MediaType = mediaType,
+            ProviderConfig = providerConfig,
+            ProviderOptions = providerOptions
         };
 
         builder.Config.SetClientConfig(ProviderClientFamily.ImageGeneration, imageConfig);
-        imageConfig.ProviderConfig = providerConfig;
-
         return builder;
     }
 
-    private static void ValidateProviderConfig(ReplicateProviderConfig config, Action<ReplicateProviderConfig>? configure)
+    private static void ValidateProviderOptions(ReplicateImageOptions config, Action<ReplicateImageOptions>? configure)
     {
         var errors = new List<string>();
         ReplicateProvider.ValidateProviderOptions(config, errors);

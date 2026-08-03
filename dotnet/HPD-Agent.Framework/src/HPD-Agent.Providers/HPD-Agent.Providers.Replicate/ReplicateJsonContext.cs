@@ -11,6 +11,7 @@ namespace HPD.Agent.Providers.Replicate;
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
 [JsonSerializable(typeof(ReplicateProviderConfig))]
+[JsonSerializable(typeof(ReplicateImageOptions))]
 internal partial class ReplicateJsonContext : JsonSerializerContext
 {
 }

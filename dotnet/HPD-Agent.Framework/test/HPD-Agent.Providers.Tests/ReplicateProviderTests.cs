@@ -48,6 +48,11 @@ public class ReplicateProviderTests
             ProviderClientFamily.ImageGeneration,
             ProviderPayloadKind.Configuration,
             out _).Should().BeTrue();
+        composition.Serialization.TryGet(
+            "replicate",
+            ProviderClientFamily.ImageGeneration,
+            ProviderPayloadKind.OperationOptions,
+            out _).Should().BeTrue();
         composition.SecretAliases.GetEnvironmentVariables("replicate:ApiKey")
             .Should().ContainInOrder("REPLICATE_API_KEY", "REPLICATE_API_TOKEN");
     }
@@ -55,7 +60,7 @@ public class ReplicateProviderTests
     [Fact]
     public void ValidateConfiguration_WithValidConfig_ShouldSucceed()
     {
-        var config = new ProviderClientConfig
+        var config = new ImageGenerationClientConfig
         {
             ProviderKey = "replicate",
             ModelName = "black-forest-labs/flux-schnell",
@@ -134,17 +139,16 @@ public class ReplicateProviderTests
     [Fact]
     public void ValidateConfiguration_WithInvalidOptions_ShouldFail()
     {
-        var config = new ProviderClientConfig
+        var config = new ImageGenerationClientConfig
         {
             ProviderKey = "replicate",
             ModelName = "black-forest-labs/flux-schnell",
             ApiKey = "test-key"
         };
-        config.ProviderConfig = new ReplicateProviderConfig
+        config.ProviderOptions = new ReplicateImageOptions
         {
             TimeoutSeconds = 0,
-            PollingIntervalSeconds = -1,
-            OutputMediaType = string.Empty
+            PollingIntervalSeconds = -1
         };
 
         var result = _provider.ValidateConfiguration(config, ProviderClientFamily.ImageGeneration);
@@ -152,7 +156,6 @@ public class ReplicateProviderTests
         result.IsValid.Should().BeFalse();
         result.Errors.Should().Contain(e => e.Contains("TimeoutSeconds"));
         result.Errors.Should().Contain(e => e.Contains("PollingIntervalSeconds"));
-        result.Errors.Should().Contain(e => e.Contains("OutputMediaType"));
     }
 
     [Fact]
@@ -203,7 +206,8 @@ public class ReplicateProviderTests
             .WithReplicateImageGeneration(
                 model: "black-forest-labs/flux-schnell",
                 apiKey: "test-key",
-                configure: options =>
+                mediaType: "image/png",
+                configureOptions: options =>
                 {
                     options.Input = new() { ["aspect_ratio"] = "16:9" };
                     options.TimeoutSeconds = 30;
@@ -214,11 +218,12 @@ public class ReplicateProviderTests
         config!.ProviderKey.Should().Be("replicate");
         config.ModelName.Should().Be("black-forest-labs/flux-schnell");
         config.ApiKey.Should().Be("test-key");
+        config.MediaType.Should().Be("image/png");
 
-        var replicateConfig = config.ProviderConfig as ReplicateProviderConfig;
-        replicateConfig.Should().NotBeNull();
-        replicateConfig!.Input.Should().ContainKey("aspect_ratio");
-        replicateConfig.TimeoutSeconds.Should().Be(30);
+        var replicateOptions = config.ProviderOptions as ReplicateImageOptions;
+        replicateOptions.Should().NotBeNull();
+        replicateOptions!.Input.Should().ContainKey("aspect_ratio");
+        replicateOptions.TimeoutSeconds.Should().Be(30);
     }
 
     private static IServiceProvider CreateServices()
