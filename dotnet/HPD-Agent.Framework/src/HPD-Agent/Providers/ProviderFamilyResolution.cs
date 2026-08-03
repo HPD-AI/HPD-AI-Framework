@@ -1,5 +1,4 @@
 using System.Collections.ObjectModel;
-using System.Text.Json;
 
 namespace HPD.Agent.Providers;
 
@@ -32,7 +31,7 @@ public sealed class ResolvedProviderFamilyPlan
         string? endpoint,
         string? authenticationKey,
         IReadOnlyDictionary<string, string>? customHeaders,
-        JsonElement? constructionOptions,
+        IProviderConfig? providerConfig,
         IReadOnlyDictionary<string, ProviderConfigurationSource> provenance)
     {
         Family = family;
@@ -41,7 +40,7 @@ public sealed class ResolvedProviderFamilyPlan
         Endpoint = endpoint;
         AuthenticationKey = authenticationKey;
         CustomHeaders = customHeaders;
-        ConstructionOptions = constructionOptions;
+        ProviderConfig = providerConfig;
         Provenance = provenance;
     }
 
@@ -57,8 +56,8 @@ public sealed class ResolvedProviderFamilyPlan
     public string? AuthenticationKey { get; }
     /// <summary>Gets copied non-authentication request headers.</summary>
     public IReadOnlyDictionary<string, string>? CustomHeaders { get; }
-    /// <summary>Gets a cloned provider-specific construction payload.</summary>
-    public JsonElement? ConstructionOptions { get; }
+    /// <summary>Gets the typed provider-specific construction payload.</summary>
+    public IProviderConfig? ProviderConfig { get; }
     /// <summary>Gets the source of every effective field.</summary>
     public IReadOnlyDictionary<string, ProviderConfigurationSource> Provenance { get; }
 }
@@ -125,7 +124,7 @@ public static class ProviderFamilyPlanResolver
             effective.CustomHeaders is null
                 ? null
                 : new ReadOnlyDictionary<string, string>(new Dictionary<string, string>(effective.CustomHeaders, StringComparer.OrdinalIgnoreCase)),
-            effective.ConstructionOptions?.Clone(),
+            effective.ProviderConfig,
             new ReadOnlyDictionary<string, ProviderConfigurationSource>(provenance));
     }
 
@@ -147,11 +146,6 @@ public static class ProviderFamilyPlanResolver
         {
             target.CustomHeaders = new Dictionary<string, string>(source.CustomHeaders, StringComparer.OrdinalIgnoreCase);
             provenance[nameof(ProviderClientConfig.CustomHeaders)] = layer;
-        }
-        if (source.ConstructionOptions is not null)
-        {
-            target.ConstructionOptions = source.ConstructionOptions.Value.Clone();
-            provenance[nameof(ProviderClientConfig.ConstructionOptions)] = layer;
         }
         if (source.ProviderConfig is not null)
         {
