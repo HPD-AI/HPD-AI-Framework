@@ -65,7 +65,13 @@ await thread.dispose();
 ```
 
 Rehydration and projection stay separate on purpose. Rehydration loads the
-durable baseline; projection applies live thread events after that baseline.
+durable baseline, including answerable pending requests; projection applies live
+thread events after that baseline. Durable request terminal events remove stale
+controls automatically.
+
+Permission and clarification helpers return `RespondResult`, so expected races
+such as `alreadyResolved`, `cancelled`, and `executionEnded` remain ordinary UI
+state rather than thrown transport failures.
 
 Live events are scoped strictly by default. If an older transport emits
 scope-less events, opt into that behavior explicitly with

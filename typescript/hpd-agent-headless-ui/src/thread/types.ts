@@ -5,6 +5,7 @@ import type {
   AgentMessageSource,
   AgentMessageVisibility,
   AgentRequestEvent,
+  AgentResponseInput,
   AgentRunInputEvent,
   AIContent,
   ClientToolAugmentation,
@@ -23,7 +24,9 @@ import type {
   ResponseMetadata,
   ResponsePolicy,
   RunConfig,
-  SubmitInputResult,
+  InputSubmissionResult,
+  PendingAgentRequest,
+  RespondResult,
   ToolCallType,
   ToolResultContent,
   ThreadMessageReadModel,
@@ -43,6 +46,7 @@ export interface ThreadSnapshot {
   observedCursor: ThreadJournalCursor;
   executions?: ThreadExecution[];
   activeExecution?: ThreadExecution | null;
+  pendingRequests?: PendingAgentRequest[];
 }
 
 export type MessageRole = 'system' | 'user' | 'assistant' | 'tool' | string;
@@ -454,19 +458,19 @@ export interface ThreadController {
   dispose(): Promise<void>;
 
   sendMessage(input: SendMessageInput, options?: SendMessageOptions): Promise<void>;
-  steer(text: string, options?: SendMessageOptions): Promise<SubmitInputResult>;
-  run(input: AgentRunInputEvent): Promise<SubmitInputResult>;
-  respond(input: AgentRunInputEvent): Promise<SubmitInputResult>;
-  interrupt(options?: InterruptOptions): Promise<SubmitInputResult>;
+  steer(text: string, options?: SendMessageOptions): Promise<InputSubmissionResult>;
+  run(input: AgentRunInputEvent): Promise<InputSubmissionResult>;
+  respond(input: AgentResponseInput): Promise<RespondResult>;
+  interrupt(options?: InterruptOptions): Promise<InputSubmissionResult>;
 
-  approve(permissionId: string, choice?: PermissionChoice): Promise<SubmitInputResult>;
-  deny(permissionId: string, reason?: string): Promise<SubmitInputResult>;
-  clarify(requestId: string, answer: string): Promise<SubmitInputResult>;
+  approve(permissionId: string, choice?: PermissionChoice): Promise<RespondResult>;
+  deny(permissionId: string, reason?: string): Promise<RespondResult>;
+  clarify(requestId: string, answer: string): Promise<RespondResult>;
   answerClientToolRequest(
     requestId: string,
     outcome: ClientToolOutcomeInput,
     options?: AnswerClientToolRequestOptions,
-  ): Promise<SubmitInputResult>;
+  ): Promise<RespondResult>;
 }
 
 export interface LoadThreadSnapshotOptions extends ThreadScope {

@@ -22,6 +22,12 @@ function fakeClient(): TestAgentClient {
     }),
     run: vi.fn(async () => {}),
     submitInput: vi.fn(async () => {}),
+    respond: vi.fn(async (response: { permissionId?: string; requestId?: string }) => ({
+      status: 'accepted',
+      requestId: response.requestId ?? response.permissionId ?? '',
+      message: null,
+      accepted: true,
+    })),
     onAny: vi.fn((handler: (event: never) => void | Promise<void>) => {
       handlers.push(handler);
       return subscription(() => {
@@ -291,9 +297,8 @@ describe('createThreadController', () => {
       capabilities: ['client-tool:pickFile'],
     });
 
-    expect(client.run).toHaveBeenCalledWith({
+    expect(client.respond).toHaveBeenCalledWith({
       type: EventTypes.CLIENT_TOOL_INVOKE_OUTCOME,
-      agentId: 'agent',
       sessionId: 's1',
       threadId: 'main',
       requestId: 'tool-1',
@@ -335,9 +340,8 @@ describe('createThreadController', () => {
 
     await controller.approve('p1');
 
-    expect(client.run).toHaveBeenCalledWith({
+    expect(client.respond).toHaveBeenCalledWith({
       type: EventTypes.PERMISSION_RESPONSE,
-      agentId: 'agent',
       sessionId: 's1',
       threadId: 'main',
       permissionId: 'p1',

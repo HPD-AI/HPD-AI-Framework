@@ -135,6 +135,12 @@ function fakeClient(): AgentClient & { emit(event: AgentEvent): Promise<void> } 
     }),
     run: vi.fn(async () => ({ ok: true })),
     submitInput: vi.fn(async () => {}),
+    respond: vi.fn(async (response: { permissionId?: string; requestId?: string }) => ({
+      status: 'accepted',
+      requestId: response.requestId ?? response.permissionId ?? '',
+      message: null,
+      accepted: true,
+    })),
     onAny: vi.fn((handler: (event: AgentEvent) => void | Promise<void>) => {
       handlers.push(handler);
       return subscription(() => {
@@ -233,14 +239,18 @@ describe('thread lifecycle scenario', () => {
     expect(snapshot.canSend).toBe(false);
 
     const approval = await controller.approve('p1');
-    expect(approval).toEqual({ ok: true });
-    expect(client.run).toHaveBeenCalledWith({
+    expect(approval).toEqual({
+      status: 'accepted',
+      requestId: 'p1',
+      message: null,
+      accepted: true,
+    });
+    expect(client.respond).toHaveBeenCalledWith({
       type: EventTypes.PERMISSION_RESPONSE,
       permissionId: 'p1',
       sourceName: 'permission',
       approved: true,
       choice: 'ask',
-      agentId: 'agent',
       sessionId: 's1',
       threadId: 'main',
     });

@@ -1,12 +1,14 @@
 import type {
   AgentEvent,
   AgentEventOfType,
+  AgentResponseInput,
   AgentRunInputEvent,
   ClientToolInvokeRequestEvent,
   KnownAgentEvent,
 } from './types/events.js';
 import { EventTypes } from './types/events.js';
-import type { AgentTransport, RuntimeScope, RunTransportOptions, SubmitInputResult } from './types/transport.js';
+import type { AgentTransport, InputSubmissionResult, RuntimeScope, RunTransportOptions } from './types/transport.js';
+import type { RespondResult } from './types/events.js';
 import type {
   Session,
   Thread,
@@ -142,14 +144,20 @@ export class AgentClient {
     this.transport.disconnect();
   }
 
-  async submitInput(input: AgentRunInputEvent, options?: RunTransportOptions): Promise<SubmitInputResult> {
+  async submitInput(input: AgentRunInputEvent, options?: RunTransportOptions): Promise<InputSubmissionResult> {
     const result = await this.transport.submitInput(input, options);
     await this.outputDispatchQueue;
     return result;
   }
 
-  async run(input: AgentRunInputEvent, options?: RunTransportOptions): Promise<SubmitInputResult> {
+  async run(input: AgentRunInputEvent, options?: RunTransportOptions): Promise<InputSubmissionResult> {
     return this.submitInput(input, options);
+  }
+
+  async respond(response: AgentResponseInput, options?: RunTransportOptions): Promise<RespondResult> {
+    const result = await this.transport.respond(response, options);
+    await this.outputDispatchQueue;
+    return result;
   }
 
   abort(): void {
@@ -208,7 +216,7 @@ export class AgentClient {
     if (event.type === EventTypes.CLIENT_TOOL_INVOKE_REQUEST &&
       this.matchesResponderTarget(event as ClientToolInvokeRequestEvent)) {
       const toolResponse = await this.tools.handleInvoke(event as ClientToolInvokeRequestEvent);
-      await this.transport.submitInput({
+      await this.transport.respond({
         type: EventTypes.CLIENT_TOOL_INVOKE_OUTCOME,
         requestId: toolResponse.requestId,
         responderId: this.config.responderId,

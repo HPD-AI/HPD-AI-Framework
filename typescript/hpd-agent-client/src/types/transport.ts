@@ -1,4 +1,4 @@
-import type { AgentEvent, AgentRunInputEvent, RespondResult } from './events.js';
+import type { AgentEvent, AgentResponseInput, AgentRunInputEvent, RespondResult } from './events.js';
 import type { ThreadJournalCursor, ThreadExecution } from './thread-execution.js';
 
 export interface InputSubmissionResult {
@@ -14,8 +14,6 @@ export interface InputSubmissionResult {
   startedAt?: string | null;
   activeExecution?: ThreadExecution | null;
 }
-
-export type SubmitInputResult = RespondResult | InputSubmissionResult;
 
 /**
  * Runtime connection scope for committed SSE observation.
@@ -47,8 +45,11 @@ export interface AgentTransport {
   /** Connect/start a long-lived runtime transport. SSE transports may no-op. */
   connect(scope?: RuntimeScope): Promise<void>;
 
-  /** Submit an agent input event to the runtime. Response events may return a structured status. */
-  submitInput(event: AgentRunInputEvent, options?: RunTransportOptions): Promise<SubmitInputResult>;
+  /** Submit semantic input to the runtime. */
+  submitInput(event: AgentRunInputEvent, options?: RunTransportOptions): Promise<InputSubmissionResult>;
+
+  /** Attempt to answer an Agent request and return its typed outcome. */
+  respond(event: AgentResponseInput, options?: RunTransportOptions): Promise<RespondResult>;
 
   /** Register an acknowledged event handler. The cursor advances only after it resolves. */
   onEvent(handler: (event: AgentEvent) => void | Promise<void>): void;

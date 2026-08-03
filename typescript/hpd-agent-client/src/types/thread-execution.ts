@@ -67,9 +67,15 @@ export interface ThreadExecution {
   backgroundHandles: ThreadExecutionBackgroundHandle[];
 }
 
+export interface PendingAgentRequest {
+  request: import('./events.js').AgentEvent;
+  createdAt: string;
+}
+
 export interface ThreadRuntimeState {
   observedCursor: ThreadJournalCursor;
   activeExecution: ThreadExecution | null;
+  pendingRequests: PendingAgentRequest[];
 }
 
 export interface ThreadJournalCursor {

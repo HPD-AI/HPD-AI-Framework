@@ -101,6 +101,19 @@ await client.run({
 });
 ```
 
+Interactive responses use a separate typed operation:
+
+```typescript
+const result = await client.respond({
+  type: EventTypes.PERMISSION_RESPONSE,
+  permissionId: 'permission-1',
+  sourceName: 'web-ui',
+  approved: true,
+});
+
+if (!result.accepted) console.info(result.status, result.message);
+```
+
 ## HTTP API
 
 HTTP resource APIs are exposed through `client.api` and mirrored on `AgentClient` for convenience.

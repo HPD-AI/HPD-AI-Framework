@@ -279,17 +279,21 @@ describe('AgentClient', () => {
     );
   });
 
-  it('routes permission response inputs through submitInput()', async () => {
+  it('routes permission responses through respond()', async () => {
     const client = new AgentClient('http://localhost:5135');
     const fetchSpy = vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(okStream())
       .mockResolvedValueOnce({
         ok: true,
-        text: async () => '',
+        json: async () => ({
+          status: 'Accepted',
+          requestId: 'perm-1',
+          accepted: true,
+        }),
       } as Response);
 
     await client.start({ agentId: 'agent-1', sessionId: 'session-123', threadId: 'main' });
-    await client.submitInput({
+    await client.respond({
       type: EventTypes.PERMISSION_RESPONSE,
       permissionId: 'perm-1',
       sourceName: 'PermissionMiddleware',

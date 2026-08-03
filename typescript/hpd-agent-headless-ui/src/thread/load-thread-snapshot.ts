@@ -25,5 +25,6 @@ export async function loadThreadSnapshot(
     observedCursor: state?.observedCursor ?? { generation: 1, sequenceNumber: 0 },
     executions,
     activeExecution: state?.activeExecution ?? null,
+    pendingRequests: state?.pendingRequests ?? [],
   };
 }

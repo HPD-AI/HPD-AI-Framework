@@ -843,6 +843,24 @@ public class AgentEventSerializerTests
         Assert.Equal("AGENT_CAPABILITY_REQUEST", AgentEventSerializer.GetEventTypeName(original));
     }
 
+    [Fact]
+    public void AgentRequestTerminatedEvent_UsesStableStringTerminalKind()
+    {
+        var original = new AgentRequestTerminatedEvent(
+            "request-1",
+            "test",
+            AgentRequestTerminalKind.Abandoned,
+            "Execution ended.",
+            DateTimeOffset.Parse("2026-08-02T00:00:00Z"));
+
+        var json = AgentEventSerializer.ToJson(original);
+        var rehydrated = Assert.IsType<AgentRequestTerminatedEvent>(
+            AgentEventSerializer.FromJson(json));
+
+        Assert.Contains("\"terminalKind\":\"Abandoned\"", json);
+        Assert.Equal(AgentRequestTerminalKind.Abandoned, rehydrated.TerminalKind);
+    }
+
     private static FunctionInvocationSnapshot CreateInvocationSnapshot()
         => new()
         {

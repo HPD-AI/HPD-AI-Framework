@@ -74,6 +74,8 @@ internal static class AgentRespondResultMapping
 }
 
 /// <summary>Terminal reason recorded for a durable unanswered Agent request.</summary>
+[System.Text.Json.Serialization.JsonConverter(
+    typeof(System.Text.Json.Serialization.JsonStringEnumConverter<AgentRequestTerminalKind>))]
 public enum AgentRequestTerminalKind
 {
     /// <summary>The request's configured deadline elapsed.</summary>

@@ -8,7 +8,16 @@ function fakeClient(): AgentClient {
     getThreadState: vi.fn(async () => ({
       observedCursor: { generation: 1, sequenceNumber: 0 },
       activeExecution: null,
-      pendingRequests: [],
+      pendingRequests: [{
+        request: {
+          type: 'PERMISSION_REQUEST',
+          permissionId: 'p1',
+          sourceName: 'permission',
+          functionName: 'Bash',
+          callId: 'c1',
+        },
+        createdAt: '2026-01-01T00:00:00.000Z',
+      }],
     })),
     getThreadExecutions: vi.fn(async () => []),
   } as unknown as AgentClient;
@@ -33,6 +42,8 @@ describe('loadThreadSnapshot', () => {
     expect(snapshot.observedCursor).toEqual({ generation: 1, sequenceNumber: 0 });
     expect(snapshot.executions).toEqual([]);
     expect(snapshot.activeExecution).toBeNull();
+    expect(snapshot.pendingRequests).toHaveLength(1);
+    expect(snapshot.pendingRequests?.[0].request).toMatchObject({ permissionId: 'p1' });
   });
 
   it('can include thread executions explicitly', async () => {
