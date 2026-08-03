@@ -1074,7 +1074,12 @@ public sealed record RemovalCompaction : CompactionStrategy;
 
 public sealed record SummarizingCompaction : CompactionStrategy
 {
-    public ProviderClientConfig? Provider { get; init; }
+    /// <summary>
+    /// Gets the optional Chat-family override used by the summarizer. When omitted,
+    /// summarization leases the current run's resolved primary Chat client.
+    /// </summary>
+    public ChatClientConfig? Summarizer { get; init; }
+
     public string? Instructions { get; init; }
 }
 

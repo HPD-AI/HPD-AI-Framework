@@ -37,7 +37,8 @@ public sealed record ThreadCompactionContext(
     IReadOnlyList<ChatMessage> ModelHistory,
     IThreadEventPublisher? Publisher,
     IChatClient? SummarizerClient,
-    IThreadJournalRebaseSeedProvider? RebaseSeedProvider = null);
+    IThreadJournalRebaseSeedProvider? RebaseSeedProvider = null,
+    ChatOptions? SummarizerOptions = null);
 
 /// <summary>
 /// Supplies newly encoded authoritative control facts that must survive a destructive journal rebase.
@@ -456,11 +457,9 @@ public sealed class ThreadCompactionEngine : IThreadCompactionEngine
         var client = context.SummarizerClient
             ?? throw new InvalidOperationException("Summarizing compaction requires a chat client.");
         var messages = CreateSummarizerMessages(selected, strategy);
-        var options = new ChatOptions
-        {
-            Tools = [],
-            ToolMode = ChatToolMode.None
-        };
+        var options = context.SummarizerOptions?.Clone() ?? new ChatOptions();
+        options.Tools = [];
+        options.ToolMode = ChatToolMode.None;
         var response = await client.GetResponseAsync(messages, options, cancellationToken)
             .ConfigureAwait(false);
         if (response.Messages.SelectMany(static message => message.Contents).Any(IsToolDependentContent))

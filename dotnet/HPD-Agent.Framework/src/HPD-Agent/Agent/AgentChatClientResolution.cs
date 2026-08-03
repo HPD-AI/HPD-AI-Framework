@@ -13,7 +13,7 @@ internal enum AgentChatClientSource
     RuntimeProvider,
     AgentDefault,
     InheritedFallback,
-    DedicatedProvider
+    SpecializedRole
 }
 
 internal sealed class AgentChatClientHandle
@@ -119,7 +119,7 @@ internal sealed record AgentChatClientResolutionRequest
     public AgentRunConfig? RunConfig { get; init; }
     public AgentChatClientHandle? AgentDefault { get; init; }
     public AgentChatClientHandle? InheritedFallback { get; init; }
-    public ProviderClientConfig? DedicatedProvider { get; init; }
+    public ChatClientConfig? SpecializedChat { get; init; }
 }
 
 internal sealed class AgentChatClientResolver : IDisposable
@@ -147,11 +147,35 @@ internal sealed class AgentChatClientResolver : IDisposable
         ArgumentNullException.ThrowIfNull(request);
         cancellationToken.ThrowIfCancellationRequested();
 
-        if (request.DedicatedProvider is { } dedicatedProvider)
+        if (request.SpecializedChat is { } specialized)
+        {
+            if (specialized.Override is { } specializedOverride)
+            {
+                return AgentChatClientHandle
+                    .Borrowed(specializedOverride.Client, AgentChatClientSource.InjectedOverride, specialized)
+                    .AcquireLease();
+            }
+
+            var primary = request.AgentDefault?.ResolvedConfig as ChatClientConfig
+                ?? request.AgentConfig.ResolveClientConfig(
+                    ProviderClientFamily.Chat,
+                    request.RunConfig?.Clients) as ChatClientConfig;
+            var specializedClients = new AgentClientsConfig { Chat = specialized };
+            var primaryClients = primary is null ? null : new AgentClientsConfig { Chat = primary };
+            var effective = ProviderClientConfigResolver.Resolve(
+                    primaryClients,
+                    ProviderClientFamily.Chat,
+                    specializedClients)
+                ?? throw new AgentRunConfigurationException(
+                    "SpecializedChatResolutionFailed",
+                    "Summarizer",
+                    "The specialized Chat role did not resolve a usable configuration.");
+
             return await CreateProviderLeaseAsync(
-                dedicatedProvider,
-                AgentChatClientSource.DedicatedProvider,
+                effective,
+                AgentChatClientSource.SpecializedRole,
                 cancellationToken).ConfigureAwait(false);
+        }
 
         if (request.RunConfig?.Clients?.Chat?.Override is { } overrideClient)
         {

@@ -239,7 +239,7 @@ public class AspNetCoreAgentManagerTests : IDisposable
                         Point = new CompactAtCurrentHead(),
                         Strategy = new SummarizingCompaction
                         {
-                            Provider = new ProviderClientConfig {
+                            Summarizer = new ChatClientConfig {
                                 ProviderKey = "test",
                                 ModelName = "summarizer-model"
                             }
