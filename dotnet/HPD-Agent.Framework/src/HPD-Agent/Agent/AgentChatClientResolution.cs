@@ -125,6 +125,7 @@ internal sealed class AgentChatClientResolver : IDisposable
     private readonly IProviderRegistry? _providerRegistry;
     private readonly IServiceProvider? _services;
     private readonly AgentProviderChatClientManager _clientManager;
+    private readonly ProviderComposition? _composition;
 
     public AgentChatClientResolver(
         IProviderRegistry? providerRegistry,
@@ -132,6 +133,7 @@ internal sealed class AgentChatClientResolver : IDisposable
         AgentClientMiddlewareConfig? middleware = null)
     {
         _providerRegistry = providerRegistry;
+        _composition = (providerRegistry as ProviderRegistry)?.Composition;
         _services = services;
         _clientManager = new AgentProviderChatClientManager(providerRegistry, services, middleware?.Chat);
     }
@@ -195,6 +197,24 @@ internal sealed class AgentChatClientResolver : IDisposable
         AgentChatClientSource source,
         CancellationToken cancellationToken)
     {
+        if (config.ProviderConfig is not null)
+        {
+            _composition?.ValidatePayload(
+                config.ProviderKey,
+                ProviderClientFamily.Chat,
+                ProviderPayloadKind.Configuration,
+                config.ProviderConfig,
+                "Clients.Chat.ProviderConfig");
+        }
+        if (config is ChatClientConfig { ProviderOptions: not null } chatConfig)
+        {
+            _composition?.ValidatePayload(
+                config.ProviderKey,
+                ProviderClientFamily.Chat,
+                ProviderPayloadKind.OperationOptions,
+                chatConfig.ProviderOptions,
+                "Clients.Chat.ProviderOptions");
+        }
         if (string.IsNullOrWhiteSpace(config.ProviderKey))
             throw new InvalidOperationException("A chat provider key is required to resolve an invocation client.");
 

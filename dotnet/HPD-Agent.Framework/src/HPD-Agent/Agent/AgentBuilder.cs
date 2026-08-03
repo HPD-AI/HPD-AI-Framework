@@ -308,7 +308,7 @@ public class AgentBuilder
     {
         _config = config ?? throw new ArgumentNullException(nameof(config));
         ArgumentNullException.ThrowIfNull(providerComposition);
-        _providerRegistry = new ProviderRegistry();
+        _providerRegistry = new ProviderRegistry(providerComposition);
         LoadGeneratedRegistries();
         RegisterGeneratedProviders(providerComposition.Runtime);
     }
