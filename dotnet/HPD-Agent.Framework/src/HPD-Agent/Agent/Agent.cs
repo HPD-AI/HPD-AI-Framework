@@ -2220,6 +2220,7 @@ public sealed class Agent
 
         var isResumeTurn = newInputMessages.Count == 0 && thread?.Messages.Count > 0;
         AgentChatClientLease? chatClientLease = null;
+        AgentClientSet? runClientSet = null;
 
         try
         {
@@ -2290,7 +2291,8 @@ public sealed class Agent
                     },
                     effectiveCancellationToken).ConfigureAwait(false);
             }
-            var overrideRealtimeClient = ResolveRealtimeClientForOptions(runConfig);
+            runClientSet = ResolveRunClientSet(effectiveRunConfig);
+            var effectiveClientSet = runClientSet ?? _clientSet;
 
             // Resolve background responses settings from AgentRunConfig → Config → false
             var allowBackgroundResponses = runConfig?.BackgroundResponses?.Allow
@@ -2339,7 +2341,7 @@ public sealed class Agent
                 parentAgentMetadata: AgentMetadata,
                 parentAgentStore: Config?.AgentStore,
                 config: Config,
-                clientSet: _clientSet,
+                clientSet: effectiveClientSet,
                 contentStore: _contentStore,
                 structEvents: GetActiveStructEvents(),
                 inputHandler: async (input, ct) =>
@@ -2747,7 +2749,7 @@ public sealed class Agent
                             ? chatClientLease?.Client
                             : null;
                         var realtimeModel = selectedTransport is Middleware.AgentModelTransport.Realtime
-                            ? overrideRealtimeClient ?? _clientSet?.Realtime
+                            ? effectiveClientSet?.Realtime
                             : null;
 
                         if (selectedTransport is Middleware.AgentModelTransport.Chat && chatModel is null)
@@ -2782,7 +2784,7 @@ public sealed class Agent
                             StructEvents = GetActiveStructEvents(),
                             Session = agentContext.Session,
                             ContentStore = _contentStore,
-                            ClientSet = _clientSet
+                            ClientSet = effectiveClientSet
                         };
 
                         var modelTurnExecutor = selectedTransport is Middleware.AgentModelTransport.Realtime
@@ -3740,6 +3742,7 @@ public sealed class Agent
         {
             if (chatClientLease is not null)
                 await chatClientLease.DisposeAsync().ConfigureAwait(false);
+            runClientSet?.Dispose();
             turn.CatalogLease?.Dispose();
             RootAgent = previousRootAgent;
         }
@@ -5167,40 +5170,135 @@ public sealed class Agent
         return properties;
     }
 
-    private IRealtimeClient? ResolveRealtimeClientForOptions(AgentRunConfig? options)
+    private AgentClientSet? ResolveRunClientSet(AgentRunConfig runConfig)
     {
-        if (options?.Clients.Realtime?.Override?.Client is { } overrideClient)
-            return overrideClient;
-
-        var hasRunClientOverride =
-            options?.Clients?.GetFamilyConfig(Providers.ProviderClientFamily.Realtime) != null;
-
-        if (!hasRunClientOverride)
-            return null;
-
-        var effectiveConfig = Config?.ResolveClientConfig(
+        var runClients = runConfig.Clients;
+        var families = new[]
+        {
+            Providers.ProviderClientFamily.TextToSpeech,
+            Providers.ProviderClientFamily.SpeechToText,
             Providers.ProviderClientFamily.Realtime,
-            options?.Clients);
-
-        var requestedProviderKey = effectiveConfig?.ProviderKey;
-        if (string.IsNullOrEmpty(requestedProviderKey))
+            Providers.ProviderClientFamily.ImageGeneration,
+            Providers.ProviderClientFamily.Embeddings,
+            Providers.ProviderClientFamily.HostedFiles
+        };
+        if (!families.Any(family => runClients.GetFamilyConfig(family) is not null))
             return null;
 
-        if (_providerRegistry == null)
-        {
-            throw new InvalidOperationException(
-                $"Cannot switch to realtime provider '{requestedProviderKey}' - no provider registry available. " +
-                "Ensure the agent was built with a provider registry.");
-        }
+        var owned = new HashSet<object>(ReferenceEqualityComparer.Instance);
+        var resolved = _clientSet?.ResolvedConfigs.ToDictionary(pair => pair.Key, pair => pair.Value)
+            ?? new Dictionary<Providers.ProviderClientFamily, ProviderClientConfig>();
 
-        var provider = _providerRegistry.GetRequiredProvider<Providers.IRealtimeClientProvider>(requestedProviderKey);
-        if (string.IsNullOrEmpty(effectiveConfig?.ModelName))
-        {
-            throw new InvalidOperationException(
-                $"No realtime model is configured for provider '{requestedProviderKey}'. Configure AgentConfig.Clients.Realtime.ModelName or pass AgentRunConfig.Clients.Realtime.ModelName.");
-        }
+        var textToSpeech = ResolveRunClient<Providers.ITextToSpeechClientProvider, ITextToSpeechClient>(
+            Providers.ProviderClientFamily.TextToSpeech,
+            runClients,
+            runClients.TextToSpeech?.Override?.Client,
+            _clientSet?.TextToSpeech,
+            static (provider, config, services) => provider.CreateTextToSpeechClient(config, services),
+            Config?.ClientMiddleware?.TextToSpeech,
+            owned,
+            resolved);
+        var speechToText = ResolveRunClient<Providers.ISpeechToTextClientProvider, ISpeechToTextClient>(
+            Providers.ProviderClientFamily.SpeechToText,
+            runClients,
+            runClients.SpeechToText?.Override?.Client,
+            _clientSet?.SpeechToText,
+            static (provider, config, services) => provider.CreateSpeechToTextClient(config, services),
+            Config?.ClientMiddleware?.SpeechToText,
+            owned,
+            resolved);
+        var realtime = ResolveRunClient<Providers.IRealtimeClientProvider, IRealtimeClient>(
+            Providers.ProviderClientFamily.Realtime,
+            runClients,
+            runClients.Realtime?.Override?.Client,
+            _clientSet?.Realtime,
+            static (provider, config, services) => provider.CreateRealtimeClient(config, services),
+            Config?.ClientMiddleware?.Realtime,
+            owned,
+            resolved);
+        var image = ResolveRunClient<Providers.IImageGeneratorProvider, IImageGenerator>(
+            Providers.ProviderClientFamily.ImageGeneration,
+            runClients,
+            runClients.ImageGeneration?.Override?.Client,
+            _clientSet?.ImageGenerator,
+            static (provider, config, services) => provider.CreateImageGenerator(config, services),
+            Config?.ClientMiddleware?.ImageGeneration,
+            owned,
+            resolved);
+        var embeddings = ResolveRunClient<Providers.IEmbeddingGeneratorProvider, IEmbeddingGenerator>(
+            Providers.ProviderClientFamily.Embeddings,
+            runClients,
+            runClients.Embeddings?.Override?.Client,
+            _clientSet?.EmbeddingGenerator,
+            static (provider, config, services) => provider.CreateEmbeddingGenerator(config, services),
+            Config?.ClientMiddleware?.Embeddings,
+            owned,
+            resolved);
+        var hostedFiles = ResolveRunClient<Providers.IHostedFileClientProvider, IHostedFileClient>(
+            Providers.ProviderClientFamily.HostedFiles,
+            runClients,
+            runClients.HostedFiles?.Override?.Client,
+            _clientSet?.HostedFiles,
+            static (provider, config, services) => provider.CreateHostedFileClient(config, services),
+            Config?.ClientMiddleware?.HostedFiles,
+            owned,
+            resolved);
 
-        return provider.CreateRealtimeClient(effectiveConfig!, _serviceProvider);
+        var result = new AgentClientSet
+        {
+            TextToSpeech = textToSpeech,
+            SpeechToText = speechToText,
+            Realtime = realtime,
+            ImageGenerator = image,
+            EmbeddingGenerator = embeddings,
+            HostedFiles = hostedFiles,
+            VoiceActivityDetectorFactory = _clientSet?.VoiceActivityDetectorFactory,
+            EndOfTurnDetectorFactory = _clientSet?.EndOfTurnDetectorFactory,
+            ResolvedConfigs = resolved
+        };
+        result.SetOwnedClients(owned);
+        return result;
+    }
+
+    private TClient? ResolveRunClient<TProvider, TClient>(
+        Providers.ProviderClientFamily family,
+        AgentClientsConfig runClients,
+        TClient? runOverride,
+        TClient? builderDefault,
+        Func<TProvider, ProviderClientConfig, IServiceProvider?, TClient> factory,
+        IReadOnlyList<Func<TClient, IServiceProvider?, TClient>>? middleware,
+        HashSet<object> owned,
+        Dictionary<Providers.ProviderClientFamily, ProviderClientConfig> resolved)
+        where TProvider : class, Providers.IProvider
+        where TClient : class
+    {
+        if (runClients.GetFamilyConfig(family) is null)
+            return builderDefault;
+        if (runOverride is not null)
+            return runOverride;
+
+        var effective = Config?.ResolveClientConfig(family, runClients)
+            ?? throw new AgentRunConfigurationException(
+                "ProviderFamilyResolutionFailed",
+                $"Clients.{family}",
+                $"The runtime {family} configuration could not be resolved.");
+        if (string.IsNullOrWhiteSpace(effective.ProviderKey))
+            throw new AgentRunConfigurationException(
+                "ProviderKeyRequired",
+                $"Clients.{family}.ProviderKey",
+                $"A provider key is required for runtime {family} resolution.");
+
+        var provider = _providerRegistry.GetRequiredProvider<TProvider>(effective.ProviderKey);
+        var client = factory(provider, effective, _serviceProvider);
+        if (middleware is not null)
+        {
+            for (var index = middleware.Count - 1; index >= 0; index--)
+                client = middleware[index](client, _serviceProvider)
+                    ?? throw new InvalidOperationException($"{family} client middleware returned null.");
+        }
+        owned.Add(client);
+        resolved[family] = ProviderClientConfigResolver.Clone(effective);
+        return client;
     }
 
     private static Middleware.AgentModelTransport ResolveModelTransport(AgentRunConfig runConfig)

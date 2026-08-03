@@ -137,20 +137,26 @@ public class AgentEventSerializerTests
             RunConfig = new AgentRunConfig
             {
                 Streaming = new StreamingRunConfig { CoalesceDeltas = true },
-                Clients = new AgentClientsConfig { Chat = new ChatClientConfig
+                Clients = new AgentClientsConfig
                 {
-                    ProviderKey = "openai",
-                    ModelName = "gpt-5.5",
-                    Temperature = 0.7,
-                    MaxOutputTokens = 123,
-                    Seed = 42
-                } },
+                    Chat = new ChatClientConfig
+                    {
+                        ProviderKey = "openai",
+                        ModelName = "gpt-5.5",
+                        Temperature = 0.7,
+                        MaxOutputTokens = 123,
+                        Seed = 42
+                    },
+                    TextToSpeech = new TextToSpeechClientConfig
+                    {
+                        VoiceId = "voice-1",
+                        AudioFormat = "mp3_44100_128"
+                    }
+                },
                 Audio = new AudioRunConfig
                 {
                     OutputMode = AudioOutputMode.TextToSpeech,
                     AssistantOutputMode = AssistantOutputSynthesisMode.Progressive,
-                    VoiceId = "voice-1",
-                    OutputFormat = "mp3_44100_128",
                     EnablePlayback = true
                 }
             }
@@ -173,8 +179,8 @@ public class AgentEventSerializerTests
         Assert.NotNull(result.RunConfig.Audio);
         Assert.Equal(AudioOutputMode.TextToSpeech, result.RunConfig.Audio!.OutputMode);
         Assert.Equal(AssistantOutputSynthesisMode.Progressive, result.RunConfig.Audio.AssistantOutputMode);
-        Assert.Equal("voice-1", result.RunConfig.Audio.VoiceId);
-        Assert.Equal("mp3_44100_128", result.RunConfig.Audio.OutputFormat);
+        Assert.Equal("voice-1", result.RunConfig.Clients.TextToSpeech!.VoiceId);
+        Assert.Equal("mp3_44100_128", result.RunConfig.Clients.TextToSpeech.AudioFormat);
         Assert.True(result.RunConfig.Audio.EnablePlayback);
     }
 

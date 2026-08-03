@@ -8,6 +8,7 @@ namespace HPD.Agent;
 /// </summary>
 public sealed class AgentClientSet : IDisposable
 {
+    private IReadOnlySet<object>? _ownedClients;
     public IChatClient? Chat { get; init; }
     public ITextToSpeechClient? TextToSpeech { get; init; }
     public ISpeechToTextClient? SpeechToText { get; init; }
@@ -44,22 +45,27 @@ public sealed class AgentClientSet : IDisposable
     public ProviderClientConfig? GetResolvedConfig(ProviderClientFamily family)
         => ResolvedConfigs.TryGetValue(family, out var config) ? config : null;
 
+    internal void SetOwnedClients(IReadOnlySet<object> ownedClients)
+        => _ownedClients = ownedClients;
+
     public void Dispose()
     {
         var disposed = new HashSet<object>(ReferenceEqualityComparer.Instance);
 
-        DisposeOnce(Chat, disposed);
-        DisposeOnce(TextToSpeech, disposed);
-        DisposeOnce(SpeechToText, disposed);
-        DisposeOnce(Realtime, disposed);
-        DisposeOnce(ImageGenerator, disposed);
-        DisposeOnce(EmbeddingGenerator, disposed);
-        DisposeOnce(HostedFiles, disposed);
+        DisposeOnce(Chat, disposed, _ownedClients);
+        DisposeOnce(TextToSpeech, disposed, _ownedClients);
+        DisposeOnce(SpeechToText, disposed, _ownedClients);
+        DisposeOnce(Realtime, disposed, _ownedClients);
+        DisposeOnce(ImageGenerator, disposed, _ownedClients);
+        DisposeOnce(EmbeddingGenerator, disposed, _ownedClients);
+        DisposeOnce(HostedFiles, disposed, _ownedClients);
     }
 
-    private static void DisposeOnce(object? value, HashSet<object> disposed)
+    private static void DisposeOnce(object? value, HashSet<object> disposed, IReadOnlySet<object>? ownedClients)
     {
-        if (value is not IDisposable disposable || !disposed.Add(value))
+        if (value is not IDisposable disposable ||
+            (ownedClients is not null && !ownedClients.Contains(value)) ||
+            !disposed.Add(value))
             return;
 
         disposable.Dispose();
