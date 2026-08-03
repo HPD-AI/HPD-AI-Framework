@@ -837,7 +837,7 @@ public sealed class AgentWorkflowInstance
                 InputKey = nodeOptions.InputKey,
                 OutputKey = nodeOptions.OutputKey,
                 InputTemplate = nodeOptions.InputTemplate,
-                AdditionalInstructions = nodeOptions.AdditionalSystemInstructions
+                AdditionalInstructions = nodeOptions.RunConfig.SystemInstructions?.Append
             };
         }
 

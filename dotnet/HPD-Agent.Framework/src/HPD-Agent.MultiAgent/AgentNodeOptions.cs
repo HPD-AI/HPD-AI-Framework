@@ -1,6 +1,7 @@
 using HPD.MultiAgent.Config;
 using HPD.Graph.Abstractions;
 using HPD.Graph.Abstractions.Graph;
+using HPD.Agent;
 
 namespace HPD.MultiAgent;
 
@@ -78,10 +79,9 @@ public sealed class AgentNodeOptions
     /// </summary>
     public string? InputTemplate { get; set; }
 
-    /// <summary>
-    /// Additional system instructions appended to the agent's base instructions.
-    /// </summary>
-    public string? AdditionalSystemInstructions { get; set; }
+    /// <summary>Gets or sets the complete per-invocation agent configuration for this node.</summary>
+    /// <remarks>The runtime captures an owned snapshot for every node execution.</remarks>
+    public AgentRunConfig RunConfig { get; set; } = new();
 
     /// <summary>
     /// Per-invocation timeout for this agent.
@@ -97,12 +97,6 @@ public sealed class AgentNodeOptions
     /// Retry policy for this agent node.
     /// </summary>
     public RetryPolicy? RetryPolicy { get; set; }
-
-    /// <summary>
-    /// Context instances to inject into toolharnesses at runtime.
-    /// Key: toolharness name, Value: context instance.
-    /// </summary>
-    public Dictionary<string, object>? ContextInstances { get; set; }
 
     // === Structured Output Configuration ===
 
@@ -256,25 +250,6 @@ public sealed class AgentNodeOptions
     public AgentNodeOptions WithTimeout(TimeSpan timeout)
     {
         Timeout = timeout;
-        return this;
-    }
-
-    /// <summary>
-    /// Add context instance for a toolharness.
-    /// </summary>
-    public AgentNodeOptions WithContext<TContext>(string toolharnessName, TContext context) where TContext : class
-    {
-        ContextInstances ??= new Dictionary<string, object>();
-        ContextInstances[toolharnessName] = context;
-        return this;
-    }
-
-    /// <summary>
-    /// Set additional system instructions.
-    /// </summary>
-    public AgentNodeOptions WithInstructions(string additionalInstructions)
-    {
-        AdditionalSystemInstructions = additionalInstructions;
         return this;
     }
 

@@ -151,10 +151,11 @@ public class ExportConfigJsonTests
     }
 
     [Fact]
-    public async Task ExportConfigJson_Preserves_AdditionalSystemInstructions()
+    public async Task ExportConfigJson_Preserves_RunConfigSystemInstructions()
     {
         var workflow = await TwoAgentWorkflow(
-            researcherOpts: o => o.WithInstructions("Focus on facts only."));
+            researcherOpts: o => o.RunConfig.SystemInstructions =
+                new SystemInstructionsRunConfig { Append = "Focus on facts only." });
 
         var root = ParseJson(workflow.ExportConfigJson());
         var researcher = root.GetProperty("agents").GetProperty("researcher");

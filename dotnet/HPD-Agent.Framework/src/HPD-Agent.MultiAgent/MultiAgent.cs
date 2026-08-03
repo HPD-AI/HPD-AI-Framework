@@ -493,7 +493,12 @@ public class MultiAgent
             InputKey = config.InputKey,
             OutputKey = config.OutputKey,
             InputTemplate = config.InputTemplate,
-            AdditionalSystemInstructions = config.AdditionalInstructions
+            RunConfig = new AgentRunConfig
+            {
+                SystemInstructions = string.IsNullOrWhiteSpace(config.AdditionalInstructions)
+                    ? null
+                    : new SystemInstructionsRunConfig { Append = config.AdditionalInstructions }
+            }
         };
 
         if (config.Retry != null)
