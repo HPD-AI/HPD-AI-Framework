@@ -8,6 +8,75 @@ namespace HPD.Base.Tests.Application;
 public sealed class GatewayAuthorityProvingFixtureTests
 {
     [Fact]
+    public async Task ManagedAuthorityStateAndReceiptReconstructAcrossProcessRestart()
+    {
+        string database = Path.Combine(
+            Path.GetTempPath(),
+            "hpd-base-gateway-restart-proof-" + Guid.NewGuid().ToString("N") + ".db");
+        BaseCollection<JsonElement>[] collections = AuthorityCollections();
+        var observer = new ProvingMutationObserver();
+        RevisionToken expectedRevision;
+        try
+        {
+            await using (ServiceProvider first = Services(database, collections, observer).BuildServiceProvider())
+            {
+                await ApplyAndInitializeAsync(first);
+                IBaseRecordRuntime runtime = first.GetRequiredService<IBaseRecordRuntime>();
+                PrincipalContext principal = Principal();
+                RecordEnvelope desired = (await runtime.CreateAsync(
+                    "gateway.desired",
+                    new RecordCreateRequest { RequestedId = new RecordId("desired"), Payload = Payload("generation", 1) },
+                    principal,
+                    Operation(BaseOperationKind.Create, "gateway.desired", "desired"))).Value!;
+                expectedRevision = desired.Metadata.Revision!.Value;
+                OperationResult<BaseRecordBatchResult> committed = await runtime.BatchAsync(
+                    AuthorityBatch("restart-request", "revision", "validation", "audit", "intent", "outbox", expectedRevision),
+                    principal,
+                    Operation(BaseOperationKind.Batch, "gateway.revisions"));
+                committed.Value!.RequestDisposition.Should().Be(BaseMutationRequestDisposition.Committed);
+            }
+
+            await using ServiceProvider restarted = Services(database, collections, observer).BuildServiceProvider();
+            (await restarted.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
+            IBaseRecordRuntime restartedRuntime = restarted.GetRequiredService<IBaseRecordRuntime>();
+            PrincipalContext restartedPrincipal = Principal();
+
+            foreach ((string Collection, string Id) fact in new[]
+            {
+                ("gateway.revisions", "revision"),
+                ("gateway.validations", "validation"),
+                ("gateway.audit", "audit"),
+                ("gateway.intents", "intent"),
+                ("gateway.desired", "desired"),
+                ("gateway.outbox", "outbox"),
+            })
+            {
+                (await restartedRuntime.GetAsync(
+                    fact.Collection,
+                    new RecordId(fact.Id),
+                    restartedPrincipal,
+                    Operation(BaseOperationKind.Get, fact.Collection, fact.Id)))
+                    .IsSuccess().Should().BeTrue($"{fact.Collection} must reconstruct after restart");
+            }
+
+            OperationResult<BaseRecordBatchResult> duplicate = await restartedRuntime.BatchAsync(
+                AuthorityBatch("restart-request", "revision", "validation", "audit", "intent", "outbox", expectedRevision),
+                restartedPrincipal,
+                Operation(BaseOperationKind.Batch, "gateway.revisions"));
+            duplicate.Value!.RequestDisposition.Should().Be(BaseMutationRequestDisposition.Duplicate);
+            observer.Count.Should().Be(7, "restart and duplicate replay must not synthesize committed mutations");
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            string directory = Path.GetDirectoryName(database)!;
+            string name = Path.GetFileName(database);
+            foreach (string file in Directory.GetFiles(directory).Where(file => Path.GetFileName(file).StartsWith(name, StringComparison.Ordinal)))
+                File.Delete(file);
+        }
+    }
+
+    [Fact]
     public async Task ManagedAuthorityGraphCommitsOnceAndCasFailureLeavesNoPartialHistory()
     {
         string database = Path.Combine(
@@ -15,47 +84,13 @@ public sealed class GatewayAuthorityProvingFixtureTests
             "hpd-base-gateway-proof-" + Guid.NewGuid().ToString("N") + ".db");
         try
         {
-            BaseCollection<JsonElement>[] collections =
-            [
-                Collection("gateway.revisions", BaseCollectionMutationMode.AppendOnlyWithAdministrativePurge),
-                Collection("gateway.validations", BaseCollectionMutationMode.AppendOnly),
-                Collection("gateway.audit", BaseCollectionMutationMode.AppendOnlyWithAdministrativePurge),
-                Collection("gateway.intents", BaseCollectionMutationMode.AppendOnly),
-                Collection("gateway.desired", BaseCollectionMutationMode.Mutable),
-                Collection("gateway.outbox", BaseCollectionMutationMode.AppendOnly),
-            ];
-            var services = new ServiceCollection().AddLogging();
+            BaseCollection<JsonElement>[] collections = AuthorityCollections();
             var observer = new ProvingMutationObserver();
-            services.AddSingleton<IBaseCommittedMutationObserver>(observer);
-            services.AddSingleton<IPolicyEvaluator, ProvingPolicyEvaluator>();
-            services.AddHPDBase(builder =>
-            {
-                builder.ConfigureSchema(options =>
-                {
-                    options.ApplicationId = "gateway-authority-proof";
-                    options.PlanProtectionKey = Enumerable.Repeat((byte)0x37, 32).ToArray();
-                });
-                foreach (BaseCollection<JsonElement> collection in collections)
-                    builder.AddCollection(collection);
-                builder.UseSqlite(options =>
-                {
-                    options.StoreId = "gateway-proof";
-                    options.DataSource = database;
-                });
-            });
-            await using ServiceProvider provider = services.BuildServiceProvider();
-            IBaseSchemaManager schemas = provider.GetRequiredService<IBaseSchemaManager>();
-            BaseSchemaPlan plan = (await schemas.PlanAsync(new BaseSchemaPlanRequest { StoreId = "gateway-proof" })).Value!;
-            (await schemas.ApplyAsync(new BaseSchemaApplyRequest { ProtectedArtifact = plan.ProtectedArtifact }))
-                .IsSuccess().Should().BeTrue();
-            (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
+            await using ServiceProvider provider = Services(database, collections, observer).BuildServiceProvider();
+            await ApplyAndInitializeAsync(provider);
 
             IBaseRecordRuntime runtime = provider.GetRequiredService<IBaseRecordRuntime>();
-            PrincipalContext principal = new()
-            {
-                AuthenticationState = PrincipalAuthenticationState.Authenticated,
-                SubjectId = "gateway-authority",
-            };
+            PrincipalContext principal = Principal();
             OperationResult<RecordEnvelope> initialDesired = await runtime.CreateAsync(
                 "gateway.desired",
                 new RecordCreateRequest { RequestedId = new RecordId("desired"), Payload = Payload("generation", 1) },
@@ -157,6 +192,58 @@ public sealed class GatewayAuthorityProvingFixtureTests
                 File.Delete(file);
         }
     }
+
+    private static BaseCollection<JsonElement>[] AuthorityCollections() =>
+    [
+        Collection("gateway.revisions", BaseCollectionMutationMode.AppendOnlyWithAdministrativePurge),
+        Collection("gateway.validations", BaseCollectionMutationMode.AppendOnly),
+        Collection("gateway.audit", BaseCollectionMutationMode.AppendOnlyWithAdministrativePurge),
+        Collection("gateway.intents", BaseCollectionMutationMode.AppendOnly),
+        Collection("gateway.desired", BaseCollectionMutationMode.Mutable),
+        Collection("gateway.outbox", BaseCollectionMutationMode.AppendOnly),
+    ];
+
+    private static ServiceCollection Services(
+        string database,
+        BaseCollection<JsonElement>[] collections,
+        ProvingMutationObserver observer)
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton<IBaseCommittedMutationObserver>(observer);
+        services.AddSingleton<IPolicyEvaluator, ProvingPolicyEvaluator>();
+        services.AddHPDBase(builder =>
+        {
+            builder.ConfigureSchema(options =>
+            {
+                options.ApplicationId = "gateway-authority-proof";
+                options.PlanProtectionKey = Enumerable.Repeat((byte)0x37, 32).ToArray();
+            });
+            foreach (BaseCollection<JsonElement> collection in collections)
+                builder.AddCollection(collection);
+            builder.UseSqlite(options =>
+            {
+                options.StoreId = "gateway-proof";
+                options.DataSource = database;
+            });
+        });
+        return services;
+    }
+
+    private static async Task ApplyAndInitializeAsync(ServiceProvider provider)
+    {
+        IBaseSchemaManager schemas = provider.GetRequiredService<IBaseSchemaManager>();
+        BaseSchemaPlan plan = (await schemas.PlanAsync(new BaseSchemaPlanRequest { StoreId = "gateway-proof" })).Value!;
+        (await schemas.ApplyAsync(new BaseSchemaApplyRequest { ProtectedArtifact = plan.ProtectedArtifact }))
+            .IsSuccess().Should().BeTrue();
+        (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
+    }
+
+    private static PrincipalContext Principal() => new()
+    {
+        AuthenticationState = PrincipalAuthenticationState.Authenticated,
+        SubjectId = "gateway-authority",
+    };
 
     private static BaseRecordBatchRequest AuthorityBatch(
         string requestKey,
