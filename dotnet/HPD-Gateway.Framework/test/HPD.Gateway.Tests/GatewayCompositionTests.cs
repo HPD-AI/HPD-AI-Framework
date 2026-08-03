@@ -1,5 +1,7 @@
 using System.Collections.Immutable;
 using System.Net;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
 using System.Threading.RateLimiting;
 using FluentAssertions;
@@ -71,11 +73,22 @@ public sealed class GatewayCompositionTests
     public void HpdHostedConfigurationIsTheOnlyListenerCapabilitySource()
     {
         var candidate = GatewayHostCandidateReader.Create(HostConfiguration()).Candidate!;
-        var services = new ServiceCollection();
-        services.AddSingleton(new GatewayHostRuntimeStatus(candidate));
-        services.AddHpdGateway(static builder => builder.AddCoreFamilies());
+        var application = WebApplication.CreateSlimBuilder();
+        var directory = Directory.CreateTempSubdirectory("hpd-gateway-composition-");
+        var exactCertificate = CreateCertificate("exact.example", Path.Combine(directory.FullName, "exact.pfx"));
+        var wildcardCertificate = CreateCertificate("*.example", Path.Combine(directory.FullName, "wildcard.pfx"));
+        application.UseHpdGatewayHost(candidate, certificates =>
+        {
+            certificates.Add(
+                new(new("test"), new("exact"), "v1"),
+                new GatewayPfxCertificateSource { Path = exactCertificate.Path, Password = exactCertificate.Password });
+            certificates.Add(
+                new(new("test"), new("wildcard"), "v1"),
+                new GatewayPfxCertificateSource { Path = wildcardCertificate.Path, Password = wildcardCertificate.Password });
+        });
+        application.Services.AddHpdGateway(static builder => builder.AddCoreFamilies());
 
-        using var provider = services.BuildServiceProvider();
+        using var provider = application.Services.BuildServiceProvider();
         var capabilities = provider.GetRequiredService<HostCapabilitySnapshot>();
         capabilities.Listeners.Should().ContainSingle();
         var listener = capabilities.Listeners[new ListenerId("https")];
@@ -83,6 +96,7 @@ public sealed class GatewayCompositionTests
         listener.Protocols.Should().Be(ListenerProtocols.Http1 | ListenerProtocols.Http2);
         listener.Hostnames.Should().Equal("*.example", "exact.example");
         listener.Tls.Should().BeTrue();
+        directory.Delete(recursive: true);
     }
 
     [Fact]
@@ -377,5 +391,24 @@ public sealed class GatewayCompositionTests
             GatewayInspectionContext context,
             CancellationToken cancellationToken) =>
             ValueTask.FromResult(GatewayInspectionDecision.Allow());
+    }
+
+    private static (string Path, string Password) CreateCertificate(string dnsName, string path)
+    {
+        using var key = RSA.Create(2048);
+        var request = new CertificateRequest(
+            $"CN={dnsName}", key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        request.CertificateExtensions.Add(new X509BasicConstraintsExtension(false, false, 0, true));
+        request.CertificateExtensions.Add(new X509KeyUsageExtension(X509KeyUsageFlags.DigitalSignature, true));
+        request.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(
+            [new Oid("1.3.6.1.5.5.7.3.1")], true));
+        var san = new SubjectAlternativeNameBuilder();
+        san.AddDnsName(dnsName);
+        request.CertificateExtensions.Add(san.Build());
+        using var certificate = request.CreateSelfSigned(
+            DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow.AddDays(1));
+        const string password = "test-password";
+        File.WriteAllBytes(path, certificate.Export(X509ContentType.Pfx, password));
+        return (path, password);
     }
 }

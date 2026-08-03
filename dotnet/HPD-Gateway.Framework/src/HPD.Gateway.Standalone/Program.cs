@@ -7,7 +7,7 @@ if (args.Length != 1)
 
 var inputs = GatewayStandaloneBootstrapReader.Read(args[0]);
 var builder = WebApplication.CreateSlimBuilder(args);
-builder.WebHost.UseHpdGatewayHost(inputs.Host, certificates =>
+builder.UseHpdGatewayHost(inputs.Host, certificates =>
 {
     foreach (var (reference, source) in inputs.Certificates)
         certificates.Add(reference, source);

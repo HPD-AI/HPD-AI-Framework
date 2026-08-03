@@ -12,7 +12,14 @@ internal sealed class GatewayInitialActivationService(
         var result = await activator.ActivateAsync(state.InitialCandidate, cancellationToken)
             .ConfigureAwait(false);
         if (!result.IsActiveAcknowledged)
-            throw new InvalidOperationException("The initial HPD Gateway candidate was not actively acknowledged.");
+        {
+            var diagnostics = result.Diagnostics.IsEmpty
+                ? "none"
+                : string.Join(", ", result.Diagnostics.Select(static item => $"{item.Code}@{item.Path}"));
+            throw new InvalidOperationException(
+                $"The initial HPD Gateway candidate was not actively acknowledged " +
+                $"(state: {result.State}; diagnostics: {diagnostics}).");
+        }
     }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;

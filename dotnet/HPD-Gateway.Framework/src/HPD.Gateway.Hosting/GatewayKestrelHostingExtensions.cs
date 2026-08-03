@@ -20,8 +20,6 @@ public static class GatewayKestrelHostingExtensions
         var sourceBuilder = new GatewayCertificateSourceRegistryBuilder();
         configureCertificates(sourceBuilder);
         var sources = sourceBuilder.Build();
-        var values = Materialize(candidate.Configuration, sources);
-        var configuration = new ConfigurationBuilder().AddInMemoryCollection(values).Build();
         var runtimeStatus = new GatewayHostRuntimeStatus(candidate);
         webHost.ConfigureServices(services =>
         {
@@ -30,6 +28,36 @@ public static class GatewayKestrelHostingExtensions
             services.AddSingleton(runtimeStatus);
             services.AddSingleton<IHostedService, GatewayHostLifetimeObserver>();
         });
+        return ConfigureKestrel(webHost, candidate, sources);
+    }
+
+    internal static IWebHostBuilder UseHpdGatewayHost(
+        this IWebHostBuilder webHost,
+        IServiceCollection services,
+        GatewayHostCandidate candidate,
+        Action<GatewayCertificateSourceRegistryBuilder> configureCertificates)
+    {
+        ArgumentNullException.ThrowIfNull(webHost);
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(candidate);
+        ArgumentNullException.ThrowIfNull(configureCertificates);
+        var sourceBuilder = new GatewayCertificateSourceRegistryBuilder();
+        configureCertificates(sourceBuilder);
+        var sources = sourceBuilder.Build();
+        if (services.Any(static descriptor => descriptor.ServiceType == typeof(GatewayHostRuntimeStatus)))
+            throw new InvalidOperationException("HPD Gateway Hosting may be installed only once.");
+        services.AddSingleton(new GatewayHostRuntimeStatus(candidate));
+        services.AddSingleton<IHostedService, GatewayHostLifetimeObserver>();
+        return ConfigureKestrel(webHost, candidate, sources);
+    }
+
+    private static IWebHostBuilder ConfigureKestrel(
+        IWebHostBuilder webHost,
+        GatewayHostCandidate candidate,
+        GatewayCertificateSourceRegistry sources)
+    {
+        var values = Materialize(candidate.Configuration, sources);
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(values).Build();
         webHost.UseKestrelHttpsConfiguration();
         webHost.ConfigureKestrel(options => options.Configure(configuration, reloadOnChange: false));
         return webHost;
