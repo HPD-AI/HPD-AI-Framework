@@ -25,6 +25,8 @@ public sealed class GatewayAuthorityProvingFixtureTests
                 Collection("gateway.outbox", BaseCollectionMutationMode.AppendOnly),
             ];
             var services = new ServiceCollection().AddLogging();
+            var observer = new ProvingMutationObserver();
+            services.AddSingleton<IBaseCommittedMutationObserver>(observer);
             services.AddSingleton<IPolicyEvaluator, ProvingPolicyEvaluator>();
             services.AddHPDBase(builder =>
             {
@@ -82,9 +84,26 @@ public sealed class GatewayAuthorityProvingFixtureTests
             committed.Value!.Outcome.Should().Be(BaseRecordBatchOutcome.Committed);
             committed.Value.RequestDisposition.Should().Be(BaseMutationRequestDisposition.Committed);
             duplicate.Value!.RequestDisposition.Should().Be(BaseMutationRequestDisposition.Duplicate);
+            observer.Count.Should().Be(7, "the duplicate must not redeliver six committed authority mutations");
             (await runtime.GetAsync(
                 "gateway.outbox", new RecordId("outbox-1"), principal,
                 Operation(BaseOperationKind.Get, "gateway.outbox", "outbox-1"))).IsSuccess().Should().BeTrue();
+
+            BaseRecordBatchRequest changedBoundSemantics = AuthorityBatch(
+                "request-1",
+                "revision-1",
+                "validation-1",
+                "audit-1",
+                "intent-1",
+                "outbox-1",
+                initialDesired.Value.Metadata.Revision!.Value,
+                fingerprintSeed: "changed-actor-content-token-target");
+            OperationResult<BaseRecordBatchResult> fingerprintConflict = await runtime.BatchAsync(
+                changedBoundSemantics,
+                principal,
+                Operation(BaseOperationKind.Batch, "gateway.revisions"));
+            fingerprintConflict.Status.Should().Be(OperationStatus.Conflict);
+            fingerprintConflict.Error!.Code.Should().Be(BaseMutationRequestErrorCodes.FingerprintConflict);
 
             BaseRecordBatchRequest rejectedCas = AuthorityBatch(
                 "request-2",
@@ -108,6 +127,26 @@ public sealed class GatewayAuthorityProvingFixtureTests
                 "gateway.outbox", new RecordId("outbox-2"), principal,
                 Operation(BaseOperationKind.Get, "gateway.outbox", "outbox-2")))
                 .Status.Should().Be(OperationStatus.NotFound);
+            observer.Count.Should().Be(7);
+
+            RecordEnvelope currentDesired = (await runtime.GetAsync(
+                "gateway.desired", new RecordId("desired"), principal,
+                Operation(BaseOperationKind.Get, "gateway.desired", "desired"))).Value!;
+            BaseRecordBatchRequest correctedRetry = AuthorityBatch(
+                "request-2",
+                "revision-2",
+                "validation-2",
+                "audit-2",
+                "intent-2",
+                "outbox-2",
+                currentDesired.Metadata.Revision!.Value);
+            OperationResult<BaseRecordBatchResult> retried = await runtime.BatchAsync(
+                correctedRetry,
+                principal,
+                Operation(BaseOperationKind.Batch, "gateway.revisions"));
+            retried.Value!.RequestDisposition.Should().Be(BaseMutationRequestDisposition.Committed,
+                "the failed CAS must not leave an accepted request receipt");
+            observer.Count.Should().Be(13);
         }
         finally
         {
@@ -126,14 +165,15 @@ public sealed class GatewayAuthorityProvingFixtureTests
         string audit,
         string intent,
         string outbox,
-        RevisionToken desiredRevision) => new()
+        RevisionToken desiredRevision,
+        string? fingerprintSeed = null) => new()
         {
             Mode = BaseRecordBatchExecutionMode.Atomic,
             RequestIdentity = BaseMutationRequestIdentity.Create(
                 "gateway.namespace",
                 "gateway.submit-and-activate",
                 requestKey,
-                BaseMutationRequestFingerprint.Create(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(requestKey)))),
+                BaseMutationRequestFingerprint.Create(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(fingerprintSeed ?? requestKey)))),
             Operations =
             [
                 Create("revision", "gateway.revisions", revision, Payload("kind", "accepted-revision")),
@@ -214,6 +254,19 @@ public sealed class GatewayAuthorityProvingFixtureTests
                 Effect = PolicyEffect.Allow,
                 Outcome = PolicyOutcome.Allowed,
             });
+        }
+    }
+
+    private sealed class ProvingMutationObserver : IBaseCommittedMutationObserver
+    {
+        private int _count;
+        public int Count => Volatile.Read(ref _count);
+        public ValueTask ObserveAsync(BaseRecordMutationEvent mutation, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            _ = mutation;
+            Interlocked.Increment(ref _count);
+            return ValueTask.CompletedTask;
         }
     }
 }
