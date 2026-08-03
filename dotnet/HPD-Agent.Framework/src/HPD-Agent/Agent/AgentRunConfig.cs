@@ -126,7 +126,7 @@ public sealed record AgentSandboxRunConfig
 /// <b>Priority Rules:</b>
 /// - OverrideChatClient > ProviderKey/ModelId > Agent's default client
 /// - SystemInstructions > Config.SystemInstructions (complete replacement)
-/// - AdditionalSystemInstructions appends to resolved instructions
+/// - SystemInstructions.Append appends to resolved instructions
 /// - ContextInstances > Builder-time contexts > Default context
 /// </para>
 /// </remarks>
@@ -311,15 +311,7 @@ public sealed class AudioRunConfig
 
     public AssistantAudioArtifactCapturePolicy? ArtifactCapturePolicy { get; set; }
 
-    public string? VoiceId { get; set; }
-
-    public string? Language { get; set; }
-
-    public string? OutputFormat { get; set; }
-
     public string? ContentType { get; set; }
-
-    public float? Speed { get; set; }
 
     public bool? EnablePlayback { get; set; }
 }

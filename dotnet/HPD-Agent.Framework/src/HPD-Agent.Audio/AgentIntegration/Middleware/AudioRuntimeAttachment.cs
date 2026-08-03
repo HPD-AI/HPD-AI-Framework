@@ -70,7 +70,10 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
     public IReadOnlyList<RealtimeAudioTraceRecord> LastOutputTrace => _lastOutputTrace;
 
     private AudioRuntimeAttachmentOptions EffectiveOptions(AgentRunConfig? runConfig)
-        => AudioRuntimeOptionsCompiler.Compile(_options, runAudio: runConfig?.Audio);
+        => AudioRuntimeOptionsCompiler.Compile(
+            _options,
+            runAudio: runConfig?.Audio,
+            textToSpeech: runConfig?.Clients.TextToSpeech);
 
     public async Task BeforeMessageTurnAsync(
         BeforeMessageTurnContext context,

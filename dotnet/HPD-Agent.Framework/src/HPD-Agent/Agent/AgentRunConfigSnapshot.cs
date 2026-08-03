@@ -155,11 +155,7 @@ internal static class AgentRunConfigSnapshot
         ProgressiveRouteMode = source.ProgressiveRouteMode,
         PushTextAggregationMode = source.PushTextAggregationMode,
         ArtifactCapturePolicy = source.ArtifactCapturePolicy,
-        VoiceId = source.VoiceId,
-        Language = source.Language,
-        OutputFormat = source.OutputFormat,
         ContentType = source.ContentType,
-        Speed = source.Speed,
         EnablePlayback = source.EnablePlayback
     };
 

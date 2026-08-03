@@ -78,11 +78,7 @@ public sealed class AudioRuntimeOptionsCompilerTests
             ProgressiveRouteMode = ProgressiveTextToSpeechRouteMode.ForceSegment,
             PushTextAggregationMode = PushTextInputAggregationMode.ManualFlush,
             ArtifactCapturePolicy = AssistantAudioArtifactCapturePolicy.DigestOnly,
-            VoiceId = "voice-run",
-            Language = "en",
-            OutputFormat = "pcm16",
             ContentType = "audio/pcm",
-            Speed = 1.1f,
             EnablePlayback = true,
             Pacing = new TextToSpeechPacingOptions
             {
@@ -93,7 +89,14 @@ public sealed class AudioRuntimeOptionsCompilerTests
         var compiled = AudioRuntimeOptionsCompiler.Compile(
             new AudioRuntimeAttachmentOptions(),
             agentAudio,
-            runAudio);
+            runAudio,
+            new TextToSpeechClientConfig
+            {
+                VoiceId = "voice-run",
+                Language = "en",
+                AudioFormat = "pcm16",
+                Speed = 1.1f
+            });
 
         Assert.False(compiled.Enabled);
         Assert.True(compiled.RunAudioInteractionRuntime);
