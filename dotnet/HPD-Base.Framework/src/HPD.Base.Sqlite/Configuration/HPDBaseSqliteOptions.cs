@@ -79,6 +79,20 @@ public sealed class HPDBaseSqliteOptions
     /// Gets or sets the bounded lifetime used to drain quarantined mutation work during disposal.
     /// </summary>
     public TimeSpan QuarantinedMutationDrainTimeout { get; set; } = TimeSpan.FromSeconds(5);
+    /// <summary>Gets or sets whether host-only backup and restore administration is enabled.</summary>
+    public bool AdministrationEnabled { get; set; }
+    /// <summary>Gets or sets the maximum complete backup artifact size.</summary>
+    public long MaxBackupArtifactBytes { get; set; } = 4L * 1024 * 1024 * 1024;
+    /// <summary>Gets or sets the administration lease acquisition timeout.</summary>
+    public TimeSpan AdministrationAcquisitionTimeout { get; set; } = TimeSpan.FromSeconds(30);
+    /// <summary>Gets or sets the maximum wait for synchronous native backup completion.</summary>
+    public TimeSpan NativeBackupCompletionWait { get; set; } = TimeSpan.FromMinutes(5);
+    /// <summary>Gets or sets the maximum restore staging and installation lifetime.</summary>
+    public TimeSpan RestoreStagingTimeout { get; set; } = TimeSpan.FromMinutes(10);
+    /// <summary>Gets or sets the maximum integrity-check lifetime.</summary>
+    public TimeSpan IntegrityCheckTimeout { get; set; } = TimeSpan.FromMinutes(5);
+    /// <summary>Gets or sets the maximum number of quarantined administration executions.</summary>
+    public int MaxQuarantinedAdministrationExecutions { get; set; } = 1;
     /// <summary>Gets or sets health Ref Id.</summary>
     public string HealthRefId { get; set; } = HPDBaseSqliteDefaults.DefaultHealthRefId;
     /// <summary>Gets or sets diagnostic Ref Id.</summary>

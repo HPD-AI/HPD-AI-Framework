@@ -22,9 +22,9 @@ Upsert,
     /// <summary>Identifies delete.</summary>
 Delete,
     /// <summary>Identifies a host-authorized administrative purge.</summary>
-Purge,
-/// <summary>Identifies batch.</summary>
-Batch,
+    Purge,
+    /// <summary>Identifies batch.</summary>
+    Batch,
     /// <summary>Identifies schema read.</summary>
 SchemaRead,
     /// <summary>Identifies schema write.</summary>
@@ -36,5 +36,9 @@ FileWrite,
     /// <summary>Identifies realtime subscribe.</summary>
 RealtimeSubscribe,
     /// <summary>Identifies admin inspect.</summary>
-AdminInspect
+    AdminInspect,
+    /// <summary>Identifies host backup creation or validation.</summary>
+    AdminBackup,
+    /// <summary>Identifies destructive host restore.</summary>
+    AdminRestore
 }

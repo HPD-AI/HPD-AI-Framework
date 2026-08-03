@@ -1701,7 +1701,9 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             Delete = true,
             IdAuthority = options.AllowClientRequestedIds ? IdAuthority.Hybrid : IdAuthority.Store,
             TimestampAuthority = TimestampAuthority.Store,
-            Consistency = ConsistencyModel.Strong
+            Consistency = ConsistencyModel.Strong,
+            MutationModes = Enum.GetValues<BaseCollectionMutationMode>(),
+            AdministrativePurge = true,
         },
         Query = new QueryCapability
         {
@@ -1811,6 +1813,12 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             MaxReceiptBytes = 16_777_216,
             MinReceiptLifetime = TimeSpan.FromHours(1),
             MaxReceiptLifetime = TimeSpan.FromDays(90),
+        },
+        Administration = new BaseAdministrationCapability
+        {
+            Backup = false, Validate = false, Restore = false, AdministrativePurge = true,
+            OnlineBackup = false, WritersBlockedDuringBackup = false, ReadersBlockedDuringBackup = false,
+            RestoreRequiresExclusiveMaintenance = false, Durable = false, MaxArtifactBytes = 0,
         },
         Streaming = new StreamingCapability
         {

@@ -527,6 +527,77 @@ public sealed class ApplicationHostBuilderTests
     }
 
     [Fact]
+    public async Task SqliteAdministrationCreatesValidatesAndRestoresAuthenticatedBackup()
+    {
+        string path = Path.Combine(Path.GetTempPath(), "hpd-base-administration-" + Guid.NewGuid().ToString("N") + ".db");
+        byte[] tokenKey = Enumerable.Repeat((byte)0x71, 32).ToArray();
+        try
+        {
+            var services = new ServiceCollection().AddLogging();
+            services.AddHPDBase(builder => builder
+                .ConfigureSchema(options => { options.ApplicationId = "administration-test"; options.PlanProtectionKey = Enumerable.Repeat((byte)0x72, 32).ToArray(); })
+                .ConfigureTokenProtection(options => options.ActiveKey = new BaseOpaqueTokenKey { Id = 7, Key = tokenKey })
+                .ReplacePolicyEvaluator<AdministrationAllowPolicyEvaluator>()
+                .AddCollection(GeneratedProject.Collection)
+                .UseSqlite(options => { options.DataSource = path; options.StoreId = "sqlite"; options.AdministrationEnabled = true; }));
+            await using ServiceProvider provider = services.BuildServiceProvider();
+            IBaseSchemaManager manager = provider.GetRequiredService<IBaseSchemaManager>();
+            BaseSchemaPlan plan = (await manager.PlanAsync(new BaseSchemaPlanRequest { StoreId = "sqlite" })).Value!;
+            (await manager.ApplyAsync(new BaseSchemaApplyRequest { ProtectedArtifact = plan.ProtectedArtifact })).IsSuccess().Should().BeTrue();
+            IHPDBaseApplication application = provider.GetRequiredService<IHPDBaseApplication>();
+            (await application.InitializeAsync()).IsSuccess().Should().BeTrue();
+            var administrator = new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.System };
+            BaseCollectionSession<GeneratedProject> collection = provider.GetRequiredService<IBaseSessionFactory>().For(administrator).Collection(GeneratedProject.Collection);
+            BaseRecord<GeneratedProject> created = (await collection.CreateAsync(new RecordId("project-1"), new GeneratedProject { OrganizationId = "org", Name = "before" })).RequireValue();
+            _ = (await collection.CreateAsync(new RecordId("project-2"), new GeneratedProject { OrganizationId = "org", Name = "second" })).RequireValue();
+
+            var rawStore = (SqliteRecordStore)provider.GetRequiredService<IRecordStoreRegistry>().GetStore("sqlite")!;
+            var firstPageQuery = new RecordQuery
+            {
+                Sort = [new QuerySort { Field = "name", Direction = QuerySortDirection.Asc }],
+                Page = new QueryPage { Mode = QueryPaginationMode.Cursor, Limit = 1 },
+            };
+            OperationContext queryContext = new() { Operation = BaseOperationKind.Query, CollectionId = "projects", Now = DateTimeOffset.UtcNow };
+            string preRestoreCursor = (await rawStore.ListAsync(GeneratedProject.Collection.Definition, firstPageQuery, queryContext)).Value!.Page.NextCursor!;
+
+            var artifact = new MemoryStream();
+            BaseBackupManifest manifest = (await application.Administration.CreateBackupAsync(artifact, new BaseBackupRequest { StoreId = "sqlite", Principal = administrator })).RequireValue();
+            artifact.Position = 0;
+            (await application.Administration.ValidateBackupAsync(artifact, new BaseBackupValidationRequest { StoreId = "sqlite", Principal = administrator, ExpectedArtifactStoreIdentityDigest = manifest.StoreIdentityDigest })).RequireValue();
+            byte[] tampered = artifact.ToArray();
+            tampered[tampered.Length / 2] ^= 0x40;
+            BaseFailure<BaseBackupManifest> invalid = (BaseFailure<BaseBackupManifest>)await application.Administration.ValidateBackupAsync(
+                new MemoryStream(tampered), new BaseBackupValidationRequest { StoreId = "sqlite", Principal = administrator });
+            invalid.Error.Code.Should().Be(BaseAdministrationErrorCodes.ArtifactInvalid);
+            (await collection.ReplaceAsync(created.Id, new GeneratedProject { OrganizationId = "org", Name = "after" })).RequireValue();
+
+            artifact.Position = 0;
+            BaseRestoreResult restored = (await application.Administration.RestoreAsync(artifact, new BaseRestoreRequest
+            {
+                StoreId = "sqlite", Principal = administrator,
+                ExpectedCurrentStoreIdentityDigest = manifest.StoreIdentityDigest,
+                ExpectedArtifactStoreIdentityDigest = manifest.StoreIdentityDigest,
+                IdentityMode = BaseRestoreIdentityMode.RequireCurrentStoreIdentity,
+                RecoveryImageRetention = BaseRecoveryImageRetention.DeleteAfterSuccessfulRestore,
+                ConfirmDestructiveReplacement = true,
+            })).RequireValue();
+
+            restored.RestoreEpoch.Should().Be(manifest.RestoreEpoch + 1);
+            (await collection.GetAsync(created.Id)).RequireValue().Value.Name.Should().Be("before");
+            OperationResult<RecordPage> invalidated = await rawStore.ListAsync(
+                GeneratedProject.Collection.Definition,
+                firstPageQuery with { Page = firstPageQuery.Page! with { Cursor = preRestoreCursor } },
+                queryContext);
+            invalidated.Error!.Code.Should().Be(BaseQueryErrorCodes.CursorRestoreInvalidated);
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            foreach (string candidate in Directory.GetFiles(Path.GetDirectoryName(path)!, Path.GetFileName(path) + "*")) File.Delete(candidate);
+        }
+    }
+
+    [Fact]
     public async Task UnifiedBuilderInstallsCollectionProviderAndManifest()
     {
         var services = new ServiceCollection();
@@ -785,4 +856,13 @@ file sealed class MutableTimeProvider(DateTimeOffset now) : TimeProvider
     private DateTimeOffset _now = now;
     public override DateTimeOffset GetUtcNow() => _now;
     public void Advance(TimeSpan duration) => _now += duration;
+}
+
+file sealed class AdministrationAllowPolicyEvaluator : IPolicyEvaluator
+{
+    public ValueTask<PolicyDecision> EvaluateAsync(PolicyEvaluationRequest request, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return ValueTask.FromResult(PolicyDecision.Allow());
+    }
 }

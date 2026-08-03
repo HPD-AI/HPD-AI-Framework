@@ -262,7 +262,7 @@ public sealed class HPDBaseBuilder
             extension.Configure(_services, collections);
         _services.AddSingleton(new HPDBaseInstalledFeatures { Provider = provider.Id, CollectionIds = collections.Select(static item => item.Id).ToArray(), ReadIds = _reads.Keys.ToArray(), Files = _files is not null, Dependencies = _dependencies is not null, Realtime = _realtime is not null, LiveQueries = _liveQueries is not null, ExtensionIds = installedExtensions.Select(static item => item.Id).ToArray(), Extensions = installedExtensions, LogicalSchema = logicalSchema });
         _services.TryAddSingleton<IHPDBaseApplication, DefaultHPDBaseApplication>();
-        _services.TryAddSingleton<IHPDBaseAdministration, UnavailableHPDBaseAdministration>();
+        _services.TryAddSingleton<IHPDBaseAdministration, DefaultHPDBaseAdministration>();
         _services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseHealthContributor, BaseApplicationHealthContributor>());
     }
 

@@ -17,6 +17,7 @@ public sealed partial class SqliteRecordStore :
     IRelationalReadStore,
     IConsistentRecordIncludeStore,
     IBaseSchemaStore,
+    IRecordStoreAdministration,
     IAsyncDisposable
 {
     private readonly HPDBaseSqliteOptions _options;
@@ -25,6 +26,7 @@ public sealed partial class SqliteRecordStore :
     private readonly SqliteNames _names;
     private readonly SqlitePhysicalModel _physical;
     private readonly BaseQueryCursorCodec? _queryCursors;
+    private readonly BaseOpaqueTokenProtector? _tokenProtector;
     private readonly ILogger<SqliteRecordStore> _logger;
     private readonly TimeProvider _timeProvider;
     private readonly ISqliteTransactionController _transactions;
@@ -33,10 +35,13 @@ public sealed partial class SqliteRecordStore :
     private readonly ISqliteSchemaCommandController _schemaCommands;
     private readonly SemaphoreSlim _keepAliveGate = new(1, 1);
     private readonly SemaphoreSlim _mutationExecutionSlots;
+    private readonly SemaphoreSlim _administrationExecutionSlots;
+    private readonly ConcurrentDictionary<long, Task> _quarantinedAdministration = new();
     private readonly SqliteSchemaGenerationGate _schemaGenerationGate = new();
     private readonly ConcurrentDictionary<long, QuarantinedMutation> _quarantinedMutations = new();
     private SqliteConnection? _keepAliveConnection;
     private long _nextQuarantinedMutationId;
+    private long _nextQuarantinedAdministrationId;
     private long _schemaGeneration;
     private int _disposed;
 
@@ -76,10 +81,12 @@ public sealed partial class SqliteRecordStore :
             transactionResourceDisposer ?? DefaultSqliteTransactionResourceDisposer.Instance;
         _schemaCommands = schemaCommands ?? DefaultSqliteSchemaCommandController.Instance;
         _connections = new SqliteConnectionFactory(_options);
+        RecoverRestoreMarkerIfPresent();
         _schema = new SqliteSchemaInitializer(_options);
         _names = new SqliteNames(_options);
         _physical = new SqlitePhysicalModel(_options);
         _queryCursors = tokenProtector is null ? null : new BaseQueryCursorCodec(tokenProtector, timeProvider);
+        _tokenProtector = tokenProtector;
         Includes = new RecordIncludeExecutionCapability
         {
             Supported = true, MaxDepth = 3, MaxIncludes = 8,
@@ -88,8 +95,28 @@ public sealed partial class SqliteRecordStore :
         _mutationExecutionSlots = new SemaphoreSlim(
             _options.MaxTrackedMutationExecutions,
             _options.MaxTrackedMutationExecutions);
-        Capabilities = CreateCapabilities(_options, _queryCursors is not null);
+        _administrationExecutionSlots = new SemaphoreSlim(
+            _options.MaxQuarantinedAdministrationExecutions,
+            _options.MaxQuarantinedAdministrationExecutions);
+        bool administration = _options.AdministrationEnabled && _tokenProtector is not null && IsFileBacked(_options);
+        AdministrationCapability = new BaseAdministrationCapability
+        {
+            Backup = administration,
+            Validate = administration,
+            Restore = administration,
+            AdministrativePurge = true,
+            OnlineBackup = administration,
+            WritersBlockedDuringBackup = true,
+            ReadersBlockedDuringBackup = true,
+            RestoreRequiresExclusiveMaintenance = true,
+            Durable = true,
+            MaxArtifactBytes = administration ? _options.MaxBackupArtifactBytes : 0,
+        };
+        Capabilities = CreateCapabilities(_options, _queryCursors is not null, AdministrationCapability);
     }
+
+    /// <inheritdoc />
+    public BaseAdministrationCapability AdministrationCapability { get; }
 
     internal int QuarantinedMutationCount => _quarantinedMutations.Count;
 
@@ -842,6 +869,21 @@ FROM {_names.MutationJournal};
 
     private static DateTimeOffset Now(OperationContext context) => context.Now == default ? DateTimeOffset.UtcNow : context.Now;
 
+    private static bool IsFileBacked(HPDBaseSqliteOptions options)
+    {
+        try
+        {
+            var builder = new SqliteConnectionStringBuilder(
+                string.IsNullOrWhiteSpace(options.ConnectionString)
+                    ? new SqliteConnectionFactory(options).BuildConnectionString()
+                    : options.ConnectionString);
+            return builder.Mode != SqliteOpenMode.Memory
+                && !string.Equals(builder.DataSource, ":memory:", StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrWhiteSpace(builder.DataSource);
+        }
+        catch (ArgumentException) { return false; }
+    }
+
     private static string CollectionIdForTelemetry(CollectionDefinition? collection) => collection?.Id ?? string.Empty;
 
     private static string NextRecordId()
@@ -867,9 +909,15 @@ FROM {_names.MutationJournal};
         if (options.MutationJournalMaxReadSize <= 0) throw new ArgumentException("SQLite mutation journal maximum read size must be positive.", nameof(options));
         if (options.MaxTrackedMutationExecutions <= 0) throw new ArgumentException("SQLite tracked mutation execution limit must be positive.", nameof(options));
         if (options.QuarantinedMutationDrainTimeout <= TimeSpan.Zero) throw new ArgumentException("SQLite quarantined mutation drain timeout must be positive.", nameof(options));
+        if (options.MaxBackupArtifactBytes < 1024L * 1024 || options.MaxBackupArtifactBytes > 1024L * 1024 * 1024 * 1024) throw new ArgumentOutOfRangeException(nameof(options));
+        if (options.AdministrationAcquisitionTimeout < TimeSpan.FromSeconds(1) || options.AdministrationAcquisitionTimeout > TimeSpan.FromMinutes(10)) throw new ArgumentOutOfRangeException(nameof(options));
+        if (options.NativeBackupCompletionWait < TimeSpan.FromSeconds(1) || options.NativeBackupCompletionWait > TimeSpan.FromHours(1)) throw new ArgumentOutOfRangeException(nameof(options));
+        if (options.RestoreStagingTimeout < TimeSpan.FromSeconds(1) || options.RestoreStagingTimeout > TimeSpan.FromHours(2)) throw new ArgumentOutOfRangeException(nameof(options));
+        if (options.IntegrityCheckTimeout < TimeSpan.FromSeconds(1) || options.IntegrityCheckTimeout > TimeSpan.FromHours(1)) throw new ArgumentOutOfRangeException(nameof(options));
+        if (options.MaxQuarantinedAdministrationExecutions is < 1 or > 4) throw new ArgumentOutOfRangeException(nameof(options));
     }
 
-    private static StoreCapabilityDescriptor CreateCapabilities(HPDBaseSqliteOptions options, bool cursorEnabled) => new()
+    private static StoreCapabilityDescriptor CreateCapabilities(HPDBaseSqliteOptions options, bool cursorEnabled, BaseAdministrationCapability administration) => new()
     {
         StoreId = options.StoreId,
         StoreKind = "sqlite",
@@ -888,7 +936,9 @@ FROM {_names.MutationJournal};
             Delete = true,
             IdAuthority = options.AllowClientRequestedIds ? IdAuthority.Hybrid : IdAuthority.Store,
             TimestampAuthority = TimestampAuthority.Store,
-            Consistency = ConsistencyModel.Strong
+            Consistency = ConsistencyModel.Strong,
+            MutationModes = Enum.GetValues<BaseCollectionMutationMode>(),
+            AdministrativePurge = true,
         },
         Query = new QueryCapability
         {
@@ -951,6 +1001,7 @@ FROM {_names.MutationJournal};
             MinReceiptLifetime = TimeSpan.FromHours(1),
             MaxReceiptLifetime = TimeSpan.FromDays(90),
         },
+        Administration = administration,
         Streaming = new StreamingCapability { Supported = false }
     };
 

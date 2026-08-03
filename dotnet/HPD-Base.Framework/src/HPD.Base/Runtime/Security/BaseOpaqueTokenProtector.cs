@@ -76,6 +76,19 @@ internal sealed class BaseOpaqueTokenProtector : IDisposable
 
     public void Dispose() { foreach (byte[] key in _keys.Values) CryptographicOperations.ZeroMemory(key); _keys.Clear(); }
 
+    internal byte ActiveKeyId => _activeId;
+
+    internal byte[] Authenticate(string purpose, byte keyId, ReadOnlySpan<byte> value)
+    {
+        if (!_keys.TryGetValue(keyId, out byte[]? root))
+            throw new KeyNotFoundException("The requested authentication key is unavailable.");
+        byte[] key = HKDF.DeriveKey(HashAlgorithmName.SHA256, root, 32, info: Encoding.UTF8.GetBytes(purpose));
+        try { return HMACSHA256.HashData(key, value); }
+        finally { CryptographicOperations.ZeroMemory(key); }
+    }
+
+    internal bool HasKey(byte keyId) => _keys.ContainsKey(keyId);
+
     private void Add(BaseOpaqueTokenKey key)
     {
         if (key.Key is not { Length: 32 } || !_keys.TryAdd(key.Id, [.. key.Key]))

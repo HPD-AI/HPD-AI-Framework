@@ -25,6 +25,8 @@ public sealed record StoreCapabilityDescriptor
     public StoreUpsertCapability? Upsert { get; init; }
     /// <summary>Gets identified atomic-request receipt guarantees.</summary>
     public AtomicRequestCapability? AtomicRequest { get; init; }
+    /// <summary>Gets host-only provider administration guarantees.</summary>
+    public BaseAdministrationCapability? Administration { get; init; }
     /// <summary>Gets or sets the streaming.</summary>
     public StreamingCapability? Streaming { get; init; }
     /// <summary>Gets or sets the extensions.</summary>
@@ -59,6 +61,10 @@ public sealed record RecordMutationCapability
     public TimestampAuthority TimestampAuthority { get; init; }
     /// <summary>Gets the provider's consistency classification.</summary>
     public ConsistencyModel Consistency { get; init; }
+    /// <summary>Gets the closed collection mutation modes enforced by the provider.</summary>
+    public BaseCollectionMutationMode[] MutationModes { get; init; } = [];
+    /// <summary>Gets whether the provider supports canonical administrative purge.</summary>
+    public bool AdministrativePurge { get; init; }
 }
 
 /// <summary>Defines the ID authority contract.</summary>
