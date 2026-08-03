@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using HPD.Agent;
@@ -50,6 +51,9 @@ public sealed class MultiAgentGraphJsonTypeInfoResolverContributor : IGraphJsonT
 [JsonSerializable(typeof(List<ConditionConfig>))]
 [JsonSerializable(typeof(Dictionary<string, string>))]
 [JsonSerializable(typeof(JsonElement))]
+[JsonSerializable(typeof(RemoteAgentFamilySelectionDto))]
+[JsonSerializable(typeof(AgentInvocationDeadline))]
+[JsonSerializable(typeof(JsonObject))]
 public partial class MultiAgentGraphConfigJsonContext : JsonSerializerContext
 {
 }
