@@ -20,6 +20,8 @@ public static class GatewayYarpServiceCollectionExtensions
             provider.GetRequiredService<HpdProxyConfigProvider>(),
             provider.GetRequiredService<HpdConfigChangeListener>(),
             provider.GetServices<IProxyConfigProvider>()));
+        services.AddSingleton<IGatewayPublicationObservationReader>(static provider =>
+            provider.GetRequiredService<GatewayYarpPublisher>());
         services.AddSingleton<IHostedService>(static provider =>
             new HpdYarpOwnershipGuard(provider.GetRequiredService<GatewayYarpPublisher>()));
         return services;

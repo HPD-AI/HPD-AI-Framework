@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>HPD.Gateway.Status</RootNamespace>
+    <AssemblyName>HPD.Gateway.Status</AssemblyName>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD.Gateway.Status</PackageId>
+    <Description>Bounded node-local status and readiness for HPD.Gateway.</Description>
+    <PackageTags>hpd;gateway;status;readiness;aot</PackageTags>
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Yarp.ReverseProxy" Version="2.3.0" />
+    <ProjectReference Include="../HPD.Gateway.Abstractions/HPD.Gateway.Abstractions.csproj" />
+    <ProjectReference Include="../HPD.Gateway.Hosting/HPD.Gateway.Hosting.csproj" />
+    <ProjectReference Include="../HPD.Gateway.Yarp/HPD.Gateway.Yarp.csproj" />
+  </ItemGroup>
+</Project>

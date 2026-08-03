@@ -12,6 +12,7 @@ using HPD.Gateway.Inspection;
 using HPD.Gateway.Hosting;
 using HPD.Gateway.OutputCaching;
 using HPD.Gateway.Resilience;
+using HPD.Gateway.Status;
 using HPD.Gateway.Yarp;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -22,7 +23,9 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.DependencyInjection;
+using Yarp.ReverseProxy;
 using Yarp.ReverseProxy.Configuration;
+using Yarp.ReverseProxy.Model;
 
 var smokeResilienceProfile = new GatewayResilienceProfile
 {
@@ -537,6 +540,7 @@ liveProxyBuilder.Services.AddReverseProxy();
 liveProxyBuilder.Services.AddHpdGatewayYarpPublication();
 liveProxyBuilder.Services.AddHpdGatewayYarpResilience(registry => registry.Add(smokeResilienceProfile));
 liveProxyBuilder.Services.AddHpdGatewayYarpMaterialization();
+liveProxyBuilder.Services.AddHpdGatewayStatus();
 liveProxyBuilder.Services.AddHpdGatewayOutputCaching(builder =>
 {
     builder.MaximumBodyBytes = 1_024;
@@ -545,6 +549,7 @@ liveProxyBuilder.Services.AddHpdGatewayOutputCaching(builder =>
 });
 await using var liveProxy = liveProxyBuilder.Build();
 liveProxy.UseHpdGatewayOutputCaching();
+liveProxy.MapHpdGatewayHealth();
 liveProxy.MapHpdGatewayReverseProxy();
 await liveProxy.StartAsync();
 
@@ -604,6 +609,13 @@ var livePublication = await liveProxy.Services.GetRequiredService<GatewayYarpPub
 if (livePublication.State != GatewayPublicationState.ActiveAcknowledged)
     throw new InvalidOperationException("Native AOT live resilience publication was not acknowledged.");
 using var liveClient = new HttpClient { BaseAddress = new Uri(Address(liveProxy)) };
+using var readyResponse = await liveClient.GetAsync("/health/ready");
+if (readyResponse.StatusCode != HttpStatusCode.OK)
+    throw new InvalidOperationException("Native AOT readiness did not become ready after exact publication.");
+var statusSnapshot = liveProxy.Services.GetRequiredService<IGatewayStatusReader>().GetCurrent();
+_ = JsonSerializer.SerializeToUtf8Bytes(statusSnapshot, GatewayStatusJsonContext.Default.GatewayStatusSnapshot);
+if (statusSnapshot.Readiness.Serving != GatewayReadinessState.Ready || statusSnapshot.Conditions.Length != 7)
+    throw new InvalidOperationException("Native AOT status snapshot was not ready or complete.");
 using var liveRequest = new HttpRequestMessage(HttpMethod.Get, "/retry");
 liveRequest.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "native-aot-secret");
 liveRequest.Headers.TryAddWithoutValidation("Cookie", "session=native-aot-secret");
@@ -653,6 +665,16 @@ if (!readdedMaterialized.IsMaterialized ||
 using var readdedResponse = await liveClient.GetAsync("/retry");
 if (readdedResponse.StatusCode != HttpStatusCode.OK || liveAttempts != 4)
     throw new InvalidOperationException("Native AOT Output Cache re-add did not restore the store-owned cached entry.");
+
+var proxyLookup = liveProxy.Services.GetRequiredService<IProxyStateLookup>();
+if (!proxyLookup.TryGetCluster("live", out var liveCluster))
+    throw new InvalidOperationException("Native AOT status could not observe the active Cluster.");
+var priorDestinations = liveCluster.DestinationsState;
+liveCluster.DestinationsState = new ClusterDestinationsState(priorDestinations.AllDestinations, []);
+using var notReadyResponse = await liveClient.GetAsync("/health/ready");
+if (notReadyResponse.StatusCode != HttpStatusCode.ServiceUnavailable)
+    throw new InvalidOperationException("Native AOT readiness ignored zero native eligible destinations.");
+liveCluster.DestinationsState = priorDestinations;
 
 var tlsDirectory = Directory.CreateTempSubdirectory("hpd-gateway-aot-sni-");
 try

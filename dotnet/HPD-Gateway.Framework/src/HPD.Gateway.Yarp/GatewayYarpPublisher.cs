@@ -1,9 +1,10 @@
 using System.Collections.Immutable;
+using Microsoft.Extensions.Primitives;
 using Yarp.ReverseProxy.Configuration;
 
 namespace HPD.Gateway.Yarp;
 
-internal sealed class GatewayYarpPublisher : IDisposable
+internal sealed class GatewayYarpPublisher : IGatewayPublicationObservationReader, IDisposable
 {
     private const int MaximumRememberedAttempts = 4_096;
     private readonly HpdProxyConfigProvider _provider;
@@ -17,6 +18,10 @@ internal sealed class GatewayYarpPublisher : IDisposable
     private readonly Queue<AttemptKey> _attemptOrder = [];
     private readonly HashSet<string> _nativeRevisions = new(StringComparer.Ordinal);
     private ActivePublicationIdentity? _lastKnownGood;
+    private ActivePublicationIdentity? _active;
+    private ImmutableArray<GatewayPublishedUpstream> _activeUpstreams = [];
+    private GatewayPublicationObservation _observation = new(0, DateTimeOffset.UtcNow, null, null, null, []);
+    private CancellationTokenSource _observationChanged = new();
     private volatile bool _disposed;
 
     internal GatewayYarpPublisher(
@@ -79,7 +84,11 @@ internal sealed class GatewayYarpPublisher : IDisposable
             }
         }
 
-        if (immediate is not null) return Task.FromResult(immediate);
+        if (immediate is not null)
+        {
+            PublishObservation(immediate);
+            return Task.FromResult(immediate);
+        }
         if (attempt is null) return DuplicateAsync(bundle.Identity, duplicate!);
         _ = RunAttemptAsync(attempt, acknowledgementTimeout, cancellationToken);
         return attempt.Completion.Task;
@@ -168,7 +177,12 @@ internal sealed class GatewayYarpPublisher : IDisposable
             }
 
             var active = new ActivePublicationIdentity(attempt.Bundle.Identity, attempt.Bundle.NativeRevisionId, DateTimeOffset.UtcNow);
-            lock (_stateLock) _lastKnownGood = active;
+            lock (_stateLock)
+            {
+                _lastKnownGood = active;
+                _active = active;
+                _activeUpstreams = GetActiveUpstreams(attempt.Bundle);
+            }
             Complete(attempt, new GatewayPublicationOutcome(
                 GatewayPublicationState.ActiveAcknowledged,
                 attempt.Bundle.Identity,
@@ -195,12 +209,14 @@ internal sealed class GatewayYarpPublisher : IDisposable
     private async Task<GatewayPublicationOutcome> DuplicateAsync(PublicationCandidateIdentity attempted, Attempt original)
     {
         var outcome = await original.Completion.Task.ConfigureAwait(false);
-        return outcome with
+        var duplicate = outcome with
         {
             State = GatewayPublicationState.Duplicate,
             Attempted = attempted,
             Diagnostics = [new GatewayPublicationDiagnostic("candidate.duplicate", "The same authority key and content were already processed.")]
         };
+        PublishObservation(duplicate);
+        return duplicate;
     }
 
     private GatewayPublicationOutcome Immediate(
@@ -216,13 +232,62 @@ internal sealed class GatewayYarpPublisher : IDisposable
     private GatewayPublicationOutcome Indeterminate(NativePublicationBundle bundle, string code, string message)
     {
         lock (_stateLock)
+        {
+            _active = null;
+            _activeUpstreams = [];
             return new GatewayPublicationOutcome(GatewayPublicationState.PublicationIndeterminate, bundle.Identity, null, _lastKnownGood, bundle.NativeRevisionId, [new GatewayPublicationDiagnostic(code, message)]);
+        }
     }
 
     private void Complete(Attempt attempt, GatewayPublicationOutcome outcome)
     {
+        PublishObservation(outcome);
         attempt.Completion.TrySetResult(outcome);
         lock (_stateLock) PruneHistory();
+    }
+
+    public GatewayPublicationObservation GetCurrent()
+    {
+        lock (_stateLock) return _observation;
+    }
+
+    public IChangeToken GetChangeToken()
+    {
+        lock (_stateLock) return new CancellationChangeToken(_observationChanged.Token);
+    }
+
+    private void PublishObservation(GatewayPublicationOutcome outcome)
+    {
+        CancellationTokenSource previous;
+        lock (_stateLock)
+        {
+            _observation = new GatewayPublicationObservation(
+                checked(_observation.Sequence + 1),
+                DateTimeOffset.UtcNow,
+                outcome,
+                _active,
+                _lastKnownGood,
+                _activeUpstreams);
+            previous = _observationChanged;
+            _observationChanged = new();
+        }
+        previous.Cancel();
+        previous.Dispose();
+    }
+
+    private static ImmutableArray<GatewayPublishedUpstream> GetActiveUpstreams(NativePublicationBundle bundle)
+    {
+        var selected = bundle.Routes
+            .Where(static route => !string.IsNullOrEmpty(route.ClusterId))
+            .Select(static route => route.ClusterId!)
+            .ToHashSet(StringComparer.Ordinal);
+        return bundle.Clusters
+            .Where(cluster => selected.Contains(cluster.ClusterId))
+            .OrderBy(static cluster => cluster.ClusterId, StringComparer.Ordinal)
+            .Select(static cluster => new GatewayPublishedUpstream(
+                cluster.ClusterId,
+                cluster.HealthCheck?.AvailableDestinationsPolicy ?? "HealthyOrPanic"))
+            .ToImmutableArray();
     }
 
     private void PruneHistory()
@@ -260,6 +325,11 @@ internal sealed class GatewayYarpPublisher : IDisposable
             _lifetime.Cancel();
         }
         _listener.Dispose();
+        lock (_stateLock)
+        {
+            _observationChanged.Cancel();
+            _observationChanged.Dispose();
+        }
     }
 
     private readonly record struct AttemptKey(string Authority, string Epoch, ulong Version)
