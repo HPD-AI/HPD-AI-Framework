@@ -129,6 +129,8 @@ internal sealed class AgentChatClientResolver : IDisposable
     private readonly AgentProviderChatClientManager _clientManager;
     private readonly ProviderComposition? _composition;
 
+    internal ProviderComposition? Composition => _composition;
+
     public AgentChatClientResolver(
         IProviderRegistry? providerRegistry,
         IServiceProvider? services,

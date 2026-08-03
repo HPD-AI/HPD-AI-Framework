@@ -1873,9 +1873,16 @@ public sealed class Agent
     /// Sends a semantic input event to the agent.
     /// </summary>
     /// <returns>The semantic admission or completion result.</returns>
-    public async Task<AgentInputResult> RunAsync(AgentInputEvent input, CancellationToken cancellationToken = default)
+    public Task<AgentInputResult> RunAsync(AgentInputEvent input, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(input);
+        return RunCapturedInputAsync(CaptureInput(input), cancellationToken);
+    }
+
+    private async Task<AgentInputResult> RunCapturedInputAsync(
+        AgentInputEvent input,
+        CancellationToken cancellationToken)
+    {
         var registration = _inputDispatcher.GetRegistration(input.GetType());
 
         if (registration.Delivery == AgentInputDelivery.QueuedWork)
@@ -1924,11 +1931,18 @@ public sealed class Agent
     /// Enqueues input into an already-running runtime and returns a receipt whose completion
     /// reports execution outcome. This method does not create hosted thread-execution lifecycle facts.
     /// </summary>
-    public async ValueTask<AgentRuntimeInputSubmission> EnqueueAsync(
+    public ValueTask<AgentRuntimeInputSubmission> EnqueueAsync(
         AgentInputEvent input,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(input);
+        return EnqueueCapturedAsync(CaptureInput(input), cancellationToken);
+    }
+
+    private async ValueTask<AgentRuntimeInputSubmission> EnqueueCapturedAsync(
+        AgentInputEvent input,
+        CancellationToken cancellationToken)
+    {
         var registration = _inputDispatcher.GetRegistration(input.GetType());
         if (registration.Delivery != AgentInputDelivery.QueuedWork)
             throw new ArgumentException("Active-control inputs cannot be enqueued as runtime work.", nameof(input));
@@ -2051,7 +2065,7 @@ public sealed class Agent
     /// Sends user text input to the agent.
     /// </summary>
     /// <returns>The completed turn result, including final text, emitted events, and completion metadata.</returns>
-    public async Task<AgentTurnResult> RunAsync(
+    public Task<AgentTurnResult> RunAsync(
         string userMessage,
         string? sessionId = null,
         string? threadId = "main",
@@ -2060,12 +2074,43 @@ public sealed class Agent
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(userMessage);
 
-        var result = await RunAsync(new UserMessagesInputEvent { Messages = [new ChatMessage(ChatRole.User, userMessage)],
+        return RunTextAsync(new UserMessagesInputEvent { Messages = [new ChatMessage(ChatRole.User, userMessage)],
             SessionId = sessionId,
             ThreadId = threadId,
             RunConfig = runConfig
-        }, cancellationToken).ConfigureAwait(false);
+        }, cancellationToken);
+    }
+
+    private async Task<AgentTurnResult> RunTextAsync(
+        UserMessagesInputEvent input,
+        CancellationToken cancellationToken)
+    {
+        var result = await RunAsync(input, cancellationToken).ConfigureAwait(false);
         return result.TurnResult;
+    }
+
+    private AgentInputEvent CaptureInput(AgentInputEvent input)
+    {
+        var runConfig = AgentRunConfigSnapshot.Capture(input.RunConfig, _chatClientResolver.Composition);
+        return input switch
+        {
+            UserMessagesInputEvent messages => messages with
+            {
+                RunConfig = runConfig,
+                Messages = messages.Messages.ToArray()
+            },
+            SteeringInputEvent steering => steering with
+            {
+                RunConfig = runConfig,
+                Messages = steering.Messages.ToArray()
+            },
+            BackgroundTaskNotificationInputEvent notification => notification with
+            {
+                RunConfig = runConfig,
+                Notifications = notification.Notifications.ToArray()
+            },
+            _ => input with { RunConfig = runConfig }
+        };
     }
 
     /// <summary>
