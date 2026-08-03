@@ -809,6 +809,15 @@ public sealed partial class SqliteRecordStore
                 cancellationToken,
                 token => DeleteCoreAsync(collection, id, request, context, token));
 
+        public ValueTask<OperationResult<long>> AdvancePurgeGenerationAsync(
+            CollectionDefinition collection,
+            long? expectedGeneration,
+            CancellationToken cancellationToken = default) =>
+            ExecuteAsync(
+                BaseOperationKind.Purge,
+                cancellationToken,
+                token => AdvancePurgeGenerationCoreAsync(collection, expectedGeneration, token));
+
         /// <summary>Executes the close async operation.</summary>
         public async ValueTask CloseAsync()
         {
@@ -883,6 +892,9 @@ public sealed partial class SqliteRecordStore
             ArgumentNullException.ThrowIfNull(collection);
             ArgumentNullException.ThrowIfNull(request);
             ArgumentNullException.ThrowIfNull(context);
+
+            if (MutationModeFailure(collection, BaseOperationKind.Create) is { } modeError)
+                return modeError;
 
             if (SqliteValidation.ValidateCollectionId<RecordMutationSessionResult>(collection.Id) is { } collectionError)
                 return collectionError;
@@ -963,6 +975,76 @@ public sealed partial class SqliteRecordStore
                 : throw new InvalidOperationException("SQLite collection append-position state is unavailable.");
         }
 
+        private async ValueTask<OperationResult<long>> AdvancePurgeGenerationCoreAsync(
+            CollectionDefinition collection,
+            long? expectedGeneration,
+            CancellationToken cancellationToken)
+        {
+            if (collection.MutationMode != BaseCollectionMutationMode.AppendOnlyWithAdministrativePurge)
+                return SqliteResultFactory.Unsupported<long>(
+                    BaseCollectionErrorCodes.PurgeUnsupported,
+                    "The collection does not support administrative purge.");
+            await using var command = _connection.CreateCommand();
+            command.Transaction = _transaction;
+            command.CommandText = $"UPDATE {_owner._names.Collections} SET purge_generation = purge_generation + 1 WHERE collection_id = $collection AND purge_generation < 9223372036854775807 AND ($expected IS NULL OR purge_generation = $expected) RETURNING purge_generation;";
+            command.CommandTimeout = CommandTimeoutSeconds();
+            command.Parameters.AddWithValue("$collection", collection.Id);
+            command.Parameters.AddWithValue("$expected", expectedGeneration is { } expected ? expected : DBNull.Value);
+            object? value = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+            if (value is long generation)
+                return OperationResults.Ok(generation);
+
+            await using var current = _connection.CreateCommand();
+            current.Transaction = _transaction;
+            current.CommandText = $"SELECT purge_generation FROM {_owner._names.Collections} WHERE collection_id = $collection;";
+            current.CommandTimeout = CommandTimeoutSeconds();
+            current.Parameters.AddWithValue("$collection", collection.Id);
+            object? observed = await current.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+            if (observed is long actual && expectedGeneration is { } expectedValue && actual != expectedValue)
+                return OperationResults.Conflict<long>(new BaseError
+                {
+                    Code = BaseCollectionErrorCodes.PurgeGenerationConflict,
+                    Message = "The purge generation did not match.",
+                    Category = ErrorCategory.Conflict
+                });
+            return SqliteResultFactory.StoreError<long>(
+                BaseCollectionErrorCodes.PurgeFailed,
+                "The purge generation could not be advanced.");
+        }
+
+        private static OperationResult<RecordMutationSessionResult>? MutationModeFailure(
+            CollectionDefinition collection,
+            BaseOperationKind operation)
+        {
+            bool allowed = operation switch
+            {
+                BaseOperationKind.Create => collection.MutationMode is
+                    BaseCollectionMutationMode.Mutable or
+                    BaseCollectionMutationMode.AppendOnly or
+                    BaseCollectionMutationMode.AppendOnlyWithAdministrativePurge,
+                BaseOperationKind.Patch or BaseOperationKind.Replace =>
+                    collection.MutationMode == BaseCollectionMutationMode.Mutable,
+                BaseOperationKind.Delete =>
+                    collection.MutationMode == BaseCollectionMutationMode.Mutable,
+                BaseOperationKind.Purge =>
+                    collection.MutationMode == BaseCollectionMutationMode.AppendOnlyWithAdministrativePurge,
+                _ => false
+            };
+            if (allowed) return null;
+            string code = !Enum.IsDefined(collection.MutationMode)
+                ? BaseCollectionErrorCodes.MutationModeInvalid
+                : collection.MutationMode == BaseCollectionMutationMode.ReadOnly
+                    ? BaseCollectionErrorCodes.ReadOnlyMutationForbidden
+                    : operation is BaseOperationKind.Patch or BaseOperationKind.Replace
+                        ? BaseCollectionErrorCodes.AppendOnlyUpdateForbidden
+                        : operation == BaseOperationKind.Delete
+                            ? BaseCollectionErrorCodes.AppendOnlyDeleteForbidden
+                            : BaseCollectionErrorCodes.PurgeUnsupported;
+            return SqliteResultFactory.Unsupported<RecordMutationSessionResult>(
+                code,
+                "The collection mutation mode does not permit this operation.");
+        }
+
         private async ValueTask<OperationResult<RecordMutationSessionResult>> MutateCoreAsync(
             CollectionDefinition collection,
             RecordId id,
@@ -973,6 +1055,8 @@ public sealed partial class SqliteRecordStore
             RecordMutationSessionContext context,
             CancellationToken cancellationToken)
         {
+            if (MutationModeFailure(collection, committedOperation == BaseCommittedRecordMutationKind.Patch ? BaseOperationKind.Patch : BaseOperationKind.Replace) is { } modeError)
+                return modeError;
             if (SqliteValidation.ValidateCollectionId<RecordMutationSessionResult>(collection.Id) is { } collectionError)
                 return collectionError;
             if (_owner.ValidateRegisteredCollection<RecordMutationSessionResult>(collection.Id) is { } registrationError)
@@ -1069,6 +1153,8 @@ public sealed partial class SqliteRecordStore
             RecordMutationSessionContext context,
             CancellationToken cancellationToken)
         {
+            if (MutationModeFailure(collection, context.Operation.Operation) is { } modeError)
+                return modeError;
             if (SqliteValidation.ValidateCollectionId<RecordMutationSessionResult>(collection.Id) is { } collectionError)
                 return collectionError;
             if (_owner.ValidateRegisteredCollection<RecordMutationSessionResult>(collection.Id) is { } registrationError)

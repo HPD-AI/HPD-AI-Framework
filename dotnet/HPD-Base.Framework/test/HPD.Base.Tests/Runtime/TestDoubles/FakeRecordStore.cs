@@ -245,6 +245,7 @@ internal class FakeRecordStore : IAtomicRecordStore
         Dictionary<string, RecordEnvelope> records) : IAtomicRecordSession
     {
         private bool _active = true;
+        private long _purgeGeneration;
 
         public void Close() => _active = false;
 
@@ -374,6 +375,22 @@ internal class FakeRecordStore : IAtomicRecordStore
                     Mutation = result.Value!.Mutation with { Delete = delete }
                 }
             });
+        }
+
+        public ValueTask<OperationResult<long>> AdvancePurgeGenerationAsync(
+            CollectionDefinition collection,
+            long? expectedGeneration,
+            CancellationToken cancellationToken = default)
+        {
+            EnsureActive();
+            if (expectedGeneration is { } expected && expected != _purgeGeneration)
+                return ValueTask.FromResult(OperationResults.Conflict<long>(new BaseError
+                {
+                    Code = BaseCollectionErrorCodes.PurgeGenerationConflict,
+                    Message = "The purge generation did not match.",
+                    Category = ErrorCategory.Conflict
+                }));
+            return ValueTask.FromResult(OperationResults.Ok(++_purgeGeneration));
         }
 
         private OperationResult<RecordMutationSessionResult> SessionResult(

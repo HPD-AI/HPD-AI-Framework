@@ -21,7 +21,9 @@ Replace,
 Upsert,
     /// <summary>Identifies delete.</summary>
 Delete,
-    /// <summary>Identifies batch.</summary>
+    /// <summary>Identifies a host-authorized administrative purge.</summary>
+Purge,
+/// <summary>Identifies batch.</summary>
 Batch,
     /// <summary>Identifies schema read.</summary>
 SchemaRead,

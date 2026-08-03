@@ -16,4 +16,8 @@ internal interface IBaseMutationCoordinator
         PrincipalContext principal,
         OperationContext operation,
         CancellationToken cancellationToken);
+
+    ValueTask<OperationResult<BasePurgeResult>> ExecutePurgeAsync(
+        BasePurgeRequest request,
+        CancellationToken cancellationToken);
 }

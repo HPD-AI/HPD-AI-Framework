@@ -1,13 +1,15 @@
+using Microsoft.Extensions.DependencyInjection;
+
 namespace HPD.Base;
 
-internal sealed class UnavailableHPDBaseAdministration : IHPDBaseAdministration
+internal sealed class UnavailableHPDBaseAdministration(IServiceProvider services) : IHPDBaseAdministration
 {
     public BaseAdministrationCapability Capability { get; } = new()
     {
         Backup = false,
         Validate = false,
         Restore = false,
-        AdministrativePurge = false,
+        AdministrativePurge = true,
         OnlineBackup = false,
         WritersBlockedDuringBackup = false,
         ReadersBlockedDuringBackup = false,
@@ -25,8 +27,10 @@ internal sealed class UnavailableHPDBaseAdministration : IHPDBaseAdministration
     public ValueTask<BaseResult<BaseRestoreResult>> RestoreAsync(Stream source, BaseRestoreRequest request, CancellationToken cancellationToken = default) =>
         Unsupported<BaseRestoreResult>(cancellationToken);
 
-    public ValueTask<BaseResult<BasePurgeResult>> PurgeAsync(BasePurgeRequest request, CancellationToken cancellationToken = default) =>
-        Unsupported<BasePurgeResult>(cancellationToken);
+    public async ValueTask<BaseResult<BasePurgeResult>> PurgeAsync(BasePurgeRequest request, CancellationToken cancellationToken = default) =>
+        BaseResultMapper.Map<BasePurgeResult, BasePurgeResult>(
+            await services.GetRequiredService<IBaseMutationCoordinator>().ExecutePurgeAsync(request, cancellationToken).ConfigureAwait(false),
+            static value => value);
 
     private static ValueTask<BaseResult<T>> Unsupported<T>(CancellationToken cancellationToken)
     {

@@ -522,7 +522,7 @@ public sealed class ApplicationHostBuilderTests
         capability.Backup.Should().BeFalse();
         capability.Validate.Should().BeFalse();
         capability.Restore.Should().BeFalse();
-        capability.AdministrativePurge.Should().BeFalse();
+        capability.AdministrativePurge.Should().BeTrue();
         typeof(BaseSession).GetProperty("Administration").Should().BeNull();
     }
 

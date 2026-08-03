@@ -13,7 +13,9 @@ Replace,
     /// <summary>Delete an existing record.</summary>
 Delete,
     /// <summary>Atomically create or update a record by its record identifier.</summary>
-Upsert
+Upsert,
+    /// <summary>Administratively purge a retained record through the host-only boundary.</summary>
+Purge
 }
 
 /// <summary>Identifies the physical record mutation that committed at the provider.</summary>

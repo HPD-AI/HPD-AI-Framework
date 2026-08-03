@@ -282,6 +282,12 @@ public interface IAtomicRecordSession
         RecordDeleteRequest request,
         RecordMutationSessionContext context,
         CancellationToken cancellationToken = default);
+
+    /// <summary>Advances one purge-enabled collection generation inside this transaction.</summary>
+    ValueTask<OperationResult<long>> AdvancePurgeGenerationAsync(
+        CollectionDefinition collection,
+        long? expectedGeneration,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>Processes canonical Runtime mutations against a provider-owned restricted session.</summary>

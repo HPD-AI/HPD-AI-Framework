@@ -38,6 +38,7 @@ internal sealed class DefaultBaseStoreExecutionResolver(
             BaseRecordMutationKind.Patch => mutationStore.Capabilities.Mutation.Patch,
             BaseRecordMutationKind.Replace => mutationStore.Capabilities.Mutation.Replace,
             BaseRecordMutationKind.Delete => mutationStore.Capabilities.Mutation.Delete,
+            BaseRecordMutationKind.Purge => mutationStore.Capabilities.Mutation.Delete,
             BaseRecordMutationKind.Upsert => mutationStore.Capabilities.Upsert?.Atomic == true,
             _ => false
         };

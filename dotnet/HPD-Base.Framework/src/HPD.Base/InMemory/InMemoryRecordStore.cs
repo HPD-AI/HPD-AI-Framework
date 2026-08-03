@@ -450,6 +450,37 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         Store = new StoreErrorInfo { Retryable = false }
     };
 
+    private static OperationResult<T>? MutationModeFailure<T>(
+        CollectionDefinition collection,
+        BaseOperationKind operation)
+    {
+        bool allowed = operation switch
+        {
+            BaseOperationKind.Create => collection.MutationMode is
+                BaseCollectionMutationMode.Mutable or
+                BaseCollectionMutationMode.AppendOnly or
+                BaseCollectionMutationMode.AppendOnlyWithAdministrativePurge,
+            BaseOperationKind.Patch or BaseOperationKind.Replace =>
+                collection.MutationMode == BaseCollectionMutationMode.Mutable,
+            BaseOperationKind.Delete =>
+                collection.MutationMode == BaseCollectionMutationMode.Mutable,
+            BaseOperationKind.Purge =>
+                collection.MutationMode == BaseCollectionMutationMode.AppendOnlyWithAdministrativePurge,
+            _ => false
+        };
+        if (allowed) return null;
+        string code = !Enum.IsDefined(collection.MutationMode)
+            ? BaseCollectionErrorCodes.MutationModeInvalid
+            : collection.MutationMode == BaseCollectionMutationMode.ReadOnly
+                ? BaseCollectionErrorCodes.ReadOnlyMutationForbidden
+                : operation is BaseOperationKind.Patch or BaseOperationKind.Replace
+                    ? BaseCollectionErrorCodes.AppendOnlyUpdateForbidden
+                    : operation == BaseOperationKind.Delete
+                        ? BaseCollectionErrorCodes.AppendOnlyDeleteForbidden
+                        : BaseCollectionErrorCodes.PurgeUnsupported;
+        return InMemoryResultFactory.Unsupported<T>(code, "The collection mutation mode does not permit this operation.");
+    }
+
     private static void ObserveCompletion(Task task) =>
         _ = task.ContinueWith(
             completed => _ = completed.Exception,
@@ -467,6 +498,9 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         ArgumentNullException.ThrowIfNull(collection);
         ArgumentNullException.ThrowIfNull(request);
         cancellationToken.ThrowIfCancellationRequested();
+
+        if (MutationModeFailure<RecordEnvelope>(collection, BaseOperationKind.Create) is { } modeError)
+            return ValueTask.FromResult(modeError);
 
         if (InMemoryValidation.ValidateCollectionId<RecordEnvelope>(collection.Id) is { } collectionError)
         {
@@ -533,6 +567,9 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         ArgumentNullException.ThrowIfNull(collection);
         ArgumentNullException.ThrowIfNull(request);
         cancellationToken.ThrowIfCancellationRequested();
+
+        if (MutationModeFailure<DeleteResult>(collection, context.Operation) is { } modeError)
+            return ValueTask.FromResult(modeError);
 
         if (InMemoryValidation.ValidateCollectionId<DeleteResult>(collection.Id) is { } collectionError)
         {
@@ -670,6 +707,9 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         ArgumentNullException.ThrowIfNull(request);
         cancellationToken.ThrowIfCancellationRequested();
 
+        if (MutationModeFailure<RecordEnvelope>(collection, BaseOperationKind.Patch) is { } modeError)
+            return ValueTask.FromResult(modeError);
+
         if (InMemoryValidation.ValidateCollectionId<RecordEnvelope>(collection.Id) is { } collectionError)
         {
             return ValueTask.FromResult(collectionError);
@@ -738,6 +778,9 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         ArgumentNullException.ThrowIfNull(collection);
         ArgumentNullException.ThrowIfNull(request);
         cancellationToken.ThrowIfCancellationRequested();
+
+        if (MutationModeFailure<RecordEnvelope>(collection, BaseOperationKind.Replace) is { } modeError)
+            return ValueTask.FromResult(modeError);
 
         if (InMemoryValidation.ValidateCollectionId<RecordEnvelope>(collection.Id) is { } collectionError)
         {
@@ -1957,6 +2000,32 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                         delete: result.Value,
                         changedFields: null);
                 });
+
+        public ValueTask<OperationResult<long>> AdvancePurgeGenerationAsync(
+            CollectionDefinition collection,
+            long? expectedGeneration,
+            CancellationToken cancellationToken = default) =>
+            ExecuteAsync(cancellationToken, _ =>
+            {
+                ArgumentNullException.ThrowIfNull(collection);
+                if (collection.MutationMode != BaseCollectionMutationMode.AppendOnlyWithAdministrativePurge)
+                    return ValueTask.FromResult(InMemoryResultFactory.Unsupported<long>(
+                        BaseCollectionErrorCodes.PurgeUnsupported,
+                        "The collection does not support administrative purge."));
+                InMemoryCollectionState state = GetOrCreateCollection(_working, collection.Id);
+                if (expectedGeneration is { } expected && expected != state.PurgeGeneration)
+                    return ValueTask.FromResult(OperationResults.Conflict<long>(new BaseError
+                    {
+                        Code = BaseCollectionErrorCodes.PurgeGenerationConflict,
+                        Message = "The purge generation did not match.",
+                        Category = ErrorCategory.Conflict
+                    }));
+                if (state.PurgeGeneration == long.MaxValue)
+                    return ValueTask.FromResult(InMemoryResultFactory.StoreError<long>(
+                        BaseCollectionErrorCodes.PurgeFailed,
+                        "The purge generation is exhausted."));
+                return ValueTask.FromResult(OperationResults.Ok(++state.PurgeGeneration));
+            });
 
         /// <summary>Executes the close async operation.</summary>
         public async ValueTask CloseAsync()

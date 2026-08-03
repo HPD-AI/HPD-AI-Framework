@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Logging;
@@ -111,6 +112,151 @@ internal sealed class DefaultBaseMutationCoordinator(
             ? await ExecuteAtomicBatchAsync(prepared.Value, request.RequestIdentity, principal, cancellationToken).ConfigureAwait(false)
             : await ExecuteOrderedBatchAsync(prepared.Value, principal, request.Mode, cancellationToken).ConfigureAwait(false);
     }
+
+    public async ValueTask<OperationResult<BasePurgeResult>> ExecutePurgeAsync(
+        BasePurgeRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(request.Principal);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (string.IsNullOrWhiteSpace(request.CollectionId)
+            || request.RecordIds is not { Length: >= 1 and <= 1000 }
+            || request.RecordIds.Any(static id => string.IsNullOrWhiteSpace(id.Value))
+            || request.RecordIds.Distinct().Count() != request.RecordIds.Length
+            || !BoundedUtf8(request.ReasonCode, 64)
+            || !BoundedUtf8(request.AuditReference, 128)
+            || request.EvaluatedAt == default
+            || request.ExpectedPurgeGeneration is < 0)
+        {
+            return Validation<BasePurgeResult>(BaseCollectionErrorCodes.PurgeInvalid, "The administrative purge request is invalid.");
+        }
+
+        DateTimeOffset committedAt = DateTimeOffset.UtcNow;
+        var aggregate = new OperationContext
+        {
+            Operation = BaseOperationKind.Purge,
+            CollectionId = request.CollectionId,
+            CorrelationId = Guid.NewGuid().ToString("N"),
+            Now = committedAt,
+            Mode = OperationMode.System,
+        };
+        OperationResult<CollectionDefinition> collectionResult = await schema.GetCollectionAsync(
+            request.CollectionId,
+            request.Principal,
+            aggregate,
+            VisibilityLevel.Internal,
+            cancellationToken).ConfigureAwait(false);
+        if (!collectionResult.IsSuccess() || collectionResult.Value is null)
+            return Failure<BasePurgeResult, CollectionDefinition>(collectionResult);
+        CollectionDefinition collection = collectionResult.Value;
+        if (collection.MutationMode != BaseCollectionMutationMode.AppendOnlyWithAdministrativePurge)
+        {
+            return OperationResults.Unsupported<BasePurgeResult>(Error(
+                BaseCollectionErrorCodes.PurgeUnsupported,
+                "The collection does not support administrative purge.",
+                ErrorCategory.Unsupported));
+        }
+
+        OperationResult<BasePolicyEvaluation> collectionPolicy = await policy.EvaluateWriteAsync(new BasePolicyRequest
+        {
+            Principal = request.Principal,
+            Operation = aggregate,
+            Collection = collection,
+            ResourceKind = PolicyResourceKind.Collection,
+        }, cancellationToken).ConfigureAwait(false);
+        if (!collectionPolicy.IsSuccess() || collectionPolicy.Value is null)
+        {
+            return OperationResults.PolicyDenied<BasePurgeResult>(Error(
+                BaseCollectionErrorCodes.PurgeForbidden,
+                "The administrative purge is not authorized.",
+                ErrorCategory.Authorization));
+        }
+
+        OperationResult<BaseResolvedMutationStore> resolved = storeResolver.Resolve(collection, BaseRecordMutationKind.Purge, aggregate);
+        if (!resolved.IsSuccess() || resolved.Value?.AtomicStore is null)
+        {
+            return OperationResults.Unsupported<BasePurgeResult>(Error(
+                BaseCollectionErrorCodes.PurgeUnsupported,
+                "The selected store does not support atomic administrative purge.",
+                ErrorCategory.Unsupported));
+        }
+
+        BaseMutationCommand[] commands = request.RecordIds.Select((id, index) => new BaseMutationCommand
+        {
+            Index = index,
+            ItemId = $"purge:{index}",
+            CollectionId = collection.Id,
+            Kind = BaseRecordMutationKind.Purge,
+            Collection = collection,
+            Context = aggregate with { RecordId = id.Value, CorrelationId = $"{aggregate.CorrelationId}:{index}" },
+            EventId = Guid.NewGuid().ToString("N"),
+            Store = resolved.Value,
+            RecordId = id,
+            Delete = new RecordDeleteRequest { ReturnPrevious = true },
+        }).ToArray();
+        var processor = new DefaultBasePurgeProcessor(
+            commands,
+            request.Principal,
+            policy,
+            normalizer,
+            request.ExpectedPurgeGeneration,
+            _limits.MaxTransactionDuration);
+        var executionRequest = new RecordMutationExecutionRequest
+        {
+            AcquisitionTimeout = _limits.StoreAcquisitionTimeout,
+            TransactionTimeout = _limits.MaxTransactionDuration,
+            CommitCompletionTimeout = _limits.CommitCompletionTimeout,
+        };
+
+        RecordMutationExecutionResult execution;
+        try
+        {
+            execution = await resolved.Value.AtomicStore.ExecuteAtomicAsync(processor, executionRequest, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (failureMapper.TryMap(exception, aggregate, out _, out _))
+        {
+            return OperationResults.StoreError<BasePurgeResult>(Error(
+                BaseCollectionErrorCodes.PurgeFailed,
+                "The administrative purge failed.",
+                ErrorCategory.Store));
+        }
+
+        if (execution.Outcome == RecordMutationExecutionOutcome.Indeterminate)
+            return OperationResults.StoreError<BasePurgeResult>(Error(BaseCollectionErrorCodes.PurgeIndeterminate, "The administrative purge outcome is indeterminate.", ErrorCategory.Store));
+        if (execution.Outcome != RecordMutationExecutionOutcome.Committed)
+        {
+            BaseError error = execution.Processing?.Error ?? execution.Error
+                ?? Error(BaseCollectionErrorCodes.PurgeFailed, "The administrative purge was rolled back.", ErrorCategory.Store);
+            return new OperationResult<BasePurgeResult>
+            {
+                Status = error.Code == BaseCollectionErrorCodes.PurgeGenerationConflict ? OperationStatus.Conflict
+                    : error.Code == BaseCollectionErrorCodes.PurgeRestricted ? OperationStatus.Conflict
+                    : error.Category == ErrorCategory.Authorization ? OperationStatus.PolicyDenied
+                    : error.Category == ErrorCategory.Unsupported ? OperationStatus.Unsupported
+                    : OperationStatus.StoreError,
+                Error = error,
+            };
+        }
+        if (execution.Processing?.Mutations.Length != processor.Attempts.Count || processor.PurgeGeneration <= 0)
+            return OperationResults.StoreError<BasePurgeResult>(Error(BaseCollectionErrorCodes.PurgeFailed, "The store returned an inconsistent purge result.", ErrorCategory.Store));
+
+        foreach (BaseMutationAttempt attempt in processor.Attempts)
+            _ = await DispatchPostCommitAsync(attempt, request.Principal).ConfigureAwait(false);
+
+        return OperationResults.Ok(new BasePurgeResult
+        {
+            CollectionId = collection.Id,
+            RequestedCount = commands.Length,
+            PurgedCount = processor.Attempts.Count,
+            PurgeGeneration = processor.PurgeGeneration,
+            CommittedAt = committedAt,
+        });
+    }
+
+    private static bool BoundedUtf8(string? value, int maximum) =>
+        !string.IsNullOrWhiteSpace(value) && Encoding.UTF8.GetByteCount(value) <= maximum;
 
     private async ValueTask<OperationResult<BaseRecordBatchResult>> ExecuteAtomicBatchAsync(
         BaseMutationCommand[] commands,
@@ -477,13 +623,18 @@ internal sealed class DefaultBaseMutationCoordinator(
                 return Failure<BaseMutationCommand[], CollectionDefinition>(collectionResult);
 
             var collection = collectionResult.Value;
-            if (!collection.Enabled
-                || !collection.Exposed
-                || !CollectionAllows(collection, item))
+            if (!collection.Enabled || !collection.Exposed)
             {
                 return OperationResults.Unsupported<BaseMutationCommand[]>(Error(
                     "base.runtime.collection.operationDisabled",
                     "The collection does not allow the requested mutation.",
+                    ErrorCategory.Unsupported));
+            }
+            if (!CollectionAllows(collection, item))
+            {
+                return OperationResults.Unsupported<BaseMutationCommand[]>(Error(
+                    CollectionMutationError(collection, item),
+                    "The collection mutation mode does not permit the requested operation.",
                     ErrorCategory.Unsupported));
             }
 
@@ -773,6 +924,18 @@ internal sealed class DefaultBaseMutationCoordinator(
             BaseCollectionMutationMode.ReadOnly => false,
             _ => false
         };
+
+    private static string CollectionMutationError(
+        CollectionDefinition collection,
+        BaseRecordBatchItem item) =>
+        !Enum.IsDefined(collection.MutationMode)
+            ? BaseCollectionErrorCodes.MutationModeInvalid
+            : collection.MutationMode == BaseCollectionMutationMode.ReadOnly
+                ? BaseCollectionErrorCodes.ReadOnlyMutationForbidden
+                : item.Kind is BaseRecordMutationKind.Patch or BaseRecordMutationKind.Replace
+                    || item.Kind == BaseRecordMutationKind.Upsert && item.Upsert?.Condition != RecordUpsertExistenceCondition.CreateOnly
+                    ? BaseCollectionErrorCodes.AppendOnlyUpdateForbidden
+                    : BaseCollectionErrorCodes.AppendOnlyDeleteForbidden;
 
     private static bool SupportsMode(StoreBatchCapability? capability, BaseRecordBatchExecutionMode mode) =>
         capability is not null
