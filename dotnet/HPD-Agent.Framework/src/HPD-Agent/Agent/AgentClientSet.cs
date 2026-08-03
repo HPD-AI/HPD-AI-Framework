@@ -9,6 +9,7 @@ namespace HPD.Agent;
 public sealed class AgentClientSet : IDisposable
 {
     private IReadOnlySet<object>? _ownedClients;
+    private IReadOnlyList<IAsyncDisposable>? _leases;
     public IChatClient? Chat { get; init; }
     public ITextToSpeechClient? TextToSpeech { get; init; }
     public ISpeechToTextClient? SpeechToText { get; init; }
@@ -48,6 +49,9 @@ public sealed class AgentClientSet : IDisposable
     internal void SetOwnedClients(IReadOnlySet<object> ownedClients)
         => _ownedClients = ownedClients;
 
+    internal void SetLeases(IReadOnlyList<IAsyncDisposable> leases)
+        => _leases = leases;
+
     public void Dispose()
     {
         var disposed = new HashSet<object>(ReferenceEqualityComparer.Instance);
@@ -59,6 +63,12 @@ public sealed class AgentClientSet : IDisposable
         DisposeOnce(ImageGenerator, disposed, _ownedClients);
         DisposeOnce(EmbeddingGenerator, disposed, _ownedClients);
         DisposeOnce(HostedFiles, disposed, _ownedClients);
+
+        if (_leases is not null)
+        {
+            for (var index = _leases.Count - 1; index >= 0; index--)
+                _leases[index].DisposeAsync().AsTask().GetAwaiter().GetResult();
+        }
     }
 
     private static void DisposeOnce(object? value, HashSet<object> disposed, IReadOnlySet<object>? ownedClients)

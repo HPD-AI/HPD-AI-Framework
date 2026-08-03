@@ -32,6 +32,12 @@ public sealed class Agent
     private readonly IChatClient? _baseClient;
     private readonly AgentChatClientHandle? _defaultChatClientHandle;
     private readonly AgentChatClientResolver _chatClientResolver;
+    private readonly ProviderClientManager<ITextToSpeechClient> _textToSpeechClientManager = new();
+    private readonly ProviderClientManager<ISpeechToTextClient> _speechToTextClientManager = new();
+    private readonly ProviderClientManager<IRealtimeClient> _realtimeClientManager = new();
+    private readonly ProviderClientManager<IImageGenerator> _imageGeneratorManager = new();
+    private readonly ProviderClientManager<IEmbeddingGenerator> _embeddingGeneratorManager = new();
+    private readonly ProviderClientManager<IHostedFileClient> _hostedFileClientManager = new();
     private readonly AgentClientSet? _clientSet;
     private readonly string _name;
     private readonly ChatClientMetadata _metadata;
@@ -2291,7 +2297,8 @@ public sealed class Agent
                     },
                     effectiveCancellationToken).ConfigureAwait(false);
             }
-            runClientSet = ResolveRunClientSet(effectiveRunConfig);
+            runClientSet = await ResolveRunClientSetAsync(effectiveRunConfig, effectiveCancellationToken)
+                .ConfigureAwait(false);
             var effectiveClientSet = runClientSet ?? _clientSet;
 
             // Resolve background responses settings from AgentRunConfig → Config → false
@@ -3912,6 +3919,12 @@ public sealed class Agent
         else
             _baseClient?.Dispose();
         _chatClientResolver.Dispose();
+        _textToSpeechClientManager.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        _speechToTextClientManager.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        _realtimeClientManager.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        _imageGeneratorManager.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        _embeddingGeneratorManager.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        _hostedFileClientManager.DisposeAsync().AsTask().GetAwaiter().GetResult();
         _realtimeModelTurnExecutor.DisposeAsync().AsTask().GetAwaiter().GetResult();
         (_eventCoordinator as IDisposable)?.Dispose();
         if (_ownedHttpClients != null)
@@ -5170,7 +5183,9 @@ public sealed class Agent
         return properties;
     }
 
-    private AgentClientSet? ResolveRunClientSet(AgentRunConfig runConfig)
+    private async ValueTask<AgentClientSet?> ResolveRunClientSetAsync(
+        AgentRunConfig runConfig,
+        CancellationToken cancellationToken)
     {
         var runClients = runConfig.Clients;
         var families = new[]
@@ -5188,63 +5203,84 @@ public sealed class Agent
             return null;
 
         var owned = new HashSet<object>(ReferenceEqualityComparer.Instance);
+        var leases = new List<IAsyncDisposable>();
         var resolved = _clientSet?.ResolvedConfigs.ToDictionary(pair => pair.Key, pair => pair.Value)
             ?? new Dictionary<Providers.ProviderClientFamily, ProviderClientConfig>();
 
-        var textToSpeech = ResolveRunClient<Providers.ITextToSpeechClientProvider, ITextToSpeechClient>(
+        try
+        {
+        var textToSpeech = await ResolveRunClientAsync<Providers.ITextToSpeechClientProvider, ITextToSpeechClient>(
             Providers.ProviderClientFamily.TextToSpeech,
             runClients,
             runClients.TextToSpeech?.Override?.Client,
             _clientSet?.TextToSpeech,
             static (provider, config, services) => provider.CreateTextToSpeechClient(config, services),
             Config?.ClientMiddleware?.TextToSpeech,
+            _textToSpeechClientManager,
             owned,
-            resolved);
-        var speechToText = ResolveRunClient<Providers.ISpeechToTextClientProvider, ISpeechToTextClient>(
+            leases,
+            resolved,
+            cancellationToken).ConfigureAwait(false);
+        var speechToText = await ResolveRunClientAsync<Providers.ISpeechToTextClientProvider, ISpeechToTextClient>(
             Providers.ProviderClientFamily.SpeechToText,
             runClients,
             runClients.SpeechToText?.Override?.Client,
             _clientSet?.SpeechToText,
             static (provider, config, services) => provider.CreateSpeechToTextClient(config, services),
             Config?.ClientMiddleware?.SpeechToText,
+            _speechToTextClientManager,
             owned,
-            resolved);
-        var realtime = ResolveRunClient<Providers.IRealtimeClientProvider, IRealtimeClient>(
+            leases,
+            resolved,
+            cancellationToken).ConfigureAwait(false);
+        var realtime = await ResolveRunClientAsync<Providers.IRealtimeClientProvider, IRealtimeClient>(
             Providers.ProviderClientFamily.Realtime,
             runClients,
             runClients.Realtime?.Override?.Client,
             _clientSet?.Realtime,
             static (provider, config, services) => provider.CreateRealtimeClient(config, services),
             Config?.ClientMiddleware?.Realtime,
+            _realtimeClientManager,
             owned,
-            resolved);
-        var image = ResolveRunClient<Providers.IImageGeneratorProvider, IImageGenerator>(
+            leases,
+            resolved,
+            cancellationToken).ConfigureAwait(false);
+        var image = await ResolveRunClientAsync<Providers.IImageGeneratorProvider, IImageGenerator>(
             Providers.ProviderClientFamily.ImageGeneration,
             runClients,
             runClients.ImageGeneration?.Override?.Client,
             _clientSet?.ImageGenerator,
             static (provider, config, services) => provider.CreateImageGenerator(config, services),
             Config?.ClientMiddleware?.ImageGeneration,
+            _imageGeneratorManager,
             owned,
-            resolved);
-        var embeddings = ResolveRunClient<Providers.IEmbeddingGeneratorProvider, IEmbeddingGenerator>(
+            leases,
+            resolved,
+            cancellationToken).ConfigureAwait(false);
+        var embeddings = await ResolveRunClientAsync<Providers.IEmbeddingGeneratorProvider, IEmbeddingGenerator>(
             Providers.ProviderClientFamily.Embeddings,
             runClients,
             runClients.Embeddings?.Override?.Client,
             _clientSet?.EmbeddingGenerator,
             static (provider, config, services) => provider.CreateEmbeddingGenerator(config, services),
             Config?.ClientMiddleware?.Embeddings,
+            _embeddingGeneratorManager,
             owned,
-            resolved);
-        var hostedFiles = ResolveRunClient<Providers.IHostedFileClientProvider, IHostedFileClient>(
+            leases,
+            resolved,
+            cancellationToken).ConfigureAwait(false);
+        var hostedFiles = await ResolveRunClientAsync<Providers.IHostedFileClientProvider, IHostedFileClient>(
             Providers.ProviderClientFamily.HostedFiles,
             runClients,
             runClients.HostedFiles?.Override?.Client,
             _clientSet?.HostedFiles,
             static (provider, config, services) => provider.CreateHostedFileClient(config, services),
             Config?.ClientMiddleware?.HostedFiles,
+            _hostedFileClientManager,
             owned,
-            resolved);
+            leases,
+            resolved,
+            cancellationToken).ConfigureAwait(false);
 
         var result = new AgentClientSet
         {
@@ -5259,18 +5295,36 @@ public sealed class Agent
             ResolvedConfigs = resolved
         };
         result.SetOwnedClients(owned);
+        result.SetLeases(leases);
         return result;
+        }
+        catch
+        {
+            for (var index = leases.Count - 1; index >= 0; index--)
+                await leases[index].DisposeAsync().ConfigureAwait(false);
+            foreach (var client in owned)
+            {
+                if (client is IAsyncDisposable asyncDisposable)
+                    await asyncDisposable.DisposeAsync().ConfigureAwait(false);
+                else if (client is IDisposable disposable)
+                    disposable.Dispose();
+            }
+            throw;
+        }
     }
 
-    private TClient? ResolveRunClient<TProvider, TClient>(
+    private async ValueTask<TClient?> ResolveRunClientAsync<TProvider, TClient>(
         Providers.ProviderClientFamily family,
         AgentClientsConfig runClients,
         TClient? runOverride,
         TClient? builderDefault,
         Func<TProvider, ProviderClientConfig, IServiceProvider?, TClient> factory,
         IReadOnlyList<Func<TClient, IServiceProvider?, TClient>>? middleware,
+        ProviderClientManager<TClient> manager,
         HashSet<object> owned,
-        Dictionary<Providers.ProviderClientFamily, ProviderClientConfig> resolved)
+        List<IAsyncDisposable> leases,
+        Dictionary<Providers.ProviderClientFamily, ProviderClientConfig> resolved,
+        CancellationToken cancellationToken)
         where TProvider : class, Providers.IProvider
         where TClient : class
     {
@@ -5291,18 +5345,212 @@ public sealed class Agent
                 $"Clients.{family}",
                 $"The {family} provider '{effective.ProviderKey}' cannot be resolved because no provider registry is available.");
 
+        var safeResolvedConfig = ProviderClientConfigResolver.Clone(effective);
+        var authentication = await ResolveAuxiliaryAuthenticationAsync(
+            effective,
+            family,
+            cancellationToken).ConfigureAwait(false);
+        effective = authentication.Config;
+        if (authentication.Credential is not null)
+            leases.Add(authentication.Credential);
+
         var provider = _providerRegistry.GetRequiredProvider<TProvider>(effective.ProviderKey);
-        var client = factory(provider, effective, _serviceProvider);
-        if (middleware is not null)
+        TClient CreateClient()
         {
-            for (var index = middleware.Count - 1; index >= 0; index--)
-                client = middleware[index](client, _serviceProvider)
-                    ?? throw new InvalidOperationException($"{family} client middleware returned null.");
+            var validation = provider.ValidateConfiguration(effective, family);
+            if (!validation.IsValid)
+                throw new AgentRunConfigurationException(
+                    "ProviderConfigurationInvalid",
+                    $"Clients.{family}",
+                    string.Join("; ", validation.Errors),
+                    effective.ProviderKey);
+            var created = factory(provider, effective, _serviceProvider);
+            if (middleware is not null)
+            {
+                for (var index = middleware.Count - 1; index >= 0; index--)
+                    created = middleware[index](created, _serviceProvider)
+                        ?? throw new InvalidOperationException($"{family} client middleware returned null.");
+            }
+            return created;
         }
-        owned.Add(client);
-        resolved[family] = ProviderClientConfigResolver.Clone(effective);
+
+        TClient client;
+        if (authentication.CacheIdentity is null)
+        {
+            client = CreateClient();
+            owned.Add(client);
+        }
+        else
+        {
+            var lease = await manager.AcquireAsync(
+                new ProviderClientCacheKey
+                {
+                    ProviderKey = effective.ProviderKey,
+                    Family = family,
+                    AuthenticationIdentity = authentication.CacheIdentity,
+                    AuthenticationGeneration = authentication.Generation,
+                    Endpoint = effective.Endpoint,
+                    ProviderConfigFingerprint = ProviderClientFingerprint.Combine(
+                        GetAuxiliaryProviderConfigFingerprint(effective, family),
+                        effective.CustomHeaders),
+                    ClientBoundModel = effective.ModelName
+                },
+                _ => ValueTask.FromResult(CreateClient()),
+                cancellationToken).ConfigureAwait(false);
+            leases.Add(lease);
+            client = lease.Client;
+        }
+        resolved[family] = safeResolvedConfig;
         return client;
     }
+
+    private async ValueTask<AuxiliaryAuthenticationResolution> ResolveAuxiliaryAuthenticationAsync(
+        ProviderClientConfig config,
+        ProviderClientFamily family,
+        CancellationToken cancellationToken)
+    {
+        if (config.CustomHeaders is not null)
+        {
+            foreach (var header in config.CustomHeaders.Keys)
+            {
+                if (header.Equals("Authorization", StringComparison.OrdinalIgnoreCase) ||
+                    header.Equals("Proxy-Authorization", StringComparison.OrdinalIgnoreCase) ||
+                    header.Equals("api-key", StringComparison.OrdinalIgnoreCase) ||
+                    header.Equals("x-api-key", StringComparison.OrdinalIgnoreCase))
+                    throw new AgentRunConfigurationException(
+                        "AuthenticationHeaderNotAllowed",
+                        $"Clients.{family}.CustomHeaders.{header}",
+                        $"Header '{header}' cannot carry provider credentials. Use ApiKey or AuthenticationKey.",
+                        config.ProviderKey);
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(config.ApiKey))
+        {
+            var credential = ProviderCredentialLease.CreateExplicit(config.ApiKey);
+            var explicitConfig = ProviderClientConfigResolver.Clone(config);
+            explicitConfig.ApiKey = credential.Secret.ToString();
+            return new AuxiliaryAuthenticationResolution(explicitConfig, null, 0, credential);
+        }
+
+        var registry = _serviceProvider?.GetService(typeof(IProviderAuthenticationRegistry))
+            as IProviderAuthenticationRegistry;
+        var authenticationKey = config.AuthenticationKey;
+        var scope = _serviceProvider?.GetService(typeof(ProviderAuthorizationScope))
+            as ProviderAuthorizationScope
+            ?? new ProviderAuthorizationScope { TrustDomainId = "local-process" };
+        var context = new ProviderAuthenticationContext
+        {
+            ProviderKey = config.ProviderKey,
+            Family = family,
+            AuthorizationScope = scope
+        };
+
+        ProviderAuthenticationRegistration? registration = null;
+        if (string.IsNullOrWhiteSpace(authenticationKey))
+        {
+            if (registry is null)
+                return new AuxiliaryAuthenticationResolution(config, "canonical", 0, null);
+
+            var compatible = new List<ProviderAuthenticationRegistration>();
+            await foreach (var candidate in registry.ListCompatibleAsync(context, cancellationToken)
+                .ConfigureAwait(false))
+            {
+                compatible.Add(candidate);
+            }
+            var defaults = compatible.Where(static candidate => candidate.IsDefault).ToArray();
+            if (defaults.Length > 1 || (defaults.Length == 0 && compatible.Count > 1))
+                throw new AgentRunConfigurationException(
+                    "AuthenticationSelectionRequired",
+                    $"Clients.{family}.AuthenticationKey",
+                    $"Provider '{config.ProviderKey}' has multiple compatible authentication registrations and no unique default.",
+                    config.ProviderKey);
+            registration = defaults.Length == 1 ? defaults[0] : compatible.Count == 1 ? compatible[0] : null;
+            if (registration is null)
+                return new AuxiliaryAuthenticationResolution(config, "canonical", 0, null);
+            authenticationKey = registration.Key;
+        }
+        else
+        {
+            if (registry is null)
+                throw new AgentRunConfigurationException(
+                    "AuthenticationRegistryRequired",
+                    $"Clients.{family}.AuthenticationKey",
+                    $"Authentication registration '{authenticationKey}' cannot be resolved because no registry is available.",
+                    config.ProviderKey);
+            registration = await registry.FindAsync(authenticationKey, context, cancellationToken)
+                .ConfigureAwait(false)
+                ?? throw new AgentRunConfigurationException(
+                    "AuthenticationRegistrationNotFound",
+                    $"Clients.{family}.AuthenticationKey",
+                    $"Authentication registration '{authenticationKey}' is missing or incompatible with provider '{config.ProviderKey}' and family '{family}'.",
+                    config.ProviderKey);
+        }
+
+        var credentialResolver = _serviceProvider?.GetService(typeof(IProviderCredentialResolver))
+            as IProviderCredentialResolver;
+        if (credentialResolver is null)
+        {
+            var secretResolver = _serviceProvider?.GetService(typeof(Secrets.ISecretResolver))
+                as Secrets.ISecretResolver
+                ?? throw new AgentRunConfigurationException(
+                    "CredentialResolverRequired",
+                    $"Clients.{family}.AuthenticationKey",
+                    $"Authentication registration '{authenticationKey}' cannot resolve its secret because no credential resolver is available.",
+                    config.ProviderKey);
+            credentialResolver = new SecretResolverProviderCredentialResolver(secretResolver);
+        }
+
+        var credentialLease = await credentialResolver.AcquireAsync(new ProviderCredentialRequest
+        {
+            ProviderKey = config.ProviderKey,
+            Family = family,
+            Identity = $"registration:{authenticationKey}",
+            SecretKey = registration!.SecretKey,
+            AuthorizationScope = scope
+        }, cancellationToken).ConfigureAwait(false);
+        var resolved = ProviderClientConfigResolver.Clone(config);
+        resolved.AuthenticationKey = authenticationKey;
+        resolved.ApiKey = credentialLease.Secret.ToString();
+        return new AuxiliaryAuthenticationResolution(
+            resolved,
+            credentialLease.Identity,
+            credentialLease.Generation,
+            credentialLease);
+    }
+
+    private string? GetAuxiliaryProviderConfigFingerprint(
+        ProviderClientConfig config,
+        ProviderClientFamily family)
+    {
+        if (config.ProviderConfig is null)
+            return null;
+        var composition = _chatClientResolver.Composition
+            ?? throw new AgentRunConfigurationException(
+                "ProviderCompositionNotInstalled",
+                $"Clients.{family}.ProviderConfig",
+                "Generated provider composition is required to fingerprint provider configuration.",
+                config.ProviderKey);
+        var canonical = composition.Descriptors.Canonicalize(config.ProviderKey);
+        if (!composition.Serialization.TryGet(
+                canonical,
+                family,
+                ProviderPayloadKind.Configuration,
+                out var contract) || contract is null)
+            throw new AgentRunConfigurationException(
+                "ProviderConfigTypeMismatch",
+                $"Clients.{family}.ProviderConfig",
+                $"Provider '{canonical}' does not declare a configuration payload for family '{family}'.",
+                canonical);
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(config.ProviderConfig, contract.JsonTypeInfo);
+        return Convert.ToHexString(SHA256.HashData(bytes));
+    }
+
+    private sealed record AuxiliaryAuthenticationResolution(
+        ProviderClientConfig Config,
+        string? CacheIdentity,
+        long Generation,
+        IProviderCredentialLease? Credential);
 
     private static Middleware.AgentModelTransport ResolveModelTransport(AgentRunConfig runConfig)
         => runConfig.Clients.Transport switch

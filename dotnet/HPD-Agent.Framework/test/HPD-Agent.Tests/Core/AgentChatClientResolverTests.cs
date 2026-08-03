@@ -101,7 +101,7 @@ public sealed class AgentChatClientResolverTests
         await childLease.DisposeAsync();
         Assert.Equal(0, client.DisposeCount);
 
-        await using var second = await resolver.ResolveAsync(new AgentChatClientResolutionRequest
+        var second = await resolver.ResolveAsync(new AgentChatClientResolutionRequest
         {
             AgentConfig = new AgentConfig(),
             RunConfig = RuntimeChat("tracking", "model")
@@ -110,6 +110,7 @@ public sealed class AgentChatClientResolverTests
         Assert.Same(client, second.Client);
         Assert.Equal(1, ((TrackingProvider)registry.GetProvider("tracking")!).CreateCount);
 
+        await second.DisposeAsync();
         resolver.Dispose();
         Assert.Equal(1, client.DisposeCount);
     }
