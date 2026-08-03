@@ -2128,6 +2128,9 @@ public sealed class Agent
             chat,
             inheritance);
 
+    internal AgentRunConfig CaptureRunConfig(AgentRunConfig? runConfig) =>
+        AgentRunConfigSnapshot.Capture(runConfig, _chatClientResolver.Composition) ?? new AgentRunConfig();
+
     /// <summary>
     /// - Accepts PreparedTurn (functional preparation from MessageProcessor.PrepareTurnAsync)
     /// - Uses AgentDecisionEngine (pure, testable) for all decision logic
