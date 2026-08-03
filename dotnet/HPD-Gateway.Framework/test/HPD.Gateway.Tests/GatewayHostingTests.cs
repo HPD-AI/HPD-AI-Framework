@@ -12,6 +12,7 @@ using HPD.Gateway.Hosting;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace HPD.Gateway.Tests;
@@ -79,14 +80,11 @@ public sealed class GatewayHostingTests
             var wildcard = CreateCertificate("*.example", Path.Combine(directory.FullName, "wildcard.pfx"));
             var nested = CreateCertificate("*.sub.example", Path.Combine(directory.FullName, "nested.pfx"));
             var port = AvailablePort();
-            var configuration = Configuration([
+            var configuration = ConfigurationWithPort([
                 Sni("exact.example", "exact"),
                 Sni("*.example", "wildcard"),
                 Sni("*.sub.example", "nested")
-            ]) with
-            {
-                DataListeners = [Configuration([]).DataListeners[0] with { Port = checked((ushort)port), Tls = Configuration([]).DataListeners[0].Tls with { Sni = [Sni("exact.example", "exact"), Sni("*.example", "wildcard"), Sni("*.sub.example", "nested")] } }]
-            };
+            ], port);
             var accepted = GatewayHostCandidateReader.Create(configuration);
             accepted.IsAccepted.Should().BeTrue(string.Join(", ", accepted.Errors.Select(static error => error.SafeMessage)));
             var executions = 0;
@@ -101,12 +99,52 @@ public sealed class GatewayHostingTests
             application.Run(context => { Interlocked.Increment(ref executions); return context.Response.WriteAsync("ok"); });
             await application.StartAsync();
 
-            (await Send(port, "exact.example")).Should().Be(exact.Thumbprint);
-            (await Send(port, "a.example")).Should().Be(wildcard.Thumbprint);
-            (await Send(port, "b.sub.example")).Should().Be(nested.Thumbprint);
+            (await Send(port, "exact.example")).Thumbprint.Should().Be(exact.Thumbprint);
+            (await Send(port, "a.example")).Thumbprint.Should().Be(wildcard.Thumbprint);
+            (await Send(port, "b.sub.example")).Thumbprint.Should().Be(nested.Thumbprint);
+            var http2 = await Send(port, "exact.example", HttpVersion.Version20);
+            http2.Thumbprint.Should().Be(exact.Thumbprint);
+            http2.Version.Should().Be(HttpVersion.Version20);
             await FluentActions.Awaiting(() => Send(port, "unknown.test")).Should().ThrowAsync<HttpRequestException>();
             await FluentActions.Awaiting(() => SendWithoutSni(port)).Should().ThrowAsync<IOException>();
-            Volatile.Read(ref executions).Should().Be(3);
+            Volatile.Read(ref executions).Should().Be(4);
+            var status = application.Services.GetRequiredService<GatewayHostRuntimeStatus>();
+            status.GetSnapshot().State.Should().Be(GatewayHostRealizationState.Ready);
+            var desired = GatewayHostCandidateReader.Create(ConfigurationWithPort([Sni("exact.example", "exact")], AvailablePort()));
+            status.EvaluateDesired(desired.Candidate!).State.Should().Be(GatewayHostRealizationState.RestartRequired);
+            await application.StopAsync();
+            status.GetSnapshot().State.Should().Be(GatewayHostRealizationState.Stopped);
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public void CertificateSourcesRejectWrongSanExpiredAndMissingPrivateKeyBeforeBind()
+    {
+        var directory = Directory.CreateTempSubdirectory("hpd-gateway-cert-invalid-");
+        try
+        {
+            var wrong = CreateCertificate("wrong.example", Path.Combine(directory.FullName, "wrong.pfx"));
+            var expired = CreateCertificate("exact.example", Path.Combine(directory.FullName, "expired.pfx"),
+                DateTimeOffset.UtcNow.AddDays(-2), DateTimeOffset.UtcNow.AddDays(-1));
+            var valid = CreateCertificate("exact.example", Path.Combine(directory.FullName, "valid.pfx"));
+            using (var certificate = X509CertificateLoader.LoadPkcs12FromFile(valid.Path, valid.Password))
+                File.WriteAllBytes(Path.Combine(directory.FullName, "public-only.pfx"), certificate.Export(X509ContentType.Cert));
+            var candidate = GatewayHostCandidateReader.Create(ConfigurationWithPort([Sni("exact.example", "one")], AvailablePort())).Candidate!;
+
+            Action wrongSan = () => WebApplication.CreateSlimBuilder().WebHost.UseHpdGatewayHost(candidate,
+                sources => sources.Add(Reference("one"), new GatewayPfxCertificateSource { Path = wrong.Path, Password = wrong.Password }));
+            Action expiredSource = () => WebApplication.CreateSlimBuilder().WebHost.UseHpdGatewayHost(candidate,
+                sources => sources.Add(Reference("one"), new GatewayPfxCertificateSource { Path = expired.Path, Password = expired.Password }));
+            Action noPrivateKey = () => WebApplication.CreateSlimBuilder().WebHost.UseHpdGatewayHost(candidate,
+                sources => sources.Add(Reference("one"), new GatewayPfxCertificateSource { Path = Path.Combine(directory.FullName, "public-only.pfx") }));
+
+            wrongSan.Should().Throw<InvalidOperationException>();
+            expiredSource.Should().Throw<InvalidOperationException>();
+            noPrivateKey.Should().Throw<InvalidOperationException>();
         }
         finally
         {
@@ -132,10 +170,20 @@ public sealed class GatewayHostingTests
         ]
     };
 
+    private static GatewayHostConfiguration ConfigurationWithPort(ImmutableArray<GatewaySniTlsDeclaration> sni, int port)
+    {
+        var configuration = Configuration(sni);
+        return configuration with { DataListeners = [configuration.DataListeners[0] with { Port = checked((ushort)port) }] };
+    }
+
     private static GatewaySniTlsDeclaration Sni(string pattern, string name) => new() { HostnamePattern = pattern, Certificate = Reference(name) };
     private static SecretReference Reference(string name) => new(new ProviderId("test"), new ProviderObjectId(name), "v1");
 
-    private static (string Path, string Password, string Thumbprint) CreateCertificate(string dnsName, string path)
+    private static (string Path, string Password, string Thumbprint) CreateCertificate(
+        string dnsName,
+        string path,
+        DateTimeOffset? notBefore = null,
+        DateTimeOffset? notAfter = null)
     {
         using var key = RSA.Create(2048);
         var request = new CertificateRequest($"CN={dnsName}", key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
@@ -145,7 +193,7 @@ public sealed class GatewayHostingTests
         var san = new SubjectAlternativeNameBuilder();
         san.AddDnsName(dnsName);
         request.CertificateExtensions.Add(san.Build());
-        using var certificate = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow.AddDays(1));
+        using var certificate = request.CreateSelfSigned(notBefore ?? DateTimeOffset.UtcNow.AddMinutes(-1), notAfter ?? DateTimeOffset.UtcNow.AddDays(1));
         const string password = "test-password";
         File.WriteAllBytes(path, certificate.Export(X509ContentType.Pfx, password));
         return (path, password, certificate.Thumbprint);
@@ -158,7 +206,7 @@ public sealed class GatewayHostingTests
         return ((IPEndPoint)listener.LocalEndpoint).Port;
     }
 
-    private static async Task<string> Send(int port, string serverName)
+    private static async Task<(string Thumbprint, Version Version)> Send(int port, string serverName, Version? version = null)
     {
         string? thumbprint = null;
         var handler = new SocketsHttpHandler
@@ -175,9 +223,14 @@ public sealed class GatewayHostingTests
             }
         };
         using var client = new HttpClient(handler);
-        using var response = await client.GetAsync($"https://{serverName}:{port}/");
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"https://{serverName}:{port}/")
+        {
+            Version = version ?? HttpVersion.Version11,
+            VersionPolicy = HttpVersionPolicy.RequestVersionExact
+        };
+        using var response = await client.SendAsync(request);
         response.EnsureSuccessStatusCode();
-        return thumbprint!;
+        return (thumbprint!, response.Version);
     }
 
     private static async Task SendWithoutSni(int port)

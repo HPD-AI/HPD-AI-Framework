@@ -103,10 +103,15 @@ public sealed class AppleVirtualizationStorageProviderTests
             await reconstructed.RecoverAsync(
                 volumeMetadata,
                 VolumeSpec(pool),
-                created);
+                created with
+                {
+                    VolumePhase = DurableVolumePhase.Attached,
+                });
 
         recovered.VolumeGeneration.Should()
             .Be(created.VolumeGeneration);
+        recovered.VolumePhase.Should()
+            .Be(DurableVolumePhase.Ready);
         helper.Requests
             .Where(request =>
                 request.Operation ==

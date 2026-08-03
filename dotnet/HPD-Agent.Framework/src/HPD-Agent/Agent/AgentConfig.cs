@@ -1113,9 +1113,9 @@ public enum CompactionContinuation
 public class AgenticLoopConfig
 {
     /// <summary>
-    /// Maximum duration for a single turn before timeout (default: 5 minutes)
+    /// Maximum duration for a single turn before timeout. Null means no deadline.
     /// </summary>
-    public TimeSpan? MaxTurnDuration { get; set; } = TimeSpan.FromMinutes(5);
+    public TimeSpan? MaxTurnDuration { get; set; }
 
     /// <summary>
     /// Maximum number of functions to execute in parallel (default: null = unlimited).

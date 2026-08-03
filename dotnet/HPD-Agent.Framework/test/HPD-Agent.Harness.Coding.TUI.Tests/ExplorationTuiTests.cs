@@ -30,7 +30,7 @@ public sealed class ExplorationTuiTests
     }
 
     [Fact]
-    public void AddCodingHarnessTui_RegistersExplorationHandlersAndStatus()
+    public void AddCodingHarnessTui_RegistersExplorationHandlersAndRenderer()
     {
         var registry = new HpdAgentTuiBuilder()
             .AddCodingHarnessTui()
@@ -43,7 +43,6 @@ public sealed class ExplorationTuiTests
             "hpd.coding.exploration.tool-result",
             "hpd.coding.exploration.tool-end"
         ]);
-        registry.FooterItems.Select(static item => item.Key).Should().Contain("hpd.coding.exploration");
         registry.TranscriptRenderers.TryFindRenderer<CodingExplorationCell>(
             CodingHarnessTuiTranscriptRendererKeys.Exploration,
             out _).Should().BeTrue();
@@ -179,7 +178,6 @@ public sealed class ExplorationTuiTests
         ReadRows(state.Shell.Transcript).Should().ContainSingle()
             .Which.Cell.Should().BeOfType<CodingExplorationCell>();
         RenderTranscript(state, registry.TranscriptRenderers).Should().Contain("custom exploration row");
-        RenderShell(registry, state).Should().Contain("exploring");
     }
 
     [Fact]
@@ -259,23 +257,6 @@ public sealed class ExplorationTuiTests
         });
 
         ReadRows(state.Shell.Transcript).Should().BeEmpty();
-    }
-
-    [Fact]
-    public async Task FooterItem_ReadsExplorationState()
-    {
-        var registry = new HpdAgentTuiBuilder()
-            .AddAgentTuiDefaults()
-            .AddCodingHarnessTui()
-            .Build();
-        var state = new AgentTuiSessionState(
-            new AgentTuiRuntimeScope("agent", "session", "main"),
-            registry);
-
-        await state.ApplyEventAsync(new ToolCallStartEvent("call-read-1", "ReadFile", "msg-1"));
-
-        var rendered = RenderShell(registry, state);
-        rendered.Should().Contain("exploring");
     }
 
     private static AgentTuiSessionState CreateState()

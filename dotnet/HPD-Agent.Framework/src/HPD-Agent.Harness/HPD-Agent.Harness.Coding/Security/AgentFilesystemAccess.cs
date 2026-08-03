@@ -99,8 +99,8 @@ internal static class AgentFilesystemAccess
                         capability == AgentCapabilityKind.FilesystemRead
                             ? "The operation needs to read outside the active sandbox grants."
                             : "The operation needs to write outside the active sandbox grants."),
+                    cancellationToken,
                     timeout: null)
-                .WaitAsync(cancellationToken)
                 .ConfigureAwait(false);
         }
         catch (TimeoutException)

@@ -8,6 +8,31 @@ namespace HPD.Environment.Runtime.Tests;
 public sealed class InMemoryEnvironmentRuntimeTests
 {
     [Fact]
+    public async Task Reconstructed_runtimes_do_not_reuse_resource_identity()
+    {
+        EnvironmentProviderRegistry registry = CreateRegistry();
+        var first = new InMemoryEnvironmentRuntime(registry);
+        var reconstructed = new InMemoryEnvironmentRuntime(registry);
+        var spec = new RuntimeHostSpec
+        {
+            Platform = new PlatformSpec("linux", "x64"),
+            PreferredProvider =
+                InMemoryEnvironmentProvider.InMemoryProviderId,
+        };
+
+        ResourceSnapshot<RuntimeHost, RuntimeHostSpec, RuntimeHostStatus>
+            firstHost = await first.EnsureHostAsync(spec);
+        ResourceSnapshot<RuntimeHost, RuntimeHostSpec, RuntimeHostStatus>
+            reconstructedHost = await reconstructed.EnsureHostAsync(spec);
+
+        Assert.NotEqual(firstHost.Metadata.Id, reconstructedHost.Metadata.Id);
+        Assert.StartsWith("runtime-host-", firstHost.Metadata.Id.Value);
+        Assert.StartsWith(
+            "runtime-host-",
+            reconstructedHost.Metadata.Id.Value);
+    }
+
+    [Fact]
     public async Task Host_reset_requires_verified_stop_and_preserves_exact_runtime_identity()
     {
         var runtime = new InMemoryEnvironmentRuntime(CreateRegistry());

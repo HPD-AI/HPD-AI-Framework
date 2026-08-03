@@ -32,9 +32,17 @@ public sealed class GatewayCertificateSourceRegistryBuilder
         if (_sources.Count is < 1 or > 1_024) throw new InvalidOperationException("One to 1,024 certificate sources are required.");
         foreach (var source in _sources.Values)
         {
-            using var certificate = X509CertificateLoader.LoadPkcs12FromFile(source.Path, source.Password, X509KeyStorageFlags.DefaultKeySet);
-            if (!certificate.HasPrivateKey || certificate.NotBefore > DateTime.Now || certificate.NotAfter <= DateTime.Now)
-                throw new InvalidOperationException("Certificate source is invalid for server authentication.");
+            try
+            {
+                using var certificate = X509CertificateLoader.LoadPkcs12FromFile(source.Path, source.Password, X509KeyStorageFlags.DefaultKeySet);
+                if (!certificate.HasPrivateKey || certificate.NotBefore > DateTime.Now || certificate.NotAfter <= DateTime.Now)
+                    throw new InvalidOperationException("Certificate source is invalid for server authentication.");
+            }
+            catch (InvalidOperationException) { throw; }
+            catch (Exception exception) when (exception is System.Security.Cryptography.CryptographicException or IOException or UnauthorizedAccessException)
+            {
+                throw new InvalidOperationException("Certificate source cannot be loaded.");
+            }
         }
         return new(_sources.ToImmutableDictionary());
     }
@@ -46,12 +54,20 @@ internal sealed class GatewayCertificateSourceRegistry(ImmutableDictionary<Secre
     {
         if (!sources.TryGetValue(reference, out var source))
             throw new InvalidOperationException("A referenced certificate source is not installed.");
-        using var certificate = X509CertificateLoader.LoadPkcs12FromFile(source.Path, source.Password, X509KeyStorageFlags.DefaultKeySet);
-        var names = certificate.Extensions.OfType<X509SubjectAlternativeNameExtension>()
-            .SelectMany(static extension => extension.EnumerateDnsNames())
-            .Select(static name => name.ToLowerInvariant().TrimEnd('.'));
-        if (!names.Contains(hostnamePattern, StringComparer.Ordinal))
-            throw new InvalidOperationException("A referenced certificate does not cover its declared SNI pattern.");
+        try
+        {
+            using var certificate = X509CertificateLoader.LoadPkcs12FromFile(source.Path, source.Password, X509KeyStorageFlags.DefaultKeySet);
+            var names = certificate.Extensions.OfType<X509SubjectAlternativeNameExtension>()
+                .SelectMany(static extension => extension.EnumerateDnsNames())
+                .Select(static name => name.ToLowerInvariant().TrimEnd('.'));
+            if (!names.Contains(hostnamePattern, StringComparer.Ordinal))
+                throw new InvalidOperationException("A referenced certificate does not cover its declared SNI pattern.");
+        }
+        catch (InvalidOperationException) { throw; }
+        catch (Exception exception) when (exception is System.Security.Cryptography.CryptographicException or IOException or UnauthorizedAccessException)
+        {
+            throw new InvalidOperationException("Certificate source cannot be loaded.");
+        }
         return source;
     }
 }

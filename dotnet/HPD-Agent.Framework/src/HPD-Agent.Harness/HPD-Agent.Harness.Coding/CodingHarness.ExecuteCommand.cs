@@ -672,8 +672,8 @@ public partial class CodingToolHarness
                         capability,
                         resource,
                         failureSummary),
+                    cancellationToken,
                     timeout: null)
-                .WaitAsync(cancellationToken)
                 .ConfigureAwait(false);
             return response.Approved;
         }

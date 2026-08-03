@@ -22,7 +22,7 @@ namespace HPD.Agent.ToolHarness.Coding.TUI.Tests;
 public sealed class FileMutationTuiTests
 {
     [Fact]
-    public void AddCodingHarnessTui_RegistersFileMutationHandlersAndStatus()
+    public void AddCodingHarnessTui_RegistersFileMutationHandlersAndRenderers()
     {
         var registry = new HpdAgentTuiBuilder()
             .AddCodingHarnessTui()
@@ -33,12 +33,6 @@ public sealed class FileMutationTuiTests
             "hpd.coding.diagnostics.received",
             "hpd.coding.language-server.status"
         ]);
-        registry.FooterItems.Select(static item => item.Key).Should().Contain([
-            "hpd.coding.files",
-            "hpd.coding.diagnostics"
-        ]);
-        registry.FooterItems.Select(static item => item.Key)
-            .Should().NotContain("hpd.coding.language-servers");
         registry.Commands.Should().Contain(static command => command.Name == "lsp");
         registry.Pages.Should().Contain(static page => page.Id == "hpd.coding.language-servers");
         registry.TranscriptRenderers.TryFindRenderer<CodingFileMutationTranscriptCell>(
@@ -119,7 +113,6 @@ public sealed class FileMutationTuiTests
         ReadRows(state.Shell.Transcript).Should().ContainSingle()
             .Which.Cell.Should().BeOfType<CodingFileMutationTranscriptCell>();
         RenderTranscript(state, registry.TranscriptRenderers).Should().Contain("custom mutation row");
-        RenderShell(registry, state).Should().Contain("files +1 -1");
     }
 
     [Fact]
@@ -210,9 +203,8 @@ public sealed class FileMutationTuiTests
         await state.ApplyEventAsync(mutation);
 
         ReadRows(state.Shell.Transcript).Should().ContainSingle();
-        var rendered = RenderShell(registry, state);
-        rendered.Should().Contain("files +2 -0");
-        rendered.Should().NotContain("changed 2 files");
+        var rendered = RenderTranscript(state, registry.TranscriptRenderers);
+        rendered.Should().Contain("Created test/FooTests.cs (+2 -0)");
         rendered.Should().NotContain("+4 -0");
     }
 
@@ -317,25 +309,6 @@ public sealed class FileMutationTuiTests
         rendered.Should().Contain("38;2;201;82;221");
         rendered.Should().Contain("38;2;110;120;130");
         rendered.Should().Contain("38;2;245;190;80");
-    }
-
-    [Fact]
-    public async Task FooterItems_ReadFileAndDiagnosticsState()
-    {
-        var registry = new HpdAgentTuiBuilder()
-            .AddAgentTuiDefaults()
-            .AddCodingHarnessTui()
-            .Build();
-        var state = new AgentTuiSessionState(
-            new AgentTuiRuntimeScope("agent", "session", "main"),
-            registry);
-
-        await state.ApplyEventAsync(EditMutation());
-        await state.ApplyEventAsync(Diagnostics(path: "/repo/src/Foo.cs", displayPath: "src/Foo.cs"));
-
-        var rendered = RenderShell(registry, state);
-        rendered.Should().Contain("files +1 -1");
-        rendered.Should().Contain("diag 1E");
     }
 
     private static AgentTuiSessionState CreateState()

@@ -571,6 +571,9 @@ internal sealed class AppleVirtualizationStorageProvider :
             persisted with
             {
                 Phase = ResourcePhase.Ready,
+                VolumePhase = response.Attached
+                    ? DurableVolumePhase.Attached
+                    : DurableVolumePhase.Ready,
                 VolumeGeneration = recoveredGeneration,
                 PhysicalAllocatedBytes =
                     response.PhysicalAllocatedBytes,

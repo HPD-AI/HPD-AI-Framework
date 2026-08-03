@@ -229,6 +229,28 @@ public sealed class FunctionExecutionContextTests
     }
 
     [Fact]
+    public async Task FunctionExecutionContext_RequestAsync_CancellationRemovesPendingRequest()
+    {
+        var coordinator = new EventCoordinator();
+        var context = CreateContext(eventCoordinator: coordinator);
+        using var cancellation = new CancellationTokenSource();
+
+        var responseTask = context.RequestAsync<TestRequestEvent, TestResponseEvent>(
+            new TestRequestEvent("request-1", "test"),
+            cancellation.Token);
+
+        coordinator.GetPendingRequests().Should().ContainSingle();
+
+        cancellation.Cancel();
+
+        Func<Task> waitForResponse = async () => await responseTask;
+        await waitForResponse.Should().ThrowAsync<OperationCanceledException>();
+        coordinator.GetPendingRequests().Should().BeEmpty();
+        coordinator.Respond(new TestResponseEvent("request-1", "test"))
+            .Status.Should().Be(HPD.Events.RespondStatus.Cancelled);
+    }
+
+    [Fact]
     public void RegisterBackgroundTask_WithoutRegistry_Throws()
     {
         var context = CreateContext(backgroundTasks: null);
@@ -370,6 +392,18 @@ public sealed class FunctionExecutionContextTests
     private sealed record TestAgentEvent : AgentEvent
     {
         public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
+    }
+
+    private sealed record TestRequestEvent(string RequestId, string SourceName)
+        : AgentEvent, HPD.Events.IRequestEvent
+    {
+        public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
+    }
+
+    private sealed record TestResponseEvent(string RequestId, string SourceName)
+        : AgentEvent, HPD.Events.IResponseEvent
+    {
+        public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
     }
 
     private readonly record struct ToolStructSample(

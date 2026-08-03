@@ -30,6 +30,10 @@ public static class GatewayHostCandidateReader
             var reader = new Utf8JsonReader(utf8Json, new JsonReaderOptions { MaxDepth = 32 });
             var tokens = 0;
             string? propertyName = null;
+            var arrayFrames = new bool[33];
+            var itemCounts = new int[33];
+            var propertyNames = new HashSet<string>?[33];
+            var frameDepth = 0;
             while (reader.Read())
             {
                 if (++tokens > 32_768) return Failure("host.token-bound", "$", "Host document exceeds its token bound.");
@@ -37,11 +41,43 @@ public static class GatewayHostCandidateReader
                 if (reader.TokenType is JsonTokenType.String or JsonTokenType.PropertyName && length > 4_096)
                     return Failure("host.string-bound", "$", "Host document contains an oversized string.");
                 if (reader.TokenType == JsonTokenType.PropertyName)
+                {
                     propertyName = reader.GetString();
+                    if (frameDepth == 0 || propertyName is null || !propertyNames[frameDepth - 1]!.Add(propertyName))
+                        return Failure("host.duplicate-property", "$", "Host document contains a duplicate JSON property.");
+                    if (++itemCounts[frameDepth - 1] > 64)
+                        return Failure("host.property-bound", "$", "Host object exceeds its property bound.");
+                }
                 else if (reader.TokenType == JsonTokenType.Number && propertyName is "binding" or "protocols" or "fallback")
                     return Failure("host.numeric-enum", "$", "Host enum values must use their supported string names.");
-                else if (reader.TokenType is not JsonTokenType.StartObject and not JsonTokenType.StartArray)
-                    propertyName = null;
+                if (frameDepth > 0 && arrayFrames[frameDepth - 1] && reader.TokenType != JsonTokenType.EndArray &&
+                    ++itemCounts[frameDepth - 1] > 128)
+                    return Failure("host.array-bound", "$", "Host array exceeds its item bound.");
+                switch (reader.TokenType)
+                {
+                    case JsonTokenType.StartObject:
+                        arrayFrames[frameDepth] = false;
+                        itemCounts[frameDepth] = 0;
+                        propertyNames[frameDepth] = new(StringComparer.Ordinal);
+                        frameDepth++;
+                        propertyName = null;
+                        break;
+                    case JsonTokenType.StartArray:
+                        arrayFrames[frameDepth] = true;
+                        itemCounts[frameDepth] = 0;
+                        propertyNames[frameDepth] = null;
+                        frameDepth++;
+                        propertyName = null;
+                        break;
+                    case JsonTokenType.EndObject:
+                    case JsonTokenType.EndArray:
+                        frameDepth--;
+                        propertyName = null;
+                        break;
+                    case not JsonTokenType.PropertyName:
+                        propertyName = null;
+                        break;
+                }
             }
             var configuration = JsonSerializer.Deserialize(utf8Json, GatewayHostJsonContext.Default.GatewayHostConfiguration);
             return configuration is null ? Failure("host.missing", "$", "Host document produced no value.") : Create(configuration);
@@ -64,6 +100,7 @@ public static class GatewayHostCandidateReader
 
         var listeners = ImmutableArray.CreateBuilder<GatewayHttpsListenerDeclaration>();
         var listenerIds = new HashSet<string>(StringComparer.Ordinal);
+        var listenerPorts = new HashSet<ushort>();
         foreach (var (listener, index) in configuration.DataListeners.IsDefault ? [] : configuration.DataListeners.Select((value, index) => (value, index)))
         {
             var path = $"dataListeners[{index}]";
@@ -71,6 +108,7 @@ public static class GatewayHostCandidateReader
             if (!GatewayIdentifier.IsCanonical(listener.Id.Value) || !listenerIds.Add(listener.Id.Value)) Add(errors, "host.invalid-listener-id", $"{path}.id", "Listener ID must be canonical and unique.");
             if (!Enum.IsDefined(listener.Binding)) Add(errors, "host.invalid-binding", $"{path}.binding", "Listener binding is unsupported.");
             if (listener.Port == 0) Add(errors, "host.invalid-port", $"{path}.port", "Listener port must be nonzero.");
+            else if (!listenerPorts.Add(listener.Port)) Add(errors, "host.listener-conflict", $"{path}.port", "Listener ports must be unique in this host profile.");
             if (listener.Protocols is GatewayListenerProtocols.Http1 or GatewayListenerProtocols.Http2 or (GatewayListenerProtocols.Http1 | GatewayListenerProtocols.Http2)) { }
             else Add(errors, "host.invalid-protocols", $"{path}.protocols", "Only HTTP/1, HTTP/2, or HTTP/1+2 is supported.");
             string? normalizedAddress = null;

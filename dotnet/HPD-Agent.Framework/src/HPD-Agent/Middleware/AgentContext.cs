@@ -409,7 +409,6 @@ public sealed class AgentContext
         if (TraceId is not null && request.TraceId is null)
             request = (TRequest)(request with { TraceId = TraceId });
 
-        var effectiveTimeout = timeout ?? TimeSpan.FromMinutes(5);
         if (_thread is not null)
         {
             request = (TRequest)ThreadEventValidation.PrepareForAppend(
@@ -422,7 +421,7 @@ public sealed class AgentContext
             request,
             new HPD.Events.RequestOptions
             {
-                Timeout = effectiveTimeout,
+                Timeout = timeout,
                 CancellationToken = _cancellationToken
             });
 

@@ -7,6 +7,7 @@ using System.Runtime.InteropServices;
 using System.Runtime.CompilerServices;
 using HPD.Agent.Sandbox.ProcessIsolation;
 using HPD.Environment.AppleVirtualization.Authority;
+using HPD.Environment.AppleVirtualization.Hosts;
 using HPD.Environment.AppleVirtualization.Protocol;
 using HPD.Environment.AppleVirtualization.State;
 using HPD.Environment.Contracts;
@@ -20,6 +21,8 @@ public sealed class AppleVirtualizationProcessProvider : IProcessProvider, IReta
 
     private readonly AppleVirtualizationProviderStateLedger _ledger;
     private readonly IAppleVirtualizationHelperClient _helper;
+    private readonly AppleVirtualizationRuntimeHostProvider?
+        _runtimeHostProvider;
     private readonly ISandboxPlanner _sandboxPlanner;
     private readonly ConcurrentDictionary<string, long> _lastOutputSequenceByProcess = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, AppleVirtualizationProcessHostRoute> _hostRouteByProcess = new(StringComparer.Ordinal);
@@ -30,7 +33,19 @@ public sealed class AppleVirtualizationProcessProvider : IProcessProvider, IReta
     internal AppleVirtualizationProcessProvider(
         AppleVirtualizationProviderStateLedger ledger,
         IAppleVirtualizationHelperClient helper)
-        : this(ledger, helper, new SandboxIsolationPlanner())
+        : this(ledger, helper, new SandboxIsolationPlanner(), null)
+    {
+    }
+
+    internal AppleVirtualizationProcessProvider(
+        AppleVirtualizationProviderStateLedger ledger,
+        IAppleVirtualizationHelperClient helper,
+        AppleVirtualizationRuntimeHostProvider runtimeHostProvider)
+        : this(
+            ledger,
+            helper,
+            new SandboxIsolationPlanner(),
+            runtimeHostProvider)
     {
     }
 
@@ -38,10 +53,20 @@ public sealed class AppleVirtualizationProcessProvider : IProcessProvider, IReta
         AppleVirtualizationProviderStateLedger ledger,
         IAppleVirtualizationHelperClient helper,
         ISandboxPlanner sandboxPlanner)
+        : this(ledger, helper, sandboxPlanner, null)
+    {
+    }
+
+    internal AppleVirtualizationProcessProvider(
+        AppleVirtualizationProviderStateLedger ledger,
+        IAppleVirtualizationHelperClient helper,
+        ISandboxPlanner sandboxPlanner,
+        AppleVirtualizationRuntimeHostProvider? runtimeHostProvider)
     {
         _ledger = ledger ?? throw new ArgumentNullException(nameof(ledger));
         _helper = helper ?? throw new ArgumentNullException(nameof(helper));
         _sandboxPlanner = sandboxPlanner ?? throw new ArgumentNullException(nameof(sandboxPlanner));
+        _runtimeHostProvider = runtimeHostProvider;
     }
 
     public ProviderId ProviderId => AppleVirtualizationProviderDescriptor.ProviderId;
@@ -134,6 +159,14 @@ public sealed class AppleVirtualizationProcessProvider : IProcessProvider, IReta
         if (response.ResponseStatus == AppleVirtualizationHelperResponseStatus.Error)
         {
             Diagnostic diagnostic = ProcessDiagnostics.ToDiagnostic(response.Error, "process.start");
+            if (diagnostic.Code.Value ==
+                "AppleVirtualization.ProcessResponseIdentityMismatch")
+            {
+                await RefreshAssignedHostObservationAsync(
+                        unit,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            }
             ProcessInvocationResult result = FailedResult(entry, spec, ProcessCompletionKind.FailedToStart, diagnostic);
             ProcessInvocationStatus failed = starting with
             {
@@ -170,6 +203,27 @@ public sealed class AppleVirtualizationProcessProvider : IProcessProvider, IReta
         }
 
         return new AppleVirtualizationProcessInvocationHandle(this, entry.TargetHandle, entry.Resource, spec);
+    }
+
+    private async ValueTask RefreshAssignedHostObservationAsync(
+        AppleVirtualizationLedgerEntry<ExecutionUnit,
+            ExecutionUnitStatus> unit,
+        CancellationToken cancellationToken)
+    {
+        if (_runtimeHostProvider is null ||
+            unit.Status.AssignedHost is not { } assignedHost)
+            return;
+
+        AppleVirtualizationLedgerLookup<AppleVirtualizationLedgerEntry<
+            RuntimeHost, RuntimeHostStatus>> hostLookup =
+            _ledger.TryGetRuntimeHost(assignedHost);
+        if (!hostLookup.Succeeded)
+            return;
+
+        await _runtimeHostProvider.GetStatusAsync(
+                hostLookup.Entry!.TargetHandle,
+                cancellationToken)
+            .ConfigureAwait(false);
     }
 
     private async ValueTask<SandboxPlanEnvelope?> CreateSandboxPlanAsync(

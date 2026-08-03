@@ -173,6 +173,41 @@ public sealed class TranscriptViewTests
     }
 
     [Fact]
+    public void Render_TerminalScrollback_EmitsHistoryBeyondViewportHeight()
+    {
+        var model = new TranscriptModel
+        {
+            HistoryPresentation = TranscriptHistoryPresentation.TerminalScrollback
+        };
+        for (var i = 0; i < 8; i++)
+            model.AddFinal(Row($"row-{i}", $"row:{i}", $"row {i}"));
+
+        var view = CreateView(model, height: 3);
+        var rendered = TuiCapture.RenderToString(
+            view, width: 80, height: 32, trimTrailingBlankLines: true);
+
+        rendered.Should().Contain("row 0").And.Contain("row 7");
+        view.HandleInput(new KeyEvent(KeyCode.PageUp)).Should().BeFalse();
+    }
+
+    [Fact]
+    public void Render_Viewport_DoesNotEmitHistoryBeyondViewportHeight()
+    {
+        var model = new TranscriptModel
+        {
+            HistoryPresentation = TranscriptHistoryPresentation.Viewport
+        };
+        for (var i = 0; i < 8; i++)
+            model.AddFinal(Row($"row-{i}", $"row:{i}", $"row {i}"));
+
+        var view = CreateView(model, height: 3);
+        var rendered = TuiCapture.RenderToString(
+            view, width: 80, height: 20, trimTrailingBlankLines: true);
+
+        rendered.Should().Contain("row 7").And.NotContain("row 0");
+    }
+
+    [Fact]
     public void HandleInput_RepeatedPaging_ClampsToHistoryBoundaries()
     {
         var model = new TranscriptModel();

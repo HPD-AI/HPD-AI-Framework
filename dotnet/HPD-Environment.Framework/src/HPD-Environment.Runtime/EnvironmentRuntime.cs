@@ -3053,7 +3053,8 @@ public sealed partial class InMemoryEnvironmentRuntime(
         long generation = Interlocked.Increment(ref _generation);
         return new ResourceMetadata<TResource>
         {
-            Id = new ResourceId<TResource>($"{kind}-{generation}"),
+            Id = new ResourceId<TResource>(
+                $"{kind}-{Guid.NewGuid():N}"),
             Kind = new ResourceKind(kind),
             Scope = new ResourceScope("in-memory-runtime"),
             SchemaVersion = new SchemaVersion("v1"),

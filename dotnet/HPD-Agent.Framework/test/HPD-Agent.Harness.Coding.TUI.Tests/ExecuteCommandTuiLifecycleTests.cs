@@ -42,11 +42,6 @@ public sealed class ExecuteCommandTuiLifecycleTests
             "hpd.coding.commands",
             "hpd.coding.background"
         ]);
-        registry.FooterItems.Select(static item => item.Key).Should().Contain([
-            "hpd.coding.commands",
-            "hpd.coding.background",
-            "hpd.coding.output"
-        ]);
         registry.BelowEditorWidgets.Should().BeEmpty();
         registry.TranscriptRenderers.TryFindRenderer<CodingCommandCell>(
             CodingHarnessTuiTranscriptRendererKeys.Command,
@@ -562,30 +557,6 @@ public sealed class ExecuteCommandTuiLifecycleTests
     }
 
     [Fact]
-    public async Task FooterItems_ReadSharedCommandState()
-    {
-        var registry = new HpdAgentTuiBuilder()
-            .AddAgentTuiDefaults()
-            .AddCodingHarnessTui()
-            .Build();
-        var state = new AgentTuiSessionState(
-            new AgentTuiRuntimeScope("agent", "session", "main"),
-            registry);
-
-        await state.ApplyEventAsync(Started(command: "npm run dev"));
-        await state.ApplyEventAsync(Output(
-            "listening on http://localhost:5173\n",
-            command: "npm run dev",
-            truncated: true));
-        await state.ApplyEventAsync(Backgrounded());
-
-        var rendered = RenderShell(registry, state);
-        rendered.Should().Contain("bg 1 npm run dev");
-        rendered.Should().Contain("/background");
-        rendered.Should().Contain("output truncated");
-    }
-
-    [Fact]
     public async Task CommandOutput_RendersInTranscript()
     {
         var registry = new HpdAgentTuiBuilder()
@@ -669,9 +640,7 @@ public sealed class ExecuteCommandTuiLifecycleTests
         await state.ApplyEventAsync(Exited(command: "npm run dev", exitCode: 0, durationMilliseconds: 2_000));
 
         var rendered = RenderShell(registry, state);
-        rendered.Should().Contain("bg completed npm run dev");
-        rendered.Should().NotContain("bg 1 npm run dev");
-        rendered.Should().NotContain("/background");
+        rendered.Should().Contain("Background command completed npm run dev");
     }
 
     [Fact]

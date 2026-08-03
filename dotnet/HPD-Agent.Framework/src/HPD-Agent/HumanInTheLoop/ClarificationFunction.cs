@@ -62,7 +62,6 @@ public static class ClarificationFunction
 
             // Wait for user's response (blocks here while event is processed)
             ClarificationResponseEvent response;
-            var effectiveTimeout = timeout ?? TimeSpan.FromMinutes(5);
             try
             {
                 response = await context.RequestAsync<ClarificationRequestEvent, ClarificationResponseEvent>(
@@ -72,11 +71,12 @@ public static class ClarificationFunction
                         question,
                         AgentName: context.AgentName,
                         Options: null),
-                    effectiveTimeout);
+                    cancellationToken,
+                    timeout);
             }
             catch (TimeoutException)
             {
-                return $"  Clarification request timed out after {effectiveTimeout.TotalMinutes} minutes. Please proceed with available information or ask the user to respond more promptly.";
+                return $"  Clarification request timed out after {timeout!.Value.TotalMinutes} minutes. Please proceed with available information or ask the user to respond more promptly.";
             }
             catch (OperationCanceledException)
             {

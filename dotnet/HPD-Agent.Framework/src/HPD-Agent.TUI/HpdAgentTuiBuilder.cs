@@ -32,6 +32,17 @@ public sealed class HpdAgentTuiBuilder
     private bool _includeSlashCommandAutocomplete;
     private AgentTuiRunConfigComposer? _runConfigComposer;
     private IAgentTuiThreadStateReconciler? _threadStateReconciler;
+    private TranscriptHistoryPresentation _transcriptHistoryPresentation;
+
+    public HpdAgentTuiBuilder UseTranscriptHistoryPresentation(
+        TranscriptHistoryPresentation presentation)
+    {
+        if (!Enum.IsDefined(presentation))
+            throw new ArgumentOutOfRangeException(nameof(presentation));
+
+        _transcriptHistoryPresentation = presentation;
+        return this;
+    }
 
     public HpdAgentTuiBuilder AddAgentTuiDefaults()
         => AddDefaultShell()
@@ -1008,6 +1019,7 @@ public sealed class HpdAgentTuiBuilder
             _theme,
             _includeSlashCommandAutocomplete,
             _runConfigComposer,
-            _threadStateReconciler);
+            _threadStateReconciler,
+            _transcriptHistoryPresentation);
 
 }

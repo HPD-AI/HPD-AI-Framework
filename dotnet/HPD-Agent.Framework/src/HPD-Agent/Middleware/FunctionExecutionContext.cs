@@ -154,6 +154,7 @@ public sealed class FunctionExecutionContext
 
     public async Task<TResponse> RequestAsync<TRequest, TResponse>(
         TRequest request,
+        CancellationToken cancellationToken,
         TimeSpan? timeout = null)
         where TRequest : AgentEvent, HPD.Events.IRequestEvent
         where TResponse : AgentEvent, HPD.Events.IResponseEvent
@@ -164,10 +165,13 @@ public sealed class FunctionExecutionContext
             throw new InvalidOperationException("Function execution context does not have an event coordinator.");
 
         var tracedRequest = WithInvocationScope(request);
-        var effectiveTimeout = timeout ?? TimeSpan.FromMinutes(5);
         var handle = EventCoordinator.RegisterRequest<TRequest, TResponse>(
             tracedRequest,
-            new RequestOptions { Timeout = effectiveTimeout });
+            new RequestOptions
+            {
+                Timeout = timeout,
+                CancellationToken = cancellationToken
+            });
 
         try
         {
@@ -177,11 +181,12 @@ public sealed class FunctionExecutionContext
             {
                 await ThreadEvents.CommitAndPublishAsync(
                     new ThreadKey(tracedRequest.SessionId, tracedRequest.ThreadId),
-                    tracedRequest).ConfigureAwait(false);
+                    tracedRequest,
+                    cancellationToken).ConfigureAwait(false);
             }
             else
             {
-                await EventCoordinator.EmitAsync(tracedRequest).ConfigureAwait(false);
+                await EventCoordinator.EmitAsync(tracedRequest, cancellationToken).ConfigureAwait(false);
             }
 
             return (TResponse)await handle.Response.ConfigureAwait(false);

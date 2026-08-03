@@ -94,7 +94,10 @@ public sealed class AppleVirtualizationProviderModule : IProviderModule
         builder.AddRuntimeHostWakeReconciliationProvider(runtimeHostProvider);
         builder.AddExecutionUnitProvider(new AppleVirtualizationExecutionUnitProvider(_ledger, _helperClient, projectionProvider, authorityProvider));
         builder.AddContentProjectionProvider(projectionProvider);
-        builder.AddProcessProvider(new AppleVirtualizationProcessProvider(_ledger, _helperClient));
+        builder.AddProcessProvider(new AppleVirtualizationProcessProvider(
+            _ledger,
+            _helperClient,
+            runtimeHostProvider));
         builder.AddNetworkProvider(networkProvider);
         builder.AddNetworkMembershipProvider(networkProvider);
         builder.AddServiceDiscoveryProvider(serviceDiscoveryProvider);

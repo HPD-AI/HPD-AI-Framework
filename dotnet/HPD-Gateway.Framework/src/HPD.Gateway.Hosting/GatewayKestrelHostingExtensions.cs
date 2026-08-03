@@ -2,6 +2,8 @@ using HPD.Gateway.Abstractions;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 
 namespace HPD.Gateway.Hosting;
 
@@ -20,6 +22,14 @@ public static class GatewayKestrelHostingExtensions
         var sources = sourceBuilder.Build();
         var values = Materialize(candidate.Configuration, sources);
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(values).Build();
+        var runtimeStatus = new GatewayHostRuntimeStatus(candidate);
+        webHost.ConfigureServices(services =>
+        {
+            if (services.Any(static descriptor => descriptor.ServiceType == typeof(GatewayHostRuntimeStatus)))
+                throw new InvalidOperationException("HPD Gateway Hosting may be installed only once.");
+            services.AddSingleton(runtimeStatus);
+            services.AddSingleton<IHostedService, GatewayHostLifetimeObserver>();
+        });
         webHost.UseKestrelHttpsConfiguration();
         webHost.ConfigureKestrel(options => options.Configure(configuration, reloadOnChange: false));
         return webHost;
