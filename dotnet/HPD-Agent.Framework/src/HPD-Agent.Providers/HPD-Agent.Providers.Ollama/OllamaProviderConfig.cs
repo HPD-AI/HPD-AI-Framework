@@ -3,7 +3,7 @@ namespace HPD.Agent.Providers.Ollama;
 /// <summary>
 /// Ollama-specific provider construction configuration.
 /// </summary>
-public sealed class OllamaProviderConfig
+public sealed class OllamaProviderConfig : global::HPD.Agent.IProviderConfig
 {
     /// <summary>
     /// Timeout, in milliseconds, applied to the underlying HTTP client.

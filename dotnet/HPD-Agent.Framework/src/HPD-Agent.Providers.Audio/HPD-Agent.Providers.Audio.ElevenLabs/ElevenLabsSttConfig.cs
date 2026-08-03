@@ -5,7 +5,7 @@ using System.Text.Json.Serialization;
 
 namespace HPD.Agent.Providers.Audio.ElevenLabs;
 
-public sealed class ElevenLabsSttConfig
+public sealed class ElevenLabsSttConfig : global::HPD.Agent.ISpeechToTextProviderOptions
 {
     [JsonPropertyName("apiKey")]
     public string? ApiKey { get; set; }

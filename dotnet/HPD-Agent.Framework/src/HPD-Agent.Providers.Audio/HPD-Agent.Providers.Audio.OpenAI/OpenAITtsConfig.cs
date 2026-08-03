@@ -5,7 +5,7 @@ using System.Text.Json.Serialization;
 
 namespace HPD.Agent.Providers.Audio.OpenAI;
 
-public sealed class OpenAITtsConfig
+public sealed class OpenAITtsConfig : global::HPD.Agent.ITextToSpeechProviderOptions
 {
     [JsonPropertyName("apiKey")]
     public string? ApiKey { get; set; }

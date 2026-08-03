@@ -7,7 +7,7 @@ using HPD.Agent.Audio.Output;
 
 namespace HPD.Agent.Providers.Audio.ElevenLabs;
 
-public sealed class ElevenLabsTtsConfig
+public sealed class ElevenLabsTtsConfig : global::HPD.Agent.ITextToSpeechProviderOptions
 {
     [JsonPropertyName("apiKey")]
     public string? ApiKey { get; set; }

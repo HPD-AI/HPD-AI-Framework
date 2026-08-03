@@ -11,7 +11,7 @@ namespace HPD.Agent.Providers.OnnxRuntime;
 /// and chat-client construction. Per-request generator/search options belong on
 /// <see cref="OnnxRuntimeChatRequestOptions"/> or generic chat runtime options.
 /// </remarks>
-public class OnnxRuntimeProviderConfig
+public class OnnxRuntimeProviderConfig : global::HPD.Agent.IProviderConfig
 {
     /// <summary>
     /// Path to the ONNX Runtime GenAI model directory containing the model files.

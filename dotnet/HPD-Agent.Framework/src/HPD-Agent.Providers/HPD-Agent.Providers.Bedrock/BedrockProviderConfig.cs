@@ -7,7 +7,7 @@ namespace HPD.Agent.Providers.Bedrock;
 /// <summary>
 /// AWS Bedrock-specific provider configuration using the AWS BedrockRuntime SDK.
 /// </summary>
-public class BedrockProviderConfig
+public class BedrockProviderConfig : global::HPD.Agent.IProviderConfig
 {
     /// <summary>
     /// AWS Region where the Bedrock service is hosted.

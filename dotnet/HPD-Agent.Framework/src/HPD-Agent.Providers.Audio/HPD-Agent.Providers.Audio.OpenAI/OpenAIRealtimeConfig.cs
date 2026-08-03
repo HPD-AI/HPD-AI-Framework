@@ -5,7 +5,7 @@ using System.Text.Json.Serialization;
 
 namespace HPD.Agent.Providers.Audio.OpenAI;
 
-public sealed class OpenAIRealtimeConfig
+public sealed class OpenAIRealtimeConfig : global::HPD.Agent.IRealtimeSessionProviderOptions
 {
     [JsonPropertyName("apiKey")]
     public string? ApiKey { get; set; }

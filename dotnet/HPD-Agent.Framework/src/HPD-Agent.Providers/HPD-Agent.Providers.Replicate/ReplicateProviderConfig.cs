@@ -6,7 +6,7 @@ namespace HPD.Agent.Providers.Replicate;
 /// <summary>
 /// Replicate-specific image generation configuration.
 /// </summary>
-public class ReplicateProviderConfig
+public class ReplicateProviderConfig : global::HPD.Agent.IImageGenerationProviderOptions
 {
     /// <summary>
     /// Replicate model owner. If omitted, the provider parses ModelName as owner/model.

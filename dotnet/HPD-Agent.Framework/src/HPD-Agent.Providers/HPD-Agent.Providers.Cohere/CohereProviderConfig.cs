@@ -5,7 +5,7 @@ namespace HPD.Agent.Providers.Cohere;
 /// <summary>
 /// Cohere-specific provider configuration.
 /// </summary>
-public class CohereProviderConfig
+public class CohereProviderConfig : global::HPD.Agent.IEmbeddingGenerationProviderOptions
 {
     /// <summary>
     /// Default embedding model.

@@ -5,7 +5,7 @@ namespace HPD.Agent.Providers.DashScope;
 /// <summary>
 /// DashScope-specific provider configuration.
 /// </summary>
-public class DashScopeProviderConfig
+public class DashScopeProviderConfig : global::HPD.Agent.IEmbeddingGenerationProviderOptions
 {
     /// <summary>
     /// DashScope HTTP API base address.

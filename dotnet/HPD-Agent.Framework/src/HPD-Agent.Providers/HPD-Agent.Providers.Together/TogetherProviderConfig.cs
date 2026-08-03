@@ -5,7 +5,7 @@ namespace HPD.Agent.Providers.Together;
 /// <summary>
 /// Together AI-specific provider configuration.
 /// </summary>
-public class TogetherProviderConfig
+public class TogetherProviderConfig : global::HPD.Agent.IEmbeddingGenerationProviderOptions
 {
     /// <summary>
     /// Default embedding model.
