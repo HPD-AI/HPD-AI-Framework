@@ -302,6 +302,36 @@ public sealed class BaseRecordIdTests
     }
 
     [Fact]
+    public async Task ReceiptOverflowRollsBackRecordsAndLeavesNoIdentityReservation()
+    {
+        var services = new ServiceCollection().AddLogging();
+        services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
+        services.AddHPDBase(builder => builder
+            .ConfigureRuntime(options => options.Mutations.MaxReceiptBytes = 4_096)
+            .AddCollection(TypedIdOwner.Collection));
+        await using ServiceProvider provider = services.BuildServiceProvider();
+        (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
+        BaseMutationRequestIdentity identity = BaseMutationRequestIdentity.Create(
+            "tenant_1", "create-owner", "overflow-request",
+            BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("overflow"u8)));
+        BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(new PrincipalContext
+        {
+            AuthenticationState = PrincipalAuthenticationState.Authenticated,
+            SubjectId = "receipt-user",
+        });
+        BaseBatchBuilder oversized = session.Atomic(identity);
+        oversized.Create(TypedIdOwner.Collection, new RecordId("owner_1"), new TypedIdOwner { Name = new string('x', 8_192) });
+
+        BaseFailure<BaseBatchResult> rejected = (BaseFailure<BaseBatchResult>)await oversized.CommitAsync();
+        BaseBatchBuilder retry = session.Atomic(identity);
+        retry.Create(TypedIdOwner.Collection, new RecordId("owner_1"), new TypedIdOwner { Name = "Owner" });
+        BaseSuccess<BaseBatchResult> committed = (BaseSuccess<BaseBatchResult>)await retry.CommitAsync();
+
+        rejected.Error.Code.Should().Be(BaseMutationRequestErrorCodes.ReceiptTooLarge);
+        committed.Value.RequestDisposition.Should().Be(BaseMutationRequestDisposition.Committed);
+    }
+
+    [Fact]
     public async Task ReceiptDisclosureAuthorizationPrecedesBothDigestComparisons()
     {
         var services = new ServiceCollection().AddLogging();
@@ -420,12 +450,54 @@ public sealed class BaseRecordIdTests
         }
     }
 
-    private static ServiceProvider BuildSqliteReceiptProvider(string database, IPolicyEvaluator? policy = null)
+    [Fact]
+    public async Task SqliteReceiptOverflowRollsBackRecordsAndLeavesNoIdentityReservation()
+    {
+        string database = Path.Combine(Path.GetTempPath(), "hpd-base-receipt-overflow-" + Guid.NewGuid().ToString("N") + ".db");
+        try
+        {
+            await using ServiceProvider provider = BuildSqliteReceiptProvider(database, maxReceiptBytes: 4_096);
+            IBaseSchemaManager schemas = provider.GetRequiredService<IBaseSchemaManager>();
+            BaseSchemaPlan plan = (await schemas.PlanAsync(new BaseSchemaPlanRequest { StoreId = "sqlite" })).Value!;
+            (await schemas.ApplyAsync(new BaseSchemaApplyRequest { ProtectedArtifact = plan.ProtectedArtifact })).IsSuccess().Should().BeTrue();
+            (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
+            BaseMutationRequestIdentity identity = BaseMutationRequestIdentity.Create(
+                "tenant_1", "create-owner", "overflow-request",
+                BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("sqlite-overflow"u8)));
+            BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(new PrincipalContext
+            {
+                AuthenticationState = PrincipalAuthenticationState.Authenticated,
+                SubjectId = "receipt-user",
+            });
+            BaseBatchBuilder oversized = session.Atomic(identity);
+            oversized.Create(TypedIdOwner.Collection, new RecordId("owner_1"), new TypedIdOwner { Name = new string('x', 8_192) });
+
+            BaseFailure<BaseBatchResult> rejected = (BaseFailure<BaseBatchResult>)await oversized.CommitAsync();
+            BaseSuccess<BaseBatchResult> committed = (BaseSuccess<BaseBatchResult>)await ReceiptBatch(provider, identity).CommitAsync();
+
+            rejected.Error.Code.Should().Be(BaseMutationRequestErrorCodes.ReceiptTooLarge);
+            committed.Value.RequestDisposition.Should().Be(BaseMutationRequestDisposition.Committed);
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            if (File.Exists(database)) File.Delete(database);
+        }
+    }
+
+    private static ServiceProvider BuildSqliteReceiptProvider(
+        string database,
+        IPolicyEvaluator? policy = null,
+        int? maxReceiptBytes = null)
     {
         var services = new ServiceCollection().AddLogging();
         if (policy is null) services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
         else services.AddSingleton(policy);
         services.AddHPDBase(builder => builder
+            .ConfigureRuntime(options =>
+            {
+                if (maxReceiptBytes is { } maximum) options.Mutations.MaxReceiptBytes = maximum;
+            })
             .ConfigureSchema(options => options.PlanProtectionKey = Enumerable.Repeat((byte)0x41, 32).ToArray())
             .AddCollection(TypedIdOwner.Collection)
             .UseSqlite(options => options.DataSource = database));
