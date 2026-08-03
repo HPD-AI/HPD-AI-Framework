@@ -16,6 +16,7 @@ internal sealed class DefaultBaseMutationCoordinator(
     IBaseMutationPostCommitDispatcher postCommit,
     IBaseDescriptorRegistry descriptors,
     IOptions<HPDBaseRuntimeOptions> options,
+    TimeProvider timeProvider,
     ILogger<DefaultBaseMutationCoordinator> logger) : IBaseMutationCoordinator
 {
     private readonly HPDBaseRuntimeMutationOptions _limits = options.Value.Mutations;
@@ -133,7 +134,7 @@ internal sealed class DefaultBaseMutationCoordinator(
             return Validation<BasePurgeResult>(BaseCollectionErrorCodes.PurgeInvalid, "The administrative purge request is invalid.");
         }
 
-        DateTimeOffset committedAt = DateTimeOffset.UtcNow;
+        DateTimeOffset committedAt = timeProvider.GetUtcNow();
         var aggregate = new OperationContext
         {
             Operation = BaseOperationKind.Purge,
@@ -310,7 +311,7 @@ internal sealed class DefaultBaseMutationCoordinator(
         {
             Identity = requestIdentity,
             StructuralDigest = BaseAtomicStructureDigest.Compute(commands),
-            ExpiresAt = DateTimeOffset.UtcNow + _limits.ReceiptLifetime,
+            ExpiresAt = timeProvider.GetUtcNow() + _limits.ReceiptLifetime,
             MaxReceiptBytes = _limits.MaxReceiptBytes,
         };
 

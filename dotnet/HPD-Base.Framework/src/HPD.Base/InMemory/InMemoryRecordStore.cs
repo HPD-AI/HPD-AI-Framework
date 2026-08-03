@@ -15,6 +15,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
 {
     private readonly HPDBaseInMemoryStoreOptions _options;
     private readonly BaseQueryCursorCodec _queryCursors;
+    private readonly TimeProvider _timeProvider;
     private readonly SemaphoreSlim _stateGate = new(1, 1);
     private InMemoryStoreState _publishedState = new();
     private long _generation;
@@ -46,6 +47,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         TimeProvider timeProvider)
     {
         _options = options ?? new HPDBaseInMemoryStoreOptions();
+        _timeProvider = timeProvider;
         _queryCursors = new BaseQueryCursorCodec(tokenProtector, timeProvider);
         ValidateOptions(_options);
         Capabilities = CreateCapabilities(_options);
@@ -270,7 +272,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         string? receiptKey = request.AtomicRequest is null ? null : ReceiptKey(request.AtomicRequest.Identity);
         if (receiptKey is not null && working.Receipts.TryGetValue(receiptKey, out InMemoryMutationReceipt? receipt))
         {
-            if (receipt.ExpiresAt <= DateTimeOffset.UtcNow)
+            if (receipt.ExpiresAt <= _timeProvider.GetUtcNow())
             {
                 working.Receipts.Remove(receiptKey);
             }

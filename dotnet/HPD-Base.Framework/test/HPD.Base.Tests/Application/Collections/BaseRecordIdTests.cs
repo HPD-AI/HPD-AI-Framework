@@ -278,6 +278,30 @@ public sealed class BaseRecordIdTests
     }
 
     [Fact]
+    public async Task InMemoryReceiptExpiryUsesTheHostClockAndReexecutesAsNew()
+    {
+        var clock = new ReceiptTimeProvider(new DateTimeOffset(2026, 8, 3, 0, 0, 0, TimeSpan.Zero));
+        var services = new ServiceCollection().AddLogging();
+        services.AddSingleton<TimeProvider>(clock);
+        services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
+        services.AddHPDBase(builder => builder
+            .ConfigureRuntime(options => options.Mutations.ReceiptLifetime = TimeSpan.FromHours(1))
+            .AddCollection(TypedIdOwner.Collection));
+        await using ServiceProvider provider = services.BuildServiceProvider();
+        (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
+        BaseMutationRequestIdentity identity = BaseMutationRequestIdentity.Create(
+            "tenant_1", "create-owner", "expiring-request",
+            BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("expiry"u8)));
+
+        (await ReceiptBatch(provider, identity).CommitAsync()).Should().BeOfType<BaseSuccess<BaseBatchResult>>();
+        clock.Advance(TimeSpan.FromHours(2));
+        BaseResult<BaseBatchResult> retried = await ReceiptBatch(provider, identity).CommitAsync();
+
+        retried.Should().BeOfType<BaseSuccess<BaseBatchResult>>()
+            .Which.Value.Outcome.Should().Be(BaseRecordBatchOutcome.RolledBack);
+    }
+
+    [Fact]
     public async Task ReceiptDisclosureAuthorizationPrecedesBothDigestComparisons()
     {
         var services = new ServiceCollection().AddLogging();
@@ -418,6 +442,13 @@ public sealed class BaseRecordIdTests
         BaseBatchBuilder batch = session.Atomic(identity);
         batch.Create(TypedIdOwner.Collection, new RecordId("owner_1"), new TypedIdOwner { Name = "Owner" });
         return batch;
+    }
+
+    private sealed class ReceiptTimeProvider(DateTimeOffset value) : TimeProvider
+    {
+        private DateTimeOffset _value = value;
+        public override DateTimeOffset GetUtcNow() => _value;
+        public void Advance(TimeSpan duration) => _value += duration;
     }
 
     [Fact]
