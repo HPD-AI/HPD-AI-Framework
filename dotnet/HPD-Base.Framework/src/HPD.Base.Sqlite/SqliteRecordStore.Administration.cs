@@ -186,7 +186,7 @@ public sealed partial class SqliteRecordStore
         if (!ValidDigest(request.ExpectedCurrentStoreIdentityDigest) || !ValidDigest(request.ExpectedArtifactStoreIdentityDigest))
             return RestoreValidation(BaseAdministrationErrorCodes.Invalid, "Restore identity digests are invalid.", BaseRestoreFailureDisposition.RejectedBeforeChange);
 
-        string staging = RandomSiblingPath("restore");
+        string? staging = RandomSiblingPath("restore");
         string activePath = DatabasePath();
         string recovery = activePath + ".recovery." + Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16));
         bool originalMoved = false;
@@ -201,10 +201,58 @@ public sealed partial class SqliteRecordStore
             slotAcquisition.CancelAfter(_options.AdministrationAcquisitionTimeout);
             await _administrationExecutionSlots.WaitAsync(slotAcquisition.Token).ConfigureAwait(false);
             administrationSlot = true;
-            (BaseBackupManifest manifest, _, _, _, _) = await ReadEnvelopeAsync(source, staging, cancellationToken).ConfigureAwait(false);
+            string stagingPath = staging!;
+            Task<(BaseBackupManifest Manifest, byte KeyId, byte[] Header, byte[] ManifestBytes, byte[] Digest)> stagingWork =
+                Task.Run(async () => await ReadEnvelopeAsync(source, stagingPath, CancellationToken.None).ConfigureAwait(false), CancellationToken.None);
+            (BaseBackupManifest Manifest, byte KeyId, byte[] Header, byte[] ManifestBytes, byte[] Digest) artifact;
+            try
+            {
+                artifact = await stagingWork.WaitAsync(_options.RestoreStagingTimeout, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                QuarantineAdministration(stagingWork, null, stagingPath, "restoreStaging");
+                staging = null;
+                administrationSlot = false;
+                throw;
+            }
+            catch (TimeoutException)
+            {
+                QuarantineAdministration(stagingWork, null, stagingPath, "restoreStaging");
+                staging = null;
+                administrationSlot = false;
+                return RestoreStoreError(
+                    BaseAdministrationErrorCodes.RestoreTimeout,
+                    "Restore artifact staging exceeded its bounded lifetime.",
+                    BaseRestoreFailureDisposition.RejectedBeforeChange);
+            }
+            BaseBackupManifest manifest = artifact.Manifest;
             if (!FixedHexEquals(request.ExpectedArtifactStoreIdentityDigest, manifest.StoreIdentityDigest))
                 return RestoreConflict(BaseAdministrationErrorCodes.RestoreIdentityMismatch, "The artifact identity does not match the restore request.", BaseRestoreFailureDisposition.RejectedBeforeChange);
-            await ValidateDatabaseFileAsync(staging, cancellationToken).ConfigureAwait(false);
+            Task validationWork = Task.Run(
+                async () => await ValidateDatabaseFileAsync(stagingPath, CancellationToken.None).ConfigureAwait(false),
+                CancellationToken.None);
+            try
+            {
+                await validationWork.WaitAsync(_options.IntegrityCheckTimeout, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                QuarantineAdministration(validationWork, null, stagingPath, "restoreValidation");
+                staging = null;
+                administrationSlot = false;
+                throw;
+            }
+            catch (TimeoutException)
+            {
+                QuarantineAdministration(validationWork, null, stagingPath, "restoreValidation");
+                staging = null;
+                administrationSlot = false;
+                return RestoreStoreError(
+                    BaseAdministrationErrorCodes.RestoreTimeout,
+                    "Restore artifact validation exceeded its bounded lifetime.",
+                    BaseRestoreFailureDisposition.RejectedBeforeChange);
+            }
 
             using var acquisition = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             acquisition.CancelAfter(_options.AdministrationAcquisitionTimeout);
@@ -222,7 +270,7 @@ public sealed partial class SqliteRecordStore
             if (OperatingSystem.IsWindows()) windowsAttributes = File.GetAttributes(activePath);
             else unixMode = File.GetUnixFileMode(activePath);
 
-            WriteRestoreMarker("Prepared", staging, recovery, ActiveIdentity, manifest.StoreIdentityDigest);
+            WriteRestoreMarker("Prepared", stagingPath, recovery, ActiveIdentity, manifest.StoreIdentityDigest);
             await CheckpointWalAsync(cancellationToken).ConfigureAwait(false);
             await CloseKeepAliveForMaintenanceAsync().ConfigureAwait(false);
             using (var anchor = new SqliteConnection(_connections.BuildConnectionString()))
@@ -232,7 +280,8 @@ public sealed partial class SqliteRecordStore
             MoveIfPresent(activePath + "-shm", recovery + "-shm");
             originalMoved = true;
             WriteRestoreMarker("OriginalRenamed", staging, recovery, ActiveIdentity, manifest.StoreIdentityDigest);
-            File.Move(staging, activePath);
+            File.Move(stagingPath, activePath);
+            staging = null;
             replacementInstalled = true;
             if (!OperatingSystem.IsWindows() && unixMode is { } mode)
             {
@@ -242,7 +291,7 @@ public sealed partial class SqliteRecordStore
             {
                 File.SetAttributes(activePath, attributes);
             }
-            WriteRestoreMarker("ReplacementInstalled", staging, recovery, ActiveIdentity, manifest.StoreIdentityDigest);
+            WriteRestoreMarker("ReplacementInstalled", stagingPath, recovery, ActiveIdentity, manifest.StoreIdentityDigest);
             await ValidateDatabaseFileAsync(activePath, cancellationToken).ConfigureAwait(false);
 
             long epoch = checked(Math.Max(PreRestoreEpoch, manifest.RestoreEpoch) + 1);
@@ -256,10 +305,10 @@ public sealed partial class SqliteRecordStore
                 await update.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
             }
             Volatile.Write(ref _schemaGeneration, manifest.SchemaGeneration);
-            WriteRestoreMarker("ReplacementValidated", staging, recovery, ActiveIdentity, manifest.StoreIdentityDigest);
+            WriteRestoreMarker("ReplacementValidated", stagingPath, recovery, ActiveIdentity, manifest.StoreIdentityDigest);
             retainRecovery = request.RecoveryImageRetention == BaseRecoveryImageRetention.RetainUntilHostRemoves;
             if (!retainRecovery) DeleteRecoverySet(recovery);
-            WriteRestoreMarker("Completed", staging, recovery, ActiveIdentity, manifest.StoreIdentityDigest);
+            WriteRestoreMarker("Completed", stagingPath, recovery, ActiveIdentity, manifest.StoreIdentityDigest);
             DeleteStaging(RestoreMarkerPath());
             await EnsureKeepAliveAsync(CancellationToken.None).ConfigureAwait(false);
             return OperationResults.Ok(new BaseRestoreResult
@@ -306,7 +355,7 @@ public sealed partial class SqliteRecordStore
         }
         finally
         {
-            DeleteStaging(staging);
+            if (staging is not null) DeleteStaging(staging);
             if (!retainRecovery && !replacementInstalled) DeleteRecoverySet(recovery);
             if (administrationSlot) _administrationExecutionSlots.Release();
         }
@@ -342,18 +391,28 @@ public sealed partial class SqliteRecordStore
     {
         HPDBaseSqliteLog.AdministrationQuarantined(_logger, operationKind);
         long id = Interlocked.Increment(ref _nextQuarantinedAdministrationId);
-        Task cleanup = work.ContinueWith(async antecedent =>
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _quarantinedAdministration[id] = completion.Task;
+        _ = work.ContinueWith(async antecedent =>
         {
             _ = antecedent.Exception;
-            try { if (lease is not null) await lease.DisposeAsync().ConfigureAwait(false); }
-            finally
+            try
             {
+                if (lease is not null) await lease.DisposeAsync().ConfigureAwait(false);
                 DeleteStaging(staging);
+                if (File.Exists(staging))
+                    throw new IOException("SQLite administration staging cleanup could not be confirmed.");
                 _administrationExecutionSlots.Release();
                 _quarantinedAdministration.TryRemove(id, out _);
+                completion.TrySetResult();
+            }
+            catch (Exception exception)
+            {
+                // Failed cleanup deliberately retains the resource root, quarantine entry,
+                // and capacity slot. This prevents unbounded admission after cleanup failure.
+                completion.TrySetException(exception);
             }
         }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default).Unwrap();
-        _quarantinedAdministration[id] = cleanup;
     }
 
     private async ValueTask<BaseBackupManifest> ReadManifestAsync(

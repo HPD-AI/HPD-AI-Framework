@@ -122,13 +122,55 @@ public sealed class SqliteAdministrationTests
         finally { Cleanup(path); }
     }
 
-    private static SqliteRecordStore Store(string path, BaseOpaqueTokenProtector protector)
+    [Fact]
+    public async Task NonCooperativeRestoreStagingIsBoundedAndRetainsCapacityUntilCompletion()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"hpd-base-admin-staging-{Guid.NewGuid():N}.db");
+        using BaseOpaqueTokenProtector protector = Protector(5, Enumerable.Repeat((byte)0x55, 32).ToArray());
+        var source = new BlockingReadStream();
+        try
+        {
+            await using SqliteRecordStore store = Store(path, protector, TimeSpan.FromSeconds(1));
+            var destination = new MemoryStream();
+            BaseBackupManifest manifest = (await store.CreateBackupAsync(destination, BackupRequest())).Value!;
+            BaseRestoreRequest request = new()
+            {
+                StoreId = "sqlite",
+                Principal = Principal(),
+                ExpectedCurrentStoreIdentityDigest = manifest.StoreIdentityDigest,
+                ExpectedArtifactStoreIdentityDigest = manifest.StoreIdentityDigest,
+                IdentityMode = BaseRestoreIdentityMode.RequireCurrentStoreIdentity,
+                RecoveryImageRetention = BaseRecoveryImageRetention.DeleteAfterSuccessfulRestore,
+                ConfirmDestructiveReplacement = true,
+            };
+
+            OperationResult<BaseRestoreResult> timedOut = await store.RestoreAsync(source, request);
+
+            timedOut.Error!.Code.Should().Be(BaseAdministrationErrorCodes.RestoreTimeout);
+            timedOut.Error.RestoreFailureDisposition.Should().Be(BaseRestoreFailureDisposition.RejectedBeforeChange);
+            store.QuarantinedAdministrationCount.Should().Be(1);
+
+            source.Complete();
+            SpinWait.SpinUntil(() => store.QuarantinedAdministrationCount == 0, TimeSpan.FromSeconds(2)).Should().BeTrue();
+        }
+        finally
+        {
+            source.Complete();
+            Cleanup(path);
+        }
+    }
+
+    private static SqliteRecordStore Store(
+        string path,
+        BaseOpaqueTokenProtector protector,
+        TimeSpan? restoreStagingTimeout = null)
     {
         SqliteRecordStore store = SqliteTestFactory.Create(new HPDBaseSqliteOptions
         {
             StoreId = "sqlite",
             DataSource = path,
             AdministrationEnabled = true,
+            RestoreStagingTimeout = restoreStagingTimeout ?? TimeSpan.FromMinutes(10),
             MaxBackupArtifactBytes = 16 * 1024 * 1024,
             Collections = [SqliteTestFactory.Collection()],
         }, tokenProtector: protector);
@@ -164,5 +206,22 @@ public sealed class SqliteAdministrationTests
         string name = Path.GetFileName(path);
         foreach (string candidate in Directory.GetFiles(directory).Where(file => Path.GetFileName(file).Contains(name, StringComparison.Ordinal)))
             File.Delete(candidate);
+    }
+
+    private sealed class BlockingReadStream : Stream
+    {
+        private readonly TaskCompletionSource<int> _read = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public void Complete() => _read.TrySetResult(0);
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) => new(_read.Task);
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override void Flush() { }
     }
 }
