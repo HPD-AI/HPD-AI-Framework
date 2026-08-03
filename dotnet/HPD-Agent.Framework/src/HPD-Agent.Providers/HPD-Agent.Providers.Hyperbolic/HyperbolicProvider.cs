@@ -5,6 +5,11 @@ using System.Collections.Generic;
 
 namespace HPD.Agent.Providers.Hyperbolic;
 
+[HpdProvider("hyperbolic", "Hyperbolic")]
+[HpdProviderFamily(ProviderClientFamily.Chat)]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(HyperbolicProviderConfig), typeof(HyperbolicJsonContext))]
+[HpdProviderSecretAlias("hyperbolic:ApiKey", "HYPERBOLIC_API_KEY")]
+[HpdProviderSecretAlias("hyperbolic:Endpoint", "HYPERBOLIC_ENDPOINT", "HYPERBOLIC_BASE_URL")]
 internal sealed class HyperbolicProvider : OpenAICompatibleChatProviderBase<HyperbolicProviderConfig>
 {
     internal static readonly Uri DefaultEndpoint = new("https://api.hyperbolic.xyz/v1/");

@@ -5,6 +5,11 @@ using System.Collections.Generic;
 
 namespace HPD.Agent.Providers.Nebius;
 
+[HpdProvider("nebius", "Nebius Token Factory")]
+[HpdProviderFamily(ProviderClientFamily.Chat)]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(NebiusProviderConfig), typeof(NebiusJsonContext))]
+[HpdProviderSecretAlias("nebius:ApiKey", "NEBIUS_API_KEY")]
+[HpdProviderSecretAlias("nebius:Endpoint", "NEBIUS_ENDPOINT", "NEBIUS_BASE_URL")]
 internal sealed class NebiusProvider : OpenAICompatibleChatProviderBase<NebiusProviderConfig>
 {
     internal static readonly Uri DefaultEndpoint = new("https://api.tokenfactory.nebius.com/v1/");
