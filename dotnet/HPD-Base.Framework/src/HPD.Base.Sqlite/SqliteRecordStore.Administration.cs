@@ -165,7 +165,37 @@ public sealed partial class SqliteRecordStore
         HPDBaseSqliteTelemetry.TraceAdministrationAsync(
             "restore",
             _options.StoreId,
-            () => RestoreCoreAsync(source, request, cancellationToken));
+            () => RestoreCallerBoundedAsync(source, request, cancellationToken));
+
+    private async ValueTask<OperationResult<BaseRestoreResult>> RestoreCallerBoundedAsync(
+        Stream source,
+        BaseRestoreRequest request,
+        CancellationToken cancellationToken)
+    {
+        Task<OperationResult<BaseRestoreResult>> work = Task.Run(
+            async () => await RestoreCoreAsync(source, request, CancellationToken.None).ConfigureAwait(false),
+            CancellationToken.None);
+        TimeSpan bound = _options.RestoreStagingTimeout
+            + _options.IntegrityCheckTimeout + _options.IntegrityCheckTimeout
+            + _options.AdministrationAcquisitionTimeout + _options.AdministrationAcquisitionTimeout;
+        try
+        {
+            return await work.WaitAsync(bound, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!work.IsCompleted)
+        {
+            TrackAdministrationCompletion(work, "restore");
+            throw;
+        }
+        catch (TimeoutException)
+        {
+            TrackAdministrationCompletion(work, "restore");
+            return RestoreStoreError(
+                BaseAdministrationErrorCodes.RestoreIndeterminate,
+                "Restore completion is indeterminate and the store remains under maintenance.",
+                BaseRestoreFailureDisposition.IndeterminateUnavailable);
+        }
+    }
 
     private async ValueTask<OperationResult<BaseRestoreResult>> RestoreCoreAsync(
         Stream source,
@@ -292,6 +322,7 @@ public sealed partial class SqliteRecordStore
                 File.SetAttributes(activePath, attributes);
             }
             WriteRestoreMarker("ReplacementInstalled", stagingPath, recovery, ActiveIdentity, manifest.StoreIdentityDigest);
+            await _administrationOperations.BeforePhaseAsync("postInstallValidation", CancellationToken.None).ConfigureAwait(false);
             await ValidateDatabaseFileAsync(activePath, cancellationToken).ConfigureAwait(false);
 
             long epoch = checked(Math.Max(PreRestoreEpoch, manifest.RestoreEpoch) + 1);
@@ -413,6 +444,22 @@ public sealed partial class SqliteRecordStore
                 completion.TrySetException(exception);
             }
         }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default).Unwrap();
+    }
+
+    private void TrackAdministrationCompletion(Task work, string operationKind)
+    {
+        HPDBaseSqliteLog.AdministrationQuarantined(_logger, operationKind);
+        long id = Interlocked.Increment(ref _nextQuarantinedAdministrationId);
+        _quarantinedAdministration[id] = work;
+        _ = work.ContinueWith(
+            completed =>
+            {
+                _ = completed.Exception;
+                _quarantinedAdministration.TryRemove(id, out _);
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
     }
 
     private async ValueTask<BaseBackupManifest> ReadManifestAsync(

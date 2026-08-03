@@ -33,6 +33,7 @@ public sealed partial class SqliteRecordStore :
     private readonly ISqliteSessionOperationController _sessionOperations;
     private readonly ISqliteTransactionResourceDisposer _transactionResourceDisposer;
     private readonly ISqliteSchemaCommandController _schemaCommands;
+    private readonly ISqliteAdministrationOperationController _administrationOperations;
     private readonly SemaphoreSlim _keepAliveGate = new(1, 1);
     private readonly SemaphoreSlim _mutationExecutionSlots;
     private readonly SemaphoreSlim _administrationExecutionSlots;
@@ -65,6 +66,7 @@ public sealed partial class SqliteRecordStore :
         ISqliteSessionOperationController? sessionOperations = null,
         ISqliteTransactionResourceDisposer? transactionResourceDisposer = null,
         ISqliteSchemaCommandController? schemaCommands = null,
+        ISqliteAdministrationOperationController? administrationOperations = null,
         BaseOpaqueTokenProtector? tokenProtector = null)
     {
         ArgumentNullException.ThrowIfNull(options);
@@ -80,6 +82,7 @@ public sealed partial class SqliteRecordStore :
         _transactionResourceDisposer =
             transactionResourceDisposer ?? DefaultSqliteTransactionResourceDisposer.Instance;
         _schemaCommands = schemaCommands ?? DefaultSqliteSchemaCommandController.Instance;
+        _administrationOperations = administrationOperations ?? DefaultSqliteAdministrationOperationController.Instance;
         _connections = new SqliteConnectionFactory(_options);
         RecoverRestoreMarkerIfPresent();
         _schema = new SqliteSchemaInitializer(_options);

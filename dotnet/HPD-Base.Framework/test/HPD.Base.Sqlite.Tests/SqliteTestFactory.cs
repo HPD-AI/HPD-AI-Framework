@@ -13,6 +13,7 @@ internal static class SqliteTestFactory
         ISqliteSessionOperationController? sessionOperations = null,
         ISqliteTransactionResourceDisposer? transactionResourceDisposer = null,
         ISqliteSchemaCommandController? schemaCommands = null,
+        ISqliteAdministrationOperationController? administrationOperations = null,
         BaseOpaqueTokenProtector? tokenProtector = null,
         bool initializeSchema = true)
     {
@@ -26,6 +27,7 @@ internal static class SqliteTestFactory
             && sessionOperations is null
             && transactionResourceDisposer is null
             && schemaCommands is null
+            && administrationOperations is null
             && tokenProtector is null
             ? new SqliteRecordStore(options, NullLoggerFactory.Instance)
             : new SqliteRecordStore(
@@ -36,6 +38,7 @@ internal static class SqliteTestFactory
                 sessionOperations,
                 transactionResourceDisposer,
                 schemaCommands,
+                administrationOperations,
                 tokenProtector);
         if (initializeSchema)
             store.InitializeUnacceptedSchemaForTestsAsync().AsTask().GetAwaiter().GetResult();

@@ -160,10 +160,58 @@ public sealed class SqliteAdministrationTests
         }
     }
 
+    [Fact]
+    public async Task NonCooperativePostInstallValidationKeepsRestoreMaintenanceClosedUntilCompletion()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"hpd-base-admin-post-install-{Guid.NewGuid():N}.db");
+        using BaseOpaqueTokenProtector protector = Protector(6, Enumerable.Repeat((byte)0x66, 32).ToArray());
+        var operations = new BlockingAdministrationOperations();
+        try
+        {
+            await using SqliteRecordStore store = Store(
+                path,
+                protector,
+                TimeSpan.FromSeconds(1),
+                operations);
+            var destination = new MemoryStream();
+            BaseBackupManifest manifest = (await store.CreateBackupAsync(destination, BackupRequest())).Value!;
+            destination.Position = 0;
+
+            OperationResult<BaseRestoreResult> indeterminate = await store.RestoreAsync(
+                destination,
+                new BaseRestoreRequest
+                {
+                    StoreId = "sqlite",
+                    Principal = Principal(),
+                    ExpectedCurrentStoreIdentityDigest = manifest.StoreIdentityDigest,
+                    ExpectedArtifactStoreIdentityDigest = manifest.StoreIdentityDigest,
+                    IdentityMode = BaseRestoreIdentityMode.RequireCurrentStoreIdentity,
+                    RecoveryImageRetention = BaseRecoveryImageRetention.DeleteAfterSuccessfulRestore,
+                    ConfirmDestructiveReplacement = true,
+                });
+
+            indeterminate.Error!.Code.Should().Be(BaseAdministrationErrorCodes.RestoreIndeterminate);
+            indeterminate.Error.RestoreFailureDisposition.Should().Be(BaseRestoreFailureDisposition.IndeterminateUnavailable);
+            store.QuarantinedAdministrationCount.Should().Be(1);
+            store.RestoreRecoveryPending.Should().BeTrue();
+
+            operations.Release();
+            SpinWait.SpinUntil(
+                () => store.QuarantinedAdministrationCount == 0 && !store.RestoreRecoveryPending,
+                TimeSpan.FromSeconds(5)).Should().BeTrue();
+        }
+        finally
+        {
+            operations.Release();
+            Cleanup(path);
+        }
+    }
+
     private static SqliteRecordStore Store(
         string path,
         BaseOpaqueTokenProtector protector,
-        TimeSpan? restoreStagingTimeout = null)
+        TimeSpan? restoreStagingTimeout = null,
+        ISqliteAdministrationOperationController? administrationOperations = null)
     {
         SqliteRecordStore store = SqliteTestFactory.Create(new HPDBaseSqliteOptions
         {
@@ -171,9 +219,11 @@ public sealed class SqliteAdministrationTests
             DataSource = path,
             AdministrationEnabled = true,
             RestoreStagingTimeout = restoreStagingTimeout ?? TimeSpan.FromMinutes(10),
+            IntegrityCheckTimeout = restoreStagingTimeout ?? TimeSpan.FromMinutes(5),
+            AdministrationAcquisitionTimeout = restoreStagingTimeout ?? TimeSpan.FromSeconds(30),
             MaxBackupArtifactBytes = 16 * 1024 * 1024,
             Collections = [SqliteTestFactory.Collection()],
-        }, tokenProtector: protector);
+        }, administrationOperations: administrationOperations, tokenProtector: protector);
         using var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path};Pooling=False");
         connection.Open();
         using var command = connection.CreateCommand();
@@ -223,5 +273,15 @@ public sealed class SqliteAdministrationTests
         public override void SetLength(long value) => throw new NotSupportedException();
         public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
         public override void Flush() { }
+    }
+
+    private sealed class BlockingAdministrationOperations : ISqliteAdministrationOperationController
+    {
+        private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public void Release() => _release.TrySetResult();
+        public ValueTask BeforePhaseAsync(string phase, CancellationToken cancellationToken) =>
+            string.Equals(phase, "postInstallValidation", StringComparison.Ordinal)
+                ? new ValueTask(_release.Task)
+                : ValueTask.CompletedTask;
     }
 }
