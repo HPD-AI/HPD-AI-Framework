@@ -541,16 +541,6 @@ public class ProviderClientConfig
     public IProviderConfig? ProviderConfig { get; set; }
 
     /// <summary>
-    /// Optional OpenRouter HTTP-Referer attribution header.
-    /// </summary>
-    public string? HttpReferer { get; set; }
-
-    /// <summary>
-    /// Optional OpenRouter X-Title attribution header.
-    /// </summary>
-    public string? AppName { get; set; }
-
-    /// <summary>
     /// Optional runtime-only prompt formatter for local providers that expose formatter hooks.
     /// </summary>
     [JsonIgnore]
@@ -858,8 +848,6 @@ public static class ProviderClientConfigResolver
             targetVad.OverrideFactory = sourceVad.OverrideFactory ?? targetVad.OverrideFactory;
         else if (target is EndOfTurnDetectionClientConfig targetEot && source is EndOfTurnDetectionClientConfig sourceEot)
             targetEot.OverrideFactory = sourceEot.OverrideFactory ?? targetEot.OverrideFactory;
-        target.HttpReferer = source.HttpReferer ?? target.HttpReferer;
-        target.AppName = source.AppName ?? target.AppName;
         target.PromptFormatter = source.PromptFormatter ?? target.PromptFormatter;
         target.ProviderConfig = source.ProviderConfig ?? target.ProviderConfig;
 
@@ -886,8 +874,6 @@ public static class ProviderClientConfigResolver
            chat.StopSequences is null && chat.Reasoning is null &&
            chat.ProviderOptions is null && chat.Override is null)) &&
          config.CustomHeaders == null &&
-         string.IsNullOrWhiteSpace(config.HttpReferer) &&
-         string.IsNullOrWhiteSpace(config.AppName) &&
          config.PromptFormatter == null);
 
     private static string? FirstNonEmpty(params string?[] values) =>

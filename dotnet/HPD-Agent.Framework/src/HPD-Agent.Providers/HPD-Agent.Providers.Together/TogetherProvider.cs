@@ -14,6 +14,13 @@ namespace HPD.Agent.Providers.Together;
 /// <summary>
 /// Together AI provider implementation using the tryAGI Together SDK.
 /// </summary>
+[HpdProvider("together", "Together AI")]
+[HpdProviderFamily(ProviderClientFamily.Chat)]
+[HpdProviderFamily(ProviderClientFamily.Embeddings)]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(TogetherProviderConfig), typeof(TogetherJsonContext))]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.OperationOptions, typeof(TogetherChatRequestOptions), typeof(TogetherJsonContext))]
+[HpdProviderPayload(ProviderClientFamily.Embeddings, ProviderPayloadKind.Configuration, typeof(TogetherProviderConfig), typeof(TogetherJsonContext))]
+[HpdProviderSecretAlias("together:ApiKey", "TOGETHER_API_KEY")]
 internal class TogetherProvider : IChatClientProvider, IEmbeddingGeneratorProvider
 {
     private static readonly Uri DefaultEndpoint = new("https://api.together.ai/v1");

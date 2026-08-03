@@ -14,6 +14,13 @@ namespace HPD.Agent.Providers.Cohere;
 /// <summary>
 /// Cohere provider implementation using the tryAGI Cohere SDK.
 /// </summary>
+[HpdProvider("cohere", "Cohere")]
+[HpdProviderFamily(ProviderClientFamily.Chat)]
+[HpdProviderFamily(ProviderClientFamily.Embeddings)]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(CohereProviderConfig), typeof(CohereJsonContext))]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.OperationOptions, typeof(CohereChatRequestOptions), typeof(CohereJsonContext))]
+[HpdProviderPayload(ProviderClientFamily.Embeddings, ProviderPayloadKind.Configuration, typeof(CohereProviderConfig), typeof(CohereJsonContext))]
+[HpdProviderSecretAlias("cohere:ApiKey", "COHERE_API_KEY")]
 internal class CohereProvider : IChatClientProvider, IEmbeddingGeneratorProvider
 {
     private static readonly Uri DefaultEndpoint = new("https://api.cohere.com/");

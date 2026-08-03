@@ -16,6 +16,13 @@ namespace HPD.Agent.Providers.DashScope;
 /// <summary>
 /// DashScope provider implementation using the Cnblogs DashScope Microsoft.Extensions.AI adapter.
 /// </summary>
+[HpdProvider("dashscope", "DashScope")]
+[HpdProviderFamily(ProviderClientFamily.Chat)]
+[HpdProviderFamily(ProviderClientFamily.Embeddings)]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(DashScopeProviderConfig), typeof(DashScopeJsonContext))]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.OperationOptions, typeof(DashScopeChatRequestOptions), typeof(DashScopeJsonContext))]
+[HpdProviderPayload(ProviderClientFamily.Embeddings, ProviderPayloadKind.Configuration, typeof(DashScopeProviderConfig), typeof(DashScopeJsonContext))]
+[HpdProviderSecretAlias("dashscope:ApiKey", "DASHSCOPE_API_KEY", "QWEN_API_KEY", "DASHSCOPE_KEY")]
 internal class DashScopeProvider : IChatClientProvider, IEmbeddingGeneratorProvider
 {
     private const string DefaultBaseAddress = "https://dashscope.aliyuncs.com/api/v1/";

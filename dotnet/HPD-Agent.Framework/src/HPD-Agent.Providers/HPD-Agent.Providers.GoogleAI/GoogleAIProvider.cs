@@ -27,6 +27,10 @@ namespace HPD.Agent.Providers.GoogleAI;
 /// Authentication: API Key (required)
 /// </para>
 /// </remarks>
+[HpdProvider("google-ai", "Google AI (Gemini)")]
+[HpdProviderFamily(ProviderClientFamily.Chat)]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(GoogleAIProviderConfig), typeof(GoogleAIJsonContext))]
+[HpdProviderSecretAlias("google-ai:ApiKey", "GOOGLE_API_KEY", "GEMINI_API_KEY", "GOOGLE_AI_API_KEY")]
 internal class GoogleAIProvider : IChatClientProvider
 {
     public string ProviderKey => "google-ai";

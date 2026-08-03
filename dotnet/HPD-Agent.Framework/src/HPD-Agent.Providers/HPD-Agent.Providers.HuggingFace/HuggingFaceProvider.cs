@@ -37,6 +37,11 @@ namespace HPD.Agent.Providers.HuggingFace;
 /// - Get your token from: https://huggingface.co/settings/tokens
 /// </para>
 /// </remarks>
+[HpdProvider("huggingface", "Hugging Face")]
+[HpdProviderFamily(ProviderClientFamily.Chat)]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(HuggingFaceProviderConfig), typeof(HuggingFaceJsonContext))]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.OperationOptions, typeof(HuggingFaceChatRequestOptions), typeof(HuggingFaceJsonContext))]
+[HpdProviderSecretAlias("huggingface:ApiKey", "HUGGINGFACE_API_KEY")]
 internal class HuggingFaceProvider : IChatClientProvider
 {
     private static readonly Uri DefaultEndpoint = new("https://router.huggingface.co/");

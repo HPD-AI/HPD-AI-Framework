@@ -39,15 +39,17 @@ public class ReplicateProviderTests
     }
 
     [Fact]
-    public void ProviderDiscovery_ShouldRegisterProviderConfigTypeAndSecretAliases()
+    public void GeneratedComposition_ShouldRegisterProviderConfigTypeAndSecretAliases()
     {
-        ReplicateProviderModule.Initialize();
+        var composition = GetGeneratedComposition();
 
-        ProviderDiscovery.GetProviderConfigType("replicate", ProviderClientFamily.ImageGeneration)
-            .Should().NotBeNull();
-
-        SecretAliasRegistry.GetAll().Should().ContainKey("replicate:ApiKey")
-            .WhoseValue.Should().Contain(["REPLICATE_API_KEY", "REPLICATE_API_TOKEN"]);
+        composition.Serialization.TryGet(
+            "replicate",
+            ProviderClientFamily.ImageGeneration,
+            ProviderPayloadKind.Configuration,
+            out _).Should().BeTrue();
+        composition.SecretAliases.GetEnvironmentVariables("replicate:ApiKey")
+            .Should().ContainInOrder("REPLICATE_API_KEY", "REPLICATE_API_TOKEN");
     }
 
     [Fact]
@@ -228,10 +230,22 @@ public class ReplicateProviderTests
 
     private static IServiceProvider CreateEnvironmentServices()
     {
-        ReplicateProviderModule.Initialize();
         var services = new ServiceCollection();
-        services.AddSingleton<ISecretResolver>(new EnvironmentSecretResolver());
+        var composition = GetGeneratedComposition();
+        services.AddSingleton<ISecretResolver>(new EnvironmentSecretResolver(composition.SecretAliases));
         return services.BuildServiceProvider();
+    }
+
+    private static ProviderComposition GetGeneratedComposition()
+    {
+        var marker = typeof(ReplicateProvider).Assembly
+            .GetCustomAttributes(typeof(HpdProviderManifestAttribute), inherit: false)
+            .Cast<HpdProviderManifestAttribute>()
+            .Single(attribute => attribute.ProviderKey == "replicate");
+        var fragment = (ProviderManifestFragment)marker.ManifestType
+            .GetProperty("Fragment")!
+            .GetValue(null)!;
+        return ProviderComposition.Create([fragment]);
     }
 }
 #endif

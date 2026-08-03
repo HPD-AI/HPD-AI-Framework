@@ -21,6 +21,10 @@ namespace HPD.Agent.Providers.Replicate;
 /// <summary>
 /// Replicate provider implementation scoped to HPD image generation.
 /// </summary>
+[HpdProvider("replicate", "Replicate")]
+[HpdProviderFamily(ProviderClientFamily.ImageGeneration)]
+[HpdProviderPayload(ProviderClientFamily.ImageGeneration, ProviderPayloadKind.Configuration, typeof(ReplicateProviderConfig), typeof(ReplicateJsonContext))]
+[HpdProviderSecretAlias("replicate:ApiKey", "REPLICATE_API_KEY", "REPLICATE_API_TOKEN")]
 internal sealed class ReplicateProvider : IImageGeneratorProvider
 {
     internal const string DefaultModel = "black-forest-labs/flux-schnell";

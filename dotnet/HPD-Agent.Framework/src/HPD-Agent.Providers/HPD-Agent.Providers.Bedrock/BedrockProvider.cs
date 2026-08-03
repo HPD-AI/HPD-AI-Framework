@@ -44,6 +44,13 @@ namespace HPD.Agent.Providers.Bedrock;
 /// 3. AWS profile from credentials file
 /// </para>
 /// </remarks>
+[HpdProvider("bedrock", "AWS Bedrock")]
+[HpdProviderFamily(ProviderClientFamily.Chat)]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(BedrockProviderConfig), typeof(BedrockJsonContext))]
+[HpdProviderSecretAlias("bedrock:AccessKeyId", "AWS_ACCESS_KEY_ID")]
+[HpdProviderSecretAlias("bedrock:SecretAccessKey", "AWS_SECRET_ACCESS_KEY")]
+[HpdProviderSecretAlias("bedrock:SessionToken", "AWS_SESSION_TOKEN")]
+[HpdProviderSecretAlias("bedrock:Region", "AWS_REGION", "AWS_DEFAULT_REGION")]
 internal class BedrockProvider : IChatClientProvider
 {
     public string ProviderKey => "bedrock";

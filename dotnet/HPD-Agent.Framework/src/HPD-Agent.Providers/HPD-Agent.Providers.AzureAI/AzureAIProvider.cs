@@ -40,6 +40,11 @@ namespace HPD.Agent.Providers.AzureAI;
 /// 2. API Key - For endpoints that support key-based authentication
 /// </para>
 /// </remarks>
+[HpdProvider("azure-ai", "Azure AI (Projects)")]
+[HpdProviderFamily(ProviderClientFamily.Chat)]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(AzureAIProviderConfig), typeof(AzureAIJsonContext))]
+[HpdProviderSecretAlias("azure-ai:ApiKey", "AZURE_AI_API_KEY")]
+[HpdProviderSecretAlias("azure-ai:Endpoint", "AZURE_AI_ENDPOINT")]
 internal class AzureAIProvider : IChatClientProvider
 {
     public string ProviderKey => "azure-ai";

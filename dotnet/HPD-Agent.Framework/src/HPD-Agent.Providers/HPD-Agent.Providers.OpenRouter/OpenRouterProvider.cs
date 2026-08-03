@@ -14,6 +14,10 @@ using Microsoft.Extensions.DependencyInjection;
 using HPD.Agent;
 namespace HPD.Agent.Providers.OpenRouter;
 
+[HpdProvider("openrouter", "OpenRouter", DocumentationUrl = "https://openrouter.ai/docs")]
+[HpdProviderFamily(ProviderClientFamily.Chat)]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(OpenRouterProviderConfig), typeof(OpenRouterJsonContext))]
+[HpdProviderSecretAlias("openrouter:ApiKey", "OPENROUTER_API_KEY")]
 internal class OpenRouterProvider : IChatClientProvider
 {
     public string ProviderKey => "openrouter";
@@ -75,7 +79,7 @@ internal class OpenRouterProvider : IChatClientProvider
                         ["SupportsProviderRouting"] = true,
                         ["SupportsPriceFiltering"] = true,
                         ["SupportsZeroDataRetention"] = true,
-                        ["AttributionRequirements"] = "Set ProviderClientConfig.HttpReferer and ProviderClientConfig.AppName for app rankings"
+                        ["AttributionRequirements"] = "Set OpenRouterProviderConfig.HttpReferer and OpenRouterProviderConfig.AppName for app rankings"
                     }
                 }
             }
@@ -102,13 +106,12 @@ internal class OpenRouterProvider : IChatClientProvider
     /// <returns>A configured ProviderClientConfig with attribution.</returns>
     public static ProviderClientConfig CreateConfigWithAttribution(string apiKey, string modelName, string appUrl, string appName)
     {
-        return new ProviderClientConfig
+        return new ChatClientConfig
         {
             ProviderKey = "openrouter",
             ApiKey = apiKey,
             ModelName = modelName,
-            HttpReferer = appUrl,
-            AppName = appName
+            ProviderConfig = new OpenRouterProviderConfig { HttpReferer = appUrl, AppName = appName }
         };
     }
 
@@ -121,8 +124,7 @@ internal class OpenRouterProvider : IChatClientProvider
     /// <returns>The updated configuration.</returns>
     public static ProviderClientConfig WithAttribution(ProviderClientConfig config, string appUrl, string appName)
     {
-        config.HttpReferer = appUrl;
-        config.AppName = appName;
+        config.ProviderConfig = new OpenRouterProviderConfig { HttpReferer = appUrl, AppName = appName };
         return config;
     }
 
@@ -201,8 +203,9 @@ internal class OpenRouterProvider : IChatClientProvider
     {
         var attribution = new AttributionInfo();
 
-        attribution.Referer = config.HttpReferer ?? string.Empty;
-        attribution.Title = config.AppName ?? string.Empty;
+        var providerConfig = config.ProviderConfig as OpenRouterProviderConfig;
+        attribution.Referer = providerConfig?.HttpReferer ?? string.Empty;
+        attribution.Title = providerConfig?.AppName ?? string.Empty;
 
         // Apply defaults and validation
         attribution.ApplyDefaults();

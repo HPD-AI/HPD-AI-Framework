@@ -10,6 +10,12 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Agent.Providers.Moonshot;
 
+[HpdProvider("moonshot", "Moonshot")]
+[HpdProviderFamily(ProviderClientFamily.Chat)]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(MoonshotProviderConfig), typeof(MoonshotJsonContext))]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.OperationOptions, typeof(MoonshotChatRequestOptions), typeof(MoonshotJsonContext))]
+[HpdProviderSecretAlias("moonshot:ApiKey", "MOONSHOT_API_KEY", "KIMI_API_KEY")]
+[HpdProviderSecretAlias("moonshot:Endpoint", "MOONSHOT_ENDPOINT", "MOONSHOT_BASE_URL", "KIMI_ENDPOINT", "KIMI_BASE_URL")]
 internal sealed class MoonshotProvider : IChatClientProvider
 {
     internal static readonly Uri DefaultEndpoint = new("https://api.moonshot.ai/v1/");

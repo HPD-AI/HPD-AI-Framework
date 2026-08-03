@@ -14,6 +14,11 @@ namespace HPD.Agent.Providers.Mistral;
 /// <summary>
 /// Mistral provider implementation using the generated Mistral SDK and Microsoft.Extensions.AI.
 /// </summary>
+[HpdProvider("mistral", "Mistral")]
+[HpdProviderFamily(ProviderClientFamily.Chat)]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(MistralProviderConfig), typeof(MistralJsonContext))]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.OperationOptions, typeof(MistralChatRequestOptions), typeof(MistralJsonContext))]
+[HpdProviderSecretAlias("mistral:ApiKey", "MISTRAL_API_KEY")]
 internal class MistralProvider : IChatClientProvider
 {
     public string ProviderKey => "mistral";

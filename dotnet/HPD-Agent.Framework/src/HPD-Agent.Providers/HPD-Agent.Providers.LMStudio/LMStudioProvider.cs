@@ -5,6 +5,11 @@ using System.Collections.Generic;
 
 namespace HPD.Agent.Providers.LMStudio;
 
+[HpdProvider("lmstudio", "LM Studio")]
+[HpdProviderFamily(ProviderClientFamily.Chat)]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(LMStudioProviderConfig), typeof(LMStudioJsonContext))]
+[HpdProviderSecretAlias("lmstudio:ApiKey", "LMSTUDIO_API_KEY", "LM_STUDIO_API_KEY")]
+[HpdProviderSecretAlias("lmstudio:Endpoint", "LMSTUDIO_ENDPOINT", "LMSTUDIO_BASE_URL", "LMSTUDIO_API_BASE", "LM_STUDIO_ENDPOINT", "LM_STUDIO_BASE_URL", "LM_STUDIO_API_BASE")]
 internal sealed class LMStudioProvider : OpenAICompatibleChatProviderBase<LMStudioProviderConfig>
 {
     internal static readonly Uri DefaultEndpoint = new("http://localhost:1234/v1/");
