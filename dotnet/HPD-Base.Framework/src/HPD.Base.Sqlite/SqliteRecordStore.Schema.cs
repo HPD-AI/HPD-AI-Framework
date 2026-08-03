@@ -372,7 +372,7 @@ public sealed partial class SqliteRecordStore
     private async ValueTask<string[]> GetAcceptedDriftAsync(SqliteConnection connection, BaseSchemaObservedAsset[] assets, CancellationToken cancellationToken)
     {
         var missing = new List<string>();
-        foreach (string core in new[] { _names.Collections, _names.ProviderState, _names.MutationJournal, _names.SchemaIdentity, _names.SchemaBaseline, _names.SchemaAssets, _names.SchemaHistory, _names.SchemaLease })
+        foreach (string core in new[] { _names.Collections, _names.ProviderState, _names.MutationJournal, _names.OperationReceipts, _names.SchemaIdentity, _names.SchemaBaseline, _names.SchemaAssets, _names.SchemaHistory, _names.SchemaLease })
             if (!await SchemaObjectExistsAsync(connection, "table", core, cancellationToken).ConfigureAwait(false)) missing.Add("table:" + core);
         foreach (BaseSchemaObservedAsset asset in assets)
         {

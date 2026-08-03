@@ -173,7 +173,15 @@ internal sealed class DefaultBaseMutationCoordinator(
         if (!execution.IsSuccess() || execution.Value is null)
             return Failure<BaseRecordBatchResult, BoundaryResult>(execution);
         if (execution.Value.Indeterminate)
-            return Indeterminate<BaseRecordBatchResult>();
+            return requestIdentity is null
+                ? Indeterminate<BaseRecordBatchResult>()
+                : OperationResults.StoreError<BaseRecordBatchResult>(new BaseError
+                {
+                    Code = BaseMutationRequestErrorCodes.OutcomeUnknown,
+                    Message = "The provider could not determine whether the identified request committed.",
+                    Category = ErrorCategory.Store,
+                    Store = new StoreErrorInfo { Retryable = false },
+                });
 
         if (execution.Value.Committed)
         {
@@ -190,6 +198,11 @@ internal sealed class DefaultBaseMutationCoordinator(
                 BaseMutationRequestErrorCodes.FingerprintConflict,
                 "The mutation request identity conflicts with an existing receipt.",
                 ErrorCategory.Conflict));
+        if (execution.Value.Failure?.Code == BaseMutationRequestErrorCodes.ReceiptTooLarge)
+            return OperationResults.ValidationFailed<BaseRecordBatchResult>(Error(
+                BaseMutationRequestErrorCodes.ReceiptTooLarge,
+                "The mutation receipt exceeds its configured bound.",
+                ErrorCategory.Validation));
 
         var attempts = execution.Value.Attempts;
         if (execution.Value.AggregateFailure)

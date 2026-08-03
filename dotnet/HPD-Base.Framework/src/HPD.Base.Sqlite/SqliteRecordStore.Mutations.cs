@@ -3,6 +3,8 @@ using System.Diagnostics;
 using HPD.Base;
 using HPD.Base.Sqlite;
 using Microsoft.Data.Sqlite;
+using System.Security.Cryptography;
+using System.Text.Json;
 
 namespace HPD.Base.Sqlite;
 
@@ -127,10 +129,15 @@ public sealed partial class SqliteRecordStore
                 transactionStarted,
                 request.TransactionTimeout);
             AtomicMutationProcessingResult processing;
+            bool duplicate = false;
             try
             {
-                var processingTask =
-                    processor.ProcessAsync(session, processingLifetime.Token).AsTask();
+                SqliteMutationReceipt? receipt = request.AtomicRequest is null
+                    ? null
+                    : await ReadReceiptAsync(connection, transaction, request.AtomicRequest, processingLifetime.Token).ConfigureAwait(false);
+                var processingTask = receipt is null
+                    ? processor.ProcessAsync(session, processingLifetime.Token).AsTask()
+                    : processor.ResolveReceiptAsync(receipt.Mutations, processingLifetime.Token).AsTask();
                 try
                 {
                     processing = await processingTask
@@ -141,6 +148,15 @@ public sealed partial class SqliteRecordStore
                 {
                     ObserveCompletion(processingTask);
                     throw;
+                }
+                if (receipt is not null && processing.Outcome == AtomicMutationProcessingOutcome.ReadyToCommit)
+                {
+                    bool fingerprintMatch = CryptographicOperations.FixedTimeEquals(request.AtomicRequest!.Identity.Fingerprint.ToArray(), receipt.Fingerprint);
+                    bool structureMatch = CryptographicOperations.FixedTimeEquals(request.AtomicRequest.StructuralDigest, receipt.StructuralDigest);
+                    if (!fingerprintMatch || !structureMatch)
+                        processing = FailedProcessing(BaseMutationRequestErrorCodes.FingerprintConflict, "The mutation request identity conflicts with an existing receipt.");
+                    else
+                        duplicate = true;
                 }
             }
             catch (OperationCanceledException)
@@ -235,6 +251,8 @@ public sealed partial class SqliteRecordStore
             try
             {
                 processingLifetime.Token.ThrowIfCancellationRequested();
+                if (request.AtomicRequest is { } identified && !duplicate)
+                    await InsertReceiptAsync(connection, transaction, identified, processing, processingLifetime.Token).ConfigureAwait(false);
                 await PruneMutationJournalAsync(
                     connection,
                     transaction,
@@ -280,6 +298,15 @@ public sealed partial class SqliteRecordStore
                     request.CommitCompletionTimeout)
                     .ConfigureAwait(false);
             }
+            catch (BaseReceiptTooLargeException)
+            {
+                return await RollbackAsync(
+                    resources,
+                    transaction,
+                    RecordMutationExecutionOutcome.RollbackConfirmed,
+                    FailedProcessing(BaseMutationRequestErrorCodes.ReceiptTooLarge, "The mutation receipt exceeds its configured bound.", processing.Mutations),
+                    request.CommitCompletionTimeout).ConfigureAwait(false);
+            }
 
             // Request cancellation stops controlling the result at this point. The controller call
             // runs outside this method's continuation so even a synchronous, non-cooperative native
@@ -292,7 +319,10 @@ public sealed partial class SqliteRecordStore
                 await commitTask.WaitAsync(commitLifetime.Token).ConfigureAwait(false);
                 return new RecordMutationExecutionResult(
                     RecordMutationExecutionOutcome.Committed,
-                    processing);
+                    processing)
+                {
+                    RequestDisposition = duplicate ? BaseMutationRequestDisposition.Duplicate : BaseMutationRequestDisposition.Committed,
+                };
             }
             catch (OperationCanceledException) when (!commitTask.IsCompleted)
             {
@@ -352,7 +382,77 @@ public sealed partial class SqliteRecordStore
         ValidateExecutionTimeout(request.AcquisitionTimeout, "Acquisition timeout");
         ValidateExecutionTimeout(request.TransactionTimeout, "Transaction timeout");
         ValidateExecutionTimeout(request.CommitCompletionTimeout, "Commit completion timeout");
+        if (request.AtomicRequest is { StructuralDigest.Length: not 32 } or { MaxReceiptBytes: < 4096 })
+            throw new ArgumentOutOfRangeException(nameof(request), "The identified mutation request bounds are invalid.");
     }
+
+    private async ValueTask<SqliteMutationReceipt?> ReadReceiptAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        BaseAtomicMutationExecutionRequest request,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandTimeout = TimeoutSeconds();
+        command.CommandText = $"SELECT fingerprint, structural_digest, result_json, expires_at FROM {_names.OperationReceipts} WHERE scope=$scope AND operation=$operation AND idempotency_key=$key;";
+        command.Parameters.AddWithValue("$scope", request.Identity.Scope);
+        command.Parameters.AddWithValue("$operation", request.Identity.Operation);
+        command.Parameters.AddWithValue("$key", request.Identity.IdempotencyKey);
+        await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) return null;
+        byte[] fingerprint = (byte[])reader[0];
+        byte[] structuralDigest = (byte[])reader[1];
+        byte[] result = (byte[])reader[2];
+        DateTimeOffset expiresAt = DateTimeOffset.Parse(reader.GetString(3), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
+        await reader.DisposeAsync().ConfigureAwait(false);
+        if (expiresAt <= _timeProvider.GetUtcNow())
+        {
+            await using var remove = connection.CreateCommand();
+            remove.Transaction = transaction;
+            remove.CommandTimeout = TimeoutSeconds();
+            remove.CommandText = $"DELETE FROM {_names.OperationReceipts} WHERE scope=$scope AND operation=$operation AND idempotency_key=$key;";
+            remove.Parameters.AddWithValue("$scope", request.Identity.Scope);
+            remove.Parameters.AddWithValue("$operation", request.Identity.Operation);
+            remove.Parameters.AddWithValue("$key", request.Identity.IdempotencyKey);
+            await remove.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            return null;
+        }
+        BaseRecordMutationFact[]? mutations = JsonSerializer.Deserialize(result, HPDBaseJsonSerializerContext.Default.BaseRecordMutationFactArray);
+        if (fingerprint.Length != 32 || structuralDigest.Length != 32 || mutations is null)
+            throw new InvalidOperationException("SQLite receipt state is malformed.");
+        return new SqliteMutationReceipt(fingerprint, structuralDigest, mutations);
+    }
+
+    private async ValueTask InsertReceiptAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        BaseAtomicMutationExecutionRequest request,
+        AtomicMutationProcessingResult processing,
+        CancellationToken cancellationToken)
+    {
+        byte[] result = JsonSerializer.SerializeToUtf8Bytes(processing.Mutations, HPDBaseJsonSerializerContext.Default.BaseRecordMutationFactArray);
+        if (result.Length > request.MaxReceiptBytes)
+            throw new BaseReceiptTooLargeException();
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandTimeout = TimeoutSeconds();
+        command.CommandText = $"INSERT INTO {_names.OperationReceipts}(scope,operation,idempotency_key,fingerprint,structural_digest,result_json,result_format_version,schema_generation,store_instance_id,committed_at,expires_at) VALUES($scope,$operation,$key,$fingerprint,$structure,$result,1,$generation,$store,$committed,$expires);";
+        command.Parameters.AddWithValue("$scope", request.Identity.Scope);
+        command.Parameters.AddWithValue("$operation", request.Identity.Operation);
+        command.Parameters.AddWithValue("$key", request.Identity.IdempotencyKey);
+        command.Parameters.AddWithValue("$fingerprint", request.Identity.Fingerprint.ToArray());
+        command.Parameters.AddWithValue("$structure", request.StructuralDigest);
+        command.Parameters.AddWithValue("$result", result);
+        command.Parameters.AddWithValue("$generation", Volatile.Read(ref _schemaGeneration));
+        command.Parameters.AddWithValue("$store", _options.StoreId);
+        command.Parameters.AddWithValue("$committed", _timeProvider.GetUtcNow().ToString("O", CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$expires", request.ExpiresAt.ToString("O", CultureInfo.InvariantCulture));
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private sealed record SqliteMutationReceipt(byte[] Fingerprint, byte[] StructuralDigest, BaseRecordMutationFact[] Mutations);
+    private sealed class BaseReceiptTooLargeException : Exception;
 
     private static void ValidateExecutionTimeout(TimeSpan timeout, string name)
     {

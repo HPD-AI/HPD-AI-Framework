@@ -273,6 +273,62 @@ public sealed class BaseRecordIdTests
     }
 
     [Fact]
+    public async Task SqliteIdentifiedAtomicRequestSurvivesProviderRestart()
+    {
+        string database = Path.Combine(Path.GetTempPath(), "hpd-base-receipt-" + Guid.NewGuid().ToString("N") + ".db");
+        try
+        {
+            BaseMutationRequestIdentity identity = BaseMutationRequestIdentity.Create(
+                "tenant_1", "create-owner", "request_1",
+                BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("sqlite-request"u8)));
+
+            await using (ServiceProvider firstProvider = BuildSqliteReceiptProvider(database))
+            {
+                IBaseSchemaManager schemas = firstProvider.GetRequiredService<IBaseSchemaManager>();
+                BaseSchemaPlan plan = (await schemas.PlanAsync(new BaseSchemaPlanRequest { StoreId = "sqlite" })).Value!;
+                (await schemas.ApplyAsync(new BaseSchemaApplyRequest { ProtectedArtifact = plan.ProtectedArtifact })).IsSuccess().Should().BeTrue();
+                (await firstProvider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
+                BaseBatchBuilder first = ReceiptBatch(firstProvider, identity);
+                ((BaseSuccess<BaseBatchResult>)await first.CommitAsync()).Value.RequestDisposition.Should().Be(BaseMutationRequestDisposition.Committed);
+            }
+
+            await using (ServiceProvider secondProvider = BuildSqliteReceiptProvider(database))
+            {
+                (await secondProvider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
+                BaseBatchBuilder retry = ReceiptBatch(secondProvider, identity);
+                ((BaseSuccess<BaseBatchResult>)await retry.CommitAsync()).Value.RequestDisposition.Should().Be(BaseMutationRequestDisposition.Duplicate);
+            }
+        }
+        finally
+        {
+            if (File.Exists(database)) File.Delete(database);
+        }
+    }
+
+    private static ServiceProvider BuildSqliteReceiptProvider(string database)
+    {
+        var services = new ServiceCollection().AddLogging();
+        services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
+        services.AddHPDBase(builder => builder
+            .ConfigureSchema(options => options.PlanProtectionKey = Enumerable.Repeat((byte)0x41, 32).ToArray())
+            .AddCollection(TypedIdOwner.Collection)
+            .UseSqlite(options => options.DataSource = database));
+        return services.BuildServiceProvider();
+    }
+
+    private static BaseBatchBuilder ReceiptBatch(ServiceProvider provider, BaseMutationRequestIdentity identity)
+    {
+        BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(new PrincipalContext
+        {
+            AuthenticationState = PrincipalAuthenticationState.Authenticated,
+            SubjectId = "receipt-user",
+        });
+        BaseBatchBuilder batch = session.Atomic(identity);
+        batch.Create(TypedIdOwner.Collection, new RecordId("owner_1"), new TypedIdOwner { Name = "Owner" });
+        return batch;
+    }
+
+    [Fact]
     public async Task RelationPolicyDenialIsIndistinguishableFromAMissingTargetAndRollsBackSource()
     {
         var services = new ServiceCollection().AddLogging();

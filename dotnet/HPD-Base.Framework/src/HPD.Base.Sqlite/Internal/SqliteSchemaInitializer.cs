@@ -97,6 +97,20 @@ CREATE TABLE IF NOT EXISTS {_names.MutationJournal} (
   before_json TEXT NULL,
   after_json TEXT NULL
 );
+CREATE TABLE IF NOT EXISTS {_names.OperationReceipts} (
+  scope TEXT NOT NULL,
+  operation TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL,
+  fingerprint BLOB NOT NULL CHECK(length(fingerprint) = 32),
+  structural_digest BLOB NOT NULL CHECK(length(structural_digest) = 32),
+  result_json BLOB NOT NULL,
+  result_format_version INTEGER NOT NULL,
+  schema_generation INTEGER NOT NULL,
+  store_instance_id TEXT NOT NULL,
+  committed_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  PRIMARY KEY(scope, operation, idempotency_key)
+) WITHOUT ROWID;
 """);
         foreach (SqlitePhysicalModel.CollectionModel collection in _physical.Collections)
         {
@@ -205,6 +219,20 @@ CREATE TABLE IF NOT EXISTS {_names.MutationJournal} (
   before_json TEXT NULL,
   after_json TEXT NULL
 );
+CREATE TABLE IF NOT EXISTS {_names.OperationReceipts} (
+  scope TEXT NOT NULL,
+  operation TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL,
+  fingerprint BLOB NOT NULL CHECK(length(fingerprint) = 32),
+  structural_digest BLOB NOT NULL CHECK(length(structural_digest) = 32),
+  result_json BLOB NOT NULL,
+  result_format_version INTEGER NOT NULL,
+  schema_generation INTEGER NOT NULL,
+  store_instance_id TEXT NOT NULL,
+  committed_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  PRIMARY KEY(scope, operation, idempotency_key)
+) WITHOUT ROWID;
 """, cancellationToken).ConfigureAwait(false);
 
         var malformedColumns = new List<string>();
@@ -276,7 +304,7 @@ ON CONFLICT(collection_id) DO UPDATE SET native_name = excluded.native_name;
     public async ValueTask<string[]> GetMissingSchemaPartsAsync(SqliteConnection connection, CancellationToken cancellationToken)
     {
         var missing = new List<string>();
-        foreach (var table in new[] { _names.Collections, _names.ProviderState, _names.MutationJournal, _names.SchemaIdentity, _names.SchemaBaseline, _names.SchemaAssets, _names.SchemaHistory, _names.SchemaLease }
+        foreach (var table in new[] { _names.Collections, _names.ProviderState, _names.MutationJournal, _names.OperationReceipts, _names.SchemaIdentity, _names.SchemaBaseline, _names.SchemaAssets, _names.SchemaHistory, _names.SchemaLease }
             .Concat(_physical.Collections.Select(static collection => collection.Table))
             .Concat(_physical.Relations.Select(static relation => relation.Table)))
         {
@@ -299,6 +327,7 @@ ON CONFLICT(collection_id) DO UPDATE SET native_name = excluded.native_name;
                 missing.AddRange(await GetMalformedRelationColumnsAsync(connection, relation, cancellationToken).ConfigureAwait(false));
             }
             missing.AddRange(await GetMissingMutationJournalColumnsAsync(connection, cancellationToken).ConfigureAwait(false));
+            missing.AddRange(await GetMissingReceiptColumnsAsync(connection, cancellationToken).ConfigureAwait(false));
             missing.AddRange(await GetMissingSchemaAuthorityColumnsAsync(connection, cancellationToken).ConfigureAwait(false));
 
             foreach (SqlitePhysicalModel.CollectionModel collection in _physical.Collections)
@@ -483,6 +512,15 @@ ON CONFLICT(collection_id) DO UPDATE SET native_name = excluded.native_name;
                 missing.Add("column:" + _names.MutationJournal + "." + column);
         }
 
+        return missing.ToArray();
+    }
+
+    private async ValueTask<string[]> GetMissingReceiptColumnsAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        var missing = new List<string>();
+        foreach (string column in new[] { "scope", "operation", "idempotency_key", "fingerprint", "structural_digest", "result_json", "result_format_version", "schema_generation", "store_instance_id", "committed_at", "expires_at" })
+            if (!await ColumnExistsAsync(connection, _names.OperationReceipts, column, cancellationToken).ConfigureAwait(false))
+                missing.Add("column:" + _names.OperationReceipts + "." + column);
         return missing.ToArray();
     }
 

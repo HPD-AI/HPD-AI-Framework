@@ -797,6 +797,18 @@ FROM {_names.MutationJournal};
                 ExistenceConditions = true
             }
             : null,
+        AtomicRequest = new AtomicRequestCapability
+        {
+            Supported = true,
+            Durability = BaseAtomicRequestDurability.Durable,
+            DuplicateResultReplay = true,
+            FingerprintConflictDetection = true,
+            IndeterminateResolution = true,
+            MaxIdentityBytes = 512,
+            MaxReceiptBytes = 16_777_216,
+            MinReceiptLifetime = TimeSpan.FromHours(1),
+            MaxReceiptLifetime = TimeSpan.FromDays(90),
+        },
         Streaming = new StreamingCapability { Supported = false }
     };
 
