@@ -42,10 +42,13 @@ internal class DashScopeProvider : IChatClientProvider, IEmbeddingGeneratorProvi
         }
 
         var dashScopeConfig = config.ProviderConfig as DashScopeProviderConfig;
+        var useVl = (config as ChatClientConfig)?.ProviderOptions is DashScopeChatRequestOptions options
+            ? options.UseVl
+            : null;
         var client = CreateDashScopeClient(config, dashScopeConfig, services);
-        var chatClient = client.AsChatClient(config.ModelName, dashScopeConfig?.DefaultUseVl);
+        var chatClient = client.AsChatClient(config.ModelName, useVl);
 
-        return new DashScopeConfiguredChatClient(chatClient, config.ModelName, dashScopeConfig?.DefaultUseVl);
+        return new DashScopeConfiguredChatClient(chatClient, config.ModelName, useVl);
     }
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider registers an AOT-compatible config deserializer in DashScopeProviderModule.")]
@@ -92,7 +95,7 @@ internal class DashScopeProvider : IChatClientProvider, IEmbeddingGeneratorProvi
                         ["SupportsFunctionCalling"] = true,
                         ["SupportsReasoning"] = true,
                         ["SupportsVision"] = true,
-                        ["VisionRequiresUseVl"] = "Auto-detected for qwen-vl/qwen3-vl/qwen3-omni/gui-plus models, or set DashScopeProviderConfig.DefaultUseVl."
+                        ["VisionRequiresUseVl"] = "Auto-detected from the model, or set DashScopeChatRequestOptions.UseVl."
                     }
                 },
                 [ProviderClientFamily.Embeddings] = new()
@@ -136,10 +139,6 @@ internal class DashScopeProvider : IChatClientProvider, IEmbeddingGeneratorProvi
 
     internal static void ValidateProviderOptions(DashScopeProviderConfig config, List<string> errors)
     {
-        if (!string.IsNullOrWhiteSpace(config.BaseAddress) &&
-            !Uri.IsWellFormedUriString(config.BaseAddress, UriKind.Absolute))
-            errors.Add("BaseAddress must be a valid, absolute URI");
-
         if (!string.IsNullOrWhiteSpace(config.WebsocketBaseAddress) &&
             !Uri.IsWellFormedUriString(config.WebsocketBaseAddress, UriKind.Absolute))
             errors.Add("WebsocketBaseAddress must be a valid, absolute URI");
@@ -168,8 +167,7 @@ internal class DashScopeProvider : IChatClientProvider, IEmbeddingGeneratorProvi
         var apiKeyTask = secrets.RequireAsync("dashscope:ApiKey", "DashScope", config.ApiKey, CancellationToken.None);
         var apiKey = apiKeyTask.GetAwaiter().GetResult();
 
-        var baseAddress =
-            FirstNonWhiteSpace(config.Endpoint, dashScopeConfig?.BaseAddress) ?? DefaultBaseAddress;
+        var baseAddress = FirstNonWhiteSpace(config.Endpoint) ?? DefaultBaseAddress;
         var websocketBaseAddress =
             string.IsNullOrWhiteSpace(dashScopeConfig?.WebsocketBaseAddress)
                 ? DefaultWebsocketBaseAddress

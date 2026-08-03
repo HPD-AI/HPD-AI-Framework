@@ -1292,26 +1292,25 @@ public class ProviderConfigConsolidationTests
     public void DashScopeProviderConfig_ShouldOwnProviderConstructionOptions()
     {
         var builder = new AgentBuilder()
-            .WithDashScope("qwen-plus", configure: dashScope =>
+            .WithDashScope("qwen-plus", endpoint: "https://dashscope.aliyuncs.com/api/v1/", configure: dashScope =>
             {
-                dashScope.BaseAddress = "https://dashscope.aliyuncs.com/api/v1/";
                 dashScope.WebsocketBaseAddress = "wss://dashscope.aliyuncs.com/api-ws/v1/inference/";
                 dashScope.WorkspaceId = "ws_hpd";
                 dashScope.SocketPoolSize = 16;
                 dashScope.TimeoutSeconds = 180;
-                dashScope.DefaultUseVl = true;
-            });
+            })
+            .WithDashScopeChatRequestOptions(new DashScopeChatRequestOptions { UseVl = true });
 
         var chatConfig = builder.Config.EnsureChatClientConfig();
         var providerConfig = chatConfig.ProviderConfig as DashScopeProviderConfig;
 
         providerConfig.Should().NotBeNull();
-        providerConfig!.BaseAddress.Should().Be("https://dashscope.aliyuncs.com/api/v1/");
+        chatConfig.Endpoint.Should().Be("https://dashscope.aliyuncs.com/api/v1/");
         providerConfig.WebsocketBaseAddress.Should().Be("wss://dashscope.aliyuncs.com/api-ws/v1/inference/");
         providerConfig.WorkspaceId.Should().Be("ws_hpd");
         providerConfig.SocketPoolSize.Should().Be(16);
         providerConfig.TimeoutSeconds.Should().Be(180);
-        providerConfig.DefaultUseVl.Should().BeTrue();
+        ((DashScopeChatRequestOptions)chatConfig.ProviderOptions!).UseVl.Should().BeTrue();
     }
 
     [Fact]
