@@ -88,4 +88,40 @@ public sealed class GeneratedProviderCompositionIntegrationTests
             Assert.IsType<AnthropicChatRequestOptions>(roundTrip.Clients.Chat.ProviderOptions)
                 .ThinkingBudgetTokens);
     }
+
+    [Theory]
+    [InlineData(HpdConfigFormat.Json)]
+    [InlineData(HpdConfigFormat.Yaml)]
+    public void RunConfigSerializer_RoundTripsGeneratedProviderPayloads(HpdConfigFormat format)
+    {
+        var services = new ServiceCollection();
+        services.AddHpdGeneratedProviders();
+        using var provider = services.BuildServiceProvider();
+        var composition = provider.GetRequiredService<ProviderComposition>();
+        var config = new AgentRunConfig
+        {
+            Clients = new AgentClientsConfig
+            {
+                Chat = new ChatClientConfig
+                {
+                    ProviderKey = "anthropic",
+                    ModelName = "claude-test",
+                    ProviderConfig = new AnthropicProviderConfig(),
+                    ProviderOptions = new AnthropicChatRequestOptions
+                    {
+                        ThinkingBudgetTokens = 2048
+                    }
+                }
+            }
+        };
+
+        var document = HpdAgentConfigSerializer.Serialize(config, composition, format);
+        var roundTrip = HpdAgentConfigSerializer.DeserializeRunConfig(document, composition, format)!;
+
+        Assert.IsType<AnthropicProviderConfig>(roundTrip.Clients.Chat!.ProviderConfig);
+        Assert.Equal(
+            2048,
+            Assert.IsType<AnthropicChatRequestOptions>(roundTrip.Clients.Chat.ProviderOptions)
+                .ThinkingBudgetTokens);
+    }
 }

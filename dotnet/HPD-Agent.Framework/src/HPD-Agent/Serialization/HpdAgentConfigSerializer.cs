@@ -97,6 +97,39 @@ public static class HpdAgentConfigSerializer
         return config;
     }
 
+    /// <summary>
+    /// Deserializes one run configuration and binds provider-specific family payloads
+    /// through the immutable generated provider composition.
+    /// </summary>
+    /// <param name="text">The JSON or YAML document.</param>
+    /// <param name="providerComposition">The generated provider composition installed by the host.</param>
+    /// <param name="format">The document format.</param>
+    /// <returns>The deserialized run configuration, or <see langword="null"/> for a null document.</returns>
+    /// <exception cref="AgentRunConfigurationException">
+    /// A provider key or generated payload contract is missing, or a payload is invalid.
+    /// </exception>
+    public static AgentRunConfig? DeserializeRunConfig(
+        string text,
+        ProviderComposition providerComposition,
+        HpdConfigFormat format = HpdConfigFormat.Json)
+    {
+        ArgumentNullException.ThrowIfNull(providerComposition);
+        var root = ParseObject(text, format);
+        if (root is null)
+            return null;
+
+        var payloads = new List<ExtractedPayload>();
+        if (GetObject(root, "clients") is { } clients)
+            ExtractFamilies(clients, null, "clients", payloads);
+
+        var config = JsonSerializer.Deserialize(root.ToJsonString(), HPDJsonContext.Default.AgentRunConfig);
+        if (config is null)
+            return null;
+
+        BindFamilies(config.Clients, payloads, providerComposition);
+        return config;
+    }
+
     /// <summary>Serializes typed provider-family payloads through the generated composition.</summary>
     public static string Serialize(
         AgentConfig config,
@@ -125,6 +158,65 @@ public static class HpdAgentConfigSerializer
             HpdConfigFormat.Yaml => HpdConfigSerializer.WriteYaml(root),
             _ => throw new ArgumentOutOfRangeException(nameof(format), format, null)
         };
+    }
+
+    /// <summary>Serializes one run configuration and its typed provider payloads.</summary>
+    /// <param name="config">The run configuration to serialize.</param>
+    /// <param name="providerComposition">The generated provider composition installed by the host.</param>
+    /// <param name="format">The output format.</param>
+    /// <returns>The serialized JSON or YAML document.</returns>
+    /// <exception cref="AgentRunConfigurationException">
+    /// A provider key or generated payload contract is missing, or a payload is invalid.
+    /// </exception>
+    public static string Serialize(
+        AgentRunConfig config,
+        ProviderComposition providerComposition,
+        HpdConfigFormat format = HpdConfigFormat.Json)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+        ArgumentNullException.ThrowIfNull(providerComposition);
+        var root = JsonSerializer.SerializeToNode(config, HPDJsonContext.Default.AgentRunConfig) as JsonObject
+            ?? throw new JsonException("Agent run configuration did not serialize to a JSON object.");
+
+        if (GetObject(root, "clients") is { } clients)
+            InjectFamilies(clients, config.Clients, providerComposition, "clients");
+        return WriteObject(root, format);
+    }
+
+    private static JsonObject? ParseObject(string text, HpdConfigFormat format) => format switch
+    {
+        HpdConfigFormat.Json => JsonNode.Parse(text) as JsonObject,
+        HpdConfigFormat.Yaml => HpdConfigSerializer.ParseYamlToJsonNode(text) as JsonObject,
+        _ => throw new ArgumentOutOfRangeException(nameof(format), format, null)
+    };
+
+    private static string WriteObject(JsonObject root, HpdConfigFormat format) => format switch
+    {
+        HpdConfigFormat.Json => root.ToJsonString(HPDJsonContext.Default.Options),
+        HpdConfigFormat.Yaml => HpdConfigSerializer.WriteYaml(root),
+        _ => throw new ArgumentOutOfRangeException(nameof(format), format, null)
+    };
+
+    private static void BindFamilies(
+        AgentClientsConfig clients,
+        IEnumerable<ExtractedPayload> payloads,
+        ProviderComposition composition)
+    {
+        foreach (var payload in payloads)
+        {
+            var target = clients.GetFamilyConfig(payload.Family);
+            if (target is null)
+                continue;
+            var providerKey = payload.ProviderKey ?? target.ProviderKey;
+            if (payload.Configuration is not null)
+                target.ProviderConfig = (IProviderConfig)BindPayload(
+                    composition, providerKey, payload.Family, ProviderPayloadKind.Configuration,
+                    payload.Configuration, payload.Path + ".providerConfig");
+            if (payload.OperationOptions is not null)
+                SetOperationOptions(target, BindPayload(
+                    composition, providerKey, payload.Family, ProviderPayloadKind.OperationOptions,
+                    payload.OperationOptions, payload.Path + ".providerOptions"));
+        }
     }
 
     private static void InjectProfile(
