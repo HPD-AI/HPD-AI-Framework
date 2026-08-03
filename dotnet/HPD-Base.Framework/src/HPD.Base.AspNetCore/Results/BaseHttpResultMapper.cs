@@ -128,6 +128,11 @@ internal sealed class BaseHttpResultMapper : IBaseHttpResultMapper
             if (schema.RefreshedAt is not null)
                 httpContext.Response.Headers.LastModified = schema.RefreshedAt.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
         }
+        else if (value is BaseRecordBatchResult batch)
+        {
+            httpContext.Response.Headers[BaseHttpHeaders.RequestDisposition] =
+                batch.RequestDisposition == BaseMutationRequestDisposition.Duplicate ? "duplicate" : "committed";
+        }
     }
 
     private static void ApplyEtag(string? etag, HttpContext httpContext)

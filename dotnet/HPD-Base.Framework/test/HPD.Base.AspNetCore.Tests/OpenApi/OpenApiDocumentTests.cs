@@ -100,6 +100,9 @@ public sealed class OpenApiDocumentTests
         batch.GetProperty("x-hpd-required-feature-ids").EnumerateArray()
             .Select(featureId => featureId.GetString())
             .Should().Contain(BaseFeatureIds.RecordsBatch);
+        batch.GetProperty("parameters").EnumerateArray()
+            .Select(parameter => (Name: parameter.GetProperty("name").GetString(), In: parameter.GetProperty("in").GetString()))
+            .Should().Contain((BaseHttpHeaders.IdempotencyKey, "header"));
 
         var upsert = Operation(
             publicDoc,

@@ -18,7 +18,8 @@ internal sealed class HPDBaseOpenApiOperationTransformer(IOptions<HPDBaseOpenApi
         BaseHttpHeaders.EventIds,
         BaseHttpHeaders.CorrelationId,
         BaseHttpHeaders.PreferenceApplied,
-        BaseHttpHeaders.RetryAfter
+        BaseHttpHeaders.RetryAfter,
+        BaseHttpHeaders.RequestDisposition
     ];
 
     private static readonly string[] s_adminPolicyExplainResponseHeaders =
@@ -50,6 +51,8 @@ internal sealed class HPDBaseOpenApiOperationTransformer(IOptions<HPDBaseOpenApi
             or BaseRouteIds.RecordsDelete
             or BaseRouteIds.RecordsUpsert)
             AddRequestHeader(operation, BaseHttpHeaders.IfMatch, required: false, "Expected record revision for optimistic concurrency.");
+        if (metadata.OperationId == BaseRouteIds.RecordsBatch)
+            AddRequestHeader(operation, BaseHttpHeaders.IdempotencyKey, required: false, "Identifies an exact atomic batch request for durable duplicate resolution.");
 
         var responseHeaders = metadata.OperationId == BaseHttpRouteNames.AdminPolicyExplain
             ? s_adminPolicyExplainResponseHeaders

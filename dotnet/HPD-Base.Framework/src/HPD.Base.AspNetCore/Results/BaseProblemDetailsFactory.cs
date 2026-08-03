@@ -1,5 +1,6 @@
 using HPD.Base;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Http;
 
 namespace HPD.Base.AspNetCore;
 
@@ -14,7 +15,7 @@ internal sealed class BaseProblemDetailsFactory
         string path,
         bool includeDiagnostics)
     {
-        var httpStatus = BaseHttpStatusCodeMapper.ToStatusCode(status);
+        var httpStatus = HttpStatus(status, error?.Code);
         var problem = new ProblemDetails
         {
             Status = httpStatus,
@@ -84,4 +85,18 @@ internal sealed class BaseProblemDetailsFactory
 
     private static string ToLowerCamel(string value) =>
         string.IsNullOrEmpty(value) ? value : char.ToLowerInvariant(value[0]) + value[1..];
+
+    private static int HttpStatus(OperationStatus status, string? code) => code switch
+    {
+        BaseMutationRequestErrorCodes.OutcomeUnknown => StatusCodes.Status503ServiceUnavailable,
+        BaseQueryErrorCodes.CursorScopeMismatch => StatusCodes.Status404NotFound,
+        BaseQueryErrorCodes.CursorQueryMismatch or BaseQueryErrorCodes.CursorSchemaChanged
+            or BaseQueryErrorCodes.CursorRestoreInvalidated or BaseQueryErrorCodes.CursorGuaranteeUnavailable
+            => StatusCodes.Status409Conflict,
+        BaseQueryErrorCodes.CursorExpired => StatusCodes.Status410Gone,
+        BaseQueryErrorCodes.CursorInvalid or BaseQueryErrorCodes.CursorVersionUnsupported
+            or BaseQueryErrorCodes.CursorDirectionUnsupported or BaseQueryErrorCodes.CursorKeyTooLarge
+            => StatusCodes.Status400BadRequest,
+        _ => BaseHttpStatusCodeMapper.ToStatusCode(status),
+    };
 }

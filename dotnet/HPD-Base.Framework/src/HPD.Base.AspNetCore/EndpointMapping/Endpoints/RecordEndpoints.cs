@@ -107,6 +107,7 @@ internal static class RecordEndpoints
             services.GetRequiredService<IBaseHttpPrincipalContextFactory>(),
             services.GetRequiredService<IBaseHttpOperationContextFactory>(),
             services.GetRequiredService<IBaseHttpResultMapper>(),
+            services.GetRequiredService<IRecordStoreRegistry>(),
             httpContext.RequestAborted));
     }
 
@@ -295,6 +296,7 @@ internal static class RecordEndpoints
         IBaseHttpPrincipalContextFactory principalFactory,
         IBaseHttpOperationContextFactory operationFactory,
         IBaseHttpResultMapper resultMapper,
+        IRecordStoreRegistry stores,
         CancellationToken cancellationToken)
     {
         var principal = await principalFactory.CreateAsync(
@@ -306,8 +308,11 @@ internal static class RecordEndpoints
             principal,
             BaseOperationKind.Batch,
             "base");
+        OperationResult<BaseRecordBatchRequest> bound = BaseAtomicBatchIdentityBinder.Bind(request, httpContext, principal, stores);
+        if (!bound.IsSuccess() || bound.Value is null)
+            return resultMapper.ToHttpResult(bound, httpContext, Mapping(operation));
         var result = await runtime.Records.BatchAsync(
-            request,
+            bound.Value,
             principal,
             operation,
             cancellationToken);
