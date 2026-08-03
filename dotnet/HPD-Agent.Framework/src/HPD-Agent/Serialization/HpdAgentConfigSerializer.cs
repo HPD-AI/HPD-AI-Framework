@@ -9,15 +9,12 @@ namespace HPD.Agent.Serialization;
 public static class HpdAgentConfigSerializer
 {
     public static AgentConfig? ReadFile(string path)
-        => HpdConfigSerializer.ReadFile(path, HPDJsonContext.Default.AgentConfig);
+        => Deserialize(File.ReadAllText(path), GetFileFormat(path));
 
     public static ValueTask<AgentConfig?> ReadFileAsync(
         string path,
         CancellationToken cancellationToken = default)
-        => HpdConfigSerializer.ReadFileAsync(
-            path,
-            HPDJsonContext.Default.AgentConfig,
-            cancellationToken);
+        => ReadPortableFileAsync(path, cancellationToken);
 
     /// <summary>Reads JSON or YAML and binds its provider-specific payloads through a generated composition.</summary>
     public static AgentConfig? ReadFile(string path, ProviderComposition providerComposition)
@@ -34,23 +31,47 @@ public static class HpdAgentConfigSerializer
             GetFileFormat(path));
 
     public static void WriteFile(string path, AgentConfig config)
-        => HpdConfigSerializer.WriteFile(path, config, HPDJsonContext.Default.AgentConfig);
+    {
+        EnsureProviderCompositionNotRequired(config);
+        HpdConfigSerializer.WriteFile(path, config, HPDJsonContext.Default.AgentConfig);
+    }
 
     public static ValueTask WriteFileAsync(
         string path,
         AgentConfig config,
         CancellationToken cancellationToken = default)
-        => HpdConfigSerializer.WriteFileAsync(
+    {
+        EnsureProviderCompositionNotRequired(config);
+        return HpdConfigSerializer.WriteFileAsync(
             path,
             config,
             HPDJsonContext.Default.AgentConfig,
             cancellationToken);
+    }
 
     public static string Serialize(AgentConfig config, HpdConfigFormat format = HpdConfigFormat.Json)
-        => HpdConfigSerializer.Serialize(config, HPDJsonContext.Default.AgentConfig, format);
+    {
+        EnsureProviderCompositionNotRequired(config);
+        return HpdConfigSerializer.Serialize(config, HPDJsonContext.Default.AgentConfig, format);
+    }
 
     public static AgentConfig? Deserialize(string text, HpdConfigFormat format = HpdConfigFormat.Json)
-        => HpdConfigSerializer.Deserialize(text, HPDJsonContext.Default.AgentConfig, format);
+    {
+        var root = ParseObject(text, format);
+        var payload = root is null ? null : ExtractPayloads(root).FirstOrDefault();
+        if (payload is not null)
+            ThrowProviderCompositionNotInstalled(payload.Path);
+        return root is null
+            ? null
+            : JsonSerializer.Deserialize(root.ToJsonString(), HPDJsonContext.Default.AgentConfig);
+    }
+
+    private static async ValueTask<AgentConfig?> ReadPortableFileAsync(
+        string path,
+        CancellationToken cancellationToken)
+        => Deserialize(
+            await File.ReadAllTextAsync(path, cancellationToken).ConfigureAwait(false),
+            GetFileFormat(path));
 
     private static HpdConfigFormat GetFileFormat(string path)
         => Path.GetExtension(path).ToLowerInvariant() switch
@@ -58,6 +79,34 @@ public static class HpdAgentConfigSerializer
             ".yaml" or ".yml" => HpdConfigFormat.Yaml,
             _ => HpdConfigFormat.Json
         };
+
+    private static void EnsureProviderCompositionNotRequired(AgentConfig config)
+    {
+        EnsureProviderCompositionNotRequired("clients", config.Clients.GetFamilyConfig);
+        foreach (var profile in config.ProviderProfiles)
+            EnsureProviderCompositionNotRequired(
+                $"providerProfiles.{profile.Key}",
+                profile.Value.GetFamilyConfig);
+    }
+
+    private static void EnsureProviderCompositionNotRequired(
+        string path,
+        Func<ProviderClientFamily, ProviderClientConfig?> getFamilyConfig)
+    {
+        foreach (var (_, family) in FamilyNames)
+        {
+            var client = getFamilyConfig(family);
+            if (client is not null &&
+                (client.ProviderConfig is not null || GetOperationOptions(client) is not null))
+                ThrowProviderCompositionNotInstalled($"{path}.{family}");
+        }
+    }
+
+    private static void ThrowProviderCompositionNotInstalled(string path)
+        => throw new AgentRunConfigurationException(
+            "ProviderCompositionNotInstalled",
+            path,
+            $"Provider-specific configuration at '{path}' requires the consuming host's generated provider composition.");
 
     /// <summary>
     /// Deserializes an agent configuration and binds provider-specific family payloads through

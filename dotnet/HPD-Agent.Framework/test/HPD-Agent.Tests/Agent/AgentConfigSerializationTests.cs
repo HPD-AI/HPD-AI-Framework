@@ -114,6 +114,27 @@ public sealed class AgentConfigSerializationTests
     }
 
     [Fact]
+    public void Deserialize_ProviderPayloadWithoutComposition_FailsExplicitly()
+    {
+        var json = """
+        {
+          "clients": {
+            "chat": {
+              "providerKey": "openai",
+              "providerOptions": { "serviceTier": "auto" }
+            }
+          }
+        }
+        """;
+
+        var exception = Assert.Throws<AgentRunConfigurationException>(
+            () => HpdAgentConfigSerializer.Deserialize(json));
+
+        exception.Code.Should().Be("ProviderCompositionNotInstalled");
+        exception.Path.Should().Be("clients.chat");
+    }
+
+    [Fact]
     public void ProviderConfig_IsStoredAsTypedPayload()
     {
         var config = new ProviderClientConfig
