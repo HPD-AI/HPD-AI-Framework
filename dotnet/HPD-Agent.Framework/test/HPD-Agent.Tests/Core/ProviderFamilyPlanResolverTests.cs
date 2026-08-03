@@ -32,7 +32,6 @@ public sealed class ProviderFamilyPlanResolverTests
     [Fact]
     public void ProviderSwitch_DiscardsOldProviderBoundStateAndUsesMatchingProfile()
     {
-        using var document = JsonDocument.Parse("""{"region":"us"}""");
         var plan = ProviderFamilyPlanResolver.Resolve(
             ProviderClientFamily.Chat,
             Descriptors,
@@ -42,7 +41,7 @@ public sealed class ProviderFamilyPlanResolverTests
                 ProviderKey = "anthropic",
                 ModelName = "claude-profile",
                 AuthenticationKey = "anthropic-key",
-                ConstructionOptions = document.RootElement.Clone()
+                ProviderConfig = new PlanProviderConfig { Region = "us" }
             },
             new ProviderClientConfig { ProviderKey = "openai", ModelName = "agent", Endpoint = "https://openai.test" },
             new ProviderClientConfig { ProviderKey = "anthropic" });
@@ -51,7 +50,7 @@ public sealed class ProviderFamilyPlanResolverTests
         Assert.Equal("claude-profile", plan.ModelName);
         Assert.Equal("anthropic-key", plan.AuthenticationKey);
         Assert.Null(plan.Endpoint);
-        Assert.Equal("us", plan.ConstructionOptions!.Value.GetProperty("region").GetString());
+        Assert.Equal("us", Assert.IsType<PlanProviderConfig>(plan.ProviderConfig).Region);
     }
 
     [Fact]
@@ -80,5 +79,10 @@ public sealed class ProviderFamilyPlanResolverTests
                 [ProviderClientFamily.Chat] = new() { Family = ProviderClientFamily.Chat }
             };
         public IReadOnlyList<string> Aliases => aliases;
+    }
+
+    private sealed class PlanProviderConfig : IProviderConfig
+    {
+        public string? Region { get; init; }
     }
 }

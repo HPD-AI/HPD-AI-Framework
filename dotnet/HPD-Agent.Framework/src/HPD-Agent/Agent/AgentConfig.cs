@@ -544,6 +544,7 @@ public class ProviderClientConfig
     public JsonElement? ConstructionOptions { get; set; }
 
     /// <summary>Gets or sets the strongly typed provider-specific client configuration.</summary>
+    [JsonIgnore]
     public IProviderConfig? ProviderConfig { get; set; }
 
     /// <summary>

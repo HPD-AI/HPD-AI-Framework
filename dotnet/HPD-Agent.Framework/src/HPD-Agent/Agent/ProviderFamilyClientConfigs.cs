@@ -67,6 +67,7 @@ public sealed class RealtimeClientConfig : ProviderClientConfig
     public RealtimeTranscriptionRunConfig? Transcription { get; set; }
 
     /// <summary>Gets or sets provider-specific session options.</summary>
+    [JsonIgnore]
     public IRealtimeSessionProviderOptions? ProviderOptions { get; set; }
 
     /// <summary>Gets or sets a borrowed Realtime client override.</summary>
@@ -100,6 +101,7 @@ public sealed class ImageGenerationClientConfig : ProviderClientConfig
     public int? StreamingCount { get; set; }
 
     /// <summary>Gets or sets provider-specific image options.</summary>
+    [JsonIgnore]
     public IImageGenerationProviderOptions? ProviderOptions { get; set; }
 
     /// <summary>Gets or sets a borrowed image-generator override.</summary>
@@ -114,6 +116,7 @@ public sealed class EmbeddingsClientConfig : ProviderClientConfig
     public int? Dimensions { get; set; }
 
     /// <summary>Gets or sets provider-specific embedding options.</summary>
+    [JsonIgnore]
     public IEmbeddingGenerationProviderOptions? ProviderOptions { get; set; }
 
     /// <summary>Gets or sets a borrowed embedding-generator override.</summary>
@@ -143,6 +146,7 @@ public sealed class TextToSpeechClientConfig : ProviderClientConfig
     public float? Volume { get; set; }
 
     /// <summary>Gets or sets provider-specific synthesis options.</summary>
+    [JsonIgnore]
     public ITextToSpeechProviderOptions? ProviderOptions { get; set; }
 
     /// <summary>Gets or sets a borrowed text-to-speech client override.</summary>
@@ -163,6 +167,7 @@ public sealed class SpeechToTextClientConfig : ProviderClientConfig
     public string? TextLanguage { get; set; }
 
     /// <summary>Gets or sets provider-specific recognition options.</summary>
+    [JsonIgnore]
     public ISpeechToTextProviderOptions? ProviderOptions { get; set; }
 
     /// <summary>Gets or sets a borrowed speech-to-text client override.</summary>
@@ -183,6 +188,7 @@ public sealed class HostedFilesClientConfig : ProviderClientConfig
     public int? Limit { get; set; }
 
     /// <summary>Gets or sets provider-specific hosted-file options.</summary>
+    [JsonIgnore]
     public IHostedFileProviderOptions? ProviderOptions { get; set; }
 
     /// <summary>Gets or sets a borrowed hosted-file client override.</summary>

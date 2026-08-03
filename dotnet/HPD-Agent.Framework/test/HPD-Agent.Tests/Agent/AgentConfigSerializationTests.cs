@@ -9,7 +9,7 @@ namespace HPD.Agent.Tests.Serialization;
 
 public sealed class AgentConfigSerializationTests
 {
-    private sealed class ProviderTestOptions
+    private sealed class ProviderTestOptions : IProviderConfig
     {
         public int budget { get; set; }
         public bool enabled { get; set; }
@@ -114,18 +114,12 @@ public sealed class AgentConfigSerializationTests
     }
 
     [Fact]
-    public void ConstructionOptions_ObjectFeedsRegisteredProviderDeserializer()
+    public void ProviderConfig_IsStoredAsTypedPayload()
     {
-        var providerKey = $"provider-options-{Guid.NewGuid():N}";
-        ProviderDiscovery.RegisterProviderConfigType<ProviderTestOptions>(
-            providerKey,
-            json => JsonSerializer.Deserialize<ProviderTestOptions>(json),
-            config => JsonSerializer.Serialize(config));
-
         var config = new ProviderClientConfig
         {
-            ProviderKey = providerKey,
-            ConstructionOptions = JsonDocument.Parse("""{"budget":512,"enabled":true}""").RootElement.Clone()
+            ProviderKey = "provider-options",
+            ProviderConfig = new ProviderTestOptions { budget = 512, enabled = true }
         };
 
         var options = config.ProviderConfig as ProviderTestOptions;
@@ -136,7 +130,7 @@ public sealed class AgentConfigSerializationTests
     }
 
     [Fact]
-    public void ConstructionOptions_YamlObjectMergesWithOverrides()
+    public void LegacyProviderMapAndConstructionOptions_AreRejected()
     {
         var path = Path.Combine(Path.GetTempPath(), $"hpd-agent-options-{Guid.NewGuid():N}.yaml");
         File.WriteAllText(path, """
@@ -158,17 +152,9 @@ public sealed class AgentConfigSerializationTests
 
         try
         {
-            var config = HpdAgentConfigSerializer.ReadFile(path);
+            var act = () => HpdAgentConfigSerializer.ReadFile(path);
 
-            var resolved = config!.ResolveClientConfig(ProviderClientFamily.Chat);
-
-            resolved.Should().NotBeNull();
-            using var json = JsonDocument.Parse(resolved!.GetConstructionOptionsRawJson()!);
-            var root = json.RootElement;
-            root.GetProperty("organizationId").GetString().Should().Be("org_1");
-            root.GetProperty("projectId").GetString().Should().Be("proj_chat");
-            root.GetProperty("reasoningEffort").GetString().Should().Be("medium");
-            resolved.ConstructionOptions.Should().NotBeNull();
+            act.Should().Throw<JsonException>();
         }
         finally
         {

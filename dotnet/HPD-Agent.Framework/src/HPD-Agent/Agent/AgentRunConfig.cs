@@ -480,6 +480,7 @@ public sealed class ChatClientConfig : ProviderClientConfig
     /// <summary>
     /// Provider-specific operation options for the selected Chat provider.
     /// </summary>
+    [JsonIgnore]
     public IChatRequestOptions? ProviderOptions { get; set; }
 
     /// <summary>
