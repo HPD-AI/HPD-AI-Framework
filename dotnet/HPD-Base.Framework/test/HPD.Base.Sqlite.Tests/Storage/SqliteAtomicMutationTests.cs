@@ -650,6 +650,79 @@ public sealed class SqliteAtomicMutationTests
     }
 
     [Fact]
+    public async Task ExpiredReceiptIsNewWhetherRetainedOrPhysicallyPruned()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"hpd-base-receipt-expiry-{Guid.NewGuid():N}.db");
+        var clock = new MutableTimeProvider(new DateTimeOffset(2026, 8, 3, 0, 0, 0, TimeSpan.Zero));
+        var options = new HPDBaseSqliteOptions
+        {
+            StoreId = "receipt-expiry",
+            DataSource = path,
+            Collections = [Collection("items")],
+        };
+        try
+        {
+            await using SqliteRecordStore store = SqliteTestFactory.Create(options, timeProvider: clock);
+            CollectionDefinition collection = Collection("items");
+            BaseMutationRequestIdentity retainedIdentity = Identity("retained");
+            BaseMutationRequestIdentity prunedIdentity = Identity("pruned");
+
+            (await store.ExecuteAtomicAsync(
+                CreateProcessor(collection, "retained-before", "evt-retained-before"),
+                IdentifiedRequest(retainedIdentity, clock.GetUtcNow().AddHours(1))))
+                .RequestDisposition.Should().Be(BaseMutationRequestDisposition.Committed);
+            (await store.ExecuteAtomicAsync(
+                CreateProcessor(collection, "pruned-before", "evt-pruned-before"),
+                IdentifiedRequest(prunedIdentity, clock.GetUtcNow().AddHours(1))))
+                .RequestDisposition.Should().Be(BaseMutationRequestDisposition.Committed);
+
+            clock.Advance(TimeSpan.FromHours(2));
+            RecordMutationExecutionResult retained = await store.ExecuteAtomicAsync(
+                CreateProcessor(collection, "retained-after", "evt-retained-after"),
+                IdentifiedRequest(retainedIdentity, clock.GetUtcNow().AddHours(1)));
+
+            using (var connection = new SqliteConnection($"Data Source={path};Pooling=False"))
+            {
+                connection.Open();
+                using var delete = connection.CreateCommand();
+                delete.CommandText = "DELETE FROM hpd_base_operation_receipts WHERE scope='scope' AND operation='operation' AND idempotency_key='pruned';";
+                delete.ExecuteNonQuery().Should().Be(1);
+            }
+            RecordMutationExecutionResult pruned = await store.ExecuteAtomicAsync(
+                CreateProcessor(collection, "pruned-after", "evt-pruned-after"),
+                IdentifiedRequest(prunedIdentity, clock.GetUtcNow().AddHours(1)));
+
+            retained.RequestDisposition.Should().Be(BaseMutationRequestDisposition.Committed);
+            pruned.RequestDisposition.Should().Be(BaseMutationRequestDisposition.Committed);
+            retained.Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
+            pruned.Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            foreach (string candidate in new[] { path, path + "-wal", path + "-shm" })
+                if (File.Exists(candidate)) File.Delete(candidate);
+        }
+
+        static BaseMutationRequestIdentity Identity(string key) => BaseMutationRequestIdentity.Create(
+            "scope", "operation", key,
+            BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(key))));
+
+        static RecordMutationExecutionRequest IdentifiedRequest(
+            BaseMutationRequestIdentity identity,
+            DateTimeOffset expiresAt) => ExecutionRequest() with
+            {
+                AtomicRequest = new BaseAtomicMutationExecutionRequest
+                {
+                    Identity = identity,
+                    StructuralDigest = System.Security.Cryptography.SHA256.HashData("same-structure"u8),
+                    ExpiresAt = expiresAt,
+                    MaxReceiptBytes = 4_096,
+                },
+            };
+    }
+
+    [Fact]
     public async Task DescriptorAdvertisesOnlyProvenL30Guarantees()
     {
         await using var store = Store();
@@ -823,6 +896,13 @@ public sealed class SqliteAtomicMutationTests
             Interlocked.Increment(ref _utcNowReads);
             return DateTimeOffset.Parse("2026-07-30T12:00:00Z");
         }
+    }
+
+    private sealed class MutableTimeProvider(DateTimeOffset now) : TimeProvider
+    {
+        private DateTimeOffset _now = now;
+        public override DateTimeOffset GetUtcNow() => _now;
+        public void Advance(TimeSpan duration) => _now += duration;
     }
 
     private sealed class FaultingTransactionController : ISqliteTransactionController
