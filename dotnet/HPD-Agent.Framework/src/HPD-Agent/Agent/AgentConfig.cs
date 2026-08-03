@@ -783,6 +783,7 @@ public static class ProviderClientConfigResolver
             targetChat.Seed = sourceChat.Seed ?? targetChat.Seed;
             targetChat.StopSequences = sourceChat.StopSequences ?? targetChat.StopSequences;
             targetChat.Reasoning = sourceChat.Reasoning ?? targetChat.Reasoning;
+            targetChat.RuntimeResponseFormat = sourceChat.RuntimeResponseFormat ?? targetChat.RuntimeResponseFormat;
             targetChat.ProviderOptions = sourceChat.ProviderOptions ?? targetChat.ProviderOptions;
             targetChat.Override = sourceChat.Override ?? targetChat.Override;
         }

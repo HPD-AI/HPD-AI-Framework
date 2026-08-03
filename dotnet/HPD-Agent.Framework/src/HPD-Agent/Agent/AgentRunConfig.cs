@@ -422,6 +422,9 @@ public sealed class ChatClientConfig : ProviderClientConfig
     [JsonIgnore]
     public IChatRequestOptions? ProviderOptions { get; set; }
 
+    [JsonIgnore]
+    internal ChatResponseFormat? RuntimeResponseFormat { get; set; }
+
     /// <summary>
     /// Reasoning options for the chat request.
     /// Controls how much computational effort the model should put into reasoning
@@ -435,17 +438,6 @@ public sealed class ChatClientConfig : ProviderClientConfig
     public ReasoningOptions? Reasoning { get; set; }
 
     /// <summary>
-    /// Response format configuration for structured output.
-    /// When set, instructs the provider to return JSON matching a schema.
-    /// </summary>
-    /// <remarks>
-    /// For structured output, prefer using <see cref="AgentRunConfig.StructuredOutput"/>
-    /// which is handled automatically by RunStructuredAsync&lt;T&gt;().
-    /// </remarks>
-    [JsonIgnore] // Not FFI-serializable (ChatResponseFormat contains complex types)
-    public ChatResponseFormat? ResponseFormat { get; set; }
-
-    /// <summary>
     /// Converts to Microsoft.Extensions.AI.ChatOptions for internal use.
     /// Returns null if no overrides are specified.
     /// </summary>
@@ -455,7 +447,7 @@ public sealed class ChatClientConfig : ProviderClientConfig
             FrequencyPenalty == null && PresencePenalty == null &&
             Seed == null &&
             string.IsNullOrEmpty(ModelName) && StopSequences == null &&
-            ResponseFormat == null && Reasoning == null &&
+            Reasoning == null && RuntimeResponseFormat == null &&
             ProviderOptions == null)
         {
             return null;  // No overrides
@@ -485,11 +477,11 @@ public sealed class ChatClientConfig : ProviderClientConfig
             options.StopSequences = StopSequences.ToList();
         }
 
-        if (ResponseFormat != null)
-            options.ResponseFormat = ResponseFormat;
-
         if (Reasoning != null)
             options.Reasoning = Reasoning.ToMicrosoftReasoningOptions();
+
+        if (RuntimeResponseFormat != null)
+            options.ResponseFormat = RuntimeResponseFormat;
 
         ProviderOptions?.ApplyTo(options);
 
@@ -526,7 +518,6 @@ public sealed class ChatClientConfig : ProviderClientConfig
         merged.StopSequences = thisOptions.StopSequences ?? baseOptions.StopSequences;
         merged.Tools = baseOptions.Tools;  // Always from base (tools are agent-level)
         merged.ToolMode = baseOptions.ToolMode;
-        merged.ResponseFormat = thisOptions.ResponseFormat ?? baseOptions.ResponseFormat;
         merged.Reasoning = thisOptions.Reasoning ?? baseOptions.Reasoning;
         merged.Seed = thisOptions.Seed ?? baseOptions.Seed;
 

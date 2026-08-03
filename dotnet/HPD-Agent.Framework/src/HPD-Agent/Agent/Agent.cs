@@ -4812,7 +4812,7 @@ public sealed class Agent
                     schemaDesc,
                     serializerOptions);
 
-                chatOptions.ResponseFormat = ChatResponseFormat.ForJsonSchema(
+                chatOptions.RuntimeResponseFormat = ChatResponseFormat.ForJsonSchema(
                     anyOfSchema,
                     schemaName: schemaName,
                     schemaDescription: schemaDesc);
@@ -4820,7 +4820,7 @@ public sealed class Agent
             else
             {
                 // Single type native mode: Use provided serializerOptions for consistent schema generation
-                chatOptions.ResponseFormat = ChatResponseFormat.ForJsonSchema<T>(
+                chatOptions.RuntimeResponseFormat = ChatResponseFormat.ForJsonSchema<T>(
                     serializerOptions,
                     schemaName: schemaName,
                     schemaDescription: schemaDesc);
