@@ -76,12 +76,16 @@ public sealed class SqliteAdministrationTests
                 RecoveryImageRetention = BaseRecoveryImageRetention.DeleteAfterSuccessfulRestore,
                 ConfirmDestructiveReplacement = true,
             };
-            (await store.RestoreAsync(new MemoryStream(artifact), valid with { ConfirmDestructiveReplacement = false }))
-                .Error!.Code.Should().Be(BaseAdministrationErrorCodes.RestoreConfirmationRequired);
-            (await store.RestoreAsync(new MemoryStream(artifact), valid with { ExpectedArtifactStoreIdentityDigest = new string('0', 64) }))
-                .Error!.Code.Should().Be(BaseAdministrationErrorCodes.RestoreIdentityMismatch);
-            (await store.RestoreAsync(new MemoryStream(artifact), valid with { ExpectedCurrentStoreIdentityDigest = new string('0', 64) }))
-                .Error!.Code.Should().Be(BaseAdministrationErrorCodes.RestoreIdentityMismatch);
+            BaseError confirmation = (await store.RestoreAsync(new MemoryStream(artifact), valid with { ConfirmDestructiveReplacement = false })).Error!;
+            BaseError artifactMismatch = (await store.RestoreAsync(new MemoryStream(artifact), valid with { ExpectedArtifactStoreIdentityDigest = new string('0', 64) })).Error!;
+            BaseError currentMismatch = (await store.RestoreAsync(new MemoryStream(artifact), valid with { ExpectedCurrentStoreIdentityDigest = new string('0', 64) })).Error!;
+
+            confirmation.Code.Should().Be(BaseAdministrationErrorCodes.RestoreConfirmationRequired);
+            confirmation.RestoreFailureDisposition.Should().Be(BaseRestoreFailureDisposition.RejectedBeforeChange);
+            artifactMismatch.Code.Should().Be(BaseAdministrationErrorCodes.RestoreIdentityMismatch);
+            artifactMismatch.RestoreFailureDisposition.Should().Be(BaseRestoreFailureDisposition.RejectedBeforeChange);
+            currentMismatch.Code.Should().Be(BaseAdministrationErrorCodes.RestoreIdentityMismatch);
+            currentMismatch.RestoreFailureDisposition.Should().Be(BaseRestoreFailureDisposition.OriginalPreserved);
 
             store.RestoreRecoveryPending.Should().BeFalse();
         }

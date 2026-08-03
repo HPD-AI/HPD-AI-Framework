@@ -178,13 +178,13 @@ public sealed partial class SqliteRecordStore
             return AdminUnsupported<BaseRestoreResult>();
         if (!source.CanRead || !ValidStoreRequest(request.StoreId)
             || !Enum.IsDefined(request.IdentityMode) || !Enum.IsDefined(request.RecoveryImageRetention))
-            return AdminValidation<BaseRestoreResult>(BaseAdministrationErrorCodes.Invalid, "The restore request is invalid.");
+            return RestoreValidation(BaseAdministrationErrorCodes.Invalid, "The restore request is invalid.", BaseRestoreFailureDisposition.RejectedBeforeChange);
         if (!OwnedRegularDatabasePath())
             return AdminUnsupported<BaseRestoreResult>();
         if (!request.ConfirmDestructiveReplacement)
-            return AdminValidation<BaseRestoreResult>(BaseAdministrationErrorCodes.RestoreConfirmationRequired, "Destructive replacement was not confirmed.");
+            return RestoreValidation(BaseAdministrationErrorCodes.RestoreConfirmationRequired, "Destructive replacement was not confirmed.", BaseRestoreFailureDisposition.RejectedBeforeChange);
         if (!ValidDigest(request.ExpectedCurrentStoreIdentityDigest) || !ValidDigest(request.ExpectedArtifactStoreIdentityDigest))
-            return AdminValidation<BaseRestoreResult>(BaseAdministrationErrorCodes.Invalid, "Restore identity digests are invalid.");
+            return RestoreValidation(BaseAdministrationErrorCodes.Invalid, "Restore identity digests are invalid.", BaseRestoreFailureDisposition.RejectedBeforeChange);
 
         string staging = RandomSiblingPath("restore");
         string activePath = DatabasePath();
@@ -203,7 +203,7 @@ public sealed partial class SqliteRecordStore
             administrationSlot = true;
             (BaseBackupManifest manifest, _, _, _, _) = await ReadEnvelopeAsync(source, staging, cancellationToken).ConfigureAwait(false);
             if (!FixedHexEquals(request.ExpectedArtifactStoreIdentityDigest, manifest.StoreIdentityDigest))
-                return AdminConflict<BaseRestoreResult>(BaseAdministrationErrorCodes.RestoreIdentityMismatch, "The artifact identity does not match the restore request.");
+                return RestoreConflict(BaseAdministrationErrorCodes.RestoreIdentityMismatch, "The artifact identity does not match the restore request.", BaseRestoreFailureDisposition.RejectedBeforeChange);
             await ValidateDatabaseFileAsync(staging, cancellationToken).ConfigureAwait(false);
 
             using var acquisition = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -213,11 +213,11 @@ public sealed partial class SqliteRecordStore
             if (!FixedHexEquals(request.ExpectedCurrentStoreIdentityDigest, ActiveIdentity)
                 || request.IdentityMode == BaseRestoreIdentityMode.RequireCurrentStoreIdentity
                     && !FixedHexEquals(ActiveIdentity, manifest.StoreIdentityDigest))
-                return AdminConflict<BaseRestoreResult>(BaseAdministrationErrorCodes.RestoreIdentityMismatch, "Restore identity requirements were not met.");
+                return RestoreConflict(BaseAdministrationErrorCodes.RestoreIdentityMismatch, "Restore identity requirements were not met.", BaseRestoreFailureDisposition.OriginalPreserved);
             if (_quarantinedMutations.Count != 0)
-                return AdminStoreError<BaseRestoreResult>(BaseAdministrationErrorCodes.RestoreBusy, "The store has unresolved provider work.");
+                return RestoreStoreError(BaseAdministrationErrorCodes.RestoreBusy, "The store has unresolved provider work.", BaseRestoreFailureDisposition.OriginalPreserved);
             if (_quarantinedAdministration.Count != 0)
-                return AdminStoreError<BaseRestoreResult>(BaseAdministrationErrorCodes.RestoreBusy, "The store has unresolved administration work.");
+                return RestoreStoreError(BaseAdministrationErrorCodes.RestoreBusy, "The store has unresolved administration work.", BaseRestoreFailureDisposition.OriginalPreserved);
 
             if (OperatingSystem.IsWindows()) windowsAttributes = File.GetAttributes(activePath);
             else unixMode = File.GetUnixFileMode(activePath);
@@ -273,28 +273,36 @@ public sealed partial class SqliteRecordStore
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            await RecoverOriginalAsync(activePath, recovery, originalMoved, replacementInstalled).ConfigureAwait(false);
-            return AdminStoreError<BaseRestoreResult>(BaseAdministrationErrorCodes.RestoreTimeout, "Restore exceeded its bounded lifetime.");
+            bool recovered = await RecoverOriginalAsync(activePath, recovery, originalMoved, replacementInstalled).ConfigureAwait(false);
+            return RestoreStoreError(
+                recovered ? BaseAdministrationErrorCodes.RestoreTimeout : BaseAdministrationErrorCodes.RestoreIndeterminate,
+                recovered ? "Restore exceeded its bounded lifetime." : "The restored store state is indeterminate and unavailable.",
+                !originalMoved ? BaseRestoreFailureDisposition.OriginalPreserved
+                    : recovered ? BaseRestoreFailureDisposition.RecoveryRestoredOriginal
+                    : BaseRestoreFailureDisposition.IndeterminateUnavailable);
         }
         catch (OperationCanceledException)
         {
-            await RecoverOriginalAsync(activePath, recovery, originalMoved, replacementInstalled).ConfigureAwait(false);
+            _ = await RecoverOriginalAsync(activePath, recovery, originalMoved, replacementInstalled).ConfigureAwait(false);
             throw;
         }
         catch (BackupKeyUnavailableException)
         {
-            return AdminValidation<BaseRestoreResult>(BaseAdministrationErrorCodes.ArtifactKeyUnavailable, "The artifact authentication key is unavailable.");
+            return RestoreValidation(BaseAdministrationErrorCodes.ArtifactKeyUnavailable, "The artifact authentication key is unavailable.", BaseRestoreFailureDisposition.RejectedBeforeChange);
         }
         catch (BackupArtifactTooLargeException)
         {
-            return AdminValidation<BaseRestoreResult>(BaseAdministrationErrorCodes.ArtifactTooLarge, "The backup artifact exceeds the configured bound.");
+            return RestoreValidation(BaseAdministrationErrorCodes.ArtifactTooLarge, "The backup artifact exceeds the configured bound.", BaseRestoreFailureDisposition.RejectedBeforeChange);
         }
         catch (Exception) when (!cancellationToken.IsCancellationRequested)
         {
             bool recovered = await RecoverOriginalAsync(activePath, recovery, originalMoved, replacementInstalled).ConfigureAwait(false);
-            return AdminStoreError<BaseRestoreResult>(
+            return RestoreStoreError(
                 recovered || !originalMoved ? BaseAdministrationErrorCodes.RestoreFailed : BaseAdministrationErrorCodes.RestoreIndeterminate,
-                recovered || !originalMoved ? "Restore failed and the original store was preserved." : "The restored store state is indeterminate and unavailable.");
+                recovered || !originalMoved ? "Restore failed and the original store was preserved." : "The restored store state is indeterminate and unavailable.",
+                !originalMoved ? BaseRestoreFailureDisposition.OriginalPreserved
+                    : recovered ? BaseRestoreFailureDisposition.RecoveryRestoredOriginal
+                    : BaseRestoreFailureDisposition.IndeterminateUnavailable);
         }
         finally
         {
@@ -677,7 +685,24 @@ public sealed partial class SqliteRecordStore
     private static OperationResult<T> AdminValidation<T>(string code, string message) => OperationResults.ValidationFailed<T>(AdminError(code, message, ErrorCategory.Validation));
     private static OperationResult<T> AdminConflict<T>(string code, string message) => OperationResults.Conflict<T>(AdminError(code, message, ErrorCategory.Conflict));
     private static OperationResult<T> AdminStoreError<T>(string code, string message) => OperationResults.StoreError<T>(AdminError(code, message, ErrorCategory.Store));
-    private static BaseError AdminError(string code, string message, ErrorCategory category) => new() { Code = code, Message = message, Category = category, Store = category == ErrorCategory.Store ? new StoreErrorInfo { Retryable = false } : null };
+    private static OperationResult<BaseRestoreResult> RestoreValidation(string code, string message, BaseRestoreFailureDisposition disposition) =>
+        OperationResults.ValidationFailed<BaseRestoreResult>(AdminError(code, message, ErrorCategory.Validation, disposition));
+    private static OperationResult<BaseRestoreResult> RestoreConflict(string code, string message, BaseRestoreFailureDisposition disposition) =>
+        OperationResults.Conflict<BaseRestoreResult>(AdminError(code, message, ErrorCategory.Conflict, disposition));
+    private static OperationResult<BaseRestoreResult> RestoreStoreError(string code, string message, BaseRestoreFailureDisposition disposition) =>
+        OperationResults.StoreError<BaseRestoreResult>(AdminError(code, message, ErrorCategory.Store, disposition));
+    private static BaseError AdminError(
+        string code,
+        string message,
+        ErrorCategory category,
+        BaseRestoreFailureDisposition? restoreFailureDisposition = null) => new()
+        {
+            Code = code,
+            Message = message,
+            Category = category,
+            Store = category == ErrorCategory.Store ? new StoreErrorInfo { Retryable = false } : null,
+            RestoreFailureDisposition = restoreFailureDisposition,
+        };
     private sealed class BackupKeyUnavailableException : Exception;
     private sealed class BackupArtifactTooLargeException : Exception;
 }

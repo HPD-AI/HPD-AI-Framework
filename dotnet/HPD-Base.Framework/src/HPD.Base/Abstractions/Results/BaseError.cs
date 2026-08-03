@@ -27,6 +27,8 @@ public sealed record BaseError
     public PolicyErrorInfo? Policy { get; init; }
     /// <summary>Gets or sets the store.</summary>
     public StoreErrorInfo? Store { get; init; }
+    /// <summary>Gets the safe store disposition for a failed destructive restore.</summary>
+    public BaseRestoreFailureDisposition? RestoreFailureDisposition { get; init; }
     /// <summary>Gets or sets the trace ID.</summary>
     public string? TraceId { get; init; }
     /// <summary>Gets or sets the correlation ID.</summary>
