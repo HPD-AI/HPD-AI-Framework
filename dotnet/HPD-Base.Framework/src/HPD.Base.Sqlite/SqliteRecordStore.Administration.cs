@@ -124,6 +124,10 @@ public sealed partial class SqliteRecordStore
         {
             return AdminValidation<BaseBackupManifest>(BaseAdministrationErrorCodes.ArtifactKeyUnavailable, "The artifact authentication key is unavailable.");
         }
+        catch (BackupArtifactTooLargeException)
+        {
+            return AdminValidation<BaseBackupManifest>(BaseAdministrationErrorCodes.ArtifactTooLarge, "The backup artifact exceeds the configured bound.");
+        }
         catch (Exception) when (!cancellationToken.IsCancellationRequested)
         {
             return AdminValidation<BaseBackupManifest>(BaseAdministrationErrorCodes.ArtifactInvalid, "The backup artifact is invalid.");
@@ -185,6 +189,8 @@ public sealed partial class SqliteRecordStore
                 return AdminConflict<BaseRestoreResult>(BaseAdministrationErrorCodes.RestoreIdentityMismatch, "Restore identity requirements were not met.");
             if (_quarantinedMutations.Count != 0)
                 return AdminStoreError<BaseRestoreResult>(BaseAdministrationErrorCodes.RestoreBusy, "The store has unresolved provider work.");
+            if (_quarantinedAdministration.Count != 0)
+                return AdminStoreError<BaseRestoreResult>(BaseAdministrationErrorCodes.RestoreBusy, "The store has unresolved administration work.");
 
             if (OperatingSystem.IsWindows()) windowsAttributes = File.GetAttributes(activePath);
             else unixMode = File.GetUnixFileMode(activePath);
@@ -251,6 +257,10 @@ public sealed partial class SqliteRecordStore
         catch (BackupKeyUnavailableException)
         {
             return AdminValidation<BaseRestoreResult>(BaseAdministrationErrorCodes.ArtifactKeyUnavailable, "The artifact authentication key is unavailable.");
+        }
+        catch (BackupArtifactTooLargeException)
+        {
+            return AdminValidation<BaseRestoreResult>(BaseAdministrationErrorCodes.ArtifactTooLarge, "The backup artifact exceeds the configured bound.");
         }
         catch (Exception) when (!cancellationToken.IsCancellationRequested)
         {
@@ -377,7 +387,9 @@ public sealed partial class SqliteRecordStore
         if (_tokenProtector?.HasKey(keyId) != true) throw new BackupKeyUnavailableException();
         int manifestLength = checked((int)BinaryPrimitives.ReadUInt32BigEndian(header.AsSpan(12, 4)));
         long payloadLength = checked((long)BinaryPrimitives.ReadUInt64BigEndian(header.AsSpan(16, 8)));
-        if (manifestLength is < 2 or > 1_048_576 || payloadLength < 1 || payloadLength > _options.MaxBackupArtifactBytes)
+        if (payloadLength > _options.MaxBackupArtifactBytes)
+            throw new BackupArtifactTooLargeException();
+        if (manifestLength is < 2 or > 1_048_576 || payloadLength < 1)
             throw new InvalidDataException();
         byte[] manifestBytes = new byte[manifestLength];
         await ReadExactAsync(source, manifestBytes, cancellationToken).ConfigureAwait(false);
@@ -639,4 +651,5 @@ public sealed partial class SqliteRecordStore
     private static OperationResult<T> AdminStoreError<T>(string code, string message) => OperationResults.StoreError<T>(AdminError(code, message, ErrorCategory.Store));
     private static BaseError AdminError(string code, string message, ErrorCategory category) => new() { Code = code, Message = message, Category = category, Store = category == ErrorCategory.Store ? new StoreErrorInfo { Retryable = false } : null };
     private sealed class BackupKeyUnavailableException : Exception;
+    private sealed class BackupArtifactTooLargeException : Exception;
 }

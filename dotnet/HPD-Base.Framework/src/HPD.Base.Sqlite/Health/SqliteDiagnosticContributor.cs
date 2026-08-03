@@ -9,13 +9,16 @@ internal sealed class SqliteDiagnosticContributor : IBaseDiagnosticContributor
 {
     private readonly HPDBaseSqliteOptions _options;
     private readonly ILogger<SqliteDiagnosticContributor> _logger;
+    private readonly SqliteRecordStore _store;
 
     /// <summary>Initializes a new instance.</summary>
     public SqliteDiagnosticContributor(
         IOptions<HPDBaseSqliteOptions> options,
+        SqliteRecordStore store,
         ILogger<SqliteDiagnosticContributor> logger)
     {
         _options = options.Value;
+        _store = store;
         _logger = logger;
     }
 
@@ -65,6 +68,20 @@ internal sealed class SqliteDiagnosticContributor : IBaseDiagnosticContributor
                 TargetRef = _options.StoreId,
                 Message = $"SQLite version '{sqliteVersion ?? "unknown"}', schema prefix '{_options.SchemaPrefix}', journal mode '{journalMode ?? "unknown"}', foreign_keys '{foreignKeys ?? "unknown"}', busy_timeout '{busyTimeout ?? "unknown"}', synchronous '{synchronous ?? "unknown"}', missing schema parts: {missing.Length}.",
                 PublicMessage = "SQLite provider configuration is available to administrators.",
+                Category = DiagnosticCategory.Store,
+                Visibility = VisibilityLevel.Admin,
+                EmittedAt = DateTimeOffset.UtcNow
+            });
+            diagnostics.Add(new DiagnosticDescriptor
+            {
+                Id = _options.DiagnosticRefId + ".administration",
+                Code = "base.sqlite.administration",
+                Severity = _store.QuarantinedAdministrationCount != 0 || _store.RestoreRecoveryPending
+                    ? DiagnosticSeverity.Warning
+                    : DiagnosticSeverity.Info,
+                TargetRef = _options.StoreId,
+                Message = $"SQLite administration enabled: {_store.AdministrationCapability.Backup}; quarantined operations: {_store.QuarantinedAdministrationCount}; restore recovery pending: {_store.RestoreRecoveryPending}.",
+                PublicMessage = "SQLite provider administration state is available to administrators.",
                 Category = DiagnosticCategory.Store,
                 Visibility = VisibilityLevel.Admin,
                 EmittedAt = DateTimeOffset.UtcNow

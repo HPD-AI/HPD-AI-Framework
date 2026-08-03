@@ -119,6 +119,8 @@ public sealed partial class SqliteRecordStore :
     public BaseAdministrationCapability AdministrationCapability { get; }
 
     internal int QuarantinedMutationCount => _quarantinedMutations.Count;
+    internal int QuarantinedAdministrationCount => _quarantinedAdministration.Count;
+    internal bool RestoreRecoveryPending => IsFileBacked(_options) && File.Exists(RestoreMarkerPath());
 
     /// <inheritdoc />
     public StoreCapabilityDescriptor Capabilities { get; }
@@ -297,6 +299,22 @@ WHERE event_id = $eventId
             // Shutdown is bounded. Active or permanently blocked work remains quarantined.
         }
 
+        var acquiredAdministrationSlots = 0;
+        try
+        {
+            while (acquiredAdministrationSlots < _options.MaxQuarantinedAdministrationExecutions)
+            {
+                await _administrationExecutionSlots
+                    .WaitAsync(drainLifetime.Token)
+                    .ConfigureAwait(false);
+                acquiredAdministrationSlots++;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Administration cleanup is bounded by the same provider shutdown lifetime.
+        }
+
         if (_keepAliveConnection is not null)
         {
             try
@@ -315,6 +333,10 @@ WHERE event_id = $eventId
             _mutationExecutionSlots.Dispose();
         else if (acquiredSlots != 0)
             _mutationExecutionSlots.Release(acquiredSlots);
+        if (acquiredAdministrationSlots == _options.MaxQuarantinedAdministrationExecutions)
+            _administrationExecutionSlots.Dispose();
+        else if (acquiredAdministrationSlots != 0)
+            _administrationExecutionSlots.Release(acquiredAdministrationSlots);
     }
 
     private void TrackQuarantinedMutation(Task<bool> cleanup, object resourceOwner)

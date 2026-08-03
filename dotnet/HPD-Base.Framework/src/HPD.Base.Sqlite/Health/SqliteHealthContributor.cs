@@ -29,6 +29,8 @@ internal sealed class SqliteHealthContributor : IBaseHealthContributor
         string? journalMode = null;
         string[] missing = [];
         var quarantinedMutations = _store.QuarantinedMutationCount;
+        var quarantinedAdministration = _store.QuarantinedAdministrationCount;
+        var restoreRecoveryPending = _store.RestoreRecoveryPending;
         try
         {
             var factory = new SqliteConnectionFactory(_options);
@@ -56,6 +58,13 @@ internal sealed class SqliteHealthContributor : IBaseHealthContributor
             status = HealthStatus.Degraded;
             summary = "SQLite has indeterminate mutation work in quarantine.";
         }
+        if ((quarantinedAdministration != 0 || restoreRecoveryPending) && status == HealthStatus.Healthy)
+        {
+            status = HealthStatus.Degraded;
+            summary = restoreRecoveryPending
+                ? "SQLite has pending restore recovery state."
+                : "SQLite has indeterminate administration work in quarantine.";
+        }
 
         return
         [
@@ -74,7 +83,9 @@ internal sealed class SqliteHealthContributor : IBaseHealthContributor
                     new HealthMetric { Name = "schemaPrefix", Kind = HealthMetricValueKind.Text, TextValue = _options.SchemaPrefix },
                     new HealthMetric { Name = "journalMode", Kind = HealthMetricValueKind.Text, TextValue = journalMode },
                     new HealthMetric { Name = "missingSchemaParts", Kind = HealthMetricValueKind.Number, NumberValue = missing.Length },
-                    new HealthMetric { Name = "quarantinedMutations", Kind = HealthMetricValueKind.Number, NumberValue = quarantinedMutations }
+                    new HealthMetric { Name = "quarantinedMutations", Kind = HealthMetricValueKind.Number, NumberValue = quarantinedMutations },
+                    new HealthMetric { Name = "quarantinedAdministration", Kind = HealthMetricValueKind.Number, NumberValue = quarantinedAdministration },
+                    new HealthMetric { Name = "restoreRecoveryPending", Kind = HealthMetricValueKind.Boolean, BooleanValue = restoreRecoveryPending }
                 ],
                 Dependencies = missing.Length == 0
                     ? null
