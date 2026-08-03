@@ -157,7 +157,7 @@ public sealed class AgentBuilderEvalExtensionsTests
     public void UseEvalJudgeConfig_SetsConfigOnMiddleware()
     {
         var builder = MakeBuilder();
-        var judgeConfig = new EvalJudgeConfig { TimeoutSeconds = 60 };
+        var judgeConfig = new EvaluationJudgeRunConfig { TimeoutSeconds = 60 };
 
         builder.AddEvaluator(new StubDeterministicEvaluator("Score")).UseEvalJudgeConfig(judgeConfig);
 
@@ -169,7 +169,7 @@ public sealed class AgentBuilderEvalExtensionsTests
     public void UseEvalJudgeConfig_ReturnsBuilderForChaining()
     {
         var builder = MakeBuilder();
-        var result = builder.UseEvalJudgeConfig(new EvalJudgeConfig());
+        var result = builder.UseEvalJudgeConfig(new EvaluationJudgeRunConfig());
         result.Should().BeSameAs(builder);
     }
 

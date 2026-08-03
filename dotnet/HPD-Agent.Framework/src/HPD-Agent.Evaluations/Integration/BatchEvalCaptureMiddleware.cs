@@ -44,7 +44,7 @@ internal sealed class BatchEvalCaptureMiddleware : IAgentMiddleware
 
     private static string? TryGetCaptureRequestId(AgentRunConfig runConfig)
     {
-        if (runConfig.IsInternalEvalJudgeCall)
+        if (runConfig.Get()?.SuppressionReason == EvaluationSuppressionReason.JudgeCall)
             return null;
 
         if (runConfig.Context?.Properties?.TryGetValue(CaptureRequestIdKey, out var value) != true)

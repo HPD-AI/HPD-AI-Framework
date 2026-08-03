@@ -307,51 +307,22 @@ public class AgentRunConfig
 
     #endregion
 
-    #region Evaluation
-
-    /// <summary>
-    /// When true, EvaluationMiddleware skips all evaluation for this run.
-    /// Set automatically by RunEvals on every internal agent run to prevent
-    /// live evaluators from double-firing during batch evaluation.
-    /// </summary>
+    /// <summary>Gets or sets package-owned evaluation policy for this run.</summary>
+    /// <remarks>
+    /// The value is runtime-only because evaluator and judge objects are executable
+    /// dependencies. Public run capture calls <see cref="IAgentRunEvaluationConfig.Snapshot"/>
+    /// so package-owned mutable configuration is not shared accidentally.
+    /// </remarks>
     [JsonIgnore]
-    public bool DisableEvaluators { get; set; } = false;
+    public IAgentRunEvaluationConfig? Evaluations { get; set; }
+}
 
-    /// <summary>
-    /// When true, indicates this AgentRunConfig was created by EvaluationMiddleware
-    /// to invoke a judge LLM. EvaluationMiddleware checks this flag first in
-    /// AfterMessageTurnAsync and returns immediately if set, preventing eval loops.
-    /// Only meaningful when the judge IChatClient is itself a wrapping Agent instance.
-    /// </summary>
-    [JsonIgnore]
-    public bool IsInternalEvalJudgeCall { get; set; } = false;
-
-    /// <summary>
-    /// Evaluation-package owned per-run evaluator additions.
-    /// Stored as object to keep HPD-Agent independent from HPD-Agent.Evaluations.
-    /// Use HPD.Agent.Evaluations.Integration.AgentRunConfigEvalExtensions for
-    /// the typed API.
-    /// </summary>
-    [JsonIgnore]
-    public IReadOnlyList<object>? AdditionalEvaluators { get; set; }
-
-    /// <summary>
-    /// Per-run sampling override for all registered evaluators.
-    /// Null means use each evaluator's registration-time sampling rate.
-    /// </summary>
-    [JsonIgnore]
-    public double? EvaluatorSamplingOverride { get; set; }
-
-    /// <summary>
-    /// Evaluation-package owned per-run judge configuration override.
-    /// Stored as object to keep HPD-Agent independent from HPD-Agent.Evaluations.
-    /// Use HPD.Agent.Evaluations.Integration.AgentRunConfigEvalExtensions for
-    /// the typed API.
-    /// </summary>
-    [JsonIgnore]
-    public object? EvalJudgeConfigOverride { get; set; }
-
-    #endregion
+/// <summary>Defines the runtime-only snapshot boundary for package-owned evaluation policy.</summary>
+public interface IAgentRunEvaluationConfig
+{
+    /// <summary>Creates an owned evaluation configuration snapshot for one run.</summary>
+    /// <returns>An independent snapshot suitable for the captured invocation.</returns>
+    IAgentRunEvaluationConfig Snapshot();
 }
 
 public sealed class AudioRunConfig

@@ -40,7 +40,7 @@ public static class RetroactiveScorer
         string threadId,
         IReadOnlyList<IEvaluator> evaluators,
         ChatConfiguration? chatConfiguration = null,
-        EvalJudgeConfig? judgeConfig = null,
+        EvaluationJudgeRunConfig? judgeConfig = null,
         RetroactiveScorerOptions? options = null,
         IScoreStore? scoreStore = null,
         CancellationToken ct = default)

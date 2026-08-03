@@ -39,9 +39,6 @@ public enum SubAgentRunConfigFields
     /// <summary>Structured output and custom streaming output behavior.</summary>
     Output = 1 << 9,
 
-    /// <summary>Evaluation settings used by evaluation integrations.</summary>
-    Evaluation = 1 << 10,
-
     /// <summary>
     /// The framework default: inherit the execution environment without replacing the child agent's
     /// instructions, tools, input, output contract, or evaluation behavior.
@@ -49,7 +46,7 @@ public enum SubAgentRunConfigFields
     Default = Model | Chat | Permissions | Execution | Compaction | Context,
 
     /// <summary>Inherits every run-configuration group.</summary>
-    All = Default | Instructions | Tools | Input | Output | Evaluation
+    All = Default | Instructions | Tools | Input | Output
 }
 
 /// <summary>
@@ -238,15 +235,6 @@ internal static class AgentRunConfigInheritance
                 Callback = source.Streaming.Callback
             };
             result.StructuredOutput = source.StructuredOutput;
-        }
-
-        if (Has(fields, SubAgentRunConfigFields.Evaluation))
-        {
-            result.DisableEvaluators = source.DisableEvaluators;
-            result.IsInternalEvalJudgeCall = source.IsInternalEvalJudgeCall;
-            result.AdditionalEvaluators = source.AdditionalEvaluators?.ToArray();
-            result.EvaluatorSamplingOverride = source.EvaluatorSamplingOverride;
-            result.EvalJudgeConfigOverride = source.EvalJudgeConfigOverride;
         }
 
         return result;

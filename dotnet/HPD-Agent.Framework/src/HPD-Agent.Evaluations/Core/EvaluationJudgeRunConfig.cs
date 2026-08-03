@@ -13,7 +13,7 @@ namespace HPD.Agent.Evaluations;
 /// <see cref="OverrideChatClient"/> remains as a low-level escape hatch for tests
 /// and advanced embedding scenarios.
 /// </summary>
-public sealed class EvalJudgeConfig
+public sealed class EvaluationJudgeRunConfig
 {
     /// <summary>
     /// Per-judge call timeout in seconds. Cancels stuck judge LLM calls so they don't
@@ -38,4 +38,11 @@ public sealed class EvalJudgeConfig
     /// </summary>
     [JsonIgnore]
     public IJudgeAgent? OverrideAgent { get; init; }
+
+    internal EvaluationJudgeRunConfig Snapshot() => new()
+    {
+        TimeoutSeconds = TimeoutSeconds,
+        OverrideChatClient = OverrideChatClient,
+        OverrideAgent = OverrideAgent
+    };
 }

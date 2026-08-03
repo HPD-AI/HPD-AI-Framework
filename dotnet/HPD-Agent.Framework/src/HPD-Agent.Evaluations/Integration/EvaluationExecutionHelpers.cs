@@ -13,7 +13,7 @@ namespace HPD.Agent.Evaluations.Integration;
 
 internal static class EvaluationExecutionHelpers
 {
-    internal static ChatConfiguration? BuildChatConfiguration(EvalJudgeConfig? config)
+    internal static ChatConfiguration? BuildChatConfiguration(EvaluationJudgeRunConfig? config)
     {
         if (config?.OverrideAgent is not null)
             return new ChatConfiguration(new AgentBackedJudgeChatClient(config.OverrideAgent));
@@ -197,8 +197,10 @@ internal sealed class AgentBackedJudgeChatClient(IJudgeAgent agent) : IChatClien
             {
                 Chat = options is null ? null : new ChatClientConfig(options)
             },
-            DisableEvaluators = true,
-            IsInternalEvalJudgeCall = true,
+            Evaluations = new EvaluationRunConfig
+            {
+                SuppressionReason = EvaluationSuppressionReason.JudgeCall
+            },
         };
 
         if (EvalTraceContext.CurrentEvaluatorName is not { } evaluatorName)

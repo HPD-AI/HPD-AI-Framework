@@ -57,7 +57,10 @@ public sealed class LiveEvaluationMiddlewareFlagTests
         builder.AddEvaluator(evaluator);
         var agent = await builder.BuildAsync(CancellationToken.None);
 
-        await RunAgentAsync(agent, "Hello", new AgentRunConfig { DisableEvaluators = true });
+        await RunAgentAsync(agent, "Hello", new AgentRunConfig
+        {
+            Evaluations = new EvaluationRunConfig { Enabled = false }
+        });
 
         await Task.Delay(100);
         evaluator.Calls.Should().Be(0, "DisableEvaluators=true must skip all evaluators");
@@ -76,7 +79,9 @@ public sealed class LiveEvaluationMiddlewareFlagTests
         builder.AddEvaluator(evaluator);
         var agent = await builder.BuildAsync(CancellationToken.None);
 
-        await RunAgentAsync(agent, "Hello", new AgentRunConfig { IsInternalEvalJudgeCall = true });
+        var judgeRun = new AgentRunConfig();
+        judgeRun.SuppressEvaluation(EvaluationSuppressionReason.JudgeCall);
+        await RunAgentAsync(agent, "Hello", judgeRun);
 
         await Task.Delay(100);
         evaluator.Calls.Should().Be(0, "IsInternalEvalJudgeCall=true must skip all evaluators");
@@ -94,8 +99,10 @@ public sealed class LiveEvaluationMiddlewareFlagTests
         builder.AddEvaluator(registered, samplingRate: 0.0);
         var agent = await builder.BuildAsync(CancellationToken.None);
 
-        var runConfig = new AgentRunConfig()
-            .WithAdditionalEvaluators(additional);
+        var runConfig = new AgentRunConfig
+        {
+            Evaluations = new EvaluationRunConfig { AdditionalEvaluators = [additional] }
+        };
 
         await RunAgentAsync(agent, "Hello", runConfig);
 
@@ -116,34 +123,16 @@ public sealed class LiveEvaluationMiddlewareFlagTests
         builder.AddEvaluator(registered, samplingRate: 1.0);
         var agent = await builder.BuildAsync(CancellationToken.None);
 
-        var runConfig = new AgentRunConfig()
-            .WithAdditionalEvaluators(additional);
+        var runConfig = new AgentRunConfig
+        {
+            Evaluations = new EvaluationRunConfig { AdditionalEvaluators = [additional] }
+        };
 
         await RunAgentAsync(agent, "Hello", runConfig);
 
         await Task.Delay(200);
         registered.Calls.Should().Be(1);
         additional.Calls.Should().Be(1);
-    }
-
-    [Fact]
-    public async Task AdditionalEvaluators_WrongObjectType_IgnoredWithoutCrashing()
-    {
-        var client = new StubChatClient();
-        client.EnqueueText("Done.");
-        var registered = new StubDeterministicEvaluator("Registered");
-
-        var builder = new AgentBuilder(MakeConfig(), new StubProviderRegistry(client));
-        builder.AddEvaluator(registered, samplingRate: 0.0);
-        var agent = await builder.BuildAsync(CancellationToken.None);
-
-        await RunAgentAsync(agent, "Hello", new AgentRunConfig
-        {
-            AdditionalEvaluators = [new object()],
-        });
-
-        await Task.Delay(200);
-        registered.Calls.Should().Be(0);
     }
 
     [Fact]
@@ -157,8 +146,10 @@ public sealed class LiveEvaluationMiddlewareFlagTests
         builder.AddEvaluator(evaluator, samplingRate: 0.0);
         var agent = await builder.BuildAsync(CancellationToken.None);
 
-        var runConfig = new AgentRunConfig()
-            .WithEvaluatorSamplingOverride(1.0);
+        var runConfig = new AgentRunConfig
+        {
+            Evaluations = new EvaluationRunConfig { SamplingRate = 1.0 }
+        };
 
         await RunAgentAsync(agent, "Hello", runConfig);
 
@@ -177,8 +168,10 @@ public sealed class LiveEvaluationMiddlewareFlagTests
         builder.AddEvaluator(evaluator, samplingRate: 1.0);
         var agent = await builder.BuildAsync(CancellationToken.None);
 
-        var runConfig = new AgentRunConfig()
-            .WithEvaluatorSamplingOverride(0.0);
+        var runConfig = new AgentRunConfig
+        {
+            Evaluations = new EvaluationRunConfig { SamplingRate = 0.0 }
+        };
 
         await RunAgentAsync(agent, "Hello", runConfig);
 
@@ -198,8 +191,14 @@ public sealed class LiveEvaluationMiddlewareFlagTests
         builder.AddEvaluator(registered, samplingRate: 1.0);
         var agent = await builder.BuildAsync(CancellationToken.None);
 
-        var runConfig = new AgentRunConfig { DisableEvaluators = true }
-            .WithAdditionalEvaluators(additional);
+        var runConfig = new AgentRunConfig
+        {
+            Evaluations = new EvaluationRunConfig
+            {
+                Enabled = false,
+                AdditionalEvaluators = [additional]
+            }
+        };
 
         await RunAgentAsync(agent, "Hello", runConfig);
 
@@ -220,11 +219,16 @@ public sealed class LiveEvaluationMiddlewareFlagTests
         var builder = new AgentBuilder(MakeConfig(), new StubProviderRegistry(client));
         builder
             .AddEvaluator(new AspectCriticEvaluator("passes"), policy: EvalPolicy.TrackTrend)
-            .UseEvalJudgeConfig(new EvalJudgeConfig { OverrideChatClient = globalJudge });
+            .UseEvalJudgeConfig(new EvaluationJudgeRunConfig { OverrideChatClient = globalJudge });
         var agent = await builder.BuildAsync(CancellationToken.None);
 
-        var runConfig = new AgentRunConfig()
-            .WithEvalJudgeConfigOverride(new EvalJudgeConfig { OverrideChatClient = runJudge });
+        var runConfig = new AgentRunConfig
+        {
+            Evaluations = new EvaluationRunConfig
+            {
+                Judge = new EvaluationJudgeRunConfig { OverrideChatClient = runJudge }
+            }
+        };
 
         await RunAgentAsync(agent, "Hello", runConfig);
 
@@ -248,12 +252,17 @@ public sealed class LiveEvaluationMiddlewareFlagTests
             .AddEvaluator(
                 new AspectCriticEvaluator("passes"),
                 policy: EvalPolicy.TrackTrend,
-                judgeConfig: new EvalJudgeConfig { OverrideChatClient = perEvaluatorJudge })
-            .UseEvalJudgeConfig(new EvalJudgeConfig { OverrideChatClient = globalJudge });
+                judgeConfig: new EvaluationJudgeRunConfig { OverrideChatClient = perEvaluatorJudge })
+            .UseEvalJudgeConfig(new EvaluationJudgeRunConfig { OverrideChatClient = globalJudge });
         var agent = await builder.BuildAsync(CancellationToken.None);
 
-        var runConfig = new AgentRunConfig()
-            .WithEvalJudgeConfigOverride(new EvalJudgeConfig { OverrideChatClient = runJudge });
+        var runConfig = new AgentRunConfig
+        {
+            Evaluations = new EvaluationRunConfig
+            {
+                Judge = new EvaluationJudgeRunConfig { OverrideChatClient = runJudge }
+            }
+        };
 
         await RunAgentAsync(agent, "Hello", runConfig);
 
@@ -278,7 +287,7 @@ public sealed class LiveEvaluationMiddlewareFlagTests
             .AddEvaluator(
                 new AspectCriticEvaluator("passes"),
                 policy: EvalPolicy.TrackTrend,
-                judgeConfig: new EvalJudgeConfig { OverrideChatClient = judge });
+                judgeConfig: new EvaluationJudgeRunConfig { OverrideChatClient = judge });
         var agent = await builder.BuildAsync(CancellationToken.None);
 
         await RunAgentAsync(agent, "Hello");
@@ -308,7 +317,7 @@ public sealed class LiveEvaluationMiddlewareFlagTests
     [Fact]
     public void LiveEvaluationMiddleware_GlobalJudgeConfig_PropertySetAndReadable()
     {
-        var config = new EvalJudgeConfig { TimeoutSeconds = 45 };
+        var config = new EvaluationJudgeRunConfig { TimeoutSeconds = 45 };
         var middleware = new LiveEvaluationMiddleware();
 
         middleware.GlobalJudgeConfig = config;

@@ -21,7 +21,7 @@ internal sealed record EvaluatorRegistration(
     IEvaluator Evaluator,
     double SamplingRate,
     EvalPolicy Policy,
-    EvalJudgeConfig? JudgeConfig);
+    EvaluationJudgeRunConfig? JudgeConfig);
 
 /// <summary>
 /// Core middleware that wires the HPD evaluation system into the agent lifecycle.
@@ -41,7 +41,7 @@ public sealed class LiveEvaluationMiddleware : IAgentMiddleware
     private readonly EvalTurnCapture _capture = new();
 
     public IScoreStore? ScoreStore { get; set; }
-    public EvalJudgeConfig? GlobalJudgeConfig { get; set; }
+    public EvaluationJudgeRunConfig? GlobalJudgeConfig { get; set; }
 
     /// <summary>
     /// Optional annotation queue. When set, turns whose evaluator score falls below
@@ -50,7 +50,7 @@ public sealed class LiveEvaluationMiddleware : IAgentMiddleware
     /// </summary>
     public AnnotationQueue? AnnotationQueue { get; set; }
 
-    internal void AddEvaluator(IEvaluator evaluator, double samplingRate, EvalPolicy policy, EvalJudgeConfig? judgeConfig)
+    internal void AddEvaluator(IEvaluator evaluator, double samplingRate, EvalPolicy policy, EvaluationJudgeRunConfig? judgeConfig)
         => _evaluators.Add(new EvaluatorRegistration(evaluator, samplingRate, policy, judgeConfig));
 
     // ── IAgentMiddleware ──────────────────────────────────────────────────────
@@ -58,7 +58,7 @@ public sealed class LiveEvaluationMiddleware : IAgentMiddleware
     public Task BeforeMessageTurnAsync(BeforeMessageTurnContext context, CancellationToken cancellationToken)
     {
         // Don't activate if this is an internal judge call or evaluators are disabled
-        if (context.RunConfig.IsInternalEvalJudgeCall || context.RunConfig.DisableEvaluators)
+        if (context.RunConfig.IsEvaluationSuppressed())
             return Task.CompletedTask;
 
         if (BuildRegistrations(context.RunConfig).Count == 0)
@@ -71,7 +71,7 @@ public sealed class LiveEvaluationMiddleware : IAgentMiddleware
 
     public async Task AfterMessageTurnAsync(AfterMessageTurnContext context, CancellationToken cancellationToken)
     {
-        if (context.RunConfig.IsInternalEvalJudgeCall || context.RunConfig.DisableEvaluators)
+        if (context.RunConfig.IsEvaluationSuppressed())
             return;
 
         var registrations = BuildRegistrations(context.RunConfig);
@@ -98,7 +98,7 @@ public sealed class LiveEvaluationMiddleware : IAgentMiddleware
 
         // Launch all evaluators as fire-and-forget background tasks
         // so they don't block AfterMessageTurnAsync from returning
-        var samplingOverride = context.RunConfig.EvaluatorSamplingOverride;
+        var samplingOverride = context.RunConfig.Get()?.SamplingRate;
         foreach (var registration in registrations)
         {
             // Sampling check

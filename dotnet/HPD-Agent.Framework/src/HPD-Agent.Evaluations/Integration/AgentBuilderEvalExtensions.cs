@@ -37,7 +37,7 @@ public static class AgentBuilderEvalExtensions
         IEvaluator evaluator,
         double samplingRate = 1.0,
         EvalPolicy policy = EvalPolicy.MustAlwaysPass,
-        EvalJudgeConfig? judgeConfig = null)
+        EvaluationJudgeRunConfig? judgeConfig = null)
     {
         var middleware = GetOrCreateMiddleware(builder);
         middleware.AddEvaluator(evaluator, samplingRate, policy, judgeConfig);
@@ -59,7 +59,7 @@ public static class AgentBuilderEvalExtensions
     /// Sets the global judge LLM configuration used by all LLM-as-judge evaluators
     /// that do not have a per-evaluator judgeConfig override.
     /// </summary>
-    public static AgentBuilder UseEvalJudgeConfig(this AgentBuilder builder, EvalJudgeConfig config)
+    public static AgentBuilder UseEvalJudgeConfig(this AgentBuilder builder, EvaluationJudgeRunConfig config)
     {
         var middleware = GetOrCreateMiddleware(builder);
         middleware.GlobalJudgeConfig = config;
@@ -72,7 +72,7 @@ public static class AgentBuilderEvalExtensions
     /// built with no tools and MaxAgenticIterations = 1.
     /// </summary>
     public static AgentBuilder UseEvalJudgeAgent(this AgentBuilder builder, IJudgeAgent judgeAgent)
-        => builder.UseEvalJudgeConfig(new EvalJudgeConfig { OverrideAgent = judgeAgent });
+        => builder.UseEvalJudgeConfig(new EvaluationJudgeRunConfig { OverrideAgent = judgeAgent });
 
     /// <summary>
     /// Registers the middleware that captures the post-middleware judge model
@@ -218,8 +218,7 @@ public static class AgentBuilderEvalExtensions
                     }
                 });
 
-                config.DisableEvaluators = true;
-                config.IsInternalEvalJudgeCall = true;
+                config.SuppressEvaluation(EvaluationSuppressionReason.JudgeCall);
                 config.Tools ??= new AgentToolsRunConfig();
                 config.Tools.Mode = ChatToolMode.None;
 

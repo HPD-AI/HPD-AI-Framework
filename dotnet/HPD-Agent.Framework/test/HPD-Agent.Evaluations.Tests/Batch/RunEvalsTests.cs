@@ -31,11 +31,12 @@ public sealed class RunEvalsTests
             Clients = new AgentClientsConfig { Chat = new ChatClientConfig
             {
                 ProviderKey = "openai",
-                ModelName = "gpt-test",
-                ConstructionOptions = JsonDocument.Parse("""{"reasoningEffort":"high"}""").RootElement.Clone()
+                ModelName = "gpt-test"
             } },
-            DisableEvaluators = false,
-            ContextOverrides = new() { ["tenant"] = "alpha" },
+            Context = new AgentContextRunConfig
+            {
+                Properties = new Dictionary<string, object> { ["tenant"] = "alpha" }
+            },
         };
 
         var report = await RunEvals.ExecuteAsync(
@@ -49,9 +50,8 @@ public sealed class RunEvalsTests
         agent.Configs[0].Should().NotBeSameAs(baseConfig);
         agent.Configs[0].Clients.Chat!.ProviderKey.Should().Be("openai");
         agent.Configs[0].Clients.Chat.ModelName.Should().Be("gpt-test");
-        agent.Configs[0].Clients.Chat.GetConstructionOptionsRawJson().Should().Be("""{"reasoningEffort":"high"}""");
-        agent.Configs[0].DisableEvaluators.Should().BeTrue();
-        agent.Configs[0].ContextOverrides.Should().ContainKey("tenant");
+        agent.Configs[0].Evaluations.Should().BeOfType<EvaluationRunConfig>();
+        agent.Configs[0].Context!.Properties.Should().ContainKey("tenant");
 
         var reportCase = report.Cases.Should().ContainSingle().Subject;
         reportCase.ProviderKey.Should().Be("openai");
@@ -498,7 +498,7 @@ public sealed class RunEvalsTests
             [new AspectCriticEvaluator("passes")],
             new RunEvalsOptions<string>
             {
-                JudgeConfig = new EvalJudgeConfig { OverrideChatClient = overrideJudge },
+                JudgeConfig = new EvaluationJudgeRunConfig { OverrideChatClient = overrideJudge },
             },
             experimentName: "override-chat-client");
 
@@ -524,7 +524,7 @@ public sealed class RunEvalsTests
             {
                 PersistResults = true,
                 ScoreStore = store,
-                JudgeConfig = new EvalJudgeConfig { OverrideChatClient = judge },
+                JudgeConfig = new EvaluationJudgeRunConfig { OverrideChatClient = judge },
             },
             experimentName: "judge-trace");
 
@@ -565,7 +565,7 @@ public sealed class RunEvalsTests
             {
                 PersistResults = true,
                 ScoreStore = store,
-                JudgeConfig = new EvalJudgeConfig { OverrideChatClient = judge },
+                JudgeConfig = new EvaluationJudgeRunConfig { OverrideChatClient = judge },
             },
             experimentName: "judge-trace-failure");
 
@@ -603,7 +603,7 @@ public sealed class RunEvalsTests
             [new AspectCriticEvaluator("passes")],
             new RunEvalsOptions<string>
             {
-                JudgeConfig = new EvalJudgeConfig { OverrideAgent = judgeAgent },
+                JudgeConfig = new EvaluationJudgeRunConfig { OverrideAgent = judgeAgent },
             },
             experimentName: "agent-judge");
 
@@ -611,8 +611,7 @@ public sealed class RunEvalsTests
         report.Cases.Should().ContainSingle();
         report.Cases[0].EvaluatorFailures.Should().BeEmpty();
         judgeAgent.Configs.Should().ContainSingle();
-        judgeAgent.Configs[0].IsInternalEvalJudgeCall.Should().BeTrue();
-        judgeAgent.Configs[0].DisableEvaluators.Should().BeTrue();
+        judgeAgent.Configs[0].Evaluations.Should().BeOfType<EvaluationRunConfig>();
     }
 
     [Fact]
@@ -633,7 +632,7 @@ public sealed class RunEvalsTests
             {
                 PersistResults = true,
                 ScoreStore = store,
-                JudgeConfig = new EvalJudgeConfig { OverrideAgent = judgeAgent },
+                JudgeConfig = new EvaluationJudgeRunConfig { OverrideAgent = judgeAgent },
             },
             experimentName: "agent-judge-trace");
 
@@ -664,7 +663,7 @@ public sealed class RunEvalsTests
             [new AspectCriticEvaluator("passes")],
             new RunEvalsOptions<string>
             {
-                JudgeConfig = new EvalJudgeConfig { OverrideAgent = judgeAgent },
+                JudgeConfig = new EvaluationJudgeRunConfig { OverrideAgent = judgeAgent },
             },
             experimentName: "agent-judge");
 
@@ -689,7 +688,7 @@ public sealed class RunEvalsTests
             [new AspectCriticEvaluator("passes")],
             new RunEvalsOptions<string>
             {
-                JudgeConfig = new EvalJudgeConfig { OverrideAgent = judgeAgent },
+                JudgeConfig = new EvaluationJudgeRunConfig { OverrideAgent = judgeAgent },
             },
             experimentName: "agent-judge");
 

@@ -40,7 +40,7 @@ public class RunEvalsOptions
     public bool PersistResults { get; init; } = false;
 
     /// <summary>Judge LLM configuration for evaluator calls.</summary>
-    public EvalJudgeConfig? JudgeConfig { get; init; }
+    public EvaluationJudgeRunConfig? JudgeConfig { get; init; }
 
     /// <summary>Retry policy for agent-side 429/503 errors. Reuses ErrorHandlingConfig.</summary>
     public ErrorHandlingConfig? TaskRetryPolicy { get; init; }
@@ -211,7 +211,7 @@ public static class RunEvals
         IReadOnlyList<IEvaluator> evaluators,
         string? datasetId,
         string? datasetVersion,
-        EvalJudgeConfig? judgeConfig,
+        EvaluationJudgeRunConfig? judgeConfig,
         RunEvalsOptions options,
         string? experimentName,
         CancellationToken ct)
@@ -223,7 +223,7 @@ public static class RunEvals
         // live double-firing. Each retry attempt clones this config before the
         // capture middleware adds per-attempt request state.
         var caseRunConfig = CloneRunConfig(options.BaseRunConfig);
-        caseRunConfig.DisableEvaluators = true;
+        caseRunConfig.SuppressEvaluation(EvaluationSuppressionReason.BatchExecution);
         caseRunConfig.UserMessage = evalCase.Input?.ToString() ?? string.Empty;
 
         if (evalCase.GroundTruth is not null)
@@ -459,7 +459,7 @@ public static class RunEvals
         string? datasetId,
         string? datasetVersion,
         AgentRunConfig runConfig,
-        EvalJudgeConfig? judgeConfig,
+        EvaluationJudgeRunConfig? judgeConfig,
         RunEvalsOptions options,
         CancellationToken ct)
         where TInput : notnull
@@ -755,11 +755,7 @@ public static class RunEvals
             Audio = source.Audio,
             Compaction = source.Compaction,
             UserMessage = source.UserMessage,
-            DisableEvaluators = source.DisableEvaluators,
-            IsInternalEvalJudgeCall = source.IsInternalEvalJudgeCall,
-            AdditionalEvaluators = source.AdditionalEvaluators,
-            EvaluatorSamplingOverride = source.EvaluatorSamplingOverride,
-            EvalJudgeConfigOverride = source.EvalJudgeConfigOverride,
+            Evaluations = source.Evaluations?.Snapshot(),
         };
     }
 
