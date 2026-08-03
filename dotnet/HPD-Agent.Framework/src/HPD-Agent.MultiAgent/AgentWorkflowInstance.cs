@@ -397,7 +397,7 @@ public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
         string input,
         CancellationToken cancellationToken = default)
     {
-        return ExecuteStreamingAsync(input, parentCoordinator: null, parentAgentMetadata: null, parentChatClient: null, cancellationToken);
+        return ExecuteStreamingCoreAsync(input, null, null, null, cancellationToken);
     }
 
     /// <summary>
@@ -418,7 +418,7 @@ public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
         WorkflowEventCoordinator coordinator,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        await foreach (var evt in ExecuteStreamingAsync(input, coordinator.Inner, parentAgentMetadata: null, parentChatClient: null, cancellationToken))
+        await foreach (var evt in ExecuteStreamingCoreAsync(input, coordinator.Inner, null, null, cancellationToken))
         {
             yield return evt;
         }
@@ -433,7 +433,6 @@ public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
             input,
             parentContext?.GetParentEventCoordinator(),
             parentContext?.GetParentAgentMetadata(),
-            parentContext?.GetParentChatClient(),
             parentContext,
             cancellationToken).ConfigureAwait(false))
         {
@@ -471,7 +470,7 @@ public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
         HPD.Events.IEventCoordinator? parentCoordinator,
         CancellationToken cancellationToken = default)
     {
-        return ExecuteStreamingAsync(input, parentCoordinator, parentAgentMetadata: null, parentChatClient: null, cancellationToken);
+        return ExecuteStreamingCoreAsync(input, parentCoordinator, null, null, cancellationToken);
     }
 
     /// <summary>
@@ -488,42 +487,13 @@ public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
         AgentMetadata? parentAgentMetadata,
         CancellationToken cancellationToken = default)
     {
-        return ExecuteStreamingAsync(input, parentCoordinator, parentAgentMetadata, parentChatClient: null, cancellationToken);
-    }
-
-    /// <summary>
-    /// Execute the workflow with streaming events, with full hierarchical context support including chat client inheritance.
-    /// </summary>
-    /// <param name="input">The input to the workflow.</param>
-    /// <param name="parentCoordinator">Optional parent event coordinator for hierarchical event bubbling.</param>
-    /// <param name="parentAgentMetadata">Optional parent execution context for agent hierarchy tracking.</param>
-    /// <param name="parentChatClient">Optional parent chat client for agents that don't have their own provider configured.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>Unified stream of graph and agent events.</returns>
-    public async IAsyncEnumerable<Event> ExecuteStreamingAsync(
-        string input,
-        HPD.Events.IEventCoordinator? parentCoordinator,
-        AgentMetadata? parentAgentMetadata,
-        IChatClient? parentChatClient,
-        [EnumeratorCancellation] CancellationToken cancellationToken = default)
-    {
-        await foreach (var evt in ExecuteStreamingCoreAsync(
-            input,
-            parentCoordinator,
-            parentAgentMetadata,
-            parentChatClient,
-            parentContext: null,
-            cancellationToken).ConfigureAwait(false))
-        {
-            yield return evt;
-        }
+        return ExecuteStreamingCoreAsync(input, parentCoordinator, parentAgentMetadata, null, cancellationToken);
     }
 
     private async IAsyncEnumerable<Event> ExecuteStreamingCoreAsync(
         string input,
         HPD.Events.IEventCoordinator? parentCoordinator,
         AgentMetadata? parentAgentMetadata,
-        IChatClient? parentChatClient,
         HPD.Agent.Middleware.FunctionExecutionContext? parentContext,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
@@ -583,7 +553,6 @@ public sealed class AgentWorkflowInstance : IMultiAgentWorkflow
             conversation: conversationRuntime)
         {
             EventCoordinator = eventCoordinator,
-            FallbackChatClient = parentChatClient,
             ParentExecutionContext = parentContext
         };
 

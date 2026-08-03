@@ -105,7 +105,6 @@ public class AgentFactoryConfigTests
     private sealed class NonExportableAgentFactory : AgentFactory
     {
         public override Task<Agent.Agent> BuildAsync(
-            IChatClient? fallbackChatClient,
             ISessionStore? workflowSessionStore,
             bool requireWorkflowSessionStore,
             CancellationToken cancellationToken)

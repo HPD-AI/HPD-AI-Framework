@@ -250,7 +250,6 @@ internal sealed class TestConfigAgentFactory : AgentFactory
     public TestConfigAgentFactory(AgentConfig config) => _config = config;
 
     public override async Task<HPD.Agent.Agent> BuildAsync(
-        IChatClient? fallbackChatClient,
         ISessionStore? workflowSessionStore,
         bool requireWorkflowSessionStore,
         CancellationToken cancellationToken)
@@ -265,12 +264,6 @@ internal sealed class TestConfigAgentFactory : AgentFactory
         {
             throw new InvalidOperationException("A workflow session store is required.");
         }
-
-        if (_config.ResolveClientConfig(HPD.Agent.Providers.ProviderClientFamily.Chat) == null && fallbackChatClient != null)
-        {
-            builder.WithChatClient(fallbackChatClient);
-        }
-        // If no provider and no fallback, this will throw - which is expected behavior
 
         return await builder.BuildAsync(cancellationToken);
     }
@@ -288,7 +281,6 @@ internal sealed class TestPrebuiltAgentFactory : AgentFactory
     public TestPrebuiltAgentFactory(HPD.Agent.Agent agent) => _agent = agent;
 
     public override Task<HPD.Agent.Agent> BuildAsync(
-        IChatClient? fallbackChatClient,
         ISessionStore? workflowSessionStore,
         bool requireWorkflowSessionStore,
         CancellationToken cancellationToken)
