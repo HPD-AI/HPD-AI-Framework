@@ -5,6 +5,11 @@ using System.Collections.Generic;
 
 namespace HPD.Agent.Providers.SambaNova;
 
+[HpdProvider("sambanova", "SambaNova")]
+[HpdProviderFamily(ProviderClientFamily.Chat)]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(SambaNovaProviderConfig), typeof(SambaNovaJsonContext))]
+[HpdProviderSecretAlias("sambanova:ApiKey", "SAMBANOVA_API_KEY")]
+[HpdProviderSecretAlias("sambanova:Endpoint", "SAMBANOVA_ENDPOINT", "SAMBANOVA_BASE_URL")]
 internal sealed class SambaNovaProvider : OpenAICompatibleChatProviderBase<SambaNovaProviderConfig>
 {
     internal static readonly Uri DefaultEndpoint = new("https://api.sambanova.ai/v1/");

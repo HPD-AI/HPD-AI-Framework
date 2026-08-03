@@ -9,6 +9,11 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Agent.Providers.Xai;
 
+[HpdProvider("xai", "xAI")]
+[HpdProviderFamily(ProviderClientFamily.Chat)]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(XaiProviderConfig), typeof(XaiJsonContext))]
+[HpdProviderSecretAlias("xai:ApiKey", "XAI_API_KEY")]
+[HpdProviderSecretAlias("xai:Endpoint", "XAI_ENDPOINT", "XAI_BASE_URL")]
 internal sealed class XaiProvider : IChatClientProvider
 {
     internal static readonly Uri DefaultEndpoint = new("https://api.x.ai/v1/");

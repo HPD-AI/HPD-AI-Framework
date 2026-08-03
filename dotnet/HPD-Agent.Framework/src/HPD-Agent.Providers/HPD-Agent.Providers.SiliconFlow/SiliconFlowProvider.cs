@@ -5,6 +5,11 @@ using System.Collections.Generic;
 
 namespace HPD.Agent.Providers.SiliconFlow;
 
+[HpdProvider("siliconflow", "SiliconFlow")]
+[HpdProviderFamily(ProviderClientFamily.Chat)]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(SiliconFlowProviderConfig), typeof(SiliconFlowJsonContext))]
+[HpdProviderSecretAlias("siliconflow:ApiKey", "SILICONFLOW_API_KEY")]
+[HpdProviderSecretAlias("siliconflow:Endpoint", "SILICONFLOW_ENDPOINT", "SILICONFLOW_BASE_URL")]
 internal sealed class SiliconFlowProvider : OpenAICompatibleChatProviderBase<SiliconFlowProviderConfig>
 {
     internal static readonly Uri DefaultEndpoint = new("https://api.siliconflow.com/v1/");

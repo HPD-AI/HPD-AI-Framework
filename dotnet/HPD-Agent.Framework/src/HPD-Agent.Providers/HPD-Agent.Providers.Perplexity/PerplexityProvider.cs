@@ -5,6 +5,11 @@ using System.Collections.Generic;
 
 namespace HPD.Agent.Providers.Perplexity;
 
+[HpdProvider("perplexity", "Perplexity")]
+[HpdProviderFamily(ProviderClientFamily.Chat)]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(PerplexityProviderConfig), typeof(PerplexityJsonContext))]
+[HpdProviderSecretAlias("perplexity:ApiKey", "PERPLEXITY_API_KEY")]
+[HpdProviderSecretAlias("perplexity:Endpoint", "PERPLEXITY_ENDPOINT", "PERPLEXITY_BASE_URL")]
 internal sealed class PerplexityProvider : OpenAICompatibleChatProviderBase<PerplexityProviderConfig>
 {
     internal static readonly Uri DefaultEndpoint = new("https://api.perplexity.ai/");
