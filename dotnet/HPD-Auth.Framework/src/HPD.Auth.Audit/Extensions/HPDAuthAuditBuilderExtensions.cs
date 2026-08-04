@@ -78,10 +78,24 @@ public static class HPDAuthAuditBuilderExtensions
     {
         ArgumentNullException.ThrowIfNull(builder);
 
+        if (!IsSupportedEvent(typeof(TEvent)))
+            throw new InvalidOperationException("The Auth event type is not supported by the L1 audit contract.");
+
         // Use AddScoped (not TryAddScoped) so multiple observers for the same event
         // are all registered and resolved via GetServices<T>().
         builder.Services.AddScoped<IAuthEventObserver<TEvent>, TObserver>();
 
         return builder;
     }
+
+    private static bool IsSupportedEvent(Type eventType) =>
+        eventType == typeof(UserRegisteredEvent) ||
+        eventType == typeof(UserLoggedInEvent) ||
+        eventType == typeof(UserLoggedOutEvent) ||
+        eventType == typeof(LoginFailedEvent) ||
+        eventType == typeof(PasswordChangedEvent) ||
+        eventType == typeof(PasswordResetRequestedEvent) ||
+        eventType == typeof(EmailConfirmedEvent) ||
+        eventType == typeof(TwoFactorEnabledEvent) ||
+        eventType == typeof(SessionRevokedEvent);
 }

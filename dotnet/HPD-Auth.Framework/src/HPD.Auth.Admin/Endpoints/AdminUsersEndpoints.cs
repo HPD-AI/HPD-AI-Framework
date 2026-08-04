@@ -1,4 +1,6 @@
 using HPD.Auth.Admin.Models;
+using HPD.Auth.ControlPlane;
+using HPD.Auth.Core.Audit;
 using HPD.Auth.Core.Entities;
 using HPD.Auth.Core.Interfaces;
 using Microsoft.AspNetCore.Builder;
@@ -22,36 +24,41 @@ namespace HPD.Auth.Admin.Endpoints;
 /// </summary>
 public static class AdminUsersEndpoints
 {
-    public static void Map(IEndpointRouteBuilder app)
+    public static void Map(RouteGroupBuilder root, IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/admin/users")
-                       .RequireAuthorization("RequireAdmin");
+        var group = root.MapGroup("/users");
 
         // ── List & Count ──────────────────────────────────────────────────────
 
         group.MapGet("/", ListUsersAsync)
+             .RequireHPDControlPlaneCapability(app, HPDAuthAdminCapabilities.IdentityRead)
              .WithName("AdminListUsers")
              .WithSummary("List users with optional filtering and pagination.");
 
         group.MapGet("/count", CountUsersAsync)
+             .RequireHPDControlPlaneCapability(app, HPDAuthAdminCapabilities.IdentityRead)
              .WithName("AdminCountUsers")
              .WithSummary("Count users matching the same filters as the list endpoint.");
 
         // ── Single User ───────────────────────────────────────────────────────
 
         group.MapGet("/{id}", GetUserAsync)
+             .RequireHPDControlPlaneCapability(app, HPDAuthAdminCapabilities.IdentityRead)
              .WithName("AdminGetUser")
              .WithSummary("Get a single user by ID.");
 
         group.MapPost("/", CreateUserAsync)
+             .RequireHPDControlPlaneCapability(app, HPDAuthAdminCapabilities.IdentityCreate)
              .WithName("AdminCreateUser")
              .WithSummary("Create a new user, optionally with a password, role, and email confirmation.");
 
         group.MapPut("/{id}", UpdateUserAsync)
+             .RequireHPDControlPlaneCapability(app, HPDAuthAdminCapabilities.IdentityWrite)
              .WithName("AdminUpdateUser")
              .WithSummary("Update mutable fields on an existing user. Only non-null fields are applied.");
 
         group.MapDelete("/{id}", DeleteUserAsync)
+             .RequireHPDControlPlaneCapability(app, HPDAuthAdminCapabilities.IdentityDelete)
              .WithName("AdminDeleteUser")
              .WithSummary("Delete a user. Pass softDelete=true to soft-delete (sets IsDeleted flag).");
     }
@@ -62,7 +69,7 @@ public static class AdminUsersEndpoints
 
     private static async Task<IResult> ListUsersAsync(
         UserManager<ApplicationUser> userManager,
-        IAuditLogger auditLogger,
+        IAuthAuditWriter auditWriter,
         string? search = null,
         string? email = null,
         bool? emailVerified = null,
@@ -104,11 +111,13 @@ public static class AdminUsersEndpoints
         }
 
         var totalPages = (int)Math.Ceiling(total / (double)per_page);
+        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.UserList, cancellationToken: ct);
         return Results.Ok(new AdminUserListResponse(responses, total, page, per_page, totalPages));
     }
 
     private static async Task<IResult> CountUsersAsync(
         UserManager<ApplicationUser> userManager,
+        IAuthAuditWriter auditWriter,
         string? search = null,
         string? email = null,
         bool? emailVerified = null,
@@ -126,12 +135,14 @@ public static class AdminUsersEndpoints
         }
 
         var count = await query.CountAsync(ct);
+        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.UserCount, cancellationToken: ct);
         return Results.Ok(count);
     }
 
     private static async Task<IResult> GetUserAsync(
         string id,
         UserManager<ApplicationUser> userManager,
+        IAuthAuditWriter auditWriter,
         CancellationToken ct = default)
     {
         if (!Guid.TryParse(id, out _))
@@ -142,13 +153,14 @@ public static class AdminUsersEndpoints
             return Results.NotFound();
 
         var roles = await userManager.GetRolesAsync(user);
+        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.UserView, user.Id, cancellationToken: ct);
         return Results.Ok(ToResponse(user, roles));
     }
 
     private static async Task<IResult> CreateUserAsync(
         AdminCreateUserRequest request,
         UserManager<ApplicationUser> userManager,
-        IAuditLogger auditLogger,
+        IAuthAuditWriter auditWriter,
         CancellationToken ct = default)
     {
         var user = new ApplicationUser
@@ -192,13 +204,7 @@ public static class AdminUsersEndpoints
                 return Results.BadRequest(roleResult.Errors);
         }
 
-        await auditLogger.LogAsync(new AuditLogEntry(
-            Action: AuditActions.UserRegister,
-            Category: AuditCategories.Admin,
-            Success: true,
-            UserId: user.Id,
-            Metadata: new { adminAction = "create_user", email = user.Email }
-        ), ct);
+        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.UserCreate, user.Id, cancellationToken: ct);
 
         var roles = await userManager.GetRolesAsync(user);
         return Results.Created($"/api/admin/users/{user.Id}", ToResponse(user, roles));
@@ -208,7 +214,7 @@ public static class AdminUsersEndpoints
         string id,
         AdminUpdateUserRequest request,
         UserManager<ApplicationUser> userManager,
-        IAuditLogger auditLogger,
+        IAuthAuditWriter auditWriter,
         CancellationToken ct = default)
     {
         var user = await userManager.FindByIdAsync(id);
@@ -250,13 +256,7 @@ public static class AdminUsersEndpoints
         if (!result.Succeeded)
             return Results.BadRequest(result.Errors);
 
-        await auditLogger.LogAsync(new AuditLogEntry(
-            Action: AuditActions.AdminUserUpdate,
-            Category: AuditCategories.Admin,
-            Success: true,
-            UserId: user.Id,
-            Metadata: new { adminAction = "update_user" }
-        ), ct);
+        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.UserUpdate, user.Id, cancellationToken: ct);
 
         var roles = await userManager.GetRolesAsync(user);
         return Results.Ok(ToResponse(user, roles));
@@ -265,7 +265,7 @@ public static class AdminUsersEndpoints
     private static async Task<IResult> DeleteUserAsync(
         string id,
         UserManager<ApplicationUser> userManager,
-        IAuditLogger auditLogger,
+        IAuthAuditWriter auditWriter,
         bool softDelete = false,
         CancellationToken ct = default)
     {
@@ -290,13 +290,7 @@ public static class AdminUsersEndpoints
                 return Results.BadRequest(deleteResult.Errors);
         }
 
-        await auditLogger.LogAsync(new AuditLogEntry(
-            Action: AuditActions.AdminUserDelete,
-            Category: AuditCategories.Admin,
-            Success: true,
-            UserId: user.Id,
-            Metadata: new { adminAction = softDelete ? "soft_delete" : "hard_delete", email = user.Email }
-        ), ct);
+        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.UserDelete, user.Id, cancellationToken: ct);
 
         return Results.NoContent();
     }

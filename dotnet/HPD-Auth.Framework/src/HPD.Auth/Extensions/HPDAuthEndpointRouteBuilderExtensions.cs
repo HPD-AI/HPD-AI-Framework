@@ -14,7 +14,7 @@ namespace HPD.Auth.Extensions;
 /// app.MapHPDAuthEndpoints();
 ///
 /// // Optionally map additional feature endpoints from the sub-packages:
-/// app.MapHPDAdminEndpoints();       // from HPD.Auth.Admin
+/// app.MapHPDAdminEndpoints(adminOptions); // from HPD.Auth.Admin
 /// app.MapHPDTwoFactorEndpoints();   // from HPD.Auth.TwoFactor
 /// app.MapHPDOAuthEndpoints();       // from HPD.Auth.OAuth
 /// </code>
@@ -40,7 +40,7 @@ namespace HPD.Auth.Extensions;
 /// <para>
 /// 2FA, OAuth, and Admin endpoints are owned by their respective sub-packages
 /// and are registered via <c>MapHPDTwoFactorEndpoints()</c>,
-/// <c>MapHPDOAuthEndpoints()</c>, and <c>MapHPDAdminEndpoints()</c>.
+/// <c>MapHPDOAuthEndpoints()</c>, and the explicitly configured Admin mapper.
 /// </para>
 /// </summary>
 public static class HPDAuthEndpointRouteBuilderExtensions

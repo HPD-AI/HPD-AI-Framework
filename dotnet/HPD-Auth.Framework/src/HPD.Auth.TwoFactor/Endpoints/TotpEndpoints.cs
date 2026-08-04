@@ -178,7 +178,6 @@ public static class TotpEndpoints
         VerifyTotpRequest request,
         HttpContext httpContext,
         UserManager<ApplicationUser> userManager,
-        IAuditLogger auditLogger,
         IEventCoordinator eventCoordinator,
         CancellationToken ct = default)
     {
@@ -213,19 +212,8 @@ public static class TotpEndpoints
 
         if (!isValid)
         {
-            await auditLogger.LogAsync(new AuditLogEntry(
-                Action: AuditActions.TwoFactorVerifyFailed,
-                Category: AuditCategories.Authentication,
-                Success: false,
-                UserId: user.Id,
-                IpAddress: ipAddress,
-                Metadata: new { factorId, reason = "invalid_code" }
-            ), ct);
-
             return Results.BadRequest(new { error = "invalid_code", message = "Invalid verification code." });
         }
-
-        var wasAlreadyEnabled = await userManager.GetTwoFactorEnabledAsync(user);
 
         await userManager.SetTwoFactorEnabledAsync(user, true);
 
@@ -244,15 +232,6 @@ public static class TotpEndpoints
             AuthContext = new AuthExecutionContext { IpAddress = ipAddress },
         });
 
-        await auditLogger.LogAsync(new AuditLogEntry(
-            Action: AuditActions.TwoFactorEnable,
-            Category: AuditCategories.Authentication,
-            Success: true,
-            UserId: user.Id,
-            IpAddress: ipAddress,
-            Metadata: new { factorId, firstEnrollment = !wasAlreadyEnabled }
-        ), ct);
-
         return Results.Ok(new
         {
             success = true,
@@ -268,7 +247,6 @@ public static class TotpEndpoints
         string factorId,
         HttpContext httpContext,
         UserManager<ApplicationUser> userManager,
-        IAuditLogger auditLogger,
         IEventCoordinator eventCoordinator,
         CancellationToken ct = default)
     {
@@ -278,7 +256,7 @@ public static class TotpEndpoints
 
         if (factorId.StartsWith("totp:", StringComparison.OrdinalIgnoreCase))
         {
-            return await DeleteTotpFactorAsync(user, httpContext, userManager, auditLogger, eventCoordinator, ct);
+            return await DeleteTotpFactorAsync(user, httpContext, userManager, eventCoordinator, ct);
         }
 
         if (factorId.StartsWith("passkey:", StringComparison.OrdinalIgnoreCase))
@@ -297,7 +275,6 @@ public static class TotpEndpoints
         ApplicationUser user,
         HttpContext httpContext,
         UserManager<ApplicationUser> userManager,
-        IAuditLogger auditLogger,
         IEventCoordinator eventCoordinator,
         CancellationToken ct)
     {
@@ -331,15 +308,6 @@ public static class TotpEndpoints
             Method = "totp_disabled",
             AuthContext = new AuthExecutionContext { IpAddress = ipAddress },
         });
-
-        await auditLogger.LogAsync(new AuditLogEntry(
-            Action: AuditActions.TwoFactorDisable,
-            Category: AuditCategories.Authentication,
-            Success: true,
-            UserId: user.Id,
-            IpAddress: ipAddress,
-            Metadata: new { method = "totp" }
-        ), ct);
 
         return Results.NoContent();
     }

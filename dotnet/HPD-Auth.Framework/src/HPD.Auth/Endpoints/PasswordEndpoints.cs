@@ -75,7 +75,6 @@ public static class PasswordEndpoints
             services.GetRequiredService<UserManager<ApplicationUser>>(),
             services.GetRequiredService<IHPDAuthEmailSender>(),
             services.GetRequiredService<IEventCoordinator>(),
-            services.GetRequiredService<IAuditLogger>(),
             httpContext,
             ct);
 
@@ -113,7 +112,6 @@ public static class PasswordEndpoints
             services.GetRequiredService<UserManager<ApplicationUser>>(),
             services.GetRequiredService<ITokenService>(),
             services.GetRequiredService<IEventCoordinator>(),
-            services.GetRequiredService<IAuditLogger>(),
             httpContext,
             ct);
 
@@ -150,7 +148,6 @@ public static class PasswordEndpoints
             request,
             services.GetRequiredService<UserManager<ApplicationUser>>(),
             services.GetRequiredService<IHPDAuthEmailSender>(),
-            services.GetRequiredService<IAuditLogger>(),
             services.GetRequiredService<IMemoryCache>(),
             httpContext,
             ct);
@@ -167,7 +164,6 @@ public static class PasswordEndpoints
         UserManager<ApplicationUser> userManager,
         IHPDAuthEmailSender emailSender,
         IEventCoordinator eventCoordinator,
-        IAuditLogger auditLogger,
         HttpContext httpContext,
         CancellationToken ct = default)
     {
@@ -194,14 +190,6 @@ public static class PasswordEndpoints
                 AuthContext = new AuthExecutionContext { IpAddress = ipAddress },
             }, ct);
 
-            await auditLogger.LogAsync(new AuditLogEntry(
-                Action: AuditActions.PasswordResetRequest,
-                Category: AuditCategories.Authentication,
-                Success: true,
-                UserId: user.Id,
-                IpAddress: ipAddress,
-                Metadata: new Dictionary<string, string?> { ["email"] = request.Email }
-            ), ct);
         }
 
         return AuthEndpointJson.Ok(
@@ -218,7 +206,6 @@ public static class PasswordEndpoints
         UserManager<ApplicationUser> userManager,
         ITokenService tokenService,
         IEventCoordinator eventCoordinator,
-        IAuditLogger auditLogger,
         HttpContext httpContext,
         CancellationToken ct = default)
     {
@@ -234,11 +221,11 @@ public static class PasswordEndpoints
         {
             "recovery"     => await HandleRecoveryVerifyAsync(
                                   request, userManager, tokenService, eventCoordinator,
-                                  auditLogger, ipAddress, ct),
+                                  ipAddress, ct),
             "signup"       => await HandleSignupVerifyAsync(
-                                  request, userManager, auditLogger, ipAddress, ct),
+                                  request, userManager, eventCoordinator, ipAddress, ct),
             "email_change" => await HandleEmailChangeVerifyAsync(
-                                  request, userManager, auditLogger, ipAddress, ct),
+                                  request, userManager, eventCoordinator, ipAddress, ct),
             _              => AuthEndpointJson.BadRequest(new AuthError(
                                   "invalid_request",
                                   $"Unknown type '{request.Type}'. Expected 'recovery', 'signup', or 'email_change'."))
@@ -250,7 +237,6 @@ public static class PasswordEndpoints
         UserManager<ApplicationUser> userManager,
         ITokenService tokenService,
         IEventCoordinator eventCoordinator,
-        IAuditLogger auditLogger,
         string? ipAddress,
         CancellationToken ct)
     {
@@ -281,15 +267,6 @@ public static class PasswordEndpoints
             AuthContext = new AuthExecutionContext { IpAddress = ipAddress },
         }, ct);
 
-        await auditLogger.LogAsync(new AuditLogEntry(
-            Action: AuditActions.PasswordReset,
-            Category: AuditCategories.Authentication,
-            Success: true,
-            UserId: user.Id,
-            IpAddress: ipAddress,
-            Metadata: new Dictionary<string, string?> { ["email"] = request.Email }
-        ), ct);
-
         return AuthEndpointJson.Ok(
             new MessageResponse("Password has been reset successfully."),
             HPDAuthJsonSerializerContext.Default.MessageResponse);
@@ -298,7 +275,7 @@ public static class PasswordEndpoints
     private static async Task<IResult> HandleSignupVerifyAsync(
         VerifyRequest request,
         UserManager<ApplicationUser> userManager,
-        IAuditLogger auditLogger,
+        IEventCoordinator eventCoordinator,
         string? ipAddress,
         CancellationToken ct)
     {
@@ -321,14 +298,12 @@ public static class PasswordEndpoints
         user.Updated = DateTime.UtcNow;
         await userManager.UpdateAsync(user);
 
-        await auditLogger.LogAsync(new AuditLogEntry(
-            Action: AuditActions.EmailConfirm,
-            Category: AuditCategories.Authentication,
-            Success: true,
-            UserId: user.Id,
-            IpAddress: ipAddress,
-            Metadata: new Dictionary<string, string?> { ["email"] = request.Email }
-        ), ct);
+        await eventCoordinator.EmitAsync(new EmailConfirmedEvent
+        {
+            UserId = user.Id,
+            Email = user.Email!,
+            AuthContext = new AuthExecutionContext { IpAddress = ipAddress }
+        }, ct);
 
         return AuthEndpointJson.Ok(
             new MessageResponse("Email confirmed successfully."),
@@ -338,11 +313,11 @@ public static class PasswordEndpoints
     private static async Task<IResult> HandleEmailChangeVerifyAsync(
         VerifyRequest request,
         UserManager<ApplicationUser> userManager,
-        IAuditLogger auditLogger,
+        IEventCoordinator eventCoordinator,
         string? ipAddress,
         CancellationToken ct)
     {
-        return await HandleSignupVerifyAsync(request, userManager, auditLogger, ipAddress, ct);
+        return await HandleSignupVerifyAsync(request, userManager, eventCoordinator, ipAddress, ct);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -353,7 +328,6 @@ public static class PasswordEndpoints
         ResendRequest request,
         UserManager<ApplicationUser> userManager,
         IHPDAuthEmailSender emailSender,
-        IAuditLogger auditLogger,
         IMemoryCache cache,
         HttpContext httpContext,
         CancellationToken ct = default)
@@ -376,19 +350,6 @@ public static class PasswordEndpoints
 
             cache.Set(cacheKey, true, TimeSpan.FromMinutes(ResendCooldownMinutes));
 
-            var ipAddress = httpContext.Connection.RemoteIpAddress?.ToString();
-            await auditLogger.LogAsync(new AuditLogEntry(
-                Action: AuditActions.EmailConfirmResend,
-                Category: AuditCategories.Authentication,
-                Success: true,
-                UserId: user.Id,
-                IpAddress: ipAddress,
-                Metadata: new Dictionary<string, string?>
-                {
-                    ["email"] = request.Email,
-                    ["type"] = request.Type
-                }
-            ), ct);
         }
 
         return AuthEndpointJson.Ok(

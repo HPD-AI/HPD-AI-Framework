@@ -115,7 +115,7 @@ public class Admin2faSessionsTests : IAsyncLifetime
         var user = await _factory.SeedUserAsync("audit2fa@example.com");
         await _admin.PostAsync($"/api/admin/users/{user.Id}/2fa/disable", null);
 
-        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: AuditActions.TwoFactorDisable);
+        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: "admin.2fa.disable");
         logs.Should().NotBeEmpty();
     }
 
@@ -146,9 +146,9 @@ public class Admin2faSessionsTests : IAsyncLifetime
         var user = await _factory.SeedUserAsync("auditresetauth@example.com");
         await _admin.DeleteAsync($"/api/admin/users/{user.Id}/2fa/authenticator");
 
-        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: AuditActions.TwoFactorSetup);
+        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: "admin.2fa.reset-authenticator");
         logs.Should().NotBeEmpty();
-        logs.First().Metadata.Should().Contain("reset_authenticator");
+        logs.First().Action.Should().Be("admin.2fa.reset-authenticator");
     }
 
     // ── Section 29: Generate recovery codes ──────────────────────────────────
@@ -233,7 +233,7 @@ public class Admin2faSessionsTests : IAsyncLifetime
         await _admin.PostAsync($"/api/admin/users/{user.Id}/2fa/recovery-codes", null);
 
         var logs = await _factory.GetAuditLogsAsync(
-            userId: user.Id, action: AuditActions.RecoveryCodeRegenerate);
+            userId: user.Id, action: "admin.2fa.generate-recovery-codes");
         logs.Should().NotBeEmpty();
     }
 
@@ -358,7 +358,7 @@ public class Admin2faSessionsTests : IAsyncLifetime
         var user = await _factory.SeedUserAsync("auditsessions@example.com");
         await _admin.DeleteAsync($"/api/admin/users/{user.Id}/sessions?scope=all");
 
-        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: AuditActions.AdminForceLogout);
+        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: "admin.session.revoke-all");
         logs.Should().NotBeEmpty();
     }
 
@@ -416,7 +416,7 @@ public class Admin2faSessionsTests : IAsyncLifetime
 
         await _admin.DeleteAsync($"/api/admin/users/{user.Id}/sessions/{session.Id}");
 
-        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: AuditActions.SessionRevoke);
+        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: "admin.session.revoke");
         logs.Should().NotBeEmpty();
     }
 }

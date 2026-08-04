@@ -1,5 +1,6 @@
 using FluentAssertions;
 using HPD.Auth.Core.Entities;
+using HPD.Auth.Core.Audit;
 using HPD.Auth.Core.Interfaces;
 using HPD.Auth.Infrastructure.Data;
 using HPD.Auth.Infrastructure.Stores;
@@ -22,15 +23,16 @@ public class AddHPDAuthRegistrationTests
     // ── 1.1 ──────────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void AddHPDAuth_Registers_IAuditLogger()
+    public void AddHPDAuth_Registers_AuditReaderAndWriter()
     {
         var sp = ServiceProviderBuilder.Build(appName: "Reg_AuditLogger");
         using var scope = sp.CreateScope();
 
-        var service = scope.ServiceProvider.GetService<IAuditLogger>();
+        var service = scope.ServiceProvider.GetService<IAuthAuditReader>();
 
         service.Should().NotBeNull();
-        service.Should().BeOfType<AuditLogStore>();
+        service.Should().BeOfType<AuthAuditStore>();
+        scope.ServiceProvider.GetService<IAuthAuditWriter>().Should().BeSameAs(service);
     }
 
     // ── 1.2 ──────────────────────────────────────────────────────────────────────

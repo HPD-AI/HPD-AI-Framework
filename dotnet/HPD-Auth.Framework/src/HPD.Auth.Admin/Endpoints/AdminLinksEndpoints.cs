@@ -1,4 +1,6 @@
 using HPD.Auth.Admin.Models;
+using HPD.Auth.ControlPlane;
+using HPD.Auth.Core.Audit;
 using HPD.Auth.Core.Entities;
 using HPD.Auth.Core.Interfaces;
 using Microsoft.AspNetCore.Builder;
@@ -30,10 +32,10 @@ public static class AdminLinksEndpoints
         "verify_email"
     };
 
-    public static void Map(IEndpointRouteBuilder app)
+    public static void Map(RouteGroupBuilder root, IEndpointRouteBuilder app)
     {
-        app.MapPost("/api/admin/generate-link", GenerateLinkAsync)
-           .RequireAuthorization("RequireAdmin")
+        root.MapPost("/generate-link", GenerateLinkAsync)
+           .RequireHPDControlPlaneCapability(app, HPDAuthAdminCapabilities.CredentialsIssue)
            .WithName("AdminGenerateLink")
            .WithSummary(
                "Generate an action link for a user. " +
@@ -47,7 +49,7 @@ public static class AdminLinksEndpoints
     private static async Task<IResult> GenerateLinkAsync(
         AdminGenerateLinkRequest request,
         UserManager<ApplicationUser> userManager,
-        IAuditLogger auditLogger,
+        IAuthAuditWriter auditWriter,
         CancellationToken ct = default)
     {
         if (!SupportedTypes.Contains(request.Type))
@@ -103,23 +105,9 @@ public static class AdminLinksEndpoints
             $"&userId={user.Id}" +
             $"&type={request.Type.ToLowerInvariant()}";
 
-        // ── Hash the token for the audit record (do NOT store the raw token) ──
         string hashedToken = HashToken(token);
 
-        // ── Audit — log the action but NOT the raw token value ───────────────
-        await auditLogger.LogAsync(new AuditLogEntry(
-            Action: AuditActions.AdminUserUpdate,
-            Category: AuditCategories.Admin,
-            Success: true,
-            UserId: user.Id,
-            Metadata: new
-            {
-                adminAction = "generate_link",
-                linkType = request.Type,
-                hashedToken,
-                redirectTo = request.RedirectTo
-            }
-        ), ct);
+        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.LinkGenerate, user.Id, cancellationToken: ct);
 
         return Results.Ok(new AdminGenerateLinkResponse(
             ActionLink: actionLink,

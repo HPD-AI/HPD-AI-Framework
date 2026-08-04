@@ -28,6 +28,7 @@ public sealed record AuthExecutionContext
 /// </summary>
 public abstract record AuthEvent : HPD.Events.Event
 {
+    internal AuthEvent() { }
     /// <summary>
     /// Auth-specific execution context (tenant, IP, User-Agent).
     /// </summary>

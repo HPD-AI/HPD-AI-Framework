@@ -161,7 +161,7 @@ public class AdminPasswordTests : IAsyncLifetime
             $"/api/admin/users/{user.Id}/reset-password",
             new AdminResetPasswordRequest("NewPass1!"));
 
-        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: AuditActions.AdminPasswordReset);
+        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: "admin.password.reset");
         logs.Should().NotBeEmpty();
     }
 
@@ -207,9 +207,9 @@ public class AdminPasswordTests : IAsyncLifetime
         var user = await _factory.SeedUserAsync("auditremovepw@example.com", password: "Password1!");
         await _admin.DeleteAsync($"/api/admin/users/{user.Id}/password");
 
-        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: AuditActions.PasswordChange);
+        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: "admin.password.remove");
         logs.Should().NotBeEmpty();
-        logs.First().Metadata.Should().Contain("remove_password");
+        logs.First().Action.Should().Be("admin.password.remove");
     }
 
     // ── Section 16: Add Password ──────────────────────────────────────────────
@@ -256,8 +256,8 @@ public class AdminPasswordTests : IAsyncLifetime
         await _admin.PostJsonAsync($"/api/admin/users/{user.Id}/password",
             new { password = "NewPass1!" });
 
-        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: AuditActions.PasswordChange);
+        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: "admin.password.add");
         logs.Should().NotBeEmpty();
-        logs.First().Metadata.Should().Contain("add_password");
+        logs.First().Action.Should().Be("admin.password.add");
     }
 }

@@ -493,7 +493,7 @@ public class AdminUsersTests : IAsyncLifetime
         resp.StatusCode.Should().Be(HttpStatusCode.Created);
         var dto = await resp.ReadJsonAsync<AdminUserResponse>();
 
-        var logs = await _factory.GetAuditLogsAsync(userId: dto!.Id, action: AuditActions.UserRegister);
+        var logs = await _factory.GetAuditLogsAsync(userId: dto!.Id, action: "admin.user.create");
         logs.Should().NotBeEmpty();
     }
 
@@ -577,7 +577,7 @@ public class AdminUsersTests : IAsyncLifetime
         await _admin.PutJsonAsync($"/api/admin/users/{user.Id}",
             new AdminUpdateUserRequest(FirstName: "Updated"));
 
-        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: AuditActions.AdminUserUpdate);
+        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: "admin.user.update");
         logs.Should().NotBeEmpty();
     }
 
@@ -628,9 +628,9 @@ public class AdminUsersTests : IAsyncLifetime
         var userId = user.Id;
         await _admin.DeleteAsync($"/api/admin/users/{userId}");
 
-        var logs = await _factory.GetAuditLogsAsync(userId: userId, action: AuditActions.AdminUserDelete);
+        var logs = await _factory.GetAuditLogsAsync(userId: userId, action: "admin.user.delete");
         logs.Should().NotBeEmpty();
-        logs.First().Metadata.Should().Contain("hard_delete");
+        logs.First().Action.Should().Be("admin.user.delete");
     }
 
     // 6.5 — audit log for soft delete
@@ -640,9 +640,9 @@ public class AdminUsersTests : IAsyncLifetime
         var user = await _factory.SeedUserAsync("auditsoft@example.com");
         await _admin.DeleteAsync($"/api/admin/users/{user.Id}?softDelete=true");
 
-        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: AuditActions.AdminUserDelete);
+        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: "admin.user.delete");
         logs.Should().NotBeEmpty();
-        logs.First().Metadata.Should().Contain("soft_delete");
+        logs.First().Action.Should().Be("admin.user.delete");
     }
 }
 

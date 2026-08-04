@@ -7,7 +7,7 @@ namespace HPD.Auth.Core.Events;
 /// Subscribers can use this event to complete onboarding,
 /// remove "VERIFY_EMAIL" from RequiredActions, or send a confirmation notification.
 /// </summary>
-public record EmailConfirmedEvent : AuthEvent
+public sealed record EmailConfirmedEvent : AuthEvent
 {
     public required Guid UserId { get; init; }
 

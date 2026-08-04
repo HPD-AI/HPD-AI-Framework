@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using HPD.Auth.Infrastructure.Stores;
 
 namespace HPD.Auth.Infrastructure.Serialization;
 
@@ -13,6 +14,7 @@ namespace HPD.Auth.Infrastructure.Serialization;
 [JsonSerializable(typeof(List<string>))]
 [JsonSerializable(typeof(Dictionary<string, string?>))]
 [JsonSerializable(typeof(JsonElement))]
+[JsonSerializable(typeof(AuthAuditFactPersistence[]))]
 internal partial class HPDAuthInfrastructureJsonSerializerContext : JsonSerializerContext
 {
 }

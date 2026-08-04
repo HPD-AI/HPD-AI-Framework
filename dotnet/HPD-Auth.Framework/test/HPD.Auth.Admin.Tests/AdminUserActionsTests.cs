@@ -129,9 +129,9 @@ public class AdminUserActionsTests : IAsyncLifetime
         await _admin.PostJsonAsync($"/api/admin/users/{user.Id}/ban",
             new { duration = "1h", reason = "spamming" });
 
-        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: AuditActions.AccountLockout);
+        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: "admin.user.ban");
         logs.Should().NotBeEmpty();
-        logs.First().Metadata.Should().Contain("spamming");
+        logs.First().Facts.Should().BeEmpty("free-form administrative reasons are not audit facts");
     }
 
     // 7.7 — non-existent user → 404
@@ -163,7 +163,7 @@ public class AdminUserActionsTests : IAsyncLifetime
         var user = await _factory.SeedUserAsync("banaudit@example.com");
         await _admin.PostJsonAsync($"/api/admin/users/{user.Id}/ban", new { duration = "1h" });
 
-        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: AuditActions.AccountLockout);
+        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: "admin.user.ban");
         logs.Should().NotBeEmpty();
     }
 
@@ -199,7 +199,7 @@ public class AdminUserActionsTests : IAsyncLifetime
         var user = await _factory.SeedUserAsync("unbanaudit@example.com");
         await _admin.PostAsync($"/api/admin/users/{user.Id}/unban", null);
 
-        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: AuditActions.AccountUnlock);
+        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: "admin.user.unban");
         logs.Should().NotBeEmpty();
     }
 
@@ -239,7 +239,7 @@ public class AdminUserActionsTests : IAsyncLifetime
         var user = await _factory.SeedUserAsync("unlockaudit@example.com");
         await _admin.PostAsync($"/api/admin/users/{user.Id}/unlock", null);
 
-        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: AuditActions.AccountUnlock);
+        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: "admin.user.unlock");
         logs.Should().NotBeEmpty();
     }
 
@@ -287,7 +287,7 @@ public class AdminUserActionsTests : IAsyncLifetime
         var user = await _factory.SeedUserAsync("verifyaudit@example.com", emailConfirmed: false);
         await _admin.PostAsync($"/api/admin/users/{user.Id}/verify-email", null);
 
-        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: AuditActions.EmailConfirm);
+        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: "admin.user.verify-email");
         logs.Should().NotBeEmpty();
     }
 
@@ -322,7 +322,7 @@ public class AdminUserActionsTests : IAsyncLifetime
         var user = await _factory.SeedUserAsync("invsessaudit@example.com");
         await _admin.PostAsync($"/api/admin/users/{user.Id}/invalidate-sessions", null);
 
-        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: AuditActions.AdminForceLogout);
+        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: "admin.session.invalidate");
         logs.Should().NotBeEmpty();
     }
 
@@ -356,7 +356,7 @@ public class AdminUserActionsTests : IAsyncLifetime
         var user = await _factory.SeedUserAsync("enableaudit@example.com", isActive: false);
         await _admin.PostAsync($"/api/admin/users/{user.Id}/enable", null);
 
-        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: AuditActions.AdminUserEnable);
+        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: "admin.user.enable");
         logs.Should().NotBeEmpty();
     }
 
@@ -392,7 +392,7 @@ public class AdminUserActionsTests : IAsyncLifetime
         var user = await _factory.SeedUserAsync("disableaudit@example.com");
         await _admin.PostAsync($"/api/admin/users/{user.Id}/disable", null);
 
-        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: AuditActions.AdminUserDisable);
+        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: "admin.user.disable");
         logs.Should().NotBeEmpty();
     }
 }

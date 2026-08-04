@@ -135,34 +135,6 @@ public class TenantQueryFilterTests
     }
 
     [Fact]
-    public async Task AuditLogs_QueryFilter_ReturnsOnlyCurrentTenantLogs()
-    {
-        var dbName = Guid.NewGuid().ToString();
-        var tenantA = new FixedTenantContext(Guid.NewGuid());
-        var tenantB = new FixedTenantContext(Guid.NewGuid());
-
-        var logA = new AuditLog { Id = Guid.NewGuid(), InstanceId = tenantA.InstanceId, Action = "a", Category = "c" };
-        var logB = new AuditLog { Id = Guid.NewGuid(), InstanceId = tenantB.InstanceId, Action = "a", Category = "c" };
-
-        await using (var setup = HPDAuthDbContextFactory.CreateInMemory(dbName, tenantA))
-        {
-            setup.AuditLogs.Add(logA);
-            await setup.SaveChangesAsync();
-        }
-        await using (var setup = HPDAuthDbContextFactory.CreateInMemory(dbName, tenantB))
-        {
-            setup.AuditLogs.Add(logB);
-            await setup.SaveChangesAsync();
-        }
-
-        await using var ctxA = HPDAuthDbContextFactory.CreateInMemory(dbName, tenantA);
-        var result = await ctxA.AuditLogs.ToListAsync();
-
-        result.Should().HaveCount(1);
-        result[0].Id.Should().Be(logA.Id);
-    }
-
-    [Fact]
     public async Task TenantSettings_QueryFilter_ReturnsOnlyCurrentTenantSettings()
     {
         var dbName = Guid.NewGuid().ToString();

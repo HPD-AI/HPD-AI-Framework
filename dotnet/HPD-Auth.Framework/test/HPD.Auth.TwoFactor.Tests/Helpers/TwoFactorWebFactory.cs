@@ -1,6 +1,7 @@
 using HPD.Auth.Audit.Extensions;
 using HPD.Auth.Authentication.Extensions;
 using HPD.Auth.Core.Entities;
+using HPD.Auth.Core.Audit;
 using HPD.Auth.Core.Interfaces;
 using HPD.Auth.Extensions;
 using HPD.Auth.Infrastructure.Data;
@@ -179,14 +180,11 @@ public class TwoFactorWebFactory : IAsyncLifetime
     }
 
     /// <summary>Retrieves audit log entries from the DB.</summary>
-    public async Task<IReadOnlyList<AuditLog>> GetAuditLogsAsync(Guid? userId = null, string? action = null)
+    public async Task<IReadOnlyList<AuthAuditRecord>> GetAuditLogsAsync(Guid? userId = null, string? action = null)
     {
         using var scope = _app.Services.CreateScope();
-        var auditLogger = scope.ServiceProvider.GetRequiredService<IAuditLogger>();
-        return await auditLogger.QueryAsync(new AuditLogQuery(
-            UserId: userId,
-            Action: action,
-            PageSize: 500));
+        var reader = scope.ServiceProvider.GetRequiredService<IAuthAuditReader>();
+        return await reader.ReadAsync(new AuthAuditQuery { SubjectUserId = userId, Action = action, Limit = 200 });
     }
 
     // IAsyncLifetime — used when this factory is consumed as IClassFixture<T>.

@@ -7,7 +7,7 @@ namespace HPD.Auth.Core.Events;
 /// Subscribers can use this event to notify connected WebSocket clients,
 /// clear server-side session caches, or update device dashboards.
 /// </summary>
-public record SessionRevokedEvent : AuthEvent
+public sealed record SessionRevokedEvent : AuthEvent
 {
     public required Guid UserId { get; init; }
 

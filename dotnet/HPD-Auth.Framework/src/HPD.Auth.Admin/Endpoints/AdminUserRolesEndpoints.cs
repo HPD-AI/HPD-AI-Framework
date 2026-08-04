@@ -1,4 +1,6 @@
 using HPD.Auth.Core.Entities;
+using HPD.Auth.ControlPlane;
+using HPD.Auth.Core.Audit;
 using HPD.Auth.Core.Interfaces;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -17,20 +19,22 @@ namespace HPD.Auth.Admin.Endpoints;
 /// </summary>
 public static class AdminUserRolesEndpoints
 {
-    public static void Map(IEndpointRouteBuilder app)
+    public static void Map(RouteGroupBuilder root, IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/admin/users")
-                       .RequireAuthorization("RequireAdmin");
+        var group = root.MapGroup("/users");
 
         group.MapGet("/{id}/roles", GetRolesAsync)
+             .RequireHPDControlPlaneCapability(app, HPDAuthAdminCapabilities.AuthorizationRead)
              .WithName("AdminGetUserRoles")
              .WithSummary("List all roles assigned to a user.");
 
         group.MapPost("/{id}/roles", AddRoleAsync)
+             .RequireHPDControlPlaneCapability(app, HPDAuthAdminCapabilities.AuthorizationWrite)
              .WithName("AdminAddUserRole")
              .WithSummary("Assign a role to a user.");
 
         group.MapDelete("/{id}/roles/{role}", RemoveRoleAsync)
+             .RequireHPDControlPlaneCapability(app, HPDAuthAdminCapabilities.AuthorizationWrite)
              .WithName("AdminRemoveUserRole")
              .WithSummary("Remove a role from a user.");
     }
@@ -56,7 +60,7 @@ public static class AdminUserRolesEndpoints
         string id,
         RoleRequest request,
         UserManager<ApplicationUser> userManager,
-        IAuditLogger auditLogger,
+        IAuthAuditWriter auditWriter,
         CancellationToken ct = default)
     {
         var user = await userManager.FindByIdAsync(id);
@@ -75,13 +79,7 @@ public static class AdminUserRolesEndpoints
         if (!result.Succeeded)
             return Results.BadRequest(result.Errors);
 
-        await auditLogger.LogAsync(new AuditLogEntry(
-            Action: AuditActions.AdminRoleAssign,
-            Category: AuditCategories.Admin,
-            Success: true,
-            UserId: user.Id,
-            Metadata: new { adminAction = "add_role", role = request.Role }
-        ), ct);
+        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.RoleAdd, user.Id, cancellationToken: ct);
 
         return Results.Ok(new { message = $"Role '{request.Role}' assigned." });
     }
@@ -90,7 +88,7 @@ public static class AdminUserRolesEndpoints
         string id,
         string role,
         UserManager<ApplicationUser> userManager,
-        IAuditLogger auditLogger,
+        IAuthAuditWriter auditWriter,
         CancellationToken ct = default)
     {
         var user = await userManager.FindByIdAsync(id);
@@ -101,13 +99,7 @@ public static class AdminUserRolesEndpoints
         if (!result.Succeeded)
             return Results.BadRequest(result.Errors);
 
-        await auditLogger.LogAsync(new AuditLogEntry(
-            Action: AuditActions.AdminRoleRemove,
-            Category: AuditCategories.Admin,
-            Success: true,
-            UserId: user.Id,
-            Metadata: new { adminAction = "remove_role", role }
-        ), ct);
+        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.RoleRemove, user.Id, cancellationToken: ct);
 
         return Results.Ok(new { message = $"Role '{role}' removed." });
     }

@@ -1,172 +1,206 @@
+using System.Collections.Immutable;
+using System.Net;
+using System.Text;
 using HPD.Auth.Audit.Observers;
-using HPD.Auth.Core.Entities;
+using HPD.Auth.Core.Audit;
 using HPD.Auth.Core.Events;
-using HPD.Auth.Core.Interfaces;
-using HPD.Events;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace HPD.Auth.Audit.Services;
 
-/// <summary>
-/// Subscription handler that writes an <see cref="AuditLogEntry"/>
-/// for each auth event and fans out to all registered <see cref="IAuthEventObserver{TEvent}"/>
-/// instances from the DI container.
-///
-/// Registered as a scoped service and attached to the request-scoped
-/// <see cref="IEventCoordinator"/> by <see cref="HPD.Auth.Audit.Middleware.AuthEventObserverMiddleware"/>.
-///
-/// Resilience: audit write failures and observer exceptions are caught individually
-/// and logged — they never break the primary auth flow.
-/// </summary>
-public sealed class AuditingAuthObserver
+public sealed partial class AuditingAuthObserver(
+    IAuthAuditWriter writer,
+    IServiceScopeFactory scopeFactory,
+    ILogger<AuditingAuthObserver> logger)
 {
-    private readonly IAuditLogger _auditLogger;
-    private readonly IServiceProvider _serviceProvider;
-    private readonly ILogger<AuditingAuthObserver> _logger;
-
-    public AuditingAuthObserver(
-        IAuditLogger auditLogger,
-        IServiceProvider serviceProvider,
-        ILogger<AuditingAuthObserver> logger)
+    public async ValueTask HandleAsync(AuthEvent evt, CancellationToken cancellationToken = default)
     {
-        _auditLogger = auditLogger ?? throw new ArgumentNullException(nameof(auditLogger));
-        _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
-        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-    }
-
-    public async ValueTask HandleAsync(AuthEvent evt, CancellationToken ct = default)
-    {
-        // ── Step 1: Write audit log entry ─────────────────────────────────────
-        var entry = MapToAuditEntry(evt);
-        if (entry is not null)
+        ArgumentNullException.ThrowIfNull(evt);
+        var write = Map(evt);
+        if (write is null)
         {
-            // Enrich IpAddress / UserAgent from AuthContext if not already set.
-            entry = entry with
-            {
-                IpAddress = entry.IpAddress ?? evt.AuthContext?.IpAddress,
-                UserAgent = entry.UserAgent ?? evt.AuthContext?.UserAgent,
-            };
-
-            try
-            {
-                await _auditLogger.LogAsync(entry, ct);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex,
-                    "AuditingAuthObserver failed to write audit log for {EventType} (EventId={EventId})",
-                    evt.GetType().Name, evt.Timestamp);
-            }
+            InvalidEvent(logger);
+            return;
         }
 
-        // ── Step 2: Fan out to registered observers ───────────────────────────
-        await InvokeObserversAsync(evt, ct);
+        try
+        {
+            await writer.WriteAsync(write, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            AuditCancelled(logger);
+            return;
+        }
+        catch
+        {
+            AuditFailed(logger);
+        }
+
+        if (cancellationToken.IsCancellationRequested)
+            return;
+
+        await using var scope = scopeFactory.CreateAsyncScope();
+        await DispatchAsync(scope.ServiceProvider, evt, cancellationToken);
     }
 
-    public bool ShouldProcess(AuthEvent evt) => evt is not null;
-
-    public Task OnEventAsync(AuthEvent evt, CancellationToken ct = default) =>
-        HandleAsync(evt, ct).AsTask();
-
-    private async Task InvokeObserversAsync(AuthEvent evt, CancellationToken ct)
+    private async ValueTask DispatchAsync(
+        IServiceProvider services,
+        AuthEvent evt,
+        CancellationToken cancellationToken)
     {
-        // Resolve and invoke typed IAuthEventObserver<TEvent> by reflecting the concrete type.
-        // Each observer type is registered in DI; we resolve IEnumerable<IAuthEventObserver<TEvent>>.
-        var observerType = typeof(IAuthEventObserver<>).MakeGenericType(evt.GetType());
-        var observers = _serviceProvider.GetServices(observerType);
-
-        foreach (var observer in observers)
+        switch (evt)
         {
-            if (observer is null) continue;
+            case UserRegisteredEvent value: await DispatchAsync(services, value, cancellationToken); break;
+            case UserLoggedInEvent value: await DispatchAsync(services, value, cancellationToken); break;
+            case UserLoggedOutEvent value: await DispatchAsync(services, value, cancellationToken); break;
+            case LoginFailedEvent value: await DispatchAsync(services, value, cancellationToken); break;
+            case PasswordChangedEvent value: await DispatchAsync(services, value, cancellationToken); break;
+            case PasswordResetRequestedEvent value: await DispatchAsync(services, value, cancellationToken); break;
+            case EmailConfirmedEvent value: await DispatchAsync(services, value, cancellationToken); break;
+            case TwoFactorEnabledEvent value: await DispatchAsync(services, value, cancellationToken); break;
+            case SessionRevokedEvent value: await DispatchAsync(services, value, cancellationToken); break;
+            default: UnknownEvent(logger); break;
+        }
+    }
 
+    private async ValueTask DispatchAsync<TEvent>(
+        IServiceProvider services,
+        TEvent evt,
+        CancellationToken cancellationToken)
+        where TEvent : AuthEvent
+    {
+        foreach (var observer in services.GetServices<IAuthEventObserver<TEvent>>())
+        {
+            if (cancellationToken.IsCancellationRequested)
+                return;
             try
             {
-                var shouldProcess = (bool)observerType.GetMethod(nameof(IAuthEventObserver<AuthEvent>.ShouldProcess))!
-                    .Invoke(observer, [evt])!;
-
-                if (!shouldProcess)
-                {
-                    continue;
-                }
-
-                var task = (Task)observerType.GetMethod(nameof(IAuthEventObserver<AuthEvent>.OnEventAsync))!
-                    .Invoke(observer, [evt, ct])!;
-
-                await task.ConfigureAwait(false);
+                await observer.HandleAsync(evt, cancellationToken);
             }
-            catch (Exception ex)
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
-                _logger.LogError(ex,
-                    "Observer {ObserverType} failed for {EventType}",
-                    observer.GetType().Name, evt.GetType().Name);
+                return;
+            }
+            catch
+            {
+                ObserverFailed(logger);
             }
         }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Event → AuditLogEntry mapping
-    // ─────────────────────────────────────────────────────────────────────────
-    private static AuditLogEntry? MapToAuditEntry(AuthEvent evt) => evt switch
+    private static AuthAuditWrite? Map(AuthEvent evt)
     {
-        UserLoggedInEvent e => new AuditLogEntry(
-            Action: AuditActions.UserLogin,
-            Category: AuditCategories.Authentication,
-            UserId: e.UserId,
-            Metadata: new Dictionary<string, string?> { ["AuthMethod"] = e.AuthMethod }),
+        var ip = CanonicalIp(evt.AuthContext?.IpAddress);
+        var agent = BoundedUserAgent(evt.AuthContext?.UserAgent);
+        return evt switch
+        {
+            UserRegisteredEvent e when e.UserId != Guid.Empty => Write(
+                "user.register", true, e.UserId, null, null, ip, agent,
+                Fact("registration-method", RegistrationMethod(e.RegistrationMethod))),
+            UserLoggedInEvent e when e.UserId != Guid.Empty => Write(
+                "user.login", true, e.UserId, null, null, ip, agent,
+                Fact("authentication-method", AuthenticationMethod(e.AuthMethod))),
+            UserLoggedOutEvent e when e.UserId != Guid.Empty && e.SessionId != Guid.Empty => Write(
+                "user.logout", true, e.UserId, e.SessionId, null, ip, agent),
+            LoginFailedEvent e => Write(
+                "user.login.failed", false, null, null, Failure(e.Reason), ip, agent),
+            PasswordChangedEvent e when e.UserId != Guid.Empty => Write(
+                "password.change", true, e.UserId, null, null, ip, agent),
+            PasswordResetRequestedEvent e when e.UserId != Guid.Empty => Write(
+                "password.reset.request", true, e.UserId, null, null, ip, agent),
+            EmailConfirmedEvent e when e.UserId != Guid.Empty => Write(
+                "email.confirm", true, e.UserId, null, null, ip, agent),
+            TwoFactorEnabledEvent e when e.UserId != Guid.Empty => Write(
+                "2fa.enable", true, e.UserId, null, null, ip, agent,
+                Fact("authentication-method", AuthenticationMethod(e.Method))),
+            SessionRevokedEvent e when e.UserId != Guid.Empty && e.SessionId != Guid.Empty => Write(
+                "session.revoke", true, e.UserId, e.SessionId, null, ip, agent,
+                Fact("revoked-by", RevokedBy(e.RevokedBy))),
+            _ => null
+        };
+    }
 
-        UserLoggedOutEvent e => new AuditLogEntry(
-            Action: AuditActions.UserLogout,
-            Category: AuditCategories.Authentication,
-            UserId: e.UserId,
-            Metadata: new Dictionary<string, string?> { ["SessionId"] = e.SessionId.ToString() }),
+    private static AuthAuditWrite Write(
+        string action,
+        bool success,
+        Guid? userId,
+        Guid? sessionId,
+        string? failure,
+        string? ip,
+        string? agent,
+        params AuthAuditFact[] facts) => new(
+            action,
+            "authentication",
+            success,
+            userId,
+            sessionId,
+            ip,
+            agent,
+            failure,
+            null,
+            facts.OrderBy(static fact => fact.Key, StringComparer.Ordinal).ToImmutableArray());
 
-        UserRegisteredEvent e => new AuditLogEntry(
-            Action: AuditActions.UserRegister,
-            Category: AuditCategories.Authentication,
-            UserId: e.UserId,
-            Metadata: new Dictionary<string, string?> { ["RegistrationMethod"] = e.RegistrationMethod }),
+    private static AuthAuditFact Fact(string key, string value) => new(key, value);
 
-        LoginFailedEvent e => new AuditLogEntry(
-            Action: AuditActions.UserLoginFailed,
-            Category: AuditCategories.Authentication,
-            Success: false,
-            ErrorMessage: e.Reason,
-            Metadata: new Dictionary<string, string?> { ["Email"] = e.Email }),
-
-        PasswordChangedEvent e => new AuditLogEntry(
-            Action: AuditActions.PasswordChange,
-            Category: AuditCategories.Authentication,
-            UserId: e.UserId),
-
-        PasswordResetRequestedEvent e => new AuditLogEntry(
-            Action: AuditActions.PasswordResetRequest,
-            Category: AuditCategories.Authentication,
-            UserId: e.UserId,
-            Metadata: new Dictionary<string, string?> { ["Email"] = e.Email }),
-
-        EmailConfirmedEvent e => new AuditLogEntry(
-            Action: AuditActions.EmailConfirm,
-            Category: AuditCategories.Authentication,
-            UserId: e.UserId,
-            Metadata: new Dictionary<string, string?> { ["Email"] = e.Email }),
-
-        TwoFactorEnabledEvent e => new AuditLogEntry(
-            Action: AuditActions.TwoFactorEnable,
-            Category: AuditCategories.Authentication,
-            UserId: e.UserId,
-            Metadata: new Dictionary<string, string?> { ["Method"] = e.Method }),
-
-        SessionRevokedEvent e => new AuditLogEntry(
-            Action: AuditActions.SessionRevoke,
-            Category: AuditCategories.Authentication,
-            UserId: e.UserId,
-            Metadata: new Dictionary<string, string?>
-            {
-                ["SessionId"] = e.SessionId.ToString(),
-                ["RevokedBy"] = e.RevokedBy.ToString()
-            }),
-
-        _ => null,
+    private static string RegistrationMethod(string? value) => value?.ToLowerInvariant() switch
+    {
+        "email" => "email",
+        "magic_link" or "magic-link" => "magic-link",
+        "google" or "github" or "oauth" => "oauth",
+        _ => "other"
     };
+
+    private static string AuthenticationMethod(string? value) => value?.ToLowerInvariant() switch
+    {
+        "password" => "password",
+        "google" or "github" or "oauth" => "oauth",
+        "passkey" => "passkey",
+        "magic_link" or "magic-link" => "magic-link",
+        "totp" => "totp",
+        "totp_disabled" or "totp-disabled" => "totp-disabled",
+        _ => "other"
+    };
+
+    private static string RevokedBy(string? value) => value?.ToLowerInvariant() switch
+    {
+        "user" => "user",
+        "admin" => "admin",
+        "system" => "system",
+        _ => "other"
+    };
+
+    private static string Failure(string? value) => value switch
+    {
+        "invalid_password" or "user_not_found" => "authentication.invalid-credentials",
+        "account_locked" => "authentication.account-locked",
+        "email_not_confirmed" => "authentication.email-unconfirmed",
+        "account_disabled" => "authentication.account-disabled",
+        _ => "authentication.failed"
+    };
+
+    private static string? CanonicalIp(string? value) =>
+        IPAddress.TryParse(value, out var address) ? address.ToString() : null;
+
+    private static string? BoundedUserAgent(string? value)
+    {
+        if (value is null)
+            return null;
+        var cleaned = new string(value.Where(static character => !char.IsControl(character)).ToArray());
+        while (Encoding.UTF8.GetByteCount(cleaned) > 512)
+            cleaned = cleaned[..^1];
+        return cleaned.Length == 0 ? null : cleaned;
+    }
+
+    [LoggerMessage(2401, LogLevel.Warning, "Auth audit event was invalid")]
+    private static partial void InvalidEvent(ILogger logger);
+    [LoggerMessage(2402, LogLevel.Debug, "Auth audit dispatch was cancelled")]
+    private static partial void AuditCancelled(ILogger logger);
+    [LoggerMessage(2403, LogLevel.Error, "Auth audit write failed")]
+    private static partial void AuditFailed(ILogger logger);
+    [LoggerMessage(2404, LogLevel.Error, "Auth audit observer failed")]
+    private static partial void ObserverFailed(ILogger logger);
+    [LoggerMessage(2405, LogLevel.Warning, "Unknown Auth event was ignored")]
+    private static partial void UnknownEvent(ILogger logger);
 }

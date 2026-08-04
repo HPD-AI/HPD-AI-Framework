@@ -7,7 +7,7 @@ namespace HPD.Auth.Core.Events;
 /// Subscribers can use this event for auditing, rate-limiting enforcement,
 /// or triggering the email delivery pipeline.
 /// </summary>
-public record PasswordResetRequestedEvent : AuthEvent
+public sealed record PasswordResetRequestedEvent : AuthEvent
 {
     public required Guid UserId { get; init; }
 
