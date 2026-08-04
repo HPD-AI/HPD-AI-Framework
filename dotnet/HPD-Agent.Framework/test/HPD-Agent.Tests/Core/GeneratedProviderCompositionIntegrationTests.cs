@@ -100,6 +100,124 @@ public sealed class GeneratedProviderCompositionIntegrationTests
     }
 
     [Theory]
+    [InlineData(HpdConfigFormat.Json, """
+        { "providerProfiles": { "anthropic": { "chat": {
+          "providerConfig": {},
+          "providerOptions": { "thinkingBudgetTokens": 4096 }
+        } } } }
+        """)]
+    [InlineData(HpdConfigFormat.Yaml, """
+        providerProfiles:
+          anthropic:
+            chat:
+              providerConfig: {}
+              providerOptions:
+                thinkingBudgetTokens: 4096
+        """)]
+    public void ConfigSerializer_UsesOuterProfileKeyForGeneratedPayloads(
+        HpdConfigFormat format,
+        string document)
+    {
+        using var provider = CreateProvider();
+        var composition = provider.GetRequiredService<ProviderComposition>();
+
+        var config = HpdAgentConfigSerializer.Deserialize(document, composition, format)!;
+        var chat = config.ProviderProfiles["anthropic"].Chat!;
+
+        Assert.Null(chat.ProviderKey);
+        Assert.IsType<AnthropicProviderConfig>(chat.ProviderConfig);
+        Assert.Equal(4096, Assert.IsType<AnthropicChatRequestOptions>(chat.ProviderOptions).ThinkingBudgetTokens);
+
+        var serialized = HpdAgentConfigSerializer.Serialize(config, composition, format);
+        var roundTrip = HpdAgentConfigSerializer.Deserialize(serialized, composition, format)!;
+        var roundTripChat = roundTrip.ProviderProfiles["anthropic"].Chat!;
+        Assert.Null(roundTripChat.ProviderKey);
+        Assert.IsType<AnthropicProviderConfig>(roundTripChat.ProviderConfig);
+        Assert.Equal(
+            4096,
+            Assert.IsType<AnthropicChatRequestOptions>(roundTripChat.ProviderOptions).ThinkingBudgetTokens);
+    }
+
+    [Theory]
+    [InlineData(HpdConfigFormat.Json, """
+        { "providerProfiles": { "anthropic": { "chat": {
+          "providerKey": "openai",
+          "providerConfig": {}
+        } } } }
+        """)]
+    [InlineData(HpdConfigFormat.Yaml, """
+        providerProfiles:
+          anthropic:
+            chat:
+              providerKey: openai
+              providerConfig: {}
+        """)]
+    public void ConfigSerializer_RejectsNestedProviderKeyThatContradictsProfile(
+        HpdConfigFormat format,
+        string document)
+    {
+        using var provider = CreateProvider();
+        var composition = provider.GetRequiredService<ProviderComposition>();
+
+        var exception = Assert.Throws<AgentRunConfigurationException>(
+            () => HpdAgentConfigSerializer.Deserialize(document, composition, format));
+
+        Assert.Equal("ProviderProfileKeyMismatch", exception.Code);
+        Assert.Equal("providerProfiles.anthropic.chat.providerKey", exception.Path);
+        Assert.Equal("anthropic", exception.ProviderKey);
+    }
+
+    [Fact]
+    public void ConfigSerializer_CanonicalizesProfileKeysAndRejectsCanonicalDuplicates()
+    {
+        using var provider = CreateProvider();
+        var composition = provider.GetRequiredService<ProviderComposition>();
+        var oneProfile = HpdAgentConfigSerializer.Deserialize(
+            """{ "providerProfiles": { "Anthropic": { "chat": { "providerConfig": {} } } } }""",
+            composition)!;
+
+        Assert.True(oneProfile.ProviderProfiles.ContainsKey("anthropic"));
+        var serialized = HpdAgentConfigSerializer.Serialize(oneProfile, composition);
+        Assert.Contains("\"anthropic\"", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"Anthropic\"", serialized, StringComparison.Ordinal);
+
+        var exception = Assert.Throws<AgentRunConfigurationException>(() =>
+            HpdAgentConfigSerializer.Deserialize(
+                """{ "providerProfiles": { "anthropic": {}, "Anthropic": {} } }""",
+                composition));
+
+        Assert.Equal("DuplicateProviderProfile", exception.Code);
+        Assert.Equal("anthropic", exception.ProviderKey);
+    }
+
+    [Fact]
+    public void ConfigSerializer_OmitsRedundantNestedProfileProviderKeyWhenWriting()
+    {
+        using var provider = CreateProvider();
+        var composition = provider.GetRequiredService<ProviderComposition>();
+        var config = new AgentConfig
+        {
+            ProviderProfiles = new Dictionary<string, AgentProviderProfile>
+            {
+                ["anthropic"] = new()
+                {
+                    Chat = new ChatClientConfig
+                    {
+                        ProviderKey = "anthropic",
+                        ProviderConfig = new AnthropicProviderConfig()
+                    }
+                }
+            }
+        };
+
+        var serialized = HpdAgentConfigSerializer.Serialize(config, composition);
+
+        Assert.DoesNotContain("providerKey", serialized, StringComparison.OrdinalIgnoreCase);
+        var roundTrip = HpdAgentConfigSerializer.Deserialize(serialized, composition)!;
+        Assert.IsType<AnthropicProviderConfig>(roundTrip.ProviderProfiles["anthropic"].Chat!.ProviderConfig);
+    }
+
+    [Theory]
     [InlineData(HpdConfigFormat.Json)]
     [InlineData(HpdConfigFormat.Yaml)]
     public void RunConfigSerializer_RoundTripsGeneratedProviderPayloads(HpdConfigFormat format)
@@ -133,5 +251,12 @@ public sealed class GeneratedProviderCompositionIntegrationTests
             2048,
             Assert.IsType<AnthropicChatRequestOptions>(roundTrip.Clients.Chat.ProviderOptions)
                 .ThinkingBudgetTokens);
+    }
+
+    private static ServiceProvider CreateProvider()
+    {
+        var services = new ServiceCollection();
+        HpdGeneratedProviderServiceCollectionExtensions.AddHpdGeneratedProviders(services);
+        return services.BuildServiceProvider();
     }
 }

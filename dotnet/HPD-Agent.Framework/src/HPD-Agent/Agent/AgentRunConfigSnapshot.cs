@@ -9,17 +9,36 @@ namespace HPD.Agent;
 /// <summary>Captures independent per-invocation configuration before asynchronous execution begins.</summary>
 internal static class AgentRunConfigSnapshot
 {
+    internal static IReadOnlySet<string> CapturedPropertyNames { get; } = new HashSet<string>(StringComparer.Ordinal)
+    {
+        nameof(AgentRunConfig.Security),
+        nameof(AgentRunConfig.Clients),
+        nameof(AgentRunConfig.SystemInstructions),
+        nameof(AgentRunConfig.Tools),
+        nameof(AgentRunConfig.Context),
+        nameof(AgentRunConfig.BackgroundResponses),
+        nameof(AgentRunConfig.Streaming),
+        nameof(AgentRunConfig.RuntimeMiddleware),
+        nameof(AgentRunConfig.UploadStrategy),
+        nameof(AgentRunConfig.Audio),
+        nameof(AgentRunConfig.Compaction),
+        nameof(AgentRunConfig.StructuredOutput),
+        nameof(AgentRunConfig.RuntimeTools),
+        nameof(AgentRunConfig.RuntimeToolMode),
+        nameof(AgentRunConfig.Evaluations)
+    };
+
     internal static AgentRunConfig? Capture(AgentRunConfig? source, ProviderComposition? composition)
     {
         if (source is null)
             return null;
 
-        var snapshot = AgentRunConfigInheritance.CreateSnapshot(source, SubAgentRunConfigFields.All);
+        var snapshot = AgentRunConfigInheritance.CreateSnapshot(
+            source,
+            SubAgentRunConfigFields.All,
+            composition);
         snapshot.Clients = CloneClients(source.Clients);
         SnapshotProviderPayloads(snapshot.Clients, composition);
-        snapshot.Audio = CloneAudio(source.Audio);
-        snapshot.Compaction = CloneCompaction(source.Compaction, composition);
-        snapshot.StructuredOutput = CloneStructuredOutput(source.StructuredOutput);
         snapshot.Evaluations = SnapshotEvaluations(source.Evaluations);
         return snapshot;
     }
@@ -139,7 +158,7 @@ internal static class AgentRunConfigSnapshot
         }
     }
 
-    private static AudioRunConfig? CloneAudio(AudioRunConfig? source) => source is null ? null : new AudioRunConfig
+    internal static AudioRunConfig? CloneAudio(AudioRunConfig? source) => source is null ? null : new AudioRunConfig
     {
         Enabled = source.Enabled,
         InputMode = source.InputMode,
@@ -159,7 +178,7 @@ internal static class AgentRunConfigSnapshot
         EnablePlayback = source.EnablePlayback
     };
 
-    private static CompactionRunPolicy? CloneCompaction(
+    internal static CompactionRunPolicy? CloneCompaction(
         CompactionRunPolicy? source,
         ProviderComposition? composition)
     {
@@ -201,7 +220,7 @@ internal static class AgentRunConfigSnapshot
         return clients.Chat;
     }
 
-    private static StructuredOutputOptions? CloneStructuredOutput(StructuredOutputOptions? source) =>
+    internal static StructuredOutputOptions? CloneStructuredOutput(StructuredOutputOptions? source) =>
         source is null ? null : new StructuredOutputOptions
         {
             Mode = source.Mode,

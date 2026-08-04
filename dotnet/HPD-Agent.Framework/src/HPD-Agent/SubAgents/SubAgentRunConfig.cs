@@ -156,11 +156,12 @@ public sealed class SubAgentRunConfig
     internal AgentRunConfig Resolve(
         AgentRunConfig? parent,
         AgentClientSet? parentClients = null,
-        AgentConfig? childDefaults = null)
+        AgentConfig? childDefaults = null,
+        ProviderComposition? composition = null)
     {
         var result = parent is null
             ? new AgentRunConfig()
-            : AgentRunConfigInheritance.CreateSnapshot(parent, InheritedFields);
+            : AgentRunConfigInheritance.CreateSnapshot(parent, InheritedFields, composition);
         _configure?.Invoke(result);
         ApplyClientInheritance(result, parentClients, childDefaults, Clients);
         return result;
@@ -260,7 +261,10 @@ public sealed class SubAgentRunConfig
 
 internal static class AgentRunConfigInheritance
 {
-    internal static AgentRunConfig CreateSnapshot(AgentRunConfig source, SubAgentRunConfigFields fields)
+    internal static AgentRunConfig CreateSnapshot(
+        AgentRunConfig source,
+        SubAgentRunConfigFields fields,
+        ProviderComposition? composition = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         var result = new AgentRunConfig();
@@ -299,11 +303,11 @@ internal static class AgentRunConfigInheritance
                 Timeout = source.BackgroundResponses.Timeout
             };
             result.UploadStrategy = source.UploadStrategy;
-            result.Audio = source.Audio;
+            result.Audio = AgentRunConfigSnapshot.CloneAudio(source.Audio);
         }
 
         if (Has(fields, SubAgentRunConfigFields.Compaction))
-            result.Compaction = source.Compaction;
+            result.Compaction = AgentRunConfigSnapshot.CloneCompaction(source.Compaction, composition);
 
         if (Has(fields, SubAgentRunConfigFields.Context))
         {
@@ -344,7 +348,7 @@ internal static class AgentRunConfigInheritance
                 CoalesceDeltas = source.Streaming.CoalesceDeltas,
                 Callback = source.Streaming.Callback
             };
-            result.StructuredOutput = source.StructuredOutput;
+            result.StructuredOutput = AgentRunConfigSnapshot.CloneStructuredOutput(source.StructuredOutput);
         }
 
         return result;

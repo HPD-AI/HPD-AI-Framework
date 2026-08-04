@@ -117,6 +117,26 @@ public sealed class SubAgentRunConfigTests
     }
 
     [Fact]
+    public void InheritAll_DeepClonesOwnedAudioCompactionAndStructuredOutput()
+    {
+        var parent = new AgentRunConfig
+        {
+            Audio = new AudioRunConfig { ContentType = "audio/pcm" },
+            Compaction = new CompactionRunPolicy(),
+            StructuredOutput = new StructuredOutputOptions { UnionTypes = [typeof(string)] }
+        };
+
+        var child = SubAgentRunConfig
+            .InheritOnly(SubAgentRunConfigFields.All)
+            .Resolve(parent);
+
+        child.Audio.Should().NotBeSameAs(parent.Audio);
+        child.Compaction.Should().NotBeSameAs(parent.Compaction);
+        child.StructuredOutput.Should().NotBeSameAs(parent.StructuredOutput);
+        child.StructuredOutput!.UnionTypes.Should().NotBeSameAs(parent.StructuredOutput!.UnionTypes);
+    }
+
+    [Fact]
     public void IsolatedWithOverride_UsesChildOnlyConfiguration()
     {
         var parent = new AgentRunConfig

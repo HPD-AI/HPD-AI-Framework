@@ -5,6 +5,24 @@ namespace HPD.Agent.Tests.Core;
 public sealed class AgentRunConfigSnapshotTests
 {
     [Fact]
+    public void CaptureOwnershipMap_CoversEveryDeclaredRunConfigProperty()
+    {
+        var declaredProperties = typeof(AgentRunConfig)
+            .GetProperties(
+                System.Reflection.BindingFlags.Instance |
+                System.Reflection.BindingFlags.Public |
+                System.Reflection.BindingFlags.NonPublic |
+                System.Reflection.BindingFlags.DeclaredOnly)
+            .Select(static property => property.Name)
+            .ToHashSet(StringComparer.Ordinal);
+
+        Assert.True(
+            declaredProperties.SetEquals(AgentRunConfigSnapshot.CapturedPropertyNames),
+            $"Snapshot ownership map mismatch. Declared: {string.Join(", ", declaredProperties.Order())}; " +
+            $"mapped: {string.Join(", ", AgentRunConfigSnapshot.CapturedPropertyNames.Order())}.");
+    }
+
+    [Fact]
     public void Capture_OwnsMutableConfigurationAndRetainsOpaqueRuntimeIdentity()
     {
         var opaque = new object();

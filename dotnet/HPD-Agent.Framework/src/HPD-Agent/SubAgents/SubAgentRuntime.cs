@@ -306,7 +306,8 @@ public static class SubAgentRuntime
                 RunConfig = definition.RunConfig.Resolve(
                     request.ParentContext?.RunConfig,
                     request.ParentContext?.ClientSet,
-                    agent.Config),
+                    agent.Config,
+                    agent.ProviderComposition),
                 InheritedChatClient = request.ParentContext?.GetEffectiveChatClientHandle(),
                 InheritedChatMode = definition.RunConfig.Clients.Chat
             }, cancellationToken).ConfigureAwait(false);

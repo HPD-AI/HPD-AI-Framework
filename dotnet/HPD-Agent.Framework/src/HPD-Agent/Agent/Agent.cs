@@ -29,6 +29,8 @@ namespace HPD.Agent;
 /// </summary>
 public sealed class Agent
 {
+    internal ProviderComposition? ProviderComposition => _chatClientResolver.Composition;
+
     private readonly IChatClient? _baseClient;
     private readonly AgentChatClientHandle? _defaultChatClientHandle;
     private readonly AgentChatClientResolver _chatClientResolver;

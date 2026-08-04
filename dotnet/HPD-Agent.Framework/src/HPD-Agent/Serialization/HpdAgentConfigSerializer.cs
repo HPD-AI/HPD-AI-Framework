@@ -134,6 +134,7 @@ public static class HpdAgentConfigSerializer
         if (root is null)
             return null;
 
+        NormalizeProviderProfiles(root, providerComposition);
         var payloads = ExtractPayloads(root);
         var config = JsonSerializer.Deserialize(root.ToJsonString(), HPDJsonContext.Default.AgentConfig);
         if (config is null)
@@ -149,7 +150,7 @@ public static class HpdAgentConfigSerializer
             if (target is null)
                 continue;
 
-            var providerKey = payload.ProviderKey ?? target.ProviderKey;
+            var providerKey = ResolvePayloadProviderKey(providerComposition, payload, target.ProviderKey);
             if (payload.Configuration is not null)
             {
                 target.ProviderConfig = (IProviderConfig)BindPayload(
@@ -218,14 +219,21 @@ public static class HpdAgentConfigSerializer
         var root = JsonSerializer.SerializeToNode(config, HPDJsonContext.Default.AgentConfig) as JsonObject
             ?? throw new JsonException("Agent configuration did not serialize to a JSON object.");
 
+        NormalizeProviderProfiles(root, providerComposition);
         if (GetObject(root, "clients") is { } clients)
             InjectFamilies(clients, config.Clients, providerComposition, "clients");
         if (GetObject(root, "providerProfiles") is { } profiles)
         {
             foreach (var pair in config.ProviderProfiles)
             {
-                if (GetObject(profiles, pair.Key) is { } profileNode)
-                    InjectProfile(profileNode, pair.Value, providerComposition, $"providerProfiles.{pair.Key}");
+                var canonicalProfileKey = providerComposition.Descriptors.Canonicalize(pair.Key);
+                if (GetObject(profiles, canonicalProfileKey) is { } profileNode)
+                    InjectProfile(
+                        profileNode,
+                        canonicalProfileKey,
+                        pair.Value,
+                        providerComposition,
+                        $"providerProfiles.{canonicalProfileKey}");
             }
         }
 
@@ -298,12 +306,13 @@ public static class HpdAgentConfigSerializer
 
     private static void InjectProfile(
         JsonObject owner,
+        string profileName,
         AgentProviderProfile profile,
         ProviderComposition composition,
         string path)
     {
         foreach (var (name, family) in FamilyNames)
-            InjectFamily(owner, name, family, profile.GetFamilyConfig(family), composition, path);
+            InjectFamily(owner, name, family, profile.GetFamilyConfig(family), composition, path, profileName);
     }
 
     private static void InjectFamilies(
@@ -322,14 +331,22 @@ public static class HpdAgentConfigSerializer
         ProviderClientFamily family,
         ProviderClientConfig? config,
         ProviderComposition composition,
-        string path)
+        string path,
+        string? profileName = null)
     {
         if (config is null || GetObject(owner, name) is not { } familyNode)
             return;
+        var providerKey = ResolveProfileProviderKey(
+            composition,
+            profileName,
+            config.ProviderKey,
+            $"{path}.{name}.providerKey");
+        if (profileName is not null)
+            Remove(familyNode, "providerKey");
         if (config.ProviderConfig is not null)
             familyNode["providerConfig"] = SerializePayload(
                 composition,
-                config.ProviderKey,
+                providerKey,
                 family,
                 ProviderPayloadKind.Configuration,
                 config.ProviderConfig,
@@ -338,11 +355,45 @@ public static class HpdAgentConfigSerializer
         if (operationOptions is not null)
             familyNode["providerOptions"] = SerializePayload(
                 composition,
-                config.ProviderKey,
+                providerKey,
                 family,
                 ProviderPayloadKind.OperationOptions,
                 operationOptions,
                 $"{path}.{name}.providerOptions");
+    }
+
+    private static string? ResolvePayloadProviderKey(
+        ProviderComposition composition,
+        ExtractedPayload payload,
+        string? targetProviderKey)
+        => ResolveProfileProviderKey(
+            composition,
+            payload.ProfileName,
+            payload.ProviderKey ?? targetProviderKey,
+            payload.Path + ".providerKey");
+
+    private static string? ResolveProfileProviderKey(
+        ProviderComposition composition,
+        string? profileName,
+        string? nestedProviderKey,
+        string path)
+    {
+        if (profileName is null)
+            return nestedProviderKey;
+
+        var profileProviderKey = composition.Descriptors.Canonicalize(profileName);
+        if (string.IsNullOrWhiteSpace(nestedProviderKey))
+            return profileProviderKey;
+
+        var nestedCanonicalKey = composition.Descriptors.Canonicalize(nestedProviderKey);
+        if (!StringComparer.Ordinal.Equals(profileProviderKey, nestedCanonicalKey))
+            throw new AgentRunConfigurationException(
+                "ProviderProfileKeyMismatch",
+                path,
+                $"Provider profile '{profileName}' resolves to '{profileProviderKey}', but its nested providerKey resolves to '{nestedCanonicalKey}'.",
+                profileProviderKey);
+
+        return profileProviderKey;
     }
 
     private static JsonNode? SerializePayload(
@@ -450,6 +501,31 @@ public static class HpdAgentConfigSerializer
                     ExtractFamilies(profile, pair.Key, $"providerProfiles.{pair.Key}", result);
         }
         return result;
+    }
+
+    private static void NormalizeProviderProfiles(
+        JsonObject root,
+        ProviderComposition composition)
+    {
+        if (Remove(root, "providerProfiles") is not JsonObject profiles)
+            return;
+
+        var normalized = new JsonObject();
+        foreach (var pair in profiles.ToArray())
+        {
+            var canonical = composition.Descriptors.Canonicalize(pair.Key);
+            if (normalized.ContainsKey(canonical))
+                throw new AgentRunConfigurationException(
+                    "DuplicateProviderProfile",
+                    $"providerProfiles.{pair.Key}",
+                    $"Provider profile '{pair.Key}' resolves to canonical provider '{canonical}', which is already configured.",
+                    canonical);
+
+            profiles.Remove(pair.Key);
+            normalized[canonical] = pair.Value;
+        }
+
+        root["providerProfiles"] = normalized;
     }
 
     private static void ExtractFamilies(
