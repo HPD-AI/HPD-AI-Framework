@@ -14,6 +14,8 @@ using HPD.Gateway.Core;
 using HPD.Gateway.Effective.Serialization;
 using HPD.Gateway.Inspection;
 using HPD.Gateway.Management;
+using HPD.Gateway.HPDAuth;
+using HPD.Auth.ControlPlane;
 using HPD.Gateway.Hosting;
 using HPD.Gateway.OutputCaching;
 using HPD.Gateway.Resilience;
@@ -33,6 +35,14 @@ using Yarp.ReverseProxy.Configuration;
 using Yarp.ReverseProxy.Model;
 
 await SmokeManagementRuntimeAsync();
+
+var projectedActor = new AuthenticatedActorProjection
+{
+    ActorId = "aot-operator",
+    AuthenticationProfile = "control-plane"
+}.ToGatewayActor("GatewayOperators");
+if (projectedActor.ActorId != "aot-operator")
+    throw new InvalidOperationException("HPD.Auth Gateway actor projection failed.");
 
 var smokeResilienceProfile = new GatewayResilienceProfile
 {

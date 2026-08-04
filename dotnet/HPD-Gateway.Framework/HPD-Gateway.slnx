@@ -7,6 +7,7 @@
     <Project Path="src/HPD.Gateway.Effective/HPD.Gateway.Effective.csproj" />
     <Project Path="src/HPD.Gateway.Inspection/HPD.Gateway.Inspection.csproj" />
     <Project Path="src/HPD.Gateway.Management/HPD.Gateway.Management.csproj" />
+    <Project Path="src/HPD.Gateway.HPDAuth/HPD.Gateway.HPDAuth.csproj" />
     <Project Path="src/HPD.Gateway.Hosting/HPD.Gateway.Hosting.csproj" />
     <Project Path="src/HPD.Gateway.OutputCaching/HPD.Gateway.OutputCaching.csproj" />
     <Project Path="src/HPD.Gateway.Resilience/HPD.Gateway.Resilience.csproj" />
