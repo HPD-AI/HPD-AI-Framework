@@ -34,13 +34,13 @@ public class AdminWebFactory : IAsyncDisposable
     private readonly WebApplication _app;
     private readonly string _dbName;
 
-    public AdminWebFactory(string? dbName = null)
+    public AdminWebFactory(string? dbName = null, bool registerAuthenticationScheme = true)
     {
         _dbName = dbName ?? $"AdminTest_{Guid.NewGuid():N}";
-        _app = BuildApp(_dbName);
+        _app = BuildApp(_dbName, registerAuthenticationScheme);
     }
 
-    private static WebApplication BuildApp(string dbName)
+    private static WebApplication BuildApp(string dbName, bool registerAuthenticationScheme)
     {
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions
         {
@@ -67,13 +67,20 @@ public class AdminWebFactory : IAsyncDisposable
 
         // Replace JWT Bearer with a test scheme that accepts any claim principal
         // constructed by the test using TestAuthHandler.
-        builder.Services.AddAuthentication(options =>
+        if (registerAuthenticationScheme)
         {
-            options.DefaultAuthenticateScheme = TestAuthHandler.SchemeName;
-            options.DefaultChallengeScheme = TestAuthHandler.SchemeName;
-        })
-        .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(
-            TestAuthHandler.SchemeName, _ => { });
+            builder.Services.AddAuthentication(options =>
+            {
+                options.DefaultAuthenticateScheme = TestAuthHandler.SchemeName;
+                options.DefaultChallengeScheme = TestAuthHandler.SchemeName;
+            })
+            .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(
+                TestAuthHandler.SchemeName, _ => { });
+        }
+        else
+        {
+            builder.Services.AddAuthentication();
+        }
 
         builder.Services.AddAuthorization(opts =>
         {
@@ -104,6 +111,7 @@ public class AdminWebFactory : IAsyncDisposable
         var app = builder.Build();
         app.Services.InitializeHPDAuthDevelopmentDatabaseAsync().GetAwaiter().GetResult();
 
+        app.UseHPDControlPlaneCorrelation();
         app.UseAuthentication();
         app.UseAuthorization();
         app.MapHPDAdminEndpoints(new HPDAuthAdminEndpointOptions

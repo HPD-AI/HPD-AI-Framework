@@ -73,6 +73,7 @@ public static class AdminUserActionsEndpoints
         AdminBanUserRequest request,
         UserManager<ApplicationUser> userManager,
         IAuthAuditWriter auditWriter,
+        IAuthCorrelationContext correlationContext,
         CancellationToken ct = default)
     {
         var user = await userManager.FindByIdAsync(id);
@@ -98,7 +99,7 @@ public static class AdminUserActionsEndpoints
         // Force re-login on all devices.
         await userManager.UpdateSecurityStampAsync(user);
 
-        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.UserBan, user.Id, cancellationToken: ct);
+        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.UserBan, correlationContext, user.Id, cancellationToken: ct);
 
         return Results.Ok(new { message = $"User banned until {lockoutEnd:O}" });
     }
@@ -107,6 +108,7 @@ public static class AdminUserActionsEndpoints
         string id,
         UserManager<ApplicationUser> userManager,
         IAuthAuditWriter auditWriter,
+        IAuthCorrelationContext correlationContext,
         CancellationToken ct = default)
     {
         var user = await userManager.FindByIdAsync(id);
@@ -119,7 +121,7 @@ public static class AdminUserActionsEndpoints
 
         await userManager.ResetAccessFailedCountAsync(user);
 
-        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.UserUnban, user.Id, cancellationToken: ct);
+        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.UserUnban, correlationContext, user.Id, cancellationToken: ct);
 
         return Results.Ok(new { message = "User unbanned." });
     }
@@ -128,6 +130,7 @@ public static class AdminUserActionsEndpoints
         string id,
         UserManager<ApplicationUser> userManager,
         IAuthAuditWriter auditWriter,
+        IAuthCorrelationContext correlationContext,
         CancellationToken ct = default)
     {
         var user = await userManager.FindByIdAsync(id);
@@ -140,7 +143,7 @@ public static class AdminUserActionsEndpoints
 
         await userManager.ResetAccessFailedCountAsync(user);
 
-        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.UserUnlock, user.Id, cancellationToken: ct);
+        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.UserUnlock, correlationContext, user.Id, cancellationToken: ct);
 
         return Results.Ok(new { message = "User unlocked." });
     }
@@ -149,6 +152,7 @@ public static class AdminUserActionsEndpoints
         string id,
         UserManager<ApplicationUser> userManager,
         IAuthAuditWriter auditWriter,
+        IAuthCorrelationContext correlationContext,
         CancellationToken ct = default)
     {
         var user = await userManager.FindByIdAsync(id);
@@ -165,7 +169,7 @@ public static class AdminUserActionsEndpoints
         user.EmailConfirmedAt = DateTime.UtcNow;
         await userManager.UpdateAsync(user);
 
-        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.UserVerifyEmail, user.Id, cancellationToken: ct);
+        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.UserVerifyEmail, correlationContext, user.Id, cancellationToken: ct);
 
         return Results.Ok(new { message = "Email verified." });
     }
@@ -175,6 +179,7 @@ public static class AdminUserActionsEndpoints
         UserManager<ApplicationUser> userManager,
         ISessionManager sessionManager,
         IAuthAuditWriter auditWriter,
+        IAuthCorrelationContext correlationContext,
         CancellationToken ct = default)
     {
         var user = await userManager.FindByIdAsync(id);
@@ -189,7 +194,7 @@ public static class AdminUserActionsEndpoints
         // Revoke all tracked sessions in the session store.
         await sessionManager.RevokeAllSessionsAsync(user.Id, exceptSessionId: null, ct);
 
-        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.SessionInvalidate, user.Id, cancellationToken: ct);
+        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.SessionInvalidate, correlationContext, user.Id, cancellationToken: ct);
 
         return Results.Ok(new { message = "All sessions invalidated." });
     }
@@ -198,6 +203,7 @@ public static class AdminUserActionsEndpoints
         string id,
         UserManager<ApplicationUser> userManager,
         IAuthAuditWriter auditWriter,
+        IAuthCorrelationContext correlationContext,
         CancellationToken ct = default)
     {
         var user = await userManager.FindByIdAsync(id);
@@ -211,7 +217,7 @@ public static class AdminUserActionsEndpoints
         if (!result.Succeeded)
             return Results.BadRequest(result.Errors);
 
-        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.UserEnable, user.Id, cancellationToken: ct);
+        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.UserEnable, correlationContext, user.Id, cancellationToken: ct);
 
         return Results.Ok(new { message = "User enabled." });
     }
@@ -220,6 +226,7 @@ public static class AdminUserActionsEndpoints
         string id,
         UserManager<ApplicationUser> userManager,
         IAuthAuditWriter auditWriter,
+        IAuthCorrelationContext correlationContext,
         CancellationToken ct = default)
     {
         var user = await userManager.FindByIdAsync(id);
@@ -236,7 +243,7 @@ public static class AdminUserActionsEndpoints
         if (!result.Succeeded)
             return Results.BadRequest(result.Errors);
 
-        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.UserDisable, user.Id, cancellationToken: ct);
+        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.UserDisable, correlationContext, user.Id, cancellationToken: ct);
 
         return Results.Ok(new { message = "User disabled." });
     }

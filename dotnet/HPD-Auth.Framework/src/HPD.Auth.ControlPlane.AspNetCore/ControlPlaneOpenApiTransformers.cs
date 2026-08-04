@@ -69,6 +69,7 @@ public static class HPDControlPlaneOpenApiServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentException.ThrowIfNullOrWhiteSpace(documentName);
+        services.AddSingleton<ControlPlaneOpenApiRegistration>();
         services.AddOpenApi(documentName, options =>
         {
             options.AddDocumentTransformer<ControlPlaneOpenApiDocumentTransformer>();
@@ -77,3 +78,5 @@ public static class HPDControlPlaneOpenApiServiceCollectionExtensions
         return services;
     }
 }
+
+internal sealed class ControlPlaneOpenApiRegistration;

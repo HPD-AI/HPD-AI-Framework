@@ -63,6 +63,7 @@ public static class AdminUserSessionsEndpoints
         ISessionManager sessionManager,
         UserManager<ApplicationUser> userManager,
         IAuthAuditWriter auditWriter,
+        IAuthCorrelationContext correlationContext,
         string scope = "all",
         Guid? currentSessionId = null,
         CancellationToken ct = default)
@@ -81,7 +82,7 @@ public static class AdminUserSessionsEndpoints
 
         await sessionManager.RevokeAllSessionsAsync(userId, exceptId, ct);
 
-        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.SessionRevokeAll, userId, cancellationToken: ct);
+        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.SessionRevokeAll, correlationContext, userId, cancellationToken: ct);
 
         return Results.Ok(new { message = $"Sessions revoked (scope={scope})." });
     }
@@ -92,6 +93,7 @@ public static class AdminUserSessionsEndpoints
         ISessionManager sessionManager,
         UserManager<ApplicationUser> userManager,
         IAuthAuditWriter auditWriter,
+        IAuthCorrelationContext correlationContext,
         CancellationToken ct = default)
     {
         if (!Guid.TryParse(sessionId, out var sessionGuid))
@@ -103,7 +105,7 @@ public static class AdminUserSessionsEndpoints
 
         await sessionManager.RevokeSessionAsync(sessionGuid, ct);
 
-        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.SessionRevoke, user.Id, sessionGuid, cancellationToken: ct);
+        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.SessionRevoke, correlationContext, user.Id, sessionGuid, cancellationToken: ct);
 
         return Results.Ok(new { message = "Session revoked." });
     }

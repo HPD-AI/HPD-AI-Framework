@@ -13,8 +13,7 @@ namespace HPD.Auth.Infrastructure.Stores;
 public sealed partial class AuthAuditStore(
     HPDAuthDbContext context,
     ITenantContext tenantContext,
-    ILogger<AuthAuditStore> logger,
-    IAuthCorrelationContext? correlationContext = null) : IAuthAuditWriter, IAuthAuditReader
+    ILogger<AuthAuditStore> logger) : IAuthAuditWriter, IAuthAuditReader
 {
     public async ValueTask WriteAsync(
         AuthAuditWrite write,
@@ -44,7 +43,7 @@ public sealed partial class AuthAuditStore(
                 IpAddress = write.IpAddress,
                 UserAgent = write.UserAgent,
                 FailureCode = write.FailureCode,
-                CorrelationId = write.CorrelationId ?? correlationContext?.CorrelationId,
+                CorrelationId = write.CorrelationId,
                 FactsJson = factsJson
             });
             await context.SaveChangesAsync(cancellationToken);

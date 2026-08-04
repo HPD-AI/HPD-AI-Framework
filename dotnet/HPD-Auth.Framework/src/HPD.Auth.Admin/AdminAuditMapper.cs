@@ -26,6 +26,7 @@ internal static class AdminAuditMapper
     public static ValueTask WriteAsync(
         IAuthAuditWriter writer,
         AdminAuditOperation operation,
+        IAuthCorrelationContext correlationContext,
         Guid? subjectUserId = null,
         Guid? subjectSessionId = null,
         AdminAuditFailure? failure = null,
@@ -40,7 +41,9 @@ internal static class AdminAuditMapper
             null,
             null,
             failure is null ? null : Failure(failure.Value),
-            null,
+            correlationContext.CorrelationId is { } correlationId
+                ? new string(correlationId.AsSpan())
+                : null,
             ImmutableArray<AuthAuditFact>.Empty);
         return writer.WriteAsync(write, cancellationToken);
     }

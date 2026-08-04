@@ -21,22 +21,22 @@ public sealed class ControlPlaneRegistry
     public ControlPlaneProfile GetProfile(string name) =>
         _profiles.TryGetValue(name, out var profile)
             ? profile
-            : throw new InvalidOperationException("The control-plane profile is not registered.");
+            : throw new InvalidOperationException("hpd.auth.controlPlane.profile.invalid");
 
     public string GetAuthorizationPolicy(string capability) =>
         _capabilities.TryGetValue(capability, out var policy)
             ? policy
-            : throw new InvalidOperationException("The control-plane capability is not mapped.");
+            : throw new InvalidOperationException("hpd.auth.controlPlane.capability.unmapped");
 
     internal void ValidatePolicies(AuthorizationOptions authorization)
     {
         foreach (var mapping in _capabilities)
         {
             var policy = authorization.GetPolicy(mapping.Value)
-                ?? throw new InvalidOperationException("A mapped control-plane authorization policy is not registered.");
+                ?? throw new InvalidOperationException("hpd.auth.controlPlane.policy.missing");
 
             if (policy.AuthenticationSchemes.Count != 0)
-                throw new InvalidOperationException("A mapped control-plane policy must not select authentication schemes.");
+                throw new InvalidOperationException("hpd.auth.controlPlane.policy.schemeConflict");
         }
     }
 }

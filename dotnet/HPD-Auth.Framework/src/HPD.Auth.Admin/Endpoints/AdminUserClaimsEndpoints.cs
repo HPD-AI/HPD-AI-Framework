@@ -69,6 +69,7 @@ public static class AdminUserClaimsEndpoints
         ClaimDto request,
         UserManager<ApplicationUser> userManager,
         IAuthAuditWriter auditWriter,
+        IAuthCorrelationContext correlationContext,
         CancellationToken ct = default)
     {
         var user = await userManager.FindByIdAsync(id);
@@ -79,7 +80,7 @@ public static class AdminUserClaimsEndpoints
         if (!result.Succeeded)
             return Results.BadRequest(result.Errors);
 
-        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.ClaimAdd, user.Id, cancellationToken: ct);
+        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.ClaimAdd, correlationContext, user.Id, cancellationToken: ct);
 
         return Results.Ok(new { message = "Claim added." });
     }
@@ -89,6 +90,7 @@ public static class AdminUserClaimsEndpoints
         [Microsoft.AspNetCore.Mvc.FromBody] ClaimDto request,
         UserManager<ApplicationUser> userManager,
         IAuthAuditWriter auditWriter,
+        IAuthCorrelationContext correlationContext,
         CancellationToken ct = default)
     {
         var user = await userManager.FindByIdAsync(id);
@@ -99,7 +101,7 @@ public static class AdminUserClaimsEndpoints
         if (!result.Succeeded)
             return Results.BadRequest(result.Errors);
 
-        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.ClaimRemove, user.Id, cancellationToken: ct);
+        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.ClaimRemove, correlationContext, user.Id, cancellationToken: ct);
 
         return Results.Ok(new { message = "Claim removed." });
     }
@@ -109,6 +111,7 @@ public static class AdminUserClaimsEndpoints
         ReplaceClaimDto request,
         UserManager<ApplicationUser> userManager,
         IAuthAuditWriter auditWriter,
+        IAuthCorrelationContext correlationContext,
         CancellationToken ct = default)
     {
         var user = await userManager.FindByIdAsync(id);
@@ -122,7 +125,7 @@ public static class AdminUserClaimsEndpoints
         if (!result.Succeeded)
             return Results.BadRequest(result.Errors);
 
-        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.ClaimReplace, user.Id, cancellationToken: ct);
+        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.ClaimReplace, correlationContext, user.Id, cancellationToken: ct);
 
         return Results.Ok(new { message = "Claim replaced." });
     }

@@ -12,12 +12,13 @@ namespace HPD.Auth.Audit.Services;
 public sealed partial class AuditingAuthObserver(
     IAuthAuditWriter writer,
     IServiceScopeFactory scopeFactory,
-    ILogger<AuditingAuthObserver> logger)
+    ILogger<AuditingAuthObserver> logger,
+    IAuthCorrelationContext? correlationContext = null)
 {
     public async ValueTask HandleAsync(AuthEvent evt, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(evt);
-        var write = Map(evt);
+        var write = Map(evt, correlationContext?.CorrelationId);
         if (write is null)
         {
             InvalidEvent(logger);
@@ -90,7 +91,7 @@ public sealed partial class AuditingAuthObserver(
         }
     }
 
-    private static AuthAuditWrite? Map(AuthEvent evt)
+    private static AuthAuditWrite? Map(AuthEvent evt, string? correlationId)
     {
         var ip = CanonicalIp(evt.AuthContext?.IpAddress);
         var agent = BoundedUserAgent(evt.AuthContext?.UserAgent);
@@ -98,26 +99,26 @@ public sealed partial class AuditingAuthObserver(
         {
             UserRegisteredEvent e when e.UserId != Guid.Empty => Write(
                 "user.register", true, e.UserId, null, null, ip, agent,
-                Fact("registration-method", RegistrationMethod(e.RegistrationMethod))),
+                correlationId, Fact("registration-method", RegistrationMethod(e.RegistrationMethod))),
             UserLoggedInEvent e when e.UserId != Guid.Empty => Write(
                 "user.login", true, e.UserId, null, null, ip, agent,
-                Fact("authentication-method", AuthenticationMethod(e.AuthMethod))),
+                correlationId, Fact("authentication-method", AuthenticationMethod(e.AuthMethod))),
             UserLoggedOutEvent e when e.UserId != Guid.Empty && e.SessionId != Guid.Empty => Write(
-                "user.logout", true, e.UserId, e.SessionId, null, ip, agent),
+                "user.logout", true, e.UserId, e.SessionId, null, ip, agent, correlationId),
             LoginFailedEvent e => Write(
-                "user.login.failed", false, null, null, Failure(e.Reason), ip, agent),
+                "user.login.failed", false, null, null, Failure(e.Reason), ip, agent, correlationId),
             PasswordChangedEvent e when e.UserId != Guid.Empty => Write(
-                "password.change", true, e.UserId, null, null, ip, agent),
+                "password.change", true, e.UserId, null, null, ip, agent, correlationId),
             PasswordResetRequestedEvent e when e.UserId != Guid.Empty => Write(
-                "password.reset.request", true, e.UserId, null, null, ip, agent),
+                "password.reset.request", true, e.UserId, null, null, ip, agent, correlationId),
             EmailConfirmedEvent e when e.UserId != Guid.Empty => Write(
-                "email.confirm", true, e.UserId, null, null, ip, agent),
+                "email.confirm", true, e.UserId, null, null, ip, agent, correlationId),
             TwoFactorEnabledEvent e when e.UserId != Guid.Empty => Write(
                 "2fa.enable", true, e.UserId, null, null, ip, agent,
-                Fact("authentication-method", AuthenticationMethod(e.Method))),
+                correlationId, Fact("authentication-method", AuthenticationMethod(e.Method))),
             SessionRevokedEvent e when e.UserId != Guid.Empty && e.SessionId != Guid.Empty => Write(
                 "session.revoke", true, e.UserId, e.SessionId, null, ip, agent,
-                Fact("revoked-by", RevokedBy(e.RevokedBy))),
+                correlationId, Fact("revoked-by", RevokedBy(e.RevokedBy))),
             _ => null
         };
     }
@@ -130,6 +131,7 @@ public sealed partial class AuditingAuthObserver(
         string? failure,
         string? ip,
         string? agent,
+        string? correlationId,
         params AuthAuditFact[] facts) => new(
             action,
             "authentication",
@@ -139,7 +141,7 @@ public sealed partial class AuditingAuthObserver(
             ip,
             agent,
             failure,
-            null,
+            correlationId is null ? null : new string(correlationId.AsSpan()),
             facts.OrderBy(static fact => fact.Key, StringComparer.Ordinal).ToImmutableArray());
 
     private static AuthAuditFact Fact(string key, string value) => new(key, value);

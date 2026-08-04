@@ -50,6 +50,7 @@ public static class AdminUserPasswordEndpoints
         AdminResetPasswordRequest request,
         UserManager<ApplicationUser> userManager,
         IAuthAuditWriter auditWriter,
+        IAuthCorrelationContext correlationContext,
         CancellationToken ct = default)
     {
         var user = await userManager.FindByIdAsync(id);
@@ -76,7 +77,7 @@ public static class AdminUserPasswordEndpoints
         // Rotate security stamp to force re-login with the new password.
         await userManager.UpdateSecurityStampAsync(user);
 
-        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.PasswordReset, user.Id, cancellationToken: ct);
+        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.PasswordReset, correlationContext, user.Id, cancellationToken: ct);
 
         return Results.Ok(new { message = "Password reset successful." });
     }
@@ -85,6 +86,7 @@ public static class AdminUserPasswordEndpoints
         string id,
         UserManager<ApplicationUser> userManager,
         IAuthAuditWriter auditWriter,
+        IAuthCorrelationContext correlationContext,
         CancellationToken ct = default)
     {
         var user = await userManager.FindByIdAsync(id);
@@ -95,7 +97,7 @@ public static class AdminUserPasswordEndpoints
         if (!result.Succeeded)
             return Results.BadRequest(result.Errors);
 
-        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.PasswordRemove, user.Id, cancellationToken: ct);
+        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.PasswordRemove, correlationContext, user.Id, cancellationToken: ct);
 
         return Results.Ok(new { message = "Password removed." });
     }
@@ -105,6 +107,7 @@ public static class AdminUserPasswordEndpoints
         AddPasswordRequest request,
         UserManager<ApplicationUser> userManager,
         IAuthAuditWriter auditWriter,
+        IAuthCorrelationContext correlationContext,
         CancellationToken ct = default)
     {
         var user = await userManager.FindByIdAsync(id);
@@ -115,7 +118,7 @@ public static class AdminUserPasswordEndpoints
         if (!result.Succeeded)
             return Results.BadRequest(result.Errors);
 
-        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.PasswordAdd, user.Id, cancellationToken: ct);
+        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.PasswordAdd, correlationContext, user.Id, cancellationToken: ct);
 
         return Results.Ok(new { message = "Password added." });
     }

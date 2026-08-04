@@ -38,6 +38,7 @@ public static class AdminAuditEndpoints
     private static async Task<IResult> QueryAuditLogsAsync(
         IAuthAuditReader auditReader,
         IAuthAuditWriter auditWriter,
+        IAuthCorrelationContext correlationContext,
         Guid? userId = null,
         string? action = null,
         string? category = null,
@@ -64,7 +65,7 @@ public static class AdminAuditEndpoints
         };
 
         var logs = await auditReader.ReadAsync(query, ct);
-        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.AuditList, cancellationToken: ct);
+        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.AuditList, correlationContext, cancellationToken: ct);
 
         return Results.Ok(new
         {
@@ -79,6 +80,7 @@ public static class AdminAuditEndpoints
         string id,
         IAuthAuditReader auditReader,
         IAuthAuditWriter auditWriter,
+        IAuthCorrelationContext correlationContext,
         string? action = null,
         string? category = null,
         string? correlationId = null,
@@ -107,7 +109,7 @@ public static class AdminAuditEndpoints
         };
 
         var logs = await auditReader.ReadAsync(query, ct);
-        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.AuditUserList, userId, cancellationToken: ct);
+        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.AuditUserList, correlationContext, userId, cancellationToken: ct);
 
         return Results.Ok(new
         {

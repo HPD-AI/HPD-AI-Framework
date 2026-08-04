@@ -75,6 +75,7 @@ public static class AdminUser2faEndpoints
         string id,
         UserManager<ApplicationUser> userManager,
         IAuthAuditWriter auditWriter,
+        IAuthCorrelationContext correlationContext,
         CancellationToken ct = default)
     {
         var user = await userManager.FindByIdAsync(id);
@@ -85,7 +86,7 @@ public static class AdminUser2faEndpoints
         if (!result.Succeeded)
             return Results.BadRequest(result.Errors);
 
-        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.TwoFactorDisable, user.Id, cancellationToken: ct);
+        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.TwoFactorDisable, correlationContext, user.Id, cancellationToken: ct);
 
         return Results.Ok(new { message = "Two-factor authentication disabled." });
     }
@@ -94,6 +95,7 @@ public static class AdminUser2faEndpoints
         string id,
         UserManager<ApplicationUser> userManager,
         IAuthAuditWriter auditWriter,
+        IAuthCorrelationContext correlationContext,
         CancellationToken ct = default)
     {
         var user = await userManager.FindByIdAsync(id);
@@ -104,7 +106,7 @@ public static class AdminUser2faEndpoints
         if (!result.Succeeded)
             return Results.BadRequest(result.Errors);
 
-        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.TwoFactorResetAuthenticator, user.Id, cancellationToken: ct);
+        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.TwoFactorResetAuthenticator, correlationContext, user.Id, cancellationToken: ct);
 
         return Results.Ok(new { message = "Authenticator key reset. User must re-enroll their authenticator app." });
     }
@@ -114,6 +116,7 @@ public static class AdminUser2faEndpoints
         GenerateRecoveryCodesRequest? request,
         UserManager<ApplicationUser> userManager,
         IAuthAuditWriter auditWriter,
+        IAuthCorrelationContext correlationContext,
         CancellationToken ct = default)
     {
         var user = await userManager.FindByIdAsync(id);
@@ -125,7 +128,7 @@ public static class AdminUser2faEndpoints
 
         var codes = await userManager.GenerateNewTwoFactorRecoveryCodesAsync(user, count);
 
-        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.TwoFactorGenerateRecoveryCodes, user.Id, cancellationToken: ct);
+        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.TwoFactorGenerateRecoveryCodes, correlationContext, user.Id, cancellationToken: ct);
 
         // Recovery codes are shown only once — the caller must distribute them securely.
         return Results.Ok(new { codes, message = "Recovery codes generated. These are shown only once." });

@@ -61,6 +61,7 @@ public static class AdminUserRolesEndpoints
         RoleRequest request,
         UserManager<ApplicationUser> userManager,
         IAuthAuditWriter auditWriter,
+        IAuthCorrelationContext correlationContext,
         CancellationToken ct = default)
     {
         var user = await userManager.FindByIdAsync(id);
@@ -79,7 +80,7 @@ public static class AdminUserRolesEndpoints
         if (!result.Succeeded)
             return Results.BadRequest(result.Errors);
 
-        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.RoleAdd, user.Id, cancellationToken: ct);
+        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.RoleAdd, correlationContext, user.Id, cancellationToken: ct);
 
         return Results.Ok(new { message = $"Role '{request.Role}' assigned." });
     }
@@ -89,6 +90,7 @@ public static class AdminUserRolesEndpoints
         string role,
         UserManager<ApplicationUser> userManager,
         IAuthAuditWriter auditWriter,
+        IAuthCorrelationContext correlationContext,
         CancellationToken ct = default)
     {
         var user = await userManager.FindByIdAsync(id);
@@ -99,7 +101,7 @@ public static class AdminUserRolesEndpoints
         if (!result.Succeeded)
             return Results.BadRequest(result.Errors);
 
-        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.RoleRemove, user.Id, cancellationToken: ct);
+        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.RoleRemove, correlationContext, user.Id, cancellationToken: ct);
 
         return Results.Ok(new { message = $"Role '{role}' removed." });
     }

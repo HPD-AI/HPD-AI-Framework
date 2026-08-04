@@ -43,4 +43,31 @@ public sealed class ClosedEventMappingTests
         captured!.Action.Should().Be(action);
         captured.ToString().Should().NotContain("secret@example.test").And.NotContain("hunter2");
     }
+
+    [Fact]
+    public async Task Custom_writer_receives_exact_copied_correlation()
+    {
+        const string correlation = "request-01HZX8Y7";
+        AuthAuditWrite? captured = null;
+        var writer = new Mock<IAuthAuditWriter>();
+        writer.Setup(value => value.WriteAsync(It.IsAny<AuthAuditWrite>(), It.IsAny<CancellationToken>()))
+            .Callback<AuthAuditWrite, CancellationToken>((write, _) => captured = write)
+            .Returns(ValueTask.CompletedTask);
+        using var services = new ServiceCollection().BuildServiceProvider();
+        var observer = new AuditingAuthObserver(
+            writer.Object,
+            services.GetRequiredService<IServiceScopeFactory>(),
+            NullLogger<AuditingAuthObserver>.Instance,
+            new FixedCorrelationContext(correlation));
+
+        await observer.HandleAsync(new PasswordChangedEvent { UserId = Guid.NewGuid() });
+
+        captured!.CorrelationId.Should().Be(correlation);
+        captured.CorrelationId.Should().NotBeSameAs(correlation);
+    }
+
+    private sealed class FixedCorrelationContext(string correlationId) : IAuthCorrelationContext
+    {
+        public string? CorrelationId { get; } = correlationId;
+    }
 }

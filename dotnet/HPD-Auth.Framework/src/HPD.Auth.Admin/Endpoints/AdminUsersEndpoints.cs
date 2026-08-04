@@ -70,6 +70,7 @@ public static class AdminUsersEndpoints
     private static async Task<IResult> ListUsersAsync(
         UserManager<ApplicationUser> userManager,
         IAuthAuditWriter auditWriter,
+        IAuthCorrelationContext correlationContext,
         string? search = null,
         string? email = null,
         bool? emailVerified = null,
@@ -111,13 +112,14 @@ public static class AdminUsersEndpoints
         }
 
         var totalPages = (int)Math.Ceiling(total / (double)per_page);
-        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.UserList, cancellationToken: ct);
+        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.UserList, correlationContext, cancellationToken: ct);
         return Results.Ok(new AdminUserListResponse(responses, total, page, per_page, totalPages));
     }
 
     private static async Task<IResult> CountUsersAsync(
         UserManager<ApplicationUser> userManager,
         IAuthAuditWriter auditWriter,
+        IAuthCorrelationContext correlationContext,
         string? search = null,
         string? email = null,
         bool? emailVerified = null,
@@ -135,7 +137,7 @@ public static class AdminUsersEndpoints
         }
 
         var count = await query.CountAsync(ct);
-        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.UserCount, cancellationToken: ct);
+        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.UserCount, correlationContext, cancellationToken: ct);
         return Results.Ok(count);
     }
 
@@ -143,6 +145,7 @@ public static class AdminUsersEndpoints
         string id,
         UserManager<ApplicationUser> userManager,
         IAuthAuditWriter auditWriter,
+        IAuthCorrelationContext correlationContext,
         CancellationToken ct = default)
     {
         if (!Guid.TryParse(id, out _))
@@ -153,7 +156,7 @@ public static class AdminUsersEndpoints
             return Results.NotFound();
 
         var roles = await userManager.GetRolesAsync(user);
-        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.UserView, user.Id, cancellationToken: ct);
+        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.UserView, correlationContext, user.Id, cancellationToken: ct);
         return Results.Ok(ToResponse(user, roles));
     }
 
@@ -161,6 +164,7 @@ public static class AdminUsersEndpoints
         AdminCreateUserRequest request,
         UserManager<ApplicationUser> userManager,
         IAuthAuditWriter auditWriter,
+        IAuthCorrelationContext correlationContext,
         CancellationToken ct = default)
     {
         var user = new ApplicationUser
@@ -204,7 +208,7 @@ public static class AdminUsersEndpoints
                 return Results.BadRequest(roleResult.Errors);
         }
 
-        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.UserCreate, user.Id, cancellationToken: ct);
+        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.UserCreate, correlationContext, user.Id, cancellationToken: ct);
 
         var roles = await userManager.GetRolesAsync(user);
         return Results.Created($"/api/admin/users/{user.Id}", ToResponse(user, roles));
@@ -215,6 +219,7 @@ public static class AdminUsersEndpoints
         AdminUpdateUserRequest request,
         UserManager<ApplicationUser> userManager,
         IAuthAuditWriter auditWriter,
+        IAuthCorrelationContext correlationContext,
         CancellationToken ct = default)
     {
         var user = await userManager.FindByIdAsync(id);
@@ -256,7 +261,7 @@ public static class AdminUsersEndpoints
         if (!result.Succeeded)
             return Results.BadRequest(result.Errors);
 
-        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.UserUpdate, user.Id, cancellationToken: ct);
+        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.UserUpdate, correlationContext, user.Id, cancellationToken: ct);
 
         var roles = await userManager.GetRolesAsync(user);
         return Results.Ok(ToResponse(user, roles));
@@ -266,6 +271,7 @@ public static class AdminUsersEndpoints
         string id,
         UserManager<ApplicationUser> userManager,
         IAuthAuditWriter auditWriter,
+        IAuthCorrelationContext correlationContext,
         bool softDelete = false,
         CancellationToken ct = default)
     {
@@ -290,7 +296,7 @@ public static class AdminUsersEndpoints
                 return Results.BadRequest(deleteResult.Errors);
         }
 
-        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.UserDelete, user.Id, cancellationToken: ct);
+        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.UserDelete, correlationContext, user.Id, cancellationToken: ct);
 
         return Results.NoContent();
     }

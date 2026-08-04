@@ -50,6 +50,7 @@ public static class AdminLinksEndpoints
         AdminGenerateLinkRequest request,
         UserManager<ApplicationUser> userManager,
         IAuthAuditWriter auditWriter,
+        IAuthCorrelationContext correlationContext,
         CancellationToken ct = default)
     {
         if (!SupportedTypes.Contains(request.Type))
@@ -107,7 +108,7 @@ public static class AdminLinksEndpoints
 
         string hashedToken = HashToken(token);
 
-        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.LinkGenerate, user.Id, cancellationToken: ct);
+        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.LinkGenerate, correlationContext, user.Id, cancellationToken: ct);
 
         return Results.Ok(new AdminGenerateLinkResponse(
             ActionLink: actionLink,

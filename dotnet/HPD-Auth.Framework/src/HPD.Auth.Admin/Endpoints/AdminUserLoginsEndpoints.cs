@@ -62,6 +62,7 @@ public static class AdminUserLoginsEndpoints
         string provider,
         UserManager<ApplicationUser> userManager,
         IAuthAuditWriter auditWriter,
+        IAuthCorrelationContext correlationContext,
         string? providerKey = null,
         CancellationToken ct = default)
     {
@@ -76,7 +77,7 @@ public static class AdminUserLoginsEndpoints
         if (!result.Succeeded)
             return Results.BadRequest(result.Errors);
 
-        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.LoginRemove, user.Id, cancellationToken: ct);
+        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.LoginRemove, correlationContext, user.Id, cancellationToken: ct);
 
         return Results.Ok(new { message = $"External login '{provider}' removed." });
     }
