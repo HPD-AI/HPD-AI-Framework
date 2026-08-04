@@ -4576,13 +4576,18 @@ public final class LocalVirtualizationAdapter: VirtualizationAdapter, @unchecked
             "ProviderGeneration": providerGeneration,
             "StorageRequest": payload
         ]
+        let action = VmConfigurationValidationRequest.uint64(
+            payload["Action"])
+        let responseTimeoutMilliseconds = action == 10
+            ? 300_000
+            : 10_000
         guard writeJsonLine(
                 request,
                 fd: descriptor,
                 timeoutMilliseconds: 10_000),
               let frame = readJsonLine(
                 fd: descriptor,
-                timeoutMilliseconds: 10_000),
+                timeoutMilliseconds: responseTimeoutMilliseconds),
               let response = parseJsonObject(frame) else {
             return engineStatusError(
                 code: "AppleVirtualization.StorageGuestAgentMalformedResponse",

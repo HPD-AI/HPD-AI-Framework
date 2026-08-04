@@ -71,7 +71,7 @@ public class ErrorHandlingConvenienceMethodTest
                     cb.MaxConsecutiveCalls = 2;
                     cb.TerminationMessageTemplate = "Custom loop message";
                 },
-                configureFunctionRetry: retry =>
+                configureRetry: retry =>
                 {
                     retry.MaxRetries = 10;
                     retry.RetryDelay = TimeSpan.FromSeconds(5);
@@ -83,7 +83,7 @@ public class ErrorHandlingConvenienceMethodTest
     }
 
     [Fact]
-    public void WithFunctionRetry_Standalone_RegistersRetryMiddleware()
+    public void WithRetry_Standalone_RegistersRetryMiddleware()
     {
         // Arrange
         var config = new AgentConfig
@@ -97,7 +97,7 @@ public class ErrorHandlingConvenienceMethodTest
 
         // Act
         var builder = new AgentBuilder(config)
-            .WithFunctionRetry();
+            .WithRetry();
 
         // Assert
         Assert.Single(builder.Middlewares);

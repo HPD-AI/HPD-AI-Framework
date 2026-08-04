@@ -42,7 +42,7 @@ public class RetryMiddleware : IAgentMiddleware
     private readonly IProviderErrorHandler _providerHandler;
 
     /// <summary>
-    /// Creates a new function RetryMiddleware  with the specified configuration and error handler.
+    /// Creates retry middleware for model and function calls with the specified configuration and error handler.
     /// </summary>
     /// <param name="config">Error handling configuration</param>
     /// <param name="providerErrorHandler">Provider-specific error handler for intelligent retry logic</param>

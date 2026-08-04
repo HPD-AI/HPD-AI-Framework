@@ -4,7 +4,7 @@ using HPD.Agent.TUI.Models;
 
 namespace HPD.Agent.ToolHarness.Coding.TUI.SubAgents;
 
-internal sealed class CodingSubAgentTuiHandler : IAgentTuiEventHandler
+internal sealed class CodingSubAgentTuiHandler : IAgentTuiEventHandler, IAgentTuiToolCallHandler
 {
     private const string StoreKey = "hpd.coding.subagent.store";
     private const int PromptLimit = 160;
@@ -21,6 +21,9 @@ internal sealed class CodingSubAgentTuiHandler : IAgentTuiEventHandler
             SubAgentInvocationFailedEvent or SubAgentInvocationCancelledEvent => true,
         _ => false
     };
+
+    public bool CanHandleToolCall(string? toolHarnessName, string toolName, ToolCallType? callType)
+        => IsSubAgent(toolName);
 
     public ValueTask HandleAsync(AgentEvent evt, AgentTuiEventContext context, CancellationToken cancellationToken)
     {

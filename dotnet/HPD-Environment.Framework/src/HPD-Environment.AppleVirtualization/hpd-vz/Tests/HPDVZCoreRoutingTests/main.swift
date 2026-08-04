@@ -1,6 +1,28 @@
 import Foundation
 @_spi(Testing) import HPDVZCore
 
+var maximumRestoreFrame = Data(repeating: 0x61, count: 96 * 1024)
+maximumRestoreFrame.append(0x0A)
+maximumRestoreFrame.append(contentsOf: [0x7B, 0x7D, 0x0A])
+let lineFixture = FileManager.default.temporaryDirectory
+    .appendingPathComponent("hpd-vz-lines-\(UUID().uuidString)")
+try maximumRestoreFrame.write(to: lineFixture, options: .atomic)
+defer { try? FileManager.default.removeItem(at: lineFixture) }
+let lineReader = BoundedLineReader(
+    input: try FileHandle(forReadingFrom: lineFixture))
+let restoreSizedLine = try lineReader.readLineData()
+let followingLine = try lineReader.readLineData()
+let lineEOF = try lineReader.readLineData()
+precondition(
+    restoreSizedLine?.count == 96 * 1024,
+    "The helper must accept a bounded restore-sized protocol frame.")
+precondition(
+    followingLine == Data([0x7B, 0x7D]),
+    "Buffered protocol reads must preserve the following frame.")
+precondition(
+    lineEOF == nil,
+    "Buffered protocol reads must report EOF after all frames.")
+
 final class RecordingIdleSleepActivities: HostIdleSleepActivityManaging {
     var began: [String] = []
     var ended: [String] = []

@@ -223,6 +223,24 @@ public sealed class HpdAgentTuiRegistry
         }
     }
 
+    /// <summary>
+    /// Returns whether a visible specialized handler owns transcript projection for a specific tool call.
+    /// </summary>
+    public bool HasToolCallHandler(
+        string? toolHarnessName,
+        string toolName,
+        ToolCallType? callType,
+        AgentEvent evt,
+        Runtime.AgentTuiRuntimeScope selectedScope)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(toolName);
+
+        return _eventHandlers.Any(candidate =>
+            candidate.Scope.Includes(evt, selectedScope) &&
+            candidate.Value is IAgentTuiToolCallHandler handler &&
+            handler.CanHandleToolCall(toolHarnessName, toolName, callType));
+    }
+
     public bool TryFindInteractionHandler(
         AgentEvent request,
         Runtime.AgentTuiRuntimeScope selectedScope,

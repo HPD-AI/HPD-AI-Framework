@@ -152,10 +152,12 @@ public class AgentPlanAgentMiddleware : IAgentMiddleware
             return;
         }
 
+        AgentPlanData? committedPlan = null;
         context.UpdateState(s =>
         {
             var current = s.MiddlewareState.PlanModePersistent() ?? new PlanModePersistentStateData();
             var updated = apply(current);
+            committedPlan = updated.GetPlan(evt.ConversationId);
 
             return s with
             {
@@ -163,7 +165,14 @@ public class AgentPlanAgentMiddleware : IAgentMiddleware
             };
         });
 
-        await context.PublishAsync(evt);
+        if (committedPlan is not null)
+        {
+            await context.PublishAsync(evt with
+            {
+                PlanId = committedPlan.Id,
+                Plan = committedPlan
+            });
+        }
 
     }
 
@@ -175,6 +184,7 @@ public class AgentPlanAgentMiddleware : IAgentMiddleware
     {
         return @"[PLAN MODE ENABLED]
 You have access to plan management tools for complex multi-step tasks.
+Plan Mode is a persistent tracking capability. Continue executing work normally while keeping the plan current.
 
 Available functions:
 - create_plan(goal, steps[]): Create a new plan with a goal and initial steps

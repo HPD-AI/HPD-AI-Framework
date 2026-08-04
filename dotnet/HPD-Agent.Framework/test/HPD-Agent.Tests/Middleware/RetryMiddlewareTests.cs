@@ -11,10 +11,10 @@ using Xunit;
 namespace HPD.Agent.Tests.Middleware;
 
 /// <summary>
-/// Comprehensive tests for FunctionRetryMiddleware.
+/// Comprehensive tests for RetryMiddleware.
 /// Tests provider-aware retry logic, exponential backoff, and error categorization.
 /// </summary>
-public class FunctionRetryMiddlewareTests
+public class RetryMiddlewareTests
 {
     #region Basic Retry Behavior
 

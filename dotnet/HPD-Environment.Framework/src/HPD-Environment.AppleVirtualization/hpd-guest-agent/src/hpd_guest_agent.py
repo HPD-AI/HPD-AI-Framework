@@ -750,7 +750,7 @@ class GuestAgent:
             maximum_chunk = self.int_value(
                 storage_request.get("MaximumChunkBytes"), 0)
             if (offset < 0 or maximum_chunk <= 0 or
-                    maximum_chunk > 49152 or
+                    maximum_chunk > 43008 or
                     offset >= state["EncodedPayloadBytes"]):
                 raise OSError("backup chunk offset or size is invalid")
             with open(payload_path, "rb") as stream:
@@ -842,7 +842,7 @@ class GuestAgent:
                     validate=True)
             except (ValueError, TypeError) as error:
                 raise OSError("restore chunk is not canonical Base64") from error
-            if (not chunk or len(chunk) > 49152 or
+            if (not chunk or len(chunk) > 43008 or
                     base64.b64encode(chunk).decode("ascii") != chunk_text):
                 raise OSError("restore chunk violates its byte bound")
             with open(payload_path, "r+b", buffering=0) as stream:
@@ -991,6 +991,13 @@ class GuestAgent:
                 raise OSError("restore staging identity already exists")
             os.mkdir(staging, mode=0o700)
             try:
+                if quota_mode == "ext4-project":
+                    self.storage_filesystem_identity(
+                        os.path.dirname(volumes_root),
+                        quota_mode)
+                    self.assign_project_identity(
+                        staging,
+                        self.volume_project_id(logical_id))
                 evidence = self.restore_storage_payload(
                     payload_path,
                     staging,
@@ -1029,6 +1036,13 @@ class GuestAgent:
             self.save_storage_operation(state_path, state)
             checkpoint = "selected"
         if checkpoint == "selected":
+            if quota_mode == "ext4-project":
+                self.storage_filesystem_identity(
+                    os.path.dirname(volumes_root),
+                    quota_mode)
+                self.verify_project_identity(
+                    volume_path,
+                    self.volume_project_id(logical_id))
             evidence = self.measure_canonical_storage_tree(
                 volume_path, maximum_bytes)
             if (evidence["ContentSha256"] !=
@@ -1603,10 +1617,7 @@ class GuestAgent:
                     "durable-volume quota metadata conflicts with the accepted specification")
         if quota_mode == "ext4-project":
             self.storage_filesystem_identity(root, quota_mode)
-            self.run_quota_command(
-                ["setproject", "-P", str(project_id), path])
-            self.run_quota_command(
-                ["chattr", "+P", "-p", str(project_id), path])
+            self.assign_project_identity(path, project_id)
             hard_blocks = (maximum_bytes + 1023) // 1024
             self.run_quota_command(
                 [
@@ -1619,7 +1630,6 @@ class GuestAgent:
                     "0",
                     root,
                 ])
-            self.verify_project_identity(path, project_id)
         state[logical_id] = {
             "ProjectId": project_id,
             "MaximumBytes": maximum_bytes,
@@ -1627,6 +1637,13 @@ class GuestAgent:
         }
         self.save_volume_quota_state(volumes_root, state)
         return project_id
+
+    def assign_project_identity(self, path, project_id):
+        self.run_quota_command(
+            ["setproject", "-P", str(project_id), path])
+        self.run_quota_command(
+            ["chattr", "+P", "-p", str(project_id), path])
+        self.verify_project_identity(path, project_id)
 
     def verify_volume_quota(
             self,

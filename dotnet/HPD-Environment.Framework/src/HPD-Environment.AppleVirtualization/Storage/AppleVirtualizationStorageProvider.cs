@@ -12,7 +12,10 @@ internal sealed class AppleVirtualizationStorageProvider :
     IVolumeBackupProvider,
     IVolumeRestoreProvider
 {
-    private const int MaximumRawChunkBytes = 48 * 1024;
+    // Virtio sockets provide a byte stream, not message framing. Storage JSON
+    // frames are bounded to 64 KiB by the helper, so reserve 8 KiB for the
+    // envelope around the Base64 payload.
+    private const int MaximumRawChunkBytes = 42 * 1024;
     private readonly AppleVirtualizationProviderStateLedger _hosts;
     private readonly IAppleVirtualizationHelperClient _helper;
     private readonly ProviderResourceLedger _resources;

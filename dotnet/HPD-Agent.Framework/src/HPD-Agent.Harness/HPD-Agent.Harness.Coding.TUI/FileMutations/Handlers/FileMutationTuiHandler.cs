@@ -3,8 +3,11 @@ using HPDOS.ToolHarnesses.Middleware;
 
 namespace HPD.Agent.ToolHarness.Coding.TUI.FileMutations.Handlers;
 
-internal sealed class FileMutationTuiHandler : AgentTuiEventHandler<FileMutationAppliedEvent>
+internal sealed class FileMutationTuiHandler : AgentTuiEventHandler<FileMutationAppliedEvent>, IAgentTuiToolCallHandler
 {
+    public bool CanHandleToolCall(string? toolHarnessName, string toolName, ToolCallType? callType)
+        => toolName is "EditFile" or "WriteFile";
+
     public override ValueTask HandleAsync(
         FileMutationAppliedEvent evt,
         AgentTuiEventContext context,

@@ -2056,10 +2056,10 @@ public class AgentBuilder
         // AUTO-REGISTER FUNCTION-LEVEL MIDDLEWARE
         //
         // These are registered in execution order (first = outermost):
-        // - FunctionRetryMiddleware wraps timeout (retry the entire timeout operation)
+        // - RetryMiddleware wraps timeout (retry the entire timeout operation)
         // - FunctionTimeoutMiddleware wraps execution (timeout individual attempts)
 
-        // Register FunctionRetryMiddleware if retry is enabled
+        // Register RetryMiddleware if retry is enabled
         if (_config.ErrorHandling?.MaxRetries > 0)
         {
             _middlewares.Add(new Middleware.Function.RetryMiddleware(_config.ErrorHandling, buildData.ErrorHandler));
@@ -3243,7 +3243,7 @@ public static class AgentBuilderMiddlewareExtensions
     //
 
     /// <summary>
-    /// Adds function RetryMiddleware  with provider-aware retry logic.
+    /// Adds provider-aware retry middleware for model and function calls.
     /// Uses settings from AgentConfig.ErrorHandling for retry behavior.
     /// </summary>
     /// <param name="builder">The agent builder</param>
@@ -3261,7 +3261,7 @@ public static class AgentBuilderMiddlewareExtensions
     /// <b>Recommended Middleware Order:</b>
     /// </para>
     /// <code>
-    /// .WithFunctionRetry()    // Outermost - retry the entire timeout operation
+    /// .WithRetry()    // Outermost - retry the entire timeout operation
     /// .WithFunctionTimeout()  // Middle - timeout individual attempts
     /// .WithPermissions()      // Innermost - check permissions before execution
     /// </code>
@@ -3288,11 +3288,11 @@ public static class AgentBuilderMiddlewareExtensions
     /// };
     ///
     /// var agent = new AgentBuilder(config)
-    ///     .WithFunctionRetry()  // Uses config.ErrorHandling settings
+    ///     .WithRetry()  // Uses config.ErrorHandling settings
     ///     .Build();
     /// </code>
     /// </example>
-    public static AgentBuilder WithFunctionRetry(this AgentBuilder builder)
+    public static AgentBuilder WithRetry(this AgentBuilder builder)
     {
         var config = builder.Config.ErrorHandling ?? new ErrorHandlingConfig();
         // Note: When manually adding via extension method, no provider-specific error handler is available.
@@ -3304,7 +3304,7 @@ public static class AgentBuilderMiddlewareExtensions
     }
 
     /// <summary>
-    /// Adds function RetryMiddleware  with custom error handling configuration.
+    /// Adds provider-aware retry middleware for model and function calls with custom configuration.
     /// </summary>
     /// <param name="builder">The agent builder</param>
     /// <param name="configure">Action to configure error handling settings</param>
@@ -3312,7 +3312,7 @@ public static class AgentBuilderMiddlewareExtensions
     /// <example>
     /// <code>
     /// var agent = new AgentBuilder()
-    ///     .WithFunctionRetry(config =>
+    ///     .WithRetry(config =>
     ///     {
     ///         config.MaxRetries = 5;
     ///         config.RetryDelay = TimeSpan.FromSeconds(2);
@@ -3325,7 +3325,7 @@ public static class AgentBuilderMiddlewareExtensions
     ///     .Build();
     /// </code>
     /// </example>
-    public static AgentBuilder WithFunctionRetry(this AgentBuilder builder, Action<ErrorHandlingConfig> configure)
+    public static AgentBuilder WithRetry(this AgentBuilder builder, Action<ErrorHandlingConfig> configure)
     {
         var config = new ErrorHandlingConfig();
         configure(config);
@@ -3354,7 +3354,7 @@ public static class AgentBuilderMiddlewareExtensions
     /// <b>Recommended Middleware Order:</b>
     /// </para>
     /// <code>
-    /// .WithFunctionRetry()    // Outermost - retry the entire timeout operation
+    /// .WithRetry()    // Outermost - retry the entire timeout operation
     /// .WithFunctionTimeout()  // Middle - timeout individual attempts
     /// .WithPermissions()      // Innermost - check permissions before execution
     /// </code>
@@ -3431,7 +3431,7 @@ public static class AgentBuilderMiddlewareExtensions
     /// <b>Recommended Middleware Order:</b>
     /// </para>
     /// <code>
-    /// .WithFunctionRetry()      // Outermost - retry the entire operation
+    /// .WithRetry()      // Outermost - retry the entire operation
     /// .WithFunctionTimeout()    // Middle - timeout individual attempts
     /// .WithErrorFormatting()    // Innermost - format errors after all retries exhausted
     /// </code>
@@ -3520,7 +3520,7 @@ public static class AgentBuilderMiddlewareExtensions
     /// </list>
     /// <para><b>Function-level middleware (onion pattern):</b></para>
     /// <list type="number">
-    /// <item><b>FunctionRetryMiddleware</b> - Outermost, retries entire operation</item>
+    /// <item><b>RetryMiddleware</b> - Outermost, retries entire operation</item>
     /// <item><b>FunctionTimeoutMiddleware</b> - Middle, applies timeout to each retry attempt</item>
     /// <item><b>ErrorFormattingMiddleware</b> - Innermost, sanitizes errors for LLM (security boundary)</item>
     /// </list>
@@ -3562,7 +3562,7 @@ public static class AgentBuilderMiddlewareExtensions
 
         // Function-level middleware (onion pattern: retry → timeout → formatting)
         // These use AgentConfig.ErrorHandling for retry/timeout/formatting settings
-        builder.WithFunctionRetry();
+        builder.WithRetry();
         builder.WithFunctionTimeout();
         builder.WithErrorFormatting();  // Innermost - sanitizes errors for LLM
 
@@ -3577,7 +3577,7 @@ public static class AgentBuilderMiddlewareExtensions
     /// <param name="configureCircuitBreaker">Action to configure circuit breaker middleware</param>
     /// <param name="configureErrorTracking">Optional action to configure error tracking middleware</param>
     /// <param name="configureTotalThreshold">Optional action to configure total error threshold middleware</param>
-    /// <param name="configureFunctionRetry">Optional action to configure function RetryMiddleware </param>
+    /// <param name="configureRetry">Optional action to configure function RetryMiddleware </param>
     /// <param name="configureFunctionTimeout">Optional timeout for function execution</param>
     /// <param name="includeDetailedErrorsInChat">Optional flag to include detailed error messages in LLM chat (default: false for security)</param>
     /// <returns>The builder for chaining</returns>
@@ -3601,7 +3601,7 @@ public static class AgentBuilderMiddlewareExtensions
     ///             cb.MaxConsecutiveCalls = 3;
     ///             cb.TerminationMessageTemplate = "Loop detected for {toolName}!";
     ///         },
-    ///         configureFunctionRetry: retry =>
+    ///         configureRetry: retry =>
     ///         {
     ///             retry.MaxRetries = 5;
     ///             retry.RetryDelay = TimeSpan.FromSeconds(2);
@@ -3620,7 +3620,7 @@ public static class AgentBuilderMiddlewareExtensions
         Action<CircuitBreakerMiddleware> configureCircuitBreaker,
         Action<ErrorTrackingMiddleware>? configureErrorTracking = null,
         Action<TotalErrorThresholdMiddleware>? configureTotalThreshold = null,
-        Action<ErrorHandlingConfig>? configureFunctionRetry = null,
+        Action<ErrorHandlingConfig>? configureRetry = null,
         TimeSpan? configureFunctionTimeout = null,
         bool? includeDetailedErrorsInChat = null)
     {
@@ -3641,10 +3641,10 @@ public static class AgentBuilderMiddlewareExtensions
             builder.WithTotalErrorThreshold(maxTotalErrors: 10);
 
         // Function-level middleware
-        if (configureFunctionRetry != null)
-            builder.WithFunctionRetry(configureFunctionRetry);
+        if (configureRetry != null)
+            builder.WithRetry(configureRetry);
         else
-            builder.WithFunctionRetry();
+            builder.WithRetry();
 
         if (configureFunctionTimeout.HasValue)
             builder.WithFunctionTimeout(configureFunctionTimeout.Value);

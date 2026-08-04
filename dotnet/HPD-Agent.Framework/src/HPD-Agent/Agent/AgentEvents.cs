@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using HPD.Agent.Middleware;
+using HPD.Agent.Planning;
 using HPD.Agent.Serialization;
 using Microsoft.Extensions.AI;
 using EventChannel = HPD.Events.EventChannel;
@@ -1551,7 +1552,7 @@ public record FunctionRetryEvent(
     TimeSpan Delay,
     string ExceptionType,
     string ErrorMessage
-) : AgentEvent, IObservabilityEvent, IErrorEvent
+) : AgentEvent, IObservabilityEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
 
@@ -1561,9 +1562,6 @@ public record FunctionRetryEvent(
     /// </summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public Exception? Exception { get; init; }
-
-    /// <inheritdoc />
-    Exception? IErrorEvent.Exception => Exception;
 
     // Lazy-computed error details
     private ErrorHandling.ProviderErrorDetails? _errorDetails;
@@ -1644,7 +1642,7 @@ public record ModelCallRetryEvent(
     TimeSpan Delay,
     string ExceptionType,
     string ErrorMessage
-) : AgentEvent, IObservabilityEvent, IErrorEvent
+) : AgentEvent, IObservabilityEvent
 {
     /// <summary>
     /// The live exception that caused the retry. This value is not serialized and is
@@ -1652,9 +1650,6 @@ public record ModelCallRetryEvent(
     /// </summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public Exception? Exception { get; init; }
-
-    /// <inheritdoc />
-    Exception? IErrorEvent.Exception => Exception;
 
     public override EventChannel Channel { get; init; } = EventChannel.Streaming;
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
@@ -1705,17 +1700,6 @@ public record DeltaSendingActivatedEvent(
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
 }
 
-/// <summary>
-/// Emitted when plan mode is activated.
-/// </summary>
-public record PlanModeActivatedEvent(
-    string AgentName,
-    DateTimeOffset Timestamp
-) : AgentEvent, IObservabilityEvent
-{
-    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
-}
-
 #region Plan Lifecycle Events
 
 /// <summary>
@@ -1740,35 +1724,27 @@ public enum PlanUpdateType
 }
 
 /// <summary>
-/// Consolidated plan update event following the Codex pattern.
+/// Consolidated plan update event.
 /// Emitted whenever a plan is created or modified, containing the full plan state.
 /// </summary>
 /// <remarks>
 /// <para><b>Design Rationale:</b></para>
 /// <para>
-/// This follows the Codex pattern of emitting a single event type with full plan state,
-/// rather than multiple granular events. Benefits:
+/// This emits a single event type with full plan state rather than multiple granular events. Benefits:
 /// - Simpler for consumers (one event handler)
 /// - Always includes complete context (no partial state)
-/// - Matches industry patterns (Codex, )
 /// - Reduces serialization registrations
 /// </para>
 /// <para>
 /// The UpdateType discriminator allows consumers to react to specific changes while
 /// always having access to the complete plan state for UI synchronization.
 /// </para>
-/// <para><b>Plan Property:</b></para>
-/// <para>
-/// The Plan property is of type object to avoid circular dependencies between HPD-Agent
-/// and HPD-Agent.Memory assemblies. At runtime, this will be an AgentPlanData instance.
-/// Consumers can cast it to the appropriate type.
-/// </para>
 /// </remarks>
 public record PlanUpdatedEvent(
     string PlanId,
     string ConversationId,
     PlanUpdateType UpdateType,
-    object Plan,
+    AgentPlanData Plan,
     string? Explanation,
     DateTimeOffset UpdatedAt
 ) : AgentEvent, IObservabilityEvent

@@ -35,4 +35,9 @@ public sealed class ChatShellModel
     public WidgetSlotModel AboveEditor { get; } = new();
 
     public WidgetSlotModel BelowEditor { get; } = new();
+
+    internal Action? FocusPromptAction { get; set; }
+
+    /// <summary>Moves keyboard focus back to the conversation prompt.</summary>
+    public void FocusPrompt() => FocusPromptAction?.Invoke();
 }

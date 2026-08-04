@@ -6,7 +6,7 @@ using HPD.Agent.TUI.Models;
 
 namespace HPD.Agent.ToolHarness.Coding.TUI.Debugging;
 
-internal sealed class DebugToolCallTuiCoordinator : IAgentTuiEventHandler
+internal sealed class DebugToolCallTuiCoordinator : IAgentTuiEventHandler, IAgentTuiToolCallHandler
 {
     private const string ToolName = "Debug";
 
@@ -23,6 +23,9 @@ internal sealed class DebugToolCallTuiCoordinator : IAgentTuiEventHandler
     // CanHandle has no session context. Args and end events are safely ignored in HandleAsync
     // when no Debug start/result established ownership.
     private static bool StoreMayContain(string _) => true;
+
+    public bool CanHandleToolCall(string? toolHarnessName, string toolName, ToolCallType? callType)
+        => IsDebug(toolName);
 
     public ValueTask HandleAsync(
         AgentEvent evt,

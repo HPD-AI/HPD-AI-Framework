@@ -17,6 +17,8 @@ internal sealed class AppleVirtualizationHelperActivator :
     private const int MaxStdoutLineBytes = 64 * 1024;
     private static readonly TimeSpan CancelledResponseDrainTimeout =
         TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan ExitedDiagnosticDrainTimeout =
+        TimeSpan.FromSeconds(1);
 
     private static readonly ResourceKind ActivationKind = new("provider-activation");
     private static readonly SchemaVersion ActivationSchemaVersion = new("v1");
@@ -335,7 +337,8 @@ internal sealed class AppleVirtualizationHelperActivator :
 
             if (line is null)
             {
-                throw new InvalidOperationException("hpd-vz closed stdout before writing a response.");
+                throw new InvalidOperationException(
+                    await DescribeUnexpectedExitAsync(process).ConfigureAwait(false));
             }
 
             return AppleVirtualizationHelperJsonCodec.Decode(line);
@@ -344,6 +347,45 @@ internal sealed class AppleVirtualizationHelperActivator :
         {
             _sendGate.Release();
         }
+    }
+
+    private async Task<string> DescribeUnexpectedExitAsync(Process process)
+    {
+        process.Refresh();
+        if (!process.HasExited)
+        {
+            try
+            {
+                await process.WaitForExitAsync()
+                    .WaitAsync(ExitedDiagnosticDrainTimeout)
+                    .ConfigureAwait(false);
+            }
+            catch
+            {
+                // Report a live process if its exit cannot be observed promptly.
+            }
+            process.Refresh();
+        }
+        if (process.HasExited && _stderrTask is { } stderrTask)
+        {
+            try
+            {
+                await stderrTask.WaitAsync(ExitedDiagnosticDrainTimeout)
+                    .ConfigureAwait(false);
+            }
+            catch
+            {
+                // The bounded capture collected everything available so far.
+            }
+        }
+
+        string exit = process.HasExited
+            ? $"exit code {process.ExitCode}"
+            : "without reporting process exit";
+        string stderr = _stderr.ToUtf8String();
+        return string.IsNullOrWhiteSpace(stderr)
+            ? $"hpd-vz closed stdout before writing a response ({exit}; stderr was empty)."
+            : $"hpd-vz closed stdout before writing a response ({exit}; stderr: {stderr}).";
     }
 
     private void StartProcess()

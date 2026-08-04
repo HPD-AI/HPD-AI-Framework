@@ -22,7 +22,7 @@ Error handling is implemented as composable middleware that form a chain of resp
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│           FunctionRetryMiddleware (Outermost)               │
+│           RetryMiddleware (Outermost)               │
 │  • 3-tier priority retry logic                              │
 │  • Provider-aware with Retry-After headers                  │
 │  • Emits FunctionRetryEvent for observability               │
@@ -123,7 +123,7 @@ public interface IProviderErrorHandler
 }
 ```
 
-### 4. FunctionRetryMiddleware (`FunctionRetryMiddleware.cs`)
+### 4. RetryMiddleware (`RetryMiddleware.cs`)
 
 Implements the 3-tier retry logic:
 
@@ -135,7 +135,7 @@ Implements the 3-tier retry logic:
 - Uses exponential backoff with jitter (±10%)
 
 ```csharp
-public class FunctionRetryMiddleware : IAgentMiddleware
+public class RetryMiddleware : IAgentMiddleware
 {
     private readonly ErrorHandlingConfig _config;
     private readonly IProviderErrorHandler _providerHandler;
@@ -384,18 +384,18 @@ Error handling is implemented as three composable middleware layers that work to
 
 ```csharp
 // Middleware are registered in order (outermost to innermost)
-.WithFunctionRetry()      // Outermost - retry entire operation
+.WithRetry()      // Outermost - retry entire operation
 .WithFunctionTimeout()    // Middle - timeout individual attempts
 .WithErrorFormatting()    // Innermost - format errors for LLM
 ```
 
 Each middleware wraps the next, creating a chain of responsibility:
-1. **FunctionRetryMiddleware** catches exceptions and decides whether to retry
+1. **RetryMiddleware** catches exceptions and decides whether to retry
 2. **FunctionTimeoutMiddleware** enforces timeout on each attempt
 3. **ErrorFormattingMiddleware** formats errors securely for the LLM
 4. **Actual function execution** happens at the end of the chain
 
-### FunctionRetryMiddleware - 3-Tier Retry Logic
+### RetryMiddleware - 3-Tier Retry Logic
 
 When an exception occurs during function execution:
 
@@ -488,7 +488,7 @@ private static IProviderErrorHandler CreateProviderHandler(ChatProvider? provide
 
 ```
 1. Tool calls OpenAI API → HttpRequestException (429)
-2. FunctionRetryMiddleware catches exception
+2. RetryMiddleware catches exception
 3. Checks CustomRetryStrategy → null
 4. Calls OpenAIErrorHandler.ParseError()
    → Returns ProviderErrorDetails {
@@ -532,7 +532,7 @@ var agent = await new AgentBuilder()
 var agent = await new AgentBuilder()
     .WithOpenAI("gpt-4", apiKey)
     // Register middleware explicitly (order matters!)
-    .WithFunctionRetry()      // Outermost - retry entire operation
+    .WithRetry()      // Outermost - retry entire operation
     .WithFunctionTimeout()    // Middle - timeout each attempt
     .WithErrorFormatting()    // Innermost - format errors
     .BuildAsync();
@@ -730,7 +730,7 @@ public void ParseError_AnthropicException_ExtractsDetails()
 
 Error handling middleware emits observability events for monitoring and debugging:
 
-- **`FunctionRetryEvent`** (`AgentEvents.cs`) - Emitted by `FunctionRetryMiddleware` when a function call is being retried
+- **`FunctionRetryEvent`** (`AgentEvents.cs`) - Emitted by `RetryMiddleware` when a function call is being retried
   - Includes: FunctionName, Attempt, MaxRetries, Delay, Exception details
   - Implements: `IObservabilityEvent` for proper event classification
   - Use case: Monitor retry patterns, detect flaky functions, measure resilience

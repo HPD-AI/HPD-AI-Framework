@@ -138,7 +138,6 @@ public static partial class AgentEventSerializer
         [typeof(FunctionRetryEvent)] = EventTypes.Observability.FUNCTION_RETRY,
         [typeof(ModelCallRetryEvent)] = EventTypes.Observability.MODEL_CALL_RETRY,
         [typeof(DeltaSendingActivatedEvent)] = EventTypes.Observability.DELTA_SENDING_ACTIVATED,
-        [typeof(PlanModeActivatedEvent)] = EventTypes.Observability.PLAN_MODE_ACTIVATED,
         [typeof(PlanUpdatedEvent)] = EventTypes.Observability.PLAN_UPDATED,
         [typeof(NestedAgentInvokedEvent)] = EventTypes.Observability.NESTED_AGENT_INVOKED,
         [typeof(DocumentProcessedEvent)] = EventTypes.Observability.DOCUMENT_PROCESSED,

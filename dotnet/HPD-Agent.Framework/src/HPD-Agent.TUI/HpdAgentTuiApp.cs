@@ -176,6 +176,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             new AgentTuiPromptContext(scope, _state.Shell),
             SubmitPrompt,
             autocomplete);
+        _state.Shell.FocusPromptAction = () => _application.SetFocus(_prompt);
         _state.Shell.Transcript.AddFinal(new TranscriptEntry(
             Id: $"scope-notice-{Guid.NewGuid():N}",
             EntryKey: null,
@@ -518,6 +519,13 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             return false;
         }
 
+        if (key.Key == KeyCode.Tab &&
+            key.Modifiers is KeyModifiers.None or KeyModifiers.Shift &&
+            TryMoveWidgetFocus())
+        {
+            return true;
+        }
+
         if (key.Key == KeyCode.UpArrow && key.Modifiers == KeyModifiers.Alt)
         {
             var pendingPrompts = PendingPrompts(_scope);
@@ -536,6 +544,14 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                 : PendingPromptFooter(pendingPrompts.Count);
             RequestRender();
             return true;
+        }
+
+        if (key.Key == KeyCode.Escape &&
+            key.Modifiers == KeyModifiers.None &&
+            _prompt is not null &&
+            !ReferenceEquals(_application.Focused, _prompt))
+        {
+            return false;
         }
 
         if (TryHandleActivePageInput(in key))
@@ -576,6 +592,34 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         }
 
         shortcut.Execute(new AgentTuiShortcutContext(_scope, _state.Shell, _state.Shell.Navigation, shortcut));
+        return true;
+    }
+
+    private bool TryMoveWidgetFocus()
+    {
+        if (_state is null || _prompt is null)
+        {
+            return false;
+        }
+
+        if (!ReferenceEquals(_application.Focused, _prompt))
+        {
+            _application.SetFocus(_prompt);
+            return true;
+        }
+
+        if (_prompt.Controller.Autocomplete is { SuggestionCount: > 0 })
+        {
+            return false;
+        }
+
+        var widget = _state.Shell.AboveEditor.Snapshot().OfType<IFocusable>().FirstOrDefault();
+        if (widget is null)
+        {
+            return false;
+        }
+
+        _application.SetFocus(widget);
         return true;
     }
 

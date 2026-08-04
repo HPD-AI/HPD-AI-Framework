@@ -2,6 +2,7 @@ using System.Text.Json;
 using HPD.Agent;
 using HPD.Agent.Audio;
 using HPD.Agent.Middleware;
+using HPD.Agent.Planning;
 using HPD.Agent.Serialization;
 using HPD.Agent.Security;
 using Microsoft.Extensions.AI;
@@ -15,6 +16,45 @@ namespace HPD.Agent.Tests.Serialization;
 /// </summary>
 public class AgentEventSerializerTests
 {
+    [Theory]
+    [InlineData(PlanUpdateType.Created)]
+    [InlineData(PlanUpdateType.StepUpdated)]
+    [InlineData(PlanUpdateType.StepAdded)]
+    [InlineData(PlanUpdateType.NoteAdded)]
+    [InlineData(PlanUpdateType.Completed)]
+    public void PlanUpdatedEvent_RoundTripsTypedPlan(PlanUpdateType updateType)
+    {
+        var plan = PlanModePersistentStateData.CreatePlan("Ship typed plans", ["Implement", "Verify"])
+            .WithUpdatedStep("1", PlanStepStatus.Completed, "done")
+            .WithUpdatedStep("2", PlanStepStatus.Blocked, "waiting")
+            .WithContextNote("Preserve this note");
+        if (updateType == PlanUpdateType.Completed)
+        {
+            plan = plan.WithUpdatedStep("2", PlanStepStatus.Completed).AsCompleted();
+        }
+
+        var original = new PlanUpdatedEvent(
+            plan.Id,
+            "conversation-1",
+            updateType,
+            plan,
+            "test update",
+            DateTimeOffset.UtcNow);
+
+        var json = AgentEventSerializer.ToJson(original);
+        var roundTripped = Assert.IsType<PlanUpdatedEvent>(AgentEventSerializer.FromJson(json));
+
+        Assert.Equal(updateType, roundTripped.UpdateType);
+        Assert.IsType<AgentPlanData>(roundTripped.Plan);
+        Assert.Equal(plan.Id, roundTripped.Plan.Id);
+        Assert.Equal(plan.Goal, roundTripped.Plan.Goal);
+        Assert.Equal(plan.IsComplete, roundTripped.Plan.IsComplete);
+        Assert.Equal(plan.Steps.Count, roundTripped.Plan.Steps.Count);
+        Assert.Equal(PlanStepStatus.Completed, roundTripped.Plan.Steps[0].Status);
+        Assert.Equal("done", roundTripped.Plan.Steps[0].Notes);
+        Assert.Contains(roundTripped.Plan.ContextNotes, note => note.Contains("Preserve this note"));
+    }
+
     #region Basic Serialization Tests
 
     [Fact]
@@ -819,6 +859,27 @@ public class AgentEventSerializerTests
         Assert.Equal(ErrorHandling.ErrorCategory.ServerError, rehydrated.Category);
         var replayed = AgentEventSerializer.ToJson(rehydrated);
         Assert.Contains("\"type\":\"FUNCTION_RETRY\"", replayed);
+    }
+
+    [Fact]
+    public void RetryEvents_AreDiagnosticEvents_NotErrorEvents()
+    {
+        AgentEvent modelRetry = new ModelCallRetryEvent(
+            Attempt: 1,
+            MaxRetries: 3,
+            Delay: TimeSpan.FromSeconds(1),
+            ExceptionType: "HttpRequestException",
+            ErrorMessage: "temporarily unavailable");
+        AgentEvent functionRetry = new FunctionRetryEvent(
+            FunctionName: "search",
+            Attempt: 1,
+            MaxRetries: 3,
+            Delay: TimeSpan.FromSeconds(1),
+            ExceptionType: "HttpRequestException",
+            ErrorMessage: "temporarily unavailable");
+
+        Assert.IsNotAssignableFrom<IErrorEvent>(modelRetry);
+        Assert.IsNotAssignableFrom<IErrorEvent>(functionRetry);
     }
 
     #endregion

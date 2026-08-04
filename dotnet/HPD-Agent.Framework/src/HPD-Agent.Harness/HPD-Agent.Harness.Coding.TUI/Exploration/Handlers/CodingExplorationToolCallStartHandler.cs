@@ -3,8 +3,11 @@ using HPD.Agent.TUI.Composition;
 
 namespace HPD.Agent.ToolHarness.Coding.TUI.Exploration.Handlers;
 
-internal sealed class CodingExplorationToolCallStartHandler : AgentTuiEventHandler<ToolCallStartEvent>
+internal sealed class CodingExplorationToolCallStartHandler : AgentTuiEventHandler<ToolCallStartEvent>, IAgentTuiToolCallHandler
 {
+    public bool CanHandleToolCall(string? toolHarnessName, string toolName, ToolCallType? callType)
+        => CodingExplorationToolNames.IsExplorationTool(toolName);
+
     public override ValueTask HandleAsync(
         ToolCallStartEvent evt,
         AgentTuiEventContext context,

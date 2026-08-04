@@ -1,5 +1,6 @@
 import importlib.util
 import base64
+import json
 import os
 import pathlib
 import tempfile
@@ -26,16 +27,35 @@ class StorageTests(unittest.TestCase):
                 "HPD_GUEST_AGENT_STATE_DIR": self.state_directory.name,
                 "HPD_GUEST_OPERATION_TEMP_ROOT":
                     str(pathlib.Path(self.state_directory.name) / "operations"),
-                "HPD_GUEST_STORAGE_QUOTA_MODE": "directory-test",
+                "HPD_GUEST_STORAGE_QUOTA_MODE": "ext4-project",
                 "HPD_GUEST_APP_DATA_FILESYSTEM_ID":
                     "guest-app-data:test-filesystem",
             },
         )
         self.environment.start()
         self.agent = MODULE.GuestAgent("test", "1.0", "boot-test")
+        self.filesystem_identity = mock.patch.object(
+            self.agent,
+            "storage_filesystem_identity",
+            return_value="guest-app-data:test-filesystem",
+        )
+        self.quota_command = mock.patch.object(
+            self.agent,
+            "run_quota_command",
+        )
+        self.project_identity = mock.patch.object(
+            self.agent,
+            "verify_project_identity",
+        )
+        self.filesystem_identity.start()
+        self.run_quota_command = self.quota_command.start()
+        self.verify_project_identity = self.project_identity.start()
 
     def tearDown(self):
         self.agent.shutdown()
+        self.project_identity.stop()
+        self.quota_command.stop()
+        self.filesystem_identity.stop()
         self.environment.stop()
         self.state_directory.cleanup()
         self.storage_directory.cleanup()
@@ -234,6 +254,7 @@ class StorageTests(unittest.TestCase):
             "Error",
             self.agent.handle(
                 self.transfer_request(7, "portable-volume", "backup-a")))
+
         self.assertNotIn(
             "Error",
             self.agent.handle(
@@ -274,6 +295,19 @@ class StorageTests(unittest.TestCase):
             "original-durable-data",
             (volume_path / "nested" / "data.txt").read_text(encoding="utf-8"))
         self.assertTrue((volume_path / "empty").is_dir())
+        staging_identity = str(
+            pathlib.Path(self.storage_directory.name) /
+            "volumes" /
+            ".restore-restore-a")
+        project_id = self.agent.volume_project_id("portable-volume")
+        self.assertIn(
+            mock.call([
+                "setproject", "-P", str(project_id), staging_identity,
+            ]),
+            self.run_quota_command.mock_calls)
+        self.assertIn(
+            mock.call(str(volume_path), project_id),
+            self.verify_project_identity.mock_calls)
         recovered_with_old_authority = self.agent.handle(
             self.request(2, "portable-volume"))
         self.assertNotIn("Error", recovered_with_old_authority)
@@ -287,6 +321,31 @@ class StorageTests(unittest.TestCase):
         observed = self.request(2, "portable-volume")
         observed["StorageRequest"]["VolumeGeneration"] = 12
         self.assertNotIn("Error", self.agent.handle(observed))
+
+    def test_maximum_backup_chunk_fits_the_helper_json_frame(self):
+        ensured = self.agent.handle(self.request(1, "bounded-volume"))
+        volume_path = pathlib.Path(
+            ensured["StorageResponse"]["EffectiveRuntimePath"])
+        (volume_path / "payload.bin").write_bytes(b"x" * 50000)
+
+        begin = self.transfer_request(5, "bounded-volume", "backup-frame")
+        self.agent.handle(begin)["StorageResponse"]
+        read = self.transfer_request(6, "bounded-volume", "backup-frame")
+        read["StorageRequest"]["Offset"] = 0
+        read["StorageRequest"]["MaximumChunkBytes"] = 43008
+        response = self.agent.handle(read)
+
+        frame = json.dumps(
+            response,
+            ensure_ascii=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        self.assertLessEqual(len(frame), 65536)
+        self.assertEqual(
+            43008,
+            len(base64.b64decode(
+                response["StorageResponse"]["ChunkBase64"],
+                validate=True)))
 
     def test_restore_rejects_nonsequential_and_noncanonical_chunks(self):
         self.assertNotIn(

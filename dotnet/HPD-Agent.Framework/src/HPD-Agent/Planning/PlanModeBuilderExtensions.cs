@@ -14,6 +14,7 @@ public static class PlanModeBuilderExtensions
     /// <summary>
     /// Enables Plan Mode for the agent.
     /// Plans are automatically persisted across agent runs within the same session.
+    /// Plan Mode adds plan-tracking tools and does not restrict the agent from executing work.
     /// </summary>
     /// <example>
     /// <code>

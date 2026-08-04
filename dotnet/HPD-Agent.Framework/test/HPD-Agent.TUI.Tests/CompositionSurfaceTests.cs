@@ -630,6 +630,25 @@ public sealed class CompositionSurfaceTests
             .Should().Be(AgentTuiEventScope.CurrentThread);
     }
 
+    [Fact]
+    public void HasToolCallHandler_DetectsOnlyClaimedToolWithinRegisteredScope()
+    {
+        var registry = new HpdAgentTuiBuilder()
+            .AddEventHandler("owned", new OwnedToolCallHandler())
+            .Build();
+        var scope = new AgentTuiRuntimeScope("agent", "session", "main");
+        var currentEvent = new ToolCallStartEvent("call", "tool", "message", "OwnedHarness")
+        {
+            SessionId = "session",
+            ThreadId = "main"
+        };
+        var descendantEvent = currentEvent with { ThreadId = "child" };
+
+        registry.HasToolCallHandler("OwnedHarness", "owned_tool", null, currentEvent, scope).Should().BeTrue();
+        registry.HasToolCallHandler("OwnedHarness", "unclaimed_tool", null, currentEvent, scope).Should().BeFalse();
+        registry.HasToolCallHandler("OwnedHarness", "owned_tool", null, descendantEvent, scope).Should().BeFalse();
+    }
+
     private sealed class TextFooterItem : IAgentTuiFooterItem
     {
         public TextFooterItem(string text)
@@ -722,5 +741,18 @@ public sealed class CompositionSurfaceTests
             Count++;
             return ValueTask.CompletedTask;
         }
+    }
+
+    private sealed class OwnedToolCallHandler
+        : AgentTuiEventHandler<TextDeltaEvent>, IAgentTuiToolCallHandler
+    {
+        public bool CanHandleToolCall(string? toolHarnessName, string toolName, ToolCallType? callType)
+            => toolHarnessName == "OwnedHarness" && toolName == "owned_tool";
+
+        public override ValueTask HandleAsync(
+            TextDeltaEvent evt,
+            AgentTuiEventContext context,
+            CancellationToken cancellationToken)
+            => ValueTask.CompletedTask;
     }
 }
