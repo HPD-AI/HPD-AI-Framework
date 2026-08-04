@@ -1,7 +1,9 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization.Metadata;
 using System.Text.RegularExpressions;
 using HPD.Agent.Middleware;
+using HPD.Agent.Providers;
 using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.Serialization;
@@ -222,6 +224,13 @@ public static partial class AgentEventSerializer
         return ToJson(input, "1.0");
     }
 
+    /// <summary>Serializes an input event and its typed provider run configuration.</summary>
+    public static string ToJson(AgentInputEvent input, ProviderComposition providerComposition)
+    {
+        ArgumentNullException.ThrowIfNull(providerComposition);
+        return ToJson(input, providerComposition, "1.0");
+    }
+
     /// <summary>
     /// Serializes an agent event to JSON with specified version.
     /// </summary>
@@ -245,6 +254,24 @@ public static partial class AgentEventSerializer
         ArgumentNullException.ThrowIfNull(version);
 
         return ToJsonEnvelope(input, input.GetType(), version);
+    }
+
+    /// <summary>Serializes an input event and its typed provider run configuration with a version.</summary>
+    public static string ToJson(
+        AgentInputEvent input,
+        ProviderComposition providerComposition,
+        string version)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        ArgumentNullException.ThrowIfNull(providerComposition);
+        var root = JsonNode.Parse(ToJson(input, version)) as JsonObject
+            ?? throw new JsonException("Agent input event did not serialize to a JSON object.");
+        if (input.RunConfig is not null)
+        {
+            root["runConfig"] = JsonNode.Parse(
+                HpdAgentConfigSerializer.Serialize(input.RunConfig, providerComposition));
+        }
+        return root.ToJsonString(AgentEventJsonContext.Default.Options);
     }
 
     /// <summary>
@@ -414,6 +441,30 @@ public static partial class AgentEventSerializer
     /// Deserializes an agent input event from JSON.
     /// </summary>
     public static AgentInputEvent? FromInputJson(string json) => FromJson(json) as AgentInputEvent;
+
+    /// <summary>Deserializes an input event and binds its typed provider run configuration.</summary>
+    public static AgentInputEvent? FromInputJson(
+        string json,
+        ProviderComposition providerComposition)
+    {
+        ArgumentNullException.ThrowIfNull(providerComposition);
+        var input = FromInputJson(json);
+        if (input is null)
+            return null;
+
+        using var document = JsonDocument.Parse(json);
+        if (!document.RootElement.TryGetProperty("runConfig", out var runConfig) ||
+            runConfig.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+        {
+            return input;
+        }
+
+        return input with
+        {
+            RunConfig = HpdAgentConfigSerializer.DeserializeRunConfig(
+                runConfig.GetRawText(), providerComposition)
+        };
+    }
 
     private static string ToJsonEnvelope(object value, Type concreteType, string version)
     {

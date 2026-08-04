@@ -81,7 +81,10 @@ public static class HPDAgentEndpointRouteBuilderExtensions
         if (options.MapContent)
             ContentEndpoints.Map(routeGroup, hostingServices.Content);
         if (options.MapStreaming)
-            StreamingEndpoints.Map(routeGroup, hostingServices.Streaming);
+            StreamingEndpoints.Map(
+                routeGroup,
+                hostingServices.Streaming,
+                endpoints.ServiceProvider.GetService<HPD.Agent.Providers.ProviderComposition>());
         if (options.MapMiddlewareResponses)
             MiddlewareResponseEndpoints.Map(routeGroup, hostingServices.MiddlewareResponses);
         if (options.MapClientToolProviders)

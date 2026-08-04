@@ -9,6 +9,42 @@ namespace HPD.Agent.Tests.Core;
 public sealed class GeneratedProviderCompositionIntegrationTests
 {
     [Fact]
+    public void AgentEventSerializer_RoundTripsTypedRunProviderOptions()
+    {
+        var services = new ServiceCollection();
+        HpdGeneratedProviderServiceCollectionExtensions.AddHpdGeneratedProviders(services);
+        using var provider = services.BuildServiceProvider();
+        var composition = provider.GetRequiredService<ProviderComposition>();
+        var input = new UserMessagesInputEvent
+        {
+            RunConfig = new AgentRunConfig
+            {
+                Clients = new AgentClientsConfig
+                {
+                    Chat = new ChatClientConfig
+                    {
+                        ProviderKey = "anthropic",
+                        ModelName = "claude-test",
+                        ProviderOptions = new AnthropicChatRequestOptions
+                        {
+                            ThinkingBudgetTokens = 4096
+                        }
+                    }
+                }
+            }
+        };
+
+        var json = AgentEventSerializer.ToJson(input, composition);
+        var roundTrip = Assert.IsType<UserMessagesInputEvent>(
+            AgentEventSerializer.FromInputJson(json, composition));
+
+        var chat = Assert.IsType<ChatClientConfig>(roundTrip.RunConfig!.Clients.Chat);
+        Assert.Equal("anthropic", chat.ProviderKey);
+        Assert.Equal(4096, Assert.IsType<AnthropicChatRequestOptions>(chat.ProviderOptions)
+            .ThinkingBudgetTokens);
+    }
+
+    [Fact]
     public void GeneratedComposition_RegistersAnthropicWithoutModuleInitializer()
     {
         var services = new ServiceCollection();

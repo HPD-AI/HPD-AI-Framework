@@ -758,7 +758,9 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
         ArgumentNullException.ThrowIfNull(scope);
         ArgumentNullException.ThrowIfNull(input);
 
-        var json = AgentEventSerializer.ToJson(input);
+        var json = _providerComposition is null
+            ? AgentEventSerializer.ToJson(input)
+            : AgentEventSerializer.ToJson(input, _providerComposition);
         using var response = await PostJsonEnvelopeAsync(
                 $"agents/{Escape(scope.AgentId)}/sessions/{Escape(scope.SessionId)}/threads/{Escape(scope.ThreadId)}/inputs",
                 json,
