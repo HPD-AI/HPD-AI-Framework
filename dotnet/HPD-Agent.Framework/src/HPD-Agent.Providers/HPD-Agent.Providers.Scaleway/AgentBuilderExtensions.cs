@@ -27,6 +27,7 @@ public static class ScalewayAgentBuilderExtensions
             ModelName = model
         };
 
+        builder.ProviderRegistry.Register(new ScalewayProvider());
         builder.Config.SetChatClientConfig(chatConfig);
 
         return builder;

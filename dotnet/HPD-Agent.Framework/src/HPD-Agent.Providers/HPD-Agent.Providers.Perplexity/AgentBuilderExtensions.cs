@@ -27,6 +27,7 @@ public static class PerplexityAgentBuilderExtensions
             ModelName = model
         };
 
+        builder.ProviderRegistry.Register(new PerplexityProvider());
         builder.Config.SetChatClientConfig(chatConfig);
 
         return builder;

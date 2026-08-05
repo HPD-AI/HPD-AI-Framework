@@ -130,6 +130,7 @@ public static class AgentBuilderExtensions
             ModelName = model
         };
 
+        builder.ProviderRegistry.Register(new BedrockProvider());
         builder.Config.SetChatClientConfig(chatConfig);
 
         // Store the typed config

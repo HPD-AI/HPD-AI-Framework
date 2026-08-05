@@ -27,6 +27,7 @@ public static class MiniMaxAgentBuilderExtensions
             ModelName = model
         };
 
+        builder.ProviderRegistry.Register(new MiniMaxProvider());
         builder.Config.SetChatClientConfig(chatConfig);
 
         return builder;

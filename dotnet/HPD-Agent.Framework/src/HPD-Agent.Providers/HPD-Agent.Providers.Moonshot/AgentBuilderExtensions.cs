@@ -29,6 +29,7 @@ public static class AgentBuilderExtensions
             ModelName = model
         };
 
+        builder.ProviderRegistry.Register(new MoonshotProvider());
         builder.Config.SetChatClientConfig(chatConfig);
 
         return builder;

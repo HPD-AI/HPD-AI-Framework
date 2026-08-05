@@ -58,6 +58,7 @@ public static class AgentBuilderExtensions
             Endpoint = endpoint
         };
 
+        builder.ProviderRegistry.Register(new HuggingFaceProvider());
         builder.Config.SetChatClientConfig(chatConfig);
 
         return builder;

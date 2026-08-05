@@ -41,6 +41,7 @@ public static class AgentBuilderExtensions
             ModelName = Path.GetFileName(modelPath)
         };
 
+        builder.ProviderRegistry.Register(new OnnxRuntimeProvider());
         builder.Config.SetChatClientConfig(chatConfig);
         chatConfig.ProviderConfig = providerConfig;
 

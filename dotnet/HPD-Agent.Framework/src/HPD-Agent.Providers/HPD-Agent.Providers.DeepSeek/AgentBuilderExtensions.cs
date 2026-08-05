@@ -27,6 +27,7 @@ public static class DeepSeekAgentBuilderExtensions
             ModelName = model
         };
 
+        builder.ProviderRegistry.Register(new DeepSeekProvider());
         builder.Config.SetChatClientConfig(chatConfig);
 
         return builder;

@@ -27,6 +27,7 @@ public static class LMStudioAgentBuilderExtensions
             ModelName = model
         };
 
+        builder.ProviderRegistry.Register(new LMStudioProvider());
         builder.Config.SetChatClientConfig(chatConfig);
 
         return builder;

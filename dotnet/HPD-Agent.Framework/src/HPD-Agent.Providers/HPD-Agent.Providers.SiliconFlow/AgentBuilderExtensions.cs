@@ -27,6 +27,7 @@ public static class SiliconFlowAgentBuilderExtensions
             ModelName = model
         };
 
+        builder.ProviderRegistry.Register(new SiliconFlowProvider());
         builder.Config.SetChatClientConfig(chatConfig);
 
         return builder;

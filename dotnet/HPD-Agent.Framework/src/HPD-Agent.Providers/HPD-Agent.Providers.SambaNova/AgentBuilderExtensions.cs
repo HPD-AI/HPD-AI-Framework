@@ -27,6 +27,7 @@ public static class SambaNovaAgentBuilderExtensions
             ModelName = model
         };
 
+        builder.ProviderRegistry.Register(new SambaNovaProvider());
         builder.Config.SetChatClientConfig(chatConfig);
 
         return builder;

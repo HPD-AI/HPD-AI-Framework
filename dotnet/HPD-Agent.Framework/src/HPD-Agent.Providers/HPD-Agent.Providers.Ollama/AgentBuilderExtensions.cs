@@ -33,6 +33,7 @@ public static class AgentBuilderExtensions
         };
         chatConfig.ProviderConfig = providerConfig;
 
+        builder.ProviderRegistry.Register(new OllamaProvider());
         builder.Config.SetChatClientConfig(chatConfig);
 
         return builder;

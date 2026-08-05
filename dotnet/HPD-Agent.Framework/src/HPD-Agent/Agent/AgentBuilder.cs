@@ -1775,7 +1775,8 @@ public class AgentBuilder
             else
             {
                 resolvers.Add(new EnvironmentSecretResolver(
-                    _serviceProvider?.GetService<IProviderSecretAliasRegistry>()));
+                    _serviceProvider?.GetService<IProviderSecretAliasRegistry>()
+                    ?? (_providerRegistry as ProviderRegistry)?.Composition?.SecretAliases));
                 resolvers.AddRange(_additionalResolvers);
                 if (_configuration != null)
                     resolvers.Add(new ConfigurationSecretResolver(_configuration));

@@ -27,6 +27,7 @@ public static class NebiusAgentBuilderExtensions
             ModelName = model
         };
 
+        builder.ProviderRegistry.Register(new NebiusProvider());
         builder.Config.SetChatClientConfig(chatConfig);
 
         return builder;
