@@ -17,6 +17,7 @@ internal sealed class LocalProcessProvider(LocalProviderState state)
             "hpdos-compose-images",
             "hpdos-compose-image-inspection",
             "hpdos-compose-stop",
+            "hpdos-compose-recover-stopped",
             "hpdos-compose-absent",
             "hpdos-compose-remove",
             "hpdos-compose-inspect",
@@ -241,8 +242,15 @@ internal sealed class LocalProcessProvider(LocalProviderState state)
                 spec.Command.Arguments.Any(argument =>
                     argument.Contains('\0')))
             {
+                string shellFlags = spec.Command.Arguments.Count > 0
+                    ? spec.Command.Arguments[0]
+                    : "missing";
+                string operation = spec.Command.Arguments.Count > 2
+                    ? spec.Command.Arguments[2]
+                    : "missing";
                 throw new InvalidOperationException(
-                    "LocalEnvironment.HostShellRejected: provider-controlled shell invocations require an exact HPDOS Compose operation envelope.");
+                    "LocalEnvironment.HostShellRejected: provider-controlled shell invocations require an exact HPDOS Compose operation envelope " +
+                    $"(flags='{shellFlags}', operation='{operation}', argumentCount={spec.Command.Arguments.Count}).");
             }
             fileName = "/bin/sh";
             arguments = RewriteArguments(spec.Command.Arguments, docker, socket);
