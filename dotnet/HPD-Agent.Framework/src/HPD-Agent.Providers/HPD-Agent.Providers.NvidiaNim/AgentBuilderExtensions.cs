@@ -27,6 +27,7 @@ public static class NvidiaNimAgentBuilderExtensions
             ModelName = model
         };
 
+        builder.ProviderRegistry.Register(new NvidiaNimProvider());
         builder.Config.SetChatClientConfig(chatConfig);
 
         return builder;

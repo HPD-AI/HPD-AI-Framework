@@ -83,6 +83,7 @@ public static class AgentBuilderExtensions
         if (apiKey is not null)
             builder.AddExplicitSecret("anthropic:ApiKey", apiKey);
 
+        builder.ProviderRegistry.Register(new AnthropicProvider());
         builder.Config.SetChatClientConfig(chatConfig);
 
         return builder;

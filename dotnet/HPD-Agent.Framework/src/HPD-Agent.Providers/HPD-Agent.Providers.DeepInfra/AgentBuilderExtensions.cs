@@ -30,6 +30,7 @@ public static class AgentBuilderExtensions
             ModelName = model
         };
 
+        builder.ProviderRegistry.Register(new DeepInfraProvider());
         builder.Config.SetChatClientConfig(chatConfig);
 
         return builder;

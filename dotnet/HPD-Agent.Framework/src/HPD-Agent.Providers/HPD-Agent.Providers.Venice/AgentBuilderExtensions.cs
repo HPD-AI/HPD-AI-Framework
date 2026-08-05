@@ -27,6 +27,7 @@ public static class VeniceAgentBuilderExtensions
             ModelName = model
         };
 
+        builder.ProviderRegistry.Register(new VeniceProvider());
         builder.Config.SetChatClientConfig(chatConfig);
 
         return builder;

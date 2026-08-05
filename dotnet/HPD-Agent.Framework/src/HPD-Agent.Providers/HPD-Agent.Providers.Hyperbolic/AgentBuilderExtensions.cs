@@ -27,6 +27,7 @@ public static class HyperbolicAgentBuilderExtensions
             ModelName = model
         };
 
+        builder.ProviderRegistry.Register(new HyperbolicProvider());
         builder.Config.SetChatClientConfig(chatConfig);
 
         return builder;

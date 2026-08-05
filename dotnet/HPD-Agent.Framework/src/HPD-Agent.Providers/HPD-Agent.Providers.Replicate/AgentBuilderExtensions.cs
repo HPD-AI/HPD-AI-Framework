@@ -44,6 +44,7 @@ public static class AgentBuilderExtensions
             ProviderOptions = providerOptions
         };
 
+        builder.ProviderRegistry.Register(new ReplicateProvider());
         builder.Config.SetClientConfig(ProviderClientFamily.ImageGeneration, imageConfig);
         return builder;
     }

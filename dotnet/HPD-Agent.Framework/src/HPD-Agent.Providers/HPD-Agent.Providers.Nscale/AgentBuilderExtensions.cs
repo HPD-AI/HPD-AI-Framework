@@ -27,6 +27,7 @@ public static class NscaleAgentBuilderExtensions
             ModelName = model
         };
 
+        builder.ProviderRegistry.Register(new NscaleProvider());
         builder.Config.SetChatClientConfig(chatConfig);
 
         return builder;

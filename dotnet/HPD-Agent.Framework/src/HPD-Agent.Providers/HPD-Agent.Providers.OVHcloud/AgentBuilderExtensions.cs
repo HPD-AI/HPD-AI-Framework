@@ -27,6 +27,7 @@ public static class OVHcloudAgentBuilderExtensions
             ModelName = model
         };
 
+        builder.ProviderRegistry.Register(new OVHcloudProvider());
         builder.Config.SetChatClientConfig(chatConfig);
 
         return builder;

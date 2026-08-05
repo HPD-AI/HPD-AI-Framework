@@ -37,6 +37,7 @@ public static class AgentBuilderExtensions
             ModelName = model
         };
 
+        builder.ProviderRegistry.Register(new DashScopeProvider());
         builder.Config.SetChatClientConfig(chatConfig);
         chatConfig.ProviderConfig = providerConfig;
 
@@ -75,6 +76,7 @@ public static class AgentBuilderExtensions
             Dimensions = dimensions
         };
 
+        builder.ProviderRegistry.Register(new DashScopeProvider());
         builder.Config.SetClientConfig(ProviderClientFamily.Embeddings, embeddingConfig);
         embeddingConfig.ProviderConfig = providerConfig;
 

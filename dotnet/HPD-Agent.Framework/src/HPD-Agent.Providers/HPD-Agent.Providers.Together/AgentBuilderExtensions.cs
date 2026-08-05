@@ -31,6 +31,7 @@ public static class AgentBuilderExtensions
             ModelName = model
         };
 
+        builder.ProviderRegistry.Register(new TogetherProvider());
         builder.Config.SetChatClientConfig(chatConfig);
 
         return builder;
@@ -88,6 +89,7 @@ public static class AgentBuilderExtensions
             ModelName = model
         };
 
+        builder.ProviderRegistry.Register(new TogetherProvider());
         builder.Config.SetClientConfig(ProviderClientFamily.Embeddings, embeddingConfig);
         return builder;
     }

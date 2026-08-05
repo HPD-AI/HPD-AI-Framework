@@ -33,6 +33,7 @@ public static class AgentBuilderExtensions
         configure?.Invoke(providerConfig);
         chatConfig.ProviderConfig = providerConfig;
 
+        builder.ProviderRegistry.Register(new OpenAIProvider());
         builder.Config.SetChatClientConfig(chatConfig);
 
         return builder;
@@ -68,6 +69,7 @@ public static class AgentBuilderExtensions
         configure?.Invoke(providerConfig);
         chatConfig.ProviderConfig = providerConfig;
 
+        builder.ProviderRegistry.Register(new AzureOpenAIProvider());
         builder.Config.SetChatClientConfig(chatConfig);
 
         return builder;

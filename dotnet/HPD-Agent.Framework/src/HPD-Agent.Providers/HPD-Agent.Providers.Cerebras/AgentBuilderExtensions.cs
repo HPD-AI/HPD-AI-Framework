@@ -27,6 +27,7 @@ public static class CerebrasAgentBuilderExtensions
             ModelName = model
         };
 
+        builder.ProviderRegistry.Register(new CerebrasProvider());
         builder.Config.SetChatClientConfig(chatConfig);
 
         return builder;

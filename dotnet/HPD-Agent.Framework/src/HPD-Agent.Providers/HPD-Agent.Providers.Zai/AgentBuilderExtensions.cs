@@ -27,6 +27,7 @@ public static class ZaiAgentBuilderExtensions
             ModelName = model
         };
 
+        builder.ProviderRegistry.Register(new ZaiProvider());
         builder.Config.SetChatClientConfig(chatConfig);
 
         return builder;

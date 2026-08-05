@@ -177,6 +177,67 @@ public class ProviderConfigConsolidationTests
     }
 
     [Fact]
+    public void WithDeepSeek_ShouldRegisterChatProviderInBuilderRegistry()
+    {
+        var builder = new AgentBuilder()
+            .WithDeepSeek(model: "deepseek-v4-flash", apiKey: "test");
+
+        var provider = builder.ProviderRegistry.GetRequiredProvider<IChatClientProvider>("deepseek");
+
+        provider.Should().NotBeNull();
+        provider!.ProviderKey.Should().Be("deepseek");
+
+        var chatConfig = builder.Config.EnsureChatClientConfig();
+        chatConfig.ProviderKey.Should().Be("deepseek");
+        chatConfig.ModelName.Should().Be("deepseek-v4-flash");
+        chatConfig.ApiKey.Should().Be("test");
+    }
+
+    [Fact]
+    public void WithOpenAI_ShouldRegisterChatProviderInBuilderRegistry()
+    {
+        var builder = new AgentBuilder()
+            .WithOpenAI("gpt-4.1", apiKey: "test");
+
+        builder.ProviderRegistry.GetRequiredProvider<IChatClientProvider>("openai")
+            .Should().NotBeNull();
+        builder.Config.EnsureChatClientConfig().ProviderKey.Should().Be("openai");
+    }
+
+    [Fact]
+    public void WithAzureOpenAI_ShouldRegisterChatProviderInBuilderRegistry()
+    {
+        var builder = new AgentBuilder()
+            .WithAzureOpenAI("https://hpd.openai.azure.com/", "gpt-4o", apiKey: "test");
+
+        builder.ProviderRegistry.GetRequiredProvider<IChatClientProvider>("azure-openai")
+            .Should().NotBeNull();
+        builder.Config.EnsureChatClientConfig().ProviderKey.Should().Be("azure-openai");
+    }
+
+    [Fact]
+    public void WithOllama_ShouldRegisterChatProviderInBuilderRegistry()
+    {
+        var builder = new AgentBuilder()
+            .WithOllama("qwen3:latest");
+
+        builder.ProviderRegistry.GetRequiredProvider<IChatClientProvider>("ollama")
+            .Should().NotBeNull();
+        builder.Config.EnsureChatClientConfig().ProviderKey.Should().Be("ollama");
+    }
+
+    [Fact]
+    public void WithCohereEmbeddings_ShouldRegisterEmbeddingProviderInBuilderRegistry()
+    {
+        var builder = new AgentBuilder()
+            .WithCohereEmbeddings("embed-english-v3.0", apiKey: "test");
+
+        builder.ProviderRegistry.GetRequiredProvider<IEmbeddingGeneratorProvider>("cohere")
+            .Should().NotBeNull();
+        builder.Config.Clients.Embeddings.Should().NotBeNull();
+    }
+
+    [Fact]
     public void OllamaProviderConfig_ShouldOwnProviderConstructionOptions()
     {
         var builder = new AgentBuilder()

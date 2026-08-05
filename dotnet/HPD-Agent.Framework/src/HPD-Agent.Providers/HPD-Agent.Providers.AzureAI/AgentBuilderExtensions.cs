@@ -122,6 +122,7 @@ public static class AgentBuilderExtensions
             ModelName = model
         };
 
+        builder.ProviderRegistry.Register(new AzureAIProvider());
         builder.Config.SetChatClientConfig(chatConfig);
 
         // Store the typed config
