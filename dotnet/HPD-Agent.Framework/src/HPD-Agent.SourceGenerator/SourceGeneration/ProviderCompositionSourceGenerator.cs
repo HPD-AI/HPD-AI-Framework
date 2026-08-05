@@ -99,6 +99,16 @@ public sealed class ProviderCompositionSourceGenerator : IIncrementalGenerator
             services.AppendLine("        global::Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddSingleton<global::HPD.Agent.IAgentConfigFactory>(services, static provider => new global::HPD.Agent.AgentFactory(providerComposition: provider.GetRequiredService<global::HPD.Agent.Providers.ProviderComposition>()));");
             services.AppendLine("        return services;");
             services.AppendLine("    }");
+            services.AppendLine();
+            services.AppendLine("    /// <summary>Auto-registers the composed provider metadata into the global registry for bare AgentBuilder usage.</summary>");
+            services.AppendLine("#pragma warning disable CA2255");
+            services.AppendLine("    [global::System.Runtime.CompilerServices.ModuleInitializer]");
+            services.AppendLine("#pragma warning restore CA2255");
+            services.AppendLine("    internal static void RegisterGlobalProviderComposition()");
+            services.AppendLine("    {");
+            services.AppendLine("        global::HPD.Agent.Providers.ProviderCompositionGlobalRegistry.Register(");
+            services.AppendLine("            global::HPD.Agent.Providers.Generated.GeneratedProviderComposition.Composition);");
+            services.AppendLine("    }");
             services.AppendLine("}");
             context.AddSource("HpdGeneratedProviderServiceCollectionExtensions.g.cs", services.ToString());
         });
