@@ -4,6 +4,7 @@ using HPD.Agent.AspNetCore.Streaming;
 using HPD.Agent.Hosting.Data;
 using HPD.Agent.Hosting.Lifecycle;
 using HPD.Agent.Serialization;
+using HPD.Agent.Providers;
 using Microsoft.Extensions.AI;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -27,12 +28,13 @@ internal static class StreamingEndpoints
     /// </summary>
     internal static void Map(
         IEndpointRouteBuilder endpoints,
-        IAgentStreamingService streaming)
+        IAgentStreamingService streaming,
+        ProviderComposition? providerComposition)
     {
         // POST /agents/{agentId}/sessions/{sid}/threads/{bid}/inputs - Submit runtime-owned input
         endpoints.MapPost("/agents/{agentId}/sessions/{sid}/threads/{bid}/inputs",
                 async (string agentId, string sid, string bid, JsonElement request, CancellationToken ct) =>
-                    await SubmitInput(RouteValue.Decode(agentId), RouteValue.Decode(sid), RouteValue.Decode(bid), request, streaming, ct))
+                    await SubmitInput(RouteValue.Decode(agentId), RouteValue.Decode(sid), RouteValue.Decode(bid), request, streaming, providerComposition, ct))
             .WithName("SubmitAgentInput")
             .WithSummary("Submit an agent input event to the runtime");
 
@@ -63,9 +65,10 @@ internal static class StreamingEndpoints
         string bid,
         JsonElement request,
         IAgentStreamingService streaming,
+        ProviderComposition? providerComposition,
         CancellationToken ct = default)
     {
-        var input = ParseInputEvent(request);
+        var input = ParseInputEvent(request, providerComposition);
         if (input == null)
             return TypedResults.BadRequest();
 
@@ -103,12 +106,16 @@ internal static class StreamingEndpoints
         return TypedResults.Empty;
     }
 
-    private static AgentInputEvent? ParseInputEvent(JsonElement request)
+    private static AgentInputEvent? ParseInputEvent(
+        JsonElement request,
+        ProviderComposition? providerComposition)
     {
         if (request.ValueKind != JsonValueKind.Object)
             return null;
 
-        var envelope = AgentEventSerializer.FromJson(request.GetRawText()) as AgentInputEvent;
+        var envelope = providerComposition is null
+            ? AgentEventSerializer.FromInputJson(request.GetRawText())
+            : AgentEventSerializer.FromInputJson(request.GetRawText(), providerComposition);
         if (envelope != null)
             return envelope;
         if (TryGetPropertyIgnoreCase(request, "type", out _))

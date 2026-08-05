@@ -160,10 +160,10 @@ public static partial class NativeExports
             string? configJson = Marshal.PtrToStringUTF8(configJsonPtr);
             if (string.IsNullOrEmpty(configJson)) return IntPtr.Zero;
 
-            var agentConfig = JsonSerializer.Deserialize<AgentConfig>(configJson, HPDFFIJsonContext.Default.AgentConfig);
-            if (agentConfig == null) return IntPtr.Zero;
+            var providerComposition = HPD.Agent.Providers.Generated.GeneratedProviderComposition.Composition;
+            var agentConfig = DeserializeAgentConfig(configJson);
 
-            var builder = new AgentBuilder(agentConfig);
+            var builder = new AgentBuilder(agentConfig, providerComposition);
 
             // Parse and add native ToolHarnesses (Rust, C++, Zig, Go, etc.)
             string? ToolHarnessesJson = Marshal.PtrToStringUTF8(ToolHarnessesJsonPtr);
@@ -222,6 +222,12 @@ public static partial class NativeExports
             return IntPtr.Zero;
         }
     }
+
+    internal static AgentConfig DeserializeAgentConfig(string configJson)
+        => HPD.Agent.Serialization.HpdAgentConfigSerializer.Deserialize(
+            configJson,
+            HPD.Agent.Providers.Generated.GeneratedProviderComposition.Composition)
+            ?? throw new JsonException("Agent configuration was null.");
 
 
     /// <summary>

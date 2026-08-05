@@ -8,7 +8,7 @@ namespace HPD.Auth.Core.Events;
 /// or sending login-from-new-device alerts.
 /// IP address and User-Agent are carried on <see cref="AuthEvent.AuthContext"/>.
 /// </summary>
-public record UserLoggedInEvent : AuthEvent
+public sealed record UserLoggedInEvent : AuthEvent
 {
     public required Guid UserId { get; init; }
 

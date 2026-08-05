@@ -15,9 +15,9 @@ namespace HPD.Agent.Providers.DashScope;
 /// <remarks>
 /// Generic runtime settings such as model, temperature, top-p, top-k, max output tokens,
 /// seed, stop sequences, tools, response format, and reasoning belong on
-/// <see cref="ChatRunConfig"/> or <see cref="ChatOptions"/>.
+/// <see cref="ChatClientConfig"/> or <see cref="ChatOptions"/>.
 /// </remarks>
-public sealed class DashScopeChatRequestOptions
+public sealed class DashScopeChatRequestOptions : IChatRequestOptions
 {
     /// <summary>
     /// Overrides whether the request uses DashScope multimodal generation endpoints.
@@ -124,19 +124,10 @@ public sealed class DashScopeChatRequestOptions
     /// <summary>
     /// Applies these options to a serializable HPD chat run configuration.
     /// </summary>
-    public void ApplyTo(ChatRunConfig chat)
+    public void ApplyTo(ChatClientConfig chat)
     {
         ArgumentNullException.ThrowIfNull(chat);
-
-        var properties = ToAdditionalProperties();
-        if (properties.Count == 0)
-            return;
-
-        chat.AdditionalProperties ??= new Dictionary<string, object>();
-        foreach (var property in properties)
-        {
-            chat.AdditionalProperties[property.Key] = property.Value;
-        }
+        chat.ProviderOptions = this;
     }
 
     /// <summary>
@@ -282,8 +273,8 @@ public enum DashScopeCacheControlType
 
 public static class DashScopeChatRequestOptionExtensions
 {
-    public static ChatRunConfig UseDashScopeChatRequestOptions(
-        this ChatRunConfig chat,
+    public static ChatClientConfig UseDashScopeChatRequestOptions(
+        this ChatClientConfig chat,
         DashScopeChatRequestOptions options)
     {
         ArgumentNullException.ThrowIfNull(chat);

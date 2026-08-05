@@ -3,7 +3,7 @@ using HPD.Graph.Abstractions.Channels;
 using HPD.Graph.Abstractions.Context;
 using HPD.Graph.Abstractions.State;
 using HPD.Graph.Core.Context;
-using Microsoft.Extensions.AI;
+using HPD.Agent.Middleware;
 using GraphDefinition = HPD.Graph.Abstractions.Graph.Graph;
 
 namespace HPD.MultiAgent;
@@ -36,11 +36,7 @@ public class AgentGraphContext : GraphContext
         ? input as string
         : null;
 
-    /// <summary>
-    /// Fallback chat client for agents that don't have their own provider configured.
-    /// Inherited from parent agent when workflow is invoked as a tool.
-    /// </summary>
-    public IChatClient? FallbackChatClient { get; set; }
+    internal FunctionExecutionContext? ParentExecutionContext { get; set; }
 
     /// <summary>
     /// Additional context data available to all agents in the workflow.
@@ -125,7 +121,8 @@ public class AgentGraphContext : GraphContext
         {
             CurrentLayerIndex = CurrentLayerIndex,
             // CRITICAL: Share the event coordinator so events from parallel nodes are streamed
-            EventCoordinator = EventCoordinator
+            EventCoordinator = EventCoordinator,
+            ParentExecutionContext = ParentExecutionContext
         };
 
         // Copy completed nodes

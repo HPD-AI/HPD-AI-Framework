@@ -97,7 +97,7 @@ public enum AzureAIOpenAIServiceVersion
 /// <summary>
 /// Azure AI Projects-specific provider configuration.
 /// </summary>
-public class AzureAIProviderConfig
+public class AzureAIProviderConfig : global::HPD.Agent.IProviderConfig
 {
     /// <summary>
     /// Authentication strategy used by the provider.

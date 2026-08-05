@@ -44,16 +44,23 @@ namespace HPD.Agent.Providers.Bedrock;
 /// 3. AWS profile from credentials file
 /// </para>
 /// </remarks>
+[HpdProvider("bedrock", "AWS Bedrock")]
+[HpdProviderFamily(ProviderClientFamily.Chat)]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(BedrockProviderConfig), typeof(BedrockJsonContext))]
+[HpdProviderSecretAlias("bedrock:AccessKeyId", "AWS_ACCESS_KEY_ID")]
+[HpdProviderSecretAlias("bedrock:SecretAccessKey", "AWS_SECRET_ACCESS_KEY")]
+[HpdProviderSecretAlias("bedrock:SessionToken", "AWS_SESSION_TOKEN")]
+[HpdProviderSecretAlias("bedrock:Region", "AWS_REGION", "AWS_DEFAULT_REGION")]
 internal class BedrockProvider : IChatClientProvider
 {
     public string ProviderKey => "bedrock";
     public string DisplayName => "AWS Bedrock";
 
     [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Provider properly registers AOT-compatible deserializer in provider module")]
-    public IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null)
+    public async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
     {
         // Get typed config
-        var bedrockConfig = config.GetProviderConfig<BedrockProviderConfig>();
+        var bedrockConfig = config.ProviderConfig as BedrockProviderConfig;
 
         var secrets = services?.GetService<ISecretResolver>();
 
@@ -300,7 +307,7 @@ internal class BedrockProvider : IChatClientProvider
     }
 
     [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Provider properly registers AOT-compatible deserializer in provider module")]
-    public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family)
+    public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
     {
         var errors = new List<string>();
 
@@ -308,7 +315,7 @@ internal class BedrockProvider : IChatClientProvider
             errors.Add("Model name (model ID) is required for AWS Bedrock");
 
         // Get typed config for validation
-        var bedrockConfig = config.GetProviderConfig<BedrockProviderConfig>();
+        var bedrockConfig = config.ProviderConfig as BedrockProviderConfig;
 
         // Validate Bedrock-specific config if present
         if (bedrockConfig != null)

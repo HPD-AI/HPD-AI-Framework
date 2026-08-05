@@ -6,7 +6,7 @@ public abstract class RecordStorePatchReplaceConformanceTests<TFixture> : Record
     [Fact]
     public async Task PatchMergesTopLevelFieldsAndStoresJsonNullWhenSupported()
     {
-        if (!Capabilities.Crud.Create || !Capabilities.Crud.Patch)
+        if (!Capabilities.Mutation.Create || !Capabilities.Mutation.Patch)
         {
             return;
         }
@@ -32,7 +32,7 @@ public abstract class RecordStorePatchReplaceConformanceTests<TFixture> : Record
     [Fact]
     public async Task ReplaceIsFullReplacementWhenSupported()
     {
-        if (!Capabilities.Crud.Create || !Capabilities.Crud.Replace)
+        if (!Capabilities.Mutation.Create || !Capabilities.Mutation.Replace)
         {
             return;
         }
@@ -53,7 +53,7 @@ public abstract class RecordStorePatchReplaceConformanceTests<TFixture> : Record
     [Fact]
     public async Task MissingAndInvalidMutationRequestsFailWithoutMutation()
     {
-        if (!Capabilities.Crud.Create)
+        if (!Capabilities.Mutation.Create)
         {
             return;
         }
@@ -61,7 +61,7 @@ public abstract class RecordStorePatchReplaceConformanceTests<TFixture> : Record
         var store = await CreateStoreAsync();
         var unaffected = await CreateRecordAsync(store, "unaffected", ("title", "keep"));
 
-        if (Capabilities.Crud.Patch)
+        if (Capabilities.Mutation.Patch)
         {
             var missingPatch = await store.PatchAsync(
                 Collection,
@@ -78,7 +78,7 @@ public abstract class RecordStorePatchReplaceConformanceTests<TFixture> : Record
             RecordStoreConformanceAssertions.Failure(emptyPatch, OperationStatus.ValidationFailed, OperationStatus.Unsupported);
         }
 
-        if (Capabilities.Crud.Replace)
+        if (Capabilities.Mutation.Replace)
         {
             var missingReplace = await store.ReplaceAsync(
                 Collection,
@@ -88,7 +88,7 @@ public abstract class RecordStorePatchReplaceConformanceTests<TFixture> : Record
             RecordStoreConformanceAssertions.Failure(missingReplace, OperationStatus.NotFound);
         }
 
-        if (Capabilities.Crud.Get)
+        if (Capabilities.Read.Get)
         {
             var get = await store.GetAsync(Collection, unaffected.Id, Operation(BaseOperationKind.Get, unaffected.Id));
             RecordStoreConformanceAssertions.Success(get, OperationStatus.Ok);

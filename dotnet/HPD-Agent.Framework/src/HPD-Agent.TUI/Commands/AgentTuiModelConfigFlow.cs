@@ -231,7 +231,7 @@ public static class AgentTuiModelConfigFlow
             return model;
         }
 
-        var chat = CloneChat(model.Chat) ?? new ChatRunConfig();
+        var chat = CloneChat(model.Chat) ?? new ChatClientConfig();
         chat.Reasoning = new ReasoningOptions
         {
             Effort = effort.Value.Effort
@@ -244,7 +244,7 @@ public static class AgentTuiModelConfigFlow
         AgentTuiSelectedModel model,
         CancellationToken cancellationToken)
     {
-        var chat = CloneChat(model.Chat) ?? new ChatRunConfig();
+        var chat = CloneChat(model.Chat) ?? new ChatClientConfig();
         chat.Temperature = await ReadDoubleAsync(
                 context,
                 "Temperature",
@@ -262,7 +262,7 @@ public static class AgentTuiModelConfigFlow
         CancellationToken cancellationToken)
     {
         var max = model.Capabilities?.OutputTokenLimit;
-        var chat = CloneChat(model.Chat) ?? new ChatRunConfig();
+        var chat = CloneChat(model.Chat) ?? new ChatClientConfig();
         chat.MaxOutputTokens = await ReadIntAsync(
                 context,
                 max is > 0 ? $"Max output tokens (max {max.Value})" : "Max output tokens",
@@ -281,11 +281,11 @@ public static class AgentTuiModelConfigFlow
         }
         || model.Capabilities?.OutputTokenLimit is > 0;
 
-    private static ChatRunConfig WithReasoningEffort(
-        ChatRunConfig? source,
+    private static ChatClientConfig WithReasoningEffort(
+        ChatClientConfig? source,
         ReasoningEffort? effort)
     {
-        var chat = CloneChat(source) ?? new ChatRunConfig();
+        var chat = CloneChat(source) ?? new ChatClientConfig();
         chat.Reasoning = new ReasoningOptions
         {
             Effort = effort
@@ -363,26 +363,10 @@ public static class AgentTuiModelConfigFlow
         }
     }
 
-    private static ChatRunConfig? CloneChat(ChatRunConfig? source)
+    private static ChatClientConfig? CloneChat(ChatClientConfig? source)
         => source is null
             ? null
-            : new ChatRunConfig
-            {
-                Temperature = source.Temperature,
-                TopP = source.TopP,
-                TopK = source.TopK,
-                MaxOutputTokens = source.MaxOutputTokens,
-                FrequencyPenalty = source.FrequencyPenalty,
-                PresencePenalty = source.PresencePenalty,
-                Seed = source.Seed,
-                ModelId = source.ModelId,
-                StopSequences = source.StopSequences?.ToArray(),
-                AdditionalProperties = source.AdditionalProperties is null
-                    ? null
-                    : new Dictionary<string, object>(source.AdditionalProperties),
-                Reasoning = source.Reasoning?.Clone(),
-                ResponseFormat = source.ResponseFormat
-            };
+            : (ChatClientConfig)ProviderClientConfigResolver.Clone(source);
 
     private sealed record ModelConfigChoice(
         string Kind,

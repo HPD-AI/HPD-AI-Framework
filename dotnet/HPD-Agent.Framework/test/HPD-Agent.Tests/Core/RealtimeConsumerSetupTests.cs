@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using HPD.Agent.Providers;
 using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.Tests.Core;
@@ -25,7 +26,6 @@ public sealed class RealtimeConsumerSetupTests
         var store = new InMemorySessionStore();
         var agent = await AgentBuilder
             .Create()
-            .WithDeferredProvider()
             .WithSessionStore(store)
             .BuildAsync();
 
@@ -49,8 +49,17 @@ public sealed class RealtimeConsumerSetupTests
                     ThreadId = "main",
                     RunConfig = new AgentRunConfig
                     {
-                        ModelTransport = AgentModelTransportMode.Realtime,
-                        OverrideRealtimeClient = new ConsumerRealtimeClient(realtimeSession)
+                        Clients = new AgentClientsConfig
+                        {
+                            Transport = AgentModelTransportMode.Realtime,
+                            Realtime = new RealtimeClientConfig
+                            {
+                                Override = new ClientOverride<IRealtimeClient>
+                                {
+                                    Client = new ConsumerRealtimeClient(realtimeSession)
+                                }
+                            }
+                        }
                     }
                 });
         }

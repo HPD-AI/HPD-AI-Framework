@@ -1,4 +1,4 @@
-namespace HPD.Base.AspNetCore.Results;
+namespace HPD.Base.AspNetCore;
 
 /// <summary>
 /// Carries HTTP-specific result mapping hints for HPD.BASE endpoint responses.

@@ -9,7 +9,7 @@ namespace HPD.Agent.Tests.Serialization;
 
 public sealed class AgentConfigSerializationTests
 {
-    private sealed class ProviderTestOptions
+    private sealed class ProviderTestOptions : IProviderConfig
     {
         public int budget { get; set; }
         public bool enabled { get; set; }
@@ -114,21 +114,36 @@ public sealed class AgentConfigSerializationTests
     }
 
     [Fact]
-    public void ProviderOptions_ObjectFeedsRegisteredProviderDeserializer()
+    public void Deserialize_ProviderPayloadWithoutComposition_FailsExplicitly()
     {
-        var providerKey = $"provider-options-{Guid.NewGuid():N}";
-        ProviderDiscovery.RegisterProviderConfigType<ProviderTestOptions>(
-            providerKey,
-            json => JsonSerializer.Deserialize<ProviderTestOptions>(json),
-            config => JsonSerializer.Serialize(config));
-
-        var config = new ClientProviderConfig
+        var json = """
         {
-            ProviderKey = providerKey,
-            ProviderOptions = JsonDocument.Parse("""{"budget":512,"enabled":true}""").RootElement.Clone()
+          "clients": {
+            "chat": {
+              "providerKey": "openai",
+              "providerOptions": { "serviceTier": "auto" }
+            }
+          }
+        }
+        """;
+
+        var exception = Assert.Throws<AgentRunConfigurationException>(
+            () => HpdAgentConfigSerializer.Deserialize(json));
+
+        exception.Code.Should().Be("ProviderCompositionNotInstalled");
+        exception.Path.Should().Be("clients.chat");
+    }
+
+    [Fact]
+    public void ProviderConfig_IsStoredAsTypedPayload()
+    {
+        var config = new ProviderClientConfig
+        {
+            ProviderKey = "provider-options",
+            ProviderConfig = new ProviderTestOptions { budget = 512, enabled = true }
         };
 
-        var options = config.GetProviderConfig<ProviderTestOptions>();
+        var options = config.ProviderConfig as ProviderTestOptions;
 
         options.Should().NotBeNull();
         options!.budget.Should().Be(512);
@@ -136,7 +151,7 @@ public sealed class AgentConfigSerializationTests
     }
 
     [Fact]
-    public void ProviderOptions_YamlObjectMergesWithOverrides()
+    public void LegacyProviderMapAndConstructionOptions_AreRejected()
     {
         var path = Path.Combine(Path.GetTempPath(), $"hpd-agent-options-{Guid.NewGuid():N}.yaml");
         File.WriteAllText(path, """
@@ -145,30 +160,22 @@ public sealed class AgentConfigSerializationTests
           providers:
             openai:
               providerKey: openai
-              providerOptions:
+              constructionOptions:
                 organizationId: org_1
                 projectId: proj_agent
           chat:
             providerKey: openai
             modelName: gpt-agent
-            providerOptions:
+            constructionOptions:
               projectId: proj_chat
               reasoningEffort: medium
         """);
 
         try
         {
-            var config = HpdAgentConfigSerializer.ReadFile(path);
+            var act = () => HpdAgentConfigSerializer.ReadFile(path);
 
-            var resolved = config!.ResolveClientConfig(ProviderClientFamily.Chat);
-
-            resolved.Should().NotBeNull();
-            using var json = JsonDocument.Parse(resolved!.GetProviderOptionsRawJson()!);
-            var root = json.RootElement;
-            root.GetProperty("organizationId").GetString().Should().Be("org_1");
-            root.GetProperty("projectId").GetString().Should().Be("proj_chat");
-            root.GetProperty("reasoningEffort").GetString().Should().Be("medium");
-            resolved.ProviderOptions.Should().NotBeNull();
+            act.Should().Throw<JsonException>();
         }
         finally
         {

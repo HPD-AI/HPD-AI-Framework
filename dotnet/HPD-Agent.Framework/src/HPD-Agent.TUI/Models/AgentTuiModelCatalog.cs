@@ -106,7 +106,7 @@ public sealed class AgentTuiModelSelectionState
         string modelId,
         string? displayName = null,
         AgentTuiModelCapabilities? capabilities = null,
-        ChatRunConfig? chat = null)
+        ChatClientConfig? chat = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(providerKey);
         ArgumentException.ThrowIfNullOrWhiteSpace(modelId);
@@ -152,31 +152,24 @@ public sealed class AgentTuiModelSelectionState
             ? null
             : new AgentRunConfig
             {
-                ProviderKey = Current.ProviderKey,
-                ModelId = Current.ModelId,
-                Chat = CloneChat(Current.Chat)
+                Clients = new AgentClientsConfig
+                {
+                    Chat = CreateChatSelection(Current)
+                }
             };
 
-    private static ChatRunConfig? CloneChat(ChatRunConfig? source)
+    private static ChatClientConfig CreateChatSelection(AgentTuiSelectedModel selection)
+    {
+        var config = CloneChat(selection.Chat) ?? new ChatClientConfig();
+        config.ProviderKey = selection.ProviderKey;
+        config.ModelName = selection.ModelId;
+        return config;
+    }
+
+    private static ChatClientConfig? CloneChat(ChatClientConfig? source)
         => source is null
             ? null
-            : new ChatRunConfig
-            {
-                Temperature = source.Temperature,
-                TopP = source.TopP,
-                TopK = source.TopK,
-                MaxOutputTokens = source.MaxOutputTokens,
-                FrequencyPenalty = source.FrequencyPenalty,
-                PresencePenalty = source.PresencePenalty,
-                Seed = source.Seed,
-                ModelId = source.ModelId,
-                StopSequences = source.StopSequences?.ToArray(),
-                AdditionalProperties = source.AdditionalProperties is null
-                    ? null
-                    : new Dictionary<string, object>(source.AdditionalProperties),
-                Reasoning = source.Reasoning?.Clone(),
-                ResponseFormat = source.ResponseFormat
-            };
+            : (ChatClientConfig)ProviderClientConfigResolver.Clone(source);
 }
 
 public sealed record AgentTuiSelectedModel(
@@ -184,4 +177,4 @@ public sealed record AgentTuiSelectedModel(
     string ModelId,
     string? DisplayName = null,
     AgentTuiModelCapabilities? Capabilities = null,
-    ChatRunConfig? Chat = null);
+    ChatClientConfig? Chat = null);

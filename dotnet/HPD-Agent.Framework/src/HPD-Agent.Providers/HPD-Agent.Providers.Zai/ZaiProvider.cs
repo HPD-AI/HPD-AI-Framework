@@ -5,6 +5,11 @@ using System.Collections.Generic;
 
 namespace HPD.Agent.Providers.Zai;
 
+[HpdProvider("zai", "Z.AI")]
+[HpdProviderFamily(ProviderClientFamily.Chat)]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(ZaiProviderConfig), typeof(ZaiJsonContext))]
+[HpdProviderSecretAlias("zai:ApiKey", "ZAI_API_KEY", "Z_AI_API_KEY", "BIGMODEL_API_KEY")]
+[HpdProviderSecretAlias("zai:Endpoint", "ZAI_ENDPOINT", "ZAI_BASE_URL", "Z_AI_ENDPOINT", "Z_AI_BASE_URL", "BIGMODEL_ENDPOINT", "BIGMODEL_BASE_URL")]
 internal sealed class ZaiProvider : OpenAICompatibleChatProviderBase<ZaiProviderConfig>
 {
     internal static readonly Uri DefaultEndpoint = new("https://api.z.ai/api/paas/v4/");

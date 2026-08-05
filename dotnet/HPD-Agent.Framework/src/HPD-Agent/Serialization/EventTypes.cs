@@ -198,7 +198,6 @@ public static partial class EventTypes
         public const string FUNCTION_RETRY = "FUNCTION_RETRY";
         public const string MODEL_CALL_RETRY = "MODEL_CALL_RETRY";
         public const string DELTA_SENDING_ACTIVATED = "DELTA_SENDING_ACTIVATED";
-        public const string PLAN_MODE_ACTIVATED = "PLAN_MODE_ACTIVATED";
         public const string PLAN_UPDATED = "PLAN_UPDATED";
         public const string NESTED_AGENT_INVOKED = "NESTED_AGENT_INVOKED";
         public const string DOCUMENT_PROCESSED = "DOCUMENT_PROCESSED";

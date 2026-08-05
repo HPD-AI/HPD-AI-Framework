@@ -40,12 +40,17 @@ namespace HPD.Agent.Providers.AzureAI;
 /// 2. API Key - For endpoints that support key-based authentication
 /// </para>
 /// </remarks>
+[HpdProvider("azure-ai", "Azure AI (Projects)")]
+[HpdProviderFamily(ProviderClientFamily.Chat)]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(AzureAIProviderConfig), typeof(AzureAIJsonContext))]
+[HpdProviderSecretAlias("azure-ai:ApiKey", "AZURE_AI_API_KEY")]
+[HpdProviderSecretAlias("azure-ai:Endpoint", "AZURE_AI_ENDPOINT")]
 internal class AzureAIProvider : IChatClientProvider
 {
     public string ProviderKey => "azure-ai";
     public string DisplayName => "Azure AI (Projects)";
 
-    public IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null)
+    public async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
     {
         // Get secret resolver from services
         var secrets = services?.GetService<ISecretResolver>();
@@ -57,8 +62,7 @@ internal class AzureAIProvider : IChatClientProvider
         }
 
         // Resolve required endpoint using ISecretResolver (Azure requires endpoint)
-        var endpointTask = secrets.RequireAsync("azure-ai:Endpoint", "Azure AI", config.Endpoint, CancellationToken.None);
-        string endpoint = endpointTask.GetAwaiter().GetResult();
+        string endpoint = await secrets.RequireAsync("azure-ai:Endpoint", "Azure AI", config.Endpoint, cancellationToken).ConfigureAwait(false);
 
         string? modelName = config.ModelName;
         if (string.IsNullOrEmpty(modelName))
@@ -67,7 +71,7 @@ internal class AzureAIProvider : IChatClientProvider
         }
 
         // Get typed config
-        var azureConfig = config.GetProviderConfig<AzureAIProviderConfig>();
+        var azureConfig = config.ProviderConfig as AzureAIProviderConfig;
 
         var authMode = azureConfig?.AuthMode ?? AzureAIAuthMode.Auto;
         string? apiKey = authMode == AzureAIAuthMode.DefaultAzureCredential
@@ -289,14 +293,14 @@ internal class AzureAIProvider : IChatClientProvider
         };
     }
 
-    public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family)
+    public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
     {
         var errors = new List<string>();
 
         if (string.IsNullOrEmpty(config.ModelName))
             errors.Add("Model name (deployment name) is required for Azure AI");
 
-        var azureConfig = config.GetProviderConfig<AzureAIProviderConfig>();
+        var azureConfig = config.ProviderConfig as AzureAIProviderConfig;
         if (azureConfig is not null)
         {
             if (!Enum.IsDefined(azureConfig.AuthMode))

@@ -5,7 +5,7 @@ namespace HPD.Agent.Providers.Audio.Meai;
 
 public sealed class InputMediaSpeechToTextProviderOptions
 {
-    public ClientProviderConfig ProviderConfig { get; set; } = new();
+    public ProviderClientConfig ProviderConfig { get; set; } = new();
 
     public string ProviderKey { get; set; } = string.Empty;
 

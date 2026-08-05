@@ -62,11 +62,11 @@ internal sealed class AgentRuntimeFunctionExecutor : IRuntimeFunctionExecutor
                 {
                     AgentConfig = _config ?? throw new InvalidOperationException("Agent configuration is not available."),
                     RunConfig = effectiveRunConfig,
-                    AgentDefault = _defaultChatClient
+                    BuilderDefault = _defaultChatClient
                 },
                 cancellationToken).ConfigureAwait(false)
             : null;
-        var effectiveOptions = effectiveRunConfig.Chat?.MergeWith(_messageProcessor.DefaultOptions)
+        var effectiveOptions = effectiveRunConfig.Clients.Chat?.MergeWith(_messageProcessor.DefaultOptions)
             ?? _messageProcessor.DefaultOptions
             ?? new ChatOptions();
         var messages = new List<ChatMessage>();
@@ -131,9 +131,8 @@ internal sealed class AgentRuntimeFunctionExecutor : IRuntimeFunctionExecutor
     }
 
     private bool HasChatResolutionSource(AgentRunConfig runConfig)
-        => runConfig.OverrideChatClient is not null ||
-           runConfig.Clients?.GetFamilyConfig(Providers.ProviderClientFamily.Chat) is not null ||
-           runConfig.GetChatProviderOverride() is not null ||
+        => runConfig.Clients.Chat?.Override is not null ||
+           runConfig.Clients.Chat is not null ||
            _defaultChatClient is not null;
 
     private static RuntimeFunctionExecutionResult ToRuntimeResult(FunctionExecutionOutcome outcome)

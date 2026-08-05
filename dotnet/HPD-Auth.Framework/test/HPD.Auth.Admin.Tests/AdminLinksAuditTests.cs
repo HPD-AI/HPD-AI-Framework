@@ -239,8 +239,9 @@ public class AdminLinksAuditTests : IAsyncLifetime
 
         var logs = await _factory.GetAuditLogsAsync(userId: user.Id);
         logs.Should().NotBeEmpty();
-        var linkLog = logs.First(l => l.Metadata.Contains("generate_link"));
-        linkLog.Metadata.Should().Contain(dto!.HashedToken);
+        var linkLog = logs.First(l => l.Action == "admin.link.generate");
+        linkLog.Facts.Should().BeEmpty();
+        linkLog.ToString().Should().NotContain(dto!.HashedToken);
     }
 
     // ── Section 34: GET /api/admin/audit-logs ─────────────────────────────────
@@ -279,13 +280,13 @@ public class AdminLinksAuditTests : IAsyncLifetime
         await _admin.PostAsync($"/api/admin/users/{user.Id}/verify-email", null);
 
         var resp = await _admin.GetAsync(
-            $"/api/admin/audit-logs?userId={user.Id}&action={AuditActions.EmailConfirm}");
+            $"/api/admin/audit-logs?userId={user.Id}&action=admin.user.verify-email");
         var json = JsonDocument.Parse(await resp.Content.ReadAsStringAsync()).RootElement;
         json.GetProperty("count").GetInt32().Should().BeGreaterThan(0);
 
         // All returned logs should have the correct action.
         foreach (var log in json.GetProperty("logs").EnumerateArray())
-            log.GetProperty("action").GetString().Should().Be(AuditActions.EmailConfirm);
+            log.GetProperty("action").GetString().Should().Be("admin.user.verify-email");
     }
 
     // 34.4 — category filter
@@ -296,10 +297,10 @@ public class AdminLinksAuditTests : IAsyncLifetime
         await _admin.PostAsync($"/api/admin/users/{user.Id}/enable", null);
 
         var resp = await _admin.GetAsync(
-            $"/api/admin/audit-logs?userId={user.Id}&category={AuditCategories.Admin}");
+            $"/api/admin/audit-logs?userId={user.Id}&category=admin");
         var json = JsonDocument.Parse(await resp.Content.ReadAsStringAsync()).RootElement;
         foreach (var log in json.GetProperty("logs").EnumerateArray())
-            log.GetProperty("category").GetString().Should().Be(AuditCategories.Admin);
+            log.GetProperty("category").GetString().Should().Be("admin");
     }
 
     // 34.6 — date range filter from / to
@@ -342,7 +343,7 @@ public class AdminLinksAuditTests : IAsyncLifetime
         var resp = await _admin.GetAsync("/api/admin/audit-logs?per_page=1000");
         resp.StatusCode.Should().Be(HttpStatusCode.OK);
         var json = JsonDocument.Parse(await resp.Content.ReadAsStringAsync()).RootElement;
-        json.GetProperty("perPage").GetInt32().Should().Be(500);
+        json.GetProperty("perPage").GetInt32().Should().Be(200);
     }
 
     // ── Section 35: GET /api/admin/users/{id}/audit-logs ─────────────────────
@@ -388,9 +389,9 @@ public class AdminLinksAuditTests : IAsyncLifetime
         await _admin.PostAsync($"/api/admin/users/{user.Id}/enable", null);
 
         var resp = await _admin.GetAsync(
-            $"/api/admin/users/{user.Id}/audit-logs?action={AuditActions.EmailConfirm}");
+            $"/api/admin/users/{user.Id}/audit-logs?action=admin.user.verify-email");
         var json = JsonDocument.Parse(await resp.Content.ReadAsStringAsync()).RootElement;
         var logs = json.GetProperty("logs").EnumerateArray().ToList();
-        logs.Should().OnlyContain(l => l.GetProperty("action").GetString() == AuditActions.EmailConfirm);
+        logs.Should().OnlyContain(l => l.GetProperty("action").GetString() == "admin.user.verify-email");
     }
 }

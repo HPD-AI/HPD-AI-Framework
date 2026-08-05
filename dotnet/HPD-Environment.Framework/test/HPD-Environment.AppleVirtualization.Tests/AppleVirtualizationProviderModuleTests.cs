@@ -37,6 +37,11 @@ public sealed class AppleVirtualizationProviderModuleTests
         descriptor.ContractKinds.Should().HaveFlag(ProviderContractKind.ServiceDiscovery);
         descriptor.ContractKinds.Should().HaveFlag(ProviderContractKind.EndpointPublication);
         descriptor.ContractKinds.Should().HaveFlag(ProviderContractKind.AuthorityBinding);
+        descriptor.ContractKinds.Should().HaveFlag(ProviderContractKind.StoragePool);
+        descriptor.ContractKinds.Should().HaveFlag(ProviderContractKind.DurableVolume);
+        descriptor.ContractKinds.Should().HaveFlag(ProviderContractKind.StorageReservation);
+        descriptor.ContractKinds.Should().HaveFlag(ProviderContractKind.VolumeBackup);
+        descriptor.ContractKinds.Should().HaveFlag(ProviderContractKind.VolumeRestore);
         descriptor.ContractKinds.Should().NotHaveFlag(ProviderContractKind.EngineControlPlane);
 
         ProviderActivationModel activation = descriptor.ActivationModels.Single();
@@ -55,6 +60,11 @@ public sealed class AppleVirtualizationProviderModuleTests
         registry.ServiceDiscoveryProviders.Should().ContainSingle();
         registry.EndpointPublicationProviders.Should().ContainSingle();
         registry.AuthorityBindingProviders.Should().ContainSingle();
+        registry.StoragePoolProviders.Should().ContainSingle();
+        registry.DurableVolumeProviders.Should().ContainSingle();
+        registry.StorageReservationProviders.Should().ContainSingle();
+        registry.VolumeBackupProviders.Should().ContainSingle();
+        registry.VolumeRestoreProviders.Should().ContainSingle();
         registry.ArtifactProviders.Should().BeEmpty();
         registry.RootFilesystemProviders.Should().BeEmpty();
         registry.EngineControlPlaneProviders.Should().BeEmpty();
@@ -333,7 +343,7 @@ public sealed class AppleVirtualizationProviderModuleTests
                 KernelPath = "/opt/hpd/guests/applevz-linux-arm64/vmlinuz",
                 InitrdPath = "/opt/hpd/guests/applevz-linux-arm64/initrd.img",
                 KernelCommandLine = "console=hvc0 root=/dev/vda1 rw",
-                DiskImagePath = "/opt/hpd/guests/applevz-linux-arm64/root.raw",
+                DiskAttachments = AppleVirtualizationTestDiskSet.Create("/opt/hpd/guests/applevz-linux-arm64/root.raw"),
                 SerialLogPath = "/var/log/hpd/apple-vz/runtime-host.serial.log",
                 Architecture = AppleVirtualizationGuestArchitectureExpectation.Arm64,
                 ExpectVirtiofsSupport = true,
@@ -388,7 +398,7 @@ public sealed class AppleVirtualizationProviderModuleTests
         roundTrip.GuestImage.KernelPath.Should().Be(options.GuestImage.KernelPath);
         roundTrip.GuestImage.InitrdPath.Should().Be(options.GuestImage.InitrdPath);
         roundTrip.GuestImage.KernelCommandLine.Should().Be(options.GuestImage.KernelCommandLine);
-        roundTrip.GuestImage.DiskImagePath.Should().Be(options.GuestImage.DiskImagePath);
+        roundTrip.GuestImage.DiskAttachments.Should().BeEquivalentTo(options.GuestImage.DiskAttachments);
         roundTrip.GuestImage.SerialLogPath.Should().Be(options.GuestImage.SerialLogPath);
         roundTrip.GuestImage.Architecture.Should().Be(AppleVirtualizationGuestArchitectureExpectation.Arm64);
         roundTrip.GuestImage.ExpectVirtiofsSupport.Should().BeTrue();
@@ -424,13 +434,13 @@ public sealed class AppleVirtualizationProviderModuleTests
         new AppleVirtualizationGuestImageOptions
         {
             BootLoader = AppleVirtualizationGuestBootLoaderKind.LinuxBootLoader,
-            DiskImagePath = "/opt/hpd/guests/applevz-linux-arm64/root.raw",
+            DiskAttachments = AppleVirtualizationTestDiskSet.Create("/opt/hpd/guests/applevz-linux-arm64/root.raw"),
         }.GetConfigurationState().Should().Be(AppleVirtualizationGuestImageConfigurationState.MissingRequiredBootInputs);
 
         new AppleVirtualizationGuestImageOptions
         {
             BootLoader = AppleVirtualizationGuestBootLoaderKind.Efi,
-            DiskImagePath = "/opt/hpd/guests/applevz-linux-arm64/root.raw",
+            DiskAttachments = AppleVirtualizationTestDiskSet.Create("/opt/hpd/guests/applevz-linux-arm64/root.raw"),
         }.GetConfigurationState().Should().Be(AppleVirtualizationGuestImageConfigurationState.MissingRequiredBootInputs);
     }
 

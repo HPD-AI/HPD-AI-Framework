@@ -1,7 +1,8 @@
-namespace HPD.Base.AspNetCore.EndpointMapping;
+namespace HPD.Base.AspNetCore;
 
 internal static class EndpointRouteBuilderValidation
 {
+    /// <summary>Executes the validate operation.</summary>
     public static void Validate(HPDBaseEndpointOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);

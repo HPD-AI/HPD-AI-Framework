@@ -23,6 +23,7 @@ public sealed class AppleVirtualizationNetworkProviderTests
         NetworkStatus status = await provider.EnsureNetworkAsync(
             Metadata<Network>("network-1", "network"),
             DefaultNetworkSpec(),
+            realizationContext: null,
             observed: null);
 
         status.Phase.Should().Be(ResourcePhase.Ready);
@@ -52,6 +53,7 @@ public sealed class AppleVirtualizationNetworkProviderTests
                 AddressFamilies = AddressFamilyRequirement.IPv6Required,
                 CidrHints = [new IpCidr(new IpAddressValue(NetworkAddressFamily.IPv4, 0, 0x0a000000), 24)],
             },
+            realizationContext: null,
             observed: null);
 
         status.Phase.Should().Be(ResourcePhase.Failed);

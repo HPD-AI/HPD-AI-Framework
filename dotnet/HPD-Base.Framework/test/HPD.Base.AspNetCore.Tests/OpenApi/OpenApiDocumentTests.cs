@@ -82,14 +82,44 @@ public sealed class OpenApiDocumentTests
         create.GetProperty("x-hpd-required-feature-ids").EnumerateArray()
             .Select(featureId => featureId.GetString())
             .Should().Contain("records.create");
-        create.GetProperty("parameters").EnumerateArray()
+        var createParameters = create.GetProperty("parameters").EnumerateArray()
             .Select(parameter => parameter.GetProperty("name").GetString())
-            .Should().Contain(["collectionId", BaseHttpHeaders.IdempotencyKey, BaseHttpHeaders.CorrelationId]);
+            .ToArray();
+        createParameters.Should().Contain(["collectionId", BaseHttpHeaders.CorrelationId]);
+        createParameters.Should().NotContain(BaseHttpHeaders.IdempotencyKey);
 
         var list = Operation(publicDoc, "/base/collections/{collectionId}/records", "get");
         list.GetProperty("parameters").EnumerateArray()
             .Select(parameter => parameter.GetProperty("name").GetString())
-            .Should().Contain(["collectionId", "filter", "where[field]", "sort", "nulls[field]", "page", "perPage", "offset", "limit", "cursor", "cursorDir", "select", "include", "count", "dependencyToken", "ext[module.name]"]);
+            .Should().Contain(["collectionId", "filter", "where[field]", "sort", "nulls[field]", "page", "perPage", "offset", "limit", "cursor", "cursorDir", "select", "include", "count", "ext[module.name]"]);
+
+        var batch = Operation(publicDoc, "/base/records/batch", "post");
+        batch.GetProperty("operationId").GetString().Should().Be(BaseRouteIds.RecordsBatch);
+        batch.GetProperty("x-hpd-request-dto-id").GetString().Should().Be(BaseDtoIds.BaseRecordBatchRequest);
+        batch.GetProperty("x-hpd-response-dto-id").GetString().Should().Be(BaseDtoIds.BaseRecordBatchResult);
+        batch.GetProperty("x-hpd-required-feature-ids").EnumerateArray()
+            .Select(featureId => featureId.GetString())
+            .Should().Contain(BaseFeatureIds.RecordsBatch);
+        batch.GetProperty("parameters").EnumerateArray()
+            .Select(parameter => (Name: parameter.GetProperty("name").GetString(), In: parameter.GetProperty("in").GetString()))
+            .Should().Contain((BaseHttpHeaders.IdempotencyKey, "header"));
+
+        var upsert = Operation(
+            publicDoc,
+            "/base/collections/{collectionId}/records/{id}:upsert",
+            "put");
+        upsert.GetProperty("operationId").GetString().Should().Be(BaseRouteIds.RecordsUpsert);
+        upsert.GetProperty("x-hpd-request-dto-id").GetString().Should().Be(BaseDtoIds.RecordUpsertRequest);
+        upsert.GetProperty("x-hpd-response-dto-id").GetString().Should().Be(BaseDtoIds.RecordUpsertResult);
+        upsert.GetProperty("x-hpd-required-feature-ids").EnumerateArray()
+            .Select(featureId => featureId.GetString())
+            .Should().Contain(BaseFeatureIds.RecordsUpsert);
+        var upsertResponses = upsert.GetProperty("responses");
+        upsertResponses.TryGetProperty("200", out _).Should().BeTrue();
+        upsertResponses.TryGetProperty("201", out _).Should().BeTrue();
+        upsertResponses.TryGetProperty("424", out var failedDependency).Should().BeTrue();
+        failedDependency.GetProperty("content")
+            .TryGetProperty("application/problem+json", out _).Should().BeTrue();
 
         var responses = create.GetProperty("responses");
         responses.TryGetProperty("201", out var created).Should().BeTrue();
@@ -99,6 +129,7 @@ public sealed class OpenApiDocumentTests
 
         responses.TryGetProperty("400", out var badRequest).Should().BeTrue();
         badRequest.GetProperty("content").TryGetProperty("application/problem+json", out _).Should().BeTrue();
+        responses.TryGetProperty("424", out _).Should().BeTrue();
     }
 
     [Fact]
@@ -178,8 +209,6 @@ public sealed class OpenApiDocumentTests
         allPaths.Should().NotContain(path =>
             path.Contains("graphql", StringComparison.OrdinalIgnoreCase)
             || path.Contains("files", StringComparison.OrdinalIgnoreCase)
-            || path.Contains("batch", StringComparison.OrdinalIgnoreCase)
-            || path.Contains("upsert", StringComparison.OrdinalIgnoreCase)
             || path.Contains("search", StringComparison.OrdinalIgnoreCase)
             || path.Contains("realtime", StringComparison.OrdinalIgnoreCase));
     }

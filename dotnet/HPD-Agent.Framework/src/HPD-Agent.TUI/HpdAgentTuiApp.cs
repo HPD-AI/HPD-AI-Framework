@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Collections.Concurrent;
+using System.Threading.Channels;
 using HPD.Agent.TUI.Application;
 using HPD.Agent.TUI.Commands;
 using HPD.Agent.TUI.Composition;
@@ -31,8 +33,11 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
     private AgentTuiDialogService? _dialogs;
     private CancellationTokenSource? _observeCancellation;
     private Task? _observeTask;
+    private Task? _interactionTask;
+    private Channel<AgentEvent>? _interactionQueue;
     private CancellationToken _runCancellationToken;
     private readonly HashSet<string> _handledInteractionIds = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, CancellationTokenSource> _activeInteractionCancellations = new(StringComparer.Ordinal);
     private readonly HashSet<string> _sessionTitleUpdates = new(StringComparer.Ordinal);
     private readonly HashSet<string> _completedThreadExecutionIds = new(StringComparer.Ordinal);
     private readonly Dictionary<AgentTuiRuntimeScope, PendingPromptQueue> _pendingPromptsByScope = [];
@@ -146,6 +151,9 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         AgentTuiRuntimeScope scope,
         string notice)
     {
+        foreach (var cancellation in _activeInteractionCancellations.Values)
+            cancellation.Cancel();
+        _activeInteractionCancellations.Clear();
         _appliedCursor = default;
         _initialObservedCursor = default;
         _pendingRecoveryRequests = [];
@@ -168,6 +176,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             new AgentTuiPromptContext(scope, _state.Shell),
             SubmitPrompt,
             autocomplete);
+        _state.Shell.FocusPromptAction = () => _application.SetFocus(_prompt);
         _state.Shell.Transcript.AddFinal(new TranscriptEntry(
             Id: $"scope-notice-{Guid.NewGuid():N}",
             EntryKey: null,
@@ -197,6 +206,15 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         CancellationToken cancellationToken)
     {
         _observeCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        _interactionQueue = Channel.CreateUnbounded<AgentEvent>(new UnboundedChannelOptions
+        {
+            SingleReader = true,
+            SingleWriter = false
+        });
+        foreach (var pendingRequest in _pendingRecoveryRequests)
+            _interactionQueue.Writer.TryWrite(pendingRequest);
+        _pendingRecoveryRequests = [];
+        _interactionTask = ProcessInteractionsAsync(_interactionQueue.Reader, _observeCancellation.Token);
         _observeTask = ObserveAsync(scope, _appliedCursor, _observeCancellation.Token);
     }
 
@@ -210,12 +228,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         }
 
         if (_observeCancellation is not null)
-        {
-            await _observeCancellation.CancelAsync().ConfigureAwait(false);
-            _observeCancellation.Dispose();
-            _observeCancellation = null;
-            _observeTask = null;
-        }
+            await StopObserverAsync().ConfigureAwait(false);
 
         StartObserver(scope, cancellationToken);
     }
@@ -232,10 +245,16 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         {
             await _observeTask.ConfigureAwait(false);
         }
+        if (_interactionTask is not null)
+        {
+            await _interactionTask.ConfigureAwait(false);
+        }
 
         _observeCancellation.Dispose();
         _observeCancellation = null;
         _observeTask = null;
+        _interactionTask = null;
+        _interactionQueue = null;
     }
 
     private void SubmitPrompt(ReadOnlyMemory<char> value)
@@ -500,6 +519,13 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             return false;
         }
 
+        if (key.Key == KeyCode.Tab &&
+            key.Modifiers is KeyModifiers.None or KeyModifiers.Shift &&
+            TryMoveWidgetFocus())
+        {
+            return true;
+        }
+
         if (key.Key == KeyCode.UpArrow && key.Modifiers == KeyModifiers.Alt)
         {
             var pendingPrompts = PendingPrompts(_scope);
@@ -517,6 +543,19 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                 ? "state: running"
                 : PendingPromptFooter(pendingPrompts.Count);
             RequestRender();
+            return true;
+        }
+
+        if (key.Key == KeyCode.Escape &&
+            key.Modifiers == KeyModifiers.None &&
+            _prompt is not null &&
+            !ReferenceEquals(_application.Focused, _prompt))
+        {
+            return false;
+        }
+
+        if (TryHandleActivePageInput(in key))
+        {
             return true;
         }
 
@@ -554,6 +593,58 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
 
         shortcut.Execute(new AgentTuiShortcutContext(_scope, _state.Shell, _state.Shell.Navigation, shortcut));
         return true;
+    }
+
+    private bool TryMoveWidgetFocus()
+    {
+        if (_state is null || _prompt is null)
+        {
+            return false;
+        }
+
+        if (!ReferenceEquals(_application.Focused, _prompt))
+        {
+            _application.SetFocus(_prompt);
+            return true;
+        }
+
+        if (_prompt.Controller.Autocomplete is { SuggestionCount: > 0 })
+        {
+            return false;
+        }
+
+        var widget = _state.Shell.AboveEditor.Snapshot().OfType<IFocusable>().FirstOrDefault();
+        if (widget is null)
+        {
+            return false;
+        }
+
+        _application.SetFocus(widget);
+        return true;
+    }
+
+    private bool TryHandleActivePageInput(in KeyEvent key)
+    {
+        if (_scope is null ||
+            _state is null ||
+            _dialogs?.HasOpenDialog == true ||
+            string.IsNullOrWhiteSpace(_state.Shell.Navigation.ActivePageId) ||
+            !_registry.TryFindPage(_state.Shell.Navigation.ActivePageId, out var page) ||
+            page.HandleInput is null)
+        {
+            return false;
+        }
+
+        return page.HandleInput(
+            new AgentTuiPageContext(
+                _scope,
+                _state.Shell,
+                _state.Shell.Navigation,
+                _registry,
+                page,
+                _registry.ShellChrome.DefaultTranscriptHeight,
+                _state.State),
+            key);
     }
 
     private bool TryGoBack()
@@ -877,12 +968,6 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
     {
         try
         {
-            foreach (var pendingRequest in _pendingRecoveryRequests)
-            {
-                await HandleInteractionAsync(pendingRequest, cancellationToken).ConfigureAwait(false);
-            }
-            _pendingRecoveryRequests = [];
-
             await foreach (var batch in _runtime.ObserveAsync(
                     scope,
                     after,
@@ -907,7 +992,10 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             if (await HydrateThreadAsync(scope, cancellationToken).ConfigureAwait(false))
             {
                 _scopeIsDurable = true;
-                StartObserver(scope, _runCancellationToken);
+                foreach (var pendingRequest in _pendingRecoveryRequests)
+                    _interactionQueue?.Writer.TryWrite(pendingRequest);
+                _pendingRecoveryRequests = [];
+                await ObserveAsync(scope, _appliedCursor, cancellationToken).ConfigureAwait(false);
             }
         }
         catch (Exception ex)
@@ -1000,7 +1088,26 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                 SubmitNextPendingPrompt();
         }
 
-        await HandleInteractionAsync(evt, cancellationToken).ConfigureAwait(false);
+        if (deliveryMode != AgentTuiEventDeliveryMode.Historical && evt is IAgentRequestEvent)
+            _interactionQueue?.Writer.TryWrite(evt);
+        if (evt is IAgentResponseEvent response)
+            CancelActiveInteraction(response.RequestId);
+        else if (evt is AgentRequestTerminatedEvent terminal)
+            CancelActiveInteraction(terminal.RequestId);
+    }
+
+    private async Task ProcessInteractionsAsync(
+        ChannelReader<AgentEvent> reader,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await foreach (var evt in reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
+                await HandleInteractionAsync(evt, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
     }
 
     private async Task HandleInteractionAsync(
@@ -1013,11 +1120,13 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         }
 
         if (_dialogs is not null &&
-            evt is IRequestEvent request &&
+            evt is IAgentRequestEvent request &&
             !string.IsNullOrWhiteSpace(request.RequestId) &&
             _registry.TryFindInteractionHandler(evt, _scope, out var handler) &&
             _handledInteractionIds.Add(request.RequestId))
         {
+            using var interactionCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            _activeInteractionCancellations[request.RequestId] = interactionCancellation;
             try
             {
                 var result = await handler.Value.HandleAsync(
@@ -1028,13 +1137,23 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                         _runtime,
                         _dialogs,
                         evt),
-                    cancellationToken).ConfigureAwait(false);
+                    interactionCancellation.Token).ConfigureAwait(false);
 
                 switch (result.Kind)
                 {
                     case AgentTuiInteractionResultKind.AnswerRequest when result.Response is not null:
-                        await _runtime.AnswerRequestAsync(_scope, result.Response, cancellationToken)
+                        var answer = await _runtime.AnswerRequestAsync(
+                                _scope, result.Response, interactionCancellation.Token)
                             .ConfigureAwait(false);
+                        if (!answer.Accepted)
+                        {
+                            await ShowNoticeAsync(
+                                "Request was not accepted",
+                                answer.Message ?? answer.Status.ToString(),
+                                TranscriptSeverity.Warning,
+                                interactionCancellation.Token).ConfigureAwait(false);
+                        }
+                        await ReconcileAfterInteractionAsync(interactionCancellation.Token).ConfigureAwait(false);
                         break;
 
                     case AgentTuiInteractionResultKind.InterruptTurn:
@@ -1052,7 +1171,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                                         ThreadId = _scope.ThreadId,
                                         ThreadExecutionId = interactionExecutionId
                                     },
-                                    cancellationToken)
+                                    interactionCancellation.Token)
                                 .ConfigureAwait(false);
                         }
                         break;
@@ -1061,12 +1180,46 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                         throw new InvalidOperationException(result.Reason ?? "Interaction failed.");
                 }
             }
-            catch
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
                 _handledInteractionIds.Remove(request.RequestId);
-                throw;
+            }
+            catch (OperationCanceledException)
+            {
+                // Durable response/terminal projection invalidated this dialog.
+            }
+            catch (Exception ex)
+            {
+                _handledInteractionIds.Remove(request.RequestId);
+                await ShowNoticeAsync(
+                    "Interaction failed",
+                    ex.Message,
+                    TranscriptSeverity.Warning,
+                    CancellationToken.None).ConfigureAwait(false);
+            }
+            finally
+            {
+                _activeInteractionCancellations.TryRemove(request.RequestId, out _);
             }
         }
+    }
+
+    private void CancelActiveInteraction(string requestId)
+    {
+        if (_activeInteractionCancellations.TryGetValue(requestId, out var cancellation))
+            cancellation.Cancel();
+    }
+
+    private async Task ReconcileAfterInteractionAsync(CancellationToken cancellationToken)
+    {
+        if (_scope is null)
+            return;
+
+        var state = await _runtime.GetThreadStateAsync(_scope, cancellationToken)
+            .ConfigureAwait(false);
+        ReconcileRuntimeState(state);
+        await ReconcileThreadPresentationAsync(state, cancellationToken).ConfigureAwait(false);
+        RequestRender();
     }
 
     private void TrackThreadExecution(AgentEvent evt)

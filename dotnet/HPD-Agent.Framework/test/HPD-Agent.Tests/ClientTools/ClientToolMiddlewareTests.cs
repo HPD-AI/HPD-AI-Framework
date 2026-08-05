@@ -47,7 +47,8 @@ public class ClientToolMiddlewareTests
                 CreateTestToolHarness("ToolHarness2", tools: new[] { CreateTestTool("Tool2") })
             }
         };
-        context.RunConfig.ClientToolInput = clientinput;
+        context.RunConfig.Tools ??= new AgentToolsRunConfig();
+        context.RunConfig.Tools.ClientInput = clientinput;
 
         // Act
         await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
@@ -75,7 +76,8 @@ public class ClientToolMiddlewareTests
             },
             ExpandedContainers = new HashSet<string> { "ToolHarness1" }
         };
-        context.RunConfig.ClientToolInput = clientinput;
+        context.RunConfig.Tools ??= new AgentToolsRunConfig();
+        context.RunConfig.Tools.ClientInput = clientinput;
 
         // Act
         await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
@@ -105,7 +107,8 @@ public class ClientToolMiddlewareTests
             },
             HiddenTools = new HashSet<string> { "Tool1" }
         };
-        context.RunConfig.ClientToolInput = clientinput;
+        context.RunConfig.Tools ??= new AgentToolsRunConfig();
+        context.RunConfig.Tools.ClientInput = clientinput;
 
         // Act
         await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
@@ -132,7 +135,8 @@ public class ClientToolMiddlewareTests
                 new ContextItem("Current page", "/dashboard", "page")
             }
         };
-        context.RunConfig.ClientToolInput = clientinput;
+        context.RunConfig.Tools ??= new AgentToolsRunConfig();
+        context.RunConfig.Tools.ClientInput = clientinput;
 
         // Act
         await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
@@ -164,7 +168,8 @@ public class ClientToolMiddlewareTests
                 new ContextItem("Active HPD-OS view", activeView, "hpdos.activeView")
             }
         };
-        context.RunConfig.ClientToolInput = clientinput;
+        context.RunConfig.Tools ??= new AgentToolsRunConfig();
+        context.RunConfig.Tools.ClientInput = clientinput;
 
         // Act
         await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
@@ -220,7 +225,8 @@ public class ClientToolMiddlewareTests
             clientToolHarnesses = new[] { CreateTestToolHarness("ToolHarness1") },
             State = appState
         };
-        context.RunConfig.ClientToolInput = clientinput;
+        context.RunConfig.Tools ??= new AgentToolsRunConfig();
+        context.RunConfig.Tools.ClientInput = clientinput;
 
         // Act
         await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
@@ -243,7 +249,8 @@ public class ClientToolMiddlewareTests
         {
             clientToolHarnesses = new[] { CreateTestToolHarness("OldToolHarness") }
         };
-        context1.RunConfig.ClientToolInput = clientinput1;
+        context1.RunConfig.Tools ??= new AgentToolsRunConfig();
+        context1.RunConfig.Tools.ClientInput = clientinput1;
         await middleware.BeforeMessageTurnAsync(context1, CancellationToken.None);
 
         // Second call with reset
@@ -253,7 +260,8 @@ public class ClientToolMiddlewareTests
             clientToolHarnesses = new[] { CreateTestToolHarness("NewToolHarness") },
             ResetClientState = true
         };
-        context2.RunConfig.ClientToolInput = clientinput2;
+        context2.RunConfig.Tools ??= new AgentToolsRunConfig();
+        context2.RunConfig.Tools.ClientInput = clientinput2;
 
         // Act
         await middleware.BeforeMessageTurnAsync(context2, CancellationToken.None);
@@ -364,7 +372,8 @@ public class ClientToolMiddlewareTests
         );
 
         var clientinput = new AgentClientInput { clientToolHarnesses = new[] { ToolHarness } };
-        context.RunConfig.ClientToolInput = clientinput;
+        context.RunConfig.Tools ??= new AgentToolsRunConfig();
+        context.RunConfig.Tools.ClientInput = clientinput;
 
         // Act & Assert
         await Assert.ThrowsAsync<ArgumentException>(
@@ -442,7 +451,8 @@ public class ClientToolMiddlewareTests
         );
 
         var clientinput = new AgentClientInput { clientToolHarnesses = new[] { ToolHarness } };
-        context.RunConfig.ClientToolInput = clientinput;
+        context.RunConfig.Tools ??= new AgentToolsRunConfig();
+        context.RunConfig.Tools.ClientInput = clientinput;
 
         // Act
         await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
@@ -528,7 +538,8 @@ public class ClientToolMiddlewareTests
         );
 
         var clientinput = new AgentClientInput { clientToolHarnesses = new[] { ToolHarness } };
-        context.RunConfig.ClientToolInput = clientinput;
+        context.RunConfig.Tools ??= new AgentToolsRunConfig();
+        context.RunConfig.Tools.ClientInput = clientinput;
 
         // Act & Assert - should throw because skill references non-existent tool
         await Assert.ThrowsAsync<ArgumentException>(
@@ -573,7 +584,8 @@ public class ClientToolMiddlewareTests
         {
             clientToolHarnesses = new[] { ecommerceToolHarness, paymentToolHarness }
         };
-        context.RunConfig.ClientToolInput = clientinput;
+        context.RunConfig.Tools ??= new AgentToolsRunConfig();
+        context.RunConfig.Tools.ClientInput = clientinput;
 
         // Act - should succeed because PaymentToolHarness.ProcessPayment exists
         await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
@@ -611,7 +623,8 @@ public class ClientToolMiddlewareTests
         );
 
         var clientinput = new AgentClientInput { clientToolHarnesses = new[] { ToolHarness } };
-        context.RunConfig.ClientToolInput = clientinput;
+        context.RunConfig.Tools ??= new AgentToolsRunConfig();
+        context.RunConfig.Tools.ClientInput = clientinput;
 
         // Act & Assert - should throw because referenced ToolHarness doesn't exist
         await Assert.ThrowsAsync<ArgumentException>(

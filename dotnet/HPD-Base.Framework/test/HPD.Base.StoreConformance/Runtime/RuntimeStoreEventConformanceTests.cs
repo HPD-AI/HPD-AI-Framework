@@ -1,4 +1,4 @@
-using HPD.Base.Runtime.Operations;
+using HPD.Base;
 
 namespace HPD.Base.StoreConformance.Runtime;
 
@@ -8,7 +8,7 @@ public abstract class RuntimeStoreEventConformanceTests<TFixture> : RuntimeStore
     [Fact]
     public async Task RuntimeSuccessfulMutationDispatchesEventReference()
     {
-        if (!Capabilities.Crud.Create)
+        if (!Capabilities.Mutation.Create)
         {
             return;
         }

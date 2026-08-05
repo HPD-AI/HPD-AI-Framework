@@ -1,6 +1,7 @@
 using HPD.Auth.Builder;
 using HPD.Auth.Core.Entities;
 using HPD.Auth.Core.Interfaces;
+using HPD.Auth.Core.Audit;
 using HPD.Auth.Core.Options;
 using HPD.Auth.Serialization;
 using HPD.Auth.Infrastructure.Data;
@@ -50,7 +51,7 @@ public static class HPDAuthServiceCollectionExtensions
     /// 2. Register <see cref="ITenantContext"/> → <see cref="SingleTenantContext"/> (single-tenant default).
     /// 3. Register ASP.NET Core Identity (<see cref="UserManager{TUser}"/>, <see cref="SignInManager{TUser}"/>, etc.).
     /// 4. Register ASP.NET Data Protection, persisting keys to the configured auth database.
-    /// 5. Register HPD store implementations (<see cref="IAuditLogger"/>, <see cref="ISessionManager"/>, <see cref="IRefreshTokenStore"/>).
+    /// 5. Register HPD audit, session, and refresh-token store implementations.
     /// 6. Register infrastructure required by auth endpoints, including memory cache and event coordination.
     /// 7. Register no-op email and SMS senders (replaced by real implementations via TryAdd semantics).
     ///
@@ -158,7 +159,11 @@ public static class HPDAuthServiceCollectionExtensions
             .PersistKeysToDbContext<HPDAuthDbContext>();
 
         // ── Step 5: Register HPD store implementations ────────────────────────────
-        services.AddScoped<IAuditLogger, HPD.Auth.Infrastructure.Stores.AuditLogStore>();
+        services.AddScoped<HPD.Auth.Infrastructure.Stores.AuthAuditStore>();
+        services.AddScoped<IAuthAuditWriter>(static provider =>
+            provider.GetRequiredService<HPD.Auth.Infrastructure.Stores.AuthAuditStore>());
+        services.AddScoped<IAuthAuditReader>(static provider =>
+            provider.GetRequiredService<HPD.Auth.Infrastructure.Stores.AuthAuditStore>());
         services.AddScoped<ISessionManager, HPD.Auth.Infrastructure.Stores.SessionStore>();
         services.AddScoped<IRefreshTokenStore, HPD.Auth.Infrastructure.Stores.RefreshTokenStore>();
 

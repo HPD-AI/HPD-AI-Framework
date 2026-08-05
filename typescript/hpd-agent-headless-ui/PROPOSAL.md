@@ -161,7 +161,7 @@ new request type.
 Controller helpers exist for common responses:
 
 ```ts
-await thread.approve(permissionId);
+const result = await thread.approve(permissionId);
 await thread.deny(permissionId, 'Not allowed');
 await thread.clarify(requestId, 'Use the production tenant');
 await thread.answerClientToolRequest(requestId, result);
@@ -178,9 +178,9 @@ await thread.respond({
 });
 ```
 
-The projection clears pending request UI from lifecycle events such as resolved,
-expired, and cancelled. Raw response payloads are not the generic cleanup
-contract.
+The projection clears pending request UI from accepted response events and the
+durable `AGENT_REQUEST_TERMINATED` fact. Runtime-state rehydration seeds only
+currently answerable requests.
 
 ## API Layers
 

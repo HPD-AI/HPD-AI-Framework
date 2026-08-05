@@ -41,7 +41,7 @@ public class AgentEndpointsTests : IClassFixture<TestWebApplicationFactory>
     [Fact]
     public async Task POST_agents_NoName_Uses_ConfigName()
     {
-        var config = new AgentConfig { Name = "FromConfig", Clients = new AgentClientConfig { Chat = new ClientProviderConfig { ProviderKey = "test", ModelName = "test-model" } } };
+        var config = new AgentConfig { Name = "FromConfig", Clients = new AgentClientsConfig { Chat = new ChatClientConfig { ProviderKey = "test", ModelName = "test-model" } } };
         var request = new CreateAgentRequest("FromConfig", config);
 
         var response = await _client.PostAsJsonAsync("/agents", request);
@@ -144,7 +144,7 @@ public class AgentEndpointsTests : IClassFixture<TestWebApplicationFactory>
     public async Task PUT_agents_agentId_Updates_Definition()
     {
         var created = await CreateAgentAsync("Before Update");
-        var updatedConfig = new AgentConfig { Name = "After Update", MaxAgenticIterations = 20, Clients = new AgentClientConfig { Chat = new ClientProviderConfig { ProviderKey = "test", ModelName = "test-model" } } };
+        var updatedConfig = new AgentConfig { Name = "After Update", MaxAgenticIterations = 20, Clients = new AgentClientsConfig { Chat = new ChatClientConfig { ProviderKey = "test", ModelName = "test-model" } } };
         var updateRequest = new UpdateAgentRequest(updatedConfig);
 
         var response = await _client.PutAsJsonAsync($"/agents/{created.Id}", updateRequest);
@@ -158,7 +158,7 @@ public class AgentEndpointsTests : IClassFixture<TestWebApplicationFactory>
     [Fact]
     public async Task PUT_agents_agentId_Returns404_WhenMissing()
     {
-        var updateRequest = new UpdateAgentRequest(new AgentConfig { Name = "Doesn't Matter", Clients = new AgentClientConfig { Chat = new ClientProviderConfig { ProviderKey = "test", ModelName = "test-model" } } });
+        var updateRequest = new UpdateAgentRequest(new AgentConfig { Name = "Doesn't Matter", Clients = new AgentClientsConfig { Chat = new ChatClientConfig { ProviderKey = "test", ModelName = "test-model" } } });
 
         var response = await _client.PutAsJsonAsync("/agents/no-such-id", updateRequest);
 
@@ -211,7 +211,7 @@ public class AgentEndpointsTests : IClassFixture<TestWebApplicationFactory>
         {
             Name = name,
             MaxAgenticIterations = 10,
-            Clients = new AgentClientConfig { Chat = new ClientProviderConfig { ProviderKey = "test", ModelName = "test-model" } }
+            Clients = new AgentClientsConfig { Chat = new ChatClientConfig { ProviderKey = "test", ModelName = "test-model" } }
         });
 
     private async Task<StoredAgentDto> CreateAgentAsync(string name)

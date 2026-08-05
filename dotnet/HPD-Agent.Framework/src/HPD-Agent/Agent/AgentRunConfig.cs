@@ -10,6 +10,7 @@ using HPD.Agent.Audio;
 using HPD.Agent.Audio.Output;
 using Microsoft.Extensions.AI;
 using HPD.Agent.Middleware;
+using HPD.Agent.Providers;
 using HPD.Agent.StructuredOutput;
 
 namespace HPD.Agent;
@@ -45,6 +46,19 @@ public enum AgentApprovalPolicy
     AutoApprove = 1
 }
 
+/// <summary>Controls how a specialized client role obtains its family acquisition defaults.</summary>
+public enum ClientFamilyInheritanceMode
+{
+    /// <summary>Layer role-specific values over the current run's resolved family.</summary>
+    InheritResolved = 0,
+
+    /// <summary>Use only role-owned selection and host fallback.</summary>
+    UseOwn = 1,
+
+    /// <summary>Use role-owned selection first and fall back to the resolved parent family.</summary>
+    FallbackToParent = 2
+}
+
 /// <summary>Controls host isolation for agent-initiated operations.</summary>
 public enum AgentSandboxPolicy
 {
@@ -68,16 +82,29 @@ public enum AgentSandboxEscapePolicy
 /// <summary>
 /// Independent security controls applied to one agent run.
 /// </summary>
-public sealed record AgentSecurityProfile
+public sealed record AgentSecurityRunConfig
 {
     /// <summary>Gets the protected-operation approval policy.</summary>
     public AgentApprovalPolicy Approval { get; init; } = AgentApprovalPolicy.ReviewProtectedActions;
 
     /// <summary>Gets the host sandbox policy.</summary>
-    public AgentSandboxPolicy Sandbox { get; init; } = AgentSandboxPolicy.Enforced;
+    public AgentSandboxRunConfig Sandbox { get; init; } = new();
+
+    /// <summary>Gets per-tool permission decisions for this run.</summary>
+    public IReadOnlyDictionary<string, bool>? PermissionOverrides { get; init; }
+}
+
+/// <summary>Sandbox policy and host capabilities applied to one agent run.</summary>
+public sealed record AgentSandboxRunConfig
+{
+    /// <summary>Gets the host sandbox policy.</summary>
+    public AgentSandboxPolicy Mode { get; init; } = AgentSandboxPolicy.Enforced;
 
     /// <summary>Gets the behavior for capabilities outside enforced sandbox grants.</summary>
-    public AgentSandboxEscapePolicy SandboxEscape { get; init; } = AgentSandboxEscapePolicy.Ask;
+    public AgentSandboxEscapePolicy Escape { get; init; } = AgentSandboxEscapePolicy.Ask;
+
+    /// <summary>Gets filesystem, network, and process capabilities granted by the host.</summary>
+    public AgentSandboxConfiguration Capabilities { get; init; } = new();
 }
 
 /// <summary>
@@ -97,9 +124,9 @@ public sealed record AgentSecurityProfile
 /// </para>
 /// <para>
 /// <b>Priority Rules:</b>
-/// - OverrideChatClient > ProviderKey/ModelId > Agent's default client
+/// - Clients.Chat.Override > runtime Clients.Chat selection > agent Clients.Chat defaults
 /// - SystemInstructions > Config.SystemInstructions (complete replacement)
-/// - AdditionalSystemInstructions appends to resolved instructions
+/// - SystemInstructions.Append appends to resolved instructions
 /// - ContextInstances > Builder-time contexts > Default context
 /// </para>
 /// </remarks>
@@ -108,181 +135,27 @@ public class AgentRunConfig
     /// <summary>
     /// Security controls for this run.
     /// </summary>
-    public AgentSecurityProfile Security { get; set; } = new();
-
-    /// <summary>Capabilities granted to the enforced sandbox for this run.</summary>
-    public AgentSandboxConfiguration Sandbox { get; set; } = new();
-
-    /// <summary>
-    /// Chat parameters (temperature, tokens, etc.)
-    /// JSON-serializable, no Microsoft.Extensions.AI dependency.
-    /// </summary>
-    public ChatRunConfig? Chat { get; set; }
-
-    /// <summary>
-    /// Model transport to use for the agent turn.
-    /// </summary>
-    public AgentModelTransportMode ModelTransport { get; set; } = AgentModelTransportMode.Auto;
+    public AgentSecurityRunConfig Security { get; set; } = new();
 
     /// <summary>
     /// Provider-created client-family overrides for this run.
     /// </summary>
-    public AgentClientConfig? Clients { get; set; }
+    public AgentClientsConfig Clients { get; set; } = new();
 
-    /// <summary>
-    /// Provider key to switch to (e.g., "openai", "anthropic", "ollama").
-    /// Works with ModelId to create the client via provider registry.
-    /// Useful for simple provider switching without manual client creation.
-    /// </summary>
-    public string? ProviderKey { get; set; }
+    /// <summary>Gets or sets per-run system-instruction behavior.</summary>
+    public SystemInstructionsRunConfig? SystemInstructions { get; set; }
 
-    /// <summary>
-    /// Model ID to use for the switched provider (e.g., "gpt-4", "claude-opus").
-    /// If ProviderKey is not set, uses the provider from AgentConfig.
-    /// If null with ProviderKey, uses the model from AgentConfig.
-    /// </summary>
-    public string? ModelId { get; set; }
+    /// <summary>Gets or sets per-run tool behavior.</summary>
+    public AgentToolsRunConfig? Tools { get; set; }
 
-    /// <summary>
-    /// API key to use when switching providers.
-    /// Required when switching to a different provider that needs authentication.
-    /// If null and switching to same provider, inherits from agent config.
-    /// </summary>
-    public string? ApiKey { get; set; }
+    /// <summary>Gets or sets per-run context values.</summary>
+    public AgentContextRunConfig? Context { get; set; }
 
-    /// <summary>
-    /// Endpoint URL override for the provider.
-    /// Useful for custom/self-hosted endpoints (e.g., local Ollama, Azure OpenAI).
-    /// </summary>
-    public string? ProviderEndpoint { get; set; }
+    /// <summary>Gets or sets per-run background-response behavior.</summary>
+    public BackgroundResponsesRunConfig? BackgroundResponses { get; set; }
 
-    /// <summary>
-    /// Custom HTTP headers to include in provider requests.
-    /// Used for OAuth flows that require additional headers (e.g., ChatGPT-Account-Id for OpenAI Codex).
-    /// These headers are merged with any provider-default headers.
-    /// </summary>
-    public Dictionary<string, string>? CustomHeaders { get; set; }
-
-    /// <summary>
-    /// Provider-specific options to use when switching providers for this run.
-    /// Prefer this object-shaped property for JSON/YAML config.
-    /// </summary>
-    public JsonElement? ProviderOptions { get; set; }
-
-    public string? GetProviderOptionsRawJson()
-        => ProviderOptions?.GetRawText();
-
-    internal ClientProviderConfig? GetChatProviderOverride()
-    {
-        if (string.IsNullOrWhiteSpace(ProviderKey) &&
-            string.IsNullOrWhiteSpace(ModelId) &&
-            string.IsNullOrWhiteSpace(ApiKey) &&
-            string.IsNullOrWhiteSpace(ProviderEndpoint) &&
-            CustomHeaders == null &&
-            ProviderOptions is null)
-            return null;
-
-        return new ClientProviderConfig
-        {
-            ProviderKey = ProviderKey ?? string.Empty,
-            ModelName = ModelId ?? string.Empty,
-            ApiKey = ApiKey,
-            Endpoint = ProviderEndpoint,
-            CustomHeaders = CustomHeaders,
-            ProviderOptions = ProviderOptions
-        };
-    }
-
-    /// <summary>
-    /// Override the chat client for this specific run.
-    /// Highest priority - used if provided, overriding ProviderKey/ModelId.
-    /// Enables dynamic provider switching without rebuilding.
-    /// Not JSON-serializable (for direct C# usage).
-    /// </summary>
-    [JsonIgnore]
-    public IChatClient? OverrideChatClient { get; set; }
-
-    /// <summary>
-    /// Override the realtime client for this specific run.
-    /// Highest priority when <see cref="ModelTransport"/> resolves to realtime.
-    /// </summary>
-    [JsonIgnore]
-    public IRealtimeClient? OverrideRealtimeClient { get; set; }
-
-    /// <summary>
-    /// Realtime input transcription options for native realtime turns.
-    /// When set, providers that support realtime transcription can emit readable user transcripts.
-    /// </summary>
-    [JsonIgnore]
-    public TranscriptionOptions? RealtimeTranscriptionOptions { get; set; }
-
-    [JsonIgnore]
-    public IImageGenerator? OverrideImageGenerator { get; set; }
-
-    [JsonIgnore]
-    public IEmbeddingGenerator? OverrideEmbeddingGenerator { get; set; }
-
-    [JsonIgnore]
-    public IHostedFileClient? OverrideHostedFileClient { get; set; }
-
-    [JsonIgnore]
-    public Func<Providers.ProviderComponentLifetimeContext, IVoiceActivityDetector>? OverrideVoiceActivityDetectorFactory { get; set; }
-
-    [JsonIgnore]
-    public Func<Providers.ProviderComponentLifetimeContext, IEotDetector>? OverrideEndOfTurnDetectorFactory { get; set; }
-
-    /// <summary>
-    /// System instructions to use for this run (completely replaces configured instructions).
-    /// Useful for completely different personas or behaviors.
-    /// Example: "You are a strict code reviewer" vs "You are a brainstorming partner"
-    /// If both this and AdditionalSystemInstructions are set, both are used.
-    /// </summary>
-    public string? SystemInstructions { get; set; }
-
-    /// <summary>
-    /// Additional system instructions to append to the base instructions.
-    /// Useful for one-off adjustments without replacing base instructions.
-    /// Example: Base="helpful assistant" + Additional="For this request, prioritize security"
-    /// If SystemInstructions is set, this appends to that instead of base config.
-    /// </summary>
-    public string? AdditionalSystemInstructions { get; set; }
-
-    /// <summary>
-    /// Context values to inject or override for this run.
-    /// Available to middleware via AgentMiddlewareContext.Properties.
-    /// Useful for request-specific data: user ID, tenant ID, request metadata, etc.
-    /// </summary>
-    public Dictionary<string, object>? ContextOverrides { get; set; }
-
-    /// <summary>
-    /// Timeout for the entire run (overrides config).
-    /// Useful for varying timeout based on message complexity or user tier.
-    /// Null = use config default.
-    /// </summary>
-    public TimeSpan? RunTimeout { get; set; }
-
-    /// <summary>
-    /// Whether to use cached responses for this run.
-    /// Null = use config default, true = always cache, false = skip cache.
-    /// Useful for dry-runs or when freshness is critical.
-    /// </summary>
-    public bool? UseCache { get; set; }
-
-    /// <summary>
-    /// Skip tool/function execution for this run (dry-run mode).
-    /// Useful for testing agent planning without side effects.
-    /// Agent will plan and call functions, but they won't execute.
-    /// </summary>
-    public bool SkipTools { get; set; } = false;
-
-    /// <summary>
-    /// When true, coalesces streaming deltas into single complete events.
-    /// - Text: Multiple TextDeltaEvent("Hello"), TextDeltaEvent(" world") → Single TextDeltaEvent("Hello world")
-    /// - Reasoning: Multiple ReasoningDeltaEvent chunks → Single ReasoningDeltaEvent with complete reasoning
-    /// Reduces event count and simplifies processing at the cost of increased latency.
-    /// When null, uses the agent's config default (AgentConfig.CoalesceDeltas).
-    /// </summary>
-    public bool? CoalesceDeltas { get; set; }
+    /// <summary>Gets or sets per-run streaming behavior.</summary>
+    public StreamingRunConfig? Streaming { get; set; }
 
     /// <summary>
     /// Runtime middleware to inject only for this run.
@@ -293,168 +166,6 @@ public class AgentRunConfig
     /// </summary>
     [JsonIgnore]
     public IReadOnlyList<IAgentMiddleware>? RuntimeMiddleware { get; set; }
-
-    /// <summary>
-    /// Permission requirement overrides for this specific run.
-    /// Key = function/tool name, Value = whether permission is required.
-    /// Overrides the generic <c>PermissionMiddleware</c> requirement temporarily.
-    /// Command-specific permission middleware may apply additional policy.
-    /// Ignored when <see cref="Security"/> uses <see cref="AgentApprovalPolicy.AutoApprove"/>.
-    /// Unknown function names are ignored because overrides are only read when
-    /// that function is invoked.
-    /// Example: { "ReadFile": false, "ExecuteCommand": true }
-    /// </summary>
-    public Dictionary<string, bool>? PermissionOverrides { get; set; }
-
-    /// <summary>
-    /// Client tool configuration for this run.
-    /// Allows dynamic ToolHarness/tool registration without rebuilding agent.
-    /// </summary>
-    public ClientTools.AgentClientInput? ClientToolInput { get; set; }
-
-    /// <summary>
-    /// Live client app providers to bind for this run.
-    /// </summary>
-    /// <remarks>
-    /// These references do not define tools. They select connected providers whose manifests
-    /// advertise client tool harnesses that can be exposed after a binding lease is created.
-    /// </remarks>
-    public List<ClientTools.ClientAppProviderReference>? ClientAppProviders { get; set; }
-
-    /// <summary>
-    /// Conversation ID override (for multi-tenant scenarios or threading).
-    /// Null = use thread's conversation ID.
-    /// </summary>
-    public string? ConversationIdOverride { get; set; }
-
-    /// <summary>
-    /// Custom streaming callback (for native bindings).
-    /// Not JSON-serializable.
-    /// Allows native code to handle streaming updates differently.
-    /// </summary>
-    [JsonIgnore]
-    public Func<AgentEvent, Task>? CustomStreamCallback { get; set; }
-
-    /// <summary>
-    /// Runtime context instances for tools (Runtime Context Injection).
-    /// Maps tool name -> context instance (e.g., "SearchTools" -> ProviderContext instance).
-    /// Enables dynamic, per-invocation context injection WITHOUT rebuilding the agent.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <b>Priority (for context resolution):</b>
-    /// 1. Runtime context from ContextInstances (highest - per-invocation override)
-    /// 2. Builder-time context from .WithTools&lt;T&gt;(context)
-    /// 3. Default context from .WithDefaultMetadata(context)
-    /// 4. Null (no context - templates unresolved, conditions skipped)
-    /// </para>
-    /// <para>
-    /// <b>How It Works:</b>
-    /// The source generator creates CreateTools() methods that accept context.
-    /// Each tool's CreateFunctions(instance, context) is invoked with the selected context.
-    /// This means descriptions are resolved, conditions evaluated, parameters filtered - all at runtime!
-    /// </para>
-    /// <para>
-    /// <b>Use Cases:</b>
-    /// - Multi-tenant SaaS: Different contexts per user/tenant
-    /// - A/B Testing: Run variants with different contexts
-    /// - Dynamic feature flags: Context can control function visibility
-    /// - Request metadata: Inject tracing, user info, etc. per-call
-    /// </para>
-    /// <para>
-    /// <b>Example:</b>
-    /// <code>
-    /// var options = new AgentRunConfig
-    /// {
-    ///     ContextInstances = new()
-    ///     {
-    ///         ["SearchTools"] = new ProviderContext { ProviderName = "OpenAI" },
-    ///         ["DatabaseTools"] = new DbContext { TenantId = user.TenantId }
-    ///     }
-    /// };
-    /// await agent.RunAsync("Search for tenant-specific records.", runConfig: options);
-    /// </code>
-    /// </para>
-    /// </remarks>
-    [JsonIgnore]
-    public Dictionary<string, IToolMetadata>? ContextInstances { get; set; }
-
-    #region Background Responses
-
-    /// <summary>
-    /// Allow the provider to run the operation in background mode.
-    /// When true, operation may return immediately with a ContinuationToken.
-    /// When false, operation blocks until complete (traditional behavior).
-    /// When null, uses default from AgentConfig.BackgroundResponses.DefaultAllow.
-    /// Provider-dependent: Unsupporting providers will ignore this and behave synchronously.
-    /// </summary>
-    public bool? AllowBackgroundResponses { get; set; }
-
-    /// <summary>
-    /// Continuation token for polling/resuming a background operation.
-    /// For polling: Set this to the token from a previous response to poll for completion.
-    /// For streaming resumption: Set this to resume streaming from where it was interrupted.
-    /// Uses Microsoft.Extensions.AI.ResponseContinuationToken type directly.
-    /// </summary>
-    [JsonIgnore]
-    public ResponseContinuationToken? ContinuationToken { get; set; }
-
-    /// <summary>
-    /// Override polling interval for this specific run.
-    /// Null = use config default (BackgroundResponsesConfig.DefaultPollingInterval).
-    /// </summary>
-    public TimeSpan? BackgroundPollingInterval { get; set; }
-
-    /// <summary>
-    /// Override timeout for this specific run.
-    /// Null = use config default (BackgroundResponsesConfig.DefaultTimeout).
-    /// </summary>
-    public TimeSpan? BackgroundTimeout { get; set; }
-
-    #endregion
-
-    #region Content Attachments
-
-    /// <summary>
-    /// User message text for this run.
-    /// Combined with Attachments to form the user ChatMessage.
-    /// If only Attachments are provided (no UserMessage), runtime integrations handle
-    /// the content transformation (for example, audio may be transcribed before the model call).
-    /// </summary>
-    public string? UserMessage { get; set; }
-
-    /// <summary>
-    /// Binary content attachments (images, audio, documents, video) for this run.
-    /// Use typed classes: ImageContent, AudioContent, DocumentContent, VideoContent.
-    /// Combined with UserMessage to form the user ChatMessage.
-    /// Middleware processes each content type appropriately.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Attachments can be sent without a UserMessage. For example:
-    /// - Audio-only: Audio runtime integration transcribes → becomes the message
-    /// - Image-only: Sent to vision model for description
-    /// - Document-only: DocumentHandlingMiddleware extracts text
-    /// </para>
-    /// <para>
-    /// <b>Type Constraint:</b> IReadOnlyList&lt;DataContent&gt; (not AIContent) ensures only binary
-    /// content can be attached. TextContent must go in UserMessage string, not as attachments.
-    /// This provides clear semantics: text vs. binary content separation.
-    /// </para>
-    /// <para>
-    /// <b>Example:</b>
-    /// <code>
-    /// var options = new AgentRunConfig
-    /// {
-    ///     UserMessage = "Analyze this document",
-    ///     Attachments = [await DocumentContent.FromFileAsync("report.pdf")]
-    /// };
-    /// await agent.RunAsync(options);
-    /// </code>
-    /// </para>
-    /// </remarks>
-    [JsonIgnore]  // DataContent derivatives not JSON-serializable
-    public IReadOnlyList<DataContent>? Attachments { get; set; }
 
     /// <summary>
     /// Controls how DataContent attachments are uploaded: via provider-native HostedFileClient,
@@ -493,8 +204,6 @@ public class AgentRunConfig
     /// </para>
     /// </remarks>
     public UploadStrategy UploadStrategy { get; set; } = UploadStrategy.Auto;
-
-    #endregion
 
     #region Audio
 
@@ -549,46 +258,6 @@ public class AgentRunConfig
     public StructuredOutputOptions? StructuredOutput { get; set; }
 
     /// <summary>
-    /// Additional tools to add for this run only.
-    /// These are merged with the agent's configured tools during RunAsync.
-    /// Useful for injecting dynamic tools like handoff functions in multi-agent workflows.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <b>Use Cases:</b>
-    /// - Multi-agent handoffs: Inject handoff_to_X() tools dynamically
-    /// - Per-request tools: Add user-specific or context-specific tools
-    /// - Testing: Inject mock tools for testing agent behavior
-    /// </para>
-    /// <para>
-    /// <b>Example:</b>
-    /// <code>
-    /// var handoffTool = AIFunctionFactory.Create(() => "solver", "handoff_to_solver", "Route to math solver");
-    /// var options = new AgentRunConfig
-    /// {
-    ///     AdditionalTools = new List&lt;AIFunction&gt; { handoffTool }
-    /// };
-    /// await agent.RunAsync("Route this to the right specialist.", runConfig: options);
-    /// </code>
-    /// </para>
-    /// </remarks>
-    [JsonIgnore]
-    public IReadOnlyList<AIFunction>? AdditionalTools { get; set; }
-
-    /// <summary>
-    /// Tool mode override for this run only.
-    /// When set, overrides the agent's configured ToolMode.
-    /// </summary>
-    /// <remarks>
-    /// Common values:
-    /// - <c>ChatToolMode.Auto</c>: Model decides whether to use tools
-    /// - <c>ChatToolMode.RequireAny</c>: Model must call at least one tool
-    /// - <c>ChatToolMode.RequireTool("name")</c>: Model must call specific tool
-    /// </remarks>
-    [JsonIgnore]
-    public ChatToolMode? ToolModeOverride { get; set; }
-
-    /// <summary>
     /// Runtime tools to add for this run only.
     /// Used internally by structured output tool mode.
     /// These are merged with the agent's configured tools during RunAsync.
@@ -606,51 +275,22 @@ public class AgentRunConfig
 
     #endregion
 
-    #region Evaluation
-
-    /// <summary>
-    /// When true, EvaluationMiddleware skips all evaluation for this run.
-    /// Set automatically by RunEvals on every internal agent run to prevent
-    /// live evaluators from double-firing during batch evaluation.
-    /// </summary>
+    /// <summary>Gets or sets package-owned evaluation policy for this run.</summary>
+    /// <remarks>
+    /// The value is runtime-only because evaluator and judge objects are executable
+    /// dependencies. Public run capture calls <see cref="IAgentRunEvaluationConfig.Snapshot"/>
+    /// so package-owned mutable configuration is not shared accidentally.
+    /// </remarks>
     [JsonIgnore]
-    public bool DisableEvaluators { get; set; } = false;
+    public IAgentRunEvaluationConfig? Evaluations { get; set; }
+}
 
-    /// <summary>
-    /// When true, indicates this AgentRunConfig was created by EvaluationMiddleware
-    /// to invoke a judge LLM. EvaluationMiddleware checks this flag first in
-    /// AfterMessageTurnAsync and returns immediately if set, preventing eval loops.
-    /// Only meaningful when the judge IChatClient is itself a wrapping Agent instance.
-    /// </summary>
-    [JsonIgnore]
-    public bool IsInternalEvalJudgeCall { get; set; } = false;
-
-    /// <summary>
-    /// Evaluation-package owned per-run evaluator additions.
-    /// Stored as object to keep HPD-Agent independent from HPD-Agent.Evaluations.
-    /// Use HPD.Agent.Evaluations.Integration.AgentRunConfigEvalExtensions for
-    /// the typed API.
-    /// </summary>
-    [JsonIgnore]
-    public IReadOnlyList<object>? AdditionalEvaluators { get; set; }
-
-    /// <summary>
-    /// Per-run sampling override for all registered evaluators.
-    /// Null means use each evaluator's registration-time sampling rate.
-    /// </summary>
-    [JsonIgnore]
-    public double? EvaluatorSamplingOverride { get; set; }
-
-    /// <summary>
-    /// Evaluation-package owned per-run judge configuration override.
-    /// Stored as object to keep HPD-Agent independent from HPD-Agent.Evaluations.
-    /// Use HPD.Agent.Evaluations.Integration.AgentRunConfigEvalExtensions for
-    /// the typed API.
-    /// </summary>
-    [JsonIgnore]
-    public object? EvalJudgeConfigOverride { get; set; }
-
-    #endregion
+/// <summary>Defines the runtime-only snapshot boundary for package-owned evaluation policy.</summary>
+public interface IAgentRunEvaluationConfig
+{
+    /// <summary>Creates an owned evaluation configuration snapshot for one run.</summary>
+    /// <returns>An independent snapshot suitable for the captured invocation.</returns>
+    IAgentRunEvaluationConfig Snapshot();
 }
 
 public sealed class AudioRunConfig
@@ -671,15 +311,8 @@ public sealed class AudioRunConfig
 
     public AssistantAudioArtifactCapturePolicy? ArtifactCapturePolicy { get; set; }
 
-    public string? VoiceId { get; set; }
-
-    public string? Language { get; set; }
-
-    public string? OutputFormat { get; set; }
-
+    /// <summary>Gets or sets the preferred audio media type for this run.</summary>
     public string? ContentType { get; set; }
-
-    public float? Speed { get; set; }
 
     public bool? EnablePlayback { get; set; }
 }
@@ -689,18 +322,21 @@ public sealed class AudioRunConfig
 /// Subset of Microsoft.Extensions.AI.ChatOptions with only JSON primitives.
 /// FFI-friendly - no complex types, no dependencies.
 /// </summary>
-public class ChatRunConfig
+public sealed class ChatClientConfig : ProviderClientConfig
 {
+    /// <summary>Gets or sets a borrowed Chat client used only for this configuration scope.</summary>
+    [JsonIgnore]
+    public ClientOverride<IChatClient>? Override { get; set; }
     /// <summary>
-    /// Creates a new instance of ChatRunConfig.
+    /// Creates a new instance of ChatClientConfig.
     /// </summary>
-    public ChatRunConfig() { }
+    public ChatClientConfig() { }
 
     /// <summary>
-    /// Creates a new instance of ChatRunConfig from Microsoft.Extensions.AI.ChatOptions.
+    /// Creates a new instance of ChatClientConfig from Microsoft.Extensions.AI.ChatOptions.
     /// </summary>
     /// <param name="options">The ChatOptions to convert from</param>
-    public ChatRunConfig(ChatOptions options)
+    public ChatClientConfig(ChatOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
 
@@ -711,18 +347,10 @@ public class ChatRunConfig
         FrequencyPenalty = options.FrequencyPenalty.HasValue ? (double)options.FrequencyPenalty.Value : null;
         PresencePenalty = options.PresencePenalty.HasValue ? (double)options.PresencePenalty.Value : null;
         Seed = options.Seed;
-        ModelId = options.ModelId;
+        ModelName = options.ModelId;
         StopSequences = options.StopSequences as IReadOnlyList<string>;
         Reasoning = ReasoningOptions.FromMicrosoftReasoningOptions(options.Reasoning);
 
-        if (options.AdditionalProperties?.Count > 0)
-        {
-            AdditionalProperties = new Dictionary<string, object>();
-            foreach (var kvp in options.AdditionalProperties)
-            {
-                AdditionalProperties[kvp.Key] = kvp.Value;
-            }
-        }
     }
 
     /// <summary>
@@ -776,25 +404,19 @@ public class ChatRunConfig
     public long? Seed { get; set; }
 
     /// <summary>
-    /// Model ID to use (e.g., "gpt-4-turbo").
-    /// Note: Prefer using ProviderKey/ModelId in AgentRunConfig for provider switching.
-    /// This is for fine-tuning within a provider.
-    /// Null = use config default.
-    /// </summary>
-    [JsonPropertyName("modelId")]
-    public string? ModelId { get; set; }
-
-    /// <summary>
     /// Stop sequences that signal end of generation.
     /// </summary>
     [JsonPropertyName("stopSequences")]
     public IReadOnlyList<string>? StopSequences { get; set; }
 
     /// <summary>
-    /// Provider-specific additional properties (for advanced use).
+    /// Provider-specific operation options for the selected Chat provider.
     /// </summary>
-    [JsonPropertyName("additionalProperties")]
-    public Dictionary<string, object>? AdditionalProperties { get; set; }
+    [JsonIgnore]
+    public IChatRequestOptions? ProviderOptions { get; set; }
+
+    [JsonIgnore]
+    internal ChatResponseFormat? RuntimeResponseFormat { get; set; }
 
     /// <summary>
     /// Reasoning options for the chat request.
@@ -809,17 +431,6 @@ public class ChatRunConfig
     public ReasoningOptions? Reasoning { get; set; }
 
     /// <summary>
-    /// Response format configuration for structured output.
-    /// When set, instructs the provider to return JSON matching a schema.
-    /// </summary>
-    /// <remarks>
-    /// For structured output, prefer using <see cref="AgentRunConfig.StructuredOutput"/>
-    /// which is handled automatically by RunStructuredAsync&lt;T&gt;().
-    /// </remarks>
-    [JsonIgnore] // Not FFI-serializable (ChatResponseFormat contains complex types)
-    public ChatResponseFormat? ResponseFormat { get; set; }
-
-    /// <summary>
     /// Converts to Microsoft.Extensions.AI.ChatOptions for internal use.
     /// Returns null if no overrides are specified.
     /// </summary>
@@ -828,9 +439,9 @@ public class ChatRunConfig
         if (Temperature == null && TopP == null && TopK == null && MaxOutputTokens == null &&
             FrequencyPenalty == null && PresencePenalty == null &&
             Seed == null &&
-            string.IsNullOrEmpty(ModelId) && StopSequences == null &&
-            ResponseFormat == null && Reasoning == null &&
-            (AdditionalProperties == null || AdditionalProperties.Count == 0))
+            string.IsNullOrEmpty(ModelName) && StopSequences == null &&
+            Reasoning == null && RuntimeResponseFormat == null &&
+            ProviderOptions == null)
         {
             return null;  // No overrides
         }
@@ -851,28 +462,21 @@ public class ChatRunConfig
             options.PresencePenalty = (float)PresencePenalty.Value;
         if (Seed.HasValue)
             options.Seed = Seed.Value;
-        if (!string.IsNullOrEmpty(ModelId))
-            options.ModelId = ModelId;
+        if (!string.IsNullOrEmpty(ModelName))
+            options.ModelId = ModelName;
 
         if (StopSequences?.Count > 0)
         {
             options.StopSequences = StopSequences.ToList();
         }
 
-        if (ResponseFormat != null)
-            options.ResponseFormat = ResponseFormat;
-
         if (Reasoning != null)
             options.Reasoning = Reasoning.ToMicrosoftReasoningOptions();
 
-        if (AdditionalProperties?.Count > 0)
-        {
-            options.AdditionalProperties ??= new AdditionalPropertiesDictionary();
-            foreach (var kvp in AdditionalProperties)
-            {
-                options.AdditionalProperties[kvp.Key] = kvp.Value;
-            }
-        }
+        if (RuntimeResponseFormat != null)
+            options.ResponseFormat = RuntimeResponseFormat;
+
+        ProviderOptions?.ApplyTo(options);
 
         return options;
     }
@@ -907,7 +511,6 @@ public class ChatRunConfig
         merged.StopSequences = thisOptions.StopSequences ?? baseOptions.StopSequences;
         merged.Tools = baseOptions.Tools;  // Always from base (tools are agent-level)
         merged.ToolMode = baseOptions.ToolMode;
-        merged.ResponseFormat = thisOptions.ResponseFormat ?? baseOptions.ResponseFormat;
         merged.Reasoning = thisOptions.Reasoning ?? baseOptions.Reasoning;
         merged.Seed = thisOptions.Seed ?? baseOptions.Seed;
 
@@ -937,6 +540,14 @@ public class ChatRunConfig
 
         return merged;
     }
+}
+
+/// <summary>Applies typed provider-specific options to one Chat operation.</summary>
+public interface IChatRequestOptions
+{
+    /// <summary>Applies the provider-owned values to the final MEAI operation options.</summary>
+    /// <param name="options">The final operation options being compiled.</param>
+    void ApplyTo(ChatOptions options);
 }
 
 /// <summary>

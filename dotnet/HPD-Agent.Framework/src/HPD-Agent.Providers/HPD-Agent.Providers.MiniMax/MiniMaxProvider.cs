@@ -5,6 +5,11 @@ using System.Collections.Generic;
 
 namespace HPD.Agent.Providers.MiniMax;
 
+[HpdProvider("minimax", "MiniMax")]
+[HpdProviderFamily(ProviderClientFamily.Chat)]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(MiniMaxProviderConfig), typeof(MiniMaxJsonContext))]
+[HpdProviderSecretAlias("minimax:ApiKey", "MINIMAX_API_KEY")]
+[HpdProviderSecretAlias("minimax:Endpoint", "MINIMAX_ENDPOINT", "MINIMAX_BASE_URL", "MINIMAX_API_BASE")]
 internal sealed class MiniMaxProvider : OpenAICompatibleChatProviderBase<MiniMaxProviderConfig>
 {
     internal static readonly Uri DefaultEndpoint = new("https://api.minimax.io/v1/");

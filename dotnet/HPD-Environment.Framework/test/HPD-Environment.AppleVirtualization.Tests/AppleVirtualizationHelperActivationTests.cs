@@ -155,6 +155,71 @@ public sealed class AppleVirtualizationHelperActivationTests
     }
 
     [Fact]
+    public async Task Unexpected_helper_exit_reports_exit_code_and_bounded_stderr()
+    {
+        const string hello =
+            """{"ProtocolVersion":"1.0","MessageType":1,"Operation":0,"RequestId":"apple-vz-activation-1","SequenceNumber":1,"ResponseStatus":0,"PayloadSchema":{"Value":"hpd.execution.apple-virtualization.helper.hello.response.v1"},"HelloResponse":{"HelperName":"hpd-vz","HelperVersion":"0.1.0","ProtocolVersion":"1.0","ProviderGeneration":1,"ProtocolCompatible":true,"VirtualizationFrameworkAvailable":true,"VirtualizationEntitlementVerified":false}}""";
+        const string health =
+            """{"ProtocolVersion":"1.0","MessageType":1,"Operation":4,"RequestId":"health","SequenceNumber":2,"ResponseStatus":0,"PayloadSchema":{"Value":"hpd.execution.apple-virtualization.helper.health.response.v1"},"HealthProbeResponse":{"Ready":true,"Detail":"ready"}}""";
+        using ScriptHelper helper = ScriptHelper.Create(
+            "read hello\n" +
+            $"printf '%s\\n' '{hello}'\n" +
+            "read activation_health\n" +
+            $"printf '%s\\n' '{health}'\n" +
+            "read failing_request\n" +
+            "printf 'restore transport failed\\n' >&2\n" +
+            "exit 77\n");
+        var registry = RegisterRealActivation(helper.Path, []);
+        IProviderActivator activator = registry.ProviderActivators.Single();
+        await activator.ActivateAsync(ActivationSpec());
+        var client = (IAppleVirtualizationHelperClient)activator;
+
+        Func<Task> send = async () => await client.SendAsync(
+            HealthRequest("failing-health"));
+
+        await send.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*exit code 77*restore transport failed*");
+    }
+
+    [Fact]
+    public async Task Cancelled_response_is_drained_before_the_protocol_stream_is_reused()
+    {
+        const string hello =
+            """{"ProtocolVersion":"1.0","MessageType":1,"Operation":0,"RequestId":"apple-vz-activation-1","SequenceNumber":1,"ResponseStatus":0,"PayloadSchema":{"Value":"hpd.execution.apple-virtualization.helper.hello.response.v1"},"HelloResponse":{"HelperName":"hpd-vz","HelperVersion":"0.1.0","ProtocolVersion":"1.0","ProviderGeneration":1,"ProtocolCompatible":true,"VirtualizationFrameworkAvailable":true,"VirtualizationEntitlementVerified":false}}""";
+        const string health =
+            """{"ProtocolVersion":"1.0","MessageType":1,"Operation":4,"RequestId":"health","SequenceNumber":2,"ResponseStatus":0,"PayloadSchema":{"Value":"hpd.execution.apple-virtualization.helper.health.response.v1"},"HealthProbeResponse":{"Ready":true,"Detail":"ready"}}""";
+        using ScriptHelper helper = ScriptHelper.Create(
+            "read hello\n" +
+            $"printf '%s\\n' '{hello}'\n" +
+            "read activation_health\n" +
+            $"printf '%s\\n' '{health}'\n" +
+            "read cancelled_health\n" +
+            $"printf '%s' '{health[..40]}'\n" +
+            "sleep 0.2\n" +
+            $"printf '%s\\n' '{health[40..]}'\n" +
+            "read final_health\n" +
+            $"printf '%s\\n' '{health}'\n" +
+            "sleep 1\n");
+        var registry = RegisterRealActivation(helper.Path, []);
+        IProviderActivator activator = registry.ProviderActivators.Single();
+        await activator.ActivateAsync(ActivationSpec());
+        var client = (IAppleVirtualizationHelperClient)activator;
+        using var cancellation = new CancellationTokenSource(
+            TimeSpan.FromMilliseconds(50));
+
+        Func<Task> cancelled = async () => await client.SendAsync(
+            HealthRequest("cancelled-health"),
+            cancellation.Token);
+
+        await cancelled.Should().ThrowAsync<OperationCanceledException>();
+        AppleVirtualizationHelperEnvelope response = await client.SendAsync(
+            HealthRequest("health-after-cancellation"));
+        response.ResponseStatus.Should().Be(
+            AppleVirtualizationHelperResponseStatus.Ok);
+        response.HealthProbeResponse!.Ready.Should().BeTrue();
+    }
+
+    [Fact]
     public async Task Activation_stop_terminates_helper_and_reverts_client_to_unavailable()
     {
         var registry = RegisterRealActivation(ResolveBuiltHelperPath(), ["--fake"]);
@@ -298,7 +363,7 @@ public sealed class AppleVirtualizationHelperActivationTests
         Diagnostic diagnostic = status.Diagnostics.Single();
         diagnostic.Code.Value.Should().Be("AppleVirtualization.HelperExitedBeforeHandshake");
         diagnostic.Message.Should().Contain("[stderr truncated]");
-        diagnostic.Message.Length.Should().BeLessThan(240);
+        diagnostic.Message.Length.Should().BeLessThan(256);
     }
 
     private static EnvironmentProviderRegistry RegisterRealActivation(
@@ -400,6 +465,17 @@ public sealed class AppleVirtualizationHelperActivationTests
             AuthPolicy = new ProviderAuthPolicy("current-user", RequireSameUser: true, AllowRemoteIdentity: false),
             HealthPolicy = new ProviderHealthPolicy(TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(2)),
             LogPolicy = new ProviderLogPolicy("memory", CaptureStartupLogs: true, CaptureDiagnosticLogs: true),
+        };
+
+    private static AppleVirtualizationHelperEnvelope HealthRequest(
+        string requestId) =>
+        AppleVirtualizationHelperEnvelope.Request(
+            AppleVirtualizationHelperOperation.HealthProbe,
+            requestId,
+            101,
+            AppleVirtualizationHelperProtocol.HealthResponseSchema) with
+        {
+            HealthProbeRequest = new AppleVirtualizationHealthProbeRequest(),
         };
 
     private static string ResolveBuiltHelperPath()

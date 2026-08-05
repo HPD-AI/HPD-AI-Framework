@@ -5,6 +5,11 @@ using System.Collections.Generic;
 
 namespace HPD.Agent.Providers.Venice;
 
+[HpdProvider("venice", "Venice.ai")]
+[HpdProviderFamily(ProviderClientFamily.Chat)]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(VeniceProviderConfig), typeof(VeniceJsonContext))]
+[HpdProviderSecretAlias("venice:ApiKey", "VENICE_API_KEY")]
+[HpdProviderSecretAlias("venice:Endpoint", "VENICE_ENDPOINT", "VENICE_BASE_URL")]
 internal sealed class VeniceProvider : OpenAICompatibleChatProviderBase<VeniceProviderConfig>
 {
     internal static readonly Uri DefaultEndpoint = new("https://api.venice.ai/api/v1/");

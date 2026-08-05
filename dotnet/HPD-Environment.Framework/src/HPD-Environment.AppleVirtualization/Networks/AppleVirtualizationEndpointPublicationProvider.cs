@@ -32,6 +32,57 @@ public sealed class AppleVirtualizationEndpointPublicationProvider : IEndpointPu
         ArgumentNullException.ThrowIfNull(spec);
         cancellationToken.ThrowIfCancellationRequested();
 
+        var resource = new ResourceRef<PublishedEndpoint>(
+            metadata.Id,
+            metadata.Scope,
+            metadata.Generation);
+        AppleVirtualizationLedgerLookup<
+            AppleVirtualizationLedgerEntry<
+                PublishedEndpoint,
+                PublishedEndpointStatus>> existing =
+            _ledger.TryGetPublishedEndpoint(resource);
+        if (existing.Succeeded)
+        {
+            PublishedEndpointSpec? existingSpec =
+                _ledger.TryGetPublishedEndpointSpec(resource);
+            if (existingSpec != spec)
+            {
+                return new PublishedEndpointStatus
+                {
+                    Phase = ResourcePhase.Failed,
+                    EndpointPhase =
+                        PublishedEndpointPhase.Failed,
+                    ReconciliationOutcome =
+                        ResourceReconciliationOutcome.Rejected,
+                    ObservedGeneration = metadata.Generation,
+                    Diagnostics =
+                    [
+                        EndpointDiagnostic(
+                            DiagnosticSeverity.Error,
+                            "AppleVirtualization.EndpointSpecConflict",
+                            "A published endpoint with the same identity already exists with a different immutable specification.",
+                            "endpoint/" + metadata.Id.Value),
+                    ],
+                };
+            }
+            if (existing.Entry!.Status.EndpointPhase ==
+                    PublishedEndpointPhase.Bound)
+                return existing.Entry.Status;
+        }
+        else if (existing.Diagnostic?.Code !=
+                 AppleVirtualizationHandleDiagnostics.MissingHandle)
+        {
+            return new PublishedEndpointStatus
+            {
+                Phase = ResourcePhase.Failed,
+                EndpointPhase = PublishedEndpointPhase.Failed,
+                ReconciliationOutcome =
+                    ResourceReconciliationOutcome.Rejected,
+                ObservedGeneration = metadata.Generation,
+                Diagnostics = [existing.Diagnostic!],
+            };
+        }
+
         EndpointValidation validation = ValidateSpec(spec);
         RouteResolution route = ResolveRoute(spec);
         if (validation.FatalDiagnostic is { } validationFatal)
@@ -262,8 +313,42 @@ public sealed class AppleVirtualizationEndpointPublicationProvider : IEndpointPu
             EndpointTargetKind.ProcessPort => ResolveProcessRoute(spec.Target.Process, spec.Target.Port),
             EndpointTargetKind.ServiceName => ResolveServiceRoute(spec.RoutingNetwork, spec.Target.ServiceName, spec.Target.Port, spec.Target.Transport),
             EndpointTargetKind.UnixSocket => ResolveUnixSocketRoute(spec.Target.SocketPath),
+            EndpointTargetKind.NetworkAddress => ResolveAddressRoute(spec.Target.Address, spec.Target.Port),
             _ => RouteFailure("AppleVirtualization.EndpointTargetUnsupported", "The endpoint target kind is not implemented by the L12 endpoint bridge.", "endpoint.target.kind"),
         };
+
+    private static RouteResolution ResolveAddressRoute(
+        IpAddressValue? address,
+        NetworkPort? port)
+    {
+        if (address is null)
+        {
+            return RouteFailure(
+                "AppleVirtualization.EndpointTargetAddressMissing",
+                "Network-address endpoint targets require an address.",
+                "endpoint.target.address");
+        }
+        if (port is null)
+        {
+            return RouteFailure(
+                "AppleVirtualization.EndpointTargetPortMissing",
+                "Network-address endpoint targets require a port.",
+                "endpoint.target.port");
+        }
+        if (address.Value.Family != NetworkAddressFamily.IPv4)
+        {
+            return RouteFailure(
+                "AppleVirtualization.EndpointTargetAddressFamilyUnsupported",
+                "The Apple Virtualization endpoint tunnel currently supports IPv4 targets.",
+                "endpoint.target.address");
+        }
+        return new RouteResolution(
+            TargetResourceId: null,
+            ToAddressString(address.Value),
+            port.Value.Value,
+            TargetSocketPath: null,
+            Diagnostic: null);
+    }
 
     private RouteResolution ResolveMembershipRoute(ResourceRef<NetworkMembership>? membership, NetworkPort? port)
     {

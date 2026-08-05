@@ -24,7 +24,9 @@ public static class AudioAgentFeatureActivator
 
         var options = AudioRuntimeOptionsCompiler.Compile(
             new AudioRuntimeAttachmentOptions(),
-            builder.Config.Audio);
+            builder.Config.Audio,
+            textToSpeech: builder.Config.ResolveClientConfig(global::HPD.Agent.Providers.ProviderClientFamily.TextToSpeech)
+                as TextToSpeechClientConfig);
         builder.Middlewares.Add(new AudioRuntimeAttachment(options));
     }
 }

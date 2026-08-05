@@ -13,6 +13,11 @@ using Meai = Microsoft.Extensions.AI;
 
 namespace HPD.Agent.Providers.Fireworks;
 
+[HpdProvider("fireworks", "Fireworks AI", DocumentationUrl = "https://docs.fireworks.ai/")]
+[HpdProviderFamily(ProviderClientFamily.Chat)]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(FireworksProviderConfig), typeof(FireworksJsonContext))]
+[HpdProviderSecretAlias("fireworks:ApiKey", "FIREWORKS_API_KEY")]
+[HpdProviderSecretAlias("fireworks:Endpoint", "FIREWORKS_ENDPOINT", "FIREWORKS_BASE_URL")]
 internal class FireworksProvider : IChatClientProvider
 {
     private static readonly Uri DefaultEndpoint = new("https://api.fireworks.ai/inference/v1/");
@@ -42,8 +47,8 @@ internal class FireworksProvider : IChatClientProvider
     public string ProviderKey => "fireworks";
     public string DisplayName => "Fireworks AI";
 
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider registers an AOT-compatible config deserializer in FireworksProviderModule.")]
-    public Meai.IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null)
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
+    public async ValueTask<Meai.IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(config);
 
@@ -60,11 +65,8 @@ internal class FireworksProvider : IChatClientProvider
                 "Ensure the agent builder is properly configured with secret resolution.");
         }
 
-        var apiKeyTask = secrets.RequireAsync("fireworks:ApiKey", DisplayName, config.ApiKey, CancellationToken.None);
-        var apiKey = apiKeyTask.GetAwaiter().GetResult();
-
-        var endpointTask = secrets.ResolveOrDefaultAsync("fireworks:Endpoint", config.Endpoint, CancellationToken.None);
-        var endpoint = endpointTask.GetAwaiter().GetResult();
+        var apiKey = await secrets.RequireAsync("fireworks:ApiKey", DisplayName, config.ApiKey, cancellationToken).ConfigureAwait(false);
+        var endpoint = await secrets.ResolveOrDefaultAsync("fireworks:Endpoint", config.Endpoint, cancellationToken).ConfigureAwait(false);
 
         var baseUri = string.IsNullOrWhiteSpace(endpoint)
             ? DefaultEndpoint
@@ -119,8 +121,8 @@ internal class FireworksProvider : IChatClientProvider
         };
     }
 
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider registers an AOT-compatible config deserializer in FireworksProviderModule.")]
-    public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family)
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
+    public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
     {
         ArgumentNullException.ThrowIfNull(config);
 
@@ -136,11 +138,6 @@ internal class FireworksProvider : IChatClientProvider
             errors.Add("Model name is required for Fireworks AI");
         }
 
-        if (string.IsNullOrWhiteSpace(config.ApiKey))
-        {
-            errors.Add("API key is required for Fireworks AI. " +
-                       "Set it via the apiKey parameter, FIREWORKS_API_KEY environment variable, or configuration.");
-        }
 
         if (!string.IsNullOrWhiteSpace(config.Endpoint) &&
             !Uri.IsWellFormedUriString(config.Endpoint, UriKind.Absolute))

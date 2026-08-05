@@ -67,7 +67,6 @@ public static class TwoFactorLoginEndpoints
         SignInManager<ApplicationUser> signInManager,
         UserManager<ApplicationUser> userManager,
         ITokenService tokenService,
-        IAuditLogger auditLogger,
         HttpContext httpContext,
         CancellationToken ct = default)
     {
@@ -121,33 +120,12 @@ public static class TwoFactorLoginEndpoints
         // Step 4: Locked out.
         if (result.IsLockedOut)
         {
-            await auditLogger.LogAsync(new AuditLogEntry(
-                Action: AuditActions.AccountLockout,
-                Category: AuditCategories.Authentication,
-                Success: false,
-                UserId: user.Id,
-                IpAddress: httpContext.Connection.RemoteIpAddress?.ToString(),
-                Metadata: new { reason = "2fa_lockout" }
-            ), ct);
-
             return Results.StatusCode(423); // 423 Locked
         }
 
         // Step 5: Code was incorrect.
         if (!result.Succeeded)
         {
-            await auditLogger.LogAsync(new AuditLogEntry(
-                Action: AuditActions.TwoFactorVerifyFailed,
-                Category: AuditCategories.Authentication,
-                Success: false,
-                UserId: user.Id,
-                IpAddress: httpContext.Connection.RemoteIpAddress?.ToString(),
-                Metadata: new
-                {
-                    method = !string.IsNullOrEmpty(request.RecoveryCode) ? "recovery_code" : "totp"
-                }
-            ), ct);
-
             return Results.Unauthorized();
         }
 
@@ -155,21 +133,6 @@ public static class TwoFactorLoginEndpoints
         user.LastLoginAt = DateTime.UtcNow;
         user.LastLoginIp = httpContext.Connection.RemoteIpAddress?.ToString();
         await userManager.UpdateAsync(user);
-
-        var auditMethod = !string.IsNullOrEmpty(request.RecoveryCode) ? "recovery_code" : "totp";
-
-        await auditLogger.LogAsync(new AuditLogEntry(
-            Action: AuditActions.TwoFactorVerify,
-            Category: AuditCategories.Authentication,
-            Success: true,
-            UserId: user.Id,
-            IpAddress: user.LastLoginIp,
-            Metadata: new
-            {
-                method = auditMethod,
-                rememberDevice = request.RememberDevice
-            }
-        ), ct);
 
         var tokens = await tokenService.GenerateTokensAsync(user, ct);
 

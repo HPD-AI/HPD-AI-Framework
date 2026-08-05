@@ -40,7 +40,7 @@ public class RunEvalsOptions
     public bool PersistResults { get; init; } = false;
 
     /// <summary>Judge LLM configuration for evaluator calls.</summary>
-    public EvalJudgeConfig? JudgeConfig { get; init; }
+    public EvaluationJudgeRunConfig? JudgeConfig { get; init; }
 
     /// <summary>Retry policy for agent-side 429/503 errors. Reuses ErrorHandlingConfig.</summary>
     public ErrorHandlingConfig? TaskRetryPolicy { get; init; }
@@ -211,7 +211,7 @@ public static class RunEvals
         IReadOnlyList<IEvaluator> evaluators,
         string? datasetId,
         string? datasetVersion,
-        EvalJudgeConfig? judgeConfig,
+        EvaluationJudgeRunConfig? judgeConfig,
         RunEvalsOptions options,
         string? experimentName,
         CancellationToken ct)
@@ -222,14 +222,13 @@ public static class RunEvals
         // Build the case-level AgentRunConfig with DisableEvaluators to prevent
         // live double-firing. Each retry attempt clones this config before the
         // capture middleware adds per-attempt request state.
-        var caseRunConfig = CloneRunConfig(options.BaseRunConfig);
-        caseRunConfig.DisableEvaluators = true;
-        caseRunConfig.UserMessage = evalCase.Input?.ToString() ?? string.Empty;
+        var caseRunConfig = CloneRunConfig(agent, options.BaseRunConfig);
+        caseRunConfig.SuppressEvaluation(EvaluationSuppressionReason.BatchExecution);
+        var caseInput = evalCase.Input?.ToString() ?? string.Empty;
 
         if (evalCase.GroundTruth is not null)
         {
-            caseRunConfig.ContextOverrides ??= new Dictionary<string, object>();
-            caseRunConfig.ContextOverrides["groundTruth"] = evalCase.GroundTruth;
+            caseRunConfig.Ensure().ExecutionState.GroundTruth = evalCase.GroundTruth;
         }
 
         TurnEvaluationContext turnCtx;
@@ -239,9 +238,9 @@ public static class RunEvals
             turnCtx = await ExecuteWithRetryAsync(
                 () =>
                 {
-                    var attemptRunConfig = CloneRunConfig(caseRunConfig);
+                    var attemptRunConfig = CloneRunConfig(agent, caseRunConfig);
                     runConfig = attemptRunConfig;
-                    return RunAgentAndCaptureAsync(agent, attemptRunConfig, ct);
+                    return RunAgentAndCaptureAsync(agent, caseInput, attemptRunConfig, ct);
                 },
                 options.TaskRetryPolicy,
                 ct).ConfigureAwait(false);
@@ -252,8 +251,8 @@ public static class RunEvals
             // Task failure — return a case with an error result
             return new ReportCase(
                 caseName,
-                caseRunConfig.ProviderKey,
-                caseRunConfig.ModelId,
+                caseRunConfig.Clients.Chat?.ProviderKey,
+                caseRunConfig.Clients.Chat?.ModelName,
                 null,
                 new EvaluationResult(),
                 [new EvaluatorFailure("Agent", ex.Message)],
@@ -303,6 +302,7 @@ public static class RunEvals
             try
             {
                 var output = await RunEvaluatorAsync(
+                    agent,
                     evaluator,
                     messages,
                     agentResponse,
@@ -391,14 +391,14 @@ public static class RunEvals
 
     private static async Task<TurnEvaluationContext> RunAgentAndCaptureAsync(
         HPD.Agent.Agent agent,
+        string input,
         AgentRunConfig runConfig,
         CancellationToken ct)
     {
         var requestId = Guid.NewGuid().ToString();
         var capture = new BatchEvalCaptureMiddleware();
 
-        runConfig.ContextOverrides ??= new Dictionary<string, object>();
-        runConfig.ContextOverrides[BatchEvalCaptureMiddleware.CaptureRequestIdKey] = requestId;
+        runConfig.Ensure().ExecutionState.CaptureRequestId = requestId;
         runConfig.RuntimeMiddleware = PrependRuntimeMiddleware(runConfig.RuntimeMiddleware, capture);
 
         using var subscription = agent.SubscribeAny(capture.HandleAsync);
@@ -406,7 +406,7 @@ public static class RunEvals
         await agent.RunAsync(new HPD.Agent.UserMessagesInputEvent
         {
             Messages = [
-                new ChatMessage(ChatRole.User, runConfig.UserMessage ?? string.Empty)
+                new ChatMessage(ChatRole.User, input)
             ],
             RunConfig = runConfig,
         }, ct).ConfigureAwait(false);
@@ -448,6 +448,7 @@ public static class RunEvals
     }
 
     private static async Task<EvaluatorRunOutput> RunEvaluatorAsync<TInput>(
+        HPD.Agent.Agent agent,
         IEvaluator evaluator,
         IReadOnlyList<ChatMessage> messages,
         ChatResponse agentResponse,
@@ -457,7 +458,7 @@ public static class RunEvals
         string? datasetId,
         string? datasetVersion,
         AgentRunConfig runConfig,
-        EvalJudgeConfig? judgeConfig,
+        EvaluationJudgeRunConfig? judgeConfig,
         RunEvalsOptions options,
         CancellationToken ct)
         where TInput : notnull
@@ -465,8 +466,14 @@ public static class RunEvals
         var evaluatorName = evaluator.GetType().Name;
         using var traceScope = EvalTraceContext.Activate(evaluatorName);
 
+        var effectiveJudge = judgeConfig ?? new EvaluationJudgeRunConfig();
         var chatConfig = NeedsJudgeChatConfiguration(evaluator)
-            ? EvaluationExecutionHelpers.BuildChatConfiguration(judgeConfig)
+            ? EvaluationExecutionHelpers.BuildChatConfiguration(
+                effectiveJudge,
+                agent.CreateSpecializedChatClient(
+                    runConfig,
+                    effectiveJudge.Chat,
+                    effectiveJudge.Inheritance))
             : null;
 
         var result = await evaluator.EvaluateAsync(
@@ -560,26 +567,15 @@ public static class RunEvals
             IterationUsage = source.IterationUsage,
             IterationCount = source.IterationCount,
             Duration = source.Duration == TimeSpan.Zero ? taskDuration : source.Duration,
-            ModelId = source.ModelId ?? runConfig.ModelId ?? source.FinalResponse?.ModelId,
+            ModelId = source.ModelId ?? runConfig.Clients.Chat?.ModelName ?? source.FinalResponse?.ModelId,
             ResponseModelId = source.ResponseModelId ?? source.FinalResponse?.ModelId,
-            ProviderKey = source.ProviderKey ?? runConfig.ProviderKey,
+            ProviderKey = source.ProviderKey ?? runConfig.Clients.Chat?.ProviderKey,
             Attributes = attributes,
             Metrics = source.Metrics,
             StopKind = source.StopKind,
             GroundTruth = source.GroundTruth ?? groundTruth,
-            ExperimentContext = SanitizeExperimentContext(source.ExperimentContext ?? runConfig.ContextOverrides),
+            ExperimentContext = source.ExperimentContext ?? runConfig.Context?.Properties,
         };
-    }
-
-    private static IDictionary<string, object>? SanitizeExperimentContext(
-        IDictionary<string, object>? context)
-    {
-        if (context is null || !context.ContainsKey(BatchEvalCaptureMiddleware.CaptureRequestIdKey))
-            return context;
-
-        var sanitized = new Dictionary<string, object>(context);
-        sanitized.Remove(BatchEvalCaptureMiddleware.CaptureRequestIdKey);
-        return sanitized;
     }
 
     private static IReadOnlyDictionary<string, object> BuildBatchAttributes(TurnEvaluationContext source)
@@ -682,55 +678,6 @@ public static class RunEvals
         return TimeSpan.FromMilliseconds(capped);
     }
 
-    private static AgentRunConfig CloneRunConfig(AgentRunConfig? source)
-    {
-        if (source is null)
-            return new AgentRunConfig();
-
-        return new AgentRunConfig
-        {
-            Security = source.Security with { },
-            Sandbox = source.Sandbox with
-            {
-                Filesystem = source.Sandbox.Filesystem
-                    .Select(static grant => grant with { })
-                    .ToArray()
-            },
-            Chat = source.Chat,
-            ProviderKey = source.ProviderKey,
-            ModelId = source.ModelId,
-            ApiKey = source.ApiKey,
-            ProviderEndpoint = source.ProviderEndpoint,
-            CustomHeaders = source.CustomHeaders is null ? null : new(source.CustomHeaders),
-            ProviderOptions = source.ProviderOptions,
-            OverrideChatClient = source.OverrideChatClient,
-            SystemInstructions = source.SystemInstructions,
-            AdditionalSystemInstructions = source.AdditionalSystemInstructions,
-            ContextOverrides = source.ContextOverrides is null ? null : new(source.ContextOverrides),
-            RunTimeout = source.RunTimeout,
-            UseCache = source.UseCache,
-            SkipTools = source.SkipTools,
-            CoalesceDeltas = source.CoalesceDeltas,
-            RuntimeMiddleware = source.RuntimeMiddleware,
-            PermissionOverrides = source.PermissionOverrides is null ? null : new(source.PermissionOverrides),
-            ClientToolInput = source.ClientToolInput,
-            ClientAppProviders = source.ClientAppProviders is null ? null : new(source.ClientAppProviders),
-            ConversationIdOverride = source.ConversationIdOverride,
-            CustomStreamCallback = source.CustomStreamCallback,
-            ContextInstances = source.ContextInstances is null ? null : new(source.ContextInstances),
-            AllowBackgroundResponses = source.AllowBackgroundResponses,
-            ContinuationToken = source.ContinuationToken,
-            BackgroundPollingInterval = source.BackgroundPollingInterval,
-            BackgroundTimeout = source.BackgroundTimeout,
-            Attachments = source.Attachments,
-            Audio = source.Audio,
-            Compaction = source.Compaction,
-            UserMessage = source.UserMessage,
-            DisableEvaluators = source.DisableEvaluators,
-            IsInternalEvalJudgeCall = source.IsInternalEvalJudgeCall,
-            AdditionalEvaluators = source.AdditionalEvaluators,
-            EvaluatorSamplingOverride = source.EvaluatorSamplingOverride,
-            EvalJudgeConfigOverride = source.EvalJudgeConfigOverride,
-        };
-    }
+    private static AgentRunConfig CloneRunConfig(HPD.Agent.Agent agent, AgentRunConfig? source) =>
+        agent.CaptureRunConfig(source);
 }

@@ -9,7 +9,7 @@ namespace HPD.Auth.Core.Events;
 /// Note: UserId is intentionally absent — the user may not exist.
 /// IP address is carried on <see cref="AuthEvent.AuthContext"/>.
 /// </summary>
-public record LoginFailedEvent : AuthEvent
+public sealed record LoginFailedEvent : AuthEvent
 {
     /// <summary>
     /// Email address that was used in the failed login attempt.

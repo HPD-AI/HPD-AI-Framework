@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>HPD.Gateway.Effective</RootNamespace>
+    <AssemblyName>HPD.Gateway.Effective</AssemblyName>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD.Gateway.Effective</PackageId>
+    <Description>Bounded preparation-time effective policy provenance for HPD.Gateway.</Description>
+    <PackageTags>hpd;gateway;provenance;aot</PackageTags>
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../HPD.Gateway.Abstractions/HPD.Gateway.Abstractions.csproj" />
+  </ItemGroup>
+</Project>

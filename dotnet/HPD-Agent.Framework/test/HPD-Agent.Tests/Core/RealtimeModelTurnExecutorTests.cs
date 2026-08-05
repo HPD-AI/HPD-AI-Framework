@@ -186,13 +186,22 @@ public sealed class RealtimeModelTurnExecutorTests
         {
             RunConfig = new AgentRunConfig
             {
-                RealtimeTranscriptionOptions = transcriptionOptions
+                Clients = new AgentClientsConfig { Realtime = new RealtimeClientConfig
+                {
+                    Transcription = new RealtimeTranscriptionRunConfig
+                    {
+                        ModelName = transcriptionOptions.ModelId,
+                        SpeechLanguage = transcriptionOptions.SpeechLanguage,
+                        Prompt = transcriptionOptions.Prompt
+                    }
+                } }
             }
         };
 
         var updates = await ReadUpdatesAsync(executor.RunAsync(request));
 
-        Assert.Same(transcriptionOptions, session.Options?.TranscriptionOptions);
+        Assert.Equal(transcriptionOptions.ModelId, session.Options?.TranscriptionOptions?.ModelId);
+        Assert.Equal(transcriptionOptions.SpeechLanguage, session.Options?.TranscriptionOptions?.SpeechLanguage);
         Assert.Collection(
             updates,
             update =>
@@ -287,10 +296,10 @@ public sealed class RealtimeModelTurnExecutorTests
             ],
             new AgentRunConfig
             {
-                RealtimeTranscriptionOptions = new TranscriptionOptions
+                Clients = new AgentClientsConfig { Realtime = new RealtimeClientConfig
                 {
-                    ModelId = "whisper-1"
-                }
+                    Transcription = new RealtimeTranscriptionRunConfig { ModelName = "whisper-1" }
+                } }
             });
 
         var updates = await ReadUpdatesAsync(executor.RunAsync(request));

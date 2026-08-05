@@ -1,0 +1,8 @@
+global using FluentAssertions;
+global using HPD.Base;
+global using HPD.Base.Tests.Realtime;
+global using HPD.Events;
+global using Microsoft.Extensions.DependencyInjection;
+global using Microsoft.Extensions.Logging;
+global using System.Text.Json;
+global using Xunit;

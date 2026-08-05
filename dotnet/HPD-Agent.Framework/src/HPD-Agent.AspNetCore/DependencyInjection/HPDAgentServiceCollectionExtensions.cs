@@ -4,6 +4,7 @@ using HPD.Agent.Hosting.Configuration;
 using HPD.Agent.Hosting.Lifecycle;
 using HPD.Agent.Hosting.Serialization;
 using HPD.Agent.Serialization;
+using HPD.Agent.Providers;
 using Microsoft.Extensions.Configuration;
 using Microsoft.AspNetCore.Http.Json;
 using Microsoft.Extensions.DependencyInjection;
@@ -46,12 +47,9 @@ public static class HPDAgentServiceCollectionExtensions
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(configPath);
 
-        var agentConfig = HpdAgentConfigSerializer.ReadFile(configPath)
-            ?? throw new InvalidOperationException($"Failed to load HPD agent config from '{configPath}'.");
-
         return services.AddHPDAgent(name, options =>
         {
-            options.DefaultAgent = agentConfig;
+            options.DefaultAgentPath = configPath;
             configure?.Invoke(options);
         });
     }
@@ -76,12 +74,9 @@ public static class HPDAgentServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(configuration);
 
-        var agentConfig = HpdAgentConfigSerializer.Deserialize(ConfigurationToJson(configuration))
-            ?? throw new InvalidOperationException("Failed to load HPD agent config from IConfiguration.");
-
         return services.AddHPDAgent(name, options =>
         {
-            options.DefaultAgent = agentConfig;
+            options.DefaultAgentDocument = ConfigurationToJson(configuration);
             configure?.Invoke(options);
         });
     }
@@ -131,10 +126,10 @@ public static class HPDAgentServiceCollectionExtensions
             sp.GetRequiredService<DependencyInjection.HPDAgentRegistry>().Get(name).HostingServices.Streaming);
         services.TryAddSingleton<IThreadJournalRebaseSeedProvider>(sp =>
             new HostedThreadJournalRebaseSeedProvider(
-                sp.GetRequiredService<HPD.Agent.Hosting.Lifecycle.SessionManager>(),
-                sp.GetRequiredService<HPD.Agent.Hosting.Lifecycle.AgentManager>()));
+                sp.GetRequiredService<HPD.Agent.Hosting.Lifecycle.SessionManager>()));
 
         // Register JSON serialization context for AOT (once)
+        services.AddOptions<JsonOptions>();
         services.TryAddEnumerable(
             ServiceDescriptor.Singleton<IConfigureOptions<JsonOptions>,
                 HPDAgentApiJsonOptionsSetup>());
@@ -172,11 +167,13 @@ public static class HPDAgentServiceCollectionExtensions
 /// <summary>
 /// Configures JSON serialization for HPD Agent API DTOs.
 /// </summary>
-internal class HPDAgentApiJsonOptionsSetup : IConfigureOptions<JsonOptions>
+internal class HPDAgentApiJsonOptionsSetup(IServiceProvider services) : IConfigureOptions<JsonOptions>
 {
     public void Configure(JsonOptions options)
     {
         options.SerializerOptions.Converters.Add(new HPD.Agent.Serialization.AgentEventJsonConverter());
+        if (services.GetService<ProviderComposition>() is { } composition)
+            options.SerializerOptions.Converters.Add(new AgentRunConfigJsonConverter(composition));
 
         // Internal endpoint types (WriteScoreRequest, etc.)
         options.SerializerOptions.TypeInfoResolverChain.Insert(0,

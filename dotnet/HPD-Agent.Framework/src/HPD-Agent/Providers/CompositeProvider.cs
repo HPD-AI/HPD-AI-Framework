@@ -43,36 +43,40 @@ internal sealed class CompositeProvider :
         where TProvider : class, IProvider
         => _providers.Any(static provider => provider is TProvider);
 
-    public IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null) =>
-        GetFamilyProvider<IChatClientProvider>(ProviderClientFamily.Chat).CreateChatClient(config, services);
+    public ValueTask<IChatClient> CreateChatClientAsync(
+        ProviderClientConfig config,
+        IServiceProvider? services = null,
+        CancellationToken cancellationToken = default) =>
+        GetFamilyProvider<IChatClientProvider>(ProviderClientFamily.Chat)
+            .CreateChatClientAsync(config, services, cancellationToken);
 
-    public ITextToSpeechClient CreateTextToSpeechClient(ClientProviderConfig config, IServiceProvider? services = null) =>
+    public ITextToSpeechClient CreateTextToSpeechClient(ProviderClientConfig config, IServiceProvider? services = null) =>
         GetFamilyProvider<ITextToSpeechClientProvider>(ProviderClientFamily.TextToSpeech).CreateTextToSpeechClient(config, services);
 
-    public ISpeechToTextClient CreateSpeechToTextClient(ClientProviderConfig config, IServiceProvider? services = null) =>
+    public ISpeechToTextClient CreateSpeechToTextClient(ProviderClientConfig config, IServiceProvider? services = null) =>
         GetFamilyProvider<ISpeechToTextClientProvider>(ProviderClientFamily.SpeechToText).CreateSpeechToTextClient(config, services);
 
-    public IRealtimeClient CreateRealtimeClient(ClientProviderConfig config, IServiceProvider? services = null) =>
+    public IRealtimeClient CreateRealtimeClient(ProviderClientConfig config, IServiceProvider? services = null) =>
         GetFamilyProvider<IRealtimeClientProvider>(ProviderClientFamily.Realtime).CreateRealtimeClient(config, services);
 
-    public IImageGenerator CreateImageGenerator(ClientProviderConfig config, IServiceProvider? services = null) =>
+    public IImageGenerator CreateImageGenerator(ProviderClientConfig config, IServiceProvider? services = null) =>
         GetFamilyProvider<IImageGeneratorProvider>(ProviderClientFamily.ImageGeneration).CreateImageGenerator(config, services);
 
-    public IEmbeddingGenerator CreateEmbeddingGenerator(ClientProviderConfig config, IServiceProvider? services = null) =>
+    public IEmbeddingGenerator CreateEmbeddingGenerator(ProviderClientConfig config, IServiceProvider? services = null) =>
         GetFamilyProvider<IEmbeddingGeneratorProvider>(ProviderClientFamily.Embeddings).CreateEmbeddingGenerator(config, services);
 
-    public IHostedFileClient CreateHostedFileClient(ClientProviderConfig config, IServiceProvider? services = null) =>
+    public IHostedFileClient CreateHostedFileClient(ProviderClientConfig config, IServiceProvider? services = null) =>
         GetFamilyProvider<IHostedFileClientProvider>(ProviderClientFamily.HostedFiles).CreateHostedFileClient(config, services);
 
     public IVoiceActivityDetector CreateVoiceActivityDetector(
-        ClientProviderConfig config,
+        ProviderClientConfig config,
         ProviderComponentLifetimeContext context,
         IServiceProvider? services = null) =>
         GetFamilyProvider<IVoiceActivityDetectorProvider>(ProviderClientFamily.VoiceActivityDetection)
             .CreateVoiceActivityDetector(config, context, services);
 
     public IEotDetector CreateEndOfTurnDetector(
-        ClientProviderConfig config,
+        ProviderClientConfig config,
         ProviderComponentLifetimeContext context,
         IServiceProvider? services = null) =>
         GetFamilyProvider<IEndOfTurnDetectorProvider>(ProviderClientFamily.EndOfTurnDetection)
@@ -100,11 +104,11 @@ internal sealed class CompositeProvider :
         };
     }
 
-    public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family) =>
+    public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family) =>
         GetFamilyProvider<IProvider>(family).ValidateConfiguration(config, family);
 
     public Task<ProviderValidationResult>? ValidateConfigurationAsync(
-        ClientProviderConfig config,
+        ProviderClientConfig config,
         ProviderClientFamily family,
         CancellationToken cancellationToken = default) =>
         GetFamilyProvider<IProvider>(family).ValidateConfigurationAsync(config, family, cancellationToken);

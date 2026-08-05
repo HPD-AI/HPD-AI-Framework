@@ -5,14 +5,8 @@ namespace HPD.Agent.Providers.DashScope;
 /// <summary>
 /// DashScope-specific provider configuration.
 /// </summary>
-public class DashScopeProviderConfig
+public sealed class DashScopeProviderConfig : global::HPD.Agent.IProviderConfig
 {
-    /// <summary>
-    /// DashScope HTTP API base address.
-    /// </summary>
-    [JsonPropertyName("baseAddress")]
-    public string? BaseAddress { get; set; }
-
     /// <summary>
     /// DashScope websocket API base address.
     /// </summary>
@@ -37,22 +31,4 @@ public class DashScopeProviderConfig
     [JsonPropertyName("timeoutSeconds")]
     public int? TimeoutSeconds { get; set; }
 
-    /// <summary>
-    /// Forces use of DashScope multimodal generation endpoints.
-    /// If null, the adapter infers this from the model id.
-    /// </summary>
-    [JsonPropertyName("defaultUseVl")]
-    public bool? DefaultUseVl { get; set; }
-
-    /// <summary>
-    /// Default embedding model.
-    /// </summary>
-    [JsonPropertyName("embeddingModelId")]
-    public string? EmbeddingModelId { get; set; }
-
-    /// <summary>
-    /// Optional embedding dimensions.
-    /// </summary>
-    [JsonPropertyName("embeddingDimensions")]
-    public int? EmbeddingDimensions { get; set; }
 }

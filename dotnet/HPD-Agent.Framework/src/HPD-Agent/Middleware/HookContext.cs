@@ -49,6 +49,9 @@ public abstract class HookContext
     /// </summary>
     public string? TraceId => Base.TraceId;
 
+    /// <summary>The accepted thread execution that owns this hook invocation.</summary>
+    public string? ThreadExecutionId => Base.ThreadExecutionId;
+
     /// <summary>
     /// Agent configuration for middleware that needs agent-level client-family defaults.
     /// </summary>
@@ -260,8 +263,8 @@ public abstract class HookContext
     public Task<TResponse> RequestAsync<TRequest, TResponse>(
         TRequest request,
         TimeSpan? timeout = null)
-        where TRequest : AgentEvent, HPD.Events.IRequestEvent
-        where TResponse : AgentEvent, HPD.Events.IResponseEvent
+        where TRequest : AgentEvent, IAgentRequestEvent<TResponse>
+        where TResponse : AgentEvent, IAgentResponseEvent
         => Base.RequestAsync<TRequest, TResponse>(request, timeout);
 
     /// <summary>

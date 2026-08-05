@@ -11,22 +11,22 @@ namespace HPD.Agent.Tests.ClientTools;
 /// </summary>
 public class AgentClientInputRenameTests
 {
-    // ── 7.1  AgentRunConfig.ClientToolInput is typed AgentClientInput ─────────
+    // ── 7.1  AgentToolsRunConfig.ClientInput is typed AgentClientInput ─────────
 
     [Fact]
-    public void AgentRunConfig_ClientToolInput_IsTyped_AgentClientInput()
+    public void AgentToolsRunConfig_ClientInput_IsTyped_AgentClientInput()
     {
-        var prop = typeof(AgentRunConfig).GetProperty(nameof(AgentRunConfig.ClientToolInput));
+        var prop = typeof(AgentToolsRunConfig).GetProperty(nameof(AgentToolsRunConfig.ClientInput));
 
         prop.Should().NotBeNull();
         prop!.PropertyType.Should().Be(typeof(AgentClientInput),
-            "ClientToolInput must be AgentClientInput, not the old AgentRunInput");
+            "ClientInput must be AgentClientInput, not the old AgentRunInput");
     }
 
     // ── 7.2  AgentClientInput can be assigned to AgentRunConfig ───────────────
 
     [Fact]
-    public void AgentRunConfig_ClientToolInput_AcceptsAgentClientInput()
+    public void AgentToolsRunConfig_ClientInput_AcceptsAgentClientInput()
     {
         var input = new AgentClientInput
         {
@@ -35,10 +35,10 @@ public class AgentClientInputRenameTests
 
         var config = new AgentRunConfig
         {
-            ClientToolInput = input
+            Tools = new AgentToolsRunConfig { ClientInput = input }
         };
 
-        config.ClientToolInput.Should().BeSameAs(input);
+        config.Tools.ClientInput.Should().BeSameAs(input);
     }
 
     // ── 7.3  AgentClientInput type exists and AgentRunInput does not ──────────

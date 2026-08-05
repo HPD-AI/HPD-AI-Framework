@@ -17,8 +17,11 @@ public sealed class AppleVirtualizationSandboxRealAcceptanceTests
         Skip.IfNot(RuntimeInformation.IsOSPlatform(OSPlatform.OSX), "Real Apple Virtualization acceptance requires macOS.");
         Skip.IfNot(environment.CanRun, environment.SkipReason);
 
-        using RealScratchDisk scratchDisk = RealScratchDisk.Create(environment.GuestDiskPath);
-        AppleVirtualizationProviderOptions options = environment.CreateProviderOptions(scratchDisk.Path);
+        using RealScratchDiskSet scratchDisks = RealScratchDiskSet.Create(
+            environment.SystemDiskPath,
+            environment.RuntimeDiskPath,
+            environment.AppDataDiskPath);
+        AppleVirtualizationProviderOptions options = environment.CreateProviderOptions(scratchDisks);
         await using var middleware = new AppleVirtualizationSandboxMiddleware(options);
         await middleware.InitializeAsync();
 
@@ -216,7 +219,9 @@ public sealed class AppleVirtualizationSandboxRealAcceptanceTests
         string HelperPath,
         string KernelPath,
         string InitrdPath,
-        string GuestDiskPath,
+        string SystemDiskPath,
+        string RuntimeDiskPath,
+        string AppDataDiskPath,
         string? SerialLogPath,
         string? KernelCommandLine,
         string? ExpectedGuestAgentVersion)
@@ -229,7 +234,9 @@ public sealed class AppleVirtualizationSandboxRealAcceptanceTests
                 "HPD_APPLEVZ_REAL_HELPER_PATH",
                 "HPD_APPLEVZ_GUEST_KERNEL",
                 "HPD_APPLEVZ_GUEST_INITRD",
-                "HPD_APPLEVZ_GUEST_DISK",
+                "HPD_APPLEVZ_GUEST_SYSTEM_DISK",
+                "HPD_APPLEVZ_GUEST_RUNTIME_DISK",
+                "HPD_APPLEVZ_GUEST_APP_DATA_DISK",
                 "HPD_APPLEVZ_EXPECTED_GUEST_AGENT_VERSION",
             ];
 
@@ -249,8 +256,10 @@ public sealed class AppleVirtualizationSandboxRealAcceptanceTests
             string helper = getEnvironment("HPD_APPLEVZ_REAL_HELPER_PATH")!;
             string kernel = getEnvironment("HPD_APPLEVZ_GUEST_KERNEL")!;
             string initrd = getEnvironment("HPD_APPLEVZ_GUEST_INITRD")!;
-            string disk = getEnvironment("HPD_APPLEVZ_GUEST_DISK")!;
-            string[] paths = [helper, kernel, initrd, disk];
+            string systemDisk = getEnvironment("HPD_APPLEVZ_GUEST_SYSTEM_DISK")!;
+            string runtimeDisk = getEnvironment("HPD_APPLEVZ_GUEST_RUNTIME_DISK")!;
+            string appDataDisk = getEnvironment("HPD_APPLEVZ_GUEST_APP_DATA_DISK")!;
+            string[] paths = [helper, kernel, initrd, systemDisk, runtimeDisk, appDataDisk];
             string[] missingFiles = paths
                 .Where(path => !File.Exists(path))
                 .ToArray();
@@ -265,13 +274,15 @@ public sealed class AppleVirtualizationSandboxRealAcceptanceTests
                 helper,
                 kernel,
                 initrd,
-                disk,
+                systemDisk,
+                runtimeDisk,
+                appDataDisk,
                 NullIfWhiteSpace(getEnvironment("HPD_APPLEVZ_GUEST_SERIAL_LOG")),
                 NullIfWhiteSpace(getEnvironment("HPD_APPLEVZ_GUEST_KERNEL_CMDLINE")),
                 NullIfWhiteSpace(getEnvironment("HPD_APPLEVZ_EXPECTED_GUEST_AGENT_VERSION")));
         }
 
-        public AppleVirtualizationProviderOptions CreateProviderOptions(string scratchDiskPath) =>
+        public AppleVirtualizationProviderOptions CreateProviderOptions(RealScratchDiskSet scratchDisks) =>
             new()
             {
                 HelperPath = HelperPath,
@@ -281,7 +292,12 @@ public sealed class AppleVirtualizationSandboxRealAcceptanceTests
                     BootLoader = AppleVirtualizationGuestBootLoaderKind.LinuxBootLoader,
                     KernelPath = KernelPath,
                     InitrdPath = InitrdPath,
-                    DiskImagePath = scratchDiskPath,
+                    DiskAttachments =
+                    [
+                        DiskAttachment(AppleVirtualizationDiskRole.System, scratchDisks.SystemPath),
+                        DiskAttachment(AppleVirtualizationDiskRole.Runtime, scratchDisks.RuntimePath),
+                        DiskAttachment(AppleVirtualizationDiskRole.AppData, scratchDisks.AppDataPath),
+                    ],
                     SerialLogPath = SerialLogPath,
                     KernelCommandLine = KernelCommandLine,
                     ExpectedGuestAgentVersion = ExpectedGuestAgentVersion,
@@ -295,35 +311,59 @@ public sealed class AppleVirtualizationSandboxRealAcceptanceTests
             };
 
         private static RealAppleVirtualizationEnvironment Empty(string reason) =>
-            new(false, reason, string.Empty, string.Empty, string.Empty, string.Empty, null, null, null);
+            new(false, reason, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, null, null, null);
+
+        private static AppleVirtualizationDiskAttachmentOptions DiskAttachment(
+            AppleVirtualizationDiskRole role,
+            string path) =>
+            new()
+            {
+                Role = role,
+                DiskImagePath = path,
+                CachingMode = AppleVirtualizationDiskCachingMode.Cached,
+                SynchronizationMode = AppleVirtualizationDiskSynchronizationMode.Full,
+            };
 
         private static string? NullIfWhiteSpace(string? value) =>
             string.IsNullOrWhiteSpace(value) ? null : value;
     }
 
-    private sealed class RealScratchDisk : IDisposable
+    private sealed class RealScratchDiskSet : IDisposable
     {
-        private RealScratchDisk(string path)
+        private RealScratchDiskSet(string systemPath, string runtimePath, string appDataPath)
         {
-            Path = path;
+            SystemPath = systemPath;
+            RuntimePath = runtimePath;
+            AppDataPath = appDataPath;
         }
 
-        public string Path { get; }
+        public string SystemPath { get; }
+        public string RuntimePath { get; }
+        public string AppDataPath { get; }
 
-        public static RealScratchDisk Create(string sourceDisk)
+        public static RealScratchDiskSet Create(
+            string systemSource,
+            string runtimeSource,
+            string appDataSource)
         {
-            string path = System.IO.Path.Combine(
+            string root = System.IO.Path.Combine(
                 System.IO.Path.GetTempPath(),
-                "hpd-applevz-sandbox-real-" + Guid.NewGuid().ToString("N") + ".raw");
-            File.Copy(sourceDisk, path);
-            return new RealScratchDisk(path);
+                "hpd-applevz-sandbox-real-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(root);
+            string systemPath = System.IO.Path.Combine(root, "system.raw");
+            string runtimePath = System.IO.Path.Combine(root, "runtime.raw");
+            string appDataPath = System.IO.Path.Combine(root, "app-data.raw");
+            File.Copy(systemSource, systemPath);
+            File.Copy(runtimeSource, runtimePath);
+            File.Copy(appDataSource, appDataPath);
+            return new RealScratchDiskSet(systemPath, runtimePath, appDataPath);
         }
 
         public void Dispose()
         {
             try
             {
-                File.Delete(Path);
+                Directory.Delete(System.IO.Path.GetDirectoryName(SystemPath)!, recursive: true);
             }
             catch
             {

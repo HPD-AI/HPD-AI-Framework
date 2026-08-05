@@ -110,7 +110,7 @@ public sealed class HpdModelsDevProviderStateTests
             };
 
         public ProviderValidationResult ValidateConfiguration(
-            ClientProviderConfig config,
+            ProviderClientConfig config,
             ProviderClientFamily family)
             => ProviderValidationResult.Success();
     }

@@ -33,7 +33,7 @@ public sealed class AgentStreamingServiceTests : IDisposable
             .Should().BeTrue();
         _sessionManager.ActivateThreadExecution("session", "thread", reserved.ThreadExecutionId)
             .Should().BeTrue();
-        var provider = new HostedThreadJournalRebaseSeedProvider(_sessionManager, _agentManager);
+        var provider = new HostedThreadJournalRebaseSeedProvider(_sessionManager);
 
         var seeds = await provider.CreateSeedEventsAsync(new ThreadKey("session", "thread"));
 
@@ -47,7 +47,7 @@ public sealed class AgentStreamingServiceTests : IDisposable
     }
 
     [Fact]
-    public void ApplyRouteScope_PreservesRunConfigContextOverrides()
+    public void ApplyRouteScope_PreservesRunConfigContextProperties()
     {
         var workspaceOverride = new Dictionary<string, object>
         {
@@ -56,11 +56,17 @@ public sealed class AgentStreamingServiceTests : IDisposable
         };
         var runConfig = new AgentRunConfig
         {
-            ProviderKey = "openrouter",
-            ModelId = "model-1",
-            ContextOverrides = new Dictionary<string, object>
+            Clients = new AgentClientsConfig { Chat = new ChatClientConfig
             {
-                ["workspace"] = workspaceOverride
+                ProviderKey = "openrouter",
+                ModelName = "model-1"
+            } },
+            Context = new AgentContextRunConfig
+            {
+                Properties = new Dictionary<string, object>
+                {
+                    ["workspace"] = workspaceOverride
+                }
             }
         };
         var input = new UserMessagesInputEvent { Messages = [new ChatMessage(ChatRole.User, "run tests")],
@@ -86,8 +92,8 @@ public sealed class AgentStreamingServiceTests : IDisposable
         messages.ThreadExecutionId.Should().Be("route-run");
         messages.ClientInputId.Should().Be("client-input-1");
         messages.RunConfig.Should().BeSameAs(runConfig);
-        messages.RunConfig!.ContextOverrides.Should().ContainKey("workspace");
-        messages.RunConfig.ContextOverrides!["workspace"].Should().BeSameAs(workspaceOverride);
+        messages.RunConfig!.Context!.Properties.Should().ContainKey("workspace");
+        messages.RunConfig.Context.Properties!["workspace"].Should().BeSameAs(workspaceOverride);
     }
 
     [Fact]
@@ -95,8 +101,11 @@ public sealed class AgentStreamingServiceTests : IDisposable
     {
         var runConfig = new AgentRunConfig
         {
-            ProviderKey = "openrouter",
-            ModelId = "model-1"
+            Clients = new AgentClientsConfig { Chat = new ChatClientConfig
+            {
+                ProviderKey = "openrouter",
+                ModelName = "model-1"
+            } }
         };
         var input = new BackgroundTaskNotificationInputEvent(
             [
@@ -174,11 +183,16 @@ public sealed class AgentStreamingServiceTests : IDisposable
 
         result.Status.Should().Be(AgentServiceStatus.Success);
         result.Value!.ActiveExecution.Should().BeNull();
-        result.Value.ObservedCursor.Should().Be(new ThreadJournalCursor(1, 2));
+        result.Value.ObservedCursor.Should().Be(new ThreadJournalCursor(1, 3));
+
+        var repeated = await _service.GetThreadStateAsync("agent-1", sessionId, threadId);
+
+        repeated.Value!.ObservedCursor.Should().Be(new ThreadJournalCursor(1, 3),
+            "recovery must not append a second terminal fact");
     }
 
     [Fact]
-    public async Task GetThreadStateAsync_ReturnsPendingThreadRequestsWithoutReplayingHistory()
+    public async Task GetThreadStateAsync_ProjectsPendingRequestsFromDurableJournal()
     {
         var (sessionId, threadId) = await _sessionManager.CreateSessionAsync("agent-1", "session-pending-request");
         var stored = await _agentManager.CreateDefinitionAsync(
@@ -186,9 +200,9 @@ public sealed class AgentStreamingServiceTests : IDisposable
             {
                 Name = "agent-1",
                 MaxAgenticIterations = 1,
-                Clients = new AgentClientConfig
+                Clients = new AgentClientsConfig
                 {
-                    Chat = new ClientProviderConfig
+                    Chat = new ChatClientConfig
                     {
                         ProviderKey = "test",
                         ModelName = "test-model"
@@ -196,7 +210,10 @@ public sealed class AgentStreamingServiceTests : IDisposable
                 }
             },
             "agent-1");
-        var runtime = await _agentManager.GetOrBuildAgentRuntimeAsync(stored.Id, sessionId, threadId);
+        _sessionManager.TryReserveThreadExecution(stored.Id, sessionId, threadId, out var execution)
+            .Should().BeTrue();
+        _sessionManager.ActivateThreadExecution(sessionId, threadId, execution.ThreadExecutionId)
+            .Should().BeTrue();
         var request = new PermissionRequestEvent(
             "permission-1",
             "test",
@@ -206,46 +223,24 @@ public sealed class AgentStreamingServiceTests : IDisposable
             null)
         {
             SessionId = sessionId,
-            ThreadId = threadId
+            ThreadId = threadId,
+            ThreadExecutionId = execution.ThreadExecutionId
         };
-        var handle = runtime.EventCoordinator.RegisterRequest<PermissionRequestEvent, PermissionResponseEvent>(request);
+        await _sessionStore.AppendThreadEventsAsync(
+            new ThreadKey(sessionId, threadId),
+            [
+                new ThreadExecutionStartedEvent(execution.ThreadExecutionId, stored.Id, execution.StartedAt),
+                request
+            ]);
 
         var result = await _service.GetThreadStateAsync(stored.Id, sessionId, threadId);
 
         var pending = result.Value!.PendingRequests.Should().ContainSingle().Subject;
-        pending.Request.Should().BeSameAs(request);
+        pending.Request.Should().BeOfType<PermissionRequestEvent>();
+        pending.Request.ThreadExecutionId.Should().Be(execution.ThreadExecutionId);
         pending.CreatedAt.Should().BeCloseTo(DateTimeOffset.UtcNow, TimeSpan.FromSeconds(5));
-        handle.Cancel("test complete");
-    }
-
-    [Fact]
-    public async Task GetThreadStateAsync_ReturnsDescendantRequestWithOriginScope()
-    {
-        var (sessionId, threadId) = await _sessionManager.CreateSessionAsync("agent-1", "session-tree-request");
-        var stored = await _agentManager.CreateDefinitionAsync(new AgentConfig
-        {
-            Name = "agent-1",
-            Clients = new AgentClientConfig
-            {
-                Chat = new ClientProviderConfig { ProviderKey = "test", ModelName = "test-model" }
-            }
-        }, "agent-1");
-        var runtime = await _agentManager.GetOrBuildAgentRuntimeAsync(stored.Id, sessionId, threadId);
-        var childCoordinator = new HPD.Events.Core.EventCoordinator();
-        childCoordinator.SetParent(runtime.EventCoordinator);
-        var request = new PermissionRequestEvent("permission-child", "test", "function", null, "call-child", null)
-        {
-            SessionId = sessionId,
-            ThreadId = "child-thread"
-        };
-        var handle = childCoordinator.RegisterRequest<PermissionRequestEvent, PermissionResponseEvent>(request);
-
-        var result = await _service.GetThreadStateAsync(stored.Id, sessionId, threadId);
-
-        var pending = result.Value!.PendingRequests.Should().ContainSingle().Subject;
-        pending.Request.SessionId.Should().Be(sessionId);
-        pending.Request.ThreadId.Should().Be("child-thread");
-        handle.Cancel("test complete");
+        _sessionManager.ReleaseThreadExecution(sessionId, threadId, execution.ThreadExecutionId)
+            .Should().BeTrue();
     }
 
     [Fact]
@@ -257,9 +252,9 @@ public sealed class AgentStreamingServiceTests : IDisposable
         var stored = await _agentManager.CreateDefinitionAsync(new AgentConfig
         {
             Name = "agent-1",
-            Clients = new AgentClientConfig
+            Clients = new AgentClientsConfig
             {
-                Chat = new ClientProviderConfig { ProviderKey = "test", ModelName = "test-model" }
+                Chat = new ChatClientConfig { ProviderKey = "test", ModelName = "test-model" }
             }
         }, "agent-1");
 
@@ -290,9 +285,9 @@ public sealed class AgentStreamingServiceTests : IDisposable
             {
                 Name = "agent-1",
                 MaxAgenticIterations = 1,
-                Clients = new AgentClientConfig
+                Clients = new AgentClientsConfig
                 {
-                    Chat = new ClientProviderConfig
+                    Chat = new ChatClientConfig
                     {
                         ProviderKey = "test",
                         ModelName = "test-model"
@@ -367,9 +362,9 @@ public sealed class AgentStreamingServiceTests : IDisposable
                 {
                     Name = agentId,
                     MaxAgenticIterations = 1,
-                    Clients = new AgentClientConfig
+                    Clients = new AgentClientsConfig
                     {
-                        Chat = new ClientProviderConfig
+                        Chat = new ChatClientConfig
                         {
                             ProviderKey = "test",
                             ModelName = "test-model"

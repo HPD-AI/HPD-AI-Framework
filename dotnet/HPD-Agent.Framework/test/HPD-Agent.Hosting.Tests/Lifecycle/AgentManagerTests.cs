@@ -364,7 +364,7 @@ public class AgentManagerTests : IDisposable
     {
         Name = name,
         MaxAgenticIterations = 5,
-        Clients = new AgentClientConfig { Chat = new ClientProviderConfig { ProviderKey = "test", ModelName = "test-model" } }
+        Clients = new AgentClientsConfig { Chat = new ChatClientConfig { ProviderKey = "test", ModelName = "test-model" } }
     };
 
     // ──────────────────────────────────────────────────────────────────────────

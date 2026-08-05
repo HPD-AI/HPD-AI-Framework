@@ -1,15 +1,7 @@
 using FluentAssertions;
-using HPD.Base.Policy;
-using HPD.Base.Query;
-using HPD.Base.Records;
-using HPD.Base.Results;
-using HPD.Base.Runtime;
-using HPD.Base.Runtime.DependencyInjection;
-using HPD.Base.Runtime.Operations;
-using HPD.Base.Runtime.Stores;
-using HPD.Base.Schema;
-using HPD.Base.Sqlite.Configuration;
-using HPD.Base.Sqlite.DependencyInjection;
+using HPD.Base;
+using HPD.Base.Sqlite;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
 using System.Text.Json;
 
@@ -25,6 +17,7 @@ public sealed class SqlitePolicyCompositionTests
         {
             var services = Services(path, new TenantPolicyEvaluator(SupportedTenantFilter()));
             await using var provider = services.BuildServiceProvider();
+            await provider.GetRequiredService<SqliteRecordStore>().InitializeUnacceptedSchemaForTestsAsync();
             provider.GetRequiredService<IRecordStoreRegistry>().AddHPDBaseSqliteStore(provider);
             var runtime = provider.GetRequiredService<IBaseRecordRuntime>();
 
@@ -63,6 +56,7 @@ public sealed class SqlitePolicyCompositionTests
                 Value = new QueryValue { Kind = QueryValueKind.String, String = "a" }
             }));
             await using var provider = services.BuildServiceProvider();
+            await provider.GetRequiredService<SqliteRecordStore>().InitializeUnacceptedSchemaForTestsAsync();
             provider.GetRequiredService<IRecordStoreRegistry>().AddHPDBaseSqliteStore(provider);
             var runtime = provider.GetRequiredService<IBaseRecordRuntime>();
 
@@ -84,12 +78,12 @@ public sealed class SqlitePolicyCompositionTests
     private static ServiceCollection Services(string path, IPolicyEvaluator evaluator)
     {
         var services = new ServiceCollection();
+        services.AddLogging();
         services.AddSingleton(evaluator);
         services.AddHPDBaseRuntime().AddHPDBaseSqliteStore(options =>
         {
             options.DataSource = path;
             options.StoreId = "policy-sqlite";
-            options.CollectionIds = ["items"];
             options.Collections = [Collection()];
         });
         return services;
@@ -120,7 +114,7 @@ public sealed class SqlitePolicyCompositionTests
         Kind = BaseCollectionKinds.Document,
         SchemaMode = SchemaMode.Loose,
         UnknownFields = UnknownFieldPolicy.Preserve,
-        Operations = new CollectionOperationMatrix { List = true, Get = true, Create = true, Patch = true, Replace = true, Delete = true },
+        MutationMode = BaseCollectionMutationMode.Mutable,
         Fields =
         [
             new FieldDefinition { Id = "title", Name = "title", Type = BaseFieldTypes.String },

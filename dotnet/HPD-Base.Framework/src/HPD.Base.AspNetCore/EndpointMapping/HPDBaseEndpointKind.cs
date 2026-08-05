@@ -1,4 +1,4 @@
-namespace HPD.Base.AspNetCore.EndpointMapping;
+namespace HPD.Base.AspNetCore;
 
 /// <summary>
 /// Identifies the HTTP route family requesting a principal context.
@@ -6,11 +6,11 @@ namespace HPD.Base.AspNetCore.EndpointMapping;
 public enum HPDBaseEndpointKind
 {
     /// <summary>Public metadata route.</summary>
-    PublicMetadata,
+PublicMetadata,
 
     /// <summary>Admin metadata route.</summary>
-    AdminMetadata,
+AdminMetadata,
 
     /// <summary>User-facing record route.</summary>
-    Records
+Records
 }

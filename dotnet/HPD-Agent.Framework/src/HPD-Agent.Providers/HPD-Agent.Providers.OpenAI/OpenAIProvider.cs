@@ -30,6 +30,16 @@ namespace HPD.Agent.Providers.OpenAI;
 /// - Native reasoning content support
 /// Supports both OpenAI and Azure OpenAI endpoints.
 /// </summary>
+[HpdProvider("openai", "OpenAI")]
+[HpdProviderFamily(ProviderClientFamily.Chat)]
+[HpdProviderFamily(ProviderClientFamily.ImageGeneration)]
+[HpdProviderFamily(ProviderClientFamily.Embeddings)]
+[HpdProviderFamily(ProviderClientFamily.HostedFiles)]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(OpenAIProviderConfig), typeof(OpenAIJsonContext))]
+[HpdProviderPayload(ProviderClientFamily.ImageGeneration, ProviderPayloadKind.Configuration, typeof(OpenAIProviderConfig), typeof(OpenAIJsonContext))]
+[HpdProviderPayload(ProviderClientFamily.Embeddings, ProviderPayloadKind.Configuration, typeof(OpenAIProviderConfig), typeof(OpenAIJsonContext))]
+[HpdProviderPayload(ProviderClientFamily.HostedFiles, ProviderPayloadKind.Configuration, typeof(OpenAIProviderConfig), typeof(OpenAIJsonContext))]
+[HpdProviderSecretAlias("openai:ApiKey", "OPENAI_API_KEY")]
 internal class OpenAIProvider :
     IChatClientProvider,
     IImageGeneratorProvider,
@@ -39,7 +49,7 @@ internal class OpenAIProvider :
     public string ProviderKey => "openai";
     public string DisplayName => "OpenAI";
 
-    public IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null)
+    public async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
     {
         // Get secret resolver from services
         var secrets = services?.GetService<ISecretResolver>();
@@ -58,7 +68,7 @@ internal class OpenAIProvider :
 
         IChatClient client;
 
-        var openAIConfig = config.GetProviderConfig<OpenAIProviderConfig>();
+        var openAIConfig = config.ProviderConfig as OpenAIProviderConfig;
         var openAIClient = CreateOpenAIClient(config, secrets);
         client = openAIConfig?.ChatApi == OpenAIChatApi.ChatCompletions
             ? openAIClient.GetChatClient(modelName).AsIChatClient()
@@ -67,21 +77,21 @@ internal class OpenAIProvider :
         return client;
     }
 
-    public IImageGenerator CreateImageGenerator(ClientProviderConfig config, IServiceProvider? services = null)
+    public IImageGenerator CreateImageGenerator(ProviderClientConfig config, IServiceProvider? services = null)
     {
         var secrets = GetSecretResolver(services);
         var modelName = RequireModelName(config, "OpenAI image generation");
         return CreateOpenAIClient(config, secrets).GetImageClient(modelName).AsIImageGenerator();
     }
 
-    public IEmbeddingGenerator CreateEmbeddingGenerator(ClientProviderConfig config, IServiceProvider? services = null)
+    public IEmbeddingGenerator CreateEmbeddingGenerator(ProviderClientConfig config, IServiceProvider? services = null)
     {
         var secrets = GetSecretResolver(services);
         var modelName = RequireModelName(config, "OpenAI embeddings");
         return CreateOpenAIClient(config, secrets).GetEmbeddingClient(modelName).AsIEmbeddingGenerator();
     }
 
-    public IHostedFileClient CreateHostedFileClient(ClientProviderConfig config, IServiceProvider? services = null)
+    public IHostedFileClient CreateHostedFileClient(ProviderClientConfig config, IServiceProvider? services = null)
     {
         var secrets = GetSecretResolver(services);
         return CreateOpenAIClient(config, secrets).AsIHostedFileClient();
@@ -136,8 +146,8 @@ internal class OpenAIProvider :
         };
     }
 
-    [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Provider properly registers AOT-compatible deserializer in OpenAIProviderModule")]
-    public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family)
+    [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Generated OpenAI provider payload contracts are AOT-compatible")]
+    public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
     {
         var errors = new List<string>();
 
@@ -165,7 +175,7 @@ internal class OpenAIProvider :
         return secrets;
     }
 
-    private static string RequireModelName(ClientProviderConfig config, string scenario)
+    private static string RequireModelName(ProviderClientConfig config, string scenario)
     {
         if (string.IsNullOrEmpty(config.ModelName))
             throw new InvalidOperationException($"For {scenario}, the ModelName must be configured.");
@@ -173,7 +183,7 @@ internal class OpenAIProvider :
         return config.ModelName;
     }
 
-    private static OpenAIClient CreateOpenAIClient(ClientProviderConfig config, ISecretResolver secrets)
+    private static OpenAIClient CreateOpenAIClient(ProviderClientConfig config, ISecretResolver secrets)
     {
         var apiKeyTask = secrets.RequireAsync("openai:ApiKey", "OpenAI", config.ApiKey, CancellationToken.None);
         var apiKey = apiKeyTask.GetAwaiter().GetResult();
@@ -182,7 +192,7 @@ internal class OpenAIProvider :
         var endpoint = endpointTask.GetAwaiter().GetResult();
         var hasCustomEndpoint = !string.IsNullOrEmpty(endpoint);
         var hasCustomHeaders = config.CustomHeaders?.Count > 0;
-        var openAIConfig = config.GetProviderConfig<OpenAIProviderConfig>();
+        var openAIConfig = config.ProviderConfig as OpenAIProviderConfig;
 
         var options = new OpenAIClientOptions();
         ApplyOpenAIOptions(options, openAIConfig);
@@ -245,9 +255,9 @@ internal class OpenAIProvider :
 
 internal static class OpenAIProviderConfigValidation
 {
-    public static void Validate(ClientProviderConfig config, List<string> errors)
+    public static void Validate(ProviderClientConfig config, List<string> errors)
     {
-        var openAIConfig = config.GetProviderConfig<OpenAIProviderConfig>();
+        var openAIConfig = config.ProviderConfig as OpenAIProviderConfig;
         if (openAIConfig is null)
             return;
 
@@ -264,6 +274,17 @@ internal static class OpenAIProviderConfigValidation
 /// Uses the newer Responses API (ResponsesClient) for enhanced capabilities.
 /// For modern Azure AI Projects/Foundry, use the AzureAI provider instead.
 /// </summary>
+[HpdProvider("azure-openai", "Azure OpenAI (Traditional)")]
+[HpdProviderFamily(ProviderClientFamily.Chat)]
+[HpdProviderFamily(ProviderClientFamily.ImageGeneration)]
+[HpdProviderFamily(ProviderClientFamily.Embeddings)]
+[HpdProviderFamily(ProviderClientFamily.HostedFiles)]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(AzureOpenAIProviderConfig), typeof(OpenAIJsonContext))]
+[HpdProviderPayload(ProviderClientFamily.ImageGeneration, ProviderPayloadKind.Configuration, typeof(AzureOpenAIProviderConfig), typeof(OpenAIJsonContext))]
+[HpdProviderPayload(ProviderClientFamily.Embeddings, ProviderPayloadKind.Configuration, typeof(AzureOpenAIProviderConfig), typeof(OpenAIJsonContext))]
+[HpdProviderPayload(ProviderClientFamily.HostedFiles, ProviderPayloadKind.Configuration, typeof(AzureOpenAIProviderConfig), typeof(OpenAIJsonContext))]
+[HpdProviderSecretAlias("azure-openai:ApiKey", "AZURE_OPENAI_API_KEY")]
+[HpdProviderSecretAlias("azure-openai:Endpoint", "AZURE_OPENAI_ENDPOINT")]
 internal class AzureOpenAIProvider :
     IChatClientProvider,
     IImageGeneratorProvider,
@@ -273,7 +294,7 @@ internal class AzureOpenAIProvider :
     public string ProviderKey => "azure-openai";
     public string DisplayName => "Azure OpenAI (Traditional)";
 
-    public IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null)
+    public async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
     {
         string? modelName = config.ModelName;
         if (string.IsNullOrEmpty(modelName))
@@ -281,7 +302,7 @@ internal class AzureOpenAIProvider :
             throw new InvalidOperationException("For Azure OpenAI, the ModelName (deployment name) must be configured.");
         }
 
-        var openAIConfig = config.GetProviderConfig<AzureOpenAIProviderConfig>();
+        var openAIConfig = config.ProviderConfig as AzureOpenAIProviderConfig;
         var azureClient = CreateAzureOpenAIClient(config, GetSecretResolver(services));
         IChatClient client = openAIConfig?.ChatApi == OpenAIChatApi.ChatCompletions
             ? azureClient.GetChatClient(modelName).AsIChatClient()
@@ -290,19 +311,19 @@ internal class AzureOpenAIProvider :
         return client;
     }
 
-    public IImageGenerator CreateImageGenerator(ClientProviderConfig config, IServiceProvider? services = null)
+    public IImageGenerator CreateImageGenerator(ProviderClientConfig config, IServiceProvider? services = null)
     {
         var modelName = RequireDeploymentName(config, "Azure OpenAI image generation");
         return CreateAzureOpenAIClient(config, GetSecretResolver(services)).GetImageClient(modelName).AsIImageGenerator();
     }
 
-    public IEmbeddingGenerator CreateEmbeddingGenerator(ClientProviderConfig config, IServiceProvider? services = null)
+    public IEmbeddingGenerator CreateEmbeddingGenerator(ProviderClientConfig config, IServiceProvider? services = null)
     {
         var modelName = RequireDeploymentName(config, "Azure OpenAI embeddings");
         return CreateAzureOpenAIClient(config, GetSecretResolver(services)).GetEmbeddingClient(modelName).AsIEmbeddingGenerator();
     }
 
-    public IHostedFileClient CreateHostedFileClient(ClientProviderConfig config, IServiceProvider? services = null)
+    public IHostedFileClient CreateHostedFileClient(ProviderClientConfig config, IServiceProvider? services = null)
     {
         return CreateAzureOpenAIClient(config, GetSecretResolver(services)).GetOpenAIFileClient().AsIHostedFileClient();
     }
@@ -356,8 +377,8 @@ internal class AzureOpenAIProvider :
         };
     }
 
-    [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Provider properly registers AOT-compatible deserializer in OpenAIProviderModule")]
-    public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family)
+    [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Generated OpenAI provider payload contracts are AOT-compatible")]
+    public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
     {
         var errors = new List<string>();
 
@@ -385,7 +406,7 @@ internal class AzureOpenAIProvider :
         return secrets;
     }
 
-    private static string RequireDeploymentName(ClientProviderConfig config, string scenario)
+    private static string RequireDeploymentName(ProviderClientConfig config, string scenario)
     {
         if (string.IsNullOrEmpty(config.ModelName))
             throw new InvalidOperationException($"For {scenario}, the ModelName (deployment name) must be configured.");
@@ -393,14 +414,14 @@ internal class AzureOpenAIProvider :
         return config.ModelName;
     }
 
-    private static AzureOpenAIClient CreateAzureOpenAIClient(ClientProviderConfig config, ISecretResolver secrets)
+    private static AzureOpenAIClient CreateAzureOpenAIClient(ProviderClientConfig config, ISecretResolver secrets)
     {
         var endpointTask = secrets.RequireAsync("azure-openai:Endpoint", "Azure OpenAI", config.Endpoint, CancellationToken.None);
         var endpoint = endpointTask.GetAwaiter().GetResult();
 
         var apiKeyTask = secrets.RequireAsync("azure-openai:ApiKey", "Azure OpenAI", config.ApiKey, CancellationToken.None);
         var apiKey = apiKeyTask.GetAwaiter().GetResult();
-        var azureConfig = config.GetProviderConfig<AzureOpenAIProviderConfig>();
+        var azureConfig = config.ProviderConfig as AzureOpenAIProviderConfig;
         var options = CreateAzureOpenAIClientOptions(azureConfig);
 
         return new AzureOpenAIClient(
@@ -453,9 +474,9 @@ internal class AzureOpenAIProvider :
 
 internal static class AzureOpenAIProviderConfigValidation
 {
-    public static void Validate(ClientProviderConfig config, List<string> errors)
+    public static void Validate(ProviderClientConfig config, List<string> errors)
     {
-        var azureConfig = config.GetProviderConfig<AzureOpenAIProviderConfig>();
+        var azureConfig = config.ProviderConfig as AzureOpenAIProviderConfig;
         if (azureConfig is null)
             return;
 

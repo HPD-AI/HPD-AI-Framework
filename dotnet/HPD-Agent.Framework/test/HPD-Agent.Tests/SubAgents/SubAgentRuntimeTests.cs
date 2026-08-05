@@ -4,6 +4,7 @@ using HPD.Events.Core;
 using HPD.Agent.Middleware;
 using HPD.Agent.Tests.Infrastructure;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace HPD.Agent.Tests.SubAgents;
@@ -14,7 +15,7 @@ public class SubAgentRuntimeTests
     {
         Name = "SubAgentUnderTest",
         SystemInstructions = "Test sub-agent.",
-        Clients = new AgentClientConfig { Chat = new ClientProviderConfig { ProviderKey = "test", ModelName = "test-model" } }
+        Clients = new AgentClientsConfig { Chat = new ChatClientConfig { ProviderKey = "test", ModelName = "test-model" } }
     };
 
     [Fact]
@@ -108,7 +109,16 @@ public class SubAgentRuntimeTests
         client.EnqueueTextResponse("Review complete.");
         var agent = await BuildAgentAsync(store, client);
         await agent.CreateSessionAsync("parent-session");
-        var context = await CreateFunctionContextAsync(store, "parent-session", "main");
+        var parentThread = (await store.ProjectThreadAsync(
+            "parent-session",
+            "main",
+            ThreadProjectionPurpose.ThreadHistory))!;
+        parentThread.AddMessage(new ChatMessage(ChatRole.User, "Please review this input."));
+        await AppendMessagesAsync(store, parentThread);
+        var services = new ServiceCollection()
+            .AddSingleton<IAgentRuntimeResolver>(new FixedAgentRuntimeResolver(agent))
+            .BuildServiceProvider();
+        var context = await CreateFunctionContextAsync(store, "parent-session", "main", services);
         var subAgent = SubAgent.FromConfig(
             "test/reviewer",
             "Reviewer",
@@ -142,7 +152,10 @@ public class SubAgentRuntimeTests
             ThreadProjectionPurpose.ThreadHistory))!;
         parentThread.AddMessage(new ChatMessage(ChatRole.Assistant, "Inherited parent response."));
         await AppendMessagesAsync(store, parentThread);
-        var context = await CreateFunctionContextAsync(store, "parent-session", "main");
+        var services = new ServiceCollection()
+            .AddSingleton<IAgentRuntimeResolver>(new FixedAgentRuntimeResolver(agent))
+            .BuildServiceProvider();
+        var context = await CreateFunctionContextAsync(store, "parent-session", "main", services);
         var subAgent = SubAgent.FromConfig(
             "test/reviewer",
             "Reviewer",
@@ -198,7 +211,6 @@ public class SubAgentRuntimeTests
         childThread.SubAgentTaskName.Should().Be("review-storage");
         childThread.ParentSessionId.Should().Be("parent-session");
         childThread.ParentThreadId.Should().Be("main");
-        childThread.Metadata["contextPolicy"].Should().Be(nameof(SubAgentContextPolicy.Fork));
         childThread.Visibility.Should().Be(ThreadVisibility.Hidden);
         childThread.Metadata["purpose"].Should().Be("review-current-thread");
         childThread.Metadata.Should().NotContainKey("kind");
@@ -221,7 +233,7 @@ public class SubAgentRuntimeTests
                 "Reviewer",
                 ThreadExecutionOutcome.Failed,
                 DateTimeOffset.UtcNow,
-                new ThreadExecutionError("TestFailure", null)))]);
+                new ThreadExecutionError("TestFailure", "Test failure.")))]);
         descriptor = await store.GetThreadAsync(new ThreadKey(route.SessionId, route.ThreadId));
         descriptor!.RuntimeChild!.Status.Should().Be(ThreadExecutionStatus.Failed);
 
@@ -260,7 +272,6 @@ public class SubAgentRuntimeTests
         childThread.Should().NotBeNull();
         childThread!.Messages.Should().BeEmpty();
         childThread.Kind.Should().Be(ThreadKind.SubAgent);
-        childThread.Metadata["contextPolicy"].Should().Be(nameof(SubAgentContextPolicy.Fresh));
         childThread.Metadata.Should().NotContainKey("kind");
     }
 
@@ -286,7 +297,8 @@ public class SubAgentRuntimeTests
     private static async Task<FunctionExecutionContext> CreateFunctionContextAsync(
         InMemorySessionStore store,
         string sessionId,
-        string threadId)
+        string threadId,
+        IServiceProvider? services = null)
     {
         var function = AIFunctionFactory.Create(
             (string query) => query,
@@ -302,7 +314,8 @@ public class SubAgentRuntimeTests
             new EventCoordinator(),
             session,
             thread,
-            CancellationToken.None);
+            CancellationToken.None,
+            services: services);
         var beforeContext = agentContext.AsBeforeFunction(
             function,
             "tool-call-1",
@@ -346,5 +359,21 @@ public class SubAgentRuntimeTests
             SessionId = route.SessionId,
             ThreadId = route.ThreadId
         };
+
+    private sealed class FixedAgentRuntimeResolver(Agent agent) : IAgentRuntimeResolver
+    {
+        public Task<IAgentRuntimeLease> GetOrBuildAsync(
+            string agentId,
+            string sessionId,
+            string threadId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<IAgentRuntimeLease>(new Lease(agent));
+
+        private sealed class Lease(Agent agent) : IAgentRuntimeLease
+        {
+            public Agent Agent { get; } = agent;
+            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        }
+    }
 
 }

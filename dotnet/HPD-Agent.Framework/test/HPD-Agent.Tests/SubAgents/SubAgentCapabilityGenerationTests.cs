@@ -47,9 +47,9 @@ public class SubAgentCapabilityGenerationTests
 
         code.Should().Contain("TryGetProperty(\"input\"");
         code.Should().Contain("TryGetProperty(\"taskName\"");
-        code.Should().Contain("SubAgentInputArgs");
+        code.Should().Contain("Input = input");
         code.Should().NotContain("TryGetProperty(\"query\"");
-        code.Should().NotContain("SubAgentQueryArgs");
+        code.Should().NotContain("Query =");
     }
 
     [Fact]

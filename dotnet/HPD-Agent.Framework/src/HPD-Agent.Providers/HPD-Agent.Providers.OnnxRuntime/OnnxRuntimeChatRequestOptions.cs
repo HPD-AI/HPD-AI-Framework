@@ -11,10 +11,10 @@ namespace HPD.Agent.Providers.OnnxRuntime;
 /// <remarks>
 /// Generic runtime settings such as max output tokens, temperature, top-p, top-k,
 /// seed, stop sequences, presence penalty, and JSON response format belong on
-/// <see cref="ChatRunConfig"/> or <see cref="ChatOptions"/>. These options map to
+/// <see cref="ChatClientConfig"/> or <see cref="ChatOptions"/>. These options map to
 /// ONNX Runtime GenAI search options that do not have generic chat option fields.
 /// </remarks>
-public sealed class OnnxRuntimeChatRequestOptions
+public sealed class OnnxRuntimeChatRequestOptions : IChatRequestOptions
 {
     /// <summary>
     /// Minimum final sequence length. Maps to the ONNX Runtime GenAI min_length search option.
@@ -106,19 +106,10 @@ public sealed class OnnxRuntimeChatRequestOptions
     /// <summary>
     /// Applies these options to a serializable HPD chat run configuration.
     /// </summary>
-    public void ApplyTo(ChatRunConfig chat)
+    public void ApplyTo(ChatClientConfig chat)
     {
         ArgumentNullException.ThrowIfNull(chat);
-
-        var properties = ToAdditionalProperties();
-        if (properties.Count == 0)
-            return;
-
-        chat.AdditionalProperties ??= new Dictionary<string, object>();
-        foreach (var property in properties)
-        {
-            chat.AdditionalProperties[property.Key] = property.Value;
-        }
+        chat.ProviderOptions = this;
     }
 
     /// <summary>
@@ -183,8 +174,8 @@ public static class OnnxRuntimeChatRequestOptionExtensions
     /// <summary>
     /// Applies ONNX Runtime GenAI-specific runtime options to a serializable HPD chat run configuration.
     /// </summary>
-    public static ChatRunConfig UseOnnxRuntimeChatRequestOptions(
-        this ChatRunConfig chat,
+    public static ChatClientConfig UseOnnxRuntimeChatRequestOptions(
+        this ChatClientConfig chat,
         OnnxRuntimeChatRequestOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);

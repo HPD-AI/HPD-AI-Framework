@@ -12,6 +12,11 @@ using Meai = Microsoft.Extensions.AI;
 
 namespace HPD.Agent.Providers.DeepInfra;
 
+[HpdProvider("deepinfra", "DeepInfra", DocumentationUrl = "https://docs.deepinfra.com/chat/overview")]
+[HpdProviderFamily(ProviderClientFamily.Chat)]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(DeepInfraProviderConfig), typeof(DeepInfraJsonContext))]
+[HpdProviderSecretAlias("deepinfra:ApiKey", "DEEPINFRA_API_KEY")]
+[HpdProviderSecretAlias("deepinfra:Endpoint", "DEEPINFRA_ENDPOINT", "DEEPINFRA_BASE_URL")]
 internal class DeepInfraProvider : IChatClientProvider
 {
     internal static readonly Uri DefaultEndpoint = new("https://api.deepinfra.com/v1/openai/");
@@ -39,8 +44,8 @@ internal class DeepInfraProvider : IChatClientProvider
     public string ProviderKey => "deepinfra";
     public string DisplayName => "DeepInfra";
 
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider registers an AOT-compatible config deserializer in DeepInfraProviderModule.")]
-    public Meai.IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null)
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
+    public async ValueTask<Meai.IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(config);
 
@@ -57,11 +62,8 @@ internal class DeepInfraProvider : IChatClientProvider
                 "Ensure the agent builder is properly configured with secret resolution.");
         }
 
-        var apiKeyTask = secrets.RequireAsync("deepinfra:ApiKey", "DeepInfra", config.ApiKey, CancellationToken.None);
-        var apiKey = apiKeyTask.GetAwaiter().GetResult();
-
-        var endpointTask = secrets.ResolveOrDefaultAsync("deepinfra:Endpoint", config.Endpoint, CancellationToken.None);
-        var endpoint = endpointTask.GetAwaiter().GetResult();
+        var apiKey = await secrets.RequireAsync("deepinfra:ApiKey", "DeepInfra", config.ApiKey, cancellationToken).ConfigureAwait(false);
+        var endpoint = await secrets.ResolveOrDefaultAsync("deepinfra:Endpoint", config.Endpoint, cancellationToken).ConfigureAwait(false);
         var baseAddress = string.IsNullOrWhiteSpace(endpoint)
             ? DefaultEndpoint
             : new Uri(endpoint, UriKind.Absolute);
@@ -116,8 +118,8 @@ internal class DeepInfraProvider : IChatClientProvider
         };
     }
 
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider registers an AOT-compatible config deserializer in DeepInfraProviderModule.")]
-    public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family)
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
+    public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
     {
         ArgumentNullException.ThrowIfNull(config);
 
@@ -128,11 +130,6 @@ internal class DeepInfraProvider : IChatClientProvider
             errors.Add("Model name is required for DeepInfra");
         }
 
-        if (string.IsNullOrWhiteSpace(config.ApiKey))
-        {
-            errors.Add("API key is required for DeepInfra. " +
-                       "Set it via the apiKey parameter, DEEPINFRA_API_KEY environment variable, or configuration.");
-        }
 
         if (!string.IsNullOrWhiteSpace(config.Endpoint) &&
             !Uri.IsWellFormedUriString(config.Endpoint, UriKind.Absolute))

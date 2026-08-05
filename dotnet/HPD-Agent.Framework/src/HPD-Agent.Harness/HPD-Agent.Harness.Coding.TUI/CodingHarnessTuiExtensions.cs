@@ -4,13 +4,10 @@ using HPD.Agent.ToolHarness.Coding.TUI.Harness;
 using HPD.Agent.ToolHarness.Coding.TUI.Commands;
 using HPD.Agent.ToolHarness.Coding.TUI.Commands.Handlers;
 using HPD.Agent.ToolHarness.Coding.TUI.Commands.Pages;
-using HPD.Agent.ToolHarness.Coding.TUI.Commands.Footer;
 using HPD.Agent.ToolHarness.Coding.TUI.Exploration;
 using HPD.Agent.ToolHarness.Coding.TUI.Exploration.Handlers;
-using HPD.Agent.ToolHarness.Coding.TUI.Exploration.Footer;
 using HPD.Agent.ToolHarness.Coding.TUI.FileMutations;
 using HPD.Agent.ToolHarness.Coding.TUI.FileMutations.Handlers;
-using HPD.Agent.ToolHarness.Coding.TUI.FileMutations.Footer;
 using HPD.Agent.ToolHarness.Coding.TUI.SubAgents;
 using HPD.Agent.ToolHarness.Coding.TUI.LanguageServers;
 using HPD.Agent.ToolHarness.Coding.TUI.Debugging;
@@ -117,10 +114,7 @@ public static class CodingHarnessTuiExtensions
                 "hpd.coding.exploration.tool-end")
             .TryAddTranscriptRenderer<CodingExplorationCell>(
                 CodingHarnessTuiTranscriptRendererKeys.Exploration,
-                new CodingExplorationCellRenderer(theme))
-            .TryAddFooterItem(
-                "hpd.coding.exploration",
-                new CodingExplorationFooterItem(theme));
+                new CodingExplorationCellRenderer(theme));
     }
 
     public static HpdAgentTuiBuilder AddCodingCommandTui(
@@ -156,16 +150,7 @@ public static class CodingHarnessTuiExtensions
                 CodingHarnessTuiTranscriptRendererKeys.Command,
                 new CodingCommandCellRenderer(theme))
             .TryAddPage(CodingCommandPages.CommandsPage(theme))
-            .TryAddPage(CodingCommandPages.BackgroundPage(theme))
-            .TryAddFooterItem(
-                "hpd.coding.commands",
-                new CodingCommandFooterItem(theme))
-            .TryAddFooterItem(
-                "hpd.coding.background",
-                new CodingBackgroundTerminalFooterItem(theme))
-            .TryAddFooterItem(
-                "hpd.coding.output",
-                new CodingCommandOutputFooterItem(theme));
+            .TryAddPage(CodingCommandPages.BackgroundPage(theme));
     }
 
     public static HpdAgentTuiBuilder AddCodingFileMutationTui(
@@ -185,13 +170,7 @@ public static class CodingHarnessTuiExtensions
                 new FileMutationCellRenderer(theme))
             .TryAddTranscriptRenderer<CodingDiagnosticsCell>(
                 CodingHarnessTuiTranscriptRendererKeys.Diagnostics,
-                new CodingDiagnosticsCellRenderer(theme))
-            .TryAddFooterItem(
-                "hpd.coding.files",
-                new FileMutationFooterItem(theme))
-            .TryAddFooterItem(
-                "hpd.coding.diagnostics",
-                new CodingDiagnosticsFooterItem(theme));
+                new CodingDiagnosticsCellRenderer(theme));
     }
 
     /// <summary>

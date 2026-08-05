@@ -11,7 +11,7 @@ public static class AudioRuntimeAttachmentSpeechToTextProviderExtensions
     public static AudioRuntimeAttachmentOptions UseSpeechToTextProvider(
         this AudioRuntimeAttachmentOptions audio,
         IProviderRegistry providerRegistry,
-        ClientProviderConfig providerConfig,
+        ProviderClientConfig providerConfig,
         IServiceProvider? services = null)
     {
         ArgumentNullException.ThrowIfNull(providerConfig);
@@ -72,7 +72,7 @@ public static class AudioRuntimeAttachmentSpeechToTextProviderExtensions
 
     private static ProviderRegistrySpeechToTextInteractionSessionFactory CreateFactory(
         IProviderRegistry providerRegistry,
-        ClientProviderConfig providerConfig,
+        ProviderClientConfig providerConfig,
         IInputContentSourceResolver sourceResolver,
         MeaiBatchSpeechToTextInteractionSessionOptions sessionOptions,
         bool disposeCreatedClient,
@@ -85,7 +85,7 @@ public static class AudioRuntimeAttachmentSpeechToTextProviderExtensions
             disposeCreatedClient,
             services);
 
-    private static ClientProviderConfig ResolveProviderConfig(
+    private static ProviderClientConfig ResolveProviderConfig(
         InputMediaSpeechToTextProviderOptions options)
     {
         var config = Clone(options.ProviderConfig);
@@ -109,22 +109,17 @@ public static class AudioRuntimeAttachmentSpeechToTextProviderExtensions
         return config;
     }
 
-    private static ClientProviderConfig Clone(ClientProviderConfig source)
-        => new()
+    private static ProviderClientConfig Clone(ProviderClientConfig source)
+        => new SpeechToTextClientConfig
         {
             ProviderKey = source.ProviderKey,
             ModelName = source.ModelName,
             ApiKey = source.ApiKey,
             Endpoint = source.Endpoint,
-            ChatDefaults = source.ChatDefaults,
-            DefaultMicrosoftChatOptions = source.DefaultMicrosoftChatOptions,
             CustomHeaders = source.CustomHeaders is null
                 ? null
                 : new Dictionary<string, string>(source.CustomHeaders, StringComparer.OrdinalIgnoreCase),
-            ProviderOptions = source.ProviderOptions,
-            HttpReferer = source.HttpReferer,
-            AppName = source.AppName,
-            PromptFormatter = source.PromptFormatter
+            ProviderConfig = source.ProviderConfig,
         };
 
     private static string? EmptyAsNull(string? value)

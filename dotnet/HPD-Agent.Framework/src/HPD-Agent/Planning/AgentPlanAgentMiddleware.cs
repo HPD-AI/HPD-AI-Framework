@@ -68,20 +68,21 @@ public class AgentPlanAgentMiddleware : IAgentMiddleware
         BeforeMessageTurnContext context,
         CancellationToken cancellationToken)
     {
-        // PHASE 1: Inject plan mode instructions via AdditionalSystemInstructions
+        // PHASE 1: Inject plan mode instructions through SystemInstructions.Append.
         if (_config?.Enabled == true)
         {
             var planModeInstructions = _config.CustomInstructions ?? GetDefaultPlanModeInstructions();
 
             // Append to existing additional instructions (if any)
-            if (string.IsNullOrEmpty(context.RunConfig.AdditionalSystemInstructions))
+            context.RunConfig.SystemInstructions ??= new SystemInstructionsRunConfig();
+            if (string.IsNullOrEmpty(context.RunConfig.SystemInstructions.Append))
             {
-                context.RunConfig.AdditionalSystemInstructions = planModeInstructions;
+                context.RunConfig.SystemInstructions.Append = planModeInstructions;
             }
-            else if (!context.RunConfig.AdditionalSystemInstructions.Contains("[PLAN MODE ENABLED]"))
+            else if (!context.RunConfig.SystemInstructions.Append.Contains("[PLAN MODE ENABLED]"))
             {
                 // Only add if not already present
-                context.RunConfig.AdditionalSystemInstructions += "\n\n" + planModeInstructions;
+                context.RunConfig.SystemInstructions.Append += "\n\n" + planModeInstructions;
             }
 
             _logger?.LogDebug("Injected plan mode instructions for agent {AgentName}", context.AgentName);
@@ -151,10 +152,12 @@ public class AgentPlanAgentMiddleware : IAgentMiddleware
             return;
         }
 
+        AgentPlanData? committedPlan = null;
         context.UpdateState(s =>
         {
             var current = s.MiddlewareState.PlanModePersistent() ?? new PlanModePersistentStateData();
             var updated = apply(current);
+            committedPlan = updated.GetPlan(evt.ConversationId);
 
             return s with
             {
@@ -162,7 +165,14 @@ public class AgentPlanAgentMiddleware : IAgentMiddleware
             };
         });
 
-        await context.PublishAsync(evt);
+        if (committedPlan is not null)
+        {
+            await context.PublishAsync(evt with
+            {
+                PlanId = committedPlan.Id,
+                Plan = committedPlan
+            });
+        }
 
     }
 
@@ -174,6 +184,7 @@ public class AgentPlanAgentMiddleware : IAgentMiddleware
     {
         return @"[PLAN MODE ENABLED]
 You have access to plan management tools for complex multi-step tasks.
+Plan Mode is a persistent tracking capability. Continue executing work normally while keeping the plan current.
 
 Available functions:
 - create_plan(goal, steps[]): Create a new plan with a goal and initial steps

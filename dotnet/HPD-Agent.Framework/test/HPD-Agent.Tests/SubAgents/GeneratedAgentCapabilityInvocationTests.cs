@@ -18,16 +18,12 @@ public sealed class GeneratedAgentCapabilityInvocationTests
             "GeneratedWorkflow",
             "call-multiagent",
             new Dictionary<string, object?> { ["input"] = "coordinate this fixture" });
-        parentClient.EnqueueTextResponse("generated workflow child completed");
         parentClient.EnqueueTextResponse("generated capabilities completed");
 
         var subAgentFunction = CreateGeneratedShapeSubAgentFunction();
         var multiAgentFunction = CreateGeneratedShapeMultiAgentFunction();
         var config = DefaultConfig();
-        config.EnsureChatClientConfig().DefaultMicrosoftChatOptions = new ChatOptions
-        {
-            Tools = [subAgentFunction, multiAgentFunction],
-        };
+        config.ServerConfiguredTools = [subAgentFunction, multiAgentFunction];
 
         var agent = await new AgentBuilder(config, new TestProviderRegistry(parentClient))
             .BuildAsync(CancellationToken.None);
@@ -90,11 +86,9 @@ public sealed class GeneratedAgentCapabilityInvocationTests
                     .BuildAsync();
 
                 var text = new System.Text.StringBuilder();
-                await foreach (var evt in workflow.ExecuteStreamingAsync(
+                await foreach (var evt in ((IMultiAgentWorkflow)workflow).ExecuteStreamingAsync(
                                    input,
-                                   functionContext?.GetParentEventCoordinator(),
-                                   functionContext?.GetParentAgentMetadata(),
-                                   functionContext?.GetParentChatClient(),
+                                   functionContext,
                                    cancellationToken))
                 {
                     if (evt is TextDeltaEvent delta)
@@ -134,9 +128,9 @@ public sealed class GeneratedAgentCapabilityInvocationTests
     {
         Name = "GeneratedCapabilityParent",
         MaxAgenticIterations = 10,
-        Clients = new AgentClientConfig
+        Clients = new AgentClientsConfig
         {
-            Chat = new ClientProviderConfig
+            Chat = new ChatClientConfig
             {
                 ProviderKey = "test",
                 ModelName = "test-model",

@@ -3,12 +3,12 @@ namespace HPD.Base.AspNetCore.Tests;
 internal static class TestBaseApp
 {
     public static async Task<WebApplication> CreateAsync(
-        Action<HPD.Base.AspNetCore.Configuration.HPDBaseAspNetCoreOptions>? configureAspNetCore = null,
+        Action<HPD.Base.AspNetCore.HPDBaseAspNetCoreOptions>? configureAspNetCore = null,
         IPolicyEvaluator? policyEvaluator = null,
         Action<IServiceCollection>? configureServices = null,
-        Action<HPD.Base.AspNetCore.EndpointMapping.HPDBaseEndpointOptions>? configureEndpoints = null,
-        Action<HPD.Base.AspNetCore.OpenApi.HPDBaseOpenApiOptions>? configureOpenApi = null,
-        Action<HPD.Base.AspNetCore.OpenApi.HPDBaseOpenApiEndpointOptions>? configureOpenApiEndpoints = null,
+        Action<HPD.Base.AspNetCore.HPDBaseEndpointOptions>? configureEndpoints = null,
+        Action<HPD.Base.AspNetCore.HPDBaseOpenApiOptions>? configureOpenApi = null,
+        Action<HPD.Base.AspNetCore.HPDBaseOpenApiEndpointOptions>? configureOpenApiEndpoints = null,
         bool mapOpenApi = false)
     {
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions
@@ -51,15 +51,16 @@ internal static class TestBaseApp
         Kind = BaseCollectionKinds.Document,
         SchemaMode = SchemaMode.Loose,
         UnknownFields = UnknownFieldPolicy.Preserve,
-        Operations = new CollectionOperationMatrix
-        {
-            List = true,
-            Get = true,
-            Create = true,
-            Patch = true,
-            Replace = true,
-            Delete = true
-        }
+        Fields =
+        [
+            new FieldDefinition
+            {
+                Id = "title",
+                Name = "title",
+                Type = BaseFieldTypes.String,
+            },
+        ],
+        MutationMode = BaseCollectionMutationMode.Mutable
     };
 
     public static RecordPayload Payload(params (string Name, string Value)[] fields)

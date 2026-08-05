@@ -1,9 +1,6 @@
 using FluentAssertions;
-using HPD.Base.Records;
-using HPD.Base.Results;
-using HPD.Base.Runtime;
-using HPD.Base.Schema;
-using HPD.Base.Sqlite.Configuration;
+using HPD.Base;
+using HPD.Base.Sqlite;
 using Microsoft.Data.Sqlite;
 using System.Text.Json;
 
@@ -17,11 +14,11 @@ public sealed class SqliteConnectionSourceTests
         var dataSource = TempPath();
         try
         {
-            await using var store = new SqliteRecordStore(new HPDBaseSqliteOptions
+            await using var store = SqliteTestFactory.Create(new HPDBaseSqliteOptions
             {
                 DataSource = dataSource,
                 EnableWal = false,
-                CollectionIds = ["items"]
+                Collections = [Collection()]
             });
 
             var create = await store.CreateAsync(Collection(), new RecordCreateRequest { RequestedId = new RecordId("one"), Payload = Payload("data-source") }, Operation(BaseOperationKind.Create));
@@ -48,12 +45,12 @@ public sealed class SqliteConnectionSourceTests
                 Mode = SqliteOpenMode.ReadWriteCreate
             }.ToString();
 
-            await using var store = new SqliteRecordStore(new HPDBaseSqliteOptions
+            await using var store = SqliteTestFactory.Create(new HPDBaseSqliteOptions
             {
                 ConnectionString = connectionString,
                 DataSource = ignoredDataSource,
                 EnableWal = false,
-                CollectionIds = ["items"]
+                Collections = [Collection()]
             });
 
             var create = await store.CreateAsync(Collection(), new RecordCreateRequest { RequestedId = new RecordId("one"), Payload = Payload("connection-string") }, Operation(BaseOperationKind.Create));
@@ -82,11 +79,11 @@ public sealed class SqliteConnectionSourceTests
                 Mode = SqliteOpenMode.ReadWriteCreate
             }.ToString();
 
-            await using var store = new SqliteRecordStore(new HPDBaseSqliteOptions
+            await using var store = SqliteTestFactory.Create(new HPDBaseSqliteOptions
             {
                 ConnectionString = connectionString,
                 EnableWal = false,
-                CollectionIds = ["items"]
+                Collections = [Collection()]
             });
 
             var create = await store.CreateAsync(Collection(), new RecordCreateRequest { RequestedId = new RecordId("one"), Payload = Payload("aspire") }, Operation(BaseOperationKind.Create));

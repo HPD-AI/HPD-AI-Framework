@@ -3,6 +3,7 @@ using System.Threading.Channels;
 using HPD.Agent.Tests.Infrastructure;
 using HPD.Agent.ClientTools;
 using HPD.Agent.Middleware;
+using HPD.Agent.Providers;
 using HPD.Events;
 using HPD.Events.Struct;
 using Microsoft.Extensions.AI;
@@ -29,7 +30,7 @@ public class RuntimeLifecycleTests : AgentTestBase
         public override EventKind Kind { get; init; } = EventKind.Control;
     }
 
-    private sealed class NonEventResponseEvent : IResponseEvent
+    private sealed class NonEventResponseEvent : IAgentResponseEvent
     {
         public string RequestId { get; init; } = "non-event-response";
         public string SourceName { get; init; } = "test";
@@ -3014,7 +3015,16 @@ public class RuntimeLifecycleTests : AgentTestBase
                 SessionId = "session-1",
                 ThreadId = "thread-1",
                 ThreadExecutionId = "user-run",
-                RunConfig = new AgentRunConfig { OverrideChatClient = fakeClient }
+                RunConfig = new AgentRunConfig
+                {
+                    Clients = new AgentClientsConfig
+                    {
+                        Chat = new ChatClientConfig
+                        {
+                            Override = new ClientOverride<IChatClient> { Client = fakeClient }
+                        }
+                    }
+                }
             },
             TestCancellationToken);
 
@@ -3737,10 +3747,10 @@ public class RuntimeLifecycleTests : AgentTestBase
     {
         var agent = CreateAgent(client: new FakeChatClient());
 
-        Assert.Equal(RespondStatus.NotFound, (await agent.TryAnswerRequestAsync(new PermissionResponseEvent("perm-1", "source", true), TestCancellationToken)).Status);
-        Assert.Equal(RespondStatus.NotFound, (await agent.TryAnswerRequestAsync(new ContinuationResponseEvent("cont-1", "source", true), TestCancellationToken)).Status);
-        Assert.Equal(RespondStatus.NotFound, (await agent.TryAnswerRequestAsync(new ClarificationResponseEvent("clar-1", "source", "question?", "answer"), TestCancellationToken)).Status);
-        Assert.Equal(RespondStatus.NotFound, (await agent.TryAnswerRequestAsync(new ClientToolInvokeOutcomeEvent
+        Assert.Equal(AgentRespondStatus.NotFound, (await agent.TryAnswerRequestAsync(new PermissionResponseEvent("perm-1", "source", true), TestCancellationToken)).Status);
+        Assert.Equal(AgentRespondStatus.NotFound, (await agent.TryAnswerRequestAsync(new ContinuationResponseEvent("cont-1", "source", true), TestCancellationToken)).Status);
+        Assert.Equal(AgentRespondStatus.NotFound, (await agent.TryAnswerRequestAsync(new ClarificationResponseEvent("clar-1", "source", "question?", "answer"), TestCancellationToken)).Status);
+        Assert.Equal(AgentRespondStatus.NotFound, (await agent.TryAnswerRequestAsync(new ClientToolInvokeOutcomeEvent
         {
             RequestId = "client-tool-1",
             Outcome = ClientToolInvokeOutcomeKind.Completed,

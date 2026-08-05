@@ -76,6 +76,6 @@ public class MultiAgentCapabilityGenerationTests
         var code = capability.GenerateRegistrationCode(MakeToolHarness());
 
         code.Should().Contain("InvocationModePolicy = global::HPD.Agent.AgentInvocationModePolicy.ModelChoice");
-        code.Should().Contain("MultiAgentInputWithModeArgs");
+        code.Should().Contain("\\\"invocationMode\\\"");
     }
 }

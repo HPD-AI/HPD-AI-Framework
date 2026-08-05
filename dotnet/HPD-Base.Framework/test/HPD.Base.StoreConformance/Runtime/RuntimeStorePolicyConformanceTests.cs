@@ -1,4 +1,4 @@
-using HPD.Base.Runtime.Operations;
+using HPD.Base;
 
 namespace HPD.Base.StoreConformance.Runtime;
 
@@ -8,7 +8,7 @@ public abstract class RuntimeStorePolicyConformanceTests<TFixture> : RuntimeStor
     [Fact]
     public async Task RuntimePolicyDeniedWriteFailsBeforeMutation()
     {
-        if (!Capabilities.Crud.Create)
+        if (!Capabilities.Mutation.Create)
         {
             return;
         }
@@ -31,7 +31,7 @@ public abstract class RuntimeStorePolicyConformanceTests<TFixture> : RuntimeStor
     [Fact]
     public async Task RuntimePublicGetMapsCandidatePolicyDenialToNotFound()
     {
-        if (!Capabilities.Crud.Create || !Capabilities.Crud.Get)
+        if (!Capabilities.Mutation.Create || !Capabilities.Read.Get)
         {
             return;
         }

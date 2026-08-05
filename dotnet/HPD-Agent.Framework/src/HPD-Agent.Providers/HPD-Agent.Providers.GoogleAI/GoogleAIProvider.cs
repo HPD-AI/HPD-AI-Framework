@@ -27,13 +27,17 @@ namespace HPD.Agent.Providers.GoogleAI;
 /// Authentication: API Key (required)
 /// </para>
 /// </remarks>
+[HpdProvider("google-ai", "Google AI (Gemini)")]
+[HpdProviderFamily(ProviderClientFamily.Chat)]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(GoogleAIProviderConfig), typeof(GoogleAIJsonContext))]
+[HpdProviderSecretAlias("google-ai:ApiKey", "GOOGLE_API_KEY", "GEMINI_API_KEY", "GOOGLE_AI_API_KEY")]
 internal class GoogleAIProvider : IChatClientProvider
 {
     public string ProviderKey => "google-ai";
     public string DisplayName => "Google AI (Gemini)";
 
     [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Provider properly registers AOT-compatible deserializer in provider module")]
-    public IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null)
+    public async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(config);
 
@@ -46,7 +50,7 @@ internal class GoogleAIProvider : IChatClientProvider
                 "Ensure the agent builder is properly configured with secret resolution.");
         }
 
-        var googleConfig = config.GetProviderConfig<GoogleAIProviderConfig>() ?? new GoogleAIProviderConfig();
+        var googleConfig = config.ProviderConfig as GoogleAIProviderConfig ?? new GoogleAIProviderConfig();
         var apiKey = ResolveApiKey(secrets, config, googleConfig);
 
         string? modelName = config.ModelName;
@@ -67,7 +71,7 @@ internal class GoogleAIProvider : IChatClientProvider
 
     private static string? ResolveApiKey(
         ISecretResolver secrets,
-        ClientProviderConfig config,
+        ProviderClientConfig config,
         GoogleAIProviderConfig googleConfig)
     {
         if (RequiresApiKey(googleConfig))
@@ -145,10 +149,10 @@ internal class GoogleAIProvider : IChatClientProvider
     }
 
     [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Provider properly registers AOT-compatible deserializer in provider module")]
-    public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family)
+    public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
     {
         var errors = new List<string>();
-        var googleConfig = config.GetProviderConfig<GoogleAIProviderConfig>() ?? new GoogleAIProviderConfig();
+        var googleConfig = config.ProviderConfig as GoogleAIProviderConfig ?? new GoogleAIProviderConfig();
 
         // API key validation is deferred to CreateChatClient where ISecretResolver is available.
         // This method only validates config structure, not secret resolution.

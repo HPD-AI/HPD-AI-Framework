@@ -1,0 +1,10 @@
+<Project>
+  <!-- Every optional provider package emits its own immutable AOT manifest. -->
+  <ItemGroup>
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\HPD-Agent.SourceGenerator\HPD-Agent.SourceGenerator.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false"
+                      GlobalPropertiesToRemove="PublishAot;SelfContained;RuntimeIdentifier"
+                      AdditionalProperties="PublishAot=false;SelfContained=false;RuntimeIdentifier=" />
+  </ItemGroup>
+</Project>

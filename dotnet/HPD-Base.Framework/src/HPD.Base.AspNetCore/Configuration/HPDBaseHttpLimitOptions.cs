@@ -1,4 +1,4 @@
-namespace HPD.Base.AspNetCore.Configuration;
+namespace HPD.Base.AspNetCore;
 
 /// <summary>
 /// Configures HTTP transport limits enforced before requests reach HPD.BASE Runtime.

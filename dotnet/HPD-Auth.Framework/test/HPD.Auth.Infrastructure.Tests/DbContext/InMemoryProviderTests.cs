@@ -33,7 +33,6 @@ public class InMemoryProviderTests
         var sessions = await ctx.UserSessions.ToListAsync();
         var identities = await ctx.UserIdentities.ToListAsync();
         var passkeys = await ctx.UserPasskeys.ToListAsync();
-        var auditLogs = await ctx.AuditLogs.ToListAsync();
         var ssoProviders = await ctx.SSOProviders.ToListAsync();
         var tenantSettings = await ctx.TenantSettings.ToListAsync();
         var dpKeys = await ctx.DataProtectionKeys.ToListAsync();
@@ -44,7 +43,6 @@ public class InMemoryProviderTests
         sessions.Should().BeEmpty();
         identities.Should().BeEmpty();
         passkeys.Should().BeEmpty();
-        auditLogs.Should().BeEmpty();
         ssoProviders.Should().BeEmpty();
         tenantSettings.Should().BeEmpty();
         dpKeys.Should().BeEmpty();

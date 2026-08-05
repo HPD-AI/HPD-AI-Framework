@@ -242,7 +242,7 @@ public class PlanModeTests
 
         await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
 
-        Assert.Contains("[PLAN MODE ENABLED]", context.RunConfig.AdditionalSystemInstructions ?? "");
+        Assert.Contains("[PLAN MODE ENABLED]", context.RunConfig.SystemInstructions?.Append ?? "");
     }
 
     [Fact]
@@ -258,8 +258,8 @@ public class PlanModeTests
 
         await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
 
-        Assert.Contains("Custom: always make a plan first.", context.RunConfig.AdditionalSystemInstructions ?? "");
-        Assert.DoesNotContain("[PLAN MODE ENABLED]", context.RunConfig.AdditionalSystemInstructions ?? "");
+        Assert.Contains("Custom: always make a plan first.", context.RunConfig.SystemInstructions?.Append ?? "");
+        Assert.DoesNotContain("[PLAN MODE ENABLED]", context.RunConfig.SystemInstructions?.Append ?? "");
     }
 
     [Fact]
@@ -272,7 +272,7 @@ public class PlanModeTests
         await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
 
         // No instructions added when disabled
-        Assert.True(string.IsNullOrEmpty(context.RunConfig.AdditionalSystemInstructions));
+        Assert.True(string.IsNullOrEmpty(context.RunConfig.SystemInstructions?.Append));
     }
 
     [Fact]
@@ -287,11 +287,11 @@ public class PlanModeTests
 
         // Simulate the RunConfig being reused / instructions already present
         var ctx2 = CreateContext();
-        ctx2.RunConfig.AdditionalSystemInstructions = ctx1.RunConfig.AdditionalSystemInstructions;
+        ctx2.RunConfig.SystemInstructions = new SystemInstructionsRunConfig { Append = ctx1.RunConfig.SystemInstructions?.Append };
         await middleware.BeforeMessageTurnAsync(ctx2, CancellationToken.None);
 
         // [PLAN MODE ENABLED] marker should appear exactly once
-        var count = CountOccurrences(ctx2.RunConfig.AdditionalSystemInstructions ?? "", "[PLAN MODE ENABLED]");
+        var count = CountOccurrences(ctx2.RunConfig.SystemInstructions?.Append ?? "", "[PLAN MODE ENABLED]");
         Assert.Equal(1, count);
     }
 
@@ -338,6 +338,68 @@ public class PlanModeTests
         Assert.Throws<ArgumentException>(() => state.WithPlan("", plan));
     }
 
+    [Fact]
+    public async Task CreatePlan_WithActivePlan_RejectsReplacement()
+    {
+        var active = PlanModePersistentStateData.CreatePlan("existing", ["step"]);
+        var context = CreateFunctionContext(new PlanModePersistentStateData().WithPlan(ConvId, active));
+
+        var result = await new AgentPlanToolHarness().CreatePlanAsync("replacement", ["new step"], context);
+
+        Assert.Contains("still active", Assert.IsType<string>(result));
+        Assert.False(context.ResultMetadata.TryGet<PlanUpdatedEvent>(PlanToolMetadataKeys.Event, out _));
+    }
+
+    [Fact]
+    public async Task CreatePlan_AfterCompletedPlan_AllowsReplacement()
+    {
+        var completed = PlanModePersistentStateData.CreatePlan("existing", ["step"]).AsCompleted();
+        var context = CreateFunctionContext(new PlanModePersistentStateData().WithPlan(ConvId, completed));
+
+        var result = await new AgentPlanToolHarness().CreatePlanAsync("replacement", ["new step"], context);
+
+        Assert.Contains("Created plan", Assert.IsType<string>(result));
+        Assert.True(context.ResultMetadata.TryGet<PlanUpdatedEvent>(PlanToolMetadataKeys.Event, out var evt));
+        Assert.Equal("replacement", evt.Plan.Goal);
+    }
+
+    [Fact]
+    public async Task AddPlanStep_WithUnknownAnchor_RejectsInsteadOfAppending()
+    {
+        var active = PlanModePersistentStateData.CreatePlan("existing", ["step"]);
+        var context = CreateFunctionContext(new PlanModePersistentStateData().WithPlan(ConvId, active));
+
+        var result = await new AgentPlanToolHarness().AddPlanStepAsync("new step", context, "missing");
+
+        Assert.Contains("not found", Assert.IsType<string>(result));
+        Assert.False(context.ResultMetadata.TryGet<PlanUpdatedEvent>(PlanToolMetadataKeys.Event, out _));
+    }
+
+    [Fact]
+    public async Task ParallelStepUpdates_MergeAgainstLatestCommittedPlan()
+    {
+        var plan = PlanModePersistentStateData.CreatePlan("parallel", ["first", "second"]);
+        var snapshot = new PlanModePersistentStateData().WithPlan(ConvId, plan);
+        var firstContext = CreateFunctionContext(snapshot);
+        var secondContext = CreateFunctionContext(snapshot);
+        var harness = new AgentPlanToolHarness();
+
+        await harness.UpdatePlanStepAsync("1", "completed", firstContext, "first done");
+        await harness.UpdatePlanStepAsync("2", "completed", secondContext, "second done");
+
+        Assert.True(firstContext.ResultMetadata.TryGet<Func<PlanModePersistentStateData, PlanModePersistentStateData>>(
+            PlanToolMetadataKeys.Apply,
+            out var applyFirst));
+        Assert.True(secondContext.ResultMetadata.TryGet<Func<PlanModePersistentStateData, PlanModePersistentStateData>>(
+            PlanToolMetadataKeys.Apply,
+            out var applySecond));
+
+        var committed = applySecond(applyFirst(snapshot)).GetPlan(ConvId)!;
+        Assert.All(committed.Steps, step => Assert.Equal(PlanStepStatus.Completed, step.Status));
+        Assert.Equal("first done", committed.Steps[0].Notes);
+        Assert.Equal("second done", committed.Steps[1].Notes);
+    }
+
     // ═══════════════════════════════════════════════════════════════════
     // P-19 through P-20: GetDefaultPlanModeInstructions
     // ═══════════════════════════════════════════════════════════════════
@@ -348,6 +410,7 @@ public class PlanModeTests
         var instructions = AgentPlanAgentMiddleware.GetDefaultPlanModeInstructions();
 
         Assert.Contains("[PLAN MODE ENABLED]", instructions);
+        Assert.Contains("Continue executing work normally", instructions);
     }
 
     [Fact]
@@ -360,6 +423,24 @@ public class PlanModeTests
         Assert.Contains("add_plan_step", instructions);
         Assert.Contains("add_context_note", instructions);
         Assert.Contains("complete_plan", instructions);
+    }
+
+    [Fact]
+    public void WithPlanMode_RegistersHarnessAndMiddleware()
+    {
+        var builder = new AgentBuilder().WithPlanMode();
+
+        var registration = Assert.Single(
+            builder._instanceRegistrations,
+            registration => registration.ToolTypeName == nameof(AgentPlanToolHarness));
+        Assert.IsType<AgentPlanToolHarness>(registration.Instance);
+        Assert.Contains(builder.Middlewares, middleware => middleware is AgentPlanAgentMiddleware);
+        var factory = builder._availableToolHarnesses[nameof(AgentPlanToolHarness)];
+        Assert.Contains("create_plan", factory.FunctionNames);
+        Assert.Contains("update_plan_step", factory.FunctionNames);
+        Assert.Contains("add_plan_step", factory.FunctionNames);
+        Assert.Contains("add_context_note", factory.FunctionNames);
+        Assert.Contains("complete_plan", factory.FunctionNames);
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -392,6 +473,41 @@ public class PlanModeTests
             new ChatMessage(ChatRole.User, "hello"),
             new List<ChatMessage>(),
             new AgentRunConfig());
+    }
+
+    private static FunctionExecutionContext CreateFunctionContext(PlanModePersistentStateData planState)
+    {
+        var function = AIFunctionFactory.Create(() => "ok");
+        var baseState = AgentLoopState.InitialSafe([], "test-run", ConvId, "TestAgent");
+        var state = baseState with
+        {
+            MiddlewareState = baseState.MiddlewareState.WithPlanModePersistent(planState)
+        };
+        var coordinator = new HPD.Events.Core.EventCoordinator();
+        var session = new global::HPD.Agent.Session("session-1");
+        var thread = new global::HPD.Agent.Thread("session-1", "test-agent") { Id = "thread-1" };
+        var agentContext = new AgentContext(
+            "TestAgent", ConvId, state, coordinator, session, thread, CancellationToken.None);
+        var runConfig = new AgentRunConfig();
+        var before = agentContext.AsBeforeFunction(
+            function,
+            "call-1",
+            new Dictionary<string, object?>(),
+            runConfig,
+            toolharnessName: null,
+            skillName: null,
+            invocation: null);
+        var request = new FunctionRequest
+        {
+            Function = function,
+            CallId = "call-1",
+            Arguments = new Dictionary<string, object?>(),
+            State = state,
+            RunConfig = runConfig,
+            ResultMetadata = new ToolResultMetadata(),
+            EventCoordinator = coordinator
+        };
+        return new FunctionExecutionContext(before, request);
     }
 
     private static int CountOccurrences(string text, string pattern)

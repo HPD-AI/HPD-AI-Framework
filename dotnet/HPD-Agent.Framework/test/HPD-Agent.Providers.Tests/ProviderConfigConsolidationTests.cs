@@ -113,7 +113,6 @@ public class ProviderConfigConsolidationTests
         yield return [typeof(MiniMaxProviderConfig)];
 
 #if NET10_0_OR_GREATER
-        yield return [typeof(CohereProviderConfig)];
         yield return [typeof(DashScopeProviderConfig)];
         yield return [typeof(DeepInfraProviderConfig)];
         yield return [typeof(FireworksProviderConfig)];
@@ -121,7 +120,6 @@ public class ProviderConfigConsolidationTests
         yield return [typeof(HuggingFaceProviderConfig)];
         yield return [typeof(MoonshotProviderConfig)];
         yield return [typeof(ReplicateProviderConfig)];
-        yield return [typeof(TogetherProviderConfig)];
 #endif
     }
 
@@ -188,7 +186,7 @@ public class ProviderConfigConsolidationTests
             });
 
         var chatConfig = builder.Config.EnsureChatClientConfig();
-        var providerConfig = chatConfig.GetProviderConfig<OllamaProviderConfig>();
+        var providerConfig = chatConfig.ProviderConfig as OllamaProviderConfig;
 
         providerConfig.Should().NotBeNull();
         providerConfig!.TimeoutMs.Should().Be(120000);
@@ -219,15 +217,6 @@ public class ProviderConfigConsolidationTests
     {
         var builder = new AgentBuilder()
             .WithOllama("qwen3:latest")
-            .WithChatDefaults(chat =>
-            {
-                chat.Temperature = 0.2;
-                chat.MaxOutputTokens = 1024;
-                chat.Reasoning = new HPD.Agent.ReasoningOptions
-                {
-                    Effort = HPD.Agent.ReasoningEffort.Medium
-                };
-            })
             .WithOllamaChatRequestOptions(new OllamaChatRequestOptions
             {
                 KeepAlive = "10m",
@@ -238,17 +227,14 @@ public class ProviderConfigConsolidationTests
             });
 
         var chatConfig = builder.Config.EnsureChatClientConfig();
-        var defaults = chatConfig.ChatDefaults;
+        var defaults = chatConfig;
 
         defaults.Should().NotBeNull();
-        defaults!.Temperature.Should().Be(0.2);
-        defaults.MaxOutputTokens.Should().Be(1024);
-        defaults.Reasoning!.Effort.Should().Be(HPD.Agent.ReasoningEffort.Medium);
-        defaults.AdditionalProperties.Should().Contain("keep_alive", "10m");
-        defaults.AdditionalProperties.Should().Contain("num_ctx", 8192);
-        defaults.AdditionalProperties.Should().Contain("num_gpu", 99);
-        defaults.AdditionalProperties.Should().Contain("use_mlock", true);
-        defaults.AdditionalProperties.Should().Contain("min_p", 0.05f);
+        defaults.ToMicrosoftChatOptions()!.AdditionalProperties.Should().Contain("keep_alive", "10m");
+        defaults.ToMicrosoftChatOptions()!.AdditionalProperties.Should().Contain("num_ctx", 8192);
+        defaults.ToMicrosoftChatOptions()!.AdditionalProperties.Should().Contain("num_gpu", 99);
+        defaults.ToMicrosoftChatOptions()!.AdditionalProperties.Should().Contain("use_mlock", true);
+        defaults.ToMicrosoftChatOptions()!.AdditionalProperties.Should().Contain("min_p", 0.05f);
     }
 
     [Fact]
@@ -308,14 +294,14 @@ public class ProviderConfigConsolidationTests
     }
 
     [Fact]
-    public void OnnxRuntimeProviderConfig_ShouldOwnProviderConstructionOptions()
+    public void OnnxRuntimeProviderConfig_ShouldOwnExecutionProviderOptions()
     {
         var modelPath = Directory.GetCurrentDirectory();
         var builder = new AgentBuilder()
             .WithOnnxRuntime(modelPath, onnx =>
             {
                 onnx.Providers = ["cuda", "cpu"];
-                onnx.ProviderOptions = new Dictionary<string, Dictionary<string, string>>
+                onnx.ExecutionProviderOptions = new Dictionary<string, Dictionary<string, string>>
                 {
                     ["cuda"] = new()
                     {
@@ -329,12 +315,12 @@ public class ProviderConfigConsolidationTests
             });
 
         var chatConfig = builder.Config.EnsureChatClientConfig();
-        var providerConfig = chatConfig.GetProviderConfig<OnnxRuntimeProviderConfig>();
+        var providerConfig = chatConfig.ProviderConfig as OnnxRuntimeProviderConfig;
 
         providerConfig.Should().NotBeNull();
         providerConfig!.ModelPath.Should().Be(modelPath);
         providerConfig.Providers.Should().Equal("cuda", "cpu");
-        providerConfig.ProviderOptions!["cuda"]["device_id"].Should().Be("0");
+        providerConfig.ExecutionProviderOptions!["cuda"]["device_id"].Should().Be("0");
         providerConfig.HardwareDeviceType.Should().Be("gpu");
         providerConfig.HardwareDeviceId.Should().Be(0);
         providerConfig.EnableCaching.Should().BeTrue();
@@ -346,15 +332,6 @@ public class ProviderConfigConsolidationTests
     {
         var builder = new AgentBuilder()
             .WithOnnxRuntime(Directory.GetCurrentDirectory())
-            .WithChatDefaults(chat =>
-            {
-                chat.Temperature = 0.2;
-                chat.TopP = 0.9;
-                chat.TopK = 40;
-                chat.MaxOutputTokens = 1024;
-                chat.Seed = 123;
-                chat.ResponseFormat = ChatResponseFormat.Json;
-            })
             .WithOnnxRuntimeChatRequestOptions(new OnnxRuntimeChatRequestOptions
             {
                 MinLength = 16,
@@ -367,23 +344,17 @@ public class ProviderConfigConsolidationTests
                 ChunkSize = 256
             });
 
-        var defaults = builder.Config.EnsureChatClientConfig().ChatDefaults;
+        var defaults = builder.Config.EnsureChatClientConfig();
 
         defaults.Should().NotBeNull();
-        defaults!.Temperature.Should().Be(0.2);
-        defaults.TopP.Should().Be(0.9);
-        defaults.TopK.Should().Be(40);
-        defaults.MaxOutputTokens.Should().Be(1024);
-        defaults.Seed.Should().Be(123);
-        defaults.ResponseFormat.Should().Be(ChatResponseFormat.Json);
-        defaults.AdditionalProperties.Should().Contain("min_length", 16);
-        defaults.AdditionalProperties.Should().Contain("batch_size", 1);
-        defaults.AdditionalProperties.Should().Contain("do_sample", true);
-        defaults.AdditionalProperties.Should().Contain("num_beams", 4);
-        defaults.AdditionalProperties.Should().Contain("num_return_sequences", 2);
-        defaults.AdditionalProperties.Should().Contain("early_stopping", true);
-        defaults.AdditionalProperties.Should().Contain("length_penalty", 1.2f);
-        defaults.AdditionalProperties.Should().Contain("chunk_size", 256);
+        defaults.ToMicrosoftChatOptions()!.AdditionalProperties.Should().Contain("min_length", 16);
+        defaults.ToMicrosoftChatOptions()!.AdditionalProperties.Should().Contain("batch_size", 1);
+        defaults.ToMicrosoftChatOptions()!.AdditionalProperties.Should().Contain("do_sample", true);
+        defaults.ToMicrosoftChatOptions()!.AdditionalProperties.Should().Contain("num_beams", 4);
+        defaults.ToMicrosoftChatOptions()!.AdditionalProperties.Should().Contain("num_return_sequences", 2);
+        defaults.ToMicrosoftChatOptions()!.AdditionalProperties.Should().Contain("early_stopping", true);
+        defaults.ToMicrosoftChatOptions()!.AdditionalProperties.Should().Contain("length_penalty", 1.2f);
+        defaults.ToMicrosoftChatOptions()!.AdditionalProperties.Should().Contain("chunk_size", 256);
     }
 
     [Fact]
@@ -422,42 +393,37 @@ public class ProviderConfigConsolidationTests
     }
 
     [Fact]
-    public void ClientProviderConfig_ChatDefaults_ShouldOwnGenericRuntimeDefaults()
+    public void ChatClientConfig_ShouldOwnSelectionAndPortableDefaults()
     {
-        var config = new ClientProviderConfig
+        var config = new ChatClientConfig
         {
             ProviderKey = "xai",
             ModelName = "grok-4",
-            ChatDefaults = new ChatRunConfig
+            Temperature = 0.2,
+            TopP = 0.9,
+            TopK = 40,
+            MaxOutputTokens = 4096,
+            Seed = 123,
+            StopSequences = ["END"],
+            Reasoning = new HPD.Agent.ReasoningOptions
             {
-                ModelId = "grok-4",
-                Temperature = 0.2,
-                TopP = 0.9,
-                TopK = 40,
-                MaxOutputTokens = 4096,
-                Seed = 123,
-                StopSequences = ["END"],
-                Reasoning = new HPD.Agent.ReasoningOptions
-                {
-                    Effort = HPD.Agent.ReasoningEffort.High,
-                    Output = HPD.Agent.ReasoningOutput.Summary
-                }
+                Effort = HPD.Agent.ReasoningEffort.High,
+                Output = HPD.Agent.ReasoningOutput.Summary
             }
         };
 
-        config.ChatDefaults.Should().NotBeNull();
-        config.ChatDefaults!.Temperature.Should().Be(0.2);
-        config.ChatDefaults.TopP.Should().Be(0.9);
-        config.ChatDefaults.TopK.Should().Be(40);
-        config.ChatDefaults.MaxOutputTokens.Should().Be(4096);
-        config.ChatDefaults.Seed.Should().Be(123);
-        config.ChatDefaults.StopSequences.Should().ContainSingle("END");
-        config.ChatDefaults.Reasoning!.Effort.Should().Be(HPD.Agent.ReasoningEffort.High);
-        config.ChatDefaults.Reasoning.Output.Should().Be(HPD.Agent.ReasoningOutput.Summary);
+        config.Temperature.Should().Be(0.2);
+        config.TopP.Should().Be(0.9);
+        config.TopK.Should().Be(40);
+        config.MaxOutputTokens.Should().Be(4096);
+        config.Seed.Should().Be(123);
+        config.StopSequences.Should().ContainSingle("END");
+        config.Reasoning!.Effort.Should().Be(HPD.Agent.ReasoningEffort.High);
+        config.Reasoning.Output.Should().Be(HPD.Agent.ReasoningOutput.Summary);
     }
 
     [Fact]
-    public void AgentBuilder_WithReasoning_ShouldWriteChatDefaults()
+    public void AgentBuilder_WithReasoning_ShouldWriteChatConfig()
     {
         var builder = new AgentBuilder()
             .WithReasoning(
@@ -466,28 +432,21 @@ public class ProviderConfigConsolidationTests
 
         var chatConfig = builder.Config.EnsureChatClientConfig();
 
-        chatConfig.ChatDefaults.Should().NotBeNull();
-        chatConfig.ChatDefaults!.Reasoning.Should().NotBeNull();
-        chatConfig.ChatDefaults.Reasoning!.Effort.Should().Be(HPD.Agent.ReasoningEffort.High);
-        chatConfig.ChatDefaults.Reasoning.Output.Should().Be(HPD.Agent.ReasoningOutput.Summary);
+        chatConfig.Should().NotBeNull();
+        chatConfig!.Reasoning.Should().NotBeNull();
+        chatConfig.Reasoning!.Effort.Should().Be(HPD.Agent.ReasoningEffort.High);
+        chatConfig.Reasoning.Output.Should().Be(HPD.Agent.ReasoningOutput.Summary);
     }
 
     [Fact]
-    public void AgentBuilder_WithDefaultMicrosoftChatOptions_ShouldRemainRuntimeOnly()
+    public void ChatClientConfig_ShouldCompilePortableDefaultsToMeaiOptions()
     {
-        var builder = new AgentBuilder()
-            .WithDefaultMicrosoftChatOptions(new ChatOptions
-            {
-                Temperature = 0.2f,
-                MaxOutputTokens = 1024
-            });
+        var chatConfig = new ChatClientConfig { Temperature = 0.2, MaxOutputTokens = 1024 };
+        var options = chatConfig.ToMicrosoftChatOptions();
 
-        var chatConfig = builder.Config.EnsureChatClientConfig();
-
-        chatConfig.ChatDefaults.Should().BeNull();
-        chatConfig.DefaultMicrosoftChatOptions.Should().NotBeNull();
-        chatConfig.DefaultMicrosoftChatOptions!.Temperature.Should().Be(0.2f);
-        chatConfig.DefaultMicrosoftChatOptions.MaxOutputTokens.Should().Be(1024);
+        options.Should().NotBeNull();
+        options!.Temperature.Should().Be(0.2f);
+        options.MaxOutputTokens.Should().Be(1024);
     }
 
     [Fact]
@@ -505,7 +464,7 @@ public class ProviderConfigConsolidationTests
             });
 
         var chatConfig = builder.Config.EnsureChatClientConfig();
-        var providerConfig = chatConfig.GetProviderConfig<OpenAIProviderConfig>();
+        var providerConfig = chatConfig.ProviderConfig as OpenAIProviderConfig;
 
         providerConfig.Should().NotBeNull();
         providerConfig!.ChatApi.Should().Be(OpenAIChatApi.ChatCompletions);
@@ -561,7 +520,7 @@ public class ProviderConfigConsolidationTests
                 });
 
         var chatConfig = builder.Config.EnsureChatClientConfig();
-        var providerConfig = chatConfig.GetProviderConfig<AzureOpenAIProviderConfig>();
+        var providerConfig = chatConfig.ProviderConfig as AzureOpenAIProviderConfig;
 
         providerConfig.Should().NotBeNull();
         providerConfig!.ChatApi.Should().Be(OpenAIChatApi.ChatCompletions);
@@ -616,7 +575,7 @@ public class ProviderConfigConsolidationTests
             });
 
         var chatConfig = builder.Config.EnsureChatClientConfig();
-        var providerConfig = chatConfig.GetProviderConfig<GoogleAIProviderConfig>();
+        var providerConfig = chatConfig.ProviderConfig as GoogleAIProviderConfig;
 
         providerConfig.Should().NotBeNull();
         providerConfig!.Platform.Should().Be(GoogleAIPlatform.VertexAI);
@@ -672,7 +631,7 @@ public class ProviderConfigConsolidationTests
                 });
 
         var chatConfig = builder.Config.EnsureChatClientConfig();
-        var providerConfig = chatConfig.GetProviderConfig<AzureAIProviderConfig>();
+        var providerConfig = chatConfig.ProviderConfig as AzureAIProviderConfig;
 
         providerConfig.Should().NotBeNull();
         providerConfig!.AuthMode.Should().Be(AzureAIAuthMode.DefaultAzureCredential);
@@ -761,7 +720,7 @@ public class ProviderConfigConsolidationTests
             });
 
         var chatConfig = builder.Config.EnsureChatClientConfig();
-        var providerConfig = chatConfig.GetProviderConfig<BedrockProviderConfig>();
+        var providerConfig = chatConfig.ProviderConfig as BedrockProviderConfig;
 
         providerConfig.Should().NotBeNull();
         providerConfig!.Region.Should().Be("us-east-1");
@@ -840,17 +799,15 @@ public class ProviderConfigConsolidationTests
 
 #if NET10_0_OR_GREATER
     [Fact]
-    public void CohereProviderConfig_ShouldOwnEmbeddingDefaultsOnly()
+    public void CohereEmbeddingConfig_ShouldOwnPortableModelDefault()
     {
         var builder = new AgentBuilder()
             .WithCohereEmbeddings("embed-v4.0");
 
         var embeddingConfig = builder.Config.Clients!.Embeddings;
         embeddingConfig.Should().NotBeNull();
-        var providerConfig = embeddingConfig!.GetProviderConfig<CohereProviderConfig>(ProviderClientFamily.Embeddings);
-
-        providerConfig.Should().NotBeNull();
-        providerConfig!.EmbeddingModelId.Should().Be("embed-v4.0");
+        embeddingConfig!.ModelName.Should().Be("embed-v4.0");
+        embeddingConfig.ProviderConfig.Should().BeNull();
     }
 
 #if NET10_0_OR_GREATER
@@ -859,14 +816,6 @@ public class ProviderConfigConsolidationTests
     {
         var builder = new AgentBuilder()
             .WithHuggingFace("meta-llama/Meta-Llama-3-8B-Instruct")
-            .WithChatDefaults(chat =>
-            {
-                chat.Temperature = 0.2;
-                chat.MaxOutputTokens = 1024;
-                chat.FrequencyPenalty = 0.1f;
-                chat.PresencePenalty = 0.2f;
-                chat.Seed = 42;
-            })
             .WithHuggingFaceChatRequestOptions(new HuggingFaceChatRequestOptions
             {
                 Logprobs = true,
@@ -876,19 +825,14 @@ public class ProviderConfigConsolidationTests
                 ToolPrompt = "Return tool calls as JSON."
             });
 
-        var defaults = builder.Config.EnsureChatClientConfig().ChatDefaults;
+        var defaults = builder.Config.EnsureChatClientConfig();
 
         defaults.Should().NotBeNull();
-        defaults!.Temperature.Should().Be(0.2);
-        defaults.MaxOutputTokens.Should().Be(1024);
-        defaults.FrequencyPenalty.Should().Be(0.1f);
-        defaults.PresencePenalty.Should().Be(0.2f);
-        defaults.Seed.Should().Be(42);
-        defaults.AdditionalProperties.Should().Contain("logprobs", true);
-        defaults.AdditionalProperties.Should().Contain("top_logprobs", 5);
-        defaults.AdditionalProperties.Should().Contain("n", 2);
-        defaults.AdditionalProperties.Should().Contain("tool_prompt", "Return tool calls as JSON.");
-        defaults.AdditionalProperties!["logit_bias"].Should().BeOfType<List<float>>();
+        defaults.ToMicrosoftChatOptions()!.AdditionalProperties.Should().Contain("logprobs", true);
+        defaults.ToMicrosoftChatOptions()!.AdditionalProperties.Should().Contain("top_logprobs", 5);
+        defaults.ToMicrosoftChatOptions()!.AdditionalProperties.Should().Contain("n", 2);
+        defaults.ToMicrosoftChatOptions()!.AdditionalProperties.Should().Contain("tool_prompt", "Return tool calls as JSON.");
+        defaults.ToMicrosoftChatOptions()!.AdditionalProperties!["logit_bias"].Should().BeOfType<List<float>>();
     }
 
     [Fact]
@@ -971,15 +915,6 @@ public class ProviderConfigConsolidationTests
     {
         var builder = new AgentBuilder()
             .WithCohere("command-r-plus")
-            .WithChatDefaults(chat =>
-            {
-                chat.Temperature = 0.2;
-                chat.MaxOutputTokens = 1024;
-                chat.Reasoning = new HPD.Agent.ReasoningOptions
-                {
-                    Effort = HPD.Agent.ReasoningEffort.High
-                };
-            })
             .WithCohereChatRequestOptions(new CohereChatRequestOptions
             {
                 StrictTools = true,
@@ -1002,19 +937,16 @@ public class ProviderConfigConsolidationTests
                 ]
             });
 
-        var defaults = builder.Config.EnsureChatClientConfig().ChatDefaults;
+        var defaults = builder.Config.EnsureChatClientConfig();
 
         defaults.Should().NotBeNull();
-        defaults!.Temperature.Should().Be(0.2);
-        defaults.MaxOutputTokens.Should().Be(1024);
-        defaults.Reasoning!.Effort.Should().Be(HPD.Agent.ReasoningEffort.High);
-        defaults.AdditionalProperties.Should().Contain("strict_tools", true);
-        defaults.AdditionalProperties.Should().Contain("citation_mode", "accurate");
-        defaults.AdditionalProperties.Should().Contain("safety_mode", "strict");
-        defaults.AdditionalProperties.Should().Contain("logprobs", true);
-        defaults.AdditionalProperties.Should().Contain("thinking_token_budget", 2048);
-        defaults.AdditionalProperties.Should().Contain("priority", 1);
-        defaults.AdditionalProperties!["documents"].Should().BeOfType<List<CohereChatDocument>>();
+        defaults.ToMicrosoftChatOptions()!.AdditionalProperties.Should().Contain("strict_tools", true);
+        defaults.ToMicrosoftChatOptions()!.AdditionalProperties.Should().Contain("citation_mode", "accurate");
+        defaults.ToMicrosoftChatOptions()!.AdditionalProperties.Should().Contain("safety_mode", "strict");
+        defaults.ToMicrosoftChatOptions()!.AdditionalProperties.Should().Contain("logprobs", true);
+        defaults.ToMicrosoftChatOptions()!.AdditionalProperties.Should().Contain("thinking_token_budget", 2048);
+        defaults.ToMicrosoftChatOptions()!.AdditionalProperties.Should().Contain("priority", 1);
+        defaults.ToMicrosoftChatOptions()!.AdditionalProperties!["documents"].Should().BeOfType<List<CohereChatDocument>>();
     }
 
     [Fact]
@@ -1093,17 +1025,15 @@ public class ProviderConfigConsolidationTests
     }
 
     [Fact]
-    public void TogetherProviderConfig_ShouldOwnEmbeddingDefaultsOnly()
+    public void TogetherEmbeddingConfig_ShouldOwnPortableModelDefault()
     {
         var builder = new AgentBuilder()
             .WithTogetherEmbeddings("BAAI/bge-large-en-v1.5");
 
         var embeddingConfig = builder.Config.Clients!.Embeddings;
         embeddingConfig.Should().NotBeNull();
-        var providerConfig = embeddingConfig!.GetProviderConfig<TogetherProviderConfig>(ProviderClientFamily.Embeddings);
-
-        providerConfig.Should().NotBeNull();
-        providerConfig!.EmbeddingModelId.Should().Be("BAAI/bge-large-en-v1.5");
+        embeddingConfig!.ModelName.Should().Be("BAAI/bge-large-en-v1.5");
+        embeddingConfig.ProviderConfig.Should().BeNull();
     }
 
     [Fact]
@@ -1111,16 +1041,6 @@ public class ProviderConfigConsolidationTests
     {
         var builder = new AgentBuilder()
             .WithTogether("deepseek-ai/DeepSeek-R1")
-            .WithChatDefaults(chat =>
-            {
-                chat.Temperature = 0.2;
-                chat.FrequencyPenalty = 0.1;
-                chat.PresencePenalty = 0.2;
-                chat.Reasoning = new HPD.Agent.ReasoningOptions
-                {
-                    Effort = HPD.Agent.ReasoningEffort.High
-                };
-            })
             .WithTogetherChatRequestOptions(new TogetherChatRequestOptions
             {
                 ContextLengthExceededBehavior = TogetherContextLengthExceededBehavior.Truncate,
@@ -1142,22 +1062,18 @@ public class ProviderConfigConsolidationTests
                 ReasoningEnabled = true
             });
 
-        var defaults = builder.Config.EnsureChatClientConfig().ChatDefaults;
+        var defaults = builder.Config.EnsureChatClientConfig();
 
         defaults.Should().NotBeNull();
-        defaults!.Temperature.Should().Be(0.2);
-        defaults.FrequencyPenalty.Should().Be(0.1);
-        defaults.PresencePenalty.Should().Be(0.2);
-        defaults.Reasoning!.Effort.Should().Be(HPD.Agent.ReasoningEffort.High);
-        defaults.AdditionalProperties.Should().Contain("context_length_exceeded_behavior", "truncate");
-        defaults.AdditionalProperties.Should().Contain("repetition_penalty", 1.1);
-        defaults.AdditionalProperties.Should().Contain("logprobs", 5);
-        defaults.AdditionalProperties.Should().Contain("echo", true);
-        defaults.AdditionalProperties.Should().Contain("n", 2);
-        defaults.AdditionalProperties.Should().Contain("min_p", 0.05f);
-        defaults.AdditionalProperties.Should().Contain("compliance", "strict");
-        defaults.AdditionalProperties.Should().Contain("safety_model", "safety_model_name");
-        defaults.AdditionalProperties.Should().Contain("reasoning_enabled", true);
+        defaults.ToMicrosoftChatOptions()!.AdditionalProperties.Should().Contain("context_length_exceeded_behavior", "truncate");
+        defaults.ToMicrosoftChatOptions()!.AdditionalProperties.Should().Contain("repetition_penalty", 1.1);
+        defaults.ToMicrosoftChatOptions()!.AdditionalProperties.Should().Contain("logprobs", 5);
+        defaults.ToMicrosoftChatOptions()!.AdditionalProperties.Should().Contain("echo", true);
+        defaults.ToMicrosoftChatOptions()!.AdditionalProperties.Should().Contain("n", 2);
+        defaults.ToMicrosoftChatOptions()!.AdditionalProperties.Should().Contain("min_p", 0.05f);
+        defaults.ToMicrosoftChatOptions()!.AdditionalProperties.Should().Contain("compliance", "strict");
+        defaults.ToMicrosoftChatOptions()!.AdditionalProperties.Should().Contain("safety_model", "safety_model_name");
+        defaults.ToMicrosoftChatOptions()!.AdditionalProperties.Should().Contain("reasoning_enabled", true);
     }
 
     [Fact]
@@ -1261,13 +1177,6 @@ public class ProviderConfigConsolidationTests
     {
         var builder = new AgentBuilder()
             .WithMistral("mistral-large-latest")
-            .WithChatDefaults(chat =>
-            {
-                chat.Reasoning = new HPD.Agent.ReasoningOptions
-                {
-                    Effort = HPD.Agent.ReasoningEffort.High
-                };
-            })
             .WithMistralChatRequestOptions(new MistralChatRequestOptions
             {
                 SafePrompt = true,
@@ -1276,11 +1185,10 @@ public class ProviderConfigConsolidationTests
                 CompletionCount = 2
             });
 
-        var defaults = builder.Config.EnsureChatClientConfig().ChatDefaults;
+        var defaults = builder.Config.EnsureChatClientConfig();
 
         defaults.Should().NotBeNull();
-        defaults!.Reasoning!.Effort.Should().Be(HPD.Agent.ReasoningEffort.High);
-        defaults.AdditionalProperties.Should().ContainKey(MistralChatRequestOptions.AdditionalPropertiesKey);
+        defaults.ToMicrosoftChatOptions()!.AdditionalProperties.Should().ContainKey(MistralChatRequestOptions.AdditionalPropertiesKey);
     }
 
     [Fact]
@@ -1349,23 +1257,15 @@ public class ProviderConfigConsolidationTests
     {
         var builder = new AgentBuilder()
             .WithMoonshot("kimi-k2.6")
-            .WithChatDefaults(chat =>
-            {
-                chat.Reasoning = new HPD.Agent.ReasoningOptions
-                {
-                    Effort = HPD.Agent.ReasoningEffort.High
-                };
-            })
             .WithMoonshotChatRequestOptions(new MoonshotChatRequestOptions
             {
                 ThinkingKeep = MoonshotThinkingKeep.All
             });
 
-        var defaults = builder.Config.EnsureChatClientConfig().ChatDefaults;
+        var defaults = builder.Config.EnsureChatClientConfig();
 
         defaults.Should().NotBeNull();
-        defaults!.Reasoning!.Effort.Should().Be(HPD.Agent.ReasoningEffort.High);
-        defaults.AdditionalProperties.Should().Contain("thinking_keep", "all");
+        defaults.ToMicrosoftChatOptions()!.AdditionalProperties.Should().Contain("thinking_keep", "all");
     }
 
     [Fact]
@@ -1392,26 +1292,25 @@ public class ProviderConfigConsolidationTests
     public void DashScopeProviderConfig_ShouldOwnProviderConstructionOptions()
     {
         var builder = new AgentBuilder()
-            .WithDashScope("qwen-plus", configure: dashScope =>
+            .WithDashScope("qwen-plus", endpoint: "https://dashscope.aliyuncs.com/api/v1/", configure: dashScope =>
             {
-                dashScope.BaseAddress = "https://dashscope.aliyuncs.com/api/v1/";
                 dashScope.WebsocketBaseAddress = "wss://dashscope.aliyuncs.com/api-ws/v1/inference/";
                 dashScope.WorkspaceId = "ws_hpd";
                 dashScope.SocketPoolSize = 16;
                 dashScope.TimeoutSeconds = 180;
-                dashScope.DefaultUseVl = true;
-            });
+            })
+            .WithDashScopeChatRequestOptions(new DashScopeChatRequestOptions { UseVl = true });
 
         var chatConfig = builder.Config.EnsureChatClientConfig();
-        var providerConfig = chatConfig.GetProviderConfig<DashScopeProviderConfig>();
+        var providerConfig = chatConfig.ProviderConfig as DashScopeProviderConfig;
 
         providerConfig.Should().NotBeNull();
-        providerConfig!.BaseAddress.Should().Be("https://dashscope.aliyuncs.com/api/v1/");
+        chatConfig.Endpoint.Should().Be("https://dashscope.aliyuncs.com/api/v1/");
         providerConfig.WebsocketBaseAddress.Should().Be("wss://dashscope.aliyuncs.com/api-ws/v1/inference/");
         providerConfig.WorkspaceId.Should().Be("ws_hpd");
         providerConfig.SocketPoolSize.Should().Be(16);
         providerConfig.TimeoutSeconds.Should().Be(180);
-        providerConfig.DefaultUseVl.Should().BeTrue();
+        ((DashScopeChatRequestOptions)chatConfig.ProviderOptions!).UseVl.Should().BeTrue();
     }
 
     [Fact]
@@ -1419,15 +1318,6 @@ public class ProviderConfigConsolidationTests
     {
         var builder = new AgentBuilder()
             .WithDashScope("qwen-plus")
-            .WithChatDefaults(chat =>
-            {
-                chat.Temperature = 0.2;
-                chat.MaxOutputTokens = 1024;
-                chat.Reasoning = new HPD.Agent.ReasoningOptions
-                {
-                    Effort = HPD.Agent.ReasoningEffort.High
-                };
-            })
             .WithDashScopeChatRequestOptions(new DashScopeChatRequestOptions
             {
                 EnableSearch = true,
@@ -1441,16 +1331,13 @@ public class ProviderConfigConsolidationTests
             });
 
         var chatConfig = builder.Config.EnsureChatClientConfig();
-        var defaults = chatConfig.ChatDefaults;
+        var defaults = chatConfig;
 
         defaults.Should().NotBeNull();
-        defaults!.Temperature.Should().Be(0.2);
-        defaults.MaxOutputTokens.Should().Be(1024);
-        defaults.Reasoning!.Effort.Should().Be(HPD.Agent.ReasoningEffort.High);
-        defaults.AdditionalProperties.Should().Contain("enable_search", true);
-        defaults.AdditionalProperties.Should().Contain("thinking_budget", 1024);
-        defaults.AdditionalProperties.Should().Contain("enable_code_interpreter", true);
-        defaults.AdditionalProperties!["search_options"].Should().BeOfType<DashScopeSearchRequestOptions>();
+        defaults.ToMicrosoftChatOptions()!.AdditionalProperties.Should().Contain("enable_search", true);
+        defaults.ToMicrosoftChatOptions()!.AdditionalProperties.Should().Contain("thinking_budget", 1024);
+        defaults.ToMicrosoftChatOptions()!.AdditionalProperties.Should().Contain("enable_code_interpreter", true);
+        defaults.ToMicrosoftChatOptions()!.AdditionalProperties!["search_options"].Should().BeOfType<DashScopeSearchRequestOptions>();
     }
 
     [Fact]

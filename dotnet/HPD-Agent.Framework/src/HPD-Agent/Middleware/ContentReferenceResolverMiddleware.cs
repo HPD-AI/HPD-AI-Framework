@@ -179,7 +179,10 @@ public class ContentReferenceResolverMiddleware : IAgentMiddleware
                 result.Content,
                 info.ContentType,
                 info.Name,
-                new HostedFileClientOptions { Purpose = "assistants" },
+                HostedFileOperationOptionsCompiler.Compile(
+                    context.RunConfig,
+                    context.ClientSet,
+                    omittedPurposeFallback: "assistants"),
                 cancellationToken).ConfigureAwait(false);
 
             await context.PublishAsync(new ContentReferenceResolvedEvent(
@@ -228,7 +231,7 @@ public class ContentReferenceResolverMiddleware : IAgentMiddleware
 
     private IHostedFileClient? GetHostedFileClient(BeforeIterationContext context)
     {
-        if (context.RunConfig.OverrideHostedFileClient is { } runClient)
+        if (context.RunConfig.Clients.HostedFiles?.Override?.Client is { } runClient)
             return runClient;
 
         if (context.ClientSet?.HostedFiles is { } buildClient)

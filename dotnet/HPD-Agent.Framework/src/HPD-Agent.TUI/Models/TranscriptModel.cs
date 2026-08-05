@@ -9,6 +9,32 @@ public sealed class TranscriptModel
     private int _version;
     private int _updateDepth;
     private bool _updatePending;
+    private TranscriptHistoryPresentation _historyPresentation;
+
+    public TranscriptHistoryPresentation HistoryPresentation
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _historyPresentation;
+            }
+        }
+        set
+        {
+            if (!Enum.IsDefined(value))
+                throw new ArgumentOutOfRangeException(nameof(value));
+
+            lock (_gate)
+            {
+                if (_historyPresentation == value)
+                    return;
+
+                _historyPresentation = value;
+                MarkChanged();
+            }
+        }
+    }
 
     public IDisposable BeginUpdate()
     {

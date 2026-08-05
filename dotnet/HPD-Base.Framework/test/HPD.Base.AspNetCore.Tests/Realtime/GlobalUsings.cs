@@ -1,0 +1,14 @@
+global using FluentAssertions;
+global using HPD.Base;
+global using HPD.Base.AspNetCore;
+global using HPD.Events;
+global using Microsoft.AspNetCore.Builder;
+global using Microsoft.AspNetCore.Hosting;
+global using Microsoft.AspNetCore.Routing;
+global using Microsoft.AspNetCore.TestHost;
+global using Microsoft.Extensions.DependencyInjection;
+global using System.Net;
+global using System.Net.WebSockets;
+global using System.Text;
+global using System.Text.Json;
+global using Xunit;

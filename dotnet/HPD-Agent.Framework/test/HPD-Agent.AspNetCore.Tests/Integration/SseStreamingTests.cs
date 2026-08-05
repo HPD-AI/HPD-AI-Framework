@@ -95,14 +95,13 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
 
         var response = await PostInputAsync(sessionId, "main", CreateInputJson("Test with config", new AgentRunConfig
         {
-            Chat = new ChatRunConfig
+            Clients = new AgentClientsConfig { Chat = new ChatClientConfig
             {
                 Temperature = 0.7,
                 MaxOutputTokens = 1000
-            },
-            AdditionalSystemInstructions = "Be concise",
-            CoalesceDeltas = true,
-            SkipTools = false
+            } },
+            SystemInstructions = new SystemInstructionsRunConfig { Append = "Be concise" },
+            Streaming = new StreamingRunConfig { CoalesceDeltas = true }
         }));
 
         response.StatusCode.Should().Be(HttpStatusCode.Accepted);

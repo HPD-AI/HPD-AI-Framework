@@ -1,4 +1,6 @@
 using HPD.Auth.Core.Entities;
+using HPD.Auth.ControlPlane;
+using HPD.Auth.Core.Audit;
 using HPD.Auth.Core.Interfaces;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -17,16 +19,17 @@ namespace HPD.Auth.Admin.Endpoints;
 /// </summary>
 public static class AdminUserSessionsEndpoints
 {
-    public static void Map(IEndpointRouteBuilder app)
+    public static void Map(RouteGroupBuilder root, IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/admin/users")
-                       .RequireAuthorization("RequireAdmin");
+        var group = root.MapGroup("/users");
 
         group.MapGet("/{id}/sessions", GetSessionsAsync)
+             .RequireHPDControlPlaneCapability(app, HPDAuthAdminCapabilities.SessionsRead)
              .WithName("AdminGetUserSessions")
              .WithSummary("List all active sessions for a user.");
 
         group.MapDelete("/{id}/sessions", RevokeSessionsAsync)
+             .RequireHPDControlPlaneCapability(app, HPDAuthAdminCapabilities.SessionsWrite)
              .WithName("AdminRevokeSessions")
              .WithSummary(
                  "Revoke sessions for a user. " +
@@ -34,6 +37,7 @@ public static class AdminUserSessionsEndpoints
                  "scope=others keeps the session identified by currentSessionId.");
 
         group.MapDelete("/{id}/sessions/{sessionId}", RevokeSessionAsync)
+             .RequireHPDControlPlaneCapability(app, HPDAuthAdminCapabilities.SessionsWrite)
              .WithName("AdminRevokeSession")
              .WithSummary("Revoke a specific session by its ID.");
     }
@@ -58,7 +62,8 @@ public static class AdminUserSessionsEndpoints
         string id,
         ISessionManager sessionManager,
         UserManager<ApplicationUser> userManager,
-        IAuditLogger auditLogger,
+        IAuthAuditWriter auditWriter,
+        IAuthCorrelationContext correlationContext,
         string scope = "all",
         Guid? currentSessionId = null,
         CancellationToken ct = default)
@@ -77,13 +82,7 @@ public static class AdminUserSessionsEndpoints
 
         await sessionManager.RevokeAllSessionsAsync(userId, exceptId, ct);
 
-        await auditLogger.LogAsync(new AuditLogEntry(
-            Action: AuditActions.AdminForceLogout,
-            Category: AuditCategories.Admin,
-            Success: true,
-            UserId: userId,
-            Metadata: new { adminAction = "revoke_sessions", scope, exceptId }
-        ), ct);
+        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.SessionRevokeAll, correlationContext, userId, cancellationToken: ct);
 
         return Results.Ok(new { message = $"Sessions revoked (scope={scope})." });
     }
@@ -93,7 +92,8 @@ public static class AdminUserSessionsEndpoints
         string sessionId,
         ISessionManager sessionManager,
         UserManager<ApplicationUser> userManager,
-        IAuditLogger auditLogger,
+        IAuthAuditWriter auditWriter,
+        IAuthCorrelationContext correlationContext,
         CancellationToken ct = default)
     {
         if (!Guid.TryParse(sessionId, out var sessionGuid))
@@ -105,13 +105,7 @@ public static class AdminUserSessionsEndpoints
 
         await sessionManager.RevokeSessionAsync(sessionGuid, ct);
 
-        await auditLogger.LogAsync(new AuditLogEntry(
-            Action: AuditActions.SessionRevoke,
-            Category: AuditCategories.Admin,
-            Success: true,
-            UserId: user.Id,
-            Metadata: new { adminAction = "revoke_session", sessionId }
-        ), ct);
+        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.SessionRevoke, correlationContext, user.Id, sessionGuid, cancellationToken: ct);
 
         return Results.Ok(new { message = "Session revoked." });
     }

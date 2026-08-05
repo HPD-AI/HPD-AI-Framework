@@ -698,8 +698,7 @@ public class ThreadEndpointsTests : IClassFixture<TestWebApplicationFactory>
         child.InvocationId.Should().Be("run-1");
         child.SubAgentSourceKind.Should().Be("InlineConfig");
         child.ParentToolCallId.Should().Be("tool-1");
-        child.SessionPolicy.Should().Be("ParentSession");
-        child.ThreadPolicy.Should().Be("ForkFromParentThread");
+        child.ContextPolicy.Should().Be("Fork");
     }
 
     [Fact]

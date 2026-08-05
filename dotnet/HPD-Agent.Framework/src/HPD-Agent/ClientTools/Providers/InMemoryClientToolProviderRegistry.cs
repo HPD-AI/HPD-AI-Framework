@@ -26,10 +26,14 @@ public sealed class InMemoryClientToolProviderRegistry : IClientToolProviderRegi
         new(StringComparer.Ordinal);
 
     private readonly object _leaseLock = new();
+    private readonly object _providerMutationLock = new();
+    private readonly Dictionary<string, long> _revocationFences =
+        new(StringComparer.Ordinal);
 
     /// <inheritdoc />
-    public ValueTask<ClientToolProviderConnectionRegistration> RegisterConnectionAsync(
+    public async ValueTask<ClientToolProviderConnectionRegistration> RegisterConnectionAsync(
         ClientToolProviderIdentity identity,
+        ClientToolProviderRuntimeIdentity? runtimeIdentity,
         IClientToolProviderConnection connection,
         CancellationToken cancellationToken = default)
     {
@@ -37,45 +41,84 @@ public sealed class InMemoryClientToolProviderRegistry : IClientToolProviderRegi
         ArgumentNullException.ThrowIfNull(connection);
         cancellationToken.ThrowIfCancellationRequested();
 
-        var clientRuntimeId = CreateClientRuntimeId(identity);
+        var clientRuntimeId = CreateClientRuntimeId(identity, runtimeIdentity);
         var connectionId = $"cpc_{Guid.NewGuid():N}";
         var now = DateTimeOffset.UtcNow;
         var snapshot = new ClientToolProviderSnapshot
         {
             ClientRuntimeId = clientRuntimeId,
             ConnectionId = connectionId,
+            RuntimeIdentity = runtimeIdentity,
             State = ClientToolProviderConnectionState.Connected,
             ConnectedAt = now,
             LastHeartbeatAt = now
         };
 
-        _providers.AddOrUpdate(clientRuntimeId, new ProviderEntry(snapshot, connection), (_, existing) =>
+        IClientToolProviderConnection? replacedConnection = null;
+        bool registrationRevoked = false;
+        lock (_providerMutationLock)
         {
-            BreakProviderLeases(
-                existing.Snapshot.ClientRuntimeId,
-                existing.Snapshot.ConnectionId,
-                ClientToolProviderBindingLeaseStatus.Disconnected,
-                "Provider connection was replaced.");
-            existing.FailPendingInvocations("Provider connection was replaced.");
-            return existing with
+            if (runtimeIdentity is not null &&
+                _revocationFences.TryGetValue(
+                    runtimeIdentity.InstallationId,
+                    out long maximumGeneration) &&
+                runtimeIdentity.WorkloadGeneration <=
+                    maximumGeneration)
             {
-                Snapshot = existing.Snapshot with
+                registrationRevoked = true;
+            }
+            else
+            {
+                _providers.AddOrUpdate(clientRuntimeId, new ProviderEntry(snapshot, connection), (key, existing) =>
                 {
-                    ConnectionId = connectionId,
-                    State = ClientToolProviderConnectionState.Connected,
-                    ConnectedAt = now,
-                    LastHeartbeatAt = now,
-                    DisconnectedAt = null,
-                    BindingLease = null
-                },
-                Connection = connection
-            };
-        });
+                    BreakProviderLeases(
+                        existing.Snapshot.ClientRuntimeId,
+                        existing.Snapshot.ConnectionId,
+                        ClientToolProviderBindingLeaseStatus.Disconnected,
+                        "Provider connection was replaced.");
+                    existing.FailPendingInvocations("Provider connection was replaced.");
+                    replacedConnection = existing.Connection;
+                    return existing with
+                    {
+                        Snapshot = existing.Snapshot with
+                        {
+                            ConnectionId = connectionId,
+                            RuntimeIdentity = runtimeIdentity,
+                            State = ClientToolProviderConnectionState.Connected,
+                            ConnectedAt = now,
+                            LastHeartbeatAt = now,
+                            DisconnectedAt = null,
+                            BindingLease = null
+                        },
+                        Connection = connection
+                    };
+                });
+            }
+        }
 
-        return ValueTask.FromResult(new ClientToolProviderConnectionRegistration(
+        if (registrationRevoked)
+        {
+            await CloseConnectionBestEffortAsync(
+                    connection,
+                    "Provider registration was revoked before it committed.",
+                    cancellationToken)
+                .ConfigureAwait(false);
+            throw new InvalidOperationException(
+                "Provider registration was revoked before it committed.");
+        }
+        if (replacedConnection is not null)
+        {
+            await CloseConnectionBestEffortAsync(
+                    replacedConnection,
+                    "Provider connection was replaced.",
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        return new ClientToolProviderConnectionRegistration(
             clientRuntimeId,
             connectionId,
-            DefaultHeartbeatInterval));
+            DefaultHeartbeatInterval);
     }
 
     /// <inheritdoc />
@@ -90,6 +133,17 @@ public sealed class InMemoryClientToolProviderRegistry : IClientToolProviderRegi
         ArgumentNullException.ThrowIfNull(manifest);
         cancellationToken.ThrowIfCancellationRequested();
 
+        if (!string.Equals(manifest.ProtocolVersion, "2", StringComparison.Ordinal))
+            throw new ArgumentException(
+                $"Unsupported client tool provider protocol '{manifest.ProtocolVersion}'. Expected '2'.",
+                nameof(manifest));
+
+        foreach (var harness in manifest.ClientToolHarnesses)
+        {
+            foreach (var tool in harness.Tools)
+                tool.Validate();
+        }
+
         _providers.AddOrUpdate(
             clientRuntimeId,
             _ => new ProviderEntry(new ClientToolProviderSnapshot
@@ -103,6 +157,11 @@ public sealed class InMemoryClientToolProviderRegistry : IClientToolProviderRegi
             }, NoopClientToolProviderConnection.Instance),
             (_, existing) =>
             {
+                if (existing.Snapshot.State is
+                    ClientToolProviderConnectionState.Revoked)
+                {
+                    return existing;
+                }
                 if (!string.Equals(existing.Snapshot.ConnectionId, connectionId, StringComparison.Ordinal))
                     return existing;
 
@@ -169,7 +228,10 @@ public sealed class InMemoryClientToolProviderRegistry : IClientToolProviderRegi
             {
                 Snapshot = existing.Snapshot with
                 {
-                    State = ClientToolProviderConnectionState.Disconnected,
+                    State = existing.Snapshot.State is
+                        ClientToolProviderConnectionState.Revoked
+                            ? ClientToolProviderConnectionState.Revoked
+                            : ClientToolProviderConnectionState.Disconnected,
                     DisconnectedAt = DateTimeOffset.UtcNow,
                     BindingLease = existing.Snapshot.BindingLease is null
                         ? null
@@ -182,6 +244,146 @@ public sealed class InMemoryClientToolProviderRegistry : IClientToolProviderRegi
         }
 
         return ValueTask.CompletedTask;
+    }
+
+    /// <inheritdoc />
+    public ValueTask<int> RevokeAsync(
+        ClientProviderSelector selector,
+        string reason,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(selector);
+        ArgumentException.ThrowIfNullOrWhiteSpace(reason);
+
+        var connections = new List<IClientToolProviderConnection>();
+        int revoked = 0;
+        lock (_providerMutationLock)
+        {
+            foreach ((string clientRuntimeId, ProviderEntry existing)
+                     in _providers)
+            {
+                if (!MatchesSelector(existing.Snapshot, selector) ||
+                    existing.Snapshot.State is
+                        ClientToolProviderConnectionState.Revoked)
+                {
+                    continue;
+                }
+
+                existing.FailPendingInvocations(reason);
+                FailProviderBackgroundOperations(
+                    clientRuntimeId,
+                    existing.Snapshot.ConnectionId,
+                    reason);
+                BreakProviderLeases(
+                    clientRuntimeId,
+                    existing.Snapshot.ConnectionId,
+                    ClientToolProviderBindingLeaseStatus.Revoked,
+                    reason);
+                _providers[clientRuntimeId] =
+                    existing with
+                    {
+                        Snapshot = existing.Snapshot with
+                        {
+                            State =
+                                ClientToolProviderConnectionState.Revoked,
+                            DisconnectedAt = DateTimeOffset.UtcNow,
+                            BindingLease =
+                                existing.Snapshot.BindingLease is null
+                                    ? null
+                                    : CompleteLease(
+                                        existing.Snapshot.BindingLease,
+                                        ClientToolProviderBindingLeaseStatus
+                                            .Revoked,
+                                        reason)
+                        }
+                    };
+                connections.Add(existing.Connection);
+                revoked++;
+            }
+        }
+
+        return CloseRevokedConnectionsAsync(
+            connections,
+            reason,
+            revoked,
+            cancellationToken);
+    }
+
+    public ValueTask AdvanceRevocationFenceAsync(
+        ClientToolProviderRevocationFence fence,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(fence);
+        ArgumentException.ThrowIfNullOrWhiteSpace(
+            fence.AppInstallationId);
+        if (fence.MaximumWorkloadGeneration < 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(fence));
+        }
+        cancellationToken.ThrowIfCancellationRequested();
+        lock (_providerMutationLock)
+        {
+            _revocationFences[fence.AppInstallationId] = Math.Max(
+                _revocationFences.GetValueOrDefault(
+                    fence.AppInstallationId),
+                fence.MaximumWorkloadGeneration);
+        }
+        return ValueTask.CompletedTask;
+    }
+
+    private static async ValueTask<int> CloseRevokedConnectionsAsync(
+        IReadOnlyList<IClientToolProviderConnection> connections,
+        string reason,
+        int revoked,
+        CancellationToken cancellationToken)
+    {
+        foreach (IClientToolProviderConnection connection in connections)
+        {
+            await CloseRevokedConnectionBestEffortAsync(
+                    connection,
+                    reason,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        return revoked;
+    }
+
+    private static async ValueTask CloseRevokedConnectionBestEffortAsync(
+        IClientToolProviderConnection connection,
+        string reason,
+        CancellationToken cleanupDeadline)
+    {
+        try
+        {
+            await connection.CloseAsync(reason, cleanupDeadline)
+                .AsTask()
+                .WaitAsync(cleanupDeadline)
+                .ConfigureAwait(false);
+        }
+        catch
+        {
+            // Revocation is authoritative even when a transport is broken or
+            // the independent cleanup deadline expires. Invoke every close
+            // attempt; never let one socket prevent later sockets from being
+            // asked to close.
+        }
+    }
+
+    private static async ValueTask CloseConnectionBestEffortAsync(
+        IClientToolProviderConnection connection,
+        string reason,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await connection.CloseAsync(reason, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch when (!cancellationToken.IsCancellationRequested)
+        {
+            // Registry state is authoritative. A failed transport close must
+            // not prevent other revoked connections from being closed.
+        }
     }
 
     /// <inheritdoc />
@@ -210,63 +412,80 @@ public sealed class InMemoryClientToolProviderRegistry : IClientToolProviderRegi
         lock (_leaseLock)
         {
             var now = DateTimeOffset.UtcNow;
-            foreach (var entry in _providers.Values
+            ProviderEntry[] candidates = _providers.Values
                 .Where(provider => IsBindable(provider.Snapshot, reference, scope, now))
-                .OrderBy(provider => provider.Snapshot.ConnectedAt))
+                .ToArray();
+            ProviderEntry[] alreadyBound = candidates
+                .Where(provider =>
+                {
+                    ClientToolProviderBindingLease? lease =
+                        GetActiveLease(
+                            provider.Snapshot.BindingLease,
+                            now) ??
+                        GetActiveProviderLease(
+                            provider.Snapshot.ClientRuntimeId,
+                            now);
+                    return lease is not null &&
+                        LeaseMatchesScope(lease, scope);
+                })
+                .ToArray();
+            if (alreadyBound.Length == 1)
             {
-                var snapshot = entry.Snapshot;
-                var manifest = snapshot.Manifest;
-                if (manifest is null)
-                    continue;
-
-                var existingLease =
+                ClientToolProviderSnapshot snapshot =
+                    alreadyBound[0].Snapshot;
+                ClientToolProviderBindingLease lease =
                     GetActiveLease(snapshot.BindingLease, now) ??
-                    GetActiveProviderLease(snapshot.ClientRuntimeId, now);
-                if (existingLease is not null)
+                    GetActiveProviderLease(snapshot.ClientRuntimeId, now)!;
+                return ValueTask.FromResult<
+                    ClientToolProviderBindingResult?>(new()
                 {
-                    if (!LeaseMatchesScope(existingLease, scope))
-                        return ValueTask.FromResult<ClientToolProviderBindingResult?>(null);
-
-                    return ValueTask.FromResult<ClientToolProviderBindingResult?>(new ClientToolProviderBindingResult
-                    {
-                        Provider = snapshot,
-                        Lease = existingLease
-                    });
-                }
-
-                var lease = new ClientToolProviderBindingLease
-                {
-                    BindingId = $"bind_{Guid.NewGuid():N}",
-                    ClientRuntimeId = snapshot.ClientRuntimeId,
-                    ConnectionId = snapshot.ConnectionId,
-                    OwnerRuntimeId = scope.OwnerRuntimeId,
-                    AgentId = scope.AgentId,
-                    SessionId = scope.SessionId,
-                    ThreadId = scope.ThreadId,
-                    ThreadExecutionId = scope.ThreadExecutionId,
-                    BoundAt = now,
-                    ExpiresAt = scope.LeaseDuration is null ? null : now.Add(scope.LeaseDuration.Value),
-                    HeartbeatInterval = DefaultHeartbeatInterval,
-                    Status = ClientToolProviderBindingLeaseStatus.Active
-                };
-
-                _leases[lease.BindingId] = lease;
-                var boundSnapshot = snapshot with
-                {
-                    State = ClientToolProviderConnectionState.Bound,
-                    BindingLease = lease
-                };
-                _providers[snapshot.ClientRuntimeId] = entry with { Snapshot = boundSnapshot };
-
-                return ValueTask.FromResult<ClientToolProviderBindingResult?>(new ClientToolProviderBindingResult
-                {
-                    Provider = boundSnapshot,
+                    Provider = snapshot,
                     Lease = lease
                 });
             }
-        }
+            if (alreadyBound.Length > 1 ||
+                candidates.Length != 1)
+            {
+                return ValueTask.FromResult<
+                    ClientToolProviderBindingResult?>(null);
+            }
 
-        return ValueTask.FromResult<ClientToolProviderBindingResult?>(null);
+            ProviderEntry entry = candidates[0];
+            ClientToolProviderSnapshot candidate = entry.Snapshot;
+            var createdLease = new ClientToolProviderBindingLease
+            {
+                BindingId = $"bind_{Guid.NewGuid():N}",
+                ClientRuntimeId = candidate.ClientRuntimeId,
+                ConnectionId = candidate.ConnectionId,
+                OwnerRuntimeId = scope.OwnerRuntimeId,
+                AgentId = scope.AgentId,
+                SessionId = scope.SessionId,
+                ThreadId = scope.ThreadId,
+                ThreadExecutionId = scope.ThreadExecutionId,
+                BoundAt = now,
+                ExpiresAt = scope.LeaseDuration is null
+                    ? null
+                    : now.Add(scope.LeaseDuration.Value),
+                HeartbeatInterval = DefaultHeartbeatInterval,
+                Status = ClientToolProviderBindingLeaseStatus.Active
+            };
+
+            _leases[createdLease.BindingId] = createdLease;
+            ClientToolProviderSnapshot boundSnapshot = candidate with
+            {
+                State = ClientToolProviderConnectionState.Bound,
+                BindingLease = createdLease
+            };
+            _providers[candidate.ClientRuntimeId] =
+                entry with { Snapshot = boundSnapshot };
+
+            return ValueTask.FromResult<
+                ClientToolProviderBindingResult?>(new()
+            {
+                Provider = boundSnapshot,
+                Lease = createdLease
+            });
+        }
     }
 
     /// <inheritdoc />
@@ -343,7 +562,19 @@ public sealed class InMemoryClientToolProviderRegistry : IClientToolProviderRegi
             return CreateProviderFailure(request.RequestId, "Provider tool is unavailable.");
 
         var invocationId = $"inv_{Guid.NewGuid():N}";
-        var pending = entry.RegisterPendingInvocation(invocationId);
+        string? clientOperationId =
+            request.ResolvedInvocationMode is AgentInvocationMode.Background
+                ? $"cto_{Guid.NewGuid():N}"
+                : null;
+        if (!entry.TryRegisterPendingInvocation(
+                invocationId,
+                clientOperationId,
+                out TaskCompletionSource<ClientToolInvokeOutcomeEvent> pending))
+        {
+            return CreateProviderFailure(
+                request.RequestId,
+                "Provider invocation queue is full.");
+        }
         try
         {
             await entry.Connection.SendInvocationAsync(
@@ -354,11 +585,17 @@ public sealed class InMemoryClientToolProviderRegistry : IClientToolProviderRegi
                     BindingId = request.Binding.BindingId,
                     InvocationId = invocationId,
                     RequestId = request.RequestId,
+                    ClientOperationId = clientOperationId,
                     ToolName = request.Binding.ProviderToolName,
                     VisibleToolName = request.Binding.VisibleToolName,
                     CallId = request.CallId,
                     Arguments = request.Arguments,
+                    Operation = request.Operation,
+                    ExpectedContext = request.RequiresFreshContext
+                        ? entry.Snapshot.Manifest.Context
+                        : null,
                     RequestedInvocationMode = request.RequestedInvocationMode,
+                    ResolvedInvocationMode = request.ResolvedInvocationMode,
                     Deadline = DateTimeOffset.UtcNow.Add(timeout)
                 },
                 cancellationToken).ConfigureAwait(false);
@@ -470,8 +707,9 @@ public sealed class InMemoryClientToolProviderRegistry : IClientToolProviderRegi
             State = outcome.State,
             Content = outcome.Content,
             Augmentation = outcome.Augmentation,
-            ErrorMessage = outcome.ErrorMessage,
-            ErrorType = outcome.ErrorType,
+            Error = outcome.Error,
+            ErrorMessage = outcome.Error?.Message,
+            ErrorType = outcome.Error?.Kind,
             CancellationReason = outcome.CancellationReason,
             Metadata = outcome.Metadata
         });
@@ -567,6 +805,20 @@ public sealed class InMemoryClientToolProviderRegistry : IClientToolProviderRegi
 
         if (!string.IsNullOrWhiteSpace(selector.AppKind) &&
             !string.Equals(manifest?.Identity.AppKind, selector.AppKind, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        if (!string.IsNullOrWhiteSpace(selector.AppInstallationId) &&
+            !string.Equals(
+                snapshot.RuntimeIdentity?.InstallationId,
+                selector.AppInstallationId,
+                StringComparison.Ordinal))
+            return false;
+
+        if (!string.IsNullOrWhiteSpace(selector.BrowserLaunchSessionId) &&
+            !string.Equals(
+                snapshot.RuntimeIdentity?.BrowserLaunchSessionId,
+                selector.BrowserLaunchSessionId,
+                StringComparison.Ordinal))
             return false;
 
         if (!string.IsNullOrWhiteSpace(selector.WorkspaceId) &&
@@ -695,9 +947,9 @@ public sealed class InMemoryClientToolProviderRegistry : IClientToolProviderRegi
             {
                 pending.TrySetResult(new ClientToolBackgroundOperationResult
                 {
-                    State = ClientToolBackgroundOperationOutcomeState.Faulted,
+                    State = ClientToolBackgroundOperationOutcomeState.Unknown,
                     ErrorMessage = message,
-                    ErrorType = "provider_disconnected"
+                    ErrorType = "unknown_outcome"
                 });
             }
         }
@@ -738,9 +990,13 @@ public sealed class InMemoryClientToolProviderRegistry : IClientToolProviderRegi
             _ => ClientToolProviderConnectionState.Registered
         };
 
-    private static string CreateClientRuntimeId(ClientToolProviderIdentity identity)
+    private static string CreateClientRuntimeId(
+        ClientToolProviderIdentity identity,
+        ClientToolProviderRuntimeIdentity? runtimeIdentity)
     {
-        var stablePart = identity.InstallationId ?? identity.InstanceId;
+        var stablePart = runtimeIdentity is null
+            ? identity.InstallationId ?? identity.InstanceId
+            : $"{runtimeIdentity.InstallationId}-{runtimeIdentity.BrowserLaunchSessionId}";
         if (!string.IsNullOrWhiteSpace(stablePart))
         {
             var sanitized = new string(stablePart
@@ -766,31 +1022,70 @@ public sealed class InMemoryClientToolProviderRegistry : IClientToolProviderRegi
         ClientToolProviderSnapshot Snapshot,
         IClientToolProviderConnection Connection)
     {
-        private readonly ConcurrentDictionary<string, TaskCompletionSource<ClientToolInvokeOutcomeEvent>> _pendingInvocations =
+        private const int MaximumPendingInvocations = 64;
+        private readonly ConcurrentDictionary<string, PendingInvocation>
+            _pendingInvocations =
             new(StringComparer.Ordinal);
+        private readonly SemaphoreSlim _pendingInvocationSlots =
+            new(MaximumPendingInvocations, MaximumPendingInvocations);
 
-        public TaskCompletionSource<ClientToolInvokeOutcomeEvent> RegisterPendingInvocation(string invocationId)
+        public bool TryRegisterPendingInvocation(
+            string invocationId,
+            string? clientOperationId,
+            out TaskCompletionSource<ClientToolInvokeOutcomeEvent> completion)
         {
-            var completion = new TaskCompletionSource<ClientToolInvokeOutcomeEvent>(
+            completion = null!;
+            if (!_pendingInvocationSlots.Wait(0))
+                return false;
+
+            var candidate = new TaskCompletionSource<ClientToolInvokeOutcomeEvent>(
                 TaskCreationOptions.RunContinuationsAsynchronously);
-            _pendingInvocations[invocationId] = completion;
-            return completion;
+            if (!_pendingInvocations.TryAdd(
+                    invocationId,
+                    new PendingInvocation(clientOperationId, candidate)))
+            {
+                _pendingInvocationSlots.Release();
+                return false;
+            }
+            completion = candidate;
+            return true;
         }
 
         public void RemovePendingInvocation(string invocationId)
-            => _pendingInvocations.TryRemove(invocationId, out _);
+        {
+            if (_pendingInvocations.TryRemove(invocationId, out _))
+                _pendingInvocationSlots.Release();
+        }
 
         public bool TryResolveInvocation(ClientToolProviderInvokeOutcomeMessage outcome)
         {
-            if (!_pendingInvocations.TryRemove(outcome.InvocationId, out var completion))
+            if (!_pendingInvocations.TryRemove(
+                    outcome.InvocationId,
+                    out PendingInvocation? pending))
                 return false;
+            _pendingInvocationSlots.Release();
 
-            return completion.TrySetResult(new ClientToolInvokeOutcomeEvent
+            if (outcome.Outcome is
+                    ClientToolInvokeOutcomeKind.AcceptedBackground &&
+                (!string.Equals(
+                    outcome.ClientOperationId,
+                    pending.ClientOperationId,
+                    StringComparison.Ordinal) ||
+                 string.IsNullOrWhiteSpace(pending.ClientOperationId)))
+            {
+                return pending.Completion.TrySetResult(
+                    CreateProviderFailure(
+                        outcome.RequestId,
+                        "Provider accepted background work with an invalid HPD-assigned operation id."));
+            }
+
+            return pending.Completion.TrySetResult(new ClientToolInvokeOutcomeEvent
             {
                 RequestId = outcome.RequestId,
                 Outcome = outcome.Outcome,
                 Content = outcome.Content,
-                ErrorMessage = outcome.ErrorMessage,
+                Error = outcome.Error,
+                ErrorMessage = outcome.Error?.Message,
                 ClientOperationId = outcome.ClientOperationId,
                 HandleKind = outcome.HandleKind,
                 SupportedOperations = outcome.SupportedOperations,
@@ -802,14 +1097,21 @@ public sealed class InMemoryClientToolProviderRegistry : IClientToolProviderRegi
 
         public void FailPendingInvocations(string message)
         {
-            foreach (var (invocationId, completion) in _pendingInvocations)
+            foreach ((string invocationId, PendingInvocation pending)
+                     in _pendingInvocations)
             {
                 if (_pendingInvocations.TryRemove(invocationId, out _))
                 {
-                    completion.TrySetResult(CreateProviderFailure(invocationId, message));
+                    _pendingInvocationSlots.Release();
+                    pending.Completion.TrySetResult(
+                        CreateProviderFailure(invocationId, message));
                 }
             }
         }
+
+        private sealed record PendingInvocation(
+            string? ClientOperationId,
+            TaskCompletionSource<ClientToolInvokeOutcomeEvent> Completion);
     }
 
     private sealed class NoopClientToolProviderConnection : IClientToolProviderConnection

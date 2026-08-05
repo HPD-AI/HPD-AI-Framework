@@ -34,7 +34,6 @@ public sealed class AudioRuntimeAttachmentThreadProjectionTests
                 OutputMode = AudioOutputMode.TextOnly
             }
         })
-            .WithDeferredProvider()
             .BuildAsync();
 
         var audioIndex = IndexOfMiddleware<AudioRuntimeAttachment>(agent.Middlewares);
@@ -55,7 +54,6 @@ public sealed class AudioRuntimeAttachmentThreadProjectionTests
                 OutputMode = AudioOutputMode.TextToSpeech
             }
         })
-            .WithDeferredProvider()
             .WithAudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
             {
                 Enabled = false
@@ -70,7 +68,6 @@ public sealed class AudioRuntimeAttachmentThreadProjectionTests
     {
         var contentStore = new InMemoryContentStore();
         var agent = await AgentBuilder.Create()
-            .WithDeferredProvider()
             .WithContentStore(contentStore)
             .WithAudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
             {
@@ -319,7 +316,7 @@ public sealed class AudioRuntimeAttachmentThreadProjectionTests
             message,
             runConfig: new AgentRunConfig
             {
-                ModelTransport = AgentModelTransportMode.Realtime
+                Clients = new AgentClientsConfig { Transport = AgentModelTransportMode.Realtime }
             });
 
         await attachment.BeforeMessageTurnAsync(context, CancellationToken.None);
@@ -353,7 +350,7 @@ public sealed class AudioRuntimeAttachmentThreadProjectionTests
             new ChatMessage(ChatRole.User, [audio]),
             runConfig: new AgentRunConfig
             {
-                ModelTransport = AgentModelTransportMode.Realtime
+                Clients = new AgentClientsConfig { Transport = AgentModelTransportMode.Realtime }
             });
 
         await attachment.BeforeMessageTurnAsync(context, CancellationToken.None);
@@ -511,7 +508,7 @@ public sealed class AudioRuntimeAttachmentThreadProjectionTests
 
         options.UseSpeechToTextProvider(
             registry,
-            new ClientProviderConfig
+            new ProviderClientConfig
             {
                 ProviderKey = "fake-stt",
                 ModelName = "config-model"
@@ -790,10 +787,10 @@ public sealed class AudioRuntimeAttachmentThreadProjectionTests
 
         public int CreateCount { get; private set; }
 
-        public ClientProviderConfig? LastConfig { get; private set; }
+        public ProviderClientConfig? LastConfig { get; private set; }
 
         public ISpeechToTextClient CreateSpeechToTextClient(
-            ClientProviderConfig config,
+            ProviderClientConfig config,
             IServiceProvider? services = null)
         {
             CreateCount++;
@@ -818,7 +815,7 @@ public sealed class AudioRuntimeAttachmentThreadProjectionTests
             };
 
         public ProviderValidationResult ValidateConfiguration(
-            ClientProviderConfig config,
+            ProviderClientConfig config,
             ProviderClientFamily family)
             => ProviderValidationResult.Success();
     }
@@ -846,7 +843,7 @@ public sealed class AudioRuntimeAttachmentThreadProjectionTests
             };
 
         public ProviderValidationResult ValidateConfiguration(
-            ClientProviderConfig config,
+            ProviderClientConfig config,
             ProviderClientFamily family)
             => ProviderValidationResult.Success();
     }

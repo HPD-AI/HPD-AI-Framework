@@ -14,6 +14,7 @@
     <Project Path="src/HPD.Auth.Audit/HPD.Auth.Audit.csproj" />
     <Project Path="src/HPD.Auth.Authentication/HPD.Auth.Authentication.csproj" />
     <Project Path="src/HPD.Auth.Authorization/HPD.Auth.Authorization.csproj" />
+    <Project Path="src/HPD.Auth.ControlPlane.AspNetCore/HPD.Auth.ControlPlane.AspNetCore.csproj" />
     <Project Path="src/HPD.Auth.Infrastructure/HPD.Auth.Infrastructure.csproj" />
     <Project Path="src/HPD.Auth.OAuth/HPD.Auth.OAuth.csproj" />
     <Project Path="src/HPD.Auth.TwoFactor/HPD.Auth.TwoFactor.csproj" />
@@ -28,6 +29,7 @@
     <Project Path="test/HPD.Auth.Audit.Tests/HPD.Auth.Audit.Tests.csproj" />
     <Project Path="test/HPD.Auth.Authentication.Tests/HPD.Auth.Authentication.Tests.csproj" />
     <Project Path="test/HPD.Auth.Authorization.Tests/HPD.Auth.Authorization.Tests.csproj" />
+    <Project Path="test/HPD.Auth.ControlPlane.AspNetCore.Tests/HPD.Auth.ControlPlane.AspNetCore.Tests.csproj" />
     <Project Path="test/HPD.Auth.Infrastructure.Tests/HPD.Auth.Infrastructure.Tests.csproj" />
     <Project Path="test/HPD.Auth.OAuth.Tests/HPD.Auth.OAuth.Tests.csproj" />
     <Project Path="test/HPD.Auth.TwoFactor.Tests/HPD.Auth.TwoFactor.Tests.csproj" />

@@ -816,24 +816,27 @@ public sealed class GlobSearchTests : IDisposable
         var fullRoot = Path.GetFullPath(defaultRoot);
         return new AgentRunConfig
         {
-            ContextOverrides = new()
+            Context = new AgentContextRunConfig { Properties = new Dictionary<string, object>()
             {
                 [AgentWorkspace.ContextKey] = new AgentWorkspace(
                     "default",
                     fullRoot,
                     [new AgentWorkspaceRoot("default", fullRoot)])
-            }
+            } }
         };
     }
 
     private static AgentRunConfig CreateFullAccessWorkspaceRunConfig(string defaultRoot)
     {
         var runConfig = CreateWorkspaceRunConfig(defaultRoot);
-        runConfig.Security = new AgentSecurityProfile
+        runConfig.Security = new AgentSecurityRunConfig
         {
             Approval = AgentApprovalPolicy.AutoApprove,
-            Sandbox = AgentSandboxPolicy.Disabled,
-            SandboxEscape = AgentSandboxEscapePolicy.Deny
+            Sandbox = new AgentSandboxRunConfig
+            {
+                Mode = AgentSandboxPolicy.Disabled,
+                Escape = AgentSandboxEscapePolicy.Deny
+            }
         };
         return runConfig;
     }

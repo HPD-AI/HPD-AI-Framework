@@ -13,9 +13,9 @@ namespace HPD.Agent.Providers.Together;
 /// <remarks>
 /// Generic runtime settings such as model, temperature, top-p, top-k, frequency penalty,
 /// presence penalty, max output tokens, seed, stop sequences, response format, tools,
-/// and reasoning belong on <see cref="ChatRunConfig"/> or <see cref="ChatOptions"/>.
+/// and reasoning belong on <see cref="ChatClientConfig"/> or <see cref="ChatOptions"/>.
 /// </remarks>
-public sealed class TogetherChatRequestOptions
+public sealed class TogetherChatRequestOptions : IChatRequestOptions
 {
     /// <summary>
     /// Behavior when the requested output would exceed the model context length.
@@ -97,19 +97,10 @@ public sealed class TogetherChatRequestOptions
     /// <summary>
     /// Applies these options to a serializable HPD chat run configuration.
     /// </summary>
-    public void ApplyTo(ChatRunConfig chat)
+    public void ApplyTo(ChatClientConfig chat)
     {
         ArgumentNullException.ThrowIfNull(chat);
-
-        var properties = ToAdditionalProperties();
-        if (properties.Count == 0)
-            return;
-
-        chat.AdditionalProperties ??= new Dictionary<string, object>();
-        foreach (var property in properties)
-        {
-            chat.AdditionalProperties[property.Key] = property.Value;
-        }
+        chat.ProviderOptions = this;
     }
 
     /// <summary>
@@ -198,8 +189,8 @@ public static class TogetherChatRequestOptionExtensions
     /// <summary>
     /// Applies Together-specific runtime options to a serializable HPD chat run configuration.
     /// </summary>
-    public static ChatRunConfig UseTogetherChatRequestOptions(
-        this ChatRunConfig chat,
+    public static ChatClientConfig UseTogetherChatRequestOptions(
+        this ChatClientConfig chat,
         TogetherChatRequestOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);

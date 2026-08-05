@@ -15,9 +15,4 @@ public interface IAuthEventObserver<in TEvent>
     where TEvent : AuthEvent
 {
     ValueTask HandleAsync(TEvent evt, CancellationToken ct = default);
-
-    bool ShouldProcess(TEvent evt) => true;
-
-    Task OnEventAsync(TEvent evt, CancellationToken ct = default) =>
-        HandleAsync(evt, ct).AsTask();
 }

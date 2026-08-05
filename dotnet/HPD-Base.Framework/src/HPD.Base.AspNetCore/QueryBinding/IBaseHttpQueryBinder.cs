@@ -1,8 +1,7 @@
-using HPD.Base.Query;
-using HPD.Base.Results;
+using HPD.Base;
 using Microsoft.AspNetCore.Http;
 
-namespace HPD.Base.AspNetCore.QueryBinding;
+namespace HPD.Base.AspNetCore;
 
 /// <summary>
 /// Binds HPD.BASE query inputs from ASP.NET Core HTTP requests.

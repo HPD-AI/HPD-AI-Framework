@@ -1101,12 +1101,15 @@ internal static class ExecuteCommandPermissionRuleLifecycle
     {
         var runConfig = new AgentRunConfig
         {
-            ContextOverrides = new Dictionary<string, object>
+            Context = new AgentContextRunConfig
             {
-                [AgentWorkspace.ContextKey] = new AgentWorkspace(
-                    rule.Workspace.RootId,
-                    rule.Workspace.RootPath,
-                    [new AgentWorkspaceRoot(rule.Workspace.RootId, rule.Workspace.RootPath)]),
+                Properties = new Dictionary<string, object>
+                {
+                    [AgentWorkspace.ContextKey] = new AgentWorkspace(
+                        rule.Workspace.RootId,
+                        rule.Workspace.RootPath,
+                        [new AgentWorkspaceRoot(rule.Workspace.RootId, rule.Workspace.RootPath)]),
+                }
             }
         };
 
@@ -1701,11 +1704,11 @@ public sealed record ExecuteCommandPermissionRequestEvent(
     ExecuteCommandPermissionPlan Plan,
     IReadOnlyList<ExecuteCommandPermissionRule> MatchingRules,
     ExecuteCommandPermissionRuleDiagnostics RuleDiagnostics,
-    IReadOnlyList<ExecuteCommandPermissionChoice> AvailableChoices) : AgentEvent, IAgentRequestEvent
+    IReadOnlyList<ExecuteCommandPermissionChoice> AvailableChoices) : AgentEvent, IAgentRequestEvent<ExecuteCommandPermissionResponseEvent>
 {
     public override EventChannel Channel { get; init; } = EventChannel.Interactive;
     public override EventKind Kind { get; init; } = EventKind.Control;
-    string IRequestCorrelatedEvent.RequestId => PermissionId;
+    public string RequestId => PermissionId;
 }
 
 public sealed record ExecuteCommandPermissionResponseEvent(
@@ -1717,7 +1720,7 @@ public sealed record ExecuteCommandPermissionResponseEvent(
     public override EventChannel Channel { get; init; } = EventChannel.Interactive;
     public override EventKind Kind { get; init; } = EventKind.Control;
     public override EventDirection Direction { get; init; } = EventDirection.Upstream;
-    string IRequestCorrelatedEvent.RequestId => PermissionId;
+    public string RequestId => PermissionId;
 }
 
 public sealed record ExecuteCommandPermissionRulePersistedEvent(

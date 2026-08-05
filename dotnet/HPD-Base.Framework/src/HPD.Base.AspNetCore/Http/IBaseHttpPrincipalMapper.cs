@@ -1,7 +1,7 @@
-using HPD.Base.Runtime;
+using HPD.Base;
 using Microsoft.AspNetCore.Http;
 
-namespace HPD.Base.AspNetCore.Http;
+namespace HPD.Base.AspNetCore;
 
 /// <summary>
 /// Allows host or future auth packages to replace HTTP principal mapping.

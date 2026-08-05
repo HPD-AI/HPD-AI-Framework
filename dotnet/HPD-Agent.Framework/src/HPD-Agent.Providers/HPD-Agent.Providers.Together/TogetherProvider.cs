@@ -14,6 +14,11 @@ namespace HPD.Agent.Providers.Together;
 /// <summary>
 /// Together AI provider implementation using the tryAGI Together SDK.
 /// </summary>
+[HpdProvider("together", "Together AI")]
+[HpdProviderFamily(ProviderClientFamily.Chat)]
+[HpdProviderFamily(ProviderClientFamily.Embeddings)]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.OperationOptions, typeof(TogetherChatRequestOptions), typeof(TogetherJsonContext))]
+[HpdProviderSecretAlias("together:ApiKey", "TOGETHER_API_KEY")]
 internal class TogetherProvider : IChatClientProvider, IEmbeddingGeneratorProvider
 {
     private static readonly Uri DefaultEndpoint = new("https://api.together.ai/v1");
@@ -23,8 +28,8 @@ internal class TogetherProvider : IChatClientProvider, IEmbeddingGeneratorProvid
     public string ProviderKey => "together";
     public string DisplayName => "Together AI";
 
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider registers an AOT-compatible config deserializer in TogetherProviderModule.")]
-    public Meai.IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null)
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
+    public async ValueTask<Meai.IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(config);
 
@@ -38,18 +43,14 @@ internal class TogetherProvider : IChatClientProvider, IEmbeddingGeneratorProvid
         return new TogetherConfiguredChatClient(client, config.ModelName);
     }
 
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider registers an AOT-compatible config deserializer in TogetherProviderModule.")]
-    public Meai.IEmbeddingGenerator CreateEmbeddingGenerator(ClientProviderConfig config, IServiceProvider? services = null)
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
+    public Meai.IEmbeddingGenerator CreateEmbeddingGenerator(ProviderClientConfig config, IServiceProvider? services = null)
     {
         ArgumentNullException.ThrowIfNull(config);
 
         var client = CreateTogetherClient(config, services);
-        var togetherConfig = config.GetProviderConfig<TogetherProviderConfig>(ProviderClientFamily.Embeddings)
-            ?? config.GetProviderConfig<TogetherProviderConfig>();
-
         var modelName =
             !string.IsNullOrWhiteSpace(config.ModelName) ? config.ModelName :
-            !string.IsNullOrWhiteSpace(togetherConfig?.EmbeddingModelId) ? togetherConfig.EmbeddingModelId :
             DefaultEmbeddingModel;
 
         Meai.IEmbeddingGenerator<string, Meai.Embedding<float>> generator = client;
@@ -92,8 +93,8 @@ internal class TogetherProvider : IChatClientProvider, IEmbeddingGeneratorProvid
         };
     }
 
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider registers an AOT-compatible config deserializer in TogetherProviderModule.")]
-    public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family)
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
+    public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
     {
         ArgumentNullException.ThrowIfNull(config);
 
@@ -104,11 +105,6 @@ internal class TogetherProvider : IChatClientProvider, IEmbeddingGeneratorProvid
             errors.Add("Model name is required for Together AI");
         }
 
-        if (string.IsNullOrWhiteSpace(config.ApiKey))
-        {
-            errors.Add("API key is required for Together AI. " +
-                       "Set it via the apiKey parameter, TOGETHER_API_KEY environment variable, or configuration.");
-        }
 
         if (!string.IsNullOrWhiteSpace(config.Endpoint) &&
             !Uri.IsWellFormedUriString(config.Endpoint, UriKind.Absolute))
@@ -116,28 +112,12 @@ internal class TogetherProvider : IChatClientProvider, IEmbeddingGeneratorProvid
             errors.Add("Endpoint must be a valid, absolute URI");
         }
 
-        if (family == ProviderClientFamily.Embeddings)
-        {
-            var togetherConfig = config.GetProviderConfig<TogetherProviderConfig>(family)
-                ?? config.GetProviderConfig<TogetherProviderConfig>();
-            if (togetherConfig is not null)
-            {
-                ValidateProviderOptions(togetherConfig, errors);
-            }
-        }
-
         return errors.Count > 0
             ? ProviderValidationResult.Failure(errors.ToArray())
             : ProviderValidationResult.Success();
     }
 
-    internal static void ValidateProviderOptions(TogetherProviderConfig config, List<string> errors)
-    {
-        if (config.EmbeddingModelId is { Length: 0 })
-            errors.Add("EmbeddingModelId cannot be empty");
-    }
-
-    private static global::Together.TogetherClient CreateTogetherClient(ClientProviderConfig config, IServiceProvider? services)
+    private static global::Together.TogetherClient CreateTogetherClient(ProviderClientConfig config, IServiceProvider? services)
     {
         var secrets = services?.GetService<ISecretResolver>();
         if (secrets is null)

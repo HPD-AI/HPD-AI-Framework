@@ -1,11 +1,12 @@
 using HPD.Base;
-using HPD.Base.AspNetCore.Http;
+using HPD.Base.AspNetCore;
 using Microsoft.AspNetCore.Http;
 
-namespace HPD.Base.AspNetCore.QueryBinding;
+namespace HPD.Base.AspNetCore;
 
 internal static class BaseIfMatchHeaderBinder
 {
+    /// <summary>Executes the bind operation.</summary>
     public static RevisionToken? Bind(HttpContext httpContext)
     {
         if (!httpContext.Request.Headers.TryGetValue(BaseHttpHeaders.IfMatch, out var values))

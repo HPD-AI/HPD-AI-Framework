@@ -29,7 +29,7 @@ public class CoalesceDeltasTests : AgentTestBase
         var agent = CreateAgent(client: fakeClient);
         var options = new AgentRunConfig
         {
-            CoalesceDeltas = false // Explicit, though this is default
+            Streaming = new StreamingRunConfig { CoalesceDeltas = false } // Explicit, though this is default
         };
 
         // Act: Collect all events
@@ -66,7 +66,7 @@ public class CoalesceDeltasTests : AgentTestBase
         var agent = CreateAgent(client: fakeClient);
         var options = new AgentRunConfig
         {
-            CoalesceDeltas = true
+            Streaming = new StreamingRunConfig { CoalesceDeltas = true }
         };
 
         // Act: Collect all events
@@ -96,7 +96,7 @@ public class CoalesceDeltasTests : AgentTestBase
         fakeClient.EnqueueStreamingResponse("Test", " ", "message");
 
         var agent = CreateAgent(client: fakeClient);
-        var options = new AgentRunConfig { CoalesceDeltas = true };
+        var options = new AgentRunConfig { Streaming = new StreamingRunConfig { CoalesceDeltas = true } };
 
         // Act
         var events = new ConcurrentQueue<AgentEvent>();
@@ -168,7 +168,7 @@ public class CoalesceDeltasTests : AgentTestBase
         var agent = CreateAgent(config: config, client: fakeClient);
         var options = new AgentRunConfig
         {
-            CoalesceDeltas = false  // Run options overrides to false
+            Streaming = new StreamingRunConfig { CoalesceDeltas = false }  // Run options overrides to false
         };
 
         // Act

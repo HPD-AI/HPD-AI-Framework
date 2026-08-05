@@ -19,7 +19,7 @@ public class CodingToolHarnessAgentBuilderTests
         using var chatClient = new TestChatClient();
         var config = new AgentConfig
         {
-            Clients = new AgentClientConfig { Chat = new ClientProviderConfig
+            Clients = new AgentClientsConfig { Chat = new ChatClientConfig
             {
                 ProviderKey = "test",
                 ModelName = "test-model"
@@ -92,9 +92,9 @@ public class CodingToolHarnessAgentBuilderTests
         using var chatClient = new TestChatClient();
         var subAgent = new CodingToolHarness().Explore();
         var config = GetConfig(subAgent);
-        config.Clients = new AgentClientConfig
+        config.Clients = new AgentClientsConfig
         {
-            Chat = new ClientProviderConfig
+            Chat = new ChatClientConfig
             {
                 ProviderKey = "test",
                 ModelName = "test-model"
@@ -201,7 +201,7 @@ public class CodingToolHarnessAgentBuilderTests
             var agent = await new AgentBuilder(
                     new AgentConfig
                     {
-                        Clients = new AgentClientConfig { Chat = new ClientProviderConfig
+                        Clients = new AgentClientsConfig { Chat = new ChatClientConfig
                         {
                             ProviderKey = "test",
                             ModelName = "test-model"
@@ -293,9 +293,9 @@ public class CodingToolHarnessAgentBuilderTests
     private static AgentConfig CreateTestConfig() => new()
     {
         MaxAgenticIterations = 3,
-        Clients = new AgentClientConfig
+        Clients = new AgentClientsConfig
         {
-            Chat = new ClientProviderConfig
+            Chat = new ChatClientConfig
             {
                 ProviderKey = "test",
                 ModelName = "test-model"
@@ -320,13 +320,13 @@ public class CodingToolHarnessAgentBuilderTests
         var cwd = Directory.GetCurrentDirectory();
         var runConfig = new AgentRunConfig
         {
-            ContextOverrides = new()
+            Context = new AgentContextRunConfig { Properties = new Dictionary<string, object>()
             {
                 [AgentWorkspace.ContextKey] = new AgentWorkspace(
                     "default",
                     cwd,
                     [new AgentWorkspaceRoot("default", cwd)])
-            }
+            } }
         };
         var beforeContext = agentContext.AsBeforeFunction(
             function,
@@ -380,7 +380,7 @@ public class CodingToolHarnessAgentBuilderTests
 
         public string DisplayName => "Test";
 
-        public IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null) => chatClient;
+        public async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default) => chatClient;
 
         public IProviderErrorHandler CreateErrorHandler() => new GenericErrorHandler();
 
@@ -403,7 +403,7 @@ public class CodingToolHarnessAgentBuilderTests
                 }
             };
 
-        public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family) => ProviderValidationResult.Success();
+        public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family) => ProviderValidationResult.Success();
     }
 
     private sealed class TestChatClient : IChatClient

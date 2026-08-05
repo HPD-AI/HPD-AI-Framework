@@ -5,6 +5,11 @@ using System.Collections.Generic;
 
 namespace HPD.Agent.Providers.OVHcloud;
 
+[HpdProvider("ovhcloud", "OVHcloud AI Endpoints")]
+[HpdProviderFamily(ProviderClientFamily.Chat)]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(OVHcloudProviderConfig), typeof(OVHcloudJsonContext))]
+[HpdProviderSecretAlias("ovhcloud:ApiKey", "OVHCLOUD_API_KEY")]
+[HpdProviderSecretAlias("ovhcloud:Endpoint", "OVHCLOUD_ENDPOINT", "OVHCLOUD_BASE_URL")]
 internal sealed class OVHcloudProvider : OpenAICompatibleChatProviderBase<OVHcloudProviderConfig>
 {
     internal static readonly Uri DefaultEndpoint = new("https://oai.endpoints.kepler.ai.cloud.ovh.net/v1/");

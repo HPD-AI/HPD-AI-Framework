@@ -18,8 +18,9 @@
     <ProjectReference Include="../HPD.Auth.Core/HPD.Auth.Core.csproj" />
     <ProjectReference Include="../HPD.Auth.Infrastructure/HPD.Auth.Infrastructure.csproj" />
     <ProjectReference Include="../HPD.Auth/HPD.Auth.csproj" />
-    <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.*" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.*" />
+    <ProjectReference Include="../HPD.Auth.ControlPlane.AspNetCore/HPD.Auth.ControlPlane.AspNetCore.csproj" />
+    <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.10" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.10" />
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.3" />
   </ItemGroup>
 </Project>

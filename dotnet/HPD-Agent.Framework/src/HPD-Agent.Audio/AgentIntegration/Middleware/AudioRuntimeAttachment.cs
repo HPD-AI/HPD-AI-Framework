@@ -70,7 +70,10 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
     public IReadOnlyList<RealtimeAudioTraceRecord> LastOutputTrace => _lastOutputTrace;
 
     private AudioRuntimeAttachmentOptions EffectiveOptions(AgentRunConfig? runConfig)
-        => AudioRuntimeOptionsCompiler.Compile(_options, runAudio: runConfig?.Audio);
+        => AudioRuntimeOptionsCompiler.Compile(
+            _options,
+            runAudio: runConfig?.Audio,
+            textToSpeech: runConfig?.Clients.TextToSpeech);
 
     public async Task BeforeMessageTurnAsync(
         BeforeMessageTurnContext context,
@@ -203,7 +206,7 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
     }
 
     private static bool IsRealtimeTransport(BeforeMessageTurnContext context)
-        => context.RunConfig?.ModelTransport is AgentModelTransportMode.Realtime;
+        => context.RunConfig?.Clients.Transport is AgentModelTransportMode.Realtime;
 
     public async Task AfterMessageTurnAsync(
         AfterMessageTurnContext context,

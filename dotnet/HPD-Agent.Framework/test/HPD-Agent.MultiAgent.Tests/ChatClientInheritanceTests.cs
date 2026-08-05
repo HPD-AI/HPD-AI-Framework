@@ -15,10 +15,9 @@ public class ChatClientInheritanceTests
     #region ConfigAgentFactory Tests
 
     [Fact]
-    public async Task ConfigAgentFactory_WithoutProvider_UsesFallbackChatClient()
+    public async Task ConfigAgentFactory_WithoutProvider_BuildsForRuntimeSelection()
     {
         // Arrange
-        var mockChatClient = new Mock<IChatClient>();
         var config = new AgentConfig
         {
             Name = "TestAgent",
@@ -27,7 +26,7 @@ public class ChatClientInheritanceTests
         var factory = CreateConfigAgentFactory(config);
 
         // Act
-        var agent = await factory.BuildAsync(mockChatClient.Object, null, false, CancellationToken.None);
+        var agent = await factory.BuildAsync(null, false, CancellationToken.None);
 
         // Assert
         agent.Should().NotBeNull();
@@ -46,7 +45,7 @@ public class ChatClientInheritanceTests
         var factory = CreateConfigAgentFactory(config);
 
         // Act
-        var agent = await factory.BuildAsync(null, null, false, CancellationToken.None);
+        var agent = await factory.BuildAsync(null, false, CancellationToken.None);
 
         // Assert
         agent.Should().NotBeNull();
@@ -74,18 +73,17 @@ public class ChatClientInheritanceTests
         var factory = CreatePrebuiltAgentFactory(prebuiltAgent);
 
         // Act
-        var result = await factory.BuildAsync(null, null, false, CancellationToken.None);
+        var result = await factory.BuildAsync(null, false, CancellationToken.None);
 
         // Assert
         result.Should().BeSameAs(prebuiltAgent);
     }
 
     [Fact]
-    public async Task PrebuiltAgentFactory_IgnoresFallbackChatClient()
+    public async Task PrebuiltAgentFactory_ReturnsSameAgentAcrossBuildRequests()
     {
         // Arrange
         var mockChatClient = new Mock<IChatClient>();
-        var mockFallbackClient = new Mock<IChatClient>();
 
         var config = new AgentConfig
         {
@@ -97,8 +95,7 @@ public class ChatClientInheritanceTests
 
         var factory = CreatePrebuiltAgentFactory(prebuiltAgent);
 
-        // Act - fallback should be ignored for prebuilt agents
-        var result = await factory.BuildAsync(mockFallbackClient.Object, null, false, CancellationToken.None);
+        var result = await factory.BuildAsync(null, false, CancellationToken.None);
 
         // Assert - should still return the same prebuilt agent
         result.Should().BeSameAs(prebuiltAgent);
@@ -107,43 +104,6 @@ public class ChatClientInheritanceTests
     #endregion
 
     #region AgentBuilder Deferred Provider Tests
-
-    [Fact]
-    public void AgentBuilder_WithDeferredProvider_DoesNotRequireProvider()
-    {
-        // Arrange
-        var config = new AgentConfig
-        {
-            Name = "DeferredAgent",
-            SystemInstructions = "Test",
-        };
-
-        // Act - should not throw even without provider
-        var builder = new AgentBuilder(config).WithDeferredProvider();
-
-        // Assert
-        builder.Should().NotBeNull();
-    }
-
-    [Fact]
-    public async Task AgentBuilder_WithDeferredProvider_BuildsWithoutChatClient()
-    {
-        // Arrange
-        var config = new AgentConfig
-        {
-            Name = "DeferredAgent",
-            SystemInstructions = "Test",
-        };
-
-        var builder = new AgentBuilder(config).WithDeferredProvider();
-
-        // Act
-        var agent = await builder.BuildAsync(CancellationToken.None);
-
-        // Assert
-        agent.Should().NotBeNull();
-        agent.Name.Should().Be("DeferredAgent");
-    }
 
     [Fact]
     public async Task AgentBuilder_WithoutProvider_ThrowsWhenRunWithoutRuntimeModel()
@@ -290,7 +250,6 @@ internal sealed class TestConfigAgentFactory : AgentFactory
     public TestConfigAgentFactory(AgentConfig config) => _config = config;
 
     public override async Task<HPD.Agent.Agent> BuildAsync(
-        IChatClient? fallbackChatClient,
         ISessionStore? workflowSessionStore,
         bool requireWorkflowSessionStore,
         CancellationToken cancellationToken)
@@ -305,12 +264,6 @@ internal sealed class TestConfigAgentFactory : AgentFactory
         {
             throw new InvalidOperationException("A workflow session store is required.");
         }
-
-        if (_config.ResolveClientConfig(HPD.Agent.Providers.ProviderClientFamily.Chat) == null && fallbackChatClient != null)
-        {
-            builder.WithChatClient(fallbackChatClient);
-        }
-        // If no provider and no fallback, this will throw - which is expected behavior
 
         return await builder.BuildAsync(cancellationToken);
     }
@@ -328,7 +281,6 @@ internal sealed class TestPrebuiltAgentFactory : AgentFactory
     public TestPrebuiltAgentFactory(HPD.Agent.Agent agent) => _agent = agent;
 
     public override Task<HPD.Agent.Agent> BuildAsync(
-        IChatClient? fallbackChatClient,
         ISessionStore? workflowSessionStore,
         bool requireWorkflowSessionStore,
         CancellationToken cancellationToken)

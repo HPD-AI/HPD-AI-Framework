@@ -1,5 +1,4 @@
-using HPD.Base.AspNetCore.Configuration;
-using HPD.Base.AspNetCore.Http;
+using HPD.Base.AspNetCore;
 using Microsoft.Extensions.Options;
 
 namespace HPD.Base.AspNetCore.Tests.DependencyInjection;

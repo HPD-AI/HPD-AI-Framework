@@ -100,13 +100,12 @@ public sealed class AgentEvaluationConvenienceExtensionsTests
             new AgentConfig
             {
                 Name = "EvalConvenienceAgent",
-                Clients = new AgentClientConfig
+                Clients = new AgentClientsConfig
                 {
-                    Chat = new ClientProviderConfig
+                    Chat = new ChatClientConfig
                     {
                         ProviderKey = "test",
                         ModelName = "gpt-test",
-                        DefaultMicrosoftChatOptions = options,
                     },
                 },
             },
@@ -173,7 +172,7 @@ public sealed class AgentEvaluationConvenienceExtensionsTests
 
         public string DisplayName => providerKey;
 
-        public IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null) => client;
+        public async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default) => client;
 
         public HPD.Agent.ErrorHandling.IProviderErrorHandler CreateErrorHandler() => new StubErrorHandler();
 
@@ -195,7 +194,7 @@ public sealed class AgentEvaluationConvenienceExtensionsTests
             },
         };
 
-        public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family)
+        public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
             => ProviderValidationResult.Success();
     }
 }

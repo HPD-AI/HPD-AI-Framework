@@ -19,7 +19,7 @@ public static class NscaleAgentBuilderExtensions
             throw new ArgumentException("Model is required for Nscale provider.", nameof(model));
         }
 
-        var chatConfig = new ClientProviderConfig
+        var chatConfig = new ChatClientConfig
         {
             ProviderKey = "nscale",
             ApiKey = apiKey,

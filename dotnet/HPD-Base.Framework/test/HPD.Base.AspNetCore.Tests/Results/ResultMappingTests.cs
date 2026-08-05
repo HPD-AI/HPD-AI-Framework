@@ -1,4 +1,4 @@
-using HPD.Base.AspNetCore.Results;
+using HPD.Base.AspNetCore;
 using Microsoft.AspNetCore.Http;
 
 namespace HPD.Base.AspNetCore.Tests.Results;
@@ -78,5 +78,23 @@ public sealed class ResultMappingTests
         context.Response.Headers["HPD-Base-Event-Ids"].ToString().Should().Be("e1");
         context.Response.Headers["Retry-After"].ToString().Should().Be("2");
         context.Response.Headers["Preference-Applied"].ToString().Should().Be("return=representation");
+    }
+
+    [Theory]
+    [InlineData(BaseQueryErrorCodes.CursorInvalid, OperationStatus.ValidationFailed, 400)]
+    [InlineData(BaseQueryErrorCodes.CursorScopeMismatch, OperationStatus.Conflict, 404)]
+    [InlineData(BaseQueryErrorCodes.CursorQueryMismatch, OperationStatus.Conflict, 409)]
+    [InlineData(BaseQueryErrorCodes.CursorExpired, OperationStatus.Conflict, 410)]
+    [InlineData(BaseMutationRequestErrorCodes.OutcomeUnknown, OperationStatus.StoreError, 503)]
+    public async Task L37ErrorsHaveExactHttpMappings(string code, OperationStatus status, int expected)
+    {
+        await using var app = await TestBaseApp.CreateAsync();
+        var context = new DefaultHttpContext { RequestServices = app.Services };
+        await app.Services.GetRequiredService<IBaseHttpResultMapper>().ToHttpResult(new OperationResult<string>
+        {
+            Status = status,
+            Error = new BaseError { Code = code, Message = "bounded", Category = ErrorCategory.Validation },
+        }, context, new HPDBaseHttpResultMappingContext()).ExecuteAsync(context);
+        context.Response.StatusCode.Should().Be(expected);
     }
 }

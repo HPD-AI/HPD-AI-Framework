@@ -38,7 +38,7 @@ public interface IProvider
     /// Validate provider-specific configuration for a specific client family.
     /// </summary>
     ProviderValidationResult ValidateConfiguration(
-        ClientProviderConfig config,
+        ProviderClientConfig config,
         ProviderClientFamily family);
 
     /// <summary>
@@ -46,7 +46,7 @@ public interface IProvider
     /// Providers that don't support async validation should return null.
     /// </summary>
     Task<ProviderValidationResult>? ValidateConfigurationAsync(
-        ClientProviderConfig config,
+        ProviderClientConfig config,
         ProviderClientFamily family,
         CancellationToken cancellationToken = default)
         => null;
@@ -54,57 +54,63 @@ public interface IProvider
 
 public interface IChatClientProvider : IProvider
 {
-    IChatClient CreateChatClient(
-        ClientProviderConfig config,
-        IServiceProvider? services = null);
+    /// <summary>Creates a Chat client without blocking asynchronous dependencies.</summary>
+    /// <param name="config">The resolved provider construction configuration.</param>
+    /// <param name="services">Application services available to the provider.</param>
+    /// <param name="cancellationToken">Cancels client creation and secret resolution.</param>
+    /// <returns>The created Chat client.</returns>
+    ValueTask<IChatClient> CreateChatClientAsync(
+        ProviderClientConfig config,
+        IServiceProvider? services = null,
+        CancellationToken cancellationToken = default);
 }
 
 public interface ITextToSpeechClientProvider : IProvider
 {
     ITextToSpeechClient CreateTextToSpeechClient(
-        ClientProviderConfig config,
+        ProviderClientConfig config,
         IServiceProvider? services = null);
 }
 
 public interface ISpeechToTextClientProvider : IProvider
 {
     ISpeechToTextClient CreateSpeechToTextClient(
-        ClientProviderConfig config,
+        ProviderClientConfig config,
         IServiceProvider? services = null);
 }
 
 public interface IRealtimeClientProvider : IProvider
 {
     IRealtimeClient CreateRealtimeClient(
-        ClientProviderConfig config,
+        ProviderClientConfig config,
         IServiceProvider? services = null);
 }
 
 public interface IImageGeneratorProvider : IProvider
 {
     IImageGenerator CreateImageGenerator(
-        ClientProviderConfig config,
+        ProviderClientConfig config,
         IServiceProvider? services = null);
 }
 
 public interface IEmbeddingGeneratorProvider : IProvider
 {
     IEmbeddingGenerator CreateEmbeddingGenerator(
-        ClientProviderConfig config,
+        ProviderClientConfig config,
         IServiceProvider? services = null);
 }
 
 public interface IHostedFileClientProvider : IProvider
 {
     IHostedFileClient CreateHostedFileClient(
-        ClientProviderConfig config,
+        ProviderClientConfig config,
         IServiceProvider? services = null);
 }
 
 public interface IVoiceActivityDetectorProvider : IProvider
 {
     IVoiceActivityDetector CreateVoiceActivityDetector(
-        ClientProviderConfig config,
+        ProviderClientConfig config,
         ProviderComponentLifetimeContext context,
         IServiceProvider? services = null);
 }
@@ -112,7 +118,7 @@ public interface IVoiceActivityDetectorProvider : IProvider
 public interface IEndOfTurnDetectorProvider : IProvider
 {
     IEotDetector CreateEndOfTurnDetector(
-        ClientProviderConfig config,
+        ProviderClientConfig config,
         ProviderComponentLifetimeContext context,
         IServiceProvider? services = null);
 }
@@ -153,6 +159,8 @@ public sealed class ProviderFamilyDescriptor
 {
     public ProviderClientFamily Family { get; init; }
     public ProviderFamilyLifetime Lifetime { get; init; } = ProviderFamilyLifetime.ReusableClient;
+    /// <summary>Gets whether the provider binds the model while constructing this client family.</summary>
+    public bool BindsModelToClient { get; init; } = true;
     public IReadOnlyList<string>? SupportedModels { get; init; }
     public string? DefaultModelId { get; init; }
     public IReadOnlyDictionary<string, object?>? Capabilities { get; init; }

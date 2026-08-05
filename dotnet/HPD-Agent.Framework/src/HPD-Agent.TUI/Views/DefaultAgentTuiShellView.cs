@@ -36,6 +36,7 @@ public sealed class DefaultAgentTuiShellView : IComponent
             _lastTranscriptHeight,
             _model.Scope,
             performanceSink);
+        _model.Transcript.HistoryPresentation = _registry.TranscriptHistoryPresentation;
         _shell = CreateShell();
     }
 

@@ -530,6 +530,13 @@ public class TestEventCoordinator : IEventCoordinator
         return handle;
     }
 
+    public RequestHandle RegisterRequest<TRequest, TResponse>(
+        TRequest request,
+        RequestOptions? options = null)
+        where TRequest : Event, IRequestEvent
+        where TResponse : Event, IResponseEvent
+        => _inner.RegisterRequest<TRequest, TResponse>(request, options);
+
     public Task<TResponse> RequestAsync<TRequest, TResponse>(
         TRequest request,
         TimeSpan timeout,
@@ -547,6 +554,13 @@ public class TestEventCoordinator : IEventCoordinator
 
     public RespondResult Respond(string requestId, Event response)
         => _inner.Respond(requestId, response);
+
+    public ValueTask<RespondResult> RespondAsync(
+        string requestId,
+        Event response,
+        Func<Event, CancellationToken, ValueTask<Event>> beforeCompletion,
+        CancellationToken cancellationToken = default)
+        => _inner.RespondAsync(requestId, response, beforeCompletion, cancellationToken);
 
     public IEventFlowRegistry EventFlows => _inner.EventFlows;
     public IReadOnlyList<PendingRequestSnapshot> GetPendingRequests() => _inner.GetPendingRequests();

@@ -28,7 +28,7 @@ public class AgentMiddlewareResponseServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task AnswerRequestAsync_UsesThreadRuntime_NotUnscopedAgent()
+    public async Task AnswerRequestAsync_WithoutDurableRequest_ReturnsTypedNotFound()
     {
         var (sessionId, threadId) = await _sessionManager.CreateSessionAsync("agent-1", "session-1");
         var stored = await _agentManager.CreateDefinitionAsync(MakeConfig("agent-1"), "agent-1");
@@ -40,8 +40,8 @@ public class AgentMiddlewareResponseServiceTests : IDisposable
             threadId,
             new PermissionResponseEvent("permission-1", "test", Approved: true));
 
-        result.Status.Should().Be(AgentServiceStatus.Conflict);
-        result.ErrorCode.Should().Be("ThreadRuntimeNotActive");
+        result.Status.Should().Be(AgentServiceStatus.Success);
+        result.Value!.Status.Should().Be(AgentRespondStatus.NotFound);
     }
 
     [Fact]
@@ -57,8 +57,8 @@ public class AgentMiddlewareResponseServiceTests : IDisposable
             threadId,
             new PermissionResponseEvent("permission-1", "test", Approved: true));
 
-        result.Status.Should().Be(AgentServiceStatus.Conflict);
-        result.ErrorCode.Should().BeNull();
+        result.Status.Should().Be(AgentServiceStatus.Success);
+        result.Value!.Status.Should().Be(AgentRespondStatus.NotFound);
     }
 
     [Fact]
@@ -83,6 +83,7 @@ public class AgentMiddlewareResponseServiceTests : IDisposable
             new PermissionResponseEvent("permission-1", "test", Approved: true));
 
         result.Status.Should().Be(AgentServiceStatus.Success);
+        result.Value!.Status.Should().Be(AgentRespondStatus.Accepted);
         var completed = (PermissionResponseEvent)await handle.Response;
         completed.ThreadSequenceNumber.Should().Be(1);
         completed.SessionId.Should().Be(sessionId);
@@ -98,9 +99,9 @@ public class AgentMiddlewareResponseServiceTests : IDisposable
     {
         Name = name,
         MaxAgenticIterations = 5,
-        Clients = new AgentClientConfig
+        Clients = new AgentClientsConfig
         {
-            Chat = new ClientProviderConfig
+            Chat = new ChatClientConfig
             {
                 ProviderKey = "test",
                 ModelName = "test-model"

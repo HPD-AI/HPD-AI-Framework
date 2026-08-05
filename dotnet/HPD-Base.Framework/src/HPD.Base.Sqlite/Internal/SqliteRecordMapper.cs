@@ -1,29 +1,10 @@
 using HPD.Base;
-using HPD.Base.Records;
-using Microsoft.Data.Sqlite;
 
-namespace HPD.Base.Sqlite.Internal;
+namespace HPD.Base.Sqlite;
 
 internal static class SqliteRecordMapper
 {
-    public static RecordEnvelope ReadEnvelope(SqliteDataReader reader, string storeId)
-    {
-        var collectionId = reader.GetString(0);
-        var recordId = reader.GetString(1);
-        var revision = reader.GetInt64(2);
-        var createdAt = DateTimeOffset.Parse(reader.GetString(3), null, System.Globalization.DateTimeStyles.RoundtripKind);
-        var updatedAt = DateTimeOffset.Parse(reader.GetString(4), null, System.Globalization.DateTimeStyles.RoundtripKind);
-        var payload = SqliteRecordSerializer.Deserialize(reader.GetString(5));
-
-        return new RecordEnvelope
-        {
-            CollectionId = collectionId,
-            Id = new RecordId(recordId),
-            Payload = payload,
-            Metadata = Metadata(revision, createdAt, updatedAt, storeId)
-        };
-    }
-
+    /// <summary>Executes the metadata operation.</summary>
     public static RecordMetadata Metadata(long revision, DateTimeOffset createdAt, DateTimeOffset updatedAt, string storeId) =>
         new()
         {
@@ -34,8 +15,10 @@ internal static class SqliteRecordMapper
             StoreId = storeId
         };
 
+    /// <summary>Executes the token operation.</summary>
     public static RevisionToken Token(long revision) => new($"sqlite:{revision}");
 
+    /// <summary>Executes the try parse revision operation.</summary>
     public static bool TryParseRevision(RevisionToken? token, out long revision)
     {
         revision = 0;

@@ -1,12 +1,8 @@
 using FluentAssertions;
-using HPD.Base.Query;
-using HPD.Base.Relational.Planning;
-using HPD.Base.Relational.Providers;
-using HPD.Base.Runtime;
-using HPD.Base.Schema;
-using HPD.Base.Sqlite.Configuration;
-using HPD.Base.Sqlite.DependencyInjection;
+using HPD.Base;
+using HPD.Base.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace HPD.Base.Sqlite.Tests.Query;
 
@@ -15,14 +11,14 @@ public sealed class SqliteQueryPlanExplainerTests
     [Fact]
     public async Task UnsupportedPlanReportsReasonWithoutExecutableSql()
     {
-        var services = new ServiceCollection().AddHPDBaseSqliteStore(options => options.CollectionIds = ["items"]);
+        var services = new ServiceCollection().AddLogging().AddHPDBaseSqliteStore(options => options.Collections = [Collection()]);
         await using var provider = services.BuildServiceProvider();
         var explainer = provider.GetRequiredService<IRelationalQueryPlanExplainer>();
 
         var result = await explainer.ExplainAsync(
             Collection(),
             Operation(BaseOperationKind.List),
-            new RecordQuery { Include = [new QueryInclude { Path = "owner" }] },
+            new RecordQuery { Include = [new RecordInclude { NavigationId = "owner" }] },
             VisibilityLevel.Public);
 
         result.Value!.Status.Should().Be(RelationalQueryPlanStatus.Unsupported);

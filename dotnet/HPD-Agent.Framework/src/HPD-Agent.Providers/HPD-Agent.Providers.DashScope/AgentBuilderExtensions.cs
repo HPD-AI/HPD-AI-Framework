@@ -29,7 +29,7 @@ public static class AgentBuilderExtensions
         configure?.Invoke(providerConfig);
         ValidateProviderConfig(providerConfig, configure);
 
-        var chatConfig = new ClientProviderConfig
+        var chatConfig = new ChatClientConfig
         {
             ProviderKey = "dashscope",
             ApiKey = apiKey,
@@ -38,7 +38,7 @@ public static class AgentBuilderExtensions
         };
 
         builder.Config.SetChatClientConfig(chatConfig);
-        chatConfig.SetProviderConfig(providerConfig);
+        chatConfig.ProviderConfig = providerConfig;
 
         return builder;
     }
@@ -51,6 +51,7 @@ public static class AgentBuilderExtensions
         string model = "text-embedding-v4",
         string? apiKey = null,
         string? endpoint = null,
+        int? dimensions = null,
         Action<DashScopeProviderConfig>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
@@ -58,23 +59,24 @@ public static class AgentBuilderExtensions
         if (string.IsNullOrWhiteSpace(model))
             throw new ArgumentException("Model is required for DashScope embeddings.", nameof(model));
 
-        var providerConfig = new DashScopeProviderConfig
-        {
-            EmbeddingModelId = model
-        };
+        if (dimensions is <= 0)
+            throw new ArgumentOutOfRangeException(nameof(dimensions), dimensions, "Dimensions must be greater than zero.");
+
+        var providerConfig = new DashScopeProviderConfig();
         configure?.Invoke(providerConfig);
         ValidateProviderConfig(providerConfig, configure);
 
-        var embeddingConfig = new ClientProviderConfig
+        var embeddingConfig = new EmbeddingsClientConfig
         {
             ProviderKey = "dashscope",
             ApiKey = apiKey,
             Endpoint = endpoint,
-            ModelName = model
+            ModelName = model,
+            Dimensions = dimensions
         };
 
         builder.Config.SetClientConfig(ProviderClientFamily.Embeddings, embeddingConfig);
-        embeddingConfig.SetProviderConfig(providerConfig, ProviderClientFamily.Embeddings);
+        embeddingConfig.ProviderConfig = providerConfig;
 
         return builder;
     }
@@ -90,8 +92,7 @@ public static class AgentBuilderExtensions
         ArgumentNullException.ThrowIfNull(options);
 
         var chatConfig = builder.Config.EnsureChatClientConfig();
-        chatConfig.ChatDefaults ??= new ChatRunConfig();
-        options.ApplyTo(chatConfig.ChatDefaults);
+        options.ApplyTo(chatConfig);
 
         return builder;
     }

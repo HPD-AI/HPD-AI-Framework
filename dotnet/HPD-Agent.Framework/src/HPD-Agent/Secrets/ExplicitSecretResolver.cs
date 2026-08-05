@@ -15,7 +15,15 @@ public sealed class ExplicitSecretResolver : ISecretResolver
             : new(StringComparer.Ordinal);
     }
 
-    public void Set(string key, string value) => _secrets[key] = value;
+    /// <summary>Adds or replaces an explicit secret value.</summary>
+    /// <param name="key">The canonical secret key.</param>
+    /// <param name="value">The secret value.</param>
+    public void Set(string key, string value)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(key);
+        ArgumentNullException.ThrowIfNull(value);
+        _secrets[key] = value;
+    }
 
     public ValueTask<ResolvedSecret?> ResolveAsync(string key, CancellationToken ct = default)
     {

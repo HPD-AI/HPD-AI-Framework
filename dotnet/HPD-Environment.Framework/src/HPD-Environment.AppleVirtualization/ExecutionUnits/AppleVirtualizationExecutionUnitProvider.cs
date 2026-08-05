@@ -49,6 +49,29 @@ public sealed class AppleVirtualizationExecutionUnitProvider : IExecutionUnitPro
         ArgumentNullException.ThrowIfNull(spec);
         cancellationToken.ThrowIfCancellationRequested();
 
+        if (observed is not null &&
+            !observed.ObservedGeneration.Equals(metadata.Generation) &&
+            HasActiveDependents(observed))
+        {
+            return observed with
+            {
+                ReconciliationOutcome = ResourceReconciliationOutcome.ImmutableConflict,
+                Diagnostics =
+                [
+                    .. observed.Diagnostics,
+                    new Diagnostic
+                    {
+                        Severity = DiagnosticSeverity.Error,
+                        Code = new DiagnosticCode(
+                            "AppleVirtualization.ExecutionUnitReplacementDependentsActive"),
+                        Message =
+                            "The execution unit cannot be materially reconfigured while guest processes, " +
+                            "authority bindings, projections, network memberships, or published endpoints remain active.",
+                    },
+                ],
+            };
+        }
+
         ResourceRef<RuntimeHost>? assignedHost = spec.PreferredHost ?? observed?.AssignedHost;
         if (assignedHost is null)
         {
@@ -129,6 +152,17 @@ public sealed class AppleVirtualizationExecutionUnitProvider : IExecutionUnitPro
             metadata.Generation,
             hostReady: true,
             projectionsReady: true);
+        bool sameIncarnation =
+            observed is not null &&
+            observed.ObservedGeneration.Equals(metadata.Generation);
+        ExecutionUnitStatus? storedStatus = sameIncarnation
+            ? _ledger.TryGetExecutionUnit(
+                    new ResourceRef<ExecutionUnit>(
+                        metadata.Id,
+                        metadata.Scope,
+                        metadata.Generation))
+                .Entry?.Status
+            : null;
 
         ExecutionUnitStatus status = new()
         {
@@ -140,8 +174,14 @@ public sealed class AppleVirtualizationExecutionUnitProvider : IExecutionUnitPro
             AssignedHost = assignedHost,
             RealizedContentProjections = projectionReadiness.ProjectedRefs,
             NetworkMemberships = spec.Network.Memberships,
-            AuthorityBindings = Array.Empty<ResourceRef<AuthorityBinding>>(),
-            ActiveProcesses = Array.Empty<ResourceRef<ProcessInvocation>>(),
+            AuthorityBindings = sameIncarnation
+                ? storedStatus?.AuthorityBindings ??
+                    observed!.AuthorityBindings
+                : Array.Empty<ResourceRef<AuthorityBinding>>(),
+            ActiveProcesses = sameIncarnation
+                ? storedStatus?.ActiveProcesses ??
+                    observed!.ActiveProcesses
+                : Array.Empty<ResourceRef<ProcessInvocation>>(),
             Extensions =
             [
                 CreateContextExtension(
@@ -152,6 +192,41 @@ public sealed class AppleVirtualizationExecutionUnitProvider : IExecutionUnitPro
                     environment),
             ],
         };
+        if (spec.WorkloadStorage is { } storage)
+        {
+            if (string.IsNullOrWhiteSpace(storage.LogicalId) ||
+                storage.LogicalId.Length > 128 ||
+                storage.LogicalId.Any(character =>
+                    !(char.IsAsciiLetterOrDigit(character) ||
+                      character is '.' or '_' or '-')) ||
+                !Enum.IsDefined(storage.StorageClass))
+                return Store(metadata, FailureStatus(
+                    metadata,
+                    assignedHost,
+                    new Diagnostic
+                    {
+                        Severity = DiagnosticSeverity.Error,
+                        Code = new DiagnosticCode(
+                            "AppleVirtualization.WorkloadStorageLogicalIdInvalid"),
+                        Message =
+                            "The workload storage request is malformed.",
+                        ProviderId = ProviderId,
+                    }));
+            status = status with
+            {
+                WorkloadStorage = new WorkloadStorageAllocation
+                {
+                    LogicalId = storage.LogicalId,
+                    ProviderHandle = new ProviderOpaqueHandle(
+                        ProviderId,
+                        $"storage:{metadata.Scope.Value}:{metadata.Id.Value}",
+                        Generation: _ledger.ProviderGeneration),
+                    EffectiveRuntimePath = workingDirectory,
+                    StorageClass = storage.StorageClass,
+                    Generation = metadata.Generation,
+                },
+            };
+        }
 
         return Store(metadata, status, spec);
     }
@@ -845,6 +920,15 @@ public sealed class AppleVirtualizationExecutionUnitProvider : IExecutionUnitPro
 
     private ExecutionUnitStatus Store(ResourceMetadata<ExecutionUnit> metadata, ExecutionUnitStatus status, ExecutionUnitSpec? spec = null) =>
         _ledger.UpsertExecutionUnit(metadata, status, spec).Status;
+
+    private static bool HasActiveDependents(ExecutionUnitStatus status) =>
+        status.UnitPhase is ExecutionUnitPhase.Starting or ExecutionUnitPhase.Running or
+            ExecutionUnitPhase.Stopping or ExecutionUnitPhase.Deleting ||
+        status.ActiveProcesses.Count > 0 ||
+        status.AuthorityBindings.Count > 0 ||
+        status.RealizedContentProjections.Count > 0 ||
+        status.NetworkMemberships.Count > 0 ||
+        status.PublishedEndpoints.Count > 0;
 
     private static ResourceMetadata<ExecutionUnit> ToMetadata(
         AppleVirtualizationLedgerEntry<ExecutionUnit, ExecutionUnitStatus> entry) =>

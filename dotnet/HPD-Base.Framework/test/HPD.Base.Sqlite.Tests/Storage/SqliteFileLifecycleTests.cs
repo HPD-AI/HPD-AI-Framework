@@ -1,9 +1,6 @@
 using FluentAssertions;
-using HPD.Base.Records;
-using HPD.Base.Results;
-using HPD.Base.Runtime;
-using HPD.Base.Schema;
-using HPD.Base.Sqlite.Configuration;
+using HPD.Base;
+using HPD.Base.Sqlite;
 using System.Text.Json;
 
 namespace HPD.Base.Sqlite.Tests.Storage;
@@ -14,7 +11,7 @@ public sealed class SqliteFileLifecycleTests
     public async Task FileBackedStoreReleasesDatabaseFilesAfterOperation()
     {
         var path = Path.Combine(Path.GetTempPath(), "hpd-base-sqlite-lifecycle-" + Guid.NewGuid().ToString("N") + ".db");
-        var store = new SqliteRecordStore(new HPDBaseSqliteOptions { DataSource = path, EnableWal = false });
+        var store = SqliteTestFactory.Create(new HPDBaseSqliteOptions { DataSource = path, EnableWal = false });
         var create = await store.CreateAsync(Collection(), new RecordCreateRequest { RequestedId = new RecordId("one"), Payload = Payload() }, Operation(BaseOperationKind.Create));
         create.Status.Should().Be(OperationStatus.Created);
 

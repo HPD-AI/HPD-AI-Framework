@@ -141,7 +141,6 @@ public static class PasskeyEndpoints
         HttpContext httpContext,
         UserManager<ApplicationUser> userManager,
         SignInManager<ApplicationUser> signInManager,
-        IAuditLogger auditLogger,
         CancellationToken ct = default)
     {
         var user = await userManager.GetUserAsync(httpContext.User);
@@ -152,15 +151,6 @@ public static class PasskeyEndpoints
 
         if (!attestationResult.Succeeded)
         {
-            await auditLogger.LogAsync(new AuditLogEntry(
-                Action: AuditActions.PasskeyRegister,
-                Category: AuditCategories.Authentication,
-                Success: false,
-                UserId: user.Id,
-                IpAddress: httpContext.Connection.RemoteIpAddress?.ToString(),
-                Metadata: new { reason = attestationResult.Failure?.Message }
-            ), ct);
-
             return Results.BadRequest(new
             {
                 error = "passkey_registration_failed",
@@ -185,15 +175,6 @@ public static class PasskeyEndpoints
         }
 
         var credentialIdBase64 = WebEncoders.Base64UrlEncode(attestationResult.Passkey.CredentialId);
-
-        await auditLogger.LogAsync(new AuditLogEntry(
-            Action: AuditActions.PasskeyRegister,
-            Category: AuditCategories.Authentication,
-            Success: true,
-            UserId: user.Id,
-            IpAddress: httpContext.Connection.RemoteIpAddress?.ToString(),
-            Metadata: new { credentialId = credentialIdBase64, passkeyName = request.Name }
-        ), ct);
 
         return Results.Ok(new
         {
@@ -254,7 +235,6 @@ public static class PasskeyEndpoints
         UserManager<ApplicationUser> userManager,
         SignInManager<ApplicationUser> signInManager,
         ITokenService tokenService,
-        IAuditLogger auditLogger,
         HttpContext httpContext,
         CancellationToken ct = default)
     {
@@ -267,14 +247,6 @@ public static class PasskeyEndpoints
 
         if (!result.Succeeded)
         {
-            await auditLogger.LogAsync(new AuditLogEntry(
-                Action: AuditActions.PasskeyAuthenticateFailed,
-                Category: AuditCategories.Authentication,
-                Success: false,
-                IpAddress: httpContext.Connection.RemoteIpAddress?.ToString(),
-                Metadata: new { reason = "assertion_failed" }
-            ), ct);
-
             return Results.Unauthorized();
         }
 
@@ -286,15 +258,6 @@ public static class PasskeyEndpoints
         user.LastLoginAt = DateTime.UtcNow;
         user.LastLoginIp = httpContext.Connection.RemoteIpAddress?.ToString();
         await userManager.UpdateAsync(user);
-
-        await auditLogger.LogAsync(new AuditLogEntry(
-            Action: AuditActions.PasskeyAuthenticate,
-            Category: AuditCategories.Authentication,
-            Success: true,
-            UserId: user.Id,
-            IpAddress: user.LastLoginIp,
-            Metadata: new { method = "passkey" }
-        ), ct);
 
         var tokens = await tokenService.GenerateTokensAsync(user, ct);
 
@@ -391,7 +354,6 @@ public static class PasskeyEndpoints
         string id,
         HttpContext httpContext,
         UserManager<ApplicationUser> userManager,
-        IAuditLogger auditLogger,
         CancellationToken ct = default)
     {
         var user = await userManager.GetUserAsync(httpContext.User);
@@ -429,15 +391,6 @@ public static class PasskeyEndpoints
         var result = await userManager.RemovePasskeyAsync(user, credentialId);
         if (!result.Succeeded)
             return Results.BadRequest(new { errors = result.Errors });
-
-        await auditLogger.LogAsync(new AuditLogEntry(
-            Action: AuditActions.PasskeyDelete,
-            Category: AuditCategories.Authentication,
-            Success: true,
-            UserId: user.Id,
-            IpAddress: httpContext.Connection.RemoteIpAddress?.ToString(),
-            Metadata: new { credentialId = id }
-        ), ct);
 
         return Results.NoContent();
     }

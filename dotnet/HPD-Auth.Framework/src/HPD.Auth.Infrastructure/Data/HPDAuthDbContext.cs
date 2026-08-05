@@ -24,8 +24,8 @@ namespace HPD.Auth.Infrastructure.Data;
 ///    composite (InstanceId, NormalizedEmail) and (InstanceId, NormalizedUserName)
 ///    indexes so two tenants can have users with the same email.
 ///
-/// 3. AUDIT IMMUTABILITY: AuditLog rows must never be updated or deleted.
-///    This is a business/policy rule enforced at the application layer (AuditLogStore
+/// 3. AUDIT IMMUTABILITY: Auth audit rows must never be updated or deleted.
+///    This is a business/policy rule enforced at the application layer (AuthAuditStore
 ///    only calls Add, never Update or Remove). EF Core does not have a built-in
 ///    "immutable table" concept for in-memory providers.
 ///
@@ -71,7 +71,7 @@ public class HPDAuthDbContext
     /// Immutable audit log. Write only — never update or delete rows.
     /// See AuditLogStore for the enforced write-only pattern.
     /// </summary>
-    public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
+    internal DbSet<AuthAuditEntity> AuthAuditEntries => Set<AuthAuditEntity>();
 
     /// <summary>Dynamically configured OAuth/SAML providers per tenant.</summary>
     public DbSet<SSOProvider> SSOProviders => Set<SSOProvider>();
@@ -122,7 +122,7 @@ public class HPDAuthDbContext
         ConfigureUserSession(builder);
         ConfigureUserIdentity(builder);
         ConfigureUserPasskey(builder);
-        ConfigureAuditLog(builder);
+        ConfigureAuthAudit(builder);
         ConfigureSSOProvider(builder);
         ConfigureTenantSettings(builder);
     }
@@ -274,34 +274,24 @@ public class HPDAuthDbContext
 
     }
 
-    private void ConfigureAuditLog(ModelBuilder builder)
+    private void ConfigureAuthAudit(ModelBuilder builder)
     {
-        builder.Entity<AuditLog>(entity =>
+        builder.Entity<AuthAuditEntity>(entity =>
         {
-            // ── Tenant isolation ──────────────────────────────────
+            entity.ToTable("AuthAuditEntries");
+            entity.HasKey(a => a.AuditId);
             entity.HasQueryFilter(a => a.InstanceId == _tenantContext.InstanceId);
-
-            // ── IMMUTABILITY NOTE ─────────────────────────────────
-            // AuditLog rows are write-once and must never be updated or deleted.
-            // EF Core does not provide a built-in "immutable table" mechanism
-            // for the in-memory provider. Immutability is enforced at the store
-            // layer: AuditLogStore only calls context.AuditLogs.Add() and
-            // SaveChangesAsync(). It never calls Update() or Remove().
-            // For PostgreSQL, consider adding row-level security policies or
-            // a trigger that raises an error on UPDATE/DELETE.
-
-            // All properties use init-only setters (defined on the entity itself)
-            // which provides compile-time protection against accidental mutation.
-
-            // ── Indexes for audit queries ──────────────────────────
-            entity.HasIndex(a => new { a.InstanceId, a.UserId, a.Timestamp })
-                  .HasDatabaseName("IX_AuditLogs_InstanceId_UserId_Timestamp");
-
-            entity.HasIndex(a => new { a.InstanceId, a.Category, a.Timestamp })
-                  .HasDatabaseName("IX_AuditLogs_InstanceId_Category_Timestamp");
-
-            entity.HasIndex(a => new { a.InstanceId, a.Action, a.Timestamp })
-                  .HasDatabaseName("IX_AuditLogs_InstanceId_Action_Timestamp");
+            entity.Property(a => a.Action).HasMaxLength(100);
+            entity.Property(a => a.Category).HasMaxLength(50);
+            entity.Property(a => a.FailureCode).HasMaxLength(128);
+            entity.Property(a => a.CorrelationId).HasMaxLength(128);
+            entity.Property(a => a.IpAddress).HasMaxLength(45);
+            entity.Property(a => a.UserAgent).HasMaxLength(512);
+            entity.Property(a => a.FactsJson).HasMaxLength(1024);
+            entity.HasIndex(a => new { a.InstanceId, a.SubjectUserId, a.OccurredAtUtc, a.AuditId });
+            entity.HasIndex(a => new { a.InstanceId, a.Category, a.OccurredAtUtc, a.AuditId });
+            entity.HasIndex(a => new { a.InstanceId, a.Action, a.OccurredAtUtc, a.AuditId });
+            entity.HasIndex(a => new { a.InstanceId, a.CorrelationId, a.OccurredAtUtc, a.AuditId });
         });
     }
 

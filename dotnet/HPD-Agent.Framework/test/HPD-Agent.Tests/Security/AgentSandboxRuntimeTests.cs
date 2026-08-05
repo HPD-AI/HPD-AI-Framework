@@ -11,35 +11,34 @@ public sealed class AgentSandboxRuntimeTests
         var root = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "hpd-sandbox-root"));
         var runConfig = new AgentRunConfig
         {
-            Security = new AgentSecurityProfile
+            Security = new AgentSecurityRunConfig
             {
                 Approval = AgentApprovalPolicy.AutoApprove,
-                Sandbox = AgentSandboxPolicy.Disabled,
-                SandboxEscape = AgentSandboxEscapePolicy.Deny
-            },
-            Sandbox = new AgentSandboxConfiguration
-            {
-                Filesystem =
-                [
-                    new AgentSandboxPathGrant
-                    {
-                        Access = AgentSandboxPathAccess.Read,
-                        Path = root
-                    }
-                ],
-                Network = new NetworkEgressPolicy
+                Sandbox = new AgentSandboxRunConfig
                 {
-                    Mode = NetworkEgressMode.Unrestricted
+                    Mode = AgentSandboxPolicy.Disabled,
+                    Escape = AgentSandboxEscapePolicy.Deny,
+                    Capabilities = new AgentSandboxConfiguration
+                    {
+                        Filesystem =
+                        [
+                            new AgentSandboxPathGrant { Access = AgentSandboxPathAccess.Read, Path = root }
+                        ],
+                        Network = new NetworkEgressPolicy { Mode = NetworkEgressMode.Unrestricted }
+                    }
                 }
             }
         };
 
         var runtime = AgentSandboxRuntime.Capture(runConfig);
-        runConfig.Sandbox = new AgentSandboxConfiguration();
+        runConfig.Security = runConfig.Security with
+        {
+            Sandbox = runConfig.Security.Sandbox with { Capabilities = new AgentSandboxConfiguration() }
+        };
 
         Assert.False(runtime.IsEnforced);
         Assert.Equal(AgentApprovalPolicy.AutoApprove, runtime.Security.Approval);
-        Assert.Equal(AgentSandboxEscapePolicy.Deny, runtime.Security.SandboxEscape);
+        Assert.Equal(AgentSandboxEscapePolicy.Deny, runtime.Security.Sandbox.Escape);
         Assert.Single(runtime.Filesystem);
         Assert.Equal(root, runtime.Filesystem[0].Path);
         Assert.Equal(NetworkEgressMode.Unrestricted, runtime.Network.Mode);
@@ -52,16 +51,18 @@ public sealed class AgentSandboxRuntimeTests
             Path.Combine(Path.GetTempPath(), "hpd-sandbox-working"));
         var runtime = AgentSandboxRuntime.Capture(new AgentRunConfig
         {
-            Sandbox = new AgentSandboxConfiguration
+            Security = new AgentSecurityRunConfig
             {
-                Filesystem =
-                [
-                    new AgentSandboxPathGrant
+                Sandbox = new AgentSandboxRunConfig
+                {
+                    Capabilities = new AgentSandboxConfiguration
                     {
-                        Access = AgentSandboxPathAccess.Write,
-                        Path = "artifacts"
+                        Filesystem =
+                        [
+                            new AgentSandboxPathGrant { Access = AgentSandboxPathAccess.Write, Path = "artifacts" }
+                        ]
                     }
-                ]
+                }
             }
         });
 

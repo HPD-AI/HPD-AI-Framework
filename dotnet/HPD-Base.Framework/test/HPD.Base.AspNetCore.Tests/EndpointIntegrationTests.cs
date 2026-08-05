@@ -1,5 +1,4 @@
-using HPD.Base.Query;
-using HPD.Base.Serialization;
+using HPD.Base;
 using Microsoft.AspNetCore.Http;
 
 namespace HPD.Base.AspNetCore.Tests;
@@ -94,6 +93,61 @@ public sealed class EndpointIntegrationTests
         (await client.GetAsync("/base/files/anything")).StatusCode.Should().Be(HttpStatusCode.NotFound);
         (await client.GetAsync("/base/graphql")).StatusCode.Should().Be(HttpStatusCode.NotFound);
         (await client.GetAsync("/base/openapi.json")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task AtomicBatchIdempotencyHeaderReturnsCommittedThenDuplicate()
+    {
+        await using var app = await TestBaseApp.CreateAsync();
+        HttpClient client = app.GetTestClient();
+        var batch = new BaseRecordBatchRequest
+        {
+            Mode = BaseRecordBatchExecutionMode.Atomic,
+            Operations =
+            [
+                new BaseRecordBatchItem
+                {
+                    ItemId = "create-1", CollectionId = "items", Kind = BaseRecordMutationKind.Create,
+                    Create = new RecordCreateRequest { RequestedId = new RecordId("atomic-http-1"), Payload = TestBaseApp.Payload(("title", "once")) },
+                }
+            ],
+        };
+        async Task<HttpResponseMessage> SendAsync()
+        {
+            var message = new HttpRequestMessage(HttpMethod.Post, "/base/records/batch")
+            {
+                Content = JsonContent.Create(batch, HPDBaseJsonSerializerContext.Default.BaseRecordBatchRequest),
+            };
+            message.Headers.Add(BaseHttpHeaders.IdempotencyKey, "request-1");
+            return await client.SendAsync(message);
+        }
+
+        HttpResponseMessage first = await SendAsync();
+        HttpResponseMessage second = await SendAsync();
+        first.StatusCode.Should().Be(HttpStatusCode.OK);
+        second.StatusCode.Should().Be(HttpStatusCode.OK);
+        first.Headers.GetValues(BaseHttpHeaders.RequestDisposition).Should().Equal("committed");
+        second.Headers.GetValues(BaseHttpHeaders.RequestDisposition).Should().Equal("duplicate");
+        (await ReadJson<BaseRecordBatchResult>(app, second.Content))!.RequestDisposition.Should().Be(BaseMutationRequestDisposition.Duplicate);
+    }
+
+    [Fact]
+    public async Task AtomicBatchRejectsUnknownJsonMembersBeforeIdentityConstruction()
+    {
+        await using var app = await TestBaseApp.CreateAsync();
+        HttpClient client = app.GetTestClient();
+        using var message = new HttpRequestMessage(HttpMethod.Post, "/base/records/batch")
+        {
+            Content = new StringContent(
+                """{"mode":"atomic","operations":[],"unknownBehavior":"must-not-hash"}""",
+                System.Text.Encoding.UTF8,
+                "application/json"),
+        };
+        message.Headers.Add(BaseHttpHeaders.IdempotencyKey, "request-with-unknown-member");
+
+        HttpResponseMessage response = await client.SendAsync(message);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
     private static async Task<T?> ReadJson<T>(WebApplication app, HttpContent content)

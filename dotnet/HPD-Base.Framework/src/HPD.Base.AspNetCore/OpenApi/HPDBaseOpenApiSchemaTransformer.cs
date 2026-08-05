@@ -1,13 +1,14 @@
 using System.Text.Json;
-using HPD.Base.Records;
+using HPD.Base;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.OpenApi;
 using Microsoft.OpenApi;
 
-namespace HPD.Base.AspNetCore.OpenApi;
+namespace HPD.Base.AspNetCore;
 
 internal sealed class HPDBaseOpenApiSchemaTransformer : IOpenApiSchemaTransformer
 {
+    /// <summary>Executes the transform async operation.</summary>
     public Task TransformAsync(OpenApiSchema schema, OpenApiSchemaTransformerContext context, CancellationToken cancellationToken)
     {
         var type = Nullable.GetUnderlyingType(context.JsonTypeInfo.Type) ?? context.JsonTypeInfo.Type;

@@ -147,7 +147,7 @@ public sealed class BeforeIterationContext : HookContext
     ///   Always available (never NULL)
     /// READ-ONLY - represents the user's original intent for this run.
     /// Use for iteration-specific decisions based on user preferences and context.
-    /// Examples: Adapt temperature, filter tools, access ContextOverrides for tenant/user info.
+    /// Examples: Adapt temperature, filter tools, or access context properties for tenant/user info.
     /// </summary>
     public AgentRunConfig RunConfig { get; }
 
@@ -226,7 +226,7 @@ public sealed class BeforeToolExecutionContext : HookContext
     /// Original run options for this turn.
     ///   Always available (never NULL)
     /// READ-ONLY - represents the user's original intent for this run.
-    /// Use for permission checks, dry-run mode (SkipTools), and tool-level validation.
+    /// Use for permission checks, disabled tool mode, and tool-level validation.
     /// </summary>
     public AgentRunConfig RunConfig { get; }
 
@@ -403,7 +403,7 @@ public sealed class BeforeFunctionContext : HookContext
     /// Original run options for this turn.
     ///   Always available (never NULL)
     /// READ-ONLY - represents the user's original intent for this run.
-    /// Use for permission validation, dry-run mode (SkipTools), and function-level authorization.
+    /// Use for permission validation, disabled tool mode, and function-level authorization.
     /// </summary>
     public AgentRunConfig RunConfig { get; }
 

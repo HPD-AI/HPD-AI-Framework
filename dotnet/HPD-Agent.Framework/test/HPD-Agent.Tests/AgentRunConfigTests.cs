@@ -11,8 +11,8 @@ public class AgentRunConfigTests
         var runConfig = new AgentRunConfig();
 
         Assert.Equal(AgentApprovalPolicy.ReviewProtectedActions, runConfig.Security.Approval);
-        Assert.Equal(AgentSandboxPolicy.Enforced, runConfig.Security.Sandbox);
-        Assert.Equal(AgentSandboxEscapePolicy.Ask, runConfig.Security.SandboxEscape);
+        Assert.Equal(AgentSandboxPolicy.Enforced, runConfig.Security.Sandbox.Mode);
+        Assert.Equal(AgentSandboxEscapePolicy.Ask, runConfig.Security.Sandbox.Escape);
     }
 
     [Fact]
@@ -20,11 +20,14 @@ public class AgentRunConfigTests
     {
         var runConfig = new AgentRunConfig
         {
-            Security = new AgentSecurityProfile
+            Security = new AgentSecurityRunConfig
             {
                 Approval = AgentApprovalPolicy.AutoApprove,
-                Sandbox = AgentSandboxPolicy.Disabled,
-                SandboxEscape = AgentSandboxEscapePolicy.Deny
+                Sandbox = new AgentSandboxRunConfig
+                {
+                    Mode = AgentSandboxPolicy.Disabled,
+                    Escape = AgentSandboxEscapePolicy.Deny
+                }
             }
         };
 
@@ -32,11 +35,13 @@ public class AgentRunConfigTests
         var deserialized = JsonSerializer.Deserialize(json, HPDJsonContext.Default.AgentRunConfig);
 
         Assert.NotNull(deserialized);
-        Assert.Equal(runConfig.Security, deserialized.Security);
+        Assert.Equal(AgentApprovalPolicy.AutoApprove, deserialized.Security.Approval);
+        Assert.Equal(AgentSandboxPolicy.Disabled, deserialized.Security.Sandbox.Mode);
+        Assert.Equal(AgentSandboxEscapePolicy.Deny, deserialized.Security.Sandbox.Escape);
     }
 
     [Fact]
-    public void ChatRunConfig_MergeWith_ShouldLetRunSeedOverrideDefaultSeed()
+    public void ChatClientConfig_MergeWith_ShouldLetRunSeedOverrideDefaultSeed()
     {
         var defaults = new ChatOptions
         {
@@ -44,7 +49,7 @@ public class AgentRunConfigTests
             Temperature = 0.2f
         };
 
-        var runConfig = new ChatRunConfig
+        var runConfig = new ChatClientConfig
         {
             Seed = 42
         };
@@ -55,4 +60,43 @@ public class AgentRunConfigTests
         Assert.Equal(42, merged!.Seed);
         Assert.Equal(0.2f, merged.Temperature);
     }
+
+    [Fact]
+    public void ApiKey_IsExcludedFromSourceGeneratedJson()
+    {
+        var runConfig = new AgentRunConfig
+        {
+            Clients = new AgentClientsConfig { Chat = new ChatClientConfig
+            {
+                ProviderKey = "openai",
+                ModelName = "gpt-test",
+                ApiKey = "must-not-serialize",
+                AuthenticationKey = "openai-work"
+            } }
+        };
+
+        var json = JsonSerializer.Serialize(runConfig, HPDJsonContext.Default.AgentRunConfig);
+
+        Assert.DoesNotContain("must-not-serialize", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("ApiKey", json, StringComparison.Ordinal);
+        Assert.Contains("openai-work", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void StaticJsonContext_DoesNotSerializeTypedProviderPayloadWithoutComposition()
+    {
+        var runConfig = new AgentRunConfig
+        {
+            Clients = new AgentClientsConfig { Chat = new ChatClientConfig
+            {
+                ProviderConfig = new TestProviderConfig()
+            } }
+        };
+
+        var json = JsonSerializer.Serialize(runConfig, HPDJsonContext.Default.AgentRunConfig);
+
+        Assert.DoesNotContain("ProviderConfig", json, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private sealed class TestProviderConfig : IProviderConfig;
 }

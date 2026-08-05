@@ -1,4 +1,4 @@
-using HPD.Base.Runtime.Operations;
+using HPD.Base;
 
 namespace HPD.Base.StoreConformance.Runtime;
 
@@ -8,7 +8,7 @@ public abstract class RuntimeStoreQueryConformanceTests<TFixture> : RuntimeStore
     [Fact]
     public async Task RuntimeRejectsUnsupportedQueryShapeBeforeStoreExecution()
     {
-        if (!Capabilities.Crud.List)
+        if (!Capabilities.Read.List)
         {
             return;
         }
@@ -20,7 +20,7 @@ public abstract class RuntimeStoreQueryConformanceTests<TFixture> : RuntimeStore
         {
             var include = await runtime.ListAsync(
                 Collection.Id,
-                new RecordQuery { Include = [new QueryInclude { Path = "relation" }] },
+                new RecordQuery { Include = [new RecordInclude { NavigationId = "relation" }] },
                 Principal,
                 Operation(BaseOperationKind.List));
             RecordStoreConformanceAssertions.Failure(include, OperationStatus.Unsupported, OperationStatus.CapabilityUnavailable, OperationStatus.ValidationFailed);

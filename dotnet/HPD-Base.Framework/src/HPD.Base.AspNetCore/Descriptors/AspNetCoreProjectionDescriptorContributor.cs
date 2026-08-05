@@ -1,14 +1,14 @@
 using HPD.Base;
-using HPD.Base.AspNetCore.Http;
-using HPD.Base.Descriptors;
-using HPD.Base.Runtime.Descriptors;
+using HPD.Base.AspNetCore;
 
-namespace HPD.Base.AspNetCore.Descriptors;
+namespace HPD.Base.AspNetCore;
 
 internal sealed class AspNetCoreProjectionDescriptorContributor : IBaseDescriptorContributor
 {
+    /// <summary>Gets the ID.</summary>
     public string Id => "hpd.base.aspnetcore";
 
+    /// <summary>Executes the contribute operation.</summary>
     public void Contribute(IBaseDescriptorContributionBuilder builder)
     {
         var dtoContracts = AspNetCoreDtoContractDescriptorFactory.Create();

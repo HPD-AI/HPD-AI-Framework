@@ -19,7 +19,7 @@ public static class VeniceAgentBuilderExtensions
             throw new ArgumentException("Model is required for Venice.ai provider.", nameof(model));
         }
 
-        var chatConfig = new ClientProviderConfig
+        var chatConfig = new ChatClientConfig
         {
             ProviderKey = "venice",
             ApiKey = apiKey,

@@ -2,6 +2,7 @@ namespace HPD.Environment.AppleVirtualization.Authority;
 
 using HPD.Environment.AppleVirtualization.Protocol;
 using HPD.Environment.Contracts;
+using HPD.Environment.Runtime;
 
 internal static class AppleVirtualizationAuthoritySourceClassifier
 {
@@ -12,18 +13,36 @@ internal static class AppleVirtualizationAuthoritySourceClassifier
     {
         ArgumentNullException.ThrowIfNull(spec);
 
-        return Classify(
-            new AppleVirtualizationAuthoritySourceDescriptor
-            {
-                Kind = spec.Source.Kind,
-                Locus = spec.Source.Locus,
-                HostService = spec.Source.HostService,
-                SocketPath = spec.Source.SocketPath,
-                Credential = spec.Source.Credential,
-                ProviderCapabilityName = spec.Source.ProviderCapabilityName,
-            },
-            spec.ProviderExtensions,
-            spec.Policy.Redaction);
+        var descriptor = new AppleVirtualizationAuthoritySourceDescriptor
+        {
+            Kind = spec.Source.Kind,
+            Locus = spec.Source.Locus,
+            HostService = spec.Source.HostService,
+            SocketPath = spec.Source.SocketPath,
+            Credential = spec.Source.Credential,
+            ProviderCapabilityName = spec.Source.ProviderCapabilityName,
+        };
+        AuthoritySourceClassification shared =
+            AuthoritySourceClassifier.Classify(spec);
+        if (!shared.IsClassified ||
+            shared.EndpointKind == SensitiveEndpointKind.EngineSocket &&
+            spec.Source.Locus == BoundaryLocus.Host)
+        {
+            return Classify(
+                descriptor,
+                spec.ProviderExtensions,
+                spec.Policy.Redaction);
+        }
+
+        return new AppleVirtualizationAuthoritySourceClassification(
+            IsSupported: true,
+            SourceKind: shared.SourceKind,
+            SensitiveEndpointKind: shared.EndpointKind,
+            AuthorityClass: shared.AuthorityClass,
+            Redaction: shared.Redaction,
+            RedactedDisplayName: shared.RedactedDisplayName,
+            DiagnosticCode: "AppleVirtualization.AuthoritySourceClassified",
+            DiagnosticMessage: shared.DiagnosticMessage);
     }
 
     public static AppleVirtualizationAuthoritySourceClassification Classify(

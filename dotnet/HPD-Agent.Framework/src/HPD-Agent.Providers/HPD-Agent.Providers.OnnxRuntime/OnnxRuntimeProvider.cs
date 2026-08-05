@@ -16,16 +16,21 @@ namespace HPD.Agent.Providers.OnnxRuntime;
 /// <summary>
 /// ONNX Runtime GenAI provider implementation for local model inference.
 /// </summary>
+[HpdProvider("onnx-runtime", "ONNX Runtime GenAI", DocumentationUrl = "https://onnxruntime.ai/docs/genai/")]
+[HpdProviderFamily(ProviderClientFamily.Chat)]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(OnnxRuntimeProviderConfig), typeof(OnnxRuntimeJsonContext))]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.OperationOptions, typeof(OnnxRuntimeChatRequestOptions), typeof(OnnxRuntimeJsonContext))]
+[HpdProviderSecretAlias("onnx-runtime:ModelPath", "ONNX_MODEL_PATH", "ONNX_RUNTIME_MODEL_PATH")]
 internal class OnnxRuntimeProvider : IChatClientProvider
 {
     public string ProviderKey => "onnx-runtime";
     public string DisplayName => "ONNX Runtime GenAI";
 
-    public IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null)
+    public async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(config);
 
-        var onnxConfig = config.GetProviderConfig<OnnxRuntimeProviderConfig>();
+        var onnxConfig = config.ProviderConfig as OnnxRuntimeProviderConfig;
         var secrets = services?.GetService<ISecretResolver>();
 
         var modelPath = onnxConfig?.ModelPath
@@ -45,7 +50,7 @@ internal class OnnxRuntimeProvider : IChatClientProvider
         var clientOptions = new OnnxRuntimeGenAIChatClientOptions
         {
             EnableCaching = onnxConfig?.EnableCaching ?? false,
-            PromptFormatter = config.PromptFormatter
+            PromptFormatter = onnxConfig?.PromptFormatter
         };
 
         IChatClient finalClient = CreateOnnxChatClient(modelPath, onnxConfig, clientOptions);
@@ -85,12 +90,12 @@ internal class OnnxRuntimeProvider : IChatClientProvider
         };
     }
 
-    public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family)
+    public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
     {
         ArgumentNullException.ThrowIfNull(config);
 
         var errors = new List<string>();
-        var onnxConfig = config.GetProviderConfig<OnnxRuntimeProviderConfig>();
+        var onnxConfig = config.ProviderConfig as OnnxRuntimeProviderConfig;
         var modelPath = onnxConfig?.ModelPath ?? global::System.Environment.GetEnvironmentVariable("ONNX_MODEL_PATH");
 
         if (string.IsNullOrWhiteSpace(modelPath))
@@ -123,17 +128,17 @@ internal class OnnxRuntimeProvider : IChatClientProvider
         if (config.Providers?.Any(string.IsNullOrWhiteSpace) == true)
             errors.Add("Providers cannot contain empty provider names.");
 
-        if (config.ProviderOptions is not null)
+        if (config.ExecutionProviderOptions is not null)
         {
-            foreach (var provider in config.ProviderOptions)
+            foreach (var provider in config.ExecutionProviderOptions)
             {
                 if (string.IsNullOrWhiteSpace(provider.Key))
-                    errors.Add("ProviderOptions cannot contain an empty provider name.");
+                    errors.Add("ExecutionProviderOptions cannot contain an empty provider name.");
 
                 foreach (var option in provider.Value)
                 {
                     if (string.IsNullOrWhiteSpace(option.Key))
-                        errors.Add($"ProviderOptions for '{provider.Key}' cannot contain an empty option name.");
+                        errors.Add($"ExecutionProviderOptions for '{provider.Key}' cannot contain an empty option name.");
                 }
             }
         }
@@ -168,9 +173,9 @@ internal class OnnxRuntimeProvider : IChatClientProvider
                 }
             }
 
-            if (config?.ProviderOptions is not null)
+            if (config?.ExecutionProviderOptions is not null)
             {
-                foreach (var provider in config.ProviderOptions)
+                foreach (var provider in config.ExecutionProviderOptions)
                 {
                     foreach (var option in provider.Value)
                     {
@@ -207,7 +212,7 @@ internal class OnnxRuntimeProvider : IChatClientProvider
 
     private static bool RequiresConfig(OnnxRuntimeProviderConfig? config)
         => config?.Providers is { Count: > 0 } ||
-           config?.ProviderOptions is { Count: > 0 } ||
+           config?.ExecutionProviderOptions is { Count: > 0 } ||
            config?.HardwareDeviceType is not null ||
            config?.HardwareDeviceId is not null ||
            config?.HardwareVendorId is not null;

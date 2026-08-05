@@ -13,8 +13,8 @@
 
   <ItemGroup>
     <PackageReference Include="FluentAssertions" Version="$(FluentAssertionsVersion)" />
-    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.9" />
-    <PackageReference Include="Microsoft.AspNetCore.TestHost" Version="10.0.9" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.10" />
+    <PackageReference Include="Microsoft.AspNetCore.TestHost" Version="10.0.10" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.6.0" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5">
@@ -28,9 +28,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../../src/HPD.Base.Abstractions/HPD.Base.Abstractions.csproj" />
-    <ProjectReference Include="../../src/HPD.Base.Runtime/HPD.Base.Runtime.csproj" />
-    <ProjectReference Include="../../src/HPD.Base.InMemory/HPD.Base.InMemory.csproj" />
+    <ProjectReference Include="../../src/HPD.Base/HPD.Base.csproj" />
     <ProjectReference Include="../../src/HPD.Base.AspNetCore/HPD.Base.AspNetCore.csproj" />
   </ItemGroup>
 </Project>

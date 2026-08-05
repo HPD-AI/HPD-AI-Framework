@@ -15,6 +15,18 @@ public class ProviderRegistry : IProviderRegistry
     private readonly Dictionary<string, IProvider> _providers = new(StringComparer.Ordinal);
     private readonly ReaderWriterLockSlim _lock = new();
 
+    /// <summary>Initializes an empty mutable provider registry.</summary>
+    public ProviderRegistry()
+    {
+    }
+
+    /// <summary>Initializes a registry associated with an immutable generated composition.</summary>
+    public ProviderRegistry(ProviderComposition composition)
+        => Composition = composition ?? throw new ArgumentNullException(nameof(composition));
+
+    /// <summary>Gets the generated composition that owns this registry, when present.</summary>
+    public ProviderComposition? Composition { get; }
+
     public void Register(IProvider provider)
     {
         if (string.IsNullOrWhiteSpace(provider.ProviderKey))

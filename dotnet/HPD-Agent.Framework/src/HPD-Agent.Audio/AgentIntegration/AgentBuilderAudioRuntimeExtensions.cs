@@ -28,7 +28,8 @@ public static class AgentBuilderAudioRuntimeExtensions
         return builder.WithAudioRuntimeAttachment(
             AudioRuntimeOptionsCompiler.Compile(
                 new AudioRuntimeAttachmentOptions(),
-                audio));
+                audio,
+                textToSpeech: ResolveTextToSpeech(builder)));
     }
 
     public static AgentBuilder WithAudioRuntimeAttachment(this AgentBuilder builder)
@@ -37,7 +38,8 @@ public static class AgentBuilderAudioRuntimeExtensions
         return builder.WithAudioRuntimeAttachment(
             AudioRuntimeOptionsCompiler.Compile(
                 new AudioRuntimeAttachmentOptions(),
-                builder.Config.Audio));
+                builder.Config.Audio,
+                textToSpeech: ResolveTextToSpeech(builder)));
     }
 
     public static AgentBuilder WithAudioRuntimeAttachment(
@@ -50,7 +52,10 @@ public static class AgentBuilderAudioRuntimeExtensions
         var options = new AudioRuntimeAttachmentOptions();
         configure(options);
         return builder.WithAudioRuntimeAttachment(
-            AudioRuntimeOptionsCompiler.Compile(options, builder.Config.Audio));
+            AudioRuntimeOptionsCompiler.Compile(
+                options,
+                builder.Config.Audio,
+                textToSpeech: ResolveTextToSpeech(builder)));
     }
 
     public static AgentBuilder WithAudioRuntimeAttachment(
@@ -85,4 +90,8 @@ public static class AgentBuilderAudioRuntimeExtensions
 
         return builder.WithAudioRuntimeAttachment(new SessionThreadProjectionSink(sessionStore));
     }
+
+    private static TextToSpeechClientConfig? ResolveTextToSpeech(AgentBuilder builder) =>
+        builder.Config.ResolveClientConfig(global::HPD.Agent.Providers.ProviderClientFamily.TextToSpeech)
+            as TextToSpeechClientConfig;
 }

@@ -1,4 +1,4 @@
-namespace HPD.Base.AspNetCore.OpenApi;
+namespace HPD.Base.AspNetCore;
 
 /// <summary>
 /// Names the HPD.BASE OpenAPI documents registered by default.

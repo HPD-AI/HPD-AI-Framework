@@ -1,5 +1,6 @@
 using FluentAssertions;
 using HPD.Auth.Core.Interfaces;
+using HPD.Auth.Core.Audit;
 using HPD.Auth.Extensions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
@@ -19,7 +20,7 @@ public class IdempotencyTests
     // switches to TryAddScoped the assertion count should change to 1.
 
     [Fact]
-    public void AddHPDAuth_Called_Twice_Does_Not_Duplicate_IAuditLogger()
+    public void AddHPDAuth_Called_Twice_Does_Not_Duplicate_AuditWriter()
     {
         var services = new ServiceCollection();
         services.AddLogging();
@@ -28,7 +29,7 @@ public class IdempotencyTests
         services.AddHPDAuth(o => o.AppName = "Idempotency_AuditLogger");
 
         var auditLoggerDescriptors = services
-            .Where(d => d.ServiceType == typeof(IAuditLogger))
+            .Where(d => d.ServiceType == typeof(IAuthAuditWriter))
             .ToList();
 
         // Document current AddScoped behaviour: two calls → two descriptors.

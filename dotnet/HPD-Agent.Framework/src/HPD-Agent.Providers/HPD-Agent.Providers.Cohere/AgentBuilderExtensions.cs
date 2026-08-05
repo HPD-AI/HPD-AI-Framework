@@ -23,7 +23,7 @@ public static class AgentBuilderExtensions
         if (string.IsNullOrWhiteSpace(model))
             throw new ArgumentException("Model is required for Cohere provider.", nameof(model));
 
-        var chatConfig = new ClientProviderConfig
+        var chatConfig = new ChatClientConfig
         {
             ProviderKey = "cohere",
             ApiKey = apiKey,
@@ -47,8 +47,7 @@ public static class AgentBuilderExtensions
         ArgumentNullException.ThrowIfNull(options);
 
         var chatConfig = builder.Config.EnsureChatClientConfig();
-        chatConfig.ChatDefaults ??= new ChatRunConfig();
-        options.ApplyTo(chatConfig.ChatDefaults);
+        options.ApplyTo(chatConfig);
 
         return builder;
     }
@@ -73,22 +72,14 @@ public static class AgentBuilderExtensions
     public static AgentBuilder WithCohereEmbeddings(
         this AgentBuilder builder,
         string model = "embed-english-v3.0",
-        string? apiKey = null,
-        Action<CohereProviderConfig>? configure = null)
+        string? apiKey = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
 
         if (string.IsNullOrWhiteSpace(model))
             throw new ArgumentException("Model is required for Cohere embeddings.", nameof(model));
 
-        var providerConfig = new CohereProviderConfig
-        {
-            EmbeddingModelId = model
-        };
-        configure?.Invoke(providerConfig);
-        ValidateProviderConfig(providerConfig, configure);
-
-        var embeddingConfig = new ClientProviderConfig
+        var embeddingConfig = new EmbeddingsClientConfig
         {
             ProviderKey = "cohere",
             ApiKey = apiKey,
@@ -96,17 +87,6 @@ public static class AgentBuilderExtensions
         };
 
         builder.Config.SetClientConfig(ProviderClientFamily.Embeddings, embeddingConfig);
-        embeddingConfig.SetProviderConfig(providerConfig, ProviderClientFamily.Embeddings);
-
         return builder;
-    }
-
-    private static void ValidateProviderConfig(CohereProviderConfig config, Action<CohereProviderConfig>? configure)
-    {
-        var errors = new List<string>();
-        CohereProvider.ValidateProviderOptions(config, errors);
-
-        if (errors.Count > 0)
-            throw new ArgumentException(string.Join("; ", errors), nameof(configure));
     }
 }

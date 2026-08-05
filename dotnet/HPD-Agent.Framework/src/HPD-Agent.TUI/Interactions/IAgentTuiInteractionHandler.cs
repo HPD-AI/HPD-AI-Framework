@@ -23,10 +23,10 @@ public sealed record AgentTuiInteractionResult(
     public static AgentTuiInteractionResult AnswerRequest(AgentEvent response)
     {
         ArgumentNullException.ThrowIfNull(response);
-        if (response is not HPD.Events.IResponseEvent)
+        if (response is not IAgentResponseEvent)
         {
             throw new ArgumentException(
-                $"Event '{response.GetType().Name}' must implement IResponseEvent.",
+                $"Event '{response.GetType().Name}' must implement IAgentResponseEvent.",
                 nameof(response));
         }
 

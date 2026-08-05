@@ -497,8 +497,8 @@ public sealed class OpenAICompatibleChatClientBehaviorTests
             """);
         var provider = new TestProvider(handler);
 
-        using var client = provider.CreateChatClient(
-            new ClientProviderConfig
+        using var client = await provider.CreateChatClientAsync(
+            new ProviderClientConfig
             {
                 ProviderKey = "test-openai-compatible",
                 ModelName = "default-model",
@@ -518,7 +518,7 @@ public sealed class OpenAICompatibleChatClientBehaviorTests
         var provider = new TestProvider(new CapturingHandler("{}"));
 
         var result = provider.ValidateConfiguration(
-            new ClientProviderConfig
+            new ProviderClientConfig
             {
                 ProviderKey = "test-openai-compatible",
                 Endpoint = "not-a-uri"
@@ -528,7 +528,7 @@ public sealed class OpenAICompatibleChatClientBehaviorTests
         result.IsValid.Should().BeFalse();
         result.Errors.Should().Contain(error => error.Contains("chat provider family", StringComparison.OrdinalIgnoreCase));
         result.Errors.Should().Contain(error => error.Contains("Model name", StringComparison.OrdinalIgnoreCase));
-        result.Errors.Should().Contain(error => error.Contains("API key", StringComparison.OrdinalIgnoreCase));
+        result.Errors.Should().NotContain(error => error.Contains("API key", StringComparison.OrdinalIgnoreCase));
         result.Errors.Should().Contain(error => error.Contains("Endpoint", StringComparison.OrdinalIgnoreCase));
     }
 
@@ -605,7 +605,7 @@ public sealed class OpenAICompatibleChatClientBehaviorTests
 
         protected override IChatClient CreateOpenAICompatibleChatClient(
             HttpClient httpClient,
-            ClientProviderConfig config,
+            ProviderClientConfig config,
             Uri endpoint)
         {
             CapturedBaseAddress = httpClient.BaseAddress;

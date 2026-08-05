@@ -1,8 +1,10 @@
 namespace HPD.Environment.AppleVirtualization.State;
 
 using System.Globalization;
+using HPD.Environment.AppleVirtualization.GuestAgent;
 using HPD.Environment.AppleVirtualization.Handles;
 using HPD.Environment.Contracts;
+using HPD.Environment.Runtime;
 
 internal enum AppleVirtualizationLedgerResourceKind
 {
@@ -27,6 +29,10 @@ internal enum AppleVirtualizationHostEmptyPolicyAction
 }
 
 internal readonly record struct AppleVirtualizationResourceKey(ResourceScope Scope, string Id);
+internal readonly record struct AppleVirtualizationHostEngineKey(
+    ResourceScope Scope,
+    string RuntimeHostId,
+    string EngineId);
 
 internal sealed record AppleVirtualizationNetworkMembershipSnapshot(
     ResourceRef<NetworkMembership> Resource,
@@ -82,6 +88,8 @@ internal sealed class AppleVirtualizationProviderStateLedger
     private readonly Dictionary<AppleVirtualizationResourceKey, AppleVirtualizationLedgerEntry<EngineControlPlane, EngineControlPlaneStatus>> _enginesByResource = [];
     private readonly Dictionary<string, HandleIndexEntry> _handlesByToken = new(StringComparer.Ordinal);
     private readonly Dictionary<AppleVirtualizationResourceKey, AppleVirtualizationRuntimeHostPolicySnapshot> _hostPoliciesByResource = [];
+    private readonly Dictionary<AppleVirtualizationResourceKey, string> _hostConfigurationFingerprintsByResource = [];
+    private readonly Dictionary<AppleVirtualizationHostEngineKey, AppleVirtualizationGuestAgentEngineGenerationStamp> _hostEngineGenerationsByResource = [];
     private readonly Dictionary<AppleVirtualizationResourceKey, ExecutionUnitSpec> _unitSpecsByResource = [];
     private readonly Dictionary<AppleVirtualizationResourceKey, ContentProjectionSpec> _projectionSpecsByResource = [];
     private readonly Dictionary<AppleVirtualizationResourceKey, NetworkSpec> _networkSpecsByResource = [];
@@ -90,8 +98,11 @@ internal sealed class AppleVirtualizationProviderStateLedger
     private readonly Dictionary<AppleVirtualizationResourceKey, PublishedEndpointSpec> _publishedEndpointSpecsByResource = [];
     private readonly Dictionary<AppleVirtualizationResourceKey, AuthorityBindingSpec> _authorityBindingSpecsByResource = [];
     private readonly Dictionary<AppleVirtualizationResourceKey, EngineControlPlaneSpec> _engineSpecsByResource = [];
-    private readonly Dictionary<AppleVirtualizationResourceKey, AuthorityAuditEvent[]> _authorityAuditEventsByResource = [];
-    private ulong _providerGeneration = 1;
+    private readonly BoundedAuditLedger<
+        AppleVirtualizationResourceKey,
+        AuthorityAuditEvent> _authorityAuditEvents =
+        new(MaxAuthorityAuditEvents);
+    private readonly ProviderGenerationFence _providerGeneration = new();
     private long _tokenSequence;
     private const int MaxAuthorityAuditEvents = 32;
 
@@ -113,7 +124,7 @@ internal sealed class AppleVirtualizationProviderStateLedger
         {
             lock (_gate)
             {
-                return _providerGeneration;
+                return _providerGeneration.Current;
             }
         }
     }
@@ -122,7 +133,115 @@ internal sealed class AppleVirtualizationProviderStateLedger
     {
         lock (_gate)
         {
-            return ++_providerGeneration;
+            return _providerGeneration.Advance();
+        }
+    }
+
+    public string? GetRuntimeHostConfigurationFingerprint(ResourceId<RuntimeHost> id, ResourceScope scope)
+    {
+        lock (_gate)
+        {
+            return _hostConfigurationFingerprintsByResource.GetValueOrDefault(ToKey(id, scope));
+        }
+    }
+
+    public void SetRuntimeHostConfigurationFingerprint(
+        ResourceId<RuntimeHost> id,
+        ResourceScope scope,
+        string fingerprint)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(fingerprint);
+        lock (_gate)
+        {
+            _hostConfigurationFingerprintsByResource[ToKey(id, scope)] = fingerprint;
+        }
+    }
+
+    public bool TryAcceptRuntimeHostEngineGeneration(
+        ResourceId<RuntimeHost> id,
+        ResourceScope scope,
+        string engineId,
+        AppleVirtualizationGuestAgentEngineGenerationStamp generation,
+        ulong expectedProviderGeneration,
+        ulong expectedHostStartGeneration,
+        string? expectedGuestBootId,
+        ulong? expectedGuestBootGeneration,
+        bool requireEngineGeneration,
+        out string reason)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(engineId);
+        ArgumentNullException.ThrowIfNull(generation);
+        lock (_gate)
+        {
+            if (!_providerGeneration.IsCurrent(
+                    expectedProviderGeneration))
+            {
+                reason = "The expected provider generation is no longer current.";
+                return false;
+            }
+            if (generation.ProviderGeneration != expectedProviderGeneration)
+            {
+                reason = "The engine response provider generation does not match the current provider.";
+                return false;
+            }
+            if (generation.HostStartGeneration != expectedHostStartGeneration)
+            {
+                reason = "The engine response host-start generation does not match the runtime host.";
+                return false;
+            }
+            if (generation.GuestBootGeneration == 0 || generation.GuestAgentGeneration == 0)
+            {
+                reason = "Guest boot and guest-agent generations must be positive.";
+                return false;
+            }
+            if (requireEngineGeneration && generation.EngineGeneration == 0)
+            {
+                reason = "A ready engine must report a positive engine generation.";
+                return false;
+            }
+            if (expectedGuestBootGeneration is { } expectedGeneration &&
+                generation.GuestBootGeneration != expectedGeneration)
+            {
+                reason = "The engine response guest-boot generation does not match the runtime host.";
+                return false;
+            }
+            if (!string.IsNullOrWhiteSpace(expectedGuestBootId) &&
+                !string.Equals(generation.GuestBootId, expectedGuestBootId, StringComparison.Ordinal))
+            {
+                reason = "The engine response guest-boot identity does not match the runtime host.";
+                return false;
+            }
+
+            var key = new AppleVirtualizationHostEngineKey(scope, id.Value, engineId);
+            if (_hostEngineGenerationsByResource.TryGetValue(key, out AppleVirtualizationGuestAgentEngineGenerationStamp? previous))
+            {
+                bool sameBoot = previous.GuestBootGeneration == generation.GuestBootGeneration &&
+                    string.Equals(previous.GuestBootId, generation.GuestBootId, StringComparison.Ordinal);
+                if (!sameBoot && expectedGuestBootGeneration is null)
+                {
+                    reason = "The engine response changed guest-boot identity without a matching runtime-host observation.";
+                    return false;
+                }
+                if (sameBoot && generation.GuestAgentGeneration < previous.GuestAgentGeneration)
+                {
+                    reason = "The engine response guest-agent generation is stale.";
+                    return false;
+                }
+                if (sameBoot &&
+                    generation.EngineGeneration > 0 &&
+                    generation.EngineGeneration < previous.EngineGeneration)
+                {
+                    reason = "The engine response engine generation is stale.";
+                    return false;
+                }
+            }
+
+            if (generation.EngineGeneration > 0)
+            {
+                _hostEngineGenerationsByResource[key] = generation;
+            }
+            reason = string.Empty;
+            return true;
         }
     }
 
@@ -312,7 +431,11 @@ internal sealed class AppleVirtualizationProviderStateLedger
 
             AppleVirtualizationLedgerEntry<ServiceDiscovery, ServiceDiscoveryStatus>? previous = GetExisting(_serviceDiscoveriesByResource, key);
             HandlePair<ServiceDiscovery> handles = GetOrCreateHandles(previous, AppleVirtualizationLedgerResourceKind.ServiceDiscovery, metadata);
-            return Store(_serviceDiscoveriesByResource, key, previous, handles, status, metadata);
+            ServiceDiscoveryStatus stored = status with
+            {
+                Handle = handles.TargetHandle,
+            };
+            return Store(_serviceDiscoveriesByResource, key, previous, handles, stored, metadata);
         }
     }
 
@@ -409,6 +532,18 @@ internal sealed class AppleVirtualizationProviderStateLedger
         {
             return TryGetByResource(_hostsByResource, resource, AppleVirtualizationLedgerResourceKind.RuntimeHost);
         }
+    }
+
+    public IReadOnlyList<
+        AppleVirtualizationLedgerEntry<
+            RuntimeHost,
+            RuntimeHostStatus>> GetReadyRuntimeHosts()
+    {
+        lock (_gate)
+            return _hostsByResource.Values
+                .Where(static entry =>
+                    entry.Status.Readiness?.Ready == true)
+                .ToArray();
     }
 
     public AppleVirtualizationLedgerLookup<AppleVirtualizationLedgerEntry<ExecutionUnit, ExecutionUnitStatus>> TryGetExecutionUnit(ResourceRef<ExecutionUnit> resource)
@@ -570,7 +705,16 @@ internal sealed class AppleVirtualizationProviderStateLedger
             bool removed = Remove(_hostsByResource, resource);
             if (removed)
             {
-                _hostPoliciesByResource.Remove(ToKey(resource));
+                AppleVirtualizationResourceKey hostKey = ToKey(resource);
+                _hostPoliciesByResource.Remove(hostKey);
+                _hostConfigurationFingerprintsByResource.Remove(hostKey);
+                foreach (AppleVirtualizationHostEngineKey engineKey in _hostEngineGenerationsByResource.Keys
+                    .Where(key => key.Scope == resource.Scope &&
+                        string.Equals(key.RuntimeHostId, resource.Id.Value, StringComparison.Ordinal))
+                    .ToArray())
+                {
+                    _hostEngineGenerationsByResource.Remove(engineKey);
+                }
             }
 
             return removed;
@@ -712,6 +856,21 @@ internal sealed class AppleVirtualizationProviderStateLedger
         }
     }
 
+    public bool RemoveServiceDiscovery(
+        ResourceRef<ServiceDiscovery> resource)
+    {
+        lock (_gate)
+        {
+            AppleVirtualizationResourceKey key = ToKey(resource);
+            bool removed = Remove(
+                _serviceDiscoveriesByResource,
+                resource);
+            if (removed)
+                _serviceDiscoverySpecsByResource.Remove(key);
+            return removed;
+        }
+    }
+
     public bool RemovePublishedEndpoint(ResourceRef<PublishedEndpoint> resource)
     {
         lock (_gate)
@@ -736,7 +895,7 @@ internal sealed class AppleVirtualizationProviderStateLedger
             if (removed)
             {
                 _authorityBindingSpecsByResource.Remove(key);
-                _authorityAuditEventsByResource.Remove(key);
+                _authorityAuditEvents.Remove(key);
             }
 
             return removed;
@@ -768,6 +927,19 @@ internal sealed class AppleVirtualizationProviderStateLedger
         }
     }
 
+    public PublishedEndpointSpec? TryGetPublishedEndpointSpec(
+        ResourceRef<PublishedEndpoint> resource)
+    {
+        lock (_gate)
+        {
+            return _publishedEndpointSpecsByResource.TryGetValue(
+                ToKey(resource),
+                out PublishedEndpointSpec? spec)
+                ? spec
+                : null;
+        }
+    }
+
     public EngineControlPlaneSpec? TryGetEngineControlPlaneSpec(ResourceRef<EngineControlPlane> resource)
     {
         lock (_gate)
@@ -782,9 +954,7 @@ internal sealed class AppleVirtualizationProviderStateLedger
     {
         lock (_gate)
         {
-            return _authorityAuditEventsByResource.TryGetValue(ToKey(resource), out AuthorityAuditEvent[]? events)
-                ? events.ToArray()
-                : [];
+            return _authorityAuditEvents.Get(ToKey(resource));
         }
     }
 
@@ -1574,24 +1744,7 @@ internal sealed class AppleVirtualizationProviderStateLedger
         AppleVirtualizationResourceKey key,
         IReadOnlyList<AuthorityAuditEvent> auditEvents)
     {
-        _authorityAuditEventsByResource.TryGetValue(key, out AuthorityAuditEvent[]? existing);
-        int existingCount = existing?.Length ?? 0;
-        int sourceStart = Math.Max(0, existingCount + auditEvents.Count - MaxAuthorityAuditEvents);
-        int keptExisting = existingCount == 0 ? 0 : Math.Max(0, existingCount - sourceStart);
-        int keptNew = Math.Min(auditEvents.Count, MaxAuthorityAuditEvents - keptExisting);
-        var updated = new AuthorityAuditEvent[keptExisting + keptNew];
-        if (existing is not null && keptExisting > 0)
-        {
-            Array.Copy(existing, existingCount - keptExisting, updated, 0, keptExisting);
-        }
-
-        int newStart = auditEvents.Count - keptNew;
-        for (int i = 0; i < keptNew; i++)
-        {
-            updated[keptExisting + i] = auditEvents[newStart + i];
-        }
-
-        _authorityAuditEventsByResource[key] = updated;
+        _authorityAuditEvents.Append(key, auditEvents);
     }
 
     private void ReleaseMembershipsForExecutionUnitNoLock(ResourceRef<ExecutionUnit> unit)
@@ -1985,7 +2138,9 @@ internal sealed class AppleVirtualizationProviderStateLedger
         where TResource : IExecutionResourceMarker, IOperationTargetMarker
         where TStatus : ResourceStatus
     {
-        if (previous is not null && previous.ProviderGeneration == _providerGeneration)
+        if (previous is not null &&
+            _providerGeneration.IsCurrent(
+                previous.ProviderGeneration))
         {
             return new HandlePair<TResource>(previous.TargetHandle, previous.ProviderHandle);
         }
@@ -1995,7 +2150,7 @@ internal sealed class AppleVirtualizationProviderStateLedger
             ProviderId,
             token,
             SchemaIdFor(kind),
-            _providerGeneration);
+            _providerGeneration.Current);
         TargetHandle<TResource> targetHandle = new(
             new TargetRoute
             {
@@ -2009,7 +2164,8 @@ internal sealed class AppleVirtualizationProviderStateLedger
             },
             LifetimeFor(kind),
             AuthorityFor(kind),
-            ProviderGeneration: _providerGeneration);
+            ProviderGeneration:
+                _providerGeneration.Current);
 
         if (previous is not null)
         {
@@ -2038,10 +2194,14 @@ internal sealed class AppleVirtualizationProviderStateLedger
             previous?.CreatedAt ?? now,
             now,
             KindFrom(typeof(TResource)),
-            _providerGeneration);
+            _providerGeneration.Current);
 
         entries[key] = entry;
-        _handlesByToken[handles.ProviderHandle.Token] = new HandleIndexEntry(entry.Kind, key, _providerGeneration);
+        _handlesByToken[handles.ProviderHandle.Token] =
+            new HandleIndexEntry(
+                entry.Kind,
+                key,
+                _providerGeneration.Current);
         return entry;
     }
 
@@ -2095,14 +2255,17 @@ internal sealed class AppleVirtualizationProviderStateLedger
                 AppleVirtualizationHandleDiagnostics.Missing(ProviderId, TargetPath(expectedKind, route.BackingResourceId)));
         }
 
-        if (handleProviderGeneration != _providerGeneration || providerHandle.Value.Generation != _providerGeneration)
+        if (!_providerGeneration.IsCurrent(
+                handleProviderGeneration) ||
+            !_providerGeneration.IsCurrent(
+                providerHandle.Value.Generation))
         {
             ulong observed = handleProviderGeneration == providerHandle.Value.Generation ? handleProviderGeneration : providerHandle.Value.Generation;
             return Failure<AppleVirtualizationLedgerEntry<TResource, TStatus>>(
                 AppleVirtualizationHandleDiagnostics.Stale(
                     ProviderId,
                     TargetPath(expectedKind, route.BackingResourceId),
-                    _providerGeneration,
+                    _providerGeneration.Current,
                     observed));
         }
 
@@ -2153,7 +2316,7 @@ internal sealed class AppleVirtualizationProviderStateLedger
         long sequence = ++_tokenSequence;
         return string.Create(
             CultureInfo.InvariantCulture,
-            $"{KindName(kind)}:{metadata.Scope.Value}:{metadata.Id.Value}:g{_providerGeneration}:h{sequence}");
+            $"{KindName(kind)}:{metadata.Scope.Value}:{metadata.Id.Value}:g{_providerGeneration.Current}:h{sequence}");
     }
 
     private static AppleVirtualizationLedgerLookup<TEntry> Success<TEntry>(TEntry entry)

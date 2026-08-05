@@ -1,3 +1,4 @@
+using HPD.Agent;
 using HPD.MultiAgent;
 using HPD.Graph.Abstractions.Graph;
 
@@ -147,12 +148,17 @@ public class AgentNodeOptionsTests
     }
 
     [Fact]
-    public void WithInstructions_Sets_Additional_Instructions()
+    public void RunConfig_Sets_Additional_Instructions()
     {
-        var options = new AgentNodeOptions()
-            .WithInstructions("Be concise");
+        var options = new AgentNodeOptions
+        {
+            RunConfig = new AgentRunConfig
+            {
+                SystemInstructions = new SystemInstructionsRunConfig { Append = "Be concise" }
+            }
+        };
 
-        options.AdditionalSystemInstructions.Should().Be("Be concise");
+        options.RunConfig.SystemInstructions!.Append.Should().Be("Be concise");
     }
 
     [Fact]
@@ -190,14 +196,14 @@ public class AgentNodeOptionsTests
             .WithInputKey("query")
             .WithOutputKey("answer")
             .WithTimeout(TimeSpan.FromMinutes(1))
-            .WithRetry(3)
-            .WithInstructions("Be helpful");
+            .WithRetry(3);
+        options.RunConfig.SystemInstructions = new SystemInstructionsRunConfig { Append = "Be helpful" };
 
         options.InputKey.Should().Be("query");
         options.OutputKey.Should().Be("answer");
         options.Timeout.Should().Be(TimeSpan.FromMinutes(1));
         options.RetryPolicy.Should().NotBeNull();
-        options.AdditionalSystemInstructions.Should().Be("Be helpful");
+        options.RunConfig.SystemInstructions.Append.Should().Be("Be helpful");
     }
 
     // Test types for union output

@@ -17,6 +17,11 @@ namespace HPD.Agent.Providers.Groq;
 /// <summary>
 /// Groq provider implementation using the shared OpenAI-compatible chat completions client.
 /// </summary>
+[HpdProvider("groq", "Groq", DocumentationUrl = "https://console.groq.com/docs/")]
+[HpdProviderFamily(ProviderClientFamily.Chat)]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(GroqProviderConfig), typeof(GroqJsonContext))]
+[HpdProviderSecretAlias("groq:ApiKey", "GROQ_API_KEY")]
+[HpdProviderSecretAlias("groq:Endpoint", "GROQ_ENDPOINT")]
 internal sealed class GroqProvider : IChatClientProvider
 {
     internal static readonly Uri DefaultEndpoint = new("https://api.groq.com/openai/v1/");
@@ -43,8 +48,8 @@ internal sealed class GroqProvider : IChatClientProvider
     public string ProviderKey => "groq";
     public string DisplayName => "Groq";
 
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider registers an AOT-compatible config deserializer in GroqProviderModule.")]
-    public Meai.IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null)
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
+    public async ValueTask<Meai.IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(config);
 
@@ -61,12 +66,8 @@ internal sealed class GroqProvider : IChatClientProvider
                 "Ensure the agent builder is properly configured with secret resolution.");
         }
 
-        var apiKey = secrets.RequireAsync("groq:ApiKey", "Groq API Key", config.ApiKey, CancellationToken.None)
-            .GetAwaiter()
-            .GetResult();
-        var endpointValue = secrets.ResolveOrDefaultAsync("groq:Endpoint", config.Endpoint, CancellationToken.None)
-            .GetAwaiter()
-            .GetResult();
+        var apiKey = await secrets.RequireAsync("groq:ApiKey", "Groq API Key", config.ApiKey, cancellationToken).ConfigureAwait(false);
+        var endpointValue = await secrets.ResolveOrDefaultAsync("groq:Endpoint", config.Endpoint, cancellationToken).ConfigureAwait(false);
 
         var endpoint = string.IsNullOrWhiteSpace(endpointValue)
             ? DefaultEndpoint
@@ -129,8 +130,8 @@ internal sealed class GroqProvider : IChatClientProvider
         };
     }
 
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider registers an AOT-compatible config deserializer in GroqProviderModule.")]
-    public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family)
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
+    public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
     {
         ArgumentNullException.ThrowIfNull(config);
 
@@ -146,11 +147,6 @@ internal sealed class GroqProvider : IChatClientProvider
             errors.Add("Model name is required for Groq");
         }
 
-        if (string.IsNullOrWhiteSpace(config.ApiKey))
-        {
-            errors.Add("API key is required for Groq. " +
-                       "Set it via the apiKey parameter, GROQ_API_KEY environment variable, or configuration.");
-        }
 
         if (!string.IsNullOrWhiteSpace(config.Endpoint) &&
             !Uri.IsWellFormedUriString(config.Endpoint, UriKind.Absolute))

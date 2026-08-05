@@ -126,8 +126,8 @@ public sealed record AgentWorkspace(
         workspace = null!;
         error = null;
 
-        if (runConfig.ContextOverrides is null ||
-            !runConfig.ContextOverrides.TryGetValue(ContextKey, out var raw) ||
+        if (runConfig.Context?.Properties is null ||
+            !runConfig.Context.Properties.TryGetValue(ContextKey, out var raw) ||
             raw is null)
         {
             error = "Workspace is required. Select a workspace before using workspace tools.";

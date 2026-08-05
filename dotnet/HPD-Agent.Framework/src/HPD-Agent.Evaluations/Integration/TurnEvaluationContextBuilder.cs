@@ -58,14 +58,14 @@ internal static class TurnEvaluationContextBuilder
             IterationUsage = context.IterationUsage,
             IterationCount = context.IterationUsage.Count,
             Duration = buffer.TurnDuration,
-            ModelId = context.RunConfig.ModelId ?? context.FinalResponse.ModelId,
+            ModelId = context.RunConfig.Clients.Chat?.ModelName ?? context.FinalResponse.ModelId,
             ResponseModelId = context.FinalResponse.ModelId,
-            ProviderKey = context.RunConfig.ProviderKey,
+            ProviderKey = context.RunConfig.Clients.Chat?.ProviderKey,
             Attributes = attributes,
             Metrics = new Dictionary<string, double>(evalData.Metrics),
             StopKind = stopKind,
             GroundTruth = groundTruth,
-            ExperimentContext = context.RunConfig.ContextOverrides,
+            ExperimentContext = context.RunConfig.Context?.Properties,
         };
     }
 

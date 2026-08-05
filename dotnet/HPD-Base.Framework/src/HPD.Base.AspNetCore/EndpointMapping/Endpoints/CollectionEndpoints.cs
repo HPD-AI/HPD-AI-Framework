@@ -1,26 +1,22 @@
 using HPD.Base;
-using HPD.Base.AspNetCore.EndpointMapping;
-using HPD.Base.AspNetCore.Http;
-using HPD.Base.AspNetCore.OpenApi;
-using HPD.Base.AspNetCore.Results;
-using HPD.Base.Results;
-using HPD.Base.Runtime;
-using HPD.Base.Schema;
+using HPD.Base.AspNetCore;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace HPD.Base.AspNetCore.EndpointMapping.Endpoints;
+namespace HPD.Base.AspNetCore;
 
 internal static class CollectionEndpoints
 {
+    /// <summary>Executes the map public operation.</summary>
     public static void MapPublic(IEndpointRouteBuilder endpoints)
     {
         endpoints.MapGet("/collections", (RequestDelegate)ListPublic).WithHPDBaseOpenApi(BaseHttpRouteNames.CollectionsList).WithName(BaseHttpRouteNames.CollectionsList);
         endpoints.MapGet("/collections/{collectionId}", (RequestDelegate)GetPublic).WithHPDBaseOpenApi(BaseHttpRouteNames.CollectionsGet).WithName(BaseHttpRouteNames.CollectionsGet);
     }
 
+    /// <summary>Executes the map admin operation.</summary>
     public static void MapAdmin(IEndpointRouteBuilder endpoints)
     {
         endpoints.MapGet("/collections", (RequestDelegate)ListAdmin).WithHPDBaseOpenApi(BaseHttpRouteNames.AdminCollectionsList).WithName(BaseHttpRouteNames.AdminCollectionsList);

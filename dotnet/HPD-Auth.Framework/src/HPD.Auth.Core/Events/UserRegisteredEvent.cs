@@ -7,7 +7,7 @@ namespace HPD.Auth.Core.Events;
 /// Subscribers can use this event to send welcome emails, provision resources,
 /// trigger onboarding flows, or update analytics.
 /// </summary>
-public record UserRegisteredEvent : AuthEvent
+public sealed record UserRegisteredEvent : AuthEvent
 {
     public required Guid UserId { get; init; }
 

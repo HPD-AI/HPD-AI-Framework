@@ -1,18 +1,17 @@
 using System.Security.Claims;
-using HPD.Base.AspNetCore.Configuration;
-using HPD.Base.AspNetCore.EndpointMapping;
-using HPD.Base.Policy;
-using HPD.Base.Runtime;
+using HPD.Base.AspNetCore;
+using HPD.Base;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
 
-namespace HPD.Base.AspNetCore.Http;
+namespace HPD.Base.AspNetCore;
 
 internal sealed class BaseHttpPrincipalContextFactory : IBaseHttpPrincipalContextFactory
 {
     private readonly IEnumerable<IBaseHttpPrincipalMapper> _mappers;
     private readonly HPDBaseAspNetCoreOptions _options;
 
+    /// <summary>Initializes a new instance.</summary>
     public BaseHttpPrincipalContextFactory(
         IEnumerable<IBaseHttpPrincipalMapper> mappers,
         IOptions<HPDBaseAspNetCoreOptions> options)
@@ -21,6 +20,7 @@ internal sealed class BaseHttpPrincipalContextFactory : IBaseHttpPrincipalContex
         _options = options.Value;
     }
 
+    /// <summary>Executes the create async operation.</summary>
     public async ValueTask<PrincipalContext> CreateAsync(
         HttpContext httpContext,
         HPDBaseEndpointKind endpointKind,

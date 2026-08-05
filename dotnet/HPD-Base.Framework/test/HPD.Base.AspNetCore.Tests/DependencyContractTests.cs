@@ -12,7 +12,7 @@ public sealed class DependencyContractTests
         project.Descendants("ProjectReference")
             .Select(reference => reference.Attribute("Include")?.Value)
             .Should()
-            .BeEquivalentTo(["../HPD.Base.Runtime/HPD.Base.Runtime.csproj"]);
+            .BeEquivalentTo(["../HPD.Base/HPD.Base.csproj"]);
 
         project.Descendants("FrameworkReference")
             .Select(reference => reference.Attribute("Include")?.Value)

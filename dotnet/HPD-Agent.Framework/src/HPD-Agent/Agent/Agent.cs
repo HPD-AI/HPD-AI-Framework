@@ -29,9 +29,17 @@ namespace HPD.Agent;
 /// </summary>
 public sealed class Agent
 {
+    internal ProviderComposition? ProviderComposition => _chatClientResolver.Composition;
+
     private readonly IChatClient? _baseClient;
     private readonly AgentChatClientHandle? _defaultChatClientHandle;
     private readonly AgentChatClientResolver _chatClientResolver;
+    private readonly ProviderClientManager<ITextToSpeechClient> _textToSpeechClientManager = new();
+    private readonly ProviderClientManager<ISpeechToTextClient> _speechToTextClientManager = new();
+    private readonly ProviderClientManager<IRealtimeClient> _realtimeClientManager = new();
+    private readonly ProviderClientManager<IImageGenerator> _imageGeneratorManager = new();
+    private readonly ProviderClientManager<IEmbeddingGenerator> _embeddingGeneratorManager = new();
+    private readonly ProviderClientManager<IHostedFileClient> _hostedFileClientManager = new();
     private readonly AgentClientSet? _clientSet;
     private readonly string _name;
     private readonly ChatClientMetadata _metadata;
@@ -276,9 +284,9 @@ public sealed class Agent
             ? null
             : AgentChatClientHandle.Borrowed(
                 _baseClient,
-                AgentChatClientSource.AgentDefault,
+                AgentChatClientSource.BuilderDefault,
                 clientSet?.GetResolvedConfig(Providers.ProviderClientFamily.Chat));
-        _chatClientResolver = new AgentChatClientResolver(providerRegistry, serviceProvider);
+        _chatClientResolver = new AgentChatClientResolver(providerRegistry, serviceProvider, config.ClientMiddleware);
         _name = config.Name ?? "Agent"; // Default to "Agent" to prevent null dictionary key exceptions
 
         // Initialize unified middleware pipeline
@@ -306,7 +314,7 @@ public sealed class Agent
         // Plan mode instructions now injected by AgentPlanAgentMiddleware (middleware-based)
         _messageProcessor = new MessageProcessor(
             config.SystemInstructions, // Use base instructions; middleware adds plan mode guidance
-            mergedOptions ?? chatConfig?.BuildEffectiveChatOptions());
+            mergedOptions ?? (chatConfig as ChatClientConfig)?.ToMicrosoftChatOptions());
         _functionExecutionCore = new FunctionExecutionCore(
             _middlewarePipeline,
             config.ErrorHandling,
@@ -366,7 +374,7 @@ public sealed class Agent
     /// <summary>
     /// Default chat options
     /// </summary>
-    public ChatOptions? DefaultOptions => Config?.ResolveClientConfig(Providers.ProviderClientFamily.Chat)?.BuildEffectiveChatOptions() ?? _messageProcessor.DefaultOptions;
+    public ChatOptions? DefaultOptions => _messageProcessor.DefaultOptions;
 
     internal void SetSkillCatalog(
         SkillCatalog catalog,
@@ -727,10 +735,15 @@ public sealed class Agent
 
     // ─────────────────────────────────────────────────────────────────────────
 
-    private AgentEvent EnrichOutputEvent(AgentEvent evt) =>
-        AgentMetadata != null
-            ? evt with { Metadata = AgentMetadata }
-            : evt;
+    private AgentEvent EnrichOutputEvent(AgentEvent evt)
+    {
+        var threadExecutionId = _activeRuntimeInput?.ThreadExecutionId;
+        return evt with
+        {
+            Metadata = evt.Metadata ?? AgentMetadata,
+            ThreadExecutionId = evt.ThreadExecutionId ?? threadExecutionId
+        };
+    }
 
     private async Task CommitThreadMessagesAsync(
         Session? session,
@@ -1106,6 +1119,26 @@ public sealed class Agent
         InterruptionRequestEvent interruption,
         CancellationToken cancellationToken)
     {
+        var eventCoordinator = GetActiveEventCoordinator();
+
+        // A targeted interruption owns only the named event flow. It remains useful
+        // even when no model input is active and must never cancel an unrelated input.
+        if (!string.IsNullOrWhiteSpace(interruption.EventFlowId))
+        {
+            eventCoordinator.EventFlows.InterruptFlow(interruption.EventFlowId);
+            await PublishScopedRuntimeEventAsync(new InterruptionHandledEvent(
+                interruption.EventFlowId,
+                interruption.Reason,
+                interruption.Source)
+            {
+                SessionId = interruption.SessionId,
+                ThreadId = interruption.ThreadId
+            }, eventCoordinator, cancellationToken).ConfigureAwait(false);
+
+            lock (_runtimeLock)
+                return ControlResult(AgentInputDisposition.Accepted, _activeRuntimeInput?.ThreadExecutionId);
+        }
+
         ActiveRuntimeInput? activeInput;
         lock (_runtimeLock)
         {
@@ -1118,16 +1151,7 @@ public sealed class Agent
                 return ControlResult(AgentInputDisposition.ExecutionFinishing, activeInput.ThreadExecutionId);
         }
 
-        var eventCoordinator = GetActiveEventCoordinator();
-
-        if (!string.IsNullOrWhiteSpace(interruption.EventFlowId))
-        {
-            eventCoordinator.EventFlows.InterruptFlow(interruption.EventFlowId);
-        }
-        else
-        {
-            eventCoordinator.EventFlows.InterruptAll();
-        }
+        eventCoordinator.EventFlows.InterruptAll();
 
         activeInput.Cancellation.Cancel();
 
@@ -1208,7 +1232,8 @@ public sealed class Agent
                 input.ClientInputId,
                 activeInput,
                 cancellationToken,
-                input.InheritedChatClient).ConfigureAwait(false))
+                input.InheritedChatClient,
+                input.InheritedChatMode).ConfigureAwait(false))
             {
                 result.Add(evt);
             }
@@ -1233,7 +1258,8 @@ public sealed class Agent
                 input.ClientInputId,
                 activeInput,
                 cancellationToken,
-                input.InheritedChatClient).ConfigureAwait(false))
+                input.InheritedChatClient,
+                input.InheritedChatMode).ConfigureAwait(false))
             {
                 result.Add(evt);
             }
@@ -1256,7 +1282,8 @@ public sealed class Agent
             input.ClientInputId,
             activeInput,
             cancellationToken,
-            input.InheritedChatClient).ConfigureAwait(false))
+            input.InheritedChatClient,
+            input.InheritedChatMode).ConfigureAwait(false))
         {
             unsessionedResult.Add(evt);
         }
@@ -1552,7 +1579,7 @@ public sealed class Agent
                 runtimeInbox.Writer,
                 async (runtimeInput, ct) =>
                 {
-                    await RunAsync(TargetActiveExecution(runtimeInput), ct).ConfigureAwait(false);
+                    await runtimeInbox.Writer.WriteAsync(runtimeInput, ct).ConfigureAwait(false);
                 },
                 HasActiveRuntimeInputs,
                 runtimeCts.Token,
@@ -1866,9 +1893,16 @@ public sealed class Agent
     /// Sends a semantic input event to the agent.
     /// </summary>
     /// <returns>The semantic admission or completion result.</returns>
-    public async Task<AgentInputResult> RunAsync(AgentInputEvent input, CancellationToken cancellationToken = default)
+    public Task<AgentInputResult> RunAsync(AgentInputEvent input, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(input);
+        return RunCapturedInputAsync(CaptureInput(input), cancellationToken);
+    }
+
+    private async Task<AgentInputResult> RunCapturedInputAsync(
+        AgentInputEvent input,
+        CancellationToken cancellationToken)
+    {
         var registration = _inputDispatcher.GetRegistration(input.GetType());
 
         if (registration.Delivery == AgentInputDelivery.QueuedWork)
@@ -1917,11 +1951,18 @@ public sealed class Agent
     /// Enqueues input into an already-running runtime and returns a receipt whose completion
     /// reports execution outcome. This method does not create hosted thread-execution lifecycle facts.
     /// </summary>
-    public async ValueTask<AgentRuntimeInputSubmission> EnqueueAsync(
+    public ValueTask<AgentRuntimeInputSubmission> EnqueueAsync(
         AgentInputEvent input,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(input);
+        return EnqueueCapturedAsync(CaptureInput(input), cancellationToken);
+    }
+
+    private async ValueTask<AgentRuntimeInputSubmission> EnqueueCapturedAsync(
+        AgentInputEvent input,
+        CancellationToken cancellationToken)
+    {
         var registration = _inputDispatcher.GetRegistration(input.GetType());
         if (registration.Delivery != AgentInputDelivery.QueuedWork)
             throw new ArgumentException("Active-control inputs cannot be enqueued as runtime work.", nameof(input));
@@ -1959,8 +2000,8 @@ public sealed class Agent
     /// <summary>
     /// Routes a response event to the request session matching its request ID.
     /// </summary>
-    public async Task<HPD.Events.RespondResult> AnswerRequestAsync(
-        HPD.Events.IResponseEvent response,
+    public async Task<AgentRespondResult> AnswerRequestAsync(
+        IAgentResponseEvent response,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(response);
@@ -1976,8 +2017,8 @@ public sealed class Agent
     /// <summary>
     /// Attempts to route a response event to the request session matching its request ID.
     /// </summary>
-    public async Task<HPD.Events.RespondResult> TryAnswerRequestAsync(
-        HPD.Events.IResponseEvent response,
+    public async Task<AgentRespondResult> TryAnswerRequestAsync(
+        IAgentResponseEvent response,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(response);
@@ -1990,8 +2031,8 @@ public sealed class Agent
             .ConfigureAwait(false);
     }
 
-    private async ValueTask<HPD.Events.RespondResult> CompleteRequestResponseAsync(
-        HPD.Events.IResponseEvent response,
+    private async ValueTask<AgentRespondResult> CompleteRequestResponseAsync(
+        IAgentResponseEvent response,
         HPD.Events.Event responseEvent,
         CancellationToken cancellationToken)
     {
@@ -2000,7 +2041,7 @@ public sealed class Agent
             string.IsNullOrWhiteSpace(agentResponse.SessionId) ||
             string.IsNullOrWhiteSpace(agentResponse.ThreadId))
         {
-            return coordinator.Respond(response.RequestId, responseEvent);
+            return coordinator.Respond(response.RequestId, responseEvent).ToAgentResult();
         }
 
         var store = Config?.SessionStore
@@ -2009,7 +2050,7 @@ public sealed class Agent
         var publisher = new ThreadEventPublisher(store, coordinator);
         var key = new ThreadKey(agentResponse.SessionId, agentResponse.ThreadId);
 
-        return await coordinator.RespondAsync(
+        var result = await coordinator.RespondAsync(
             response.RequestId,
             responseEvent,
             async (accepted, _) =>
@@ -2020,6 +2061,7 @@ public sealed class Agent
                     CancellationToken.None).ConfigureAwait(false);
             },
             cancellationToken).ConfigureAwait(false);
+        return result.ToAgentResult();
     }
 
     /// <summary>
@@ -2043,7 +2085,7 @@ public sealed class Agent
     /// Sends user text input to the agent.
     /// </summary>
     /// <returns>The completed turn result, including final text, emitted events, and completion metadata.</returns>
-    public async Task<AgentTurnResult> RunAsync(
+    public Task<AgentTurnResult> RunAsync(
         string userMessage,
         string? sessionId = null,
         string? threadId = "main",
@@ -2052,13 +2094,59 @@ public sealed class Agent
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(userMessage);
 
-        var result = await RunAsync(new UserMessagesInputEvent { Messages = [new ChatMessage(ChatRole.User, userMessage)],
+        return RunTextAsync(new UserMessagesInputEvent { Messages = [new ChatMessage(ChatRole.User, userMessage)],
             SessionId = sessionId,
             ThreadId = threadId,
             RunConfig = runConfig
-        }, cancellationToken).ConfigureAwait(false);
+        }, cancellationToken);
+    }
+
+    private async Task<AgentTurnResult> RunTextAsync(
+        UserMessagesInputEvent input,
+        CancellationToken cancellationToken)
+    {
+        var result = await RunAsync(input, cancellationToken).ConfigureAwait(false);
         return result.TurnResult;
     }
+
+    private AgentInputEvent CaptureInput(AgentInputEvent input)
+    {
+        var runConfig = AgentRunConfigSnapshot.Capture(input.RunConfig, _chatClientResolver.Composition);
+        return input switch
+        {
+            UserMessagesInputEvent messages => messages with
+            {
+                RunConfig = runConfig,
+                Messages = messages.Messages.ToArray()
+            },
+            SteeringInputEvent steering => steering with
+            {
+                RunConfig = runConfig,
+                Messages = steering.Messages.ToArray()
+            },
+            BackgroundTaskNotificationInputEvent notification => notification with
+            {
+                RunConfig = runConfig,
+                Notifications = notification.Notifications.ToArray()
+            },
+            _ => input with { RunConfig = runConfig }
+        };
+    }
+
+    internal IChatClient CreateSpecializedChatClient(
+        AgentRunConfig runConfig,
+        ChatClientConfig? chat,
+        ClientFamilyInheritanceMode inheritance) =>
+        new AgentSpecializedChatClient(
+            _chatClientResolver,
+            Config ?? throw new InvalidOperationException("Agent configuration is not available."),
+            runConfig,
+            _defaultChatClientHandle,
+            chat,
+            inheritance);
+
+    internal AgentRunConfig CaptureRunConfig(AgentRunConfig? runConfig) =>
+        AgentRunConfigSnapshot.Capture(runConfig, _chatClientResolver.Composition) ?? new AgentRunConfig();
 
     /// <summary>
     /// - Accepts PreparedTurn (functional preparation from MessageProcessor.PrepareTurnAsync)
@@ -2078,7 +2166,8 @@ public sealed class Agent
         string? clientInputId = null,
         ActiveRuntimeInput? activeInput = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default,
-        AgentChatClientHandle? inheritedChatClient = null)
+        AgentChatClientHandle? inheritedChatClient = null,
+        ClientFamilyInheritanceMode inheritedChatMode = ClientFamilyInheritanceMode.UseOwn)
     {
         eventCoordinator ??= _eventCoordinator;
         var orchestrationStartTime = DateTime.UtcNow;
@@ -2150,6 +2239,7 @@ public sealed class Agent
 
         var isResumeTurn = newInputMessages.Count == 0 && thread?.Messages.Count > 0;
         AgentChatClientLease? chatClientLease = null;
+        AgentClientSet? runClientSet = null;
 
         try
         {
@@ -2214,15 +2304,18 @@ public sealed class Agent
                     {
                         AgentConfig = Config ?? throw new InvalidOperationException("Agent configuration is not available."),
                         RunConfig = effectiveRunConfig,
-                        AgentDefault = _defaultChatClientHandle,
-                        InheritedFallback = inheritedChatClient
+                        BuilderDefault = _defaultChatClientHandle,
+                        ParentResolved = inheritedChatClient,
+                        ParentInheritance = inheritedChatMode
                     },
                     effectiveCancellationToken).ConfigureAwait(false);
             }
-            var overrideRealtimeClient = ResolveRealtimeClientForOptions(runConfig);
+            runClientSet = await ResolveRunClientSetAsync(effectiveRunConfig, effectiveCancellationToken)
+                .ConfigureAwait(false);
+            var effectiveClientSet = runClientSet ?? _clientSet;
 
             // Resolve background responses settings from AgentRunConfig → Config → false
-            var allowBackgroundResponses = runConfig?.AllowBackgroundResponses
+            var allowBackgroundResponses = runConfig?.BackgroundResponses?.Allow
                 ?? Config?.BackgroundResponses?.DefaultAllow
                 ?? false;
 
@@ -2232,12 +2325,12 @@ public sealed class Agent
 
             // Apply background responses settings to effectiveOptions
             // Note: This requires pragma suppression for experimental M.E.AI feature
-            if (allowBackgroundResponses || runConfig?.ContinuationToken != null)
+            if (allowBackgroundResponses || runConfig?.BackgroundResponses?.ContinuationToken != null)
             {
                 effectiveOptions = ApplyBackgroundResponsesOptions(
                     effectiveOptions,
                     allowBackgroundResponses,
-                    runConfig?.ContinuationToken);
+                    runConfig?.BackgroundResponses?.ContinuationToken);
             }
 
             // OBSERVABILITY: Start telemetry and logging
@@ -2263,18 +2356,19 @@ public sealed class Agent
                 services: _serviceProvider,     // Pass service provider for DI
                 runtimeCapabilities: _runtimeContext?.RuntimeCapabilities,
                 traceId: traceId,                // Propagate trace ID to all middleware-emitted events
+                threadExecutionId: activeInput?.ThreadExecutionId,
                 agentId: AgentId,
                 parentAgentMetadata: AgentMetadata,
                 parentAgentStore: Config?.AgentStore,
                 config: Config,
-                clientSet: _clientSet,
+                clientSet: effectiveClientSet,
                 contentStore: _contentStore,
                 structEvents: GetActiveStructEvents(),
                 inputHandler: async (input, ct) =>
                     _ = await RunAsync(TargetActiveExecution(input), ct).ConfigureAwait(false));
 
             // IMPORTANT: Create runConfig instance ONCE and reuse it throughout the entire turn
-            // Middleware may modify runConfig (e.g., AgentPlanAgentMiddleware sets AdditionalSystemInstructions)
+            // Middleware may modify the consolidated per-run concern objects.
             // We must use the SAME instance for BeforeMessageTurnAsync and BeforeIterationAsync
             var turnPipeline = BuildTurnMiddlewarePipeline(effectiveRunConfig);
             var functionCallProcessor = ReferenceEquals(turnPipeline, _middlewarePipeline)
@@ -2472,7 +2566,7 @@ public sealed class Agent
                     // Only merge once - subsequent iterations reuse the merged options
                     // ═══════════════════════════════════════════════════════════════
                     var hasRuntimeTools = runConfig?.RuntimeTools?.Count > 0;
-                    var hasAdditionalTools = runConfig?.AdditionalTools?.Count > 0;
+                    var hasAdditionalTools = runConfig?.Tools?.Additional?.Count > 0;
 
                     if ((hasRuntimeTools || hasAdditionalTools) && state.Iteration == 0)
                     {
@@ -2490,7 +2584,7 @@ public sealed class Agent
 
                         // Add user-provided additional tools
                         if (hasAdditionalTools)
-                            allTools.AddRange(runConfig!.AdditionalTools!);
+                            allTools.AddRange(runConfig!.Tools!.Additional!);
 
                         effectiveOptions.Tools = allTools;
                     }
@@ -2500,8 +2594,8 @@ public sealed class Agent
                     // Forces LLM to call a tool - provider-enforced, not prompt-based
                     // Only apply on first iteration - subsequent iterations follow same mode
                     // ═══════════════════════════════════════════════════════════════
-                    // Public ToolModeOverride takes precedence over internal RuntimeToolMode
-                    var toolModeOverride = runConfig?.ToolModeOverride ?? runConfig?.RuntimeToolMode;
+                    // Public Tools.Mode takes precedence over internal RuntimeToolMode.
+                    var toolModeOverride = runConfig?.Tools?.Mode ?? runConfig?.RuntimeToolMode;
                     if (toolModeOverride != null && state.Iteration == 0)
                     {
                         effectiveOptions = effectiveOptions?.Clone() ?? new ChatOptions();
@@ -2675,19 +2769,19 @@ public sealed class Agent
                             ? chatClientLease?.Client
                             : null;
                         var realtimeModel = selectedTransport is Middleware.AgentModelTransport.Realtime
-                            ? overrideRealtimeClient ?? _clientSet?.Realtime
+                            ? effectiveClientSet?.Realtime
                             : null;
 
                         if (selectedTransport is Middleware.AgentModelTransport.Chat && chatModel is null)
                         {
                             throw new InvalidOperationException(
-                                "No chat model is configured for this agent run. Configure Provider/ModelName on AgentConfig or pass ProviderKey/ModelId or OverrideChatClient in AgentRunConfig.");
+                                "No chat model is configured for this agent run. Configure Clients.Chat on AgentConfig or AgentRunConfig, including Clients.Chat.Override when supplying a client directly.");
                         }
 
                         if (selectedTransport is Middleware.AgentModelTransport.Realtime && realtimeModel is null)
                         {
                             throw new InvalidOperationException(
-                                "No realtime model is configured for this agent run. Configure Clients.Realtime on AgentConfig, pass AgentRunConfig.Clients.Realtime, or pass OverrideRealtimeClient.");
+                                "No realtime model is configured for this agent run. Configure Clients.Realtime on AgentConfig or AgentRunConfig.");
                         }
 
                         var modelMessages = ProjectMessagesForModelHistory(
@@ -2710,7 +2804,7 @@ public sealed class Agent
                             StructEvents = GetActiveStructEvents(),
                             Session = agentContext.Session,
                             ContentStore = _contentStore,
-                            ClientSet = _clientSet
+                            ClientSet = effectiveClientSet
                         };
 
                         var modelTurnExecutor = selectedTransport is Middleware.AgentModelTransport.Realtime
@@ -2778,7 +2872,7 @@ public sealed class Agent
                         }
 
                         // Check if we should coalesce deltas (run options override config default)
-                        bool coalesceDeltas = effectiveRunConfig.CoalesceDeltas ?? Config?.CoalesceDeltas ?? false;
+                        bool coalesceDeltas = effectiveRunConfig.Streaming?.CoalesceDeltas ?? Config?.CoalesceDeltas ?? false;
 
                         static ChatResponseUpdate? ToChatResponseUpdate(Middleware.AgentModelUpdate modelUpdate)
                         {
@@ -3668,6 +3762,7 @@ public sealed class Agent
         {
             if (chatClientLease is not null)
                 await chatClientLease.DisposeAsync().ConfigureAwait(false);
+            runClientSet?.Dispose();
             turn.CatalogLease?.Dispose();
             RootAgent = previousRootAgent;
         }
@@ -3836,6 +3931,13 @@ public sealed class Agent
             _clientSet.Dispose();
         else
             _baseClient?.Dispose();
+        _chatClientResolver.Dispose();
+        _textToSpeechClientManager.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        _speechToTextClientManager.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        _realtimeClientManager.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        _imageGeneratorManager.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        _embeddingGeneratorManager.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        _hostedFileClientManager.DisposeAsync().AsTask().GetAwaiter().GetResult();
         _realtimeModelTurnExecutor.DisposeAsync().AsTask().GetAwaiter().GetResult();
         (_eventCoordinator as IDisposable)?.Dispose();
         if (_ownedHttpClients != null)
@@ -3960,7 +4062,7 @@ public sealed class Agent
     /// <remarks>
     /// <para>
     /// <b>Provider Switching Priority:</b>
-    /// 1. options.OverrideChatClient (highest - direct client override)
+    /// 1. options.Clients.Chat.Override (highest - direct client override)
     /// 2. options.ProviderKey + options.ModelId (via registry)
     /// 3. Agent's default client (lowest)
     /// </para>
@@ -3979,7 +4081,7 @@ public sealed class Agent
     /// {
     ///     ProviderKey = "anthropic",
     ///     ModelId = "claude-opus",
-    ///     Chat = new ChatRunConfig { Temperature = 0.7 }
+    ///     Chat = new ChatClientConfig { Temperature = 0.7 }
     /// };
     /// await agent.RunTurnStreamAsync("Hello", session, options);
     /// </code>
@@ -4047,85 +4149,6 @@ public sealed class Agent
     }
 
     /// <summary>
-    /// Run the agent with options-only (UserMessage and/or Attachments from options).
-    /// Enables content-first interactions: audio-only, image-only, document-only runs.
-    /// </summary>
-    /// <param name="options">Run options containing UserMessage and/or Attachments</param>
-    /// <param name="session">Optional session for conversation continuity</param>
-    /// <param name="cancellationToken">Cancellation token</param>
-    /// <returns>Stream of agent events</returns>
-    /// <exception cref="ArgumentException">Thrown if both UserMessage and Attachments are null/empty</exception>
-    /// <remarks>
-    /// <para>
-    /// This overload enables clean DX for content-first interactions:
-    /// - Voice assistants: User sends only audio
-    /// - Vision apps: User sends only images
-    /// - Document analysis: User sends only documents
-    /// </para>
-    /// <para>
-    /// The runtime pipeline handles content transformation before the LLM call.
-    /// For example, audio runtime integration can transcribe audio → text.
-    /// </para>
-    /// <para>
-    /// <b>Example - Text + Attachments:</b>
-    /// <code>
-    /// await agent.RunTurnStreamAsync(new AgentRunConfig
-    /// {
-    ///     UserMessage = "Analyze this document",
-    ///     Attachments = [await DocumentContent.FromFileAsync("report.pdf")]
-    /// });
-    /// </code>
-    /// </para>
-    /// <para>
-    /// <b>Example - Audio Only:</b>
-    /// <code>
-    /// await agent.RunTurnStreamAsync(new AgentRunConfig
-    /// {
-    ///     Attachments = [new AudioContent(audioBytes, MimeTypeRegistry.AudioMpeg)]
-    /// });
-    /// </code>
-    /// </para>
-    /// <para>
-    /// <b>Example - Multiple Attachments:</b>
-    /// <code>
-    /// await agent.RunTurnStreamAsync(new AgentRunConfig
-    /// {
-    ///     Attachments = [
-    ///         new ImageContent(screenshotBytes),
-    ///         await DocumentContent.FromFileAsync("context.pdf")
-    ///     ]
-    /// });
-    /// </code>
-    /// </para>
-    /// </remarks>
-    internal IAsyncEnumerable<AgentEvent> RunTurnStreamAsync(
-        AgentRunConfig options,
-        Session? session = null,
-        Thread? thread = null,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(options);
-
-        var contents = new List<AIContent>();
-
-        if (!string.IsNullOrEmpty(options.UserMessage))
-            contents.Add(new TextContent(options.UserMessage));
-
-        if (options.Attachments?.Count > 0)
-            contents.AddRange(options.Attachments);
-
-        if (contents.Count == 0)
-        {
-            throw new ArgumentException(
-                "AgentRunConfig must provide UserMessage or Attachments (at least one).",
-                nameof(options));
-        }
-
-        var message = new ChatMessage(ChatRole.User, contents);
-        return RunTurnStreamAsync([message], session, thread, options, cancellationToken);
-    }
-
-    /// <summary>
     /// Runs the agent with messages. This is the core RunAsync implementation.
     /// All other RunAsync overloads delegate to this method.
     /// </summary>
@@ -4143,7 +4166,7 @@ public sealed class Agent
     /// <para>
     /// <b>Options:</b>
     /// Use <see cref="AgentRunConfig"/> for per-invocation customization:
-    /// - Provider switching via ProviderKey/ModelId or OverrideChatClient
+    /// - Provider switching via Clients.Chat provider/model configuration or a client override
     /// - System instruction overrides
     /// - Chat parameters (temperature, tokens, etc.) via Chat property
     /// - Client tool configuration via ClientToolInput
@@ -4180,7 +4203,8 @@ public sealed class Agent
         string? clientInputId,
         ActiveRuntimeInput? activeInput,
         [EnumeratorCancellation] CancellationToken cancellationToken,
-        AgentChatClientHandle? inheritedChatClient = null)
+        AgentChatClientHandle? inheritedChatClient = null,
+        ClientFamilyInheritanceMode inheritedChatMode = ClientFamilyInheritanceMode.UseOwn)
     {
         // Validation
         if (thread != null)
@@ -4196,8 +4220,9 @@ public sealed class Agent
         }
 
         // Resolve chat options from AgentRunConfig and apply system instruction overrides.
-        var baseDefaultOptions = Config?.ResolveClientConfig(Providers.ProviderClientFamily.Chat)?.BuildEffectiveChatOptions();
-        var chatOptions = options?.Chat?.MergeWith(baseDefaultOptions) ?? baseDefaultOptions;
+        var baseDefaultOptions =
+            (Config?.ResolveClientConfig(Providers.ProviderClientFamily.Chat) as ChatClientConfig)?.ToMicrosoftChatOptions();
+        var chatOptions = options?.Clients.Chat?.MergeWith(baseDefaultOptions) ?? baseDefaultOptions;
         chatOptions = ApplySystemInstructionOverrides(chatOptions, options);
 
         // Prepare turn
@@ -4240,7 +4265,8 @@ public sealed class Agent
             clientInputId: clientInputId,
             activeInput: activeInput,
             cancellationToken: cancellationToken,
-            inheritedChatClient: inheritedChatClient);
+            inheritedChatClient: inheritedChatClient,
+            inheritedChatMode: inheritedChatMode);
 
         await using var enumerator = internalStream.GetAsyncEnumerator(cancellationToken);
         string? messageTurnId = null;
@@ -4353,11 +4379,11 @@ public sealed class Agent
                 cancellationToken).ConfigureAwait(false);
 
             // Custom streaming callback if provided
-            if (options?.CustomStreamCallback != null)
+            if (options?.Streaming?.Callback != null)
             {
                 try
                 {
-                    await options.CustomStreamCallback(outputEvent).ConfigureAwait(false);
+                    await options.Streaming.Callback(outputEvent).ConfigureAwait(false);
                 }
                 catch (Exception ex) when (!turnFinished && !cancellationToken.IsCancellationRequested)
                 {
@@ -4770,8 +4796,8 @@ public sealed class Agent
         AgentRunConfig options,
         JsonSerializerOptions serializerOptions) where T : class
     {
-        options.Chat ??= new ChatRunConfig();
-        var chatOptions = options.Chat;
+        options.Clients.Chat ??= new ChatClientConfig();
+        var chatOptions = options.Clients.Chat;
         var structuredOpts = options.StructuredOutput!;
         var schemaName = structuredOpts.SchemaName ?? typeof(T).Name;
         var schemaDesc = structuredOpts.SchemaDescription ?? $"Response of type {schemaName}";
@@ -4816,7 +4842,7 @@ public sealed class Agent
                     schemaDesc,
                     serializerOptions);
 
-                chatOptions.ResponseFormat = ChatResponseFormat.ForJsonSchema(
+                chatOptions.RuntimeResponseFormat = ChatResponseFormat.ForJsonSchema(
                     anyOfSchema,
                     schemaName: schemaName,
                     schemaDescription: schemaDesc);
@@ -4824,7 +4850,7 @@ public sealed class Agent
             else
             {
                 // Single type native mode: Use provided serializerOptions for consistent schema generation
-                chatOptions.ResponseFormat = ChatResponseFormat.ForJsonSchema<T>(
+                chatOptions.RuntimeResponseFormat = ChatResponseFormat.ForJsonSchema<T>(
                     serializerOptions,
                     schemaName: schemaName,
                     schemaDescription: schemaDesc);
@@ -5137,7 +5163,7 @@ public sealed class Agent
 
     /// <summary>
     /// Builds initial context properties dictionary from AgentRunConfig.
-    /// Merges ClientToolInput and ContextOverrides into a single dictionary.
+    /// Merges client tool input and context properties into a single dictionary.
     /// </summary>
     private static Dictionary<string, object>? BuildInitialContextProperties(AgentRunConfig? options)
     {
@@ -5147,10 +5173,10 @@ public sealed class Agent
         Dictionary<string, object>? properties = null;
 
         // Add ClientToolInput if present
-        if (options.ClientToolInput != null)
+        if (options.Tools?.ClientInput != null)
         {
             properties ??= new Dictionary<string, object>();
-            properties["AgentClientInput"] = options.ClientToolInput;
+            properties["AgentClientInput"] = options.Tools.ClientInput;
         }
 
         // Add AgentRunConfig itself for middleware access
@@ -5158,10 +5184,10 @@ public sealed class Agent
         properties["AgentRunConfig"] = options;
 
         // Merge context overrides
-        if (options.ContextOverrides != null)
+        if (options.Context?.Properties != null)
         {
             properties ??= new Dictionary<string, object>();
-            foreach (var kvp in options.ContextOverrides)
+            foreach (var kvp in options.Context.Properties)
             {
                 properties[kvp.Key] = kvp.Value;
             }
@@ -5170,103 +5196,421 @@ public sealed class Agent
         return properties;
     }
 
-    private IRealtimeClient? ResolveRealtimeClientForOptions(AgentRunConfig? options)
+    private async ValueTask<AgentClientSet?> ResolveRunClientSetAsync(
+        AgentRunConfig runConfig,
+        CancellationToken cancellationToken)
     {
-        if (options?.OverrideRealtimeClient != null)
-            return options.OverrideRealtimeClient;
-
-        var hasRunClientOverride =
-            options?.Clients?.GetFamilyConfig(Providers.ProviderClientFamily.Realtime) != null;
-
-        if (!hasRunClientOverride)
-            return null;
-
-        var effectiveConfig = Config?.ResolveClientConfig(
+        var runClients = runConfig.Clients;
+        var families = new[]
+        {
+            Providers.ProviderClientFamily.TextToSpeech,
+            Providers.ProviderClientFamily.SpeechToText,
             Providers.ProviderClientFamily.Realtime,
-            options?.Clients);
-
-        var requestedProviderKey = effectiveConfig?.ProviderKey;
-        if (string.IsNullOrEmpty(requestedProviderKey))
+            Providers.ProviderClientFamily.ImageGeneration,
+            Providers.ProviderClientFamily.Embeddings,
+            Providers.ProviderClientFamily.HostedFiles
+        };
+        if (!families.Any(family =>
+                runClients.GetFamilyConfig(family) is not null ||
+                Config?.ResolveClientConfig(family) is { ProviderKey.Length: > 0 }))
             return null;
 
-        if (_providerRegistry == null)
-        {
-            throw new InvalidOperationException(
-                $"Cannot switch to realtime provider '{requestedProviderKey}' - no provider registry available. " +
-                "Ensure the agent was built with a provider registry.");
-        }
+        var owned = new HashSet<object>(ReferenceEqualityComparer.Instance);
+        var leases = new List<IAsyncDisposable>();
+        var resolved = _clientSet?.ResolvedConfigs.ToDictionary(pair => pair.Key, pair => pair.Value)
+            ?? new Dictionary<Providers.ProviderClientFamily, ProviderClientConfig>();
 
-        var provider = _providerRegistry.GetRequiredProvider<Providers.IRealtimeClientProvider>(requestedProviderKey);
-        if (string.IsNullOrEmpty(effectiveConfig?.ModelName))
+        try
         {
-            throw new InvalidOperationException(
-                $"No realtime model is configured for provider '{requestedProviderKey}'. Configure AgentConfig.Clients.Realtime.ModelName or pass AgentRunConfig.Clients.Realtime.ModelName.");
-        }
+        var textToSpeech = await ResolveRunClientAsync<Providers.ITextToSpeechClientProvider, ITextToSpeechClient>(
+            Providers.ProviderClientFamily.TextToSpeech,
+            runClients,
+            runClients.TextToSpeech?.Override?.Client,
+            _clientSet?.TextToSpeech,
+            static (provider, config, services) => provider.CreateTextToSpeechClient(config, services),
+            Config?.ClientMiddleware?.TextToSpeech,
+            _textToSpeechClientManager,
+            owned,
+            leases,
+            resolved,
+            cancellationToken).ConfigureAwait(false);
+        var speechToText = await ResolveRunClientAsync<Providers.ISpeechToTextClientProvider, ISpeechToTextClient>(
+            Providers.ProviderClientFamily.SpeechToText,
+            runClients,
+            runClients.SpeechToText?.Override?.Client,
+            _clientSet?.SpeechToText,
+            static (provider, config, services) => provider.CreateSpeechToTextClient(config, services),
+            Config?.ClientMiddleware?.SpeechToText,
+            _speechToTextClientManager,
+            owned,
+            leases,
+            resolved,
+            cancellationToken).ConfigureAwait(false);
+        var realtime = await ResolveRunClientAsync<Providers.IRealtimeClientProvider, IRealtimeClient>(
+            Providers.ProviderClientFamily.Realtime,
+            runClients,
+            runClients.Realtime?.Override?.Client,
+            _clientSet?.Realtime,
+            static (provider, config, services) => provider.CreateRealtimeClient(config, services),
+            Config?.ClientMiddleware?.Realtime,
+            _realtimeClientManager,
+            owned,
+            leases,
+            resolved,
+            cancellationToken).ConfigureAwait(false);
+        var image = await ResolveRunClientAsync<Providers.IImageGeneratorProvider, IImageGenerator>(
+            Providers.ProviderClientFamily.ImageGeneration,
+            runClients,
+            runClients.ImageGeneration?.Override?.Client,
+            _clientSet?.ImageGenerator,
+            static (provider, config, services) => provider.CreateImageGenerator(config, services),
+            Config?.ClientMiddleware?.ImageGeneration,
+            _imageGeneratorManager,
+            owned,
+            leases,
+            resolved,
+            cancellationToken).ConfigureAwait(false);
+        var embeddings = await ResolveRunClientAsync<Providers.IEmbeddingGeneratorProvider, IEmbeddingGenerator>(
+            Providers.ProviderClientFamily.Embeddings,
+            runClients,
+            runClients.Embeddings?.Override?.Client,
+            _clientSet?.EmbeddingGenerator,
+            static (provider, config, services) => provider.CreateEmbeddingGenerator(config, services),
+            Config?.ClientMiddleware?.Embeddings,
+            _embeddingGeneratorManager,
+            owned,
+            leases,
+            resolved,
+            cancellationToken).ConfigureAwait(false);
+        var hostedFiles = await ResolveRunClientAsync<Providers.IHostedFileClientProvider, IHostedFileClient>(
+            Providers.ProviderClientFamily.HostedFiles,
+            runClients,
+            runClients.HostedFiles?.Override?.Client,
+            _clientSet?.HostedFiles,
+            static (provider, config, services) => provider.CreateHostedFileClient(config, services),
+            Config?.ClientMiddleware?.HostedFiles,
+            _hostedFileClientManager,
+            owned,
+            leases,
+            resolved,
+            cancellationToken).ConfigureAwait(false);
 
-        return provider.CreateRealtimeClient(effectiveConfig!, _serviceProvider);
+        var result = new AgentClientSet
+        {
+            TextToSpeech = textToSpeech,
+            SpeechToText = speechToText,
+            Realtime = realtime,
+            ImageGenerator = image,
+            EmbeddingGenerator = embeddings,
+            HostedFiles = hostedFiles,
+            VoiceActivityDetectorFactory = _clientSet?.VoiceActivityDetectorFactory,
+            EndOfTurnDetectorFactory = _clientSet?.EndOfTurnDetectorFactory,
+            ResolvedConfigs = resolved
+        };
+        result.SetOwnedClients(owned);
+        result.SetLeases(leases);
+        return result;
+        }
+        catch
+        {
+            for (var index = leases.Count - 1; index >= 0; index--)
+                await leases[index].DisposeAsync().ConfigureAwait(false);
+            foreach (var client in owned)
+            {
+                if (client is IAsyncDisposable asyncDisposable)
+                    await asyncDisposable.DisposeAsync().ConfigureAwait(false);
+                else if (client is IDisposable disposable)
+                    disposable.Dispose();
+            }
+            throw;
+        }
     }
 
+    private async ValueTask<TClient?> ResolveRunClientAsync<TProvider, TClient>(
+        Providers.ProviderClientFamily family,
+        AgentClientsConfig runClients,
+        TClient? runOverride,
+        TClient? builderDefault,
+        Func<TProvider, ProviderClientConfig, IServiceProvider?, TClient> factory,
+        IReadOnlyList<Func<TClient, IServiceProvider?, TClient>>? middleware,
+        ProviderClientManager<TClient> manager,
+        HashSet<object> owned,
+        List<IAsyncDisposable> leases,
+        Dictionary<Providers.ProviderClientFamily, ProviderClientConfig> resolved,
+        CancellationToken cancellationToken)
+        where TProvider : class, Providers.IProvider
+        where TClient : class
+    {
+        var hasRunConfig = runClients.GetFamilyConfig(family) is not null;
+        if (!hasRunConfig && builderDefault is not null)
+            return builderDefault;
+        if (runOverride is not null)
+            return runOverride;
+
+        var effective = hasRunConfig
+            ? Config?.ResolveClientConfig(family, runClients)
+            : Config?.ResolveClientConfig(family);
+        if (effective is null || string.IsNullOrWhiteSpace(effective.ProviderKey))
+            return null;
+        if (_providerRegistry is null)
+            throw new AgentRunConfigurationException(
+                "ProviderFamilyResolutionFailed",
+                $"Clients.{family}",
+                $"The {family} provider '{effective.ProviderKey}' cannot be resolved because no provider registry is available.");
+
+        var safeResolvedConfig = ProviderClientConfigResolver.Clone(effective);
+        var authentication = await ResolveAuxiliaryAuthenticationAsync(
+            effective,
+            family,
+            cancellationToken).ConfigureAwait(false);
+        effective = authentication.Config;
+        if (authentication.Credential is not null)
+            leases.Add(authentication.Credential);
+
+        var provider = _providerRegistry.GetRequiredProvider<TProvider>(effective.ProviderKey);
+        TClient CreateClient()
+        {
+            var validation = provider.ValidateConfiguration(effective, family);
+            if (!validation.IsValid)
+                throw new AgentRunConfigurationException(
+                    "ProviderConfigurationInvalid",
+                    $"Clients.{family}",
+                    string.Join("; ", validation.Errors),
+                    effective.ProviderKey);
+            var created = factory(provider, effective, _serviceProvider);
+            if (middleware is not null)
+            {
+                for (var index = middleware.Count - 1; index >= 0; index--)
+                    created = middleware[index](created, _serviceProvider)
+                        ?? throw new InvalidOperationException($"{family} client middleware returned null.");
+            }
+            return created;
+        }
+
+        TClient client;
+        if (authentication.CacheIdentity is null)
+        {
+            client = CreateClient();
+            owned.Add(client);
+        }
+        else
+        {
+            var lease = await manager.AcquireAsync(
+                new ProviderClientCacheKey
+                {
+                    ProviderKey = effective.ProviderKey,
+                    Family = family,
+                    AuthenticationIdentity = authentication.CacheIdentity,
+                    AuthenticationGeneration = authentication.Generation,
+                    Endpoint = effective.Endpoint,
+                    ProviderConfigFingerprint = ProviderClientFingerprint.Combine(
+                        GetAuxiliaryProviderConfigFingerprint(effective, family),
+                        effective.CustomHeaders),
+                    ClientBoundModel = BindsModelToClient(effective.ProviderKey, family)
+                        ? effective.ModelName
+                        : null
+                },
+                _ => ValueTask.FromResult(CreateClient()),
+                cancellationToken).ConfigureAwait(false);
+            leases.Add(lease);
+            client = lease.Client;
+        }
+        resolved[family] = safeResolvedConfig;
+        return client;
+    }
+
+    private async ValueTask<AuxiliaryAuthenticationResolution> ResolveAuxiliaryAuthenticationAsync(
+        ProviderClientConfig config,
+        ProviderClientFamily family,
+        CancellationToken cancellationToken)
+    {
+        if (config.CustomHeaders is not null)
+        {
+            foreach (var header in config.CustomHeaders.Keys)
+            {
+                if (header.Equals("Authorization", StringComparison.OrdinalIgnoreCase) ||
+                    header.Equals("Proxy-Authorization", StringComparison.OrdinalIgnoreCase) ||
+                    header.Equals("api-key", StringComparison.OrdinalIgnoreCase) ||
+                    header.Equals("x-api-key", StringComparison.OrdinalIgnoreCase))
+                    throw new AgentRunConfigurationException(
+                        "AuthenticationHeaderNotAllowed",
+                        $"Clients.{family}.CustomHeaders.{header}",
+                        $"Header '{header}' cannot carry provider credentials. Use ApiKey or AuthenticationKey.",
+                        config.ProviderKey);
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(config.ApiKey))
+        {
+            var credential = ProviderCredentialLease.CreateExplicit(config.ApiKey);
+            var explicitConfig = ProviderClientConfigResolver.Clone(config);
+            explicitConfig.ApiKey = credential.Secret.ToString();
+            return new AuxiliaryAuthenticationResolution(explicitConfig, null, 0, credential);
+        }
+
+        var registry = _serviceProvider?.GetService(typeof(IProviderAuthenticationRegistry))
+            as IProviderAuthenticationRegistry;
+        var authenticationKey = config.AuthenticationKey;
+        var scope = _serviceProvider?.GetService(typeof(ProviderAuthorizationScope))
+            as ProviderAuthorizationScope
+            ?? new ProviderAuthorizationScope { TrustDomainId = "local-process" };
+        var context = new ProviderAuthenticationContext
+        {
+            ProviderKey = config.ProviderKey,
+            Family = family,
+            AuthorizationScope = scope
+        };
+
+        ProviderAuthenticationRegistration? registration = null;
+        if (string.IsNullOrWhiteSpace(authenticationKey))
+        {
+            if (registry is null)
+                return new AuxiliaryAuthenticationResolution(config, "canonical", 0, null);
+
+            var compatible = new List<ProviderAuthenticationRegistration>();
+            await foreach (var candidate in registry.ListCompatibleAsync(context, cancellationToken)
+                .ConfigureAwait(false))
+            {
+                compatible.Add(candidate);
+            }
+            var defaults = compatible.Where(static candidate => candidate.IsDefault).ToArray();
+            if (defaults.Length > 1 || (defaults.Length == 0 && compatible.Count > 1))
+                throw new AgentRunConfigurationException(
+                    "AuthenticationSelectionRequired",
+                    $"Clients.{family}.AuthenticationKey",
+                    $"Provider '{config.ProviderKey}' has multiple compatible authentication registrations and no unique default.",
+                    config.ProviderKey);
+            registration = defaults.Length == 1 ? defaults[0] : compatible.Count == 1 ? compatible[0] : null;
+            if (registration is null)
+                return new AuxiliaryAuthenticationResolution(config, "canonical", 0, null);
+            authenticationKey = registration.Key;
+        }
+        else
+        {
+            if (registry is null)
+                throw new AgentRunConfigurationException(
+                    "AuthenticationRegistryRequired",
+                    $"Clients.{family}.AuthenticationKey",
+                    $"Authentication registration '{authenticationKey}' cannot be resolved because no registry is available.",
+                    config.ProviderKey);
+            registration = await registry.FindAsync(authenticationKey, context, cancellationToken)
+                .ConfigureAwait(false)
+                ?? throw new AgentRunConfigurationException(
+                    "AuthenticationRegistrationNotFound",
+                    $"Clients.{family}.AuthenticationKey",
+                    $"Authentication registration '{authenticationKey}' is missing or incompatible with provider '{config.ProviderKey}' and family '{family}'.",
+                    config.ProviderKey);
+        }
+
+        var credentialResolver = _serviceProvider?.GetService(typeof(IProviderCredentialResolver))
+            as IProviderCredentialResolver;
+        if (credentialResolver is null)
+        {
+            var secretResolver = _serviceProvider?.GetService(typeof(Secrets.ISecretResolver))
+                as Secrets.ISecretResolver
+                ?? throw new AgentRunConfigurationException(
+                    "CredentialResolverRequired",
+                    $"Clients.{family}.AuthenticationKey",
+                    $"Authentication registration '{authenticationKey}' cannot resolve its secret because no credential resolver is available.",
+                    config.ProviderKey);
+            credentialResolver = new SecretResolverProviderCredentialResolver(secretResolver);
+        }
+
+        var credentialLease = await credentialResolver.AcquireAsync(new ProviderCredentialRequest
+        {
+            ProviderKey = config.ProviderKey,
+            Family = family,
+            Identity = $"registration:{authenticationKey}",
+            SecretKey = registration!.SecretKey,
+            AuthorizationScope = scope
+        }, cancellationToken).ConfigureAwait(false);
+        var resolved = ProviderClientConfigResolver.Clone(config);
+        resolved.AuthenticationKey = authenticationKey;
+        resolved.ApiKey = credentialLease.Secret.ToString();
+        return new AuxiliaryAuthenticationResolution(
+            resolved,
+            credentialLease.Identity,
+            credentialLease.Generation,
+            credentialLease);
+    }
+
+    private string? GetAuxiliaryProviderConfigFingerprint(
+        ProviderClientConfig config,
+        ProviderClientFamily family)
+    {
+        if (config.ProviderConfig is null)
+            return null;
+        var composition = _chatClientResolver.Composition
+            ?? throw new AgentRunConfigurationException(
+                "ProviderCompositionNotInstalled",
+                $"Clients.{family}.ProviderConfig",
+                "Generated provider composition is required to fingerprint provider configuration.",
+                config.ProviderKey);
+        var canonical = composition.Descriptors.Canonicalize(config.ProviderKey);
+        if (!composition.Serialization.TryGet(
+                canonical,
+                family,
+                ProviderPayloadKind.Configuration,
+                out var contract) || contract is null)
+            throw new AgentRunConfigurationException(
+                "ProviderConfigTypeMismatch",
+                $"Clients.{family}.ProviderConfig",
+                $"Provider '{canonical}' does not declare a configuration payload for family '{family}'.",
+                canonical);
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(config.ProviderConfig, contract.JsonTypeInfo);
+        return Convert.ToHexString(SHA256.HashData(bytes));
+    }
+
+    private bool BindsModelToClient(string? providerKey, ProviderClientFamily family)
+    {
+        var composition = _chatClientResolver.Composition;
+        if (composition is null || string.IsNullOrWhiteSpace(providerKey) ||
+            !composition.Descriptors.TryGet(providerKey, out var descriptor) || descriptor is null ||
+            !descriptor.Families.TryGetValue(family, out var familyDescriptor))
+            return true;
+        return familyDescriptor.BindsModelToClient;
+    }
+
+    private sealed record AuxiliaryAuthenticationResolution(
+        ProviderClientConfig Config,
+        string? CacheIdentity,
+        long Generation,
+        IProviderCredentialLease? Credential);
+
     private static Middleware.AgentModelTransport ResolveModelTransport(AgentRunConfig runConfig)
-        => runConfig.ModelTransport switch
+        => runConfig.Clients.Transport switch
         {
             AgentModelTransportMode.Chat or AgentModelTransportMode.Auto => Middleware.AgentModelTransport.Chat,
             AgentModelTransportMode.Realtime => Middleware.AgentModelTransport.Realtime,
-            _ => throw new InvalidOperationException($"Unsupported model transport '{runConfig.ModelTransport}'.")
+            _ => throw new InvalidOperationException($"Unsupported model transport '{runConfig.Clients.Transport}'.")
         };
 
     /// <summary>
     /// Resolves system instructions considering AgentRunConfig overrides.
     /// Priority: AgentRunConfig.SystemInstructions > Config.SystemInstructions
-    /// If AdditionalSystemInstructions is set, it's appended.
+    /// Applies the ordered system-instruction override and append policy.
     /// </summary>
     /// <param name="options">Per-invocation options</param>
     /// <returns>Resolved system instructions</returns>
     private string? ResolveSystemInstructions(AgentRunConfig? options)
     {
         // Use override if provided, otherwise fall back to config
-        var instructions = options?.SystemInstructions
+        var instructions = options?.SystemInstructions?.Override
             ?? Config?.SystemInstructions
             ?? _messageProcessor.SystemInstructions;
 
         // Append additional instructions if provided
-        if (!string.IsNullOrEmpty(options?.AdditionalSystemInstructions))
+        if (!string.IsNullOrEmpty(options?.SystemInstructions?.Append))
         {
             instructions = string.IsNullOrEmpty(instructions)
-                ? options.AdditionalSystemInstructions
-                : $"{instructions}\n\n{options.AdditionalSystemInstructions}";
+                ? options.SystemInstructions.Append
+                : $"{instructions}\n\n{options.SystemInstructions.Append}";
         }
 
         return instructions;
     }
 
-    private static AgentClientConfig? CreateRunClientOverrides(AgentRunConfig? options)
-    {
-        if (options is null)
-            return null;
-
-        if (options.Clients?.GetFamilyConfig(Providers.ProviderClientFamily.Chat) != null)
-            return options.Clients;
-
-        var chat = options.GetChatProviderOverride();
-        if (chat is null)
-            return options.Clients;
-
-        return options.Clients is null
-            ? new AgentClientConfig { Chat = chat }
-            : new AgentClientConfig
-            {
-                Providers = options.Clients.Providers,
-                Chat = chat,
-                TextToSpeech = options.Clients.TextToSpeech,
-                SpeechToText = options.Clients.SpeechToText,
-                Realtime = options.Clients.Realtime,
-                ImageGeneration = options.Clients.ImageGeneration,
-                Embeddings = options.Clients.Embeddings,
-                HostedFiles = options.Clients.HostedFiles,
-                VoiceActivityDetection = options.Clients.VoiceActivityDetection,
-                EndOfTurnDetection = options.Clients.EndOfTurnDetection
-            };
-    }
+    private static AgentClientsConfig? CreateRunClientOverrides(AgentRunConfig? options) => options?.Clients;
 
     /// <summary>
     /// Applies system instruction overrides from AgentRunConfig to ChatOptions.
@@ -5279,8 +5623,8 @@ public sealed class Agent
     {
         // If no overrides, return as-is
         if (runConfig == null ||
-            (string.IsNullOrEmpty(runConfig.SystemInstructions) &&
-             string.IsNullOrEmpty(runConfig.AdditionalSystemInstructions)))
+            (string.IsNullOrEmpty(runConfig.SystemInstructions?.Override) &&
+             string.IsNullOrEmpty(runConfig.SystemInstructions?.Append)))
         {
             return chatOptions;
         }
@@ -5307,11 +5651,11 @@ public sealed class Agent
         int messageCount)
     {
         // Skip validation if no background-related settings are used
-        if (!allowBackgroundResponses && runConfig?.ContinuationToken == null)
+        if (!allowBackgroundResponses && runConfig?.BackgroundResponses?.ContinuationToken == null)
             return;
 
         // Warning 1: Messages provided with ContinuationToken (messages will be ignored)
-        if (runConfig?.ContinuationToken != null && messageCount > 0)
+        if (runConfig?.BackgroundResponses?.ContinuationToken != null && messageCount > 0)
         {
             _agentLogger?.LogWarning(
                 "Background responses: Messages provided with ContinuationToken will be ignored during polling. " +
@@ -5320,7 +5664,7 @@ public sealed class Agent
 
         // Warning 2: ContinuationToken provided without AllowBackgroundResponses explicitly set
         // This might indicate the user doesn't realize they're in polling mode
-        if (runConfig?.ContinuationToken != null && runConfig.AllowBackgroundResponses != true)
+        if (runConfig?.BackgroundResponses?.ContinuationToken != null && runConfig.BackgroundResponses.Allow != true)
         {
             _agentLogger?.LogInformation(
                 "Background responses: ContinuationToken provided without AllowBackgroundResponses=true. " +
@@ -5329,7 +5673,7 @@ public sealed class Agent
 
         // Warning 3: AutoPollToCompletion enabled with manual ContinuationToken
         // Auto-poll handles polling automatically - manual token might cause confusion
-        if (Config?.BackgroundResponses?.AutoPollToCompletion == true && runConfig?.ContinuationToken != null)
+        if (Config?.BackgroundResponses?.AutoPollToCompletion == true && runConfig?.BackgroundResponses?.ContinuationToken != null)
         {
             _agentLogger?.LogWarning(
                 "Background responses: Manual ContinuationToken provided with AutoPollToCompletion enabled. " +
@@ -5411,10 +5755,11 @@ public sealed class Agent
 
         // Auto-poll mode: Enable background responses and poll until completion
         options ??= new AgentRunConfig();
-        options.AllowBackgroundResponses = true;
+        options.BackgroundResponses ??= new BackgroundResponsesRunConfig();
+        options.BackgroundResponses.Allow = true;
 
-        var pollInterval = options.BackgroundPollingInterval ?? config!.DefaultPollingInterval;
-        var timeout = options.BackgroundTimeout ?? config!.DefaultTimeout;
+        var pollInterval = options.BackgroundResponses.PollingInterval ?? config!.DefaultPollingInterval;
+        var timeout = options.BackgroundResponses.Timeout ?? config!.DefaultTimeout;
         var maxAttempts = config!.MaxPollAttempts;
 
         ResponseContinuationToken? lastToken = null;
@@ -5447,7 +5792,7 @@ public sealed class Agent
             // Set continuation token for polling (not on first run)
             if (!isFirstRun && lastToken != null)
             {
-                options.ContinuationToken = lastToken;
+                options.BackgroundResponses!.ContinuationToken = lastToken;
                 attempts++;
 
                 // Emit polling status event
@@ -8794,7 +9139,7 @@ internal class AgentTurn
         if (effectiveClient == null)
         {
             throw new InvalidOperationException(
-                "No chat model is configured for this agent run. Configure Provider/ModelName on AgentConfig or pass ProviderKey/ModelId or OverrideChatClient in AgentRunConfig.");
+                "No chat model is configured for this agent run. Configure Clients.Chat on AgentConfig or AgentRunConfig, including Clients.Chat.Override when supplying a client directly.");
         }
 
         if (_middleware != null && _middleware.Count > 0)

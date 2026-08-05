@@ -6,6 +6,9 @@ namespace HPD.Agent;
 public interface IAgentConfigFactory
 {
     /// <summary>Create an agent from serializable configuration.</summary>
+    /// <param name="config">The declarative agent configuration to snapshot.</param>
+    /// <param name="cancellationToken">A token that cancels construction.</param>
+    /// <returns>The configured runtime agent.</returns>
     Task<Agent> CreateAsync(AgentConfig config, CancellationToken cancellationToken = default);
 }
 
@@ -15,17 +18,27 @@ public interface IAgentConfigFactory
 public sealed class AgentFactory : IAgentConfigFactory
 {
     private readonly Action<AgentBuilder>? _configureBuilder;
+    private readonly Providers.ProviderComposition? _providerComposition;
 
-    public AgentFactory(Action<AgentBuilder>? configureBuilder = null)
+    /// <summary>Initializes a configuration-backed agent factory.</summary>
+    /// <param name="configureBuilder">Optional runtime-only builder enrichment applied after declarative configuration.</param>
+    /// <param name="providerComposition">The consuming host's generated provider composition.</param>
+    public AgentFactory(
+        Action<AgentBuilder>? configureBuilder = null,
+        Providers.ProviderComposition? providerComposition = null)
     {
         _configureBuilder = configureBuilder;
+        _providerComposition = providerComposition;
     }
 
+    /// <inheritdoc />
     public Task<Agent> CreateAsync(AgentConfig config, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(config);
 
-        var builder = new AgentBuilder(config);
+        var builder = _providerComposition is null
+            ? new AgentBuilder(config)
+            : new AgentBuilder(config, _providerComposition);
         _configureBuilder?.Invoke(builder);
         return builder.BuildAsync(cancellationToken);
     }

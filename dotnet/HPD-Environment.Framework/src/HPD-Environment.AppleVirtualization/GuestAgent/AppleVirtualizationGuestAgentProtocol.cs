@@ -59,6 +59,7 @@ public enum AppleVirtualizationGuestAgentOperation
     AuthorityRevoke,
     EngineStatus,
     EngineProvision,
+    HostShutdown,
 }
 
 public enum AppleVirtualizationGuestAgentEventKind
@@ -225,6 +226,8 @@ public sealed record AppleVirtualizationGuestAgentEnvelope
     public AppleVirtualizationGuestAgentEngineStatus? EngineStatus { get; init; }
     public AppleVirtualizationGuestAgentEngineProvisioningRequest? EngineProvisioningRequest { get; init; }
     public AppleVirtualizationGuestAgentEngineProvisioningResult? EngineProvisioningResult { get; init; }
+    public AppleVirtualizationGuestAgentHostShutdownRequest? HostShutdownRequest { get; init; }
+    public AppleVirtualizationGuestAgentHostShutdownResponse? HostShutdownResponse { get; init; }
 
     public static AppleVirtualizationGuestAgentEnvelope Request(
         AppleVirtualizationGuestAgentOperation operation,
@@ -295,6 +298,7 @@ public sealed record AppleVirtualizationGuestAgentReady
 
 public sealed record AppleVirtualizationGuestAgentCapabilities
 {
+    public bool HostShutdown { get; init; }
     public bool ProcessStart { get; init; } = true;
     public bool ProcessStdin { get; init; } = true;
     public bool ProcessSignal { get; init; } = true;
@@ -313,6 +317,18 @@ public sealed record AppleVirtualizationGuestAgentCapabilities
     public bool EngineProvisioning { get; init; }
     public IReadOnlyList<string> Limitations { get; init; } = Array.Empty<string>();
 }
+
+public sealed record AppleVirtualizationGuestAgentHostShutdownRequest(
+    string HostId,
+    ulong ProviderGeneration,
+    ulong HostStartGeneration,
+    string? Reason = null);
+
+public sealed record AppleVirtualizationGuestAgentHostShutdownResponse(
+    bool Accepted,
+    string HostId,
+    ulong ProviderGeneration,
+    ulong HostStartGeneration);
 
 public sealed record AppleVirtualizationGuestAgentError
 {
@@ -761,6 +777,8 @@ public sealed record AppleVirtualizationGuestAgentEngineGenerationStamp(ulong Pr
 public sealed record AppleVirtualizationGuestAgentEngineStatusRequest
 {
     public required string HostId { get; init; }
+    public ulong ProviderGeneration { get; init; }
+    public ulong HostStartGeneration { get; init; }
     public string? EngineId { get; init; }
     public EngineControlPlaneKind Kind { get; init; } = EngineControlPlaneKind.DockerCompatible;
     public EngineApiKind Api { get; init; } = EngineApiKind.DockerCompatible;
@@ -1285,7 +1303,7 @@ public sealed record AppleVirtualizationGuestAgentEngineStatus
         AppleVirtualizationGuestAgentEngineStatusRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
-        return FromObservation(
+        AppleVirtualizationGuestAgentEngineStatus status = FromObservation(
             request.HostId,
             request.EngineId ?? "engine-" + request.Kind,
             request.ScriptedObservationState ?? AppleVirtualizationEngineObservationState.NotInstalled,
@@ -1305,6 +1323,14 @@ public sealed record AppleVirtualizationGuestAgentEngineStatus
             request.MaxDiagnostics,
             request.MaxVersionLength,
             request.MaxStatusLength);
+        return status with
+        {
+            Generation = status.Generation with
+            {
+                ProviderGeneration = request.ProviderGeneration,
+                HostStartGeneration = request.HostStartGeneration,
+            },
+        };
     }
 
     public static AppleVirtualizationGuestAgentEngineStatus FromObservation(
@@ -1398,7 +1424,7 @@ public sealed record AppleVirtualizationGuestAgentEngineStatus
             ],
             Diagnostics = diagnostics,
             Generation = new AppleVirtualizationGuestAgentEngineGenerationStamp(
-                GuestBootId: "guest-boot-1",
+                GuestBootId: "boot-1",
                 GuestBootGeneration: 1,
                 GuestAgentGeneration: 1,
                 EngineGeneration: ready ? 1UL : 0UL),

@@ -79,7 +79,7 @@ public sealed class TurnEvaluationContext
 
     public string? GroundTruth { get; init; }
 
-    /// <summary>From RunConfig.ContextOverrides — experiment-level key/value pairs.</summary>
+    /// <summary>Experiment-level values captured from run context properties.</summary>
     public IDictionary<string, object>? ExperimentContext { get; init; }
 }
 

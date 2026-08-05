@@ -8,6 +8,12 @@ namespace HPD.Agent;
 /// </summary>
 public sealed class AgentClientSet : IDisposable
 {
+    private readonly object _lifetimeGate = new();
+    private IReadOnlySet<object>? _ownedClients;
+    private IReadOnlyList<IAsyncDisposable>? _leases;
+    private int _borrowCount;
+    private bool _disposeRequested;
+    private bool _disposed;
     public IChatClient? Chat { get; init; }
     public ITextToSpeechClient? TextToSpeech { get; init; }
     public ISpeechToTextClient? SpeechToText { get; init; }
@@ -18,18 +24,18 @@ public sealed class AgentClientSet : IDisposable
     public Func<ProviderComponentLifetimeContext, IVoiceActivityDetector>? VoiceActivityDetectorFactory { get; init; }
     public Func<ProviderComponentLifetimeContext, IEotDetector>? EndOfTurnDetectorFactory { get; init; }
 
-    public IReadOnlyDictionary<ProviderClientFamily, ClientProviderConfig> ResolvedConfigs { get; init; }
-        = new Dictionary<ProviderClientFamily, ClientProviderConfig>();
+    public IReadOnlyDictionary<ProviderClientFamily, ProviderClientConfig> ResolvedConfigs { get; init; }
+        = new Dictionary<ProviderClientFamily, ProviderClientConfig>();
 
     public static AgentClientSet Empty { get; } = new();
 
     public static AgentClientSet ForChat(
         IChatClient? chat,
-        ClientProviderConfig? chatConfig = null)
+        ProviderClientConfig? chatConfig = null)
     {
         var configs = chatConfig == null
-            ? new Dictionary<ProviderClientFamily, ClientProviderConfig>()
-            : new Dictionary<ProviderClientFamily, ClientProviderConfig>
+            ? new Dictionary<ProviderClientFamily, ProviderClientConfig>()
+            : new Dictionary<ProviderClientFamily, ProviderClientConfig>
             {
                 [ProviderClientFamily.Chat] = chatConfig
             };
@@ -41,25 +47,86 @@ public sealed class AgentClientSet : IDisposable
         };
     }
 
-    public ClientProviderConfig? GetResolvedConfig(ProviderClientFamily family)
+    public ProviderClientConfig? GetResolvedConfig(ProviderClientFamily family)
         => ResolvedConfigs.TryGetValue(family, out var config) ? config : null;
+
+    internal void SetOwnedClients(IReadOnlySet<object> ownedClients)
+        => _ownedClients = ownedClients;
+
+    internal void SetLeases(IReadOnlyList<IAsyncDisposable> leases)
+        => _leases = leases;
+
+    internal IDisposable AcquireBorrowedLease()
+    {
+        lock (_lifetimeGate)
+        {
+            ObjectDisposedException.ThrowIf(_disposeRequested || _disposed, this);
+            _borrowCount++;
+            return new BorrowedLease(this);
+        }
+    }
 
     public void Dispose()
     {
-        var disposed = new HashSet<object>(ReferenceEqualityComparer.Instance);
-
-        DisposeOnce(Chat, disposed);
-        DisposeOnce(TextToSpeech, disposed);
-        DisposeOnce(SpeechToText, disposed);
-        DisposeOnce(Realtime, disposed);
-        DisposeOnce(ImageGenerator, disposed);
-        DisposeOnce(EmbeddingGenerator, disposed);
-        DisposeOnce(HostedFiles, disposed);
+        lock (_lifetimeGate)
+        {
+            if (_disposeRequested || _disposed)
+                return;
+            _disposeRequested = true;
+            if (_borrowCount != 0)
+                return;
+            _disposed = true;
+        }
+        DisposeCore();
     }
 
-    private static void DisposeOnce(object? value, HashSet<object> disposed)
+    private void ReleaseBorrowedLease()
     {
-        if (value is not IDisposable disposable || !disposed.Add(value))
+        var dispose = false;
+        lock (_lifetimeGate)
+        {
+            if (_borrowCount > 0)
+                _borrowCount--;
+            if (_borrowCount == 0 && _disposeRequested && !_disposed)
+            {
+                _disposed = true;
+                dispose = true;
+            }
+        }
+        if (dispose)
+            DisposeCore();
+    }
+
+    private void DisposeCore()
+    {
+        var disposed = new HashSet<object>(ReferenceEqualityComparer.Instance);
+
+        DisposeOnce(Chat, disposed, _ownedClients);
+        DisposeOnce(TextToSpeech, disposed, _ownedClients);
+        DisposeOnce(SpeechToText, disposed, _ownedClients);
+        DisposeOnce(Realtime, disposed, _ownedClients);
+        DisposeOnce(ImageGenerator, disposed, _ownedClients);
+        DisposeOnce(EmbeddingGenerator, disposed, _ownedClients);
+        DisposeOnce(HostedFiles, disposed, _ownedClients);
+
+        if (_leases is not null)
+        {
+            for (var index = _leases.Count - 1; index >= 0; index--)
+                _leases[index].DisposeAsync().AsTask().GetAwaiter().GetResult();
+        }
+    }
+
+    private sealed class BorrowedLease(AgentClientSet owner) : IDisposable
+    {
+        private AgentClientSet? _owner = owner;
+        public void Dispose() => Interlocked.Exchange(ref _owner, null)?.ReleaseBorrowedLease();
+    }
+
+    private static void DisposeOnce(object? value, HashSet<object> disposed, IReadOnlySet<object>? ownedClients)
+    {
+        if (value is not IDisposable disposable ||
+            (ownedClients is not null && !ownedClients.Contains(value)) ||
+            !disposed.Add(value))
             return;
 
         disposable.Dispose();

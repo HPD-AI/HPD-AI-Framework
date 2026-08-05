@@ -9,13 +9,15 @@ public static class AudioRuntimeOptionsCompiler
     public static AudioRuntimeAttachmentOptions Compile(
         AudioRuntimeAttachmentOptions baseOptions,
         AudioConfig? agentAudio = null,
-        AudioRunConfig? runAudio = null)
+        AudioRunConfig? runAudio = null,
+        TextToSpeechClientConfig? textToSpeech = null)
     {
         ArgumentNullException.ThrowIfNull(baseOptions);
 
         var options = Clone(baseOptions);
         Apply(options, agentAudio);
         Apply(options, runAudio);
+        Apply(options, textToSpeech);
         return options;
     }
 
@@ -125,29 +127,9 @@ public static class AudioRuntimeOptionsCompiler
             options.AssistantOutputArtifactCapturePolicy = audio.ArtifactCapturePolicy.Value;
         }
 
-        if (!string.IsNullOrWhiteSpace(audio.VoiceId))
-        {
-            options.AssistantOutputVoiceId = audio.VoiceId;
-        }
-
-        if (!string.IsNullOrWhiteSpace(audio.Language))
-        {
-            options.AssistantOutputLanguage = audio.Language;
-        }
-
-        if (!string.IsNullOrWhiteSpace(audio.OutputFormat))
-        {
-            options.AssistantOutputFormat = audio.OutputFormat;
-        }
-
         if (!string.IsNullOrWhiteSpace(audio.ContentType))
         {
             options.AssistantOutputContentType = audio.ContentType;
-        }
-
-        if (audio.Speed.HasValue)
-        {
-            options.AssistantOutputSpeed = audio.Speed;
         }
 
         if (audio.EnablePlayback.HasValue)
@@ -159,6 +141,17 @@ public static class AudioRuntimeOptionsCompiler
         {
             ApplyOutputMode(options, audio.OutputMode.Value);
         }
+    }
+
+    private static void Apply(AudioRuntimeAttachmentOptions options, TextToSpeechClientConfig? textToSpeech)
+    {
+        if (textToSpeech is null)
+            return;
+
+        options.AssistantOutputVoiceId = textToSpeech.VoiceId ?? options.AssistantOutputVoiceId;
+        options.AssistantOutputLanguage = textToSpeech.Language ?? options.AssistantOutputLanguage;
+        options.AssistantOutputFormat = textToSpeech.AudioFormat ?? options.AssistantOutputFormat;
+        options.AssistantOutputSpeed = textToSpeech.Speed ?? options.AssistantOutputSpeed;
     }
 
     private static void ApplyInputMode(AudioRuntimeAttachmentOptions options, AudioInputMode mode)

@@ -258,7 +258,7 @@ for (const item of getPendingRuntimeRequests(snapshot)) {
 The controller provides response helpers for common request kinds:
 
 ```ts
-await thread.approve(permissionId);
+const result = await thread.approve(permissionId);
 await thread.deny(permissionId, 'Not allowed');
 await thread.clarify(requestId, 'Use the production tenant');
 await thread.answerClientToolRequest(requestId, 'Selected screenshot.png');
@@ -275,8 +275,9 @@ await thread.respond({
 });
 ```
 
-Pending request UI should clear from lifecycle events such as resolved, expired,
-or cancelled. Raw response payloads are not the generic cleanup contract.
+Pending request UI clears when an accepted response is projected or when an
+`AGENT_REQUEST_TERMINATED` fact reports expiration, cancellation, or
+abandonment. Rehydration seeds currently answerable requests from runtime state.
 
 ## Sending Messages
 
@@ -302,7 +303,8 @@ await thread.run({
 ```
 
 The controller stamps missing `agentId`, `sessionId`, and `threadId` onto input
-events. File upload state, content-reference formatting, and run configuration
+events. Response events use the controller's session/thread response route and
+return a typed `RespondResult`. File upload state, content-reference formatting, and run configuration
 belong in adapters above this core unless the lower protocol accepts them as
 input.
 
@@ -325,9 +327,9 @@ blocking runtime requests.
 
 `input.reason === 'runtime-request'` means the user should answer a pending
 request before sending more text. Runtime request response helpers such as
-`approve()`, `deny()`, `clarify()`, and `answerClientToolRequest()` still use the
-lower-level response path and remain valid while normal text submission is
-blocked.
+`approve()`, `deny()`, `clarify()`, and `answerClientToolRequest()` use the
+dedicated response path, return typed outcomes, and remain valid while normal
+text submission is blocked.
 
 ## API Layers
 

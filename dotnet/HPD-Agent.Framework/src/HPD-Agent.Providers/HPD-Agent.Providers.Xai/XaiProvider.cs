@@ -9,6 +9,11 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Agent.Providers.Xai;
 
+[HpdProvider("xai", "xAI")]
+[HpdProviderFamily(ProviderClientFamily.Chat)]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(XaiProviderConfig), typeof(XaiJsonContext))]
+[HpdProviderSecretAlias("xai:ApiKey", "XAI_API_KEY")]
+[HpdProviderSecretAlias("xai:Endpoint", "XAI_ENDPOINT", "XAI_BASE_URL")]
 internal sealed class XaiProvider : IChatClientProvider
 {
     internal static readonly Uri DefaultEndpoint = new("https://api.x.ai/v1/");
@@ -34,8 +39,8 @@ internal sealed class XaiProvider : IChatClientProvider
     public string ProviderKey => "xai";
     public string DisplayName => "xAI";
 
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider registers an AOT-compatible config deserializer in XaiProviderModule.")]
-    public IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null)
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
+    public async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(config);
 
@@ -47,11 +52,8 @@ internal sealed class XaiProvider : IChatClientProvider
                 "Ensure the agent builder is properly configured with secret resolution.");
         }
 
-        var apiKeyTask = secrets.RequireAsync("xai:ApiKey", DisplayName, config.ApiKey, CancellationToken.None);
-        var apiKey = apiKeyTask.GetAwaiter().GetResult();
-
-        var endpointTask = secrets.ResolveOrDefaultAsync("xai:Endpoint", config.Endpoint, CancellationToken.None);
-        var endpointValue = endpointTask.GetAwaiter().GetResult();
+        var apiKey = await secrets.RequireAsync("xai:ApiKey", DisplayName, config.ApiKey, cancellationToken).ConfigureAwait(false);
+        var endpointValue = await secrets.ResolveOrDefaultAsync("xai:Endpoint", config.Endpoint, cancellationToken).ConfigureAwait(false);
         var endpoint = string.IsNullOrWhiteSpace(endpointValue)
             ? DefaultEndpoint
             : EnsureTrailingSlash(new Uri(endpointValue, UriKind.Absolute));
@@ -106,8 +108,8 @@ internal sealed class XaiProvider : IChatClientProvider
         };
     }
 
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider registers an AOT-compatible config deserializer in XaiProviderModule.")]
-    public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family)
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
+    public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
     {
         ArgumentNullException.ThrowIfNull(config);
 
@@ -124,11 +126,6 @@ internal sealed class XaiProvider : IChatClientProvider
             errors.Add("Endpoint must be a valid, absolute URI");
         }
 
-        if (string.IsNullOrWhiteSpace(config.ApiKey))
-        {
-            errors.Add("API key is required for xAI. " +
-                       "Set it via the apiKey parameter, XAI_API_KEY environment variable, or configuration.");
-        }
 
         return errors.Count > 0
             ? ProviderValidationResult.Failure(errors.ToArray())

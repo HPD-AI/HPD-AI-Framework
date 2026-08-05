@@ -119,7 +119,7 @@ describe('SseTransport runtime', () => {
 
     await transport.connect({ agentId: 'a1', sessionId: 's1', threadId: 'main' });
 
-    const result = await transport.submitInput({
+    const result = await transport.respond({
       type: EventTypes.PERMISSION_RESPONSE,
       permissionId: 'p1',
       sourceName: 'permission',
@@ -139,20 +139,24 @@ describe('SseTransport runtime', () => {
     transport.disconnect();
   });
 
-  it('returns stale response conflicts as structured response results', async () => {
+  it('returns stale response attempts as structured response results', async () => {
     const transport = new SseTransport('http://localhost:5135');
     transport.onEvent(() => {});
     vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce({ ok: true, body: stream(), text: async () => '' } as Response)
       .mockResolvedValueOnce({
-        ok: false,
-        status: 409,
-        json: async () => null,
+        ok: true,
+        json: async () => ({
+          status: 'AlreadyResolved',
+          requestId: 'p1',
+          message: 'The request already has a durable response.',
+          accepted: false,
+        }),
       } as Response);
 
     await transport.connect({ agentId: 'a1', sessionId: 's1', threadId: 'main' });
 
-    await expect(transport.submitInput({
+    await expect(transport.respond({
       type: EventTypes.PERMISSION_RESPONSE,
       permissionId: 'p1',
       sourceName: 'permission',
@@ -160,39 +164,38 @@ describe('SseTransport runtime', () => {
     })).resolves.toEqual({
       status: 'alreadyResolved',
       requestId: 'p1',
-      message: 'Response was not accepted because the request is no longer pending',
+      message: 'The request already has a durable response.',
       accepted: false,
     });
     transport.disconnect();
   });
 
-  it('returns server-provided middleware response conflict results', async () => {
+  it('decodes execution lifecycle response outcomes', async () => {
     const transport = new SseTransport('http://localhost:5135');
     transport.onEvent(() => {});
     vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce({ ok: true, body: stream(), text: async () => '' } as Response)
       .mockResolvedValueOnce({
-        ok: false,
-        status: 409,
+        ok: true,
         json: async () => ({
-          title: 'Thread runtime is not active',
-          errors: {
-            ThreadRuntimeNotActive: ['The thread exists, but no runtime is waiting for this response.'],
-          },
+          status: 9,
+          requestId: 'p1',
+          message: 'The owning execution is active, but its request waiter is unavailable.',
+          accepted: false,
         }),
       } as Response);
 
     await transport.connect({ agentId: 'a1', sessionId: 's1', threadId: 'main' });
 
-    await expect(transport.submitInput({
+    await expect(transport.respond({
       type: EventTypes.PERMISSION_RESPONSE,
       permissionId: 'p1',
       sourceName: 'permission',
       approved: true,
     })).resolves.toEqual({
-      status: 'notFound',
+      status: 'runtimeUnavailable',
       requestId: 'p1',
-      message: 'The thread exists, but no runtime is waiting for this response.',
+      message: 'The owning execution is active, but its request waiter is unavailable.',
       accepted: false,
     });
     transport.disconnect();

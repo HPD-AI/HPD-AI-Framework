@@ -2,14 +2,9 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.Json;
 using FluentAssertions;
-using HPD.Base.Observability;
+using HPD.Base;
 using HPD.Base.Tests.Observability;
-using HPD.Base.Query;
-using HPD.Base.Records;
-using HPD.Base.Results;
-using HPD.Base.Runtime;
-using HPD.Base.Schema;
-using HPD.Base.Sqlite.Configuration;
+using HPD.Base.Sqlite;
 
 namespace HPD.Base.Sqlite.Tests.Observability;
 
@@ -21,11 +16,10 @@ public sealed class SqliteTelemetryTests
         using var activities = new ActivityCollector(HPDBaseActivitySourceNames.Sqlite);
         using var metrics = new MeterCollector(HPDBaseMeterNames.Sqlite);
         var path = TempPath("sqlite-secret-path");
-        await using var store = new SqliteRecordStore(new HPDBaseSqliteOptions
+        await using var store = SqliteTestFactory.Create(new HPDBaseSqliteOptions
         {
             StoreId = "primary",
             DataSource = path,
-            CollectionIds = ["items"],
             Collections = [Collection()]
         });
 
@@ -53,7 +47,7 @@ public sealed class SqliteTelemetryTests
 
         create.Status.Should().Be(OperationStatus.Created);
         list.Status.Should().Be(OperationStatus.Ok);
-        activities.Names.Should().Contain(HPDBaseTelemetrySpans.StoreCreate);
+        activities.Names.Should().NotContain(HPDBaseTelemetrySpans.StoreCreate);
         activities.Names.Should().Contain(HPDBaseTelemetrySpans.StoreList);
         activities.Names.Should().Contain(HPDBaseTelemetrySpans.SqliteConnectionOpen);
         activities.Names.Should().Contain(HPDBaseTelemetrySpans.SqliteSchemaInitialize);
@@ -74,13 +68,12 @@ public sealed class SqliteTelemetryTests
     {
         using var activities = new ActivityCollector(HPDBaseActivitySourceNames.Sqlite);
         var dataSource = Path.Combine(Path.GetTempPath(), "hpd-base-missing-native-message", "native-message-secret.db");
-        await using var store = new SqliteRecordStore(new HPDBaseSqliteOptions
+        await using var store = SqliteTestFactory.Create(new HPDBaseSqliteOptions
         {
             StoreId = "primary",
             DataSource = dataSource,
-            CollectionIds = ["items"],
             Collections = [Collection()]
-        });
+        }, initializeSchema: false);
 
         var result = await store.ListAsync(Collection(), new RecordQuery(), Operation(BaseOperationKind.List));
 
@@ -99,11 +92,10 @@ public sealed class SqliteTelemetryTests
         var path = TempPath("no-listener");
         try
         {
-            await using var store = new SqliteRecordStore(new HPDBaseSqliteOptions
+            await using var store = SqliteTestFactory.Create(new HPDBaseSqliteOptions
             {
                 StoreId = "primary",
                 DataSource = path,
-                CollectionIds = ["items"],
                 Collections = [Collection()]
             });
 
@@ -132,13 +124,54 @@ public sealed class SqliteTelemetryTests
         }
     }
 
+    [Fact]
+    public async Task AdministrationProjectionUsesBoundedOperationAndStatusTelemetry()
+    {
+        using var activities = new ActivityCollector(HPDBaseActivitySourceNames.Sqlite);
+        using var metrics = new MeterCollector(HPDBaseMeterNames.Sqlite);
+        string path = TempPath("administration-telemetry");
+        try
+        {
+            await using SqliteRecordStore store = SqliteTestFactory.Create(new HPDBaseSqliteOptions
+            {
+                StoreId = "primary",
+                DataSource = path,
+                Collections = [Collection()],
+                AdministrationEnabled = false,
+            });
+
+            OperationResult<BaseBackupManifest> result = await store.CreateBackupAsync(
+                new MemoryStream(),
+                new BaseBackupRequest
+                {
+                    StoreId = "primary",
+                    Principal = new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.System },
+                });
+
+            result.Status.Should().Be(OperationStatus.CapabilityUnavailable);
+            Activity span = activities.Stopped.Should().ContainSingle(activity =>
+                activity.OperationName == HPDBaseTelemetrySpans.SqliteAdministration
+                && activity.TagObjects.Any(tag => tag.Key == HPDBaseTelemetryTags.StoreId && Equals(tag.Value, "primary"))).Subject;
+            span.TagObjects.Should().Contain(tag => tag.Key == HPDBaseTelemetryTags.OperationKind && Equals(tag.Value, "backup"));
+            metrics.InstrumentNames.Should().Contain(HPDBaseTelemetryInstruments.SqliteAdministrationOperations);
+            metrics.InstrumentNames.Should().Contain(HPDBaseTelemetryInstruments.SqliteAdministrationDuration);
+            TagValues(span).Should().NotContain(value => value.Contains(path, StringComparison.Ordinal));
+        }
+        finally
+        {
+            foreach (string candidate in new[] { path, path + "-wal", path + "-shm" })
+                if (File.Exists(candidate)) File.Delete(candidate);
+        }
+    }
+
     private static CollectionDefinition Collection() => new()
     {
         Id = "items",
         Name = "items",
         Kind = BaseCollectionKinds.Document,
         SchemaMode = SchemaMode.Loose,
-        UnknownFields = UnknownFieldPolicy.Preserve
+        UnknownFields = UnknownFieldPolicy.Preserve,
+        Fields = [new FieldDefinition { Id = "title", Name = "title", Type = BaseFieldTypes.String }]
     };
 
     private static OperationContext Operation(BaseOperationKind operation, string? recordId = null) => new()

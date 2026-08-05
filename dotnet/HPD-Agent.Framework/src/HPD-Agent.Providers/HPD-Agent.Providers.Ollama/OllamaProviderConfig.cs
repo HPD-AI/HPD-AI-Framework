@@ -3,11 +3,11 @@ namespace HPD.Agent.Providers.Ollama;
 /// <summary>
 /// Ollama-specific provider construction configuration.
 /// </summary>
-public sealed class OllamaProviderConfig
+public sealed class OllamaProviderConfig : global::HPD.Agent.IProviderConfig
 {
     /// <summary>
     /// Timeout, in milliseconds, applied to the underlying HTTP client.
-    /// Runtime model behavior belongs in ChatDefaults or AgentRunConfig.Chat.
+    /// Runtime model behavior belongs in AgentConfig.Clients.Chat or AgentRunConfig.Clients.Chat.
     /// </summary>
     public int? TimeoutMs { get; set; }
 }

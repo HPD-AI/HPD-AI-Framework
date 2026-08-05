@@ -33,8 +33,8 @@ public static class AgentBuilderExtensions
     /// </para>
     /// <para>
     /// This method creates a <see cref="BedrockProviderConfig"/> that is:
-    /// - Stored in <c>ClientProviderConfig.ProviderOptions</c> as a structured JSON/YAML object
-    /// - Applied during <c>BedrockProvider.CreateChatClient()</c> via the registered deserializer
+    /// - Stored in <c>Clients.Chat.ProviderConfig</c> as a typed JSON/YAML object
+    /// - Applied during <c>BedrockProvider.CreateChatClientAsync()</c> through generated provider composition
     /// </para>
     /// <para>
     /// For FFI/JSON configuration, you can use the same config structure directly:
@@ -42,7 +42,7 @@ public static class AgentBuilderExtensions
     /// {
     ///   "providerKey": "bedrock",
     ///   "modelName": "anthropic.claude-3-5-sonnet-20241022-v2:0",
-    ///   "providerOptions": { "region": "us-east-1" }
+    ///   "providerConfig": { "region": "us-east-1" }
     /// }
     /// </code>
     /// </para>
@@ -124,7 +124,7 @@ public static class AgentBuilderExtensions
         ValidateProviderConfig(providerConfig, model, configure);
 
         // Build provider config
-        var chatConfig = new ClientProviderConfig
+        var chatConfig = new ChatClientConfig
         {
             ProviderKey = "bedrock",
             ModelName = model
@@ -133,7 +133,7 @@ public static class AgentBuilderExtensions
         builder.Config.SetChatClientConfig(chatConfig);
 
         // Store the typed config
-        chatConfig.SetProviderConfig(providerConfig);
+        chatConfig.ProviderConfig = providerConfig;
 
         return builder;
     }

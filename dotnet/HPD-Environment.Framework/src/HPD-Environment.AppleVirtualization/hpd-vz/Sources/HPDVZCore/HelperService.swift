@@ -2,11 +2,17 @@ import Foundation
 
 public final class HelperService {
     private let adapter: VirtualizationAdapter
+    private let idleSleepActivities: HostIdleSleepActivityManaging
     private var sequenceNumber: Int64 = 0
     private let providerGeneration: UInt64 = 1
 
-    public init(adapter: VirtualizationAdapter) {
+    public init(
+        adapter: VirtualizationAdapter,
+        idleSleepActivities: HostIdleSleepActivityManaging =
+            HostIdleSleepActivityManager()
+    ) {
         self.adapter = adapter
+        self.idleSleepActivities = idleSleepActivities
     }
 
     public func handle(_ request: HelperEnvelope) -> [String: Any] {
@@ -32,6 +38,21 @@ public final class HelperService {
             )
         }
 
+        let power = adapter.powerObservation()
+        if power.requiresWakeReconciliation &&
+            Self.blockedByHostPowerFence(
+                operation: operation,
+                request: request) {
+            return errorResponse(
+                for: request,
+                operation: operation,
+                code: "AppleVirtualization.WakeReconciliationRequired",
+                message: "Host power continuity must be reconciled before this mutation can run.",
+                retryable: true,
+                failedPhase: "HostPowerReconciliation"
+            )
+        }
+
         switch operation {
         case .hello:
             return helloResponse(for: request)
@@ -51,6 +72,8 @@ public final class HelperService {
             return hostLifecycleResponse(for: request, operation: .hostStop, result: adapter.stopHost(HostLifecycleRequest.parse(from: request)))
         case .hostDelete:
             return hostLifecycleResponse(for: request, operation: .hostDelete, result: adapter.deleteHost(HostLifecycleRequest.parse(from: request)))
+        case .hostWakeReconcile:
+            return hostLifecycleResponse(for: request, operation: .hostWakeReconcile, result: adapter.acknowledgeWake(HostLifecycleRequest.parse(from: request)))
         case .guestAgentTransportProbe:
             return guestAgentTransportResponse(for: request, result: adapter.probeGuestAgentTransport(GuestAgentTransportProbeRequest.parse(from: request)))
         case .guestAgentReadinessProbe:
@@ -83,6 +106,8 @@ public final class HelperService {
             return engineStatusResponse(for: request)
         case .engineProvision:
             return engineProvisioningResponse(for: request)
+        case .storage:
+            return storageResponseWithIdleSleepProtection(for: request)
         case .unitEnsure:
             return unitResponse(for: request, operation: .unitEnsure, phase: 3)
         case .unitStatus:
@@ -93,6 +118,8 @@ public final class HelperService {
             return unitResponse(for: request, operation: .unitDelete, phase: 9)
         case .processStart:
             return processResponse(for: request, operation: .processStart, result: adapter.startProcess(ProcessRequest.parse(from: request)))
+        case .processStatus:
+            return processResponse(for: request, operation: .processStatus, result: adapter.processStatus(ProcessRequest.parse(from: request)))
         case .processStdin:
             return processResponse(for: request, operation: .processStdin, result: adapter.writeProcessStdin(ProcessRequest.parse(from: request)))
         case .processCloseStdin:
@@ -114,6 +141,63 @@ public final class HelperService {
                 retryable: false,
                 failedPhase: "HelperSkeleton"
             )
+        }
+    }
+
+    private func storageResponseWithIdleSleepProtection(
+        for request: HelperEnvelope
+    ) -> [String: Any] {
+        let payload = request.raw["StorageRequest"] as? [String: Any] ?? [:]
+        let action = VmConfigurationValidationRequest.int(payload["Action"]) ?? -1
+        let operationId =
+            VmConfigurationValidationRequest.string(payload["OperationId"])
+            ?? request.requestId
+            ?? "request-\(request.sequenceNumber)"
+        let startsLongActivity = action == 5 || action == 8
+        let endsLongActivity = action == 7 || action == 10 || action == 11
+        let transientActivity = action == 1 || action == 4
+
+        if startsLongActivity || transientActivity {
+            idleSleepActivities.begin(operationId: operationId)
+        }
+        let response = storageResponse(for: request)
+        if transientActivity || endsLongActivity ||
+            (startsLongActivity && response["Error"] != nil) {
+            idleSleepActivities.end(operationId: operationId)
+        }
+        return response
+    }
+
+    private static func blockedByHostPowerFence(
+        operation: Operation,
+        request: HelperEnvelope
+    ) -> Bool {
+        switch operation {
+        case .hostStart,
+             .projectionConfigure,
+             .projectionMount,
+             .projectionSync,
+             .projectionFinalize,
+             .projectionPromote,
+             .unitEnsure,
+             .processStart,
+             .processStdin,
+             .endpointPublish,
+             .authorityBind,
+             .engineProvision:
+            return true
+        case .storage:
+            let payload =
+                request.raw["StorageRequest"] as? [String: Any] ?? [:]
+            let action =
+                VmConfigurationValidationRequest.int(payload["Action"])
+            // Observe, detach/erase cleanup, backup draining/finalization, and
+            // restore abort remain available while fenced. New growth and
+            // restore commit operations do not.
+            return action == 1 || action == 5 ||
+                action == 8 || action == 9 || action == 10
+        default:
+            return false
         }
     }
 
@@ -204,6 +288,7 @@ public final class HelperService {
         operation: Operation,
         result: HostLifecycleResult
     ) -> [String: Any] {
+        let deletionCompleted = operation == .hostDelete && result.accepted && result.state == .notCreated
         let status: ResponseStatus = result.accepted
             ? (result.state == .starting || result.state == .stopping ? .accepted : .ok)
             : .error
@@ -216,9 +301,15 @@ public final class HelperService {
         .merging([
             "HostStatusResponse": [
                 "HostId": result.hostId,
-                "HostPhase": hostPhase(for: result.state),
-                "Phase": resourcePhase(for: result.state),
+                "HostPhase": deletionCompleted ? 12 : hostPhase(for: result.state),
+                "Phase": deletionCompleted ? 7 : resourcePhase(for: result.state),
                 "GuestControlReachable": false,
+                "HostPowerState": result.powerObservation.state.rawValue,
+                "SleepGeneration": result.powerObservation.sleepGeneration,
+                "WakeGeneration": result.powerObservation.wakeGeneration,
+                "RequiresWakeReconciliation":
+                    result.powerObservation.requiresWakeReconciliation,
+                "PowerObservedAt": result.powerObservation.observedAt,
                 "Conditions": [],
                 "Diagnostics": result.diagnostics.map { $0.toJson() }
             ]
@@ -335,6 +426,12 @@ public final class HelperService {
         if let guestBootId = result.guestBootId {
             payload["GuestBootId"] = guestBootId
         }
+        if let runtimeFilesystemUuid = result.runtimeFilesystemUuid {
+            payload["RuntimeFilesystemUuid"] = runtimeFilesystemUuid
+        }
+        if let appDataFilesystemUuid = result.appDataFilesystemUuid {
+            payload["AppDataFilesystemUuid"] = appDataFilesystemUuid
+        }
         if let capabilities = result.capabilities {
             payload["Capabilities"] = capabilities.toJson()
         }
@@ -374,6 +471,43 @@ public final class HelperService {
     }
 
     private func engineStatusResponse(for request: HelperEnvelope) -> [String: Any] {
+        var payload = request.raw["EngineStatusRequest"] as? [String: Any] ?? [:]
+        payload["ProviderGeneration"] = VmConfigurationValidationRequest.uint64(request.raw["ProviderGeneration"]) ?? 0
+        if payload["HostId"] == nil {
+            payload["HostId"] = VmConfigurationValidationRequest.string(request.raw["ResourceId"])
+        }
+        if let guestResponse = adapter.engineStatus(payload) {
+            if let error = guestResponse["Error"] as? [String: Any] {
+                return errorResponse(
+                    for: request,
+                    operation: .engineStatus,
+                    code: VmConfigurationValidationRequest.string(error["Code"]) ?? "AppleVirtualization.EngineStatusGuestAgentFailed",
+                    message: VmConfigurationValidationRequest.string(error["Message"]) ?? "Guest agent failed engine observation.",
+                    retryable: true,
+                    failedPhase: "GuestEngine")
+            }
+            if let engine = guestResponse["EngineStatusResponse"] as? [String: Any] {
+                let normalizedEngine = EngineStatusWireNormalizer.normalize(engine)
+                return responseBase(for: request, operation: .engineStatus, status: .ok, schema: HelperProtocol.engineStatusResponseSchema)
+                    .merging([
+                        "EventKind": (VmConfigurationValidationRequest.bool(normalizedEngine["Ready"]) ?? false)
+                            ? EngineProtocolEventKind.engineObserved
+                            : EngineProtocolEventKind.engineDegraded,
+                        "EngineStatusResponse": normalizedEngine
+                    ]) { _, new in new }
+            }
+        }
+
+        if !adapter.allowsSyntheticAuthorityFallback {
+            return errorResponse(
+                for: request,
+                operation: .engineStatus,
+                code: "AppleVirtualization.EngineStatusGuestAgentUnavailable",
+                message: "Engine observation requires a running guest agent; no guest engine response was available.",
+                retryable: true,
+                failedPhase: "GuestEngine")
+        }
+
         let statusRequest = EngineStatusRequestPayload.parse(from: request)
         let statusPayload = EngineStatusPayload.fromRequest(statusRequest)
         let timestamp = Self.timestamp()
@@ -387,6 +521,56 @@ public final class HelperService {
                     guestAgentReady: statusRequest.includeGuestObservation,
                     timestamp: timestamp)
             ]) { _, new in new }
+    }
+
+    private func storageResponse(for request: HelperEnvelope) -> [String: Any] {
+        var payload = request.raw["StorageRequest"] as? [String: Any] ?? [:]
+        payload["ProviderGeneration"] =
+            VmConfigurationValidationRequest.uint64(
+                request.raw["ProviderGeneration"]) ?? 0
+        if payload["HostId"] == nil {
+            payload["HostId"] =
+                VmConfigurationValidationRequest.string(
+                    request.raw["ResourceId"])
+        }
+        guard let guestResponse = adapter.storage(payload) else {
+            return errorResponse(
+                for: request,
+                operation: .storage,
+                code: "AppleVirtualization.StorageGuestAgentUnavailable",
+                message: "Storage realization requires a running authenticated guest agent.",
+                retryable: true,
+                failedPhase: "GuestStorage")
+        }
+        if let error = guestResponse["Error"] as? [String: Any] {
+            return errorResponse(
+                for: request,
+                operation: .storage,
+                code: VmConfigurationValidationRequest.string(
+                    error["Code"]) ??
+                    "AppleVirtualization.StorageGuestAgentFailed",
+                message: VmConfigurationValidationRequest.string(
+                    error["Message"]) ??
+                    "Guest agent failed the storage operation.",
+                retryable: false,
+                failedPhase: "GuestStorage")
+        }
+        guard let storage =
+                guestResponse["StorageResponse"] as? [String: Any] else {
+            return errorResponse(
+                for: request,
+                operation: .storage,
+                code: "AppleVirtualization.StorageResponseInvalid",
+                message: "Guest agent returned no bounded storage response.",
+                retryable: false,
+                failedPhase: "GuestStorage")
+        }
+        return responseBase(
+            for: request,
+            operation: .storage,
+            status: .ok,
+            schema: HelperProtocol.storageResponseSchema)
+            .merging(["StorageResponse": storage]) { _, new in new }
     }
 
     private func engineProvisioningResponse(for request: HelperEnvelope) -> [String: Any] {
@@ -935,6 +1119,11 @@ public final class HelperService {
         if let requestId = request.requestId {
             response["RequestId"] = requestId
             response["CausationId"] = requestId
+        }
+        for field in ["ResourceKind", "ResourceId", "ResourceScope", "ResourceGeneration", "ProviderHandle"] {
+            if let value = request.raw[field] {
+                response[field] = value
+            }
         }
 
         return response

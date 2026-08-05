@@ -1,0 +1,94 @@
+#!/usr/bin/env python3
+import argparse
+import os
+import signal
+import socket
+import stat
+import subprocess
+import sys
+import uuid
+
+
+def parse_arguments():
+    parser = argparse.ArgumentParser(prog="/hpd/container-run")
+    parser.add_argument("--image", required=True)
+    parser.add_argument("--engine-socket", required=True)
+    parser.add_argument("--timeout-ms", required=True, type=int)
+    parser.add_argument("--env", action="append", default=[])
+    parser.add_argument("command", nargs=argparse.REMAINDER)
+    arguments = parser.parse_args()
+    if arguments.command[:1] == ["--"]:
+        arguments.command = arguments.command[1:]
+    return arguments
+
+
+def fail(message, exit_code):
+    print("hpd-container-run: failed", file=sys.stderr)
+    print(message, file=sys.stderr)
+    return exit_code
+
+
+def main():
+    arguments = parse_arguments()
+    if arguments.timeout_ms <= 0:
+        return fail("timeout must be positive", 64)
+    if not os.path.isabs(arguments.engine_socket):
+        return fail("engine socket must be an absolute guest path", 65)
+    try:
+        socket_mode = os.stat(arguments.engine_socket).st_mode
+    except OSError:
+        return fail("engine socket is not present: " + arguments.engine_socket, 69)
+    if not stat.S_ISSOCK(socket_mode):
+        return fail("engine endpoint is not a Unix socket: " + arguments.engine_socket, 69)
+
+    container_name = "hpd-run-" + uuid.uuid4().hex
+    docker_command = [
+        "docker",
+        "run",
+        "--name",
+        container_name,
+        "--rm",
+    ]
+    for environment_entry in arguments.env:
+        docker_command.extend(["--env", environment_entry])
+    docker_command.append(arguments.image)
+    docker_command.extend(arguments.command)
+
+    docker_environment = os.environ.copy()
+    docker_environment["DOCKER_HOST"] = "unix://" + arguments.engine_socket
+
+    def cleanup():
+        subprocess.run(
+            ["docker", "rm", "-f", container_name],
+            env=docker_environment,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=5,
+            check=False)
+
+    def stop_for_signal(signum, _frame):
+        cleanup()
+        raise SystemExit(128 + signum)
+
+    signal.signal(signal.SIGINT, stop_for_signal)
+    signal.signal(signal.SIGTERM, stop_for_signal)
+
+    try:
+        completed = subprocess.run(
+            docker_command,
+            env=docker_environment,
+            timeout=arguments.timeout_ms / 1000.0,
+            check=False)
+        return completed.returncode
+    except subprocess.TimeoutExpired:
+        cleanup()
+        return fail("container execution timed out", 124)
+    except FileNotFoundError:
+        return fail("the Docker client is not installed in the guest", 69)
+    except OSError as exception:
+        return fail("container execution failed: " + str(exception), 70)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

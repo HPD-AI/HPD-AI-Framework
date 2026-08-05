@@ -1,6 +1,6 @@
 using HPD.Base;
 
-namespace HPD.Base.AspNetCore.Http;
+namespace HPD.Base.AspNetCore;
 
 /// <summary>
 /// Names operation ids for HPD.BASE ASP.NET Core routes.

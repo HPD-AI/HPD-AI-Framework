@@ -1,10 +1,11 @@
-using HPD.Base.Results;
+using HPD.Base;
 using Microsoft.AspNetCore.Http;
 
-namespace HPD.Base.AspNetCore.Results;
+namespace HPD.Base.AspNetCore;
 
 internal static class BaseHttpStatusCodeMapper
 {
+    /// <summary>Executes the to status code operation.</summary>
     public static int ToStatusCode(OperationStatus status) =>
         status switch
         {

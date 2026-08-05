@@ -19,7 +19,7 @@ public static class ScalewayAgentBuilderExtensions
             throw new ArgumentException("Model is required for Scaleway Generative APIs provider.", nameof(model));
         }
 
-        var chatConfig = new ClientProviderConfig
+        var chatConfig = new ChatClientConfig
         {
             ProviderKey = "scaleway",
             ApiKey = apiKey,

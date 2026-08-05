@@ -4,7 +4,7 @@ using HPD.Agent.TUI.Models;
 
 namespace HPD.Agent.ToolHarness.Coding.TUI.Harness;
 
-internal sealed class CodingHarnessToolCallHandler : IAgentTuiEventHandler
+internal sealed class CodingHarnessToolCallHandler : IAgentTuiEventHandler, IAgentTuiToolCallHandler
 {
     private const string ToolName = "CodingToolHarness";
     private const string StateKey = "hpd.coding.harness.tool-calls";
@@ -20,6 +20,9 @@ internal sealed class CodingHarnessToolCallHandler : IAgentTuiEventHandler
             ToolCallEndEvent end => IsCodingHarness(end.Name, null),
             _ => false
         };
+
+    public bool CanHandleToolCall(string? toolHarnessName, string toolName, ToolCallType? callType)
+        => string.Equals(toolName, ToolName, StringComparison.Ordinal);
 
     public ValueTask HandleAsync(
         AgentEvent evt,

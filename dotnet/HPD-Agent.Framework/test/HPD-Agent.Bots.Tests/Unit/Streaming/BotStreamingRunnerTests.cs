@@ -103,7 +103,7 @@ public class BotStreamingRunnerTests
             Name = "StreamingTestAgent",
             MaxAgenticIterations = 3,
             SystemInstructions = "You are a streaming test agent.",
-            Clients = new AgentClientConfig { Chat = new ClientProviderConfig {
+            Clients = new AgentClientsConfig { Chat = new ChatClientConfig {
                 ProviderKey = "test",
                 ModelName = "test-model",
             } },

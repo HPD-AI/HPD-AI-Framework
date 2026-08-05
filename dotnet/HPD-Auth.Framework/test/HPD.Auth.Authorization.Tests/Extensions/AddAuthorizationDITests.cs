@@ -2,10 +2,8 @@ using FluentAssertions;
 using HPD.Auth.Auth.Authorization.Tests.Helpers;
 using HPD.Auth.Authorization.Extensions;
 using HPD.Auth.Authorization.Handlers;
-using HPD.Auth.Authorization.Middleware;
 using HPD.Auth.Authorization.Services;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Authorization.Policy;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
@@ -61,17 +59,6 @@ public class AddAuthorizationDITests
     }
 
     [Fact]
-    public void RateLimitHandler_registered_as_IAuthorizationHandler()
-    {
-        var provider = BuildProvider();
-
-        using var scope = provider.CreateScope();
-        var handlers = scope.ServiceProvider.GetServices<IAuthorizationHandler>();
-
-        handlers.Should().ContainSingle(h => h is RateLimitHandler);
-    }
-
-    [Fact]
     public void FeatureFlagHandler_registered_as_IAuthorizationHandler()
     {
         var provider = BuildProvider();
@@ -80,18 +67,6 @@ public class AddAuthorizationDITests
         var handlers = scope.ServiceProvider.GetServices<IAuthorizationHandler>();
 
         handlers.Should().ContainSingle(h => h is FeatureFlagHandler);
-    }
-
-    [Fact]
-    public void IRateLimitService_registered_as_singleton_InMemoryRateLimitService()
-    {
-        var provider = BuildProvider();
-
-        var instance1 = provider.GetRequiredService<IRateLimitService>();
-        var instance2 = provider.GetRequiredService<IRateLimitService>();
-
-        instance1.Should().BeOfType<InMemoryRateLimitService>();
-        instance1.Should().BeSameAs(instance2, "singleton should return the same instance");
     }
 
     [Fact]
@@ -118,30 +93,6 @@ public class AddAuthorizationDITests
         featureEnabled
             .Should()
             .BeFalse();
-    }
-
-    [Fact]
-    public void IAuthorizationMiddlewareResultHandler_registered_as_HPDAuthorizationMiddlewareResultHandler()
-    {
-        var provider = BuildProvider();
-
-        var handler = provider.GetRequiredService<IAuthorizationMiddlewareResultHandler>();
-
-        handler.Should().BeOfType<HPDAuthorizationMiddlewareResultHandler>();
-    }
-
-    [Fact]
-    public void Custom_IRateLimitService_overrides_in_memory_default()
-    {
-        var provider = BuildProvider(services =>
-        {
-            // Registered after AddAuthorization() — should win
-            services.AddSingleton<IRateLimitService, FakeRateLimitService>();
-        });
-
-        var service = provider.GetRequiredService<IRateLimitService>();
-
-        service.Should().BeOfType<FakeRateLimitService>();
     }
 
     [Fact]
@@ -179,12 +130,6 @@ public class AddAuthorizationDITests
         var returned = builder.AddAuthorization();
 
         returned.Should().BeSameAs(builder);
-    }
-
-    private sealed class FakeRateLimitService : IRateLimitService
-    {
-        public Task<bool> CheckRateLimitAsync(string key, int maxRequests, TimeSpan window, CancellationToken ct = default)
-            => Task.FromResult(true);
     }
 
     private sealed class StubAppPermissionService : IAppPermissionService

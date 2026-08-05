@@ -362,6 +362,16 @@ public class ConfigSerializationTests
     {
         var config = new AgentRunConfig
         {
+            Clients = new AgentClientsConfig
+            {
+                TextToSpeech = new TextToSpeechClientConfig
+                {
+                    VoiceId = "voice-run",
+                    Language = "en-US",
+                    AudioFormat = "pcm16",
+                    Speed = 1.25f
+                }
+            },
             Audio = new AudioRunConfig
             {
                 Enabled = false,
@@ -371,11 +381,7 @@ public class ConfigSerializationTests
                 ProgressiveRouteMode = ProgressiveTextToSpeechRouteMode.ForceSegment,
                 PushTextAggregationMode = PushTextInputAggregationMode.ManualFlush,
                 ArtifactCapturePolicy = AssistantAudioArtifactCapturePolicy.DigestOnly,
-                VoiceId = "voice-run",
-                Language = "en-US",
-                OutputFormat = "pcm16",
                 ContentType = "audio/pcm",
-                Speed = 1.25f,
                 EnablePlayback = true,
                 Pacing = new TextToSpeechPacingOptions
                 {
@@ -399,11 +405,11 @@ public class ConfigSerializationTests
         Assert.Equal(ProgressiveTextToSpeechRouteMode.ForceSegment, deserialized.Audio.ProgressiveRouteMode);
         Assert.Equal(PushTextInputAggregationMode.ManualFlush, deserialized.Audio.PushTextAggregationMode);
         Assert.Equal(AssistantAudioArtifactCapturePolicy.DigestOnly, deserialized.Audio.ArtifactCapturePolicy);
-        Assert.Equal("voice-run", deserialized.Audio.VoiceId);
-        Assert.Equal("en-US", deserialized.Audio.Language);
-        Assert.Equal("pcm16", deserialized.Audio.OutputFormat);
+        Assert.Equal("voice-run", deserialized.Clients.TextToSpeech!.VoiceId);
+        Assert.Equal("en-US", deserialized.Clients.TextToSpeech.Language);
+        Assert.Equal("pcm16", deserialized.Clients.TextToSpeech.AudioFormat);
         Assert.Equal("audio/pcm", deserialized.Audio.ContentType);
-        Assert.Equal(1.25f, deserialized.Audio.Speed);
+        Assert.Equal(1.25f, deserialized.Clients.TextToSpeech.Speed);
         Assert.True(deserialized.Audio.EnablePlayback);
         Assert.NotNull(deserialized.Audio.Pacing);
         Assert.Equal(TextToSpeechPacingMode.TokenBatch, deserialized.Audio.Pacing.Mode);

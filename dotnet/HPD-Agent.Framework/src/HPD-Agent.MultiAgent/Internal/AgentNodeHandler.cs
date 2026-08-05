@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using HPD.Agent;
 using HPD.Agent.StructuredOutput;
+using HPD.Agent.Providers;
 using HPD.MultiAgent.Config;
 using HPD.Graph.Abstractions.Events;
 using HPD.Graph.Abstractions.Execution;
@@ -47,6 +48,9 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
         }
 
         var options = context.GetAgentOptions(_nodeId) ?? new AgentNodeOptions();
+        var deadline = options.Timeout is { } timeout
+            ? AgentInvocationDeadline.FromTimeout(timeout)
+            : null;
 
         try
         {
@@ -83,6 +87,15 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
                 duration: stopwatch.Elapsed,
                 metadata: new NodeExecutionMetadata()
             );
+        }
+        catch (OperationCanceledException ex) when (deadline?.IsExpired(DateTimeOffset.UtcNow) == true)
+        {
+            return new NodeExecutionResult.Failure(
+                Exception: new TimeoutException($"Agent node '{_nodeId}' exceeded its invocation deadline.", ex),
+                Severity: ErrorSeverity.Transient,
+                IsTransient: true,
+                Duration: stopwatch.Elapsed,
+                ErrorCode: "DEADLINE_EXCEEDED");
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -210,7 +223,7 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
         var messages = new[] { new ChatMessage(ChatRole.User, input) };
 
         // Build per-invocation options (with fallback chat client from parent)
-        var runConfig = BuildRunConfig(options, context);
+        var runConfig = BuildRunConfig(agent, options, context);
 
         using (agent.SubscribeAny(evt =>
         {
@@ -245,7 +258,7 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
         }
 
         var messages = new[] { new ChatMessage(ChatRole.User, input) };
-        var runConfig = BuildRunConfig(options, context);
+        var runConfig = BuildRunConfig(agent, options, context);
 
         // Configure structured output
         runConfig.StructuredOutput = new StructuredOutputOptions
@@ -298,7 +311,7 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
         }
 
         var messages = new[] { new ChatMessage(ChatRole.User, input) };
-        var runConfig = BuildRunConfig(options, context);
+        var runConfig = BuildRunConfig(agent, options, context);
 
         // Configure union output
         runConfig.StructuredOutput = new StructuredOutputOptions
@@ -364,25 +377,27 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
         string? selectedHandoff = null;
         var responseText = new StringBuilder();
 
-        var runConfig = BuildRunConfig(options, context);
+        var runConfig = BuildRunConfig(agent, options, context);
 
-        // Generate and inject handoff tools via public AdditionalTools API
+        // Generate and inject handoff tools through the consolidated tool configuration.
         var handoffTools = HandoffToolGenerator.CreateHandoffTools(options.HandoffTargets);
         if (handoffTools.Count > 0)
         {
-            runConfig.AdditionalTools = handoffTools;
+            runConfig.Tools ??= new AgentToolsRunConfig();
+            runConfig.Tools.Additional = handoffTools;
 
             // Force tool calling mode so the agent must call a handoff
-            runConfig.ToolModeOverride = ChatToolMode.RequireAny;
+            runConfig.Tools.Mode = ChatToolMode.RequireAny;
         }
 
         // Append handoff instructions to system prompt
         var handoffInstructions = HandoffToolGenerator.CreateHandoffSystemPrompt(options.HandoffTargets);
         if (!string.IsNullOrEmpty(handoffInstructions))
         {
-            runConfig.AdditionalSystemInstructions = string.IsNullOrEmpty(runConfig.AdditionalSystemInstructions)
+            runConfig.SystemInstructions ??= new SystemInstructionsRunConfig();
+            runConfig.SystemInstructions.Append = string.IsNullOrEmpty(runConfig.SystemInstructions.Append)
                 ? handoffInstructions
-                : runConfig.AdditionalSystemInstructions + handoffInstructions;
+                : runConfig.SystemInstructions.Append + handoffInstructions;
         }
 
         using (agent.SubscribeAny(evt =>
@@ -455,39 +470,51 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
         }, ct).ConfigureAwait(false);
     }
 
-    private static AgentRunConfig BuildRunConfig(AgentNodeOptions options, AgentGraphContext? graphContext = null)
+    private static AgentRunConfig BuildRunConfig(
+        Agent.Agent agent,
+        AgentNodeOptions options,
+        AgentGraphContext? graphContext = null)
     {
-        var runConfig = new AgentRunConfig();
-
-        if (!string.IsNullOrEmpty(options.AdditionalSystemInstructions))
-        {
-            runConfig.AdditionalSystemInstructions = options.AdditionalSystemInstructions;
-        }
-
-        if (options.ContextInstances != null && options.ContextInstances.Count > 0)
-        {
-            runConfig.ContextInstances = new Dictionary<string, IToolMetadata>();
-            foreach (var kvp in options.ContextInstances)
-            {
-                if (kvp.Value is IToolMetadata metadata)
-                {
-                    runConfig.ContextInstances[kvp.Key] = metadata;
-                }
-            }
-        }
-
-        if (options.Timeout.HasValue)
-        {
-            runConfig.RunTimeout = options.Timeout.Value;
-        }
-
-        // Use fallback chat client from parent agent if available
-        if (graphContext?.FallbackChatClient != null)
-        {
-            runConfig.OverrideChatClient = graphContext.FallbackChatClient;
-        }
+        var runConfig = agent.CaptureRunConfig(options.RunConfig);
+        var parentContext = graphContext?.ParentExecutionContext;
+        SubAgentRunConfig.ApplyClientInheritance(
+            runConfig,
+            parentContext?.ClientSet,
+            agent.Config,
+            options.ClientInheritance);
+        ApplyChatInheritance(runConfig, agent, options.ClientInheritance.Chat, parentContext);
 
         return runConfig;
+    }
+
+    private static void ApplyChatInheritance(
+        AgentRunConfig runConfig,
+        Agent.Agent agent,
+        ClientFamilyInheritanceMode mode,
+        HPD.Agent.Middleware.FunctionExecutionContext? parentContext)
+    {
+        if (mode == ClientFamilyInheritanceMode.UseOwn || parentContext?.GetParentChatClient() is not { } parentClient)
+            return;
+
+        var own = runConfig.Clients.Chat;
+        if (mode == ClientFamilyInheritanceMode.FallbackToParent &&
+            (own is not null || agent.Config?.ResolveClientConfig(ProviderClientFamily.Chat) is not null))
+            return;
+
+        var parent = parentContext.GetEffectiveChatClientHandle()?.ResolvedConfig as ChatClientConfig;
+        var inherited = parent is null
+            ? new ChatClientConfig()
+            : (ChatClientConfig)ProviderClientConfigResolver.Clone(parent);
+        inherited.Override = new ClientOverride<IChatClient> { Client = parentClient };
+        if (own is not null)
+        {
+            var baseline = new AgentClientsConfig { Chat = inherited };
+            inherited = (ChatClientConfig)ProviderClientConfigResolver.Resolve(
+                baseline,
+                ProviderClientFamily.Chat,
+                new AgentClientsConfig { Chat = own })!;
+        }
+        runConfig.Clients.Chat = inherited;
     }
 
     private static Dictionary<string, object> FlattenToOutputs(object? result, Type? type)

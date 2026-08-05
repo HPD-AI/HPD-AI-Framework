@@ -1,5 +1,4 @@
-using HPD.Base.Runtime.Operations;
-using HPD.Base.Runtime.Stores;
+using HPD.Base;
 
 namespace HPD.Base.StoreConformance.Runtime;
 
@@ -21,7 +20,7 @@ public abstract class RuntimeStoreRegistrationConformanceTests<TFixture> : Recor
     [Fact]
     public async Task RuntimeCrudRoundTripComposesStoreAndSchema()
     {
-        if (!Capabilities.Crud.Create || !Capabilities.Crud.Get || !Capabilities.Crud.List || !Capabilities.Crud.Delete)
+        if (!Capabilities.Mutation.Create || !Capabilities.Read.Get || !Capabilities.Read.List || !Capabilities.Mutation.Delete)
         {
             return;
         }

@@ -502,8 +502,8 @@ public class PasskeyEndpointTests : IClassFixture<TwoFactorWebFactory>
         var idBase64 = WebEncoders.Base64UrlEncode(credentialId);
         await client.DeleteAsync($"/api/auth/passkeys/{idBase64}");
 
-        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: AuditActions.PasskeyDelete);
-        logs.Should().NotBeEmpty();
+        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: "2fa.enable");
+        logs.Should().BeEmpty();
     }
 
     // 9.3.2 — Deleting last passkey when no password and no TOTP → 400 last_auth_method

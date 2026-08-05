@@ -49,9 +49,9 @@ public sealed class DebugRuntimeBindingTests
     {
         var runConfig = new AgentRunConfig
         {
-            Security = new AgentSecurityProfile
+            Security = new AgentSecurityRunConfig
             {
-                Sandbox = AgentSandboxPolicy.Disabled
+                Sandbox = new AgentSandboxRunConfig { Mode = AgentSandboxPolicy.Disabled }
             }
         };
         var context = CreateContext(
@@ -77,7 +77,7 @@ public sealed class DebugRuntimeBindingTests
         Directory.CreateDirectory(second);
         var runConfig = new AgentRunConfig
         {
-            ContextOverrides = new Dictionary<string, object>
+            Context = new AgentContextRunConfig { Properties = new Dictionary<string, object>
             {
                 [AgentWorkspace.ContextKey] = new AgentWorkspace(
                     "a",
@@ -86,7 +86,7 @@ public sealed class DebugRuntimeBindingTests
                         new AgentWorkspaceRoot("a", first),
                         new AgentWorkspaceRoot("b", second)
                     ])
-            }
+            } }
         };
         var context = CreateContext(
             new DebugSessionManager(new DebugTerminalRecordStore(
@@ -270,9 +270,9 @@ public sealed class DebugRuntimeBindingTests
         {
             ProcessSandbox = new AgentSandboxRuntime
             {
-                Security = new AgentSecurityProfile
+                Security = new AgentSecurityRunConfig
                 {
-                    Sandbox = AgentSandboxPolicy.Disabled
+                    Sandbox = new AgentSandboxRunConfig { Mode = AgentSandboxPolicy.Disabled }
                 }
             }
         };

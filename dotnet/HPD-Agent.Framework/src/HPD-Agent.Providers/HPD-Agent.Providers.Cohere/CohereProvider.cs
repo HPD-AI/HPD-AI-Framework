@@ -14,6 +14,11 @@ namespace HPD.Agent.Providers.Cohere;
 /// <summary>
 /// Cohere provider implementation using the tryAGI Cohere SDK.
 /// </summary>
+[HpdProvider("cohere", "Cohere")]
+[HpdProviderFamily(ProviderClientFamily.Chat)]
+[HpdProviderFamily(ProviderClientFamily.Embeddings)]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.OperationOptions, typeof(CohereChatRequestOptions), typeof(CohereJsonContext))]
+[HpdProviderSecretAlias("cohere:ApiKey", "COHERE_API_KEY")]
 internal class CohereProvider : IChatClientProvider, IEmbeddingGeneratorProvider
 {
     private static readonly Uri DefaultEndpoint = new("https://api.cohere.com/");
@@ -21,8 +26,8 @@ internal class CohereProvider : IChatClientProvider, IEmbeddingGeneratorProvider
     public string ProviderKey => "cohere";
     public string DisplayName => "Cohere";
 
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider registers an AOT-compatible config deserializer in CohereProviderModule.")]
-    public Meai.IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null)
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
+    public async ValueTask<Meai.IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(config);
 
@@ -36,18 +41,14 @@ internal class CohereProvider : IChatClientProvider, IEmbeddingGeneratorProvider
         return new CohereConfiguredChatClient(client, config.ModelName);
     }
 
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider registers an AOT-compatible config deserializer in CohereProviderModule.")]
-    public Meai.IEmbeddingGenerator CreateEmbeddingGenerator(ClientProviderConfig config, IServiceProvider? services = null)
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
+    public Meai.IEmbeddingGenerator CreateEmbeddingGenerator(ProviderClientConfig config, IServiceProvider? services = null)
     {
         ArgumentNullException.ThrowIfNull(config);
 
         var client = CreateCohereClient(config, services);
-        var cohereConfig = config.GetProviderConfig<CohereProviderConfig>(ProviderClientFamily.Embeddings)
-            ?? config.GetProviderConfig<CohereProviderConfig>();
-
         var modelName =
             !string.IsNullOrWhiteSpace(config.ModelName) ? config.ModelName :
-            !string.IsNullOrWhiteSpace(cohereConfig?.EmbeddingModelId) ? cohereConfig.EmbeddingModelId :
             "embed-english-v3.0";
 
         Meai.IEmbeddingGenerator<string, Meai.Embedding<float>> generator = client;
@@ -89,8 +90,8 @@ internal class CohereProvider : IChatClientProvider, IEmbeddingGeneratorProvider
         };
     }
 
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider registers an AOT-compatible config deserializer in CohereProviderModule.")]
-    public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family)
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
+    public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
     {
         ArgumentNullException.ThrowIfNull(config);
 
@@ -101,11 +102,6 @@ internal class CohereProvider : IChatClientProvider, IEmbeddingGeneratorProvider
             errors.Add("Model name is required for Cohere");
         }
 
-        if (string.IsNullOrWhiteSpace(config.ApiKey))
-        {
-            errors.Add("API key is required for Cohere. " +
-                       "Set it via the apiKey parameter, COHERE_API_KEY environment variable, or configuration.");
-        }
 
         if (!string.IsNullOrWhiteSpace(config.Endpoint) &&
             !Uri.IsWellFormedUriString(config.Endpoint, UriKind.Absolute))
@@ -113,28 +109,12 @@ internal class CohereProvider : IChatClientProvider, IEmbeddingGeneratorProvider
             errors.Add("Endpoint must be a valid, absolute URI");
         }
 
-        if (family == ProviderClientFamily.Embeddings)
-        {
-            var cohereConfig = config.GetProviderConfig<CohereProviderConfig>(family)
-                ?? config.GetProviderConfig<CohereProviderConfig>();
-            if (cohereConfig is not null)
-            {
-                ValidateProviderOptions(cohereConfig, errors);
-            }
-        }
-
         return errors.Count > 0
             ? ProviderValidationResult.Failure(errors.ToArray())
             : ProviderValidationResult.Success();
     }
 
-    internal static void ValidateProviderOptions(CohereProviderConfig config, List<string> errors)
-    {
-        if (config.EmbeddingModelId is { Length: 0 })
-            errors.Add("EmbeddingModelId cannot be empty");
-    }
-
-    private static global::Cohere.CohereClient CreateCohereClient(ClientProviderConfig config, IServiceProvider? services)
+    private static global::Cohere.CohereClient CreateCohereClient(ProviderClientConfig config, IServiceProvider? services)
     {
         var secrets = services?.GetService<ISecretResolver>();
         if (secrets is null)

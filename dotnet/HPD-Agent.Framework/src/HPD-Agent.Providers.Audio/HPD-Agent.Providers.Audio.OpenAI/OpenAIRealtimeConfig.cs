@@ -5,20 +5,14 @@ using System.Text.Json.Serialization;
 
 namespace HPD.Agent.Providers.Audio.OpenAI;
 
-public sealed class OpenAIRealtimeConfig
+/// <summary>OpenAI-specific Realtime client acquisition configuration.</summary>
+public sealed class OpenAIRealtimeConfig : global::HPD.Agent.IProviderConfig
 {
-    [JsonPropertyName("apiKey")]
-    public string? ApiKey { get; set; }
-
-    [JsonPropertyName("baseUrl")]
-    public string? BaseUrl { get; set; }
-
-    [JsonPropertyName("defaultModelId")]
-    public string? DefaultModelId { get; set; }
-
+    /// <summary>Gets or sets the OpenAI organization identifier.</summary>
     [JsonPropertyName("organizationId")]
     public string? OrganizationId { get; set; }
 
+    /// <summary>Gets or sets the OpenAI project identifier.</summary>
     [JsonPropertyName("projectId")]
     public string? ProjectId { get; set; }
 }

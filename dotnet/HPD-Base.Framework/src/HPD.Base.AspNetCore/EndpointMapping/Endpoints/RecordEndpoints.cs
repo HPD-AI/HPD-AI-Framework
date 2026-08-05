@@ -1,16 +1,6 @@
 using System.Text.Json;
 using HPD.Base;
-using HPD.Base.AspNetCore.EndpointMapping;
-using HPD.Base.AspNetCore.Configuration;
-using HPD.Base.AspNetCore.Http;
-using HPD.Base.AspNetCore.OpenApi;
-using HPD.Base.AspNetCore.QueryBinding;
-using HPD.Base.AspNetCore.Results;
-using HPD.Base.Query;
-using HPD.Base.Records;
-using HPD.Base.Results;
-using HPD.Base.Runtime;
-using HPD.Base.Serialization;
+using HPD.Base.AspNetCore;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
@@ -18,19 +8,22 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
-namespace HPD.Base.AspNetCore.EndpointMapping.Endpoints;
+namespace HPD.Base.AspNetCore;
 
 internal static class RecordEndpoints
 {
+    /// <summary>Executes the map operation.</summary>
     public static void Map(IEndpointRouteBuilder endpoints)
     {
         endpoints.MapGet("/collections/{collectionId}/records", (RequestDelegate)ListRequest).WithHPDBaseOpenApi(BaseRouteIds.RecordsList).WithName(BaseRouteIds.RecordsList);
-        endpoints.MapPost("/collections/{collectionId}/query", (RequestDelegate)QueryRequest).WithHPDBaseOpenApi(BaseRouteIds.RecordsQuery).WithName(BaseRouteIds.RecordsQuery);
+        endpoints.MapPost("/collections/{collectionId}/records:query", (RequestDelegate)QueryRequest).WithHPDBaseOpenApi(BaseRouteIds.RecordsQuery).WithName(BaseRouteIds.RecordsQuery);
         endpoints.MapGet("/collections/{collectionId}/records/{id}", (RequestDelegate)GetRequest).WithHPDBaseOpenApi(BaseRouteIds.RecordsGet).WithName(BaseRouteIds.RecordsGet);
         endpoints.MapPost("/collections/{collectionId}/records", (RequestDelegate)CreateRequest).WithHPDBaseOpenApi(BaseRouteIds.RecordsCreate).WithName(BaseRouteIds.RecordsCreate);
         endpoints.MapPatch("/collections/{collectionId}/records/{id}", (RequestDelegate)PatchRequest).WithHPDBaseOpenApi(BaseRouteIds.RecordsPatch).WithName(BaseRouteIds.RecordsPatch);
         endpoints.MapPut("/collections/{collectionId}/records/{id}", (RequestDelegate)ReplaceRequest).WithHPDBaseOpenApi(BaseRouteIds.RecordsReplace).WithName(BaseRouteIds.RecordsReplace);
         endpoints.MapDelete("/collections/{collectionId}/records/{id}", (RequestDelegate)DeleteRequest).WithHPDBaseOpenApi(BaseRouteIds.RecordsDelete).WithName(BaseRouteIds.RecordsDelete);
+        endpoints.MapPost("/records/batch", (RequestDelegate)BatchRequest).WithHPDBaseOpenApi(BaseRouteIds.RecordsBatch).WithName(BaseRouteIds.RecordsBatch);
+        endpoints.MapPut("/collections/{collectionId}/records/{id}:upsert", (RequestDelegate)UpsertRequest).WithHPDBaseOpenApi(BaseRouteIds.RecordsUpsert).WithName(BaseRouteIds.RecordsUpsert);
     }
 
     private static Task ListRequest(HttpContext httpContext) => Execute(httpContext,
@@ -38,7 +31,10 @@ internal static class RecordEndpoints
 
     private static async Task QueryRequest(HttpContext httpContext)
     {
-        var query = await ReadOptionalBody(httpContext, HPDBaseJsonSerializerContext.Default.RecordQuery, httpContext.RequestAborted);
+        RecordQuery? query;
+        try { query = await ReadOptionalBody(httpContext, HPDBaseJsonSerializerContext.Default.RecordQuery, httpContext.RequestAborted); }
+        catch (RequestBodyTooLargeException) { await BodyTooLargeProblem(httpContext).ExecuteAsync(httpContext); return; }
+        catch (JsonException) { await BodyValidationProblem(httpContext, "base.http.body.invalidJson", "Request body is not valid JSON.").ExecuteAsync(httpContext); return; }
         await Execute(httpContext, services => Query(RouteValue(httpContext, "collectionId"), query, httpContext, services.GetRequiredService<IHPDBaseRuntime>(), services.GetRequiredService<IBaseHttpPrincipalContextFactory>(), services.GetRequiredService<IBaseHttpOperationContextFactory>(), services.GetRequiredService<IBaseHttpResultMapper>(), httpContext.RequestAborted));
     }
 
@@ -83,8 +79,62 @@ internal static class RecordEndpoints
 
     private static async Task DeleteRequest(HttpContext httpContext)
     {
-        var request = await ReadOptionalBody(httpContext, HPDBaseJsonSerializerContext.Default.RecordDeleteRequest, httpContext.RequestAborted);
+        RecordDeleteRequest? request;
+        try { request = await ReadOptionalBody(httpContext, HPDBaseJsonSerializerContext.Default.RecordDeleteRequest, httpContext.RequestAborted); }
+        catch (RequestBodyTooLargeException) { await BodyTooLargeProblem(httpContext).ExecuteAsync(httpContext); return; }
+        catch (JsonException) { await BodyValidationProblem(httpContext, "base.http.body.invalidJson", "Request body is not valid JSON.").ExecuteAsync(httpContext); return; }
         await Execute(httpContext, services => Delete(RouteValue(httpContext, "collectionId"), RouteValue(httpContext, "id"), request, httpContext, services.GetRequiredService<IHPDBaseRuntime>(), services.GetRequiredService<IBaseHttpPrincipalContextFactory>(), services.GetRequiredService<IBaseHttpOperationContextFactory>(), services.GetRequiredService<IBaseHttpResultMapper>(), httpContext.RequestAborted));
+    }
+
+    private static async Task BatchRequest(HttpContext httpContext)
+    {
+        var request = await ReadRequiredBody(
+            httpContext,
+            HPDBaseJsonSerializerContext.Default.BaseRecordBatchRequest,
+            "base.http.body.required",
+            "Batch request body is required.",
+            httpContext.RequestAborted);
+        if (request.Value is null)
+        {
+            await request.Error!.ExecuteAsync(httpContext);
+            return;
+        }
+
+        await Execute(httpContext, services => Batch(
+            request.Value,
+            httpContext,
+            services.GetRequiredService<IHPDBaseRuntime>(),
+            services.GetRequiredService<IBaseHttpPrincipalContextFactory>(),
+            services.GetRequiredService<IBaseHttpOperationContextFactory>(),
+            services.GetRequiredService<IBaseHttpResultMapper>(),
+            services.GetRequiredService<IRecordStoreRegistry>(),
+            httpContext.RequestAborted));
+    }
+
+    private static async Task UpsertRequest(HttpContext httpContext)
+    {
+        var request = await ReadRequiredBody(
+            httpContext,
+            HPDBaseJsonSerializerContext.Default.RecordUpsertRequest,
+            "base.http.body.required",
+            "Upsert request body is required.",
+            httpContext.RequestAborted);
+        if (request.Value is null)
+        {
+            await request.Error!.ExecuteAsync(httpContext);
+            return;
+        }
+
+        await Execute(httpContext, services => Upsert(
+            RouteValue(httpContext, "collectionId"),
+            RouteValue(httpContext, "id"),
+            request.Value,
+            httpContext,
+            services.GetRequiredService<IHPDBaseRuntime>(),
+            services.GetRequiredService<IBaseHttpPrincipalContextFactory>(),
+            services.GetRequiredService<IBaseHttpOperationContextFactory>(),
+            services.GetRequiredService<IBaseHttpResultMapper>(),
+            httpContext.RequestAborted));
     }
 
     private static async Task<IResult> List(
@@ -158,15 +208,6 @@ internal static class RecordEndpoints
     {
         var principal = await principalFactory.CreateAsync(httpContext, HPDBaseEndpointKind.Records, cancellationToken);
         var operation = operationFactory.Create(httpContext, principal, BaseOperationKind.Create, collectionId);
-        var headerKey = BaseIdempotencyKeyBinder.Bind(httpContext);
-        if (!string.IsNullOrWhiteSpace(headerKey))
-        {
-            if (!string.IsNullOrWhiteSpace(request.IdempotencyKey) && !string.Equals(request.IdempotencyKey, headerKey, StringComparison.Ordinal))
-                return resultMapper.ToHttpResult(Validation<RecordEnvelope>("base.http.idempotency.conflict", "Idempotency-Key header conflicts with request body.", "idempotencyKey"), httpContext, Mapping(operation));
-
-            request = request with { IdempotencyKey = headerKey };
-        }
-
         var result = await runtime.Records.CreateAsync(collectionId, request, principal, operation, cancellationToken);
         var location = result.Value is null ? null : $"{httpContext.Request.Path}/{Uri.EscapeDataString(result.Value.Id.Value)}";
         return resultMapper.ToHttpResult(result, httpContext, Mapping(operation) with { Location = location });
@@ -248,6 +289,92 @@ internal static class RecordEndpoints
         return resultMapper.ToHttpResult(result, httpContext, Mapping(operation));
     }
 
+    private static async Task<IResult> Batch(
+        BaseRecordBatchRequest request,
+        HttpContext httpContext,
+        IHPDBaseRuntime runtime,
+        IBaseHttpPrincipalContextFactory principalFactory,
+        IBaseHttpOperationContextFactory operationFactory,
+        IBaseHttpResultMapper resultMapper,
+        IRecordStoreRegistry stores,
+        CancellationToken cancellationToken)
+    {
+        var principal = await principalFactory.CreateAsync(
+            httpContext,
+            HPDBaseEndpointKind.Records,
+            cancellationToken);
+        var operation = operationFactory.Create(
+            httpContext,
+            principal,
+            BaseOperationKind.Batch,
+            "base");
+        OperationResult<BaseRecordBatchRequest> bound = BaseAtomicBatchIdentityBinder.Bind(request, httpContext, principal, stores);
+        if (!bound.IsSuccess() || bound.Value is null)
+            return resultMapper.ToHttpResult(bound, httpContext, Mapping(operation));
+        var result = await runtime.Records.BatchAsync(
+            bound.Value,
+            principal,
+            operation,
+            cancellationToken);
+        return resultMapper.ToHttpResult(result, httpContext, Mapping(operation));
+    }
+
+    private static async Task<IResult> Upsert(
+        string collectionId,
+        string id,
+        RecordUpsertRequest request,
+        HttpContext httpContext,
+        IHPDBaseRuntime runtime,
+        IBaseHttpPrincipalContextFactory principalFactory,
+        IBaseHttpOperationContextFactory operationFactory,
+        IBaseHttpResultMapper resultMapper,
+        CancellationToken cancellationToken)
+    {
+        var principal = await principalFactory.CreateAsync(
+            httpContext,
+            HPDBaseEndpointKind.Records,
+            cancellationToken);
+        var operation = operationFactory.Create(
+            httpContext,
+            principal,
+            BaseOperationKind.Upsert,
+            collectionId,
+            id);
+
+        if (!TryBindRecordId(id, Limits(httpContext), out var recordId, out var validation))
+            return resultMapper.ToHttpResult(validation!, httpContext, Mapping(operation));
+
+        if (!string.Equals(request.Id.Value, recordId.Value, StringComparison.Ordinal))
+        {
+            return resultMapper.ToHttpResult(
+                Validation<RecordUpsertResult>(
+                    "base.http.recordId.conflict",
+                    "Route record id conflicts with request body id.",
+                    "id"),
+                httpContext,
+                Mapping(operation));
+        }
+
+        var headerRevision = BaseIfMatchHeaderBinder.Bind(httpContext);
+        if (!TryMergeRevision<RecordUpsertResult>(
+                request.ExpectedRevision,
+                headerRevision,
+                out var expectedRevision,
+                out var revisionError))
+        {
+            return resultMapper.ToHttpResult(revisionError!, httpContext, Mapping(operation));
+        }
+
+        request = request with { Id = recordId, ExpectedRevision = expectedRevision };
+        var result = await runtime.Records.UpsertAsync(
+            collectionId,
+            request,
+            principal,
+            operation,
+            cancellationToken);
+        return resultMapper.ToHttpResult(result, httpContext, Mapping(operation));
+    }
+
     private static bool TryBindRecordId(string id, HPDBaseHttpLimitOptions limits, out RecordId recordId, out OperationResult<RecordEnvelope>? validation)
     {
         recordId = default;
@@ -318,11 +445,14 @@ internal static class RecordEndpoints
             return default;
         if (httpContext.Request.ContentLength is { } contentLength
             && contentLength > Limits(httpContext).MaxRequestBodyLength)
-            throw new JsonException("Request body exceeds the configured maximum length.");
+            throw new RequestBodyTooLargeException();
         if (httpContext.Features.Get<IHttpRequestBodyDetectionFeature>()?.CanHaveBody == false)
             return default;
 
-        return await JsonSerializer.DeserializeAsync(httpContext.Request.Body, jsonTypeInfo, cancellationToken);
+        await using var limitedBody = new LimitedRequestBodyStream(
+            httpContext.Request.Body,
+            Limits(httpContext).MaxRequestBodyLength);
+        return await JsonSerializer.DeserializeAsync(limitedBody, jsonTypeInfo, cancellationToken);
     }
 
     private static async ValueTask<(T? Value, IResult? Error)> ReadRequiredBody<T>(
@@ -342,9 +472,16 @@ internal static class RecordEndpoints
 
             return (value, null);
         }
-        catch (JsonException ex)
+        catch (RequestBodyTooLargeException)
         {
-            return (default, BodyValidationProblem(httpContext, "base.http.body.invalidJson", ex.Message));
+            return (default, BodyTooLargeProblem(httpContext));
+        }
+        catch (JsonException)
+        {
+            return (default, BodyValidationProblem(
+                httpContext,
+                "base.http.body.invalidJson",
+                "Request body is not valid JSON."));
         }
     }
 
@@ -360,6 +497,22 @@ internal static class RecordEndpoints
         };
         problem.Extensions["hpd.status"] = "validationFailed";
         problem.Extensions["hpd.error.code"] = code;
+        problem.Extensions["hpd.error.category"] = "validation";
+        return TypedResults.Problem(problem);
+    }
+
+    private static IResult BodyTooLargeProblem(HttpContext httpContext)
+    {
+        var problem = new Microsoft.AspNetCore.Mvc.ProblemDetails
+        {
+            Status = StatusCodes.Status413PayloadTooLarge,
+            Title = "Request body is too large",
+            Type = "urn:hpd:base:error:payload-too-large",
+            Detail = "Request body exceeds the configured maximum length.",
+            Instance = httpContext.Request.Path,
+        };
+        problem.Extensions["hpd.status"] = "validationFailed";
+        problem.Extensions["hpd.error.code"] = "base.http.body.tooLarge";
         problem.Extensions["hpd.error.category"] = "validation";
         return TypedResults.Problem(problem);
     }

@@ -1,7 +1,7 @@
 namespace HPD.Environment.AppleVirtualization.Authority;
 
-using System.Text.Json;
 using HPD.Environment.Contracts;
+using HPD.Environment.Runtime;
 
 public static class AppleVirtualizationAuthorityEvidenceReader
 {
@@ -19,28 +19,18 @@ public static class AppleVirtualizationAuthorityEvidenceReader
     {
         ArgumentNullException.ThrowIfNull(extensions);
 
-        for (int i = 0; i < extensions.Count; i++)
-        {
-            ProviderExtensionData extension = extensions[i];
-            if (extension.ProviderId != AppleVirtualizationProviderDescriptor.ProviderId ||
-                extension.SchemaId != AppleVirtualizationAuthorityBindingProvider.AuthorityEvidenceExtensionSchema)
-            {
-                continue;
-            }
-
-            evidence = JsonSerializer.Deserialize(
-                extension.Payload.Span,
-                AppleVirtualizationJsonContext.Default.AppleVirtualizationAuthorityEvidenceExtension) ?? new AppleVirtualizationAuthorityEvidenceExtension
-                {
-                    BindingId = string.Empty,
-                };
-            return !string.IsNullOrWhiteSpace(evidence.BindingId);
-        }
-
-        evidence = new AppleVirtualizationAuthorityEvidenceExtension
+        bool read = AuthorityEvidenceReader.TryRead(
+            extensions,
+            AppleVirtualizationProviderDescriptor.ProviderId,
+            AppleVirtualizationAuthorityBindingProvider
+                .AuthorityEvidenceExtensionSchema,
+            AppleVirtualizationJsonContext.Default
+                .AppleVirtualizationAuthorityEvidenceExtension,
+            out AppleVirtualizationAuthorityEvidenceExtension? parsed);
+        evidence = parsed ?? new AppleVirtualizationAuthorityEvidenceExtension
         {
             BindingId = string.Empty,
         };
-        return false;
+        return read && !string.IsNullOrWhiteSpace(evidence.BindingId);
     }
 }

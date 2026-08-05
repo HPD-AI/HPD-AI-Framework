@@ -1,18 +1,11 @@
-using HPD.Base.AspNetCore.Http;
-using HPD.Base.AspNetCore.Descriptors;
-using HPD.Base.Descriptors;
-using HPD.Base.Health;
-using HPD.Base.Query;
-using HPD.Base.Records;
-using HPD.Base.Runtime.Descriptors;
-using HPD.Base.Runtime.Policy.Admin;
-using HPD.Base.Schema;
+using HPD.Base.AspNetCore;
+using HPD.Base;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Metadata;
 using Microsoft.AspNetCore.Mvc;
 
-namespace HPD.Base.AspNetCore.OpenApi;
+namespace HPD.Base.AspNetCore;
 
 internal static class HPDBaseOpenApiEndpointMetadataExtensions
 {
@@ -22,6 +15,7 @@ internal static class HPDBaseOpenApiEndpointMetadataExtensions
     private static readonly IReadOnlyDictionary<string, RouteDescriptor> s_routeDescriptors =
         AspNetCoreRouteDescriptorFactory.Create().ToDictionary(static descriptor => descriptor.OperationId, StringComparer.Ordinal);
 
+    /// <summary>Executes the with hpdbase open API operation.</summary>
     public static IEndpointConventionBuilder WithHPDBaseOpenApi(this IEndpointConventionBuilder builder, string operationId)
     {
         var metadata = Create(operationId);
@@ -36,6 +30,39 @@ internal static class HPDBaseOpenApiEndpointMetadataExtensions
             ApplyTypedMetadata(endpointBuilder, operationId);
         });
 
+        return builder;
+    }
+
+    internal static IEndpointConventionBuilder WithHPDBaseRegisteredReadOpenApi(
+        this IEndpointConventionBuilder builder,
+        string operationId,
+        Type parameterType,
+        Type responseType,
+        bool isAdmin)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentException.ThrowIfNullOrWhiteSpace(operationId);
+        ArgumentNullException.ThrowIfNull(parameterType);
+        ArgumentNullException.ThrowIfNull(responseType);
+        HPDBaseOpenApiRouteMetadata metadata = FromDescriptor(
+            operationId,
+            IsAdmin: isAdmin,
+            IsRecord: true,
+            "Execute registered read",
+            "Executes one bounded typed registered read.",
+            ["Registered Reads"]) with
+        {
+            RequestDtoId = parameterType.FullName,
+            ResponseDtoId = responseType.FullName ?? responseType.Name,
+        };
+        builder.Add(endpointBuilder =>
+        {
+            endpointBuilder.Metadata.Add(s_openApiHandlerMethod);
+            endpointBuilder.Metadata.Add(metadata);
+            endpointBuilder.Metadata.Add(new HPDBaseOpenApiTagsMetadata(metadata.Tags));
+            endpointBuilder.Metadata.Add(new HPDBaseOpenApiSummaryMetadata(metadata.Summary));
+            endpointBuilder.Metadata.Add(new HPDBaseOpenApiDescriptionMetadata(metadata.Description));
+        });
         return builder;
     }
 
@@ -97,6 +124,15 @@ internal static class HPDBaseOpenApiEndpointMetadataExtensions
                 Accepts<RecordDeleteRequest>(builder, isOptional: true);
                 Produces<DeleteResult>(builder);
                 break;
+            case BaseRouteIds.RecordsBatch:
+                Accepts<BaseRecordBatchRequest>(builder);
+                Produces<BaseRecordBatchResult>(builder);
+                break;
+            case BaseRouteIds.RecordsUpsert:
+                Accepts<RecordUpsertRequest>(builder);
+                Produces<RecordUpsertResult>(builder);
+                Produces<RecordUpsertResult>(builder, StatusCodes.Status201Created);
+                break;
             case BaseHttpRouteNames.AdminPolicyExplain:
                 Accepts<BasePolicyExplainRequest>(builder);
                 Produces<BasePolicyExplainResponse>(builder);
@@ -111,6 +147,8 @@ internal static class HPDBaseOpenApiEndpointMetadataExtensions
         Produces<ProblemDetails>(builder, StatusCodes.Status403Forbidden, "application/problem+json");
         Produces<ProblemDetails>(builder, StatusCodes.Status404NotFound, "application/problem+json");
         Produces<ProblemDetails>(builder, StatusCodes.Status409Conflict, "application/problem+json");
+        Produces<ProblemDetails>(builder, StatusCodes.Status413PayloadTooLarge, "application/problem+json");
+        Produces<ProblemDetails>(builder, StatusCodes.Status424FailedDependency, "application/problem+json");
         Produces<ProblemDetails>(builder, StatusCodes.Status429TooManyRequests, "application/problem+json");
         Produces<ProblemDetails>(builder, StatusCodes.Status500InternalServerError, "application/problem+json");
     }
@@ -138,6 +176,8 @@ internal static class HPDBaseOpenApiEndpointMetadataExtensions
             BaseRouteIds.RecordsPatch => Record(operationId, "Patch record", "Patches a record in a collection."),
             BaseRouteIds.RecordsReplace => Record(operationId, "Replace record", "Replaces a record in a collection."),
             BaseRouteIds.RecordsDelete => Record(operationId, "Delete record", "Deletes a record from a collection."),
+            BaseRouteIds.RecordsBatch => Record(operationId, "Mutate records in a batch", "Executes a bounded ordered record-mutation batch."),
+            BaseRouteIds.RecordsUpsert => Record(operationId, "Upsert record", "Atomically creates or updates one record by id."),
             BaseHttpRouteNames.AdminManifest => Admin(operationId, "Admin BASE manifest", "Returns the admin BASE manifest.", "Admin Metadata"),
             BaseHttpRouteNames.AdminCapabilities => Admin(operationId, "Admin BASE capabilities", "Returns admin BASE runtime capabilities.", "Admin Metadata"),
             BaseHttpRouteNames.AdminSchema => Admin(operationId, "Admin BASE schema", "Returns admin schema metadata.", "Admin Metadata"),
@@ -209,8 +249,10 @@ internal static class HPDBaseOpenApiEndpointMetadataExtensions
         int StatusCode,
         string ContentType) : IProducesResponseTypeMetadata
     {
+        /// <summary>Gets the description.</summary>
         public string? Description => null;
 
+        /// <summary>Gets the content types.</summary>
         public IEnumerable<string> ContentTypes => [ContentType];
     }
 

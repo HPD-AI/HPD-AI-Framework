@@ -1,6 +1,5 @@
 using HPD.Agent.Hosting.Lifecycle;
 using HPD.Agent.Serialization;
-using HPD.Events;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -55,11 +54,11 @@ internal static class MiddlewareResponseEndpoints
                 });
             }
 
-            if (evt is not IResponseEvent response)
+            if (evt is not IAgentResponseEvent response)
             {
                 return TypedResults.ValidationProblem(new Dictionary<string, string[]>
                 {
-                    ["RequestResponse"] = ["The event must implement IResponseEvent."]
+                    ["RequestResponse"] = ["The event must implement IAgentResponseEvent."]
                 });
             }
 
@@ -74,7 +73,7 @@ internal static class MiddlewareResponseEndpoints
         }
     }
 
-    private static IResult ToHttpResult(AgentServiceResult<RespondResult> result)
+    private static IResult ToHttpResult(AgentServiceResult<AgentRespondResult> result)
     {
         return result.Status switch
         {

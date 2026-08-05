@@ -6,7 +6,7 @@ public abstract class RecordStoreQueryConformanceTests<TFixture> : RecordStoreCo
     [Fact]
     public async Task SupportedFilterSortCountAndSelectAreApplied()
     {
-        if (!Capabilities.Crud.Create || !Capabilities.Crud.List ||
+        if (!Capabilities.Mutation.Create || !Capabilities.Read.List ||
             Capabilities.Query.Filter.Supported != true ||
             Capabilities.Query.Sort.Supported != true ||
             Capabilities.Query.Select.PayloadFields != true ||
@@ -17,9 +17,9 @@ public abstract class RecordStoreQueryConformanceTests<TFixture> : RecordStoreCo
         }
 
         var store = await CreateStoreAsync();
-        await CreateRecordAsync(store, "query-a", ("title", "a"), ("status", "open"), ("rank", "1"));
-        await CreateRecordAsync(store, "query-b", ("title", "b"), ("status", "closed"), ("rank", "3"));
-        await CreateRecordAsync(store, "query-c", ("title", "c"), ("status", "open"), ("rank", "2"));
+        await CreateRecordAsync(store, "query-a", ("title", RecordStoreConformanceData.StringElement("a")), ("status", RecordStoreConformanceData.StringElement("open")), ("rank", RecordStoreConformanceData.Element("1")));
+        await CreateRecordAsync(store, "query-b", ("title", RecordStoreConformanceData.StringElement("b")), ("status", RecordStoreConformanceData.StringElement("closed")), ("rank", RecordStoreConformanceData.Element("3")));
+        await CreateRecordAsync(store, "query-c", ("title", RecordStoreConformanceData.StringElement("c")), ("status", RecordStoreConformanceData.StringElement("open")), ("rank", RecordStoreConformanceData.Element("2")));
 
         var result = await store.ListAsync(
             Collection,
@@ -41,7 +41,7 @@ public abstract class RecordStoreQueryConformanceTests<TFixture> : RecordStoreCo
     [Fact]
     public async Task SupportedFilterNodeShapesAreApplied()
     {
-        if (!Capabilities.Crud.Create || !Capabilities.Crud.List || Capabilities.Query.Filter.Supported != true)
+        if (!Capabilities.Mutation.Create || !Capabilities.Read.List || Capabilities.Query.Filter.Supported != true)
         {
             return;
         }
@@ -198,7 +198,7 @@ public abstract class RecordStoreQueryConformanceTests<TFixture> : RecordStoreCo
     [Fact]
     public async Task UnsupportedIncludeExtensionDependencyAndOperatorsFailClosed()
     {
-        if (!Capabilities.Crud.List)
+        if (!Capabilities.Read.List)
         {
             return;
         }
@@ -206,7 +206,7 @@ public abstract class RecordStoreQueryConformanceTests<TFixture> : RecordStoreCo
         var store = await CreateStoreAsync();
         var include = await store.ListAsync(
             Collection,
-            new RecordQuery { Include = [new QueryInclude { Path = "relation" }] },
+            new RecordQuery { Include = [new RecordInclude { NavigationId = "relation" }] },
             Operation(BaseOperationKind.List));
         if (Capabilities.Query.Include?.Supported != true)
         {
@@ -218,12 +218,6 @@ public abstract class RecordStoreQueryConformanceTests<TFixture> : RecordStoreCo
             new RecordQuery { Extensions = [new QueryExtension { ModuleId = "test", Name = "native" }] },
             Operation(BaseOperationKind.List));
         RecordStoreConformanceAssertions.Failure(extension, OperationStatus.Unsupported, OperationStatus.CapabilityUnavailable, OperationStatus.ValidationFailed);
-
-        var dependency = await store.ListAsync(
-            Collection,
-            new RecordQuery { RequestDependencyToken = true },
-            Operation(BaseOperationKind.List));
-        RecordStoreConformanceAssertions.Failure(dependency, OperationStatus.Unsupported, OperationStatus.CapabilityUnavailable, OperationStatus.ValidationFailed);
 
         if (Capabilities.Query.Filter.Operators?.Contains(FilterOperator.Like) != true)
         {
@@ -247,7 +241,7 @@ public abstract class RecordStoreQueryConformanceTests<TFixture> : RecordStoreCo
     [Fact]
     public async Task PaginationModesAreDeterministicWhenAdvertised()
     {
-        if (!Capabilities.Crud.Create || !Capabilities.Crud.List || !Capabilities.Query.Pagination.Page)
+        if (!Capabilities.Mutation.Create || !Capabilities.Read.List || !Capabilities.Query.Pagination.Page)
         {
             return;
         }
@@ -265,7 +259,7 @@ public abstract class RecordStoreQueryConformanceTests<TFixture> : RecordStoreCo
         Assert.Equal(2, first.Value!.Items.Length);
         Assert.True(first.Value.Page.HasMore);
 
-        if (Capabilities.Query.Pagination.Cursor)
+        if (Capabilities.Query.Pagination.Cursor != QueryCursorGuarantee.None)
         {
             Assert.False(string.IsNullOrWhiteSpace(first.Value.Page.NextCursor));
             var second = await store.ListAsync(
@@ -324,7 +318,7 @@ public abstract class RecordStoreQueryConformanceTests<TFixture> : RecordStoreCo
     [Fact]
     public async Task SelectAndSortLimitsFollowCapabilities()
     {
-        if (!Capabilities.Crud.Create || !Capabilities.Crud.List)
+        if (!Capabilities.Mutation.Create || !Capabilities.Read.List)
         {
             return;
         }

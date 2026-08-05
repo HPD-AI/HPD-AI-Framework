@@ -16,6 +16,13 @@ namespace HPD.Agent.Providers.DashScope;
 /// <summary>
 /// DashScope provider implementation using the Cnblogs DashScope Microsoft.Extensions.AI adapter.
 /// </summary>
+[HpdProvider("dashscope", "DashScope")]
+[HpdProviderFamily(ProviderClientFamily.Chat)]
+[HpdProviderFamily(ProviderClientFamily.Embeddings)]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(DashScopeProviderConfig), typeof(DashScopeJsonContext))]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.OperationOptions, typeof(DashScopeChatRequestOptions), typeof(DashScopeJsonContext))]
+[HpdProviderPayload(ProviderClientFamily.Embeddings, ProviderPayloadKind.Configuration, typeof(DashScopeProviderConfig), typeof(DashScopeJsonContext))]
+[HpdProviderSecretAlias("dashscope:ApiKey", "DASHSCOPE_API_KEY", "QWEN_API_KEY", "DASHSCOPE_KEY")]
 internal class DashScopeProvider : IChatClientProvider, IEmbeddingGeneratorProvider
 {
     private const string DefaultBaseAddress = "https://dashscope.aliyuncs.com/api/v1/";
@@ -24,8 +31,8 @@ internal class DashScopeProvider : IChatClientProvider, IEmbeddingGeneratorProvi
     public string ProviderKey => "dashscope";
     public string DisplayName => "DashScope";
 
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider registers an AOT-compatible config deserializer in DashScopeProviderModule.")]
-    public Meai.IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null)
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
+    public async ValueTask<Meai.IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(config);
 
@@ -34,30 +41,34 @@ internal class DashScopeProvider : IChatClientProvider, IEmbeddingGeneratorProvi
             throw new InvalidOperationException("For DashScope, the ModelName must be configured.");
         }
 
-        var dashScopeConfig = config.GetProviderConfig<DashScopeProviderConfig>();
+        var dashScopeConfig = config.ProviderConfig as DashScopeProviderConfig;
+        var useVl = (config as ChatClientConfig)?.ProviderOptions is DashScopeChatRequestOptions options
+            ? options.UseVl
+            : null;
         var client = CreateDashScopeClient(config, dashScopeConfig, services);
-        var chatClient = client.AsChatClient(config.ModelName, dashScopeConfig?.DefaultUseVl);
+        var chatClient = client.AsChatClient(config.ModelName, useVl);
 
-        return new DashScopeConfiguredChatClient(chatClient, config.ModelName, dashScopeConfig?.DefaultUseVl);
+        return new DashScopeConfiguredChatClient(chatClient, config.ModelName, useVl);
     }
 
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider registers an AOT-compatible config deserializer in DashScopeProviderModule.")]
-    public Meai.IEmbeddingGenerator CreateEmbeddingGenerator(ClientProviderConfig config, IServiceProvider? services = null)
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
+    public Meai.IEmbeddingGenerator CreateEmbeddingGenerator(ProviderClientConfig config, IServiceProvider? services = null)
     {
         ArgumentNullException.ThrowIfNull(config);
 
-        var dashScopeConfig = config.GetProviderConfig<DashScopeProviderConfig>(ProviderClientFamily.Embeddings)
-            ?? config.GetProviderConfig<DashScopeProviderConfig>();
+        var dashScopeConfig = config.ProviderConfig as DashScopeProviderConfig
+            ?? config.ProviderConfig as DashScopeProviderConfig;
 
         var modelName =
             !string.IsNullOrWhiteSpace(config.ModelName) ? config.ModelName :
-            !string.IsNullOrWhiteSpace(dashScopeConfig?.EmbeddingModelId) ? dashScopeConfig.EmbeddingModelId :
             "text-embedding-v4";
 
-        var client = CreateDashScopeClient(config, dashScopeConfig, services);
-        var generator = client.AsEmbeddingGenerator(modelName, dashScopeConfig?.EmbeddingDimensions);
+        var dimensions = (config as EmbeddingsClientConfig)?.Dimensions;
 
-        return new DashScopeConfiguredEmbeddingGenerator(generator, modelName, dashScopeConfig?.EmbeddingDimensions);
+        var client = CreateDashScopeClient(config, dashScopeConfig, services);
+        var generator = client.AsEmbeddingGenerator(modelName, dimensions);
+
+        return new DashScopeConfiguredEmbeddingGenerator(generator, modelName, dimensions);
     }
 
     public IProviderErrorHandler CreateErrorHandler()
@@ -84,7 +95,7 @@ internal class DashScopeProvider : IChatClientProvider, IEmbeddingGeneratorProvi
                         ["SupportsFunctionCalling"] = true,
                         ["SupportsReasoning"] = true,
                         ["SupportsVision"] = true,
-                        ["VisionRequiresUseVl"] = "Auto-detected for qwen-vl/qwen3-vl/qwen3-omni/gui-plus models, or set DashScopeProviderConfig.DefaultUseVl."
+                        ["VisionRequiresUseVl"] = "Auto-detected from the model, or set DashScopeChatRequestOptions.UseVl."
                     }
                 },
                 [ProviderClientFamily.Embeddings] = new()
@@ -96,8 +107,8 @@ internal class DashScopeProvider : IChatClientProvider, IEmbeddingGeneratorProvi
         };
     }
 
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider registers an AOT-compatible config deserializer in DashScopeProviderModule.")]
-    public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family)
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
+    public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
     {
         ArgumentNullException.ThrowIfNull(config);
 
@@ -108,11 +119,6 @@ internal class DashScopeProvider : IChatClientProvider, IEmbeddingGeneratorProvi
             errors.Add("Model name is required for DashScope");
         }
 
-        if (string.IsNullOrWhiteSpace(config.ApiKey))
-        {
-            errors.Add("API key is required for DashScope. " +
-                       "Set it via the apiKey parameter, DASHSCOPE_API_KEY, QWEN_API_KEY, DASHSCOPE_KEY environment variable, or configuration.");
-        }
 
         if (!string.IsNullOrWhiteSpace(config.Endpoint) &&
             !Uri.IsWellFormedUriString(config.Endpoint, UriKind.Absolute))
@@ -120,7 +126,7 @@ internal class DashScopeProvider : IChatClientProvider, IEmbeddingGeneratorProvi
             errors.Add("Endpoint must be a valid, absolute URI");
         }
 
-        var dashScopeConfig = config.GetProviderConfig<DashScopeProviderConfig>(family);
+        var dashScopeConfig = config.ProviderConfig as DashScopeProviderConfig;
         if (dashScopeConfig is not null)
         {
             ValidateProviderOptions(dashScopeConfig, errors);
@@ -133,10 +139,6 @@ internal class DashScopeProvider : IChatClientProvider, IEmbeddingGeneratorProvi
 
     internal static void ValidateProviderOptions(DashScopeProviderConfig config, List<string> errors)
     {
-        if (!string.IsNullOrWhiteSpace(config.BaseAddress) &&
-            !Uri.IsWellFormedUriString(config.BaseAddress, UriKind.Absolute))
-            errors.Add("BaseAddress must be a valid, absolute URI");
-
         if (!string.IsNullOrWhiteSpace(config.WebsocketBaseAddress) &&
             !Uri.IsWellFormedUriString(config.WebsocketBaseAddress, UriKind.Absolute))
             errors.Add("WebsocketBaseAddress must be a valid, absolute URI");
@@ -147,15 +149,10 @@ internal class DashScopeProvider : IChatClientProvider, IEmbeddingGeneratorProvi
         if (config.TimeoutSeconds.HasValue && config.TimeoutSeconds.Value <= 0)
             errors.Add("TimeoutSeconds must be greater than 0");
 
-        if (config.EmbeddingModelId is { Length: 0 })
-            errors.Add("EmbeddingModelId cannot be empty");
-
-        if (config.EmbeddingDimensions.HasValue && config.EmbeddingDimensions.Value <= 0)
-            errors.Add("EmbeddingDimensions must be greater than 0");
     }
 
     private static DashScopeClient CreateDashScopeClient(
-        ClientProviderConfig config,
+        ProviderClientConfig config,
         DashScopeProviderConfig? dashScopeConfig,
         IServiceProvider? services)
     {
@@ -170,8 +167,7 @@ internal class DashScopeProvider : IChatClientProvider, IEmbeddingGeneratorProvi
         var apiKeyTask = secrets.RequireAsync("dashscope:ApiKey", "DashScope", config.ApiKey, CancellationToken.None);
         var apiKey = apiKeyTask.GetAwaiter().GetResult();
 
-        var baseAddress =
-            FirstNonWhiteSpace(config.Endpoint, dashScopeConfig?.BaseAddress) ?? DefaultBaseAddress;
+        var baseAddress = FirstNonWhiteSpace(config.Endpoint) ?? DefaultBaseAddress;
         var websocketBaseAddress =
             string.IsNullOrWhiteSpace(dashScopeConfig?.WebsocketBaseAddress)
                 ? DefaultWebsocketBaseAddress

@@ -4,11 +4,13 @@ import {
   type AIContent,
   type AgentClient,
   type AgentEvent,
+  type AgentResponseInput,
   type AgentRunInputEvent,
   type ClientToolInvokeOutcome,
   type EventSubscription,
   type PermissionChoice,
-  type SubmitInputResult,
+  type InputSubmissionResult,
+  type RespondResult,
   type ToolResultContent,
   type ThreadJournalCursor,
   ThreadJournalRebasedError,
@@ -191,16 +193,17 @@ class ThreadControllerImpl implements ThreadController {
     });
   }
 
-  async run(input: AgentRunInputEvent): Promise<SubmitInputResult> {
+  async run(input: AgentRunInputEvent): Promise<InputSubmissionResult> {
     this.throwIfDisposed();
     return this.client.run(stampInputScope(input, this.scope));
   }
 
-  async respond(input: AgentRunInputEvent): Promise<SubmitInputResult> {
-    return this.run(input);
+  async respond(input: AgentResponseInput): Promise<RespondResult> {
+    this.throwIfDisposed();
+    return this.client.respond(stampResponseScope(input, this.scope));
   }
 
-  async steer(text: string, options: SendMessageOptions = {}): Promise<SubmitInputResult> {
+  async steer(text: string, options: SendMessageOptions = {}): Promise<InputSubmissionResult> {
     this.throwIfDisposed();
     if (!text.trim()) throw new Error('steer() requires non-empty text.');
     const state = await this.client.getThreadState(
@@ -218,7 +221,7 @@ class ThreadControllerImpl implements ThreadController {
     }, this.scope), { signal: options.signal });
   }
 
-  async interrupt(options: InterruptOptions = {}): Promise<SubmitInputResult> {
+  async interrupt(options: InterruptOptions = {}): Promise<InputSubmissionResult> {
     this.throwIfDisposed();
     const state = await this.client.getThreadState(
       this.scope.agentId,
@@ -245,14 +248,14 @@ class ThreadControllerImpl implements ThreadController {
     return result;
   }
 
-  async approve(permissionId: string, choice: PermissionChoice = 'ask'): Promise<SubmitInputResult> {
+  async approve(permissionId: string, choice: PermissionChoice = 'ask'): Promise<RespondResult> {
     this.throwIfDisposed();
     const pending = this.projection.getSnapshot().pendingRuntimeRequests
       .find((request): request is PermissionRuntimeRequest =>
         request.kind === 'permission' && request.id === permissionId);
     if (!pending) return missingRequest(permissionId);
 
-    return this.run({
+    return this.respond({
       type: EventTypes.PERMISSION_RESPONSE,
       permissionId,
       sourceName: pending.request.sourceName,
@@ -261,14 +264,14 @@ class ThreadControllerImpl implements ThreadController {
     });
   }
 
-  async deny(permissionId: string, reason?: string): Promise<SubmitInputResult> {
+  async deny(permissionId: string, reason?: string): Promise<RespondResult> {
     this.throwIfDisposed();
     const pending = this.projection.getSnapshot().pendingRuntimeRequests
       .find((request): request is PermissionRuntimeRequest =>
         request.kind === 'permission' && request.id === permissionId);
     if (!pending) return missingRequest(permissionId);
 
-    return this.run({
+    return this.respond({
       type: EventTypes.PERMISSION_RESPONSE,
       permissionId,
       sourceName: pending.request.sourceName,
@@ -277,14 +280,14 @@ class ThreadControllerImpl implements ThreadController {
     });
   }
 
-  async clarify(requestId: string, answer: string): Promise<SubmitInputResult> {
+  async clarify(requestId: string, answer: string): Promise<RespondResult> {
     this.throwIfDisposed();
     const pending = this.projection.getSnapshot().pendingRuntimeRequests
       .find((request): request is ClarificationRuntimeRequest =>
         request.kind === 'clarification' && request.id === requestId);
     if (!pending) return missingRequest(requestId);
 
-    return this.run({
+    return this.respond({
       type: EventTypes.CLARIFICATION_RESPONSE,
       requestId,
       sourceName: pending.request.sourceName,
@@ -297,7 +300,7 @@ class ThreadControllerImpl implements ThreadController {
     requestId: string,
     outcome: ClientToolOutcomeInput,
     options: AnswerClientToolRequestOptions = {},
-  ): Promise<SubmitInputResult> {
+  ): Promise<RespondResult> {
     this.throwIfDisposed();
     const pending = this.projection.getSnapshot().pendingRuntimeRequests
       .find((request): request is ClientToolRuntimeRequest =>
@@ -306,7 +309,7 @@ class ThreadControllerImpl implements ThreadController {
 
     const normalized = normalizeClientToolOutcome(requestId, outcome);
 
-    return this.run({
+    return this.respond({
       type: EventTypes.CLIENT_TOOL_INVOKE_OUTCOME,
       requestId,
       outcome: normalized.outcome,
@@ -397,7 +400,7 @@ class ThreadControllerImpl implements ThreadController {
   }
 }
 
-function missingRequest(requestId: string): SubmitInputResult {
+function missingRequest(requestId: string): RespondResult {
   return {
     status: 'notFound',
     requestId,
@@ -408,6 +411,14 @@ function missingRequest(requestId: string): SubmitInputResult {
 
 function stampInputScope(input: AgentRunInputEvent, scope: ThreadController['scope']): AgentRunInputEvent {
   return withThreadScope(input, scope) as AgentRunInputEvent;
+}
+
+function stampResponseScope(input: AgentResponseInput, scope: ThreadController['scope']): AgentResponseInput {
+  return {
+    ...input,
+    sessionId: input.sessionId ?? scope.sessionId,
+    threadId: input.threadId ?? scope.threadId,
+  } as AgentResponseInput;
 }
 
 function normalizeClientToolOutcome(

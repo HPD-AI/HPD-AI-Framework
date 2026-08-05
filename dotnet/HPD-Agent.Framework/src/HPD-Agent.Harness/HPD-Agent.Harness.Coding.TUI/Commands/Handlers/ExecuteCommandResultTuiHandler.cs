@@ -4,8 +4,11 @@ using HPD.Agent.TUI.Composition;
 
 namespace HPD.Agent.ToolHarness.Coding.TUI.Commands.Handlers;
 
-internal sealed class ExecuteCommandResultTuiHandler : AgentTuiEventHandler<ToolCallResultEvent>
+internal sealed class ExecuteCommandResultTuiHandler : AgentTuiEventHandler<ToolCallResultEvent>, IAgentTuiToolCallHandler
 {
+    public bool CanHandleToolCall(string? toolHarnessName, string toolName, ToolCallType? callType)
+        => string.Equals(toolName, "ExecuteCommand", StringComparison.Ordinal);
+
     public override ValueTask HandleAsync(
         ToolCallResultEvent evt,
         AgentTuiEventContext context,

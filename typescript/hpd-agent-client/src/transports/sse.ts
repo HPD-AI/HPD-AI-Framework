@@ -1,13 +1,9 @@
 import { parseErrorResponse } from '../errors.js';
 import { SseParser } from '../parser.js';
-import type { AgentEvent, AgentRunInputEvent, RespondResult, RespondStatus } from '../types/events.js';
-import type {
-  InputSubmissionResult,
-  SubmitInputResult,
-} from '../types/transport.js';
+import type { AgentEvent, AgentResponseInput, AgentRunInputEvent, RespondResult, RespondStatus } from '../types/events.js';
+import type { InputSubmissionResult } from '../types/transport.js';
 import type { ThreadJournalCursor } from '../types/thread-execution.js';
 import type { SseMessage } from '../parser.js';
-import { EventTypes } from '../types/events.js';
 import type {
   AgentTransport,
   RunTransportOptions,
@@ -82,7 +78,7 @@ export class SseTransport implements AgentTransport {
     void this.observeUntilCancelled(body, signal);
   }
 
-  async submitInput(input: AgentRunInputEvent, options?: RunTransportOptions): Promise<SubmitInputResult> {
+  async submitInput(input: AgentRunInputEvent, options?: RunTransportOptions): Promise<InputSubmissionResult> {
     const sessionId = 'sessionId' in input ? input.sessionId : undefined;
     const threadId = 'threadId' in input ? input.threadId : undefined;
     const agentId = 'agentId' in input ? input.agentId : undefined;
@@ -90,10 +86,6 @@ export class SseTransport implements AgentTransport {
     this.sessionId = sessionId ?? this.sessionId;
     this.threadId = threadId ?? this.threadId ?? 'main';
     this.agentId = agentId ?? this.agentId;
-
-    if (this.isResponseInput(input)) {
-      return this.postResponse(input);
-    }
 
     if (!this.sessionId) {
       throw new Error('Input event must include sessionId for SSE submitInput()');
@@ -120,6 +112,15 @@ export class SseTransport implements AgentTransport {
     }
 
     return readLifecycleResult(response);
+  }
+
+  async respond(input: AgentResponseInput, options?: RunTransportOptions): Promise<RespondResult> {
+    const sessionId = input.sessionId;
+    const threadId = input.threadId;
+
+    this.sessionId = sessionId ?? this.sessionId;
+    this.threadId = threadId ?? this.threadId ?? 'main';
+    return this.postResponse(input, options);
   }
 
   onEvent(handler: (event: AgentEvent) => void | Promise<void>): void {
@@ -274,14 +275,7 @@ export class SseTransport implements AgentTransport {
     this.cursor = cursor;
   }
 
-  private isResponseInput(input: AgentRunInputEvent): boolean {
-    return input.type === EventTypes.PERMISSION_RESPONSE ||
-      input.type === EventTypes.CONTINUATION_RESPONSE ||
-      input.type === EventTypes.CLARIFICATION_RESPONSE ||
-      input.type === EventTypes.CLIENT_TOOL_INVOKE_OUTCOME;
-  }
-
-  private async postResponse(input: AgentRunInputEvent): Promise<RespondResult> {
+  private async postResponse(input: AgentResponseInput, options?: RunTransportOptions): Promise<RespondResult> {
     if (!this.agentId || !this.sessionId || !this.threadId) {
       throw new Error('Not connected');
     }
@@ -290,6 +284,7 @@ export class SseTransport implements AgentTransport {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: serializeResponseInput(input),
+      signal: options?.signal,
     });
 
     const body = await response.json?.().catch(() => null) ?? null;
@@ -299,41 +294,10 @@ export class SseTransport implements AgentTransport {
       return normalizeRespondResult(body, requestId);
     }
 
-    if (response.status === 409) {
-      if (body?.result) {
-        return normalizeRespondResult(body.result, requestId);
-      }
-
-      const details = body?.errors as Record<string, string[]> | undefined;
-      const serverCode = details ? Object.keys(details)[0] : undefined;
-
-      if (details && serverCode) {
-        const messages = details[serverCode];
-        const status = normalizeRespondStatus(serverCode);
-        return {
-          status,
-          requestId,
-          message: messages?.[0] ?? body?.title ?? 'Response was not accepted',
-          accepted: status === 'accepted',
-        };
-      }
-
-      return {
-        status: 'alreadyResolved',
-        requestId,
-        message: 'Response was not accepted because the request is no longer pending',
-        accepted: false,
-      };
-    }
-
     throw parseErrorResponse(response, body);
   }
 
-  private endpointForResponse(input: AgentRunInputEvent): string {
-    if (!this.isResponseInput(input)) {
-      throw new Error(`Unknown response type: ${(input as { type: string }).type}`);
-    }
-
+  private endpointForResponse(_input: AgentResponseInput): string {
     return `/agents/${this.agentId}/sessions/${this.sessionId}/threads/${this.threadId}/responses`;
   }
 
@@ -352,7 +316,7 @@ export class SseTransport implements AgentTransport {
   }
 }
 
-function serializeResponseInput(input: AgentRunInputEvent): string {
+function serializeResponseInput(input: AgentResponseInput): string {
   const body: Record<string, unknown> = {
     version: input.version ?? '1.0',
     type: input.type,
@@ -379,7 +343,7 @@ function serializePermissionChoice(value: unknown): unknown {
   }
 }
 
-function requestIdForResponse(input: AgentRunInputEvent): string {
+function requestIdForResponse(input: AgentResponseInput): string {
   if ('requestId' in input && typeof input.requestId === 'string') return input.requestId;
   if ('permissionId' in input && typeof input.permissionId === 'string') return input.permissionId;
   if ('continuationId' in input && typeof input.continuationId === 'string') return input.continuationId;
@@ -515,6 +479,8 @@ function normalizeRespondStatus(value: unknown): RespondStatus {
       'responseTypeMismatch',
       'targetMismatch',
       'ambiguousRequest',
+      'executionEnded',
+      'runtimeUnavailable',
     ][value] as RespondStatus | undefined ?? 'notFound';
   }
 
@@ -529,6 +495,8 @@ function normalizeRespondStatus(value: unknown): RespondStatus {
       case 'responseTypeMismatch':
       case 'targetMismatch':
       case 'ambiguousRequest':
+      case 'executionEnded':
+      case 'runtimeUnavailable':
         return normalized;
       default:
         return value.toUpperCase() === 'STALE_RESPONSE' ? 'alreadyResolved' : 'notFound';

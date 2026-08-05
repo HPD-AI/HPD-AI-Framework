@@ -1,4 +1,6 @@
 using HPD.Auth.Admin.Models;
+using HPD.Auth.ControlPlane;
+using HPD.Auth.Core.Audit;
 using HPD.Auth.Core.Entities;
 using HPD.Auth.Core.Interfaces;
 using Microsoft.AspNetCore.Builder;
@@ -18,21 +20,23 @@ namespace HPD.Auth.Admin.Endpoints;
 /// </summary>
 public static class AdminUserPasswordEndpoints
 {
-    public static void Map(IEndpointRouteBuilder app)
+    public static void Map(RouteGroupBuilder root, IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/admin/users")
-                       .RequireAuthorization("RequireAdmin");
+        var group = root.MapGroup("/users");
 
         group.MapPost("/{id}/reset-password", ResetPasswordAsync)
+             .RequireHPDControlPlaneCapability(app, HPDAuthAdminCapabilities.CredentialsWrite)
              .WithName("AdminResetPassword")
              .WithSummary("Force-reset a user's password without requiring the current password. " +
                           "Optionally mark the new password as temporary to require change on next login.");
 
         group.MapDelete("/{id}/password", RemovePasswordAsync)
+             .RequireHPDControlPlaneCapability(app, HPDAuthAdminCapabilities.CredentialsWrite)
              .WithName("AdminRemovePassword")
              .WithSummary("Remove a user's local password, converting them to an OAuth-only account.");
 
         group.MapPost("/{id}/password", AddPasswordAsync)
+             .RequireHPDControlPlaneCapability(app, HPDAuthAdminCapabilities.CredentialsWrite)
              .WithName("AdminAddPassword")
              .WithSummary("Add a local password to an OAuth-only user account.");
     }
@@ -45,7 +49,8 @@ public static class AdminUserPasswordEndpoints
         string id,
         AdminResetPasswordRequest request,
         UserManager<ApplicationUser> userManager,
-        IAuditLogger auditLogger,
+        IAuthAuditWriter auditWriter,
+        IAuthCorrelationContext correlationContext,
         CancellationToken ct = default)
     {
         var user = await userManager.FindByIdAsync(id);
@@ -72,13 +77,7 @@ public static class AdminUserPasswordEndpoints
         // Rotate security stamp to force re-login with the new password.
         await userManager.UpdateSecurityStampAsync(user);
 
-        await auditLogger.LogAsync(new AuditLogEntry(
-            Action: AuditActions.AdminPasswordReset,
-            Category: AuditCategories.Admin,
-            Success: true,
-            UserId: user.Id,
-            Metadata: new { adminAction = "reset_password", temporary = request.Temporary }
-        ), ct);
+        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.PasswordReset, correlationContext, user.Id, cancellationToken: ct);
 
         return Results.Ok(new { message = "Password reset successful." });
     }
@@ -86,7 +85,8 @@ public static class AdminUserPasswordEndpoints
     private static async Task<IResult> RemovePasswordAsync(
         string id,
         UserManager<ApplicationUser> userManager,
-        IAuditLogger auditLogger,
+        IAuthAuditWriter auditWriter,
+        IAuthCorrelationContext correlationContext,
         CancellationToken ct = default)
     {
         var user = await userManager.FindByIdAsync(id);
@@ -97,13 +97,7 @@ public static class AdminUserPasswordEndpoints
         if (!result.Succeeded)
             return Results.BadRequest(result.Errors);
 
-        await auditLogger.LogAsync(new AuditLogEntry(
-            Action: AuditActions.PasswordChange,
-            Category: AuditCategories.Admin,
-            Success: true,
-            UserId: user.Id,
-            Metadata: new { adminAction = "remove_password" }
-        ), ct);
+        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.PasswordRemove, correlationContext, user.Id, cancellationToken: ct);
 
         return Results.Ok(new { message = "Password removed." });
     }
@@ -112,7 +106,8 @@ public static class AdminUserPasswordEndpoints
         string id,
         AddPasswordRequest request,
         UserManager<ApplicationUser> userManager,
-        IAuditLogger auditLogger,
+        IAuthAuditWriter auditWriter,
+        IAuthCorrelationContext correlationContext,
         CancellationToken ct = default)
     {
         var user = await userManager.FindByIdAsync(id);
@@ -123,13 +118,7 @@ public static class AdminUserPasswordEndpoints
         if (!result.Succeeded)
             return Results.BadRequest(result.Errors);
 
-        await auditLogger.LogAsync(new AuditLogEntry(
-            Action: AuditActions.PasswordChange,
-            Category: AuditCategories.Admin,
-            Success: true,
-            UserId: user.Id,
-            Metadata: new { adminAction = "add_password" }
-        ), ct);
+        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.PasswordAdd, correlationContext, user.Id, cancellationToken: ct);
 
         return Results.Ok(new { message = "Password added." });
     }

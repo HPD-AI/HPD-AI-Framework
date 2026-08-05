@@ -914,19 +914,19 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
             .ConfigureAwait(false);
     }
 
-    public async Task AnswerRequestAsync(
+    public async Task<AgentRespondResult> AnswerRequestAsync(
         AgentTuiRuntimeScope scope,
         AgentEvent response,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(response);
 
-        if (response is not IResponseEvent responseEvent)
+        if (response is not IAgentResponseEvent responseEvent)
         {
-            throw new ArgumentException("Response event must implement IResponseEvent.", nameof(response));
+            throw new ArgumentException("Response event must implement IAgentResponseEvent.", nameof(response));
         }
 
-        await _agent.TryAnswerRequestAsync(responseEvent, cancellationToken)
+        return await _agent.TryAnswerRequestAsync(responseEvent, cancellationToken)
             .ConfigureAwait(false);
     }
 
@@ -939,7 +939,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         var store = _agent.Config?.SessionStore;
         if (store is null)
         {
-            return new AgentTuiThreadState(default, GetActiveExecution(), GetPendingRequests(scope));
+            return new AgentTuiThreadState(default, GetActiveExecution(), GetLivePendingRequests());
         }
 
         var head = await store.GetThreadEventHeadAsync(
@@ -950,13 +950,16 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
                 $"Thread '{scope.SessionId}/{scope.ThreadId}' does not have a durable journal.");
         }
 
+        var activeExecution = GetActiveExecution();
+        var journal = await store.CollectThreadEventsAsync(
+            new ThreadKey(scope.SessionId, scope.ThreadId), cancellationToken).ConfigureAwait(false) ?? [];
         return new AgentTuiThreadState(
             head.Cursor,
-            GetActiveExecution(),
-            GetPendingRequests(scope));
+            activeExecution,
+            AgentRequestProjector.ProjectPending(journal, activeExecution?.ThreadExecutionId));
     }
 
-    private IReadOnlyList<AgentEvent> GetPendingRequests(AgentTuiRuntimeScope scope)
+    private IReadOnlyList<AgentEvent> GetLivePendingRequests()
         => _agent.EventCoordinator.GetPendingRequests()
             .Select(item => item.Request)
             .OfType<AgentEvent>()

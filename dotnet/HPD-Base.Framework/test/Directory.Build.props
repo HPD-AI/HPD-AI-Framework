@@ -1,7 +1,17 @@
 <Project>
   <Import Project="../Directory.Build.props" />
 
+  <PropertyGroup>
+    <!-- The shipping API documentation gate applies to production packages, not test fixtures. -->
+    <WarningsAsErrors>$([System.String]::Copy('$(WarningsAsErrors)').Replace(';CS1591', '').Replace('CS1591;', '').Replace('CS1591', ''))</WarningsAsErrors>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
   <ItemGroup Condition="'$(IsTestProject)' == 'true'">
     <Compile Include="$(MSBuildThisFileDirectory)Shared/Observability/*.cs" Link="Shared/Observability/%(Filename)%(Extension)" />
+    <PackageReference
+      Include="Microsoft.Extensions.Logging.Abstractions"
+      Version="10.0.10"
+      Condition="'$(MSBuildProjectName)' != 'HPD.Base.Auth.Tests'" />
   </ItemGroup>
 </Project>

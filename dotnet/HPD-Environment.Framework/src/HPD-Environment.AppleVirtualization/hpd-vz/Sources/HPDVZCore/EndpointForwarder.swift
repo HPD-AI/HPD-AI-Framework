@@ -5,14 +5,14 @@ import Darwin
 #endif
 
 public final class EndpointForwarderManager {
-    public typealias GuestProxy = @Sendable (_ targetAddress: String, _ targetPort: UInt16, _ requestBytes: [UInt8]) -> [UInt8]?
+    public typealias GuestTunnel = @Sendable (_ targetAddress: String, _ targetPort: UInt16) -> Int32?
 
     private let lock = NSLock()
     private var forwarders: [String: EndpointForwarder] = [:]
-    private let guestProxy: GuestProxy?
+    private let guestTunnel: GuestTunnel?
 
-    public init(guestProxy: GuestProxy? = nil) {
-        self.guestProxy = guestProxy
+    public init(guestTunnel: GuestTunnel? = nil) {
+        self.guestTunnel = guestTunnel
     }
 
     public func publish(_ request: EndpointPublicationRequest) -> EndpointPublicationResult {
@@ -58,7 +58,7 @@ public final class EndpointForwarderManager {
                 allowEphemeralPort: request.allowEphemeralPort,
                 targetAddress: targetAddress,
                 targetPort: targetPort,
-                guestProxy: guestProxy)
+                guestTunnel: guestTunnel)
             try forwarder.start()
             lock.lock()
             forwarders[request.endpointId] = forwarder
@@ -135,7 +135,7 @@ private final class EndpointForwarder: @unchecked Sendable {
 
     private let targetAddress: String
     private let targetPort: UInt16
-    private let guestProxy: EndpointForwarderManager.GuestProxy?
+    private let guestTunnel: EndpointForwarderManager.GuestTunnel?
     private let lock = NSLock()
     private var listenerFd: Int32 = -1
     private var stopped = false
@@ -148,14 +148,14 @@ private final class EndpointForwarder: @unchecked Sendable {
         allowEphemeralPort: Bool,
         targetAddress: String,
         targetPort: UInt16,
-        guestProxy: EndpointForwarderManager.GuestProxy?
+        guestTunnel: EndpointForwarderManager.GuestTunnel?
     ) throws {
         self.endpointId = endpointId
         self.boundAddress = listenAddress?.isEmpty == false ? listenAddress! : "127.0.0.1"
         self.boundPort = requestedPort ?? (allowEphemeralPort ? 0 : nil)
         self.targetAddress = targetAddress
         self.targetPort = targetPort
-        self.guestProxy = guestProxy
+        self.guestTunnel = guestTunnel
         if self.boundPort == nil {
             throw ForwarderError.portRequired
         }
@@ -265,21 +265,23 @@ private final class EndpointForwarder: @unchecked Sendable {
 
     private func handle(clientFd: Int32) {
         #if canImport(Darwin)
-        if shouldUseGuestProxy,
-           let requestBytes = Self.readClientRequest(clientFd),
-           let responseBytes = guestProxy?(targetAddress, targetPort, requestBytes) {
-            Self.writeAll(responseBytes, to: clientFd)
-            Darwin.close(clientFd)
-            return
-        }
-
         var yes: Int32 = 1
         #if os(macOS)
         _ = setsockopt(clientFd, SOL_SOCKET, SO_NOSIGPIPE, &yes, socklen_t(MemoryLayout<Int32>.size))
         #endif
 
         do {
-            let targetFd = try connectTarget()
+            let targetFd: Int32
+            if let guestTunnel {
+                guard let tunnelFd = guestTunnel(
+                    targetAddress,
+                    targetPort) else {
+                    throw ForwarderError.guestTunnel
+                }
+                targetFd = tunnelFd
+            } else {
+                targetFd = try connectTarget()
+            }
             #if os(macOS)
             _ = setsockopt(targetFd, SOL_SOCKET, SO_NOSIGPIPE, &yes, socklen_t(MemoryLayout<Int32>.size))
             #endif
@@ -308,10 +310,6 @@ private final class EndpointForwarder: @unchecked Sendable {
             Darwin.close(clientFd)
         }
         #endif
-    }
-
-    private var shouldUseGuestProxy: Bool {
-        guestProxy != nil
     }
 
     private func connectTarget() throws -> Int32 {
@@ -372,81 +370,12 @@ private final class EndpointForwarder: @unchecked Sendable {
         #endif
     }
 
-    private static func writeAll(_ bytes: [UInt8], to fd: Int32) {
-        #if canImport(Darwin)
-        var written = 0
-        while written < bytes.count {
-            let result = bytes.withUnsafeBytes {
-                Darwin.write(fd, $0.baseAddress!.advanced(by: written), bytes.count - written)
-            }
-            if result <= 0 {
-                return
-            }
-            written += result
-        }
-        #endif
-    }
-
-    private static func readClientRequest(_ fd: Int32, maxBytes: Int = 64 * 1024) -> [UInt8]? {
-        #if canImport(Darwin)
-        var result: [UInt8] = []
-        var buffer = [UInt8](repeating: 0, count: 4096)
-        let deadline = Date().addingTimeInterval(2)
-        while result.count < maxBytes {
-            let remaining = max(0, Int(deadline.timeIntervalSinceNow * 1000))
-            if remaining <= 0 {
-                break
-            }
-
-            var item = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
-            let pollResult = poll(&item, 1, Int32(remaining))
-            if pollResult <= 0 {
-                break
-            }
-
-            let capacity = min(buffer.count, maxBytes - result.count)
-            let count = buffer.withUnsafeMutableBytes {
-                Darwin.read(fd, $0.baseAddress, capacity)
-            }
-            if count > 0 {
-                result.append(contentsOf: buffer[0..<count])
-                if result.containsHttpHeaderTerminator {
-                    break
-                }
-            } else {
-                break
-            }
-        }
-
-        return result.isEmpty ? nil : result
-        #else
-        return nil
-        #endif
-    }
-}
-
-private extension Array where Element == UInt8 {
-    var containsHttpHeaderTerminator: Bool {
-        guard count >= 4 else {
-            return false
-        }
-
-        for index in 3..<count {
-            if self[index - 3] == 13 &&
-                self[index - 2] == 10 &&
-                self[index - 1] == 13 &&
-                self[index] == 10 {
-                return true
-            }
-        }
-
-        return false
-    }
 }
 
 private enum ForwarderError: Error, CustomStringConvertible {
     case portRequired
     case unsupported
+    case guestTunnel
     case invalidAddress(String)
     case posix(String, Int32)
 
@@ -456,6 +385,8 @@ private enum ForwarderError: Error, CustomStringConvertible {
             return "listener port is required"
         case .unsupported:
             return "endpoint forwarding is unsupported on this platform"
+        case .guestTunnel:
+            return "guest endpoint tunnel could not be established"
         case .invalidAddress(let address):
             return "invalid IPv4 address \(address)"
         case .posix(let operation, let code):

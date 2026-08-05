@@ -64,6 +64,14 @@ public class PermissionOverrideRegistry
         return _functionOverrides.ContainsKey(functionName);
     }
 
+    /// <summary>Gets an override only when one was explicitly registered.</summary>
+    public bool? TryGetOverride(string functionName)
+    {
+        return _functionOverrides.TryGetValue(functionName, out var value)
+            ? value
+            : null;
+    }
+
     /// <summary>
     /// Clears all permission overrides.
     /// </summary>

@@ -12,9 +12,9 @@ namespace HPD.Agent.Providers.Ollama;
 /// <remarks>
 /// Generic runtime settings such as model, temperature, top-p, top-k, max output tokens,
 /// seed, stop sequences, penalties, response format, and reasoning belong on
-/// <see cref="ChatRunConfig"/> or <see cref="ChatOptions"/>.
+/// <see cref="ChatClientConfig"/> or <see cref="ChatOptions"/>.
 /// </remarks>
-public sealed class OllamaChatRequestOptions
+public sealed class OllamaChatRequestOptions : IChatRequestOptions
 {
     /// <summary>
     /// How long Ollama should keep the model loaded after the request, such as <c>10m</c>, <c>1h</c>, or <c>-1</c>.
@@ -180,19 +180,10 @@ public sealed class OllamaChatRequestOptions
     /// <summary>
     /// Applies these options to a serializable HPD chat run configuration.
     /// </summary>
-    public void ApplyTo(ChatRunConfig chat)
+    public void ApplyTo(ChatClientConfig chat)
     {
         ArgumentNullException.ThrowIfNull(chat);
-
-        var properties = ToAdditionalProperties();
-        if (properties.Count == 0)
-            return;
-
-        chat.AdditionalProperties ??= new Dictionary<string, object>();
-        foreach (var property in properties)
-        {
-            chat.AdditionalProperties[property.Key] = property.Value;
-        }
+        chat.ProviderOptions = this;
     }
 
     /// <summary>
@@ -229,8 +220,8 @@ public sealed class OllamaChatRequestOptions
 
 public static class OllamaChatRequestOptionExtensions
 {
-    public static ChatRunConfig UseOllamaChatRequestOptions(
-        this ChatRunConfig chat,
+    public static ChatClientConfig UseOllamaChatRequestOptions(
+        this ChatClientConfig chat,
         OllamaChatRequestOptions options)
     {
         ArgumentNullException.ThrowIfNull(chat);

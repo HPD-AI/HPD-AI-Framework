@@ -5,6 +5,7 @@ using HPD.Agent.TUI.Composition;
 using HPD.Agent.TUI.Models;
 using HPD.Agent.TUI.Runtime;
 using HPD.TUI.Core;
+using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.TUI.Tests;
 
@@ -61,8 +62,8 @@ public sealed class ModelSelectionCommandTests
             shell,
             "hello"));
         runConfig.Should().NotBeNull();
-        runConfig!.ProviderKey.Should().Be("openrouter");
-        runConfig.ModelId.Should().Be("deepseek/deepseek-chat");
+        runConfig!.Clients.Chat!.ProviderKey.Should().Be("openrouter");
+        runConfig.Clients.Chat.ModelName.Should().Be("deepseek/deepseek-chat");
     }
 
     [Fact]
@@ -443,7 +444,7 @@ public sealed class ModelSelectionCommandTests
                     configureSawUncommittedState = selection.Current is null;
                     return ValueTask.FromResult<AgentTuiSelectedModel?>(model with
                     {
-                        Chat = new ChatRunConfig
+                        Chat = new ChatClientConfig
                         {
                             Reasoning = new ReasoningOptions
                             {
@@ -750,7 +751,8 @@ public sealed class ModelSelectionCommandTests
 
         contributor.WasCalled.Should().BeTrue();
         selection.Current.Should().NotBeNull();
-        selection.Current!.Chat?.AdditionalProperties.Should().Contain("provider_mode", "strict");
+        selection.Current!.Chat?.ProviderOptions.Should().BeOfType<TestChatRequestOptions>()
+            .Which.ProviderMode.Should().Be("strict");
     }
 
     private sealed class TestModelCatalog : IAgentTuiModelCatalog
@@ -1060,15 +1062,17 @@ public sealed class ModelSelectionCommandTests
             CancellationToken cancellationToken = default)
         {
             WasCalled = true;
-            var chat = new ChatRunConfig
+            var chat = new ChatClientConfig
             {
-                AdditionalProperties = new Dictionary<string, object>
-                {
-                    ["provider_mode"] = "strict"
-                }
+                ProviderOptions = new TestChatRequestOptions("strict")
             };
             return ValueTask.FromResult<AgentTuiSelectedModel?>(model with { Chat = chat });
         }
+    }
+
+    private sealed record TestChatRequestOptions(string ProviderMode) : IChatRequestOptions
+    {
+        public void ApplyTo(ChatOptions options) { }
     }
 
     private sealed class NoopRuntime : IHpdAgentTuiRuntime
@@ -1101,11 +1105,11 @@ public sealed class ModelSelectionCommandTests
             CancellationToken cancellationToken = default)
             => Task.FromResult(Submitted(scope));
 
-        public Task AnswerRequestAsync(
+        public Task<AgentRespondResult> AnswerRequestAsync(
             AgentTuiRuntimeScope scope,
             AgentEvent response,
             CancellationToken cancellationToken = default)
-            => Task.CompletedTask;
+            => Task.FromResult(new AgentRespondResult(AgentRespondStatus.Accepted, ((IAgentResponseEvent)response).RequestId));
 
         public Task<AgentTuiThreadState> GetThreadStateAsync(
             AgentTuiRuntimeScope scope,

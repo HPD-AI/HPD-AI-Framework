@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using HPD.Agent.Middleware;
+using HPD.Agent.Planning;
 using HPD.Agent.Serialization;
 using Microsoft.Extensions.AI;
 using EventChannel = HPD.Events.EventChannel;
@@ -212,6 +213,12 @@ public abstract record AgentEvent : HPD.Events.Event
     public string? ThreadId { get; init; }
 
     /// <summary>
+    /// Durable identity of the accepted thread execution that produced or owns this event.
+    /// Null for structural, administrative, or otherwise execution-independent events.
+    /// </summary>
+    public virtual string? ThreadExecutionId { get; init; }
+
+    /// <summary>
     /// Canonical attribution for the agent that emitted this event.
     /// When present, this metadata is persisted so live observation and replay remain identical.
     /// </summary>
@@ -277,11 +284,30 @@ public sealed record SteeringInputEvent : AgentInputEvent
 /// <summary>
 /// Emitted after a coordinating runtime durably accepts an input execution for a thread.
 /// </summary>
-public sealed record ThreadExecutionStartedEvent(
-    string ThreadExecutionId,
-    string AgentId,
-    DateTimeOffset StartedAt) : AgentEvent
+public sealed record ThreadExecutionStartedEvent : AgentEvent
 {
+    /// <summary>Creates a validated execution-start fact.</summary>
+    public ThreadExecutionStartedEvent(
+        string threadExecutionId,
+        string agentId,
+        DateTimeOffset startedAt)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(threadExecutionId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
+        ThreadExecutionId = threadExecutionId;
+        AgentId = agentId;
+        StartedAt = startedAt;
+    }
+
+    /// <summary>Gets the durable identity of the accepted thread execution.</summary>
+    public override string ThreadExecutionId { get; init; }
+
+    /// <summary>Gets the agent that owns the accepted execution.</summary>
+    public string AgentId { get; init; }
+
+    /// <summary>Gets when the runtime accepted the execution.</summary>
+    public DateTimeOffset StartedAt { get; init; }
+
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
     public override EventChannel Channel { get; init; } = EventChannel.Control;
 }
@@ -350,7 +376,7 @@ public sealed record ThreadExecutionFinishedEvent : AgentEvent
     }
 
     /// <summary>Gets the execution identifier correlated with the corresponding start fact.</summary>
-    public string ThreadExecutionId { get; init; }
+    public override string ThreadExecutionId { get; init; }
 
     /// <summary>Gets the agent that executed the accepted input.</summary>
     public string AgentId { get; init; }
@@ -427,6 +453,9 @@ public sealed record UserMessagesInputEvent : AgentInputEvent
 
     [JsonIgnore]
     internal AgentChatClientHandle? InheritedChatClient { get; init; }
+
+    [JsonIgnore]
+    internal ClientFamilyInheritanceMode InheritedChatMode { get; init; } = ClientFamilyInheritanceMode.UseOwn;
 }
 
 /// <summary>Explicitly compacts the scoped thread without creating a user message or model turn.</summary>
@@ -1190,7 +1219,6 @@ public sealed record BackgroundTaskNotificationDeliveredEvent : AgentEvent
 
     public required DateTimeOffset DeliveredAt { get; init; }
 
-    public string? ThreadExecutionId { get; init; }
 }
 
 /// <summary>
@@ -1214,10 +1242,6 @@ public sealed record BackgroundTaskNotificationSuppressedEvent : AgentEvent
 
 #region Middleware Events
 
-public interface IAgentRequestEvent : HPD.Events.IRequestEvent;
-
-public interface IAgentResponseEvent : HPD.Events.IResponseEvent;
-
 /// <summary>
 /// Middleware requests permission to execute a function.
 /// Handler should prompt user and send PermissionResponseEvent.
@@ -1228,13 +1252,13 @@ public record PermissionRequestEvent(
     string FunctionName,
     string? Description,
     string CallId,
-    IDictionary<string, object?>? Arguments) : AgentEvent, IAgentRequestEvent
+    IDictionary<string, object?>? Arguments) : AgentEvent, IAgentRequestEvent<PermissionResponseEvent>
 {
     public override EventChannel Channel { get; init; } = EventChannel.Interactive;
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
 
     /// <summary>Explicit interface implementation - maps PermissionId to RequestId</summary>
-    string HPD.Events.IRequestCorrelatedEvent.RequestId => PermissionId;
+    public string RequestId => PermissionId;
 }
 
 /// <summary>
@@ -1254,7 +1278,7 @@ public record PermissionResponseEvent(
     public override EventDirection Direction { get; init; } = EventDirection.Upstream;
 
     /// <summary>Explicit interface implementation - maps PermissionId to RequestId</summary>
-    string HPD.Events.IRequestCorrelatedEvent.RequestId => PermissionId;
+    public string RequestId => PermissionId;
 }
 
 /// <summary>
@@ -1264,13 +1288,13 @@ public record ContinuationRequestEvent(
     string ContinuationId,
     string SourceName,
     int CurrentIteration,
-    int MaxIterations) : AgentEvent, IAgentRequestEvent
+    int MaxIterations) : AgentEvent, IAgentRequestEvent<ContinuationResponseEvent>
 {
     public override EventChannel Channel { get; init; } = EventChannel.Interactive;
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
 
     /// <summary>Explicit interface implementation - maps ContinuationId to RequestId</summary>
-    string HPD.Events.IRequestCorrelatedEvent.RequestId => ContinuationId;
+    public string RequestId => ContinuationId;
 }
 
 /// <summary>
@@ -1287,7 +1311,7 @@ public record ContinuationResponseEvent(
     public override EventDirection Direction { get; init; } = EventDirection.Upstream;
 
     /// <summary>Explicit interface implementation - maps ContinuationId to RequestId</summary>
-    string HPD.Events.IRequestCorrelatedEvent.RequestId => ContinuationId;
+    public string RequestId => ContinuationId;
 }
 
 /// <summary>
@@ -1299,7 +1323,7 @@ public record ClarificationRequestEvent(
     string SourceName,
     string Question,
     string? AgentName = null,
-    string[]? Options = null) : AgentEvent, IAgentRequestEvent
+    string[]? Options = null) : AgentEvent, IAgentRequestEvent<ClarificationResponseEvent>
 {
     public override EventChannel Channel { get; init; } = EventChannel.Interactive;
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
@@ -1528,7 +1552,7 @@ public record FunctionRetryEvent(
     TimeSpan Delay,
     string ExceptionType,
     string ErrorMessage
-) : AgentEvent, IObservabilityEvent, IErrorEvent
+) : AgentEvent, IObservabilityEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
 
@@ -1538,9 +1562,6 @@ public record FunctionRetryEvent(
     /// </summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public Exception? Exception { get; init; }
-
-    /// <inheritdoc />
-    Exception? IErrorEvent.Exception => Exception;
 
     // Lazy-computed error details
     private ErrorHandling.ProviderErrorDetails? _errorDetails;
@@ -1621,7 +1642,7 @@ public record ModelCallRetryEvent(
     TimeSpan Delay,
     string ExceptionType,
     string ErrorMessage
-) : AgentEvent, IObservabilityEvent, IErrorEvent
+) : AgentEvent, IObservabilityEvent
 {
     /// <summary>
     /// The live exception that caused the retry. This value is not serialized and is
@@ -1629,9 +1650,6 @@ public record ModelCallRetryEvent(
     /// </summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public Exception? Exception { get; init; }
-
-    /// <inheritdoc />
-    Exception? IErrorEvent.Exception => Exception;
 
     public override EventChannel Channel { get; init; } = EventChannel.Streaming;
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
@@ -1682,17 +1700,6 @@ public record DeltaSendingActivatedEvent(
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
 }
 
-/// <summary>
-/// Emitted when plan mode is activated.
-/// </summary>
-public record PlanModeActivatedEvent(
-    string AgentName,
-    DateTimeOffset Timestamp
-) : AgentEvent, IObservabilityEvent
-{
-    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
-}
-
 #region Plan Lifecycle Events
 
 /// <summary>
@@ -1717,35 +1724,27 @@ public enum PlanUpdateType
 }
 
 /// <summary>
-/// Consolidated plan update event following the Codex pattern.
+/// Consolidated plan update event.
 /// Emitted whenever a plan is created or modified, containing the full plan state.
 /// </summary>
 /// <remarks>
 /// <para><b>Design Rationale:</b></para>
 /// <para>
-/// This follows the Codex pattern of emitting a single event type with full plan state,
-/// rather than multiple granular events. Benefits:
+/// This emits a single event type with full plan state rather than multiple granular events. Benefits:
 /// - Simpler for consumers (one event handler)
 /// - Always includes complete context (no partial state)
-/// - Matches industry patterns (Codex, )
 /// - Reduces serialization registrations
 /// </para>
 /// <para>
 /// The UpdateType discriminator allows consumers to react to specific changes while
 /// always having access to the complete plan state for UI synchronization.
 /// </para>
-/// <para><b>Plan Property:</b></para>
-/// <para>
-/// The Plan property is of type object to avoid circular dependencies between HPD-Agent
-/// and HPD-Agent.Memory assemblies. At runtime, this will be an AgentPlanData instance.
-/// Consumers can cast it to the appropriate type.
-/// </para>
 /// </remarks>
 public record PlanUpdatedEvent(
     string PlanId,
     string ConversationId,
     PlanUpdateType UpdateType,
-    object Plan,
+    AgentPlanData Plan,
     string? Explanation,
     DateTimeOffset UpdatedAt
 ) : AgentEvent, IObservabilityEvent

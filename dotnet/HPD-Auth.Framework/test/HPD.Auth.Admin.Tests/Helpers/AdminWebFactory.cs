@@ -1,4 +1,7 @@
 using HPD.Auth.Admin.Extensions;
+using HPD.Auth.Admin;
+using HPD.Auth.ControlPlane;
+using HPD.Auth.Core.Audit;
 using HPD.Auth.Core.Entities;
 using HPD.Auth.Core.Interfaces;
 using HPD.Auth.Extensions;
@@ -10,6 +13,8 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.AspNetCore.Http.Metadata;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -29,13 +34,13 @@ public class AdminWebFactory : IAsyncDisposable
     private readonly WebApplication _app;
     private readonly string _dbName;
 
-    public AdminWebFactory(string? dbName = null)
+    public AdminWebFactory(string? dbName = null, bool registerAuthenticationScheme = true)
     {
         _dbName = dbName ?? $"AdminTest_{Guid.NewGuid():N}";
-        _app = BuildApp(_dbName);
+        _app = BuildApp(_dbName, registerAuthenticationScheme);
     }
 
-    private static WebApplication BuildApp(string dbName)
+    private static WebApplication BuildApp(string dbName, bool registerAuthenticationScheme)
     {
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions
         {
@@ -58,30 +63,61 @@ public class AdminWebFactory : IAsyncDisposable
                 o.Password.RequireNonAlphanumeric = false;
                 o.Password.RequiredLength = 6;
             })
-            .UseInMemorySqliteForTests()
-            .AddAdmin();
+            .UseInMemorySqliteForTests();
 
         // Replace JWT Bearer with a test scheme that accepts any claim principal
         // constructed by the test using TestAuthHandler.
-        builder.Services.AddAuthentication(options =>
+        if (registerAuthenticationScheme)
         {
-            options.DefaultAuthenticateScheme = TestAuthHandler.SchemeName;
-            options.DefaultChallengeScheme = TestAuthHandler.SchemeName;
-        })
-        .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(
-            TestAuthHandler.SchemeName, _ => { });
+            builder.Services.AddAuthentication(options =>
+            {
+                options.DefaultAuthenticateScheme = TestAuthHandler.SchemeName;
+                options.DefaultChallengeScheme = TestAuthHandler.SchemeName;
+            })
+            .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(
+                TestAuthHandler.SchemeName, _ => { });
+        }
+        else
+        {
+            builder.Services.AddAuthentication();
+        }
 
         builder.Services.AddAuthorization(opts =>
         {
             opts.AddPolicy("RequireAdmin", p => p.RequireRole("Admin"));
         });
+        builder.Services.AddHPDControlPlane(options =>
+        {
+            options.AddProfile("admin-tests", profile =>
+            {
+                profile.AuthenticationScheme = TestAuthHandler.SchemeName;
+                profile.AuthenticationProfile = "test";
+                profile.ActorIdentifierClaim = ClaimTypes.NameIdentifier;
+            });
+            options.MapCapability(HPDAuthAdminCapabilities.IdentityRead, "RequireAdmin");
+            options.MapCapability(HPDAuthAdminCapabilities.IdentityCreate, "RequireAdmin");
+            options.MapCapability(HPDAuthAdminCapabilities.IdentityWrite, "RequireAdmin");
+            options.MapCapability(HPDAuthAdminCapabilities.IdentityDelete, "RequireAdmin");
+            options.MapCapability(HPDAuthAdminCapabilities.AuthorizationRead, "RequireAdmin");
+            options.MapCapability(HPDAuthAdminCapabilities.AuthorizationWrite, "RequireAdmin");
+            options.MapCapability(HPDAuthAdminCapabilities.CredentialsRead, "RequireAdmin");
+            options.MapCapability(HPDAuthAdminCapabilities.CredentialsWrite, "RequireAdmin");
+            options.MapCapability(HPDAuthAdminCapabilities.CredentialsIssue, "RequireAdmin");
+            options.MapCapability(HPDAuthAdminCapabilities.SessionsRead, "RequireAdmin");
+            options.MapCapability(HPDAuthAdminCapabilities.SessionsWrite, "RequireAdmin");
+            options.MapCapability(HPDAuthAdminCapabilities.AuditRead, "RequireAdmin");
+        });
 
         var app = builder.Build();
         app.Services.InitializeHPDAuthDevelopmentDatabaseAsync().GetAwaiter().GetResult();
 
+        app.UseHPDControlPlaneCorrelation();
         app.UseAuthentication();
         app.UseAuthorization();
-        app.MapHPDAdminEndpoints();
+        app.MapHPDAdminEndpoints(new HPDAuthAdminEndpointOptions
+        {
+            ControlPlaneProfile = "admin-tests"
+        });
 
         return app;
     }
@@ -125,6 +161,19 @@ public class AdminWebFactory : IAsyncDisposable
     {
         return _app.Services.GetRequiredService<T>();
     }
+
+    public IReadOnlyList<(string Method, string Route, string Capability)> GetAdminEndpointInventory() =>
+        ((IEndpointRouteBuilder)_app).DataSources
+            .SelectMany(static source => source.Endpoints)
+            .OfType<RouteEndpoint>()
+            .Where(static endpoint => endpoint.Metadata.GetMetadata<ControlPlaneCapabilityMetadata>() is not null)
+            .SelectMany(endpoint => endpoint.Metadata.GetMetadata<IHttpMethodMetadata>()!.HttpMethods.Select(method =>
+                (method, endpoint.RoutePattern.RawText!,
+                    endpoint.Metadata.GetMetadata<ControlPlaneCapabilityMetadata>()!.Capability)))
+            .OrderBy(static item => item.method, StringComparer.Ordinal)
+            .ThenBy(static item => item.Item2, StringComparer.Ordinal)
+            .Select(static item => (item.method, item.Item2, item.Capability))
+            .ToArray();
 
     /// <summary>
     /// Create a scope and resolve a service.  Caller is responsible for disposing the scope.
@@ -202,14 +251,16 @@ public class AdminWebFactory : IAsyncDisposable
     /// <summary>
     /// Get the audit log entries for a user from the DB.
     /// </summary>
-    public async Task<IReadOnlyList<AuditLog>> GetAuditLogsAsync(Guid? userId = null, string? action = null)
+    public async Task<IReadOnlyList<AuthAuditRecord>> GetAuditLogsAsync(Guid? userId = null, string? action = null)
     {
         using var scope = _app.Services.CreateScope();
-        var auditLogger = scope.ServiceProvider.GetRequiredService<IAuditLogger>();
-        return await auditLogger.QueryAsync(new AuditLogQuery(
-            UserId: userId,
-            Action: action,
-            PageSize: 500));
+        var auditReader = scope.ServiceProvider.GetRequiredService<IAuthAuditReader>();
+        return await auditReader.ReadAsync(new AuthAuditQuery
+        {
+            SubjectUserId = userId,
+            Action = action,
+            Limit = 200
+        });
     }
 
     public async Task StartAsync() => await _app.StartAsync();

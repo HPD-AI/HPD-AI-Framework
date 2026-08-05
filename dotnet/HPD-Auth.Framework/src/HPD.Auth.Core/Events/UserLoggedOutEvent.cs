@@ -7,7 +7,7 @@ namespace HPD.Auth.Core.Events;
 /// Subscribers can use this event to clean up per-session state
 /// or notify connected clients via SignalR/webhooks.
 /// </summary>
-public record UserLoggedOutEvent : AuthEvent
+public sealed record UserLoggedOutEvent : AuthEvent
 {
     public required Guid UserId { get; init; }
 

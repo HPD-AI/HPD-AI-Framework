@@ -34,7 +34,11 @@ public class AgentPlanToolHarness
 {
     private readonly ILogger<AgentPlanToolHarness>? _logger;
 
-    public AgentPlanToolHarness(ILogger<AgentPlanToolHarness>? logger = null)
+    public AgentPlanToolHarness()
+    {
+    }
+
+    public AgentPlanToolHarness(ILogger<AgentPlanToolHarness>? logger)
     {
         _logger = logger;
     }
@@ -53,7 +57,7 @@ public class AgentPlanToolHarness
         return Result(modelText);
     }
 
-    [AIFunction]
+    [AIFunction(Name = "create_plan")]
     [Description("Create a new execution plan to track progress on multi-step tasks. Use when you need to plan and track complex work.")]
     public Task<object> CreatePlanAsync(
         [Description("The goal or objective this plan aims to accomplish")] string goal,
@@ -74,6 +78,14 @@ public class AgentPlanToolHarness
         if (steps == null || steps.Length == 0)
         {
             return Result("Error: At least one step is required for creating a plan.");
+        }
+
+        var planState = context.Analyze(s => s.MiddlewareState.PlanModePersistent());
+        if (planState?.HasActivePlan(conversationId) == true)
+        {
+            var activePlan = planState.GetPlan(conversationId)!;
+            return Result(
+                $"Error: Plan {activePlan.Id} is still active for this conversation. Complete it before creating another plan.");
         }
 
         // Create the new plan using the immutable helper
@@ -97,7 +109,7 @@ public class AgentPlanToolHarness
             evt);
     }
 
-    [AIFunction]
+    [AIFunction(Name = "update_plan_step")]
     [Description("Update the status of a specific step in the current plan. Use this as you make progress.")]
     public Task<object> UpdatePlanStepAsync(
         [Description("The step ID to update (e.g., '1', '2', '3')")] string stepId,
@@ -170,11 +182,14 @@ public class AgentPlanToolHarness
         return Result(
             context,
             response,
-            state => state.WithPlan(conversationId, updatedPlan),
+            state => ApplyToActivePlan(
+                state,
+                conversationId,
+                current => current.WithUpdatedStep(stepId, parsedStatus.Value, notes)),
             evt);
     }
 
-    [AIFunction]
+    [AIFunction(Name = "add_plan_step")]
     [Description("Add a new step to the current plan. Use this when you discover additional work is needed.")]
     public Task<object> AddPlanStepAsync(
         [Description("Description of the new step to add")] string description,
@@ -205,8 +220,13 @@ public class AgentPlanToolHarness
             return Result("Error: No active plan exists for this conversation.");
         }
 
+        if (afterStepId != null && plan.GetStep(afterStepId) == null)
+        {
+            return Result($"Error: Step '{afterStepId}' not found in current plan.");
+        }
+
         var updatedPlan = plan.WithAddedStep(description, afterStepId);
-        var newStepId = updatedPlan.Steps.LastOrDefault()?.Id;
+        var newStepId = (plan.Steps.Count + 1).ToString();
         var evt = new PlanUpdatedEvent(
             PlanId: plan.Id,
             ConversationId: conversationId,
@@ -220,11 +240,14 @@ public class AgentPlanToolHarness
         return Result(
             context,
             $"Added step {newStepId}: {description}",
-            state => state.WithPlan(conversationId, updatedPlan),
+            state => ApplyToActivePlan(
+                state,
+                conversationId,
+                current => current.WithAddedStep(description, afterStepId)),
             evt);
     }
 
-    [AIFunction]
+    [AIFunction(Name = "add_context_note")]
     [Description("Add a context note to the current plan. Use this to record important discoveries, learnings, or context.")]
     public Task<object> AddContextNoteAsync(
         [Description("The note to add (e.g., 'Discovered auth uses JWT not sessions')")] string note,
@@ -268,7 +291,10 @@ public class AgentPlanToolHarness
         return Result(
             context,
             $"Added context note: {note}",
-            state => state.WithPlan(conversationId, updatedPlan),
+            state => ApplyToActivePlan(
+                state,
+                conversationId,
+                current => current.WithContextNote(note)),
             evt);
     }
 
@@ -276,7 +302,7 @@ public class AgentPlanToolHarness
     // via AgentPlanAgentMiddleware, so the agent always has the current plan in context without needing
     // to call a function. This saves tokens and simplifies the API.
 
-    [AIFunction]
+    [AIFunction(Name = "complete_plan")]
     [Description("Mark the entire plan as complete. Use this when all steps are done and the goal is achieved.")]
     public Task<object> CompletePlanAsync(FunctionExecutionContext context)
     {
@@ -304,7 +330,7 @@ public class AgentPlanToolHarness
         if (incompleteSteps.Count > 0)
         {
             var incompleteList = string.Join(", ", incompleteSteps.Select(s => s.Id));
-            return Result($"Warning: Plan has incomplete steps: {incompleteList}. Mark them as completed first or complete anyway?");
+            return Result($"Error: Plan has incomplete steps: {incompleteList}. Mark them as completed before completing the plan.");
         }
 
         var completedPlan = plan.AsCompleted();
@@ -321,8 +347,22 @@ public class AgentPlanToolHarness
         return Result(
             context,
             $"Plan {plan.Id} marked as complete! Goal '{plan.Goal}' achieved.",
-            state => state.WithPlan(conversationId, completedPlan),
+            state => ApplyToActivePlan(
+                state,
+                conversationId,
+                static current => current.AsCompleted()),
             evt);
+    }
+
+    private static PlanModePersistentStateData ApplyToActivePlan(
+        PlanModePersistentStateData state,
+        string conversationId,
+        Func<AgentPlanData, AgentPlanData> update)
+    {
+        var current = state.GetPlan(conversationId);
+        return current is null || current.IsComplete
+            ? state
+            : state.WithPlan(conversationId, update(current));
     }
 }
 

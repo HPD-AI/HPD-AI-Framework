@@ -87,7 +87,6 @@ public static class AuthEndpoints
             services.GetRequiredService<ITokenService>(),
             services.GetRequiredService<IHPDAuthEmailSender>(),
             services.GetRequiredService<IEventCoordinator>(),
-            services.GetRequiredService<IAuditLogger>(),
             services.GetRequiredService<HPDAuthOptions>(),
             httpContext,
             ct);
@@ -175,8 +174,6 @@ public static class AuthEndpoints
             request,
             httpContext.User,
             services.GetRequiredService<UserManager<ApplicationUser>>(),
-            services.GetRequiredService<IAuditLogger>(),
-            httpContext,
             ct);
 
         await result.ExecuteAsync(httpContext);
@@ -194,7 +191,6 @@ public static class AuthEndpoints
         ITokenService tokenService,
         IHPDAuthEmailSender emailSender,
         IEventCoordinator eventCoordinator,
-        IAuditLogger auditLogger,
         HPDAuthOptions options,
         HttpContext httpContext,
         CancellationToken ct = default)
@@ -365,8 +361,6 @@ public static class AuthEndpoints
         UpdateUserRequest request,
         ClaimsPrincipal principal,
         UserManager<ApplicationUser> userManager,
-        IAuditLogger auditLogger,
-        HttpContext httpContext,
         CancellationToken ct = default)
     {
         var userId = principal.FindFirstValue(ClaimTypes.NameIdentifier)
@@ -400,16 +394,6 @@ public static class AuthEndpoints
                 "validation_failed",
                 string.Join("; ", result.Errors.Select(e => e.Description))));
         }
-
-        var ipAddress = httpContext.Connection.RemoteIpAddress?.ToString();
-        await auditLogger.LogAsync(new AuditLogEntry(
-            Action: AuditActions.AdminUserUpdate,
-            Category: AuditCategories.UserManagement,
-            Success: true,
-            UserId: user.Id,
-            IpAddress: ipAddress,
-            Metadata: new Dictionary<string, string?> { ["action"] = "user_self_update" }
-        ), ct);
 
         var roles = await userManager.GetRolesAsync(user);
         return AuthEndpointJson.Ok(

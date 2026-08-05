@@ -23,7 +23,7 @@ public record ClientToolInvokeRequestEvent(
     string CallId,
     IReadOnlyDictionary<string, object?> Arguments,
     string? Description = null
-) : AgentEvent, IAgentRequestEvent
+) : AgentEvent, IAgentRequestEvent<ClientToolInvokeOutcomeEvent>
 {
     public override EventChannel Channel { get; init; } = EventChannel.Interactive;
     public override EventKind Kind { get; init; } = EventKind.Control;
@@ -81,6 +81,9 @@ public record ClientToolInvokeOutcomeEvent : AgentEvent, IAgentResponseEvent
     /// </summary>
     public string? ErrorMessage { get; init; }
 
+    /// <summary>Gets structured provider error information when available.</summary>
+    public ClientToolError? Error { get; init; }
+
     /// <summary>
     /// Gets the client-owned id for accepted background work.
     /// </summary>
@@ -105,8 +108,7 @@ public record ClientToolInvokeOutcomeEvent : AgentEvent, IAgentResponseEvent
     public string SourceName => "HPD.Agent.ClientTools";
     public string? ResponderId { get; init; }
     public string? ResponderGroup { get; init; }
-    public HashSet<string> Capabilities { get; init; } = [];
-    IReadOnlySet<string> IResponseEvent.Capabilities => Capabilities;
+    public IReadOnlySet<string> Capabilities { get; init; } = new HashSet<string>();
 }
 
 /// <summary>
@@ -122,7 +124,13 @@ public enum ClientToolBackgroundOperationOutcomeState
     Faulted,
 
     /// <summary>The operation was cancelled.</summary>
-    Cancelled
+    Cancelled,
+
+    /// <summary>
+    /// The provider connection was lost after accepting the operation and
+    /// completion cannot be proven. The operation must not be replayed.
+    /// </summary>
+    Unknown
 }
 
 /// <summary>
@@ -151,12 +159,16 @@ public sealed record ClientToolBackgroundOperationOutcomeEvent : AgentInputEvent
     public ClientToolAugmentation? Augmentation { get; init; }
 
     /// <summary>
-    /// Gets the error message when <see cref="State"/> is <see cref="ClientToolBackgroundOperationOutcomeState.Faulted"/>.
+    /// Gets the error message when <see cref="State"/> is
+    /// <see cref="ClientToolBackgroundOperationOutcomeState.Faulted"/> or
+    /// <see cref="ClientToolBackgroundOperationOutcomeState.Unknown"/>.
     /// </summary>
     public string? ErrorMessage { get; init; }
 
     /// <summary>
-    /// Gets the optional error type when <see cref="State"/> is <see cref="ClientToolBackgroundOperationOutcomeState.Faulted"/>.
+    /// Gets the optional error type when <see cref="State"/> is
+    /// <see cref="ClientToolBackgroundOperationOutcomeState.Faulted"/> or
+    /// <see cref="ClientToolBackgroundOperationOutcomeState.Unknown"/>.
     /// </summary>
     public string? ErrorType { get; init; }
 

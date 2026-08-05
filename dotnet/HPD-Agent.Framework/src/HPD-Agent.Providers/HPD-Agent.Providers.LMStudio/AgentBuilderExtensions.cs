@@ -19,7 +19,7 @@ public static class LMStudioAgentBuilderExtensions
             throw new ArgumentException("Model is required for LM Studio provider.", nameof(model));
         }
 
-        var chatConfig = new ClientProviderConfig
+        var chatConfig = new ChatClientConfig
         {
             ProviderKey = "lmstudio",
             ApiKey = apiKey,

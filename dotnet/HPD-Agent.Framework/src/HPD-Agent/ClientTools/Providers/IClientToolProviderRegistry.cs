@@ -16,6 +16,7 @@ public interface IClientToolProviderRegistry
     /// <returns>Connection registration details.</returns>
     ValueTask<ClientToolProviderConnectionRegistration> RegisterConnectionAsync(
         ClientToolProviderIdentity identity,
+        ClientToolProviderRuntimeIdentity? runtimeIdentity,
         IClientToolProviderConnection connection,
         CancellationToken cancellationToken = default);
 
@@ -52,6 +53,23 @@ public interface IClientToolProviderRegistry
     ValueTask DisconnectAsync(
         string clientRuntimeId,
         string connectionId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Revokes every provider connection matching a server-authoritative
+    /// selector and breaks its leases and in-flight operations.
+    /// </summary>
+    ValueTask<int> RevokeAsync(
+        ClientProviderSelector selector,
+        string reason,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Atomically prevents registration of an already-authorized connection
+    /// at or below the supplied App workload generation.
+    /// </summary>
+    ValueTask AdvanceRevocationFenceAsync(
+        ClientToolProviderRevocationFence fence,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -144,3 +162,7 @@ public interface IClientToolProviderRegistry
     /// <returns>Matching provider snapshots.</returns>
     IReadOnlyList<ClientToolProviderSnapshot> List(ClientToolProviderQuery? query = null);
 }
+
+public sealed record ClientToolProviderRevocationFence(
+    string AppInstallationId,
+    long MaximumWorkloadGeneration);

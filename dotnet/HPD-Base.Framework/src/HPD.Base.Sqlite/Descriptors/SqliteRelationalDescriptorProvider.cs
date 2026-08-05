@@ -1,21 +1,8 @@
-using HPD.Base.Query;
-using HPD.Base.Descriptors;
-using HPD.Base.Relational.Capabilities;
-using HPD.Base.Relational.Descriptors;
-using HPD.Base.Relational.Planning;
-using HPD.Base.Relational.Providers;
-using HPD.Base.Results;
-using HPD.Base.Runtime;
-using HPD.Base.Runtime.Results;
-using HPD.Base.Schema;
-using HPD.Base.Sqlite.Configuration;
-using HPD.Base.Sqlite.Internal;
-using HPD.Base.Sqlite.Serialization;
+using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Options;
-using System.Text.Json;
 
-namespace HPD.Base.Sqlite.Descriptors;
+namespace HPD.Base.Sqlite;
 
 internal sealed class SqliteRelationalDescriptorProvider :
     IRelationalMetadataProvider,
@@ -24,17 +11,24 @@ internal sealed class SqliteRelationalDescriptorProvider :
 {
     private readonly HPDBaseSqliteOptions _options;
     private readonly SqliteNames _names;
+    private readonly SqlitePhysicalModel _physical;
 
+    /// <summary>Initializes a new instance.</summary>
     public SqliteRelationalDescriptorProvider(IOptions<HPDBaseSqliteOptions> options)
     {
         _options = options.Value;
         _names = new SqliteNames(_options);
+        _physical = new SqlitePhysicalModel(_options);
     }
 
-    public ValueTask<OperationResult<RelationalStoreDescriptor>> GetStoreAsync(OperationContext context, VisibilityLevel visibility, CancellationToken cancellationToken = default)
+    /// <summary>Executes the get store async operation.</summary>
+    public ValueTask<OperationResult<RelationalStoreDescriptor>> GetStoreAsync(
+        OperationContext context,
+        VisibilityLevel visibility,
+        CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var store = new RelationalStoreDescriptor
+        return ValueTask.FromResult(OperationResults.Ok(new RelationalStoreDescriptor
         {
             Id = _options.StoreId + ".relational",
             StoreId = _options.StoreId,
@@ -44,47 +38,51 @@ internal sealed class SqliteRelationalDescriptorProvider :
             Schemas = [Schema(visibility)],
             Tables = Tables(visibility),
             Columns = Columns(visibility),
-            PrimaryKeys = [PrimaryKey(visibility)],
-            Indexes = [UpdatedIndex(visibility)],
+            PrimaryKeys = _physical.Collections.Select(model => PrimaryKey(model, visibility)).ToArray(),
+            Indexes = _physical.Collections.SelectMany(model => new[] { UpdatedIndex(model, visibility) }.Concat(model.Indexes.Select(index => DeclaredIndex(model, index, visibility)))).ToArray(),
             GeneratedColumns = [],
-            JsonColumns = [JsonColumn(visibility)],
+            JsonColumns = JsonColumns(visibility),
             CollectionMappings = Mappings(visibility),
             Visibility = visibility,
             PublicSafe = visibility == VisibilityLevel.Public,
             Extensions = Extensions(visibility)
-        };
-        return ValueTask.FromResult(OperationResults.Ok(store));
+        }));
     }
 
+    /// <summary>Executes the list tables async operation.</summary>
     public ValueTask<OperationResult<RelationalTableDescriptor[]>> ListTablesAsync(OperationContext context, VisibilityLevel visibility, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         return ValueTask.FromResult(OperationResults.Ok(Tables(visibility)));
     }
 
+    /// <summary>Executes the list views async operation.</summary>
     public ValueTask<OperationResult<RelationalViewDescriptor[]>> ListViewsAsync(OperationContext context, VisibilityLevel visibility, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         return ValueTask.FromResult(OperationResults.Ok(Array.Empty<RelationalViewDescriptor>()));
     }
 
+    /// <summary>Executes the get mapping async operation.</summary>
     public ValueTask<OperationResult<RelationalCollectionMappingDescriptor?>> GetMappingAsync(CollectionDefinition collection, OperationContext context, VisibilityLevel visibility, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return ValueTask.FromResult(OperationResults.Ok<RelationalCollectionMappingDescriptor?>(Mapping(collection.Id, visibility)));
+        return ValueTask.FromResult(OperationResults.Ok<RelationalCollectionMappingDescriptor?>(Mapping(_physical.Collection(collection.Id), visibility)));
     }
 
+    /// <summary>Executes the list mappings async operation.</summary>
     public ValueTask<OperationResult<RelationalCollectionMappingDescriptor[]>> ListMappingsAsync(OperationContext context, VisibilityLevel visibility, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         return ValueTask.FromResult(OperationResults.Ok(Mappings(visibility)));
     }
 
+    /// <summary>Executes the explain async operation.</summary>
     public ValueTask<OperationResult<RelationalQueryPlanDescriptor>> ExplainAsync(CollectionDefinition collection, OperationContext context, RecordQuery query, VisibilityLevel visibility, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var plan = new SqliteQueryPlanner(_options).Plan(collection.Id, query);
-        var descriptor = new RelationalQueryPlanDescriptor
+        var plan = new SqliteQueryPlanner(_options, _physical.Collection(collection.Id)).Plan(query);
+        return ValueTask.FromResult(OperationResults.Ok(new RelationalQueryPlanDescriptor
         {
             Id = _options.StoreId + ".plan." + collection.Id,
             StoreId = _options.StoreId,
@@ -113,295 +111,196 @@ internal sealed class SqliteRelationalDescriptorProvider :
             Diagnostics = plan.Supported ? null : [new RelationalPlanDiagnostic { Id = "sqlite.query.unsupported", Code = "sqlite.query.unsupported", Severity = RelationalPlanDiagnosticSeverity.Error, Message = "SQLite provider cannot safely execute one or more query parts before count/page.", Visibility = visibility, PublicSafe = visibility == VisibilityLevel.Public }],
             Visibility = visibility,
             PublicSafe = visibility == VisibilityLevel.Public
-        };
-        return ValueTask.FromResult(OperationResults.Ok(descriptor));
+        }));
     }
 
     private RelationalDatabaseDescriptor Database(VisibilityLevel visibility) => new()
     {
-        Id = _options.StoreId + ".database.main",
-        StoreId = _options.StoreId,
-        NativeName = "main",
+        Id = _options.StoreId + ".database.main", StoreId = _options.StoreId, NativeName = "main",
         NativePath = visibility == VisibilityLevel.Admin ? NativeDataSource() : null,
-        Kind = RelationalNamespaceKind.Database,
-        Visibility = visibility,
-        PublicSafe = visibility == VisibilityLevel.Public
+        Kind = RelationalNamespaceKind.Database, Visibility = visibility, PublicSafe = visibility == VisibilityLevel.Public
     };
 
     private RelationalSchemaDescriptor Schema(VisibilityLevel visibility) => new()
     {
-        Id = _options.StoreId + ".schema.main",
-        StoreId = _options.StoreId,
-        NativeName = "main",
+        Id = _options.StoreId + ".schema.main", StoreId = _options.StoreId, NativeName = "main",
         NativePath = visibility == VisibilityLevel.Admin ? "main" : null,
-        DatabaseRef = _options.StoreId + ".database.main",
-        Kind = RelationalNamespaceKind.ProviderNamespace,
-        Visibility = visibility,
-        PublicSafe = visibility == VisibilityLevel.Public
+        DatabaseRef = _options.StoreId + ".database.main", Kind = RelationalNamespaceKind.ProviderNamespace,
+        Visibility = visibility, PublicSafe = visibility == VisibilityLevel.Public
     };
 
     private RelationalTableDescriptor[] Tables(VisibilityLevel visibility) =>
-    [
-        Table(_names.Records, mapped: true, visibility),
-        Table(_names.Collections, mapped: false, visibility),
-        Table(_names.ProviderState, mapped: false, visibility)
-    ];
+        _physical.Collections.Select(model => new RelationalTableDescriptor
+        {
+            Id = TableRef(model), StoreId = _options.StoreId, NativeName = model.Table,
+            NativePath = visibility == VisibilityLevel.Admin ? "main." + model.Table : null,
+            DatabaseRef = _options.StoreId + ".database.main", SchemaRef = _options.StoreId + ".schema.main",
+            MappedCollectionIds = [model.Definition.Id], PrimaryKeyRef = PrimaryKeyRef(model),
+            ColumnRefs = ColumnRefs(model), IndexRefs = new[] { IndexRef(model) }.Concat(model.Indexes.Select(index => DeclaredIndexRef(index))).ToArray(), ReadSupported = true, WriteSupported = true,
+            RowIdentityStrategy = RelationalRecordIdMappingKind.NativePrimaryKey,
+            Visibility = visibility, PublicSafe = visibility == VisibilityLevel.Public
+        }).Concat(new[]
+        {
+            InfrastructureTable(_names.Collections, visibility), InfrastructureTable(_names.ProviderState, visibility), InfrastructureTable(_names.MutationJournal, visibility)
+        }).ToArray();
 
-    private RelationalTableDescriptor Table(string name, bool mapped, VisibilityLevel visibility) => new()
+    private RelationalTableDescriptor InfrastructureTable(string name, VisibilityLevel visibility) => new()
     {
-        Id = _options.StoreId + ".table." + name,
-        StoreId = _options.StoreId,
-        NativeName = name,
+        Id = _options.StoreId + ".table." + name, StoreId = _options.StoreId, NativeName = name,
         NativePath = visibility == VisibilityLevel.Admin ? "main." + name : null,
-        DatabaseRef = _options.StoreId + ".database.main",
-        SchemaRef = _options.StoreId + ".schema.main",
-        MappedCollectionIds = mapped ? CollectionIds() : null,
-        PrimaryKeyRef = mapped ? _options.StoreId + ".pk." + _names.Records : null,
-        ColumnRefs = mapped ? ColumnIds() : null,
-        IndexRefs = mapped ? [_options.StoreId + ".index." + _names.RecordsUpdatedIndex] : null,
-        ReadSupported = true,
-        WriteSupported = mapped,
-        RowIdentityStrategy = mapped ? RelationalRecordIdMappingKind.CompositeKey : RelationalRecordIdMappingKind.NativePrimaryKey,
-        Visibility = visibility,
-        PublicSafe = visibility == VisibilityLevel.Public
+        DatabaseRef = _options.StoreId + ".database.main", SchemaRef = _options.StoreId + ".schema.main",
+        ReadSupported = true, WriteSupported = false, RowIdentityStrategy = RelationalRecordIdMappingKind.NativePrimaryKey,
+        Visibility = visibility, PublicSafe = visibility == VisibilityLevel.Public
     };
 
-    private RelationalColumnDescriptor[] Columns(VisibilityLevel visibility)
+    private RelationalColumnDescriptor[] Columns(VisibilityLevel visibility) => _physical.Collections.SelectMany(model =>
     {
-        var table = _options.StoreId + ".table." + _names.Records;
-        return
-        [
-            Column(table, "collection_id", 0, RelationalColumnTypeFamily.Text, "TEXT", false, true, visibility),
-            Column(table, "record_id", 1, RelationalColumnTypeFamily.Text, "TEXT", false, true, visibility),
-            Column(table, "revision", 2, RelationalColumnTypeFamily.Integer, "INTEGER", false, true, visibility),
-            Column(table, "created_at", 3, RelationalColumnTypeFamily.Text, "TEXT", false, true, visibility),
-            Column(table, "updated_at", 4, RelationalColumnTypeFamily.Text, "TEXT", false, true, visibility),
-            Column(table, "payload_json", 5, RelationalColumnTypeFamily.Json, "TEXT", false, false, visibility, jsonRef: _options.StoreId + ".json." + _names.Records + ".payload_json")
-        ];
-    }
+        var columns = new List<RelationalColumnDescriptor>
+        {
+            Column(model, "record_id", 0, RelationalColumnTypeFamily.Text, "TEXT", false, true, visibility),
+            Column(model, "revision", 1, RelationalColumnTypeFamily.Integer, "INTEGER", false, true, visibility),
+            Column(model, "created_at", 2, RelationalColumnTypeFamily.Text, "TEXT", false, true, visibility),
+            Column(model, "updated_at", 3, RelationalColumnTypeFamily.Text, "TEXT", false, true, visibility)
+        };
+        var ordinal = 4;
+        foreach (SqlitePhysicalModel.FieldModel field in model.Fields)
+        {
+            if (field.PresenceColumn is not null)
+                columns.Add(Column(model, field.PresenceColumn, ordinal++, RelationalColumnTypeFamily.Integer, "INTEGER", false, true, visibility));
+            columns.Add(Column(model, field.Column, ordinal++, Family(field), field.SqlType, field.PresenceColumn is not null, false, visibility));
+        }
+        if (model.HasExtensionJson)
+            columns.Add(Column(model, "extension_json", ordinal, RelationalColumnTypeFamily.Json, "TEXT", true, false, visibility, JsonRef(model)));
+        return columns;
+    }).ToArray();
 
-    private RelationalColumnDescriptor Column(string table, string name, int ordinal, RelationalColumnTypeFamily family, string nativeType, bool nullable, bool system, VisibilityLevel visibility, string? jsonRef = null) => new()
+    private RelationalColumnDescriptor Column(SqlitePhysicalModel.CollectionModel model, string name, int ordinal, RelationalColumnTypeFamily family, string nativeType, bool nullable, bool system, VisibilityLevel visibility, string? jsonRef = null) => new()
     {
-        Id = _options.StoreId + ".column." + _names.Records + "." + name,
-        StoreId = _options.StoreId,
-        ParentObjectRef = table,
-        NativeName = name,
-        Ordinal = ordinal,
-        Type = new RelationalColumnTypeDescriptor { NativeTypeName = nativeType, Family = family },
-        Nullable = nullable,
-        System = system,
-        JsonColumnRef = jsonRef,
-        Visibility = visibility,
-        PublicSafe = visibility == VisibilityLevel.Public
+        Id = ColumnRef(model, name), StoreId = _options.StoreId, ParentObjectRef = TableRef(model), NativeName = name,
+        Ordinal = ordinal, Type = new RelationalColumnTypeDescriptor { NativeTypeName = nativeType, Family = family },
+        Nullable = nullable, System = system, JsonColumnRef = jsonRef, Visibility = visibility, PublicSafe = visibility == VisibilityLevel.Public
     };
 
-    private RelationalPrimaryKeyDescriptor PrimaryKey(VisibilityLevel visibility) => new()
+    private RelationalPrimaryKeyDescriptor PrimaryKey(SqlitePhysicalModel.CollectionModel model, VisibilityLevel visibility) => new()
     {
-        Id = _options.StoreId + ".pk." + _names.Records,
-        StoreId = _options.StoreId,
-        TableRef = _options.StoreId + ".table." + _names.Records,
-        ColumnRefs = [_options.StoreId + ".column." + _names.Records + ".collection_id", _options.StoreId + ".column." + _names.Records + ".record_id"],
-        NativeName = "PRIMARY KEY",
-        RecordIdMappingKind = RelationalRecordIdMappingKind.CompositeKey,
-        Visibility = visibility,
-        PublicSafe = visibility == VisibilityLevel.Public
+        Id = PrimaryKeyRef(model), StoreId = _options.StoreId, TableRef = TableRef(model),
+        ColumnRefs = [ColumnRef(model, "record_id")], NativeName = "PRIMARY KEY",
+        RecordIdMappingKind = RelationalRecordIdMappingKind.NativePrimaryKey, Visibility = visibility, PublicSafe = visibility == VisibilityLevel.Public
     };
 
-    private RelationalIndexDescriptor UpdatedIndex(VisibilityLevel visibility) => new()
+    private RelationalIndexDescriptor UpdatedIndex(SqlitePhysicalModel.CollectionModel model, VisibilityLevel visibility) => new()
     {
-        Id = _options.StoreId + ".index." + _names.RecordsUpdatedIndex,
-        StoreId = _options.StoreId,
-        ParentObjectRef = _options.StoreId + ".table." + _names.Records,
-        NativeName = _names.RecordsUpdatedIndex,
+        Id = IndexRef(model), StoreId = _options.StoreId, ParentObjectRef = TableRef(model), NativeName = "ix_" + model.Table + "_updated",
         Parts =
         [
-            new RelationalIndexPartDescriptor { Id = _options.StoreId + ".indexpart.collection", Ordinal = 0, ColumnRef = _options.StoreId + ".column." + _names.Records + ".collection_id", Visibility = visibility, PublicSafe = visibility == VisibilityLevel.Public },
-            new RelationalIndexPartDescriptor { Id = _options.StoreId + ".indexpart.updated", Ordinal = 1, ColumnRef = _options.StoreId + ".column." + _names.Records + ".updated_at", Visibility = visibility, PublicSafe = visibility == VisibilityLevel.Public },
-            new RelationalIndexPartDescriptor { Id = _options.StoreId + ".indexpart.record", Ordinal = 2, ColumnRef = _options.StoreId + ".column." + _names.Records + ".record_id", Visibility = visibility, PublicSafe = visibility == VisibilityLevel.Public }
+            new RelationalIndexPartDescriptor { Id = IndexRef(model) + ".part.updated", Ordinal = 0, ColumnRef = ColumnRef(model, "updated_at"), Visibility = visibility, PublicSafe = visibility == VisibilityLevel.Public },
+            new RelationalIndexPartDescriptor { Id = IndexRef(model) + ".part.record", Ordinal = 1, ColumnRef = ColumnRef(model, "record_id"), Visibility = visibility, PublicSafe = visibility == VisibilityLevel.Public }
         ],
-        Visibility = visibility,
-        PublicSafe = visibility == VisibilityLevel.Public
+        Visibility = visibility, PublicSafe = visibility == VisibilityLevel.Public
     };
 
-    private RelationalJsonColumnDescriptor JsonColumn(VisibilityLevel visibility) => new()
+    private RelationalIndexDescriptor DeclaredIndex(SqlitePhysicalModel.CollectionModel model, SqlitePhysicalModel.IndexModel index, VisibilityLevel visibility) => new()
     {
-        Id = _options.StoreId + ".json." + _names.Records + ".payload_json",
-        StoreId = _options.StoreId,
-        ColumnRef = _options.StoreId + ".column." + _names.Records + ".payload_json",
-        StorageKind = RelationalJsonStorageKind.TextJson,
-        QueryablePathsSupported = true,
-        PathIndexSupported = false,
-        PayloadRootFieldPath = "$",
-        NullMissingSemanticsSummary = "Top-level JSON paths use SQLite json_extract/json_type semantics.",
-        SerializationSummary = "Canonical HPD.BASE field-map JSON object stored as TEXT.",
-        Visibility = visibility,
-        PublicSafe = visibility == VisibilityLevel.Public
+        Id = DeclaredIndexRef(index), StoreId = _options.StoreId, ParentObjectRef = TableRef(model), NativeName = index.Name,
+        Unique = index.Definition.Unique || index.Definition.Kind == IndexKind.Unique,
+        Parts = index.Parts.Select((field, ordinal) => new RelationalIndexPartDescriptor
+        {
+            Id = DeclaredIndexRef(index) + ".part." + ordinal, Ordinal = ordinal, ColumnRef = ColumnRef(model, field.Column),
+            SortDirection = index.Definition.Parts![ordinal].Direction == IndexSortDirection.Desc ? "desc" : "asc",
+            Visibility = visibility, PublicSafe = visibility == VisibilityLevel.Public
+        }).ToArray(),
+        Visibility = visibility, PublicSafe = visibility == VisibilityLevel.Public
     };
 
-    private RelationalCollectionMappingDescriptor[] Mappings(VisibilityLevel visibility) =>
-        CollectionIds().Select(id => Mapping(id, visibility)).ToArray();
-
-    private RelationalCollectionMappingDescriptor Mapping(string collectionId, VisibilityLevel visibility) => new()
+    private RelationalJsonColumnDescriptor[] JsonColumns(VisibilityLevel visibility) => _physical.Collections.Where(model => model.HasExtensionJson).Select(model => new RelationalJsonColumnDescriptor
     {
-        Id = _options.StoreId + ".mapping." + collectionId,
-        StoreId = _options.StoreId,
-        CollectionId = collectionId,
-        TableRef = _options.StoreId + ".table." + _names.Records,
-        MappingKind = RelationalMappingKind.Table,
-        RecordIdMappingKind = RelationalRecordIdMappingKind.CompositeKey,
-        RecordIdColumnRefs = [_options.StoreId + ".column." + _names.Records + ".collection_id", _options.StoreId + ".column." + _names.Records + ".record_id"],
-        RecordIdSummary = "BASE record id is record_id within collection_id.",
-        PayloadMappingKind = RelationalPayloadMappingKind.JsonColumn,
-        PayloadJsonColumnRef = _options.StoreId + ".json." + _names.Records + ".payload_json",
-        RevisionColumnRef = _options.StoreId + ".column." + _names.Records + ".revision",
-        CreatedAtColumnRef = _options.StoreId + ".column." + _names.Records + ".created_at",
-        UpdatedAtColumnRef = _options.StoreId + ".column." + _names.Records + ".updated_at",
-        ListSupported = true,
-        GetSupported = true,
-        CreateSupported = true,
-        PatchSupported = true,
-        ReplaceSupported = true,
-        DeleteSupported = true,
-        FieldMappingRefs = FieldMappingRefs(collectionId),
-        Visibility = visibility,
-        PublicSafe = visibility == VisibilityLevel.Public
+        Id = JsonRef(model), StoreId = _options.StoreId, ColumnRef = ColumnRef(model, "extension_json"),
+        StorageKind = RelationalJsonStorageKind.TextJson, QueryablePathsSupported = false, PathIndexSupported = false,
+        PayloadRootFieldPath = "$", NullMissingSemanticsSummary = "Only undeclared preserved fields are stored in extension JSON.",
+        SerializationSummary = "Canonical HPD.BASE extension field-map JSON stored as TEXT.", Visibility = visibility, PublicSafe = visibility == VisibilityLevel.Public
+    }).ToArray();
+
+    private RelationalCollectionMappingDescriptor[] Mappings(VisibilityLevel visibility) => _physical.Collections.Select(model => Mapping(model, visibility)).ToArray();
+
+    private RelationalCollectionMappingDescriptor Mapping(SqlitePhysicalModel.CollectionModel model, VisibilityLevel visibility) => new()
+    {
+        Id = _options.StoreId + ".mapping." + model.Definition.Id, StoreId = _options.StoreId, CollectionId = model.Definition.Id,
+        TableRef = TableRef(model), MappingKind = RelationalMappingKind.Table, RecordIdMappingKind = RelationalRecordIdMappingKind.NativePrimaryKey,
+        RecordIdColumnRefs = [ColumnRef(model, "record_id")], RecordIdSummary = "BASE record id is the table primary key.",
+        PayloadMappingKind = model.HasExtensionJson ? RelationalPayloadMappingKind.Hybrid : RelationalPayloadMappingKind.Columns,
+        PayloadJsonColumnRef = model.HasExtensionJson ? JsonRef(model) : null,
+        RevisionColumnRef = ColumnRef(model, "revision"), CreatedAtColumnRef = ColumnRef(model, "created_at"), UpdatedAtColumnRef = ColumnRef(model, "updated_at"),
+        ListSupported = true, GetSupported = true, CreateSupported = true, PatchSupported = true, ReplaceSupported = true, DeleteSupported = true,
+        FieldMappingRefs = FieldMappings(model, visibility).Select(mapping => mapping.Id).ToArray(),
+        Visibility = visibility, PublicSafe = visibility == VisibilityLevel.Public
     };
 
-    private string[] CollectionIds() =>
-        _options.CollectionIds.Concat((_options.Collections ?? []).Select(c => c.Id)).Distinct(StringComparer.Ordinal).ToArray();
+    private RelationalFieldMappingDescriptor[] FieldMappings(VisibilityLevel visibility) => _physical.Collections.SelectMany(model => FieldMappings(model, visibility)).ToArray();
 
-    private string[] ColumnIds() => new[] { "collection_id", "record_id", "revision", "created_at", "updated_at", "payload_json" }.Select(name => _options.StoreId + ".column." + _names.Records + "." + name).ToArray();
+    private RelationalFieldMappingDescriptor[] FieldMappings(SqlitePhysicalModel.CollectionModel model, VisibilityLevel visibility)
+    {
+        var mappings = new List<RelationalFieldMappingDescriptor>
+        {
+            SystemField(model, "id", "record_id", RelationalColumnTypeFamily.Text, visibility),
+            SystemField(model, "revision", "revision", RelationalColumnTypeFamily.Integer, visibility),
+            SystemField(model, "createdAt", "created_at", RelationalColumnTypeFamily.Text, visibility),
+            SystemField(model, "updatedAt", "updated_at", RelationalColumnTypeFamily.Text, visibility)
+        };
+        mappings.AddRange(model.Fields.Select(field => new RelationalFieldMappingDescriptor
+        {
+            Id = FieldMappingRef(model, field.Definition.Id), StoreId = _options.StoreId, CollectionId = model.Definition.Id,
+            FieldPath = field.Definition.Id, ColumnRef = ColumnRef(model, field.Column),
+            NativeType = new RelationalColumnTypeDescriptor { NativeTypeName = field.SqlType, Family = Family(field) },
+            ConversionKind = RelationalFieldConversionKind.BaseTypeConversion,
+            NullMissingSemanticsSummary = field.PresenceColumn is null ? "Required field stored directly." : "Presence column distinguishes missing from explicit null.",
+            Visibility = visibility, PublicSafe = visibility == VisibilityLevel.Public
+        }));
+        return mappings.ToArray();
+    }
 
-    private string[] FieldMappingRefs(string collectionId) =>
-    [
-        _options.StoreId + ".fieldMapping." + collectionId + ".id",
-        _options.StoreId + ".fieldMapping." + collectionId + ".revision",
-        _options.StoreId + ".fieldMapping." + collectionId + ".createdAt",
-        _options.StoreId + ".fieldMapping." + collectionId + ".updatedAt",
-        _options.StoreId + ".fieldMapping." + collectionId + ".payload"
-    ];
+    private RelationalFieldMappingDescriptor SystemField(SqlitePhysicalModel.CollectionModel model, string path, string column, RelationalColumnTypeFamily family, VisibilityLevel visibility) => new()
+    {
+        Id = FieldMappingRef(model, path), StoreId = _options.StoreId, CollectionId = model.Definition.Id, FieldPath = path,
+        ColumnRef = ColumnRef(model, column), NativeType = new RelationalColumnTypeDescriptor { NativeTypeName = family == RelationalColumnTypeFamily.Integer ? "INTEGER" : "TEXT", Family = family },
+        WriteBehavior = RelationalColumnWriteBehavior.StoreGenerated, Visibility = visibility, PublicSafe = visibility == VisibilityLevel.Public
+    };
 
     private Dictionary<string, JsonElement> Extensions(VisibilityLevel visibility)
     {
-        var fieldMappings = FieldMappings(visibility);
         var capabilities = new RelationalCapabilityDescriptor
         {
-            Id = _options.StoreId + ".relational.capabilities",
-            StoreId = _options.StoreId,
-            Version = _options.StoreVersion,
-            Metadata = new RelationalMetadataCapability
-            {
-                Status = CapabilityStatus.Available,
-                StoreMetadata = true,
-                NamespaceMetadata = true,
-                TableMetadata = true,
-                ViewMetadata = true,
-                ColumnMetadata = true,
-                Visibility = visibility
-            },
-            Mapping = new RelationalMappingCapability
-            {
-                Status = CapabilityStatus.Available,
-                CollectionMappings = true,
-                FieldMappings = true,
-                JsonColumnMappings = true,
-                RelationMappings = false,
-                Visibility = visibility
-            },
-            QueryPlanning = new RelationalQueryPlanningCapability
-            {
-                Status = CapabilityStatus.Available,
-                ExplainOnly = true,
-                NativePushdownSummary = true,
-                ResidualSafetyDiagnostics = true,
-                IncludePlanningDiagnostics = true,
-                CountPageSafetyDiagnostics = true,
-                Visibility = visibility
-            },
+            Id = _options.StoreId + ".relational.capabilities", StoreId = _options.StoreId, Version = _options.StoreVersion,
+            Metadata = new RelationalMetadataCapability { Status = CapabilityStatus.Available, StoreMetadata = true, NamespaceMetadata = true, TableMetadata = true, ViewMetadata = true, ColumnMetadata = true, Visibility = visibility },
+            Mapping = new RelationalMappingCapability { Status = CapabilityStatus.Available, CollectionMappings = true, FieldMappings = true, JsonColumnMappings = _physical.Collections.Any(model => model.HasExtensionJson), RelationMappings = true, Visibility = visibility },
+            QueryPlanning = new RelationalQueryPlanningCapability { Status = CapabilityStatus.Available, ExplainOnly = true, NativePushdownSummary = true, ResidualSafetyDiagnostics = true, IncludePlanningDiagnostics = true, CountPageSafetyDiagnostics = true, Visibility = visibility },
             Constraints = new RelationalConstraintCapability { Status = CapabilityStatus.Available, PrimaryKeys = true, Visibility = visibility },
-            JoinsIncludes = new RelationalJoinIncludeCapability { Status = CapabilityStatus.Unavailable, NativeEngineSupportsJoins = true, CallableIncludeExecutionAvailable = false, Summary = "SQLite joins exist, but HPD.BASE SQLite L21 does not implement includes/joins.", Visibility = VisibilityLevel.Admin },
-            Transactions = new RelationalTransactionCapability { Status = CapabilityStatus.Available, NativeEngineSupportsTransactions = true, CallableInterfaceAvailable = false, Summary = "Provider mutations use SQLite immediate write transactions; no public transaction API is exposed.", Visibility = VisibilityLevel.Admin },
-            SchemaWrite = new RelationalSchemaWriteCapability { Status = CapabilityStatus.Unavailable, NativeEngineSupportsDefinitionChanges = true, CallableInterfaceAvailable = false, DefinitionChangeRunnerAvailable = false, Summary = "L21 only initializes provider-owned schema; no host schema mutation API is exposed.", Visibility = VisibilityLevel.Admin },
-            NativePolicy = new RelationalNativePolicyCapability { Status = CapabilityStatus.Unavailable, NativePolicyMechanismKnown = false, CallablePolicyAdministrationAvailable = false, ProjectionExplainOnly = true, Summary = "Runtime policy composition is pushed down as ordinary BASE filters only.", Visibility = VisibilityLevel.Admin },
+            JoinsIncludes = new RelationalJoinIncludeCapability { Status = CapabilityStatus.Available, NativeEngineSupportsJoins = true, IncludePlanExplanationSupported = true, CallableIncludeExecutionAvailable = true, Summary = "Registered relational reads and bounded snapshot-consistent includes are callable.", Visibility = VisibilityLevel.Admin },
+            Transactions = new RelationalTransactionCapability { Status = CapabilityStatus.Available, NativeEngineSupportsTransactions = true, CallableInterfaceAvailable = true, Summary = "Restricted provider transaction sessions execute canonical single and atomic mutations.", Visibility = VisibilityLevel.Admin },
+            SchemaWrite = new RelationalSchemaWriteCapability { Status = CapabilityStatus.Available, NativeEngineSupportsDefinitionChanges = true, CallableInterfaceAvailable = true, DefinitionChangeRunnerAvailable = true, Summary = "Verified protected schema plans are callable through the BASE schema lifecycle.", Visibility = VisibilityLevel.Admin },
+            NativePolicy = new RelationalNativePolicyCapability { Status = CapabilityStatus.Unavailable, NativePolicyMechanismKnown = false, CallablePolicyAdministrationAvailable = false, ProjectionExplainOnly = true, Summary = "Runtime policy evaluation remains authoritative.", Visibility = VisibilityLevel.Admin },
             Visibility = visibility
         };
-
         return new Dictionary<string, JsonElement>
         {
             ["schemaPrefix"] = JsonSerializer.SerializeToElement(_options.SchemaPrefix, HPDBaseSqliteJsonSerializerContext.Default.String),
             ["walRequested"] = JsonSerializer.SerializeToElement(_options.EnableWal, HPDBaseSqliteJsonSerializerContext.Default.Boolean),
             ["busyTimeoutMilliseconds"] = JsonSerializer.SerializeToElement((int)_options.BusyTimeout.TotalMilliseconds, HPDBaseSqliteJsonSerializerContext.Default.Int32),
             ["relationalCapabilities"] = JsonSerializer.SerializeToElement(capabilities, HPDBaseSqliteJsonSerializerContext.Default.RelationalCapabilityDescriptor),
-            ["relationalFieldMappings"] = JsonSerializer.SerializeToElement(fieldMappings, HPDBaseSqliteJsonSerializerContext.Default.RelationalFieldMappingDescriptorArray)
+            ["relationalFieldMappings"] = JsonSerializer.SerializeToElement(FieldMappings(visibility), HPDBaseSqliteJsonSerializerContext.Default.RelationalFieldMappingDescriptorArray)
         };
     }
 
-    private RelationalFieldMappingDescriptor[] FieldMappings(VisibilityLevel visibility)
-    {
-        var mappings = new List<RelationalFieldMappingDescriptor>();
-        foreach (var collectionId in CollectionIds())
-        {
-            mappings.Add(SystemFieldMapping(collectionId, "id", "record_id", RelationalColumnTypeFamily.Text, visibility));
-            mappings.Add(SystemFieldMapping(collectionId, "revision", "revision", RelationalColumnTypeFamily.Integer, visibility));
-            mappings.Add(SystemFieldMapping(collectionId, "createdAt", "created_at", RelationalColumnTypeFamily.Text, visibility));
-            mappings.Add(SystemFieldMapping(collectionId, "updatedAt", "updated_at", RelationalColumnTypeFamily.Text, visibility));
-            mappings.Add(new RelationalFieldMappingDescriptor
-            {
-                Id = _options.StoreId + ".fieldMapping." + collectionId + ".payload",
-                StoreId = _options.StoreId,
-                CollectionId = collectionId,
-                FieldPath = "*",
-                JsonColumnRef = _options.StoreId + ".json." + _names.Records + ".payload_json",
-                JsonPath = "$",
-                NativeType = new RelationalColumnTypeDescriptor { NativeTypeName = "TEXT", Family = RelationalColumnTypeFamily.Json },
-                ConversionKind = RelationalFieldConversionKind.JsonSerialization,
-                NullMissingSemanticsSummary = "Payload fields are top-level JSON properties; JSON null and missing are distinguished with json_type.",
-                Visibility = visibility,
-                PublicSafe = visibility == VisibilityLevel.Public
-            });
+    private string TableRef(SqlitePhysicalModel.CollectionModel model) => _options.StoreId + ".table." + model.Table;
+    private string ColumnRef(SqlitePhysicalModel.CollectionModel model, string column) => _options.StoreId + ".column." + model.Table + "." + column;
+    private string[] ColumnRefs(SqlitePhysicalModel.CollectionModel model) => Columns(VisibilityLevel.Admin).Where(column => column.ParentObjectRef == TableRef(model)).Select(column => column.Id).ToArray();
+    private string PrimaryKeyRef(SqlitePhysicalModel.CollectionModel model) => _options.StoreId + ".pk." + model.Table;
+    private string IndexRef(SqlitePhysicalModel.CollectionModel model) => _options.StoreId + ".index.ix_" + model.Table + "_updated";
+    private string DeclaredIndexRef(SqlitePhysicalModel.IndexModel index) => _options.StoreId + ".index." + index.Name;
+    private string JsonRef(SqlitePhysicalModel.CollectionModel model) => _options.StoreId + ".json." + model.Table + ".extension_json";
+    private string FieldMappingRef(SqlitePhysicalModel.CollectionModel model, string field) => _options.StoreId + ".fieldMapping." + model.Definition.Id + "." + field;
+    private static RelationalColumnTypeFamily Family(SqlitePhysicalModel.FieldModel field) => field.SqlType switch { "INTEGER" => RelationalColumnTypeFamily.Integer, "REAL" => RelationalColumnTypeFamily.Decimal, _ when field.Definition.Type is BaseFieldTypes.Object or BaseFieldTypes.Array => RelationalColumnTypeFamily.Json, _ => RelationalColumnTypeFamily.Text };
 
-            foreach (var field in (_options.Collections ?? []).FirstOrDefault(collection => string.Equals(collection.Id, collectionId, StringComparison.Ordinal))?.Fields ?? [])
-            {
-                mappings.Add(new RelationalFieldMappingDescriptor
-                {
-                    Id = _options.StoreId + ".fieldMapping." + collectionId + "." + field.Id,
-                    StoreId = _options.StoreId,
-                    CollectionId = collectionId,
-                    FieldPath = field.Id,
-                    JsonColumnRef = _options.StoreId + ".json." + _names.Records + ".payload_json",
-                    JsonPath = "$." + field.Id,
-                    NativeType = new RelationalColumnTypeDescriptor { NativeTypeName = "TEXT", Family = RelationalColumnTypeFamily.Json },
-                    ConversionKind = RelationalFieldConversionKind.JsonSerialization,
-                    NullMissingSemanticsSummary = "Declared payload field is stored under payload_json as a top-level JSON property.",
-                    Visibility = visibility,
-                    PublicSafe = visibility == VisibilityLevel.Public
-                });
-            }
-        }
-
-        return mappings.ToArray();
-    }
-
-    private RelationalFieldMappingDescriptor SystemFieldMapping(string collectionId, string fieldPath, string columnName, RelationalColumnTypeFamily family, VisibilityLevel visibility) => new()
-    {
-        Id = _options.StoreId + ".fieldMapping." + collectionId + "." + fieldPath,
-        StoreId = _options.StoreId,
-        CollectionId = collectionId,
-        FieldPath = fieldPath,
-        ColumnRef = _options.StoreId + ".column." + _names.Records + "." + columnName,
-        NativeType = new RelationalColumnTypeDescriptor { NativeTypeName = family == RelationalColumnTypeFamily.Integer ? "INTEGER" : "TEXT", Family = family },
-        WriteBehavior = RelationalColumnWriteBehavior.StoreGenerated,
-        Visibility = visibility,
-        PublicSafe = visibility == VisibilityLevel.Public
-    };
-
-    private string? NativeDataSource()
-    {
-        if (!string.IsNullOrWhiteSpace(_options.ConnectionString))
-        {
-            return new SqliteConnectionStringBuilder(_options.ConnectionString).DataSource;
-        }
-
-        return _options.DataSource;
-    }
+    private string? NativeDataSource() => !string.IsNullOrWhiteSpace(_options.ConnectionString)
+        ? new SqliteConnectionStringBuilder(_options.ConnectionString).DataSource
+        : _options.DataSource;
 }

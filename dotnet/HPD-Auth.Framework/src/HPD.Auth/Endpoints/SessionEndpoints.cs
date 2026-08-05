@@ -46,7 +46,6 @@ public static class SessionEndpoints
         var result = await ListSessionsAsync(
             httpContext.User,
             services.GetRequiredService<ISessionManager>(),
-            services.GetRequiredService<IAuditLogger>(),
             httpContext.RequestAborted);
 
         await result.ExecuteAsync(httpContext);
@@ -60,8 +59,6 @@ public static class SessionEndpoints
             id,
             httpContext.User,
             services.GetRequiredService<ISessionManager>(),
-            services.GetRequiredService<IAuditLogger>(),
-            httpContext,
             httpContext.RequestAborted);
 
         await result.ExecuteAsync(httpContext);
@@ -73,8 +70,6 @@ public static class SessionEndpoints
         var result = await RevokeOtherSessionsAsync(
             httpContext.User,
             services.GetRequiredService<ISessionManager>(),
-            services.GetRequiredService<IAuditLogger>(),
-            httpContext,
             httpContext.RequestAborted);
 
         await result.ExecuteAsync(httpContext);
@@ -87,7 +82,6 @@ public static class SessionEndpoints
     private static async Task<IResult> ListSessionsAsync(
         ClaimsPrincipal principal,
         ISessionManager sessionManager,
-        IAuditLogger auditLogger,
         CancellationToken ct = default)
     {
         var userId = GetUserId(principal);
@@ -117,8 +111,6 @@ public static class SessionEndpoints
         string id,
         ClaimsPrincipal principal,
         ISessionManager sessionManager,
-        IAuditLogger auditLogger,
-        HttpContext httpContext,
         CancellationToken ct = default)
     {
         var userId = GetUserId(principal);
@@ -141,16 +133,6 @@ public static class SessionEndpoints
 
         await sessionManager.RevokeSessionAsync(sessionId, ct);
 
-        var ipAddress = httpContext.Connection.RemoteIpAddress?.ToString();
-        await auditLogger.LogAsync(new AuditLogEntry(
-            Action: AuditActions.SessionRevoke,
-            Category: AuditCategories.Authentication,
-            Success: true,
-            UserId: userId.Value,
-            IpAddress: ipAddress,
-            Metadata: new Dictionary<string, string?> { ["session_id"] = sessionId.ToString() }
-        ), ct);
-
         return Results.NoContent();
     }
 
@@ -161,8 +143,6 @@ public static class SessionEndpoints
     private static async Task<IResult> RevokeOtherSessionsAsync(
         ClaimsPrincipal principal,
         ISessionManager sessionManager,
-        IAuditLogger auditLogger,
-        HttpContext httpContext,
         CancellationToken ct = default)
     {
         var userId = GetUserId(principal);
@@ -177,20 +157,6 @@ public static class SessionEndpoints
             : null;
 
         await sessionManager.RevokeAllSessionsAsync(userId.Value, currentSessionId, ct);
-
-        var ipAddress = httpContext.Connection.RemoteIpAddress?.ToString();
-        await auditLogger.LogAsync(new AuditLogEntry(
-            Action: AuditActions.SessionRevokeAll,
-            Category: AuditCategories.Authentication,
-            Success: true,
-            UserId: userId.Value,
-            IpAddress: ipAddress,
-            Metadata: new Dictionary<string, string?>
-            {
-                ["scope"] = "others",
-                ["kept_session"] = currentSessionId?.ToString()
-            }
-        ), ct);
 
         return Results.NoContent();
     }

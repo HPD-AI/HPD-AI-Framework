@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>HPD.Gateway</RootNamespace>
+    <AssemblyName>HPD.Gateway</AssemblyName>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD.Gateway</PackageId>
+    <Description>Governed ASP.NET Core and YARP composition for HPD.Gateway.</Description>
+    <PackageTags>hpd;gateway;yarp;aspnetcore;aot</PackageTags>
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="../HPD.Gateway.Abstractions/HPD.Gateway.Abstractions.csproj" />
+    <ProjectReference Include="../HPD.Gateway.Core/HPD.Gateway.Core.csproj" />
+    <ProjectReference Include="../HPD.Gateway.Hosting/HPD.Gateway.Hosting.csproj" />
+    <ProjectReference Include="../HPD.Gateway.Inspection/HPD.Gateway.Inspection.csproj" />
+    <ProjectReference Include="../HPD.Gateway.Status/HPD.Gateway.Status.csproj" />
+    <ProjectReference Include="../HPD.Gateway.Yarp/HPD.Gateway.Yarp.csproj" />
+  </ItemGroup>
+</Project>

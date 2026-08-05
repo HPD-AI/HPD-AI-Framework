@@ -15,6 +15,10 @@ internal sealed class AppleVirtualizationHelperActivator :
     IAsyncDisposable
 {
     private const int MaxStdoutLineBytes = 64 * 1024;
+    private static readonly TimeSpan CancelledResponseDrainTimeout =
+        TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan ExitedDiagnosticDrainTimeout =
+        TimeSpan.FromSeconds(1);
 
     private static readonly ResourceKind ActivationKind = new("provider-activation");
     private static readonly SchemaVersion ActivationSchemaVersion = new("v1");
@@ -289,16 +293,52 @@ internal sealed class AppleVirtualizationHelperActivator :
         await _sendGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             Process process = _process ?? throw new InvalidOperationException("hpd-vz is not running.");
             byte[] payload = AppleVirtualizationHelperJsonCodec.Encode(request);
-            await process.StandardInput.BaseStream.WriteAsync(payload, cancellationToken).ConfigureAwait(false);
-            await process.StandardInput.BaseStream.WriteAsync(new byte[] { 0x0A }, cancellationToken).ConfigureAwait(false);
-            await process.StandardInput.BaseStream.FlushAsync(cancellationToken).ConfigureAwait(false);
+            await process.StandardInput.BaseStream.WriteAsync(
+                payload,
+                CancellationToken.None).ConfigureAwait(false);
+            await process.StandardInput.BaseStream.WriteAsync(
+                new byte[] { 0x0A },
+                CancellationToken.None).ConfigureAwait(false);
+            await process.StandardInput.BaseStream.FlushAsync(
+                CancellationToken.None).ConfigureAwait(false);
 
-            byte[]? line = await ReadLineAsync(process.StandardOutput.BaseStream, MaxStdoutLineBytes, cancellationToken).ConfigureAwait(false);
+            Task<byte[]?> responseRead = ReadLineAsync(
+                process.StandardOutput.BaseStream,
+                MaxStdoutLineBytes,
+                CancellationToken.None).AsTask();
+            byte[]? line;
+            try
+            {
+                line = await responseRead.WaitAsync(
+                    cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+                when (cancellationToken.IsCancellationRequested)
+            {
+                try
+                {
+                    line = await responseRead.WaitAsync(
+                        CancelledResponseDrainTimeout).ConfigureAwait(false);
+                    _ = line;
+                }
+                catch
+                {
+                    await StopProcessAsync(
+                        force: true,
+                        cancellationToken: CancellationToken.None)
+                        .ConfigureAwait(false);
+                }
+
+                throw;
+            }
+
             if (line is null)
             {
-                throw new InvalidOperationException("hpd-vz closed stdout before writing a response.");
+                throw new InvalidOperationException(
+                    await DescribeUnexpectedExitAsync(process).ConfigureAwait(false));
             }
 
             return AppleVirtualizationHelperJsonCodec.Decode(line);
@@ -307,6 +347,45 @@ internal sealed class AppleVirtualizationHelperActivator :
         {
             _sendGate.Release();
         }
+    }
+
+    private async Task<string> DescribeUnexpectedExitAsync(Process process)
+    {
+        process.Refresh();
+        if (!process.HasExited)
+        {
+            try
+            {
+                await process.WaitForExitAsync()
+                    .WaitAsync(ExitedDiagnosticDrainTimeout)
+                    .ConfigureAwait(false);
+            }
+            catch
+            {
+                // Report a live process if its exit cannot be observed promptly.
+            }
+            process.Refresh();
+        }
+        if (process.HasExited && _stderrTask is { } stderrTask)
+        {
+            try
+            {
+                await stderrTask.WaitAsync(ExitedDiagnosticDrainTimeout)
+                    .ConfigureAwait(false);
+            }
+            catch
+            {
+                // The bounded capture collected everything available so far.
+            }
+        }
+
+        string exit = process.HasExited
+            ? $"exit code {process.ExitCode}"
+            : "without reporting process exit";
+        string stderr = _stderr.ToUtf8String();
+        return string.IsNullOrWhiteSpace(stderr)
+            ? $"hpd-vz closed stdout before writing a response ({exit}; stderr was empty)."
+            : $"hpd-vz closed stdout before writing a response ({exit}; stderr: {stderr}).";
     }
 
     private void StartProcess()

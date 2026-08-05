@@ -5,7 +5,7 @@ using HPDOS.ToolHarnesses.Middleware;
 
 namespace HPD.Agent.ToolHarness.Coding.Debugging;
 
-public sealed record DebugRunInTerminalRequestEvent : AgentEvent, IRequestEvent
+public sealed record DebugRunInTerminalRequestEvent : AgentEvent, IAgentRequestEvent<DebugRunInTerminalResponseEvent>
 {
     public override EventKind Kind { get; init; } = EventKind.Control;
     public override EventChannel Channel { get; init; } = EventChannel.Interactive;
@@ -18,11 +18,11 @@ public sealed record DebugRunInTerminalRequestEvent : AgentEvent, IRequestEvent
     public required IReadOnlyList<string> Arguments { get; init; }
     public required IReadOnlyDictionary<string, string?> EnvironmentDelta { get; init; }
     public bool ArgsCanBeInterpretedByShell { get; init; }
-    string IRequestCorrelatedEvent.RequestId => DebugRequestId;
-    string IRequestCorrelatedEvent.SourceName => "HPD.Debugging";
+    public string RequestId => DebugRequestId;
+    public string SourceName => "HPD.Debugging";
 }
 
-public sealed record DebugRunInTerminalResponseEvent : AgentEvent, IResponseEvent
+public sealed record DebugRunInTerminalResponseEvent : AgentEvent, IAgentResponseEvent
 {
     public override EventKind Kind { get; init; } = EventKind.Control;
     public override EventChannel Channel { get; init; } = EventChannel.Interactive;
@@ -30,9 +30,8 @@ public sealed record DebugRunInTerminalResponseEvent : AgentEvent, IResponseEven
     public int? ProcessId { get; init; }
     public int? ShellProcessId { get; init; }
     public string? ResponderId { get; init; }
-    string IRequestCorrelatedEvent.RequestId => DebugRequestId;
-    string IRequestCorrelatedEvent.SourceName => "HPD.Debugging.Host";
-    string? IResponseEvent.ResponderId => ResponderId;
+    public string RequestId => DebugRequestId;
+    public string SourceName => "HPD.Debugging.Host";
 }
 
 internal interface IDebugHostRequestBroker

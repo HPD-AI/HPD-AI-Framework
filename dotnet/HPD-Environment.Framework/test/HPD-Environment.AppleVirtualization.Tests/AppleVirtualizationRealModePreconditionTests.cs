@@ -53,9 +53,12 @@ public sealed class AppleVirtualizationRealModePreconditionTests
         result.Diagnostics.Should().Contain(diagnostic =>
             diagnostic.Code.Value == "AppleVirtualization.RealModeInitrdMissing" &&
             diagnostic.TargetPath == "GuestImage.InitrdPath");
-        result.Diagnostics.Should().Contain(diagnostic =>
-            diagnostic.Code.Value == "AppleVirtualization.RealModeDiskImageMissing" &&
-            diagnostic.TargetPath == "GuestImage.DiskImagePath");
+        foreach (AppleVirtualizationDiskRole role in Enum.GetValues<AppleVirtualizationDiskRole>())
+        {
+            result.Diagnostics.Should().Contain(diagnostic =>
+                diagnostic.Code.Value == "AppleVirtualization.RealModeDiskImageMissing" &&
+                diagnostic.TargetPath == $"GuestImage.DiskAttachments[{role}].DiskImagePath");
+        }
     }
 
     [Fact]
@@ -174,7 +177,7 @@ public sealed class AppleVirtualizationRealModePreconditionTests
                 KernelPath = kernelPath,
                 InitrdPath = initrdPath,
                 KernelCommandLine = "console=hvc0 root=/dev/vda1 rw",
-                DiskImagePath = diskPath,
+                DiskAttachments = AppleVirtualizationTestDiskSet.Create(diskPath),
                 SerialLogPath = serialLogPath,
                 Architecture = HostNativeArchitectureExpectation(),
                 ExpectedGuestAgentVersion = "0.1.0",
@@ -217,6 +220,8 @@ public sealed class AppleVirtualizationRealModePreconditionTests
             if (createDisk)
             {
                 File.WriteAllBytes(disk, new byte[512]);
+                File.WriteAllBytes(disk + ".runtime", new byte[512]);
+                File.WriteAllBytes(disk + ".apps", new byte[512]);
             }
 
             if (createSerialDirectory)

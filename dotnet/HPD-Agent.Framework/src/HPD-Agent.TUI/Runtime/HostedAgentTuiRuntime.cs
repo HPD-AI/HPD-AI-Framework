@@ -15,6 +15,7 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
     private readonly HttpClient _http;
     private readonly bool _ownsHttpClient;
     private readonly AgentTuiRuntimeScope _defaultScope;
+    private readonly HPD.Agent.Providers.ProviderComposition? _providerComposition;
 
     public HostedAgentTuiRuntime(HostedAgentTuiRuntimeOptions options)
         : this(CreateHttpClient(options), options, ownsHttpClient: true)
@@ -38,6 +39,7 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
 
         _http = httpClient;
         _ownsHttpClient = ownsHttpClient;
+        _providerComposition = options.ProviderComposition;
         _defaultScope = options.DefaultScope ?? new AgentTuiRuntimeScope(
             "default",
             "local-session",
@@ -196,7 +198,7 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
 
         var json = SerializeJson(JsonObject(
             ("name", JsonValue.Create(request.Name)),
-            ("config", JsonSerializer.SerializeToNode(request.Config, HPDJsonContext.Default.AgentConfig)),
+            ("config", SerializeAgentConfig(request.Config)),
             ("metadata", ToJsonObject(request.Metadata))));
         using var response = await PostJsonEnvelopeAsync("agents", json, cancellationToken)
             .ConfigureAwait(false);
@@ -218,7 +220,7 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
         ArgumentNullException.ThrowIfNull(request);
 
         var json = SerializeJson(JsonObject(
-            ("config", JsonSerializer.SerializeToNode(request.Config, HPDJsonContext.Default.AgentConfig))));
+            ("config", SerializeAgentConfig(request.Config))));
         using var response = await SendJsonEnvelopeAsync(
                 HttpMethod.Put,
                 $"agents/{Escape(agentId)}",
@@ -252,6 +254,11 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
                 .ConfigureAwait(false);
         }
     }
+
+    private JsonNode? SerializeAgentConfig(AgentConfig config)
+        => _providerComposition is null
+            ? JsonSerializer.SerializeToNode(config, HPDJsonContext.Default.AgentConfig)
+            : JsonNode.Parse(HpdAgentConfigSerializer.Serialize(config, _providerComposition));
 
     public async Task<IReadOnlyList<AgentTuiSessionInfo>> ListSessionsAsync(
         CancellationToken cancellationToken = default)
@@ -751,7 +758,9 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
         ArgumentNullException.ThrowIfNull(scope);
         ArgumentNullException.ThrowIfNull(input);
 
-        var json = AgentEventSerializer.ToJson(input);
+        var json = _providerComposition is null
+            ? AgentEventSerializer.ToJson(input)
+            : AgentEventSerializer.ToJson(input, _providerComposition);
         using var response = await PostJsonEnvelopeAsync(
                 $"agents/{Escape(scope.AgentId)}/sessions/{Escape(scope.SessionId)}/threads/{Escape(scope.ThreadId)}/inputs",
                 json,
@@ -840,7 +849,7 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
             };
     }
 
-    public async Task AnswerRequestAsync(
+    public async Task<AgentRespondResult> AnswerRequestAsync(
         AgentTuiRuntimeScope scope,
         AgentEvent response,
         CancellationToken cancellationToken = default)
@@ -848,7 +857,7 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
         ArgumentNullException.ThrowIfNull(scope);
         ArgumentNullException.ThrowIfNull(response);
 
-        if (response is not HPD.Events.IResponseEvent)
+        if (response is not IAgentResponseEvent)
         {
             throw new NotSupportedException(
                 $"Response event '{response.GetType().Name}' is not a request response event.");
@@ -866,6 +875,15 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
             await ThrowForUnexpectedResponseAsync(httpResponse, "send response", cancellationToken)
                 .ConfigureAwait(false);
         }
+
+        await using var stream = await httpResponse.Content.ReadAsStreamAsync(cancellationToken)
+            .ConfigureAwait(false);
+        return await JsonSerializer.DeserializeAsync<AgentRespondResult>(
+                stream,
+                JsonOptions,
+                cancellationToken)
+            .ConfigureAwait(false)
+            ?? throw new InvalidOperationException("Hosted response endpoint returned an empty Agent response result.");
     }
 
     public async Task<AgentTuiThreadState> GetThreadStateAsync(
@@ -1152,12 +1170,14 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
             metadata);
     }
 
-    private static AgentTuiAgentInfo ParseAgentInfo(JsonElement element)
+    private AgentTuiAgentInfo ParseAgentInfo(JsonElement element)
     {
         var metadata = ReadObjectMap(element, "metadata");
         var config = element.TryGetProperty("config", out var configElement) &&
                      configElement.ValueKind == JsonValueKind.Object
-            ? configElement.Deserialize(HPDJsonContext.Default.AgentConfig)
+            ? _providerComposition is null
+                ? configElement.Deserialize(HPDJsonContext.Default.AgentConfig)
+                : HpdAgentConfigSerializer.Deserialize(configElement.GetRawText(), _providerComposition)
             : null;
         return new AgentTuiAgentInfo(
             GetRequiredString(element, "id"),

@@ -164,7 +164,8 @@ public sealed class AppleVirtualizationToolHarnessAcceptanceTests
         environment.HelperPath.Should().Be(files.HelperPath);
         environment.GuestImage.KernelPath.Should().Be(files.KernelPath);
         environment.GuestImage.InitrdPath.Should().Be(files.InitrdPath);
-        environment.GuestImage.DiskImagePath.Should().Be(files.DiskPath);
+        AppleVirtualizationTestDiskSet.Path(environment.GuestImage, AppleVirtualizationDiskRole.System)
+            .Should().Be(files.DiskPath);
         environment.GuestImage.SerialLogPath.Should().Be(files.SerialLogPath);
         environment.GuestImage.ExpectedGuestAgentVersion.Should().Be("0.1.0");
         environment.GuestImage.KernelCommandLine.Should().Be("console=hvc0 hpd.acceptance=1");
@@ -703,7 +704,7 @@ public sealed class AppleVirtualizationToolHarnessAcceptanceTests
                 KernelPath = getEnvironmentVariable("HPD_APPLEVZ_GUEST_KERNEL"),
                 InitrdPath = getEnvironmentVariable("HPD_APPLEVZ_GUEST_INITRD"),
                 KernelCommandLine = NullIfWhiteSpace(getEnvironmentVariable("HPD_APPLEVZ_GUEST_KERNEL_CMDLINE")),
-                DiskImagePath = getEnvironmentVariable("HPD_APPLEVZ_GUEST_DISK"),
+                DiskAttachments = AppleVirtualizationTestDiskSet.Create(getEnvironmentVariable("HPD_APPLEVZ_GUEST_DISK")),
                 SerialLogPath = serialLog,
                 Architecture = AppleVirtualizationGuestArchitectureExpectation.HostNative,
                 ExpectVirtiofsSupport = true,

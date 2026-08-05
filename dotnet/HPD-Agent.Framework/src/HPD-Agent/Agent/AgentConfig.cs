@@ -1,5 +1,4 @@
 using System;
-using System.Text.Json.Nodes;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using HPD.Agent.Audio;
@@ -45,32 +44,52 @@ public class AgentConfig
     /// <summary>
     /// Configuration for provider-created client families.
     /// </summary>
-    public AgentClientConfig? Clients { get; set; }
+    public AgentClientsConfig Clients { get; set; } = new();
 
-    public void SetClientConfig(HPD.Agent.Providers.ProviderClientFamily family, ClientProviderConfig? config)
+    /// <summary>Gets or sets provider-indexed family defaults used when a run switches providers.</summary>
+    public IDictionary<string, AgentProviderProfile> ProviderProfiles { get; set; }
+        = new Dictionary<string, AgentProviderProfile>(StringComparer.OrdinalIgnoreCase);
+
+    public void SetClientConfig(HPD.Agent.Providers.ProviderClientFamily family, ProviderClientConfig? config)
     {
-        Clients ??= new AgentClientConfig();
+        Clients ??= new AgentClientsConfig();
         Clients.SetFamilyConfig(family, config);
     }
 
-    public void SetChatClientConfig(ClientProviderConfig? config) =>
+    /// <summary>Replaces the agent-default Chat family configuration.</summary>
+    /// <param name="config">The new Chat configuration, or <see langword="null"/> to clear it.</param>
+    public void SetChatClientConfig(ChatClientConfig? config) =>
         SetClientConfig(HPD.Agent.Providers.ProviderClientFamily.Chat, config);
 
-    public ClientProviderConfig EnsureClientConfig(HPD.Agent.Providers.ProviderClientFamily family)
+    public ProviderClientConfig EnsureClientConfig(HPD.Agent.Providers.ProviderClientFamily family)
     {
-        Clients ??= new AgentClientConfig();
+        Clients ??= new AgentClientsConfig();
 
         var config = Clients.GetFamilyConfig(family);
         if (config is not null)
             return config;
 
-        config = new ClientProviderConfig();
+        config = family switch
+        {
+            HPD.Agent.Providers.ProviderClientFamily.Chat => new ChatClientConfig(),
+            HPD.Agent.Providers.ProviderClientFamily.Realtime => new RealtimeClientConfig(),
+            HPD.Agent.Providers.ProviderClientFamily.ImageGeneration => new ImageGenerationClientConfig(),
+            HPD.Agent.Providers.ProviderClientFamily.Embeddings => new EmbeddingsClientConfig(),
+            HPD.Agent.Providers.ProviderClientFamily.TextToSpeech => new TextToSpeechClientConfig(),
+            HPD.Agent.Providers.ProviderClientFamily.SpeechToText => new SpeechToTextClientConfig(),
+            HPD.Agent.Providers.ProviderClientFamily.HostedFiles => new HostedFilesClientConfig(),
+            HPD.Agent.Providers.ProviderClientFamily.VoiceActivityDetection => new VoiceActivityDetectionClientConfig(),
+            HPD.Agent.Providers.ProviderClientFamily.EndOfTurnDetection => new EndOfTurnDetectionClientConfig(),
+            _ => throw new ArgumentOutOfRangeException(nameof(family), family, "Unknown provider client family.")
+        };
         Clients.SetFamilyConfig(family, config);
         return config;
     }
 
-    public ClientProviderConfig EnsureChatClientConfig() =>
-        EnsureClientConfig(HPD.Agent.Providers.ProviderClientFamily.Chat);
+    /// <summary>Gets the Chat family configuration, creating it when absent.</summary>
+    /// <returns>The mutable agent-default Chat configuration.</returns>
+    public ChatClientConfig EnsureChatClientConfig() =>
+        (ChatClientConfig)EnsureClientConfig(HPD.Agent.Providers.ProviderClientFamily.Chat);
 
     /// <summary>
     /// Configuration for provider validation behavior during agent building.
@@ -239,14 +258,15 @@ public class AgentConfig
     /// </remarks>
     public bool IncludeReasoningInModelHistory { get; set; } = false;
 
-    public ClientProviderConfig? ResolveClientConfig(
+    public ProviderClientConfig? ResolveClientConfig(
         HPD.Agent.Providers.ProviderClientFamily family,
-        AgentClientConfig? runClients = null)
+        AgentClientsConfig? runClients = null)
     {
-        return ClientProviderConfigResolver.Resolve(
+        return ProviderClientConfigResolver.Resolve(
             Clients,
             family,
-            runClients);
+            runClients,
+            ProviderProfiles);
     }
 
     /// <summary>
@@ -373,7 +393,7 @@ public class AgentConfig
     /// </para>
     /// </remarks>
     [JsonIgnore] // Don't serialize AIFunction instances
-    public IList<AITool>? ServerConfiguredTools { get; set; }
+    public IList<AITool>? ServerConfiguredTools { get; set; } = new List<AITool>();
 
     /// <summary>
     /// Optional callback to configure or transform ChatOptions before each LLM call.
@@ -492,138 +512,39 @@ public class McpConfig
 /// Configuration for AI provider settings.
 /// Based on existing patterns in AgentBuilder.
 /// </summary>
-public class ClientProviderConfig
+public class ProviderClientConfig
 {
     /// <summary>
     /// Provider identifier (lowercase, e.g., "openai", "anthropic", "ollama").
     /// This is the primary key for provider resolution.
     /// </summary>
-    public string ProviderKey { get; set; } = string.Empty;
+    public string? ProviderKey { get; set; }
 
-    public string ModelName { get; set; } = string.Empty;
+    /// <summary>Gets or sets the portable model name selected for this client family.</summary>
+    public string? ModelName { get; set; }
+    /// <summary>
+    /// Gets or sets a runtime-only API-key override.
+    /// Secret values are deliberately excluded from serialized provider configuration.
+    /// </summary>
+    [JsonIgnore]
     public string? ApiKey { get; set; }
+
+    /// <summary>
+    /// Gets or sets the opaque name of a host-registered static credential.
+    /// </summary>
+    public string? AuthenticationKey { get; set; }
+    /// <summary>Gets or sets the optional provider endpoint override used for client construction.</summary>
     public string? Endpoint { get; set; }
 
     /// <summary>
-    /// Serializable default chat run options for this provider.
-    /// Per-run values from AgentRunConfig.Chat override these defaults.
-    /// </summary>
-    public ChatRunConfig? ChatDefaults { get; set; }
-
-    /// <summary>
-    /// Runtime-only MEAI chat options for advanced in-process scenarios such as tools.
-    /// Prefer ChatDefaults for serializable configuration.
-    /// </summary>
-    [JsonIgnore]
-    public ChatOptions? DefaultMicrosoftChatOptions { get; set; }
-
-    /// <summary>
     /// Custom HTTP headers to include in all requests to this provider.
-    /// Used for OAuth flows that require additional headers (e.g., ChatGPT-Account-Id for OpenAI Codex).
+    /// Authentication headers are rejected; use static authentication registration instead.
     /// </summary>
     public Dictionary<string, string>? CustomHeaders { get; set; }
 
-    /// <summary>
-    /// Provider-specific configuration as a JSON/YAML object.
-    /// The value is deserialized using the provider's registered source-generated deserializer.
-    /// </summary>
-    public JsonElement? ProviderOptions { get; set; }
-
-    /// <summary>
-    /// Optional OpenRouter HTTP-Referer attribution header.
-    /// </summary>
-    public string? HttpReferer { get; set; }
-
-    /// <summary>
-    /// Optional OpenRouter X-Title attribution header.
-    /// </summary>
-    public string? AppName { get; set; }
-
-    /// <summary>
-    /// Optional runtime-only prompt formatter for local providers that expose formatter hooks.
-    /// </summary>
+    /// <summary>Gets or sets the strongly typed provider-specific client configuration.</summary>
     [JsonIgnore]
-    public Func<IEnumerable<ChatMessage>, ChatOptions?, string>? PromptFormatter { get; set; }
-
-    internal ChatOptions? BuildEffectiveChatOptions()
-        => ChatDefaults?.MergeWith(DefaultMicrosoftChatOptions) ?? DefaultMicrosoftChatOptions;
-
-    internal void SetDefaultMicrosoftChatOptions(ChatOptions? options)
-    {
-        DefaultMicrosoftChatOptions = options;
-    }
-
-    // Cache for deserialized provider config (avoids repeated deserialization)
-    [System.Text.Json.Serialization.JsonIgnore]
-    private object? _cachedProviderConfig;
-
-    /// <summary>
-    /// Gets provider-specific configuration from <see cref="ProviderOptions"/> using the provider's
-    /// registered source-generated serializer.
-    /// </summary>
-    public T? GetProviderConfig<T>() where T : class
-    {
-        return GetProviderConfig<T>(HPD.Agent.Providers.ProviderClientFamily.Chat);
-    }
-
-    /// <summary>
-    /// Gets provider-specific configuration for a client family from <see cref="ProviderOptions"/>
-    /// using the provider's registered source-generated serializer.
-    /// </summary>
-    public T? GetProviderConfig<T>(HPD.Agent.Providers.ProviderClientFamily family) where T : class
-    {
-        if (_cachedProviderConfig is T cached)
-            return cached;
-
-        var providerOptionsJson = GetProviderOptionsRawJson();
-        if (string.IsNullOrWhiteSpace(providerOptionsJson))
-            return null;
-
-        var registration = HPD.Agent.Providers.ProviderDiscovery.GetProviderConfigType(ProviderKey, family);
-        if (registration is null || registration.ConfigType != typeof(T))
-            return null;
-
-        var result = registration.Deserialize(providerOptionsJson) as T;
-        _cachedProviderConfig = result;
-        return result;
-    }
-
-    /// <summary>
-    /// Sets the provider-specific configuration and updates ProviderOptions.
-    /// Uses the provider's registered serializer from ProviderDiscovery for AOT compatibility.
-    /// </summary>
-    /// <typeparam name="T">The strongly-typed configuration class</typeparam>
-    /// <param name="config">The configuration object to set</param>
-    public void SetProviderConfig<T>(T config) where T : class
-    {
-        SetProviderConfig(config, HPD.Agent.Providers.ProviderClientFamily.Chat);
-    }
-
-    /// <summary>
-    /// Sets the provider-specific configuration for a client family and updates ProviderOptions.
-    /// Uses the provider's registered serializer from ProviderDiscovery for AOT compatibility.
-    /// </summary>
-    public void SetProviderConfig<T>(T config, HPD.Agent.Providers.ProviderClientFamily family) where T : class
-    {
-        _cachedProviderConfig = config;
-
-        // Serialize using registered serializer
-        var registration = HPD.Agent.Providers.ProviderDiscovery.GetProviderConfigType(ProviderKey, family);
-        if (registration != null && registration.ConfigType == typeof(T))
-        {
-            SetProviderOptionsRawJson(registration.Serialize(config));
-        }
-    }
-
-    public string? GetProviderOptionsRawJson()
-        => ProviderOptions?.GetRawText();
-
-    public void SetProviderOptionsRawJson(string? json)
-    {
-        ProviderOptions = string.IsNullOrWhiteSpace(json)
-            ? null
-            : JsonDocument.Parse(json).RootElement.Clone();
-    }
+    public IProviderConfig? ProviderConfig { get; set; }
 
 }
 
@@ -632,21 +553,34 @@ public class ClientProviderConfig
 /// Shared provider defaults live in <see cref="Providers"/> and are merged with
 /// family-specific settings when a client family is resolved.
 /// </summary>
-public class AgentClientConfig
+public class AgentClientsConfig
 {
-    public Dictionary<string, ClientProviderConfig>? Providers { get; set; }
+    /// <summary>Gets or sets the model transport that drives the agent turn.</summary>
+    public AgentModelTransportMode Transport { get; set; } = AgentModelTransportMode.Auto;
 
-    public ClientProviderConfig? Chat { get; set; }
-    public ClientProviderConfig? TextToSpeech { get; set; }
-    public ClientProviderConfig? SpeechToText { get; set; }
-    public ClientProviderConfig? Realtime { get; set; }
-    public ClientProviderConfig? ImageGeneration { get; set; }
-    public ClientProviderConfig? Embeddings { get; set; }
-    public ClientProviderConfig? HostedFiles { get; set; }
-    public ClientProviderConfig? VoiceActivityDetection { get; set; }
-    public ClientProviderConfig? EndOfTurnDetection { get; set; }
+    /// <summary>Gets or sets Chat client selection and defaults.</summary>
+    public ChatClientConfig? Chat { get; set; }
+    /// <summary>Gets or sets text-to-speech client selection and defaults.</summary>
+    public TextToSpeechClientConfig? TextToSpeech { get; set; }
+    /// <summary>Gets or sets speech-to-text client selection and defaults.</summary>
+    public SpeechToTextClientConfig? SpeechToText { get; set; }
+    /// <summary>Gets or sets realtime client selection and defaults.</summary>
+    public RealtimeClientConfig? Realtime { get; set; }
+    /// <summary>Gets or sets image-generation client selection and defaults.</summary>
+    public ImageGenerationClientConfig? ImageGeneration { get; set; }
+    /// <summary>Gets or sets embedding client selection and defaults.</summary>
+    public EmbeddingsClientConfig? Embeddings { get; set; }
+    /// <summary>Gets or sets hosted-file client selection and defaults.</summary>
+    public HostedFilesClientConfig? HostedFiles { get; set; }
+    /// <summary>Gets or sets voice-activity-detection component selection.</summary>
+    public VoiceActivityDetectionClientConfig? VoiceActivityDetection { get; set; }
+    /// <summary>Gets or sets end-of-turn-detection component selection.</summary>
+    public EndOfTurnDetectionClientConfig? EndOfTurnDetection { get; set; }
 
-    public ClientProviderConfig? GetFamilyConfig(HPD.Agent.Providers.ProviderClientFamily family) =>
+    /// <summary>Gets the configuration stored for one provider client family.</summary>
+    /// <param name="family">The family to inspect.</param>
+    /// <returns>The configured family value, or <see langword="null"/> when absent.</returns>
+    public ProviderClientConfig? GetFamilyConfig(HPD.Agent.Providers.ProviderClientFamily family) =>
         family switch
         {
             HPD.Agent.Providers.ProviderClientFamily.Chat => Chat,
@@ -661,39 +595,85 @@ public class AgentClientConfig
             _ => null
         };
 
-    public void SetFamilyConfig(HPD.Agent.Providers.ProviderClientFamily family, ClientProviderConfig? config)
+    /// <summary>Replaces the configuration stored for one provider client family.</summary>
+    /// <param name="family">The family to update.</param>
+    /// <param name="config">The new family value, or <see langword="null"/> to clear it.</param>
+    public void SetFamilyConfig(HPD.Agent.Providers.ProviderClientFamily family, ProviderClientConfig? config)
     {
         switch (family)
         {
             case HPD.Agent.Providers.ProviderClientFamily.Chat:
-                Chat = config;
+                Chat = config is null
+                    ? null
+                    : config as ChatClientConfig ?? throw new ArgumentException(
+                        $"Chat configuration must be {nameof(ChatClientConfig)}.", nameof(config));
                 break;
             case HPD.Agent.Providers.ProviderClientFamily.TextToSpeech:
-                TextToSpeech = config;
+                TextToSpeech = RequireFamilyType<TextToSpeechClientConfig>(config, family);
                 break;
             case HPD.Agent.Providers.ProviderClientFamily.SpeechToText:
-                SpeechToText = config;
+                SpeechToText = RequireFamilyType<SpeechToTextClientConfig>(config, family);
                 break;
             case HPD.Agent.Providers.ProviderClientFamily.Realtime:
-                Realtime = config;
+                Realtime = RequireFamilyType<RealtimeClientConfig>(config, family);
                 break;
             case HPD.Agent.Providers.ProviderClientFamily.ImageGeneration:
-                ImageGeneration = config;
+                ImageGeneration = RequireFamilyType<ImageGenerationClientConfig>(config, family);
                 break;
             case HPD.Agent.Providers.ProviderClientFamily.Embeddings:
-                Embeddings = config;
+                Embeddings = RequireFamilyType<EmbeddingsClientConfig>(config, family);
                 break;
             case HPD.Agent.Providers.ProviderClientFamily.HostedFiles:
-                HostedFiles = config;
+                HostedFiles = RequireFamilyType<HostedFilesClientConfig>(config, family);
                 break;
             case HPD.Agent.Providers.ProviderClientFamily.VoiceActivityDetection:
-                VoiceActivityDetection = config;
+                VoiceActivityDetection = RequireFamilyType<VoiceActivityDetectionClientConfig>(config, family);
                 break;
             case HPD.Agent.Providers.ProviderClientFamily.EndOfTurnDetection:
-                EndOfTurnDetection = config;
+                EndOfTurnDetection = RequireFamilyType<EndOfTurnDetectionClientConfig>(config, family);
                 break;
         }
     }
+
+    private static TConfig? RequireFamilyType<TConfig>(
+        ProviderClientConfig? config,
+        HPD.Agent.Providers.ProviderClientFamily family)
+        where TConfig : ProviderClientConfig
+        => config is null
+            ? null
+            : config as TConfig ?? throw new ArgumentException(
+                $"{family} configuration must be {typeof(TConfig).Name}.", nameof(config));
+}
+
+/// <summary>Family defaults associated with one provider identity.</summary>
+public sealed class AgentProviderProfile
+{
+    /// <summary>Gets or sets Chat defaults.</summary>
+    public ChatClientConfig? Chat { get; set; }
+    /// <summary>Gets or sets Realtime defaults.</summary>
+    public RealtimeClientConfig? Realtime { get; set; }
+    /// <summary>Gets or sets image-generation defaults.</summary>
+    public ImageGenerationClientConfig? ImageGeneration { get; set; }
+    /// <summary>Gets or sets embedding defaults.</summary>
+    public EmbeddingsClientConfig? Embeddings { get; set; }
+    /// <summary>Gets or sets text-to-speech defaults.</summary>
+    public TextToSpeechClientConfig? TextToSpeech { get; set; }
+    /// <summary>Gets or sets speech-to-text defaults.</summary>
+    public SpeechToTextClientConfig? SpeechToText { get; set; }
+    /// <summary>Gets or sets hosted-file defaults.</summary>
+    public HostedFilesClientConfig? HostedFiles { get; set; }
+
+    internal ProviderClientConfig? GetFamilyConfig(HPD.Agent.Providers.ProviderClientFamily family) => family switch
+    {
+        HPD.Agent.Providers.ProviderClientFamily.Chat => Chat,
+        HPD.Agent.Providers.ProviderClientFamily.Realtime => Realtime,
+        HPD.Agent.Providers.ProviderClientFamily.ImageGeneration => ImageGeneration,
+        HPD.Agent.Providers.ProviderClientFamily.Embeddings => Embeddings,
+        HPD.Agent.Providers.ProviderClientFamily.TextToSpeech => TextToSpeech,
+        HPD.Agent.Providers.ProviderClientFamily.SpeechToText => SpeechToText,
+        HPD.Agent.Providers.ProviderClientFamily.HostedFiles => HostedFiles,
+        _ => null
+    };
 }
 
 /// <summary>
@@ -701,72 +681,117 @@ public class AgentClientConfig
 /// </summary>
 public class AgentClientMiddlewareConfig
 {
+    /// <summary>Gets or sets wrappers applied to resolved Chat clients.</summary>
     public List<Func<IChatClient, IServiceProvider?, IChatClient>>? Chat { get; set; }
+    /// <summary>Gets or sets wrappers applied to resolved text-to-speech clients.</summary>
     public List<Func<ITextToSpeechClient, IServiceProvider?, ITextToSpeechClient>>? TextToSpeech { get; set; }
+    /// <summary>Gets or sets wrappers applied to resolved speech-to-text clients.</summary>
     public List<Func<ISpeechToTextClient, IServiceProvider?, ISpeechToTextClient>>? SpeechToText { get; set; }
+    /// <summary>Gets or sets wrappers applied to resolved realtime clients.</summary>
     public List<Func<IRealtimeClient, IServiceProvider?, IRealtimeClient>>? Realtime { get; set; }
+    /// <summary>Gets or sets wrappers applied to resolved image-generation clients.</summary>
     public List<Func<IImageGenerator, IServiceProvider?, IImageGenerator>>? ImageGeneration { get; set; }
+    /// <summary>Gets or sets wrappers applied to resolved embedding clients.</summary>
     public List<Func<IEmbeddingGenerator, IServiceProvider?, IEmbeddingGenerator>>? Embeddings { get; set; }
+    /// <summary>Gets or sets wrappers applied to resolved hosted-file clients.</summary>
     public List<Func<IHostedFileClient, IServiceProvider?, IHostedFileClient>>? HostedFiles { get; set; }
+    /// <summary>Gets or sets wrappers applied to scoped voice-activity detectors.</summary>
     public List<Func<IVoiceActivityDetector, HPD.Agent.Providers.ProviderComponentLifetimeContext, IServiceProvider?, IVoiceActivityDetector>>? VoiceActivityDetection { get; set; }
+    /// <summary>Gets or sets wrappers applied to scoped end-of-turn detectors.</summary>
     public List<Func<IEotDetector, HPD.Agent.Providers.ProviderComponentLifetimeContext, IServiceProvider?, IEotDetector>>? EndOfTurnDetection { get; set; }
 }
 
-internal static class ClientProviderConfigResolver
+/// <summary>
+/// Provides centralized cloning and precedence-aware merging for provider client configuration.
+/// </summary>
+public static class ProviderClientConfigResolver
 {
-    public static ClientProviderConfig? Resolve(
-        AgentClientConfig? agentClients,
+    /// <summary>Resolves agent and run layers for one client family.</summary>
+    /// <param name="agentClients">Agent-default client configuration.</param>
+    /// <param name="family">The family to resolve.</param>
+    /// <param name="runClients">Optional per-run client configuration.</param>
+    /// <returns>The merged family configuration, or <see langword="null"/> when empty.</returns>
+    public static ProviderClientConfig? Resolve(
+        AgentClientsConfig? agentClients,
         HPD.Agent.Providers.ProviderClientFamily family,
-        AgentClientConfig? runClients = null)
+        AgentClientsConfig? runClients = null,
+        IDictionary<string, AgentProviderProfile>? providerProfiles = null)
     {
         var agentFamily = agentClients?.GetFamilyConfig(family);
 
-        var providerKey = agentFamily?.ProviderKey;
-        var agentShared = GetShared(agentClients, providerKey);
-
         var runFamily = runClients?.GetFamilyConfig(family);
+        var agentProviderKey = agentFamily?.ProviderKey;
+        var effectiveProviderKey = FirstNonEmpty(runFamily?.ProviderKey, agentProviderKey);
+        var providerChanged = !string.IsNullOrWhiteSpace(runFamily?.ProviderKey) &&
+            !string.IsNullOrWhiteSpace(agentProviderKey) &&
+            !string.Equals(runFamily.ProviderKey, agentProviderKey, StringComparison.Ordinal);
 
-        var runProviderKey = FirstNonEmpty(runFamily?.ProviderKey, providerKey);
-        var runShared = GetShared(runClients, runProviderKey);
+        var profile = GetProfile(providerProfiles, effectiveProviderKey)?.GetFamilyConfig(family);
+        var compatibleAgentFamily = providerChanged ? null : agentFamily;
 
-        return Merge(agentShared, agentFamily, runShared, runFamily);
+        return Merge(profile, compatibleAgentFamily, runFamily);
     }
 
-    public static ClientProviderConfig? Merge(params ClientProviderConfig?[] configs)
+    /// <summary>Merges provider client configurations in ascending precedence order.</summary>
+    /// <param name="configs">Configuration layers, from lowest to highest precedence.</param>
+    /// <returns>The merged configuration, or <see langword="null"/> when empty.</returns>
+    public static ProviderClientConfig? Merge(params ProviderClientConfig?[] configs)
     {
-        ClientProviderConfig? result = null;
+        ProviderClientConfig? result = null;
 
         foreach (var config in configs)
         {
             if (config == null)
                 continue;
 
-            result ??= new ClientProviderConfig();
+            result ??= CreateLike(
+                configs.FirstOrDefault(static value => value is not null && value.GetType() != typeof(ProviderClientConfig))
+                ?? config);
             Apply(result, config);
         }
 
         return IsEmpty(result) ? null : result;
     }
 
-    public static ClientProviderConfig Clone(ClientProviderConfig config)
+    /// <summary>Clones a provider client configuration while preserving its family type.</summary>
+    /// <param name="config">The configuration to clone.</param>
+    /// <returns>An independent configuration instance.</returns>
+    public static ProviderClientConfig Clone(ProviderClientConfig config)
     {
-        var clone = new ClientProviderConfig();
+        ArgumentNullException.ThrowIfNull(config);
+        var clone = CreateLike(config);
         Apply(clone, config);
         return clone;
     }
 
-    private static ClientProviderConfig? GetShared(AgentClientConfig? clients, string? providerKey)
+    private static ProviderClientConfig CreateLike(ProviderClientConfig config) => config switch
     {
-        if (clients?.Providers == null || string.IsNullOrWhiteSpace(providerKey))
+        ChatClientConfig => new ChatClientConfig(),
+        RealtimeClientConfig => new RealtimeClientConfig(),
+        ImageGenerationClientConfig => new ImageGenerationClientConfig(),
+        EmbeddingsClientConfig => new EmbeddingsClientConfig(),
+        TextToSpeechClientConfig => new TextToSpeechClientConfig(),
+        SpeechToTextClientConfig => new SpeechToTextClientConfig(),
+        HostedFilesClientConfig => new HostedFilesClientConfig(),
+        VoiceActivityDetectionClientConfig => new VoiceActivityDetectionClientConfig(),
+        EndOfTurnDetectionClientConfig => new EndOfTurnDetectionClientConfig(),
+        _ => new ProviderClientConfig()
+    };
+
+    private static AgentProviderProfile? GetProfile(
+        IDictionary<string, AgentProviderProfile>? profiles,
+        string? providerKey)
+    {
+        if (profiles is null || string.IsNullOrWhiteSpace(providerKey))
             return null;
 
-        return clients.Providers.TryGetValue(providerKey, out var exact)
+        return profiles.TryGetValue(providerKey, out var exact)
             ? exact
-            : clients.Providers.FirstOrDefault(pair =>
+            : profiles.FirstOrDefault(pair =>
                 string.Equals(pair.Key, providerKey, StringComparison.OrdinalIgnoreCase)).Value;
     }
 
-    private static void Apply(ClientProviderConfig target, ClientProviderConfig source)
+    private static void Apply(ProviderClientConfig target, ProviderClientConfig source)
     {
         if (!string.IsNullOrWhiteSpace(source.ProviderKey))
             target.ProviderKey = source.ProviderKey;
@@ -775,12 +800,80 @@ internal static class ClientProviderConfigResolver
             target.ModelName = source.ModelName;
 
         target.ApiKey = source.ApiKey ?? target.ApiKey;
+        target.AuthenticationKey = source.AuthenticationKey ?? target.AuthenticationKey;
         target.Endpoint = source.Endpoint ?? target.Endpoint;
-        target.ChatDefaults = source.ChatDefaults ?? target.ChatDefaults;
-        target.DefaultMicrosoftChatOptions = source.DefaultMicrosoftChatOptions ?? target.DefaultMicrosoftChatOptions;
-        target.HttpReferer = source.HttpReferer ?? target.HttpReferer;
-        target.AppName = source.AppName ?? target.AppName;
-        target.PromptFormatter = source.PromptFormatter ?? target.PromptFormatter;
+        if (target is ChatClientConfig targetChat && source is ChatClientConfig sourceChat)
+        {
+            targetChat.Temperature = sourceChat.Temperature ?? targetChat.Temperature;
+            targetChat.TopP = sourceChat.TopP ?? targetChat.TopP;
+            targetChat.TopK = sourceChat.TopK ?? targetChat.TopK;
+            targetChat.MaxOutputTokens = sourceChat.MaxOutputTokens ?? targetChat.MaxOutputTokens;
+            targetChat.FrequencyPenalty = sourceChat.FrequencyPenalty ?? targetChat.FrequencyPenalty;
+            targetChat.PresencePenalty = sourceChat.PresencePenalty ?? targetChat.PresencePenalty;
+            targetChat.Seed = sourceChat.Seed ?? targetChat.Seed;
+            targetChat.StopSequences = sourceChat.StopSequences?.ToArray() ?? targetChat.StopSequences;
+            targetChat.Reasoning = sourceChat.Reasoning?.Clone() ?? targetChat.Reasoning;
+            targetChat.RuntimeResponseFormat = sourceChat.RuntimeResponseFormat ?? targetChat.RuntimeResponseFormat;
+            targetChat.ProviderOptions = sourceChat.ProviderOptions ?? targetChat.ProviderOptions;
+            targetChat.Override = sourceChat.Override ?? targetChat.Override;
+        }
+        else if (target is RealtimeClientConfig targetRealtime && source is RealtimeClientConfig sourceRealtime)
+        {
+            targetRealtime.OutputAudioFormat = sourceRealtime.OutputAudioFormat ?? targetRealtime.OutputAudioFormat;
+            targetRealtime.Voice = sourceRealtime.Voice ?? targetRealtime.Voice;
+            targetRealtime.MaxOutputTokens = sourceRealtime.MaxOutputTokens ?? targetRealtime.MaxOutputTokens;
+            targetRealtime.OutputModalities = sourceRealtime.OutputModalities ?? targetRealtime.OutputModalities;
+            targetRealtime.Transcription = sourceRealtime.Transcription ?? targetRealtime.Transcription;
+            targetRealtime.ProviderOptions = sourceRealtime.ProviderOptions ?? targetRealtime.ProviderOptions;
+            targetRealtime.Override = sourceRealtime.Override ?? targetRealtime.Override;
+        }
+        else if (target is ImageGenerationClientConfig targetImage && source is ImageGenerationClientConfig sourceImage)
+        {
+            targetImage.Count = sourceImage.Count ?? targetImage.Count;
+            targetImage.ImageSize = sourceImage.ImageSize ?? targetImage.ImageSize;
+            targetImage.MediaType = sourceImage.MediaType ?? targetImage.MediaType;
+            targetImage.StreamingCount = sourceImage.StreamingCount ?? targetImage.StreamingCount;
+            targetImage.ProviderOptions = sourceImage.ProviderOptions ?? targetImage.ProviderOptions;
+            targetImage.Override = sourceImage.Override ?? targetImage.Override;
+        }
+        else if (target is EmbeddingsClientConfig targetEmbeddings && source is EmbeddingsClientConfig sourceEmbeddings)
+        {
+            targetEmbeddings.Dimensions = sourceEmbeddings.Dimensions ?? targetEmbeddings.Dimensions;
+            targetEmbeddings.ProviderOptions = sourceEmbeddings.ProviderOptions ?? targetEmbeddings.ProviderOptions;
+            targetEmbeddings.Override = sourceEmbeddings.Override ?? targetEmbeddings.Override;
+        }
+        else if (target is TextToSpeechClientConfig targetTts && source is TextToSpeechClientConfig sourceTts)
+        {
+            targetTts.VoiceId = sourceTts.VoiceId ?? targetTts.VoiceId;
+            targetTts.Language = sourceTts.Language ?? targetTts.Language;
+            targetTts.AudioFormat = sourceTts.AudioFormat ?? targetTts.AudioFormat;
+            targetTts.Speed = sourceTts.Speed ?? targetTts.Speed;
+            targetTts.Pitch = sourceTts.Pitch ?? targetTts.Pitch;
+            targetTts.Volume = sourceTts.Volume ?? targetTts.Volume;
+            targetTts.ProviderOptions = sourceTts.ProviderOptions ?? targetTts.ProviderOptions;
+            targetTts.Override = sourceTts.Override ?? targetTts.Override;
+        }
+        else if (target is SpeechToTextClientConfig targetStt && source is SpeechToTextClientConfig sourceStt)
+        {
+            targetStt.SpeechLanguage = sourceStt.SpeechLanguage ?? targetStt.SpeechLanguage;
+            targetStt.SpeechSampleRate = sourceStt.SpeechSampleRate ?? targetStt.SpeechSampleRate;
+            targetStt.TextLanguage = sourceStt.TextLanguage ?? targetStt.TextLanguage;
+            targetStt.ProviderOptions = sourceStt.ProviderOptions ?? targetStt.ProviderOptions;
+            targetStt.Override = sourceStt.Override ?? targetStt.Override;
+        }
+        else if (target is HostedFilesClientConfig targetFiles && source is HostedFilesClientConfig sourceFiles)
+        {
+            targetFiles.Scope = sourceFiles.Scope ?? targetFiles.Scope;
+            targetFiles.Purpose = sourceFiles.Purpose ?? targetFiles.Purpose;
+            targetFiles.Limit = sourceFiles.Limit ?? targetFiles.Limit;
+            targetFiles.ProviderOptions = sourceFiles.ProviderOptions ?? targetFiles.ProviderOptions;
+            targetFiles.Override = sourceFiles.Override ?? targetFiles.Override;
+        }
+        else if (target is VoiceActivityDetectionClientConfig targetVad && source is VoiceActivityDetectionClientConfig sourceVad)
+            targetVad.OverrideFactory = sourceVad.OverrideFactory ?? targetVad.OverrideFactory;
+        else if (target is EndOfTurnDetectionClientConfig targetEot && source is EndOfTurnDetectionClientConfig sourceEot)
+            targetEot.OverrideFactory = sourceEot.OverrideFactory ?? targetEot.OverrideFactory;
+        target.ProviderConfig = source.ProviderConfig ?? target.ProviderConfig;
 
         if (source.CustomHeaders != null)
         {
@@ -789,63 +882,22 @@ internal static class ClientProviderConfigResolver
                 target.CustomHeaders[pair.Key] = pair.Value;
         }
 
-        target.SetProviderOptionsRawJson(MergeProviderOptions(
-            target.GetProviderOptionsRawJson(),
-            source.GetProviderOptionsRawJson()));
     }
 
-    private static string? MergeProviderOptions(string? lowerPriority, string? higherPriority)
-    {
-        if (string.IsNullOrWhiteSpace(lowerPriority))
-            return higherPriority;
-
-        if (string.IsNullOrWhiteSpace(higherPriority))
-            return lowerPriority;
-
-        var lower = ParseObject(lowerPriority);
-        var higher = ParseObject(higherPriority);
-
-        foreach (var pair in higher)
-        {
-            lower[pair.Key] = pair.Value?.DeepClone();
-        }
-
-        return lower.ToJsonString();
-    }
-
-    private static JsonElement? MergeProviderOptions(JsonElement? lowerPriority, JsonElement? higherPriority)
-    {
-        var merged = MergeProviderOptions(
-            lowerPriority?.GetRawText(),
-            higherPriority?.GetRawText());
-
-        return string.IsNullOrWhiteSpace(merged)
-            ? null
-            : JsonDocument.Parse(merged).RootElement.Clone();
-    }
-
-    private static JsonObject ParseObject(string json)
-    {
-        var node = JsonNode.Parse(json);
-        if (node is not JsonObject obj)
-            throw new InvalidOperationException("ProviderOptions merge requires each non-empty value to be a JSON object.");
-
-        return obj;
-    }
-
-    private static bool IsEmpty(ClientProviderConfig? config) =>
+    private static bool IsEmpty(ProviderClientConfig? config) =>
         config == null ||
         (string.IsNullOrWhiteSpace(config.ProviderKey) &&
          string.IsNullOrWhiteSpace(config.ModelName) &&
          string.IsNullOrWhiteSpace(config.ApiKey) &&
+         string.IsNullOrWhiteSpace(config.AuthenticationKey) &&
          string.IsNullOrWhiteSpace(config.Endpoint) &&
-         config.ChatDefaults == null &&
-         config.DefaultMicrosoftChatOptions == null &&
-         config.CustomHeaders == null &&
-         config.ProviderOptions is null &&
-         string.IsNullOrWhiteSpace(config.HttpReferer) &&
-         string.IsNullOrWhiteSpace(config.AppName) &&
-         config.PromptFormatter == null);
+         (config is not ChatClientConfig chat ||
+          (chat.Temperature is null && chat.TopP is null && chat.TopK is null &&
+           chat.MaxOutputTokens is null && chat.FrequencyPenalty is null &&
+           chat.PresencePenalty is null && chat.Seed is null &&
+           chat.StopSequences is null && chat.Reasoning is null &&
+           chat.ProviderOptions is null && chat.Override is null)) &&
+         config.CustomHeaders == null);
 
     private static string? FirstNonEmpty(params string?[] values) =>
         values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
@@ -1045,7 +1097,12 @@ public sealed record RemovalCompaction : CompactionStrategy;
 
 public sealed record SummarizingCompaction : CompactionStrategy
 {
-    public ClientProviderConfig? Provider { get; init; }
+    /// <summary>
+    /// Gets the optional Chat-family override used by the summarizer. When omitted,
+    /// summarization leases the current run's resolved primary Chat client.
+    /// </summary>
+    public ChatClientConfig? Summarizer { get; init; }
+
     public string? Instructions { get; init; }
 }
 
@@ -1113,9 +1170,9 @@ public enum CompactionContinuation
 public class AgenticLoopConfig
 {
     /// <summary>
-    /// Maximum duration for a single turn before timeout (default: 5 minutes)
+    /// Maximum duration for a single turn before timeout. Null means no deadline.
     /// </summary>
-    public TimeSpan? MaxTurnDuration { get; set; } = TimeSpan.FromMinutes(5);
+    public TimeSpan? MaxTurnDuration { get; set; }
 
     /// <summary>
     /// Maximum number of functions to execute in parallel (default: null = unlimited).

@@ -2,6 +2,8 @@ using FluentAssertions;
 using HPD.Agent.AspNetCore;
 using HPD.Agent.AspNetCore.DependencyInjection;
 using HPD.Agent.Hosting.Configuration;
+using HPD.Agent.Providers;
+using Microsoft.AspNetCore.Http.Json;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -66,6 +68,20 @@ public class ServiceRegistrationTests
         // This is internal implementation detail but verifies AOT compatibility
         var configurators = provider.GetServices<IConfigureOptions<Microsoft.AspNetCore.Http.Json.JsonOptions>>();
         configurators.Should().NotBeEmpty();
+    }
+
+    [Fact]
+    public void AddHPDAgent_WithProviderComposition_InstallsSharedRunConfigConverter()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton(ProviderComposition.Create([]));
+        services.AddHPDAgent();
+        var provider = services.BuildServiceProvider();
+
+        var options = provider.GetRequiredService<IOptions<JsonOptions>>().Value;
+
+        options.SerializerOptions.Converters.Should().ContainSingle(converter =>
+            converter.GetType().Name == "AgentRunConfigJsonConverter");
     }
 
     [Fact]
@@ -134,10 +150,8 @@ public class ServiceRegistrationTests
             var provider = services.BuildServiceProvider();
 
             var options = provider.GetRequiredService<IOptionsMonitor<HPDAgentConfig>>().Get("hosted");
-            options.DefaultAgent.Should().NotBeNull();
-            options.DefaultAgent!.Name.Should().Be("Hosted YAML Agent");
-            options.DefaultAgent.SystemInstructions.Should().Be("Run from hosting config.");
-            options.DefaultAgent.MaxAgenticIterations.Should().Be(7);
+            options.DefaultAgent.Should().BeNull();
+            options.DefaultAgentPath.Should().Be(path);
             options.AgentIdleTimeout.Should().Be(TimeSpan.FromMinutes(5));
         }
         finally
@@ -164,11 +178,9 @@ public class ServiceRegistrationTests
         var provider = services.BuildServiceProvider();
 
         var options = provider.GetRequiredService<IOptionsMonitor<HPDAgentConfig>>().Get("configured");
-        options.DefaultAgent.Should().NotBeNull();
-        options.DefaultAgent!.Name.Should().Be("Hosted IConfiguration Agent");
-        options.DefaultAgent.SystemInstructions.Should().Be("Run from IConfiguration.");
-        options.DefaultAgent.ToolHarnesses.Should().ContainSingle();
-        options.DefaultAgent.ToolHarnesses[0].Name.Should().Be("CodingToolHarness");
+        options.DefaultAgent.Should().BeNull();
+        options.DefaultAgentDocument.Should().Contain("Hosted IConfiguration Agent");
+        options.DefaultAgentDocument.Should().Contain("CodingToolHarness");
     }
 
     [Fact]
@@ -219,7 +231,7 @@ public class ServiceRegistrationTests
             var config = new AgentConfig
             {
                 Name = "TestAgent",
-                Clients = new AgentClientConfig { Chat = new ClientProviderConfig {
+                Clients = new AgentClientsConfig { Chat = new ChatClientConfig {
                     ProviderKey = "test",
                     ModelName = "test-model"
                 } }

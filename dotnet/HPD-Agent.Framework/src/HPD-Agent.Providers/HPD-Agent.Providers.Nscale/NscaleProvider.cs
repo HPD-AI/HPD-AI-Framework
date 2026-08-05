@@ -5,6 +5,11 @@ using System.Collections.Generic;
 
 namespace HPD.Agent.Providers.Nscale;
 
+[HpdProvider("nscale", "Nscale")]
+[HpdProviderFamily(ProviderClientFamily.Chat)]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(NscaleProviderConfig), typeof(NscaleJsonContext))]
+[HpdProviderSecretAlias("nscale:ApiKey", "NSCALE_API_KEY")]
+[HpdProviderSecretAlias("nscale:Endpoint", "NSCALE_ENDPOINT", "NSCALE_BASE_URL")]
 internal sealed class NscaleProvider : OpenAICompatibleChatProviderBase<NscaleProviderConfig>
 {
     internal static readonly Uri DefaultEndpoint = new("https://inference.api.nscale.com/v1/");

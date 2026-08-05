@@ -697,7 +697,7 @@ public sealed class SeatbeltProfileBuilder
 
     private static string EscapePath(string path)
     {
-        // Use JSON encoding for proper escaping
-        return System.Text.Json.JsonSerializer.Serialize(path);
+        // Seatbelt string literals use the same escaping needed for JSON strings.
+        return $"\"{System.Text.Json.JsonEncodedText.Encode(path)}\"";
     }
 }

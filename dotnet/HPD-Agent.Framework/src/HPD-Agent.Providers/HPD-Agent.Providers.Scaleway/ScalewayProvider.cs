@@ -5,6 +5,11 @@ using System.Collections.Generic;
 
 namespace HPD.Agent.Providers.Scaleway;
 
+[HpdProvider("scaleway", "Scaleway Generative APIs")]
+[HpdProviderFamily(ProviderClientFamily.Chat)]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(ScalewayProviderConfig), typeof(ScalewayJsonContext))]
+[HpdProviderSecretAlias("scaleway:ApiKey", "SCW_SECRET_KEY", "SCALEWAY_API_KEY", "SCW_API_KEY")]
+[HpdProviderSecretAlias("scaleway:Endpoint", "SCALEWAY_ENDPOINT", "SCALEWAY_BASE_URL", "SCW_ENDPOINT", "SCW_BASE_URL")]
 internal sealed class ScalewayProvider : OpenAICompatibleChatProviderBase<ScalewayProviderConfig>
 {
     internal static readonly Uri DefaultEndpoint = new("https://api.scaleway.ai/v1/");

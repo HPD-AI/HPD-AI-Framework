@@ -74,12 +74,14 @@ public static class AgentBuilderExtensions
         if (string.IsNullOrWhiteSpace(model))
             throw new ArgumentException("Model is required for Anthropic provider.", nameof(model));
 
-        var chatConfig = new ClientProviderConfig
+        var chatConfig = new ChatClientConfig
         {
             ProviderKey = "anthropic",
-            ApiKey = apiKey, // May be null - AgentBuilder.Build() will resolve via ISecretResolver
             ModelName = model
         };
+
+        if (apiKey is not null)
+            builder.AddExplicitSecret("anthropic:ApiKey", apiKey);
 
         builder.Config.SetChatClientConfig(chatConfig);
 
@@ -97,8 +99,7 @@ public static class AgentBuilderExtensions
         ArgumentNullException.ThrowIfNull(options);
 
         var chatConfig = builder.Config.EnsureChatClientConfig();
-        chatConfig.ChatDefaults ??= new ChatRunConfig();
-        options.ApplyTo(chatConfig.ChatDefaults);
+        options.ApplyTo(chatConfig);
 
         return builder;
     }

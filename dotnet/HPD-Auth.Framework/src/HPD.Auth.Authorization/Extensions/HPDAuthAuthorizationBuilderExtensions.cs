@@ -1,10 +1,8 @@
 using HPD.Auth.Authorization.Handlers;
-using HPD.Auth.Authorization.Middleware;
 using HPD.Auth.Authorization.Policies;
 using HPD.Auth.Authorization.Services;
 using HPD.Auth.Builder;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Authorization.Policy;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -12,8 +10,7 @@ namespace HPD.Auth.Authorization.Extensions;
 
 /// <summary>
 /// Extension methods on <see cref="IHPDAuthBuilder"/> for registering the
-/// HPD authorization stack (policies, requirement handlers, rate-limit service,
-/// and the custom middleware result handler).
+/// HPD authorization stack (policies and product requirement handlers).
 /// </summary>
 /// <remarks>
 /// Usage — chain after <c>AddHPDAuth()</c> (and optionally <c>.AddAuthentication()</c>)
@@ -43,20 +40,11 @@ namespace HPD.Auth.Authorization.Extensions;
 /// </list>
 /// </para>
 ///
-/// <para>
-/// <b>Overrideable defaults:</b>
-/// <see cref="IRateLimitService"/> is registered as a singleton
-/// <see cref="InMemoryRateLimitService"/> for development convenience.
-/// Production callers can replace these defaults by registering their own
-/// implementations before or after this call; direct service resolution uses
-/// the last registration.
-/// </para>
 /// </remarks>
 public static class HPDAuthAuthorizationBuilderExtensions
 {
     /// <summary>
-    /// Registers all HPD authorization policies, requirement handlers, the in-memory
-    /// rate-limit service (dev default), and the custom 401/403 JSON response handler.
+    /// Registers HPD authorization policies and product requirement handlers.
     /// </summary>
     /// <param name="builder">The fluent builder returned by <c>AddHPDAuth()</c>.</param>
     /// <returns>The same <paramref name="builder"/> for further chaining.</returns>
@@ -73,7 +61,6 @@ public static class HPDAuthAuthorizationBuilderExtensions
         services.AddScoped<IAuthorizationHandler, AppAccessHandler>();
         services.AddScoped<IAuthorizationHandler, ResourceOwnerHandler>();
         services.AddScoped<IAuthorizationHandler, SubscriptionTierHandler>();
-        services.AddScoped<IAuthorizationHandler, RateLimitHandler>();
         services.AddScoped<IAuthorizationHandler, FeatureFlagHandler>();
 
         // ── Overrideable service defaults ───────────────────────────────────
@@ -84,11 +71,6 @@ public static class HPDAuthAuthorizationBuilderExtensions
         services.TryAddScoped<IAppPermissionService, DenyAllAppPermissionService>();
         services.TryAddScoped<ISubscriptionService, EmptySubscriptionService>();
         services.TryAddScoped<IFeatureFlagService, DisabledFeatureFlagService>();
-        services.TryAddSingleton<IRateLimitService, InMemoryRateLimitService>();
-
-        // ── Custom 401/403 JSON response handler ─────────────────────────────
-        services.AddSingleton<IAuthorizationMiddlewareResultHandler,
-            HPDAuthorizationMiddlewareResultHandler>();
 
         return builder;
     }

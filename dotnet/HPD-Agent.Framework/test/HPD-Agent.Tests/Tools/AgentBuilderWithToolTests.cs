@@ -40,6 +40,32 @@ public class AgentBuilderWithToolTests
     }
 
     [Fact]
+    public void SubAgentAvailabilityProjection_PreservesDynamicallyAddedTools()
+    {
+        AIFunction staticFunction = AIFunctionFactory.Create(
+            () => "static",
+            "static_tool");
+        AIFunction dynamicFunction = AIFunctionFactory.Create(
+            () => "dynamic",
+            "dynamic_client_tool");
+        var middleware = new SubAgentAvailabilityMiddleware(
+            [staticFunction]);
+
+        IList<AITool> projected =
+            middleware.ProjectAvailableTools(
+                [staticFunction, dynamicFunction],
+                currentDepth: 0,
+                maximumDepth: 4);
+
+        Assert.Contains(
+            projected,
+            tool => tool.Name == "static_tool");
+        Assert.Contains(
+            projected,
+            tool => tool.Name == "dynamic_client_tool");
+    }
+
+    [Fact]
     public void ConfigFunctionSelection_AppliesWhenHarnessWasAlreadyAddedByBuilder()
     {
         var config = new AgentConfig
@@ -227,9 +253,9 @@ public class AgentBuilderWithToolTests
         {
             Name = "Support Parent",
             MaxAgenticIterations = 5,
-            Clients = new AgentClientConfig
+            Clients = new AgentClientsConfig
             {
-                Chat = new ClientProviderConfig
+                Chat = new ChatClientConfig
                 {
                     ProviderKey = "test",
                     ModelName = "test-model"

@@ -83,6 +83,46 @@ public sealed class AppleVirtualizationEndpointPublicationProviderTests
     }
 
     [Fact]
+    public async Task Network_address_target_routes_to_an_in_guest_container()
+    {
+        var helper = new FakeAppleVirtualizationHelperClient();
+        helper.EnqueueResponse(EndpointResponse("endpoint-1"));
+        var provider = new AppleVirtualizationEndpointPublicationProvider(
+            new AppleVirtualizationProviderStateLedger(),
+            helper);
+        EndpointRouteTarget target = new(
+            EndpointTargetKind.NetworkAddress,
+            Membership: null,
+            Unit: null,
+            Process: null,
+            ServiceName: null,
+            NetworkTransport.Tcp,
+            new NetworkPort(8080),
+            SocketPath: null,
+            new IpAddressValue(
+                NetworkAddressFamily.IPv4,
+                0,
+                0xac120002));
+
+        PublishedEndpointStatus status =
+            await provider.EnsurePublishedEndpointAsync(
+                Metadata<PublishedEndpoint>(
+                    "endpoint-1",
+                    "published-endpoint"),
+                EndpointSpec(target),
+                observed: null);
+
+        status.EndpointPhase.Should().Be(
+            PublishedEndpointPhase.Bound);
+        helper.Requests.Should().ContainSingle(request =>
+            request.EndpointPublicationRequest!.TargetKind ==
+                EndpointTargetKind.NetworkAddress &&
+            request.EndpointPublicationRequest.TargetAddress ==
+                "172.18.0.2" &&
+            request.EndpointPublicationRequest.TargetPort == 8080);
+    }
+
+    [Fact]
     public async Task Host_local_endpoint_rejects_non_loopback_listener_address()
     {
         var ledger = new AppleVirtualizationProviderStateLedger();

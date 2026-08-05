@@ -1,4 +1,6 @@
 using HPD.Auth.Core.Entities;
+using HPD.Auth.ControlPlane;
+using HPD.Auth.Core.Audit;
 using HPD.Auth.Core.Interfaces;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -19,24 +21,27 @@ namespace HPD.Auth.Admin.Endpoints;
 /// </summary>
 public static class AdminUserClaimsEndpoints
 {
-    public static void Map(IEndpointRouteBuilder app)
+    public static void Map(RouteGroupBuilder root, IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/admin/users")
-                       .RequireAuthorization("RequireAdmin");
+        var group = root.MapGroup("/users");
 
         group.MapGet("/{id}/claims", GetClaimsAsync)
+             .RequireHPDControlPlaneCapability(app, HPDAuthAdminCapabilities.AuthorizationRead)
              .WithName("AdminGetUserClaims")
              .WithSummary("List all claims on a user.");
 
         group.MapPost("/{id}/claims", AddClaimAsync)
+             .RequireHPDControlPlaneCapability(app, HPDAuthAdminCapabilities.AuthorizationWrite)
              .WithName("AdminAddUserClaim")
              .WithSummary("Add a claim to a user.");
 
         group.MapDelete("/{id}/claims", RemoveClaimAsync)
+             .RequireHPDControlPlaneCapability(app, HPDAuthAdminCapabilities.AuthorizationWrite)
              .WithName("AdminRemoveUserClaim")
              .WithSummary("Remove a specific claim from a user. Body must identify the claim by type and value.");
 
         group.MapPut("/{id}/claims", ReplaceClaimAsync)
+             .RequireHPDControlPlaneCapability(app, HPDAuthAdminCapabilities.AuthorizationWrite)
              .WithName("AdminReplaceUserClaim")
              .WithSummary("Replace an existing claim with a new claim value.");
     }
@@ -63,7 +68,8 @@ public static class AdminUserClaimsEndpoints
         string id,
         ClaimDto request,
         UserManager<ApplicationUser> userManager,
-        IAuditLogger auditLogger,
+        IAuthAuditWriter auditWriter,
+        IAuthCorrelationContext correlationContext,
         CancellationToken ct = default)
     {
         var user = await userManager.FindByIdAsync(id);
@@ -74,13 +80,7 @@ public static class AdminUserClaimsEndpoints
         if (!result.Succeeded)
             return Results.BadRequest(result.Errors);
 
-        await auditLogger.LogAsync(new AuditLogEntry(
-            Action: AuditActions.AdminUserUpdate,
-            Category: AuditCategories.Admin,
-            Success: true,
-            UserId: user.Id,
-            Metadata: new { adminAction = "add_claim", claimType = request.Type }
-        ), ct);
+        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.ClaimAdd, correlationContext, user.Id, cancellationToken: ct);
 
         return Results.Ok(new { message = "Claim added." });
     }
@@ -89,7 +89,8 @@ public static class AdminUserClaimsEndpoints
         string id,
         [Microsoft.AspNetCore.Mvc.FromBody] ClaimDto request,
         UserManager<ApplicationUser> userManager,
-        IAuditLogger auditLogger,
+        IAuthAuditWriter auditWriter,
+        IAuthCorrelationContext correlationContext,
         CancellationToken ct = default)
     {
         var user = await userManager.FindByIdAsync(id);
@@ -100,13 +101,7 @@ public static class AdminUserClaimsEndpoints
         if (!result.Succeeded)
             return Results.BadRequest(result.Errors);
 
-        await auditLogger.LogAsync(new AuditLogEntry(
-            Action: AuditActions.AdminUserUpdate,
-            Category: AuditCategories.Admin,
-            Success: true,
-            UserId: user.Id,
-            Metadata: new { adminAction = "remove_claim", claimType = request.Type }
-        ), ct);
+        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.ClaimRemove, correlationContext, user.Id, cancellationToken: ct);
 
         return Results.Ok(new { message = "Claim removed." });
     }
@@ -115,7 +110,8 @@ public static class AdminUserClaimsEndpoints
         string id,
         ReplaceClaimDto request,
         UserManager<ApplicationUser> userManager,
-        IAuditLogger auditLogger,
+        IAuthAuditWriter auditWriter,
+        IAuthCorrelationContext correlationContext,
         CancellationToken ct = default)
     {
         var user = await userManager.FindByIdAsync(id);
@@ -129,18 +125,7 @@ public static class AdminUserClaimsEndpoints
         if (!result.Succeeded)
             return Results.BadRequest(result.Errors);
 
-        await auditLogger.LogAsync(new AuditLogEntry(
-            Action: AuditActions.AdminUserUpdate,
-            Category: AuditCategories.Admin,
-            Success: true,
-            UserId: user.Id,
-            Metadata: new
-            {
-                adminAction = "replace_claim",
-                oldClaimType = request.Old.Type,
-                newClaimType = request.New.Type
-            }
-        ), ct);
+        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.ClaimReplace, correlationContext, user.Id, cancellationToken: ct);
 
         return Results.Ok(new { message = "Claim replaced." });
     }

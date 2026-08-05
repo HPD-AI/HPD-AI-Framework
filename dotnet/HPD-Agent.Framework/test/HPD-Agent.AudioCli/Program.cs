@@ -333,7 +333,7 @@ foreach (var tool in realtimeMathTools)
     builder.WithNativeFunction(tool);
 }
 
-builder.Config.SetChatClientConfig(new ClientProviderConfig
+builder.Config.SetChatClientConfig(new ChatClientConfig
 {
     ProviderKey = OpenAIAudioProvider.Key,
     ModelName = chatModel,
@@ -345,16 +345,12 @@ if (realtimeRequested)
 {
     builder.Config.SetClientConfig(
         ProviderClientFamily.Realtime,
-        new ClientProviderConfig
+        new RealtimeClientConfig
         {
             ProviderKey = OpenAIAudioProvider.Key,
             ModelName = realtimeModel,
             ApiKey = apiKey,
-            Endpoint = openAIEndpoint,
-            ProviderOptions = JsonDocument.Parse(JsonSerializer.Serialize(new OpenAIRealtimeConfig
-            {
-                DefaultModelId = realtimeModel
-            })).RootElement.Clone()
+            Endpoint = openAIEndpoint
         });
 }
 
@@ -372,37 +368,32 @@ if (ttsRequested)
         return 2;
     }
 
-    var ttsProviderConfig = new ClientProviderConfig
+    var ttsProviderConfig = new TextToSpeechClientConfig
     {
         ProviderKey = ElevenLabsAudioProvider.Key,
         ModelName = ttsModel!,
-        ApiKey = elevenLabsApiKey
+        ApiKey = elevenLabsApiKey,
+        VoiceId = ttsVoice,
+        AudioFormat = ttsFormat,
+        Speed = ttsSpeed.HasValue ? (float)ttsSpeed.Value : null
     };
-    ttsProviderConfig.SetProviderConfig(
-        new ElevenLabsTtsConfig
-        {
-            DefaultModelId = ttsModel,
-            DefaultVoiceId = ttsVoice,
-            OutputFormat = ttsFormat,
-            Speed = ttsSpeed,
-            WebSocketBaseUrl = elevenLabsWebSocketBaseUrl,
-            EnablePushTextStreaming = ttsPushTextRequested,
-            PushTextAggregationMode = ttsPushAggregationMode == PushTextInputAggregationMode.ProviderDefault
-                ? PushTextInputAggregationMode.Sentence
-                : ttsPushAggregationMode
-        },
-        ProviderClientFamily.TextToSpeech);
+    ttsProviderConfig.ProviderConfig = new ElevenLabsTtsConfig
+    {
+        WebSocketBaseUrl = elevenLabsWebSocketBaseUrl,
+        EnablePushTextStreaming = ttsPushTextRequested
+    };
     builder.Config.SetClientConfig(ProviderClientFamily.TextToSpeech, ttsProviderConfig);
 }
 
 var sttProviderConfig = sttUsesElevenLabs
-    ? new ClientProviderConfig
+    ? new SpeechToTextClientConfig
     {
         ProviderKey = ElevenLabsAudioProvider.Key,
         ModelName = sttModel,
-        ApiKey = elevenLabsApiKey
+        ApiKey = elevenLabsApiKey,
+        SpeechLanguage = language
     }
-    : new ClientProviderConfig
+    : new SpeechToTextClientConfig
     {
         ProviderKey = OpenAIAudioProvider.Key,
         ModelName = sttModel,
@@ -411,42 +402,32 @@ var sttProviderConfig = sttUsesElevenLabs
     };
 if (sttUsesElevenLabs)
 {
-    sttProviderConfig.SetProviderConfig(
-        new ElevenLabsSttConfig
-        {
-            DefaultModelId = sttModel,
-            RealtimeModelId = options.SttStreamingSmoke
-                ? sttModel
-                : null,
-            LanguageCode = language,
-            WebSocketBaseUrl = elevenLabsWebSocketBaseUrl,
-            AudioFormat = options.SttStreamingSmoke
-                ? FirstNonWhiteSpace(mediaType, "pcm_16000")
-                : null,
-            CommitStrategy = options.SttStreamingSmoke
-                ? "manual"
-                : null,
-            IncludeTimestamps = options.SttStreamingSmoke,
-            IncludeLanguageDetection = options.SttStreamingSmoke,
-            TimestampsGranularity = sttTimestampGranularities.Count > 0
-                ? sttTimestampGranularities[0]
-                : null
-        },
-        ProviderClientFamily.SpeechToText);
+    sttProviderConfig.ProviderConfig = new ElevenLabsSttConfig
+    {
+        WebSocketBaseUrl = elevenLabsWebSocketBaseUrl
+    };
+    sttProviderConfig.ProviderOptions = new ElevenLabsSttOptions
+    {
+        RealtimeModelId = options.SttStreamingSmoke ? sttModel : null,
+        AudioFormat = options.SttStreamingSmoke ? FirstNonWhiteSpace(mediaType, "pcm_16000") : null,
+        CommitStrategy = options.SttStreamingSmoke ? "manual" : null,
+        IncludeTimestamps = options.SttStreamingSmoke,
+        IncludeLanguageDetection = options.SttStreamingSmoke,
+        TimestampsGranularity = sttTimestampGranularities.Count > 0
+            ? sttTimestampGranularities[0]
+            : null
+    };
 }
 else
 {
-    sttProviderConfig.SetProviderConfig(
-        new OpenAISttConfig
-        {
-            DefaultModelId = sttModel,
-            Prompt = sttPrompt,
-            Temperature = sttTemperature,
-            ResponseFormat = sttResponseFormat,
-            TimestampGranularities = sttTimestampGranularities.Count > 0 ? [.. sttTimestampGranularities] : null,
-            IncludeLogprobs = includeLogprobs
-        },
-        ProviderClientFamily.SpeechToText);
+    sttProviderConfig.ProviderOptions = new OpenAISttOptions
+    {
+        Prompt = sttPrompt,
+        Temperature = sttTemperature,
+        ResponseFormat = sttResponseFormat,
+        TimestampGranularities = sttTimestampGranularities.Count > 0 ? [.. sttTimestampGranularities] : null,
+        IncludeLogprobs = includeLogprobs
+    };
 }
 builder.Config.SetClientConfig(ProviderClientFamily.SpeechToText, sttProviderConfig);
 
@@ -670,18 +651,32 @@ for (var turnIndex = 0; turnIndex < audioPaths.Count; turnIndex++)
             ThreadId = threadId,
             RunConfig = new AgentRunConfig
             {
-                ModelTransport = realtimeRequested
-                    ? AgentModelTransportMode.Realtime
-                    : AgentModelTransportMode.Auto,
-                AdditionalSystemInstructions = realtimeRequested
-                    ? realtimeInstructions
+                Clients = new AgentClientsConfig
+                {
+                    Transport = realtimeRequested
+                        ? AgentModelTransportMode.Realtime
+                        : AgentModelTransportMode.Auto,
+                    Realtime = realtimeTranscriptionOptions is null
+                        ? null
+                        : new RealtimeClientConfig
+                        {
+                            Transcription = new RealtimeTranscriptionRunConfig
+                            {
+                                ModelName = realtimeTranscriptionOptions.ModelId,
+                                SpeechLanguage = realtimeTranscriptionOptions.SpeechLanguage,
+                                Prompt = realtimeTranscriptionOptions.Prompt
+                            }
+                        }
+                },
+                SystemInstructions = realtimeRequested
+                    ? new SystemInstructionsRunConfig { Append = realtimeInstructions }
                     : null,
-                RealtimeTranscriptionOptions = realtimeTranscriptionOptions,
-                AdditionalTools = realtimeMathToolsRequested
-                    ? realtimeMathTools
-                    : null,
-                ToolModeOverride = realtimeMathToolsRequested
-                    ? ChatToolMode.Auto
+                Tools = realtimeMathToolsRequested
+                    ? new AgentToolsRunConfig
+                    {
+                        Additional = realtimeMathTools,
+                        Mode = ChatToolMode.Auto
+                    }
                     : null
             }
         };
@@ -746,18 +741,32 @@ for (var textTurnIndex = 0; textTurnIndex < textOnlyTurns.Count; textTurnIndex++
             ThreadId = threadId,
             RunConfig = new AgentRunConfig
             {
-                ModelTransport = realtimeRequested
-                    ? AgentModelTransportMode.Realtime
-                    : AgentModelTransportMode.Auto,
-                AdditionalSystemInstructions = realtimeRequested
-                    ? realtimeInstructions
+                Clients = new AgentClientsConfig
+                {
+                    Transport = realtimeRequested
+                        ? AgentModelTransportMode.Realtime
+                        : AgentModelTransportMode.Auto,
+                    Realtime = realtimeTranscriptionOptions is null
+                        ? null
+                        : new RealtimeClientConfig
+                        {
+                            Transcription = new RealtimeTranscriptionRunConfig
+                            {
+                                ModelName = realtimeTranscriptionOptions.ModelId,
+                                SpeechLanguage = realtimeTranscriptionOptions.SpeechLanguage,
+                                Prompt = realtimeTranscriptionOptions.Prompt
+                            }
+                        }
+                },
+                SystemInstructions = realtimeRequested
+                    ? new SystemInstructionsRunConfig { Append = realtimeInstructions }
                     : null,
-                RealtimeTranscriptionOptions = realtimeTranscriptionOptions,
-                AdditionalTools = realtimeMathToolsRequested
-                    ? realtimeMathTools
-                    : null,
-                ToolModeOverride = realtimeMathToolsRequested
-                    ? ChatToolMode.Auto
+                Tools = realtimeMathToolsRequested
+                    ? new AgentToolsRunConfig
+                    {
+                        Additional = realtimeMathTools,
+                        Mode = ChatToolMode.Auto
+                    }
                     : null
             }
         };
@@ -1039,7 +1048,7 @@ static string ExtensionFor(string mediaType) =>
 
 static async Task RunStreamingSttSmokeAsync(
     IProviderRegistry providerRegistry,
-    ClientProviderConfig providerConfig,
+    ProviderClientConfig providerConfig,
     IReadOnlyList<string> audioPaths,
     int? sampleRate,
     string? language)

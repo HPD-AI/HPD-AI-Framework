@@ -28,7 +28,7 @@ internal sealed class ChatModelTurnExecutor : IAgentModelTurnExecutor
         if (request.ChatModel is null)
         {
             throw new InvalidOperationException(
-                "No chat model is configured for this agent run. Configure Provider/ModelName on AgentConfig or pass ProviderKey/ModelId or OverrideChatClient in AgentRunConfig.");
+                "No chat model is configured for this agent run. Configure Clients.Chat on AgentConfig or AgentRunConfig, including Clients.Chat.Override when supplying a client directly.");
         }
 
         await foreach (var update in _agentTurn.RunAsync(

@@ -12,7 +12,6 @@ namespace HPD.Agent.Providers.Together;
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
     UseStringEnumConverter = true)]
-[JsonSerializable(typeof(TogetherProviderConfig))]
 [JsonSerializable(typeof(TogetherChatRequestOptions))]
 [JsonSerializable(typeof(Dictionary<string, float>))]
 [JsonSerializable(typeof(Dictionary<string, object>))]

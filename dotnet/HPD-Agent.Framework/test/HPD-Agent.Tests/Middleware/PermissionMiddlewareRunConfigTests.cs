@@ -1,9 +1,11 @@
 using FluentAssertions;
+using HPD.Agent.ClientTools;
 using HPD.Agent.Middleware;
 using HPD.Agent.Permissions;
 using HPD.Agent.Tests.Middleware.V2;
 using HPD.Events.Core;
 using Microsoft.Extensions.AI;
+using System.Text.Json;
 using Xunit;
 
 namespace HPD.Agent.Tests.Middleware;
@@ -19,7 +21,7 @@ public class PermissionMiddlewareRunConfigTests
             function,
             new AgentRunConfig
             {
-                Security = new AgentSecurityProfile
+                Security = new AgentSecurityRunConfig
                 {
                     Approval = AgentApprovalPolicy.AutoApprove
                 }
@@ -40,10 +42,7 @@ public class PermissionMiddlewareRunConfigTests
             function,
             new AgentRunConfig
             {
-                PermissionOverrides = new Dictionary<string, bool>
-                {
-                    ["SensitiveTool"] = false
-                }
+                Security = new AgentSecurityRunConfig { PermissionOverrides = new Dictionary<string, bool> { ["SensitiveTool"] = false } }
             });
 
         await middleware.BeforeFunctionAsync(context, CancellationToken.None);
@@ -63,10 +62,7 @@ public class PermissionMiddlewareRunConfigTests
             function,
             new AgentRunConfig
             {
-                PermissionOverrides = new Dictionary<string, bool>
-                {
-                    ["NormallyRequiredByBuilder"] = false
-                }
+                Security = new AgentSecurityRunConfig { PermissionOverrides = new Dictionary<string, bool> { ["NormallyRequiredByBuilder"] = false } }
             });
 
         await middleware.BeforeFunctionAsync(context, CancellationToken.None);
@@ -84,10 +80,7 @@ public class PermissionMiddlewareRunConfigTests
             function,
             new AgentRunConfig
             {
-                PermissionOverrides = new Dictionary<string, bool>
-                {
-                    ["MissingTool"] = true
-                }
+                Security = new AgentSecurityRunConfig { PermissionOverrides = new Dictionary<string, bool> { ["MissingTool"] = true } }
             });
 
         await middleware.BeforeFunctionAsync(context, CancellationToken.None);
@@ -130,6 +123,60 @@ public class PermissionMiddlewareRunConfigTests
         result.Should().Contain("executed=\"false\"");
         result.Should().Contain("Use the read-only status tool instead.");
         interruptions.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task BeforeFunction_UnknownCompoundAction_ReturnsValidationRejection()
+    {
+        var definition = new ClientToolDefinition
+        {
+            Name = "penpot",
+            Description = "Penpot operations.",
+            ParametersSchema = JsonDocument.Parse(
+                """
+                {
+                  "type": "object",
+                  "oneOf": [{
+                    "type": "object",
+                    "properties": { "action": { "const": "inspect" } },
+                    "required": ["action"],
+                    "additionalProperties": false
+                  }]
+                }
+                """).RootElement.Clone(),
+            OperationContract = new ClientToolOperationContract
+            {
+                Discriminator = "action",
+                Actions = new Dictionary<string, ClientToolPolicy>
+                {
+                    ["inspect"] = new() { RequiresPermission = false }
+                }
+            }
+        };
+        var function = HPDAIFunctionFactory.Create(
+            async (_, _, _) => "ok",
+            new HPDAIFunctionFactoryOptions
+            {
+                Name = "penpot_design_penpot",
+                Description = "Penpot operations.",
+                AdditionalProperties = new Dictionary<string, object?>
+                {
+                    ["ClientToolDefinition"] = definition
+                }
+            });
+        var context = MiddlewareTestHelpers.CreateAgentContext().AsBeforeFunction(
+            function,
+            "call-1",
+            new Dictionary<string, object?> { ["action"] = "unknown" },
+            new AgentRunConfig());
+
+        await new PermissionMiddleware().BeforeFunctionAsync(
+            context,
+            CancellationToken.None);
+
+        context.BlockExecution.Should().BeTrue();
+        context.OverrideResult.Should().BeOfType<string>().Which.Should()
+            .Contain("Client tool request rejected: Unknown compound tool action 'unknown'.");
     }
 
     private static AIFunction CreateFunction(string name, bool requiresPermission)

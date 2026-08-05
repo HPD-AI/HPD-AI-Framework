@@ -101,7 +101,7 @@ public sealed class ProviderBehaviorRestorationTests
         metadata.Families[ProviderClientFamily.Chat].DefaultModelId.Should().NotBeNullOrWhiteSpace();
 
         var invalid = provider.ValidateConfiguration(
-            new ClientProviderConfig
+            new ProviderClientConfig
             {
                 ProviderKey = providerCase.ProviderKey,
                 Endpoint = "not-a-uri"
@@ -112,30 +112,65 @@ public sealed class ProviderBehaviorRestorationTests
         invalid.Errors.Should().Contain(error => error.Contains("chat provider family", StringComparison.OrdinalIgnoreCase));
         invalid.Errors.Should().Contain(error => error.Contains("Model name", StringComparison.OrdinalIgnoreCase));
         invalid.Errors.Should().Contain(error => error.Contains("Endpoint", StringComparison.OrdinalIgnoreCase));
-        if (providerCase.RequiresApiKey)
-        {
-            invalid.Errors.Should().Contain(error => error.Contains("API key", StringComparison.OrdinalIgnoreCase));
-        }
+        invalid.Errors.Should().NotContain(error => error.Contains("API key", StringComparison.OrdinalIgnoreCase));
     }
 
     [Theory]
     [MemberData(nameof(OpenAICompatibleProviders))]
-    public void OpenAICompatibleProvider_CreateChatClient_ShouldExposeMetadataAndDefaultModel(ProviderCase providerCase)
+    public async Task OpenAICompatibleProvider_CreateChatClient_ShouldExposeMetadataAndDefaultModel(ProviderCase providerCase)
     {
         var provider = providerCase.Create();
-        var config = new ClientProviderConfig
+        var config = new ProviderClientConfig
         {
             ProviderKey = providerCase.ProviderKey,
             ModelName = "test-model",
             ApiKey = providerCase.RequiresApiKey ? "test-key" : null
         };
 
-        using var client = provider.CreateChatClient(config);
+        using var client = await provider.CreateChatClientAsync(config);
         var metadata = client.GetService(typeof(ChatClientMetadata)) as ChatClientMetadata;
 
         metadata.Should().NotBeNull();
         metadata!.ProviderName.Should().Be(providerCase.ProviderKey);
         metadata.DefaultModelId.Should().Be("test-model");
+    }
+
+    [Fact]
+    public async Task OpenAICompatibleProvider_CreateChatClient_ShouldResolveRequiredApiKeyFromSecretResolver()
+    {
+        var provider = new DeepSeekProvider();
+        var config = new ProviderClientConfig
+        {
+            ProviderKey = "deepseek",
+            ModelName = "deepseek-v4-flash"
+        };
+
+        using var services = ServicesWithSecrets(new Dictionary<string, string>
+        {
+            ["deepseek:ApiKey"] = "test-key"
+        });
+
+        using var client = await provider.CreateChatClientAsync(config, services);
+
+        client.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task OpenAICompatibleProvider_CreateChatClient_ShouldFailWhenRequiredApiKeyCannotBeResolved()
+    {
+        var provider = new DeepSeekProvider();
+        var config = new ProviderClientConfig
+        {
+            ProviderKey = "deepseek",
+            ModelName = "deepseek-v4-flash"
+        };
+
+        using var services = ServicesWithSecrets();
+
+        var action = async () => await provider.CreateChatClientAsync(config, services);
+
+        await action.Should().ThrowAsync<SecretNotFoundException>()
+            .WithMessage("*DeepSeek*");
     }
 
     [Theory]
@@ -220,16 +255,16 @@ public sealed class ProviderBehaviorRestorationTests
     public void AzureAI_ValidateConfiguration_ShouldKeepAuthModeAndSdkOptionGuards()
     {
         var provider = new AzureAIProvider();
-        var config = new ClientProviderConfig
+        var config = new ProviderClientConfig
         {
             ProviderKey = "azure-ai",
             ModelName = "gpt-4o"
         };
-        config.SetProviderConfig(new AzureAIProviderConfig
+        config.ProviderConfig = new AzureAIProviderConfig
         {
             AuthMode = (AzureAIAuthMode)999,
             NetworkTimeoutMs = 0
-        });
+        };
 
         var result = provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
@@ -239,31 +274,31 @@ public sealed class ProviderBehaviorRestorationTests
     }
 
     [Fact]
-    public void AzureAI_CreateChatClient_WithApiKeyAuthModeButNoKey_ShouldFailBeforeSdkClientConstruction()
+    public async Task AzureAI_CreateChatClient_WithApiKeyAuthModeButNoKey_ShouldFailBeforeSdkClientConstruction()
     {
         var provider = new AzureAIProvider();
-        var config = new ClientProviderConfig
+        var config = new ProviderClientConfig
         {
             ProviderKey = "azure-ai",
             ModelName = "gpt-4o",
             Endpoint = "https://example.openai.azure.com/"
         };
-        config.SetProviderConfig(new AzureAIProviderConfig
+        config.ProviderConfig = new AzureAIProviderConfig
         {
             AuthMode = AzureAIAuthMode.ApiKey
-        });
+        };
 
-        var action = () => provider.CreateChatClient(config, ServicesWithSecrets());
+        var action = async () => await provider.CreateChatClientAsync(config, ServicesWithSecrets());
 
-        action.Should().Throw<InvalidOperationException>()
+        await action.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*API key authentication was requested*");
     }
 
     [Fact]
-    public void AzureAI_CreateChatClient_WithProjectEndpointAndApiKey_ShouldRejectKeyAuth()
+    public async Task AzureAI_CreateChatClient_WithProjectEndpointAndApiKey_ShouldRejectKeyAuth()
     {
         var provider = new AzureAIProvider();
-        var config = new ClientProviderConfig
+        var config = new ProviderClientConfig
         {
             ProviderKey = "azure-ai",
             ModelName = "gpt-4o",
@@ -271,9 +306,9 @@ public sealed class ProviderBehaviorRestorationTests
             ApiKey = "test-key"
         };
 
-        var action = () => provider.CreateChatClient(config, ServicesWithSecrets());
+        var action = async () => await provider.CreateChatClientAsync(config, ServicesWithSecrets());
 
-        action.Should().Throw<InvalidOperationException>()
+        await action.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*Projects endpoints require OAuth authentication*");
     }
 
@@ -281,14 +316,14 @@ public sealed class ProviderBehaviorRestorationTests
     public void GoogleAI_ValidateConfiguration_ShouldRequireModelAndSupportedPlatform()
     {
         var provider = new GoogleAIProvider();
-        var config = new ClientProviderConfig
+        var config = new ProviderClientConfig
         {
             ProviderKey = "google-ai"
         };
-        config.SetProviderConfig(new GoogleAIProviderConfig
+        config.ProviderConfig = new GoogleAIProviderConfig
         {
             Platform = (GoogleAIPlatform)999
-        });
+        };
 
         var result = provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 

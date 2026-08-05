@@ -60,26 +60,23 @@ public class HPDAuthPoliciesTests
     }
 
     [Fact]
-    public void ApiAccess_has_RateLimitRequirement_1000_per_hour()
+    public void ApiAccess_has_pro_subscription_requirement()
     {
         var options = BuildOptions();
         var policy = options.GetPolicy(HPDAuthPolicies.ApiAccess)!;
 
-        var rlReq = policy.Requirements.OfType<RateLimitRequirement>().SingleOrDefault();
-        rlReq.Should().NotBeNull();
-        rlReq!.MaxRequests.Should().Be(1000);
-        rlReq.Window.Should().Be(TimeSpan.FromHours(1));
+        policy.Requirements.OfType<SubscriptionTierRequirement>()
+            .Should().ContainSingle(requirement => requirement.MinimumTier == "pro");
     }
 
     [Fact]
-    public void ApiAccessEnterprise_has_RateLimitRequirement_10000_per_hour()
+    public void ApiAccessEnterprise_has_enterprise_subscription_requirement()
     {
         var options = BuildOptions();
         var policy = options.GetPolicy(HPDAuthPolicies.ApiAccessEnterprise)!;
 
-        var rlReq = policy.Requirements.OfType<RateLimitRequirement>().SingleOrDefault();
-        rlReq.Should().NotBeNull();
-        rlReq!.MaxRequests.Should().Be(10000);
+        policy.Requirements.OfType<SubscriptionTierRequirement>()
+            .Should().ContainSingle(requirement => requirement.MinimumTier == "enterprise");
     }
 
     [Fact]

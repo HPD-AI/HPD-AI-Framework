@@ -6,22 +6,20 @@ namespace HPD.Agent.Hosting.Lifecycle;
 public sealed class HostedThreadJournalRebaseSeedProvider : IThreadJournalRebaseSeedProvider
 {
     private readonly SessionManager _sessions;
-    private readonly AgentManager _agents;
 
-    public HostedThreadJournalRebaseSeedProvider(SessionManager sessions, AgentManager agents)
+    public HostedThreadJournalRebaseSeedProvider(SessionManager sessions)
     {
         _sessions = sessions ?? throw new ArgumentNullException(nameof(sessions));
-        _agents = agents ?? throw new ArgumentNullException(nameof(agents));
     }
 
-    public ValueTask<IReadOnlyList<AgentEvent>> CreateSeedEventsAsync(
+    public async ValueTask<IReadOnlyList<AgentEvent>> CreateSeedEventsAsync(
         ThreadKey thread,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var active = _sessions.GetActiveThreadExecution(thread.SessionId, thread.ThreadId);
         if (active is null)
-            return ValueTask.FromResult<IReadOnlyList<AgentEvent>>([]);
+            return [];
 
         var events = new List<AgentEvent>
         {
@@ -32,27 +30,19 @@ public sealed class HostedThreadJournalRebaseSeedProvider : IThreadJournalRebase
             }
         };
 
-        var coordinator = _agents
-            .GetRuntimeAgent(active.AgentId, thread.SessionId, thread.ThreadId)?
-            .EventCoordinator;
-        if (coordinator is not null)
-        {
-            events.AddRange(coordinator.GetPendingRequests()
-                .Select(static pending => pending.Request)
-                .OfType<AgentEvent>()
-                .Where(evt =>
-                    string.Equals(evt.SessionId, thread.SessionId, StringComparison.Ordinal) &&
-                    string.Equals(evt.ThreadId, thread.ThreadId, StringComparison.Ordinal))
-                .Select(evt => evt with
-                {
-                    EventId = Guid.NewGuid().ToString("N"),
-                    ThreadSequenceNumber = 0,
-                    SessionId = thread.SessionId,
-                    ThreadId = thread.ThreadId,
-                    Timestamp = DateTimeOffset.UtcNow
-                }));
-        }
+        var journal = await _sessions.Store.CollectThreadEventsAsync(thread, cancellationToken)
+            .ConfigureAwait(false) ?? [];
+        events.AddRange(AgentRequestProjector
+            .ProjectPending(journal, active.ThreadExecutionId)
+            .Select(evt => evt with
+            {
+                EventId = Guid.NewGuid().ToString("N"),
+                ThreadSequenceNumber = 0,
+                SessionId = thread.SessionId,
+                ThreadId = thread.ThreadId,
+                Timestamp = DateTimeOffset.UtcNow
+            }));
 
-        return ValueTask.FromResult<IReadOnlyList<AgentEvent>>(events);
+        return events;
     }
 }

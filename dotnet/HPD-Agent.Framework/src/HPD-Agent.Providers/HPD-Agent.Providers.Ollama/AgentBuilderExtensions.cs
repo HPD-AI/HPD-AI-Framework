@@ -25,13 +25,13 @@ public static class AgentBuilderExtensions
         var providerConfig = new OllamaProviderConfig();
         configure?.Invoke(providerConfig);
 
-        var chatConfig = new ClientProviderConfig
+        var chatConfig = new ChatClientConfig
         {
             ProviderKey = "ollama",
             Endpoint = ResolveEndpoint(endpoint),
             ModelName = model
         };
-        chatConfig.SetProviderConfig(providerConfig);
+        chatConfig.ProviderConfig = providerConfig;
 
         builder.Config.SetChatClientConfig(chatConfig);
 
@@ -49,8 +49,7 @@ public static class AgentBuilderExtensions
         ArgumentNullException.ThrowIfNull(options);
 
         var chatConfig = builder.Config.EnsureChatClientConfig();
-        chatConfig.ChatDefaults ??= new ChatRunConfig();
-        options.ApplyTo(chatConfig.ChatDefaults);
+        options.ApplyTo(chatConfig);
 
         return builder;
     }

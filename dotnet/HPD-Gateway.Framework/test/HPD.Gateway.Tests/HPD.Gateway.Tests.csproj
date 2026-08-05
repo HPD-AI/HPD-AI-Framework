@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <TargetFrameworks></TargetFrameworks>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <IsAotCompatible>false</IsAotCompatible>
+    <PublishAot>false</PublishAot>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="FluentAssertions" Version="$(FluentAssertionsVersion)" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.6.0" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/HPD.Gateway/HPD.Gateway.csproj" />
+    <ProjectReference Include="../../src/HPD.Gateway.Abstractions/HPD.Gateway.Abstractions.csproj" />
+    <ProjectReference Include="../../src/HPD.Gateway.Core/HPD.Gateway.Core.csproj" />
+    <ProjectReference Include="../../src/HPD.Gateway.Effective/HPD.Gateway.Effective.csproj" />
+    <ProjectReference Include="../../src/HPD.Gateway.Inspection/HPD.Gateway.Inspection.csproj" />
+    <ProjectReference Include="../../src/HPD.Gateway.Management/HPD.Gateway.Management.csproj" />
+    <ProjectReference Include="../../src/HPD.Gateway.HPDAuth/HPD.Gateway.HPDAuth.csproj" />
+    <ProjectReference Include="../../../HPD-Auth.Framework/src/HPD.Auth.Audit/HPD.Auth.Audit.csproj" />
+    <ProjectReference Include="../../src/HPD.Gateway.Hosting/HPD.Gateway.Hosting.csproj" />
+    <ProjectReference Include="../../src/HPD.Gateway.OutputCaching/HPD.Gateway.OutputCaching.csproj" />
+    <ProjectReference Include="../../src/HPD.Gateway.Resilience/HPD.Gateway.Resilience.csproj" />
+    <ProjectReference Include="../../src/HPD.Gateway.Status/HPD.Gateway.Status.csproj" />
+    <ProjectReference Include="../../src/HPD.Gateway.Standalone/HPD.Gateway.Standalone.csproj" />
+    <ProjectReference Include="../../src/HPD.Gateway.Yarp/HPD.Gateway.Yarp.csproj" />
+    <ProjectReference Include="../../../HPD-Base.Framework/src/HPD.Base.Sqlite/HPD.Base.Sqlite.csproj" />
+  </ItemGroup>
+</Project>

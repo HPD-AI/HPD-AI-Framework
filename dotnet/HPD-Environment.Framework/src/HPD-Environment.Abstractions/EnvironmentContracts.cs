@@ -7,6 +7,8 @@ using System.Buffers;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 
 // ---------------------------------------------------------------------------
@@ -29,6 +31,11 @@ public sealed record Workspace : IExecutionResourceMarker, IOperationTargetMarke
 public sealed record ContentProjection : IExecutionResourceMarker, IOperationTargetMarker { }
 public sealed record GuestMemoryMapping : IExecutionResourceMarker, IOperationTargetMarker { }
 public sealed record BlockVolume : IExecutionResourceMarker, IOperationTargetMarker { }
+public sealed record StoragePool : IExecutionResourceMarker, IOperationTargetMarker { }
+public sealed record DurableVolume : IExecutionResourceMarker, IOperationTargetMarker { }
+public sealed record StorageReservation : IExecutionResourceMarker, IOperationTargetMarker { }
+public sealed record VolumeBackup : IExecutionResourceMarker, IOperationTargetMarker { }
+public sealed record VolumeRestore : IExecutionResourceMarker, IOperationTargetMarker { }
 
 public sealed record Network : IExecutionResourceMarker, IOperationTargetMarker { }
 public sealed record NetworkMembership : IExecutionResourceMarker, IOperationTargetMarker { }
@@ -49,6 +56,7 @@ public readonly record struct ResourceId<TResource>(string Value)
 public readonly record struct ResourceKind(string Value);
 public readonly record struct ResourceScope(string Value);
 public readonly record struct ResourceGeneration(long Value);
+public readonly record struct EngineIncarnationGeneration(long Value);
 public readonly record struct SchemaVersion(string Value);
 public readonly record struct ProviderId(string Value);
 public readonly record struct SchemaId(string Value);
@@ -161,6 +169,7 @@ public sealed record ResourceMetadata<TResource>
 public abstract record ResourceStatus
 {
     public ResourcePhase Phase { get; init; } = ResourcePhase.Unknown;
+    public ResourceReconciliationOutcome ReconciliationOutcome { get; init; } = ResourceReconciliationOutcome.Accepted;
     public ResourceGeneration ObservedGeneration { get; init; }
     public DateTimeOffset? LastTransitionAt { get; init; }
     public IReadOnlyList<Condition> Conditions { get; init; } = Array.Empty<Condition>();
@@ -169,6 +178,7 @@ public abstract record ResourceStatus
 }
 
 public enum ResourcePhase { Unknown, Pending, Reconciling, Ready, Degraded, Failed, Deleting, Deleted }
+public enum ResourceReconciliationOutcome { Accepted, ImmutableConflict, Rejected }
 public enum ResourceLifetime { Operation, Invocation, Process, ExecutionUnit, Runtime, Project, ExplicitRetain, ProviderOwned, SharedRefCounted }
 public enum ConditionStatus { Unknown, False, True }
 public enum DiagnosticSeverity { Trace, Debug, Info, Warning, Error, Fatal }
@@ -224,7 +234,7 @@ public sealed record TargetRoute
 
 public readonly record struct TargetKind(string Value);
 public readonly record struct TargetRouteSegment(TargetRouteSegmentKind Kind, string Value);
-public enum TargetRouteSegmentKind { RuntimeHost, ExecutionUnit, ProcessInvocation, FunctionSandbox, FunctionInvocation, Stream, Network, Endpoint, ContentProjection, ProviderActivation, ProviderOpaque }
+public enum TargetRouteSegmentKind { RuntimeHost, ExecutionUnit, ProcessInvocation, FunctionSandbox, FunctionInvocation, Stream, Network, Endpoint, ContentProjection, ProviderActivation, StoragePool, DurableVolume, StorageReservation, VolumeBackup, VolumeRestore, ProviderOpaque }
 public enum TargetHandleLifetime { DurableAddress, Lease, LiveCapability }
 
 [Flags]
@@ -356,6 +366,8 @@ public sealed record CleanupPolicy
     public CleanupFailureMode FailureMode { get; init; } = CleanupFailureMode.MarkDegradedAndRetain;
     public bool FinalizeBeforeRelease { get; init; } = true;
     public bool RevokeAuthorityBindingsFirst { get; init; } = true;
+    public TimeSpan OverallTimeout { get; init; } = TimeSpan.FromSeconds(30);
+    public TimeSpan OperationTimeout { get; init; } = TimeSpan.FromSeconds(5);
 }
 
 public enum CleanupFailureMode { FailOperation, MarkDegradedAndRetain, BestEffortRelease }
@@ -416,7 +428,12 @@ public enum ProviderContractKind
     FunctionSnapshot = 1 << 20,
     GuestMemoryMapping = 1 << 21,
     ProcessIsolation = 1 << 22,
-    AuthorityBinding = 1 << 23
+    AuthorityBinding = 1 << 23,
+    StoragePool = 1 << 24,
+    DurableVolume = 1 << 25,
+    StorageReservation = 1 << 26,
+    VolumeBackup = 1 << 27,
+    VolumeRestore = 1 << 28
 }
 
 public enum ProviderActivationScope { Singleton, HostUser, HostSystem, Project, Runtime, RuntimeHost, Network, ExecutionUnit, FunctionSandbox, Operation, Preflight }
@@ -444,6 +461,24 @@ public enum UnsupportedSeverity { Info, Warning, Error, Fatal }
 
 public readonly record struct PlatformSpec(string OperatingSystem, string Architecture, string? Variant = null, string? Version = null);
 public readonly record struct GuestAbiSpec(string Family, string Architecture, SemanticVersion? Version = null, string? Variant = null);
+
+public static class StandardEnvironmentCapabilities
+{
+    public static readonly CapabilityId ProcessIsolation =
+        new("hpd.environment.isolation.process");
+    public static readonly CapabilityId ContainerIsolation =
+        new("hpd.environment.isolation.container");
+    public static readonly CapabilityId SharedHostKernel =
+        new("hpd.environment.isolation.host-kernel-shared");
+    public static readonly CapabilityId HardwareVirtualization =
+        new("hpd.environment.isolation.hardware-virtualized");
+    public static readonly CapabilityId GuestAgentBoundary =
+        new("hpd.environment.boundary.guest-agent");
+    public static readonly CapabilityId MediatedEngineAuthority =
+        new("hpd.environment.engine.authority-mediated");
+    public static readonly CapabilityId HostLocalEndpointPublication =
+        new("hpd.environment.endpoint.host-local");
+}
 
 public sealed record CapabilityRequirementSet
 {
@@ -682,6 +717,7 @@ public sealed record ProviderComponentStatus(ProviderComponentKind Kind, string 
 public sealed record RuntimeHostSpec
 {
     public RuntimePlanId? RuntimePlan { get; init; }
+    public ProviderId? PreferredProvider { get; init; }
     public required PlatformSpec Platform { get; init; }
     public ResourceQuotaPolicy Capacity { get; init; } = ResourceQuotaPolicy.Default;
     public RuntimeHostStorageSpec? Storage { get; init; }
@@ -711,10 +747,35 @@ public sealed record RuntimeHostStatus : ResourceStatus
     public RuntimeHostReadinessStatus? Readiness { get; init; }
     public RuntimeHostControlPlaneStatus? ControlPlane { get; init; }
     public RuntimeHostProtectionStatus? Protection { get; init; }
+    public RuntimeHostPowerStatus Power { get; init; } =
+        RuntimeHostPowerStatus.Active;
     public IReadOnlyList<ResourceRef<ExecutionUnit>> ExecutionUnits { get; init; } = Array.Empty<ResourceRef<ExecutionUnit>>();
 }
 
 public enum RuntimeHostPhase { Unknown, Declared, Preparing, Provisioning, Starting, Running, Ready, Degraded, Stopping, Stopped, Resetting, Deleting, Deleted, Failed }
+public enum RuntimeHostPowerState
+{
+    Unknown,
+    Active,
+    Sleeping,
+    WakeReconciliationRequired,
+    Terminating,
+}
+public sealed record RuntimeHostPowerStatus
+{
+    public static RuntimeHostPowerStatus Active { get; } = new()
+    {
+        State = RuntimeHostPowerState.Active,
+    };
+
+    public RuntimeHostPowerState State { get; init; }
+    public ulong SleepGeneration { get; init; }
+    public ulong WakeGeneration { get; init; }
+    public bool RequiresWakeReconciliation { get; init; }
+    public DateTimeOffset? ObservedAt { get; init; }
+}
+public readonly record struct RuntimeHostWakeReconciliationRequest(
+    ulong ObservedWakeGeneration);
 public sealed record ControlEndpoint(string Scheme, string Address, int? Port = null, string? Path = null);
 public readonly record struct CapacityObservation(double CpuCores, long MemoryBytes, long StorageBytes);
 
@@ -765,6 +826,7 @@ public sealed record RuntimeHostGenerationStatus
 {
     public RuntimeHostStartGeneration? HostStartGeneration { get; init; }
     public GuestBootGeneration? GuestBootGeneration { get; init; }
+    public ResourceGeneration? GuestAgentGeneration { get; init; }
     public ResourceGeneration? BootstrapGeneration { get; init; }
     public DateTimeOffset? StartedAt { get; init; }
 }
@@ -800,6 +862,8 @@ public sealed record RuntimeHostResetResult(RuntimeHostResetScope Scope, Resourc
 
 public sealed record ExecutionUnitSpec
 {
+    public ExecutionUnitIdentityKey? ReconciliationKey { get; init; }
+    public WorkloadStorageRequest? WorkloadStorage { get; init; }
     public ResourceRef<RuntimeHost>? PreferredHost { get; init; }
     public PlacementPolicy Placement { get; init; } = PlacementPolicy.Default;
     public ResourceRef<RootFilesystemView>? Rootfs { get; init; }
@@ -814,12 +878,31 @@ public sealed record ExecutionUnitSpec
     public IReadOnlyList<ProviderExtensionData> ProviderExtensions { get; init; } = Array.Empty<ProviderExtensionData>();
 }
 
+public readonly record struct ExecutionUnitIdentityKey(string Value);
+
+public sealed record WorkloadStorageRequest
+{
+    public required string LogicalId { get; init; }
+    public StorageClass StorageClass { get; init; } =
+        StorageClass.RuntimeDisposable;
+}
+
+public sealed record WorkloadStorageAllocation
+{
+    public required string LogicalId { get; init; }
+    public required ProviderOpaqueHandle ProviderHandle { get; init; }
+    public required string EffectiveRuntimePath { get; init; }
+    public required StorageClass StorageClass { get; init; }
+    public required ResourceGeneration Generation { get; init; }
+}
+
 public sealed record ExecutionUnitStatus : ResourceStatus
 {
     public required ExecutionUnitPhase UnitPhase { get; init; }
     public ResourceRef<RuntimeHost>? AssignedHost { get; init; }
     public TargetHandle<ExecutionUnit>? Handle { get; init; }
     public ProviderOpaqueHandle? NamespaceHandle { get; init; }
+    public WorkloadStorageAllocation? WorkloadStorage { get; init; }
     public ResourceRef<ProcessInvocation>? PrimaryProcess { get; init; }
     public ProcessInvocationResult? PrimaryProcessResult { get; init; }
     public ResourceRef<RootFilesystemView>? RealizedRootfs { get; init; }
@@ -1284,9 +1367,37 @@ public enum NetworkScope { Host, Runtime, ExecutionUnit, Project, Shared, Provid
 public enum NetworkConnectivityIntent { Isolated, NatEgress, PeerReachable, Routed, ProviderDefined }
 [Flags] public enum AddressFamilyRequirement { None = 0, IPv4Optional = 1, IPv4Required = 2, IPv6Optional = 4, IPv6Required = 8 }
 public enum NetworkPhase { Pending, Creating, Ready, Degraded, Failed, Deleting, Deleted }
+public readonly record struct NetworkIdentityKey(string Value);
 
-public sealed record NetworkSpec { public required NetworkScope Scope { get; init; } public required NetworkConnectivityIntent ConnectivityIntent { get; init; } public required AddressFamilyRequirement AddressFamilies { get; init; } public IReadOnlyList<IpCidr> CidrHints { get; init; } = Array.Empty<IpCidr>(); public NetworkDiscoveryPolicy DiscoveryPolicy { get; init; } = new(); public NetworkExposurePolicy ExposurePolicy { get; init; } = new(); public ProviderId? PreferredProvider { get; init; } public IReadOnlyList<ProviderExtensionData> ProviderExtensions { get; init; } = Array.Empty<ProviderExtensionData>(); }
-public sealed record NetworkStatus : ResourceStatus { public required NetworkPhase NetworkPhase { get; init; } public NetworkCapabilitySet RealizedCapabilities { get; init; } public ResourceRef<ProviderActivation>? ProviderActivation { get; init; } public IReadOnlyList<IpCidr> Subnets { get; init; } = Array.Empty<IpCidr>(); public IReadOnlyList<IpAddressValue> Gateways { get; init; } = Array.Empty<IpAddressValue>(); public IReadOnlyList<NetworkLimitation> Limitations { get; init; } = Array.Empty<NetworkLimitation>(); public TargetHandle<Network>? Handle { get; init; } }
+public sealed record NetworkSpec
+{
+    public NetworkIdentityKey? ReconciliationKey { get; init; }
+    public required NetworkScope Scope { get; init; }
+    public required NetworkConnectivityIntent ConnectivityIntent { get; init; }
+    public required AddressFamilyRequirement AddressFamilies { get; init; }
+    public IReadOnlyList<IpCidr> CidrHints { get; init; } = Array.Empty<IpCidr>();
+    public NetworkDiscoveryPolicy DiscoveryPolicy { get; init; } = new();
+    public NetworkExposurePolicy ExposurePolicy { get; init; } = new();
+    public ProviderId? PreferredProvider { get; init; }
+    public IReadOnlyList<ProviderExtensionData> ProviderExtensions { get; init; } = Array.Empty<ProviderExtensionData>();
+}
+public sealed record NetworkRealizationIdentity(
+    ScopedName Name,
+    string OpaqueId);
+public sealed record NetworkRealizationContext(
+    ResourceRef<ExecutionUnit> OwnerExecutionUnit,
+    ResourceRef<AuthorityBinding> EngineAuthority);
+public sealed record NetworkStatus : ResourceStatus
+{
+    public required NetworkPhase NetworkPhase { get; init; }
+    public NetworkCapabilitySet RealizedCapabilities { get; init; }
+    public ResourceRef<ProviderActivation>? ProviderActivation { get; init; }
+    public NetworkRealizationIdentity? Realization { get; init; }
+    public IReadOnlyList<IpCidr> Subnets { get; init; } = Array.Empty<IpCidr>();
+    public IReadOnlyList<IpAddressValue> Gateways { get; init; } = Array.Empty<IpAddressValue>();
+    public IReadOnlyList<NetworkLimitation> Limitations { get; init; } = Array.Empty<NetworkLimitation>();
+    public TargetHandle<Network>? Handle { get; init; }
+}
 public sealed record NetworkMembershipSpec { public required ResourceRef<Network> Network { get; init; } public required NetworkMembershipTarget Target { get; init; } public ScopedName? Hostname { get; init; } public IReadOnlyList<ScopedName> Aliases { get; init; } = Array.Empty<ScopedName>(); public IReadOnlyList<ServiceName> ServiceNames { get; init; } = Array.Empty<ServiceName>(); public IpAddressValue? RequestedAddress { get; init; } public MacAddressValue? RequestedMacAddress { get; init; } public ushort? RequestedMtu { get; init; } public MembershipConnectivityPolicy ConnectivityPolicy { get; init; } = new(); public IReadOnlyList<ProviderExtensionData> ProviderExtensions { get; init; } = Array.Empty<ProviderExtensionData>(); }
 public sealed record NetworkMembershipStatus : ResourceStatus { public required NetworkMembershipPhase MembershipPhase { get; init; } public NetworkEndpointHandle? EndpointHandle { get; init; } public IReadOnlyList<NetworkAddressAssignment> Addresses { get; init; } = Array.Empty<NetworkAddressAssignment>(); public IReadOnlyList<IpAddressValue> Gateways { get; init; } = Array.Empty<IpAddressValue>(); public string? InterfaceName { get; init; } public MacAddressValue? MacAddress { get; init; } public ushort? Mtu { get; init; } public IReadOnlyList<DiscoveryRecord> RegisteredRecords { get; init; } = Array.Empty<DiscoveryRecord>(); public IReadOnlyList<NetworkLimitation> Limitations { get; init; } = Array.Empty<NetworkLimitation>(); public TargetHandle<NetworkMembership>? Handle { get; init; } }
 public enum NetworkMembershipPhase { Pending, Allocating, Realizing, Ready, Degraded, Failed, Releasing, Released }
@@ -1297,7 +1408,7 @@ public sealed record NetworkExposurePolicy { public bool AllowPublishedEndpoints
 public sealed record MembershipConnectivityPolicy { public bool RequirePeerConnectivity { get; init; } public bool RequireEgress { get; init; } public bool RequireStaticAddress { get; init; } public bool AllowDegradedAddressFamilies { get; init; } = true; }
 
 public sealed record ServiceDiscoverySpec { public required DiscoveryScope Scope { get; init; } public ResourceRef<Network>? Network { get; init; } public ResourceRef<RuntimeHost>? Host { get; init; } public DefaultDiscoveryRecordPolicy DefaultRecordPolicy { get; init; } = DefaultDiscoveryRecordPolicy.MembershipHostnames; public IReadOnlyList<DiscoveryRecordSpec> Records { get; init; } = Array.Empty<DiscoveryRecordSpec>(); public IReadOnlyList<DnsName> SearchDomains { get; init; } = Array.Empty<DnsName>(); public TimeSpan? DefaultTtl { get; init; } public bool RequestHostExport { get; init; } public bool RequestHostResolverImport { get; init; } }
-public sealed record ServiceDiscoveryStatus : ResourceStatus { public required ServiceDiscoveryPhase DiscoveryPhase { get; init; } public DiscoveryCapabilitySet RealizedCapabilities { get; init; } public IReadOnlyList<DiscoveryRecord> Records { get; init; } = Array.Empty<DiscoveryRecord>(); public IReadOnlyList<DnsName> HostExportedDomains { get; init; } = Array.Empty<DnsName>(); public IReadOnlyList<ProviderNamedEndpoint> EffectiveResolvers { get; init; } = Array.Empty<ProviderNamedEndpoint>(); public IReadOnlyList<NetworkLimitation> Limitations { get; init; } = Array.Empty<NetworkLimitation>(); }
+public sealed record ServiceDiscoveryStatus : ResourceStatus { public required ServiceDiscoveryPhase DiscoveryPhase { get; init; } public DiscoveryCapabilitySet RealizedCapabilities { get; init; } public IReadOnlyList<DiscoveryRecord> Records { get; init; } = Array.Empty<DiscoveryRecord>(); public IReadOnlyList<DnsName> HostExportedDomains { get; init; } = Array.Empty<DnsName>(); public IReadOnlyList<ProviderNamedEndpoint> EffectiveResolvers { get; init; } = Array.Empty<ProviderNamedEndpoint>(); public IReadOnlyList<NetworkLimitation> Limitations { get; init; } = Array.Empty<NetworkLimitation>(); public TargetHandle<ServiceDiscovery>? Handle { get; init; } }
 public enum DiscoveryScope { Network, Runtime, HostExported, HostResolverImported, ProviderDefined }
 public enum DefaultDiscoveryRecordPolicy { None, MembershipHostnames, MembershipHostnamesAndAliases, ExplicitOnly }
 public enum ServiceDiscoveryPhase { Pending, Configuring, Ready, Degraded, Failed, Disabled }
@@ -1311,11 +1422,11 @@ public sealed record PublishedEndpointStatus : ResourceStatus { public required 
 public enum PublishedEndpointPhase { Pending, Binding, Bound, Degraded, Failed, Releasing, Released, Suppressed }
 public enum EndpointPublicationOrigin { Explicit, StaticConfigured, AutomaticObserved, ProviderDefault, SuppressedByPolicy }
 public enum EndpointListenerKind { HostAddress, RuntimeGateway, NetworkGateway, UnixSocket, NamedPipe, ProviderDefined }
-public enum EndpointTargetKind { NetworkMembership, UnitPort, ProcessPort, ServiceName, UnixSocket, ProviderDefined }
+public enum EndpointTargetKind { NetworkMembership, UnitPort, ProcessPort, ServiceName, UnixSocket, NetworkAddress, ProviderDefined }
 public enum EndpointExposureScope { HostLocal, HostLan, RuntimeOnly, NetworkOnly, External }
 public readonly record struct EndpointListenerSpec(EndpointListenerKind Kind, NetworkTransport Transport, IpAddressValue? Address, PortRange? Ports, SocketEndpoint? Socket);
 public readonly record struct BoundEndpoint(EndpointListenerKind Kind, NetworkTransport Transport, IpAddressValue? Address, PortRange? Ports, SocketEndpoint? Socket);
-public readonly record struct EndpointRouteTarget(EndpointTargetKind Kind, ResourceRef<NetworkMembership>? Membership, ResourceRef<ExecutionUnit>? Unit, ResourceRef<ProcessInvocation>? Process, ServiceName? ServiceName, NetworkTransport Transport, NetworkPort? Port, UnixSocketPath? SocketPath);
+public readonly record struct EndpointRouteTarget(EndpointTargetKind Kind, ResourceRef<NetworkMembership>? Membership, ResourceRef<ExecutionUnit>? Unit, ResourceRef<ProcessInvocation>? Process, ServiceName? ServiceName, NetworkTransport Transport, NetworkPort? Port, UnixSocketPath? SocketPath, IpAddressValue? Address = null);
 public readonly record struct EndpointRouteStatus(EndpointRouteTarget Target, NetworkEndpointHandle? ResolvedEndpoint, IpAddressValue? ResolvedAddress, NetworkPort? ResolvedPort, UnixSocketPath? ResolvedSocketPath);
 public sealed record EndpointExposurePolicy { public EndpointExposureScope Scope { get; init; } = EndpointExposureScope.HostLocal; public bool RequireStableListener { get; init; } public bool AllowEphemeralPort { get; init; } }
 public sealed record EndpointAuthorizationPolicy { public static EndpointAuthorizationPolicy None { get; } = new(); public bool RequireLoopbackClient { get; init; } public string? TokenAudience { get; init; } public IReadOnlyList<ProviderExtensionData> ProviderExtensions { get; init; } = Array.Empty<ProviderExtensionData>(); }
@@ -1370,8 +1481,267 @@ public enum GuestFilesystemProvisioning { ProviderDefault, None, Ext4, Xfs, Ntfs
 public enum VolumeAttachmentPhase { Pending, Attached, Degraded, Detached, Failed }
 public sealed record VolumeLockStatus(VolumeLockState State, string? Holder = null, DateTimeOffset? Since = null);
 
+// BlockVolume is a physical block-device primitive. The following resources
+// express provider-neutral capacity admission and App-data durability.
+[JsonConverter(typeof(StorageClassJsonConverter))]
+public enum StorageClass
+{
+    SystemRebuildable,
+    RuntimeDisposable,
+    AppDurable,
+    OperationTemporary,
+    EvidenceBounded,
+    ProviderDefined,
+}
+public enum StorageMeasurementConfidence { Exact, ProviderReported, Estimated, Unknown }
+public enum DurableVolumeCapacityEnforcement { Unknown, ObservedLimit, HardLimit }
+public enum StoragePoolPhase { Pending, Measuring, Ready, Warning, AdmissionStopped, Emergency, Degraded, Failed, Deleting, Deleted }
+public enum DurableVolumePhase { Pending, Creating, Ready, Attaching, Attached, DetachedRetained, RestoreStaged, PendingErase, Erased, FailedRetained, Failed }
+public enum StorageReservationPhase { Pending, Reserved, Committed, Releasing, Released, Expired, Ambiguous, Failed }
+public enum VolumeBackupPhase { Pending, Quiescing, Capturing, Verifying, Ready, FailedRetained, Deleting, Deleted, Failed }
+public enum VolumeRestorePhase { Pending, Validating, Restoring, Verifying, Selecting, Ready, FailedRetained, Failed }
+public enum DurableVolumeRetention { RetainOnRemove, EraseOnRemove }
+[JsonConverter(typeof(VolumeBackupConsistencyJsonConverter))]
+public enum VolumeBackupConsistency
+{
+    Stopped,
+    ApplicationQuiesced,
+    CrashConsistent,
+}
+public enum StorageEncryptionRequirement { ProviderDefault, Required, NotRequired }
+public enum VolumeIntegrityState { Unknown, Clean, CheckRequired, Checking, Verified, Degraded, Failed }
+
+public sealed class StorageClassJsonConverter : JsonConverter<StorageClass>
+{
+    public override StorageClass Read(
+        ref Utf8JsonReader reader,
+        Type typeToConvert,
+        JsonSerializerOptions options) =>
+        reader.TokenType == JsonTokenType.String
+            ? reader.GetString() switch
+            {
+                "system-rebuildable" => StorageClass.SystemRebuildable,
+                "runtime-disposable" => StorageClass.RuntimeDisposable,
+                "app-durable" => StorageClass.AppDurable,
+                "operation-temporary" => StorageClass.OperationTemporary,
+                "evidence-bounded" => StorageClass.EvidenceBounded,
+                "provider-defined" => StorageClass.ProviderDefined,
+                _ => throw new JsonException("Unknown storage class."),
+            }
+            : throw new JsonException("Storage class must be a string.");
+
+    public override void Write(
+        Utf8JsonWriter writer,
+        StorageClass value,
+        JsonSerializerOptions options) =>
+        writer.WriteStringValue(value switch
+        {
+            StorageClass.SystemRebuildable => "system-rebuildable",
+            StorageClass.RuntimeDisposable => "runtime-disposable",
+            StorageClass.AppDurable => "app-durable",
+            StorageClass.OperationTemporary => "operation-temporary",
+            StorageClass.EvidenceBounded => "evidence-bounded",
+            StorageClass.ProviderDefined => "provider-defined",
+            _ => throw new JsonException("Unknown storage class."),
+        });
+}
+
+public sealed class VolumeBackupConsistencyJsonConverter :
+    JsonConverter<VolumeBackupConsistency>
+{
+    public override VolumeBackupConsistency Read(
+        ref Utf8JsonReader reader,
+        Type typeToConvert,
+        JsonSerializerOptions options) =>
+        reader.TokenType == JsonTokenType.String
+            ? reader.GetString() switch
+            {
+                "stopped" => VolumeBackupConsistency.Stopped,
+                "application-quiesced" =>
+                    VolumeBackupConsistency.ApplicationQuiesced,
+                "crash-consistent" =>
+                    VolumeBackupConsistency.CrashConsistent,
+                _ => throw new JsonException(
+                    "Unknown backup consistency mode."),
+            }
+            : throw new JsonException(
+                "Backup consistency mode must be a string.");
+
+    public override void Write(
+        Utf8JsonWriter writer,
+        VolumeBackupConsistency value,
+        JsonSerializerOptions options) =>
+        writer.WriteStringValue(value switch
+        {
+            VolumeBackupConsistency.Stopped => "stopped",
+            VolumeBackupConsistency.ApplicationQuiesced =>
+                "application-quiesced",
+            VolumeBackupConsistency.CrashConsistent => "crash-consistent",
+            _ => throw new JsonException(
+                "Unknown backup consistency mode."),
+        });
+}
+
+public sealed record StoragePoolSpec
+{
+    public required StorageClass StorageClass { get; init; }
+    public ProviderId? PreferredProvider { get; init; }
+    public required ByteSize MinimumFreeBytes { get; init; }
+    public required ByteSize WarningFreeBytes { get; init; }
+    public required ByteSize EmergencyFreeBytes { get; init; }
+    public ByteSize? QuotaBytes { get; init; }
+    public StorageEncryptionRequirement Encryption { get; init; } = StorageEncryptionRequirement.ProviderDefault;
+    public GuestFilesystemProvisioning? Filesystem { get; init; }
+    public IReadOnlyList<ProviderExtensionData> ProviderExtensions { get; init; } = Array.Empty<ProviderExtensionData>();
+}
+
+public sealed record StoragePoolStatus : ResourceStatus
+{
+    public required StoragePoolPhase PoolPhase { get; init; }
+    public ByteSize? LogicalCapacityBytes { get; init; }
+    public ByteSize? PhysicalAllocatedBytes { get; init; }
+    public ByteSize? AvailableBytes { get; init; }
+    public ByteSize? ReclaimableBytes { get; init; }
+    public ByteSize ReservedBytes { get; init; }
+    public ByteSize? UnattributedBytes { get; init; }
+    public StorageMeasurementConfidence MeasurementConfidence { get; init; } = StorageMeasurementConfidence.Unknown;
+    public DateTimeOffset? MeasuredAt { get; init; }
+    public ProviderOpaqueHandle? ProviderHandle { get; init; }
+}
+
+public sealed record DurableVolumeSpec
+{
+    public required string LogicalId { get; init; }
+    public required string OwnerScopeId { get; init; }
+    public required string OwnerResourceId { get; init; }
+    public required string DeclarationId { get; init; }
+    public required ResourceRef<StoragePool> Pool { get; init; }
+    public required ByteSize MinimumBytes { get; init; }
+    public required ByteSize MaximumBytes { get; init; }
+    public DurableVolumeRetention Retention { get; init; } = DurableVolumeRetention.RetainOnRemove;
+    public bool BackupEligible { get; init; }
+    public GuestFilesystemProvisioning Filesystem { get; init; } = GuestFilesystemProvisioning.ProviderDefault;
+    public StorageEncryptionRequirement Encryption { get; init; } = StorageEncryptionRequirement.ProviderDefault;
+    public required string CompatibilityDomain { get; init; }
+    public string Sensitivity { get; init; } = "user-private";
+    public IReadOnlyList<ProviderExtensionData> ProviderExtensions { get; init; } = Array.Empty<ProviderExtensionData>();
+}
+
+public sealed record DurableVolumeStatus : ResourceStatus
+{
+    public required DurableVolumePhase VolumePhase { get; init; }
+    public ResourceGeneration VolumeGeneration { get; init; }
+    public ulong ProviderRealizationGeneration { get; init; }
+    public ByteSize? LogicalCapacityBytes { get; init; }
+    public ByteSize? PhysicalAllocatedBytes { get; init; }
+    public ByteSize? UsedBytes { get; init; }
+    public DurableVolumeCapacityEnforcement CapacityEnforcement { get; init; } = DurableVolumeCapacityEnforcement.Unknown;
+    public string? FilesystemIdentity { get; init; }
+    public VolumeIntegrityState Integrity { get; init; } = VolumeIntegrityState.Unknown;
+    public DateTimeOffset? LastCleanUnmountAt { get; init; }
+    public ResourceRef<VolumeBackup>? LastBackup { get; init; }
+    public DurableVolumeRealization? Realization { get; init; }
+    public ProviderOpaqueHandle? ProviderHandle { get; init; }
+}
+
+public sealed record DurableVolumeRealization
+{
+    public required string EffectiveRuntimePath { get; init; }
+    public required ProviderOpaqueHandle ProviderHandle { get; init; }
+    public required ResourceGeneration Generation { get; init; }
+}
+
+public sealed record StorageReservationSpec
+{
+    public required ResourceRef<StoragePool> Pool { get; init; }
+    public required string OperationId { get; init; }
+    public required string Owner { get; init; }
+    public required ByteSize RequestedBytes { get; init; }
+    public ByteSize? EstimatedBytes { get; init; }
+    public double SafetyMultiplier { get; init; } = 1.0;
+    public required DateTimeOffset ExpiresAt { get; init; }
+}
+
+public sealed record StorageReservationStatus : ResourceStatus
+{
+    public required StorageReservationPhase ReservationPhase { get; init; }
+    public ByteSize GrantedBytes { get; init; }
+    public DateTimeOffset? ReservedAt { get; init; }
+    public DateTimeOffset? ReleasedAt { get; init; }
+    public ProviderOpaqueHandle? ProviderHandle { get; init; }
+}
+
+public sealed record VolumeBackupSpec
+{
+    public required string BackupSetId { get; init; }
+    public required ResourceRef<DurableVolume> Volume { get; init; }
+    public required ResourceRef<DurableVolume> SourceVolumeResource { get; init; }
+    public required DurableVolumeSpec SourceVolumeSpec { get; init; }
+    public required ResourceGeneration SourceVolumeGeneration { get; init; }
+    public required ProviderId SourceProviderId { get; init; }
+    public required ulong SourceProviderGeneration { get; init; }
+    public required ulong SourceProviderRealizationGeneration { get; init; }
+    public required string OwnerTypeId { get; init; }
+    public required string OwnerScopeId { get; init; }
+    public required string OwnerVersion { get; init; }
+    public required string CompatibilityDomain { get; init; }
+    public required VolumeBackupConsistency Consistency { get; init; }
+    public required ResourceRef<StorageReservation> Reservation { get; init; }
+    public StorageEncryptionRequirement Encryption { get; init; } = StorageEncryptionRequirement.Required;
+    public required CredentialRef EncryptionCredential { get; init; }
+    public IReadOnlyList<ProviderExtensionData> ProviderExtensions { get; init; } = Array.Empty<ProviderExtensionData>();
+}
+
+public sealed record VolumeBackupStatus : ResourceStatus
+{
+    public required VolumeBackupPhase BackupPhase { get; init; }
+    public Digest? ContentDigest { get; init; }
+    public ByteSize? LogicalBytes { get; init; }
+    public ByteSize? StoredBytes { get; init; }
+    public DateTimeOffset? CapturedAt { get; init; }
+    public ProviderOpaqueHandle? ProviderHandle { get; init; }
+}
+
+public sealed record VolumeRestoreSpec
+{
+    public required ResourceRef<VolumeBackup> Backup { get; init; }
+    public required ResourceRef<DurableVolume> TargetVolume { get; init; }
+    public required ResourceRef<StorageReservation> Reservation { get; init; }
+    public required string ExpectedCompatibilityDomain { get; init; }
+    public bool PreservePreviousGenerationUntilVerified { get; init; } = true;
+    public IReadOnlyList<ProviderExtensionData> ProviderExtensions { get; init; } = Array.Empty<ProviderExtensionData>();
+}
+
+public sealed record VolumeRestoreStatus : ResourceStatus
+{
+    public required VolumeRestorePhase RestorePhase { get; init; }
+    public ResourceGeneration? PreviousVolumeGeneration { get; init; }
+    public ResourceGeneration? RestoredVolumeGeneration { get; init; }
+    public Digest? VerifiedDigest { get; init; }
+    public DateTimeOffset? RestoredAt { get; init; }
+    public ProviderOpaqueHandle? ProviderHandle { get; init; }
+}
+
 public sealed record EngineControlPlaneSpec { public required EngineControlPlaneKind Kind { get; init; } public EngineAuthorityMode AuthorityMode { get; init; } = EngineAuthorityMode.Rootless; public EngineApiKind Api { get; init; } = EngineApiKind.ProviderDefined; public EngineWorkloadAdoptionMode WorkloadAdoption { get; init; } = EngineWorkloadAdoptionMode.None; public EngineImageStoreMode ImageStore { get; init; } = EngineImageStoreMode.ProviderManaged; public ResourceRef<RuntimeHost>? Host { get; init; } public SensitiveEndpointPolicy? EndpointPolicy { get; init; } public IReadOnlyList<ProviderExtensionData> ProviderExtensions { get; init; } = Array.Empty<ProviderExtensionData>(); }
-public sealed record EngineControlPlaneStatus : ResourceStatus { public EngineControlPlanePhase EnginePhase { get; init; } public IReadOnlyList<EngineApiEndpointStatus> Endpoints { get; init; } = Array.Empty<EngineApiEndpointStatus>(); public bool ExternalMutationPossible { get; init; } public ProviderOpaqueHandle? ProviderHandle { get; init; } }
+public sealed record EngineControlPlaneStatus : ResourceStatus { public EngineControlPlanePhase EnginePhase { get; init; } public EngineIncarnationGeneration? EngineGeneration { get; init; } public IReadOnlyList<EngineApiEndpointStatus> Endpoints { get; init; } = Array.Empty<EngineApiEndpointStatus>(); public bool ExternalMutationPossible { get; init; } public ProviderOpaqueHandle? ProviderHandle { get; init; } }
+public sealed record EngineAuthorityBindingRequest
+{
+    public required ResourceRef<EngineControlPlane> Engine { get; init; }
+    public required EngineApiKind Api { get; init; }
+    public required TargetHandle<ExecutionUnit> TargetUnit { get; init; }
+    public required UnixSocketPath TargetSocketPath { get; init; }
+    public SensitiveProvenance? Provenance { get; init; }
+}
+public sealed record EngineAuthorityBindingPlan
+{
+    public required bool Accepted { get; init; }
+    public EngineAuthorityBindingPlanId PlanId { get; init; }
+    public DateTimeOffset? ExpiresAt { get; init; }
+    public ResourceRef<EngineControlPlane>? SourceEngine { get; init; }
+    public AuthorityBindingSpec? Spec { get; init; }
+    public IReadOnlyList<Diagnostic> Diagnostics { get; init; } = Array.Empty<Diagnostic>();
+}
+public readonly record struct EngineAuthorityBindingPlanId(string Value);
 public enum EngineControlPlaneKind { DockerCompatible, Podman, Containerd, Kubernetes, BuildKit, ProviderDefined }
 public enum EngineAuthorityMode { Rootless, Rootful, Mixed, ProviderDefined }
 public enum EngineApiKind { DockerCompatible, PodmanApi, ContainerdApi, KubernetesApi, BuildKitApi, ProviderDefined }
@@ -1389,19 +1759,72 @@ public interface IEnvironmentRuntime
     ValueTask<RuntimePlan> PlanAsync(RuntimePlanRequest request, CancellationToken cancellationToken = default);
     ValueTask<RuntimePlanValidationResult> ValidateAsync(RuntimePlan plan, CancellationToken cancellationToken = default);
     ValueTask<ResourceSnapshot<RuntimeHost, RuntimeHostSpec, RuntimeHostStatus>> EnsureHostAsync(RuntimeHostSpec spec, CancellationToken cancellationToken = default);
+    ValueTask<ResourceSnapshot<RuntimeHost, RuntimeHostSpec, RuntimeHostStatus>> CompleteHostWakeReconciliationAsync(RuntimeHostWakeReconciliationRequest request, CancellationToken cancellationToken = default);
+    ValueTask<ResourceSnapshot<RuntimeHost, RuntimeHostSpec, RuntimeHostStatus>> StopHostAsync(StopPolicy policy, CancellationToken cancellationToken = default);
+    ValueTask<RuntimeHostResetResult> ResetHostAsync(RuntimeHostResetRequest request, CancellationToken cancellationToken = default);
+    ValueTask<RuntimeHostDeletionResult> DeleteHostAsync(CancellationToken cancellationToken = default);
+    ValueTask<ResourceSnapshot<EngineControlPlane, EngineControlPlaneSpec, EngineControlPlaneStatus>> EnsureEngineControlPlaneAsync(EngineControlPlaneSpec spec, CancellationToken cancellationToken = default);
+    ValueTask DeleteEngineControlPlaneAsync(ResourceRef<EngineControlPlane> engine, CancellationToken cancellationToken = default);
+    ValueTask<ResourceSnapshot<StoragePool, StoragePoolSpec, StoragePoolStatus>> EnsureStoragePoolAsync(StoragePoolSpec spec, CancellationToken cancellationToken = default);
+    ValueTask<ResourceSnapshot<StoragePool, StoragePoolSpec, StoragePoolStatus>> GetStoragePoolAsync(ResourceRef<StoragePool> pool, CancellationToken cancellationToken = default);
+    ValueTask DeleteStoragePoolAsync(ResourceRef<StoragePool> pool, CancellationToken cancellationToken = default);
+    ValueTask<ResourceSnapshot<DurableVolume, DurableVolumeSpec, DurableVolumeStatus>> EnsureDurableVolumeAsync(DurableVolumeSpec spec, CancellationToken cancellationToken = default);
+    ValueTask<ResourceSnapshot<DurableVolume, DurableVolumeSpec, DurableVolumeStatus>> GetDurableVolumeAsync(ResourceRef<DurableVolume> volume, CancellationToken cancellationToken = default);
+    ValueTask DetachDurableVolumeAsync(ResourceRef<DurableVolume> volume, CancellationToken cancellationToken = default);
+    ValueTask EraseDurableVolumeAsync(ResourceRef<DurableVolume> volume, CancellationToken cancellationToken = default);
+    ValueTask<ResourceSnapshot<StorageReservation, StorageReservationSpec, StorageReservationStatus>> EnsureStorageReservationAsync(StorageReservationSpec spec, CancellationToken cancellationToken = default);
+    ValueTask ReleaseStorageReservationAsync(ResourceRef<StorageReservation> reservation, CancellationToken cancellationToken = default);
+    ValueTask<ResourceSnapshot<VolumeBackup, VolumeBackupSpec, VolumeBackupStatus>> CaptureVolumeBackupAsync(VolumeBackupSpec spec, CancellationToken cancellationToken = default);
+    ValueTask<ResourceSnapshot<VolumeBackup, VolumeBackupSpec, VolumeBackupStatus>> ImportVolumeBackupAsync(VolumeBackupSpec spec, VolumeBackupStatus expectedStatus, Stream source, CancellationToken cancellationToken = default);
+    ValueTask ExportVolumeBackupAsync(ResourceRef<VolumeBackup> backup, Stream destination, CancellationToken cancellationToken = default);
+    ValueTask DeleteVolumeBackupAsync(ResourceRef<VolumeBackup> backup, CancellationToken cancellationToken = default);
+    ValueTask<ResourceSnapshot<VolumeRestore, VolumeRestoreSpec, VolumeRestoreStatus>> RestoreVolumeAsync(VolumeRestoreSpec spec, CancellationToken cancellationToken = default);
+    ValueTask<EngineAuthorityBindingPlan> PlanEngineAuthorityBindingAsync(EngineAuthorityBindingRequest request, CancellationToken cancellationToken = default);
+    ValueTask<ResourceSnapshot<AuthorityBinding, AuthorityBindingSpec, AuthorityBindingStatus>> EnsureEngineAuthorityBindingAsync(EngineAuthorityBindingPlan plan, CancellationToken cancellationToken = default);
     ValueTask<ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus>> EnsureExecutionUnitAsync(ExecutionUnitSpec spec, CancellationToken cancellationToken = default);
-    ValueTask<IProcessInvocationHandle> StartProcessAsync(ProcessInvocationSpec spec, CancellationToken cancellationToken = default);
+    ValueTask<IReadOnlyList<ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus>>> ListExecutionUnitsAsync(CancellationToken cancellationToken = default);
+    ValueTask<ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus>> GetExecutionUnitAsync(ResourceRef<ExecutionUnit> unit, CancellationToken cancellationToken = default);
+    ValueTask<ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus>> StopExecutionUnitAsync(ResourceRef<ExecutionUnit> unit, StopPolicy policy, CancellationToken cancellationToken = default);
+    ValueTask DeleteExecutionUnitAsync(ResourceRef<ExecutionUnit> unit, CancellationToken cancellationToken = default);
+    ValueTask<ResourceSnapshot<Network, NetworkSpec, NetworkStatus>> EnsureNetworkAsync(NetworkSpec spec, NetworkRealizationContext? realizationContext = null, CancellationToken cancellationToken = default);
+    ValueTask<ResourceSnapshot<Network, NetworkSpec, NetworkStatus>> GetNetworkAsync(ResourceRef<Network> network, CancellationToken cancellationToken = default);
+    ValueTask DeleteNetworkAsync(ResourceRef<Network> network, CancellationToken cancellationToken = default);
+    ValueTask<ResourceSnapshot<NetworkMembership, NetworkMembershipSpec, NetworkMembershipStatus>> EnsureNetworkMembershipAsync(NetworkMembershipSpec spec, CancellationToken cancellationToken = default);
+    ValueTask<ResourceSnapshot<NetworkMembership, NetworkMembershipSpec, NetworkMembershipStatus>> GetNetworkMembershipAsync(ResourceRef<NetworkMembership> membership, CancellationToken cancellationToken = default);
+    ValueTask ReleaseNetworkMembershipAsync(ResourceRef<NetworkMembership> membership, CancellationToken cancellationToken = default);
+    ValueTask<ResourceSnapshot<ServiceDiscovery, ServiceDiscoverySpec, ServiceDiscoveryStatus>> EnsureServiceDiscoveryAsync(ServiceDiscoverySpec spec, CancellationToken cancellationToken = default);
+    ValueTask<ResourceSnapshot<ServiceDiscovery, ServiceDiscoverySpec, ServiceDiscoveryStatus>> GetServiceDiscoveryAsync(ResourceRef<ServiceDiscovery> discovery, CancellationToken cancellationToken = default);
+    ValueTask<IReadOnlyList<DiscoveryRecord>> ResolveServiceDiscoveryAsync(ServiceDiscoveryQuery query, CancellationToken cancellationToken = default);
+    ValueTask ReleaseServiceDiscoveryAsync(ResourceRef<ServiceDiscovery> discovery, CancellationToken cancellationToken = default);
+    ValueTask<ResourceSnapshot<PublishedEndpoint, PublishedEndpointSpec, PublishedEndpointStatus>> EnsurePublishedEndpointAsync(PublishedEndpointSpec spec, CancellationToken cancellationToken = default);
+    ValueTask ReleasePublishedEndpointAsync(ResourceRef<PublishedEndpoint> endpoint, CancellationToken cancellationToken = default);
+    ValueTask<ResourceSnapshot<AuthorityBinding, AuthorityBindingSpec, AuthorityBindingStatus>> EnsureAuthorityBindingAsync(AuthorityBindingSpec spec, CancellationToken cancellationToken = default);
+    ValueTask RevokeAuthorityBindingAsync(ResourceRef<AuthorityBinding> binding, CancellationToken cancellationToken = default);
+    ValueTask<ResourceSnapshot<ProcessInvocation, ProcessInvocationSpec, ProcessInvocationStatus>> StartProcessAsync(ProcessInvocationSpec spec, CancellationToken cancellationToken = default);
+    ValueTask<IReadOnlyList<ResourceSnapshot<ProcessInvocation, ProcessInvocationSpec, ProcessInvocationStatus>>> ListProcessesAsync(ResourceRef<ExecutionUnit>? unit = null, CancellationToken cancellationToken = default);
+    ValueTask<ResourceSnapshot<ProcessInvocation, ProcessInvocationSpec, ProcessInvocationStatus>> GetProcessAsync(ResourceRef<ProcessInvocation> process, CancellationToken cancellationToken = default);
+    ValueTask<ResourceSnapshot<ProcessInvocation, ProcessInvocationSpec, ProcessInvocationStatus>> StopProcessAsync(ResourceRef<ProcessInvocation> process, ProcessStopRequest request, CancellationToken cancellationToken = default);
+    ValueTask<ResourceSnapshot<ProcessInvocation, ProcessInvocationSpec, ProcessInvocationStatus>> WaitProcessAsync(ResourceRef<ProcessInvocation> process, CancellationToken cancellationToken = default);
+    IAsyncEnumerable<ProcessOutputChunk> ReadProcessOutputAsync(ResourceRef<ProcessInvocation> process, long? afterSequence = null, int? limit = null, bool follow = false, CancellationToken cancellationToken = default);
+    ValueTask DeleteProcessAsync(ResourceRef<ProcessInvocation> process, CancellationToken cancellationToken = default);
     ValueTask<ProcessInvocationResult> RunProcessAsync(ProcessInvocationSpec spec, IProcessOutputSink? output = null, CancellationToken cancellationToken = default);
     ValueTask<ResourceSnapshot<FunctionSandbox, FunctionSandboxSpec, FunctionSandboxStatus>> EnsureFunctionSandboxAsync(FunctionSandboxSpec spec, CancellationToken cancellationToken = default);
     ValueTask<FunctionInvocationResult> InvokeFunctionAsync(FunctionInvocationSpec spec, IFunctionObservationSink? observations = null, CancellationToken cancellationToken = default);
     ValueTask<RuntimeFinalizationResult> FinalizeRuntimeAsync(RuntimeFinalizationRequest request, CancellationToken cancellationToken = default);
 }
 
+public sealed record RuntimeHostDeletionResult
+{
+    public required bool Deleted { get; init; }
+    public RuntimeHostStatus? RetainedHostStatus { get; init; }
+    public IReadOnlyList<Diagnostic> Diagnostics { get; init; } = Array.Empty<Diagnostic>();
+}
+
 public sealed record RuntimeFinalizationRequest(ResourceScope RuntimeScope, bool PromoteMemory, CleanupPolicy CleanupPolicy);
 public sealed record RuntimeFinalizationResult { public required ResourceScope RuntimeScope { get; init; } public IReadOnlyList<FinalizationResult> ContentProjections { get; init; } = Array.Empty<FinalizationResult>(); public IReadOnlyList<UntypedResourceRef> RetainedResources { get; init; } = Array.Empty<UntypedResourceRef>(); public IReadOnlyList<WorkspaceConflict> Conflicts { get; init; } = Array.Empty<WorkspaceConflict>(); public IReadOnlyList<Diagnostic> Diagnostics { get; init; } = Array.Empty<Diagnostic>(); }
 
 public interface IProviderModule { ProviderDescriptor Descriptor { get; } void Register(IProviderRegistrationBuilder builder); void RegisterJsonTypes(IProviderJsonTypeRegistry registry); }
-public interface IProviderRegistrationBuilder { void AddProviderCapabilityReporter(IProviderCapabilityReporter reporter); void AddProviderActivator(IProviderActivator activator); void AddRuntimeHostProvider(IRuntimeHostProvider provider); void AddRuntimeHostResetProvider(IRuntimeHostResetProvider provider); void AddExecutionUnitProvider(IExecutionUnitProvider provider); void AddProcessProvider(IProcessProvider provider); void AddFunctionSandboxProvider(IFunctionSandboxProvider provider); void AddFunctionSnapshotProvider(IFunctionSnapshotProvider provider); void AddArtifactProvider(IArtifactProvider provider); void AddRootFilesystemProvider(IRootFilesystemProvider provider); void AddWorkspaceStore(IWorkspaceStore provider); void AddContentProjectionProvider(IContentProjectionProvider provider); void AddNetworkProvider(INetworkProvider provider); void AddNetworkMembershipProvider(INetworkMembershipProvider provider); void AddServiceDiscoveryProvider(IServiceDiscoveryProvider provider); void AddEndpointPublicationProvider(IEndpointPublicationProvider provider); void AddAuthorityBindingProvider(IAuthorityBindingProvider provider); void AddCredentialProvider(ICredentialProvider provider); void AddEngineControlPlaneProvider(IEngineControlPlaneProvider provider); }
+public interface IProviderRegistrationBuilder { void AddProviderCapabilityReporter(IProviderCapabilityReporter reporter); void AddProviderActivator(IProviderActivator activator); void AddRuntimeHostProvider(IRuntimeHostProvider provider); void AddRuntimeHostWakeReconciliationProvider(IRuntimeHostWakeReconciliationProvider provider); void AddRuntimeHostResetProvider(IRuntimeHostResetProvider provider); void AddExecutionUnitProvider(IExecutionUnitProvider provider); void AddProcessProvider(IProcessProvider provider); void AddFunctionSandboxProvider(IFunctionSandboxProvider provider); void AddFunctionSnapshotProvider(IFunctionSnapshotProvider provider); void AddArtifactProvider(IArtifactProvider provider); void AddRootFilesystemProvider(IRootFilesystemProvider provider); void AddWorkspaceStore(IWorkspaceStore provider); void AddContentProjectionProvider(IContentProjectionProvider provider); void AddNetworkProvider(INetworkProvider provider); void AddNetworkMembershipProvider(INetworkMembershipProvider provider); void AddServiceDiscoveryProvider(IServiceDiscoveryProvider provider); void AddEndpointPublicationProvider(IEndpointPublicationProvider provider); void AddAuthorityBindingProvider(IAuthorityBindingProvider provider); void AddCredentialProvider(ICredentialProvider provider); void AddEngineControlPlaneProvider(IEngineControlPlaneProvider provider); void AddStoragePoolProvider(IStoragePoolProvider provider); void AddDurableVolumeProvider(IDurableVolumeProvider provider); void AddStorageReservationProvider(IStorageReservationProvider provider); void AddVolumeBackupProvider(IVolumeBackupProvider provider); void AddVolumeRestoreProvider(IVolumeRestoreProvider provider); }
 public interface IProviderJsonTypeRegistry { void Add(JsonTypeInfo jsonTypeInfo, string typeDiscriminator); }
 public interface IProviderCatalog { ValueTask<IReadOnlyList<ProviderDescriptor>> ListAsync(CancellationToken cancellationToken = default); ValueTask<ProviderDescriptor?> GetAsync(ProviderId providerId, CancellationToken cancellationToken = default); }
 public interface IProviderCapabilityReporter { ValueTask<ProviderCapabilityReport> GetCapabilitiesAsync(ProviderId providerId, CancellationToken cancellationToken = default); ValueTask<ProviderCapabilityReport> GetCapabilitiesAsync(ProviderId providerId, ProviderCapabilityQuery query, CancellationToken cancellationToken = default); }
@@ -1411,23 +1834,120 @@ public readonly record struct ProviderStopOptions(TimeSpan GracePeriod, bool For
 public interface IRuntimePlanner { ValueTask<RuntimePlan> PlanAsync(RuntimePlanRequest request, CancellationToken cancellationToken = default); ValueTask<RuntimePlanValidationResult> ValidateAsync(RuntimePlan plan, CancellationToken cancellationToken = default); }
 
 public interface IRuntimeHostProvider { ProviderId ProviderId { get; } ValueTask<RuntimeHostStatus> EnsureAsync(ResourceMetadata<RuntimeHost> metadata, RuntimeHostSpec spec, RuntimeHostStatus? observed, CancellationToken cancellationToken = default); ValueTask<RuntimeHostStatus> StopAsync(TargetHandle<RuntimeHost> host, StopPolicy policy, CancellationToken cancellationToken = default); ValueTask DeleteAsync(ResourceRef<RuntimeHost> host, CancellationToken cancellationToken = default); ValueTask<RuntimeHostStatus> GetStatusAsync(TargetHandle<RuntimeHost> host, CancellationToken cancellationToken = default); }
+public interface IRuntimeHostWakeReconciliationProvider { ProviderId ProviderId { get; } ValueTask<RuntimeHostStatus> CompleteWakeReconciliationAsync(TargetHandle<RuntimeHost> host, RuntimeHostWakeReconciliationRequest request, CancellationToken cancellationToken = default); }
 public interface IRuntimeHostResetProvider { ProviderId ProviderId { get; } ValueTask<RuntimeHostResetResult> ResetAsync(TargetHandle<RuntimeHost> host, RuntimeHostResetRequest request, CancellationToken cancellationToken = default); }
 public interface IExecutionUnitProvider { ProviderId ProviderId { get; } ValueTask<ExecutionUnitStatus> EnsureAsync(ResourceMetadata<ExecutionUnit> metadata, ExecutionUnitSpec spec, ExecutionUnitStatus? observed, CancellationToken cancellationToken = default); ValueTask<ExecutionUnitStatus> StopAsync(TargetHandle<ExecutionUnit> unit, StopPolicy policy, CancellationToken cancellationToken = default); ValueTask DeleteAsync(ResourceRef<ExecutionUnit> unit, CancellationToken cancellationToken = default); ValueTask<ExecutionUnitStatus> GetStatusAsync(TargetHandle<ExecutionUnit> unit, CancellationToken cancellationToken = default); }
 public interface IProcessProvider { ProviderId ProviderId { get; } ValueTask<IProcessInvocationHandle> StartAsync(ProcessInvocationSpec spec, IProcessOutputSink? output = null, CancellationToken cancellationToken = default); ValueTask<ProcessInvocationResult> RunAsync(ProcessInvocationSpec spec, IProcessOutputSink? output = null, CancellationToken cancellationToken = default); ValueTask SignalAsync(TargetHandle<ProcessInvocation> process, ProcessSignal signal, CancellationToken cancellationToken = default); ValueTask ResizeTerminalAsync(TargetHandle<ProcessInvocation> process, TerminalSpec size, CancellationToken cancellationToken = default); ValueTask<ProcessInvocationResult> WaitAsync(TargetHandle<ProcessInvocation> process, CancellationToken cancellationToken = default); IAsyncEnumerable<ProcessOutputChunk> ReadOutputAsync(TargetHandle<ProcessInvocation> process, CancellationToken cancellationToken = default); }
+public interface IRetainedProcessProvider
+{
+    ProviderId ProviderId { get; }
+    ValueTask<ProcessInvocationStatus> GetStatusAsync(TargetHandle<ProcessInvocation> process, CancellationToken cancellationToken = default);
+    ValueTask StopAsync(TargetHandle<ProcessInvocation> process, ProcessStopRequest request, CancellationToken cancellationToken = default);
+    ValueTask ReleaseAsync(ResourceRef<ProcessInvocation> process, CancellationToken cancellationToken = default);
+}
 public interface IFunctionSandboxProvider { ProviderId ProviderId { get; } ValueTask<FunctionSandboxStatus> EnsureAsync(ResourceMetadata<FunctionSandbox> metadata, FunctionSandboxSpec spec, FunctionSandboxStatus? observed, CancellationToken cancellationToken = default); ValueTask<FunctionInvocationResult> InvokeAsync(FunctionInvocationSpec spec, IFunctionObservationSink? observations = null, CancellationToken cancellationToken = default); ValueTask<FunctionSandboxStatus> GetStatusAsync(TargetHandle<FunctionSandbox> sandbox, CancellationToken cancellationToken = default); ValueTask ReleaseAsync(TargetHandle<FunctionSandbox> sandbox, CancellationToken cancellationToken = default); }
 public interface IFunctionSnapshotProvider { ProviderId ProviderId { get; } ValueTask<FunctionSandboxSnapshotStatus> CaptureAsync(TargetHandle<FunctionSandbox> sandbox, FunctionSnapshotRequest request, CancellationToken cancellationToken = default); ValueTask<FunctionSandboxStatus> RestoreAsync(TargetHandle<FunctionSandbox> sandbox, FunctionRestoreRequest request, CancellationToken cancellationToken = default); ValueTask ReleaseSnapshotAsync(ResourceRef<FunctionSandboxSnapshot> snapshot, CancellationToken cancellationToken = default); }
 public interface IArtifactProvider { ProviderId ProviderId { get; } ValueTask<ContentArtifactStatus> ResolveAsync(ResourceMetadata<ContentArtifact> metadata, ContentArtifactSpec spec, CancellationToken cancellationToken = default); ValueTask<ContentArtifactStatus> EnsureAvailableAsync(ResourceRef<ContentArtifact> artifact, CancellationToken cancellationToken = default); }
 public interface IRootFilesystemProvider { ProviderId ProviderId { get; } ValueTask<RootFilesystemViewStatus> MaterializeAsync(ResourceMetadata<RootFilesystemView> metadata, RootFilesystemViewSpec spec, TargetHandle<RuntimeHost>? host, TargetHandle<ExecutionUnit>? unit, CancellationToken cancellationToken = default); ValueTask<FinalizationResult> FinalizeAsync(TargetHandle<RootFilesystemView> rootfs, FinalizationRequest request, CancellationToken cancellationToken = default); ValueTask ReleaseAsync(TargetHandle<RootFilesystemView> rootfs, CancellationToken cancellationToken = default); }
 public interface IWorkspaceStore { ValueTask<WorkspaceStatus> GetStatusAsync(ResourceRef<Workspace> workspace, CancellationToken cancellationToken = default); ValueTask<ContentEnumerationPage> EnumerateAsync(ResourceRef<Workspace> workspace, ContentSelector selector, ContentPageCursor cursor, CancellationToken cancellationToken = default); ValueTask CopyContentAsync(ContentSelector selector, IBufferWriter<byte> destination, CancellationToken cancellationToken = default); }
 public interface IContentProjectionProvider { ProviderId ProviderId { get; } ValueTask<ContentProjectionStatus> ProjectAsync(ResourceMetadata<ContentProjection> metadata, ContentProjectionSpec spec, TargetHandle<RuntimeHost>? host, TargetHandle<ExecutionUnit>? unit, CancellationToken cancellationToken = default); ValueTask EnumerateEntriesAsync(ResourceRef<ContentProjection> projection, IContentProjectionEntrySink sink, CancellationToken cancellationToken = default); ValueTask<SyncResult> SyncAsync(TargetHandle<ContentProjection> projection, SyncRequest request, CancellationToken cancellationToken = default); ValueTask<FinalizationResult> FinalizeAsync(TargetHandle<ContentProjection> projection, FinalizationRequest request, IExecutionEventSink? events = null, CancellationToken cancellationToken = default); ValueTask ReleaseAsync(TargetHandle<ContentProjection> projection, CancellationToken cancellationToken = default); }
-public interface INetworkProvider { ProviderId ProviderId { get; } ValueTask<NetworkStatus> EnsureNetworkAsync(ResourceMetadata<Network> metadata, NetworkSpec spec, NetworkStatus? observed, CancellationToken cancellationToken = default); ValueTask<NetworkStatus> GetStatusAsync(ResourceRef<Network> network, CancellationToken cancellationToken = default); ValueTask DeleteNetworkAsync(ResourceRef<Network> network, CancellationToken cancellationToken = default); }
+public interface INetworkProvider { ProviderId ProviderId { get; } ValueTask<NetworkStatus> EnsureNetworkAsync(ResourceMetadata<Network> metadata, NetworkSpec spec, NetworkRealizationContext? realizationContext, NetworkStatus? observed, CancellationToken cancellationToken = default); ValueTask<NetworkStatus> GetStatusAsync(ResourceRef<Network> network, CancellationToken cancellationToken = default); ValueTask DeleteNetworkAsync(ResourceRef<Network> network, CancellationToken cancellationToken = default); }
 public interface INetworkMembershipProvider { ProviderId ProviderId { get; } ValueTask<NetworkMembershipStatus> EnsureMembershipAsync(ResourceMetadata<NetworkMembership> metadata, NetworkMembershipSpec spec, NetworkMembershipStatus? observed, CancellationToken cancellationToken = default); ValueTask<NetworkMembershipStatus> GetMembershipStatusAsync(ResourceRef<NetworkMembership> membership, CancellationToken cancellationToken = default); ValueTask ReleaseMembershipAsync(ResourceRef<NetworkMembership> membership, CancellationToken cancellationToken = default); }
-public interface IServiceDiscoveryProvider { ProviderId ProviderId { get; } ValueTask<ServiceDiscoveryStatus> EnsureServiceDiscoveryAsync(ResourceMetadata<ServiceDiscovery> metadata, ServiceDiscoverySpec spec, ServiceDiscoveryStatus? observed, CancellationToken cancellationToken = default); ValueTask<ServiceDiscoveryStatus> GetStatusAsync(ResourceRef<ServiceDiscovery> discovery, CancellationToken cancellationToken = default); ValueTask<IReadOnlyList<DiscoveryRecord>> ResolveAsync(ServiceDiscoveryQuery query, CancellationToken cancellationToken = default); }
+public interface IServiceDiscoveryProvider { ProviderId ProviderId { get; } ValueTask<ServiceDiscoveryStatus> EnsureServiceDiscoveryAsync(ResourceMetadata<ServiceDiscovery> metadata, ServiceDiscoverySpec spec, ServiceDiscoveryStatus? observed, CancellationToken cancellationToken = default); ValueTask<ServiceDiscoveryStatus> GetStatusAsync(ResourceRef<ServiceDiscovery> discovery, CancellationToken cancellationToken = default); ValueTask<IReadOnlyList<DiscoveryRecord>> ResolveAsync(ServiceDiscoveryQuery query, CancellationToken cancellationToken = default); ValueTask ReleaseAsync(ResourceRef<ServiceDiscovery> discovery, CancellationToken cancellationToken = default); }
 public sealed record ServiceDiscoveryQuery(ResourceRef<ServiceDiscovery> Discovery, DnsName Name, DiscoveryRecordKind? Kind = null);
 public interface IEndpointPublicationProvider { ProviderId ProviderId { get; } ValueTask<PublishedEndpointStatus> EnsurePublishedEndpointAsync(ResourceMetadata<PublishedEndpoint> metadata, PublishedEndpointSpec spec, PublishedEndpointStatus? observed, CancellationToken cancellationToken = default); ValueTask<PublishedEndpointStatus> GetStatusAsync(ResourceRef<PublishedEndpoint> endpoint, CancellationToken cancellationToken = default); ValueTask ReleasePublishedEndpointAsync(ResourceRef<PublishedEndpoint> endpoint, CancellationToken cancellationToken = default); }
 public interface IAuthorityBindingProvider { ProviderId ProviderId { get; } ValueTask<AuthorityBindingStatus> EnsureAuthorityBindingAsync(ResourceMetadata<AuthorityBinding> metadata, AuthorityBindingSpec spec, AuthorityBindingStatus? observed, CancellationToken cancellationToken = default); ValueTask<AuthorityBindingStatus> GetStatusAsync(ResourceRef<AuthorityBinding> binding, CancellationToken cancellationToken = default); ValueTask RevokeAuthorityBindingAsync(ResourceRef<AuthorityBinding> binding, CancellationToken cancellationToken = default); }
 public interface ICredentialProvider { ProviderId ProviderId { get; } ValueTask<CredentialResolution> ResolveAsync(CredentialRequest request, CancellationToken cancellationToken = default); }
-public interface IEngineControlPlaneProvider { ProviderId ProviderId { get; } ValueTask<EngineControlPlaneStatus> EnsureEngineControlPlaneAsync(ResourceMetadata<EngineControlPlane> metadata, EngineControlPlaneSpec spec, EngineControlPlaneStatus? observed, CancellationToken cancellationToken = default); ValueTask<EngineControlPlaneStatus> GetStatusAsync(ResourceRef<EngineControlPlane> engine, CancellationToken cancellationToken = default); ValueTask<EngineControlPlaneStatus> StopAsync(TargetHandle<EngineControlPlane> engine, StopPolicy policy, CancellationToken cancellationToken = default); ValueTask DeleteAsync(ResourceRef<EngineControlPlane> engine, CancellationToken cancellationToken = default); }
+public interface IEngineControlPlaneProvider
+{
+    ProviderId ProviderId { get; }
+    ValueTask<EngineControlPlaneStatus> EnsureEngineControlPlaneAsync(ResourceMetadata<EngineControlPlane> metadata, EngineControlPlaneSpec spec, EngineControlPlaneStatus? observed, CancellationToken cancellationToken = default);
+    ValueTask<EngineAuthorityBindingPlan> PlanAuthorityBindingAsync(EngineControlPlaneStatus engine, EngineAuthorityBindingRequest request, CancellationToken cancellationToken = default);
+    ValueTask<EngineControlPlaneStatus> GetStatusAsync(ResourceRef<EngineControlPlane> engine, CancellationToken cancellationToken = default);
+    ValueTask<EngineControlPlaneStatus> StopAsync(TargetHandle<EngineControlPlane> engine, StopPolicy policy, CancellationToken cancellationToken = default);
+    ValueTask DeleteAsync(ResourceRef<EngineControlPlane> engine, CancellationToken cancellationToken = default);
+}
+public interface IStorageProvider { ProviderId ProviderId { get; } }
+public interface IStoragePoolProvider : IStorageProvider
+{
+    ValueTask<StoragePoolStatus> EnsureAsync(ResourceMetadata<StoragePool> metadata, StoragePoolSpec spec, StoragePoolStatus? observed, CancellationToken cancellationToken = default);
+    ValueTask<StoragePoolStatus> RecoverAsync(ResourceMetadata<StoragePool> metadata, StoragePoolSpec spec, StoragePoolStatus persisted, CancellationToken cancellationToken = default);
+    ValueTask<StoragePoolStatus> GetStatusAsync(ResourceRef<StoragePool> pool, CancellationToken cancellationToken = default);
+    ValueTask DeleteAsync(ResourceRef<StoragePool> pool, CancellationToken cancellationToken = default);
+}
+public interface IDurableVolumeProvider : IStorageProvider
+{
+    ValueTask<DurableVolumeStatus> EnsureAsync(ResourceMetadata<DurableVolume> metadata, DurableVolumeSpec spec, DurableVolumeStatus? observed, CancellationToken cancellationToken = default);
+    ValueTask<DurableVolumeStatus> RecoverAsync(ResourceMetadata<DurableVolume> metadata, DurableVolumeSpec spec, DurableVolumeStatus persisted, CancellationToken cancellationToken = default);
+    ValueTask<DurableVolumeStatus> GetStatusAsync(ResourceRef<DurableVolume> volume, CancellationToken cancellationToken = default);
+    ValueTask<DurableVolumeStatus> DetachAsync(ResourceRef<DurableVolume> volume, CancellationToken cancellationToken = default);
+    ValueTask EraseAsync(ResourceRef<DurableVolume> volume, CancellationToken cancellationToken = default);
+}
+public interface IStorageReservationProvider : IStorageProvider
+{
+    ValueTask<StorageReservationStatus> ReserveAsync(ResourceMetadata<StorageReservation> metadata, StorageReservationSpec spec, StorageReservationStatus? observed, CancellationToken cancellationToken = default);
+    ValueTask<StorageReservationStatus> RecoverAsync(ResourceMetadata<StorageReservation> metadata, StorageReservationSpec spec, StorageReservationStatus persisted, CancellationToken cancellationToken = default);
+    ValueTask<StorageReservationStatus> GetStatusAsync(ResourceRef<StorageReservation> reservation, CancellationToken cancellationToken = default);
+    ValueTask ReleaseAsync(ResourceRef<StorageReservation> reservation, CancellationToken cancellationToken = default);
+}
+public interface IVolumeBackupProvider : IStorageProvider
+{
+    ValueTask<VolumeBackupStatus> CaptureAsync(ResourceMetadata<VolumeBackup> metadata, VolumeBackupSpec spec, VolumeBackupStatus? observed, CancellationToken cancellationToken = default);
+    ValueTask<VolumeBackupStatus> RecoverAsync(ResourceMetadata<VolumeBackup> metadata, VolumeBackupSpec spec, VolumeBackupStatus persisted, CancellationToken cancellationToken = default);
+    ValueTask<VolumeBackupStatus> GetStatusAsync(ResourceRef<VolumeBackup> backup, CancellationToken cancellationToken = default);
+    ValueTask<VolumeBackupStatus> ImportAsync(ResourceMetadata<VolumeBackup> metadata, VolumeBackupSpec spec, VolumeBackupStatus expectedStatus, Stream source, CancellationToken cancellationToken = default);
+    ValueTask ExportAsync(ResourceRef<VolumeBackup> backup, Stream destination, CancellationToken cancellationToken = default);
+    ValueTask DeleteAsync(ResourceRef<VolumeBackup> backup, CancellationToken cancellationToken = default);
+}
+public interface IVolumeRestoreProvider : IStorageProvider
+{
+    ValueTask<VolumeRestoreStatus> RestoreAsync(ResourceMetadata<VolumeRestore> metadata, VolumeRestoreSpec spec, VolumeRestoreStatus? observed, CancellationToken cancellationToken = default);
+    ValueTask<VolumeRestoreStatus> RecoverAsync(ResourceMetadata<VolumeRestore> metadata, VolumeRestoreSpec spec, VolumeRestoreStatus persisted, CancellationToken cancellationToken = default);
+    ValueTask<VolumeRestoreStatus> GetStatusAsync(ResourceRef<VolumeRestore> restore, CancellationToken cancellationToken = default);
+    ValueTask FinalizeAsync(ResourceRef<VolumeRestore> restore, CancellationToken cancellationToken = default);
+}
+public interface IStorageBackupKeyProvider
+{
+    ValueTask<StorageBackupKeyMaterial> ResolveAsync(
+        CredentialRef credential,
+        ResourceScope scope,
+        string purpose,
+        CancellationToken cancellationToken = default);
+}
+public sealed class StorageBackupKeyMaterial : IDisposable
+{
+    private byte[]? _key;
+
+    public StorageBackupKeyMaterial(
+        string keyId,
+        ReadOnlySpan<byte> key)
+    {
+        if (string.IsNullOrWhiteSpace(keyId))
+            throw new ArgumentException(
+                "Backup encryption key identity is required.",
+                nameof(keyId));
+        if (key.Length != 32)
+            throw new ArgumentException(
+                "Backup encryption keys must contain exactly 32 bytes.",
+                nameof(key));
+        KeyId = keyId;
+        _key = key.ToArray();
+    }
+
+    public string KeyId { get; }
+    public ReadOnlyMemory<byte> Key =>
+        _key ??
+        throw new ObjectDisposedException(
+            nameof(StorageBackupKeyMaterial));
+
+    public void Dispose()
+    {
+        byte[]? key = Interlocked.Exchange(ref _key, null);
+        if (key is not null)
+            System.Security.Cryptography.CryptographicOperations
+                .ZeroMemory(key);
+    }
+}
 public sealed record CredentialRequest(CredentialRef Credential, ResourceScope Scope, string? Purpose = null);
 public sealed record CredentialResolution(CredentialRef Credential, ProviderOpaqueHandle Handle, DateTimeOffset? ExpiresAt = null);
 

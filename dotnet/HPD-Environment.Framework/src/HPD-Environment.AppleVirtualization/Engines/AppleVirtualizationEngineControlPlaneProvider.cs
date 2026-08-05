@@ -35,6 +35,32 @@ public sealed class AppleVirtualizationEngineControlPlaneProvider : IEngineContr
 
     public ProviderId ProviderId => AppleVirtualizationProviderDescriptor.ProviderId;
 
+    public ValueTask<EngineAuthorityBindingPlan> PlanAuthorityBindingAsync(
+        EngineControlPlaneStatus engine,
+        EngineAuthorityBindingRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(engine);
+        ArgumentNullException.ThrowIfNull(request);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        bool accepted = AppleVirtualizationEngineEndpointAuthority.TryCreateBindingSpec(
+            engine,
+            request.Api,
+            request.TargetUnit,
+            request.TargetSocketPath,
+            request.Provenance,
+            out AuthorityBindingSpec? spec,
+            out Diagnostic? diagnostic);
+        return ValueTask.FromResult(new EngineAuthorityBindingPlan
+        {
+            Accepted = accepted,
+            SourceEngine = request.Engine,
+            Spec = spec,
+            Diagnostics = diagnostic is null ? Array.Empty<Diagnostic>() : [diagnostic],
+        });
+    }
+
     public async ValueTask<EngineControlPlaneStatus> EnsureEngineControlPlaneAsync(
         ResourceMetadata<EngineControlPlane> metadata,
         EngineControlPlaneSpec spec,
@@ -126,6 +152,10 @@ public sealed class AppleVirtualizationEngineControlPlaneProvider : IEngineContr
                 EngineStatusRequest = new AppleVirtualizationEngineStatusRequest
                 {
                     HostId = host.Id.Value,
+                    ProviderGeneration = _ledger.ProviderGeneration,
+                    HostStartGeneration = (ulong)Math.Max(
+                        0,
+                        hostEntry.Status.Generations.HostStartGeneration?.Value ?? 0),
                     EngineId = metadata.Id.Value,
                     Kind = spec.Kind,
                     Api = spec.Api,
@@ -163,6 +193,51 @@ public sealed class AppleVirtualizationEngineControlPlaneProvider : IEngineContr
                 endpoints: Array.Empty<EngineApiEndpointStatus>()));
         }
 
+        ulong expectedHostStartGeneration = (ulong)Math.Max(
+            0,
+            hostEntry.Status.Generations.HostStartGeneration?.Value ?? 0);
+        AppleVirtualizationGuestAgentEngineGenerationStamp? generation = engine.GuestEngineStatus?.Generation;
+        (string? ExpectedGuestBootId, ulong? ExpectedGuestBootGeneration) expectedGuestBoot =
+            ParseGuestBootGeneration(hostEntry.Status.Generations.GuestBootGeneration);
+        string generationFailure = string.Empty;
+        bool engineIdentityMatches =
+            string.Equals(engine.EngineId, metadata.Id.Value, StringComparison.Ordinal) &&
+            string.Equals(engine.GuestEngineStatus?.EngineId, metadata.Id.Value, StringComparison.Ordinal);
+        if (!engineIdentityMatches)
+        {
+            generationFailure = "Engine status was rejected because its engine identity did not match the requested engine.";
+        }
+        bool generationAccepted = engineIdentityMatches && generation is not null &&
+            _ledger.TryAcceptRuntimeHostEngineGeneration(
+                hostEntry.Resource.Id,
+                hostEntry.Resource.Scope,
+                metadata.Id.Value,
+                generation,
+                _ledger.ProviderGeneration,
+                expectedHostStartGeneration,
+                expectedGuestBoot.ExpectedGuestBootId,
+                expectedGuestBoot.ExpectedGuestBootGeneration,
+                requireEngineGeneration: engine.Ready,
+                out generationFailure);
+        if (generation is null ||
+            generation.EngineGeneration > long.MaxValue ||
+            !generationAccepted)
+        {
+            Diagnostic diagnostic = Diagnostic(
+                DiagnosticSeverity.Error,
+                new DiagnosticCode("AppleVirtualization.EngineStatusStaleGeneration"),
+                string.IsNullOrWhiteSpace(generationFailure)
+                    ? "Engine status was rejected because its provider or host-start generation was missing or stale."
+                    : generationFailure,
+                "engine.status.generation");
+            return Store(metadata, spec, Status(
+                metadata,
+                ResourcePhase.Degraded,
+                EngineControlPlanePhase.Degraded,
+                Append(diagnostics, diagnostic),
+                endpoints: Array.Empty<EngineApiEndpointStatus>()));
+        }
+
         Diagnostic[] combinedDiagnostics = Append(diagnostics, engine.Diagnostics);
         EngineApiEndpointStatus[] endpoints = MapEndpoints(engine.Endpoints);
         return Store(metadata, spec, new EngineControlPlaneStatus
@@ -171,6 +246,8 @@ public sealed class AppleVirtualizationEngineControlPlaneProvider : IEngineContr
             ObservedGeneration = metadata.Generation,
             LastTransitionAt = DateTimeOffset.UtcNow,
             EnginePhase = engine.EnginePhase,
+            EngineGeneration = new EngineIncarnationGeneration(
+                checked((long)generation.EngineGeneration)),
             Endpoints = endpoints,
             ExternalMutationPossible = spec.WorkloadAdoption != EngineWorkloadAdoptionMode.None ||
                 spec.ImageStore is EngineImageStoreMode.EngineLocal or EngineImageStoreMode.Remote,
@@ -434,6 +511,22 @@ public sealed class AppleVirtualizationEngineControlPlaneProvider : IEngineContr
             ProviderId = AppleVirtualizationProviderDescriptor.ProviderId,
             TargetPath = targetPath,
         };
+
+    private static (string? GuestBootId, ulong? Generation) ParseGuestBootGeneration(
+        GuestBootGeneration? generation)
+    {
+        if (generation is null || string.IsNullOrWhiteSpace(generation.Value.Value))
+        {
+            return (null, null);
+        }
+
+        string value = generation.Value.Value;
+        int separator = value.LastIndexOf(':');
+        string number = separator >= 0 ? value[(separator + 1)..] : value;
+        return ulong.TryParse(number, NumberStyles.None, CultureInfo.InvariantCulture, out ulong parsed)
+            ? (separator > 0 ? value[..separator] : null, parsed)
+            : (null, null);
+    }
 
     private static ResourceMetadata<EngineControlPlane> Metadata(ResourceRef<EngineControlPlane> resource) =>
         new()

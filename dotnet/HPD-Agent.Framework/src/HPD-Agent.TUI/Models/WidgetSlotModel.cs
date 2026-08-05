@@ -82,4 +82,13 @@ public sealed class WidgetSlotModel
             target.AddRange(_components);
         }
     }
+
+    /// <summary>Returns a stable snapshot of the components currently in the slot.</summary>
+    public IReadOnlyList<IComponent> Snapshot()
+    {
+        lock (_gate)
+        {
+            return _components.ToArray();
+        }
+    }
 }

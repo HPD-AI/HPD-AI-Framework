@@ -34,10 +34,9 @@ public static class TestAgentFactory
         // Add tools to config if provided
         if (tools.Length > 0)
         {
-            config.Clients ??= new AgentClientConfig();
-            config.Clients.Chat ??= new ClientProviderConfig();
-            config.Clients.Chat.DefaultMicrosoftChatOptions ??= new Microsoft.Extensions.AI.ChatOptions();
-            config.Clients.Chat.DefaultMicrosoftChatOptions.Tools = tools.Cast<Microsoft.Extensions.AI.AITool>().ToList();
+            config.ServerConfiguredTools ??= new List<Microsoft.Extensions.AI.AITool>();
+            foreach (var tool in tools)
+                config.ServerConfiguredTools.Add(tool);
         }
 
         // Register standard iteration middlewares for loop protection
@@ -63,9 +62,9 @@ public static class TestAgentFactory
             Name = "TestAgent",
             MaxAgenticIterations = 50,
             SystemInstructions = "You are a helpful test agent.",
-            Clients = new AgentClientConfig
+            Clients = new AgentClientsConfig
             {
-                Chat = new ClientProviderConfig
+                Chat = new ChatClientConfig
                 {
                     ProviderKey = "test",  // Required by validation
                     ModelName = "test-model"
@@ -147,7 +146,7 @@ internal class TestChatClientProvider : IChatClientProvider
     public string ProviderKey => "test";
     public string DisplayName => "Test Provider";
 
-    public IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null)
+    public async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
     {
         return _chatClient;
     }
@@ -178,7 +177,7 @@ internal class TestChatClientProvider : IChatClientProvider
         };
     }
 
-    public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family)
+    public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
     {
         return ProviderValidationResult.Success();
     }

@@ -21,8 +21,8 @@ public abstract class OpenAICompatibleChatProviderBase<TConfig> : IChatClientPro
     public string ProviderKey => Definition.ProviderKey;
     public string DisplayName => Definition.DisplayName;
 
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider packages register AOT-compatible config deserializers through ProviderDiscovery.")]
-    public virtual IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null)
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider packages use generated AOT-compatible payload contracts.")]
+    public virtual async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(config);
 
@@ -65,9 +65,9 @@ public abstract class OpenAICompatibleChatProviderBase<TConfig> : IChatClientPro
             }
         };
 
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider packages register AOT-compatible config deserializers through ProviderDiscovery.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider packages use generated AOT-compatible payload contracts.")]
     public virtual ProviderValidationResult ValidateConfiguration(
-        ClientProviderConfig config,
+        ProviderClientConfig config,
         ProviderClientFamily family)
     {
         ArgumentNullException.ThrowIfNull(config);
@@ -84,13 +84,6 @@ public abstract class OpenAICompatibleChatProviderBase<TConfig> : IChatClientPro
             errors.Add($"Model name is required for {DisplayName}");
         }
 
-        if (Definition.RequiresApiKey && string.IsNullOrWhiteSpace(config.ApiKey))
-        {
-            errors.Add(
-                $"API key is required for {DisplayName}. " +
-                $"Set it via the apiKey parameter, {Definition.ApiKeySecretKey}, or a registered environment alias.");
-        }
-
         if (!string.IsNullOrWhiteSpace(config.Endpoint) &&
             !Uri.IsWellFormedUriString(config.Endpoint, UriKind.Absolute))
         {
@@ -102,17 +95,17 @@ public abstract class OpenAICompatibleChatProviderBase<TConfig> : IChatClientPro
             : ProviderValidationResult.Success();
     }
 
-    protected virtual TConfig? ResolveProviderConfig(ClientProviderConfig config)
-        => config.GetProviderConfig<TConfig>(ProviderClientFamily.Chat);
+    protected virtual TConfig? ResolveProviderConfig(ProviderClientConfig config)
+        => config.ProviderConfig as TConfig;
 
     protected virtual IChatClient CreateOpenAICompatibleChatClient(
         HttpClient httpClient,
-        ClientProviderConfig config,
+        ProviderClientConfig config,
         Uri endpoint)
         => new OpenAICompatibleChatClient(httpClient, CreateChatClientOptions(config, endpoint));
 
     protected virtual OpenAICompatibleChatClientOptions CreateChatClientOptions(
-        ClientProviderConfig config,
+        ProviderClientConfig config,
         Uri endpoint)
         => new()
         {
@@ -126,7 +119,7 @@ public abstract class OpenAICompatibleChatProviderBase<TConfig> : IChatClientPro
 
     protected virtual IChatClient WrapChatClient(
         IChatClient innerClient,
-        ClientProviderConfig config,
+        ProviderClientConfig config,
         Uri endpoint,
         TConfig? providerConfig)
         => new OpenAICompatibleConfiguredChatClient<TConfig>(
@@ -138,7 +131,7 @@ public abstract class OpenAICompatibleChatProviderBase<TConfig> : IChatClientPro
 
     protected virtual void ConfigureHttpClient(
         HttpClient httpClient,
-        ClientProviderConfig config,
+        ProviderClientConfig config,
         string? apiKey)
     {
         if (!string.IsNullOrWhiteSpace(apiKey))
@@ -163,7 +156,7 @@ public abstract class OpenAICompatibleChatProviderBase<TConfig> : IChatClientPro
             ? endpoint
             : new Uri(endpoint.AbsoluteUri + "/", UriKind.Absolute);
 
-    private string? ResolveApiKey(ClientProviderConfig config, ISecretResolver? secretResolver)
+    private string? ResolveApiKey(ProviderClientConfig config, ISecretResolver? secretResolver)
     {
         if (!string.IsNullOrWhiteSpace(config.ApiKey))
         {
@@ -191,7 +184,7 @@ public abstract class OpenAICompatibleChatProviderBase<TConfig> : IChatClientPro
             .GetResult();
     }
 
-    private Uri ResolveEndpoint(ClientProviderConfig config, ISecretResolver? secretResolver)
+    private Uri ResolveEndpoint(ProviderClientConfig config, ISecretResolver? secretResolver)
     {
         var endpointValue = config.Endpoint;
         if (string.IsNullOrWhiteSpace(endpointValue) &&

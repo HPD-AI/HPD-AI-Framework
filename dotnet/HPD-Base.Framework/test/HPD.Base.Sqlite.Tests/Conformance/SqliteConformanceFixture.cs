@@ -1,19 +1,9 @@
 using FluentAssertions;
-using HPD.Base.Events;
-using HPD.Base.Policy;
-using HPD.Base.Query;
-using HPD.Base.Records;
-using HPD.Base.Results;
-using HPD.Base.Runtime;
-using HPD.Base.Runtime.DependencyInjection;
-using HPD.Base.Runtime.Descriptors;
-using HPD.Base.Runtime.Stores;
-using HPD.Base.Schema;
-using HPD.Base.Sqlite.Configuration;
-using HPD.Base.Sqlite.DependencyInjection;
+using HPD.Base;
+using HPD.Base.Sqlite;
+using Microsoft.Extensions.Logging;
 using HPD.Base.StoreConformance;
 using HPD.Base.StoreConformance.Runtime;
-using HPD.Base.Stores;
 using Microsoft.Extensions.DependencyInjection;
 using System.Text.Json;
 
@@ -30,13 +20,12 @@ public sealed class SqliteConformanceFixture : IConfigurableRuntimeStoreConforma
         DefaultPageSize = 100,
         MaxPageSize = 1_000,
         AllowClientRequestedIds = true,
-        CollectionIds = [Collection.Id],
         Collections = [Collection]
     };
 
     public string ProviderName => "HPD.Base.Sqlite";
 
-    public StoreCapabilityDescriptor Capabilities => new SqliteRecordStore(Options).Capabilities;
+    public StoreCapabilityDescriptor Capabilities => SqliteTestFactory.Create(Options).Capabilities;
 
     public CollectionDefinition Collection => new()
     {
@@ -45,7 +34,17 @@ public sealed class SqliteConformanceFixture : IConfigurableRuntimeStoreConforma
         Kind = BaseCollectionKinds.Document,
         SchemaMode = SchemaMode.Loose,
         UnknownFields = UnknownFieldPolicy.Preserve,
-        Operations = new CollectionOperationMatrix { List = true, Get = true, Create = true, Patch = true, Replace = true, Delete = true }
+        Fields =
+        [
+            new FieldDefinition { Id = "title", Name = "title", Type = BaseFieldTypes.String },
+            new FieldDefinition { Id = "status", Name = "status", Type = BaseFieldTypes.String },
+            new FieldDefinition { Id = "rank", Name = "rank", Type = BaseFieldTypes.Integer },
+            new FieldDefinition { Id = "enabled", Name = "enabled", Type = BaseFieldTypes.Boolean },
+            new FieldDefinition { Id = "tags", Name = "tags", Type = BaseFieldTypes.Array },
+            new FieldDefinition { Id = "profile", Name = "profile", Type = BaseFieldTypes.Object },
+            new FieldDefinition { Id = "nullable", Name = "nullable", Type = BaseFieldTypes.String, Nullable = true }
+        ],
+        MutationMode = BaseCollectionMutationMode.Mutable
     };
 
     public OperationContext Operation(BaseOperationKind operation, RecordId? id = null) => new()
@@ -59,7 +58,7 @@ public sealed class SqliteConformanceFixture : IConfigurableRuntimeStoreConforma
     public ValueTask<IRecordStore> CreateStoreAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return ValueTask.FromResult<IRecordStore>(new SqliteRecordStore(Options));
+        return ValueTask.FromResult<IRecordStore>(SqliteTestFactory.Create(Options));
     }
 
     public ValueTask ResetAsync(CancellationToken cancellationToken = default)
@@ -78,6 +77,7 @@ public sealed class SqliteConformanceFixture : IConfigurableRuntimeStoreConforma
     {
         cancellationToken.ThrowIfCancellationRequested();
         var services = new ServiceCollection();
+        services.AddLogging();
         services.AddSingleton<IPolicyEvaluator>(options.PolicyEvaluator ?? new ConformanceAllowPolicyEvaluator());
         if (options.EventPublisher is not null)
         {
@@ -93,13 +93,13 @@ public sealed class SqliteConformanceFixture : IConfigurableRuntimeStoreConforma
             sqlite.DefaultPageSize = configured.DefaultPageSize;
             sqlite.MaxPageSize = configured.MaxPageSize;
             sqlite.AllowClientRequestedIds = configured.AllowClientRequestedIds;
-            sqlite.CollectionIds = configured.CollectionIds;
             sqlite.Collections = configured.Collections;
         });
 
         var provider = services.BuildServiceProvider();
         if (options.StoreOverride is null)
         {
+            provider.GetRequiredService<SqliteRecordStore>().InitializeUnacceptedSchemaForTestsAsync(cancellationToken).AsTask().GetAwaiter().GetResult();
             provider.GetRequiredService<IRecordStoreRegistry>().AddHPDBaseSqliteStore(provider);
         }
         else

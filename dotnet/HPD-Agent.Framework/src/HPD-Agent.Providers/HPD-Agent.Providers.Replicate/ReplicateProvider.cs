@@ -21,6 +21,11 @@ namespace HPD.Agent.Providers.Replicate;
 /// <summary>
 /// Replicate provider implementation scoped to HPD image generation.
 /// </summary>
+[HpdProvider("replicate", "Replicate")]
+[HpdProviderFamily(ProviderClientFamily.ImageGeneration)]
+[HpdProviderPayload(ProviderClientFamily.ImageGeneration, ProviderPayloadKind.Configuration, typeof(ReplicateProviderConfig), typeof(ReplicateJsonContext))]
+[HpdProviderPayload(ProviderClientFamily.ImageGeneration, ProviderPayloadKind.OperationOptions, typeof(ReplicateImageOptions), typeof(ReplicateJsonContext))]
+[HpdProviderSecretAlias("replicate:ApiKey", "REPLICATE_API_KEY", "REPLICATE_API_TOKEN")]
 internal sealed class ReplicateProvider : IImageGeneratorProvider
 {
     internal const string DefaultModel = "black-forest-labs/flux-schnell";
@@ -31,20 +36,21 @@ internal sealed class ReplicateProvider : IImageGeneratorProvider
     public string ProviderKey => "replicate";
     public string DisplayName => "Replicate";
 
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider registers an AOT-compatible config deserializer in ReplicateProviderModule.")]
-    public Meai.IImageGenerator CreateImageGenerator(ClientProviderConfig config, IServiceProvider? services = null)
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
+    public Meai.IImageGenerator CreateImageGenerator(ProviderClientConfig config, IServiceProvider? services = null)
     {
         ArgumentNullException.ThrowIfNull(config);
 
         var modelName = string.IsNullOrWhiteSpace(config.ModelName)
             ? DefaultModel
             : config.ModelName;
-        var replicateConfig = config.GetProviderConfig<ReplicateProviderConfig>(ProviderClientFamily.ImageGeneration)
-            ?? config.GetProviderConfig<ReplicateProviderConfig>();
+        var replicateConfig = config.ProviderConfig as ReplicateProviderConfig;
+        var replicateOptions = (config as ImageGenerationClientConfig)?.ProviderOptions as ReplicateImageOptions;
+        var mediaType = (config as ImageGenerationClientConfig)?.MediaType;
         var model = ParseModel(modelName!, replicateConfig?.ModelOwner);
         var client = CreateReplicateClient(config, services);
 
-        return new ReplicateImageGenerator(client, model.Owner, model.Name, replicateConfig);
+        return new ReplicateImageGenerator(client, model.Owner, model.Name, replicateOptions, mediaType);
     }
 
     public IProviderErrorHandler CreateErrorHandler() => new ReplicateErrorHandler();
@@ -72,8 +78,8 @@ internal sealed class ReplicateProvider : IImageGeneratorProvider
         };
     }
 
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider registers an AOT-compatible config deserializer in ReplicateProviderModule.")]
-    public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family)
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Generated provider payload contracts are AOT-compatible.")]
+    public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
     {
         ArgumentNullException.ThrowIfNull(config);
 
@@ -82,15 +88,11 @@ internal sealed class ReplicateProvider : IImageGeneratorProvider
         if (family != ProviderClientFamily.ImageGeneration)
             errors.Add("Replicate currently supports only image generation in HPD Agent.");
 
-        if (string.IsNullOrWhiteSpace(config.ApiKey))
-        {
-            errors.Add("API key is required for Replicate. " +
-                       "Set it via the apiKey parameter, REPLICATE_API_KEY or REPLICATE_API_TOKEN environment variable, or configuration.");
-        }
 
-        var replicateConfig = config.GetProviderConfig<ReplicateProviderConfig>(ProviderClientFamily.ImageGeneration)
-            ?? config.GetProviderConfig<ReplicateProviderConfig>();
+        var replicateConfig = config.ProviderConfig as ReplicateProviderConfig;
         var modelName = string.IsNullOrWhiteSpace(config.ModelName) ? DefaultModel : config.ModelName;
+        if (replicateConfig?.ModelOwner is { Length: 0 })
+            errors.Add("ModelOwner cannot be empty");
         ValidateModel(modelName!, replicateConfig?.ModelOwner, errors);
 
         if (!string.IsNullOrWhiteSpace(config.Endpoint) &&
@@ -99,19 +101,16 @@ internal sealed class ReplicateProvider : IImageGeneratorProvider
             errors.Add("Endpoint must be a valid, absolute URI");
         }
 
-        if (replicateConfig is not null)
-            ValidateProviderOptions(replicateConfig, errors);
+        if ((config as ImageGenerationClientConfig)?.ProviderOptions is ReplicateImageOptions options)
+            ValidateProviderOptions(options, errors);
 
         return errors.Count > 0
             ? ProviderValidationResult.Failure(errors.ToArray())
             : ProviderValidationResult.Success();
     }
 
-    internal static void ValidateProviderOptions(ReplicateProviderConfig config, List<string> errors)
+    internal static void ValidateProviderOptions(ReplicateImageOptions config, List<string> errors)
     {
-        if (config.ModelOwner is { Length: 0 })
-            errors.Add("ModelOwner cannot be empty");
-
         if (config.Prefer is { Length: 0 })
             errors.Add("Prefer cannot be empty");
 
@@ -120,9 +119,6 @@ internal sealed class ReplicateProvider : IImageGeneratorProvider
 
         if (config.PollingIntervalSeconds.HasValue && config.PollingIntervalSeconds.Value <= 0)
             errors.Add("PollingIntervalSeconds must be greater than 0");
-
-        if (config.OutputMediaType is { Length: 0 })
-            errors.Add("OutputMediaType cannot be empty");
 
         if (config.Input is not null)
         {
@@ -134,7 +130,7 @@ internal sealed class ReplicateProvider : IImageGeneratorProvider
         }
     }
 
-    private static global::Replicate.ReplicateClient CreateReplicateClient(ClientProviderConfig config, IServiceProvider? services)
+    private static global::Replicate.ReplicateClient CreateReplicateClient(ProviderClientConfig config, IServiceProvider? services)
     {
         var secrets = services?.GetService<ISecretResolver>();
         if (secrets is null)
@@ -190,19 +186,22 @@ internal sealed class ReplicateProvider : IImageGeneratorProvider
         private readonly global::Replicate.ReplicateClient _client;
         private readonly string _modelOwner;
         private readonly string _modelName;
-        private readonly ReplicateProviderConfig? _config;
+        private readonly ReplicateImageOptions? _options;
+        private readonly string? _mediaType;
         private Meai.ImageGeneratorMetadata? _metadata;
 
         public ReplicateImageGenerator(
             global::Replicate.ReplicateClient client,
             string modelOwner,
             string modelName,
-            ReplicateProviderConfig? config)
+            ReplicateImageOptions? options,
+            string? mediaType)
         {
             _client = client ?? throw new ArgumentNullException(nameof(client));
             _modelOwner = modelOwner;
             _modelName = modelName;
-            _config = config;
+            _options = options;
+            _mediaType = mediaType;
         }
 
         public Meai.ImageGeneratorMetadata Metadata =>
@@ -231,8 +230,8 @@ internal sealed class ReplicateProvider : IImageGeneratorProvider
             if (string.IsNullOrWhiteSpace(request.Prompt))
                 throw new ArgumentException("Prompt is required for Replicate image generation.", nameof(request));
 
-            var input = CreateInput(request, options, _config);
-            var prefer = GetAdditionalString(options, "replicate:prefer") ?? _config?.Prefer ?? DefaultPrefer;
+            var input = CreateInput(request, options, _options);
+            var prefer = GetAdditionalString(options, "replicate:prefer") ?? _options?.Prefer ?? DefaultPrefer;
             var response = await _client.ModelsPredictionsCreateAsync(
                 modelOwner: _modelOwner,
                 modelName: _modelName,
@@ -247,12 +246,12 @@ internal sealed class ReplicateProvider : IImageGeneratorProvider
             {
                 response = await WaitUntilSuccessfulAsync(
                     response,
-                    TimeSpan.FromSeconds(_config?.PollingIntervalSeconds ?? 2),
-                    TimeSpan.FromSeconds(_config?.TimeoutSeconds ?? 120),
+                    TimeSpan.FromSeconds(_options?.PollingIntervalSeconds ?? 2),
+                    TimeSpan.FromSeconds(_options?.TimeoutSeconds ?? 120),
                     cancellationToken).ConfigureAwait(false);
             }
 
-            var result = new Meai.ImageGenerationResponse(CreateContents(response.Output, options, _config))
+            var result = new Meai.ImageGenerationResponse(CreateContents(response.Output, options, _mediaType))
             {
                 RawRepresentation = response
             };
@@ -262,7 +261,7 @@ internal sealed class ReplicateProvider : IImageGeneratorProvider
         private static Dictionary<string, object?> CreateInput(
             Meai.ImageGenerationRequest request,
             Meai.ImageGenerationOptions? options,
-            ReplicateProviderConfig? config)
+            ReplicateImageOptions? config)
         {
             var input = new Dictionary<string, object?>(StringComparer.Ordinal);
             Merge(input, (IEnumerable<KeyValuePair<string, object?>>?)config?.Input);
@@ -330,9 +329,9 @@ internal sealed class ReplicateProvider : IImageGeneratorProvider
         private static IList<Meai.AIContent> CreateContents(
             object? output,
             Meai.ImageGenerationOptions? options,
-            ReplicateProviderConfig? config)
+            string? configuredMediaType)
         {
-            var mediaType = options?.MediaType ?? config?.OutputMediaType ?? DefaultOutputMediaType;
+            var mediaType = options?.MediaType ?? configuredMediaType ?? DefaultOutputMediaType;
             var contents = new List<Meai.AIContent>();
             AddOutput(contents, output, mediaType);
             return contents;

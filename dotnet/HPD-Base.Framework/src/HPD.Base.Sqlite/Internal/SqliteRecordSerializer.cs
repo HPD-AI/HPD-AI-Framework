@@ -1,10 +1,11 @@
-using HPD.Base.Records;
+using HPD.Base;
 using System.Text.Json;
 
-namespace HPD.Base.Sqlite.Internal;
+namespace HPD.Base.Sqlite;
 
 internal static class SqliteRecordSerializer
 {
+    /// <summary>Executes the normalize object payload operation.</summary>
     public static RecordPayload NormalizeObjectPayload(RecordPayload payload)
     {
         if (payload.Kind == RecordPayloadKind.FieldMap)
@@ -26,6 +27,7 @@ internal static class SqliteRecordSerializer
         };
     }
 
+    /// <summary>Executes the serialize operation.</summary>
     public static string Serialize(RecordPayload payload)
     {
         var normalized = NormalizeObjectPayload(payload);
@@ -46,6 +48,7 @@ internal static class SqliteRecordSerializer
         return System.Text.Encoding.UTF8.GetString(stream.ToArray());
     }
 
+    /// <summary>Executes the deserialize operation.</summary>
     public static RecordPayload Deserialize(string json)
     {
         using var document = JsonDocument.Parse(json);
@@ -56,6 +59,7 @@ internal static class SqliteRecordSerializer
         };
     }
 
+    /// <summary>Executes the merge operation.</summary>
     public static RecordPayload Merge(RecordPayload current, RecordPayload patch)
     {
         var fields = NormalizeObjectPayload(current).Fields?.ToDictionary(field => field.Key, field => field.Value.Clone(), StringComparer.Ordinal)
@@ -68,6 +72,7 @@ internal static class SqliteRecordSerializer
         return new RecordPayload { Kind = RecordPayloadKind.FieldMap, Fields = fields };
     }
 
+    /// <summary>Executes the select operation.</summary>
     public static RecordPayload Select(RecordPayload payload, string[]? select)
     {
         if (select is null || select.Length == 0)
@@ -88,5 +93,6 @@ internal static class SqliteRecordSerializer
         return new RecordPayload { Kind = RecordPayloadKind.FieldMap, Fields = selected };
     }
 
+    /// <summary>Executes the clone operation.</summary>
     public static RecordPayload Clone(RecordPayload payload) => NormalizeObjectPayload(payload);
 }

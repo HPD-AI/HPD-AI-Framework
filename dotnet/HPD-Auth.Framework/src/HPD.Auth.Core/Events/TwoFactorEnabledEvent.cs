@@ -7,7 +7,7 @@ namespace HPD.Auth.Core.Events;
 /// Subscribers can use this event to send a security confirmation email,
 /// update the user's security score, or remove "CONFIGURE_2FA" from RequiredActions.
 /// </summary>
-public record TwoFactorEnabledEvent : AuthEvent
+public sealed record TwoFactorEnabledEvent : AuthEvent
 {
     public required Guid UserId { get; init; }
 

@@ -6,6 +6,30 @@ namespace HPD.Base.AspNetCore.Tests.DependencyInjection;
 public sealed class MapHPDBaseApiTests
 {
     [Fact]
+    public void UnifiedBuilderMapIsSideEffectFreeBeforeHostStartup()
+    {
+        var builder = WebApplication.CreateBuilder();
+        builder.Services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
+        var items = BaseCollection<JsonElement>.Create(
+            TestBaseApp.Collection(),
+            HPDBaseJsonSerializerContext.Default.JsonElement,
+            static _ => { });
+        builder.Services.AddHPDBase(hpd => hpd
+            .AddAspNetCore()
+            .AddCollection(items));
+
+        using var app = builder.Build();
+        app.MapHPDBaseApi();
+
+        app.Services.GetRequiredService<IRecordStoreRegistry>()
+            .GetStoreForCollection("items")
+            .Should()
+            .BeNull();
+        app.Services.GetRequiredService<IHPDBaseApplication>()
+            .CurrentReadiness.State.Should().Be(BaseApplicationReadinessState.NotStarted);
+    }
+
+    [Fact]
     public async Task MapsConfiguredPrefixAndToggles()
     {
         await using var app = await TestBaseApp.CreateAsync(configureEndpoints: options =>

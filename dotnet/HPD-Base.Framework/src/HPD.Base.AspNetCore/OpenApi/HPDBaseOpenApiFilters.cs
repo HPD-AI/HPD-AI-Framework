@@ -1,9 +1,9 @@
 using HPD.Base;
-using HPD.Base.AspNetCore.Http;
+using HPD.Base.AspNetCore;
 using Microsoft.AspNetCore.Mvc.ApiExplorer;
 using Microsoft.AspNetCore.Routing;
 
-namespace HPD.Base.AspNetCore.OpenApi;
+namespace HPD.Base.AspNetCore;
 
 internal static class HPDBaseOpenApiFilters
 {
@@ -23,6 +23,8 @@ internal static class HPDBaseOpenApiFilters
         BaseRouteIds.RecordsPatch,
         BaseRouteIds.RecordsReplace,
         BaseRouteIds.RecordsDelete,
+        BaseRouteIds.RecordsBatch,
+        BaseRouteIds.RecordsUpsert,
         "base.files.objects.upload",
         "base.files.objects.download",
         "base.files.objects.head",
@@ -43,11 +45,13 @@ internal static class HPDBaseOpenApiFilters
         BaseHttpRouteNames.AdminPolicyExplain
     ];
 
+    /// <summary>Executes the public operation.</summary>
     public static bool Public(ApiDescription description) =>
         description.ActionDescriptor.EndpointMetadata.OfType<HPDBaseOpenApiRouteMetadata>().FirstOrDefault() is { IsAdmin: false }
         || description.ActionDescriptor.EndpointMetadata.OfType<IHPDBaseModuleOpenApiMetadata>().Any()
         || (OperationId(description) is { } operationId && s_publicOperationIds.Contains(operationId));
 
+    /// <summary>Executes the admin operation.</summary>
     public static bool Admin(ApiDescription description) =>
         description.ActionDescriptor.EndpointMetadata.OfType<HPDBaseOpenApiRouteMetadata>().FirstOrDefault() is { IsAdmin: true }
         || (OperationId(description) is { } operationId && s_adminOperationIds.Contains(operationId));

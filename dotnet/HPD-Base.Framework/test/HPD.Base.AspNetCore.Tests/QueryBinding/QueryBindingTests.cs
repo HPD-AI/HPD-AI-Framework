@@ -11,14 +11,14 @@ public sealed class QueryBindingTests
     [InlineData("?page=2&perPage=5")]
     [InlineData("?offset=1&limit=5")]
     [InlineData("?cursor=abc&cursorDir=before&limit=5")]
-    [InlineData("?select=title&include=owner&count=exact&dependencyToken=true&ext[module.arg]=value")]
+    [InlineData("?select=title&include=owner&count=exact&ext[module.arg]=value")]
     public async Task SupportedQueryGrammarBinds(string query)
     {
         await using var app = await TestBaseApp.CreateAsync();
         var httpContext = new Microsoft.AspNetCore.Http.DefaultHttpContext();
         httpContext.Request.QueryString = new Microsoft.AspNetCore.Http.QueryString(query);
 
-        var result = await app.Services.GetRequiredService<HPD.Base.AspNetCore.QueryBinding.IBaseHttpQueryBinder>()
+        var result = await app.Services.GetRequiredService<HPD.Base.AspNetCore.IBaseHttpQueryBinder>()
             .BindListQueryAsync(httpContext);
 
         result.Status.Should().Be(OperationStatus.Ok);
@@ -56,17 +56,5 @@ public sealed class QueryBindingTests
 
         (await client.SendAsync(patch)).StatusCode.Should().Be(HttpStatusCode.OK);
 
-        using var create = new HttpRequestMessage(HttpMethod.Post, "/base/collections/items/records")
-        {
-            Content = JsonContent.Create(new RecordCreateRequest
-            {
-                IdempotencyKey = "idem-1",
-                Payload = TestBaseApp.Payload(("title", "idempotent"))
-            }, HPDBaseJsonSerializerContext.Default.RecordCreateRequest)
-        };
-        create.Headers.Add("Idempotency-Key", "idem-1");
-        var createResponse = await client.SendAsync(create);
-        createResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        (await createResponse.Content.ReadAsStringAsync()).Should().Contain("idempotencyUnsupported");
     }
 }

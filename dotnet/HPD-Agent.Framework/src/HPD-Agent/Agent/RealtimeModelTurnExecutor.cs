@@ -44,7 +44,7 @@ internal sealed class RealtimeModelTurnExecutor : IAgentInteractiveModelTurnExec
         var newUserMessages = CollectNewUserMessages(request);
         var realtimeAudioInputs = CollectRealtimeAudioInputs(newUserMessages);
         var responseItems = CollectNewUserMessageItems(newUserMessages);
-        var pendingInputTranscripts = request.RunConfig?.RealtimeTranscriptionOptions is not null
+        var pendingInputTranscripts = request.RunConfig?.Clients.Realtime?.Transcription is not null
             ? realtimeAudioInputs.Count
             : 0;
 
@@ -277,11 +277,21 @@ internal sealed class RealtimeModelTurnExecutor : IAgentInteractiveModelTurnExec
             SessionKind = RealtimeSessionKind.Conversation,
             Instructions = request.Options.Instructions,
             InputAudioFormat = inputAudioFormat,
-            TranscriptionOptions = request.RunConfig?.RealtimeTranscriptionOptions,
+            TranscriptionOptions = CreateTranscriptionOptions(request.RunConfig?.Clients.Realtime?.Transcription),
             ToolMode = request.Options.ToolMode,
             Tools = request.Options.Tools?.ToArray()
         };
     }
+
+    private static TranscriptionOptions? CreateTranscriptionOptions(RealtimeTranscriptionRunConfig? config)
+        => config is null
+            ? null
+            : new TranscriptionOptions
+            {
+                ModelId = config.ModelName,
+                SpeechLanguage = config.SpeechLanguage,
+                Prompt = config.Prompt
+            };
 
     private static CreateResponseRealtimeClientMessage CreateResponseMessage(
         AgentModelTurnRequest request,

@@ -19,7 +19,8 @@ public sealed class FunctionExecutionContextTests
             functionName: "Search",
             invocation: invocation,
             metadata: metadata,
-            traceId: "trace-1");
+            traceId: "trace-1",
+            threadExecutionId: "execution-1");
 
         context.InvocationSnapshot.Should().BeEquivalentTo(new FunctionInvocationSnapshot
         {
@@ -28,6 +29,7 @@ public sealed class FunctionExecutionContextTests
             SessionId = "session-1",
             ThreadId = "thread-1",
             TraceId = "trace-1",
+            ThreadExecutionId = "execution-1",
             FunctionCallId = "tool-call-1",
             FunctionName = "Search",
             Invocation = invocation
@@ -38,6 +40,7 @@ public sealed class FunctionExecutionContextTests
         context.SessionId.Should().Be("session-1");
         context.ThreadId.Should().Be("thread-1");
         context.TraceId.Should().Be("trace-1");
+        context.ThreadExecutionId.Should().Be("execution-1");
         context.FunctionCallId.Should().Be("tool-call-1");
         context.FunctionName.Should().Be("Search");
         context.Invocation.Should().Be(invocation);
@@ -85,23 +88,25 @@ public sealed class FunctionExecutionContextTests
     {
         var runConfig = new AgentRunConfig
         {
-            ContextOverrides = new Dictionary<string, object>
+            Context = new AgentContextRunConfig
             {
-                ["coding.workspaceRoot"] = "/tmp/workspace"
+                Properties = new Dictionary<string, object> { ["coding.workspaceRoot"] = "/tmp/workspace" }
             }
         };
 
         var context = CreateContext(runConfig: runConfig);
 
         context.RunConfig.Should().BeSameAs(runConfig);
-        context.RunConfig.ContextOverrides.Should().ContainKey("coding.workspaceRoot");
+        context.RunConfig.Context!.Properties.Should().ContainKey("coding.workspaceRoot");
     }
 
     [Fact]
     public void FunctionExecutionContext_ExposesEventCoordinatorAndStreams()
     {
         var coordinator = new EventCoordinator();
-        var context = CreateContext(eventCoordinator: coordinator);
+        var context = CreateContext(
+            eventCoordinator: coordinator,
+            threadExecutionId: "execution-1");
 
         context.EventCoordinator.Should().BeSameAs(coordinator);
         context.EventFlows.Should().BeSameAs(coordinator.EventFlows);
@@ -229,6 +234,32 @@ public sealed class FunctionExecutionContextTests
     }
 
     [Fact]
+    public async Task FunctionExecutionContext_RequestAsync_CancellationRemovesPendingRequest()
+    {
+        var coordinator = new EventCoordinator();
+        var context = CreateContext(
+            eventCoordinator: coordinator,
+            threadExecutionId: "execution-1");
+        using var cancellation = new CancellationTokenSource();
+
+        var responseTask = context.RequestAsync<TestRequestEvent, TestResponseEvent>(
+            new TestRequestEvent("request-1", "test"),
+            cancellation.Token);
+
+        var pending = coordinator.GetPendingRequests().Should().ContainSingle().Subject;
+        pending.Request.Should().BeOfType<TestRequestEvent>()
+            .Which.ThreadExecutionId.Should().Be("execution-1");
+
+        cancellation.Cancel();
+
+        Func<Task> waitForResponse = async () => await responseTask;
+        await waitForResponse.Should().ThrowAsync<OperationCanceledException>();
+        coordinator.GetPendingRequests().Should().BeEmpty();
+        coordinator.Respond(new TestResponseEvent("request-1", "test"))
+            .Status.Should().Be(HPD.Events.RespondStatus.Cancelled);
+    }
+
+    [Fact]
     public void RegisterBackgroundTask_WithoutRegistry_Throws()
     {
         var context = CreateContext(backgroundTasks: null);
@@ -315,6 +346,7 @@ public sealed class FunctionExecutionContextTests
         ToolResultMetadata? metadata = null,
         EventCoordinator? eventCoordinator = null,
         string? traceId = null,
+        string? threadExecutionId = null,
         IServiceProvider? services = null,
         IAgentBackgroundTaskRegistry? backgroundTasks = null,
         IStructEventHub? structEvents = null,
@@ -341,7 +373,8 @@ public sealed class FunctionExecutionContextTests
             thread,
             CancellationToken.None,
             services: services,
-            traceId: traceId);
+            traceId: traceId,
+            threadExecutionId: threadExecutionId);
         var beforeContext = agentContext.AsBeforeFunction(
             function,
             callId,
@@ -370,6 +403,18 @@ public sealed class FunctionExecutionContextTests
     private sealed record TestAgentEvent : AgentEvent
     {
         public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
+    }
+
+    private sealed record TestRequestEvent(string RequestId, string SourceName)
+        : AgentEvent, IAgentRequestEvent<TestResponseEvent>
+    {
+        public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
+    }
+
+    private sealed record TestResponseEvent(string RequestId, string SourceName)
+        : AgentEvent, IAgentResponseEvent
+    {
+        public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
     }
 
     private readonly record struct ToolStructSample(

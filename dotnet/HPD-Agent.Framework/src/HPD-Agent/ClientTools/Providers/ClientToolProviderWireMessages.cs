@@ -14,7 +14,7 @@ public sealed record ClientToolProviderHelloMessage
     public string Type { get; init; } = "provider.hello";
 
     /// <summary>Gets the provider protocol version.</summary>
-    public string ProtocolVersion { get; init; } = "1";
+    public string ProtocolVersion { get; init; } = "2";
 
     /// <summary>Gets the provider identity.</summary>
     public required ClientToolProviderIdentity Identity { get; init; }
@@ -47,7 +47,7 @@ public sealed record ClientToolProviderManifestMessage
     public string Type { get; init; } = "provider.manifest";
 
     /// <summary>Gets the provider protocol version.</summary>
-    public string ProtocolVersion { get; init; } = "1";
+    public string ProtocolVersion { get; init; } = "2";
 
     /// <summary>Gets the logical app provider identity.</summary>
     public required ClientAppProviderDescriptor AppProvider { get; init; }
@@ -98,6 +98,9 @@ public sealed record ClientToolProviderInvokeToolMessage
     /// <summary>Gets the wire message type.</summary>
     public string Type { get; init; } = "provider.invoke";
 
+    /// <summary>Gets the provider protocol version.</summary>
+    public string ProtocolVersion { get; init; } = "2";
+
     /// <summary>Gets HPD's provider runtime id.</summary>
     public required string ClientRuntimeId { get; init; }
 
@@ -113,6 +116,12 @@ public sealed record ClientToolProviderInvokeToolMessage
     /// <summary>Gets the client-tool request id.</summary>
     public required string RequestId { get; init; }
 
+    /// <summary>
+    /// Gets the HPD-assigned stable operation id for a background invocation.
+    /// Providers must return this exact id when accepting the operation.
+    /// </summary>
+    public string? ClientOperationId { get; init; }
+
     /// <summary>Gets the original provider-side tool name.</summary>
     public required string ToolName { get; init; }
 
@@ -125,8 +134,17 @@ public sealed record ClientToolProviderInvokeToolMessage
     /// <summary>Gets the invocation arguments.</summary>
     public required IReadOnlyDictionary<string, object?> Arguments { get; init; }
 
+    /// <summary>Gets the resolved compound operation.</summary>
+    public ClientToolResolvedOperation? Operation { get; init; }
+
+    /// <summary>Gets the provider context HPD expects for a fresh operation.</summary>
+    public ClientToolProviderContext? ExpectedContext { get; init; }
+
     /// <summary>Gets the requested invocation mode.</summary>
     public AgentInvocationMode? RequestedInvocationMode { get; init; }
+
+    /// <summary>Gets the invocation mode resolved by HPD policy.</summary>
+    public required AgentInvocationMode ResolvedInvocationMode { get; init; }
 
     /// <summary>Gets the invocation deadline.</summary>
     public DateTimeOffset? Deadline { get; init; }
@@ -155,10 +173,10 @@ public sealed record ClientToolProviderInvokeOutcomeMessage
     /// <summary>Gets final or launch content.</summary>
     public IReadOnlyList<IToolResultContent>? Content { get; init; }
 
-    /// <summary>Gets the error or rejection message.</summary>
-    public string? ErrorMessage { get; init; }
+    /// <summary>Gets the structured rejection or failure.</summary>
+    public ClientToolError? Error { get; init; }
 
-    /// <summary>Gets the provider-owned id for background work.</summary>
+    /// <summary>Gets the HPD-assigned id for background work.</summary>
     public string? ClientOperationId { get; init; }
 
     /// <summary>Gets optional handle kind for background work.</summary>
@@ -195,17 +213,25 @@ public sealed record ClientToolProviderBackgroundOperationOutcomeMessage
     /// <summary>Gets optional client tool augmentation.</summary>
     public ClientToolAugmentation? Augmentation { get; init; }
 
-    /// <summary>Gets the error message for faulted operations.</summary>
-    public string? ErrorMessage { get; init; }
-
-    /// <summary>Gets the error type for faulted operations.</summary>
-    public string? ErrorType { get; init; }
+    /// <summary>Gets the structured fault information.</summary>
+    public ClientToolError? Error { get; init; }
 
     /// <summary>Gets the cancellation reason for cancelled operations.</summary>
     public string? CancellationReason { get; init; }
 
     /// <summary>Gets provider-supplied terminal metadata.</summary>
     public IReadOnlyDictionary<string, string>? Metadata { get; init; }
+}
+
+/// <summary>Structured provider rejection or failure.</summary>
+public sealed record ClientToolError
+{
+    public required string Kind { get; init; }
+    public required string Message { get; init; }
+    public bool? Retryable { get; init; }
+    public IReadOnlyList<IToolResultContent>? Details { get; init; }
+    public ClientToolProviderContext? CurrentContext { get; init; }
+    public IReadOnlyDictionary<string, object?>? Metadata { get; init; }
 }
 
 /// <summary>

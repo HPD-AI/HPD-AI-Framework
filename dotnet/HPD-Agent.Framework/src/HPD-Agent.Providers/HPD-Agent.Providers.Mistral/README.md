@@ -12,4 +12,4 @@ dotnet add package HPD-Agent.Providers.Mistral
 
 Use this package when you need the Mistral model provider in HPD Agent applications.
 
-Runtime model-call behavior is configured through `ChatRunConfig`. Mistral-only per-request fields are configured with `MistralChatRequestOptions`.
+Runtime model-call behavior is configured through `ChatClientConfig`. Mistral-only per-request fields are configured with `MistralChatRequestOptions`.

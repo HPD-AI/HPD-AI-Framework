@@ -1,0 +1,90 @@
+using Microsoft.Extensions.Logging;
+
+namespace HPD.Base;
+
+internal sealed class DefaultBaseResultNormalizer : IBaseResultNormalizer
+{
+    private readonly ILogger<DefaultBaseResultNormalizer> _logger;
+
+    /// <summary>Initializes a new instance.</summary>
+    public DefaultBaseResultNormalizer(ILogger<DefaultBaseResultNormalizer> logger)
+    {
+        _logger = logger;
+    }
+
+    /// <summary>Executes the normalize store result operation.</summary>
+    public OperationResult<T> NormalizeStoreResult<T>(
+        OperationResult<T> result,
+        OperationContext operation)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+
+        if (result.Status.IsSuccess())
+        {
+            if (result.Value is null)
+            {
+                HPDBaseRuntimeLog.StoreResultMalformed(
+                    _logger,
+                    HPDBaseRuntimeLog.OperationKind(operation.Operation));
+                return OperationResults.StoreError<T>(new BaseError
+                {
+                    Code = "base.runtime.store.nullSuccessValue",
+                    Message = "Store returned a successful result without a value.",
+                    Category = ErrorCategory.Store,
+                    Target = operation.CollectionId,
+                    CorrelationId = operation.CorrelationId
+                });
+            }
+
+            return result;
+        }
+
+        var error = result.Error;
+        if (error is null)
+        {
+            HPDBaseRuntimeLog.StoreFailureMalformed(
+                _logger,
+                HPDBaseRuntimeLog.OperationKind(operation.Operation));
+            error = new BaseError
+            {
+                Code = ErrorCode(result.Status),
+                Message = "Store returned a failed result without error details.",
+                Category = ErrorCategoryFor(result.Status),
+                Target = operation.CollectionId,
+                CorrelationId = operation.CorrelationId
+            };
+        }
+
+        return result with
+        {
+            Value = default,
+            Error = error
+        };
+    }
+
+    private static string ErrorCode(OperationStatus status) => status switch
+    {
+        OperationStatus.NotFound => "base.runtime.store.notFound",
+        OperationStatus.Conflict => "base.runtime.store.conflict",
+        OperationStatus.ValidationFailed => "base.runtime.store.validationFailed",
+        OperationStatus.PolicyDenied => "base.runtime.store.policyDenied",
+        OperationStatus.Unauthorized => "base.runtime.store.unauthorized",
+        OperationStatus.Unsupported => "base.runtime.store.unsupported",
+        OperationStatus.CapabilityUnavailable => "base.runtime.store.capabilityUnavailable",
+        OperationStatus.StoreError => "base.runtime.store.error",
+        _ => "base.runtime.store.failure"
+    };
+
+    private static ErrorCategory ErrorCategoryFor(OperationStatus status) => status switch
+    {
+        OperationStatus.NotFound => ErrorCategory.NotFound,
+        OperationStatus.Conflict => ErrorCategory.Conflict,
+        OperationStatus.ValidationFailed => ErrorCategory.Validation,
+        OperationStatus.PolicyDenied => ErrorCategory.Authorization,
+        OperationStatus.Unauthorized => ErrorCategory.Authentication,
+        OperationStatus.Unsupported => ErrorCategory.Unsupported,
+        OperationStatus.CapabilityUnavailable => ErrorCategory.Capability,
+        OperationStatus.StoreError => ErrorCategory.Store,
+        _ => ErrorCategory.Unexpected
+    };
+}

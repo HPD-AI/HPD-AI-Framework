@@ -10,7 +10,9 @@ namespace HPD.Agent.Providers.Audio.ElevenLabs;
     WriteIndented = false,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(ElevenLabsTtsConfig))]
+[JsonSerializable(typeof(ElevenLabsTtsOptions))]
 [JsonSerializable(typeof(ElevenLabsSttConfig))]
+[JsonSerializable(typeof(ElevenLabsSttOptions))]
 [JsonSerializable(typeof(ElevenLabsTtsRequest))]
 [JsonSerializable(typeof(ElevenLabsSpeechToTextResponse))]
 [JsonSerializable(typeof(ElevenLabsWebSocketInitializeMessage))]

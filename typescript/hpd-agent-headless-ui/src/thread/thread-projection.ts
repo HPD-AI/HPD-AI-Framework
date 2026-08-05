@@ -49,6 +49,7 @@ interface ProjectionContext {
 
 interface ProjectionEventContext {
   eventFlowId?: string;
+  threadExecutionId?: string | null;
   sequenceNumber?: number;
   timestamp?: string;
 }
@@ -97,6 +98,12 @@ class ThreadProjectionImpl implements ThreadProjection {
     try {
       for (const event of snapshot.events) {
         this.project(event);
+      }
+      for (const pending of snapshot.pendingRequests ?? []) {
+        this.project({
+          ...pending.request,
+          timestamp: pending.request.timestamp ?? pending.createdAt,
+        });
       }
     } finally {
       this.muted = false;
@@ -203,6 +210,18 @@ class ThreadProjectionImpl implements ThreadProjection {
         break;
       case EventTypes.CLIENT_TOOL_INVOKE_OUTCOME:
         this.removeClientToolRequest(known.requestId);
+        break;
+      case EventTypes.CONTINUATION_REQUEST:
+        this.addCustomRequest({
+          ...known,
+          requestId: known.continuationId,
+        });
+        break;
+      case EventTypes.CONTINUATION_RESPONSE:
+        this.removePendingRequest(known.continuationId);
+        break;
+      case EventTypes.AGENT_REQUEST_TERMINATED:
+        this.removePendingRequest(known.requestId);
         break;
       case EventTypes.MESSAGE_TURN_STARTED:
         this.startWorkGroup({
@@ -848,7 +867,10 @@ class ThreadProjectionImpl implements ThreadProjection {
     return {
       turnId: event?.eventFlowId ?? this.snapshot.currentTurnId ?? null,
       conversationId: this.snapshot.currentConversationId,
-      executionId: this.snapshot.currentExecutionId ?? this.snapshot.threadExecution?.threadExecutionId ?? null,
+      executionId: event?.threadExecutionId ??
+        this.snapshot.currentExecutionId ??
+        this.snapshot.threadExecution?.threadExecutionId ??
+        null,
       eventFlowId: event?.eventFlowId,
       sequenceNumber: event?.sequenceNumber,
       timestamp: event?.timestamp,

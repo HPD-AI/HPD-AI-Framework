@@ -1,14 +1,31 @@
 namespace HPD.Environment.AppleVirtualization.Hosts;
 
 using System.Globalization;
+using System.Security.Cryptography;
+using System.Text.Json;
 using HPD.Environment.AppleVirtualization.Activation;
+using HPD.Environment.AppleVirtualization.GuestAgent;
 using HPD.Environment.AppleVirtualization.Handles;
 using HPD.Environment.AppleVirtualization.Protocol;
 using HPD.Environment.AppleVirtualization.State;
 using HPD.Environment.Contracts;
 
-public sealed class AppleVirtualizationRuntimeHostProvider : IRuntimeHostProvider
+internal sealed record AppleVirtualizationRuntimeHostFingerprintInput(
+    RuntimeHostSpec Spec,
+    int EffectiveCpuCount,
+    long EffectiveMemoryBytes,
+    long EffectiveDiskBytes,
+    AppleVirtualizationGuestImageOptions GuestImage,
+    AppleVirtualizationEngineBootstrapOptions EngineBootstrap,
+    bool GuestControlExpected,
+    uint GuestAgentVirtioSocketPort,
+    bool RealVmBootEnabled);
+
+public sealed class AppleVirtualizationRuntimeHostProvider :
+    IRuntimeHostProvider,
+    IRuntimeHostWakeReconciliationProvider
 {
+    private const int MaxRetainedDiagnostics = 64;
     private static readonly SchemaVersion SchemaVersion = new("v1");
     private static readonly ResourceKind RuntimeHostKind = new("runtime-host");
     private static readonly ContentType JsonContentType = new("application/json");
@@ -23,7 +40,10 @@ public sealed class AppleVirtualizationRuntimeHostProvider : IRuntimeHostProvide
     private static readonly DiagnosticCode EngineBootstrapAuthorityModeMissingCode = new("AppleVirtualization.EngineBootstrapAuthorityModeMissing");
     private static readonly DiagnosticCode EngineBootstrapStatusMissingCode = new("AppleVirtualization.EngineBootstrapStatusMissing");
     private static readonly DiagnosticCode EngineProvisioningStatusMissingCode = new("AppleVirtualization.EngineProvisioningStatusMissing");
+    private static readonly DiagnosticCode ImmutableConfigurationConflictCode = new("AppleVirtualization.RuntimeHostImmutableConfigurationConflict");
+    private static readonly DiagnosticCode StaleObservedHandleCode = new("AppleVirtualization.RuntimeHostStaleObservedHandle");
     private const int MaxReadinessDiagnosticMessageLength = 512;
+    private const uint GuestAgentVirtioSocketPort = 7_777;
 
     private readonly AppleVirtualizationProviderStateLedger _ledger;
     private readonly IAppleVirtualizationHelperClient _helper;
@@ -75,6 +95,125 @@ public sealed class AppleVirtualizationRuntimeHostProvider : IRuntimeHostProvide
             return Store(metadata, FailureStatus(metadata, spec, UnsupportedHost(_hostPlatform)), spec);
         }
 
+        string requestedFingerprint = ConfigurationFingerprint(spec);
+        if (observed?.Handle is { } existingHandle &&
+            observed.HostPhase is RuntimeHostPhase.Starting or RuntimeHostPhase.Running or RuntimeHostPhase.Ready or RuntimeHostPhase.Degraded)
+        {
+            if (existingHandle.ProviderGeneration != _ledger.ProviderGeneration)
+            {
+                return observed with
+                {
+                    Phase = ResourcePhase.Failed,
+                    ReconciliationOutcome = ResourceReconciliationOutcome.ImmutableConflict,
+                    HostPhase = RuntimeHostPhase.Failed,
+                    LastTransitionAt = DateTimeOffset.UtcNow,
+                    Diagnostics = AppendDiagnostic(observed.Diagnostics, new Diagnostic
+                    {
+                        Severity = DiagnosticSeverity.Error,
+                        Code = StaleObservedHandleCode,
+                        Message = "The observed runtime-host handle belongs to a stale provider generation and cannot be reconciled.",
+                        ProviderId = AppleVirtualizationProviderDescriptor.ProviderId,
+                        TargetPath = "runtimeHost.handle.providerGeneration",
+                    }),
+                };
+            }
+
+            string? activeFingerprint = _ledger.GetRuntimeHostConfigurationFingerprint(metadata.Id, metadata.Scope);
+            if (!string.Equals(activeFingerprint, requestedFingerprint, StringComparison.Ordinal))
+            {
+                return observed with
+                {
+                    Phase = ResourcePhase.Failed,
+                    HostPhase = RuntimeHostPhase.Failed,
+                    LastTransitionAt = DateTimeOffset.UtcNow,
+                    Diagnostics = AppendDiagnostic(observed.Diagnostics, new Diagnostic
+                    {
+                        Severity = DiagnosticSeverity.Error,
+                        Code = ImmutableConfigurationConflictCode,
+                        Message = activeFingerprint is null
+                            ? "The active VM has no persisted configuration fingerprint and must be replaced before reconciliation."
+                            : "The requested VM-defining configuration differs from the active VM; stop/delete/recreate is required.",
+                        ProviderId = AppleVirtualizationProviderDescriptor.ProviderId,
+                        TargetPath = "runtimeHost.spec",
+                    }),
+                };
+            }
+
+            AppleVirtualizationHelperEnvelope response = await _helper.SendAsync(
+                HostLifecycleRequest(metadata, observed, AppleVirtualizationHelperOperation.HostStatus),
+                cancellationToken).ConfigureAwait(false);
+            RuntimeHostStatus existing = response.ResponseStatus == AppleVirtualizationHelperResponseStatus.Error
+                ? observed with
+                {
+                    Phase = ResourcePhase.Degraded,
+                    LastTransitionAt = DateTimeOffset.UtcNow,
+                    Diagnostics = AppendDiagnostic(observed.Diagnostics, ToDiagnostic(response.Error, "host.status")),
+                }
+                : MapHostStatus(metadata, spec, observed, response.HostStatusResponse, response.GuestControlStatusResponse);
+
+            existing = existing with { Handle = existingHandle };
+            existing = await ProbeGuestAgentReadinessAsync(metadata, spec, existing, cancellationToken).ConfigureAwait(false);
+            existing = await ApplyEngineBootstrapStatusAsync(metadata, spec, existing, cancellationToken).ConfigureAwait(false);
+            return Store(metadata, existing, spec);
+        }
+
+        if (observed?.Handle is { } retainedHandle &&
+            observed.HostPhase is RuntimeHostPhase.Stopping or RuntimeHostPhase.Stopped or RuntimeHostPhase.Failed)
+        {
+            if (retainedHandle.ProviderGeneration != _ledger.ProviderGeneration)
+            {
+                return observed with
+                {
+                    Phase = ResourcePhase.Failed,
+                    ReconciliationOutcome = ResourceReconciliationOutcome.ImmutableConflict,
+                    HostPhase = RuntimeHostPhase.Failed,
+                    LastTransitionAt = DateTimeOffset.UtcNow,
+                    Diagnostics = AppendDiagnostic(observed.Diagnostics, new Diagnostic
+                    {
+                        Severity = DiagnosticSeverity.Error,
+                        Code = StaleObservedHandleCode,
+                        Message = "The observed runtime-host handle belongs to a stale provider generation and cannot be restarted.",
+                        ProviderId = AppleVirtualizationProviderDescriptor.ProviderId,
+                        TargetPath = "runtimeHost.handle.providerGeneration",
+                    }),
+                };
+            }
+
+            string? retainedFingerprint =
+                _ledger.GetRuntimeHostConfigurationFingerprint(metadata.Id, metadata.Scope);
+            if (!string.Equals(retainedFingerprint, requestedFingerprint, StringComparison.Ordinal))
+            {
+                return observed with
+                {
+                    Phase = ResourcePhase.Failed,
+                    ReconciliationOutcome = ResourceReconciliationOutcome.ImmutableConflict,
+                    HostPhase = RuntimeHostPhase.Failed,
+                    LastTransitionAt = DateTimeOffset.UtcNow,
+                    Diagnostics = AppendDiagnostic(observed.Diagnostics, new Diagnostic
+                    {
+                        Severity = DiagnosticSeverity.Error,
+                        Code = ImmutableConfigurationConflictCode,
+                        Message = "The retained VM configuration differs from the requested configuration; delete and recreate the host.",
+                        ProviderId = AppleVirtualizationProviderDescriptor.ProviderId,
+                        TargetPath = "runtimeHost.spec",
+                    }),
+                };
+            }
+
+            if (ShouldStartRealVm())
+                return await EnsureRealVmLifecycleAsync(
+                    metadata,
+                    spec,
+                    observed,
+                    cancellationToken).ConfigureAwait(false);
+            return await EnsureAsync(
+                    metadata,
+                    spec,
+                    observed: null,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         RuntimeHostStatus status = Store(metadata, CreateStatus(metadata, spec, RuntimeHostPhase.Preparing, ResourcePhase.Reconciling), spec);
 
         if (ShouldValidateVmConfiguration())
@@ -107,7 +246,6 @@ public sealed class AppleVirtualizationRuntimeHostProvider : IRuntimeHostProvide
                     KernelPath = _options.GuestImage.KernelPath,
                     InitrdPath = _options.GuestImage.InitrdPath,
                     KernelCommandLine = _options.GuestImage.KernelCommandLine,
-                    DiskImagePath = _options.GuestImage.DiskImagePath,
                     EfiVariableStorePath = _options.GuestImage.EfiVariableStorePath,
                     SerialLogPath = _options.GuestImage.SerialLogPath,
                     ExpectVirtiofsSupport = _options.GuestImage.ExpectVirtiofsSupport,
@@ -134,6 +272,7 @@ public sealed class AppleVirtualizationRuntimeHostProvider : IRuntimeHostProvide
                 HostLifecycleRequest = new AppleVirtualizationHostLifecycleRequest
                 {
                     HostId = metadata.Id.Value,
+                    HostStartGeneration = checked((ulong)NextHostStartGeneration(status).Value),
                     Reason = "ensure",
                 },
             },
@@ -206,14 +345,23 @@ public sealed class AppleVirtualizationRuntimeHostProvider : IRuntimeHostProvide
 
     private AppleVirtualizationGuestAgentReadinessProbeRequest CreateGuestAgentReadinessProbeRequest(
         string hostId,
-        RuntimeHostSpec? spec) =>
+        RuntimeHostSpec? spec,
+        bool reconcileClock = false) =>
         new()
         {
             HostId = hostId,
             ExplicitRealMode = _options.FeatureGates.EnableRealVmBoot,
             TimeoutMilliseconds = ToMilliseconds(ReadinessTimeout(spec) ?? TimeSpan.FromSeconds(1)),
             ExpectedAgentVersion = _options.GuestImage.ExpectedGuestAgentVersion,
+            ExpectedRuntimeFilesystemUuid =
+                _options.GuestImage.ExpectedRuntimeFilesystemUuid,
+            ExpectedAppDataFilesystemUuid =
+                _options.GuestImage.ExpectedAppDataFilesystemUuid,
             RequiredCapabilities = Array.Empty<string>(),
+            HostUtcUnixMilliseconds = reconcileClock
+                ? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                : null,
+            CorrectGuestClock = reconcileClock,
         };
 
     private RuntimeHostStatus ApplyGuestAgentReadinessResponse(
@@ -248,9 +396,39 @@ public sealed class AppleVirtualizationRuntimeHostProvider : IRuntimeHostProvide
             };
         }
 
-        bool verifiedReady = readiness.VerifiedReady && readiness.State == AppleVirtualizationGuestAgentReadinessState.Ready;
+        bool storageIdentityMatches =
+            MatchesExpectedStorageIdentity(
+                readiness.RuntimeFilesystemUuid,
+                _options.GuestImage
+                    .ExpectedRuntimeFilesystemUuid) &&
+            MatchesExpectedStorageIdentity(
+                readiness.AppDataFilesystemUuid,
+                _options.GuestImage
+                    .ExpectedAppDataFilesystemUuid);
+        bool verifiedReady =
+            readiness.VerifiedReady &&
+            readiness.State ==
+                AppleVirtualizationGuestAgentReadinessState.Ready &&
+            storageIdentityMatches;
         DateTimeOffset now = DateTimeOffset.UtcNow;
         IReadOnlyList<Diagnostic> diagnostics = previous.Diagnostics;
+        if (!storageIdentityMatches)
+        {
+            diagnostics = AppendDiagnostic(
+                diagnostics,
+                new Diagnostic
+                {
+                    Severity = DiagnosticSeverity.Error,
+                    Code = new DiagnosticCode(
+                        "Environment.Storage.IntegrityCheckRequired"),
+                    Message =
+                        "The guest runtime or App-data filesystem identity does not match the accepted Apple realization.",
+                    ProviderId =
+                        AppleVirtualizationProviderDescriptor.ProviderId,
+                    TargetPath =
+                        "guestAgent.readiness.storageIdentity",
+                });
+        }
         if (!verifiedReady && ReadinessFailureDiagnostic(readiness, operation) is { } readinessDiagnostic)
         {
             diagnostics = AppendDiagnostic(diagnostics, readinessDiagnostic);
@@ -286,6 +464,10 @@ public sealed class AppleVirtualizationRuntimeHostProvider : IRuntimeHostProvide
                 GuestBootGeneration = readiness.GuestBootGeneration == 0
                     ? previous.Generations.GuestBootGeneration
                     : new GuestBootGeneration(GuestBootGenerationValue(readiness)),
+                GuestAgentGeneration = readiness.GuestAgentGeneration == 0
+                    ? previous.Generations.GuestAgentGeneration
+                    : new ResourceGeneration(checked(
+                        (long)readiness.GuestAgentGeneration)),
             },
             Storage = previous.Storage is null
                 ? null
@@ -297,6 +479,15 @@ public sealed class AppleVirtualizationRuntimeHostProvider : IRuntimeHostProvide
                 },
         };
     }
+
+    private static bool MatchesExpectedStorageIdentity(
+        string? observed,
+        string? expected) =>
+        expected is null ||
+        string.Equals(
+            observed,
+            expected,
+            StringComparison.OrdinalIgnoreCase);
 
     private static bool GuestAgentEvidencePresent(AppleVirtualizationGuestAgentReadinessProbeResponse readiness) =>
         readiness.State is AppleVirtualizationGuestAgentReadinessState.Ready
@@ -420,6 +611,22 @@ public sealed class AppleVirtualizationRuntimeHostProvider : IRuntimeHostProvide
             : string.Concat(BoundDiagnosticMessage(readiness.GuestBootId, 128), ":", generation);
     }
 
+    private static (string? GuestBootId, ulong? Generation) ParseGuestBootGeneration(
+        GuestBootGeneration? generation)
+    {
+        if (generation is null || string.IsNullOrWhiteSpace(generation.Value.Value))
+        {
+            return (null, null);
+        }
+
+        string value = generation.Value.Value;
+        int separator = value.LastIndexOf(':');
+        string number = separator >= 0 ? value[(separator + 1)..] : value;
+        return ulong.TryParse(number, NumberStyles.None, CultureInfo.InvariantCulture, out ulong parsed)
+            ? (separator > 0 ? value[..separator] : null, parsed)
+            : (null, null);
+    }
+
     private async ValueTask<RuntimeHostStatus> ApplyEngineBootstrapStatusAsync(
         ResourceMetadata<RuntimeHost> metadata,
         RuntimeHostSpec spec,
@@ -533,6 +740,10 @@ public sealed class AppleVirtualizationRuntimeHostProvider : IRuntimeHostProvide
                 EngineStatusRequest = new AppleVirtualizationEngineStatusRequest
                 {
                     HostId = metadata.Id.Value,
+                    ProviderGeneration = _ledger.ProviderGeneration,
+                    HostStartGeneration = (ulong)Math.Max(
+                        0,
+                        previous.Generations.HostStartGeneration?.Value ?? 0),
                     EngineId = intent.EngineId,
                     Kind = _options.EngineBootstrap.Kind,
                     Api = _options.EngineBootstrap.Api,
@@ -576,6 +787,52 @@ public sealed class AppleVirtualizationRuntimeHostProvider : IRuntimeHostProvide
                     "StatusMissing",
                     "Engine bootstrap status could not be observed.",
                     metadata.Generation)),
+            };
+        }
+
+        AppleVirtualizationGuestAgentEngineGenerationStamp? generation = engine.GuestEngineStatus?.Generation;
+        ulong expectedHostStartGeneration = (ulong)Math.Max(
+            0,
+            previous.Generations.HostStartGeneration?.Value ?? 0);
+        (string? ExpectedGuestBootId, ulong? ExpectedGuestBootGeneration) expectedGuestBoot =
+            ParseGuestBootGeneration(previous.Generations.GuestBootGeneration);
+        string generationFailure = string.Empty;
+        bool engineIdentityMatches =
+            string.Equals(engine.EngineId, intent.EngineId, StringComparison.Ordinal) &&
+            string.Equals(engine.GuestEngineStatus?.EngineId, intent.EngineId, StringComparison.Ordinal);
+        if (!engineIdentityMatches)
+        {
+            generationFailure = "Engine status was rejected because its engine identity did not match the requested engine.";
+        }
+        bool generationAccepted = engineIdentityMatches && generation is not null &&
+            _ledger.TryAcceptRuntimeHostEngineGeneration(
+                metadata.Id,
+                metadata.Scope,
+                intent.EngineId,
+                generation,
+                _ledger.ProviderGeneration,
+                expectedHostStartGeneration,
+                expectedGuestBoot.ExpectedGuestBootId,
+                expectedGuestBoot.ExpectedGuestBootGeneration,
+                requireEngineGeneration: engine.Ready,
+                out generationFailure);
+        if (generation is null || !generationAccepted)
+        {
+            Diagnostic diagnostic = new()
+            {
+                Severity = DiagnosticSeverity.Error,
+                Code = new DiagnosticCode("AppleVirtualization.EngineStatusStaleGeneration"),
+                Message = string.IsNullOrWhiteSpace(generationFailure)
+                    ? "Engine status was rejected because its provider or host-start generation was missing or stale."
+                    : generationFailure,
+                ProviderId = AppleVirtualizationProviderDescriptor.ProviderId,
+                TargetPath = "engine.status.generation",
+            };
+            return previous with
+            {
+                Phase = ResourcePhase.Degraded,
+                HostPhase = RuntimeHostPhase.Degraded,
+                Diagnostics = AppendDiagnostic(previous.Diagnostics, diagnostic),
             };
         }
 
@@ -706,7 +963,13 @@ public sealed class AppleVirtualizationRuntimeHostProvider : IRuntimeHostProvide
         CancellationToken cancellationToken)
     {
         AppleVirtualizationRealModePreconditionResult preconditions =
-            AppleVirtualizationRealModePreconditions.Evaluate(_options);
+            AppleVirtualizationRealModePreconditions.Evaluate(
+                _options,
+                helperOwnsRetainedVm:
+                    previous.Handle is not null &&
+                    previous.HostPhase is
+                        RuntimeHostPhase.Stopped or
+                        RuntimeHostPhase.Failed);
         if (!preconditions.Passed)
         {
             return Store(metadata, previous with
@@ -734,6 +997,7 @@ public sealed class AppleVirtualizationRuntimeHostProvider : IRuntimeHostProvide
                 HostLifecycleRequest = new AppleVirtualizationHostLifecycleRequest
                 {
                     HostId = metadata.Id.Value,
+                    HostStartGeneration = checked((ulong)NextHostStartGeneration(previous).Value),
                     ExplicitRealMode = true,
                     Reason = "ensure-real-vm",
                     VmConfigurationValidationRequest = CreateVmConfigurationValidationRequest(metadata.Id.Value, spec),
@@ -857,6 +1121,8 @@ public sealed class AppleVirtualizationRuntimeHostProvider : IRuntimeHostProvide
                 HostLifecycleRequest = new AppleVirtualizationHostLifecycleRequest
                 {
                     HostId = entry.Resource.Id.Value,
+                    HostStartGeneration = checked((ulong)(
+                        entry.Status.Generations.HostStartGeneration?.Value ?? 0)),
                     ExplicitRealMode = _options.FeatureGates.EnableRealVmBoot,
                     StopKind = policy.Kind,
                     GracePeriod = policy.GracePeriod,
@@ -875,15 +1141,82 @@ public sealed class AppleVirtualizationRuntimeHostProvider : IRuntimeHostProvide
                 Diagnostics = AppendDiagnostic(entry.Status.Diagnostics, ToDiagnostic(response.Error, OperationName(operation))),
             }
             : MapHostStatus(ToMetadata(entry), null, entry.Status, response.HostStatusResponse, response.GuestControlStatusResponse);
+        string gracefulStopFailureCode = response.Error?.Code ??
+            response.HostStatusResponse?.Diagnostics.FirstOrDefault()?.Code.Value ??
+            (response.ResponseStatus + "." +
+             (response.HostStatusResponse?.HostPhase.ToString() ??
+              "MissingHostStatus"));
 
-        if (policy.Kind == StopKind.GracefulThenKill && status.HostPhase != RuntimeHostPhase.Stopped)
+        bool gracefulTimedOut = false;
+        if (policy.Kind is (StopKind.Graceful or StopKind.GracefulThenKill) &&
+            status.HostPhase != RuntimeHostPhase.Stopped &&
+            policy.GracePeriod > TimeSpan.Zero)
         {
+            long startedAt =
+                System.Diagnostics.Stopwatch.GetTimestamp();
+            while (status.HostPhase == RuntimeHostPhase.Stopping &&
+                System.Diagnostics.Stopwatch.GetElapsedTime(
+                    startedAt) < policy.GracePeriod)
+            {
+                TimeSpan remaining =
+                    policy.GracePeriod -
+                    System.Diagnostics.Stopwatch.GetElapsedTime(
+                        startedAt);
+                if (remaining <= TimeSpan.Zero)
+                    break;
+                await Task.Delay(
+                        remaining < TimeSpan.FromMilliseconds(50)
+                            ? remaining
+                            : TimeSpan.FromMilliseconds(50),
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                AppleVirtualizationHelperEnvelope observation =
+                    await _helper.SendAsync(
+                            HostLifecycleRequest(
+                                ToMetadata(entry),
+                                status,
+                                AppleVirtualizationHelperOperation
+                                    .HostStatus),
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                status = observation.ResponseStatus ==
+                    AppleVirtualizationHelperResponseStatus.Error
+                        ? status with
+                        {
+                            Phase = ResourcePhase.Degraded,
+                            Diagnostics = AppendDiagnostic(
+                                status.Diagnostics,
+                                ToDiagnostic(
+                                    observation.Error,
+                                    "host.status")),
+                        }
+                        : MapHostStatus(
+                            ToMetadata(entry),
+                            null,
+                            status,
+                            observation.HostStatusResponse,
+                            observation.GuestControlStatusResponse);
+            }
+            gracefulTimedOut =
+                status.HostPhase != RuntimeHostPhase.Stopped;
+        }
+
+        bool forcedStop = policy.Kind == StopKind.Kill;
+        if (policy.Kind == StopKind.GracefulThenKill &&
+            status.HostPhase != RuntimeHostPhase.Stopped)
+        {
+            gracefulTimedOut = true;
+            forcedStop = true;
+            IReadOnlyList<Diagnostic> gracefulStopDiagnostics =
+                status.Diagnostics;
             AppleVirtualizationHelperEnvelope forceResponse = await _helper.SendAsync(
                 HostLifecycleRequest(ToMetadata(entry), status, AppleVirtualizationHelperOperation.HostStop) with
                 {
                     HostLifecycleRequest = new AppleVirtualizationHostLifecycleRequest
                     {
                         HostId = entry.Resource.Id.Value,
+                        HostStartGeneration = checked((ulong)(
+                            status.Generations.HostStartGeneration?.Value ?? 0)),
                         ExplicitRealMode = _options.FeatureGates.EnableRealVmBoot,
                         StopKind = StopKind.Kill,
                         GracePeriod = TimeSpan.Zero,
@@ -902,6 +1235,94 @@ public sealed class AppleVirtualizationRuntimeHostProvider : IRuntimeHostProvide
                     Diagnostics = AppendDiagnostic(status.Diagnostics, ToDiagnostic(forceResponse.Error, "host.stop")),
                 }
                 : MapHostStatus(ToMetadata(entry), null, status, forceResponse.HostStatusResponse, forceResponse.GuestControlStatusResponse);
+            status = status with
+            {
+                Diagnostics = AppendDiagnostics(
+                    gracefulStopDiagnostics,
+                    status.Diagnostics),
+            };
+        }
+
+        if (forcedStop &&
+            status.HostPhase == RuntimeHostPhase.Stopping)
+        {
+            TimeSpan completionTimeout =
+                _options.HostStopCompletionTimeout > TimeSpan.Zero
+                    ? _options.HostStopCompletionTimeout
+                    : TimeSpan.FromSeconds(10);
+            long startedAt =
+                System.Diagnostics.Stopwatch.GetTimestamp();
+            while (status.HostPhase == RuntimeHostPhase.Stopping &&
+                   System.Diagnostics.Stopwatch.GetElapsedTime(startedAt) <
+                       completionTimeout)
+            {
+                TimeSpan remaining = completionTimeout -
+                    System.Diagnostics.Stopwatch.GetElapsedTime(startedAt);
+                if (remaining <= TimeSpan.Zero)
+                    break;
+                await Task.Delay(
+                        remaining < TimeSpan.FromMilliseconds(50)
+                            ? remaining
+                            : TimeSpan.FromMilliseconds(50),
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                AppleVirtualizationHelperEnvelope observation =
+                    await _helper.SendAsync(
+                            HostLifecycleRequest(
+                                ToMetadata(entry),
+                                status,
+                                AppleVirtualizationHelperOperation
+                                    .HostStatus),
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                status = observation.ResponseStatus ==
+                    AppleVirtualizationHelperResponseStatus.Error
+                        ? status with
+                        {
+                            Phase = ResourcePhase.Degraded,
+                            Diagnostics = AppendDiagnostic(
+                                status.Diagnostics,
+                                ToDiagnostic(
+                                    observation.Error,
+                                    "host.status")),
+                        }
+                        : MapHostStatus(
+                            ToMetadata(entry),
+                            null,
+                            status,
+                            observation.HostStatusResponse,
+                            observation.GuestControlStatusResponse);
+            }
+        }
+
+        if (gracefulTimedOut)
+        {
+            status = status with
+            {
+                Conditions = AppendCondition(
+                    status.Conditions,
+                    LifecycleCondition(
+                        "Environment.Lifecycle.GracefulStopTimedOut",
+                        gracefulStopFailureCode,
+                        "The guest did not prove a clean shutdown before the graceful-stop deadline (" +
+                        gracefulStopFailureCode + ").",
+                        ToMetadata(entry).Generation,
+                        DiagnosticSeverity.Error)),
+            };
+        }
+        if (forcedStop)
+        {
+            status = status with
+            {
+                Conditions = AppendCondition(
+                    status.Conditions,
+                    LifecycleCondition(
+                        "Environment.Lifecycle.ForcedStop",
+                        policy.Kind.ToString(),
+                        "The Apple virtual machine was stopped destructively and requires integrity checks before mutation.",
+                        ToMetadata(entry).Generation,
+                        DiagnosticSeverity.Error)),
+            };
         }
 
         RuntimeHostStatus stored = Store(ToMetadata(entry), status);
@@ -926,6 +1347,21 @@ public sealed class AppleVirtualizationRuntimeHostProvider : IRuntimeHostProvide
         return stored;
     }
 
+    private static Condition LifecycleCondition(
+        string type,
+        string reason,
+        string message,
+        ResourceGeneration generation,
+        DiagnosticSeverity severity) =>
+        new(
+            type,
+            ConditionStatus.True,
+            reason,
+            message,
+            DateTimeOffset.UtcNow,
+            generation,
+            severity);
+
     public async ValueTask DeleteAsync(ResourceRef<RuntimeHost> host, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -937,7 +1373,29 @@ public sealed class AppleVirtualizationRuntimeHostProvider : IRuntimeHostProvide
         }
 
         AppleVirtualizationLedgerEntry<RuntimeHost, RuntimeHostStatus> entry = lookup.Entry!;
-        await _helper.SendAsync(
+        TimeSpan timeout = _options.HostDeletionTimeout > TimeSpan.Zero
+            ? _options.HostDeletionTimeout
+            : TimeSpan.FromSeconds(30);
+        using var deletionTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deletionTimeout.CancelAfter(timeout);
+
+        try
+        {
+            await DeleteHostCoreAsync(host, entry, deletionTimeout.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && deletionTimeout.IsCancellationRequested)
+        {
+            throw new TimeoutException(
+                $"Timed out after {timeout} deleting Apple Virtualization host '{entry.Resource.Id.Value}'.");
+        }
+    }
+
+    private async ValueTask DeleteHostCoreAsync(
+        ResourceRef<RuntimeHost> host,
+        AppleVirtualizationLedgerEntry<RuntimeHost, RuntimeHostStatus> entry,
+        CancellationToken deletionToken)
+    {
+        AppleVirtualizationHelperEnvelope deleteRequest =
             HostLifecycleRequest(ToMetadata(entry), entry.Status, AppleVirtualizationHelperOperation.HostDelete) with
             {
                 HostLifecycleRequest = new AppleVirtualizationHostLifecycleRequest
@@ -947,8 +1405,32 @@ public sealed class AppleVirtualizationRuntimeHostProvider : IRuntimeHostProvide
                     StopKind = StopKind.Kill,
                     Reason = "delete",
                 },
-            },
-            cancellationToken).ConfigureAwait(false);
+            };
+
+        AppleVirtualizationHelperEnvelope response =
+            await _helper.SendAsync(deleteRequest, deletionToken).ConfigureAwait(false);
+        ValidateDeletionResponse(entry, response, "host.delete");
+
+        while (response.HostStatusResponse!.HostPhase == RuntimeHostPhase.Stopping)
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(50), deletionToken).ConfigureAwait(false);
+            response = await _helper.SendAsync(
+                HostLifecycleRequest(ToMetadata(entry), entry.Status, AppleVirtualizationHelperOperation.HostStatus),
+                deletionToken).ConfigureAwait(false);
+            ValidateDeletionResponse(entry, response, "host.status");
+        }
+
+        if (response.HostStatusResponse!.HostPhase == RuntimeHostPhase.Stopped)
+        {
+            response = await _helper.SendAsync(deleteRequest, deletionToken).ConfigureAwait(false);
+            ValidateDeletionResponse(entry, response, "host.delete");
+        }
+
+        if (response.HostStatusResponse!.HostPhase != RuntimeHostPhase.Deleted)
+        {
+            throw new InvalidOperationException(
+                $"Apple Virtualization helper did not prove deletion of host '{entry.Resource.Id.Value}'; observed phase was '{response.HostStatusResponse.HostPhase}'.");
+        }
 
         _ledger.InvalidateExecutionUnitsForRuntimeHost(
             entry.Resource,
@@ -959,6 +1441,32 @@ public sealed class AppleVirtualizationRuntimeHostProvider : IRuntimeHostProvide
             entry.Resource,
             HostInvalidatedUnitsDiagnostic(entry.Resource.Id.Value, "host.delete"));
         _ledger.RemoveRuntimeHost(host);
+    }
+
+    private void ValidateDeletionResponse(
+        AppleVirtualizationLedgerEntry<RuntimeHost, RuntimeHostStatus> entry,
+        AppleVirtualizationHelperEnvelope response,
+        string operation)
+    {
+        if (response.ResponseStatus == AppleVirtualizationHelperResponseStatus.Error)
+        {
+            Diagnostic diagnostic = ToDiagnostic(response.Error, operation);
+            throw new InvalidOperationException(
+                $"Apple Virtualization helper rejected deletion of host '{entry.Resource.Id.Value}': {diagnostic.Code}: {diagnostic.Message}");
+        }
+
+        if (response.ProviderGeneration != _ledger.ProviderGeneration)
+        {
+            throw new InvalidOperationException(
+                $"Apple Virtualization helper returned provider generation {response.ProviderGeneration} while deleting host '{entry.Resource.Id.Value}'; expected {_ledger.ProviderGeneration}.");
+        }
+
+        AppleVirtualizationHostStatusResponse? status = response.HostStatusResponse;
+        if (status is null || !string.Equals(status.HostId, entry.Resource.Id.Value, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"Apple Virtualization helper returned a missing or mismatched host identity while deleting host '{entry.Resource.Id.Value}'.");
+        }
     }
 
     public async ValueTask<RuntimeHostStatus> GetStatusAsync(
@@ -995,6 +1503,92 @@ public sealed class AppleVirtualizationRuntimeHostProvider : IRuntimeHostProvide
         return Store(ToMetadata(entry), status);
     }
 
+    public async ValueTask<RuntimeHostStatus> CompleteWakeReconciliationAsync(
+        TargetHandle<RuntimeHost> host,
+        RuntimeHostWakeReconciliationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        AppleVirtualizationLedgerLookup<AppleVirtualizationLedgerEntry<RuntimeHost, RuntimeHostStatus>> lookup =
+            _ledger.TryGetRuntimeHost(host);
+        if (!lookup.Succeeded)
+        {
+            return HandleFailureStatus(host, lookup.Diagnostic);
+        }
+
+        AppleVirtualizationLedgerEntry<RuntimeHost, RuntimeHostStatus> entry = lookup.Entry!;
+        RuntimeHostStatus verifiedStatus = entry.Status;
+        if (_options.FeatureGates.EnableRealVmBoot)
+        {
+            AppleVirtualizationHelperEnvelope clockResponse =
+                await _helper.SendAsync(
+                    Request(
+                        AppleVirtualizationHelperOperation
+                            .GuestAgentReadinessProbe,
+                        AppleVirtualizationHelperProtocol
+                            .GuestAgentReadinessRequestSchema) with
+                    {
+                        ResourceKind = ToMetadata(entry).Kind,
+                        ResourceId = entry.Resource.Id.Value,
+                        ResourceScope = entry.Resource.Scope,
+                        ResourceGeneration = entry.Resource.Generation,
+                        ProviderHandle = entry.Status.ProviderHandle,
+                        ProviderGeneration = _ledger.ProviderGeneration,
+                        GuestAgentReadinessProbeRequest =
+                            CreateGuestAgentReadinessProbeRequest(
+                                entry.Resource.Id.Value,
+                                spec: null,
+                                reconcileClock: true),
+                    },
+                    cancellationToken).ConfigureAwait(false);
+            verifiedStatus = ApplyGuestAgentReadinessResponse(
+                ToMetadata(entry),
+                spec: null,
+                entry.Status,
+                clockResponse,
+                "guestAgent.wakeClockReconciliation");
+            if (verifiedStatus.GuestControl is not
+                { Installed: true, Reachable: true } ||
+                verifiedStatus.Readiness is not { Ready: true })
+            {
+                return Store(ToMetadata(entry), verifiedStatus);
+            }
+        }
+        AppleVirtualizationHelperEnvelope helperRequest =
+            HostLifecycleRequest(
+                ToMetadata(entry),
+                entry.Status,
+                AppleVirtualizationHelperOperation.HostWakeReconcile) with
+            {
+                HostLifecycleRequest =
+                    new AppleVirtualizationHostLifecycleRequest
+                    {
+                        HostId = entry.Resource.Id.Value,
+                        ExplicitRealMode = _options.FeatureGates.EnableRealVmBoot,
+                        ObservedWakeGeneration = request.ObservedWakeGeneration,
+                    },
+            };
+        AppleVirtualizationHelperEnvelope response =
+            await _helper.SendAsync(helperRequest, cancellationToken).ConfigureAwait(false);
+        RuntimeHostStatus status = response.ResponseStatus == AppleVirtualizationHelperResponseStatus.Error
+            ? entry.Status with
+            {
+                Phase = ResourcePhase.Degraded,
+                HostPhase = RuntimeHostPhase.Degraded,
+                LastTransitionAt = DateTimeOffset.UtcNow,
+                Diagnostics = AppendDiagnostic(
+                    entry.Status.Diagnostics,
+                    ToDiagnostic(response.Error, "host.wakeReconcile")),
+            }
+            : MapHostStatus(
+                ToMetadata(entry),
+                null,
+                verifiedStatus,
+                response.HostStatusResponse,
+                response.GuestControlStatusResponse);
+        return Store(ToMetadata(entry), status);
+    }
+
     private AppleVirtualizationHelperEnvelope HostLifecycleRequest(
         ResourceMetadata<RuntimeHost> metadata,
         RuntimeHostStatus status,
@@ -1010,6 +1604,8 @@ public sealed class AppleVirtualizationRuntimeHostProvider : IRuntimeHostProvide
             HostLifecycleRequest = new AppleVirtualizationHostLifecycleRequest
             {
                 HostId = metadata.Id.Value,
+                HostStartGeneration = checked((ulong)(
+                    status.Generations.HostStartGeneration?.Value ?? 0)),
                 ExplicitRealMode = _options.FeatureGates.EnableRealVmBoot,
             },
         };
@@ -1082,6 +1678,44 @@ public sealed class AppleVirtualizationRuntimeHostProvider : IRuntimeHostProvide
         RuntimeHostPhase mappedHostPhase = hostPhase == RuntimeHostPhase.Ready
             ? RuntimeHostPhase.Running
             : hostPhase;
+        RuntimeHostPowerStatus power = host is null
+            ? previous.Power
+            : new RuntimeHostPowerStatus
+            {
+                State = host.HostPowerState switch
+                {
+                    AppleVirtualizationHostPowerState.Active =>
+                        RuntimeHostPowerState.Active,
+                    AppleVirtualizationHostPowerState.Sleeping =>
+                        RuntimeHostPowerState.Sleeping,
+                    AppleVirtualizationHostPowerState.WakeReconciliationRequired =>
+                        RuntimeHostPowerState.WakeReconciliationRequired,
+                    AppleVirtualizationHostPowerState.Terminating =>
+                        RuntimeHostPowerState.Terminating,
+                    _ => RuntimeHostPowerState.Unknown,
+                },
+                SleepGeneration = host.SleepGeneration,
+                WakeGeneration = host.WakeGeneration,
+                RequiresWakeReconciliation =
+                    host.RequiresWakeReconciliation,
+                ObservedAt = host.PowerObservedAt,
+            };
+        IReadOnlyList<Condition> conditions =
+            ReplaceWakeReconciliationCondition(
+                host?.Conditions ?? guest?.Conditions ??
+                    previous.Conditions,
+                power,
+                metadata.Generation,
+                now);
+        if (power.RequiresWakeReconciliation &&
+            mappedHostPhase is not RuntimeHostPhase.Stopping and
+                not RuntimeHostPhase.Stopped and
+                not RuntimeHostPhase.Deleting and
+                not RuntimeHostPhase.Deleted)
+        {
+            mappedHostPhase = RuntimeHostPhase.Degraded;
+            phase = ResourcePhase.Degraded;
+        }
         if (phase == ResourcePhase.Ready && mappedHostPhase == RuntimeHostPhase.Running)
         {
             phase = ResourcePhase.Reconciling;
@@ -1093,12 +1727,18 @@ public sealed class AppleVirtualizationRuntimeHostProvider : IRuntimeHostProvide
             HostPhase = mappedHostPhase,
             ObservedGeneration = metadata.Generation,
             LastTransitionAt = now,
-            Conditions = host?.Conditions ?? guest?.Conditions ?? previous.Conditions,
-            Diagnostics = ReadinessStoppedDiagnostics(previous, mappedHostPhase, host?.Diagnostics ?? previous.Diagnostics),
+            Conditions = conditions,
+            Diagnostics = ReadinessStoppedDiagnostics(
+                previous,
+                mappedHostPhase,
+                AppendDiagnostics(
+                    previous.Diagnostics,
+                    host?.Diagnostics ?? Array.Empty<Diagnostic>())),
             GuestControlEndpoint = previous.GuestControlEndpoint,
             GuestControl = GuestControl(guestExpected, guestInstalled, reachable: false, guest?.Conditions ?? previous.GuestControl?.Conditions),
             Readiness = Readiness(spec, ready: false, now, previous.Readiness),
             ControlPlane = ControlPlane(guestExpected, guestReachable: false),
+            Power = power,
             Provisioning = previous.Provisioning is null
                 ? null
                 : previous.Provisioning with { Complete = false },
@@ -1200,8 +1840,36 @@ public sealed class AppleVirtualizationRuntimeHostProvider : IRuntimeHostProvide
     private RuntimeHostStatus Store(
         ResourceMetadata<RuntimeHost> metadata,
         RuntimeHostStatus status,
-        RuntimeHostSpec? spec = null) =>
-        _ledger.UpsertRuntimeHost(metadata, status, spec).Status;
+        RuntimeHostSpec? spec = null)
+    {
+        RuntimeHostStatus stored = _ledger.UpsertRuntimeHost(metadata, status, spec).Status;
+        if (spec is not null)
+        {
+            _ledger.SetRuntimeHostConfigurationFingerprint(
+                metadata.Id,
+                metadata.Scope,
+                ConfigurationFingerprint(spec));
+        }
+        return stored;
+    }
+
+    private string ConfigurationFingerprint(RuntimeHostSpec spec)
+    {
+        var input = new AppleVirtualizationRuntimeHostFingerprintInput(
+            Spec: spec,
+            EffectiveCpuCount: CpuCount(spec),
+            EffectiveMemoryBytes: MemorySizeBytes(spec),
+            EffectiveDiskBytes: spec.Capacity.StorageBytes.GetValueOrDefault(_options.DefaultDiskBytes),
+            GuestImage: _options.GuestImage,
+            EngineBootstrap: _options.EngineBootstrap,
+            GuestControlExpected: GuestControlExpected(spec),
+            GuestAgentVirtioSocketPort,
+            RealVmBootEnabled: _options.FeatureGates.EnableRealVmBoot);
+        byte[] canonical = JsonSerializer.SerializeToUtf8Bytes(
+            input,
+            AppleVirtualizationJsonContext.Default.AppleVirtualizationRuntimeHostFingerprintInput);
+        return Convert.ToHexString(SHA256.HashData(canonical));
+    }
 
     private static ResourceMetadata<RuntimeHost> ToMetadata(
         AppleVirtualizationLedgerEntry<RuntimeHost, RuntimeHostStatus> entry) =>
@@ -1701,14 +2369,11 @@ public sealed class AppleVirtualizationRuntimeHostProvider : IRuntimeHostProvide
 
     private static IReadOnlyList<Diagnostic> AppendDiagnostic(IReadOnlyList<Diagnostic> existing, Diagnostic diagnostic)
     {
-        Diagnostic[] diagnostics = new Diagnostic[existing.Count + 1];
-        for (int i = 0; i < existing.Count; i++)
-        {
-            diagnostics[i] = existing[i];
-        }
-
-        diagnostics[^1] = diagnostic;
-        return diagnostics;
+        return existing
+            .Where(candidate => candidate != diagnostic)
+            .Append(diagnostic)
+            .TakeLast(MaxRetainedDiagnostics)
+            .ToArray();
     }
 
     private static IReadOnlyList<Diagnostic> AppendDiagnostics(
@@ -1720,17 +2385,11 @@ public sealed class AppleVirtualizationRuntimeHostProvider : IRuntimeHostProvide
             return existing;
         }
 
-        Diagnostic[] diagnostics = new Diagnostic[existing.Count + additional.Count];
-        for (int i = 0; i < existing.Count; i++)
+        IReadOnlyList<Diagnostic> diagnostics = existing;
+        foreach (Diagnostic diagnostic in additional)
         {
-            diagnostics[i] = existing[i];
+            diagnostics = AppendDiagnostic(diagnostics, diagnostic);
         }
-
-        for (int i = 0; i < additional.Count; i++)
-        {
-            diagnostics[existing.Count + i] = additional[i];
-        }
-
         return diagnostics;
     }
 
@@ -1744,6 +2403,64 @@ public sealed class AppleVirtualizationRuntimeHostProvider : IRuntimeHostProvide
 
         conditions[^1] = condition;
         return conditions;
+    }
+
+    private static IReadOnlyList<Condition>
+        ReplaceWakeReconciliationCondition(
+            IReadOnlyList<Condition> existing,
+            RuntimeHostPowerStatus power,
+            ResourceGeneration observedGeneration,
+            DateTimeOffset observedAt)
+    {
+        const string conditionType =
+            "Environment.Lifecycle.WakeReconciliationRequired";
+        int retainedCount = 0;
+        for (int i = 0; i < existing.Count; i++)
+        {
+            if (!string.Equals(
+                    existing[i].Type,
+                    conditionType,
+                    StringComparison.Ordinal))
+            {
+                retainedCount++;
+            }
+        }
+
+        int resultCount = retainedCount +
+            (power.RequiresWakeReconciliation ? 1 : 0);
+        if (resultCount == 0)
+        {
+            return Array.Empty<Condition>();
+        }
+
+        Condition[] result = new Condition[resultCount];
+        int index = 0;
+        for (int i = 0; i < existing.Count; i++)
+        {
+            if (!string.Equals(
+                    existing[i].Type,
+                    conditionType,
+                    StringComparison.Ordinal))
+            {
+                result[index++] = existing[i];
+            }
+        }
+
+        if (power.RequiresWakeReconciliation)
+        {
+            result[index] = new Condition(
+                conditionType,
+                ConditionStatus.True,
+                power.State.ToString(),
+                $"Host power continuity is fenced at wake generation " +
+                $"{power.WakeGeneration}; full Environment reconciliation " +
+                "must complete before mutations resume.",
+                power.ObservedAt ?? observedAt,
+                observedGeneration,
+                DiagnosticSeverity.Warning);
+        }
+
+        return result;
     }
 
     private static Diagnostic ToDiagnostic(AppleVirtualizationHelperError? error, string operation)

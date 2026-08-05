@@ -35,14 +35,14 @@ public static class AgentBuilderExtensions
         configure?.Invoke(providerConfig);
         ValidateProviderConfig(providerConfig, configure);
 
-        var chatConfig = new ClientProviderConfig
+        var chatConfig = new ChatClientConfig
         {
             ProviderKey = "onnx-runtime",
             ModelName = Path.GetFileName(modelPath)
         };
 
         builder.Config.SetChatClientConfig(chatConfig);
-        chatConfig.SetProviderConfig(providerConfig);
+        chatConfig.ProviderConfig = providerConfig;
 
         return builder;
     }
@@ -58,8 +58,7 @@ public static class AgentBuilderExtensions
         ArgumentNullException.ThrowIfNull(options);
 
         var chatConfig = builder.Config.EnsureChatClientConfig();
-        chatConfig.ChatDefaults ??= new ChatRunConfig();
-        options.ApplyTo(chatConfig.ChatDefaults);
+        options.ApplyTo(chatConfig);
 
         return builder;
     }

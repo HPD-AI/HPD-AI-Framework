@@ -71,9 +71,9 @@ public sealed class DotNetDebugProjectEvaluatorV3Tests
             {
                 ProcessSandbox = new AgentSandboxRuntime
                 {
-                    Security = new AgentSecurityProfile
+                    Security = new AgentSecurityRunConfig
                     {
-                        Sandbox = AgentSandboxPolicy.Disabled
+                        Sandbox = new AgentSandboxRunConfig { Mode = AgentSandboxPolicy.Disabled }
                     }
                 }
             },

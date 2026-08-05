@@ -44,10 +44,10 @@ public static class HPDAuthPolicies
     /// <summary>Requires authentication, the <c>Developer</c> role, and a <c>pro</c> subscription.</summary>
     public const string CanPublishApps = "CanPublishApps";
 
-    /// <summary>Requires a <c>pro</c> subscription and enforces a 1 000 req/hour rate limit.</summary>
+    /// <summary>Requires a <c>pro</c> subscription.</summary>
     public const string ApiAccess = "ApiAccess";
 
-    /// <summary>Requires an <c>enterprise</c> subscription and enforces a 10 000 req/hour rate limit.</summary>
+    /// <summary>Requires an <c>enterprise</c> subscription.</summary>
     public const string ApiAccessEnterprise = "ApiAccessEnterprise";
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -100,12 +100,10 @@ public static class HPDAuthPolicies
         // ── API access ───────────────────────────────────────────────────────
         options.AddPolicy(ApiAccess, p =>
             p.RequireAuthenticatedUser()
-             .AddRequirements(new SubscriptionTierRequirement("pro"))
-             .AddRequirements(new RateLimitRequirement(1000, TimeSpan.FromHours(1))));
+             .AddRequirements(new SubscriptionTierRequirement("pro")));
 
         options.AddPolicy(ApiAccessEnterprise, p =>
             p.RequireAuthenticatedUser()
-             .AddRequirements(new SubscriptionTierRequirement("enterprise"))
-             .AddRequirements(new RateLimitRequirement(10000, TimeSpan.FromHours(1))));
+             .AddRequirements(new SubscriptionTierRequirement("enterprise")));
     }
 }

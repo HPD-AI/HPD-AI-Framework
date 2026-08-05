@@ -1,9 +1,6 @@
 using System.Security.Claims;
-using HPD.Base.AspNetCore.Configuration;
-using HPD.Base.AspNetCore.EndpointMapping;
-using HPD.Base.AspNetCore.Http;
-using HPD.Base.AspNetCore.Results;
-using HPD.Base.Serialization;
+using HPD.Base.AspNetCore;
+using HPD.Base;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
 
@@ -43,25 +40,15 @@ public sealed class ContractHardeningTests
         routes.Single(route => route.OperationId == BaseRouteIds.RecordsPatch).RequiredFeatureIds.Should().Contain(BaseFeatureIds.RecordsPatch);
         routes.Single(route => route.OperationId == BaseRouteIds.RecordsReplace).RequiredFeatureIds.Should().Contain(BaseFeatureIds.RecordsReplace);
         routes.Single(route => route.OperationId == BaseRouteIds.RecordsDelete).RequiredFeatureIds.Should().Contain(BaseFeatureIds.RecordsDelete);
+        routes.Single(route => route.OperationId == BaseRouteIds.RecordsBatch).RequiredFeatureIds.Should().Contain(BaseFeatureIds.RecordsBatch);
+        routes.Single(route => route.OperationId == BaseRouteIds.RecordsUpsert).RequiredFeatureIds.Should().Contain(BaseFeatureIds.RecordsUpsert);
     }
 
     [Fact]
-    public async Task RevisionAndIdempotencyHeaderConflictsReturnProblemDetails()
+    public async Task RevisionHeaderConflictsReturnProblemDetails()
     {
         await using var app = await TestBaseApp.CreateAsync();
         var client = app.GetTestClient();
-
-        using var createRequest = new HttpRequestMessage(HttpMethod.Post, "/base/collections/items/records")
-        {
-            Content = JsonContent.Create(new RecordCreateRequest
-            {
-                IdempotencyKey = "body",
-                Payload = TestBaseApp.Payload(("title", "hello"))
-            }, HPDBaseJsonSerializerContext.Default.RecordCreateRequest)
-        };
-        createRequest.Headers.Add(BaseHttpHeaders.IdempotencyKey, "header");
-        var createResponse = await client.SendAsync(createRequest);
-        createResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
 
         using var patchRequest = new HttpRequestMessage(HttpMethod.Patch, "/base/collections/items/records/abc")
         {

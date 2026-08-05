@@ -4,6 +4,7 @@ import type {
   ClientToolAugmentation,
   ClientToolBackgroundOperationState,
   ClientToolHarnessDefinition,
+  ClientToolPolicy,
   ClientToolInvokeOutcomeKind,
   ToolResultContent,
 } from './client-tools.js';
@@ -26,6 +27,8 @@ export interface ClientAppProviderReference {
 export interface ClientProviderSelector {
   clientRuntimeId?: string;
   appKind?: string;
+  appInstallationId?: string;
+  browserLaunchSessionId?: string;
   workspaceId?: string;
   documentId?: string;
   projectId?: string;
@@ -58,6 +61,22 @@ export interface ClientToolProviderIdentity {
   userHint?: string;
   origin?: string;
   version?: string;
+}
+
+export interface ClientToolProviderRuntimeIdentity {
+  appId: string;
+  appRevision: string;
+  installationId: string;
+  workloadId: string;
+  workloadGeneration: number;
+  endpointId: string;
+  publicationId: string;
+  publicationGeneration: number;
+  launchSurfaceId: string;
+  browserLaunchSessionId: string;
+  browserLaunchSessionGeneration: number;
+  providerConnectionGeneration: number;
+  origin: string;
 }
 
 export interface ClientToolProviderContext {
@@ -112,6 +131,7 @@ export interface ClientToolProviderBindingLease {
   bindingId: string;
   clientRuntimeId: string;
   connectionId: string;
+  runtimeIdentity?: ClientToolProviderRuntimeIdentity | null;
   ownerRuntimeId?: string;
   agentId?: string;
   sessionId?: string;
@@ -143,7 +163,7 @@ export interface ClientToolProviderQuery {
 }
 
 export interface ClientToolProviderManifest {
-  protocolVersion?: '1' | string;
+  protocolVersion: '2';
   identity: ClientToolProviderIdentity;
   appProvider: ClientAppProviderDescriptor;
   context?: ClientToolProviderContext;
@@ -154,7 +174,7 @@ export interface ClientToolProviderManifest {
 
 export interface ClientToolProviderHelloMessage {
   type: 'provider.hello';
-  protocolVersion?: '1' | string;
+  protocolVersion: '2';
   identity: ClientToolProviderIdentity;
 }
 
@@ -167,7 +187,7 @@ export interface ClientToolProviderWelcomeMessage {
 
 export interface ClientToolProviderManifestMessage {
   type: 'provider.manifest';
-  protocolVersion?: '1' | string;
+  protocolVersion: '2';
   appProvider: ClientAppProviderDescriptor;
   context?: ClientToolProviderContext;
   readiness?: ClientToolProviderReadiness;
@@ -187,17 +207,37 @@ export interface ClientToolProviderReleaseMessage {
 
 export interface ClientToolProviderInvokeToolMessage {
   type: 'provider.invoke';
+  protocolVersion: '2';
   clientRuntimeId: string;
   connectionId: string;
   bindingId: string;
   invocationId: string;
   requestId: string;
+  clientOperationId?: string;
   toolName: string;
   visibleToolName: string;
   callId: string;
   arguments: Record<string, unknown>;
+  operation?: ClientToolResolvedOperation;
+  expectedContext?: ClientToolProviderContext;
   requestedInvocationMode?: 'Synchronous' | 'Background' | string;
+  resolvedInvocationMode: 'Synchronous' | 'Background' | string;
   deadline?: string;
+}
+
+export interface ClientToolResolvedOperation {
+  discriminator: string;
+  action: string;
+  policy: ClientToolPolicy;
+}
+
+export interface ClientToolError {
+  kind: string;
+  message: string;
+  retryable?: boolean;
+  details?: ToolResultContent[];
+  currentContext?: ClientToolProviderContext;
+  metadata?: Record<string, unknown>;
 }
 
 export interface ClientToolProviderInvokeOutcomeMessage {
@@ -207,7 +247,7 @@ export interface ClientToolProviderInvokeOutcomeMessage {
   requestId: string;
   outcome: ClientToolInvokeOutcomeKind;
   content?: ToolResultContent[];
-  errorMessage?: string;
+  error?: ClientToolError;
   clientOperationId?: string;
   handleKind?: BackgroundHandleKind;
   supportedOperations?: BackgroundHandleOperation;
@@ -221,8 +261,7 @@ export interface ClientToolProviderBackgroundOperationOutcomeMessage {
   state: ClientToolBackgroundOperationState;
   content?: ToolResultContent[];
   augmentation?: ClientToolAugmentation;
-  errorMessage?: string | null;
-  errorType?: string | null;
+  error?: ClientToolError | null;
   cancellationReason?: string | null;
   metadata?: Record<string, string> | null;
 }

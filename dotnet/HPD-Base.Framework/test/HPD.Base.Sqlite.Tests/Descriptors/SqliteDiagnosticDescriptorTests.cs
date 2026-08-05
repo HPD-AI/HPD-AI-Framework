@@ -1,8 +1,8 @@
 using FluentAssertions;
-using HPD.Base.Runtime.Health;
-using HPD.Base.Sqlite.Configuration;
-using HPD.Base.Sqlite.DependencyInjection;
+using HPD.Base;
+using HPD.Base.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace HPD.Base.Sqlite.Tests.Descriptors;
 
@@ -14,7 +14,7 @@ public sealed class SqliteDiagnosticDescriptorTests
         var path = Path.Combine(Path.GetTempPath(), "hpd-base-sqlite-diag-" + Guid.NewGuid().ToString("N") + ".db");
         try
         {
-            var services = new ServiceCollection().AddHPDBaseSqliteStore(options =>
+            var services = new ServiceCollection().AddLogging().AddHPDBaseSqliteStore(options =>
             {
                 options.DataSource = path;
                 options.BusyTimeout = TimeSpan.FromMilliseconds(250);

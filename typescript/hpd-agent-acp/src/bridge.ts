@@ -1,4 +1,4 @@
-import { EventTypes, type AgentClient, type AgentRunInputEvent, type EventSubscription } from '@hpd-research/hpd-agent-client';
+import { EventTypes, type AgentClient, type AgentResponseInput, type EventSubscription } from '@hpd-research/hpd-agent-client';
 import type { AcpReader } from './acp/reader.js';
 import type { AcpWriter } from './acp/writer.js';
 import type { SessionRegistry } from './bridge/session.js';
@@ -214,8 +214,8 @@ export function createBridge(
         session.streamAbort = null;
         cleanup();
       };
-      const respond = (input: AgentRunInputEvent) => {
-        void client.run(input).catch(fail);
+      const respond = (input: AgentResponseInput) => {
+        void client.respond(input).catch(fail);
       };
 
       subscriptions.push(

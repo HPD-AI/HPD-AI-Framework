@@ -1,9 +1,6 @@
 using FluentAssertions;
-using HPD.Base.Records;
-using HPD.Base.Results;
-using HPD.Base.Runtime;
-using HPD.Base.Schema;
-using HPD.Base.Sqlite.Configuration;
+using HPD.Base;
+using HPD.Base.Sqlite;
 using System.Text.Json;
 
 namespace HPD.Base.Sqlite.Tests.Errors;
@@ -14,7 +11,7 @@ public sealed class SqliteErrorMappingTests
     public async Task DuplicateRecordIdMapsToConflict()
     {
         var path = Path.Combine(Path.GetTempPath(), "hpd-base-sqlite-errors-" + Guid.NewGuid().ToString("N") + ".db");
-        var store = new SqliteRecordStore(new HPDBaseSqliteOptions { DataSource = path });
+        var store = SqliteTestFactory.Create(new HPDBaseSqliteOptions { DataSource = path });
         var request = new RecordCreateRequest { RequestedId = new RecordId("dup"), Payload = Payload() };
         (await store.CreateAsync(Collection(), request, Operation(BaseOperationKind.Create))).Status.Should().Be(OperationStatus.Created);
 

@@ -19,6 +19,7 @@ public enum HelperProtocol {
     public static let engineStatusResponseSchema = "hpd.execution.apple-virtualization.helper.engine.status.response.v1"
     public static let engineProvisionRequestSchema = "hpd.execution.apple-virtualization.helper.engine.provision.request.v1"
     public static let engineProvisionResponseSchema = "hpd.execution.apple-virtualization.helper.engine.provision.response.v1"
+    public static let storageResponseSchema = "hpd.execution.apple-virtualization.helper.storage.response.v1"
     public static let unitResponseSchema = "hpd.execution.apple-virtualization.helper.unit.response.v1"
     public static let processResponseSchema = "hpd.execution.apple-virtualization.helper.process.response.v1"
     public static let processOutputEventSchema = "hpd.execution.apple-virtualization.helper.process.output.v1"
@@ -96,6 +97,9 @@ public enum Operation: Int, CaseIterable {
     case authorityRevoke = 46
     case engineStatus = 47
     case engineProvision = 48
+    case processStatus = 49
+    case storage = 50
+    case hostWakeReconcile = 51
 
     public var wireName: String {
         switch self {
@@ -111,6 +115,7 @@ public enum Operation: Int, CaseIterable {
         case .hostRequestStop: "host.requestStop"
         case .hostStop: "host.stop"
         case .hostDelete: "host.delete"
+        case .hostWakeReconcile: "host.wakeReconcile"
         case .guestControlWaitReady: "guestControl.waitReady"
         case .guestControlStatus: "guestControl.status"
         case .projectionConfigure: "projection.configure"
@@ -148,6 +153,8 @@ public enum Operation: Int, CaseIterable {
         case .authorityRevoke: "authority.revoke"
         case .engineStatus: "engine.status"
         case .engineProvision: "engine.provision"
+        case .processStatus: "process.status"
+        case .storage: "storage"
         }
     }
 

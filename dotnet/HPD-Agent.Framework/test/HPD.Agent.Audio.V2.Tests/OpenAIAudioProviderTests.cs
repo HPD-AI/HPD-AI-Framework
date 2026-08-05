@@ -1,4 +1,5 @@
 using System.ClientModel;
+using System.Text.Json;
 using HPD.Agent;
 using HPD.Agent.ErrorHandling;
 using HPD.Agent.Providers;
@@ -24,7 +25,7 @@ public sealed class OpenAIAudioProviderTests
                 apiKey: "sk-tts",
                 voice: "nova",
                 outputFormat: "wav",
-                configure: config => config.Speed = 1.2f)
+                speed: 1.2f)
             .WithOpenAIRealtime(
                 model: "gpt-realtime",
                 apiKey: "sk-realtime",
@@ -35,31 +36,27 @@ public sealed class OpenAIAudioProviderTests
         Assert.Equal(OpenAIAudioProvider.Key, sttConfig.ProviderKey);
         Assert.Equal("gpt-4o-transcribe", sttConfig.ModelName);
         Assert.Equal("sk-stt", sttConfig.ApiKey);
-        var sttProviderConfig = sttConfig.GetProviderConfig<OpenAISttConfig>(ProviderClientFamily.SpeechToText);
-        Assert.NotNull(sttProviderConfig);
-        Assert.Equal("gpt-4o-transcribe", sttProviderConfig.DefaultModelId);
-        Assert.Equal("names may be product codenames", sttProviderConfig.Prompt);
+        Assert.Null(sttConfig.ProviderConfig);
+        var sttProviderOptions = Assert.IsType<OpenAISttOptions>(sttConfig.ProviderOptions);
+        Assert.Equal("names may be product codenames", sttProviderOptions.Prompt);
 
         var ttsConfig = builder.Config.Clients.TextToSpeech;
         Assert.NotNull(ttsConfig);
         Assert.Equal(OpenAIAudioProvider.Key, ttsConfig.ProviderKey);
         Assert.Equal("gpt-4o-mini-tts", ttsConfig.ModelName);
         Assert.Equal("sk-tts", ttsConfig.ApiKey);
-        var ttsProviderConfig = ttsConfig.GetProviderConfig<OpenAITtsConfig>(ProviderClientFamily.TextToSpeech);
-        Assert.NotNull(ttsProviderConfig);
-        Assert.Equal("gpt-4o-mini-tts", ttsProviderConfig.DefaultModelId);
-        Assert.Equal("nova", ttsProviderConfig.DefaultVoiceId);
-        Assert.Equal("wav", ttsProviderConfig.OutputFormat);
-        Assert.Equal(1.2f, ttsProviderConfig.Speed);
+        Assert.Null(ttsConfig.ProviderConfig);
+        Assert.Equal("nova", ttsConfig.VoiceId);
+        Assert.Equal("wav", ttsConfig.AudioFormat);
+        Assert.Equal(1.2f, ttsConfig.Speed);
 
         var realtimeConfig = builder.Config.Clients.Realtime;
         Assert.NotNull(realtimeConfig);
         Assert.Equal(OpenAIAudioProvider.Key, realtimeConfig.ProviderKey);
         Assert.Equal("gpt-realtime", realtimeConfig.ModelName);
         Assert.Equal("sk-realtime", realtimeConfig.ApiKey);
-        var realtimeProviderConfig = realtimeConfig.GetProviderConfig<OpenAIRealtimeConfig>(ProviderClientFamily.Realtime);
+        var realtimeProviderConfig = realtimeConfig.ProviderConfig as OpenAIRealtimeConfig;
         Assert.NotNull(realtimeProviderConfig);
-        Assert.Equal("gpt-realtime", realtimeProviderConfig.DefaultModelId);
         Assert.Equal("org_123", realtimeProviderConfig.OrganizationId);
     }
 
@@ -83,7 +80,7 @@ public sealed class OpenAIAudioProviderTests
         var provider = new OpenAIAudioProvider();
 
         var result = provider.ValidateConfiguration(
-            new ClientProviderConfig
+            new ProviderClientConfig
             {
                 ProviderKey = "openai"
             },
@@ -99,7 +96,7 @@ public sealed class OpenAIAudioProviderTests
         var provider = new OpenAIAudioProvider();
 
         var result = provider.ValidateConfiguration(
-            new ClientProviderConfig
+            new ProviderClientConfig
             {
                 ProviderKey = "openai",
                 ApiKey = "sk-test"
@@ -267,7 +264,7 @@ public sealed class OpenAIAudioProviderTests
 
         var exception = Assert.Throws<InvalidOperationException>(() =>
             provider.CreateSpeechToTextClient(
-                new ClientProviderConfig
+                new ProviderClientConfig
                 {
                     ProviderKey = "openai"
                 }));
@@ -281,7 +278,7 @@ public sealed class OpenAIAudioProviderTests
         var provider = new OpenAIAudioProvider();
 
         using var client = provider.CreateSpeechToTextClient(
-            new ClientProviderConfig
+            new ProviderClientConfig
             {
                 ProviderKey = "openai",
                 ModelName = "whisper-1",
@@ -298,11 +295,8 @@ public sealed class OpenAIAudioProviderTests
     [Fact]
     public void ProviderConfigRegistration_RoundTripsSttConfig()
     {
-        var config = new OpenAISttConfig
+        var config = new OpenAISttOptions
         {
-            ApiKey = "sk-test",
-            BaseUrl = "https://example.test/v1",
-            DefaultModelId = "gpt-4o-mini-transcribe",
             Prompt = "Names may include Jeff.",
             Temperature = 0.1f,
             ResponseFormat = "verbose_json",
@@ -310,19 +304,10 @@ public sealed class OpenAIAudioProviderTests
             IncludeLogprobs = true
         };
 
-        var json = ProviderDiscovery.SerializeProviderConfig(
-            "openai",
-            ProviderClientFamily.SpeechToText,
-            config);
-        var deserialized = ProviderDiscovery.DeserializeProviderConfig(
-            "openai",
-            ProviderClientFamily.SpeechToText,
-            json);
+        var json = JsonSerializer.Serialize(config, OpenAISttJsonContext.Default.OpenAISttOptions);
+        var deserialized = JsonSerializer.Deserialize(json, OpenAISttJsonContext.Default.OpenAISttOptions);
 
-        var roundTripped = Assert.IsType<OpenAISttConfig>(deserialized);
-        Assert.Equal("sk-test", roundTripped.ApiKey);
-        Assert.Equal("https://example.test/v1", roundTripped.BaseUrl);
-        Assert.Equal("gpt-4o-mini-transcribe", roundTripped.DefaultModelId);
+        var roundTripped = Assert.IsType<OpenAISttOptions>(deserialized);
         Assert.Equal("Names may include Jeff.", roundTripped.Prompt);
         Assert.Equal(0.1f, roundTripped.Temperature);
         Assert.Equal("verbose_json", roundTripped.ResponseFormat);
@@ -346,7 +331,7 @@ public sealed class OpenAIAudioProviderTests
 
         var provider = new OpenAIAudioProvider();
         using var client = provider.CreateTextToSpeechClient(
-            new ClientProviderConfig
+            new ProviderClientConfig
             {
                 ProviderKey = "openai",
                 ApiKey = apiKey,
@@ -386,7 +371,7 @@ public sealed class OpenAIAudioProviderTests
 
         var provider = new OpenAIAudioProvider();
         using var realtimeClient = provider.CreateRealtimeClient(
-            new ClientProviderConfig
+            new ProviderClientConfig
             {
                 ProviderKey = "openai",
                 ApiKey = apiKey,
@@ -395,7 +380,6 @@ public sealed class OpenAIAudioProviderTests
             });
         var agent = await AgentBuilder
             .Create()
-            .WithDeferredProvider()
             .BuildAsync();
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(90));
 
@@ -406,8 +390,14 @@ public sealed class OpenAIAudioProviderTests
                     "Reply with exactly three words.",
                 runConfig: new AgentRunConfig
                 {
-                    ModelTransport = AgentModelTransportMode.Realtime,
-                    OverrideRealtimeClient = realtimeClient
+                    Clients = new AgentClientsConfig
+                    {
+                        Transport = AgentModelTransportMode.Realtime,
+                        Realtime = new RealtimeClientConfig
+                        {
+                            Override = new ClientOverride<IRealtimeClient> { Client = realtimeClient }
+                        }
+                    }
                 },
                 cancellationToken: cts.Token);
 

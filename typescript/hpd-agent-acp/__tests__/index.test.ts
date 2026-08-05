@@ -76,6 +76,7 @@ type MockClient = {
   getThreadMessages: ReturnType<typeof vi.fn>;
   stream?:       ReturnType<typeof vi.fn>;
   run:           ReturnType<typeof vi.fn>;
+  respond:       ReturnType<typeof vi.fn>;
   on:            ReturnType<typeof vi.fn>;
   onAny:         ReturnType<typeof vi.fn>;
   onError:       ReturnType<typeof vi.fn>;
@@ -138,6 +139,12 @@ function makeMockClient(overrides: Partial<MockClient> = {}): MockClient {
     getThreadMessages: overrides.getThreadMessages ?? vi.fn().mockResolvedValue([]),
     stream:           overrides.stream,
     run,
+    respond: overrides.respond ?? vi.fn(async (response: any) => ({
+      status: 'accepted',
+      requestId: response.requestId ?? response.permissionId ?? response.continuationId ?? '',
+      message: null,
+      accepted: true,
+    })),
     on,
     onAny,
     onError,

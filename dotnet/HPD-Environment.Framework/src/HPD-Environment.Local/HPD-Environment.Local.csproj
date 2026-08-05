@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net10.0;net9.0;net8.0</TargetFrameworks>
+    <RootNamespace>HPD.Environment.Local</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD-Environment.Local</PackageId>
+    <Description>Native host environment provider for trusted HPD workloads using a mediated local container engine.</Description>
+    <PackageTags>execution;environment;local;docker;podman;hpd</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../HPD-Environment.Abstractions/HPD-Environment.Abstractions.csproj" />
+    <ProjectReference Include="../HPD-Environment.Runtime/HPD-Environment.Runtime.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="HPD-Environment.Local.Tests" />
+  </ItemGroup>
+</Project>

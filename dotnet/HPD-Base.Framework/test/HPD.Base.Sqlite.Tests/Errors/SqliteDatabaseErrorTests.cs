@@ -1,9 +1,6 @@
 using FluentAssertions;
-using HPD.Base.Records;
-using HPD.Base.Results;
-using HPD.Base.Runtime;
-using HPD.Base.Schema;
-using HPD.Base.Sqlite.Configuration;
+using HPD.Base;
+using HPD.Base.Sqlite;
 using Microsoft.Data.Sqlite;
 using System.Text.Json;
 
@@ -12,12 +9,12 @@ namespace HPD.Base.Sqlite.Tests.Errors;
 public sealed class SqliteDatabaseErrorTests
 {
     [Fact]
-    public async Task BusyDatabaseMapsToRetryableStoreError()
+    public async Task BusyWriteBoundaryMapsToNonRetryingTransactionConflict()
     {
         var path = Path.Combine(Path.GetTempPath(), "hpd-base-sqlite-busy-" + Guid.NewGuid().ToString("N") + ".db");
         try
         {
-            var setup = new SqliteRecordStore(new HPDBaseSqliteOptions { DataSource = path });
+            var setup = SqliteTestFactory.Create(new HPDBaseSqliteOptions { DataSource = path });
             var created = await setup.CreateAsync(Collection(), new RecordCreateRequest { RequestedId = new RecordId("seed"), Payload = Payload("seed") }, Operation(BaseOperationKind.Create));
             created.Status.Should().Be(OperationStatus.Created);
 
@@ -27,16 +24,14 @@ public sealed class SqliteDatabaseErrorTests
             lockCommand.CommandText = "BEGIN IMMEDIATE;";
             await lockCommand.ExecuteNonQueryAsync();
 
-            var store = new SqliteRecordStore(new HPDBaseSqliteOptions { DataSource = path, BusyTimeout = TimeSpan.FromMilliseconds(1), CommandTimeout = TimeSpan.FromSeconds(1) });
+            var store = SqliteTestFactory.Create(new HPDBaseSqliteOptions { DataSource = path, BusyTimeout = TimeSpan.FromMilliseconds(1), CommandTimeout = TimeSpan.FromSeconds(1) }, initializeSchema: false);
             var result = await store.CreateAsync(Collection(), new RecordCreateRequest { RequestedId = new RecordId("blocked"), Payload = Payload("blocked") }, Operation(BaseOperationKind.Create));
 
-            result.Status.Should().Be(OperationStatus.StoreError);
-            result.Error!.Code.Should().BeOneOf("sqlite.database.busy", "sqlite.database.locked");
-            result.Error.Store!.Retryable.Should().BeTrue();
-            result.Error.Store.NativeCategory.Should().Be("sqlite");
-            result.Error.Store.NativeCode.Should().NotBeNullOrWhiteSpace();
-            result.Error.Store.NativeSubcode.Should().NotBeNullOrWhiteSpace();
-            result.Error.Store.NativeMessage.Should().NotBeNullOrWhiteSpace();
+            result.Status.Should().Be(OperationStatus.Conflict);
+            result.Error!.Code.Should().Be(BaseMutationErrorCodes.TransactionConflict);
+            result.Error.Category.Should().Be(ErrorCategory.Conflict);
+            result.Error.Conflict!.Kind.Should().Be(ConflictKind.Transaction);
+            result.Error.Store.Should().BeNull();
         }
         finally
         {
@@ -51,7 +46,7 @@ public sealed class SqliteDatabaseErrorTests
         try
         {
             await File.WriteAllTextAsync(path, "not sqlite");
-            var store = new SqliteRecordStore(new HPDBaseSqliteOptions { DataSource = path });
+            var store = SqliteTestFactory.Create(new HPDBaseSqliteOptions { DataSource = path }, initializeSchema: false);
             var result = await store.GetAsync(Collection(), new RecordId("one"), Operation(BaseOperationKind.Get));
 
             result.Status.Should().Be(OperationStatus.StoreError);
@@ -70,7 +65,7 @@ public sealed class SqliteDatabaseErrorTests
     public async Task CantOpenDatabaseMapsToSpecificNativeStoreError()
     {
         var path = Path.Combine(Path.GetTempPath(), "hpd-base-sqlite-missing-" + Guid.NewGuid().ToString("N"), "store.db");
-        var store = new SqliteRecordStore(new HPDBaseSqliteOptions { DataSource = path });
+        var store = SqliteTestFactory.Create(new HPDBaseSqliteOptions { DataSource = path }, initializeSchema: false);
 
         var result = await store.GetAsync(Collection(), new RecordId("one"), Operation(BaseOperationKind.Get));
 

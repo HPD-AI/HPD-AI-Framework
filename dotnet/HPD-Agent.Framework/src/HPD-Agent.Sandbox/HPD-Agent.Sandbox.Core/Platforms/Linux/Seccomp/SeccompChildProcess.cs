@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Reflection;
 using System.Runtime.InteropServices;
 using Microsoft.Extensions.Logging;
 
@@ -12,7 +11,7 @@ namespace HPD.Agent.Sandbox.Platforms.Linux.Seccomp;
 /// <para><b>Binary Resolution Order:</b></para>
 /// <list type="number">
 /// <item>Pre-built binary in runtimes/{rid}/native/ (NuGet package)</item>
-/// <item>Pre-built binary next to assembly</item>
+/// <item>Pre-built binary in the application directory</item>
 /// <item>Cached binary in /tmp/hpd-sandbox/</item>
 /// <item>Runtime compilation via gcc, only when explicitly enabled</item>
 /// </list>
@@ -102,8 +101,8 @@ public sealed class SeccompChildProcess : IDisposable
                 _explicitHelperPath);
         }
 
-        var assemblyDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".";
-        var runtimesPath = Path.Combine(assemblyDir, "runtimes", $"linux-{archSuffix}", "native", helperName);
+        var applicationDirectory = AppContext.BaseDirectory;
+        var runtimesPath = Path.Combine(applicationDirectory, "runtimes", $"linux-{archSuffix}", "native", helperName);
         if (File.Exists(runtimesPath) && IsExecutable(runtimesPath))
         {
             helperPath = runtimesPath;
@@ -111,7 +110,7 @@ public sealed class SeccompChildProcess : IDisposable
             return true;
         }
 
-        var localPath = Path.Combine(assemblyDir, helperName);
+        var localPath = Path.Combine(applicationDirectory, helperName);
         if (File.Exists(localPath) && IsExecutable(localPath))
         {
             helperPath = localPath;

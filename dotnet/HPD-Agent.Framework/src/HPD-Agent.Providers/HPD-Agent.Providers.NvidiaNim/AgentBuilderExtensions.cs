@@ -19,7 +19,7 @@ public static class NvidiaNimAgentBuilderExtensions
             throw new ArgumentException("Model is required for NVIDIA NIM provider.", nameof(model));
         }
 
-        var chatConfig = new ClientProviderConfig
+        var chatConfig = new ChatClientConfig
         {
             ProviderKey = "nvidia-nim",
             ApiKey = apiKey,

@@ -22,7 +22,6 @@ public sealed class ExternalLoginHandler
     private readonly SignInManager<ApplicationUser> _signInManager;
     private readonly HPDAuthDbContext _context;
     private readonly IEventCoordinator _eventCoordinator;
-    private readonly IAuditLogger _auditLogger;
     private readonly HPDAuthOptions _options;
     private readonly ILogger<ExternalLoginHandler> _logger;
 
@@ -31,7 +30,6 @@ public sealed class ExternalLoginHandler
         SignInManager<ApplicationUser> signInManager,
         HPDAuthDbContext context,
         IEventCoordinator eventCoordinator,
-        IAuditLogger auditLogger,
         HPDAuthOptions options,
         ILogger<ExternalLoginHandler> logger)
     {
@@ -39,7 +37,6 @@ public sealed class ExternalLoginHandler
         _signInManager    = signInManager    ?? throw new ArgumentNullException(nameof(signInManager));
         _context          = context          ?? throw new ArgumentNullException(nameof(context));
         _eventCoordinator = eventCoordinator ?? throw new ArgumentNullException(nameof(eventCoordinator));
-        _auditLogger      = auditLogger      ?? throw new ArgumentNullException(nameof(auditLogger));
         _options          = options          ?? throw new ArgumentNullException(nameof(options));
         _logger           = logger           ?? throw new ArgumentNullException(nameof(logger));
     }
@@ -55,10 +52,6 @@ public sealed class ExternalLoginHandler
         if (info is null)
         {
             _logger.LogWarning("OAuth callback: external login info not available");
-            await _auditLogger.LogAsync(new AuditLogEntry(
-                Action: "oauth_callback", Category: "authentication", Success: false,
-                IpAddress: ipAddress, UserAgent: userAgent,
-                ErrorMessage: "External login info not available"), ct);
             return ExternalLoginResult.Failed("External login info not available");
         }
 
@@ -74,11 +67,6 @@ public sealed class ExternalLoginHandler
         else if (signInResult.IsLockedOut)
         {
             _logger.LogWarning("OAuth callback: account locked out for provider {Provider}", info.LoginProvider);
-            await _auditLogger.LogAsync(new AuditLogEntry(
-                Action: "oauth_callback", Category: "authentication", Success: false,
-                IpAddress: ipAddress, UserAgent: userAgent,
-                ErrorMessage: "Account is locked out",
-                Metadata: new { Provider = info.LoginProvider }), ct);
             return ExternalLoginResult.Failed("Account is locked out");
         }
         else if (signInResult.RequiresTwoFactor)
@@ -91,32 +79,18 @@ public sealed class ExternalLoginHandler
         {
             if (!_options.OAuth.AutoProvisionUsers)
             {
-                await _auditLogger.LogAsync(new AuditLogEntry(
-                    Action: "oauth_callback", Category: "authentication", Success: false,
-                    IpAddress: ipAddress, UserAgent: userAgent,
-                    ErrorMessage: "Account not found and auto-provisioning is disabled",
-                    Metadata: new { Provider = info.LoginProvider }), ct);
                 return ExternalLoginResult.Failed("Account not found and auto-provisioning is disabled");
             }
 
             user = await ProvisionUserAsync(info, ipAddress, userAgent, ct);
             if (user is null)
             {
-                await _auditLogger.LogAsync(new AuditLogEntry(
-                    Action: "oauth_callback", Category: "authentication", Success: false,
-                    IpAddress: ipAddress, UserAgent: userAgent,
-                    ErrorMessage: "Failed to create user account",
-                    Metadata: new { Provider = info.LoginProvider }), ct);
                 return ExternalLoginResult.Failed("Failed to create user account");
             }
         }
 
         if (user is null)
         {
-            await _auditLogger.LogAsync(new AuditLogEntry(
-                Action: "oauth_callback", Category: "authentication", Success: false,
-                IpAddress: ipAddress, UserAgent: userAgent,
-                ErrorMessage: "User not found after external login"), ct);
             return ExternalLoginResult.Failed("User not found");
         }
 
@@ -134,11 +108,6 @@ public sealed class ExternalLoginHandler
             AuthMethod = "oauth",
             AuthContext = new AuthExecutionContext { IpAddress = ipAddress, UserAgent = userAgent },
         });
-
-        await _auditLogger.LogAsync(new AuditLogEntry(
-            Action: "oauth_login", Category: "authentication", Success: true,
-            UserId: user.Id, IpAddress: ipAddress, UserAgent: userAgent,
-            Metadata: new { Provider = info.LoginProvider }), ct);
 
         return ExternalLoginResult.Success(user);
     }
@@ -219,11 +188,6 @@ public sealed class ExternalLoginHandler
             RegistrationMethod = info.LoginProvider,
             AuthContext        = new AuthExecutionContext { IpAddress = ipAddress, UserAgent = userAgent },
         });
-
-        await _auditLogger.LogAsync(new AuditLogEntry(
-            Action: "oauth_register", Category: "registration", Success: true,
-            UserId: user.Id, IpAddress: ipAddress, UserAgent: userAgent,
-            Metadata: new { Provider = info.LoginProvider, Email = email }), ct);
 
         return user;
     }

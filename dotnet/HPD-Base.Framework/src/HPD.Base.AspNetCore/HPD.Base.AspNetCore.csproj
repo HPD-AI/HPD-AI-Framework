@@ -19,11 +19,11 @@
 
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
-    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.9" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.10" />
     <PackageReference Include="Microsoft.OpenApi" Version="2.9.0" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../HPD.Base.Runtime/HPD.Base.Runtime.csproj" />
+    <ProjectReference Include="../HPD.Base/HPD.Base.csproj" />
   </ItemGroup>
 </Project>

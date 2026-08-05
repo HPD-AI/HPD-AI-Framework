@@ -83,6 +83,7 @@ export const EventTypes = {
   STATE_SNAPSHOT: 'STATE_SNAPSHOT',
   THREAD_EXECUTION_STARTED: 'THREAD_EXECUTION_STARTED',
   THREAD_EXECUTION_FINISHED: 'THREAD_EXECUTION_FINISHED',
+  AGENT_REQUEST_TERMINATED: 'AGENT_REQUEST_TERMINATED',
   SUBAGENT_INVOCATION_STARTED: 'SUBAGENT_INVOCATION_STARTED',
   SUBAGENT_INVOCATION_COMPLETED: 'SUBAGENT_INVOCATION_COMPLETED',
   SUBAGENT_INVOCATION_FAILED: 'SUBAGENT_INVOCATION_FAILED',
@@ -191,6 +192,8 @@ export interface BaseEvent {
   eventId?: string;
   sessionId?: string;
   threadId?: string;
+  /** Durable identity of the thread execution that produced or owns this event. */
+  threadExecutionId?: string | null;
   threadSequenceNumber?: number;
   timestamp?: string;
   eventFlowId?: string;
@@ -215,7 +218,9 @@ export type RespondStatus =
   | 'cancelled'
   | 'responseTypeMismatch'
   | 'targetMismatch'
-  | 'ambiguousRequest';
+  | 'ambiguousRequest'
+  | 'executionEnded'
+  | 'runtimeUnavailable';
 
 export interface RespondResult {
   status: RespondStatus;
@@ -247,6 +252,18 @@ export interface AgentRequestEvent extends BaseEvent {
 export interface AgentResponseEvent extends BaseEvent, ResponseMetadata {
   requestId: string;
   sourceName?: string;
+}
+
+export type AgentRequestTerminalKind = 'Expired' | 'Cancelled' | 'Abandoned';
+
+/** Durable terminal fact for an Agent request that received no response. */
+export interface AgentRequestTerminatedEvent extends BaseEvent {
+  type: typeof EventTypes.AGENT_REQUEST_TERMINATED;
+  requestId: string;
+  sourceName: string;
+  terminalKind: AgentRequestTerminalKind;
+  reason?: string | null;
+  terminatedAt: string;
 }
 
 /**
@@ -960,7 +977,8 @@ export interface ClientToolInvokeOutcomeEvent extends BaseEvent, ResponseMetadat
 export type ClientToolBackgroundOperationOutcomeState =
   | 'Completed'
   | 'Faulted'
-  | 'Cancelled';
+  | 'Cancelled'
+  | 'Unknown';
 
 export interface ClientToolBackgroundOperationOutcomeEvent extends AgentInputEvent {
   type: typeof EventTypes.CLIENT_TOOL_BACKGROUND_OPERATION_OUTCOME;
@@ -1020,6 +1038,7 @@ export type KnownAgentEvent =
   | StateSnapshotEvent
   | ThreadExecutionStartedEvent
   | ThreadExecutionFinishedEvent
+  | AgentRequestTerminatedEvent
   | SubAgentInvocationStartedEvent
   | SubAgentInvocationCompletedEvent
   | SubAgentInvocationFailedEvent
@@ -1076,13 +1095,17 @@ export type AgentEvent = KnownAgentEvent | UnknownAgentEvent;
 export type AgentRunInputEvent =
   | UserMessagesInputEvent
   | CompactThreadInputEvent
+  | ClientToolBackgroundOperationOutcomeEvent
+  | InterruptionRequestEvent
+  | SteeringInputEvent;
+
+/** Response event accepted by the hosted Agent response route. */
+export type AgentResponseInput =
   | PermissionResponseEvent
   | ContinuationResponseEvent
   | ClarificationResponseEvent
   | ClientToolInvokeOutcomeEvent
-  | ClientToolBackgroundOperationOutcomeEvent
-  | InterruptionRequestEvent
-  | SteeringInputEvent;
+  | AgentResponseEvent;
 
 export type AgentEventOfType<TType extends KnownAgentEvent['type']> =
   Extract<KnownAgentEvent, { type: TType }>;

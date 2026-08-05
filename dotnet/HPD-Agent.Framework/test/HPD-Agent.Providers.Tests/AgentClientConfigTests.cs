@@ -1,4 +1,3 @@
-using System.Text.Json;
 using FluentAssertions;
 using HPD.Agent.ErrorHandling;
 using HPD.Agent.Providers;
@@ -8,48 +7,48 @@ using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.Providers.Tests;
 
-public class AgentClientConfigTests
+public class AgentClientsConfigTests
 {
+    private sealed class TestProviderConfig : IProviderConfig
+    {
+        public string? Value { get; init; }
+    }
+
     [Fact]
     public void ResolveClientConfig_MergesProviderDefaultsFamilyAndRunOverrides()
     {
         var config = new AgentConfig
         {
-            Clients = new AgentClientConfig
+            ProviderProfiles = new Dictionary<string, AgentProviderProfile>
             {
-                Providers = new()
+                ["openai"] = new AgentProviderProfile
                 {
-                    ["openai"] = new ClientProviderConfig
+                    Chat = new ChatClientConfig
                     {
-                        ProviderKey = "openai",
                         ApiKey = "agent-key",
                         Endpoint = "https://agent.example",
-                        ProviderOptions = JsonDocument.Parse("""{"organizationId":"org_1","projectId":"proj_agent"}""").RootElement.Clone()
+                        ProviderConfig = new TestProviderConfig { Value = "profile" }
                     }
-                },
-                Chat = new ClientProviderConfig
+                }
+            },
+            Clients = new AgentClientsConfig
+            {
+                Chat = new ChatClientConfig
                 {
                     ProviderKey = "openai",
                     ModelName = "gpt-agent",
-                    ProviderOptions = JsonDocument.Parse("""{"providerFeature":"agent-default"}""").RootElement.Clone()
+                    ProviderConfig = new TestProviderConfig { Value = "agent" }
                 }
             }
         };
 
-        var runClients = new AgentClientConfig
+        var runClients = new AgentClientsConfig
         {
-            Providers = new()
-            {
-                ["openai"] = new ClientProviderConfig
-                {
-                    Endpoint = "https://run.example",
-                    ProviderOptions = JsonDocument.Parse("""{"projectId":"proj_run"}""").RootElement.Clone()
-                }
-            },
-            Chat = new ClientProviderConfig
+            Chat = new ChatClientConfig
             {
                 ModelName = "gpt-run",
-                ProviderOptions = JsonDocument.Parse("""{"requestProfile":"interactive"}""").RootElement.Clone()
+                Endpoint = "https://run.example",
+                ProviderConfig = new TestProviderConfig { Value = "run" }
             }
         };
 
@@ -61,41 +60,99 @@ public class AgentClientConfigTests
         resolved.ApiKey.Should().Be("agent-key");
         resolved.Endpoint.Should().Be("https://run.example");
 
-        using var json = JsonDocument.Parse(resolved.GetProviderOptionsRawJson()!);
-        var root = json.RootElement;
-        root.GetProperty("organizationId").GetString().Should().Be("org_1");
-        root.GetProperty("projectId").GetString().Should().Be("proj_run");
-        root.GetProperty("providerFeature").GetString().Should().Be("agent-default");
-        root.GetProperty("requestProfile").GetString().Should().Be("interactive");
+        resolved.ProviderConfig.Should().BeOfType<TestProviderConfig>()
+            .Which.Value.Should().Be("run");
     }
 
     [Fact]
-    public void ResolveClientConfig_RejectsNonObjectProviderOptionsWhenMerging()
+    public void ResolveClientConfig_UsesTypedProviderPayloadAsOneAtomicValue()
     {
         var config = new AgentConfig
         {
-            Clients = new AgentClientConfig
+            ProviderProfiles = new Dictionary<string, AgentProviderProfile>
             {
-                Providers = new()
+                ["openai"] = new AgentProviderProfile
                 {
-                    ["openai"] = new ClientProviderConfig
+                    Chat = new ChatClientConfig
                     {
-                        ProviderKey = "openai",
-                        ProviderOptions = JsonDocument.Parse("[]").RootElement.Clone()
+                        ProviderConfig = new TestProviderConfig { Value = "profile" }
                     }
-                },
-                Chat = new ClientProviderConfig
+                }
+            },
+            Clients = new AgentClientsConfig
+            {
+                Chat = new ChatClientConfig
                 {
                     ProviderKey = "openai",
-                    ProviderOptions = JsonDocument.Parse("""{"ok":true}""").RootElement.Clone()
+                    ProviderConfig = new TestProviderConfig { Value = "agent" }
                 }
             }
         };
 
-        var act = () => config.ResolveClientConfig(ProviderClientFamily.Chat);
+        var resolved = config.ResolveClientConfig(ProviderClientFamily.Chat);
 
-        act.Should().Throw<InvalidOperationException>()
-            .WithMessage("*ProviderOptions merge requires*JSON object*");
+        resolved!.ProviderConfig.Should().BeOfType<TestProviderConfig>()
+            .Which.Value.Should().Be("agent");
+    }
+
+    [Fact]
+    public void ResolveClientConfig_WhenProviderChanges_DiscardsPreviousProviderState()
+    {
+        var config = new AgentConfig
+        {
+            ProviderProfiles = new Dictionary<string, AgentProviderProfile>
+            {
+                ["anthropic"] = new AgentProviderProfile
+                {
+                    Chat = new ChatClientConfig
+                    {
+                        Endpoint = "https://anthropic.example",
+                        AuthenticationKey = "anthropic-default",
+                        ProviderConfig = new TestProviderConfig { Value = "anthropic" }
+                    }
+                },
+                ["openai"] = new AgentProviderProfile
+                {
+                    Chat = new ChatClientConfig
+                    {
+                        Endpoint = "https://openai.example",
+                        AuthenticationKey = "openai-default",
+                        ProviderConfig = new TestProviderConfig { Value = "openai" }
+                    }
+                }
+            },
+            Clients = new AgentClientsConfig
+            {
+                Chat = new ChatClientConfig
+                {
+                    ProviderKey = "anthropic",
+                    ModelName = "claude-agent",
+                    CustomHeaders = new() { ["anthropic-version"] = "2023-06-01" },
+                    ProviderConfig = new TestProviderConfig { Value = "anthropic-agent" }
+                }
+            }
+        };
+
+        var resolved = config.ResolveClientConfig(
+            ProviderClientFamily.Chat,
+            new AgentClientsConfig
+            {
+                Chat = new ChatClientConfig
+                {
+                    ProviderKey = "openai",
+                    ModelName = "gpt-run"
+                }
+            });
+
+        resolved.Should().NotBeNull();
+        resolved!.ProviderKey.Should().Be("openai");
+        resolved.ModelName.Should().Be("gpt-run");
+        resolved.Endpoint.Should().Be("https://openai.example");
+        resolved.AuthenticationKey.Should().Be("openai-default");
+        resolved.CustomHeaders.Should().BeNull();
+
+        resolved.ProviderConfig.Should().BeOfType<TestProviderConfig>()
+            .Which.Value.Should().Be("openai");
     }
 
     [Fact]
@@ -163,7 +220,7 @@ public class AgentClientConfigTests
         public string ProviderKey => "test";
         public string DisplayName => "Test";
 
-        public IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null)
+        public async ValueTask<IChatClient> CreateChatClientAsync(ProviderClientConfig config, IServiceProvider? services = null, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
         public IProviderErrorHandler CreateErrorHandler() => new GenericErrorHandler();
@@ -181,7 +238,7 @@ public class AgentClientConfigTests
             }
         };
 
-        public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family)
+        public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
             => ProviderValidationResult.Success();
     }
 
@@ -190,7 +247,7 @@ public class AgentClientConfigTests
         public string ProviderKey => "test";
         public string DisplayName => "Test";
 
-        public ITextToSpeechClient CreateTextToSpeechClient(ClientProviderConfig config, IServiceProvider? services = null)
+        public ITextToSpeechClient CreateTextToSpeechClient(ProviderClientConfig config, IServiceProvider? services = null)
             => throw new NotSupportedException();
 
         public IProviderErrorHandler CreateErrorHandler() => new GenericErrorHandler();
@@ -208,7 +265,7 @@ public class AgentClientConfigTests
             }
         };
 
-        public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family)
+        public ProviderValidationResult ValidateConfiguration(ProviderClientConfig config, ProviderClientFamily family)
             => ProviderValidationResult.Success();
     }
 }

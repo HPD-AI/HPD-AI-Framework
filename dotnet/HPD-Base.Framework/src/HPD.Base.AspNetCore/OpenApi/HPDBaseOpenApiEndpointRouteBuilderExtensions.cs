@@ -1,7 +1,7 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Routing;
 
-namespace HPD.Base.AspNetCore.OpenApi;
+namespace HPD.Base.AspNetCore;
 
 /// <summary>
 /// Extension methods for mapping HPD.BASE OpenAPI document endpoints.
@@ -74,6 +74,7 @@ public static class HPDBaseOpenApiEndpointRouteBuilderExtensions
 
     private sealed class CompositeEndpointConventionBuilder(IReadOnlyList<IEndpointConventionBuilder> builders) : IEndpointConventionBuilder
     {
+        /// <summary>Executes the add operation.</summary>
         public void Add(Action<EndpointBuilder> convention)
         {
             foreach (var builder in builders)

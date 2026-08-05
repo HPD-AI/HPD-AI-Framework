@@ -1,19 +1,20 @@
-using HPD.Base.Sqlite.Configuration;
-using HPD.Base.Sqlite.Observability;
+using HPD.Base.Sqlite;
 using Microsoft.Data.Sqlite;
 
-namespace HPD.Base.Sqlite.Internal;
+namespace HPD.Base.Sqlite;
 
 internal sealed class SqliteConnectionFactory
 {
     private readonly HPDBaseSqliteOptions _options;
     private static int s_batteriesInitialized;
 
+    /// <summary>Initializes a new instance.</summary>
     public SqliteConnectionFactory(HPDBaseSqliteOptions options)
     {
         _options = options;
     }
 
+    /// <summary>Executes the open async operation.</summary>
     public ValueTask<SqliteConnection> OpenAsync(CancellationToken cancellationToken) =>
         HPDBaseSqliteTelemetry.TraceConnectionOpenAsync(_options.StoreId, () => OpenCoreAsync(cancellationToken));
 
@@ -36,8 +37,10 @@ internal sealed class SqliteConnectionFactory
         }
     }
 
+    /// <summary>Executes the build connection string operation.</summary>
     public string BuildConnectionString() => BuildConnectionString(_options);
 
+    /// <summary>Executes the initialize batteries operation.</summary>
     public static void InitializeBatteries(HPDBaseSqliteOptions options)
     {
         if (options.InitializeSQLitePCLRaw && Interlocked.Exchange(ref s_batteriesInitialized, 1) == 0)
@@ -81,6 +84,7 @@ internal sealed class SqliteConnectionFactory
         }
     }
 
+    /// <summary>Executes the is memory database operation.</summary>
     public bool IsMemoryDatabase()
     {
         var cs = BuildConnectionString(_options);
@@ -89,6 +93,7 @@ internal sealed class SqliteConnectionFactory
             || builder.Mode == SqliteOpenMode.Memory;
     }
 
+    /// <summary>Executes the get journal mode async operation.</summary>
     public async ValueTask<string?> GetJournalModeAsync(SqliteConnection connection, CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();

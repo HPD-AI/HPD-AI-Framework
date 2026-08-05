@@ -3,6 +3,7 @@ using HPD.Agent.Middleware;
 using HPD.Events;
 using Microsoft.Extensions.DependencyInjection;
 using HPD.Events.Struct;
+using Microsoft.Extensions.AI;
 using static HPD.Agent.AgentInputResults;
 
 namespace HPD.Agent;
@@ -239,8 +240,8 @@ internal sealed class CompactThreadInputHandler : IAgentInputHandler<CompactThre
                 {
                     AgentConfig = context.Config,
                     RunConfig = input.RunConfig ?? context.RuntimeRunConfig,
-                    AgentDefault = context.DefaultChatClient,
-                    DedicatedProvider = summarizing.Provider
+                    BuilderDefault = context.DefaultChatClient,
+                    SpecializedChat = summarizing.Summarizer
                 },
                 cancellationToken).ConfigureAwait(false)
             : null;
@@ -249,7 +250,8 @@ internal sealed class CompactThreadInputHandler : IAgentInputHandler<CompactThre
             thread.Messages,
             publisher,
             chatLease?.Client,
-            context.Services?.GetService<IThreadJournalRebaseSeedProvider>());
+            context.Services?.GetService<IThreadJournalRebaseSeedProvider>(),
+            CreateSummarizerOptions(chatLease?.Handle.ResolvedConfig as ChatClientConfig));
         await new ThreadCompactionEngine().ExecuteAsync(
                 engineContext,
                 input.Request.Compaction,
@@ -260,6 +262,14 @@ internal sealed class CompactThreadInputHandler : IAgentInputHandler<CompactThre
                 cancellationToken)
             .ConfigureAwait(false);
         return Completed(input);
+    }
+
+    private static ChatOptions? CreateSummarizerOptions(ChatClientConfig? config)
+    {
+        var options = config?.ToMicrosoftChatOptions() ?? new ChatOptions();
+        options.Tools = [];
+        options.ToolMode = ChatToolMode.None;
+        return options;
     }
 }
 

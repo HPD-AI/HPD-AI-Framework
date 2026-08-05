@@ -1,6 +1,7 @@
 // Copyright (c) 2025 Einstein Essibu. All rights reserved.
 
 using HPD.Agent.Secrets;
+using HPD.Agent.Providers;
 using Microsoft.Extensions.Configuration;
 using Xunit;
 
@@ -144,9 +145,12 @@ public class SecretNotFoundExceptionTests
     public async Task EnvironmentResolver_UsesRegisteredCanonicalEnvVar(string key, string expectedEnvVar)
     {
         // Arrange
-        SecretAliasRegistry.Register(key, expectedEnvVar);
         System.Environment.SetEnvironmentVariable(expectedEnvVar, "test-value");
-        var envResolver = new EnvironmentSecretResolver();
+        var envResolver = new EnvironmentSecretResolver(
+            new TestAliasRegistry(new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal)
+            {
+                [key] = [expectedEnvVar]
+            }));
 
         try
         {
@@ -189,9 +193,12 @@ public class SecretNotFoundExceptionTests
     public async Task EnvironmentResolver_RequiresCanonicalSecretKeyCasing()
     {
         // Arrange
-        SecretAliasRegistry.Register("openai:ApiKey", "TEST_OPENAI_API_KEY_CANONICAL");
         System.Environment.SetEnvironmentVariable("TEST_OPENAI_API_KEY_CANONICAL", "test-value");
-        var envResolver = new EnvironmentSecretResolver();
+        var envResolver = new EnvironmentSecretResolver(
+            new TestAliasRegistry(new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal)
+            {
+                ["openai:ApiKey"] = ["TEST_OPENAI_API_KEY_CANONICAL"]
+            }));
 
         try
         {
@@ -359,5 +366,12 @@ public class SecretNotFoundExceptionTests
         {
             return new ValueTask<ResolvedSecret?>((ResolvedSecret?)null);
         }
+    }
+
+    private sealed class TestAliasRegistry(
+        IReadOnlyDictionary<string, IReadOnlyList<string>> aliases) : IProviderSecretAliasRegistry
+    {
+        public IReadOnlyList<string>? GetEnvironmentVariables(string secretKey) =>
+            aliases.TryGetValue(secretKey, out var values) ? values : null;
     }
 }

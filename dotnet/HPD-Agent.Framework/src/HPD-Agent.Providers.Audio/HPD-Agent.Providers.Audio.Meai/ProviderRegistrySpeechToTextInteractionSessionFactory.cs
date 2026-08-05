@@ -18,7 +18,7 @@ internal sealed class ProviderRegistrySpeechToTextInteractionSessionFactory :
 {
     private long _nextSessionId;
     private readonly IProviderRegistry _providerRegistry;
-    private readonly ClientProviderConfig _providerConfig;
+    private readonly ProviderClientConfig _providerConfig;
     private readonly IInputContentSourceResolver _sourceResolver;
     private readonly MeaiBatchSpeechToTextInteractionSessionOptions _sessionOptions;
     private readonly IServiceProvider? _services;
@@ -29,7 +29,7 @@ internal sealed class ProviderRegistrySpeechToTextInteractionSessionFactory :
 
     public ProviderRegistrySpeechToTextInteractionSessionFactory(
         IProviderRegistry providerRegistry,
-        ClientProviderConfig providerConfig,
+        ProviderClientConfig providerConfig,
         IInputContentSourceResolver sourceResolver,
         MeaiBatchSpeechToTextInteractionSessionOptions sessionOptions,
         bool disposeCreatedClient,

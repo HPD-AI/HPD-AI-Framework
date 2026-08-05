@@ -373,7 +373,7 @@ static bool TryConfigureProvider(
         return false;
     }
 
-    builder.Config.SetChatClientConfig(new ClientProviderConfig
+    builder.Config.SetChatClientConfig(new ChatClientConfig
     {
         ProviderKey = "openrouter",
         ModelName = options.Model

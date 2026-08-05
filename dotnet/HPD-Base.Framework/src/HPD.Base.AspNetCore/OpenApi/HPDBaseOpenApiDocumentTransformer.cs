@@ -2,10 +2,11 @@ using Microsoft.AspNetCore.OpenApi;
 using Microsoft.Extensions.Options;
 using Microsoft.OpenApi;
 
-namespace HPD.Base.AspNetCore.OpenApi;
+namespace HPD.Base.AspNetCore;
 
 internal sealed class HPDBaseOpenApiDocumentTransformer(IOptions<HPDBaseOpenApiOptions> options) : IOpenApiDocumentTransformer
 {
+    /// <summary>Executes the transform async operation.</summary>
     public Task TransformAsync(OpenApiDocument document, OpenApiDocumentTransformerContext context, CancellationToken cancellationToken)
     {
         var configured = options.Value;

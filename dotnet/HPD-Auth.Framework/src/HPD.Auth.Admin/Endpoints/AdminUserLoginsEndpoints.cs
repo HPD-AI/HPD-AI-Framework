@@ -1,4 +1,6 @@
 using HPD.Auth.Core.Entities;
+using HPD.Auth.ControlPlane;
+using HPD.Auth.Core.Audit;
 using HPD.Auth.Core.Interfaces;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -16,16 +18,17 @@ namespace HPD.Auth.Admin.Endpoints;
 /// </summary>
 public static class AdminUserLoginsEndpoints
 {
-    public static void Map(IEndpointRouteBuilder app)
+    public static void Map(RouteGroupBuilder root, IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/admin/users")
-                       .RequireAuthorization("RequireAdmin");
+        var group = root.MapGroup("/users");
 
         group.MapGet("/{id}/logins", GetLoginsAsync)
+             .RequireHPDControlPlaneCapability(app, HPDAuthAdminCapabilities.CredentialsRead)
              .WithName("AdminGetUserLogins")
              .WithSummary("List all external OAuth logins linked to a user.");
 
         group.MapDelete("/{id}/logins/{provider}", RemoveLoginAsync)
+             .RequireHPDControlPlaneCapability(app, HPDAuthAdminCapabilities.CredentialsWrite)
              .WithName("AdminRemoveUserLogin")
              .WithSummary("Remove an external OAuth login from a user. Requires providerKey query param.");
     }
@@ -58,7 +61,8 @@ public static class AdminUserLoginsEndpoints
         string id,
         string provider,
         UserManager<ApplicationUser> userManager,
-        IAuditLogger auditLogger,
+        IAuthAuditWriter auditWriter,
+        IAuthCorrelationContext correlationContext,
         string? providerKey = null,
         CancellationToken ct = default)
     {
@@ -73,13 +77,7 @@ public static class AdminUserLoginsEndpoints
         if (!result.Succeeded)
             return Results.BadRequest(result.Errors);
 
-        await auditLogger.LogAsync(new AuditLogEntry(
-            Action: AuditActions.OAuthUnlink,
-            Category: AuditCategories.Admin,
-            Success: true,
-            UserId: user.Id,
-            Metadata: new { adminAction = "remove_login", provider }
-        ), ct);
+        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.LoginRemove, correlationContext, user.Id, cancellationToken: ct);
 
         return Results.Ok(new { message = $"External login '{provider}' removed." });
     }

@@ -1,18 +1,12 @@
-using HPD.Base.AspNetCore.EndpointMapping;
-using HPD.Base.AspNetCore.Http;
-using HPD.Base.AspNetCore.OpenApi;
-using HPD.Base.AspNetCore.Results;
-using HPD.Base.Results;
-using HPD.Base.Runtime;
-using HPD.Base.Runtime.Policy.Admin;
-using HPD.Base.Runtime.Results;
+using HPD.Base.AspNetCore;
+using HPD.Base;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Net.Http.Headers;
 
-namespace HPD.Base.AspNetCore.Policy.Admin;
+namespace HPD.Base.AspNetCore;
 
 /// <summary>
 /// Maps admin policy explain endpoints.

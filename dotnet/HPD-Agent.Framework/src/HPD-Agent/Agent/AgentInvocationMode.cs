@@ -400,7 +400,9 @@ public static class AgentInvocationModes
     /// <returns>The original schema or a cloned schema with <c>invocationMode</c>.</returns>
     public static JsonElement CreateSchema(
         JsonElement originalSchema,
-        AgentInvocationModePolicy invocationModePolicy)
+        AgentInvocationModePolicy invocationModePolicy,
+        string? discriminator = null,
+        IReadOnlySet<string>? modelChoiceActions = null)
     {
         if (originalSchema.ValueKind == JsonValueKind.Undefined)
             return default;
@@ -423,23 +425,47 @@ public static class AgentInvocationModes
 
         schema["type"] ??= "object";
 
-        if (schema["properties"] is not JsonObject properties)
+        if (modelChoiceActions is not null &&
+            !string.IsNullOrWhiteSpace(discriminator) &&
+            schema["oneOf"] is JsonArray branches)
         {
-            properties = new JsonObject();
-            schema["properties"] = properties;
-        }
+            foreach (var branchNode in branches)
+            {
+                if (branchNode is not JsonObject branch ||
+                    branch["properties"] is not JsonObject branchProperties ||
+                    branchProperties[discriminator] is not JsonObject discriminatorSchema ||
+                    discriminatorSchema["const"]?.GetValue<string>() is not { } action ||
+                    !modelChoiceActions.Contains(action))
+                {
+                    continue;
+                }
 
-        properties["invocationMode"] = new JsonObject
+                branchProperties["invocationMode"] = CreateInvocationModeSchema();
+            }
+        }
+        else
         {
-            ["type"] = "string",
-            ["enum"] = new JsonArray("synchronous", "background"),
-            ["description"] = "Whether to wait for the result now or run it in the background. Use synchronous unless the work can continue independently."
-        };
+            if (schema["properties"] is not JsonObject properties)
+            {
+                properties = new JsonObject();
+                schema["properties"] = properties;
+            }
+
+            properties["invocationMode"] = CreateInvocationModeSchema();
+        }
 
         return JsonSerializer.SerializeToElement(
             schema,
             HPDJsonContext.Default.JsonObject);
     }
+
+    private static JsonObject CreateInvocationModeSchema() =>
+        new()
+        {
+            ["type"] = "string",
+            ["enum"] = new JsonArray("synchronous", "background"),
+            ["description"] = "Whether to wait for the result now or run it in the background. Use synchronous unless the work can continue independently."
+        };
 
     /// <summary>
     /// Creates a model-facing receipt for a background invocation that could not be started.

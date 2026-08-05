@@ -6,6 +6,6 @@ clients:
     providerKey: openrouter
     modelName: deepseek/deepseek-v4-pro
     apiKey: test-openrouter-key
-    providerOptions:
+    constructionOptions:
       temperature: 0.1
       maxTokens: 64

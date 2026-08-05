@@ -9,6 +9,8 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace HPD.Agent.AspNetCore.EndpointMapping.Endpoints;
 
@@ -18,6 +20,7 @@ namespace HPD.Agent.AspNetCore.EndpointMapping.Endpoints;
 internal static class ClientToolProviderEndpoints
 {
     private const string ProviderConnectPath = "/client-tool-providers/connect";
+    private const int MaximumProviderMessageBytes = 1024 * 1024;
 
     /// <summary>
     /// Maps client tool provider endpoints.
@@ -37,10 +40,34 @@ internal static class ClientToolProviderEndpoints
             .WithName("GetClientToolProvider")
             .WithSummary("Get one connected client tool provider");
 
-        endpoints.MapGet(ProviderConnectPath, (HttpContext context, CancellationToken ct) =>
-                ConnectAsync(context, registry, ct))
-            .WithName("ConnectClientToolProvider")
-            .WithSummary("Connect a live client tool provider over WebSocket");
+        MapConnection(
+            endpoints,
+            registry,
+            ProviderConnectPath,
+            requireAuthorization: false,
+            endpointName: "ConnectClientToolProvider");
+    }
+
+    internal static IEndpointConventionBuilder MapConnection(
+        IEndpointRouteBuilder endpoints,
+        IClientToolProviderRegistry registry,
+        string path,
+        bool requireAuthorization,
+        string? endpointName = null)
+    {
+        RouteHandlerBuilder endpoint = endpoints.MapMethods(
+            path,
+            [HttpMethods.Get, HttpMethods.Connect],
+            (HttpContext context, CancellationToken ct) =>
+                ConnectAsync(
+                    context,
+                    registry,
+                    requireAuthorization,
+                    ct));
+        if (!string.IsNullOrWhiteSpace(endpointName))
+            endpoint.WithName(endpointName);
+        return endpoint.WithSummary(
+            "Connect a live client tool provider over WebSocket");
     }
 
     private static Ok<IReadOnlyList<ClientToolProviderSnapshot>> ListProviders(
@@ -62,15 +89,57 @@ internal static class ClientToolProviderEndpoints
             ? TypedResults.Ok(snapshot)
             : TypedResults.NotFound();
 
-    private static async Task<Results<Ok, BadRequest>> ConnectAsync(
+    private static async Task<IResult> ConnectAsync(
         HttpContext context,
         IClientToolProviderRegistry registry,
+        bool requireAuthorization,
         CancellationToken ct)
     {
+        ILogger logger = context.RequestServices
+            .GetRequiredService<ILoggerFactory>()
+            .CreateLogger("HPD.ClientTools.ProviderConnection");
         if (!context.WebSockets.IsWebSocketRequest)
             return TypedResults.BadRequest();
 
-        using var webSocket = await context.WebSockets.AcceptWebSocketAsync().ConfigureAwait(false);
+        var authorizer = context.RequestServices
+            .GetService<IClientToolProviderConnectionAuthorizer>();
+        ClientToolProviderConnectionAuthorization? authorization = null;
+        if (requireAuthorization && authorizer is not null)
+        {
+            authorization = await authorizer.AuthorizeAsync(context, ct)
+                .ConfigureAwait(false);
+            if (authorization is null)
+            {
+                LogHandshakeRejected(logger, "connection_not_authorized");
+                return TypedResults.Unauthorized();
+            }
+        }
+        else if (requireAuthorization)
+        {
+            LogHandshakeRejected(logger, "authorizer_unavailable");
+            return TypedResults.Unauthorized();
+        }
+
+        WebSocket webSocket;
+        try
+        {
+            webSocket = await context.WebSockets.AcceptWebSocketAsync(
+                    authorization?.AcceptedWebSocketSubprotocol)
+                .ConfigureAwait(false);
+        }
+        catch (Exception error)
+        {
+            logger.LogWarning(
+                "Client-tool provider WebSocket upgrade failed with exception type {ExceptionType}.",
+                error.GetType().FullName);
+            if (authorization?.ConnectionLease is not null)
+            {
+                await authorization.ConnectionLease.DisposeAsync()
+                    .ConfigureAwait(false);
+            }
+            throw;
+        }
+        using var ownedWebSocket = webSocket;
         string? clientRuntimeId = null;
         string? connectionId = null;
 
@@ -78,11 +147,15 @@ internal static class ClientToolProviderEndpoints
         {
             var helloText = await ReceiveTextMessageAsync(webSocket, ct).ConfigureAwait(false);
             if (helloText is null)
-                return TypedResults.Ok();
+            {
+                LogHandshakeRejected(logger, "hello_connection_closed");
+                return TypedResults.Empty;
+            }
 
             var messageType = ReadMessageType(helloText);
             if (!string.Equals(messageType, "provider.hello", StringComparison.Ordinal))
             {
+                LogHandshakeRejected(logger, "hello_required");
                 await SendJsonAsync(
                     webSocket,
                     new ClientToolProviderErrorMessage
@@ -91,7 +164,7 @@ internal static class ClientToolProviderEndpoints
                         Message = "The first provider message must be provider.hello."
                     },
                     ct).ConfigureAwait(false);
-                return TypedResults.Ok();
+                return TypedResults.Empty;
             }
 
             var hello = JsonSerializer.Deserialize(
@@ -99,6 +172,7 @@ internal static class ClientToolProviderEndpoints
                 HPDJsonContext.Default.ClientToolProviderHelloMessage);
             if (hello?.Identity is null)
             {
+                LogHandshakeRejected(logger, "invalid_hello");
                 await SendJsonAsync(
                     webSocket,
                     new ClientToolProviderErrorMessage
@@ -107,11 +181,51 @@ internal static class ClientToolProviderEndpoints
                         Message = "Provider hello message did not include a valid identity."
                     },
                     ct).ConfigureAwait(false);
+                return TypedResults.Empty;
+            }
+
+            if (!string.Equals(hello.ProtocolVersion, "2", StringComparison.Ordinal))
+            {
+                LogHandshakeRejected(logger, "unsupported_protocol");
+                await SendJsonAsync(
+                    webSocket,
+                    new ClientToolProviderErrorMessage
+                    {
+                        Code = "unsupported_protocol",
+                        Message = $"Provider protocol '{hello.ProtocolVersion}' is unsupported. Expected '2'."
+                    },
+                    ct).ConfigureAwait(false);
+                return TypedResults.Empty;
+            }
+
+            if (authorization is not null &&
+                (!string.Equals(
+                    hello.Identity.ProviderName,
+                    authorization.ExpectedProviderName,
+                    StringComparison.Ordinal) ||
+                 !string.Equals(
+                    hello.Identity.AppKind,
+                    authorization.ExpectedAppKind,
+                    StringComparison.Ordinal)))
+            {
+                LogHandshakeRejected(logger, "provider_identity_mismatch");
+                await SendJsonAsync(
+                    webSocket,
+                    new ClientToolProviderErrorMessage
+                    {
+                        Code = "provider_identity_mismatch",
+                        Message = "Provider identity does not match its launch authority."
+                    },
+                    ct).ConfigureAwait(false);
                 return TypedResults.Ok();
             }
 
             var connection = new WebSocketClientToolProviderConnection(webSocket);
-            var registration = await registry.RegisterConnectionAsync(hello.Identity, connection, ct)
+            var registration = await registry.RegisterConnectionAsync(
+                    hello.Identity,
+                    authorization?.RuntimeIdentity,
+                    connection,
+                    ct)
                 .ConfigureAwait(false);
             clientRuntimeId = registration.ClientRuntimeId;
             connectionId = registration.ConnectionId;
@@ -158,10 +272,21 @@ internal static class ClientToolProviderEndpoints
                     "Provider connection closed.",
                     CancellationToken.None).ConfigureAwait(false);
             }
+            if (authorization?.ConnectionLease is not null)
+            {
+                await authorization.ConnectionLease.DisposeAsync()
+                    .ConfigureAwait(false);
+            }
         }
-
-        return TypedResults.Ok();
+        return TypedResults.Empty;
     }
+
+    private static void LogHandshakeRejected(
+        ILogger logger,
+        string code) =>
+        logger.LogWarning(
+            "Client-tool provider handshake rejected with code {Code}.",
+            code);
 
     private static async Task HandleProviderMessageAsync(
         IClientToolProviderRegistry registry,
@@ -268,6 +393,9 @@ internal static class ClientToolProviderEndpoints
                 throw new InvalidOperationException("Client tool provider messages must be text frames.");
 
             stream.Write(buffer, 0, result.Count);
+            if (stream.Length > MaximumProviderMessageBytes)
+                throw new InvalidOperationException(
+                    $"Client tool provider messages cannot exceed {MaximumProviderMessageBytes} bytes.");
             if (result.EndOfMessage)
                 break;
         }
@@ -315,6 +443,33 @@ internal static class ClientToolProviderEndpoints
             try
             {
                 await SendJsonAsync(_webSocket, message, cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                _sendLock.Release();
+            }
+        }
+
+        public async ValueTask CloseAsync(
+            string reason,
+            CancellationToken cancellationToken = default)
+        {
+            await _sendLock.WaitAsync(cancellationToken)
+                .ConfigureAwait(false);
+            try
+            {
+                if (_webSocket.State is
+                    WebSocketState.Open or
+                    WebSocketState.CloseReceived)
+                {
+                    await _webSocket.CloseOutputAsync(
+                            WebSocketCloseStatus.PolicyViolation,
+                            reason.Length <= 120
+                                ? reason
+                                : reason[..120],
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                }
             }
             finally
             {

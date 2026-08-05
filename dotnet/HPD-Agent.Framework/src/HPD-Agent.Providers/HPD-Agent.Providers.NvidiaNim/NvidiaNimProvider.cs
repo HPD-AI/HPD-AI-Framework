@@ -5,6 +5,11 @@ using System.Collections.Generic;
 
 namespace HPD.Agent.Providers.NvidiaNim;
 
+[HpdProvider("nvidia-nim", "NVIDIA NIM")]
+[HpdProviderFamily(ProviderClientFamily.Chat)]
+[HpdProviderPayload(ProviderClientFamily.Chat, ProviderPayloadKind.Configuration, typeof(NvidiaNimProviderConfig), typeof(NvidiaNimJsonContext))]
+[HpdProviderSecretAlias("nvidia-nim:ApiKey", "NVIDIA_API_KEY", "NVIDIA_NIM_API_KEY")]
+[HpdProviderSecretAlias("nvidia-nim:Endpoint", "NVIDIA_NIM_ENDPOINT", "NVIDIA_NIM_BASE_URL", "NVIDIA_ENDPOINT", "NVIDIA_BASE_URL")]
 internal sealed class NvidiaNimProvider : OpenAICompatibleChatProviderBase<NvidiaNimProviderConfig>
 {
     internal static readonly Uri DefaultEndpoint = new("https://integrate.api.nvidia.com/v1/");

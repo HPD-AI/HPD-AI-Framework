@@ -758,6 +758,39 @@ describe('createThreadProjection', () => {
     expect(projection.getSnapshot().pendingRuntimeRequests).toHaveLength(0);
   });
 
+  it('hydrates durable pending requests and closes them with terminal facts', () => {
+    const projection = createThreadProjection();
+    projection.rehydrate({
+      events: [],
+      observedCursor: { generation: 1, sequenceNumber: 4 },
+      activeExecution: null,
+      pendingRequests: [{
+        request: {
+          type: EventTypes.PERMISSION_REQUEST,
+          permissionId: 'p1',
+          sourceName: 'permission',
+          functionName: 'Bash',
+          callId: 'c1',
+          threadExecutionId: 'run-1',
+        },
+        createdAt: '2026-01-01T00:00:00.000Z',
+      }],
+    });
+
+    expect(projection.getSnapshot().pendingRuntimeRequests).toHaveLength(1);
+    projection.project({
+      type: EventTypes.AGENT_REQUEST_TERMINATED,
+      requestId: 'p1',
+      sourceName: 'permission',
+      terminalKind: 'Abandoned',
+      reason: 'Execution ended.',
+      terminatedAt: '2026-01-01T00:01:00.000Z',
+      threadExecutionId: 'run-1',
+    });
+
+    expect(projection.getSnapshot().pendingRuntimeRequests).toHaveLength(0);
+  });
+
   it('tracks custom request events through the generic runtime request model', () => {
     const projection = createThreadProjection();
 

@@ -11,19 +11,19 @@ public sealed class ProviderConstructionValidationRestorationTests
     public void Bedrock_ValidateConfiguration_ShouldRequireCredentialPairingAndPositiveClientOptions()
     {
         var provider = new BedrockProvider();
-        var config = new ClientProviderConfig
+        var config = new ProviderClientConfig
         {
             ProviderKey = "bedrock",
             ModelName = "anthropic.claude-3-5-sonnet-20240620-v1:0"
         };
-        config.SetProviderConfig(new BedrockProviderConfig
+        config.ProviderConfig = new BedrockProviderConfig
         {
             AccessKeyId = "access-key",
             RequestTimeoutMs = 0,
             ConnectTimeoutMs = -1,
             MaxRetryAttempts = -1,
             ProxyPort = 70000
-        });
+        };
 
         var result = provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
@@ -39,15 +39,15 @@ public sealed class ProviderConstructionValidationRestorationTests
     public void Bedrock_ValidateConfiguration_ShouldRequireAccessKeyWhenSecretIsSpecified()
     {
         var provider = new BedrockProvider();
-        var config = new ClientProviderConfig
+        var config = new ProviderClientConfig
         {
             ProviderKey = "bedrock",
             ModelName = "anthropic.claude-3-5-sonnet-20240620-v1:0"
         };
-        config.SetProviderConfig(new BedrockProviderConfig
+        config.ProviderConfig = new BedrockProviderConfig
         {
             SecretAccessKey = "secret-key"
-        });
+        };
 
         var result = provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
@@ -59,14 +59,14 @@ public sealed class ProviderConstructionValidationRestorationTests
     public void OnnxRuntime_ValidateConfiguration_ShouldRequireExistingModelPath()
     {
         var provider = new OnnxRuntimeProvider();
-        var config = new ClientProviderConfig
+        var config = new ProviderClientConfig
         {
             ProviderKey = "onnx-runtime"
         };
-        config.SetProviderConfig(new OnnxRuntimeProviderConfig
+        config.ProviderConfig = new OnnxRuntimeProviderConfig
         {
             ModelPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"))
-        });
+        };
 
         var result = provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
@@ -75,18 +75,18 @@ public sealed class ProviderConstructionValidationRestorationTests
     }
 
     [Fact]
-    public void OnnxRuntime_ValidateConfiguration_ShouldRejectInvalidProviderAndHardwareConstructionOptions()
+    public void OnnxRuntime_ValidateConfiguration_ShouldRejectInvalidExecutionProviderAndHardwareOptions()
     {
         var provider = new OnnxRuntimeProvider();
-        var config = new ClientProviderConfig
+        var config = new ProviderClientConfig
         {
             ProviderKey = "onnx-runtime"
         };
-        config.SetProviderConfig(new OnnxRuntimeProviderConfig
+        config.ProviderConfig = new OnnxRuntimeProviderConfig
         {
             ModelPath = Directory.GetCurrentDirectory(),
             Providers = [""],
-            ProviderOptions = new Dictionary<string, Dictionary<string, string>>
+            ExecutionProviderOptions = new Dictionary<string, Dictionary<string, string>>
             {
                 [""] = new()
                 {
@@ -94,7 +94,7 @@ public sealed class ProviderConstructionValidationRestorationTests
                 }
             },
             HardwareDeviceType = "gpu"
-        });
+        };
 
         var result = provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
@@ -108,15 +108,15 @@ public sealed class ProviderConstructionValidationRestorationTests
     public void OnnxRuntime_ValidateConfiguration_ShouldRequireProvidersForHardwareDecoderOptions()
     {
         var provider = new OnnxRuntimeProvider();
-        var config = new ClientProviderConfig
+        var config = new ProviderClientConfig
         {
             ProviderKey = "onnx-runtime"
         };
-        config.SetProviderConfig(new OnnxRuntimeProviderConfig
+        config.ProviderConfig = new OnnxRuntimeProviderConfig
         {
             ModelPath = Directory.GetCurrentDirectory(),
             HardwareDeviceType = "gpu"
-        });
+        };
 
         var result = provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 
@@ -128,16 +128,16 @@ public sealed class ProviderConstructionValidationRestorationTests
     public void Ollama_ValidateConfiguration_ShouldRejectInvalidEndpointAndTimeout()
     {
         var provider = new OllamaProvider();
-        var config = new ClientProviderConfig
+        var config = new ProviderClientConfig
         {
             ProviderKey = "ollama",
             ModelName = "qwen3",
             Endpoint = "not-a-uri"
         };
-        config.SetProviderConfig(new OllamaProviderConfig
+        config.ProviderConfig = new OllamaProviderConfig
         {
             TimeoutMs = 0
-        });
+        };
 
         var result = provider.ValidateConfiguration(config, ProviderClientFamily.Chat);
 

@@ -27,4 +27,15 @@
     <ProjectReference Include="../../src/HPD-Environment.AppleVirtualization/HPD-Environment.AppleVirtualization.csproj" />
     <ProjectReference Include="../../../HPD-Agent.Framework/src/HPD-Agent/HPD-Agent.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="../HPD-Environment.ProviderConformance/RuntimeHostProviderConformanceTests.cs"
+             Link="ProviderConformance/RuntimeHostProviderConformanceTests.cs" />
+    <Compile Include="../HPD-Environment.ProviderConformance/ProviderCapabilityConformanceTests.cs"
+             Link="ProviderConformance/ProviderCapabilityConformanceTests.cs" />
+    <Compile Include="../HPD-Environment.ProviderConformance/AuthorityBindingProviderConformanceTests.cs"
+             Link="ProviderConformance/AuthorityBindingProviderConformanceTests.cs" />
+    <Compile Include="../HPD-Environment.ProviderConformance/EndpointPublicationProviderConformanceTests.cs"
+             Link="ProviderConformance/EndpointPublicationProviderConformanceTests.cs" />
+  </ItemGroup>
 </Project>

@@ -135,7 +135,7 @@ public class AdminRolesClaimsLoginsTests : IAsyncLifetime
 
         await _admin.PostJsonAsync($"/api/admin/users/{user.Id}/roles", new { role = "Admin" });
 
-        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: AuditActions.AdminRoleAssign);
+        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: "admin.role.add");
         logs.Should().NotBeEmpty();
     }
 
@@ -185,7 +185,7 @@ public class AdminRolesClaimsLoginsTests : IAsyncLifetime
 
         await _admin.DeleteAsync($"/api/admin/users/{user.Id}/roles/Admin");
 
-        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: AuditActions.AdminRoleRemove);
+        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: "admin.role.remove");
         logs.Should().NotBeEmpty();
     }
 
@@ -280,9 +280,9 @@ public class AdminRolesClaimsLoginsTests : IAsyncLifetime
         await _admin.PostJsonAsync($"/api/admin/users/{user.Id}/claims",
             new { type = "role_level", value = "5" });
 
-        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: AuditActions.AdminUserUpdate);
+        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: "admin.claim.add");
         logs.Should().NotBeEmpty();
-        logs.Any(l => l.Metadata.Contains("add_claim")).Should().BeTrue();
+        logs.Any(l => l.Action == "admin.claim.add").Should().BeTrue();
     }
 
     // ── Section 22: DELETE claims ─────────────────────────────────────────────
@@ -337,8 +337,8 @@ public class AdminRolesClaimsLoginsTests : IAsyncLifetime
         await _admin.DeleteJsonAsync($"/api/admin/users/{user.Id}/claims",
             new { type = "audit_rem", value = "1" });
 
-        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: AuditActions.AdminUserUpdate);
-        logs.Any(l => l.Metadata.Contains("remove_claim")).Should().BeTrue();
+        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: "admin.claim.remove");
+        logs.Any(l => l.Action == "admin.claim.remove").Should().BeTrue();
     }
 
     // ── Section 23: PUT claims (replace) ─────────────────────────────────────
@@ -411,11 +411,10 @@ public class AdminRolesClaimsLoginsTests : IAsyncLifetime
                 @new = new { type = "b_type", value = "new" }
             });
 
-        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: AuditActions.AdminUserUpdate);
-        var replaceLog = logs.FirstOrDefault(l => l.Metadata.Contains("replace_claim"));
+        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: "admin.claim.replace");
+        var replaceLog = logs.FirstOrDefault(l => l.Action == "admin.claim.replace");
         replaceLog.Should().NotBeNull();
-        replaceLog!.Metadata.Should().Contain("a_type");
-        replaceLog.Metadata.Should().Contain("b_type");
+        replaceLog!.Facts.Should().BeEmpty("claim values and types are deliberately excluded");
     }
 
     // ── Section 24: GET logins ────────────────────────────────────────────────
@@ -524,7 +523,7 @@ public class AdminRolesClaimsLoginsTests : IAsyncLifetime
         await _admin.DeleteAsync(
             $"/api/admin/users/{user.Id}/logins/twitter?providerKey=twit-key");
 
-        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: AuditActions.OAuthUnlink);
+        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: "admin.login.remove");
         logs.Should().NotBeEmpty();
     }
 }

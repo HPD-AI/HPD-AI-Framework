@@ -64,6 +64,9 @@ public sealed class TranscriptView : IComponent
 
     public bool HandleInput(in TuiInputEvent key)
     {
+        if (_model.HistoryPresentation == TranscriptHistoryPresentation.TerminalScrollback)
+            return false;
+
         switch (key.Key)
         {
             case KeyCode.PageUp:
@@ -218,10 +221,13 @@ public sealed class TranscriptView : IComponent
         var rowsToSkip = _scrollOffset;
         var totalRows = 0;
 
-        for (var index = _entries.Count - 1; index >= 0 && _visibleRows.Count < Height; index--)
+        var visibleRowLimit = _model.HistoryPresentation == TranscriptHistoryPresentation.TerminalScrollback
+            ? int.MaxValue
+            : Height;
+        for (var index = _entries.Count - 1; index >= 0 && _visibleRows.Count < visibleRowLimit; index--)
         {
             var entry = GetRenderedEntry(index, in context, maxWidth, ref diagnostics);
-            for (var line = entry.LineCount - 1; line >= 0 && _visibleRows.Count < Height; line--)
+            for (var line = entry.LineCount - 1; line >= 0 && _visibleRows.Count < visibleRowLimit; line--)
             {
                 totalRows++;
                 if (rowsToSkip > 0)
@@ -237,7 +243,7 @@ public sealed class TranscriptView : IComponent
             if (index > 0)
             {
                 for (var spacing = 0;
-                     spacing < _entries[index - 1].VerticalSpacing && _visibleRows.Count < Height;
+                     spacing < _entries[index - 1].VerticalSpacing && _visibleRows.Count < visibleRowLimit;
                      spacing++)
                 {
                     totalRows++;

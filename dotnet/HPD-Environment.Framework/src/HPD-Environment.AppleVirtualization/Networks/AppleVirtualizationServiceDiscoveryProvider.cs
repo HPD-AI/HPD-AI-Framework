@@ -3,11 +3,12 @@ namespace HPD.Environment.AppleVirtualization.Networks;
 using HPD.Environment.AppleVirtualization.Handles;
 using HPD.Environment.AppleVirtualization.State;
 using HPD.Environment.Contracts;
+using HPD.Environment.Runtime;
 
 public sealed class AppleVirtualizationServiceDiscoveryProvider : IServiceDiscoveryProvider
 {
-    private const int MaxDiscoveryRecords = 128;
-    private static readonly TimeSpan DefaultTtl = TimeSpan.FromSeconds(30);
+    private const int MaxDiscoveryRecords =
+        DerivedServiceDiscovery.MaxRecords;
 
     private readonly AppleVirtualizationProviderStateLedger _ledger;
 
@@ -129,32 +130,19 @@ public sealed class AppleVirtualizationServiceDiscoveryProvider : IServiceDiscov
             return ValueTask.FromResult<IReadOnlyList<DiscoveryRecord>>(Array.Empty<DiscoveryRecord>());
         }
 
-        IReadOnlyList<DiscoveryRecord> records = lookup.Entry!.Status.Records;
-        int count = 0;
-        for (int i = 0; i < records.Count; i++)
-        {
-            if (Matches(query, records[i]))
-            {
-                count++;
-            }
-        }
+        return ValueTask.FromResult(
+            DerivedServiceDiscovery.Resolve(
+                lookup.Entry!.Status.Records,
+                query));
+    }
 
-        if (count == 0)
-        {
-            return ValueTask.FromResult<IReadOnlyList<DiscoveryRecord>>(Array.Empty<DiscoveryRecord>());
-        }
-
-        var resolved = new DiscoveryRecord[count];
-        int index = 0;
-        for (int i = 0; i < records.Count; i++)
-        {
-            if (Matches(query, records[i]))
-            {
-                resolved[index++] = records[i];
-            }
-        }
-
-        return ValueTask.FromResult<IReadOnlyList<DiscoveryRecord>>(resolved);
+    public ValueTask ReleaseAsync(
+        ResourceRef<ServiceDiscovery> discovery,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        _ledger.RemoveServiceDiscovery(discovery);
+        return ValueTask.CompletedTask;
     }
 
     private static ServiceDiscoveryStatus Status(
@@ -269,7 +257,8 @@ public sealed class AppleVirtualizationServiceDiscoveryProvider : IServiceDiscov
     {
         truncated = false;
         var records = new List<DiscoveryRecord>(Math.Min(MaxDiscoveryRecords, spec.Records.Count + memberships.Length * 4));
-        TimeSpan ttl = spec.DefaultTtl ?? DefaultTtl;
+        TimeSpan ttl =
+            DerivedServiceDiscovery.BoundTtl(spec.DefaultTtl);
 
         if (spec.DefaultRecordPolicy is not (DefaultDiscoveryRecordPolicy.None or DefaultDiscoveryRecordPolicy.ExplicitOnly))
         {
@@ -284,7 +273,11 @@ public sealed class AppleVirtualizationServiceDiscoveryProvider : IServiceDiscov
         for (int i = 0; i < spec.Records.Count && records.Count < MaxDiscoveryRecords; i++)
         {
             records.Add(spec.Records[i].Ttl is { } explicitTtl
-                ? new DiscoveryRecord(spec.Records[i].Name, spec.Records[i].Kind, spec.Records[i].Target, explicitTtl)
+                ? new DiscoveryRecord(
+                    spec.Records[i].Name,
+                    spec.Records[i].Kind,
+                    spec.Records[i].Target,
+                    DerivedServiceDiscovery.BoundTtl(explicitTtl))
                 : new DiscoveryRecord(spec.Records[i].Name, spec.Records[i].Kind, spec.Records[i].Target, ttl));
         }
 
@@ -414,10 +407,6 @@ public sealed class AppleVirtualizationServiceDiscoveryProvider : IServiceDiscov
 
         return capabilities;
     }
-
-    private static bool Matches(ServiceDiscoveryQuery query, DiscoveryRecord record) =>
-        string.Equals(query.Name.Value, record.Name.Value, StringComparison.OrdinalIgnoreCase) &&
-        (query.Kind is null || query.Kind == record.Kind);
 
     private static IReadOnlyList<NetworkLimitation> AppendLimitation(
         IReadOnlyList<NetworkLimitation> existing,

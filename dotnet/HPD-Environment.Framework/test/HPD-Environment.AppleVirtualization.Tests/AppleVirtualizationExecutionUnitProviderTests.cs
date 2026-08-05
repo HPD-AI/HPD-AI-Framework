@@ -27,7 +27,14 @@ public sealed class AppleVirtualizationExecutionUnitProviderTests
 
         ExecutionUnitStatus status = await provider.EnsureAsync(
             metadata,
-            AppleVirtualizationContractFixtures.ExecutionUnitSpec(),
+            AppleVirtualizationContractFixtures.ExecutionUnitSpec() with
+            {
+                WorkloadStorage = new WorkloadStorageRequest
+                {
+                    LogicalId = "compose-project-test",
+                    StorageClass = StorageClass.RuntimeDisposable,
+                },
+            },
             observed: null);
 
         status.UnitPhase.Should().Be(ExecutionUnitPhase.Ready);
@@ -38,6 +45,13 @@ public sealed class AppleVirtualizationExecutionUnitProviderTests
         request.UnitId.Should().Be("unit-1");
         request.WorkingDirectory.Should().Be("/hpd/units/unit-1");
         request.Environment.Should().ContainKey("HPD_EXECUTION_USER").WhoseValue.Should().Be("hpd");
+        status.WorkloadStorage.Should().NotBeNull();
+        status.WorkloadStorage!.LogicalId.Should().Be(
+            "compose-project-test");
+        status.WorkloadStorage.EffectiveRuntimePath.Should().Be(
+            "/hpd/units/unit-1");
+        status.WorkloadStorage.ProviderHandle.ProviderId.Should().Be(
+            AppleVirtualizationProviderDescriptor.ProviderId);
     }
 
     [Fact]
@@ -80,6 +94,111 @@ public sealed class AppleVirtualizationExecutionUnitProviderTests
         status.Handle.Should().Be(ensured.Handle);
         helper.Requests.Should().HaveCount(2);
         helper.Requests[1].Operation.Should().Be(AppleVirtualizationHelperOperation.UnitStatus);
+    }
+
+    [Fact]
+    public async Task Material_reconcile_with_active_process_and_authority_returns_conflict_without_replacing_unit()
+    {
+        var ledger = new AppleVirtualizationProviderStateLedger();
+        SeedHost(ledger);
+        SeedProjectedProjection(ledger);
+        var helper = new FakeAppleVirtualizationHelperClient();
+        helper.EnqueueResponse(UnitResponse(
+            AppleVirtualizationHelperOperation.UnitEnsure,
+            ExecutionUnitPhase.Ready));
+        var provider = new AppleVirtualizationExecutionUnitProvider(ledger, helper);
+        ResourceMetadata<ExecutionUnit> metadata = Metadata("unit-1");
+        ExecutionUnitStatus ensured = await provider.EnsureAsync(
+            metadata,
+            AppleVirtualizationContractFixtures.ExecutionUnitSpec(),
+            observed: null);
+        ExecutionUnitStatus active = ensured with
+        {
+            UnitPhase = ExecutionUnitPhase.Running,
+            ActiveProcesses =
+            [
+                new ResourceRef<ProcessInvocation>(
+                    new ResourceId<ProcessInvocation>("process-1"),
+                    metadata.Scope,
+                    metadata.Generation),
+            ],
+            AuthorityBindings = [AuthorityRef()],
+        };
+        ledger.UpsertExecutionUnit(
+            metadata,
+            active,
+            AppleVirtualizationContractFixtures.ExecutionUnitSpec());
+        ResourceMetadata<ExecutionUnit> changedMetadata = metadata with
+        {
+            Generation = new ResourceGeneration(metadata.Generation.Value + 1),
+        };
+
+        ExecutionUnitStatus rejected = await provider.EnsureAsync(
+            changedMetadata,
+            AppleVirtualizationContractFixtures.ExecutionUnitSpec() with
+            {
+                SecurityPolicy = new SecurityPolicy { AllowAuthorityBindings = true },
+            },
+            active);
+
+        rejected.ReconciliationOutcome.Should().Be(ResourceReconciliationOutcome.ImmutableConflict);
+        rejected.ObservedGeneration.Should().Be(metadata.Generation);
+        rejected.ActiveProcesses.Should().ContainSingle();
+        rejected.AuthorityBindings.Should().ContainSingle();
+        helper.Requests.Should().ContainSingle();
+        ledger.TryGetExecutionUnit(new ResourceRef<ExecutionUnit>(
+            metadata.Id,
+            metadata.Scope,
+            metadata.Generation)).Entry!.Status.ActiveProcesses.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task Identical_reconcile_preserves_attached_process_and_authority()
+    {
+        var ledger = new AppleVirtualizationProviderStateLedger();
+        SeedHost(ledger);
+        SeedProjectedProjection(ledger);
+        var helper = new FakeAppleVirtualizationHelperClient();
+        helper.EnqueueResponse(UnitResponse(
+            AppleVirtualizationHelperOperation.UnitEnsure,
+            ExecutionUnitPhase.Ready));
+        helper.EnqueueResponse(UnitResponse(
+            AppleVirtualizationHelperOperation.UnitEnsure,
+            ExecutionUnitPhase.Ready));
+        var provider = new AppleVirtualizationExecutionUnitProvider(ledger, helper);
+        ResourceMetadata<ExecutionUnit> metadata = Metadata("unit-1");
+        ExecutionUnitSpec spec =
+            AppleVirtualizationContractFixtures.ExecutionUnitSpec();
+        ExecutionUnitStatus ensured = await provider.EnsureAsync(
+            metadata,
+            spec,
+            observed: null);
+        ExecutionUnitStatus active = ensured with
+        {
+            UnitPhase = ExecutionUnitPhase.Running,
+            ActiveProcesses =
+            [
+                new ResourceRef<ProcessInvocation>(
+                    new ResourceId<ProcessInvocation>("process-1"),
+                    metadata.Scope,
+                    metadata.Generation),
+            ],
+            AuthorityBindings = [AuthorityRef()],
+        };
+        ledger.UpsertExecutionUnit(metadata, active, spec);
+
+        ExecutionUnitStatus reconciled = await provider.EnsureAsync(
+            metadata,
+            spec,
+            ensured);
+
+        reconciled.ActiveProcesses.Should().Equal(active.ActiveProcesses);
+        reconciled.AuthorityBindings.Should().Equal(active.AuthorityBindings);
+        ledger.TryGetExecutionUnit(new ResourceRef<ExecutionUnit>(
+            metadata.Id,
+            metadata.Scope,
+            metadata.Generation)).Entry!.Status.AuthorityBindings
+            .Should().Equal(active.AuthorityBindings);
     }
 
     [Fact]

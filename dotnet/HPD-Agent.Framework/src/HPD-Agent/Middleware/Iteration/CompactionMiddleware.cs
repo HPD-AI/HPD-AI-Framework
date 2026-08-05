@@ -30,7 +30,8 @@ public sealed class CompactionMiddleware : IAgentMiddleware
             context.Messages,
             context.Base.ThreadEvents,
             chatLease?.Client,
-            context.Services?.GetService<IThreadJournalRebaseSeedProvider>());
+            context.Services?.GetService<IThreadJournalRebaseSeedProvider>(),
+            CreateSummarizerOptions(chatLease?.Handle.ResolvedConfig as ChatClientConfig));
         var result = await Engine.ExecuteAsync(
                 engineContext,
                 automatic.Compaction,
@@ -77,7 +78,9 @@ public sealed class CompactionMiddleware : IAgentMiddleware
             context.TargetThread,
             context.TargetThread.Messages,
             Publisher: null,
-            chatLease?.Client);
+            SummarizerClient: chatLease?.Client,
+            RebaseSeedProvider: null,
+            SummarizerOptions: CreateSummarizerOptions(chatLease?.Handle.ResolvedConfig as ChatClientConfig));
         var prepared = await Engine.PrepareAsync(engineContext, specification, cancellationToken)
             .ConfigureAwait(false);
         if (prepared is null)
@@ -150,9 +153,17 @@ public sealed class CompactionMiddleware : IAgentMiddleware
                     BeforeIterationContext iteration => iteration.RunConfig,
                     _ => null
                 },
-                AgentDefault = context.Base.EffectiveChatClient,
-                DedicatedProvider = summarizing.Provider
+                BuilderDefault = context.Base.EffectiveChatClient,
+                SpecializedChat = summarizing.Summarizer
             },
             cancellationToken).ConfigureAwait(false);
+    }
+
+    private static ChatOptions CreateSummarizerOptions(ChatClientConfig? config)
+    {
+        var options = config?.ToMicrosoftChatOptions() ?? new ChatOptions();
+        options.Tools = [];
+        options.ToolMode = ChatToolMode.None;
+        return options;
     }
 }

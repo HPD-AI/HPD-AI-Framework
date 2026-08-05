@@ -216,50 +216,10 @@ public class AdminGapTests : IAsyncLifetime
         json.ToLower().Should().NotContain("password_hash");
     }
 
-    // ── G12: Audit log Metadata is valid JSON — user.register ────────────────
+    // ── G12: generated links never enter audit facts ─────────────────────────
 
     [Fact]
-    public async Task AuditLog_UserRegister_MetadataIsValidJson()
-    {
-        var resp = await _admin.PostJsonAsync("/api/admin/users",
-            new AdminCreateUserRequest($"metajson-create@{Guid.NewGuid():N}.io"));
-        var dto = await resp.ReadJsonAsync<AdminUserResponse>();
-
-        var logs = await _factory.GetAuditLogsAsync(
-            userId: dto!.Id, action: AuditActions.UserRegister);
-        logs.Should().NotBeEmpty();
-
-        foreach (var log in logs)
-        {
-            var act = () => JsonDocument.Parse(log.Metadata);
-            act.Should().NotThrow("audit log Metadata must be valid JSON");
-        }
-    }
-
-    // ── G13: Audit log Metadata is valid JSON — ban action ───────────────────
-
-    [Fact]
-    public async Task AuditLog_BanUser_MetadataIsValidJson()
-    {
-        var user = await _factory.SeedUserAsync("metajson-ban@example.com");
-        await _admin.PostJsonAsync($"/api/admin/users/{user.Id}/ban",
-            new { duration = "1h", reason = "testing" });
-
-        var logs = await _factory.GetAuditLogsAsync(
-            userId: user.Id, action: AuditActions.AccountLockout);
-        logs.Should().NotBeEmpty();
-
-        foreach (var log in logs)
-        {
-            var act = () => JsonDocument.Parse(log.Metadata);
-            act.Should().NotThrow("audit log Metadata must be valid JSON");
-        }
-    }
-
-    // ── G14: Audit log Metadata is valid JSON — generate-link ────────────────
-
-    [Fact]
-    public async Task AuditLog_GenerateLink_MetadataIsValidJson()
+    public async Task AuditLog_GenerateLink_DiscardsCredentialMaterial()
     {
         await _factory.SeedUserAsync("metajson-link@example.com");
         var resp = await _admin.PostJsonAsync("/api/admin/generate-link",
@@ -272,14 +232,9 @@ public class AdminGapTests : IAsyncLifetime
         var user = await um.FindByEmailAsync("metajson-link@example.com");
 
         var logs = await _factory.GetAuditLogsAsync(userId: user!.Id);
-        var linkLog = logs.FirstOrDefault(l => l.Metadata.Contains("generate_link"));
+        var linkLog = logs.FirstOrDefault(l => l.Action == "admin.link.generate");
         linkLog.Should().NotBeNull();
-
-        var act = () => JsonDocument.Parse(linkLog!.Metadata);
-        act.Should().NotThrow("generate-link audit Metadata must be valid JSON");
-
-        // hashedToken in metadata must not be the raw token.
-        var parsed = JsonDocument.Parse(linkLog!.Metadata).RootElement;
-        parsed.GetProperty("hashedToken").GetString().Should().Be(dto!.HashedToken);
+        linkLog!.Facts.Should().BeEmpty();
+        linkLog.ToString().Should().NotContain(dto!.HashedToken);
     }
 }

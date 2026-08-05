@@ -102,8 +102,8 @@ public class AdminSecurityUnitTests : IAsyncLifetime
         foreach (var log in logs)
         {
             // The raw password value must never appear in metadata.
-            log.Metadata.Should().NotContain("\"password\"");
-            log.Metadata.Should().NotContain("SecureP@ss1");
+            log.Facts.Should().BeEmpty();
+            log.ToString().Should().NotContain("SecureP@ss1");
         }
     }
 
@@ -126,7 +126,7 @@ public class AdminSecurityUnitTests : IAsyncLifetime
         var logs = await _factory.GetAuditLogsAsync(userId: user.Id);
         foreach (var log in logs)
             if (!string.IsNullOrEmpty(rawToken))
-                log.Metadata.Should().NotContain(rawToken);
+                log.ToString().Should().NotContain(rawToken);
     }
 
     // 36.7 — AdminUserResponse does not include PasswordHash

@@ -1,5 +1,4 @@
-using HPD.Base.Descriptors;
-using HPD.Base.Runtime.Descriptors;
+using HPD.Base;
 
 namespace HPD.Base.StoreConformance.Runtime;
 
@@ -41,21 +40,33 @@ public abstract class RuntimeStoreDescriptorHonestyConformanceTests<TFixture> : 
             }
         }
 
-        foreach (var feature in features.Where(feature => feature.Constraints?.StoreCrud is not null))
+        foreach (var feature in features.Where(feature => feature.Constraints?.StoreRead is not null))
         {
-            var operations = feature.Constraints!.StoreCrud!.Operations ?? [];
+            var operations = feature.Constraints!.StoreRead!.Operations ?? [];
             Assert.All(operations, operation =>
             {
                 Assert.True(operation switch
                 {
-                    "list" => Capabilities.Crud.List,
-                    "get" => Capabilities.Crud.Get,
-                    "create" => Capabilities.Crud.Create,
-                    "patch" => Capabilities.Crud.Patch,
-                    "replace" => Capabilities.Crud.Replace,
-                    "delete" => Capabilities.Crud.Delete,
+                    "list" => Capabilities.Read.List,
+                    "get" => Capabilities.Read.Get,
                     _ => false
-                }, $"Runtime descriptor claimed unsupported CRUD operation '{operation}'.");
+                }, $"Runtime descriptor claimed unsupported read operation '{operation}'.");
+            });
+        }
+
+        foreach (var feature in features.Where(feature => feature.Constraints?.StoreMutation is not null))
+        {
+            var operations = feature.Constraints!.StoreMutation!.Operations ?? [];
+            Assert.All(operations, operation =>
+            {
+                Assert.True(operation switch
+                {
+                    "create" => Capabilities.Mutation.Create,
+                    "patch" => Capabilities.Mutation.Patch,
+                    "replace" => Capabilities.Mutation.Replace,
+                    "delete" => Capabilities.Mutation.Delete,
+                    _ => false
+                }, $"Runtime descriptor claimed unsupported mutation operation '{operation}'.");
             });
         }
     }

@@ -14,7 +14,8 @@ public abstract class RecordStoreDescriptorConformanceTests<TFixture> : RecordSt
         Assert.False(string.IsNullOrWhiteSpace(capabilities.StoreKind));
         Assert.False(string.IsNullOrWhiteSpace(capabilities.StoreVersion));
         Assert.Equal(capabilities.StoreId, store.Capabilities.StoreId);
-        Assert.NotNull(capabilities.Crud);
+        Assert.NotNull(capabilities.Read);
+        Assert.NotNull(capabilities.Mutation);
         Assert.NotNull(capabilities.Query);
         Assert.NotNull(capabilities.Query.Filter);
         Assert.NotNull(capabilities.Query.Sort);
@@ -27,8 +28,8 @@ public abstract class RecordStoreDescriptorConformanceTests<TFixture> : RecordSt
 
         if (capabilities.Revision is { } revision)
         {
-            Assert.True(revision.Supported || (!revision.Patch && !revision.Delete && revision.Guarantee == RevisionGuarantee.None));
-            Assert.True(revision.Supported || store is not IRevisionedRecordStore);
+            Assert.True(revision.Supported || (!revision.Patch && !revision.Replace && !revision.Delete && revision.Guarantee == RevisionGuarantee.None));
+            Assert.True(!revision.Supported || store is IRecordMutationStore);
         }
 
         if (capabilities.Streaming is { } streaming)

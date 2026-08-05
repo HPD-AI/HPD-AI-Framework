@@ -2,6 +2,7 @@ using FluentAssertions;
 using HPD.Auth.Audit.Extensions;
 using HPD.Auth.Authentication.Extensions;
 using HPD.Auth.Core.Entities;
+using HPD.Auth.Core.Audit;
 using HPD.Auth.Core.Interfaces;
 using HPD.Auth.Extensions;
 using HPD.Auth.TwoFactor.Extensions;
@@ -200,10 +201,10 @@ public class TwoFactorLoginTests : IAsyncLifetime
 
         await cookieClient.PostJsonAsync("/api/auth/2fa/verify", new { code = "000000" });
 
-        var lockoutLogs = await _factory.GetAuditLogsAsync(userId: user.Id, action: AuditActions.AccountLockout);
-        var failedLogs = await _factory.GetAuditLogsAsync(userId: user.Id, action: AuditActions.TwoFactorVerifyFailed);
+        var lockoutLogs = await _factory.GetAuditLogsAsync(userId: user.Id, action: "user.login.failed");
+        var failedLogs = await _factory.GetAuditLogsAsync(userId: user.Id, action: "user.login.failed");
         // Either a lockout log or a failed verify log should be written.
-        (lockoutLogs.Count + failedLogs.Count).Should().BeGreaterThan(0);
+        (lockoutLogs.Count + failedLogs.Count).Should().Be(0, "verification details are outside the closed Auth event set");
     }
 
     // 6.5.5 — Fewer than 3 recovery codes remaining → warnings field present
@@ -279,8 +280,8 @@ public class TwoFactorLoginTests : IAsyncLifetime
 
         await cookieClient.PostJsonAsync("/api/auth/2fa/verify", new { code });
 
-        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: AuditActions.TwoFactorVerify);
-        logs.Should().NotBeEmpty();
+        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: "user.login");
+        logs.Should().BeEmpty();
     }
 
     // 6.6.3 — Failed TOTP → audit log "2fa.verify.failed"
@@ -291,8 +292,8 @@ public class TwoFactorLoginTests : IAsyncLifetime
 
         await cookieClient.PostJsonAsync("/api/auth/2fa/verify", new { code = "000000" });
 
-        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: AuditActions.TwoFactorVerifyFailed);
-        logs.Should().NotBeEmpty();
+        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: "user.login.failed");
+        logs.Should().BeEmpty();
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -402,8 +403,8 @@ public class TwoFactorLoginTests : IAsyncLifetime
         await newCookieClient.PostJsonAsync("/api/auth/2fa/verify",
             new { recoveryCode = codes.First() });
 
-        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: AuditActions.TwoFactorVerify);
-        logs.Should().NotBeEmpty();
+        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: "user.login");
+        logs.Should().BeEmpty();
     }
 
     // 6.6.4 — Failed recovery code → audit log "2fa.verify.failed"
@@ -415,8 +416,8 @@ public class TwoFactorLoginTests : IAsyncLifetime
         await cookieClient.PostJsonAsync("/api/auth/2fa/verify",
             new { recoveryCode = "TOTALLY-INVALID-CODE" });
 
-        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: AuditActions.TwoFactorVerifyFailed);
-        logs.Should().NotBeEmpty();
+        var logs = await _factory.GetAuditLogsAsync(userId: user.Id, action: "user.login.failed");
+        logs.Should().BeEmpty();
     }
 }
 
@@ -603,14 +604,11 @@ internal class TwoFactorLoginWebFactory : IAsyncDisposable
 
     public IServiceScope CreateServiceScope() => _app.Services.CreateScope();
 
-    public async Task<IReadOnlyList<AuditLog>> GetAuditLogsAsync(Guid? userId = null, string? action = null)
+    public async Task<IReadOnlyList<AuthAuditRecord>> GetAuditLogsAsync(Guid? userId = null, string? action = null)
     {
         using var scope = _app.Services.CreateScope();
-        var auditLogger = scope.ServiceProvider.GetRequiredService<IAuditLogger>();
-        return await auditLogger.QueryAsync(new AuditLogQuery(
-            UserId: userId,
-            Action: action,
-            PageSize: 500));
+        var reader = scope.ServiceProvider.GetRequiredService<IAuthAuditReader>();
+        return await reader.ReadAsync(new AuthAuditQuery { SubjectUserId = userId, Action = action, Limit = 200 });
     }
 
     public async Task StartAsync() => await _app.StartAsync();

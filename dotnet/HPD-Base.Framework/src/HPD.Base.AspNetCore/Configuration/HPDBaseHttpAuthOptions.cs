@@ -1,4 +1,4 @@
-namespace HPD.Base.AspNetCore.Configuration;
+namespace HPD.Base.AspNetCore;
 
 /// <summary>
 /// Configures conservative mapping from ASP.NET Core principals to HPD.BASE principals.

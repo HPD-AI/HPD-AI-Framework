@@ -18,7 +18,7 @@ public sealed class AppleVirtualizationConfigurationValidationTests
             KernelPath = "/tmp/hpd-vz/vmlinuz",
             InitrdPath = "/tmp/hpd-vz/initrd.img",
             KernelCommandLine = "console=hvc0",
-            DiskImagePath = "/tmp/hpd-vz/root.raw",
+            DiskAttachments = AppleVirtualizationTestDiskSet.Create("/tmp/hpd-vz/root.raw"),
             SerialLogPath = "/tmp/hpd-vz/serial.log",
             ExpectedGuestAgentVersion = "0.1.0",
         }).ToResponse(sequenceNumber: 2) with
@@ -70,7 +70,7 @@ public sealed class AppleVirtualizationConfigurationValidationTests
             "validation-missing-boot",
             new AppleVirtualizationGuestImageOptions
             {
-                DiskImagePath = "/tmp/hpd-vz/root.raw",
+                DiskAttachments = AppleVirtualizationTestDiskSet.Create("/tmp/hpd-vz/root.raw"),
                 SerialLogPath = "/tmp/hpd-vz/serial.log",
             }));
 
@@ -98,8 +98,8 @@ public sealed class AppleVirtualizationConfigurationValidationTests
 
         response.ResponseStatus.Should().Be(AppleVirtualizationHelperResponseStatus.Error);
         response.VmConfigurationValidationResponse!.Diagnostics.Should().Contain(diagnostic =>
-            diagnostic.Code.Value == "AppleVirtualization.VmConfigurationDiskImageMissing" &&
-            diagnostic.TargetPath == "GuestImage.DiskImagePath");
+            diagnostic.Code.Value == "AppleVirtualization.VmConfigurationDiskSetInvalid" &&
+            diagnostic.TargetPath == "GuestImage.DiskAttachments");
     }
 
     [Fact]
@@ -192,7 +192,7 @@ public sealed class AppleVirtualizationConfigurationValidationTests
         KernelPath = "/tmp/hpd-vz/vmlinuz",
         InitrdPath = "/tmp/hpd-vz/initrd.img",
         KernelCommandLine = "console=hvc0 hpd.validation=1",
-        DiskImagePath = "/tmp/hpd-vz/root.raw",
+        DiskAttachments = AppleVirtualizationTestDiskSet.Create("/tmp/hpd-vz/root.raw"),
         SerialLogPath = "/tmp/hpd-vz/serial.log",
         ExpectedGuestAgentVersion = "0.1.0",
         ExpectVirtiofsSupport = true,

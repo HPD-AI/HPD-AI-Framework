@@ -15,7 +15,7 @@ namespace HPD.Auth.Infrastructure.Data.Migrations.Sqlite
         protected override void BuildModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
-            modelBuilder.HasAnnotation("ProductVersion", "10.0.9");
+            modelBuilder.HasAnnotation("ProductVersion", "10.0.10");
 
             modelBuilder.Entity("HPD.Auth.Core.Entities.ApplicationRole", b =>
                 {
@@ -189,64 +189,6 @@ namespace HPD.Auth.Infrastructure.Data.Migrations.Sqlite
                         .HasDatabaseName("IX_AspNetUsers_InstanceId_NormalizedUserName");
 
                     b.ToTable("AspNetUsers", (string)null);
-                });
-
-            modelBuilder.Entity("HPD.Auth.Core.Entities.AuditLog", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Action")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Category")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("ErrorMessage")
-                        .HasMaxLength(2000)
-                        .HasColumnType("TEXT");
-
-                    b.Property<Guid>("InstanceId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("IpAddress")
-                        .HasMaxLength(45)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Metadata")
-                        .IsRequired()
-                        .HasColumnType("jsonb");
-
-                    b.Property<bool>("Success")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<DateTime>("Timestamp")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("UserAgent")
-                        .HasMaxLength(1024)
-                        .HasColumnType("TEXT");
-
-                    b.Property<Guid?>("UserId")
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("InstanceId", "Action", "Timestamp")
-                        .HasDatabaseName("IX_AuditLogs_InstanceId_Action_Timestamp");
-
-                    b.HasIndex("InstanceId", "Category", "Timestamp")
-                        .HasDatabaseName("IX_AuditLogs_InstanceId_Category_Timestamp");
-
-                    b.HasIndex("InstanceId", "UserId", "Timestamp")
-                        .HasDatabaseName("IX_AuditLogs_InstanceId_UserId_Timestamp");
-
-                    b.ToTable("AuditLogs");
                 });
 
             modelBuilder.Entity("HPD.Auth.Core.Entities.RefreshToken", b =>
@@ -611,6 +553,71 @@ namespace HPD.Auth.Infrastructure.Data.Migrations.Sqlite
                         .HasDatabaseName("IX_UserSessions_UserId_IsRevoked_ExpiresAt");
 
                     b.ToTable("UserSessions");
+                });
+
+            modelBuilder.Entity("HPD.Auth.Infrastructure.Data.AuthAuditEntity", b =>
+                {
+                    b.Property<Guid>("AuditId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CorrelationId")
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("FactsJson")
+                        .IsRequired()
+                        .HasMaxLength(1024)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("FailureCode")
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("InstanceId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("IpAddress")
+                        .HasMaxLength(45)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("OccurredAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("SubjectSessionId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("SubjectUserId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Success")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("UserAgent")
+                        .HasMaxLength(512)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("AuditId");
+
+                    b.HasIndex("InstanceId", "Action", "OccurredAtUtc", "AuditId");
+
+                    b.HasIndex("InstanceId", "Category", "OccurredAtUtc", "AuditId");
+
+                    b.HasIndex("InstanceId", "CorrelationId", "OccurredAtUtc", "AuditId");
+
+                    b.HasIndex("InstanceId", "SubjectUserId", "OccurredAtUtc", "AuditId");
+
+                    b.ToTable("AuthAuditEntries", (string)null);
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.DataProtection.EntityFrameworkCore.DataProtectionKey", b =>

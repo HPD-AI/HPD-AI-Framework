@@ -22,7 +22,7 @@ public static class AgentBuilderExtensions
         if (string.IsNullOrWhiteSpace(model))
             throw new ArgumentException("Model is required for OpenAI provider.", nameof(model));
 
-        var chatConfig = new ClientProviderConfig
+        var chatConfig = new ChatClientConfig
         {
             ProviderKey = "openai",
             ApiKey = apiKey,
@@ -31,7 +31,7 @@ public static class AgentBuilderExtensions
 
         var providerConfig = new OpenAIProviderConfig();
         configure?.Invoke(providerConfig);
-        chatConfig.SetProviderConfig(providerConfig);
+        chatConfig.ProviderConfig = providerConfig;
 
         builder.Config.SetChatClientConfig(chatConfig);
 
@@ -56,7 +56,7 @@ public static class AgentBuilderExtensions
         if (string.IsNullOrWhiteSpace(model))
             throw new ArgumentException("Model is required for Azure OpenAI provider.", nameof(model));
 
-        var chatConfig = new ClientProviderConfig
+        var chatConfig = new ChatClientConfig
         {
             ProviderKey = "azure-openai",
             Endpoint = endpoint,
@@ -66,7 +66,7 @@ public static class AgentBuilderExtensions
 
         var providerConfig = new AzureOpenAIProviderConfig();
         configure?.Invoke(providerConfig);
-        chatConfig.SetProviderConfig(providerConfig);
+        chatConfig.ProviderConfig = providerConfig;
 
         builder.Config.SetChatClientConfig(chatConfig);
 

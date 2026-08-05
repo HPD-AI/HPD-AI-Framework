@@ -31,11 +31,10 @@ public sealed record AgentCapabilityRequestEvent(
     string OperationId,
     AgentCapabilityKind Capability,
     AgentCapabilityResource? Resource,
-    string Reason) : AgentEvent, IAgentRequestEvent
+    string Reason) : AgentEvent, IAgentRequestEvent<AgentCapabilityResponseEvent>
 {
     public override EventChannel Channel { get; init; } = EventChannel.Interactive;
     public override EventKind Kind { get; init; } = EventKind.Control;
-    string IRequestCorrelatedEvent.RequestId => RequestId;
 }
 
 /// <summary>Returns the host decision for an agent capability request.</summary>
@@ -47,5 +46,4 @@ public sealed record AgentCapabilityResponseEvent(
     public override EventChannel Channel { get; init; } = EventChannel.Interactive;
     public override EventKind Kind { get; init; } = EventKind.Control;
     public override EventDirection Direction { get; init; } = EventDirection.Upstream;
-    string IRequestCorrelatedEvent.RequestId => RequestId;
 }

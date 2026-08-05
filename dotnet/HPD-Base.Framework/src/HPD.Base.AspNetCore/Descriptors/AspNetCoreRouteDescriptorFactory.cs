@@ -1,11 +1,11 @@
 using HPD.Base;
-using HPD.Base.AspNetCore.Http;
-using HPD.Base.Descriptors;
+using HPD.Base.AspNetCore;
 
-namespace HPD.Base.AspNetCore.Descriptors;
+namespace HPD.Base.AspNetCore;
 
 internal static class AspNetCoreRouteDescriptorFactory
 {
+    /// <summary>Executes the create operation.</summary>
     public static RouteDescriptor[] Create() =>
     [
         Route(BaseRouteIds.Manifest, HttpMethodKind.Get, "/base/manifest", BaseDtoIds.Manifest),
@@ -24,12 +24,14 @@ internal static class AspNetCoreRouteDescriptorFactory
         Route(BaseHttpRouteNames.AdminDiagnostics, HttpMethodKind.Get, "/base/admin/diagnostics", AspNetCoreDtoContractDescriptorFactory.DiagnosticDescriptorArray, VisibilityLevel.Admin, RouteAuthRequirement.Admin, requiredFeatureIds: [BaseFeatureIds.DiagnosticsRead, AspNetCoreProjectionFeatureIds.ProjectionAspNetAdmin]),
         Route(BaseHttpRouteNames.AdminPolicyExplain, HttpMethodKind.Post, "/base/admin/policy/explain", AspNetCoreDtoContractDescriptorFactory.BasePolicyExplainResponse, VisibilityLevel.Admin, RouteAuthRequirement.Admin, AspNetCoreDtoContractDescriptorFactory.BasePolicyExplainRequest, requiredFeatureIds: ["policy.explain.admin", AspNetCoreProjectionFeatureIds.ProjectionAspNetAdmin]),
         Route(BaseRouteIds.RecordsList, HttpMethodKind.Get, "/base/collections/{collectionId}/records", BaseDtoIds.RecordPage, requiredFeatureIds: [BaseFeatureIds.RecordsList, AspNetCoreProjectionFeatureIds.ProjectionAspNet]),
-        Route(BaseRouteIds.RecordsQuery, HttpMethodKind.Post, "/base/collections/{collectionId}/query", BaseDtoIds.RecordPage, requestDtoId: AspNetCoreDtoContractDescriptorFactory.RecordQuery, requiredFeatureIds: [BaseFeatureIds.RecordsQuery, AspNetCoreProjectionFeatureIds.ProjectionAspNet]),
+        Route(BaseRouteIds.RecordsQuery, HttpMethodKind.Post, "/base/collections/{collectionId}/records:query", BaseDtoIds.RecordPage, requestDtoId: AspNetCoreDtoContractDescriptorFactory.RecordQuery, requiredFeatureIds: [BaseFeatureIds.RecordsQuery, AspNetCoreProjectionFeatureIds.ProjectionAspNet]),
         Route(BaseRouteIds.RecordsGet, HttpMethodKind.Get, "/base/collections/{collectionId}/records/{id}", BaseDtoIds.RecordEnvelope, requiredFeatureIds: [BaseFeatureIds.RecordsGet, AspNetCoreProjectionFeatureIds.ProjectionAspNet]),
         Route(BaseRouteIds.RecordsCreate, HttpMethodKind.Post, "/base/collections/{collectionId}/records", BaseDtoIds.RecordEnvelope, requestDtoId: AspNetCoreDtoContractDescriptorFactory.RecordCreateRequest, requiredFeatureIds: [BaseFeatureIds.RecordsCreate, AspNetCoreProjectionFeatureIds.ProjectionAspNet]),
         Route(BaseRouteIds.RecordsPatch, HttpMethodKind.Patch, "/base/collections/{collectionId}/records/{id}", BaseDtoIds.RecordEnvelope, requestDtoId: AspNetCoreDtoContractDescriptorFactory.RecordPatchRequest, requiredFeatureIds: [BaseFeatureIds.RecordsPatch, AspNetCoreProjectionFeatureIds.ProjectionAspNet]),
         Route(BaseRouteIds.RecordsReplace, HttpMethodKind.Put, "/base/collections/{collectionId}/records/{id}", BaseDtoIds.RecordEnvelope, requestDtoId: AspNetCoreDtoContractDescriptorFactory.RecordReplaceRequest, requiredFeatureIds: [BaseFeatureIds.RecordsReplace, AspNetCoreProjectionFeatureIds.ProjectionAspNet]),
-        Route(BaseRouteIds.RecordsDelete, HttpMethodKind.Delete, "/base/collections/{collectionId}/records/{id}", AspNetCoreDtoContractDescriptorFactory.DeleteResult, requestDtoId: AspNetCoreDtoContractDescriptorFactory.RecordDeleteRequest, requiredFeatureIds: [BaseFeatureIds.RecordsDelete, AspNetCoreProjectionFeatureIds.ProjectionAspNet])
+        Route(BaseRouteIds.RecordsDelete, HttpMethodKind.Delete, "/base/collections/{collectionId}/records/{id}", AspNetCoreDtoContractDescriptorFactory.DeleteResult, requestDtoId: AspNetCoreDtoContractDescriptorFactory.RecordDeleteRequest, requiredFeatureIds: [BaseFeatureIds.RecordsDelete, AspNetCoreProjectionFeatureIds.ProjectionAspNet]),
+        Route(BaseRouteIds.RecordsBatch, HttpMethodKind.Post, "/base/records/batch", BaseDtoIds.BaseRecordBatchResult, requestDtoId: BaseDtoIds.BaseRecordBatchRequest, requiredFeatureIds: [BaseFeatureIds.RecordsBatch, AspNetCoreProjectionFeatureIds.ProjectionAspNet]),
+        Route(BaseRouteIds.RecordsUpsert, HttpMethodKind.Put, "/base/collections/{collectionId}/records/{id}:upsert", BaseDtoIds.RecordUpsertResult, requestDtoId: BaseDtoIds.RecordUpsertRequest, requiredFeatureIds: [BaseFeatureIds.RecordsUpsert, AspNetCoreProjectionFeatureIds.ProjectionAspNet])
     ];
 
     private static RouteDescriptor Route(

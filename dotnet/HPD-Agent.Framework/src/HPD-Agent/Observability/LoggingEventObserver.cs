@@ -198,16 +198,6 @@ public class LoggingEventObserver
                 }
                 break;
 
-            // Plan mode activation
-            case PlanModeActivatedEvent e:
-                if (_logger.IsEnabled(LogLevel.Debug))
-                {
-                    _logger.LogDebug(
-                        "Agent '{AgentName}': Plan mode activated",
-                        e.AgentName);
-                }
-                break;
-
             // Nested agent invocation
             case NestedAgentInvokedEvent e:
                 if (_logger.IsEnabled(LogLevel.Information))

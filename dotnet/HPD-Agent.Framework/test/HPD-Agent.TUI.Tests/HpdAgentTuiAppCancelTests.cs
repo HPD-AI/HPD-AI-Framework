@@ -4,6 +4,7 @@ using FluentAssertions;
 using HPD.Agent;
 using HPD.Agent.TUI.Application;
 using HPD.Agent.TUI.Composition;
+using HPD.Agent.TUI.Interactions;
 using HPD.Agent.TUI.Models;
 using HPD.Agent.TUI.Runtime;
 using HPD.TUI.Core;
@@ -15,6 +16,43 @@ namespace HPD.Agent.TUI.Tests;
 
 public sealed class HpdAgentTuiAppCancelTests
 {
+    [Fact]
+    public async Task ActivePage_ReceivesInputBeforeFocusedPrompt()
+    {
+        var scope = new AgentTuiRuntimeScope("agent-a", "session-a", "main");
+        var runtime = new CancelRuntime(scope);
+        var received = new List<KeyEvent>();
+        await using var app = HpdAgentTuiApp.Create(
+            runtime,
+            scope,
+            builder => builder
+                .AddAgentTuiDefaults()
+                .TryAddPage(new HpdAgentTuiPageDescriptor(
+                    "test.page",
+                    static _ => new HPD.TUI.Components.Text("Page"))
+                {
+                    HandleInput = (_, key) =>
+                    {
+                        received.Add(key);
+                        return key.Key == KeyCode.Enter;
+                    },
+                }),
+            new TestTerminal(80, 24));
+        InvokePrivate(app, "RebuildShell", scope, "Connected.");
+        var state = GetPrivateField<AgentTuiSessionState>(app, "_state");
+        state.Shell.Navigation.GoToPage("test.page");
+        var application = GetPrivateField<HPD.TUI.Rendering.ManagedTerminalTuiApplication>(
+            app,
+            "_application");
+
+        application.HandleInput(
+            TuiInputEvent.FromKey(new KeyEvent(KeyCode.Enter))).Should().BeTrue();
+
+        received.Should().ContainSingle()
+            .Which.Key.Should().Be(KeyCode.Enter);
+        GetPrivateField<PromptView>(app, "_prompt").Model.Value.Should().BeEmpty();
+    }
+
     [Fact]
     public async Task FirstInput_PromotesAndHydratesTransientScopeBeforeObservationAndSubmission()
     {
@@ -202,6 +240,67 @@ public sealed class HpdAgentTuiAppCancelTests
                 new ThreadJournalCursor(1, 2)),
             CancellationToken.None);
         GetPrivateFieldValue<string?>(app, "_activeThreadExecutionId").Should().BeNull();
+    }
+
+    [Fact]
+    public async Task RequestDialog_DoesNotBlockEventProjection()
+    {
+        var scope = new AgentTuiRuntimeScope("agent-a", "session-a", "main");
+        var runtime = new CancelRuntime(scope);
+        var handler = new BlockingInteractionHandler();
+        await using var app = HpdAgentTuiApp.Create(
+            runtime,
+            scope,
+            builder => builder
+                .AddAgentTuiDefaults()
+                .AddInteractionHandler<PermissionRequestEvent>("blocking", handler),
+            new TestTerminal(80, 24));
+        InvokePrivate(app, "RebuildShell", scope, "Connected.");
+        InvokePrivate(app, "StartObserver", scope, CancellationToken.None);
+        var request = new PermissionRequestEvent(
+            "permission-1", "test", "function", null, "call-1", null)
+        {
+            SessionId = scope.SessionId,
+            ThreadId = scope.ThreadId,
+            ThreadExecutionId = "run-1"
+        };
+
+        await InvokePrivate<Task>(
+            app,
+            "OnAgentEventBatchAsync",
+            new AgentTuiEventBatch(
+                [request],
+                AgentTuiEventDeliveryMode.Live,
+                new ThreadJournalCursor(1, 1),
+                new ThreadJournalCursor(1, 1),
+                new ThreadJournalCursor(1, 1)),
+            CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(2));
+        await handler.Started.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        await InvokePrivate<Task>(
+            app,
+            "OnAgentEventBatchAsync",
+            new AgentTuiEventBatch(
+                [new AgentRequestTerminatedEvent(
+                    request.RequestId,
+                    request.SourceName,
+                    AgentRequestTerminalKind.Cancelled,
+                    "cancelled",
+                    DateTimeOffset.UtcNow)
+                {
+                    SessionId = scope.SessionId,
+                    ThreadId = scope.ThreadId,
+                    ThreadExecutionId = "run-1"
+                }],
+                AgentTuiEventDeliveryMode.Live,
+                new ThreadJournalCursor(1, 2),
+                new ThreadJournalCursor(1, 2),
+                new ThreadJournalCursor(1, 2)),
+            CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(2));
+
+        GetPrivateFieldValue<ThreadJournalCursor>(app, "_appliedCursor")
+            .Should().Be(new ThreadJournalCursor(1, 2));
+        await handler.Cancelled.Task.WaitAsync(TimeSpan.FromSeconds(2));
     }
 
     [Fact]
@@ -560,11 +659,11 @@ public sealed class HpdAgentTuiAppCancelTests
                     "active",
                     DateTimeOffset.UtcNow)));
 
-        public Task AnswerRequestAsync(
+        public Task<AgentRespondResult> AnswerRequestAsync(
             AgentTuiRuntimeScope scope,
             AgentEvent response,
             CancellationToken cancellationToken = default)
-            => Task.CompletedTask;
+            => Task.FromResult(new AgentRespondResult(AgentRespondStatus.Accepted, ((IAgentResponseEvent)response).RequestId));
 
         public Task<AgentTuiThreadState> GetThreadStateAsync(
             AgentTuiRuntimeScope scope,
@@ -573,6 +672,32 @@ public sealed class HpdAgentTuiAppCancelTests
             Calls.Add("state");
             ActiveExecutionRequested.TrySetResult();
             return Task.FromResult(new AgentTuiThreadState(ThreadJournalCursor.Start(1), ActiveExecution, []));
+        }
+    }
+
+    private sealed class BlockingInteractionHandler : AgentTuiInteractionHandler<PermissionRequestEvent>
+    {
+        public TaskCompletionSource Started { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource Cancelled { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        protected override async Task<AgentTuiInteractionResult> HandleAsync(
+            AgentTuiInteractionContext<PermissionRequestEvent> context,
+            CancellationToken cancellationToken)
+        {
+            Started.TrySetResult();
+            try
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                return AgentTuiInteractionResult.NoOp;
+            }
+            catch (OperationCanceledException)
+            {
+                Cancelled.TrySetResult();
+                throw;
+            }
         }
     }
 

@@ -1,6 +1,4 @@
-using System.Collections;
 using System.ComponentModel;
-using System.Reflection;
 using System.Text;
 using HPD.Agent.Middleware;
 using HPD.Events;
@@ -22,7 +20,7 @@ public static class MultiAgentRuntime
         /// <summary>
         /// Gets the workflow instance returned by the <see cref="MultiAgentAttribute"/> method.
         /// </summary>
-        public required object Workflow { get; init; }
+        public required IMultiAgentWorkflow Workflow { get; init; }
 
         /// <summary>
         /// Gets the model-facing workflow capability name.
@@ -176,7 +174,7 @@ public static class MultiAgentRuntime
         var text = request.StreamEvents
             ? await InvokeStreamingAsync(request.Workflow, input, request.ParentContext, cancellationToken)
                 .ConfigureAwait(false)
-            : await InvokeNonStreamingAsync(request.Workflow, input, cancellationToken)
+            : await InvokeNonStreamingAsync(request.Workflow, input, request.ParentContext, cancellationToken)
                 .ConfigureAwait(false);
 
         return new MultiAgentInvocationResult { Text = text };
@@ -193,45 +191,14 @@ public static class MultiAgentRuntime
     }
 
     private static async Task<string> InvokeStreamingAsync(
-        object workflow,
+        IMultiAgentWorkflow workflow,
         string input,
         FunctionExecutionContext? functionContext,
         CancellationToken cancellationToken)
     {
-        var executeStreamingAsync = workflow.GetType().GetMethod(
-            "ExecuteStreamingAsync",
-            [
-                typeof(string),
-                typeof(IEventCoordinator),
-                typeof(AgentMetadata),
-                typeof(IChatClient),
-                typeof(CancellationToken)
-            ]);
-
-        if (executeStreamingAsync == null)
-        {
-            throw new InvalidOperationException(
-                "Multi-agent workflow must expose ExecuteStreamingAsync(string, IEventCoordinator?, AgentMetadata?, IChatClient?, CancellationToken).");
-        }
-
-        var stream = executeStreamingAsync.Invoke(
-            workflow,
-            [
-                input,
-                functionContext?.GetParentEventCoordinator(),
-                functionContext?.GetParentAgentMetadata(),
-                functionContext?.GetParentChatClient(),
-                cancellationToken
-            ]);
-
-        if (stream is not IAsyncEnumerable<Event> events)
-        {
-            throw new InvalidOperationException(
-                "Multi-agent workflow ExecuteStreamingAsync did not return IAsyncEnumerable<Event>.");
-        }
-
         var textResult = new StringBuilder();
-        await foreach (var evt in events.WithCancellation(cancellationToken).ConfigureAwait(false))
+        await foreach (var evt in workflow.ExecuteStreamingAsync(input, functionContext, cancellationToken)
+            .WithCancellation(cancellationToken).ConfigureAwait(false))
         {
             if (evt is TextDeltaEvent textDelta)
                 textResult.Append(textDelta.Text);
@@ -241,74 +208,12 @@ public static class MultiAgentRuntime
     }
 
     private static async Task<string> InvokeNonStreamingAsync(
-        object workflow,
+        IMultiAgentWorkflow workflow,
         string input,
+        FunctionExecutionContext? functionContext,
         CancellationToken cancellationToken)
     {
-        var runAsync = workflow.GetType().GetMethod(
-            "RunAsync",
-            [typeof(string), typeof(CancellationToken)])
-            ?? throw new InvalidOperationException(
-                "Multi-agent workflow must expose RunAsync(string, CancellationToken).");
-
-        var result = await AwaitIfNeededAsync(
-            runAsync.Invoke(workflow, [input, cancellationToken])).ConfigureAwait(false);
-
-        if (result == null)
-            return string.Empty;
-
-        return result.GetType().GetProperty("FinalAnswer")?.GetValue(result) as string
-            ?? FormatOutputs(result.GetType().GetProperty("Outputs")?.GetValue(result))
-            ?? string.Empty;
+        return await workflow.RunAsync(input, functionContext, cancellationToken).ConfigureAwait(false);
     }
 
-    private static async Task<object?> AwaitIfNeededAsync(object? result)
-    {
-        switch (result)
-        {
-            case Task task:
-                await task.ConfigureAwait(false);
-                return task.GetType().IsGenericType
-                    ? task.GetType().GetProperty("Result")?.GetValue(task)
-                    : null;
-
-            case ValueTask valueTask:
-                await valueTask.ConfigureAwait(false);
-                return null;
-
-            default:
-                var type = result?.GetType();
-                if (type?.IsGenericType == true && type.GetGenericTypeDefinition() == typeof(ValueTask<>))
-                {
-                    return await AwaitGenericValueTaskAsync(result!).ConfigureAwait(false);
-                }
-
-                return result;
-        }
-    }
-
-    private static async Task<object?> AwaitGenericValueTaskAsync(object valueTask)
-    {
-        var asTask = valueTask.GetType().GetMethod("AsTask", BindingFlags.Instance | BindingFlags.Public)
-            ?? throw new InvalidOperationException("ValueTask<T> did not expose AsTask().");
-        var task = (Task)asTask.Invoke(valueTask, Array.Empty<object?>())!;
-        await task.ConfigureAwait(false);
-        return task.GetType().GetProperty("Result")?.GetValue(task);
-    }
-
-    private static string? FormatOutputs(object? outputs)
-    {
-        if (outputs is null)
-            return null;
-
-        if (outputs is IDictionary dictionary)
-        {
-            return string.Join(
-                System.Environment.NewLine,
-                dictionary.Keys.Cast<object?>()
-                    .Select(key => $"{key}: {dictionary[key]}"));
-        }
-
-        return outputs.ToString();
-    }
 }

@@ -1,11 +1,11 @@
 using System.Text.Json.Nodes;
-using HPD.Base.AspNetCore.Http;
+using HPD.Base.AspNetCore;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.OpenApi;
 using Microsoft.Extensions.Options;
 using Microsoft.OpenApi;
 
-namespace HPD.Base.AspNetCore.OpenApi;
+namespace HPD.Base.AspNetCore;
 
 internal sealed class HPDBaseOpenApiOperationTransformer(IOptions<HPDBaseOpenApiOptions> options) : IOpenApiOperationTransformer
 {
@@ -18,7 +18,8 @@ internal sealed class HPDBaseOpenApiOperationTransformer(IOptions<HPDBaseOpenApi
         BaseHttpHeaders.EventIds,
         BaseHttpHeaders.CorrelationId,
         BaseHttpHeaders.PreferenceApplied,
-        BaseHttpHeaders.RetryAfter
+        BaseHttpHeaders.RetryAfter,
+        BaseHttpHeaders.RequestDisposition
     ];
 
     private static readonly string[] s_adminPolicyExplainResponseHeaders =
@@ -30,6 +31,7 @@ internal sealed class HPDBaseOpenApiOperationTransformer(IOptions<HPDBaseOpenApi
     private const string FileObjectsUploadOperationId = "base.files.objects.upload";
     private const string FileObjectsListOperationId = "base.files.objects.list";
 
+    /// <summary>Executes the transform async operation.</summary>
     public Task TransformAsync(OpenApiOperation operation, OpenApiOperationTransformerContext context, CancellationToken cancellationToken)
     {
         var metadata = context.Description.ActionDescriptor.EndpointMetadata.OfType<HPDBaseOpenApiRouteMetadata>().FirstOrDefault();
@@ -44,11 +46,13 @@ internal sealed class HPDBaseOpenApiOperationTransformer(IOptions<HPDBaseOpenApi
         AddQueryParameters(operation, metadata.OperationId);
         AddRequestHeader(operation, BaseHttpHeaders.CorrelationId, required: false, "Safe caller-provided correlation id echoed in responses.");
 
-        if (metadata.OperationId is BaseRouteIds.RecordsCreate)
-            AddRequestHeader(operation, BaseHttpHeaders.IdempotencyKey, required: false, "Idempotency key for record creation.");
-
-        if (metadata.OperationId is BaseRouteIds.RecordsPatch or BaseRouteIds.RecordsReplace or BaseRouteIds.RecordsDelete)
+        if (metadata.OperationId is BaseRouteIds.RecordsPatch
+            or BaseRouteIds.RecordsReplace
+            or BaseRouteIds.RecordsDelete
+            or BaseRouteIds.RecordsUpsert)
             AddRequestHeader(operation, BaseHttpHeaders.IfMatch, required: false, "Expected record revision for optimistic concurrency.");
+        if (metadata.OperationId == BaseRouteIds.RecordsBatch)
+            AddRequestHeader(operation, BaseHttpHeaders.IdempotencyKey, required: false, "Identifies an exact atomic batch request for durable duplicate resolution.");
 
         var responseHeaders = metadata.OperationId == BaseHttpRouteNames.AdminPolicyExplain
             ? s_adminPolicyExplainResponseHeaders
@@ -146,7 +150,6 @@ internal sealed class HPDBaseOpenApiOperationTransformer(IOptions<HPDBaseOpenApi
                 AddParameter(operation, "select", ParameterLocation.Query, required: false, "Comma-separated field projection.");
                 AddParameter(operation, "include", ParameterLocation.Query, required: false, "Comma-separated include paths.");
                 AddParameter(operation, "count", ParameterLocation.Query, required: false, "Count mode: none, ifAvailable, exact, estimated, or limited.");
-                AddParameter(operation, "dependencyToken", ParameterLocation.Query, required: false, "Set to true to request a dependency token.");
                 AddParameter(operation, "ext[module.name]", ParameterLocation.Query, required: false, "Extension query arguments keyed by module and name.");
                 break;
         }

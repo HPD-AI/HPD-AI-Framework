@@ -1,6 +1,7 @@
 using HPD.Agent.TUI.Composition;
 using HPD.Agent.TUI.Commands;
 using HPD.Agent.TUI.Interactions;
+using HPD.Agent.TUI.Models;
 using HPD.TUI.Core;
 
 namespace HPD.Agent.TUI;
@@ -41,7 +42,8 @@ public sealed class HpdAgentTuiRegistry
         Theme? theme,
         bool includeSlashCommandAutocomplete,
         AgentTuiRunConfigComposer? runConfigComposer,
-        IAgentTuiThreadStateReconciler? threadStateReconciler)
+        IAgentTuiThreadStateReconciler? threadStateReconciler,
+        TranscriptHistoryPresentation transcriptHistoryPresentation)
     {
         _commands = commands.ToDictionary(command => command.SlashName, StringComparer.OrdinalIgnoreCase);
         _commandList = _commands.Values
@@ -97,6 +99,7 @@ public sealed class HpdAgentTuiRegistry
         Theme = theme;
         RunConfigComposer = runConfigComposer;
         ThreadStateReconciler = threadStateReconciler;
+        TranscriptHistoryPresentation = transcriptHistoryPresentation;
     }
 
     public IReadOnlyList<HpdAgentTuiCommandDescriptor> Commands => _commandList;
@@ -126,6 +129,8 @@ public sealed class HpdAgentTuiRegistry
 
     /// <summary>Gets the component that projects authoritative durable thread state into shell state.</summary>
     public IAgentTuiThreadStateReconciler? ThreadStateReconciler { get; }
+
+    public TranscriptHistoryPresentation TranscriptHistoryPresentation { get; }
 
     public AgentTuiTranscriptRendererRegistry TranscriptRenderers { get; }
 
@@ -216,6 +221,24 @@ public sealed class HpdAgentTuiRegistry
                 yield return candidate;
             }
         }
+    }
+
+    /// <summary>
+    /// Returns whether a visible specialized handler owns transcript projection for a specific tool call.
+    /// </summary>
+    public bool HasToolCallHandler(
+        string? toolHarnessName,
+        string toolName,
+        ToolCallType? callType,
+        AgentEvent evt,
+        Runtime.AgentTuiRuntimeScope selectedScope)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(toolName);
+
+        return _eventHandlers.Any(candidate =>
+            candidate.Scope.Includes(evt, selectedScope) &&
+            candidate.Value is IAgentTuiToolCallHandler handler &&
+            handler.CanHandleToolCall(toolHarnessName, toolName, callType));
     }
 
     public bool TryFindInteractionHandler(

@@ -75,11 +75,11 @@ public enum AzureOpenAIServiceVersion
 /// <summary>
 /// OpenAI-specific provider configuration options.
 /// </summary>
-public class OpenAIProviderConfig
+public class OpenAIProviderConfig : global::HPD.Agent.IProviderConfig
 {
     /// <summary>
     /// Selects the OpenAI chat API used to construct chat clients.
-    /// Runtime model-call behavior belongs in ChatRunConfig.
+    /// Runtime model-call behavior belongs in ChatClientConfig.
     /// </summary>
     [JsonPropertyName("chatApi")]
     public OpenAIChatApi ChatApi { get; set; } = OpenAIChatApi.Responses;
@@ -118,11 +118,11 @@ public class OpenAIProviderConfig
 /// <summary>
 /// Azure OpenAI-specific provider configuration options.
 /// </summary>
-public class AzureOpenAIProviderConfig
+public class AzureOpenAIProviderConfig : global::HPD.Agent.IProviderConfig
 {
     /// <summary>
     /// Selects the Azure OpenAI chat API used to construct chat clients.
-    /// Runtime model-call behavior belongs in ChatRunConfig.
+    /// Runtime model-call behavior belongs in ChatClientConfig.
     /// </summary>
     [JsonPropertyName("chatApi")]
     public OpenAIChatApi ChatApi { get; set; } = OpenAIChatApi.Responses;

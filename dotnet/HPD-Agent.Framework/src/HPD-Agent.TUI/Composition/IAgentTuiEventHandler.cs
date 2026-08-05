@@ -44,6 +44,19 @@ public interface IAgentTuiEventHandler
         CancellationToken cancellationToken);
 }
 
+/// <summary>
+/// Declares that an event handler provides the specialized transcript projection for selected tool calls.
+/// Generic tool renderers can use this per-call ownership signal to avoid rendering the same call twice.
+/// </summary>
+public interface IAgentTuiToolCallHandler
+{
+    /// <summary>Returns whether this handler owns the specified tool call.</summary>
+    bool CanHandleToolCall(
+        string? toolHarnessName,
+        string toolName,
+        ToolCallType? callType);
+}
+
 public abstract class AgentTuiEventHandler<TEvent> : IAgentTuiEventHandler
     where TEvent : AgentEvent
 {

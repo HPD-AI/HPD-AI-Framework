@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using HPD.Agent.Middleware;
 using HPD.Agent.Middleware.Function;
+using HPD.Agent.Providers;
 using HPD.Agent.Tests.Infrastructure;
 using Microsoft.Extensions.AI;
 
@@ -865,12 +866,24 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
         TranscriptionOptions? realtimeTranscriptionOptions = null)
         => new()
         {
-            ModelTransport = AgentModelTransportMode.Realtime,
-            OverrideRealtimeClient = new FakeRealtimeClient(session),
-            AdditionalTools = tools,
-            ToolModeOverride = ChatToolMode.Auto,
-            CoalesceDeltas = coalesceDeltas,
-            RealtimeTranscriptionOptions = realtimeTranscriptionOptions
+            Clients = new AgentClientsConfig
+            {
+                Transport = AgentModelTransportMode.Realtime,
+                Realtime = new RealtimeClientConfig
+                {
+                    Override = new ClientOverride<IRealtimeClient> { Client = new FakeRealtimeClient(session) },
+                    Transcription = realtimeTranscriptionOptions is null
+                        ? null
+                        : new RealtimeTranscriptionRunConfig
+                        {
+                            ModelName = realtimeTranscriptionOptions.ModelId,
+                            SpeechLanguage = realtimeTranscriptionOptions.SpeechLanguage,
+                            Prompt = realtimeTranscriptionOptions.Prompt
+                        }
+                }
+            },
+            Tools = new AgentToolsRunConfig { Additional = tools, Mode = ChatToolMode.Auto },
+            Streaming = new StreamingRunConfig { CoalesceDeltas = coalesceDeltas },
         };
 
     private static IReadOnlyList<AIFunction> CreateMathTools() =>

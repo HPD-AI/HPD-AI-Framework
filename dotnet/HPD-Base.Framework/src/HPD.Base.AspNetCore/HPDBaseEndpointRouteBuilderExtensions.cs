@@ -1,9 +1,8 @@
-using HPD.Base.AspNetCore.EndpointMapping;
-using HPD.Base.AspNetCore.EndpointMapping.Endpoints;
-using HPD.Base.AspNetCore.Http;
-using HPD.Base.AspNetCore.Policy.Admin;
+using HPD.Base.AspNetCore;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Base.AspNetCore;
 
@@ -47,6 +46,24 @@ public static class HPDBaseEndpointRouteBuilderExtensions
         EndpointRouteBuilderValidation.Validate(options);
 
         var group = endpoints.MapGroup(options.RoutePrefix);
+        group.AddEndpointFilter(static async (invocation, next) =>
+        {
+            IHPDBaseApplication? application = invocation.HttpContext.RequestServices
+                .GetService<IHPDBaseApplication>();
+            if (application is null ||
+                application.CurrentReadiness.State == BaseApplicationReadinessState.Ready)
+            {
+                return await next(invocation).ConfigureAwait(false);
+            }
+
+            return Results.Problem(
+                statusCode: StatusCodes.Status503ServiceUnavailable,
+                title: "HPD.BASE is not ready.",
+                extensions: new Dictionary<string, object?>
+                {
+                    ["code"] = "base.application.notReady",
+                });
+        });
 
         if (options.MapMetadata)
             MetadataEndpoints.MapPublic(group, options.PublicMetadataMode);
@@ -63,9 +80,11 @@ public static class HPDBaseEndpointRouteBuilderExtensions
                 records.RequireAuthorization(options.RecordPolicyName);
 
             RecordEndpoints.Map(records);
+            RegisteredReadEndpoints.Map(records, BaseReadExposure.Public, options.RequireAuthorizationForRecordRoutes);
         }
 
-        if (options.MapAdminMetadata || options.MapAdminPolicyExplain)
+        bool mapAdminReads = options.MapRecords && RegisteredReadEndpoints.HasExposure(endpoints.ServiceProvider, BaseReadExposure.Admin);
+        if (options.MapAdminMetadata || options.MapAdminPolicyExplain || mapAdminReads)
         {
             var admin = group.MapGroup("/admin");
             if (options.RequireAuthorizationForAdminRoutes)
@@ -83,6 +102,8 @@ public static class HPDBaseEndpointRouteBuilderExtensions
 
             if (options.MapAdminPolicyExplain)
                 PolicyAdminExplainEndpoints.Map(admin);
+            if (mapAdminReads)
+                RegisteredReadEndpoints.Map(admin, BaseReadExposure.Admin, options.RequireAuthorizationForAdminRoutes);
         }
 
         options.ConfigureRoutes?.Invoke(group);

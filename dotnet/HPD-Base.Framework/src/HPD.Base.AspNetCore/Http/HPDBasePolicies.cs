@@ -1,4 +1,4 @@
-namespace HPD.Base.AspNetCore.Http;
+namespace HPD.Base.AspNetCore;
 
 /// <summary>
 /// Names ASP.NET Core authorization policies used by HPD.BASE endpoints.

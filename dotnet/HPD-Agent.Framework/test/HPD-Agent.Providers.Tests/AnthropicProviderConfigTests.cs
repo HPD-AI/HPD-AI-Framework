@@ -49,7 +49,7 @@ public class AnthropicProviderConfigTests
     }
 
     [Fact]
-    public void WithAnthropicChatRequestOptions_ShouldStoreOptionsInChatDefaults()
+    public void WithAnthropicChatRequestOptions_ShouldStoreOptionsInChatConfig()
     {
         var builder = new AgentBuilder()
             .WithAnthropic("claude-sonnet-4-5-20250929", "key")
@@ -61,10 +61,10 @@ public class AnthropicProviderConfigTests
 
         var chatConfig = builder.Config.EnsureChatClientConfig();
 
-        chatConfig.ProviderOptions.Should().BeNull();
-        chatConfig.ChatDefaults.Should().NotBeNull();
-        chatConfig.ChatDefaults!.AdditionalProperties.Should().Contain("serviceTier", AnthropicServiceTier.StandardOnly);
-        chatConfig.ChatDefaults.AdditionalProperties.Should().Contain("thinkingBudgetTokens", 4096L);
+        chatConfig.Should().NotBeNull();
+        var providerOptions = chatConfig!.ProviderOptions.Should().BeOfType<AnthropicChatRequestOptions>().Subject;
+        providerOptions.ServiceTier.Should().Be(AnthropicServiceTier.StandardOnly);
+        providerOptions.ThinkingBudgetTokens.Should().Be(4096L);
     }
 
     [Fact]

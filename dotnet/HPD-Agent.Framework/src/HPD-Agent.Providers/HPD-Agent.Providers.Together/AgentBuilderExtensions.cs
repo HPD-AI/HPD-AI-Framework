@@ -23,7 +23,7 @@ public static class AgentBuilderExtensions
         if (string.IsNullOrWhiteSpace(model))
             throw new ArgumentException("Model is required for Together AI provider.", nameof(model));
 
-        var chatConfig = new ClientProviderConfig
+        var chatConfig = new ChatClientConfig
         {
             ProviderKey = "together",
             ApiKey = apiKey,
@@ -47,8 +47,7 @@ public static class AgentBuilderExtensions
         ArgumentNullException.ThrowIfNull(options);
 
         var chatConfig = builder.Config.EnsureChatClientConfig();
-        chatConfig.ChatDefaults ??= new ChatRunConfig();
-        options.ApplyTo(chatConfig.ChatDefaults);
+        options.ApplyTo(chatConfig);
 
         return builder;
     }
@@ -74,22 +73,14 @@ public static class AgentBuilderExtensions
         this AgentBuilder builder,
         string model = "BAAI/bge-base-en-v1.5",
         string? apiKey = null,
-        string? endpoint = null,
-        Action<TogetherProviderConfig>? configure = null)
+        string? endpoint = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
 
         if (string.IsNullOrWhiteSpace(model))
             throw new ArgumentException("Model is required for Together AI embeddings.", nameof(model));
 
-        var providerConfig = new TogetherProviderConfig
-        {
-            EmbeddingModelId = model
-        };
-        configure?.Invoke(providerConfig);
-        ValidateProviderConfig(providerConfig, configure);
-
-        var embeddingConfig = new ClientProviderConfig
+        var embeddingConfig = new EmbeddingsClientConfig
         {
             ProviderKey = "together",
             ApiKey = apiKey,
@@ -98,17 +89,6 @@ public static class AgentBuilderExtensions
         };
 
         builder.Config.SetClientConfig(ProviderClientFamily.Embeddings, embeddingConfig);
-        embeddingConfig.SetProviderConfig(providerConfig, ProviderClientFamily.Embeddings);
-
         return builder;
-    }
-
-    private static void ValidateProviderConfig(TogetherProviderConfig config, Action<TogetherProviderConfig>? configure)
-    {
-        var errors = new List<string>();
-        TogetherProvider.ValidateProviderOptions(config, errors);
-
-        if (errors.Count > 0)
-            throw new ArgumentException(string.Join("; ", errors), nameof(configure));
     }
 }

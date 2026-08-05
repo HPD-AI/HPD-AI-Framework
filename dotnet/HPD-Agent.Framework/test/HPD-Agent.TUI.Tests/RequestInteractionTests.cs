@@ -395,11 +395,11 @@ public sealed class RequestInteractionTests
             CancellationToken cancellationToken = default)
             => Task.FromResult(Submitted(scope));
 
-        public Task AnswerRequestAsync(
+        public Task<AgentRespondResult> AnswerRequestAsync(
             AgentTuiRuntimeScope scope,
             AgentEvent response,
             CancellationToken cancellationToken = default)
-            => Task.CompletedTask;
+            => Task.FromResult(new AgentRespondResult(AgentRespondStatus.Accepted, ((IAgentResponseEvent)response).RequestId));
 
         public Task<AgentTuiThreadState> GetThreadStateAsync(
             AgentTuiRuntimeScope scope,

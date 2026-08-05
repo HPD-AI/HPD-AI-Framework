@@ -1,4 +1,6 @@
 using HPD.Auth.Core.Entities;
+using HPD.Auth.ControlPlane;
+using HPD.Auth.Core.Audit;
 using HPD.Auth.Core.Interfaces;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -18,24 +20,27 @@ namespace HPD.Auth.Admin.Endpoints;
 /// </summary>
 public static class AdminUser2faEndpoints
 {
-    public static void Map(IEndpointRouteBuilder app)
+    public static void Map(RouteGroupBuilder root, IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/admin/users")
-                       .RequireAuthorization("RequireAdmin");
+        var group = root.MapGroup("/users");
 
         group.MapGet("/{id}/2fa", Get2faStatusAsync)
+             .RequireHPDControlPlaneCapability(app, HPDAuthAdminCapabilities.CredentialsRead)
              .WithName("AdminGet2faStatus")
              .WithSummary("Get the 2FA status for a user, including authenticator presence and recovery code count.");
 
         group.MapPost("/{id}/2fa/disable", Disable2faAsync)
+             .RequireHPDControlPlaneCapability(app, HPDAuthAdminCapabilities.CredentialsWrite)
              .WithName("AdminDisable2fa")
              .WithSummary("Disable two-factor authentication for a user.");
 
         group.MapDelete("/{id}/2fa/authenticator", ResetAuthenticatorAsync)
+             .RequireHPDControlPlaneCapability(app, HPDAuthAdminCapabilities.CredentialsWrite)
              .WithName("AdminResetAuthenticator")
              .WithSummary("Reset the TOTP authenticator key, forcing re-enrollment.");
 
         group.MapPost("/{id}/2fa/recovery-codes", GenerateRecoveryCodesAsync)
+             .RequireHPDControlPlaneCapability(app, HPDAuthAdminCapabilities.CredentialsWrite)
              .WithName("AdminGenerateRecoveryCodes")
              .WithSummary("Generate new recovery codes for a user. Shown only once — treat as secrets.");
     }
@@ -69,7 +74,8 @@ public static class AdminUser2faEndpoints
     private static async Task<IResult> Disable2faAsync(
         string id,
         UserManager<ApplicationUser> userManager,
-        IAuditLogger auditLogger,
+        IAuthAuditWriter auditWriter,
+        IAuthCorrelationContext correlationContext,
         CancellationToken ct = default)
     {
         var user = await userManager.FindByIdAsync(id);
@@ -80,13 +86,7 @@ public static class AdminUser2faEndpoints
         if (!result.Succeeded)
             return Results.BadRequest(result.Errors);
 
-        await auditLogger.LogAsync(new AuditLogEntry(
-            Action: AuditActions.TwoFactorDisable,
-            Category: AuditCategories.Admin,
-            Success: true,
-            UserId: user.Id,
-            Metadata: new { adminAction = "disable_2fa" }
-        ), ct);
+        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.TwoFactorDisable, correlationContext, user.Id, cancellationToken: ct);
 
         return Results.Ok(new { message = "Two-factor authentication disabled." });
     }
@@ -94,7 +94,8 @@ public static class AdminUser2faEndpoints
     private static async Task<IResult> ResetAuthenticatorAsync(
         string id,
         UserManager<ApplicationUser> userManager,
-        IAuditLogger auditLogger,
+        IAuthAuditWriter auditWriter,
+        IAuthCorrelationContext correlationContext,
         CancellationToken ct = default)
     {
         var user = await userManager.FindByIdAsync(id);
@@ -105,13 +106,7 @@ public static class AdminUser2faEndpoints
         if (!result.Succeeded)
             return Results.BadRequest(result.Errors);
 
-        await auditLogger.LogAsync(new AuditLogEntry(
-            Action: AuditActions.TwoFactorSetup,
-            Category: AuditCategories.Admin,
-            Success: true,
-            UserId: user.Id,
-            Metadata: new { adminAction = "reset_authenticator" }
-        ), ct);
+        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.TwoFactorResetAuthenticator, correlationContext, user.Id, cancellationToken: ct);
 
         return Results.Ok(new { message = "Authenticator key reset. User must re-enroll their authenticator app." });
     }
@@ -120,7 +115,8 @@ public static class AdminUser2faEndpoints
         string id,
         GenerateRecoveryCodesRequest? request,
         UserManager<ApplicationUser> userManager,
-        IAuditLogger auditLogger,
+        IAuthAuditWriter auditWriter,
+        IAuthCorrelationContext correlationContext,
         CancellationToken ct = default)
     {
         var user = await userManager.FindByIdAsync(id);
@@ -132,13 +128,7 @@ public static class AdminUser2faEndpoints
 
         var codes = await userManager.GenerateNewTwoFactorRecoveryCodesAsync(user, count);
 
-        await auditLogger.LogAsync(new AuditLogEntry(
-            Action: AuditActions.RecoveryCodeRegenerate,
-            Category: AuditCategories.Admin,
-            Success: true,
-            UserId: user.Id,
-            Metadata: new { adminAction = "generate_recovery_codes", count }
-        ), ct);
+        await AdminAuditMapper.WriteAsync(auditWriter, AdminAuditOperation.TwoFactorGenerateRecoveryCodes, correlationContext, user.Id, cancellationToken: ct);
 
         // Recovery codes are shown only once — the caller must distribute them securely.
         return Results.Ok(new { codes, message = "Recovery codes generated. These are shown only once." });

@@ -1,22 +1,31 @@
-using HPD.Base.Health;
-using HPD.Base.Runtime.Health;
-using HPD.Base.Sqlite.Configuration;
-using HPD.Base.Sqlite.Internal;
+using HPD.Base;
+using HPD.Base.Sqlite;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
-namespace HPD.Base.Sqlite.Health;
+namespace HPD.Base.Sqlite;
 
 internal sealed class SqliteDiagnosticContributor : IBaseDiagnosticContributor
 {
     private readonly HPDBaseSqliteOptions _options;
+    private readonly ILogger<SqliteDiagnosticContributor> _logger;
+    private readonly SqliteRecordStore _store;
 
-    public SqliteDiagnosticContributor(IOptions<HPDBaseSqliteOptions> options)
+    /// <summary>Initializes a new instance.</summary>
+    public SqliteDiagnosticContributor(
+        IOptions<HPDBaseSqliteOptions> options,
+        SqliteRecordStore store,
+        ILogger<SqliteDiagnosticContributor> logger)
     {
         _options = options.Value;
+        _store = store;
+        _logger = logger;
     }
 
+    /// <summary>Gets the ID.</summary>
     public string Id => _options.DiagnosticRefId;
 
+    /// <summary>Executes the get diagnostics async operation.</summary>
     public async ValueTask<DiagnosticDescriptor[]> GetDiagnosticsAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -36,6 +45,23 @@ internal sealed class SqliteDiagnosticContributor : IBaseDiagnosticContributor
             }
         };
 
+        if (_store.RestoreRecoveryIndeterminate)
+        {
+            diagnostics.Add(new DiagnosticDescriptor
+            {
+                Id = _options.DiagnosticRefId + ".restore",
+                Code = "base.sqlite.restore.indeterminate",
+                Severity = DiagnosticSeverity.Error,
+                TargetRef = _options.StoreId,
+                Message = "SQLite restore recovery is indeterminate; recovery evidence is retained and the store is maintenance-closed.",
+                PublicMessage = "SQLite restore recovery requires operator attention.",
+                Category = DiagnosticCategory.Store,
+                Visibility = VisibilityLevel.Admin,
+                EmittedAt = DateTimeOffset.UtcNow
+            });
+            return diagnostics.ToArray();
+        }
+
         try
         {
             var factory = new SqliteConnectionFactory(_options);
@@ -46,6 +72,10 @@ internal sealed class SqliteDiagnosticContributor : IBaseDiagnosticContributor
             var busyTimeout = await ScalarAsync(connection, "PRAGMA busy_timeout;", cancellationToken).ConfigureAwait(false);
             var synchronous = await ScalarAsync(connection, "PRAGMA synchronous;", cancellationToken).ConfigureAwait(false);
             var missing = await new SqliteSchemaInitializer(_options).GetMissingSchemaPartsAsync(connection, cancellationToken).ConfigureAwait(false);
+            if (missing.Length != 0)
+            {
+                HPDBaseSqliteLog.SchemaDiagnosticWarning(_logger, SqliteErrorCodes.SchemaMissing);
+            }
 
             diagnostics.Add(new DiagnosticDescriptor
             {
@@ -55,6 +85,20 @@ internal sealed class SqliteDiagnosticContributor : IBaseDiagnosticContributor
                 TargetRef = _options.StoreId,
                 Message = $"SQLite version '{sqliteVersion ?? "unknown"}', schema prefix '{_options.SchemaPrefix}', journal mode '{journalMode ?? "unknown"}', foreign_keys '{foreignKeys ?? "unknown"}', busy_timeout '{busyTimeout ?? "unknown"}', synchronous '{synchronous ?? "unknown"}', missing schema parts: {missing.Length}.",
                 PublicMessage = "SQLite provider configuration is available to administrators.",
+                Category = DiagnosticCategory.Store,
+                Visibility = VisibilityLevel.Admin,
+                EmittedAt = DateTimeOffset.UtcNow
+            });
+            diagnostics.Add(new DiagnosticDescriptor
+            {
+                Id = _options.DiagnosticRefId + ".administration",
+                Code = "base.sqlite.administration",
+                Severity = _store.QuarantinedAdministrationCount != 0 || _store.RestoreRecoveryPending
+                    ? DiagnosticSeverity.Warning
+                    : DiagnosticSeverity.Info,
+                TargetRef = _options.StoreId,
+                Message = $"SQLite administration enabled: {_store.AdministrationCapability.Backup}; quarantined operations: {_store.QuarantinedAdministrationCount}; restore recovery pending: {_store.RestoreRecoveryPending}.",
+                PublicMessage = "SQLite provider administration state is available to administrators.",
                 Category = DiagnosticCategory.Store,
                 Visibility = VisibilityLevel.Admin,
                 EmittedAt = DateTimeOffset.UtcNow

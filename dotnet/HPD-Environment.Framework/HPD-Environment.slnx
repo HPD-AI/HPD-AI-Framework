@@ -3,9 +3,12 @@
     <Project Path="src/HPD-Environment.Abstractions/HPD-Environment.Abstractions.csproj" />
     <Project Path="src/HPD-Environment.Runtime/HPD-Environment.Runtime.csproj" />
     <Project Path="src/HPD-Environment.AppleVirtualization/HPD-Environment.AppleVirtualization.csproj" />
+    <Project Path="src/HPD-Environment.Local/HPD-Environment.Local.csproj" />
   </Folder>
   <Folder Name="/test/">
     <Project Path="test/HPD-Environment.Tests/HPD-Environment.Tests.csproj" />
     <Project Path="test/HPD-Environment.AppleVirtualization.Tests/HPD-Environment.AppleVirtualization.Tests.csproj" />
+    <Project Path="test/HPD-Environment.Local.Tests/HPD-Environment.Local.Tests.csproj" />
+    <Project Path="test/HPD-Environment.NativeAotSmoke/HPD-Environment.NativeAotSmoke.csproj" />
   </Folder>
 </Solution>
