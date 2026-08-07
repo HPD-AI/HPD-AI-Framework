@@ -1,6 +1,8 @@
 namespace HPD.ML.DeepLearning.Backends;
 
 using HPD.ML.Abstractions;
+using HPD.ML.DeepLearning;
+using Helium.Train;
 
 public sealed class ManagedDeepLearningBackendProvider : IDeepLearningBackendProvider
 {
@@ -24,5 +26,13 @@ internal sealed class ManagedDeepLearningTrainer : IDeepLearningTrainer
         float[][] labels,
         TrainingOptions options,
         int seed)
-        => ManagedNeuralNetworkTrainer.Train(definition, features, labels, options, seed);
+    {
+        var layerSizes = definition.Layers.Select(l => l.OutputSize).ToArray();
+        using var backend = new ManagedTensorBackend();
+        var trainer = new Trainer(backend);
+        var (weights, biases) = trainer.Train(
+            layerSizes, features, labels,
+            options.LearningRate, options.Epochs, options.BatchSize, seed);
+        return new NeuralNetworkParameters(definition, weights, biases);
+    }
 }

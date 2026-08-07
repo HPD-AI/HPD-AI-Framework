@@ -1,5 +1,7 @@
 namespace HPD.ML.DeepLearning.Backends;
 
+using HPD.ML.DeepLearning;
+
 public interface IDeepLearningTrainer
 {
     NeuralNetworkParameters Train(

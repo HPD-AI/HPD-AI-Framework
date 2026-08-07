@@ -1,4 +1,4 @@
-#:property TargetFramework=net10.0
+#:property TargetFramework=net11.0
 #:property PublishAot=true
 #:property PackAsTool=false
 #:property IsPackable=false
