@@ -27,6 +27,8 @@ public static partial class GatewayAdminEndpointRouteBuilderExtensions
         ArgumentNullException.ThrowIfNull(endpoints);
         ArgumentNullException.ThrowIfNull(options);
         ValidateOptions(endpoints, options);
+        endpoints.ServiceProvider.GetRequiredService<GatewayAdminOpenApiContract>()
+            .Seal(options.OpenApiSecurityScheme);
 
         var authenticated = new AuthorizationPolicyBuilder(options.AuthenticationScheme)
             .RequireAuthenticatedUser().Build();
@@ -93,13 +95,19 @@ public static partial class GatewayAdminEndpointRouteBuilderExtensions
             if (!await AdmitTarget(context, ns, target).ConfigureAwait(false)) return;
             IGatewayManagementStatusReader status = context.RequestServices.GetRequiredService<IGatewayManagementStatusReader>();
             GatewayNodeEffectiveObservation? effective = context.RequestServices.GetRequiredService<IGatewayNodeEffectiveReader>().GetCurrent();
-            if (effective is null || !StringComparer.Ordinal.Equals(effective.NamespaceId, ns) ||
-                !StringComparer.Ordinal.Equals(effective.TargetNodeId, target))
-            { await Write(context, NotFound(context)); return; }
             GatewayManagementStatusSnapshot snapshot = await status.GetCurrentAsync(ns, target, context.RequestAborted).ConfigureAwait(false);
-            GatewayStatusSnapshot node = context.RequestServices.GetRequiredService<IGatewayStatusReader>().GetCurrent();
+            bool nodeObserved = effective is not null &&
+                StringComparer.Ordinal.Equals(effective.NamespaceId, ns) &&
+                StringComparer.Ordinal.Equals(effective.TargetNodeId, target);
+            GatewayStatusSnapshot? node = nodeObserved
+                ? context.RequestServices.GetRequiredService<IGatewayStatusReader>().GetCurrent()
+                : null;
             await Write(context, TypedResults.Json(new GatewayTargetStatusResponse(
-                snapshot, node, node.GeneratedAt, node.DetailsTruncated),
+                snapshot,
+                nodeObserved ? GatewayNodeObservationState.Observed : GatewayNodeObservationState.NotAttempted,
+                node,
+                node?.GeneratedAt ?? DateTimeOffset.UtcNow,
+                node?.DetailsTruncated ?? false),
                 GatewayAdminJsonContext.Default.GatewayTargetStatusResponse)).ConfigureAwait(false);
         });
 
@@ -344,6 +352,7 @@ public static partial class GatewayAdminEndpointRouteBuilderExtensions
         ArgumentException.ThrowIfNullOrWhiteSpace(options.AuthenticationScheme);
         ArgumentException.ThrowIfNullOrWhiteSpace(options.RateLimitPolicy);
         ArgumentException.ThrowIfNullOrWhiteSpace(options.RequestTimeoutPolicy);
+        ArgumentException.ThrowIfNullOrWhiteSpace(options.OpenApiSecurityScheme);
         if (!GatewayIdentifier.IsCanonical(options.EndpointSurfaceId))
             throw new InvalidOperationException("The Gateway Admin endpoint surface ID is invalid.");
         if (!endpoints.ServiceProvider.GetRequiredService<IServiceProviderIsService>()

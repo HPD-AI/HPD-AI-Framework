@@ -114,6 +114,7 @@ builder.Services.AddHpdGatewayManagement(options =>
     options.ManagementAuthorityId = inputs.Management.ManagementAuthorityId;
     options.RequiredDurability = GatewayAuthorityDurability.RestartDurable;
     options.DesiredStateTokenKey = Convert.FromHexString(inputs.Management.DesiredStateTokenKeyHex);
+    options.EpochReservationKey = Convert.FromHexString(inputs.Management.EpochReservationKeyHex);
 }, hpdBase =>
 {
     hpdBase.ConfigureSchema(schema =>
@@ -146,6 +147,7 @@ application.MapHpdGatewayAdmin(new GatewayAdminEndpointOptions
     AuthenticationScheme = JwtBearerDefaults.AuthenticationScheme,
     RateLimitPolicy = adminProfile,
     RequestTimeoutPolicy = adminProfile,
+    OpenApiSecurityScheme = "Bearer",
     EndpointSurfaceId = "gateway-admin-v1",
     RequireManagementListener = true,
     CapabilityPolicies = GatewayAdminCapabilities.All.ToImmutableDictionary(

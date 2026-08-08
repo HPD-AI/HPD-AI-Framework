@@ -57,6 +57,7 @@ public sealed class GatewayAdminContractTests
         application.MapHpdGatewayAdmin(new GatewayAdminEndpointOptions
         {
             AuthenticationScheme = "test",
+            OpenApiSecurityScheme = "test",
             CapabilityPolicies = policies,
         });
 
@@ -127,6 +128,7 @@ public sealed class GatewayAdminContractTests
         WebApplication application = builder.Build();
         Action map = () => application.MapHpdGatewayAdmin(new GatewayAdminEndpointOptions
         {
+            OpenApiSecurityScheme = "test",
             CapabilityPolicies = ImmutableDictionary<string, string>.Empty,
         });
         map.Should().Throw<InvalidOperationException>().WithMessage("*exact v1 catalog*");
@@ -149,6 +151,7 @@ public sealed class GatewayAdminContractTests
                 profile.ActorIdentifierClaim = ClaimTypes.NameIdentifier;
                 profile.RateLimitPolicy = "hpd-rate";
                 profile.RequestTimeoutPolicy = "hpd-timeout";
+                profile.OpenApiSecurityScheme = "Bearer";
             });
             foreach (string capability in GatewayAdminCapabilities.All)
                 options.MapCapability(capability, "hpd-policy");
@@ -162,6 +165,7 @@ public sealed class GatewayAdminContractTests
         Action map = () => application.MapHpdGatewayAdmin(new GatewayAdminEndpointOptions
         {
             AuthenticationScheme = "different",
+            OpenApiSecurityScheme = "Bearer",
             RateLimitPolicy = "hpd-rate",
             RequestTimeoutPolicy = "hpd-timeout",
             CapabilityPolicies = GatewayAdminCapabilities.All.ToImmutableDictionary(

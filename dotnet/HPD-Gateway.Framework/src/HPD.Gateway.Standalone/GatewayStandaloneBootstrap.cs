@@ -30,6 +30,7 @@ internal sealed record GatewayStandaloneManagement
     public required string PlanProtectionKeyHex { get; init; }
     public required string TokenProtectionKeyHex { get; init; }
     public required string DesiredStateTokenKeyHex { get; init; }
+    public required string EpochReservationKeyHex { get; init; }
     public required string JwtAuthority { get; init; }
     public required string JwtAudience { get; init; }
     public required string JwtSigningKeyHex { get; init; }
@@ -177,6 +178,7 @@ internal static class GatewayStandaloneBootstrapReader
         ValidateKey(management.PlanProtectionKeyHex);
         ValidateKey(management.TokenProtectionKeyHex);
         ValidateKey(management.DesiredStateTokenKeyHex);
+        ValidateKey(management.EpochReservationKeyHex);
         ValidateKey(management.JwtSigningKeyHex);
     }
 

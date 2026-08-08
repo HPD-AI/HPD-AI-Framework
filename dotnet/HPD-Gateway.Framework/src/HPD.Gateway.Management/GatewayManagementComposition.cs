@@ -10,6 +10,7 @@ namespace HPD.Gateway.Management;
 public sealed class GatewayManagementOptions
 {
     private byte[]? _desiredStateTokenKey;
+    private byte[]? _epochReservationKey;
     public string ManagementAuthorityId { get; set; } = "local";
     public GatewayAuthorityDurability RequiredDurability { get; set; } = GatewayAuthorityDurability.ProcessLocal;
     public int MaximumTargets { get; set; } = 4_096;
@@ -22,8 +23,14 @@ public sealed class GatewayManagementOptions
         get => _desiredStateTokenKey is null ? null : [.. _desiredStateTokenKey];
         set => _desiredStateTokenKey = value is null ? null : [.. value];
     }
+    public byte[]? EpochReservationKey
+    {
+        get => _epochReservationKey is null ? null : [.. _epochReservationKey];
+        set => _epochReservationKey = value is null ? null : [.. value];
+    }
 
     internal byte[] GetTokenKey() => [.. _desiredStateTokenKey!];
+    internal byte[] GetEpochReservationKey() => [.. _epochReservationKey!];
 }
 
 public sealed record GatewayAuthorityCapabilitySnapshot
@@ -67,6 +74,8 @@ public static class GatewayManagementServiceCollectionExtensions
         ValidateOptions(options);
         if (options.DesiredStateTokenKey is null)
             options.DesiredStateTokenKey = RandomNumberGenerator.GetBytes(32);
+        if (options.EpochReservationKey is null)
+            options.EpochReservationKey = RandomNumberGenerator.GetBytes(32);
 
         services.AddHPDBase(builder =>
         {
@@ -114,8 +123,12 @@ public static class GatewayManagementServiceCollectionExtensions
             throw new ArgumentOutOfRangeException(nameof(options.ReconciliationInterval));
         if (options.DesiredStateTokenKey is { Length: not 32 })
             throw new ArgumentException("DesiredStateTokenKey must contain exactly 32 bytes.", nameof(options));
+        if (options.EpochReservationKey is { Length: not 32 })
+            throw new ArgumentException("EpochReservationKey must contain exactly 32 bytes.", nameof(options));
         if (options.RequiredDurability == GatewayAuthorityDurability.RestartDurable && options.DesiredStateTokenKey is null)
             throw new ArgumentException("Restart-durable management requires a stable DesiredStateTokenKey.", nameof(options));
+        if (options.RequiredDurability == GatewayAuthorityDurability.RestartDurable && options.EpochReservationKey is null)
+            throw new ArgumentException("Restart-durable management requires a stable EpochReservationKey.", nameof(options));
     }
 }
 

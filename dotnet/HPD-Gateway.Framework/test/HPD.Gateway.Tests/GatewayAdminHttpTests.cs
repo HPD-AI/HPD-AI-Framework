@@ -45,6 +45,18 @@ public sealed class GatewayAdminHttpTests
     }
 
     [Fact]
+    public async Task Governed_composition_automatically_rejects_invalid_listener_role_graph_at_startup()
+    {
+        await using WebApplication application = Build(resourceAllowed: true);
+        application.MapGet("/invalid-role", static () => "invalid")
+            .WithName("HpdGatewayInvalidRole");
+
+        Func<Task> start = () => application.StartAsync();
+        await start.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*exactly one listener role*");
+    }
+
+    [Fact]
     public async Task Resource_denial_is_safe_not_found_before_body_or_authority_resolution()
     {
         await using WebApplication application = Build(resourceAllowed: false);
@@ -87,6 +99,24 @@ public sealed class GatewayAdminHttpTests
     }
 
     [Fact]
+    public async Task Provisioned_inactive_target_has_honest_management_status_without_node_observation()
+    {
+        await using WebApplication application = Build(resourceAllowed: true);
+        await application.StartAsync();
+        GatewayManagementCommandResult provisioned = await application.Services
+            .GetRequiredService<IGatewayManagementCommandCoordinator>()
+            .ProvisionLocalTargetAsync(new("ns", "node", "provision", new("actor", "test", "policy"), "correlation"));
+        provisioned.IsAccepted.Should().BeTrue(provisioned.Code);
+
+        HttpResponseMessage response = await application.GetTestClient().GetAsync(
+            "/management/gateway/v1/namespaces/ns/targets/node/status");
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        using JsonDocument document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        document.RootElement.GetProperty("nodeObservation").GetString().Should().Be("NotAttempted");
+        document.RootElement.GetProperty("node").ValueKind.Should().Be(JsonValueKind.Null);
+    }
+
+    [Fact]
     public async Task Generated_openapi_contains_the_complete_typed_ledger()
     {
         await using WebApplication application = Build(resourceAllowed: true, mapOpenApi: true);
@@ -97,11 +127,100 @@ public sealed class GatewayAdminHttpTests
 
         paths.EnumerateObject().SelectMany(static path => path.Value.EnumerateObject())
             .Should().HaveCount(22);
-        paths.GetProperty("/management/gateway/v1/namespaces/{ns}/targets/{target}/revisions")
-            .GetProperty("post").GetProperty("responses").TryGetProperty("201", out _).Should().BeTrue();
-        paths.GetProperty("/management/gateway/v1/candidates:validate")
-            .GetProperty("post").GetProperty("requestBody").GetProperty("content")
-            .TryGetProperty("application/json", out _).Should().BeTrue();
+        foreach (GatewayAdminEndpointDescriptor descriptor in GatewayAdminEndpointLedger.V1)
+        {
+            JsonElement operation = paths
+                .GetProperty("/management/gateway/v1" + descriptor.Pattern)
+                .GetProperty(descriptor.Method.ToLowerInvariant());
+            operation.GetProperty("operationId").GetString().Should().Be("HpdGatewayAdmin." + descriptor.Operation);
+            operation.GetProperty("security")[0].TryGetProperty("test", out _).Should().BeTrue();
+
+            JsonElement[] parameters = operation.GetProperty("parameters").EnumerateArray().ToArray();
+            string[] pathNames = descriptor.Pattern.Split('{').Skip(1)
+                .Select(static segment => segment[..segment.IndexOf('}')]).ToArray();
+            parameters.Where(static parameter => parameter.GetProperty("in").GetString() == "path")
+                .Select(static parameter => parameter.GetProperty("name").GetString())
+                .Should().Equal(pathNames);
+            foreach (string pathName in pathNames)
+                AssertParameter(parameters, pathName, "path", required: true, maximumLength: 128);
+            AssertParameter(parameters, "X-Correlation-ID", "header", required: false, maximumLength: 128);
+            if (descriptor.Mutation)
+                AssertParameter(parameters, "Idempotency-Key", "header", required: true, maximumLength: 128);
+            else
+                parameters.Should().NotContain(parameter => parameter.GetProperty("name").GetString() == "Idempotency-Key");
+            bool ifMatch = descriptor.Operation is "submit-and-activate" or "activate" or "rollback" or "import-and-activate";
+            if (ifMatch) AssertParameter(parameters, "If-Match", "header", required: false, maximumLength: 514);
+            else parameters.Should().NotContain(parameter => parameter.GetProperty("name").GetString() == "If-Match");
+            bool paged = descriptor.Operation is "revisions" or "activations" or "audit";
+            if (paged)
+            {
+                AssertParameter(parameters, "maximum", "query", required: false);
+                JsonElement maximum = parameters.Single(value => value.GetProperty("name").GetString() == "maximum")
+                    .GetProperty("schema");
+                maximum.GetProperty("minimum").GetInt32().Should().Be(1);
+                maximum.GetProperty("maximum").GetInt32().Should().Be(256);
+                AssertParameter(parameters, "cursor", "query", required: false, maximumLength: 4096);
+            }
+            else
+                parameters.Should().NotContain(parameter => parameter.GetProperty("in").GetString() == "query");
+
+            bool hasBody = descriptor.Operation is "validate" or "submit" or "submit-and-activate" or
+                "activate" or "rollback" or "compare" or "import" or "import-and-activate" or "backup" or "purge";
+            operation.TryGetProperty("requestBody", out JsonElement requestBody).Should().Be(hasBody);
+            if (hasBody)
+            {
+                JsonElement content = requestBody.GetProperty("content");
+                content.EnumerateObject().Select(static media => media.Name)
+                    .Should().BeEquivalentTo("application/json", "application/hpd.gateway+json");
+                content.EnumerateObject().Should().OnlyContain(static media =>
+                    media.Value.GetProperty("schema").ValueKind == JsonValueKind.Object);
+                bool requestBodyIsRequired = requestBody.TryGetProperty("required", out JsonElement requiredProperty)
+                    && requiredProperty.GetBoolean();
+                requestBodyIsRequired.Should().Be(descriptor.Operation is not ("activate" or "rollback"));
+            }
+
+            JsonElement responses = operation.GetProperty("responses");
+            responses.TryGetProperty(SuccessStatus(descriptor.Operation), out JsonElement success).Should().BeTrue();
+            success.GetProperty("content").GetProperty("application/json").TryGetProperty("schema", out _).Should().BeTrue();
+            foreach (string error in ErrorStatuses(descriptor.Operation))
+            {
+                responses.TryGetProperty(error, out JsonElement failure).Should().BeTrue($"{descriptor.Operation} declares {error}");
+                failure.GetProperty("content").GetProperty("application/json")
+                    .TryGetProperty("schema", out _).Should().BeTrue();
+            }
+        }
+    }
+
+    private static void AssertParameter(
+        JsonElement[] parameters, string name, string location, bool required, int? maximumLength = null)
+    {
+        JsonElement parameter = parameters.Single(value => value.GetProperty("name").GetString() == name);
+        parameter.GetProperty("in").GetString().Should().Be(location);
+        (parameter.TryGetProperty("required", out JsonElement requiredProperty) && requiredProperty.GetBoolean())
+            .Should().Be(required);
+        if (maximumLength is not null)
+            parameter.GetProperty("schema").GetProperty("maxLength").GetInt32().Should().Be(maximumLength);
+    }
+
+    private static string SuccessStatus(string operation) => operation switch
+    {
+        "provision" or "submit" or "import" => "201",
+        "submit-and-activate" or "activate" or "rollback" or "import-and-activate" or "backup" or "purge" => "202",
+        _ => "200",
+    };
+
+    private static IEnumerable<string> ErrorStatuses(string operation)
+    {
+        yield return "401"; yield return "403"; yield return "429"; yield return "500"; yield return "504";
+        if (operation is not ("capabilities" or "validate")) yield return "404";
+        if (operation is "validate" or "submit" or "submit-and-activate" or "activate" or "rollback" or
+            "compare" or "import" or "import-and-activate" or "backup" or "purge")
+        { yield return "400"; yield return "413"; yield return "415"; }
+        if (operation is "provision" or "submit" or "submit-and-activate" or "activate" or "rollback" or
+            "import" or "import-and-activate")
+        { yield return "409"; yield return "422"; yield return "503"; }
+        if (operation == "export") yield return "410";
+        if (operation is "backup" or "purge") yield return "503";
     }
 
     private static WebApplication Build(bool resourceAllowed, bool mapOpenApi = false)
@@ -146,6 +265,7 @@ public sealed class GatewayAdminHttpTests
         app.MapHpdGatewayAdmin(new GatewayAdminEndpointOptions
         {
             AuthenticationScheme = "test",
+            OpenApiSecurityScheme = "test",
             CapabilityPolicies = GatewayAdminCapabilities.All.ToImmutableDictionary(
                 static capability => capability, static capability => capability, StringComparer.Ordinal),
         });

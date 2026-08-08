@@ -44,6 +44,7 @@ public sealed class GatewayManagementCompositionTests
             options.ManagementAuthorityId = "authority-a";
             options.RequiredDurability = GatewayAuthorityDurability.RestartDurable;
             options.DesiredStateTokenKey = Enumerable.Repeat((byte)0x45, 32).ToArray();
+            options.EpochReservationKey = Enumerable.Repeat((byte)0x46, 32).ToArray();
         });
         await using ServiceProvider provider = services.BuildServiceProvider();
 
@@ -169,6 +170,38 @@ public sealed class GatewayManagementCompositionTests
                 if (File.Exists(path + "-wal")) File.Delete(path + "-wal");
                 if (File.Exists(path + "-shm")) File.Delete(path + "-shm");
             }
+        }
+    }
+
+    [Fact]
+    public async Task Epoch_lineage_uses_its_dedicated_non_token_key_purpose()
+    {
+        string first = await ReserveEpoch(0x11, 0x41);
+        string desiredTokenRotated = await ReserveEpoch(0x22, 0x41);
+        string epochKeyChanged = await ReserveEpoch(0x11, 0x42);
+
+        desiredTokenRotated.Should().Be(first);
+        epochKeyChanged.Should().NotBe(first);
+
+        static async Task<string> ReserveEpoch(byte tokenKey, byte epochKey)
+        {
+            var services = new ServiceCollection();
+            services.AddLogging();
+            services.AddHpdGateway(static gateway => gateway.AddCoreFamilies());
+            services.AddHpdGatewayManagement(options =>
+            {
+                options.ManagementAuthorityId = "authority-a";
+                options.DesiredStateTokenKey = Enumerable.Repeat(tokenKey, 32).ToArray();
+                options.EpochReservationKey = Enumerable.Repeat(epochKey, 32).ToArray();
+            });
+            await using ServiceProvider provider = services.BuildServiceProvider();
+            GatewayManagementCommandResult result = await provider
+                .GetRequiredService<IGatewayManagementCommandCoordinator>()
+                .ProvisionLocalTargetAsync(new("namespace-a", "node-key-purpose", "provision",
+                    new("actor", "test", "policy"), "correlation"));
+            result.IsAccepted.Should().BeTrue(result.Code);
+            return (await TrustedSession(provider).Collection(GatewayTargetEpochReservation.Collection)
+                .Query().Take(1).ToArrayAsync(1)).RequireValue().Single().Value.AuthorityEpoch;
         }
     }
 
@@ -797,6 +830,7 @@ public sealed class GatewayManagementCompositionTests
                 options.ManagementAuthorityId = "authority-a";
                 options.RequiredDurability = GatewayAuthorityDurability.RestartDurable;
                 options.DesiredStateTokenKey = Enumerable.Repeat((byte)0x34, 32).ToArray();
+                options.EpochReservationKey = Enumerable.Repeat((byte)0x35, 32).ToArray();
             },
             builder =>
             {

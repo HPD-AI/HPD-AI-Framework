@@ -55,7 +55,8 @@ internal sealed class GatewayHpdAuthAdminSecurityMetadataProvider(
         ControlPlaneProfile profile = registry.GetProfile(options.Profile);
         if (!StringComparer.Ordinal.Equals(endpointOptions.AuthenticationScheme, profile.AuthenticationScheme) ||
             !StringComparer.Ordinal.Equals(endpointOptions.RateLimitPolicy, profile.RateLimitPolicy) ||
-            !StringComparer.Ordinal.Equals(endpointOptions.RequestTimeoutPolicy, profile.RequestTimeoutPolicy))
+            !StringComparer.Ordinal.Equals(endpointOptions.RequestTimeoutPolicy, profile.RequestTimeoutPolicy) ||
+            !StringComparer.Ordinal.Equals(endpointOptions.OpenApiSecurityScheme, profile.OpenApiSecurityScheme))
             throw new InvalidOperationException("The Gateway Admin endpoint options do not match the selected HPD.Auth control-plane profile.");
         foreach (string capability in GatewayAdminCapabilities.All)
             if (!StringComparer.Ordinal.Equals(endpointOptions.CapabilityPolicies[capability], registry.GetAuthorizationPolicy(capability)))

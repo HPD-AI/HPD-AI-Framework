@@ -5,6 +5,8 @@ using HPD.Gateway.Status;
 using HPD.Gateway.Yarp;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace HPD.Gateway;
 
@@ -43,6 +45,7 @@ public static class GatewayServiceCollectionExtensions
         staged.AddSingleton<IGatewayNodeEffectiveReader>(static provider =>
             provider.GetRequiredService<GatewayNodeActivator>());
         staged.AddSingleton<IHostedService, GatewayInitialActivationService>();
+        staged.TryAddEnumerable(ServiceDescriptor.Singleton<IStartupFilter, GatewayEndpointRoleStartupFilter>());
 
         foreach (var descriptor in staged)
             services.Add(descriptor);

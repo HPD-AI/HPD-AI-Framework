@@ -719,7 +719,7 @@ internal sealed class GatewayManagementCommandCoordinator(
 
     private string DeriveSecret(string purpose, string targetNodeId)
     {
-        using var hmac = new HMACSHA256(options.GetTokenKey());
+        using var hmac = new HMACSHA256(options.GetEpochReservationKey());
         byte[] material = Encoding.UTF8.GetBytes(
             $"{EpochReservationContractVersion}\0{purpose}\0{options.ManagementAuthorityId}\0{targetNodeId}");
         return Convert.ToHexStringLower(hmac.ComputeHash(material).AsSpan(0, 16));

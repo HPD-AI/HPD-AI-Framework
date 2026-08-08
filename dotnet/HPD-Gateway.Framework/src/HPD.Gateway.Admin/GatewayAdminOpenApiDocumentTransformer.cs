@@ -6,7 +6,30 @@ using Microsoft.OpenApi;
 
 namespace HPD.Gateway.Admin;
 
-internal sealed class GatewayAdminOpenApiDocumentTransformer : IOpenApiDocumentTransformer
+internal sealed class GatewayAdminOpenApiContract
+{
+    private readonly object _sync = new();
+    private string? _securityScheme;
+
+    internal void Seal(string securityScheme)
+    {
+        lock (_sync)
+        {
+            if (_securityScheme is not null && !StringComparer.Ordinal.Equals(_securityScheme, securityScheme))
+                throw new InvalidOperationException("The Gateway Admin OpenAPI security scheme is already sealed.");
+            _securityScheme = securityScheme;
+        }
+    }
+
+    internal string GetSecurityScheme()
+    {
+        lock (_sync)
+            return _securityScheme ?? throw new InvalidOperationException("The Gateway Admin OpenAPI contract is not sealed.");
+    }
+}
+
+internal sealed class GatewayAdminOpenApiDocumentTransformer(GatewayAdminOpenApiContract contract)
+    : IOpenApiDocumentTransformer
 {
     public async Task TransformAsync(
         OpenApiDocument document,
@@ -15,6 +38,16 @@ internal sealed class GatewayAdminOpenApiDocumentTransformer : IOpenApiDocumentT
     {
         document.Info.Title = "HPD.Gateway Admin API";
         document.Info.Version = "1.0.0";
+        string securityScheme = contract.GetSecurityScheme();
+        document.Components ??= new OpenApiComponents();
+        document.Components.SecuritySchemes ??= new Dictionary<string, IOpenApiSecurityScheme>();
+        document.Components.SecuritySchemes.TryAdd(securityScheme, new OpenApiSecurityScheme
+        {
+            Type = SecuritySchemeType.Http,
+            Scheme = "bearer",
+            BearerFormat = "JWT",
+            In = ParameterLocation.Header,
+        });
         document.Paths ??= new OpenApiPaths();
         foreach (GatewayAdminEndpointDescriptor descriptor in GatewayAdminEndpointLedger.V1)
         {
@@ -30,6 +63,14 @@ internal sealed class GatewayAdminOpenApiDocumentTransformer : IOpenApiDocumentT
             {
                 OperationId = "HpdGatewayAdmin." + descriptor.Operation,
                 Responses = new OpenApiResponses(),
+                Parameters = Parameters(descriptor),
+                Security =
+                [
+                    new OpenApiSecurityRequirement
+                    {
+                        [new OpenApiSecuritySchemeReference(securityScheme, document)] = []
+                    }
+                ],
             };
             Type? requestType = RequestType(descriptor.Operation);
             if (requestType is not null)
@@ -57,6 +98,59 @@ internal sealed class GatewayAdminOpenApiDocumentTransformer : IOpenApiDocumentT
                 operation.Responses[errorStatus.ToString(System.Globalization.CultureInfo.InvariantCulture)] =
                     Response("Gateway Admin bounded error response.", errorSchema);
             pathItem.Operations[descriptor.Method == "GET" ? HttpMethod.Get : HttpMethod.Post] = operation;
+        }
+    }
+
+    private static List<IOpenApiParameter> Parameters(GatewayAdminEndpointDescriptor descriptor)
+    {
+        var parameters = new List<IOpenApiParameter>();
+        foreach (string name in PathParameterNames(descriptor.Pattern))
+            parameters.Add(Parameter(name, ParameterLocation.Path, required: true, StringSchema(128),
+                "Gateway resource identifier."));
+        parameters.Add(Parameter("X-Correlation-ID", ParameterLocation.Header, required: false,
+            StringSchema(128), "Bounded request correlation identifier."));
+        if (descriptor.Mutation)
+            parameters.Add(Parameter("Idempotency-Key", ParameterLocation.Header, required: true,
+                StringSchema(128), "Visible-ASCII product idempotency identity."));
+        if (descriptor.Operation is "submit-and-activate" or "activate" or "rollback" or "import-and-activate")
+            parameters.Add(Parameter("If-Match", ParameterLocation.Header, required: false,
+                StringSchema(514), "Exact desired-state generation validator; absence asserts create-only."));
+        if (descriptor.Operation is "revisions" or "activations" or "audit")
+        {
+            parameters.Add(Parameter("maximum", ParameterLocation.Query, required: false,
+                new OpenApiSchema { Type = JsonSchemaType.Integer, Minimum = "1", Maximum = "256" },
+                "Maximum page size; defaults to 64."));
+            parameters.Add(Parameter("cursor", ParameterLocation.Query, required: false,
+                StringSchema(4096), "Opaque stable continuation token."));
+        }
+        return parameters;
+    }
+
+    private static OpenApiParameter Parameter(
+        string name, ParameterLocation location, bool required, IOpenApiSchema schema, string description) => new()
+    {
+        Name = name,
+        In = location,
+        Required = required,
+        Schema = schema,
+        Description = description,
+    };
+
+    private static OpenApiSchema StringSchema(int maximumLength) => new()
+    {
+        Type = JsonSchemaType.String,
+        MaxLength = maximumLength,
+    };
+
+    private static IEnumerable<string> PathParameterNames(string pattern)
+    {
+        int offset = 0;
+        while ((offset = pattern.IndexOf('{', offset)) >= 0)
+        {
+            int end = pattern.IndexOf('}', offset + 1);
+            if (end < 0) throw new InvalidOperationException("The Gateway Admin path ledger is malformed.");
+            yield return pattern[(offset + 1)..end];
+            offset = end + 1;
         }
     }
 

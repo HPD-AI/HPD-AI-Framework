@@ -967,6 +967,7 @@ static ServiceProvider BuildDurable(string database)
         options.ManagementAuthorityId = "aot-durable-authority";
         options.RequiredDurability = GatewayAuthorityDurability.RestartDurable;
         options.DesiredStateTokenKey = Enumerable.Repeat((byte)0x61, 32).ToArray();
+        options.EpochReservationKey = Enumerable.Repeat((byte)0x62, 32).ToArray();
     }, builder =>
     {
         builder.ConfigureSchema(schema => schema.PlanProtectionKey = Enumerable.Repeat((byte)0x62, 32).ToArray());

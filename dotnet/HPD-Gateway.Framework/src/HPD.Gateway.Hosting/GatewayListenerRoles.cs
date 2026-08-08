@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Http;
 using HPD.Gateway.Abstractions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.AspNetCore.Hosting;
 
 namespace HPD.Gateway.Hosting;
 
@@ -28,10 +29,18 @@ public static class GatewayListenerRoleExtensions
     public static void ValidateHpdGatewayEndpointRoles(this IEndpointRouteBuilder endpoints)
     {
         ArgumentNullException.ThrowIfNull(endpoints);
-        GatewayHostRuntimeStatus? host = endpoints.ServiceProvider.GetService<GatewayHostRuntimeStatus>();
+        ValidateEndpointRoles(
+            endpoints.DataSources,
+            endpoints.ServiceProvider.GetService<GatewayHostRuntimeStatus>());
+    }
+
+    internal static void ValidateEndpointRoles(
+        IEnumerable<EndpointDataSource> dataSources,
+        GatewayHostRuntimeStatus? host)
+    {
         var surfaces = new Dictionary<string, GatewayListenerRole>(StringComparer.Ordinal);
         bool managementEndpoint = false;
-        foreach (Endpoint endpoint in endpoints.DataSources.SelectMany(static source => source.Endpoints))
+        foreach (Endpoint endpoint in dataSources.SelectMany(static source => source.Endpoints))
         {
             GatewayEndpointRoleMetadata[] roles = endpoint.Metadata
                 .GetOrderedMetadata<GatewayEndpointRoleMetadata>().ToArray();
@@ -110,4 +119,15 @@ public static class GatewayListenerRoleExtensions
             await next(context);
         });
     }
+}
+
+public sealed class GatewayEndpointRoleStartupFilter(
+    IEnumerable<EndpointDataSource> dataSources,
+    GatewayHostRuntimeStatus? host = null) : IStartupFilter
+{
+    public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) => application =>
+    {
+        next(application);
+        GatewayListenerRoleExtensions.ValidateEndpointRoles(dataSources, host);
+    };
 }

@@ -82,6 +82,7 @@ public sealed record GatewayAdminEndpointOptions
     public string AuthenticationScheme { get; init; } = "gateway-management";
     public string RateLimitPolicy { get; init; } = "gateway-management";
     public string RequestTimeoutPolicy { get; init; } = "gateway-management";
+    public required string OpenApiSecurityScheme { get; init; }
     public bool RequireManagementListener { get; init; } = true;
     public string EndpointSurfaceId { get; init; } = "gateway-admin-v1";
     public required ImmutableDictionary<string, string> CapabilityPolicies { get; init; }
@@ -111,9 +112,11 @@ public sealed record GatewayActivationProjection(
 public sealed record GatewayOutcomeProjection(
     string OutcomeId, string ActivationIntentId, ulong AuthorityVersion,
     GatewayNodeOutcomeKind Kind, string Code, DateTimeOffset? ObservedAt);
+public enum GatewayNodeObservationState : byte { NotAttempted, Observed }
 public sealed record GatewayTargetStatusResponse(
     GatewayManagementStatusSnapshot Management,
-    GatewayStatusSnapshot Node,
+    GatewayNodeObservationState NodeObservation,
+    GatewayStatusSnapshot? Node,
     DateTimeOffset ObservedAt,
     bool IsTruncated);
 public sealed record GatewayExportResponse(

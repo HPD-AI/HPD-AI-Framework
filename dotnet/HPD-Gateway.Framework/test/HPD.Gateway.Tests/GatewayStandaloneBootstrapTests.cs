@@ -130,6 +130,7 @@ public sealed class GatewayStandaloneBootstrapTests
                     PlanProtectionKeyHex = new string('1', 64),
                     TokenProtectionKeyHex = new string('2', 64),
                     DesiredStateTokenKeyHex = new string('3', 64),
+                    EpochReservationKeyHex = new string('5', 64),
                     JwtAuthority = "https://issuer.example",
                     JwtAudience = "hpd-gateway",
                     JwtSigningKeyHex = new string('4', 64),
