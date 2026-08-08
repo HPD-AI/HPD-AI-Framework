@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using HPD.Gateway.Abstractions;
 using HPD.Gateway.Effective;
 using HPD.Gateway.Management;
 using HPD.Gateway.Status;
@@ -61,7 +62,9 @@ internal sealed record GatewayAdminClientSchemaConstraint(
             Rules.CollectionMinimum is not null || Rules.CollectionMaximum is not null ||
             Rules.Uniqueness != GatewayAdminClientUniqueness.None || Rules.Ordering != GatewayAdminClientOrdering.None)
             throw new InvalidOperationException("Value and item targets require scalar-only rules.");
-        if (Rules.MaximumUtf8Bytes is null)
+        bool explicitlyUnconstrained = Brand == GatewayAdminClientStringBrand.None &&
+            Rules == new GatewayAdminClientConstraintRules();
+        if (Rules.MaximumUtf8Bytes is null && !explicitlyUnconstrained)
             throw new InvalidOperationException("Gateway client string schema targets require an explicit UTF-8 maximum.");
     }
 }
@@ -71,6 +74,7 @@ internal static class GatewayAdminClientSchemaConstraintLedger
     private static readonly GatewayAdminClientConstraintRules Resource = new(
         1, 128, GatewayAdminClientNormalization.Nfc, RejectUnicodeControls: true);
     private static readonly GatewayAdminClientConstraintRules Ordinary = new(MaximumUtf8Bytes: 16 * 1024);
+    private static readonly GatewayAdminClientConstraintRules Unconstrained = new();
     private static readonly GatewayAdminClientConstraintRules CandidateText = new(1, 4 * 1024 * 1024);
     private static readonly GatewayAdminClientConstraintRules VisibleIdentity = new(
         1, 128, CharacterSet: GatewayAdminClientCharacterSet.VisibleAscii);
@@ -134,11 +138,80 @@ internal static class GatewayAdminClientSchemaConstraintLedger
         V<GatewayAdminPage<GatewayAuditProjection>>("continuationToken", GatewayAdminClientStringBrand.ContinuationToken, Cursor),
         V<GatewayAdminPage<GatewayActivationProjection>>("continuationToken", GatewayAdminClientStringBrand.ContinuationToken, Cursor),
         V<GatewayAdminPage<GatewayOutcomeProjection>>("continuationToken", GatewayAdminClientStringBrand.ContinuationToken, Cursor),
+
+        ..NV<ActiveHealthCheckDeclaration>("path", "policy"),
+        ..NV<CorsPolicyBinding>("policyName"),
+        ..NV<DestinationDeclaration>("hostOverride"),
+        ..NV<HttpHeaderMatch>("name"), ..NI<HttpHeaderMatch>("values"),
+        ..NV<HttpQueryMatch>("name"), ..NI<HttpQueryMatch>("values"),
+        ..NV<HttpRouteMatch>("path"), ..NI<HttpRouteMatch>("hosts", "methods"),
+        ..NV<MetadataEntry>("name", "value"),
+        ..NV<NamedAuthorizationPolicy>("policyName"),
+        ..NV<OutputCacheBinding>("policyName"),
+        ..NV<PassiveHealthCheckDeclaration>("policy"),
+        ..NV<ProviderParameter>("name", "value"),
+        ..NV<RequestHeaderTransform>("name", "value"),
+        ..NV<RequestInspectionBinding>("inspectorName"),
+        ..NV<RequestTimeoutBinding>("policyName"),
+        ..NV<ResourceMetadata>("description", "displayName"),
+        ..NV<ResponseHeaderTransform>("name", "value"),
+        ..NV<SecretReference>("version"),
+        ..NV<SessionAffinityDeclaration>("cookieName", "failurePolicy", "policy"),
+        ..NV<TrafficAdmissionBinding>("policyName"),
+        ..NV<UpstreamResilienceBinding>("profileName"),
+        ..NV<UpstreamTlsDeclaration>("serverName"),
+
+        ..NV<GatewayActivationProjection>("contentHashValue", "intentId"),
+        ..NV<GatewayActivationRequest>("description"),
+        ..NV<GatewayAdminDiagnostic>("code", "path", "safeMessage"),
+        ..NV<GatewayAdministrativeResponse>("artifactReference", "code"),
+        ..NV<GatewayAuditProjection>("actorId", "auditId", "operation", "resultCode", "subjectId"),
+        ..NV<GatewayCapabilityCatalog>("apiVersion"), ..NI<GatewayCapabilityCatalog>("capabilities"),
+        ..NV<GatewayDiscoveryProviderCapabilityProjection>("id"),
+        ..NI<GatewayDiscoveryProviderCapabilityProjection>("requiredParameters", "supportedParameters"),
+        ..NV<GatewayExportResponse>("configurationJson", "contentHashAlgorithm", "contentHashValue", "schemaVersion"),
+        ..NI<GatewayHostCapabilityProjection>("activeHealthPolicies", "authorizationPolicies", "corsPolicies",
+            "installedFamilies", "passiveHealthPolicies", "protectedCredentialHeaders", "requestInspectors",
+            "requestTimeoutPolicies", "secretProviders", "sessionAffinityFailurePolicies", "sessionAffinityPolicies",
+            "trafficAdmissionPolicies"),
+        ..NV<GatewayHostCapabilitySnapshotResponse>("schemaVersion", "snapshotAlgorithm", "snapshotValue"),
+        ..NV<GatewayImportRequest>("description"),
+        ..NV<GatewayListenerCapabilityProjection>("id", "role"),
+        ..NI<GatewayListenerCapabilityProjection>("hostnames", "protocols"),
+        ..NV<GatewayOperationProjection>("operation", "resultCode"),
+        ..NV<GatewayOutcomeProjection>("activationIntentId", "code", "outcomeId"),
+        ..NV<GatewayOutputCacheCapabilityProjection>("name", "storeId", "storeScope"),
+        ..NI<GatewayOutputCacheCapabilityProjection>("headerNames", "queryKeys"),
+        ..NV<GatewayResilienceCapabilityProjection>("name"), ..NI<GatewayResilienceCapabilityProjection>("strategies"),
+        ..NV<GatewayRevisionProjection>("canonicalizationVersion", "contentHashAlgorithm", "contentHashValue",
+            "description", "schemaVersion", "sourceId", "sourceKind"),
+        ..NV<GatewayRevisionRequest>("description"),
+        ..NV<GatewayValidationProjection>("contentHashValue"),
+        ..NV<GatewayValidationResponse>("canonicalizationVersion", "contentHashAlgorithm", "contentHashValue",
+            "hostCapabilitySnapshotAlgorithm", "hostCapabilitySnapshotValue", "schemaVersion"),
+
+        ..NV<GatewayEffectiveContribution>("sourceIdentity"),
+        ..NV<GatewayEffectiveDiagnostic>("code", "safeMessage"),
+        ..NV<GatewayEffectiveRecord>("compilerPackage", "compilerVersion", "family", "targetId"),
+        ..NV<GatewayNativeProjection>("owner", "packageIdentity", "seam"),
+        ..NV<GatewayDesiredProjection>("activationIntentId"),
+        ..NV<GatewayManagementStatusSnapshot>("code", "latestNodeActivationIntentId"),
+        ..NV<GatewayRevisionDifference>("kind", "path"),
+        ..NV<GatewayActiveConfigurationIdentity>("contentHash", "nativeRevisionId"),
+        ..NV<GatewayCondition>("reasonCode"),
+        ..NV<GatewayHostStatus>("desiredConfigurationHash", "runningConfigurationHash"),
+        ..NV<GatewayNativeUpstreamStatus>("availabilityPolicy", "upstreamId"),
+        ..NV<GatewayStatusObservationStamp>("authorityId", "authorityKind", "observedIdentity", "processInstanceId"),
+        ..NV<GatewayStatusReason>("code", "resourceId", "resourceKind", "safeMessage"),
+        ..NV<GatewayStatusSnapshot>("processInstanceId"),
     ]);
 
     internal static ImmutableArray<GatewayAdminClientSchemaConstraint> For(Type declaringType, string propertyName) =>
         V1.Where(value => value.SchemaType == declaringType && StringComparer.Ordinal.Equals(value.PropertyName, propertyName))
             .ToImmutableArray();
+
+    internal static string TargetKey(GatewayAdminClientSchemaConstraint constraint) =>
+        $"{constraint.SchemaType.AssemblyQualifiedName}|{constraint.PropertyName}|{(byte)constraint.AppliesTo}";
 
     private static GatewayAdminClientSchemaConstraint V<T>(string property, GatewayAdminClientStringBrand brand = GatewayAdminClientStringBrand.None,
         GatewayAdminClientConstraintRules? rules = null) =>
@@ -155,6 +228,10 @@ internal static class GatewayAdminClientSchemaConstraintLedger
         GatewayAdminClientConstraintRules? rules = null) =>
         new(typeof(T), property, GatewayAdminClientSchemaValueKind.StringArray,
             GatewayAdminClientSchemaConstraintTarget.Items, brand, rules ?? Ordinary);
+    private static IEnumerable<GatewayAdminClientSchemaConstraint> NV<T>(params string[] properties) =>
+        properties.Select(property => V<T>(property, rules: Unconstrained));
+    private static IEnumerable<GatewayAdminClientSchemaConstraint> NI<T>(params string[] properties) =>
+        properties.Select(property => I<T>(property, rules: Unconstrained));
 
     private static ImmutableArray<GatewayAdminClientSchemaConstraint> Validate(ImmutableArray<GatewayAdminClientSchemaConstraint> constraints)
     {
@@ -162,7 +239,7 @@ internal static class GatewayAdminClientSchemaConstraintLedger
         foreach (GatewayAdminClientSchemaConstraint constraint in constraints)
         {
             constraint.Validate();
-            string target = $"{constraint.SchemaType.AssemblyQualifiedName}|{constraint.PropertyName}|{(byte)constraint.AppliesTo}";
+            string target = TargetKey(constraint);
             if (!targets.Add(target))
                 throw new InvalidOperationException("Gateway client schema constraint targets must be unique.");
         }

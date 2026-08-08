@@ -1,6 +1,8 @@
 using System.Collections.Immutable;
 using System.Security.Claims;
 using System.Text.Encodings.Web;
+using System.Reflection;
+using System.Text.Json.Serialization;
 using FluentAssertions;
 using HPD.Gateway.Admin;
 using HPD.Gateway;
@@ -25,6 +27,51 @@ namespace HPD.Gateway.Tests;
 
 public sealed class GatewayAdminContractTests
 {
+    [Fact]
+    public void Every_supported_wire_string_has_an_explicit_schema_registration()
+    {
+        var visited = new HashSet<Type>();
+        var strings = new HashSet<string>(StringComparer.Ordinal);
+        foreach (Type root in GatewayAdminClientSemanticLedger.V1
+            .SelectMany(static value => new[] { value.RequestType, value.SuccessType })
+            .Where(static value => value is not null).Cast<Type>())
+            Visit(root);
+        string[] registered = GatewayAdminClientSchemaConstraintLedger.V1
+            .Where(static value => value.AppliesTo != GatewayAdminClientSchemaConstraintTarget.Collection)
+            .Select(static value => $"{value.SchemaType.FullName}|{value.PropertyName}|{value.AppliesTo}")
+            .ToArray();
+        string[] missing = strings.Except(registered, StringComparer.Ordinal).Order().ToArray();
+        if (missing.Length != 0)
+            throw new InvalidOperationException(string.Join("\n", missing));
+
+        void Visit(Type type)
+        {
+            type = Nullable.GetUnderlyingType(type) ?? type;
+            if (type.IsArray) { Visit(type.GetElementType()!); return; }
+            if (type.IsGenericType && type.GetGenericTypeDefinition() is var generic &&
+                (generic == typeof(ImmutableArray<>) || generic == typeof(ImmutableDictionary<,>)))
+            {
+                foreach (Type argument in type.GetGenericArguments()) Visit(argument);
+                return;
+            }
+            if (type == typeof(string) || type.IsPrimitive || type.IsEnum || type.IsValueType ||
+                type == typeof(DateTimeOffset) || type == typeof(Uri) ||
+                type.GetCustomAttribute<JsonConverterAttribute>() is not null ||
+                type.Namespace?.StartsWith("System", StringComparison.Ordinal) == true || !visited.Add(type)) return;
+            foreach (JsonDerivedTypeAttribute derived in type.GetCustomAttributes<JsonDerivedTypeAttribute>())
+                Visit(derived.DerivedType);
+            foreach (PropertyInfo property in type.GetProperties(BindingFlags.Instance | BindingFlags.Public))
+            {
+                Type propertyType = Nullable.GetUnderlyingType(property.PropertyType) ?? property.PropertyType;
+                if (propertyType == typeof(string))
+                    strings.Add($"{type.FullName}|{char.ToLowerInvariant(property.Name[0]) + property.Name[1..]}|{GatewayAdminClientSchemaConstraintTarget.Value}");
+                else if (propertyType.IsGenericType && propertyType.GetGenericTypeDefinition() == typeof(ImmutableArray<>) &&
+                    propertyType.GetGenericArguments()[0] == typeof(string))
+                    strings.Add($"{type.FullName}|{char.ToLowerInvariant(property.Name[0]) + property.Name[1..]}|{GatewayAdminClientSchemaConstraintTarget.Items}");
+                Visit(propertyType);
+            }
+        }
+    }
     [Fact]
     public void Client_semantic_ledger_correlates_one_to_one_with_every_endpoint()
     {
@@ -260,7 +307,7 @@ public sealed class GatewayAdminContractTests
     {
         ImmutableArray<GatewayAdminClientSchemaConstraint> constraints =
             GatewayAdminClientSchemaConstraintLedger.V1;
-        constraints.Should().HaveCount(43);
+        constraints.Should().HaveCountGreaterThan(43);
         constraints.Should().OnlyHaveUniqueItems(value =>
             $"{value.SchemaType.AssemblyQualifiedName}|{value.PropertyName}|{value.AppliesTo}");
         foreach (GatewayAdminClientSchemaConstraint constraint in constraints)
@@ -286,7 +333,9 @@ public sealed class GatewayAdminContractTests
         GatewayAdminClientSemanticLedger.For("submit-and-activate").ParameterConstraints
             .Single(static value => value.Brand == GatewayAdminClientStringBrand.DesiredStateToken)
             .Rules.CharacterSet.Should().Be(GatewayAdminClientCharacterSet.StrongEntityTag);
-        constraints.Should().NotContain(static value => value.PropertyName == "description");
+        constraints.Where(static value => value.PropertyName == "description")
+            .Should().OnlyContain(static value => value.Brand == GatewayAdminClientStringBrand.None &&
+                value.Rules == new GatewayAdminClientConstraintRules());
     }
 
     [Fact]

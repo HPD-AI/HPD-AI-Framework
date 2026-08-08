@@ -8,7 +8,7 @@ using System.Text.Json.Nodes;
 
 namespace HPD.Gateway.Admin;
 
-internal sealed class GatewayAdminOpenApiSchemaTransformer : IOpenApiSchemaTransformer
+internal sealed class GatewayAdminOpenApiSchemaTransformer(GatewayAdminOpenApiContract contract) : IOpenApiSchemaTransformer
 {
     public Task TransformAsync(
         OpenApiSchema schema,
@@ -23,6 +23,7 @@ internal sealed class GatewayAdminOpenApiSchemaTransformer : IOpenApiSchemaTrans
             GatewayAdminClientSchemaConstraintLedger.For(declaringType, property);
         foreach (GatewayAdminClientSchemaConstraint constraint in constraints)
         {
+            contract.RecordSchemaTarget(constraint);
             GatewayAdminClientConstraintRules rules = constraint.Rules;
             if (constraint.AppliesTo == GatewayAdminClientSchemaConstraintTarget.Collection)
             {
@@ -32,6 +33,9 @@ internal sealed class GatewayAdminOpenApiSchemaTransformer : IOpenApiSchemaTrans
                     $"uniqueness {rules.Uniqueness}, ordering {rules.Ordering}.";
                 continue;
             }
+            if (constraint.Brand == GatewayAdminClientStringBrand.None &&
+                rules == new GatewayAdminClientConstraintRules())
+                continue;
             OpenApiSchema target = constraint.AppliesTo == GatewayAdminClientSchemaConstraintTarget.Items
                 ? schema.Items as OpenApiSchema ?? throw new InvalidOperationException("Schema item constraint target is missing.")
                 : schema;
@@ -70,6 +74,7 @@ internal sealed class GatewayAdminOpenApiContract
 {
     private readonly object _sync = new();
     private string? _securityScheme;
+    private readonly HashSet<string> _observedSchemaTargets = new(StringComparer.Ordinal);
 
     internal void Seal(string securityScheme)
     {
@@ -85,6 +90,26 @@ internal sealed class GatewayAdminOpenApiContract
     {
         lock (_sync)
             return _securityScheme ?? throw new InvalidOperationException("The Gateway Admin OpenAPI contract is not sealed.");
+    }
+
+    internal void RecordSchemaTarget(GatewayAdminClientSchemaConstraint constraint)
+    {
+        lock (_sync)
+            _observedSchemaTargets.Add(GatewayAdminClientSchemaConstraintLedger.TargetKey(constraint));
+    }
+
+    internal void RequireCompleteSchemaCorrelation()
+    {
+        lock (_sync)
+        {
+            string[] missing = GatewayAdminClientSchemaConstraintLedger.V1
+                .Select(GatewayAdminClientSchemaConstraintLedger.TargetKey)
+                .Where(target => !_observedSchemaTargets.Contains(target))
+                .Order(StringComparer.Ordinal).ToArray();
+            if (missing.Length != 0)
+                throw new InvalidOperationException("Gateway Admin OpenAPI omitted managed schema targets: " +
+                    string.Join(", ", missing));
+        }
     }
 }
 

@@ -307,6 +307,8 @@ public sealed class GatewayAdminHttpTests
         await using WebApplication application = Build(resourceAllowed: true, mapOpenApi: true);
         await application.StartAsync();
         string json = await application.GetTestClient().GetStringAsync("/openapi/hpd-gateway-v1.json");
+        application.Services.GetRequiredService<GatewayAdminOpenApiContract>()
+            .RequireCompleteSchemaCorrelation();
         using JsonDocument document = JsonDocument.Parse(json);
         JsonElement securityScheme = document.RootElement.GetProperty("components")
             .GetProperty("securitySchemes").GetProperty("test");
