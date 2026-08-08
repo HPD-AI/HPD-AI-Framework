@@ -245,6 +245,7 @@ internal sealed class GatewayAdminOpenApiDocumentTransformer(GatewayAdminOpenApi
     private static (Type Type, int Status) ResponseType(string operation) => operation switch
     {
         "capabilities" => (typeof(GatewayCapabilityCatalog), 200),
+        "host-capabilities" => (typeof(GatewayHostCapabilitySnapshotResponse), 200),
         "validate" => (typeof(GatewayValidationResponse), 200),
         "provision" => (typeof(GatewayProvisionResponse), 201),
         "desired" => (typeof(GatewayDesiredProjection), 200),

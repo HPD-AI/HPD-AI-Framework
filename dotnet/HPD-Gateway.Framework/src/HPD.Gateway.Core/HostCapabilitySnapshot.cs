@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text;
 using HPD.Gateway.Abstractions;
 
 namespace HPD.Gateway.Core;
@@ -109,6 +110,15 @@ public sealed record HostCapabilityRegistration
 
 public sealed class HostCapabilitySnapshot
 {
+    private const int MaximumListeners = 64;
+    private const int MaximumProviders = 64;
+    private const int MaximumProviderParameters = 64;
+    private const int MaximumNamedCapabilities = 256;
+    private const int MaximumProfiles = 128;
+    private const int MaximumListenerHostnames = 64;
+    private const int MaximumCapabilityNameBytes = 128;
+    private const int MaximumHostnameBytes = 256;
+
     private HostCapabilitySnapshot(
         ImmutableDictionary<ListenerId, ListenerCapability> listeners,
         ImmutableDictionary<ProviderId, DiscoveryProviderCapability> discoveryProviders,
@@ -175,6 +185,20 @@ public sealed class HostCapabilitySnapshot
             UpstreamResilienceProfiles = Required(registration.UpstreamResilienceProfiles, nameof(registration.UpstreamResilienceProfiles)).ToArray(),
             ProtectedCredentialHeaders = Required(registration.ProtectedCredentialHeaders, nameof(registration.ProtectedCredentialHeaders)).ToArray()
         };
+        RequireMaximum(registration.Listeners, MaximumListeners, nameof(registration.Listeners));
+        RequireMaximum(registration.DiscoveryProviders, MaximumProviders, nameof(registration.DiscoveryProviders));
+        RequireMaximum(registration.SecretProviders, MaximumProviders, nameof(registration.SecretProviders));
+        RequireMaximum(registration.AuthorizationPolicies, MaximumNamedCapabilities, nameof(registration.AuthorizationPolicies));
+        RequireMaximum(registration.CorsPolicies, MaximumNamedCapabilities, nameof(registration.CorsPolicies));
+        RequireMaximum(registration.TrafficAdmissionPolicies, MaximumNamedCapabilities, nameof(registration.TrafficAdmissionPolicies));
+        RequireMaximum(registration.RequestTimeoutPolicies, MaximumNamedCapabilities, nameof(registration.RequestTimeoutPolicies));
+        RequireMaximum(registration.OutputCacheProfiles, MaximumProfiles, nameof(registration.OutputCacheProfiles));
+        RequireMaximum(registration.SessionAffinityPolicies, MaximumNamedCapabilities, nameof(registration.SessionAffinityPolicies));
+        RequireMaximum(registration.SessionAffinityFailurePolicies, MaximumNamedCapabilities, nameof(registration.SessionAffinityFailurePolicies));
+        RequireMaximum(registration.PassiveHealthPolicies, MaximumNamedCapabilities, nameof(registration.PassiveHealthPolicies));
+        RequireMaximum(registration.ActiveHealthPolicies, MaximumNamedCapabilities, nameof(registration.ActiveHealthPolicies));
+        RequireMaximum(registration.RequestInspectors, MaximumNamedCapabilities, nameof(registration.RequestInspectors));
+        RequireMaximum(registration.UpstreamResilienceProfiles, MaximumProfiles, nameof(registration.UpstreamResilienceProfiles));
         if ((registration.InstalledFamilies & ~GatewayDeclarationFamilies.All) != 0)
             throw new ArgumentException("Installed declaration-family flags are invalid.", nameof(registration));
 
@@ -184,7 +208,8 @@ public sealed class HostCapabilitySnapshot
             if (!GatewayIdentifier.IsCanonical(listener.Id.Value)) throw new ArgumentException("Listener identity is not canonical.", nameof(registration));
             if (!Enum.IsDefined(listener.Role) || listener.Protocols == ListenerProtocols.None || (listener.Protocols & ~(ListenerProtocols.Http1 | ListenerProtocols.Http2 | ListenerProtocols.Http3)) != 0)
                 throw new ArgumentException("Listener role or protocols are invalid.", nameof(registration));
-            if (listener.Hostnames.IsDefault || listener.Hostnames.Any(static host => !IsHostPattern(host)) ||
+            if (listener.Hostnames.IsDefault || listener.Hostnames.Length > MaximumListenerHostnames ||
+                listener.Hostnames.Any(static host => !IsHostPattern(host) || !IsBoundedUtf8(host, MaximumHostnameBytes)) ||
                 listener.Hostnames.Distinct(StringComparer.OrdinalIgnoreCase).Count() != listener.Hostnames.Length)
                 throw new ArgumentException("Listener hostnames are invalid or duplicated.", nameof(registration));
             if (!listeners.TryAdd(listener.Id, listener)) throw new ArgumentException("Listener identities must be unique.", nameof(registration));
@@ -321,8 +346,8 @@ public sealed class HostCapabilitySnapshot
         var names = new HashSet<string>(StringComparer.Ordinal);
         foreach (var value in Required(values, name))
         {
-            if (string.IsNullOrWhiteSpace(value) || !names.Add(value))
-                throw new ArgumentException("Capability names must be nonblank and unique using ordinal equality.", name);
+            if (string.IsNullOrWhiteSpace(value) || !IsBoundedUtf8(value, MaximumCapabilityNameBytes) || !names.Add(value))
+                throw new ArgumentException($"Capability names must be nonblank, unique using ordinal equality, and bounded to {MaximumCapabilityNameBytes} UTF-8 bytes.", name);
         }
     }
 
@@ -338,12 +363,23 @@ public sealed class HostCapabilitySnapshot
 
     private static ImmutableArray<string> ValidateParameterNames(ImmutableArray<string> values, string name)
     {
-        if (values.IsDefault || values.Any(static value => string.IsNullOrWhiteSpace(value)) || values.Distinct(StringComparer.Ordinal).Count() != values.Length)
+        if (values.IsDefault || values.Length > MaximumProviderParameters ||
+            values.Any(static value => string.IsNullOrWhiteSpace(value) || !IsBoundedUtf8(value, MaximumCapabilityNameBytes)) ||
+            values.Distinct(StringComparer.Ordinal).Count() != values.Length)
             throw new ArgumentException("Provider parameter names must be initialized, nonblank, and unique.", name);
         return values;
     }
 
     private static IEnumerable<T> Required<T>(IEnumerable<T>? values, string name) => values ?? throw new ArgumentException("Capability collection cannot be null.", name);
+
+    private static void RequireMaximum<T>(IEnumerable<T> values, int maximum, string name)
+    {
+        if (values.Count() > maximum)
+            throw new ArgumentException($"Capability collection exceeds its maximum of {maximum} entries.", name);
+    }
+
+    private static bool IsBoundedUtf8(string value, int maximum) =>
+        value.Length <= maximum && Encoding.UTF8.GetByteCount(value) <= maximum;
 
     private static bool IsHostPattern(string value)
     {

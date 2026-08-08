@@ -4,6 +4,7 @@ using System.Security.Claims;
 using System.Text.Encodings.Web;
 using FluentAssertions;
 using HPD.Gateway.Abstractions;
+using HPD.Gateway.Abstractions.Serialization;
 using HPD.Gateway.Admin;
 using HPD.Gateway;
 using HPD.Gateway.Management;
@@ -97,6 +98,74 @@ public sealed class GatewayAdminHttpTests
         HttpResponseMessage tooLarge = await client.SendAsync(oversize);
         tooLarge.StatusCode.Should().Be(HttpStatusCode.RequestEntityTooLarge);
         (await tooLarge.Content.ReadAsStringAsync()).Should().Contain("gateway.admin.request.tooLarge");
+    }
+
+    [Fact]
+    public async Task Host_capabilities_and_validation_share_exact_advisory_snapshot_identity()
+    {
+        await using WebApplication application = Build(resourceAllowed: true);
+        await application.StartAsync();
+        HttpClient client = application.GetTestClient();
+
+        HttpResponseMessage hostResponse = await client.GetAsync("/management/gateway/v1/host-capabilities");
+        hostResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        using JsonDocument host = JsonDocument.Parse(await hostResponse.Content.ReadAsStringAsync());
+        string hostAlgorithm = host.RootElement.GetProperty("snapshotAlgorithm").GetString()!;
+        string hostValue = host.RootElement.GetProperty("snapshotValue").GetString()!;
+        hostAlgorithm.Should().Be("sha-256");
+        hostValue.Should().HaveLength(64);
+        host.RootElement.GetProperty("capabilities").GetProperty("installedFamilies")
+            .GetArrayLength().Should().BeGreaterThan(0);
+
+        var configuration = new GatewayConfiguration
+        {
+            SchemaVersion = new(1, 0),
+            CanonicalizationVersion = 1,
+        };
+        byte[] json = JsonSerializer.SerializeToUtf8Bytes(
+            configuration,
+            GatewayJsonSerializerContext.Default.GatewayConfiguration);
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/management/gateway/v1/candidates:validate")
+        {
+            Content = new ByteArrayContent(json),
+        };
+        request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/hpd.gateway+json");
+        HttpResponseMessage validationResponse = await client.SendAsync(request);
+        validationResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        using JsonDocument validation = JsonDocument.Parse(await validationResponse.Content.ReadAsStringAsync());
+        validation.RootElement.GetProperty("isValid").GetBoolean().Should().BeTrue();
+        validation.RootElement.GetProperty("schemaVersion").GetString().Should().Be("1.0");
+        validation.RootElement.GetProperty("canonicalizationVersion").GetString().Should().Be("1");
+        validation.RootElement.GetProperty("contentHashAlgorithm").GetString().Should().Be("sha-256");
+        validation.RootElement.GetProperty("contentHashValue").GetString().Should().HaveLength(64);
+        validation.RootElement.GetProperty("hostCapabilitySnapshotAlgorithm").GetString().Should().Be(hostAlgorithm);
+        validation.RootElement.GetProperty("hostCapabilitySnapshotValue").GetString().Should().Be(hostValue);
+        validation.RootElement.GetProperty("correlationId").GetString().Should().NotBeNullOrWhiteSpace();
+        validation.RootElement.GetProperty("observedAt").GetDateTimeOffset().Should().BeCloseTo(DateTimeOffset.UtcNow, TimeSpan.FromMinutes(1));
+        validation.RootElement.TryGetProperty("canonicalJson", out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Rejected_validation_returns_snapshot_evidence_without_fabricated_canonical_identity()
+    {
+        await using WebApplication application = Build(resourceAllowed: true);
+        await application.StartAsync();
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/management/gateway/v1/candidates:validate")
+        {
+            Content = new ByteArrayContent("{}"u8.ToArray()),
+        };
+        request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+
+        HttpResponseMessage response = await application.GetTestClient().SendAsync(request);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        using JsonDocument document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        document.RootElement.GetProperty("isValid").GetBoolean().Should().BeFalse();
+        document.RootElement.GetProperty("diagnostics").GetArrayLength().Should().BeGreaterThan(0);
+        document.RootElement.GetProperty("schemaVersion").ValueKind.Should().Be(JsonValueKind.Null);
+        document.RootElement.GetProperty("canonicalizationVersion").ValueKind.Should().Be(JsonValueKind.Null);
+        document.RootElement.GetProperty("contentHashAlgorithm").ValueKind.Should().Be(JsonValueKind.Null);
+        document.RootElement.GetProperty("contentHashValue").ValueKind.Should().Be(JsonValueKind.Null);
+        document.RootElement.GetProperty("hostCapabilitySnapshotValue").GetString().Should().HaveLength(64);
     }
 
     [Fact]
@@ -241,7 +310,7 @@ public sealed class GatewayAdminHttpTests
         JsonElement paths = document.RootElement.GetProperty("paths");
 
         paths.EnumerateObject().SelectMany(static path => path.Value.EnumerateObject())
-            .Should().HaveCount(22);
+            .Should().HaveCount(23);
         foreach (GatewayAdminEndpointDescriptor descriptor in GatewayAdminEndpointLedger.V1)
         {
             JsonElement operation = paths
@@ -416,7 +485,7 @@ public sealed class GatewayAdminHttpTests
     private static IEnumerable<string> ErrorStatuses(string operation)
     {
         yield return "401"; yield return "403"; yield return "429"; yield return "500"; yield return "504";
-        if (operation is not ("capabilities" or "validate")) yield return "404";
+        if (operation is not ("capabilities" or "host-capabilities" or "validate")) yield return "404";
         if (operation is "validate" or "submit" or "submit-and-activate" or "activate" or "rollback" or
             "compare" or "import" or "import-and-activate" or "backup" or "purge")
         { yield return "400"; yield return "413"; yield return "415"; }

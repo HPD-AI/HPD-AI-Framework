@@ -16,6 +16,7 @@ public static class GatewayAdminEndpointLedger
     public static ImmutableArray<GatewayAdminEndpointDescriptor> V1 { get; } =
     [
         new("capabilities", "GET", "/capabilities", GatewayAdminCapabilities.CapabilityRead, null, null, false),
+        new("host-capabilities", "GET", "/host-capabilities", GatewayAdminCapabilities.HostCapabilityRead, null, null, false),
         new("validate", "POST", "/candidates:validate", GatewayAdminCapabilities.RevisionValidate, null, null, false),
         new("provision", "POST", "/namespaces/{ns}/targets/{target}:provision", GatewayAdminCapabilities.TargetProvision, GatewayAdminResourcePolicies.Target, GatewayAdminResourceKind.Target, true),
         new("desired", "GET", "/namespaces/{ns}/targets/{target}/desired", GatewayAdminCapabilities.RevisionRead, GatewayAdminResourcePolicies.Target, GatewayAdminResourceKind.Target, false),

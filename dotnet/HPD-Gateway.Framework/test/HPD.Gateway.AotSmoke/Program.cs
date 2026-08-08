@@ -361,6 +361,31 @@ if (!read.IsAccepted)
     throw new InvalidOperationException($"Strict native candidate reading failed with {read.Errors.Length} error(s).");
 }
 
+var hostCapabilityProjection = GatewayHostCapabilityProjector.Project(capabilities);
+if (hostCapabilityProjection.SnapshotAlgorithm != "sha-256" ||
+    hostCapabilityProjection.SnapshotValue.Length != 64 ||
+    hostCapabilityProjection.Capabilities.Listeners.Length != 1 ||
+    hostCapabilityProjection.Capabilities.UpstreamResilienceProfiles.Length != 1)
+    throw new InvalidOperationException("Native AOT host-capability projection was incomplete.");
+_ = JsonSerializer.SerializeToUtf8Bytes(
+    hostCapabilityProjection,
+    GatewayAdminJsonContext.Default.GatewayHostCapabilitySnapshotResponse);
+
+var adminValidationEvidence = new GatewayValidationResponse(
+    true,
+    [],
+    "1.0",
+    "1",
+    read.CanonicalDocument!.ContentHash.Algorithm,
+    read.CanonicalDocument.ContentHash.Value,
+    hostCapabilityProjection.SnapshotAlgorithm,
+    hostCapabilityProjection.SnapshotValue,
+    "aot-correlation",
+    DateTimeOffset.UtcNow);
+_ = JsonSerializer.SerializeToUtf8Bytes(
+    adminValidationEvidence,
+    GatewayAdminJsonContext.Default.GatewayValidationResponse);
+
 var validation = GatewayCandidateValidator.Validate(read.Configuration, capabilities);
 
 var canonical = GatewayConfigurationCanonicalizer.TryCanonicalize(read.Configuration);

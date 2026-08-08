@@ -45,14 +45,34 @@ public static partial class GatewayAdminEndpointRouteBuilderExtensions
             new GatewayCapabilityCatalog(GatewayAdminCapabilities.All, "v1"),
             GatewayAdminJsonContext.Default.GatewayCapabilityCatalog)));
 
+        Map(group, options, security, "host-capabilities", context =>
+        {
+            HostCapabilitySnapshot capabilities = context.RequestServices.GetRequiredService<HostCapabilitySnapshot>();
+            return Write(context, TypedResults.Json(
+                GatewayHostCapabilityProjector.Project(capabilities),
+                GatewayAdminJsonContext.Default.GatewayHostCapabilitySnapshotResponse));
+        });
+
         Map(group, options, security, "validate", async context =>
         {
             HostCapabilitySnapshot capabilities = context.RequestServices.GetRequiredService<HostCapabilitySnapshot>();
+            GatewayHostCapabilitySnapshotResponse host = GatewayHostCapabilityProjector.Project(capabilities);
             byte[] body = await ReadBoundedBodyAsync(context.Request, context.RequestAborted).ConfigureAwait(false);
             GatewayCandidateReadResult candidate = GatewayCandidateReader.Read(body, capabilities);
-            var response = new GatewayValidationResponse(candidate.IsAccepted,
+            var response = new GatewayValidationResponse(
+                candidate.IsAccepted,
                 candidate.Errors.Select(static error => new GatewayAdminDiagnostic(
-                    error.Code.ToString(), error.Path, error.Message)).ToImmutableArray());
+                    error.Code.ToString(), error.Path, error.Message)).ToImmutableArray(),
+                candidate.Configuration is null
+                    ? null
+                    : $"{candidate.Configuration.SchemaVersion.Major}.{candidate.Configuration.SchemaVersion.Minor}",
+                candidate.Configuration?.CanonicalizationVersion.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                candidate.CanonicalDocument?.ContentHash.Algorithm,
+                candidate.CanonicalDocument?.ContentHash.Value,
+                host.SnapshotAlgorithm,
+                host.SnapshotValue,
+                context.TraceIdentifier,
+                DateTimeOffset.UtcNow);
             await Write(context, TypedResults.Json(response, GatewayAdminJsonContext.Default.GatewayValidationResponse)).ConfigureAwait(false);
         });
 

@@ -12,6 +12,7 @@ namespace HPD.Gateway.Admin;
 public static class GatewayAdminCapabilities
 {
     public const string CapabilityRead = "gateway.management.capability.read";
+    public const string HostCapabilityRead = "gateway.management.host-capability.read";
     public const string TargetProvision = "gateway.management.target.provision";
     public const string RevisionValidate = "gateway.management.revision.validate";
     public const string RevisionRead = "gateway.management.revision.read";
@@ -30,7 +31,7 @@ public static class GatewayAdminCapabilities
 
     public static ImmutableArray<string> All { get; } =
     [
-        CapabilityRead, TargetProvision, RevisionValidate, RevisionRead,
+        CapabilityRead, HostCapabilityRead, TargetProvision, RevisionValidate, RevisionRead,
         RevisionWrite, RevisionSubmitAndActivate, ActivationWrite,
         OperationRead, EffectiveRead, StatusRead, AuditRead, ExportRead,
         ImportWrite, ImportAndActivate, BackupWrite, PurgeWrite,
@@ -171,10 +172,78 @@ public sealed record GatewayAuditProjection(
 
 public sealed record GatewayProvisionResponse(string OperationId, bool Duplicate);
 public sealed record GatewayRevisionResponse(string RevisionId, string? DesiredStateToken, bool Duplicate);
-public sealed record GatewayValidationResponse(bool IsValid, ImmutableArray<GatewayAdminDiagnostic> Diagnostics);
+public sealed record GatewayValidationResponse(
+    bool IsValid,
+    ImmutableArray<GatewayAdminDiagnostic> Diagnostics,
+    string? SchemaVersion,
+    string? CanonicalizationVersion,
+    string? ContentHashAlgorithm,
+    string? ContentHashValue,
+    string HostCapabilitySnapshotAlgorithm,
+    string HostCapabilitySnapshotValue,
+    string CorrelationId,
+    DateTimeOffset ObservedAt);
 public sealed record GatewayAdminDiagnostic(string Code, string Path, string SafeMessage);
 public sealed record GatewayAdminError(string Code, string Title, string? CorrelationId = null);
 public sealed record GatewayCapabilityCatalog(ImmutableArray<string> Capabilities, string ApiVersion);
+
+public sealed record GatewayHostCapabilitySnapshotResponse(
+    string SchemaVersion,
+    string SnapshotAlgorithm,
+    string SnapshotValue,
+    GatewayHostCapabilityProjection Capabilities);
+
+public sealed record GatewayHostCapabilityProjection(
+    ImmutableArray<string> InstalledFamilies,
+    ImmutableArray<GatewayListenerCapabilityProjection> Listeners,
+    ImmutableArray<GatewayDiscoveryProviderCapabilityProjection> DiscoveryProviders,
+    ImmutableArray<string> SecretProviders,
+    ImmutableArray<string> AuthorizationPolicies,
+    ImmutableArray<string> CorsPolicies,
+    ImmutableArray<string> TrafficAdmissionPolicies,
+    ImmutableArray<string> RequestTimeoutPolicies,
+    ImmutableArray<GatewayOutputCacheCapabilityProjection> OutputCacheProfiles,
+    ImmutableArray<string> SessionAffinityPolicies,
+    ImmutableArray<string> SessionAffinityFailurePolicies,
+    ImmutableArray<string> PassiveHealthPolicies,
+    ImmutableArray<string> ActiveHealthPolicies,
+    ImmutableArray<string> RequestInspectors,
+    ImmutableArray<GatewayResilienceCapabilityProjection> UpstreamResilienceProfiles,
+    ImmutableArray<string> ProtectedCredentialHeaders,
+    bool AllowInspectionFileSpill);
+
+public sealed record GatewayListenerCapabilityProjection(
+    string Id,
+    string Role,
+    ImmutableArray<string> Protocols,
+    ImmutableArray<string> Hostnames,
+    bool Tls);
+
+public sealed record GatewayDiscoveryProviderCapabilityProjection(
+    string Id,
+    ImmutableArray<string> SupportedParameters,
+    ImmutableArray<string> RequiredParameters,
+    bool AllowUnknownParameters,
+    bool ProducesHttpsEndpoints);
+
+public sealed record GatewayOutputCacheCapabilityProjection(
+    string Name,
+    int Version,
+    bool RetainsDefaultSafetyPolicy,
+    string StoreId,
+    string StoreScope,
+    long ExpirationTicks,
+    long MaximumBodyBytes,
+    long StoreCapacityBytes,
+    ImmutableArray<string> QueryKeys,
+    ImmutableArray<string> HeaderNames);
+
+public sealed record GatewayResilienceCapabilityProjection(
+    string Name,
+    int Version,
+    ImmutableArray<string> Strategies,
+    ImmutableArray<int> RetryStatusCodes,
+    int MaximumRetryAttempts);
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase, UseStringEnumConverter = true, UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
 [JsonSerializable(typeof(GatewayRevisionRequest))]
@@ -206,6 +275,8 @@ public sealed record GatewayCapabilityCatalog(ImmutableArray<string> Capabilitie
 [JsonSerializable(typeof(ImmutableArray<GatewayAdminDiagnostic>))]
 [JsonSerializable(typeof(GatewayAdminError))]
 [JsonSerializable(typeof(GatewayCapabilityCatalog))]
+[JsonSerializable(typeof(GatewayHostCapabilitySnapshotResponse))]
+[JsonSerializable(typeof(GatewayHostCapabilityProjection))]
 [JsonSerializable(typeof(GatewayManagementStatusSnapshot))]
 [JsonSerializable(typeof(GatewayRevisionComparison))]
 [JsonSerializable(typeof(GatewayEffectiveSnapshot))]

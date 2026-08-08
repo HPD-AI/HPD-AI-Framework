@@ -24,4 +24,8 @@
     <ProjectReference Include="../HPD.Gateway.Effective/HPD.Gateway.Effective.csproj" />
     <ProjectReference Include="../HPD.Gateway.Hosting/HPD.Gateway.Hosting.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="HPD.Gateway.Tests" />
+    <InternalsVisibleTo Include="HPD.Gateway.AotSmoke" />
+  </ItemGroup>
 </Project>

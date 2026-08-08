@@ -35,6 +35,7 @@ internal static class GatewayAdminOpenApiMetadata
         (Type Type, int Status) success = descriptor.Operation switch
         {
             "capabilities" => (typeof(GatewayCapabilityCatalog), 200),
+            "host-capabilities" => (typeof(GatewayHostCapabilitySnapshotResponse), 200),
             "validate" => (typeof(GatewayValidationResponse), 200),
             "provision" => (typeof(GatewayProvisionResponse), 201),
             "desired" => (typeof(GatewayDesiredProjection), 200),
@@ -66,7 +67,7 @@ internal static class GatewayAdminOpenApiMetadata
         yield return 429;
         yield return 500;
         yield return 504;
-        if (operation is not ("capabilities" or "validate")) yield return 404;
+        if (operation is not ("capabilities" or "host-capabilities" or "validate")) yield return 404;
         if (operation is "validate" or "submit" or "submit-and-activate" or "activate" or "rollback" or
             "compare" or "import" or "import-and-activate" or "backup" or "purge")
         {

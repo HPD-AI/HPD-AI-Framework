@@ -65,7 +65,7 @@ public sealed class GatewayAdminContractTests
             .OfType<RouteEndpoint>().Where(static endpoint => endpoint.Metadata.GetMetadata<GatewayAdminEndpointDescriptor>() is not null)
             .ToArray();
         endpoints.Should().HaveCount(GatewayAdminEndpointLedger.V1.Length);
-        GatewayAdminEndpointLedger.V1.Should().HaveCount(22);
+        GatewayAdminEndpointLedger.V1.Should().HaveCount(23);
         GatewayAdminEndpointLedger.V1.Select(static endpoint => (endpoint.Method, endpoint.Pattern))
             .Should().OnlyHaveUniqueItems();
         foreach (RouteEndpoint endpoint in endpoints)
