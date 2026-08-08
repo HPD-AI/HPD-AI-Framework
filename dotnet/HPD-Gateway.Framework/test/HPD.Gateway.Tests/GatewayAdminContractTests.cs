@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Security.Claims;
 using System.Text.Encodings.Web;
 using System.Reflection;
+using System.Text;
 using System.Text.Json.Serialization;
 using FluentAssertions;
 using HPD.Gateway.Admin;
@@ -27,6 +28,20 @@ namespace HPD.Gateway.Tests;
 
 public sealed class GatewayAdminContractTests
 {
+    [Fact]
+    public void Generation_json_reader_is_bounded_and_rejects_duplicate_members()
+    {
+        GatewayBoundedJson.ParseObject("{}"u8).Should().NotBeNull();
+        FluentActions.Invoking(() => GatewayBoundedJson.ParseObject("{\"a\":1,\"a\":2}"u8))
+            .Should().Throw<InvalidOperationException>().WithMessage("*duplicate property*");
+        byte[] oversizedString = Encoding.UTF8.GetBytes("{\"value\":\"" + new string('a', (16 * 1024) + 1) + "\"}");
+        FluentActions.Invoking(() => GatewayBoundedJson.ParseObject(oversizedString))
+            .Should().Throw<InvalidOperationException>().WithMessage("*string exceeds*");
+        byte[] oversizedArray = Encoding.UTF8.GetBytes("{\"items\":[" + string.Join(',', Enumerable.Repeat("0", 10_001)) + "]}");
+        FluentActions.Invoking(() => GatewayBoundedJson.ParseObject(oversizedArray))
+            .Should().Throw<InvalidOperationException>().WithMessage("*array exceeds*");
+    }
+
     [Fact]
     public void Every_supported_wire_string_has_an_explicit_schema_registration()
     {

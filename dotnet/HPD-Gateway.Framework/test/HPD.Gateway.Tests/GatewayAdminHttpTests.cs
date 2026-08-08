@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Net;
 using System.Security.Claims;
+using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json.Nodes;
 using FluentAssertions;
@@ -310,34 +311,37 @@ public sealed class GatewayAdminHttpTests
         string json = await application.GetTestClient().GetStringAsync("/openapi/hpd-gateway-v1.json");
         using JsonDocument document = JsonDocument.Parse(json);
         GatewayClientGenerationSnapshotV1 snapshot = GatewayClientGenerationSnapshotV1.Create(
-            JsonNode.Parse(json)!.AsObject(), "test");
+            Encoding.UTF8.GetBytes(json), "test");
         snapshot.Manifest.Operations.Should().HaveCount(23);
         snapshot.Manifest.SchemaConstraints.Should().HaveCount(GatewayAdminClientSchemaConstraintLedger.V1.Length);
         snapshot.OpenApiSha256.Should().MatchRegex("^[0-9a-f]{64}$");
         snapshot.ManifestSha256.Should().MatchRegex("^[0-9a-f]{64}$");
         snapshot.SourceSha256.Should().MatchRegex("^[0-9a-f]{64}$");
-        GatewayClientGenerationSnapshotV1.Create(JsonNode.Parse(json)!.AsObject(), "test").SourceSha256
+        GatewayClientGenerationSnapshotV1.Create(Encoding.UTF8.GetBytes(json), "test").SourceSha256
             .Should().Be(snapshot.SourceSha256);
         JsonObject reordered = new();
         foreach ((string key, JsonNode? value) in JsonNode.Parse(json)!.AsObject().Reverse())
             reordered.Add(key, value?.DeepClone());
-        GatewayClientGenerationSnapshotV1.Create(reordered, "test").SourceSha256
+        GatewayClientGenerationSnapshotV1.Create(Encoding.UTF8.GetBytes(reordered.ToJsonString()), "test").SourceSha256
             .Should().Be(snapshot.SourceSha256, "OpenAPI object order is non-behavioral");
 
         JsonObject presentationDrift = JsonNode.Parse(json)!.AsObject();
         presentationDrift["info"]!["title"] = "Changed presentation";
-        GatewayClientGenerationSnapshotV1 changed = GatewayClientGenerationSnapshotV1.Create(presentationDrift, "test");
+        GatewayClientGenerationSnapshotV1 changed = GatewayClientGenerationSnapshotV1.Create(
+            Encoding.UTF8.GetBytes(presentationDrift.ToJsonString()), "test");
         changed.ManifestSha256.Should().Be(snapshot.ManifestSha256);
         changed.OpenApiSha256.Should().NotBe(snapshot.OpenApiSha256);
         changed.SourceSha256.Should().NotBe(snapshot.SourceSha256);
 
         JsonObject securityDrift = JsonNode.Parse(json)!.AsObject();
         securityDrift["components"]!["securitySchemes"]!["test"]!["in"] = "header";
-        FluentActions.Invoking(() => GatewayClientGenerationSnapshotV1.Create(securityDrift, "test"))
+        FluentActions.Invoking(() => GatewayClientGenerationSnapshotV1.Create(
+                Encoding.UTF8.GetBytes(securityDrift.ToJsonString()), "test"))
             .Should().Throw<InvalidOperationException>();
         JsonObject operationDrift = JsonNode.Parse(json)!.AsObject();
         operationDrift["paths"]!["/management/gateway/v1/capabilities"]!["get"]!["operationId"] = "drift";
-        FluentActions.Invoking(() => GatewayClientGenerationSnapshotV1.Create(operationDrift, "test"))
+        FluentActions.Invoking(() => GatewayClientGenerationSnapshotV1.Create(
+                Encoding.UTF8.GetBytes(operationDrift.ToJsonString()), "test"))
             .Should().Throw<InvalidOperationException>();
         JsonElement securityScheme = document.RootElement.GetProperty("components")
             .GetProperty("securitySchemes").GetProperty("test");

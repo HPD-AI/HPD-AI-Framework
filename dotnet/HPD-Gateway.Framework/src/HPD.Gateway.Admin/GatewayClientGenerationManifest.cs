@@ -80,7 +80,13 @@ internal sealed class GatewayClientGenerationSnapshotV1
     internal GatewayClientGenerationManifestV1 Manifest { get; }
     internal ImmutableArray<byte> SnapshotUtf8 { get; }
 
-    internal static GatewayClientGenerationSnapshotV1 Create(JsonObject openApi, string securityScheme)
+    internal static GatewayClientGenerationSnapshotV1 Create(ReadOnlySpan<byte> openApiUtf8, string securityScheme)
+    {
+        JsonObject openApi = GatewayBoundedJson.ParseObject(openApiUtf8);
+        return Create(openApi, securityScheme);
+    }
+
+    private static GatewayClientGenerationSnapshotV1 Create(JsonObject openApi, string securityScheme)
     {
         ArgumentNullException.ThrowIfNull(openApi);
         GatewayClientOpenApiJsonValidator.Validate(openApi, securityScheme);
@@ -176,10 +182,99 @@ internal sealed class GatewayClientGenerationSnapshotV1
     }
 }
 
+internal static class GatewayBoundedJson
+{
+    private const int MaximumBytes = 8 * 1024 * 1024;
+    private const int MaximumTokens = 750_000;
+    private const int MaximumProperties = 256;
+    private const int MaximumArrayItems = 10_000;
+    private const int MaximumStringUtf8Bytes = 16 * 1024;
+
+    internal static JsonObject ParseObject(ReadOnlySpan<byte> utf8)
+    {
+        if (utf8.Length is < 2 or > MaximumBytes)
+            throw new InvalidOperationException("Gateway client generation JSON is outside its byte bound.");
+        var reader = new Utf8JsonReader(utf8, new JsonReaderOptions
+        {
+            AllowTrailingCommas = false,
+            CommentHandling = JsonCommentHandling.Disallow,
+            MaxDepth = 64,
+        });
+        var frames = new Stack<Frame>();
+        int tokens = 0;
+        while (reader.Read())
+        {
+            if (++tokens > MaximumTokens)
+                throw new InvalidOperationException("Gateway client generation JSON exceeds its token bound.");
+            switch (reader.TokenType)
+            {
+                case JsonTokenType.StartObject:
+                    CountArrayItem(frames); frames.Push(new Frame(true)); break;
+                case JsonTokenType.StartArray:
+                    CountArrayItem(frames); frames.Push(new Frame(false)); break;
+                case JsonTokenType.EndObject:
+                case JsonTokenType.EndArray:
+                    if (frames.Count == 0) throw new InvalidOperationException("Gateway client generation JSON is malformed.");
+                    frames.Pop(); break;
+                case JsonTokenType.PropertyName:
+                    if (frames.Count == 0 || !frames.Peek().IsObject)
+                        throw new InvalidOperationException("Gateway client generation property is outside an object.");
+                    Frame owner = frames.Peek();
+                    if (++owner.Count > MaximumProperties)
+                        throw new InvalidOperationException("Gateway client generation object exceeds its property bound.");
+                    string name = reader.GetString()!;
+                    if (Encoding.UTF8.GetByteCount(name) > MaximumStringUtf8Bytes || !owner.Names!.Add(name))
+                        throw new InvalidOperationException("Gateway client generation object has an invalid or duplicate property.");
+                    break;
+                case JsonTokenType.String:
+                    CountArrayItem(frames);
+                    long length = reader.HasValueSequence ? reader.ValueSequence.Length : reader.ValueSpan.Length;
+                    if (length > MaximumStringUtf8Bytes)
+                        throw new InvalidOperationException("Gateway client generation string exceeds its UTF-8 bound.");
+                    break;
+                default:
+                    CountArrayItem(frames); break;
+            }
+        }
+        if (frames.Count != 0 || tokens == 0)
+            throw new InvalidOperationException("Gateway client generation JSON is incomplete.");
+        return JsonNode.Parse(utf8)?.AsObject() ??
+            throw new InvalidOperationException("Gateway client generation JSON root must be an object.");
+    }
+
+    private static void CountArrayItem(Stack<Frame> frames)
+    {
+        if (frames.Count == 0 || frames.Peek().IsObject) return;
+        if (++frames.Peek().Count > MaximumArrayItems)
+            throw new InvalidOperationException("Gateway client generation array exceeds its item bound.");
+    }
+
+    private sealed class Frame(bool isObject)
+    {
+        internal bool IsObject { get; } = isObject;
+        internal int Count;
+        internal HashSet<string>? Names { get; } = isObject ? new(StringComparer.Ordinal) : null;
+    }
+}
+
 internal static class GatewayClientOpenApiJsonValidator
 {
+    private static readonly HashSet<string> RootFields = new(["openapi", "info", "paths", "components"], StringComparer.Ordinal);
+    private static readonly HashSet<string> InfoFields = new(["title", "version"], StringComparer.Ordinal);
+    private static readonly HashSet<string> OperationFields = new(["operationId", "parameters", "requestBody", "responses", "security"], StringComparer.Ordinal);
+    private static readonly HashSet<string> ParameterFields = new(["name", "in", "required", "description", "schema"], StringComparer.Ordinal);
+    private static readonly HashSet<string> RequestBodyFields = new(["required", "description", "content"], StringComparer.Ordinal);
+    private static readonly HashSet<string> ResponseFields = new(["description", "content"], StringComparer.Ordinal);
+    private static readonly HashSet<string> MediaTypeFields = new(["schema"], StringComparer.Ordinal);
+    private static readonly HashSet<string> SchemaFields = new([
+        "$ref", "type", "title", "description", "format", "properties", "required", "additionalProperties",
+        "items", "minItems", "maxItems", "uniqueItems", "minLength", "maxLength", "pattern", "minimum",
+        "maximum", "default", "enum", "const", "oneOf", "discriminator"], StringComparer.Ordinal);
+
     internal static void Validate(JsonObject document, string securityScheme)
     {
+        RequireFields(document, RootFields, "OpenAPI document");
+        RequireFields(document["info"]?.AsObject() ?? throw new InvalidOperationException("OpenAPI info is missing."), InfoFields, "OpenAPI info");
         if (document["openapi"]?.GetValue<string>() is not { } version || !version.StartsWith("3.1.", StringComparison.Ordinal))
             throw new InvalidOperationException("Gateway client OpenAPI must be version 3.1.x.");
         JsonObject schemes = document["components"]?["securitySchemes"]?.AsObject() ??
@@ -200,6 +295,11 @@ internal static class GatewayClientOpenApiJsonValidator
             GatewayAdminClientOperationSemantics semantic = GatewayAdminClientSemanticLedger.For(endpoint.Operation);
             JsonObject operation = paths["/management/gateway/v1" + endpoint.Pattern]?[endpoint.Method.ToLowerInvariant()]?.AsObject() ??
                 throw new InvalidOperationException($"Gateway client OpenAPI operation is missing: {endpoint.Operation}.");
+            RequireFields(operation, OperationFields, $"OpenAPI operation '{endpoint.Operation}'");
+            JsonArray security = operation["security"]?.AsArray() ?? throw new InvalidOperationException("OpenAPI operation security is missing.");
+            if (security.Count != 1 || security[0] is not JsonObject requirement || requirement.Count != 1 ||
+                requirement[securityScheme] is not JsonArray scopes || scopes.Count != 0)
+                throw new InvalidOperationException("OpenAPI operation security does not match the sealed scheme.");
             if (operation["operationId"]?.GetValue<string>() != "HpdGatewayAdmin." + endpoint.Operation)
                 throw new InvalidOperationException($"Gateway client OpenAPI operation ID drifted: {endpoint.Operation}.");
             JsonObject responses = operation["responses"]?.AsObject() ?? throw new InvalidOperationException("OpenAPI responses are missing.");
@@ -208,9 +308,30 @@ internal static class GatewayClientOpenApiJsonValidator
             if (!responses.Select(x => x.Key).Order(StringComparer.Ordinal).SequenceEqual(expectedStatuses.Order(StringComparer.Ordinal), StringComparer.Ordinal))
                 throw new InvalidOperationException($"Gateway client OpenAPI response statuses drifted: {endpoint.Operation}.");
             RequireRef(responses[semantic.SuccessStatus.ToString(System.Globalization.CultureInfo.InvariantCulture)]?["content"]?["application/json"]?["schema"], semantic.SuccessType, schemas);
+            foreach ((string _, JsonNode? responseNode) in responses)
+            {
+                JsonObject response = responseNode?.AsObject() ?? throw new InvalidOperationException("OpenAPI response must be an object.");
+                RequireFields(response, ResponseFields, "OpenAPI response");
+                ValidateContent(response["content"]?.AsObject());
+            }
+            JsonArray parameterNodes = operation["parameters"]?.AsArray() ?? [];
+            string[] actualParameters = parameterNodes.Select(node =>
+                $"{node!["in"]!.GetValue<string>()}:{node["name"]!.GetValue<string>()}").Order(StringComparer.Ordinal).ToArray();
+            string[] expectedParameters = semantic.ParameterConstraints.Select(x =>
+                $"{x.Location.ToString().ToLowerInvariant()}:{x.Name}").Order(StringComparer.Ordinal).ToArray();
+            if (!actualParameters.SequenceEqual(expectedParameters, StringComparer.Ordinal))
+                throw new InvalidOperationException($"OpenAPI parameters drifted: {endpoint.Operation}.");
+            foreach (JsonNode? parameterNode in parameterNodes)
+            {
+                JsonObject parameter = parameterNode?.AsObject() ?? throw new InvalidOperationException("OpenAPI parameter must be an object.");
+                RequireFields(parameter, ParameterFields, "OpenAPI parameter");
+                ValidateSchema(parameter["schema"]?.AsObject() ?? throw new InvalidOperationException("OpenAPI parameter schema is missing."), schemas, new());
+            }
             if (semantic.RequestType is { } request)
             {
                 JsonObject body = operation["requestBody"]?.AsObject() ?? throw new InvalidOperationException("OpenAPI request body is missing.");
+                RequireFields(body, RequestBodyFields, "OpenAPI request body");
+                ValidateContent(body["content"]?.AsObject());
                 bool required = body["required"]?.GetValue<bool>() ?? false;
                 if (required != (semantic.RequestBodyPresence == GatewayAdminClientRequestBodyPresence.Required))
                     throw new InvalidOperationException("OpenAPI request-body presence drifted.");
@@ -221,9 +342,75 @@ internal static class GatewayClientOpenApiJsonValidator
         foreach (GatewayAdminClientSchemaConstraint target in GatewayAdminClientSchemaConstraintLedger.V1)
         {
             string id = GatewayAdminSchemaReferenceIds.Create(target.SchemaType)!;
-            if (schemas[id]?["properties"]?[target.PropertyName] is null)
+            if (schemas[id]?["properties"]?[target.PropertyName] is not JsonObject property)
                 throw new InvalidOperationException($"Gateway client OpenAPI schema target is missing: {id}/{target.PropertyName}.");
+            JsonObject projected = target.AppliesTo == GatewayAdminClientSchemaConstraintTarget.Items
+                ? property["items"]?.AsObject() ?? throw new InvalidOperationException("OpenAPI item constraint target is missing.")
+                : property;
+            CorrelateRules(target, projected);
         }
+        foreach ((string id, JsonNode? schema) in schemas)
+            ValidateSchema(schema?.AsObject() ?? throw new InvalidOperationException($"OpenAPI schema '{id}' is invalid."), schemas, new());
+    }
+
+    private static void CorrelateRules(GatewayAdminClientSchemaConstraint target, JsonObject schema)
+    {
+        GatewayAdminClientConstraintRules rules = target.Rules;
+        if (target.AppliesTo == GatewayAdminClientSchemaConstraintTarget.Collection)
+        {
+            if (schema["minItems"]?.GetValue<int>() != rules.CollectionMinimum ||
+                schema["maxItems"]?.GetValue<int>() != rules.CollectionMaximum)
+                throw new InvalidOperationException("OpenAPI collection constraint drifted from managed semantics.");
+            return;
+        }
+        if (target.Brand == GatewayAdminClientStringBrand.None && rules == new GatewayAdminClientConstraintRules()) return;
+        int expectedMinimum = rules.CharacterSet is GatewayAdminClientCharacterSet.VisibleAscii or
+            GatewayAdminClientCharacterSet.LowercaseAsciiName or GatewayAdminClientCharacterSet.AsciiArtifactLabel or
+            GatewayAdminClientCharacterSet.StrongEntityTag ? rules.MinimumUtf8Bytes ?? 0 : rules.MinimumUtf8Bytes > 0 ? 1 : 0;
+        int actualMinimum = schema["minLength"]?.GetValue<int>() ?? 0;
+        if (actualMinimum != expectedMinimum || schema["maxLength"]?.GetValue<int>() != rules.MaximumUtf8Bytes)
+            throw new InvalidOperationException("OpenAPI string constraint drifted from managed semantics.");
+    }
+
+    private static void ValidateContent(JsonObject? content)
+    {
+        if (content is null || content.Count == 0) throw new InvalidOperationException("OpenAPI content is missing.");
+        foreach ((string mediaType, JsonNode? mediaNode) in content)
+        {
+            if (mediaType is not ("application/json" or "application/hpd.gateway+json"))
+                throw new InvalidOperationException("OpenAPI contains an unsupported media type.");
+            JsonObject media = mediaNode?.AsObject() ?? throw new InvalidOperationException("OpenAPI media type is invalid.");
+            RequireFields(media, MediaTypeFields, "OpenAPI media type");
+        }
+    }
+
+    private static void ValidateSchema(JsonObject schema, JsonObject components, HashSet<string> path)
+    {
+        RequireFields(schema, SchemaFields, "OpenAPI schema");
+        if (schema["$ref"] is JsonValue reference)
+        {
+            string value = reference.GetValue<string>();
+            const string prefix = "#/components/schemas/";
+            if (!value.StartsWith(prefix, StringComparison.Ordinal) || value.Length == prefix.Length || components[value[prefix.Length..]] is null)
+                throw new InvalidOperationException("OpenAPI contains a non-local or unresolved schema reference.");
+            return;
+        }
+        if (schema["properties"] is JsonObject properties)
+            foreach ((string _, JsonNode? child) in properties)
+                ValidateSchema(child?.AsObject() ?? throw new InvalidOperationException("OpenAPI property schema is invalid."), components, path);
+        if (schema["items"] is JsonObject items) ValidateSchema(items, components, path);
+        if (schema["additionalProperties"] is JsonObject additional) ValidateSchema(additional, components, path);
+        if (schema["oneOf"] is JsonArray branches)
+            foreach (JsonNode? branch in branches)
+                ValidateSchema(branch?.AsObject() ?? throw new InvalidOperationException("OpenAPI union branch is invalid."), components, path);
+        if (schema["format"]?.GetValue<string>() is { } format && format is not ("int32" or "int64" or "uint64" or "date-time" or "uri" or "uuid"))
+            throw new InvalidOperationException("OpenAPI schema contains an unsupported format.");
+    }
+
+    private static void RequireFields(JsonObject value, HashSet<string> allowed, string scope)
+    {
+        string? unknown = value.Select(x => x.Key).FirstOrDefault(key => !allowed.Contains(key));
+        if (unknown is not null) throw new InvalidOperationException($"{scope} contains unsupported field '{unknown}'.");
     }
 
     private static void RequireRef(JsonNode? node, Type expected, JsonObject schemas)
