@@ -1,25 +1,12 @@
 import BaseModulePlaceholder from './BaseModulePlaceholder.svelte';
-import type { StudioModule } from './types';
+import type { StudioModule } from '@hpd-research/hpd-studio-core';
 
 export const baseStudioModule: StudioModule = {
   id: 'base',
   label: 'BASE',
   title: 'HPD BASE Studio',
   description: 'Backend data, storage, realtime, policy, and diagnostics surface.',
-  status: 'active',
-  capabilities: [
-    'base',
-    'records',
-    'collections',
-    'schemas',
-    'stores',
-    'files',
-    'realtime',
-    'policy',
-    'health',
-    'diagnostics'
-  ],
-  navItems: [],
+  navItems: [{ path: '/base', label: 'BASE' }],
   routes: [
     {
       path: '/base',

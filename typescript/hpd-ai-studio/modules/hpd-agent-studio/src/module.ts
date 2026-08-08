@@ -1,14 +1,21 @@
 import AgentModulePlaceholder from './AgentModulePlaceholder.svelte';
-import type { StudioModule } from './types';
+import type { StudioModule } from '@hpd-research/hpd-studio-core';
 
 export const agentStudioModule: StudioModule = {
   id: 'agents',
   label: 'Agents',
   title: 'HPD Agent Studio',
   description: 'Agent-specific workbench surface. The internal page structure is intentionally unset.',
-  status: 'active',
-  capabilities: ['agents', 'sessions', 'threads', 'streaming', 'content', 'multi-agent', 'agent-evals'],
-  navItems: [],
+  navItems: [{ path: '/agents', label: 'Agents' }],
+  initialize({ contexts }) {
+    contexts.set('agent.selection', Object.seal({
+      agentId: '',
+      sessionId: '',
+      threadId: '',
+      runId: '',
+      eventId: ''
+    }));
+  },
   routes: [
     {
       path: '/agents',

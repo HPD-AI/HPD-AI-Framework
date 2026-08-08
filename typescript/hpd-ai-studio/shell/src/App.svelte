@@ -1,32 +1,40 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import StudioModuleBoundary from '@hpd-research/hpd-studio-core/boundary';
+  import type { StudioRouteObservation, StudioRuntime } from '@hpd-research/hpd-studio-core';
   import StudioShell from './studio/shell/StudioShell.svelte';
-  import { readRuntimeConfig } from './studio/config/runtimeConfig';
-  import { createStudioState } from './studio/state/studioState.svelte';
-  import { agentStudioModule } from '@hpd-research/hpd-agent-studio';
-  import { authStudioModule } from '@hpd-research/hpd-auth-studio';
-  import { baseStudioModule } from '@hpd-research/hpd-base-studio';
-  import { graphStudioModule } from '@hpd-research/hpd-graph-studio';
-  import { mlStudioModule } from '@hpd-research/hpd-ml-studio';
-  import { ragStudioModule } from '@hpd-research/hpd-rag-studio';
+  import StudioUnavailable from './studio/shell/StudioUnavailable.svelte';
 
-  const config = readRuntimeConfig();
-  const studio = createStudioState({
-    config,
-    modules: [agentStudioModule, graphStudioModule, ragStudioModule, authStudioModule, mlStudioModule, baseStudioModule]
-  });
+  let { studio }: { studio: StudioRuntime } = $props();
+  // svelte-ignore state_referenced_locally
+  let observation: StudioRouteObservation = $state(studio.current);
+  let Page = $derived(observation.route?.component);
 
-  let Page = $derived(studio.currentRoute.component);
+  function syncRouteFromLocation() {
+    const hash = globalThis.location?.hash.replace(/^#/, '') ?? '';
+    observation = studio.navigate(hash || studio.routes[0]?.path || '/');
+  }
 
   onMount(() => {
-    studio.syncRouteFromLocation();
+    const unsubscribe = studio.subscribe((value) => observation = value);
+    syncRouteFromLocation();
+    return () => {
+      unsubscribe();
+      void studio.dispose();
+    };
   });
 </script>
 
-<svelte:window onhashchange={() => studio.syncRouteFromLocation()} />
+<svelte:window onhashchange={syncRouteFromLocation} />
 
-<StudioShell {studio}>
+<StudioShell {studio} {observation}>
   {#snippet main()}
-    <Page />
+    {#if Page && observation.route}
+      <StudioModuleBoundary context={observation.route.context}>
+        <Page />
+      </StudioModuleBoundary>
+    {:else}
+      <StudioUnavailable />
+    {/if}
   {/snippet}
 </StudioShell>

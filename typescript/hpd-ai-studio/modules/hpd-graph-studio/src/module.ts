@@ -1,14 +1,12 @@
 import GraphModulePlaceholder from './GraphModulePlaceholder.svelte';
-import type { StudioModule } from './types';
+import type { StudioModule } from '@hpd-research/hpd-studio-core';
 
 export const graphStudioModule: StudioModule = {
   id: 'workflows',
   label: 'Workflows',
   title: 'HPD Graph Studio',
   description: 'Graph and workflow runtime surface. The internal page structure is intentionally unset.',
-  status: 'active',
-  capabilities: ['graphs', 'workflows', 'multi-agent'],
-  navItems: [],
+  navItems: [{ path: '/workflows', label: 'Workflows' }],
   routes: [
     {
       path: '/workflows',

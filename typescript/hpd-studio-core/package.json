@@ -1,0 +1,30 @@
+{
+  "name": "@hpd-research/hpd-studio-core",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Product-neutral module composition runtime for HPD Studio.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "svelte": "./src/index.ts",
+      "import": "./src/index.ts"
+    },
+    "./boundary": {
+      "svelte": "./src/StudioModuleBoundary.svelte",
+      "import": "./src/StudioModuleBoundary.svelte"
+    }
+  },
+  "scripts": {
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "typecheck": "svelte-check --tsconfig ./tsconfig.json"
+  },
+  "files": ["src", "README.md"],
+  "peerDependencies": { "svelte": "^5.0.0" },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "svelte": "^5.0.0",
+    "svelte-check": "^4.0.0",
+    "typescript": "^5.0.0"
+  },
+  "license": "FSL-1.1-ALv2"
+}

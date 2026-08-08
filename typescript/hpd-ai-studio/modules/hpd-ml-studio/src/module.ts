@@ -1,14 +1,12 @@
 import MlModulePlaceholder from './MlModulePlaceholder.svelte';
-import type { StudioModule } from './types';
+import type { StudioModule } from '@hpd-research/hpd-studio-core';
 
 export const mlStudioModule: StudioModule = {
   id: 'ml',
   label: 'ML',
   title: 'HPD ML Studio',
   description: 'Machine learning workbench surface. The internal page structure is intentionally unset.',
-  status: 'active',
-  capabilities: ['ml', 'models', 'training', 'evaluations'],
-  navItems: [],
+  navItems: [{ path: '/ml', label: 'ML' }],
   routes: [
     {
       path: '/ml',

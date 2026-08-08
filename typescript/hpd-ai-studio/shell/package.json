@@ -6,10 +6,12 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",
+    "test": "vitest run",
     "typecheck": "svelte-check --tsconfig ./tsconfig.json",
     "preview": "vite preview --host 127.0.0.1"
   },
   "dependencies": {
+    "@hpd-research/hpd-studio-core": "file:../../hpd-studio-core",
     "@hpd-research/hpd-agent-studio": "file:../modules/hpd-agent-studio",
     "@hpd-research/hpd-auth-studio": "file:../modules/hpd-auth-studio",
     "@hpd-research/hpd-base-studio": "file:../modules/hpd-base-studio",
@@ -25,6 +27,7 @@
     "svelte-check": "^4.0.0",
     "tailwindcss": "^4.3.1",
     "typescript": "^5.0.0",
-    "vite": "^7.0.0"
+    "vite": "^7.0.0",
+    "vitest": "^4.0.0"
   }
 }
