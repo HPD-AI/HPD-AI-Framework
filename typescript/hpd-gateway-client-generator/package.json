@@ -11,8 +11,10 @@
   "scripts": {
     "clean": "rm -rf dist fixtures/generated",
     "build": "npm run clean && tsc",
+    "generate:fixture": "node dist/cli.js generate --snapshot fixtures/gateway-client-snapshot.json --out fixtures/generated/gateway --clean",
     "test": "vitest run",
-    "check": "npm run build && npm run test",
+    "test:types": "npm run generate:fixture && tsc -p tsconfig.generated.json --noEmit",
+    "check": "npm run build && npm run test && npm run test:types",
     "prepublishOnly": "npm run check"
   },
   "sideEffects": false,

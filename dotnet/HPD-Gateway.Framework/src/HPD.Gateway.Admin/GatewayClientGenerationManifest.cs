@@ -426,7 +426,7 @@ internal static class GatewayCanonicalJson
     internal static byte[] Serialize(JsonNode node)
     {
         using var stream = new MemoryStream();
-        using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Encoder = JavaScriptEncoder.Default }))
+        using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping }))
             Write(writer, node, 0);
         return stream.ToArray();
     }
