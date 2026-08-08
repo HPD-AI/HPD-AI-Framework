@@ -4,11 +4,23 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <IsPackable>true</IsPackable>
+    <PackageId>HPD.Gateway.HPDAuth</PackageId>
+    <Description>HPD.Auth control-plane integration for HPD.Gateway administration.</Description>
+    <PackageTags>hpd;gateway;auth;admin;aspnetcore;aot</PackageTags>
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../HPD.Gateway.Admin/HPD.Gateway.Admin.csproj" />
     <ProjectReference Include="../HPD.Gateway.Management/HPD.Gateway.Management.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UsePublishedHpdDependencies)' != 'true'">
     <ProjectReference Include="../../../HPD-Auth.Framework/src/HPD.Auth.ControlPlane.AspNetCore/HPD.Auth.ControlPlane.AspNetCore.csproj" />
     <ProjectReference Include="../../../HPD-Auth.Framework/src/HPD.Auth.Core/HPD.Auth.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UsePublishedHpdDependencies)' == 'true'">
+    <PackageReference Include="HPD-Auth-ControlPlane-AspNetCore" Version="$(HPDAuthVersion)" />
+    <PackageReference Include="HPD-Auth-Core" Version="$(HPDAuthVersion)" />
   </ItemGroup>
 </Project>

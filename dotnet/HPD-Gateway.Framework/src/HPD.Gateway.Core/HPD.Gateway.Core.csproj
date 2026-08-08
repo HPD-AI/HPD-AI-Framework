@@ -4,6 +4,9 @@
     <RootNamespace>HPD.Gateway.Core</RootNamespace>
     <AssemblyName>HPD.Gateway.Core</AssemblyName>
     <IsPackable>true</IsPackable>
+    <PackageId>HPD.Gateway.Core</PackageId>
+    <Description>ASP.NET Core-aware candidate validation for HPD.Gateway.</Description>
+    <PackageTags>hpd;gateway;aspnetcore;validation;aot</PackageTags>
     <IsAotCompatible>true</IsAotCompatible>
     <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
     <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
