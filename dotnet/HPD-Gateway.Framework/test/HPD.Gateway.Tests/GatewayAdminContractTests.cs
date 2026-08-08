@@ -130,6 +130,94 @@ public sealed class GatewayAdminContractTests
     }
 
     [Fact]
+    public void Parameter_projection_follows_each_managed_byte_bound_without_fallbacks()
+    {
+        GatewayAdminClientParameterConstraint baseline = GatewayAdminClientSemanticLedger.For("submit-and-activate")
+            .ParameterConstraints.Single(static value => value.Brand == GatewayAdminClientStringBrand.DesiredStateToken);
+        GatewayAdminClientConstraintRules[] variants =
+        [
+            baseline.Rules with { MinimumUtf8Bytes = 2 },
+            baseline.Rules with { MaximumUtf8Bytes = 511 },
+        ];
+
+        foreach (GatewayAdminClientConstraintRules rules in variants)
+        {
+            GatewayAdminClientParameterConstraint constraint = baseline with { Rules = rules };
+            var schema = GatewayAdminOpenApiDocumentTransformer.ParameterStringSchema(constraint);
+            schema.MinLength.Should().Be(rules.MinimumUtf8Bytes + 2);
+            schema.MaxLength.Should().Be(rules.MaximumUtf8Bytes + 2);
+            schema.Pattern.Should().Contain($"{{{rules.MinimumUtf8Bytes},{rules.MaximumUtf8Bytes}}}");
+            string description = GatewayAdminOpenApiDocumentTransformer.ParameterDescription(constraint);
+            description.Should().Contain($"{rules.MinimumUtf8Bytes}-{rules.MaximumUtf8Bytes}");
+        }
+
+        GatewayAdminClientParameterConstraint resource = GatewayAdminClientSemanticLedger.For("desired")
+            .ParameterConstraints.Single(static value => value.Brand == GatewayAdminClientStringBrand.NamespaceId);
+        resource = resource with { Rules = resource.Rules with { MinimumUtf8Bytes = 2, MaximumUtf8Bytes = 127 } };
+        GatewayAdminOpenApiDocumentTransformer.ParameterDescription(resource)
+            .Should().Contain("2-127").And.NotContain("1-128");
+
+        GatewayAdminClientParameterConstraint visible = GatewayAdminClientSemanticLedger.For("submit")
+            .ParameterConstraints.Single(static value => value.Brand == GatewayAdminClientStringBrand.IdempotencyKey);
+        visible = visible with { Rules = visible.Rules with { MinimumUtf8Bytes = 2, MaximumUtf8Bytes = 127 } };
+        GatewayAdminOpenApiDocumentTransformer.ParameterDescription(visible)
+            .Should().Contain("2-127").And.NotContain("1-128");
+    }
+
+    [Fact]
+    public void Malformed_parameter_constraints_fail_closed_before_projection()
+    {
+        GatewayAdminClientParameterConstraint correlation = GatewayAdminClientSemanticLedger.For("capabilities")
+            .ParameterConstraints.Single();
+        GatewayAdminClientParameterConstraint missingBound = correlation with
+        {
+            Rules = correlation.Rules with { MaximumUtf8Bytes = null },
+        };
+        Action projectMissingBound = () => GatewayAdminOpenApiDocumentTransformer.ParameterStringSchema(missingBound);
+        projectMissingBound.Should().Throw<InvalidOperationException>();
+
+        GatewayAdminClientParameterConstraint optionalPath = correlation with
+        {
+            Location = GatewayAdminClientParameterLocation.Path,
+            Required = false,
+        };
+        Action validateOptionalPath = optionalPath.Validate;
+        validateOptionalPath.Should().Throw<InvalidOperationException>();
+
+        GatewayAdminClientParameterConstraint invalidRange = correlation with
+        {
+            Rules = correlation.Rules with { MinimumUtf8Bytes = 129, MaximumUtf8Bytes = 128 },
+        };
+        ((Action)invalidRange.Validate).Should().Throw<InvalidOperationException>();
+
+        GatewayAdminClientParameterConstraint invalidCardinality = correlation with
+        {
+            Rules = correlation.Rules with
+            {
+                Cardinality = GatewayAdminClientCardinality.Single,
+                CollectionMaximum = 2,
+            },
+        };
+        ((Action)invalidCardinality.Validate).Should().Throw<InvalidOperationException>();
+
+        GatewayAdminClientParameterConstraint invalidBrandTarget = correlation with
+        {
+            Brand = GatewayAdminClientStringBrand.ContinuationToken,
+        };
+        ((Action)invalidBrandTarget.Validate).Should().Throw<InvalidOperationException>();
+
+        GatewayAdminClientParameterConstraint invalidCharacterSet = correlation with
+        {
+            Rules = correlation.Rules with { CharacterSet = GatewayAdminClientCharacterSet.StrongEntityTag },
+        };
+        ((Action)invalidCharacterSet.Validate).Should().Throw<InvalidOperationException>();
+
+        ImmutableArray<GatewayAdminClientParameterConstraint> duplicateTargets = [correlation, correlation];
+        Action validateDuplicates = () => GatewayAdminClientParameterConstraintValidator.Validate(duplicateTargets);
+        validateDuplicates.Should().Throw<InvalidOperationException>();
+    }
+
+    [Fact]
     public void Endpoint_ledger_maps_one_static_capability_and_exact_resource_policy_per_scope()
     {
         WebApplicationBuilder builder = WebApplication.CreateBuilder();

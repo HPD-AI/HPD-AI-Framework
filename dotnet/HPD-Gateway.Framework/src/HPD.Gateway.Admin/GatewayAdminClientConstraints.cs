@@ -34,7 +34,126 @@ internal sealed record GatewayAdminClientParameterConstraint(
     string Name,
     bool Required,
     GatewayAdminClientStringBrand Brand,
-    GatewayAdminClientConstraintRules Rules);
+    GatewayAdminClientConstraintRules Rules)
+{
+    internal void Validate()
+    {
+        if (!Enum.IsDefined(Location) || !Enum.IsDefined(Brand) || string.IsNullOrWhiteSpace(Name) ||
+            Name.Any(static value => value is < '!' or > '~'))
+            throw new InvalidOperationException("Gateway client parameter target is invalid.");
+        if (Rules is null)
+            throw new InvalidOperationException("Gateway client parameter rules are required.");
+        if (Location == GatewayAdminClientParameterLocation.Path && !Required)
+            throw new InvalidOperationException("Gateway client path parameters must be required.");
+        if (!Enum.IsDefined(Rules.Normalization) || !Enum.IsDefined(Rules.CharacterSet) ||
+            !Enum.IsDefined(Rules.Uniqueness) || !Enum.IsDefined(Rules.Ordering) ||
+            !Enum.IsDefined(Rules.Cardinality))
+            throw new InvalidOperationException("Gateway client parameter rules contain an unknown value.");
+        if (Rules.MinimumUtf8Bytes is < 0 || Rules.MaximumUtf8Bytes is < 1 ||
+            Rules.MinimumUtf8Bytes > Rules.MaximumUtf8Bytes)
+            throw new InvalidOperationException("Gateway client parameter byte bounds are invalid.");
+        if (Rules.CollectionMinimum is < 0 || Rules.CollectionMaximum is < 1 ||
+            Rules.CollectionMinimum > Rules.CollectionMaximum)
+            throw new InvalidOperationException("Gateway client parameter collection bounds are invalid.");
+        if (Rules.Cardinality == GatewayAdminClientCardinality.Single &&
+            (Rules.CollectionMinimum is not null || Rules.CollectionMaximum is not null ||
+             Rules.Uniqueness != GatewayAdminClientUniqueness.None || Rules.Ordering != GatewayAdminClientOrdering.None))
+            throw new InvalidOperationException("Single Gateway client parameters cannot declare collection semantics.");
+
+        bool paginationMaximum = Location == GatewayAdminClientParameterLocation.Query &&
+            StringComparer.Ordinal.Equals(Name, "maximum") && Brand == GatewayAdminClientStringBrand.None;
+        if (!paginationMaximum && Rules.MaximumUtf8Bytes is null)
+            throw new InvalidOperationException("Gateway client string parameters require an explicit UTF-8 byte maximum.");
+        if (Brand == GatewayAdminClientStringBrand.None != paginationMaximum)
+            throw new InvalidOperationException("Gateway client parameter brand is incompatible with its target.");
+        if (Rules.CharacterSet == GatewayAdminClientCharacterSet.StrongEntityTag &&
+            (Brand != GatewayAdminClientStringBrand.DesiredStateToken ||
+             Location != GatewayAdminClientParameterLocation.Header ||
+             Rules.MinimumUtf8Bytes is null || Rules.MaximumUtf8Bytes is null))
+            throw new InvalidOperationException("Strong entity-tag rules require a bounded desired-state header.");
+        if (Brand == GatewayAdminClientStringBrand.ContinuationToken &&
+            (Location != GatewayAdminClientParameterLocation.Query ||
+             Rules.MaximumUtf8Bytes is null))
+            throw new InvalidOperationException("Continuation tokens require a bounded query target.");
+
+        switch (Brand)
+        {
+            case GatewayAdminClientStringBrand.None when
+                !paginationMaximum || Required || Rules != new GatewayAdminClientConstraintRules():
+                throw new InvalidOperationException("The unbranded maximum parameter has one closed shape.");
+            case GatewayAdminClientStringBrand.NamespaceId:
+                RequireResourcePath("ns");
+                break;
+            case GatewayAdminClientStringBrand.TargetNodeId:
+                RequireResourcePath("target");
+                break;
+            case GatewayAdminClientStringBrand.RevisionId:
+                RequireResourcePath("revision");
+                break;
+            case GatewayAdminClientStringBrand.ValidationId:
+                RequireResourcePath("validation");
+                break;
+            case GatewayAdminClientStringBrand.OperationId:
+                RequireResourcePath("operation");
+                break;
+            case GatewayAdminClientStringBrand.ContinuationToken when
+                !StringComparer.Ordinal.Equals(Name, "cursor") || Required ||
+                Rules.CharacterSet != GatewayAdminClientCharacterSet.Unicode:
+                throw new InvalidOperationException("Continuation-token parameters have one closed target shape.");
+            case GatewayAdminClientStringBrand.DesiredStateToken when
+                !StringComparer.OrdinalIgnoreCase.Equals(Name, "If-Match") || Required:
+                throw new InvalidOperationException("Desired-state tokens have one closed target shape.");
+            case GatewayAdminClientStringBrand.IdempotencyKey:
+                RequireVisibleHeader("Idempotency-Key", required: true);
+                break;
+            case GatewayAdminClientStringBrand.CorrelationId:
+                RequireVisibleHeader("X-Correlation-ID", required: false);
+                break;
+            case GatewayAdminClientStringBrand.CandidateId:
+                throw new InvalidOperationException("Candidate identity is not a V1 HTTP parameter target.");
+        }
+
+        void RequireResourcePath(string expectedName)
+        {
+            if (Location != GatewayAdminClientParameterLocation.Path || !Required ||
+                !StringComparer.Ordinal.Equals(Name, expectedName) ||
+                Rules.Normalization != GatewayAdminClientNormalization.Nfc ||
+                Rules.CharacterSet != GatewayAdminClientCharacterSet.Unicode ||
+                !Rules.RejectUnicodeControls || Rules.MinimumUtf8Bytes is null)
+                throw new InvalidOperationException("Gateway resource parameters have one closed target and rule shape.");
+        }
+
+        void RequireVisibleHeader(string expectedName, bool required)
+        {
+            if (Location != GatewayAdminClientParameterLocation.Header || Required != required ||
+                !StringComparer.OrdinalIgnoreCase.Equals(Name, expectedName) ||
+                Rules.CharacterSet != GatewayAdminClientCharacterSet.VisibleAscii ||
+                Rules.MinimumUtf8Bytes is null)
+                throw new InvalidOperationException("Gateway visible-ASCII headers have one closed target and rule shape.");
+        }
+    }
+}
+
+internal static class GatewayAdminClientParameterConstraintValidator
+{
+    internal static void Validate(ImmutableArray<GatewayAdminClientParameterConstraint> constraints)
+    {
+        if (constraints.IsDefault)
+            throw new InvalidOperationException("Gateway client parameter constraints must be initialized.");
+        var targets = new HashSet<string>(StringComparer.Ordinal);
+        foreach (GatewayAdminClientParameterConstraint constraint in constraints)
+        {
+            if (constraint is null)
+                throw new InvalidOperationException("Gateway client parameter constraints cannot contain null.");
+            constraint.Validate();
+            string canonicalName = constraint.Location == GatewayAdminClientParameterLocation.Header
+                ? constraint.Name.ToUpperInvariant()
+                : constraint.Name;
+            if (!targets.Add($"{(byte)constraint.Location}:{canonicalName}"))
+                throw new InvalidOperationException("Gateway client parameter targets must be unique.");
+        }
+    }
+}
 
 internal static class GatewayAdminClientParameterProfiles
 {

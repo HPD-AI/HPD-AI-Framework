@@ -178,35 +178,42 @@ internal sealed class GatewayAdminOpenApiDocumentTransformer(GatewayAdminOpenApi
 
     internal static OpenApiSchema ParameterStringSchema(GatewayAdminClientParameterConstraint constraint)
     {
+        constraint.Validate();
         GatewayAdminClientConstraintRules rules = constraint.Rules;
         return rules.CharacterSet switch
         {
             GatewayAdminClientCharacterSet.StrongEntityTag =>
                 StringSchema(rules.MaximumUtf8Bytes!.Value + 2, rules.MinimumUtf8Bytes!.Value + 2,
-                    "^\"(?=[!-~]{1,512}\"$)[^\",]+\"$"),
+                    $"^\"(?=[!-~]{{{rules.MinimumUtf8Bytes.Value},{rules.MaximumUtf8Bytes.Value}}}\"$)[^\",]+\"$"),
             GatewayAdminClientCharacterSet.VisibleAscii =>
-                StringSchema(rules.MaximumUtf8Bytes!.Value, rules.MinimumUtf8Bytes, "^[!-~]+$"),
+                StringSchema(rules.MaximumUtf8Bytes!.Value, rules.MinimumUtf8Bytes,
+                    $"^[!-~]{{{rules.MinimumUtf8Bytes ?? 0},{rules.MaximumUtf8Bytes.Value}}}$"),
             _ when rules.RejectUnicodeControls =>
                 StringSchema(rules.MaximumUtf8Bytes!.Value, rules.MinimumUtf8Bytes,
-                    "^[^\\u0000-\\u001F\\u007F-\\u009F]+$"),
-            _ => StringSchema(rules.MaximumUtf8Bytes ?? 16_384, rules.MinimumUtf8Bytes),
+                    $"^[^\\u0000-\\u001F\\u007F-\\u009F]{{{rules.MinimumUtf8Bytes ?? 0},{rules.MaximumUtf8Bytes.Value}}}$"),
+            _ => StringSchema(rules.MaximumUtf8Bytes!.Value, rules.MinimumUtf8Bytes),
         };
     }
 
-    internal static string ParameterDescription(GatewayAdminClientParameterConstraint constraint) =>
-        constraint.Rules.CharacterSet switch
+    internal static string ParameterDescription(GatewayAdminClientParameterConstraint constraint)
+    {
+        constraint.Validate();
+        return constraint.Rules.CharacterSet switch
         {
             GatewayAdminClientCharacterSet.StrongEntityTag =>
-                "One strong quoted entity-tag containing 1-512 visible-ASCII characters except quote and comma; " +
+                $"One strong quoted entity-tag containing {constraint.Rules.MinimumUtf8Bytes}-" +
+                $"{constraint.Rules.MaximumUtf8Bytes} visible-ASCII bytes except quote and comma; " +
                 "weak, wildcard, unquoted, duplicate, and comma-joined validators are rejected. Absence asserts create-only.",
             GatewayAdminClientCharacterSet.VisibleAscii =>
                 $"Visible-ASCII {constraint.Brand.ToString().ToLowerInvariant()} value, " +
                 $"{constraint.Rules.MinimumUtf8Bytes}-{constraint.Rules.MaximumUtf8Bytes} bytes when supplied.",
             _ when constraint.Rules.RejectUnicodeControls =>
-                "Gateway resource identifier: NFC-normalized, no Unicode control characters, and 1-128 UTF-8 bytes. " +
-                "maxLength is the representable character bound; the 128-byte bound is enforced by the server.",
+                $"Gateway resource identifier: NFC-normalized, no Unicode control characters, and " +
+                $"{constraint.Rules.MinimumUtf8Bytes}-{constraint.Rules.MaximumUtf8Bytes} UTF-8 bytes. " +
+                $"maxLength is the representable character bound; the {constraint.Rules.MaximumUtf8Bytes}-byte bound is enforced by the server.",
             _ => $"Opaque value limited to {constraint.Rules.MaximumUtf8Bytes} UTF-8 bytes.",
         };
+    }
 
     internal static OpenApiSchema PaginationMaximumSchema(GatewayAdminClientPaginationSpecification specification)
     {

@@ -150,6 +150,7 @@ internal static class GatewayAdminClientSemanticLedger
         bool bodyOptional)
     {
         pagination.Validate();
+        GatewayAdminClientParameterConstraintValidator.Validate(parameters);
         return new(operation, request, request is null ? GatewayAdminClientRequestBodyPresence.None :
             bodyOptional ? GatewayAdminClientRequestBodyPresence.Optional : GatewayAdminClientRequestBodyPresence.Required,
             success, successStatus, successMeaning, idempotency,

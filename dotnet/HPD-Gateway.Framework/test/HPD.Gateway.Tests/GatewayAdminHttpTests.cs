@@ -337,12 +337,12 @@ public sealed class GatewayAdminHttpTests
                 .Should().Equal(pathNames);
             foreach (string pathName in pathNames)
                 AssertParameter(parameters, pathName, "path", required: true, maximumLength: 128,
-                    minimumLength: 1, pattern: "^[^\\u0000-\\u001F\\u007F-\\u009F]+$", descriptionContains: "128 UTF-8 bytes");
+                    minimumLength: 1, pattern: "^[^\\u0000-\\u001F\\u007F-\\u009F]{1,128}$", descriptionContains: "128 UTF-8 bytes");
             AssertParameter(parameters, "X-Correlation-ID", "header", required: false, maximumLength: 128,
-                minimumLength: 1, pattern: "^[!-~]+$");
+                minimumLength: 1, pattern: "^[!-~]{1,128}$");
             if (semantics.Idempotency == GatewayAdminClientIdempotency.Required)
                 AssertParameter(parameters, "Idempotency-Key", "header", required: true, maximumLength: 128,
-                    minimumLength: 1, pattern: "^[!-~]+$");
+                    minimumLength: 1, pattern: "^[!-~]{1,128}$");
             else
                 parameters.Should().NotContain(parameter => parameter.GetProperty("name").GetString() == "Idempotency-Key");
             bool ifMatch = semantics.DesiredPrecondition == GatewayAdminClientDesiredPrecondition.CreateOrReplace;
