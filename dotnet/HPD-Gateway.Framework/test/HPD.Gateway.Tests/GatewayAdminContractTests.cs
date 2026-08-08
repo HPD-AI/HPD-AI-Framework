@@ -70,6 +70,7 @@ public sealed class GatewayAdminContractTests
     {
         GatewayAdminClientPaginationSpecification baseline =
             GatewayAdminClientPaginationSpecification.OpaqueCursorV1;
+        GatewayAdminClientOperationSemantics paged = GatewayAdminClientSemanticLedger.For("revisions");
         GatewayAdminClientPaginationSpecification[] variants =
         [
             baseline with { DefaultMaximum = 65 },
@@ -89,32 +90,43 @@ public sealed class GatewayAdminContractTests
                 .And.Contain(specification.MaximumMaximum!.Value.ToString());
 
             var omitted = new DefaultHttpContext();
-            GatewayAdminEndpointRouteBuilderExtensions.TryPage(omitted, specification,
+            GatewayAdminEndpointRouteBuilderExtensions.TryPage(omitted, paged with { Pagination = specification },
                 out int defaulted, out _, out _).Should().BeTrue();
             defaulted.Should().Be(specification.DefaultMaximum);
 
             var minimum = new DefaultHttpContext();
             minimum.Request.QueryString = new QueryString("?maximum=" + specification.MinimumMaximum.Value);
-            GatewayAdminEndpointRouteBuilderExtensions.TryPage(minimum, specification,
+            GatewayAdminEndpointRouteBuilderExtensions.TryPage(minimum, paged with { Pagination = specification },
                 out int parsedMinimum, out _, out _).Should().BeTrue();
             parsedMinimum.Should().Be(specification.MinimumMaximum);
 
             var maximum = new DefaultHttpContext();
             maximum.Request.QueryString = new QueryString("?maximum=" + specification.MaximumMaximum.Value);
-            GatewayAdminEndpointRouteBuilderExtensions.TryPage(maximum, specification,
+            GatewayAdminEndpointRouteBuilderExtensions.TryPage(maximum, paged with { Pagination = specification },
                 out int parsedMaximum, out _, out _).Should().BeTrue();
             parsedMaximum.Should().Be(specification.MaximumMaximum);
 
             var below = new DefaultHttpContext();
             below.Request.QueryString = new QueryString("?maximum=" + (specification.MinimumMaximum.Value - 1));
-            GatewayAdminEndpointRouteBuilderExtensions.TryPage(below, specification,
+            GatewayAdminEndpointRouteBuilderExtensions.TryPage(below, paged with { Pagination = specification },
                 out _, out _, out _).Should().BeFalse();
 
             var above = new DefaultHttpContext();
             above.Request.QueryString = new QueryString("?maximum=" + (specification.MaximumMaximum.Value + 1));
-            GatewayAdminEndpointRouteBuilderExtensions.TryPage(above, specification,
+            GatewayAdminEndpointRouteBuilderExtensions.TryPage(above, paged with { Pagination = specification },
                 out _, out _, out _).Should().BeFalse();
         }
+
+        var utf8Boundary = new DefaultHttpContext();
+        utf8Boundary.Request.QueryString = new QueryString("?cursor=" + new string('é', 2048));
+        GatewayAdminEndpointRouteBuilderExtensions.TryPage(utf8Boundary, paged,
+            out _, out string? acceptedCursor, out _).Should().BeTrue();
+        System.Text.Encoding.UTF8.GetByteCount(acceptedCursor!).Should().Be(4096);
+
+        var utf8Oversize = new DefaultHttpContext();
+        utf8Oversize.Request.QueryString = new QueryString("?cursor=" + new string('é', 2049));
+        GatewayAdminEndpointRouteBuilderExtensions.TryPage(utf8Oversize, paged,
+            out _, out _, out _).Should().BeFalse();
     }
 
     [Fact]

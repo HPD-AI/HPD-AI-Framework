@@ -109,7 +109,7 @@ internal sealed class GatewayAdminOpenApiDocumentTransformer(GatewayAdminOpenApi
             {
                 OperationId = "HpdGatewayAdmin." + descriptor.Operation,
                 Responses = new OpenApiResponses(),
-                Parameters = Parameters(descriptor, semantics),
+                Parameters = Parameters(semantics),
                 Security =
                 [
                     new OpenApiSecurityRequirement
@@ -147,35 +147,66 @@ internal sealed class GatewayAdminOpenApiDocumentTransformer(GatewayAdminOpenApi
         }
     }
 
-    private static List<IOpenApiParameter> Parameters(
-        GatewayAdminEndpointDescriptor descriptor,
-        GatewayAdminClientOperationSemantics semantics)
+    private static List<IOpenApiParameter> Parameters(GatewayAdminClientOperationSemantics semantics)
     {
         var parameters = new List<IOpenApiParameter>();
-        foreach (string name in PathParameterNames(descriptor.Pattern))
-            parameters.Add(Parameter(name, ParameterLocation.Path, required: true,
-                StringSchema(128, 1, "^[^\\u0000-\\u001F\\u007F-\\u009F]+$"),
-                "Gateway resource identifier: NFC-normalized, no Unicode control characters, and 1-128 UTF-8 bytes. " +
-                "maxLength is the representable character bound; the 128-byte bound is enforced by the server."));
-        parameters.Add(Parameter("X-Correlation-ID", ParameterLocation.Header, required: false,
-            StringSchema(128, 1, "^[!-~]+$"), "Visible-ASCII request correlation identifier, 1-128 characters when supplied."));
-        if (semantics.Idempotency == GatewayAdminClientIdempotency.Required)
-            parameters.Add(Parameter("Idempotency-Key", ParameterLocation.Header, required: true,
-                StringSchema(128, 1, "^[!-~]+$"), "Visible-ASCII product idempotency identity, 1-128 characters."));
-        if (semantics.DesiredPrecondition == GatewayAdminClientDesiredPrecondition.CreateOrReplace)
-            parameters.Add(Parameter("If-Match", ParameterLocation.Header, required: false,
-                StringSchema(514, 3, "^\"(?=[!-~]{1,512}\"$)[^\",]+\"$"),
-                "One strong quoted entity-tag containing 1-512 visible-ASCII characters except quote and comma; " +
-                "weak, wildcard, unquoted, duplicate, and comma-joined validators are rejected. Absence asserts create-only."));
-        if (semantics.Pagination.Kind == GatewayAdminClientPaginationKind.OpaqueCursor)
+        foreach (GatewayAdminClientParameterConstraint constraint in semantics.ParameterConstraints)
         {
-            parameters.Add(Parameter("maximum", ParameterLocation.Query, required: false,
-                PaginationMaximumSchema(semantics.Pagination), PaginationDescription(semantics.Pagination)));
-            parameters.Add(Parameter("cursor", ParameterLocation.Query, required: false,
-                StringSchema(4096), "Opaque stable continuation token."));
+            if (constraint.Location == GatewayAdminClientParameterLocation.Query && constraint.Name == "maximum")
+            {
+                parameters.Add(Parameter(constraint.Name, ParameterLocation.Query, constraint.Required,
+                    PaginationMaximumSchema(semantics.Pagination), PaginationDescription(semantics.Pagination)));
+                continue;
+            }
+            parameters.Add(Parameter(
+                constraint.Name,
+                Convert(constraint.Location),
+                constraint.Required,
+                ParameterStringSchema(constraint),
+                ParameterDescription(constraint)));
         }
         return parameters;
     }
+
+    private static ParameterLocation Convert(GatewayAdminClientParameterLocation location) => location switch
+    {
+        GatewayAdminClientParameterLocation.Path => ParameterLocation.Path,
+        GatewayAdminClientParameterLocation.Query => ParameterLocation.Query,
+        GatewayAdminClientParameterLocation.Header => ParameterLocation.Header,
+        _ => throw new InvalidOperationException("Unsupported Gateway client parameter location."),
+    };
+
+    internal static OpenApiSchema ParameterStringSchema(GatewayAdminClientParameterConstraint constraint)
+    {
+        GatewayAdminClientConstraintRules rules = constraint.Rules;
+        return rules.CharacterSet switch
+        {
+            GatewayAdminClientCharacterSet.StrongEntityTag =>
+                StringSchema(rules.MaximumUtf8Bytes!.Value + 2, rules.MinimumUtf8Bytes!.Value + 2,
+                    "^\"(?=[!-~]{1,512}\"$)[^\",]+\"$"),
+            GatewayAdminClientCharacterSet.VisibleAscii =>
+                StringSchema(rules.MaximumUtf8Bytes!.Value, rules.MinimumUtf8Bytes, "^[!-~]+$"),
+            _ when rules.RejectUnicodeControls =>
+                StringSchema(rules.MaximumUtf8Bytes!.Value, rules.MinimumUtf8Bytes,
+                    "^[^\\u0000-\\u001F\\u007F-\\u009F]+$"),
+            _ => StringSchema(rules.MaximumUtf8Bytes ?? 16_384, rules.MinimumUtf8Bytes),
+        };
+    }
+
+    internal static string ParameterDescription(GatewayAdminClientParameterConstraint constraint) =>
+        constraint.Rules.CharacterSet switch
+        {
+            GatewayAdminClientCharacterSet.StrongEntityTag =>
+                "One strong quoted entity-tag containing 1-512 visible-ASCII characters except quote and comma; " +
+                "weak, wildcard, unquoted, duplicate, and comma-joined validators are rejected. Absence asserts create-only.",
+            GatewayAdminClientCharacterSet.VisibleAscii =>
+                $"Visible-ASCII {constraint.Brand.ToString().ToLowerInvariant()} value, " +
+                $"{constraint.Rules.MinimumUtf8Bytes}-{constraint.Rules.MaximumUtf8Bytes} bytes when supplied.",
+            _ when constraint.Rules.RejectUnicodeControls =>
+                "Gateway resource identifier: NFC-normalized, no Unicode control characters, and 1-128 UTF-8 bytes. " +
+                "maxLength is the representable character bound; the 128-byte bound is enforced by the server.",
+            _ => $"Opaque value limited to {constraint.Rules.MaximumUtf8Bytes} UTF-8 bytes.",
+        };
 
     internal static OpenApiSchema PaginationMaximumSchema(GatewayAdminClientPaginationSpecification specification)
     {
@@ -230,18 +261,6 @@ internal sealed class GatewayAdminOpenApiDocumentTransformer(GatewayAdminOpenApi
         "purge" => "resourceIds contains 1-256 unique, ordinally sorted, NFC-normalized, control-free identifiers; each identifier is limited to 128 UTF-8 bytes.",
         _ => "Gateway Admin bounded request.",
     };
-
-    private static IEnumerable<string> PathParameterNames(string pattern)
-    {
-        int offset = 0;
-        while ((offset = pattern.IndexOf('{', offset)) >= 0)
-        {
-            int end = pattern.IndexOf('}', offset + 1);
-            if (end < 0) throw new InvalidOperationException("The Gateway Admin path ledger is malformed.");
-            yield return pattern[(offset + 1)..end];
-            offset = end + 1;
-        }
-    }
 
     private static OpenApiResponse Response(string description, IOpenApiSchema schema) => new()
     {

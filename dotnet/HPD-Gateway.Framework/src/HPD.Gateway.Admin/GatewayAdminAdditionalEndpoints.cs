@@ -93,7 +93,7 @@ public static partial class GatewayAdminEndpointRouteBuilderExtensions
     {
         string ns = Route(context, "ns"), target = Route(context, "target");
         if (!await AdmitTarget(context, ns, target).ConfigureAwait(false)) return;
-        if (!TryPage(context, GatewayAdminClientSemanticLedger.For("activations").Pagination,
+        if (!TryPage(context, GatewayAdminClientSemanticLedger.For("activations"),
             out int maximum, out string? cursor, out IResult? failure))
         { await Write(context, failure!); return; }
         IGatewayManagementReader reader = context.RequestServices.GetRequiredService<IGatewayManagementReader>();
@@ -270,11 +270,12 @@ public static partial class GatewayAdminEndpointRouteBuilderExtensions
 
     internal static bool TryPage(
         HttpContext context,
-        GatewayAdminClientPaginationSpecification specification,
+        GatewayAdminClientOperationSemantics semantics,
         out int maximum,
         out string? cursor,
         out IResult? failure)
     {
+        GatewayAdminClientPaginationSpecification specification = semantics.Pagination;
         specification.Validate();
         if (specification.Kind != GatewayAdminClientPaginationKind.OpaqueCursor)
             throw new InvalidOperationException("Pagination parsing requires opaque-cursor pagination.");
@@ -286,7 +287,10 @@ public static partial class GatewayAdminEndpointRouteBuilderExtensions
              maximum < specification.MinimumMaximum!.Value || maximum > specification.MaximumMaximum!.Value))
         { failure = Invalid(context); return false; }
         cursor = context.Request.Query["cursor"].Count == 1 ? context.Request.Query["cursor"][0] : null;
-        if (cursor is { Length: > 4096 }) { failure = Invalid(context); return false; }
+        GatewayAdminClientParameterConstraint cursorConstraint = semantics.ParameterConstraints.Single(static item =>
+            item.Location == GatewayAdminClientParameterLocation.Query && item.Brand == GatewayAdminClientStringBrand.ContinuationToken);
+        if (cursor is not null && Encoding.UTF8.GetByteCount(cursor) > cursorConstraint.Rules.MaximumUtf8Bytes!.Value)
+        { failure = Invalid(context); return false; }
         return true;
     }
 
