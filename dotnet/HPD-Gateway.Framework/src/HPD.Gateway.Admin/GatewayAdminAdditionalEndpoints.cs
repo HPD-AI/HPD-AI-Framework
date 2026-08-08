@@ -39,13 +39,13 @@ public static partial class GatewayAdminEndpointRouteBuilderExtensions
         IGatewayManagementReader reader = context.RequestServices.GetRequiredService<IGatewayManagementReader>();
         if (revision)
         {
-            GatewayManagedRecord<GatewayAcceptedRevision>? value = await reader.GetRevisionAsync(ns, id, context.RequestAborted).ConfigureAwait(false);
+            GatewayManagedRecord<GatewayAcceptedRevision>? value = await reader.GetRevisionAsync(ns, target, id, context.RequestAborted).ConfigureAwait(false);
             await Write(context, value is null ? NotFound(context) : TypedResults.Json(ProjectRevision(value),
                 GatewayAdminJsonContext.Default.GatewayRevisionProjection)).ConfigureAwait(false);
         }
         else
         {
-            GatewayManagedRecord<GatewayValidationRecord>? value = await reader.GetValidationAsync(ns, id, context.RequestAborted).ConfigureAwait(false);
+            GatewayManagedRecord<GatewayValidationRecord>? value = await reader.GetValidationAsync(ns, target, id, context.RequestAborted).ConfigureAwait(false);
             if (value is null) { await Write(context, NotFound(context)); return; }
             ImmutableArray<GatewayAdminDiagnostic> diagnostics;
             try
@@ -120,7 +120,7 @@ public static partial class GatewayAdminEndpointRouteBuilderExtensions
         if (request is null || !ValidComponent(request.LeftRevisionId) || !ValidComponent(request.RightRevisionId))
         { await Write(context, Invalid(context)); return; }
         var result = await context.RequestServices.GetRequiredService<IGatewayManagementApplication>()
-            .CompareAsync(ns, request.LeftRevisionId, request.RightRevisionId, context.RequestAborted).ConfigureAwait(false);
+            .CompareAsync(ns, target, request.LeftRevisionId, request.RightRevisionId, context.RequestAborted).ConfigureAwait(false);
         await Write(context, result.State == GatewayApplicationReadState.Found
             ? TypedResults.Json(result.Value!, GatewayAdminJsonContext.Default.GatewayRevisionComparison)
             : NotFound(context)).ConfigureAwait(false);
@@ -131,7 +131,7 @@ public static partial class GatewayAdminEndpointRouteBuilderExtensions
         string ns = Route(context, "ns"), target = Route(context, "target"), revision = Route(context, "revision");
         if (!await AdmitTarget(context, ns, target, revision).ConfigureAwait(false)) return;
         var result = await context.RequestServices.GetRequiredService<IGatewayManagementApplication>()
-            .ExportAsync(ns, revision, context.RequestAborted).ConfigureAwait(false);
+            .ExportAsync(ns, target, revision, context.RequestAborted).ConfigureAwait(false);
         if (result.State == GatewayApplicationReadState.Gone)
         { await Write(context, Error(context, 410, "gateway.admin.content.gone", "The retained content is unavailable.")); return; }
         if (result.State != GatewayApplicationReadState.Found) { await Write(context, NotFound(context)); return; }
@@ -223,7 +223,10 @@ public static partial class GatewayAdminEndpointRouteBuilderExtensions
         string ns = Route(context, "ns"), target = Route(context, "target");
         if (!await AdmitTarget(context, ns, target).ConfigureAwait(false)) return;
         GatewayNodeEffectiveObservation? observation = context.RequestServices.GetRequiredService<IGatewayNodeEffectiveReader>().GetCurrent();
-        await Write(context, observation is null ? NotFound(context) : TypedResults.Json(observation.Snapshot,
+        bool matches = observation is not null &&
+            StringComparer.Ordinal.Equals(observation.NamespaceId, ns) &&
+            StringComparer.Ordinal.Equals(observation.TargetNodeId, target);
+        await Write(context, !matches ? NotFound(context) : TypedResults.Json(observation!.Snapshot,
             GatewayAdminJsonContext.Default.GatewayEffectiveSnapshot)).ConfigureAwait(false);
     }
 
@@ -245,8 +248,12 @@ public static partial class GatewayAdminEndpointRouteBuilderExtensions
     private static async ValueTask<bool> AuthorizeOrNotFound(HttpContext context, string ns, string? target, GatewayAdminResourceKind kind)
     {
         bool allowed = await AuthorizeResource(context, context.RequestServices.GetRequiredService<IAuthorizationService>(), ns, target, kind).ConfigureAwait(false);
-        if (!allowed) await Write(context, NotFound(context));
-        return allowed;
+        if (!allowed) { await Write(context, NotFound(context)); return false; }
+        if (kind == GatewayAdminResourceKind.Target && target is not null &&
+            !await context.RequestServices.GetRequiredService<IGatewayManagementReader>()
+                .OwnsTargetAsync(ns, target, context.RequestAborted).ConfigureAwait(false))
+        { await Write(context, NotFound(context)); return false; }
+        return true;
     }
 
     private static ValueTask<GatewayAdminRequestAttribution> Attribution(HttpContext context, string capability) =>

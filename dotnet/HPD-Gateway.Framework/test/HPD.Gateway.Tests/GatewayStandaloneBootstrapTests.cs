@@ -117,6 +117,8 @@ public sealed class GatewayStandaloneBootstrapTests
                 SchemaVersion = "hpd.gateway.standalone/v2",
                 HostConfigurationPath = Path.Combine(Directory, "host.json"),
                 GatewayConfigurationPath = Path.Combine(Directory, "gateway.json"),
+                NamespaceId = "namespace",
+                TargetNodeId = "node",
                 CandidateId = new("candidate"),
                 AuthorityId = "authority",
                 AuthorityEpoch = "epoch",
@@ -130,6 +132,7 @@ public sealed class GatewayStandaloneBootstrapTests
                     DesiredStateTokenKeyHex = new string('3', 64),
                     JwtAuthority = "https://issuer.example",
                     JwtAudience = "hpd-gateway",
+                    JwtSigningKeyHex = new string('4', 64),
                 },
                 Certificates =
                 [

@@ -1,3 +1,4 @@
+using HPD.Gateway.Abstractions.Serialization;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Gateway.Admin;
@@ -8,7 +9,13 @@ public static class GatewayAdminServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
         services.AddProblemDetails();
-        services.AddOpenApi("hpd-gateway-v1");
+        services.ConfigureHttpJsonOptions(options =>
+        {
+            options.SerializerOptions.TypeInfoResolverChain.Insert(0, GatewayJsonSerializerContext.Default);
+            options.SerializerOptions.TypeInfoResolverChain.Insert(0, GatewayAdminJsonContext.Default);
+        });
+        services.AddOpenApi("hpd-gateway-v1", options =>
+            options.AddDocumentTransformer<GatewayAdminOpenApiDocumentTransformer>());
         services.AddSingleton<GatewayBackupSinkRegistry>();
         return services;
     }

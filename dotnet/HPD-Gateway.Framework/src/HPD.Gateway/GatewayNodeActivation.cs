@@ -8,6 +8,8 @@ using HPD.Gateway.Yarp;
 namespace HPD.Gateway;
 
 public sealed record GatewayNodeActivationRequest(
+    string NamespaceId,
+    string TargetNodeId,
     CandidateId CandidateId,
     string AuthorityId,
     string AuthorityEpoch,
@@ -44,6 +46,8 @@ public interface IGatewayNodeActivator
 }
 
 public sealed record GatewayNodeEffectiveObservation(
+    string NamespaceId,
+    string TargetNodeId,
     GatewayEffectiveSnapshot Snapshot,
     DateTimeOffset AcknowledgedAt);
 
@@ -116,6 +120,7 @@ internal sealed class GatewayNodeActivator(
                 cancellationToken).ConfigureAwait(false);
             if (publication.State == GatewayPublicationState.ActiveAcknowledged)
                 Volatile.Write(ref _effective, new GatewayNodeEffectiveObservation(
+                    request.NamespaceId, request.TargetNodeId,
                     materialized.EffectiveSnapshot!, publication.Active!.AcknowledgedAt));
             return new GatewayNodeActivationResult(
                 GatewayNodeActivationState.PublicationCompleted,
@@ -143,6 +148,8 @@ internal sealed class GatewayNodeActivator(
         GatewayNodeActivationRequest request)
     {
         var errors = ImmutableArray.CreateBuilder<GatewayNodeActivationDiagnostic>();
+        ValidateAuthority(request.NamespaceId, "namespaceId", errors);
+        ValidateAuthority(request.TargetNodeId, "targetNodeId", errors);
         if (!GatewayIdentifier.IsCanonical(request.CandidateId.Value))
             errors.Add(new("activation.candidate-id-invalid", "candidateId", "Candidate identity is not canonical."));
         ValidateAuthority(request.AuthorityId, "authorityId", errors);

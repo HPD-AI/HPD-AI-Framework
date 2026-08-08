@@ -95,6 +95,7 @@ public sealed class GatewayAuthoritySchemaTests
         var receipt = new GatewayCommandReceipt
         {
             NamespaceId = "namespace",
+            TargetNodeId = "node",
             Operation = "submit",
             IdempotencyKey = "key",
             Fingerprint = source,

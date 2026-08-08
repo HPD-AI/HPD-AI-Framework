@@ -19,6 +19,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Threading.RateLimiting;
+using System.Net.Http.Headers;
+using System.Text.Json;
 using Xunit;
 
 namespace HPD.Gateway.Tests;
@@ -59,7 +61,50 @@ public sealed class GatewayAdminHttpTests
         body.ToLowerInvariant().Should().NotContain("policy");
     }
 
-    private static WebApplication Build(bool resourceAllowed)
+    [Fact]
+    public async Task Body_contract_rejects_missing_media_type_and_oversize_with_gateway_envelopes()
+    {
+        await using WebApplication application = Build(resourceAllowed: true);
+        await application.StartAsync();
+        HttpClient client = application.GetTestClient();
+
+        using var missingType = new HttpRequestMessage(HttpMethod.Post, "/management/gateway/v1/candidates:validate")
+        {
+            Content = new ByteArrayContent("{}"u8.ToArray()),
+        };
+        HttpResponseMessage unsupported = await client.SendAsync(missingType);
+        unsupported.StatusCode.Should().Be(HttpStatusCode.UnsupportedMediaType);
+        (await unsupported.Content.ReadAsStringAsync()).Should().Contain("gateway.admin.media.unsupported");
+
+        using var oversize = new HttpRequestMessage(HttpMethod.Post, "/management/gateway/v1/candidates:validate")
+        {
+            Content = new ByteArrayContent(new byte[4 * 1024 * 1024 + 1]),
+        };
+        oversize.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+        HttpResponseMessage tooLarge = await client.SendAsync(oversize);
+        tooLarge.StatusCode.Should().Be(HttpStatusCode.RequestEntityTooLarge);
+        (await tooLarge.Content.ReadAsStringAsync()).Should().Contain("gateway.admin.request.tooLarge");
+    }
+
+    [Fact]
+    public async Task Generated_openapi_contains_the_complete_typed_ledger()
+    {
+        await using WebApplication application = Build(resourceAllowed: true, mapOpenApi: true);
+        await application.StartAsync();
+        string json = await application.GetTestClient().GetStringAsync("/openapi/hpd-gateway-v1.json");
+        using JsonDocument document = JsonDocument.Parse(json);
+        JsonElement paths = document.RootElement.GetProperty("paths");
+
+        paths.EnumerateObject().SelectMany(static path => path.Value.EnumerateObject())
+            .Should().HaveCount(22);
+        paths.GetProperty("/management/gateway/v1/namespaces/{ns}/targets/{target}/revisions")
+            .GetProperty("post").GetProperty("responses").TryGetProperty("201", out _).Should().BeTrue();
+        paths.GetProperty("/management/gateway/v1/candidates:validate")
+            .GetProperty("post").GetProperty("requestBody").GetProperty("content")
+            .TryGetProperty("application/json", out _).Should().BeTrue();
+    }
+
+    private static WebApplication Build(bool resourceAllowed, bool mapOpenApi = false)
     {
         WebApplicationBuilder builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
@@ -82,6 +127,7 @@ public sealed class GatewayAdminHttpTests
         builder.Services.AddHpdGateway(static gateway => gateway.AddCoreFamilies());
         builder.Services.AddHpdGatewayManagement();
         builder.Services.AddHpdGatewayAdmin();
+        if (mapOpenApi) builder.Services.AddOpenApi("hpd-gateway-v1");
         WebApplication app = builder.Build();
         app.UseRouting();
         app.Use((context, next) =>
@@ -103,6 +149,7 @@ public sealed class GatewayAdminHttpTests
             CapabilityPolicies = GatewayAdminCapabilities.All.ToImmutableDictionary(
                 static capability => capability, static capability => capability, StringComparer.Ordinal),
         });
+        if (mapOpenApi) app.MapOpenApi();
         return app;
     }
 

@@ -98,6 +98,8 @@ internal sealed class GatewayDeliveryCoordinator(
                     .GetAsync(RecordId.Create(intent.Value.RevisionId), cancellationToken)
                     .ConfigureAwait(false)).RequireValue();
                 GatewayNodeActivationResult node = await activator.ActivateAsync(new GatewayNodeActivationRequest(
+                    intent.Value.NamespaceId,
+                    intent.Value.TargetNodeId,
                     new CandidateId(intent.Value.CandidateId),
                     intent.Value.AuthorityId,
                     intent.Value.AuthorityEpoch,
@@ -280,7 +282,14 @@ internal sealed class GatewayManagementReconciliationWorker(
         {
             if (!await RunDelivery(stoppingToken).ConfigureAwait(false)) break;
             if (!await RunAdministration(stoppingToken).ConfigureAwait(false)) break;
-            if (!await timer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false)) break;
+            try
+            {
+                if (!await timer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false)) break;
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                break;
+            }
         }
     }
 

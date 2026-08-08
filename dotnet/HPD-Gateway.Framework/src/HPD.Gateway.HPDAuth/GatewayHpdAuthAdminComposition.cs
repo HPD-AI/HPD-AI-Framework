@@ -17,35 +17,20 @@ public static class GatewayHpdAuthAdminServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         ArgumentException.ThrowIfNullOrWhiteSpace(controlPlaneProfile);
         services.AddSingleton(new GatewayHpdAuthAdminOptions(controlPlaneProfile));
-        services.TryAddSingleton<GatewayHpdAuthAdminBridge>();
-        services.Replace(ServiceDescriptor.Singleton<IGatewayAdminActorProjector>(static provider =>
-            provider.GetRequiredService<GatewayHpdAuthAdminBridge>()));
-        services.Replace(ServiceDescriptor.Singleton<IGatewayAdminSecurityMetadataProvider>(static provider =>
-            provider.GetRequiredService<GatewayHpdAuthAdminBridge>()));
+        services.Replace(ServiceDescriptor.Scoped<IGatewayAdminActorProjector, GatewayHpdAuthAdminActorProjector>());
+        services.Replace(ServiceDescriptor.Singleton<IGatewayAdminSecurityMetadataProvider, GatewayHpdAuthAdminSecurityMetadataProvider>());
         return services;
     }
 }
 
 internal sealed record GatewayHpdAuthAdminOptions(string Profile);
 
-internal sealed class GatewayHpdAuthAdminBridge(
+internal sealed class GatewayHpdAuthAdminActorProjector(
     GatewayHpdAuthAdminOptions options,
     IAuthenticatedActorProjector actors,
     IAuthCorrelationContext correlation,
-    ControlPlaneRegistry registry) : IGatewayAdminActorProjector, IGatewayAdminSecurityMetadataProvider
+    ControlPlaneRegistry registry) : IGatewayAdminActorProjector
 {
-    public void Validate(GatewayAdminEndpointOptions endpointOptions)
-    {
-        ControlPlaneProfile profile = registry.GetProfile(options.Profile);
-        if (!StringComparer.Ordinal.Equals(endpointOptions.AuthenticationScheme, profile.AuthenticationScheme) ||
-            !StringComparer.Ordinal.Equals(endpointOptions.RateLimitPolicy, profile.RateLimitPolicy) ||
-            !StringComparer.Ordinal.Equals(endpointOptions.RequestTimeoutPolicy, profile.RequestTimeoutPolicy))
-            throw new InvalidOperationException("The Gateway Admin endpoint options do not match the selected HPD.Auth control-plane profile.");
-        foreach (string capability in GatewayAdminCapabilities.All)
-            if (!StringComparer.Ordinal.Equals(endpointOptions.CapabilityPolicies[capability], registry.GetAuthorizationPolicy(capability)))
-                throw new InvalidOperationException("The Gateway Admin capability mapping does not match HPD.Auth authority.");
-    }
-
     public async ValueTask<GatewayAdminRequestAttribution> ProjectAsync(
         HttpContext context, string capability, CancellationToken cancellationToken = default)
     {
@@ -58,6 +43,23 @@ internal sealed class GatewayHpdAuthAdminBridge(
             new string(policy.AsSpan()),
             correlation.RequireGatewayCorrelation(),
             projection.TenantId is null ? null : new string(projection.TenantId.AsSpan()));
+    }
+}
+
+internal sealed class GatewayHpdAuthAdminSecurityMetadataProvider(
+    GatewayHpdAuthAdminOptions options,
+    ControlPlaneRegistry registry) : IGatewayAdminSecurityMetadataProvider
+{
+    public void Validate(GatewayAdminEndpointOptions endpointOptions)
+    {
+        ControlPlaneProfile profile = registry.GetProfile(options.Profile);
+        if (!StringComparer.Ordinal.Equals(endpointOptions.AuthenticationScheme, profile.AuthenticationScheme) ||
+            !StringComparer.Ordinal.Equals(endpointOptions.RateLimitPolicy, profile.RateLimitPolicy) ||
+            !StringComparer.Ordinal.Equals(endpointOptions.RequestTimeoutPolicy, profile.RequestTimeoutPolicy))
+            throw new InvalidOperationException("The Gateway Admin endpoint options do not match the selected HPD.Auth control-plane profile.");
+        foreach (string capability in GatewayAdminCapabilities.All)
+            if (!StringComparer.Ordinal.Equals(endpointOptions.CapabilityPolicies[capability], registry.GetAuthorizationPolicy(capability)))
+                throw new InvalidOperationException("The Gateway Admin capability mapping does not match HPD.Auth authority.");
     }
 
     public void ApplyGroup(IEndpointConventionBuilder group) =>

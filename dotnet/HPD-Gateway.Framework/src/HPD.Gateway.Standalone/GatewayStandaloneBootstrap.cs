@@ -13,6 +13,8 @@ internal sealed record GatewayStandaloneBootstrap
     public required string SchemaVersion { get; init; }
     public required string HostConfigurationPath { get; init; }
     public required string GatewayConfigurationPath { get; init; }
+    public required string NamespaceId { get; init; }
+    public required string TargetNodeId { get; init; }
     public required CandidateId CandidateId { get; init; }
     public required string AuthorityId { get; init; }
     public required string AuthorityEpoch { get; init; }
@@ -30,6 +32,7 @@ internal sealed record GatewayStandaloneManagement
     public required string DesiredStateTokenKeyHex { get; init; }
     public required string JwtAuthority { get; init; }
     public required string JwtAudience { get; init; }
+    public required string JwtSigningKeyHex { get; init; }
 }
 
 internal sealed record GatewayStandaloneCertificateSource
@@ -107,6 +110,8 @@ internal static class GatewayStandaloneBootstrapReader
         return new GatewayStandaloneInputs(
             host.Candidate!,
             new GatewayNodeActivationRequest(
+                bootstrap.NamespaceId,
+                bootstrap.TargetNodeId,
                 bootstrap.CandidateId,
                 bootstrap.AuthorityId,
                 bootstrap.AuthorityEpoch,
@@ -136,6 +141,8 @@ internal static class GatewayStandaloneBootstrapReader
         ValidatePath(bootstrap.HostConfigurationPath);
         ValidatePath(bootstrap.GatewayConfigurationPath);
         if (!GatewayIdentifier.IsCanonical(bootstrap.CandidateId.Value) ||
+            !BoundedIdentity(bootstrap.NamespaceId) ||
+            !BoundedIdentity(bootstrap.TargetNodeId) ||
             !BoundedIdentity(bootstrap.AuthorityId) ||
             !BoundedIdentity(bootstrap.AuthorityEpoch) ||
             bootstrap.AuthorityVersion == 0)
@@ -170,6 +177,7 @@ internal static class GatewayStandaloneBootstrapReader
         ValidateKey(management.PlanProtectionKeyHex);
         ValidateKey(management.TokenProtectionKeyHex);
         ValidateKey(management.DesiredStateTokenKeyHex);
+        ValidateKey(management.JwtSigningKeyHex);
     }
 
     private static void ValidateKey(string value)

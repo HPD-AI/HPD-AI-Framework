@@ -858,8 +858,8 @@ static async Task SmokeManagementRuntimeAsync()
 
     object[] records =
     [
-        new GatewayAcceptedRevision { NamespaceId = "ns", ContentHashAlgorithm = "sha-256", ContentHashValue = "hash", CanonicalConfigurationUtf8 = [1], SchemaVersion = "1.0", CanonicalizationVersion = "1", ValidationId = "validation", ActorId = "actor", SourceKind = "code", SourceId = "source", CorrelationId = "correlation" },
-        new GatewayValidationRecord { NamespaceId = "ns", Outcome = GatewayValidationOutcome.Valid, ContentHashValue = "hash", DiagnosticsJson = [], CorrelationId = "correlation" },
+        new GatewayAcceptedRevision { NamespaceId = "ns", TargetNodeId = "node", ContentHashAlgorithm = "sha-256", ContentHashValue = "hash", CanonicalConfigurationUtf8 = [1], SchemaVersion = "1.0", CanonicalizationVersion = "1", ValidationId = "validation", ActorId = "actor", SourceKind = "code", SourceId = "source", CorrelationId = "correlation" },
+        new GatewayValidationRecord { NamespaceId = "ns", TargetNodeId = "node", Outcome = GatewayValidationOutcome.Valid, ContentHashValue = "hash", DiagnosticsJson = [], CorrelationId = "correlation" },
         new GatewayAdministrativeAuditRecord { NamespaceId = "ns", ActorId = "actor", AuthenticationScheme = "test", AuthorizationPolicy = "admin", Operation = "submit", ResultCode = "accepted", CorrelationId = "correlation", SubjectId = "revision" },
         new GatewayTargetOwnership { ManagementAuthorityId = "management", TargetNodeId = "node", NamespaceId = "ns" },
         new GatewayTargetEpochReservation { ManagementAuthorityId = "management", TargetNodeId = "node", AuthorityEpoch = "epoch", ContractVersion = "gateway.management.epoch-reservation.v1" },
@@ -869,7 +869,7 @@ static async Task SmokeManagementRuntimeAsync()
         new GatewayActivationIntent { NamespaceId = "ns", TargetNodeId = "node", RevisionId = "revision", CandidateId = "candidate", ContentHashValue = "hash", AuthorityId = "authority", AuthorityEpoch = "epoch", AuthorityVersion = 1 },
         new GatewayDeliveryOutboxItem { NamespaceId = "ns", TargetNodeId = "node", ActivationIntentId = "intent", State = GatewayDeliveryState.Immediate, AttemptCount = 0 },
         new GatewayNodeActivationOutcome { NamespaceId = "ns", TargetNodeId = "node", ActivationIntentId = "intent", AuthorityId = "authority", AuthorityEpoch = "epoch", AuthorityVersion = 1, Kind = GatewayNodeOutcomeKind.ActiveAcknowledged, Code = "active" },
-        new GatewayCommandReceipt { NamespaceId = "ns", Operation = "submit", IdempotencyKey = "key", Fingerprint = new byte[32], StableResultCode = "accepted", StableOperationId = "revision" },
+        new GatewayCommandReceipt { NamespaceId = "ns", TargetNodeId = "node", Operation = "submit", IdempotencyKey = "key", Fingerprint = new byte[32], StableResultCode = "accepted", StableOperationId = "revision" },
         new GatewayAdministrativeOperationIntent { NamespaceId = "ns", Operation = GatewayAdministrativeOperationKind.Backup, ActorId = "actor", AuthenticationScheme = "test", AuthorizationPolicy = "admin", SubjectDigest = "digest" },
         new GatewayAdministrativeOperationObservation { IntentId = "admin", Kind = GatewayAdministrativeObservationKind.Succeeded, ResultCode = "created", ResultJson = [] },
         new GatewayAdministrativeOperationCompletion { IntentId = "admin", ObservationId = "observation", State = GatewayAdministrativeCompletionState.Completed },

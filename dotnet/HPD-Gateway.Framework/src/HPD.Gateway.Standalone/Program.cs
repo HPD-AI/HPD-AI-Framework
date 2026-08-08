@@ -16,6 +16,7 @@ using HPD.Gateway.Standalone;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
 using System.Threading.RateLimiting;
+using Microsoft.IdentityModel.Tokens;
 
 if (args.Length != 1)
     throw new InvalidOperationException("Usage: HPD.Gateway.Standalone <absolute-bootstrap-json-path>");
@@ -56,16 +57,29 @@ const string adminPolicy = "gateway-management-access";
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
-        options.Authority = inputs.Management.JwtAuthority;
-        options.Audience = inputs.Management.JwtAudience;
-        options.RequireHttpsMetadata = true;
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidIssuer = inputs.Management.JwtAuthority,
+            ValidateAudience = true,
+            ValidAudience = inputs.Management.JwtAudience,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = new SymmetricSecurityKey(Convert.FromHexString(inputs.Management.JwtSigningKeyHex)),
+        };
     });
 builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy(adminPolicy, policy => policy.RequireAuthenticatedUser());
-    options.AddPolicy(GatewayAdminResourcePolicies.Namespace, policy => policy.RequireAuthenticatedUser());
-    options.AddPolicy(GatewayAdminResourcePolicies.Target, policy => policy.RequireAuthenticatedUser());
-    options.AddPolicy(GatewayAdminResourcePolicies.Administration, policy => policy.RequireAuthenticatedUser());
+    options.AddPolicy(GatewayAdminResourcePolicies.Namespace, policy => policy
+        .RequireAuthenticatedUser()
+        .RequireAssertion(OwnsNamespace));
+    options.AddPolicy(GatewayAdminResourcePolicies.Target, policy => policy
+        .RequireAuthenticatedUser()
+        .RequireAssertion(OwnsNamespace));
+    options.AddPolicy(GatewayAdminResourcePolicies.Administration, policy => policy
+        .RequireAuthenticatedUser()
+        .RequireAssertion(OwnsNamespace));
 });
 builder.Services.AddRateLimiter(options => options.AddFixedWindowLimiter(adminProfile, limiter =>
 {
@@ -93,6 +107,7 @@ builder.Services.AddHPDControlPlane(options =>
 builder.Services.AddHPDControlPlaneOpenApi("hpd-gateway-v1");
 builder.Services.AddHpdGatewayAdmin();
 builder.Services.AddHpdGatewayAdminHpdAuth(adminProfile);
+builder.Services.AddSingleton(new StandaloneManagedTarget(inputs.InitialCandidate.NamespaceId, inputs.InitialCandidate.TargetNodeId));
 builder.Services.AddHostedService<StandaloneManagementInitializer>();
 builder.Services.AddHpdGatewayManagement(options =>
 {
@@ -136,11 +151,22 @@ application.MapHpdGatewayAdmin(new GatewayAdminEndpointOptions
     CapabilityPolicies = GatewayAdminCapabilities.All.ToImmutableDictionary(
         static capability => capability, static _ => adminPolicy, StringComparer.Ordinal),
 });
+application.MapOpenApi()
+    .WithHpdGatewayEndpointRole(GatewayListenerRole.Management, "gateway-admin-v1", requireListenerFeature: true)
+    .RequireAuthorization(adminPolicy);
+application.ValidateHpdGatewayEndpointRoles();
 await application.RunAsync();
+
+static bool OwnsNamespace(Microsoft.AspNetCore.Authorization.AuthorizationHandlerContext context) =>
+    context.Resource is GatewayAdminResource resource &&
+    context.User.FindAll("hpd_namespace").Select(static claim => claim.Value)
+        .Contains(resource.NamespaceId, StringComparer.Ordinal);
 
 internal sealed class StandaloneManagementInitializer(
     IBaseSchemaManager schemas,
-    IGatewayAuthorityRuntime authority) : IHostedService
+    IGatewayAuthorityRuntime authority,
+    IGatewayManagementCommandCoordinator commands,
+    StandaloneManagedTarget target) : IHostedService
 {
     public async Task StartAsync(CancellationToken cancellationToken)
     {
@@ -156,10 +182,18 @@ internal sealed class StandaloneManagementInitializer(
         if (!applied.IsSuccess())
             throw new InvalidOperationException("The Gateway management schema could not be applied.");
         await authority.InitializeAsync(cancellationToken).ConfigureAwait(false);
+        GatewayManagementCommandResult provisioned = await commands.ProvisionLocalTargetAsync(new(
+            target.NamespaceId, target.TargetNodeId, "standalone-initial-provision",
+            new GatewayManagementActor("hpd.gateway.standalone", "system", GatewayAdminCapabilities.TargetProvision),
+            "standalone-startup"), cancellationToken).ConfigureAwait(false);
+        if (!provisioned.IsAccepted)
+            throw new InvalidOperationException("The standalone managed target could not be provisioned.");
     }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 }
+
+internal sealed record StandaloneManagedTarget(string NamespaceId, string TargetNodeId);
 
 internal sealed class StandaloneUnencodedInspector : IGatewayRequestInspector
 {

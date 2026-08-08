@@ -25,6 +25,10 @@ public sealed record GatewayDesiredProjection(
 
 public interface IGatewayManagementReader
 {
+    ValueTask<bool> OwnsTargetAsync(
+        string namespaceId,
+        string targetNodeId,
+        CancellationToken cancellationToken = default);
     ValueTask<GatewayManagedRecord<GatewayDesiredState>?> GetDesiredAsync(
         string targetNodeId,
         CancellationToken cancellationToken = default);
@@ -34,6 +38,7 @@ public interface IGatewayManagementReader
         CancellationToken cancellationToken = default);
     ValueTask<GatewayManagedRecord<GatewayCommandReceipt>?> FindByIdempotencyAsync(
         string namespaceId,
+        string targetNodeId,
         string operation,
         string idempotencyKey,
         CancellationToken cancellationToken = default);
@@ -43,14 +48,17 @@ public interface IGatewayManagementReader
         CancellationToken cancellationToken = default);
     ValueTask<GatewayManagedRecord<GatewayAcceptedRevision>?> GetRevisionAsync(
         string namespaceId,
+        string targetNodeId,
         string revisionId,
         CancellationToken cancellationToken = default);
     ValueTask<GatewayManagedRecord<GatewayValidationRecord>?> GetValidationAsync(
         string namespaceId,
+        string targetNodeId,
         string validationId,
         CancellationToken cancellationToken = default);
     ValueTask<GatewayManagedPage<GatewayAcceptedRevision>> ListRevisionsAsync(
         string namespaceId,
+        string targetNodeId,
         int maximum,
         string? continuationToken = null,
         CancellationToken cancellationToken = default);
@@ -78,6 +86,21 @@ internal sealed class GatewayManagementReader(
     IBaseSessionFactory sessions,
     GatewayManagementOptions options) : IGatewayManagementReader
 {
+    public async ValueTask<bool> OwnsTargetAsync(
+        string namespaceId, string targetNodeId, CancellationToken cancellationToken = default)
+    {
+        Validate(namespaceId, nameof(namespaceId));
+        Validate(targetNodeId, nameof(targetNodeId));
+        await authority.InitializeAsync(cancellationToken).ConfigureAwait(false);
+        BaseResult<BaseRecord<GatewayTargetOwnership>> result = await Session(namespaceId)
+            .Collection(GatewayTargetOwnership.Collection)
+            .GetAsync(GatewayAuthorityRecordIds.TargetOwnership(options.ManagementAuthorityId, targetNodeId), cancellationToken)
+            .ConfigureAwait(false);
+        return result.TryGetValue(out BaseRecord<GatewayTargetOwnership>? record) &&
+            StringComparer.Ordinal.Equals(record!.Value.NamespaceId, namespaceId) &&
+            StringComparer.Ordinal.Equals(record.Value.TargetNodeId, targetNodeId) &&
+            StringComparer.Ordinal.Equals(record.Value.ManagementAuthorityId, options.ManagementAuthorityId);
+    }
     public async ValueTask<GatewayDesiredProjection?> GetDesiredProjectionAsync(
         string namespaceId, string targetNodeId, CancellationToken cancellationToken = default)
     {
@@ -101,18 +124,25 @@ internal sealed class GatewayManagementReader(
     }
 
     public async ValueTask<GatewayManagedRecord<GatewayCommandReceipt>?> FindByIdempotencyAsync(
-        string namespaceId, string operation, string idempotencyKey,
+        string namespaceId, string targetNodeId, string operation, string idempotencyKey,
         CancellationToken cancellationToken = default)
     {
         Validate(namespaceId, nameof(namespaceId));
+        Validate(targetNodeId, nameof(targetNodeId));
         Validate(operation, nameof(operation));
         Validate(idempotencyKey, nameof(idempotencyKey));
         await authority.InitializeAsync(cancellationToken).ConfigureAwait(false);
         BaseRecord<GatewayCommandReceipt>[] records = (await Session(namespaceId)
-            .Collection(GatewayCommandReceipt.Collection).Query().Take(256).ToArrayAsync(256, cancellationToken)
+            .Collection(GatewayCommandReceipt.Collection).Query()
+            .Where(GatewayCommandReceipt.Fields.NamespaceId, namespaceId)
+            .Where(GatewayCommandReceipt.Fields.TargetNodeId, targetNodeId)
+            .Where(GatewayCommandReceipt.Fields.Operation, operation)
+            .Where(GatewayCommandReceipt.Fields.IdempotencyKey, idempotencyKey)
+            .Take(2).ToArrayAsync(2, cancellationToken)
             .ConfigureAwait(false)).RequireValue();
         BaseRecord<GatewayCommandReceipt>? match = records.SingleOrDefault(record =>
             StringComparer.Ordinal.Equals(record.Value.NamespaceId, namespaceId) &&
+            StringComparer.Ordinal.Equals(record.Value.TargetNodeId, targetNodeId) &&
             StringComparer.Ordinal.Equals(record.Value.Operation, operation) &&
             StringComparer.Ordinal.Equals(record.Value.IdempotencyKey, idempotencyKey));
         return match is null ? null : Project(match);
@@ -138,30 +168,34 @@ internal sealed class GatewayManagementReader(
     }
 
     public ValueTask<GatewayManagedRecord<GatewayAcceptedRevision>?> GetRevisionAsync(
-        string namespaceId, string revisionId, CancellationToken cancellationToken = default) =>
-        Get(namespaceId, revisionId, Session(namespaceId).Collection(GatewayAcceptedRevision.Collection),
-            static value => value.NamespaceId, cancellationToken);
+        string namespaceId, string targetNodeId, string revisionId, CancellationToken cancellationToken = default) =>
+        GetTarget(namespaceId, targetNodeId, revisionId, Session(namespaceId).Collection(GatewayAcceptedRevision.Collection),
+            static value => value.NamespaceId, static value => value.TargetNodeId, cancellationToken);
 
     public ValueTask<GatewayManagedRecord<GatewayValidationRecord>?> GetValidationAsync(
-        string namespaceId, string validationId, CancellationToken cancellationToken = default) =>
-        Get(namespaceId, validationId, Session(namespaceId).Collection(GatewayValidationRecord.Collection),
-            static value => value.NamespaceId, cancellationToken);
+        string namespaceId, string targetNodeId, string validationId, CancellationToken cancellationToken = default) =>
+        GetTarget(namespaceId, targetNodeId, validationId, Session(namespaceId).Collection(GatewayValidationRecord.Collection),
+            static value => value.NamespaceId, static value => value.TargetNodeId, cancellationToken);
 
     public ValueTask<GatewayManagedPage<GatewayAcceptedRevision>> ListRevisionsAsync(
-        string namespaceId, int maximum, string? continuationToken = null,
-        CancellationToken cancellationToken = default) =>
-        Page(
-            namespaceId, maximum, continuationToken,
-            Session(namespaceId).Collection(GatewayAcceptedRevision.Collection).Query(),
-            static value => value.NamespaceId,
-            cancellationToken);
+        string namespaceId, string targetNodeId, int maximum, string? continuationToken = null,
+        CancellationToken cancellationToken = default)
+    {
+        Validate(targetNodeId, nameof(targetNodeId));
+        return Page(namespaceId, maximum, continuationToken,
+            Session(namespaceId).Collection(GatewayAcceptedRevision.Collection).Query()
+                .Where(GatewayAcceptedRevision.Fields.NamespaceId, namespaceId)
+                .Where(GatewayAcceptedRevision.Fields.TargetNodeId, targetNodeId),
+            static value => value.NamespaceId, cancellationToken);
+    }
 
     public ValueTask<GatewayManagedPage<GatewayAdministrativeAuditRecord>> ListAuditAsync(
         string namespaceId, int maximum, string? continuationToken = null,
         CancellationToken cancellationToken = default) =>
         Page(
             namespaceId, maximum, continuationToken,
-            Session(namespaceId).Collection(GatewayAdministrativeAuditRecord.Collection).Query(),
+            Session(namespaceId).Collection(GatewayAdministrativeAuditRecord.Collection).Query()
+                .Where(GatewayAdministrativeAuditRecord.Fields.NamespaceId, namespaceId),
             static value => value.NamespaceId,
             cancellationToken);
 
@@ -171,7 +205,9 @@ internal sealed class GatewayManagementReader(
     {
         Validate(targetNodeId, nameof(targetNodeId));
         return Page(namespaceId, maximum, continuationToken,
-            Session(namespaceId).Collection(GatewayActivationIntent.Collection).Query(),
+            Session(namespaceId).Collection(GatewayActivationIntent.Collection).Query()
+                .Where(GatewayActivationIntent.Fields.NamespaceId, namespaceId)
+                .Where(GatewayActivationIntent.Fields.TargetNodeId, targetNodeId),
             value => StringComparer.Ordinal.Equals(value.TargetNodeId, targetNodeId) ? value.NamespaceId : string.Empty,
             cancellationToken);
     }
@@ -182,7 +218,9 @@ internal sealed class GatewayManagementReader(
     {
         Validate(targetNodeId, nameof(targetNodeId));
         return Page(namespaceId, maximum, continuationToken,
-            Session(namespaceId).Collection(GatewayNodeActivationOutcome.Collection).Query(),
+            Session(namespaceId).Collection(GatewayNodeActivationOutcome.Collection).Query()
+                .Where(GatewayNodeActivationOutcome.Fields.NamespaceId, namespaceId)
+                .Where(GatewayNodeActivationOutcome.Fields.TargetNodeId, targetNodeId),
             value => StringComparer.Ordinal.Equals(value.TargetNodeId, targetNodeId) ? value.NamespaceId : string.Empty,
             cancellationToken);
     }
@@ -197,6 +235,22 @@ internal sealed class GatewayManagementReader(
         BaseResult<BaseRecord<T>> result = await collection.GetAsync(RecordId.Create(recordId), cancellationToken).ConfigureAwait(false);
         return result.TryGetValue(out BaseRecord<T>? record) &&
             StringComparer.Ordinal.Equals(namespaceSelector(record!.Value), namespaceId)
+                ? Project(record)
+                : null;
+    }
+
+    private async ValueTask<GatewayManagedRecord<T>?> GetTarget<T>(
+        string namespaceId, string targetNodeId, string recordId, BaseCollectionSession<T> collection,
+        Func<T, string> namespaceSelector, Func<T, string> targetSelector, CancellationToken cancellationToken)
+    {
+        Validate(namespaceId, nameof(namespaceId));
+        Validate(targetNodeId, nameof(targetNodeId));
+        Validate(recordId, nameof(recordId));
+        await authority.InitializeAsync(cancellationToken).ConfigureAwait(false);
+        BaseResult<BaseRecord<T>> result = await collection.GetAsync(RecordId.Create(recordId), cancellationToken).ConfigureAwait(false);
+        return result.TryGetValue(out BaseRecord<T>? record) &&
+            StringComparer.Ordinal.Equals(namespaceSelector(record!.Value), namespaceId) &&
+            StringComparer.Ordinal.Equals(targetSelector(record.Value), targetNodeId)
                 ? Project(record)
                 : null;
     }

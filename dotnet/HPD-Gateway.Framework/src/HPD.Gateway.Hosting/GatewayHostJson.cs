@@ -184,7 +184,9 @@ public static class GatewayHostCandidateReader
                 foreach (GatewaySniTlsDeclaration entry in tls.Sni.IsDefault ? [] : tls.Sni)
                 {
                     string? name = NormalizeSni(entry?.HostnamePattern);
-                    if (entry is null || name is null || !names.Add(name) || !ValidSecret(entry.Certificate))
+                    if (entry is null || name is null ||
+                        listener.Exposure == GatewayManagementExposure.RemoteManaged && name.StartsWith("*.", StringComparison.Ordinal) ||
+                        !names.Add(name) || !ValidSecret(entry.Certificate))
                         Add(errors, "host.invalid-management-sni", $"{path}.tls.sni", "Management SNI entry is invalid or duplicated.");
                     else entries.Add(entry with { HostnamePattern = name });
                 }

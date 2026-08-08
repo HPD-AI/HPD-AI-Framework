@@ -53,9 +53,9 @@ public interface IGatewayManagementApplication
     ValueTask<GatewayManagementCommandResult> ImportAsync(GatewayRevisionMutation mutation, CancellationToken cancellationToken = default);
     ValueTask<GatewayManagementCommandResult> RollbackAsync(GatewayRollbackMutation mutation, CancellationToken cancellationToken = default);
     ValueTask<GatewayApplicationReadResult<GatewayRevisionComparison>> CompareAsync(
-        string namespaceId, string leftRevisionId, string rightRevisionId, CancellationToken cancellationToken = default);
+        string namespaceId, string targetNodeId, string leftRevisionId, string rightRevisionId, CancellationToken cancellationToken = default);
     ValueTask<GatewayApplicationReadResult<GatewayRevisionExport>> ExportAsync(
-        string namespaceId, string revisionId, CancellationToken cancellationToken = default);
+        string namespaceId, string targetNodeId, string revisionId, CancellationToken cancellationToken = default);
 }
 
 internal sealed class GatewayManagementApplication(
@@ -78,7 +78,7 @@ internal sealed class GatewayManagementApplication(
     {
         ArgumentNullException.ThrowIfNull(mutation);
         GatewayManagedRecord<GatewayAcceptedRevision>? revision = await reader.GetRevisionAsync(
-            mutation.NamespaceId, mutation.RevisionId, cancellationToken).ConfigureAwait(false);
+            mutation.NamespaceId, mutation.TargetNodeId, mutation.RevisionId, cancellationToken).ConfigureAwait(false);
         if (revision is null)
             return new(GatewayManagementCommandState.Invalid, "management.revision.not-found");
         return await commands.SubmitAsync(new GatewaySubmitCommand(
@@ -89,11 +89,11 @@ internal sealed class GatewayManagementApplication(
     }
 
     public async ValueTask<GatewayApplicationReadResult<GatewayRevisionComparison>> CompareAsync(
-        string namespaceId, string leftRevisionId, string rightRevisionId,
+        string namespaceId, string targetNodeId, string leftRevisionId, string rightRevisionId,
         CancellationToken cancellationToken = default)
     {
-        GatewayManagedRecord<GatewayAcceptedRevision>? left = await reader.GetRevisionAsync(namespaceId, leftRevisionId, cancellationToken).ConfigureAwait(false);
-        GatewayManagedRecord<GatewayAcceptedRevision>? right = await reader.GetRevisionAsync(namespaceId, rightRevisionId, cancellationToken).ConfigureAwait(false);
+        GatewayManagedRecord<GatewayAcceptedRevision>? left = await reader.GetRevisionAsync(namespaceId, targetNodeId, leftRevisionId, cancellationToken).ConfigureAwait(false);
+        GatewayManagedRecord<GatewayAcceptedRevision>? right = await reader.GetRevisionAsync(namespaceId, targetNodeId, rightRevisionId, cancellationToken).ConfigureAwait(false);
         if (left is null || right is null)
             return new(GatewayApplicationReadState.NotFound, "management.revision.not-found");
         bool equivalent = CryptographicOperations.FixedTimeEquals(
@@ -106,9 +106,9 @@ internal sealed class GatewayManagementApplication(
     }
 
     public async ValueTask<GatewayApplicationReadResult<GatewayRevisionExport>> ExportAsync(
-        string namespaceId, string revisionId, CancellationToken cancellationToken = default)
+        string namespaceId, string targetNodeId, string revisionId, CancellationToken cancellationToken = default)
     {
-        GatewayManagedRecord<GatewayAcceptedRevision>? revision = await reader.GetRevisionAsync(namespaceId, revisionId, cancellationToken).ConfigureAwait(false);
+        GatewayManagedRecord<GatewayAcceptedRevision>? revision = await reader.GetRevisionAsync(namespaceId, targetNodeId, revisionId, cancellationToken).ConfigureAwait(false);
         if (revision is null)
             return new(GatewayApplicationReadState.NotFound, "management.revision.not-found");
         byte[] bytes = revision.Value.CanonicalConfigurationUtf8;

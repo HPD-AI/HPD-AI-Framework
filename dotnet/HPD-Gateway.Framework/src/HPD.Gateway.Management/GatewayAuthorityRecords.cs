@@ -4,11 +4,12 @@ using HPD.Base;
 namespace HPD.Gateway.Management;
 
 [BaseCollection(GatewayAuthoritySchema.AcceptedRevisions, typeof(GatewayManagementJsonContext), MutationMode = BaseCollectionMutationMode.AppendOnlyWithAdministrativePurge)]
-[BaseIndex("gateway.revisions.namespace", nameof(NamespaceId), Required = false)]
+[BaseIndex("gateway.revisions.namespace-target", nameof(NamespaceId), nameof(TargetNodeId), Required = false)]
 public sealed partial record GatewayAcceptedRevision
 {
     private byte[] _canonicalConfigurationUtf8 = [];
     [BaseField("revision.namespace-id")] public required string NamespaceId { get; init; }
+    [BaseField("revision.target-node-id")] public required string TargetNodeId { get; init; }
     [BaseField("revision.content-hash-algorithm")] public required string ContentHashAlgorithm { get; init; }
     [BaseField("revision.content-hash-value")] public required string ContentHashValue { get; init; }
     [BaseField("revision.canonical-configuration")] public required byte[] CanonicalConfigurationUtf8 { get => [.. _canonicalConfigurationUtf8]; init => _canonicalConfigurationUtf8 = value is null ? throw new ArgumentNullException(nameof(value)) : [.. value]; }
@@ -25,11 +26,12 @@ public sealed partial record GatewayAcceptedRevision
 }
 
 [BaseCollection(GatewayAuthoritySchema.ValidationRecords, typeof(GatewayManagementJsonContext), MutationMode = BaseCollectionMutationMode.AppendOnlyWithAdministrativePurge)]
-[BaseIndex("gateway.validations.namespace", nameof(NamespaceId), Required = false)]
+[BaseIndex("gateway.validations.namespace-target", nameof(NamespaceId), nameof(TargetNodeId), Required = false)]
 public sealed partial record GatewayValidationRecord
 {
     private byte[] _diagnosticsJson = [];
     [BaseField("validation.namespace-id")] public required string NamespaceId { get; init; }
+    [BaseField("validation.target-node-id")] public required string TargetNodeId { get; init; }
     [BaseField("validation.outcome")] public required GatewayValidationOutcome Outcome { get; init; }
     [BaseField("validation.content-hash-value")] public string? ContentHashValue { get; init; }
     [BaseField("validation.diagnostics-json")] public required byte[] DiagnosticsJson { get => [.. _diagnosticsJson]; init => _diagnosticsJson = value is null ? throw new ArgumentNullException(nameof(value)) : [.. value]; }
@@ -102,7 +104,7 @@ public sealed partial record GatewayNodeDeliveryAuthorityState
 }
 
 [BaseCollection(GatewayAuthoritySchema.ActivationIntents, typeof(GatewayManagementJsonContext), MutationMode = BaseCollectionMutationMode.AppendOnly)]
-[BaseIndex("gateway.intents.target", nameof(TargetNodeId), Required = false)]
+[BaseIndex("gateway.intents.namespace-target", nameof(NamespaceId), nameof(TargetNodeId), Required = false)]
 public sealed partial record GatewayActivationIntent
 {
     [BaseField("intent.namespace-id")] public required string NamespaceId { get; init; }
@@ -118,6 +120,7 @@ public sealed partial record GatewayActivationIntent
 [BaseCollection(GatewayAuthoritySchema.DeliveryOutbox, typeof(GatewayManagementJsonContext), MutationMode = BaseCollectionMutationMode.Mutable)]
 [BaseIndex("gateway.outbox.state", nameof(State), Required = false)]
 [BaseIndex("gateway.outbox.state-target", nameof(State), nameof(TargetNodeId), Required = false)]
+[BaseIndex("gateway.outbox.namespace-target", nameof(NamespaceId), nameof(TargetNodeId), Required = false)]
 [BaseIndex("gateway.outbox.state-next-attempt", nameof(State), nameof(NextAttemptAt), Required = false)]
 [BaseIndex("gateway.outbox.state-claim-expiry", nameof(State), nameof(ClaimExpiresAt), Required = false)]
 public sealed partial record GatewayDeliveryOutboxItem
@@ -136,6 +139,7 @@ public sealed partial record GatewayDeliveryOutboxItem
 
 [BaseCollection(GatewayAuthoritySchema.NodeOutcomes, typeof(GatewayManagementJsonContext), MutationMode = BaseCollectionMutationMode.AppendOnlyWithAdministrativePurge)]
 [BaseIndex("gateway.outcomes.intent", nameof(ActivationIntentId), Required = false)]
+[BaseIndex("gateway.outcomes.namespace-target", nameof(NamespaceId), nameof(TargetNodeId), Required = false)]
 public sealed partial record GatewayNodeActivationOutcome
 {
     [BaseField("outcome.namespace-id")] public required string NamespaceId { get; init; }
@@ -149,12 +153,13 @@ public sealed partial record GatewayNodeActivationOutcome
 }
 
 [BaseCollection(GatewayAuthoritySchema.CommandReceipts, typeof(GatewayManagementJsonContext), MutationMode = BaseCollectionMutationMode.AppendOnly)]
-[BaseIndex("gateway.receipts.lookup", nameof(NamespaceId), nameof(Operation), nameof(IdempotencyKey), Required = false)]
+[BaseIndex("gateway.receipts.lookup", nameof(NamespaceId), nameof(TargetNodeId), nameof(Operation), nameof(IdempotencyKey), Required = false)]
 [BaseIndex("gateway.receipts.operation", nameof(NamespaceId), nameof(StableOperationId), Required = false)]
 public sealed partial record GatewayCommandReceipt
 {
     private byte[] _fingerprint = [];
     [BaseField("receipt.namespace-id")] public required string NamespaceId { get; init; }
+    [BaseField("receipt.target-node-id")] public required string TargetNodeId { get; init; }
     [BaseField("receipt.operation")] public required string Operation { get; init; }
     [BaseField("receipt.idempotency-key")] public required string IdempotencyKey { get; init; }
     [BaseField("receipt.fingerprint")] public required byte[] Fingerprint { get => [.. _fingerprint]; init => _fingerprint = value is null ? throw new ArgumentNullException(nameof(value)) : [.. value]; }

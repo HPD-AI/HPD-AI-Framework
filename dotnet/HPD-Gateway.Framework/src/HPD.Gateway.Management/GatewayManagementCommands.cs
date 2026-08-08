@@ -113,7 +113,7 @@ internal sealed class GatewayManagementCommandCoordinator(
         {
             BaseSession session = Session(command.Actor, command.NamespaceId, command.CorrelationId);
             RecordId productReceiptId = GatewayAuthorityRecordIds.CommandFact(
-                "receipt", command.NamespaceId, "provision-target", command.IdempotencyKey, ContractVersion);
+                "receipt", command.NamespaceId, "provision-target", command.IdempotencyKey, command.TargetNodeId, ContractVersion);
             bool productReceiptExists = (await session.Collection(GatewayCommandReceipt.Collection)
                 .GetAsync(productReceiptId, cancellationToken).ConfigureAwait(false)).TryGetValue(out _);
             EpochReservationResolution reservation = await ResolveTargetEpochReservationAsync(
@@ -161,7 +161,7 @@ internal sealed class GatewayManagementCommandCoordinator(
                 command.AuthorityEpoch);
             BaseSession session = Session(command.Actor, command.NamespaceId, command.CorrelationId);
             var identity = BaseMutationRequestIdentity.Create(
-                $"gateway:{command.NamespaceId}", "gateway.provision-target", command.IdempotencyKey,
+                $"gateway:{command.NamespaceId}:{command.TargetNodeId}", "gateway.provision-target", command.IdempotencyKey,
                 BaseMutationRequestFingerprint.Create(fingerprint));
             BaseBatchBuilder batch = session.Atomic(identity);
             batch.Create(GatewayTargetOwnership.Collection, ownershipId, new GatewayTargetOwnership
@@ -179,12 +179,12 @@ internal sealed class GatewayManagementCommandCoordinator(
                 AuthorityEpoch = command.AuthorityEpoch,
                 NextAuthorityVersion = 1,
             });
-            RecordId auditId = GatewayAuthorityRecordIds.CommandFact("provision-audit", command.NamespaceId, "provision-target", command.IdempotencyKey, ContractVersion);
+            RecordId auditId = GatewayAuthorityRecordIds.CommandFact("provision-audit", command.NamespaceId, "provision-target", command.IdempotencyKey, command.TargetNodeId, ContractVersion);
             batch.Create(GatewayAdministrativeAuditRecord.Collection, auditId, Audit(
                 command.NamespaceId, command.Actor, "provision-target", "accepted", command.CorrelationId, command.TargetNodeId));
-            RecordId receiptId = GatewayAuthorityRecordIds.CommandFact("receipt", command.NamespaceId, "provision-target", command.IdempotencyKey, ContractVersion);
+            RecordId receiptId = GatewayAuthorityRecordIds.CommandFact("receipt", command.NamespaceId, "provision-target", command.IdempotencyKey, command.TargetNodeId, ContractVersion);
             batch.Create(GatewayCommandReceipt.Collection, receiptId, Receipt(
-                command.NamespaceId, "provision-target", command.IdempotencyKey, fingerprint, "provisioned", ownershipId.Value));
+                command.NamespaceId, command.TargetNodeId, "provision-target", command.IdempotencyKey, fingerprint, "provisioned", ownershipId.Value));
             return await CommitAsync(batch, ownershipId.Value, cancellationToken).ConfigureAwait(false);
     }
 
@@ -211,8 +211,8 @@ internal sealed class GatewayManagementCommandCoordinator(
         if (reservations.Length >= MaximumTargetEpochReservations)
             return new(false, null, GatewayManagementCommandState.Unavailable, "management.epoch-reservation.capacity-exhausted");
 
-        string attemptId = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16));
-        string epoch = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16));
+        string attemptId = DeriveSecret("epoch-attempt", targetNodeId);
+        string epoch = DeriveSecret("authority-epoch", targetNodeId);
         string epochDigest = Convert.ToHexStringLower(SHA256.HashData(Encoding.ASCII.GetBytes(epoch)));
         byte[] fingerprint = Fingerprint(
             "reserve-target-epoch", options.ManagementAuthorityId, targetNodeId, attemptId, epoch);
@@ -345,7 +345,7 @@ internal sealed class GatewayManagementCommandCoordinator(
                 command.Description ?? string.Empty, canonical.ContentHash.Algorithm,
                 canonical.ContentHash.Value, command.ExpectedDesiredStateToken ?? string.Empty,
                 command.DerivedFromRevisionId ?? string.Empty);
-            RecordId receiptId = GatewayAuthorityRecordIds.CommandFact("receipt", command.NamespaceId, operation, command.IdempotencyKey, ContractVersion);
+            RecordId receiptId = GatewayAuthorityRecordIds.CommandFact("receipt", command.NamespaceId, operation, command.IdempotencyKey, command.TargetNodeId, ContractVersion);
             BaseResult<BaseRecord<GatewayCommandReceipt>> priorReceiptResult = await session
                 .Collection(GatewayCommandReceipt.Collection).GetAsync(receiptId, cancellationToken).ConfigureAwait(false);
             if (priorReceiptResult.TryGetValue(out BaseRecord<GatewayCommandReceipt>? priorReceipt))
@@ -363,11 +363,11 @@ internal sealed class GatewayManagementCommandCoordinator(
             if (!command.Activate && command.ExpectedDesiredStateToken is not null)
                 return new(GatewayManagementCommandState.Invalid, "management.desired-token.forbidden");
             var identity = BaseMutationRequestIdentity.Create(
-                $"gateway:{command.NamespaceId}", $"gateway.{operation}", command.IdempotencyKey,
+                $"gateway:{command.NamespaceId}:{command.TargetNodeId}", $"gateway.{operation}", command.IdempotencyKey,
                 BaseMutationRequestFingerprint.Create(fingerprint));
-            RecordId revisionId = GatewayAuthorityRecordIds.CommandFact("revision", command.NamespaceId, operation, command.IdempotencyKey, ContractVersion);
-            RecordId validationId = GatewayAuthorityRecordIds.CommandFact("validation", command.NamespaceId, operation, command.IdempotencyKey, ContractVersion);
-            RecordId auditId = GatewayAuthorityRecordIds.CommandFact("acceptance-audit", command.NamespaceId, operation, command.IdempotencyKey, ContractVersion);
+            RecordId revisionId = GatewayAuthorityRecordIds.CommandFact("revision", command.NamespaceId, operation, command.IdempotencyKey, command.TargetNodeId, ContractVersion);
+            RecordId validationId = GatewayAuthorityRecordIds.CommandFact("validation", command.NamespaceId, operation, command.IdempotencyKey, command.TargetNodeId, ContractVersion);
+            RecordId auditId = GatewayAuthorityRecordIds.CommandFact("acceptance-audit", command.NamespaceId, operation, command.IdempotencyKey, command.TargetNodeId, ContractVersion);
             RecordId intentId = GatewayAuthorityRecordIds.CommandFact("activation-intent", command.NamespaceId, operation, command.IdempotencyKey, command.TargetNodeId, ContractVersion);
             string candidateId = DeriveText("candidate", command.NamespaceId, revisionId.Value, canonical.ContentHash.Value);
             long assignedVersion = delivery.Value.NextAuthorityVersion;
@@ -378,6 +378,7 @@ internal sealed class GatewayManagementCommandCoordinator(
             batch.Create(GatewayValidationRecord.Collection, validationId, new GatewayValidationRecord
             {
                 NamespaceId = command.NamespaceId,
+                TargetNodeId = command.TargetNodeId,
                 Outcome = GatewayValidationOutcome.Valid,
                 ContentHashValue = canonical.ContentHash.Value,
                 DiagnosticsJson = "[]"u8.ToArray(),
@@ -386,6 +387,7 @@ internal sealed class GatewayManagementCommandCoordinator(
             batch.Create(GatewayAcceptedRevision.Collection, revisionId, new GatewayAcceptedRevision
             {
                 NamespaceId = command.NamespaceId,
+                TargetNodeId = command.TargetNodeId,
                 ContentHashAlgorithm = canonical.ContentHash.Algorithm,
                 ContentHashValue = canonical.ContentHash.Value,
                 CanonicalConfigurationUtf8 = canonical.Utf8Json.AsSpan().ToArray(),
@@ -406,7 +408,7 @@ internal sealed class GatewayManagementCommandCoordinator(
             if (!command.Activate)
             {
                 batch.Create(GatewayCommandReceipt.Collection, receiptId, Receipt(
-                    command.NamespaceId, operation, command.IdempotencyKey, fingerprint,
+                    command.NamespaceId, command.TargetNodeId, operation, command.IdempotencyKey, fingerprint,
                     "accepted", revisionId.Value));
                 return await CommitAsync(batch, revisionId.Value, cancellationToken).ConfigureAwait(false);
             }
@@ -453,7 +455,7 @@ internal sealed class GatewayManagementCommandCoordinator(
             });
 
             batch.Create(GatewayCommandReceipt.Collection, receiptId, Receipt(
-                command.NamespaceId, operation, command.IdempotencyKey, fingerprint,
+                command.NamespaceId, command.TargetNodeId, operation, command.IdempotencyKey, fingerprint,
                 "accepted", revisionId.Value, selectedDesiredToken));
             return await CommitDesiredAsync(
                 batch, desiredItem, command.NamespaceId, command.TargetNodeId,
@@ -484,7 +486,8 @@ internal sealed class GatewayManagementCommandCoordinator(
             BaseResult<BaseRecord<GatewayAcceptedRevision>> revisionResult = await session
                 .Collection(GatewayAcceptedRevision.Collection).GetAsync(RecordId.Create(command.RevisionId), cancellationToken).ConfigureAwait(false);
             if (!revisionResult.TryGetValue(out BaseRecord<GatewayAcceptedRevision>? revision) ||
-                !StringComparer.Ordinal.Equals(revision!.Value.NamespaceId, command.NamespaceId))
+                !StringComparer.Ordinal.Equals(revision!.Value.NamespaceId, command.NamespaceId) ||
+                !StringComparer.Ordinal.Equals(revision.Value.TargetNodeId, command.TargetNodeId))
                 return new(GatewayManagementCommandState.Invalid, "management.revision.not-found");
 
             RecordId deliveryId = GatewayAuthorityRecordIds.NodeDeliveryAuthority(options.ManagementAuthorityId, command.TargetNodeId);
@@ -499,7 +502,7 @@ internal sealed class GatewayManagementCommandCoordinator(
                 operation, command.NamespaceId, command.TargetNodeId, command.RevisionId,
                 command.Actor.ActorId, command.Actor.AuthenticationScheme, command.Actor.AuthorizationPolicy,
                 command.CorrelationId, command.ExpectedDesiredStateToken ?? string.Empty);
-            RecordId receiptId = GatewayAuthorityRecordIds.CommandFact("receipt", command.NamespaceId, operation, command.IdempotencyKey, ContractVersion);
+            RecordId receiptId = GatewayAuthorityRecordIds.CommandFact("receipt", command.NamespaceId, operation, command.IdempotencyKey, command.TargetNodeId, ContractVersion);
             BaseResult<BaseRecord<GatewayCommandReceipt>> priorReceiptResult = await session
                 .Collection(GatewayCommandReceipt.Collection).GetAsync(receiptId, cancellationToken).ConfigureAwait(false);
             if (priorReceiptResult.TryGetValue(out BaseRecord<GatewayCommandReceipt>? priorReceipt))
@@ -529,7 +532,7 @@ internal sealed class GatewayManagementCommandCoordinator(
             };
             string selectedDesiredToken = ProtectDesiredToken(nextDesired);
             var identity = BaseMutationRequestIdentity.Create(
-                $"gateway:{command.NamespaceId}", "gateway.activate-existing", command.IdempotencyKey,
+                $"gateway:{command.NamespaceId}:{command.TargetNodeId}", "gateway.activate-existing", command.IdempotencyKey,
                 BaseMutationRequestFingerprint.Create(fingerprint));
             BaseBatchBuilder batch = session.Atomic(identity);
             batch.Replace(GatewayNodeDeliveryAuthorityState.Collection, deliveryId, delivery.Value with
@@ -563,11 +566,11 @@ internal sealed class GatewayManagementCommandCoordinator(
                 desired is null ? RecordUpsertExistenceCondition.CreateOnly : RecordUpsertExistenceCondition.UpdateOnly,
                 desired?.Revision);
             RecordId auditId = GatewayAuthorityRecordIds.CommandFact(
-                "acceptance-audit", command.NamespaceId, operation, command.IdempotencyKey, ContractVersion);
+                "acceptance-audit", command.NamespaceId, operation, command.IdempotencyKey, command.TargetNodeId, ContractVersion);
             batch.Create(GatewayAdministrativeAuditRecord.Collection, auditId, Audit(
                 command.NamespaceId, command.Actor, operation, "accepted", command.CorrelationId, intentId.Value));
             batch.Create(GatewayCommandReceipt.Collection, receiptId, Receipt(
-                command.NamespaceId, operation, command.IdempotencyKey, fingerprint,
+                command.NamespaceId, command.TargetNodeId, operation, command.IdempotencyKey, fingerprint,
                 "accepted", intentId.Value, selectedDesiredToken));
             return await CommitDesiredAsync(batch, desiredItem, command.NamespaceId, command.TargetNodeId,
                 desiredId, intentId.Value, selectedDesiredToken, cancellationToken).ConfigureAwait(false);
@@ -690,10 +693,11 @@ internal sealed class GatewayManagementCommandCoordinator(
     };
 
     private static GatewayCommandReceipt Receipt(
-        string namespaceId, string operation, string key, byte[] fingerprint,
+        string namespaceId, string targetNodeId, string operation, string key, byte[] fingerprint,
         string result, string operationId, string? desiredStateToken = null) => new()
     {
         NamespaceId = namespaceId,
+        TargetNodeId = targetNodeId,
         Operation = operation,
         IdempotencyKey = key,
         Fingerprint = fingerprint,
@@ -712,6 +716,14 @@ internal sealed class GatewayManagementCommandCoordinator(
 
     private static string DeriveText(string purpose, params string[] values) =>
         "gwm-" + purpose + "-" + Convert.ToHexStringLower(Fingerprint([purpose, .. values]));
+
+    private string DeriveSecret(string purpose, string targetNodeId)
+    {
+        using var hmac = new HMACSHA256(options.GetTokenKey());
+        byte[] material = Encoding.UTF8.GetBytes(
+            $"{EpochReservationContractVersion}\0{purpose}\0{options.ManagementAuthorityId}\0{targetNodeId}");
+        return Convert.ToHexStringLower(hmac.ComputeHash(material).AsSpan(0, 16));
+    }
 
     private static void Append(IncrementalHash hash, string value)
     {

@@ -55,6 +55,29 @@ public sealed class GatewayHostingTests
     }
 
     [Fact]
+    public void Remote_management_rejects_wildcard_sni()
+    {
+        GatewayHostConfiguration configuration = Configuration([Sni("exact.example", "one")]) with
+        {
+            ManagementListeners =
+            [
+                new GatewayManagementListenerDeclaration
+                {
+                    Id = new("admin"), Binding = GatewayListenerBindingKind.AnyIp, Port = 8443,
+                    Protocols = GatewayListenerProtocols.Http1, Exposure = GatewayManagementExposure.RemoteManaged,
+                    EndpointSurfaceId = "gateway-admin-v1",
+                    Tls = new GatewayInboundTlsDeclaration { Sni = [Sni("*.example", "admin")] },
+                }
+            ]
+        };
+
+        GatewayHostCandidateResult result = GatewayHostCandidateReader.Create(configuration);
+
+        result.IsAccepted.Should().BeFalse();
+        result.Errors.Should().Contain(error => error.Code == "host.invalid-management-sni");
+    }
+
+    [Fact]
     public void StrictReaderRejectsUnknownMembersNumericEnumsAndVersions()
     {
         var unknown = GatewayHostCandidateReader.Read(Encoding.UTF8.GetBytes("""

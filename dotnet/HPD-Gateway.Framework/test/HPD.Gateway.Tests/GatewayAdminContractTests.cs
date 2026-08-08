@@ -5,12 +5,14 @@ using FluentAssertions;
 using HPD.Gateway.Admin;
 using HPD.Gateway;
 using HPD.Gateway.Management;
+using HPD.Gateway.Hosting;
 using HPD.Gateway.HPDAuth;
 using HPD.Auth.ControlPlane;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Metadata;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
@@ -72,7 +74,26 @@ public sealed class GatewayAdminContractTests
                 .Count(value => StringComparer.Ordinal.Equals(value.Policy, descriptor.Capability))
                 .Should().Be(1);
             descriptor.ResourceKind.HasValue.Should().Be(descriptor.ResourcePolicy is not null);
+            endpoint.Metadata.GetOrderedMetadata<IProducesResponseTypeMetadata>()
+                .Any(metadata => (metadata.StatusCode == 200 || metadata.StatusCode == 201 || metadata.StatusCode == 202) && metadata.Type != null)
+                .Should().BeTrue();
+            if (descriptor.Method == "POST" && descriptor.Operation != "provision")
+                endpoint.Metadata.GetMetadata<IAcceptsMetadata>().Should().NotBeNull();
         }
+    }
+
+    [Fact]
+    public void Endpoint_role_validation_rejects_duplicate_metadata()
+    {
+        WebApplicationBuilder builder = WebApplication.CreateBuilder();
+        WebApplication app = builder.Build();
+        app.MapGet("/duplicate", static () => "bad")
+            .WithName("HpdGatewayDuplicate")
+            .WithHpdGatewayEndpointRole(GatewayListenerRole.Management, "admin")
+            .WithHpdGatewayEndpointRole(GatewayListenerRole.DataPlane, "data");
+
+        Action validate = () => app.ValidateHpdGatewayEndpointRoles();
+        validate.Should().Throw<InvalidOperationException>().WithMessage("*exactly one listener role*");
     }
 
     [Fact]
@@ -133,6 +154,10 @@ public sealed class GatewayAdminContractTests
                 options.MapCapability(capability, "hpd-policy");
         });
         builder.Services.AddHpdGatewayAdminHpdAuth("gateway");
+        builder.Services.Last(descriptor => descriptor.ServiceType == typeof(IGatewayAdminActorProjector))
+            .Lifetime.Should().Be(ServiceLifetime.Scoped);
+        builder.Services.Last(descriptor => descriptor.ServiceType == typeof(IGatewayAdminSecurityMetadataProvider))
+            .Lifetime.Should().Be(ServiceLifetime.Singleton);
         WebApplication application = builder.Build();
         Action map = () => application.MapHpdGatewayAdmin(new GatewayAdminEndpointOptions
         {

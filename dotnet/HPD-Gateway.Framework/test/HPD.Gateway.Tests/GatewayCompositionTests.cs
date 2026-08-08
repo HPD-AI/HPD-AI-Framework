@@ -203,6 +203,8 @@ public sealed class GatewayCompositionTests
         await using var proxy = await StartGateway();
         var activator = proxy.Services.GetRequiredService<IGatewayNodeActivator>();
         var invalidIdentity = await activator.ActivateAsync(new GatewayNodeActivationRequest(
+            "namespace",
+            "node",
             new CandidateId("Bad"),
             "authority",
             "epoch",
@@ -385,6 +387,8 @@ public sealed class GatewayCompositionTests
         string candidate,
         ulong version,
         ImmutableArray<byte> utf8) => new(
+            "namespace",
+            "node",
             new CandidateId(candidate),
             "authority",
             "epoch",

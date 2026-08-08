@@ -138,6 +138,41 @@ public sealed class GatewayManagementCompositionTests
     }
 
     [Fact]
+    public async Task Epoch_reservation_reconstructs_the_same_attempt_after_store_absence()
+    {
+        string firstDatabase = Path.Combine(Path.GetTempPath(), $"hpd-gateway-epoch-a-{Guid.NewGuid():N}.db");
+        string secondDatabase = Path.Combine(Path.GetTempPath(), $"hpd-gateway-epoch-b-{Guid.NewGuid():N}.db");
+        try
+        {
+            string? firstEpoch = null;
+            foreach (string database in new[] { firstDatabase, secondDatabase })
+            {
+                await using ServiceProvider provider = SqliteProvider(database);
+                await InitializeSqlite(provider);
+                GatewayManagementCommandResult result = await provider
+                    .GetRequiredService<IGatewayManagementCommandCoordinator>()
+                    .ProvisionLocalTargetAsync(new("namespace-a", "node-recovered", "provision-a",
+                        new("actor-a", "test", "manage"), "correlation-a"));
+                result.IsAccepted.Should().BeTrue(result.Code);
+                GatewayTargetEpochReservation reservation = (await TrustedSession(provider)
+                    .Collection(GatewayTargetEpochReservation.Collection).Query()
+                    .Take(1).ToArrayAsync(1)).RequireValue().Single().Value;
+                if (firstEpoch is null) firstEpoch = reservation.AuthorityEpoch;
+                else reservation.AuthorityEpoch.Should().Be(firstEpoch);
+            }
+        }
+        finally
+        {
+            foreach (string path in new[] { firstDatabase, secondDatabase })
+            {
+                if (File.Exists(path)) File.Delete(path);
+                if (File.Exists(path + "-wal")) File.Delete(path + "-wal");
+                if (File.Exists(path + "-shm")) File.Delete(path + "-shm");
+            }
+        }
+    }
+
+    [Fact]
     public async Task Submit_accepts_through_the_authoritative_reader_and_commits_the_complete_graph()
     {
         var services = new ServiceCollection();
@@ -829,12 +864,12 @@ public sealed class GatewayManagementCompositionTests
         imported.DesiredStateToken.Should().NotBeNull();
 
         GatewayApplicationReadResult<GatewayRevisionExport> exported = await application.ExportAsync(
-            "namespace-a", imported.OperationId!);
+            "namespace-a", "node-a", imported.OperationId!);
         exported.State.Should().Be(GatewayApplicationReadState.Found);
         exported.Value!.Utf8Configuration.Should().NotBeEmpty();
 
         GatewayApplicationReadResult<GatewayRevisionComparison> compared = await application.CompareAsync(
-            "namespace-a", imported.OperationId!, imported.OperationId!);
+            "namespace-a", "node-a", imported.OperationId!, imported.OperationId!);
         compared.Value!.Equivalent.Should().BeTrue();
         compared.Value.Differences.Should().BeEmpty();
 
@@ -844,8 +879,38 @@ public sealed class GatewayManagementCompositionTests
         rollback.IsAccepted.Should().BeTrue(rollback.Code);
         GatewayManagedRecord<GatewayAcceptedRevision>? derived = await provider
             .GetRequiredService<IGatewayManagementReader>()
-            .GetRevisionAsync("namespace-a", rollback.OperationId!);
+            .GetRevisionAsync("namespace-a", "node-a", rollback.OperationId!);
         derived!.Value.DerivedFromRevisionId.Should().Be(imported.OperationId);
+    }
+
+    [Fact]
+    public async Task Revisions_and_idempotency_are_strictly_target_scoped()
+    {
+        await using ServiceProvider provider = InMemoryProvider();
+        var commands = provider.GetRequiredService<IGatewayManagementCommandCoordinator>();
+        var reader = provider.GetRequiredService<IGatewayManagementReader>();
+        var application = provider.GetRequiredService<IGatewayManagementApplication>();
+        var actor = new GatewayManagementActor("actor-a", "scheme-a", "policy-a");
+        (await commands.ProvisionLocalTargetAsync(new("namespace-a", "node-a", "provision-a", actor, "correlation-a"))).IsAccepted.Should().BeTrue();
+        (await commands.ProvisionLocalTargetAsync(new("namespace-a", "node-b", "provision-b", actor, "correlation-b"))).IsAccepted.Should().BeTrue();
+
+        GatewayManagementCommandResult a = await commands.SubmitAsync(new(
+            "namespace-a", "node-a", "shared-key", actor, "correlation-a", "code", "source", null,
+            ConfigurationBytes(), Activate: false));
+        GatewayManagementCommandResult b = await commands.SubmitAsync(new(
+            "namespace-a", "node-b", "shared-key", actor, "correlation-b", "code", "source", null,
+            ConfigurationBytes(), Activate: false));
+
+        a.IsAccepted.Should().BeTrue(a.Code);
+        b.IsAccepted.Should().BeTrue(b.Code);
+        b.OperationId.Should().NotBe(a.OperationId);
+        (await reader.GetRevisionAsync("namespace-a", "node-b", a.OperationId!)).Should().BeNull();
+        (await application.ExportAsync("namespace-a", "node-b", a.OperationId!)).State
+            .Should().Be(GatewayApplicationReadState.NotFound);
+        (await reader.ListRevisionsAsync("namespace-a", "node-a", 16)).Items
+            .Should().ContainSingle(item => item.Id == a.OperationId);
+        (await reader.ListRevisionsAsync("namespace-a", "node-b", 16)).Items
+            .Should().ContainSingle(item => item.Id == b.OperationId);
     }
 
     private static BaseSession TrustedSession(ServiceProvider provider) =>
