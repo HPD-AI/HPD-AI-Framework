@@ -158,7 +158,8 @@ public static partial class GatewayAdminEndpointRouteBuilderExtensions
             string target = Route(context, "target");
             if (!await AdmitTarget(context, ns, target).ConfigureAwait(false)) return;
             IGatewayManagementReader reader = context.RequestServices.GetRequiredService<IGatewayManagementReader>();
-            if (!TryPage(context, out int maximum, out string? cursor, out IResult? pageFailure))
+            if (!TryPage(context, GatewayAdminClientSemanticLedger.For("revisions").Pagination,
+                out int maximum, out string? cursor, out IResult? pageFailure))
             { await Write(context, pageFailure!); return; }
             GatewayManagedPage<GatewayAcceptedRevision> page = await reader.ListRevisionsAsync(
                 ns, target, maximum, cursor, context.RequestAborted).ConfigureAwait(false);
@@ -175,7 +176,8 @@ public static partial class GatewayAdminEndpointRouteBuilderExtensions
             if (!await AuthorizeResource(context, authorization, ns, null, GatewayAdminResourceKind.Namespace).ConfigureAwait(false))
             { await Write(context, NotFound(context)); return; }
             IGatewayManagementReader reader = context.RequestServices.GetRequiredService<IGatewayManagementReader>();
-            if (!TryPage(context, out int maximum, out string? cursor, out IResult? pageFailure))
+            if (!TryPage(context, GatewayAdminClientSemanticLedger.For("audit").Pagination,
+                out int maximum, out string? cursor, out IResult? pageFailure))
             { await Write(context, pageFailure!); return; }
             GatewayManagedPage<GatewayAdministrativeAuditRecord> page = await reader.ListAuditAsync(
                 ns, maximum, cursor, context.RequestAborted).ConfigureAwait(false);

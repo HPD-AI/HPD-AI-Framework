@@ -87,6 +87,33 @@ public sealed class GatewayAdminContractTests
             description.Should().Contain(specification.MinimumMaximum!.Value.ToString())
                 .And.Contain(specification.DefaultMaximum!.Value.ToString())
                 .And.Contain(specification.MaximumMaximum!.Value.ToString());
+
+            var omitted = new DefaultHttpContext();
+            GatewayAdminEndpointRouteBuilderExtensions.TryPage(omitted, specification,
+                out int defaulted, out _, out _).Should().BeTrue();
+            defaulted.Should().Be(specification.DefaultMaximum);
+
+            var minimum = new DefaultHttpContext();
+            minimum.Request.QueryString = new QueryString("?maximum=" + specification.MinimumMaximum.Value);
+            GatewayAdminEndpointRouteBuilderExtensions.TryPage(minimum, specification,
+                out int parsedMinimum, out _, out _).Should().BeTrue();
+            parsedMinimum.Should().Be(specification.MinimumMaximum);
+
+            var maximum = new DefaultHttpContext();
+            maximum.Request.QueryString = new QueryString("?maximum=" + specification.MaximumMaximum.Value);
+            GatewayAdminEndpointRouteBuilderExtensions.TryPage(maximum, specification,
+                out int parsedMaximum, out _, out _).Should().BeTrue();
+            parsedMaximum.Should().Be(specification.MaximumMaximum);
+
+            var below = new DefaultHttpContext();
+            below.Request.QueryString = new QueryString("?maximum=" + (specification.MinimumMaximum.Value - 1));
+            GatewayAdminEndpointRouteBuilderExtensions.TryPage(below, specification,
+                out _, out _, out _).Should().BeFalse();
+
+            var above = new DefaultHttpContext();
+            above.Request.QueryString = new QueryString("?maximum=" + (specification.MaximumMaximum.Value + 1));
+            GatewayAdminEndpointRouteBuilderExtensions.TryPage(above, specification,
+                out _, out _, out _).Should().BeFalse();
         }
     }
 

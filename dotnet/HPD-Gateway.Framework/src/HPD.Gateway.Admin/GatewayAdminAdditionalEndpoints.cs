@@ -93,7 +93,8 @@ public static partial class GatewayAdminEndpointRouteBuilderExtensions
     {
         string ns = Route(context, "ns"), target = Route(context, "target");
         if (!await AdmitTarget(context, ns, target).ConfigureAwait(false)) return;
-        if (!TryPage(context, out int maximum, out string? cursor, out IResult? failure))
+        if (!TryPage(context, GatewayAdminClientSemanticLedger.For("activations").Pagination,
+            out int maximum, out string? cursor, out IResult? failure))
         { await Write(context, failure!); return; }
         IGatewayManagementReader reader = context.RequestServices.GetRequiredService<IGatewayManagementReader>();
         var intents = await reader.ListActivationsAsync(ns, target, maximum, cursor, context.RequestAborted).ConfigureAwait(false);
@@ -267,12 +268,22 @@ public static partial class GatewayAdminEndpointRouteBuilderExtensions
         catch (JsonException) { return new GatewayActivationRequest(new string('x', 1025)); }
     }
 
-    private static bool TryPage(HttpContext context, out int maximum, out string? cursor, out IResult? failure)
+    internal static bool TryPage(
+        HttpContext context,
+        GatewayAdminClientPaginationSpecification specification,
+        out int maximum,
+        out string? cursor,
+        out IResult? failure)
     {
-        maximum = 64; cursor = null; failure = null;
+        specification.Validate();
+        if (specification.Kind != GatewayAdminClientPaginationKind.OpaqueCursor)
+            throw new InvalidOperationException("Pagination parsing requires opaque-cursor pagination.");
+        maximum = specification.DefaultMaximum!.Value; cursor = null; failure = null;
         if (context.Request.Query.Keys.Any(static key => key is not ("maximum" or "cursor"))) { failure = Invalid(context); return false; }
         if (context.Request.Query["maximum"].Count > 1 || context.Request.Query["cursor"].Count > 1) { failure = Invalid(context); return false; }
-        if (context.Request.Query["maximum"].Count == 1 && (!int.TryParse(context.Request.Query["maximum"][0], out maximum) || maximum is < 1 or > 256))
+        if (context.Request.Query["maximum"].Count == 1 &&
+            (!int.TryParse(context.Request.Query["maximum"][0], out maximum) ||
+             maximum < specification.MinimumMaximum!.Value || maximum > specification.MaximumMaximum!.Value))
         { failure = Invalid(context); return false; }
         cursor = context.Request.Query["cursor"].Count == 1 ? context.Request.Query["cursor"][0] : null;
         if (cursor is { Length: > 4096 }) { failure = Invalid(context); return false; }
