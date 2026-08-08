@@ -72,6 +72,36 @@ public sealed class GatewayAdminContractTests
             }
         }
     }
+
+    [Fact]
+    public async Task Schema_correlation_is_generation_scoped_and_concurrency_isolated()
+    {
+        var contract = new GatewayAdminOpenApiContract();
+        using (GatewayAdminOpenApiContract.SchemaCorrelationScope first = contract.BeginSchemaCorrelation())
+        {
+            foreach (GatewayAdminClientSchemaConstraint constraint in GatewayAdminClientSchemaConstraintLedger.V1)
+                contract.RecordSchemaTarget(constraint);
+            first.RequireComplete();
+        }
+
+        using (GatewayAdminOpenApiContract.SchemaCorrelationScope later = contract.BeginSchemaCorrelation())
+            ((Action)later.RequireComplete).Should().Throw<InvalidOperationException>();
+
+        Task complete = Task.Run(() =>
+        {
+            using GatewayAdminOpenApiContract.SchemaCorrelationScope scope = contract.BeginSchemaCorrelation();
+            foreach (GatewayAdminClientSchemaConstraint constraint in GatewayAdminClientSchemaConstraintLedger.V1)
+                contract.RecordSchemaTarget(constraint);
+            scope.RequireComplete();
+        });
+        Task incomplete = Task.Run(() =>
+        {
+            using GatewayAdminOpenApiContract.SchemaCorrelationScope scope = contract.BeginSchemaCorrelation();
+            contract.RecordSchemaTarget(GatewayAdminClientSchemaConstraintLedger.V1[0]);
+            ((Action)scope.RequireComplete).Should().Throw<InvalidOperationException>();
+        });
+        await Task.WhenAll(complete, incomplete);
+    }
     [Fact]
     public void Client_semantic_ledger_correlates_one_to_one_with_every_endpoint()
     {

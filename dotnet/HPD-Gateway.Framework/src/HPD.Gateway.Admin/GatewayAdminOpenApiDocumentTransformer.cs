@@ -74,7 +74,7 @@ internal sealed class GatewayAdminOpenApiContract
 {
     private readonly object _sync = new();
     private string? _securityScheme;
-    private readonly HashSet<string> _observedSchemaTargets = new(StringComparer.Ordinal);
+    private readonly AsyncLocal<SchemaCorrelationScope?> _schemaCorrelation = new();
 
     internal void Seal(string securityScheme)
     {
@@ -94,21 +94,37 @@ internal sealed class GatewayAdminOpenApiContract
 
     internal void RecordSchemaTarget(GatewayAdminClientSchemaConstraint constraint)
     {
-        lock (_sync)
-            _observedSchemaTargets.Add(GatewayAdminClientSchemaConstraintLedger.TargetKey(constraint));
+        _schemaCorrelation.Value?.Observed.Add(GatewayAdminClientSchemaConstraintLedger.TargetKey(constraint));
     }
 
-    internal void RequireCompleteSchemaCorrelation()
+    internal SchemaCorrelationScope BeginSchemaCorrelation()
     {
-        lock (_sync)
+        var scope = new SchemaCorrelationScope(this, _schemaCorrelation.Value);
+        _schemaCorrelation.Value = scope;
+        return scope;
+    }
+
+    internal sealed class SchemaCorrelationScope(
+        GatewayAdminOpenApiContract owner,
+        SchemaCorrelationScope? prior) : IDisposable
+    {
+        internal HashSet<string> Observed { get; } = new(StringComparer.Ordinal);
+
+        internal void RequireComplete()
         {
             string[] missing = GatewayAdminClientSchemaConstraintLedger.V1
                 .Select(GatewayAdminClientSchemaConstraintLedger.TargetKey)
-                .Where(target => !_observedSchemaTargets.Contains(target))
+                .Where(target => !Observed.Contains(target))
                 .Order(StringComparer.Ordinal).ToArray();
             if (missing.Length != 0)
                 throw new InvalidOperationException("Gateway Admin OpenAPI omitted managed schema targets: " +
                     string.Join(", ", missing));
+        }
+
+        public void Dispose()
+        {
+            if (ReferenceEquals(owner._schemaCorrelation.Value, this))
+                owner._schemaCorrelation.Value = prior;
         }
     }
 }
@@ -121,6 +137,7 @@ internal sealed class GatewayAdminOpenApiDocumentTransformer(GatewayAdminOpenApi
         OpenApiDocumentTransformerContext context,
         CancellationToken cancellationToken)
     {
+        using GatewayAdminOpenApiContract.SchemaCorrelationScope correlation = contract.BeginSchemaCorrelation();
         document.Info.Title = "HPD.Gateway Admin API";
         document.Info.Version = "1.0.0";
         string securityScheme = contract.GetSecurityScheme();
@@ -184,6 +201,7 @@ internal sealed class GatewayAdminOpenApiDocumentTransformer(GatewayAdminOpenApi
                     Response("Gateway Admin bounded error response.", errorSchema);
             pathItem.Operations[descriptor.Method == "GET" ? HttpMethod.Get : HttpMethod.Post] = operation;
         }
+        correlation.RequireComplete();
     }
 
     private static List<IOpenApiParameter> Parameters(GatewayAdminClientOperationSemantics semantics)
