@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
-using System.Text.Json;
 using System.Text.Json.Serialization;
+using HPD.Gateway.Effective;
+using HPD.Gateway.Status;
 using HPD.Gateway.Management;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Builder;
@@ -87,11 +88,32 @@ public sealed record GatewayAdminEndpointOptions
 
 public sealed record GatewayRevisionRequest
 {
-    public required JsonElement Configuration { get; init; }
+    public required string ConfigurationJson { get; init; }
     public required string SourceKind { get; init; }
     public required string SourceId { get; init; }
     public string? Description { get; init; }
 }
+
+public sealed record GatewayActivationRequest(string? Description = null);
+public sealed record GatewayCompareRequest(string LeftRevisionId, string RightRevisionId);
+public sealed record GatewayImportRequest(string ConfigurationJson, string SourceId, string? Description = null);
+public sealed record GatewayBackupRequest(string SinkName, string? ArtifactLabel = null);
+public enum GatewayPurgeCategory : byte { RevisionContent, ValidationContent, ActivationOutcomeHistory, AuditHistory }
+public sealed record GatewayPurgeRequest(GatewayPurgeCategory Category, ImmutableArray<string> ResourceIds);
+public sealed record GatewayOperationResponse(string OperationId, string State, string Code, bool Duplicate = false);
+public sealed record GatewayActivationHistoryResponse(
+    GatewayManagedPage<GatewayActivationIntent> Intents,
+    GatewayManagedPage<GatewayNodeActivationOutcome> Outcomes);
+public sealed record GatewayTargetStatusResponse(
+    GatewayManagementStatusSnapshot Management,
+    GatewayStatusSnapshot Node,
+    DateTimeOffset ObservedAt,
+    bool IsTruncated);
+public sealed record GatewayExportResponse(
+    string SchemaVersion, string RevisionId, string ContentHashAlgorithm,
+    string ContentHashValue, string ConfigurationJson);
+public sealed record GatewayAdministrativeResponse(
+    string OperationId, GatewayAdministrativeCompletionState State, string Code, string? ArtifactReference = null);
 
 public sealed record GatewayProvisionResponse(string OperationId, bool Duplicate);
 public sealed record GatewayRevisionResponse(string RevisionId, string? DesiredStateToken, bool Duplicate);
@@ -102,6 +124,16 @@ public sealed record GatewayCapabilityCatalog(ImmutableArray<string> Capabilitie
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase, UseStringEnumConverter = true, UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
 [JsonSerializable(typeof(GatewayRevisionRequest))]
+[JsonSerializable(typeof(GatewayActivationRequest))]
+[JsonSerializable(typeof(GatewayCompareRequest))]
+[JsonSerializable(typeof(GatewayImportRequest))]
+[JsonSerializable(typeof(GatewayBackupRequest))]
+[JsonSerializable(typeof(GatewayPurgeRequest))]
+[JsonSerializable(typeof(GatewayOperationResponse))]
+[JsonSerializable(typeof(GatewayActivationHistoryResponse))]
+[JsonSerializable(typeof(GatewayTargetStatusResponse))]
+[JsonSerializable(typeof(GatewayExportResponse))]
+[JsonSerializable(typeof(GatewayAdministrativeResponse))]
 [JsonSerializable(typeof(GatewayProvisionResponse))]
 [JsonSerializable(typeof(GatewayRevisionResponse))]
 [JsonSerializable(typeof(GatewayValidationResponse))]
@@ -112,5 +144,12 @@ public sealed record GatewayCapabilityCatalog(ImmutableArray<string> Capabilitie
 [JsonSerializable(typeof(GatewayManagedRecord<GatewayDesiredState>))]
 [JsonSerializable(typeof(GatewayManagedPage<GatewayAcceptedRevision>))]
 [JsonSerializable(typeof(GatewayManagedPage<GatewayAdministrativeAuditRecord>))]
-[JsonSerializable(typeof(JsonElement))]
+[JsonSerializable(typeof(GatewayManagedRecord<GatewayAcceptedRevision>))]
+[JsonSerializable(typeof(GatewayManagedRecord<GatewayValidationRecord>))]
+[JsonSerializable(typeof(GatewayManagedRecord<GatewayCommandReceipt>))]
+[JsonSerializable(typeof(GatewayManagedPage<GatewayActivationIntent>))]
+[JsonSerializable(typeof(GatewayManagedPage<GatewayNodeActivationOutcome>))]
+[JsonSerializable(typeof(GatewayRevisionComparison))]
+[JsonSerializable(typeof(GatewayEffectiveSnapshot))]
+[JsonSerializable(typeof(GatewayStatusSnapshot))]
 public sealed partial class GatewayAdminJsonContext : JsonSerializerContext;

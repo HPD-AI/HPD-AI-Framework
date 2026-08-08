@@ -812,6 +812,42 @@ public sealed class GatewayManagementCompositionTests
         }
     }
 
+    [Fact]
+    public async Task Application_facade_import_compare_export_and_rollback_preserve_authority_ownership()
+    {
+        await using ServiceProvider provider = InMemoryProvider();
+        var commands = provider.GetRequiredService<IGatewayManagementCommandCoordinator>();
+        var application = provider.GetRequiredService<IGatewayManagementApplication>();
+        var actor = new GatewayManagementActor("actor-a", "scheme-a", "policy-a");
+        (await commands.ProvisionLocalTargetAsync(new(
+            "namespace-a", "node-a", "provision", actor, "correlation-a"))).IsAccepted.Should().BeTrue();
+
+        GatewayManagementCommandResult imported = await application.ImportAsync(new(
+            "namespace-a", "node-a", "import-a", actor, "correlation-a",
+            ConfigurationBytes(), "imported", null, true, "import", "artifact-a"));
+        imported.IsAccepted.Should().BeTrue(imported.Code);
+        imported.DesiredStateToken.Should().NotBeNull();
+
+        GatewayApplicationReadResult<GatewayRevisionExport> exported = await application.ExportAsync(
+            "namespace-a", imported.OperationId!);
+        exported.State.Should().Be(GatewayApplicationReadState.Found);
+        exported.Value!.Utf8Configuration.Should().NotBeEmpty();
+
+        GatewayApplicationReadResult<GatewayRevisionComparison> compared = await application.CompareAsync(
+            "namespace-a", imported.OperationId!, imported.OperationId!);
+        compared.Value!.Equivalent.Should().BeTrue();
+        compared.Value.Differences.Should().BeEmpty();
+
+        GatewayManagementCommandResult rollback = await application.RollbackAsync(new(
+            "namespace-a", "node-a", imported.OperationId!, "rollback-a", actor,
+            "correlation-b", "rollback", imported.DesiredStateToken));
+        rollback.IsAccepted.Should().BeTrue(rollback.Code);
+        GatewayManagedRecord<GatewayAcceptedRevision>? derived = await provider
+            .GetRequiredService<IGatewayManagementReader>()
+            .GetRevisionAsync("namespace-a", rollback.OperationId!);
+        derived!.Value.DerivedFromRevisionId.Should().Be(imported.OperationId);
+    }
+
     private static BaseSession TrustedSession(ServiceProvider provider) =>
         provider.GetRequiredService<IBaseSessionFactory>().For(TrustedPrincipal(),
             options => options.Mode = OperationMode.System);

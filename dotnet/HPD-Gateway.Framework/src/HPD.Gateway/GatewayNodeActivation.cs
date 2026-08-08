@@ -43,15 +43,27 @@ public interface IGatewayNodeActivator
         CancellationToken cancellationToken = default);
 }
 
+public sealed record GatewayNodeEffectiveObservation(
+    GatewayEffectiveSnapshot Snapshot,
+    DateTimeOffset AcknowledgedAt);
+
+public interface IGatewayNodeEffectiveReader
+{
+    GatewayNodeEffectiveObservation? GetCurrent();
+}
+
 internal sealed class GatewayNodeActivator(
     HostCapabilitySnapshot capabilities,
     GatewayNativeMaterializer materializer,
-    GatewayYarpPublisher publisher) : IGatewayNodeActivator, IDisposable
+    GatewayYarpPublisher publisher) : IGatewayNodeActivator, IGatewayNodeEffectiveReader, IDisposable
 {
     private const int MaximumAuthorityIdentityUtf8Bytes = 256;
     private static readonly TimeSpan AcknowledgementTimeout = TimeSpan.FromSeconds(30);
     private readonly SemaphoreSlim _activationLease = new(1, 1);
     private volatile bool _disposed;
+    private GatewayNodeEffectiveObservation? _effective;
+
+    public GatewayNodeEffectiveObservation? GetCurrent() => Volatile.Read(ref _effective);
 
     public async ValueTask<GatewayNodeActivationResult> ActivateAsync(
         GatewayNodeActivationRequest request,
@@ -102,6 +114,9 @@ internal sealed class GatewayNodeActivator(
                 materialized.Bundle!,
                 AcknowledgementTimeout,
                 cancellationToken).ConfigureAwait(false);
+            if (publication.State == GatewayPublicationState.ActiveAcknowledged)
+                Volatile.Write(ref _effective, new GatewayNodeEffectiveObservation(
+                    materialized.EffectiveSnapshot!, publication.Active!.AcknowledgedAt));
             return new GatewayNodeActivationResult(
                 GatewayNodeActivationState.PublicationCompleted,
                 publication,

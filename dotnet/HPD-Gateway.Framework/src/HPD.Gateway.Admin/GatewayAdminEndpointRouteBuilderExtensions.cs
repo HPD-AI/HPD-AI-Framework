@@ -6,6 +6,7 @@ using HPD.Gateway.Abstractions;
 using HPD.Gateway.Hosting;
 using HPD.Gateway.Core;
 using HPD.Gateway.Management;
+using HPD.Gateway.Status;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -15,7 +16,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Gateway.Admin;
 
-public static class GatewayAdminEndpointRouteBuilderExtensions
+public static partial class GatewayAdminEndpointRouteBuilderExtensions
 {
     private const int MaximumBodyBytes = 4 * 1024 * 1024;
 
@@ -68,7 +69,7 @@ public static class GatewayAdminEndpointRouteBuilderExtensions
                 context, GatewayAdminCapabilities.TargetProvision, context.RequestAborted).ConfigureAwait(false);
             GatewayManagementCommandResult result = await commands.ProvisionLocalTargetAsync(new(
                 ns, target, key, attribution.ToActor(), attribution.CorrelationId), context.RequestAborted).ConfigureAwait(false);
-            await Write(context, ProjectCommand(context, result, created: true)).ConfigureAwait(false);
+            await Write(context, ProjectCommand(context, result, CommandProjection.Provision)).ConfigureAwait(false);
         });
 
         Map(group, options, security, "desired", async context =>
@@ -97,7 +98,10 @@ public static class GatewayAdminEndpointRouteBuilderExtensions
             if (!await AuthorizeResource(context, authorization, ns, target, GatewayAdminResourceKind.Target).ConfigureAwait(false))
             { await Write(context, NotFound(context)); return; }
             GatewayManagementStatusSnapshot snapshot = await status.GetCurrentAsync(context.RequestAborted).ConfigureAwait(false);
-            await Write(context, TypedResults.Json(snapshot, GatewayAdminJsonContext.Default.GatewayManagementStatusSnapshot)).ConfigureAwait(false);
+            GatewayStatusSnapshot node = context.RequestServices.GetRequiredService<IGatewayStatusReader>().GetCurrent();
+            await Write(context, TypedResults.Json(new GatewayTargetStatusResponse(
+                snapshot, node, node.GeneratedAt, node.DetailsTruncated),
+                GatewayAdminJsonContext.Default.GatewayTargetStatusResponse)).ConfigureAwait(false);
         });
 
         Map(group, options, security, "submit", context => Submit(context, activate: false, GatewayAdminCapabilities.RevisionWrite));
@@ -113,8 +117,8 @@ public static class GatewayAdminEndpointRouteBuilderExtensions
             if (!ValidComponent(ns) || !ValidComponent(target)) { await Write(context, Invalid(context)); return; }
             if (!await AuthorizeResource(context, authorization, ns, target, GatewayAdminResourceKind.Target).ConfigureAwait(false))
             { await Write(context, NotFound(context)); return; }
-            int maximum = QueryMaximum(context);
-            string? cursor = context.Request.Query["cursor"].Count == 1 ? context.Request.Query["cursor"][0] : null;
+            if (!TryPage(context, out int maximum, out string? cursor, out IResult? pageFailure))
+            { await Write(context, pageFailure!); return; }
             GatewayManagedPage<GatewayAcceptedRevision> page = await reader.ListRevisionsAsync(
                 ns, maximum, cursor, context.RequestAborted).ConfigureAwait(false);
             await Write(context, TypedResults.Json(page, GatewayAdminJsonContext.Default.GatewayManagedPageGatewayAcceptedRevision)).ConfigureAwait(false);
@@ -128,12 +132,14 @@ public static class GatewayAdminEndpointRouteBuilderExtensions
             if (!ValidComponent(ns)) { await Write(context, Invalid(context)); return; }
             if (!await AuthorizeResource(context, authorization, ns, null, GatewayAdminResourceKind.Namespace).ConfigureAwait(false))
             { await Write(context, NotFound(context)); return; }
-            int maximum = QueryMaximum(context);
-            string? cursor = context.Request.Query["cursor"].Count == 1 ? context.Request.Query["cursor"][0] : null;
+            if (!TryPage(context, out int maximum, out string? cursor, out IResult? pageFailure))
+            { await Write(context, pageFailure!); return; }
             GatewayManagedPage<GatewayAdministrativeAuditRecord> page = await reader.ListAuditAsync(
                 ns, maximum, cursor, context.RequestAborted).ConfigureAwait(false);
             await Write(context, TypedResults.Json(page, GatewayAdminJsonContext.Default.GatewayManagedPageGatewayAdministrativeAuditRecord)).ConfigureAwait(false);
         });
+
+        MapAdditional(group, options, security);
 
         return group;
     }
@@ -174,15 +180,16 @@ public static class GatewayAdminEndpointRouteBuilderExtensions
         catch (JsonException) { await Write(context, Invalid(context)); return; }
         if (request is null || !ValidComponent(request.SourceKind) || !ValidComponent(request.SourceId) ||
             request.Description is { Length: > 1024 }) { await Write(context, Invalid(context)); return; }
-        byte[] configuration = JsonSerializer.SerializeToUtf8Bytes(
-            request.Configuration, GatewayAdminJsonContext.Default.JsonElement);
+        if (Encoding.UTF8.GetByteCount(request.ConfigurationJson) > MaximumBodyBytes)
+        { await Write(context, Error(context, 413, "gateway.admin.request.tooLarge", "The request is too large.")); return; }
+        byte[] configuration = Encoding.UTF8.GetBytes(request.ConfigurationJson);
         GatewayAdminRequestAttribution attribution = await projector.ProjectAsync(
             context, capability, context.RequestAborted).ConfigureAwait(false);
         GatewayManagementCommandResult result = await commands.SubmitAsync(new GatewaySubmitCommand(
             ns, target, key, attribution.ToActor(), attribution.CorrelationId,
             request.SourceKind, request.SourceId, request.Description,
             ImmutableArray.Create(configuration), expected, activate), context.RequestAborted).ConfigureAwait(false);
-        await Write(context, ProjectCommand(context, result, created: !activate)).ConfigureAwait(false);
+        await Write(context, ProjectCommand(context, result, activate ? CommandProjection.Activation : CommandProjection.Revision)).ConfigureAwait(false);
     }
 
     private static async ValueTask<bool> AuthorizeResource(
@@ -222,16 +229,19 @@ public static class GatewayAdminEndpointRouteBuilderExtensions
         return ValidVisibleAscii(desiredToken, 512);
     }
 
-    private static IResult ProjectCommand(HttpContext context, GatewayManagementCommandResult result, bool created)
+    private enum CommandProjection : byte { Provision, Revision, Activation }
+
+    private static IResult ProjectCommand(HttpContext context, GatewayManagementCommandResult result, CommandProjection projection)
     {
         if (result.State is GatewayManagementCommandState.Accepted or GatewayManagementCommandState.Duplicate)
         {
-            if (result.DesiredStateToken is null)
+            if (projection == CommandProjection.Provision)
                 return TypedResults.Json(new GatewayProvisionResponse(result.OperationId!, result.State == GatewayManagementCommandState.Duplicate),
-                    GatewayAdminJsonContext.Default.GatewayProvisionResponse, statusCode: created ? 201 : 202);
+                    GatewayAdminJsonContext.Default.GatewayProvisionResponse, statusCode: 201);
             return TypedResults.Json(new GatewayRevisionResponse(result.OperationId!, result.DesiredStateToken,
                 result.State == GatewayManagementCommandState.Duplicate),
-                GatewayAdminJsonContext.Default.GatewayRevisionResponse, statusCode: created ? 201 : 202);
+                GatewayAdminJsonContext.Default.GatewayRevisionResponse,
+                statusCode: projection == CommandProjection.Revision ? 201 : 202);
         }
         int status = result.State switch
         {
@@ -279,12 +289,6 @@ public static class GatewayAdminEndpointRouteBuilderExtensions
 
     private static string Route(HttpContext context, string name) =>
         context.Request.RouteValues[name]?.ToString() ?? string.Empty;
-
-    private static int QueryMaximum(HttpContext context) =>
-        context.Request.Query["maximum"].Count == 1 &&
-        int.TryParse(context.Request.Query["maximum"][0], out int value) && value is >= 1 and <= 256
-            ? value
-            : 64;
 
     private static Task Write(HttpContext context, IResult result) => result.ExecuteAsync(context);
 

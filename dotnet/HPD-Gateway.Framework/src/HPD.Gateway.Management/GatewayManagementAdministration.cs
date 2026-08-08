@@ -11,6 +11,14 @@ public sealed record GatewayAdministrativeResult(
     string Code,
     long? ProviderGeneration = null);
 
+public enum GatewayManagementPurgeCategory : byte
+{
+    RevisionContent,
+    ValidationContent,
+    ActivationOutcomeHistory,
+    AuditHistory,
+}
+
 public interface IGatewayManagementAdministration
 {
     bool ManagedRestoreSupported { get; }
@@ -28,6 +36,13 @@ public interface IGatewayManagementAdministration
         IReadOnlyList<string> recordIds,
         long? expectedGeneration,
         CancellationToken cancellationToken = default);
+    ValueTask<GatewayAdministrativeResult> RequestPurgeAsync(
+        string namespaceId,
+        string idempotencyKey,
+        GatewayManagementActor actor,
+        GatewayManagementPurgeCategory category,
+        IReadOnlyList<string> resourceIds,
+        CancellationToken cancellationToken = default);
     ValueTask<int> ReconcilePendingAsync(CancellationToken cancellationToken = default);
 }
 
@@ -41,6 +56,22 @@ internal sealed class GatewayManagementAdministration(
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, PendingObservation> _pending = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _administration = new(1, 1);
     public bool ManagedRestoreSupported => false;
+
+    public ValueTask<GatewayAdministrativeResult> RequestPurgeAsync(
+        string namespaceId, string idempotencyKey, GatewayManagementActor actor,
+        GatewayManagementPurgeCategory category, IReadOnlyList<string> resourceIds,
+        CancellationToken cancellationToken = default)
+    {
+        string collection = category switch
+        {
+            GatewayManagementPurgeCategory.RevisionContent => GatewayAuthoritySchema.AcceptedRevisions,
+            GatewayManagementPurgeCategory.ValidationContent => GatewayAuthoritySchema.ValidationRecords,
+            GatewayManagementPurgeCategory.ActivationOutcomeHistory => GatewayAuthoritySchema.NodeOutcomes,
+            GatewayManagementPurgeCategory.AuditHistory => GatewayAuthoritySchema.AdministrativeAudit,
+            _ => throw new ArgumentOutOfRangeException(nameof(category)),
+        };
+        return PurgeAsync(namespaceId, idempotencyKey, actor, collection, resourceIds, null, cancellationToken);
+    }
 
     public async ValueTask<GatewayAdministrativeResult> CreateBackupAsync(
         string namespaceId,

@@ -56,6 +56,9 @@ public sealed class GatewayAdminContractTests
             .OfType<RouteEndpoint>().Where(static endpoint => endpoint.Metadata.GetMetadata<GatewayAdminEndpointDescriptor>() is not null)
             .ToArray();
         endpoints.Should().HaveCount(GatewayAdminEndpointLedger.V1.Length);
+        GatewayAdminEndpointLedger.V1.Should().HaveCount(22);
+        GatewayAdminEndpointLedger.V1.Select(static endpoint => (endpoint.Method, endpoint.Pattern))
+            .Should().OnlyHaveUniqueItems();
         foreach (RouteEndpoint endpoint in endpoints)
         {
             GatewayAdminEndpointDescriptor descriptor = endpoint.Metadata.GetRequiredMetadata<GatewayAdminEndpointDescriptor>();
@@ -64,6 +67,25 @@ public sealed class GatewayAdminContractTests
                 .Should().Be(1);
             descriptor.ResourceKind.HasValue.Should().Be(descriptor.ResourcePolicy is not null);
         }
+    }
+
+    [Fact]
+    public void Wire_contract_has_no_unbounded_or_reflection_escape_types()
+    {
+        Type[] dtoTypes =
+        [
+            typeof(GatewayRevisionRequest), typeof(GatewayActivationRequest), typeof(GatewayCompareRequest),
+            typeof(GatewayImportRequest), typeof(GatewayBackupRequest), typeof(GatewayPurgeRequest),
+            typeof(GatewayOperationResponse), typeof(GatewayActivationHistoryResponse),
+            typeof(GatewayTargetStatusResponse), typeof(GatewayExportResponse),
+            typeof(GatewayAdministrativeResponse),
+        ];
+        dtoTypes.SelectMany(static type => type.GetProperties())
+            .Should().NotContain(property => property.PropertyType == typeof(object) ||
+                property.PropertyType == typeof(System.Text.Json.JsonElement) ||
+                property.PropertyType == typeof(Type) || typeof(Delegate).IsAssignableFrom(property.PropertyType));
+        typeof(GatewayAdminEndpointRouteBuilderExtensions).GetMethods()
+            .Should().ContainSingle(method => method.Name == nameof(GatewayAdminEndpointRouteBuilderExtensions.MapHpdGatewayAdmin));
     }
 
     [Fact]

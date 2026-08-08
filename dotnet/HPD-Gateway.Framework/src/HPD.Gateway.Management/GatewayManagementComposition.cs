@@ -88,6 +88,7 @@ public static class GatewayManagementServiceCollectionExtensions
         services.AddSingleton<IHostedService>(static provider =>
             provider.GetRequiredService<GatewayManagementReconciliationWorker>());
         services.TryAddSingleton<IGatewayManagementReader, GatewayManagementReader>();
+        services.TryAddSingleton<IGatewayManagementApplication, GatewayManagementApplication>();
         services.TryAddSingleton<IGatewayManagementAdministration, GatewayManagementAdministration>();
         services.TryAddSingleton<IGatewayManagementStatusReader, GatewayManagementStatusReader>();
         return new GatewayManagementBuilder(services, options);

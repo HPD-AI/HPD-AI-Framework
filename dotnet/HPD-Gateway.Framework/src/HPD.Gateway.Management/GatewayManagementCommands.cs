@@ -39,7 +39,8 @@ public sealed record GatewaySubmitCommand(
     string? Description,
     ImmutableArray<byte> Utf8Configuration,
     string? ExpectedDesiredStateToken = null,
-    bool Activate = true);
+    bool Activate = true,
+    string? DerivedFromRevisionId = null);
 
 public sealed record GatewayActivateRevisionCommand(
     string NamespaceId,
@@ -302,6 +303,8 @@ internal sealed class GatewayManagementCommandCoordinator(
         ValidateCommon(command.NamespaceId, command.TargetNodeId, command.IdempotencyKey, command.Actor, command.CorrelationId);
         Validate(command.SourceKind, nameof(command.SourceKind));
         Validate(command.SourceId, nameof(command.SourceId));
+        if (command.DerivedFromRevisionId is not null)
+            Validate(command.DerivedFromRevisionId, nameof(command.DerivedFromRevisionId));
         if (command.Utf8Configuration.IsDefaultOrEmpty || command.Utf8Configuration.Length > options.MaximumCommandUtf8Bytes)
             return new(GatewayManagementCommandState.Invalid, "management.configuration.invalid");
         await authority.InitializeAsync(cancellationToken).ConfigureAwait(false);
@@ -340,7 +343,8 @@ internal sealed class GatewayManagementCommandCoordinator(
                 command.Actor.AuthenticationScheme, command.Actor.AuthorizationPolicy,
                 command.CorrelationId, command.SourceKind, command.SourceId,
                 command.Description ?? string.Empty, canonical.ContentHash.Algorithm,
-                canonical.ContentHash.Value, command.ExpectedDesiredStateToken ?? string.Empty);
+                canonical.ContentHash.Value, command.ExpectedDesiredStateToken ?? string.Empty,
+                command.DerivedFromRevisionId ?? string.Empty);
             RecordId receiptId = GatewayAuthorityRecordIds.CommandFact("receipt", command.NamespaceId, operation, command.IdempotencyKey, ContractVersion);
             BaseResult<BaseRecord<GatewayCommandReceipt>> priorReceiptResult = await session
                 .Collection(GatewayCommandReceipt.Collection).GetAsync(receiptId, cancellationToken).ConfigureAwait(false);
@@ -388,6 +392,7 @@ internal sealed class GatewayManagementCommandCoordinator(
                 SchemaVersion = "1.0",
                 CanonicalizationVersion = "1",
                 ParentRevisionId = desired?.Value.RevisionId,
+                DerivedFromRevisionId = command.DerivedFromRevisionId,
                 ValidationId = validationId.Value,
                 ActorId = command.Actor.ActorId,
                 SourceKind = command.SourceKind,

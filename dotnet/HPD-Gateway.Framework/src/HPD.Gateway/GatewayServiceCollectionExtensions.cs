@@ -40,6 +40,8 @@ public static class GatewayServiceCollectionExtensions
         staged.AddSingleton<GatewayNodeActivator>();
         staged.AddSingleton<IGatewayNodeActivator>(static provider =>
             provider.GetRequiredService<GatewayNodeActivator>());
+        staged.AddSingleton<IGatewayNodeEffectiveReader>(static provider =>
+            provider.GetRequiredService<GatewayNodeActivator>());
         staged.AddSingleton<IHostedService, GatewayInitialActivationService>();
 
         foreach (var descriptor in staged)
