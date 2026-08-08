@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using HPD.Base.AspNetCore;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace HPD.Base.AspNetCore.Tests.Auth;
 
@@ -21,13 +22,29 @@ public sealed class AuthBoundaryTests
     public async Task CustomPrincipalMapperCanOverrideDefault()
     {
         await using var app = await TestBaseApp.CreateAsync(configureServices: services =>
-            services.AddSingleton<IBaseHttpPrincipalMapper, FixedPrincipalMapper>());
+            services.Replace(ServiceDescriptor.Singleton<IBaseHttpPrincipalMapper, FixedPrincipalMapper>()));
 
         var principal = await app.Services.GetRequiredService<IBaseHttpPrincipalContextFactory>()
             .CreateAsync(Context(HPDBaseEndpointAudience.Application));
 
         principal.SubjectId.Should().Be("mapped");
         principal.AuthSource.Should().Be("test");
+    }
+
+    [Fact]
+    public async Task GenericMapperRejectsConflictingSubjectAndRoleOverflow()
+    {
+        await using var app = await TestBaseApp.CreateAsync(options => options.Auth.MaxRoles = 1);
+        var factory = app.Services.GetRequiredService<IBaseHttpPrincipalContextFactory>();
+        var subjectConflict = Context(HPDBaseEndpointAudience.Application);
+        subjectConflict.User = new ClaimsPrincipal(new ClaimsIdentity(
+            [new Claim("sub", "one"), new Claim("sub", "two")], "test"));
+        var roleOverflow = Context(HPDBaseEndpointAudience.Application);
+        roleOverflow.User = new ClaimsPrincipal(new ClaimsIdentity(
+            [new Claim("role", "one"), new Claim("role", "two")], "test"));
+
+        await ((Func<Task>)(async () => await factory.CreateAsync(subjectConflict))).Should().ThrowAsync<InvalidOperationException>();
+        await ((Func<Task>)(async () => await factory.CreateAsync(roleOverflow))).Should().ThrowAsync<InvalidOperationException>();
     }
 
     [Fact]

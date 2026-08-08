@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.AspNetCore.Routing.Patterns;
 
 namespace HPD.Base.AspNetCore.Tests.DependencyInjection;
 
@@ -46,5 +48,32 @@ public sealed class EndpointAudienceMappingTests
         using WebApplication app = WebApplication.CreateBuilder().Build();
         Action action = () => app.MapHPDBasePublicApi(options => options.RoutePrefix = "base");
         action.Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void InventoryRejectsAValidLookingButWrongCapabilityTuple()
+    {
+        var builder = new RouteEndpointBuilder(
+            static _ => Task.CompletedTask,
+            RoutePatternFactory.Parse("/base/collections/{collectionId}/records"),
+            0);
+        builder.Metadata.Add(new HttpMethodMetadata([HttpMethods.Get]));
+        builder.Metadata.Add(new EndpointNameMetadata("base.records.list"));
+        builder.Metadata.Add(new AuthorizeAttribute("records"));
+        builder.Metadata.Add(new HPDBaseApplicationPolicyMetadata("records"));
+        builder.Metadata.Add(new HPDBaseEndpointDescriptor
+        {
+            EndpointId = "base.records.list",
+            Audience = HPDBaseEndpointAudience.Application,
+            Operation = HPDBaseEndpointOperation.RecordRead,
+            Capability = HPDBaseCapabilities.FilesDelete
+        });
+        var validator = new HPDBaseEndpointInventoryValidator(
+            new DefaultEndpointDataSource(builder.Build()),
+            []);
+
+        Action action = validator.Validate;
+
+        action.Should().Throw<InvalidOperationException>().WithMessage("base.http.endpoint.capabilityInvalid");
     }
 }

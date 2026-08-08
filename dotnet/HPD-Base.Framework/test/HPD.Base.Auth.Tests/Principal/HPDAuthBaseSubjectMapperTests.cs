@@ -107,6 +107,55 @@ public sealed class HPDBaseAuthSubjectProjectorTests
         mapped.Claims.Should().BeNullOrEmpty();
     }
 
+    [Fact]
+    public void ConflictingSingleValuedFactsFailClosed()
+    {
+        using var provider = Services().BuildServiceProvider();
+        var mapper = provider.GetRequiredService<HPDBaseAuthSubjectProjector>();
+        var principal = new ClaimsPrincipal(new ClaimsIdentity(
+        [
+            new Claim("sub", "user-1"),
+            new Claim("sub", "user-2")
+        ], "HPD"));
+
+        Action action = () => mapper.Map(principal);
+
+        action.Should().Throw<InvalidOperationException>().WithMessage("base.auth.actor.projectionFailed");
+    }
+
+    [Fact]
+    public void RoleAndClaimOverflowFailRatherThanTruncate()
+    {
+        using var provider = Services(options =>
+        {
+            options.MaxRoles = 1;
+            options.MaxClaims = 1;
+            options.CopiedClaimTypes = ["safe"];
+        }).BuildServiceProvider();
+        var mapper = provider.GetRequiredService<HPDBaseAuthSubjectProjector>();
+        var roleOverflow = new ClaimsPrincipal(new ClaimsIdentity(
+            [new Claim("role", "one"), new Claim("role", "two")], "HPD"));
+        var claimOverflow = new ClaimsPrincipal(new ClaimsIdentity(
+            [new Claim("safe", "one"), new Claim("safe", "two")], "HPD"));
+
+        ((Action)(() => mapper.Map(roleOverflow))).Should().Throw<InvalidOperationException>();
+        ((Action)(() => mapper.Map(claimOverflow))).Should().Throw<InvalidOperationException>();
+    }
+
+    [Theory]
+    [InlineData("sub", "bad\nvalue")]
+    [InlineData("name", "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")]
+    [InlineData("role", "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")]
+    public void InvalidBoundedFactsFailRatherThanTruncate(string type, string value)
+    {
+        using var provider = Services().BuildServiceProvider();
+        var mapper = provider.GetRequiredService<HPDBaseAuthSubjectProjector>();
+        var principal = new ClaimsPrincipal(new ClaimsIdentity([new Claim(type, value)], "HPD"));
+
+        ((Action)(() => mapper.Map(principal))).Should().Throw<InvalidOperationException>()
+            .WithMessage("base.auth.actor.projectionFailed");
+    }
+
     private static ServiceCollection Services(Action<HPDBaseAuthOptions>? configure = null)
     {
         var services = new ServiceCollection();

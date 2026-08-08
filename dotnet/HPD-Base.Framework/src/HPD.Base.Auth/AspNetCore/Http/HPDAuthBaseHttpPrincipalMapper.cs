@@ -51,6 +51,23 @@ internal sealed class HPDBaseAuthHttpPrincipalMapper : IBaseHttpPrincipalMapper
         HPDBaseEndpointDescriptor endpoint,
         CancellationToken cancellationToken = default)
     {
+        try
+        {
+            return await MapCoreAsync(httpContext, endpoint, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch (HPDBaseAuthProjectionException) { throw; }
+        catch
+        {
+            throw new HPDBaseAuthProjectionException("base.auth.actor.projectionFailed", StatusCodes.Status403Forbidden);
+        }
+    }
+
+    private async ValueTask<PrincipalContext> MapCoreAsync(
+        HttpContext httpContext,
+        HPDBaseEndpointDescriptor endpoint,
+        CancellationToken cancellationToken)
+    {
         ArgumentNullException.ThrowIfNull(httpContext);
         cancellationToken.ThrowIfCancellationRequested();
 

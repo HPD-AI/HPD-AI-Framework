@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using HPD.Base.Auth;
 using HPD.Base;
+using HPD.Base.AspNetCore;
 using Microsoft.Extensions.Options;
 
 namespace HPD.Base.Auth;
@@ -50,14 +51,20 @@ internal sealed class HPDBaseAuthSubjectProjector
             };
         }
 
-        var subjectId = FirstClaimValue(principal, _options.SubjectIdClaimTypes);
-        var displayName = FirstClaimValue(principal, _options.DisplayNameClaimTypes) ?? identity.Name;
-        var roles = ClaimsByTypes(principal, _options.RoleClaimTypes)
-            .Distinct(StringComparer.Ordinal)
-            .Take(Math.Max(0, _options.MaxRoles))
-            .ToArray();
-        var servicePrincipalId = FirstClaimValue(principal, _options.ServicePrincipalClaimTypes);
-        var tenantId = ClaimValue(principal, _options.TenantClaimType) ?? tenantIdFallback;
+        var subjectId = BasePrincipalProjectionGuard.Single(principal, _options.SubjectIdClaimTypes, 256, "subject");
+        var displayName = BasePrincipalProjectionGuard.Single(principal, _options.DisplayNameClaimTypes, 256, "display name");
+        if (displayName is null && identity.Name is { } identityName)
+            displayName = BasePrincipalProjectionGuard.Owned(identityName, 256, "display name");
+        var roles = BasePrincipalProjectionGuard.Multiple(principal, _options.RoleClaimTypes, 128, _options.MaxRoles, "role");
+        var servicePrincipalId = BasePrincipalProjectionGuard.Single(principal, _options.ServicePrincipalClaimTypes, 256, "service principal");
+        var tenantId = BasePrincipalProjectionGuard.Single(principal, _options.TenantClaimType, 256, "tenant");
+        if (tenantIdFallback is not null)
+        {
+            tenantIdFallback = BasePrincipalProjectionGuard.Owned(tenantIdFallback, 256, "tenant");
+            if (tenantId is not null && !string.Equals(tenantId, tenantIdFallback, StringComparison.Ordinal))
+                throw new InvalidOperationException("base.auth.actor.projectionFailed");
+            tenantId ??= tenantIdFallback;
+        }
         var isAdmin = roles.Any(role => _options.AdminRoleNames.Contains(role, StringComparer.Ordinal));
 
         var subjects = new List<AccessSubject>
@@ -121,17 +128,7 @@ internal sealed class HPDBaseAuthSubjectProjector
             Source = HPDBaseAuthSources.Auth
         }));
 
-        var claims = principal.Claims
-            .Where(claim => _options.CopiedClaimTypes.Contains(claim.Type, StringComparer.Ordinal))
-            .Take(Math.Max(0, _options.MaxClaims))
-            .Select(static claim => new ClaimValue
-            {
-                Type = claim.Type,
-                Value = claim.Value,
-                Issuer = claim.Issuer,
-                ValueType = claim.ValueType
-            })
-            .ToArray();
+        var claims = BasePrincipalProjectionGuard.CopiedClaims(principal, _options.CopiedClaimTypes, _options.MaxClaims);
 
         return new PrincipalContext
         {
@@ -146,7 +143,7 @@ internal sealed class HPDBaseAuthSubjectProjector
                     ? string.IsNullOrWhiteSpace(subjectId) ? AccessSubjectKind.Authenticated : AccessSubjectKind.User
                     : AccessSubjectKind.ServicePrincipal,
             SubjectId = subjectId,
-            DisplayName = Limit(displayName, 256),
+            DisplayName = displayName,
             Claims = claims.Length == 0 ? null : claims,
             Roles = roles.Length == 0 ? null : roles,
             Subjects = subjects.ToArray(),
@@ -162,33 +159,12 @@ internal sealed class HPDBaseAuthSubjectProjector
                     }
                 ],
             CurrentTenantId = tenantId,
-            SessionId = ClaimValue(principal, _options.SessionIdClaimType),
-            CredentialId = ClaimValue(principal, _options.CredentialIdClaimType),
+            SessionId = BasePrincipalProjectionGuard.Single(principal, _options.SessionIdClaimType, 256, "session"),
+            CredentialId = BasePrincipalProjectionGuard.Single(principal, _options.CredentialIdClaimType, 256, "credential"),
             AuthSource = HPDBaseAuthSources.Auth
         };
     }
 
-    private static string? FirstClaimValue(ClaimsPrincipal principal, IEnumerable<string> claimTypes) =>
-        claimTypes.Select(type => ClaimValue(principal, type)).FirstOrDefault(static value => !string.IsNullOrWhiteSpace(value));
-
-    private static string? ClaimValue(ClaimsPrincipal principal, string? claimType)
-    {
-        if (string.IsNullOrWhiteSpace(claimType))
-            return null;
-
-        return principal.Claims.FirstOrDefault(claim =>
-            string.Equals(claim.Type, claimType, StringComparison.OrdinalIgnoreCase))?.Value;
-    }
-
-    private static IEnumerable<string> ClaimsByTypes(ClaimsPrincipal principal, IEnumerable<string> claimTypes)
-    {
-        var allowed = claimTypes.ToHashSet(StringComparer.OrdinalIgnoreCase);
-        return principal.Claims.Where(claim => allowed.Contains(claim.Type)).Select(static claim => claim.Value);
-    }
-
-
-    private static string? Limit(string? value, int maxLength) =>
-        string.IsNullOrEmpty(value) || value.Length <= maxLength ? value : value[..maxLength];
 }
 
 /// <summary>

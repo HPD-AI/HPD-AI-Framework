@@ -27,7 +27,9 @@ public static class HPDBaseControlPlaneEndpointRouteBuilderExtensions
             endpoints.ServiceProvider.GetRequiredService<FileAspNetCoreRouteMappingState>().MarkMapped(prefix + "/files");
         if (options.MapRealtime && endpoints.ServiceProvider.GetService<BaseRealtimeWebSocketEndpoint>() is null)
             throw new InvalidOperationException("Realtime ASP.NET services must be installed before mapping realtime endpoints.");
-        RouteGroupBuilder group = endpoints.MapHPDControlPlaneGroup(prefix, options.Profile);
+        string profile = new(options.Profile.AsSpan());
+        RouteGroupBuilder group = endpoints.MapHPDControlPlaneGroup(prefix, profile)
+            .WithMetadata(new HPDBaseSelectedControlPlaneProfileMetadata(profile));
         group.AddEndpointFilter(static async (context, next) =>
         {
             try

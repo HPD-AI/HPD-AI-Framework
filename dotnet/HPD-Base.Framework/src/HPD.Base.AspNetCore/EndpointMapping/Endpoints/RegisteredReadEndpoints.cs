@@ -24,6 +24,8 @@ internal static class RegisteredReadEndpoints
             .OrderBy(static value => value.Id, StringComparer.Ordinal))
         {
             IBaseReadRegistration captured = registration;
+            if (!IsValidHttpReadId(captured.Id))
+                throw new InvalidOperationException("base.http.endpoint.idInvalid");
             string operationId = "base.reads." + (exposure == BaseReadExposure.Admin ? "admin." : "public.") + captured.Id;
             string capability = exposure == BaseReadExposure.Admin
                 ? HPDBaseCapabilities.AdministrationRecordsRead
@@ -47,6 +49,14 @@ internal static class RegisteredReadEndpoints
             });
         }
     }
+
+    internal static bool IsValidHttpReadId(string value) => value is { Length: >= 1 and <= 96 }
+        && IsAlphaNumeric(value[0]) && IsAlphaNumeric(value[^1])
+        && value.All(static character => IsAlphaNumeric(character) || character is '.' or '-')
+        && !value.Contains("..", StringComparison.Ordinal);
+
+    private static bool IsAlphaNumeric(char character) =>
+        character is >= 'a' and <= 'z' or >= '0' and <= '9';
 
     private static async Task Execute(HttpContext context, IBaseReadRegistration registration)
     {

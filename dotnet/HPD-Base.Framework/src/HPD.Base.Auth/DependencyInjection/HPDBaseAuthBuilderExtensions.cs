@@ -2,6 +2,7 @@ using HPD.Base.AspNetCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Hosting;
 
 namespace HPD.Base.Auth;
 
@@ -52,12 +53,27 @@ public static class HPDBaseAuthBuilderExtensions
             services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseHealthContributor, HPDBaseAuthHealthContributor>());
             services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseDiagnosticContributor, HPDBaseAuthDiagnosticContributor>());
             services.TryAddEnumerable(ServiceDescriptor.Singleton<IHPDBaseAuthHostIntegrationStatus, HPDBaseAuthAspNetCoreHostIntegrationStatus>());
+            services.TryAddEnumerable(ServiceDescriptor.Singleton<IHPDBaseEndpointSecurityMetadataValidator, HPDBaseControlPlaneMetadataValidator>());
             if (options.EnrichFromUserManager)
                 services.TryAddEnumerable(ServiceDescriptor.Scoped<IHPDBaseAuthPrincipalEnricher, HPDBaseAuthUserManagerPrincipalEnricher>());
             services.Replace(ServiceDescriptor.Scoped<IBaseHttpPrincipalMapper, HPDBaseAuthHttpPrincipalMapper>());
             services.Replace(ServiceDescriptor.Scoped<IBaseHttpCorrelationProvider, HPDBaseAuthCorrelationProvider>());
+            services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, HPDBaseAuthPrincipalRegistrationValidator>());
             return services;
     }
+}
+
+internal sealed class HPDBaseAuthPrincipalRegistrationValidator(IServiceScopeFactory scopeFactory) : IHostedService
+{
+    public Task StartAsync(CancellationToken cancellationToken)
+    {
+        using IServiceScope scope = scopeFactory.CreateScope();
+        if (scope.ServiceProvider.GetServices<IBaseHttpPrincipalMapper>().Take(2).Count() != 1)
+            throw new InvalidOperationException("base.auth.principal.ambiguous");
+        return Task.CompletedTask;
+    }
+
+    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 }
 
 internal static class HPDBaseAuthOptionsValidator
@@ -73,6 +89,10 @@ internal static class HPDBaseAuthOptionsValidator
         options.ServicePrincipalClaimTypes = Copy(options.ServicePrincipalClaimTypes, nameof(options.ServicePrincipalClaimTypes));
         options.CopiedClaimTypes = Copy(options.CopiedClaimTypes, nameof(options.CopiedClaimTypes));
         options.AdminRoleNames = Copy(options.AdminRoleNames, nameof(options.AdminRoleNames));
+        options.TenantClaimType = CopyRequired(options.TenantClaimType, nameof(options.TenantClaimType));
+        options.SubscriptionTierClaimType = CopyRequired(options.SubscriptionTierClaimType, nameof(options.SubscriptionTierClaimType));
+        options.SessionIdClaimType = CopyRequired(options.SessionIdClaimType, nameof(options.SessionIdClaimType));
+        options.CredentialIdClaimType = CopyOptional(options.CredentialIdClaimType, nameof(options.CredentialIdClaimType));
         string[] forbidden = ["token", "secret", "password", "credential", "authorization", "securitystamp", "recovery"];
         if (options.CopiedClaimTypes.Any(type => forbidden.Any(fragment => type.Contains(fragment, StringComparison.OrdinalIgnoreCase))))
             throw new ArgumentException("Copied claim types contain a forbidden credential family.", nameof(options));
@@ -84,9 +104,15 @@ internal static class HPDBaseAuthOptionsValidator
     {
         if (source is null) throw new ArgumentNullException(name);
         string[] copy = source.Select(value => new string(value.AsSpan())).ToArray();
-        if (copy.Any(value => string.IsNullOrWhiteSpace(value) || value.Length > 128 || value.Any(char.IsControl)) ||
+        if (copy.Any(value => string.IsNullOrWhiteSpace(value) || System.Text.Encoding.UTF8.GetByteCount(value) > 128 || value.Any(char.IsControl)) ||
             copy.Distinct(StringComparer.Ordinal).Count() != copy.Length)
             throw new ArgumentException("Values must be distinct bounded visible strings.", name);
         return copy;
     }
+
+    private static string CopyRequired(string? value, string name) =>
+        Copy([value ?? throw new ArgumentNullException(name)], name)[0];
+
+    private static string? CopyOptional(string? value, string name) =>
+        value is null ? null : Copy([value], name)[0];
 }

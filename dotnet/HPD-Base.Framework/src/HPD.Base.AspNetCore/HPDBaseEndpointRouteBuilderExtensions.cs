@@ -28,7 +28,11 @@ public static class HPDBaseEndpointRouteBuilderExtensions
         if (selection.MapRecords)
             RecordEndpoints.Map(group, HPDBaseEndpointAudience.ControlPlane, convention);
         if (selection.MapRegisteredReads)
+        {
+            endpoints.ServiceProvider.GetRequiredService<HPDBaseEndpointFamilySelectionState>()
+                .SelectRegisteredReads(BaseReadExposure.Public, HPDBaseEndpointAudience.ControlPlane);
             RegisteredReadEndpoints.Map(group, BaseReadExposure.Public, HPDBaseEndpointAudience.ControlPlane, convention);
+        }
         if (selection.MapAdministration)
         {
             var admin = group.MapGroup("/admin");
@@ -39,7 +43,11 @@ public static class HPDBaseEndpointRouteBuilderExtensions
             if (selection.MapPolicyExplain)
                 PolicyAdminExplainEndpoints.Map(admin, convention);
             if (selection.MapRegisteredReads)
+            {
+                endpoints.ServiceProvider.GetRequiredService<HPDBaseEndpointFamilySelectionState>()
+                    .SelectRegisteredReads(BaseReadExposure.Admin, HPDBaseEndpointAudience.ControlPlane);
                 RegisteredReadEndpoints.Map(admin, BaseReadExposure.Admin, HPDBaseEndpointAudience.ControlPlane, convention);
+            }
         }
         else if (selection.MapPolicyExplain)
         {
@@ -96,13 +104,19 @@ public static class HPDBaseEndpointRouteBuilderExtensions
             throw new ArgumentException("At least one Application endpoint family must be selected.", nameof(options));
 
         string prefix = EndpointRouteBuilderValidation.RoutePrefix(options.RoutePrefix);
-        var group = endpoints.MapGroup(prefix).RequireAuthorization(options.AuthorizationPolicy);
+        var group = endpoints.MapGroup(prefix)
+            .WithMetadata(new HPDBaseApplicationPolicyMetadata(new string(options.AuthorizationPolicy.AsSpan())))
+            .RequireAuthorization(options.AuthorizationPolicy);
         AddReadinessFilter(group);
 
         if (options.MapRecords)
             RecordEndpoints.Map(group, HPDBaseEndpointAudience.Application);
         if (options.MapRegisteredReads)
+        {
+            endpoints.ServiceProvider.GetRequiredService<HPDBaseEndpointFamilySelectionState>()
+                .SelectRegisteredReads(BaseReadExposure.Public, HPDBaseEndpointAudience.Application);
             RegisteredReadEndpoints.Map(group, BaseReadExposure.Public, HPDBaseEndpointAudience.Application);
+        }
         if (options.MapFiles)
         {
             var files = group.MapGroup("/files");

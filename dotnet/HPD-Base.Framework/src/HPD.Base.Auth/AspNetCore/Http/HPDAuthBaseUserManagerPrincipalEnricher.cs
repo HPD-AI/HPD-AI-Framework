@@ -1,16 +1,18 @@
 using HPD.Auth.Core.Entities;
 using HPD.Base.Auth;
 using HPD.Base;
+using HPD.Base.AspNetCore;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace HPD.Base.Auth;
 
 /// <summary>
 /// Enriches mapped principals with safe facts from HPD.Auth <see cref="ApplicationUser"/> when Identity services are registered.
 /// </summary>
-internal sealed class HPDBaseAuthUserManagerPrincipalEnricher : IHPDBaseAuthPrincipalEnricher
+internal sealed class HPDBaseAuthUserManagerPrincipalEnricher(IOptions<HPDBaseAuthOptions> options) : IHPDBaseAuthPrincipalEnricher
 {
     /// <inheritdoc />
     public async ValueTask<PrincipalContext> EnrichAsync(
@@ -34,35 +36,56 @@ internal sealed class HPDBaseAuthUserManagerPrincipalEnricher : IHPDBaseAuthPrin
             return principal;
 
         var claims = new List<ClaimValue>(principal.Claims ?? []);
-        AddClaim(claims, "hpd.auth.user.is_active", user.IsActive ? "true" : "false");
-        AddClaim(claims, "hpd.auth.user.is_deleted", user.IsDeleted ? "true" : "false");
-        AddClaim(claims, HPDBaseAuthClaimTypes.SubscriptionTier, user.SubscriptionTier);
+        AddSingleClaim(claims, "hpd.auth.user.is_active", user.IsActive ? "true" : "false");
+        AddSingleClaim(claims, "hpd.auth.user.is_deleted", user.IsDeleted ? "true" : "false");
+        AddSingleClaim(claims, HPDBaseAuthClaimTypes.SubscriptionTier, user.SubscriptionTier);
         if (!string.IsNullOrWhiteSpace(user.Audience))
-            AddClaim(claims, "aud", user.Audience);
-        if (user.RequiredActions.Count > 0)
-            AddClaim(claims, "hpd.auth.user.required_actions", string.Join(",", user.RequiredActions));
+            AddSingleClaim(claims, "aud", user.Audience);
+        foreach (string requiredAction in user.RequiredActions.Distinct(StringComparer.Ordinal))
+            AddMultipleClaim(claims, "hpd.auth.user.required_action", requiredAction);
+
+        if (claims.Count > options.Value.MaxClaims)
+            throw new InvalidOperationException("base.auth.actor.projectionFailed");
 
         var tenantId = principal.CurrentTenantId;
-        if (string.IsNullOrWhiteSpace(tenantId))
-            tenantId = user.InstanceId.ToString();
+        string userTenantId = BasePrincipalProjectionGuard.Owned(user.InstanceId.ToString(), 256, "tenant");
+        if (!string.IsNullOrWhiteSpace(tenantId) && !string.Equals(tenantId, userTenantId, StringComparison.Ordinal))
+            throw new InvalidOperationException("base.auth.actor.projectionFailed");
+        tenantId ??= userTenantId;
+
+        string? userDisplayName = user.DisplayName ?? user.UserName;
+        if (userDisplayName is not null)
+            userDisplayName = BasePrincipalProjectionGuard.Owned(userDisplayName, 256, "display name");
 
         return principal with
         {
-            DisplayName = principal.DisplayName ?? user.DisplayName ?? user.UserName,
+            DisplayName = principal.DisplayName ?? userDisplayName,
             CurrentTenantId = tenantId,
             Claims = claims.Count == 0 ? null : claims.ToArray(),
             TenantMemberships = EnsureTenantMembership(principal.TenantMemberships, tenantId)
         };
     }
 
-    private static void AddClaim(List<ClaimValue> claims, string type, string? value)
+    private static void AddSingleClaim(List<ClaimValue> claims, string type, string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
             return;
-        if (claims.Any(claim => string.Equals(claim.Type, type, StringComparison.OrdinalIgnoreCase)))
+        type = BasePrincipalProjectionGuard.Owned(type, 128, "claim type");
+        value = BasePrincipalProjectionGuard.Owned(value, 512, "claim value");
+        ClaimValue[] existing = claims.Where(claim => string.Equals(claim.Type, type, StringComparison.OrdinalIgnoreCase)).ToArray();
+        if (existing.Any(claim => !string.Equals(claim.Value, value, StringComparison.Ordinal)))
+            throw new InvalidOperationException("base.auth.actor.projectionFailed");
+        if (existing.Length != 0)
             return;
-
         claims.Add(new ClaimValue { Type = type, Value = value });
+    }
+
+    private static void AddMultipleClaim(List<ClaimValue> claims, string type, string value)
+    {
+        type = BasePrincipalProjectionGuard.Owned(type, 128, "claim type");
+        value = BasePrincipalProjectionGuard.Owned(value, 128, "required action");
+        if (!claims.Any(claim => string.Equals(claim.Type, type, StringComparison.Ordinal) && string.Equals(claim.Value, value, StringComparison.Ordinal)))
+            claims.Add(new ClaimValue { Type = type, Value = value });
     }
 
     private static TenantMembership[]? EnsureTenantMembership(TenantMembership[]? memberships, string? tenantId)

@@ -122,6 +122,34 @@ public sealed class ControlPlaneCompositionTests
         response.StatusCode.Should().Be(System.Net.HttpStatusCode.OK);
     }
 
+    [Fact]
+    public async Task DuplicatePrincipalAuthorityFailsStartup()
+    {
+        WebApplicationBuilder builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Testing" });
+        builder.WebHost.UseTestServer();
+        builder.Services.AddAuthentication(TestAuthenticationHandler.SchemeName)
+            .AddScheme<AuthenticationSchemeOptions, TestAuthenticationHandler>(TestAuthenticationHandler.SchemeName, static _ => { });
+        builder.Services.AddAuthorization(options => options.AddPolicy("BaseControlPlane", policy => policy.RequireAuthenticatedUser()));
+        builder.Services.AddHPDControlPlane(options =>
+        {
+            options.AddProfile("base-management", profile =>
+            {
+                profile.AuthenticationScheme = TestAuthenticationHandler.SchemeName;
+                profile.AuthenticationProfile = "test";
+                profile.ActorIdentifierClaim = "sub";
+            });
+            foreach (string capability in Capabilities) options.MapCapability(capability, "BaseControlPlane");
+        });
+        builder.Services.AddHPDBase(hpd => hpd.AddAspNetCore().AddHPDAuth(options => options.RequireHPDAuthServices = false));
+        builder.Services.AddScoped<IBaseHttpPrincipalMapper, ConflictingPrincipalMapper>();
+
+        await using WebApplication app = builder.Build();
+        app.MapHPDBaseControlPlane(new() { RoutePrefix = "/base", Profile = "base-management" });
+
+        Func<Task> action = () => app.StartAsync();
+        await action.Should().ThrowAsync<InvalidOperationException>().WithMessage("base.auth.principal.ambiguous");
+    }
+
     private static readonly string[] Capabilities =
     [
         HPDBaseCapabilities.RecordsRead,
@@ -155,5 +183,11 @@ public sealed class ControlPlaneCompositionTests
             return Task.FromResult(AuthenticateResult.Success(
                 new AuthenticationTicket(new ClaimsPrincipal(identity), SchemeName)));
         }
+    }
+
+    private sealed class ConflictingPrincipalMapper : IBaseHttpPrincipalMapper
+    {
+        public ValueTask<PrincipalContext> MapAsync(HttpContext httpContext, HPDBaseEndpointDescriptor endpoint, CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.Authenticated });
     }
 }

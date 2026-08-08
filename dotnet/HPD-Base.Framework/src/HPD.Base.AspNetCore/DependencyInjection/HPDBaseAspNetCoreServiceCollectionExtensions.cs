@@ -40,12 +40,14 @@ public static class HPDBaseAspNetCoreServiceCollectionExtensions
         services.TryAddScoped<IBaseHttpOperationContextFactory, BaseHttpOperationContextFactory>();
         services.TryAddSingleton<IBaseHttpCorrelationProvider, DefaultBaseHttpCorrelationProvider>();
         services.TryAddSingleton<IBaseHttpResultMapper, BaseHttpResultMapper>();
+        services.TryAddSingleton<HPDBaseEndpointFamilySelectionState>();
         services.TryAddSingleton<BaseProblemDetailsFactory>();
         services.TryAddSingleton<IBaseHttpQueryBinder, BaseHttpQueryBinder>();
         services.Replace(ServiceDescriptor.Singleton<IBaseApplicationLifetime, AspNetCoreBaseApplicationLifetime>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseDescriptorContributor, AspNetCoreProjectionDescriptorContributor>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<Microsoft.Extensions.Hosting.IHostedService, HPDBaseApplicationHostedService>());
-        services.TryAddEnumerable(ServiceDescriptor.Singleton<Microsoft.Extensions.Hosting.IHostedService, HPDBaseEndpointInventoryValidator>());
+        services.TryAddSingleton<HPDBaseEndpointInventoryValidator>();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<Microsoft.AspNetCore.Hosting.IStartupFilter, HPDBaseEndpointInventoryStartupFilter>());
 
         return services;
     }

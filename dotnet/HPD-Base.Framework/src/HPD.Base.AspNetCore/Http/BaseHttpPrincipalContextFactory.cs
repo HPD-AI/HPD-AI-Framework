@@ -3,7 +3,7 @@ using Microsoft.AspNetCore.Http;
 
 namespace HPD.Base.AspNetCore;
 
-internal sealed class BaseHttpPrincipalContextFactory(IBaseHttpPrincipalMapper mapper)
+internal sealed class BaseHttpPrincipalContextFactory(IEnumerable<IBaseHttpPrincipalMapper> mappers)
     : IBaseHttpPrincipalContextFactory
 {
     public ValueTask<PrincipalContext> CreateAsync(
@@ -16,6 +16,9 @@ internal sealed class BaseHttpPrincipalContextFactory(IBaseHttpPrincipalMapper m
             .ToArray() ?? [];
         if (descriptors.Length != 1)
             throw new InvalidOperationException("The BASE endpoint descriptor is missing or ambiguous.");
-        return mapper.MapAsync(httpContext, descriptors[0], cancellationToken);
+        IBaseHttpPrincipalMapper[] resolved = mappers.Take(2).ToArray();
+        if (resolved.Length != 1)
+            throw new InvalidOperationException("base.auth.principal.ambiguous");
+        return resolved[0].MapAsync(httpContext, descriptors[0], cancellationToken);
     }
 }

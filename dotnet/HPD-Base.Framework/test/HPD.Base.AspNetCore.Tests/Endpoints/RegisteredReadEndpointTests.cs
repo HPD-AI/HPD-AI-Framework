@@ -9,6 +9,20 @@ namespace HPD.Base.AspNetCore.Tests.Endpoints;
 
 public sealed class RegisteredReadEndpointTests
 {
+    [Theory]
+    [InlineData("Uppercase")]
+    [InlineData("under_score")]
+    [InlineData("bad..segment")]
+    [InlineData("-leading")]
+    public async Task HttpExposedReadIdMustUseTheLockedGrammar(string id)
+    {
+        var registration = new TestReadRegistration(id);
+        Func<Task> action = async () => await TestBaseApp.CreateAsync(configureServices: services =>
+            services.AddSingleton(new BaseReadRegistry(new Dictionary<string, IBaseReadRegistration> { [registration.Id] = registration })));
+
+        await action.Should().ThrowAsync<InvalidOperationException>().WithMessage("base.http.endpoint.idInvalid");
+    }
+
     [Fact]
     public async Task ConcreteRegisteredReadRouteBindsGeneratedMetadataAndReturnsTypedPageShape()
     {

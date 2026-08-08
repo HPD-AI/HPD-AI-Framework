@@ -2,6 +2,7 @@ using HPD.Base.AspNetCore;
 using HPD.Base;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using System.Text;
 
 namespace HPD.Base.AspNetCore.Tests.Endpoints;
@@ -59,10 +60,10 @@ public sealed class AdminPolicyExplainEndpointTests
     public async Task AdminPolicyExplainRoute_InvalidJsonReturnsValidationProblemDetails()
     {
         await using var app = await TestBaseApp.CreateAsync(
-            configureServices: services => services.AddSingleton<IBaseHttpPrincipalMapper>(new FixedPrincipalMapper(new PrincipalContext
+            configureServices: services => services.Replace(ServiceDescriptor.Singleton<IBaseHttpPrincipalMapper>(new FixedPrincipalMapper(new PrincipalContext
             {
                 AuthenticationState = PrincipalAuthenticationState.Admin
-            })),
+            }))),
             configureEndpoints: options => options.MapPolicyExplain = true);
         var content = new StringContent("{ nope", Encoding.UTF8, "application/json");
 
@@ -88,10 +89,10 @@ public sealed class AdminPolicyExplainEndpointTests
     public async Task AdminPolicyExplainRoute_AdminGetsJsonAndNoStoreMutation()
     {
         await using var app = await TestBaseApp.CreateAsync(
-            configureServices: services => services.AddSingleton<IBaseHttpPrincipalMapper>(new FixedPrincipalMapper(new PrincipalContext
+            configureServices: services => services.Replace(ServiceDescriptor.Singleton<IBaseHttpPrincipalMapper>(new FixedPrincipalMapper(new PrincipalContext
             {
                 AuthenticationState = PrincipalAuthenticationState.Admin
-            })),
+            }))),
             configureEndpoints: options => options.MapPolicyExplain = true);
         var client = app.GetTestClient();
 
@@ -121,10 +122,10 @@ public sealed class AdminPolicyExplainEndpointTests
     public async Task AdminManifest_HidesPolicyExplainFromPublicViewAndShowsAdminRoute()
     {
         await using var app = await TestBaseApp.CreateAsync(
-            configureServices: services => services.AddSingleton<IBaseHttpPrincipalMapper>(new FixedPrincipalMapper(new PrincipalContext
+            configureServices: services => services.Replace(ServiceDescriptor.Singleton<IBaseHttpPrincipalMapper>(new FixedPrincipalMapper(new PrincipalContext
             {
                 AuthenticationState = PrincipalAuthenticationState.Admin
-            })),
+            }))),
             configureEndpoints: options => options.MapPolicyExplain = true);
         var client = app.GetTestClient();
 
