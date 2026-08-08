@@ -403,8 +403,8 @@ internal static class GatewayClientOpenApiJsonValidator
         if (schema["oneOf"] is JsonArray branches)
             foreach (JsonNode? branch in branches)
                 ValidateSchema(branch?.AsObject() ?? throw new InvalidOperationException("OpenAPI union branch is invalid."), components, path);
-        if (schema["format"]?.GetValue<string>() is { } format && format is not ("int32" or "int64" or "uint64" or "date-time" or "uri" or "uuid"))
-            throw new InvalidOperationException("OpenAPI schema contains an unsupported format.");
+        if (schema["format"]?.GetValue<string>() is { } format && format is not ("int32" or "int64" or "uint16" or "uint64" or "date-time" or "uri" or "uuid"))
+            throw new InvalidOperationException($"OpenAPI schema contains unsupported format '{format}'.");
     }
 
     private static void RequireFields(JsonObject value, HashSet<string> allowed, string scope)

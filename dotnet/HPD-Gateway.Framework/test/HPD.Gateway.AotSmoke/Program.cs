@@ -998,6 +998,7 @@ static ServiceProvider BuildDurable(string database)
         builder.ConfigureSchema(schema => schema.PlanProtectionKey = Enumerable.Repeat((byte)0x62, 32).ToArray());
         builder.ConfigureTokenProtection(tokens => tokens.ActiveKey = new BaseOpaqueTokenKey
         {
+            IssueNotBefore = DateTimeOffset.UnixEpoch,
             Id = 1,
             Key = Enumerable.Repeat((byte)0x63, 32).ToArray(),
         });

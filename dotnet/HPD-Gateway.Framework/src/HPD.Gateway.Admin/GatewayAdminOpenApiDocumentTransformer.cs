@@ -140,6 +140,7 @@ internal sealed class GatewayAdminOpenApiDocumentTransformer(GatewayAdminOpenApi
         using GatewayAdminOpenApiContract.SchemaCorrelationScope correlation = contract.BeginSchemaCorrelation();
         document.Info.Title = "HPD.Gateway Admin API";
         document.Info.Version = "1.0.0";
+        document.Servers = null;
         string securityScheme = contract.GetSecurityScheme();
         document.Components ??= new OpenApiComponents();
         document.Components.Schemas ??= new Dictionary<string, IOpenApiSchema>();
@@ -217,11 +218,32 @@ internal sealed class GatewayAdminOpenApiDocumentTransformer(GatewayAdminOpenApi
     {
         string id = GatewayAdminSchemaReferenceIds.Create(type) ??
             throw new InvalidOperationException("Gateway Admin wire type has no stable schema reference ID.");
+        if (schema is OpenApiSchema concrete) NormalizeSchema(concrete, new HashSet<OpenApiSchema>(ReferenceEqualityComparer.Instance));
         if (schema is not OpenApiSchemaReference)
             document.Components!.Schemas!.TryAdd(id, schema);
         else if (!document.Components!.Schemas!.ContainsKey(id))
             throw new InvalidOperationException("Gateway Admin schema reference has no local component target.");
         return new OpenApiSchemaReference(id, document, null);
+    }
+
+    private static void NormalizeSchema(OpenApiSchema schema, HashSet<OpenApiSchema> visited)
+    {
+        if (!visited.Add(schema)) return;
+        if (schema.AnyOf is { Count: > 0 })
+        {
+            if (schema.OneOf is { Count: > 0 })
+                throw new InvalidOperationException("Gateway Admin schema cannot contain both anyOf and oneOf.");
+            schema.OneOf = schema.AnyOf;
+            schema.AnyOf = null;
+        }
+        if (schema.Properties is not null)
+            foreach (IOpenApiSchema child in schema.Properties.Values)
+                if (child is OpenApiSchema concrete) NormalizeSchema(concrete, visited);
+        if (schema.Items is OpenApiSchema items) NormalizeSchema(items, visited);
+        if (schema.AdditionalProperties is OpenApiSchema additional) NormalizeSchema(additional, visited);
+        if (schema.OneOf is not null)
+            foreach (IOpenApiSchema child in schema.OneOf)
+                if (child is OpenApiSchema concrete) NormalizeSchema(concrete, visited);
     }
 
     private static List<IOpenApiParameter> Parameters(GatewayAdminClientOperationSemantics semantics)

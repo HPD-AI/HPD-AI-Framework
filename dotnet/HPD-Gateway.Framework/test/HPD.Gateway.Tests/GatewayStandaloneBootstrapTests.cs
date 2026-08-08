@@ -129,6 +129,7 @@ public sealed class GatewayStandaloneBootstrapTests
                     ManagementAuthorityId = "local",
                     PlanProtectionKeyHex = new string('1', 64),
                     TokenProtectionKeyHex = new string('2', 64),
+                    TokenProtectionIssueNotBeforeUtc = DateTimeOffset.UnixEpoch,
                     DesiredStateTokenKeyHex = new string('3', 64),
                     EpochReservationKeyHex = new string('5', 64),
                     JwtAuthority = "https://issuer.example",

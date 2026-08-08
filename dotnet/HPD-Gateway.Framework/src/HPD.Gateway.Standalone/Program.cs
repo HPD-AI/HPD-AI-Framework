@@ -123,6 +123,7 @@ builder.Services.AddHpdGatewayManagement(options =>
     {
         Id = 1,
         Key = Convert.FromHexString(inputs.Management.TokenProtectionKeyHex),
+        IssueNotBefore = inputs.Management.TokenProtectionIssueNotBeforeUtc,
     });
     hpdBase.UseSqlite(sqlite =>
     {

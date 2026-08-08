@@ -845,6 +845,7 @@ public sealed class GatewayManagementCompositionTests
                 builder.ConfigureSchema(schema => schema.PlanProtectionKey = Enumerable.Repeat((byte)0x12, 32).ToArray());
                 builder.ConfigureTokenProtection(tokens => tokens.ActiveKey = new BaseOpaqueTokenKey
                 {
+                    IssueNotBefore = DateTimeOffset.UnixEpoch,
                     Id = 1,
                     Key = Enumerable.Repeat((byte)0x23, 32).ToArray(),
                 });

@@ -86,6 +86,7 @@ cat > "$work/bootstrap.json" <<JSON
   "management":{"databasePath":"$work/management.db","managementAuthorityId":"management-authority",
     "planProtectionKeyHex":"1111111111111111111111111111111111111111111111111111111111111111",
     "tokenProtectionKeyHex":"2222222222222222222222222222222222222222222222222222222222222222",
+    "tokenProtectionIssueNotBeforeUtc":"2020-01-01T00:00:00Z",
     "desiredStateTokenKeyHex":"3333333333333333333333333333333333333333333333333333333333333333",
     "epochReservationKeyHex":"5555555555555555555555555555555555555555555555555555555555555555",
     "jwtAuthority":"https://issuer.example","jwtAudience":"hpd-gateway",

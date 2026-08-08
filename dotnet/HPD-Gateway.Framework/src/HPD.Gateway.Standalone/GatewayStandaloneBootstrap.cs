@@ -29,6 +29,7 @@ internal sealed record GatewayStandaloneManagement
     public required string ManagementAuthorityId { get; init; }
     public required string PlanProtectionKeyHex { get; init; }
     public required string TokenProtectionKeyHex { get; init; }
+    public required DateTimeOffset TokenProtectionIssueNotBeforeUtc { get; init; }
     public required string DesiredStateTokenKeyHex { get; init; }
     public required string EpochReservationKeyHex { get; init; }
     public required string JwtAuthority { get; init; }
@@ -177,6 +178,8 @@ internal static class GatewayStandaloneBootstrapReader
             throw new InvalidOperationException("The standalone management identity is invalid.");
         ValidateKey(management.PlanProtectionKeyHex);
         ValidateKey(management.TokenProtectionKeyHex);
+        if (management.TokenProtectionIssueNotBeforeUtc.Offset != TimeSpan.Zero)
+            throw new InvalidOperationException("The standalone token-protection issue time must be UTC.");
         ValidateKey(management.DesiredStateTokenKeyHex);
         ValidateKey(management.EpochReservationKeyHex);
         ValidateKey(management.JwtSigningKeyHex);
