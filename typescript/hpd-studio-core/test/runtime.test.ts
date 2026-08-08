@@ -203,6 +203,78 @@ test('tracked resources dispose LIFO, idempotently, and failure-isolated', async
   assert.deepEqual(events, ['activation', 'last', 'throwing', 'first']);
 });
 
+test('capacity failure does not leak timers, listeners, or activation resources', async () => {
+  let intervalTicks = 0;
+  const timerRuntime = await compose([registration('timer-capacity', 'optional', ({ lifecycle }) => {
+    for (let index = 0; index < 128; index++) lifecycle.defer(() => {});
+    lifecycle.setInterval(() => intervalTicks++, 100);
+  })]);
+  assert.deepEqual(timerRuntime.quarantinedModules, [{ id: 'timer-capacity', code: 'studio.module.initializationFailed' }]);
+  await new Promise((resolve) => setTimeout(resolve, 125));
+  assert.equal(intervalTicks, 0);
+  await timerRuntime.dispose();
+
+  let installedListeners = 0;
+  const target = {
+    addEventListener() { installedListeners++; },
+    removeEventListener() { installedListeners--; }
+  };
+  const listenerRuntime = await compose([registration('listener-capacity', 'optional', ({ lifecycle }) => {
+    for (let index = 0; index < 128; index++) lifecycle.defer(() => {});
+    lifecycle.listen(target, 'update', () => {});
+  })]);
+  assert.deepEqual(listenerRuntime.quarantinedModules, [{ id: 'listener-capacity', code: 'studio.module.initializationFailed' }]);
+  assert.equal(installedListeners, 0);
+  await listenerRuntime.dispose();
+
+  let activationDisposals = 0;
+  const activationRuntime = await compose([registration('activation-capacity', 'optional', ({ lifecycle }) => {
+    for (let index = 0; index < 128; index++) lifecycle.defer(() => {});
+    return { dispose: () => { activationDisposals++; } };
+  })]);
+  assert.deepEqual(activationRuntime.quarantinedModules, [{ id: 'activation-capacity', code: 'studio.module.initializationFailed' }]);
+  assert.equal(activationDisposals, 1);
+  await activationRuntime.dispose();
+  assert.equal(activationDisposals, 1);
+});
+
+test('concurrent disposal callers wait for the same active cleanup', async () => {
+  let release!: () => void;
+  const cleanupGate = new Promise<void>((resolve) => { release = resolve; });
+  let cleanupCompleted = false;
+  const runtime = await compose([registration('async-cleanup', 'optional', ({ lifecycle }) => {
+    lifecycle.defer(async () => {
+      await cleanupGate;
+      cleanupCompleted = true;
+    });
+  })]);
+
+  let firstCompleted = false;
+  let secondCompleted = false;
+  const first = runtime.dispose().then(() => { firstCompleted = true; });
+  const second = runtime.dispose().then(() => { secondCompleted = true; });
+  await Promise.resolve();
+  assert.equal(firstCompleted, false);
+  assert.equal(secondCompleted, false);
+  assert.equal(cleanupCompleted, false);
+  release();
+  await Promise.all([first, second]);
+  assert.equal(firstCompleted, true);
+  assert.equal(secondCompleted, true);
+  assert.equal(cleanupCompleted, true);
+});
+
+test('closed identifiers use ordinal ordering independent of locale collation', async () => {
+  const runtime = await compose([
+    registration('aa'),
+    registration('a0'),
+    registration('a-1')
+  ]);
+  assert.deepEqual(runtime.modules.map((item) => item.id), ['a-1', 'a0', 'aa']);
+  assert.deepEqual(runtime.routes.map((item) => item.path), ['/a-1', '/a0', '/aa']);
+  await runtime.dispose();
+});
+
 test('unknown, malformed, omitted, quarantined, and disposed navigation uses safe fallback', async () => {
   const runtime = await compose([
     registration('active'),

@@ -21,6 +21,10 @@ const MAXIMUM_CONFIGURATION_BYTES = 65_536;
 const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const SEGMENT = ID;
 
+function compareOrdinal(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 export class StudioCompositionError extends Error {
   readonly code: string;
   readonly moduleId?: string;
@@ -69,7 +73,14 @@ export async function composeStudio(options: ComposeStudioOptions): Promise<Stud
             (activation.dispose !== undefined && typeof activation.dispose !== 'function')) {
           throw new StudioCompositionError('studio.module.activationInvalid', item.module.id);
         }
-        if (activation.dispose) scope.defer(() => activation.dispose!());
+        if (activation.dispose) {
+          try {
+            scope.defer(() => activation.dispose!());
+          } catch (error) {
+            try { await activation.dispose(); } catch { /* failure-isolated rollback */ }
+            throw error;
+          }
+        }
       }
       active.push({ module: withContexts(item.module, contexts.handle), scope, clearContext: contexts.clear });
     } catch {
@@ -96,7 +107,7 @@ function prepare(registrations: readonly StudioModuleRegistration[]): PreparedRe
     }
     requireId(registration.module.id, 'studio.module.idInvalid');
     return registration;
-  }).sort((left, right) => left.module.id.localeCompare(right.module.id));
+  }).sort((left, right) => compareOrdinal(left.module.id, right.module.id));
   const prepared = ordered.map((registration) => {
     const module = registration.module;
     if (ids.has(module.id)) throw new StudioCompositionError('studio.module.idDuplicate', module.id);
@@ -119,7 +130,7 @@ function prepare(registrations: readonly StudioModuleRegistration[]): PreparedRe
       requireText(route.summary, MAXIMUM_SUMMARY_BYTES, 'studio.route.summaryInvalid', module.id);
       if (route.eyebrow !== undefined) requireText(route.eyebrow, MAXIMUM_TEXT_BYTES, 'studio.route.eyebrowInvalid', module.id);
       return Object.freeze({ ...route, path, moduleId: module.id, context: null! }) as StudioRuntimeRoute;
-    }).sort((left, right) => left.path.localeCompare(right.path));
+    }).sort((left, right) => compareOrdinal(left.path, right.path));
     const routePaths = new Set(routes.map((route) => route.path));
     const navPaths = new Set<string>();
     const navItems = (module.navItems ?? []).map((item) => {
@@ -130,7 +141,7 @@ function prepare(registrations: readonly StudioModuleRegistration[]): PreparedRe
       requireText(item.label, MAXIMUM_TEXT_BYTES, 'studio.navigation.labelInvalid', module.id);
       if (item.summary !== undefined) requireText(item.summary, MAXIMUM_SUMMARY_BYTES, 'studio.navigation.summaryInvalid', module.id);
       return Object.freeze({ ...item, path });
-    }).sort((left, right) => left.path.localeCompare(right.path));
+    }).sort((left, right) => compareOrdinal(left.path, right.path));
     const runtimeModule: StudioRuntimeModule = Object.freeze({
       id: module.id,
       label: module.label,
@@ -159,13 +170,14 @@ function createRuntime(
   quarantined: readonly StudioQuarantinedModule[]
 ): StudioRuntime {
   const modules = Object.freeze(active.map((item) => item.module));
-  const routes = Object.freeze(modules.flatMap((module) => module.routes).sort((a, b) => a.path.localeCompare(b.path)));
+  const routes = Object.freeze(modules.flatMap((module) => module.routes).sort((a, b) => compareOrdinal(a.path, b.path)));
   const byPath = new Map(routes.map((route) => [route.path, route]));
   const fallback = Object.freeze({ route: null, requestedPath: '/', isFallback: true });
   let current: StudioRouteObservation = routes[0]
     ? Object.freeze({ route: routes[0], requestedPath: routes[0].path, isFallback: false })
     : fallback;
   let disposed = false;
+  let disposal: Promise<void> | undefined;
   const listeners = new Set<(value: StudioRouteObservation) => void>();
   const runtime: StudioRuntime = {
     configuration: Object.freeze({ ...options.configuration }),
@@ -197,11 +209,14 @@ function createRuntime(
       };
     },
     async dispose() {
-      if (disposed) return;
+      if (disposal) return disposal;
       disposed = true;
       listeners.clear();
-      await disposeActive(active);
-      current = fallback;
+      disposal = (async () => {
+        await disposeActive(active);
+        current = fallback;
+      })();
+      return disposal;
     }
   };
   return Object.freeze(runtime);
@@ -211,37 +226,59 @@ class LifecycleScope implements StudioLifecycle {
   readonly #controller = new AbortController();
   readonly #disposers: Array<() => void | Promise<void>> = [];
   #disposed = false;
+  #disposal: Promise<void> | undefined;
   get signal(): AbortSignal { return this.#controller.signal; }
   defer(dispose: () => void | Promise<void>): void {
     if (this.#disposed || typeof dispose !== 'function') throw new StudioCompositionError('studio.lifecycle.unavailable');
-    if (this.#disposers.length >= MAXIMUM_RESOURCES) throw new StudioCompositionError('studio.lifecycle.capacityExceeded');
+    this.#requireCapacity();
     this.#disposers.push(dispose);
   }
-  trackAbortController(controller = new AbortController()): AbortController {
-    this.defer(() => controller.abort());
-    return controller;
+  trackAbortController(controller?: AbortController): AbortController {
+    this.#requireAvailable();
+    this.#requireCapacity();
+    const tracked = controller ?? new AbortController();
+    this.#disposers.push(() => tracked.abort());
+    return tracked;
   }
   setInterval(callback: () => void, milliseconds: number): number {
     if (!Number.isInteger(milliseconds) || milliseconds < 100 || milliseconds > 86_400_000) {
       throw new StudioCompositionError('studio.lifecycle.intervalInvalid');
     }
+    this.#requireAvailable();
+    this.#requireCapacity();
     const handle = globalThis.setInterval(callback, milliseconds) as unknown as number;
-    this.defer(() => globalThis.clearInterval(handle));
+    this.#disposers.push(() => globalThis.clearInterval(handle));
     return handle;
   }
   listen(target: Pick<EventTarget, 'addEventListener' | 'removeEventListener'>, type: string, listener: EventListener): void {
     if (!target || !ID.test(type) || typeof listener !== 'function') throw new StudioCompositionError('studio.lifecycle.listenerInvalid');
-    target.addEventListener(type, listener);
-    this.defer(() => target.removeEventListener(type, listener));
+    this.#requireAvailable();
+    this.#requireCapacity();
+    try {
+      target.addEventListener(type, listener);
+    } catch (error) {
+      try { target.removeEventListener(type, listener); } catch { /* failure-isolated rollback */ }
+      throw error;
+    }
+    this.#disposers.push(() => target.removeEventListener(type, listener));
   }
   async dispose(): Promise<void> {
-    if (this.#disposed) return;
+    if (this.#disposal) return this.#disposal;
     this.#disposed = true;
-    this.#controller.abort();
-    for (const dispose of this.#disposers.reverse()) {
-      try { await dispose(); } catch { /* failure-isolated cleanup */ }
-    }
-    this.#disposers.length = 0;
+    this.#disposal = (async () => {
+      this.#controller.abort();
+      for (const dispose of this.#disposers.reverse()) {
+        try { await dispose(); } catch { /* failure-isolated cleanup */ }
+      }
+      this.#disposers.length = 0;
+    })();
+    return this.#disposal;
+  }
+  #requireAvailable(): void {
+    if (this.#disposed) throw new StudioCompositionError('studio.lifecycle.unavailable');
+  }
+  #requireCapacity(): void {
+    if (this.#disposers.length >= MAXIMUM_RESOURCES) throw new StudioCompositionError('studio.lifecycle.capacityExceeded');
   }
 }
 
@@ -353,7 +390,7 @@ function cloneJson(value: StudioJson, depth: number, remaining: { nodes: number 
   const entries = Object.entries(value);
   if (entries.length > 64) throw new StudioCompositionError('studio.module.configurationInvalid');
   const result: Record<string, StudioJson> = {};
-  for (const [key, item] of entries.sort(([left], [right]) => left.localeCompare(right))) {
+  for (const [key, item] of entries.sort(([left], [right]) => compareOrdinal(left, right))) {
     requireId(key, 'studio.module.configurationKeyInvalid');
     result[key] = cloneJson(item, depth + 1, remaining);
   }
