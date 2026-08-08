@@ -308,6 +308,14 @@ public sealed class GatewayAdminHttpTests
         await application.StartAsync();
         string json = await application.GetTestClient().GetStringAsync("/openapi/hpd-gateway-v1.json");
         using JsonDocument document = JsonDocument.Parse(json);
+        JsonElement securityScheme = document.RootElement.GetProperty("components")
+            .GetProperty("securitySchemes").GetProperty("test");
+        securityScheme.GetProperty("type").GetString().Should().Be("http");
+        securityScheme.GetProperty("scheme").GetString().Should().Be("bearer");
+        securityScheme.GetProperty("bearerFormat").GetString().Should().Be("JWT");
+        securityScheme.TryGetProperty("in", out _).Should().BeFalse();
+        securityScheme.EnumerateObject().Select(static property => property.Name)
+            .Should().BeEquivalentTo("type", "scheme", "bearerFormat");
         JsonElement paths = document.RootElement.GetProperty("paths");
 
         paths.EnumerateObject().SelectMany(static path => path.Value.EnumerateObject())

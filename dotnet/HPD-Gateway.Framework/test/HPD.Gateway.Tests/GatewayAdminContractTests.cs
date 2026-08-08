@@ -26,6 +26,36 @@ namespace HPD.Gateway.Tests;
 public sealed class GatewayAdminContractTests
 {
     [Fact]
+    public void Client_semantic_ledger_correlates_one_to_one_with_every_endpoint()
+    {
+        GatewayAdminClientSemanticLedger.V1.Should().HaveCount(23);
+        GatewayAdminClientSemanticLedger.V1.Select(static item => item.Operation)
+            .Should().OnlyHaveUniqueItems().And.BeEquivalentTo(
+                GatewayAdminEndpointLedger.V1.Select(static item => item.Operation));
+
+        foreach (GatewayAdminEndpointDescriptor endpoint in GatewayAdminEndpointLedger.V1)
+        {
+            GatewayAdminClientOperationSemantics semantics = GatewayAdminClientSemanticLedger.For(endpoint.Operation);
+            semantics.Idempotency.Should().Be(endpoint.Mutation
+                ? GatewayAdminClientIdempotency.Required
+                : GatewayAdminClientIdempotency.Forbidden);
+            semantics.DesiredPrecondition.Should().Be(endpoint.Operation is
+                "submit-and-activate" or "activate" or "rollback" or "import-and-activate"
+                    ? GatewayAdminClientDesiredPrecondition.CreateOrReplace
+                    : GatewayAdminClientDesiredPrecondition.Forbidden);
+            semantics.SuccessMeaning.Should().Be(semantics.SuccessStatus switch
+            {
+                200 => GatewayAdminClientSuccessMeaning.CompletedRead,
+                201 => GatewayAdminClientSuccessMeaning.Created,
+                202 => GatewayAdminClientSuccessMeaning.AcceptedNotActive,
+                _ => throw new InvalidOperationException(),
+            });
+            semantics.DocumentedErrors.Should().Equal(
+                GatewayAdminOpenApiMetadata.ErrorStatuses(endpoint.Operation));
+        }
+    }
+
+    [Fact]
     public void Endpoint_ledger_maps_one_static_capability_and_exact_resource_policy_per_scope()
     {
         WebApplicationBuilder builder = WebApplication.CreateBuilder();
