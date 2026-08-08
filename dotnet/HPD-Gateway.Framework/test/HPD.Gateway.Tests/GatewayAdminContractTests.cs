@@ -66,6 +66,31 @@ public sealed class GatewayAdminContractTests
     }
 
     [Fact]
+    public void Pagination_schema_and_description_follow_each_semantic_bound_independently()
+    {
+        GatewayAdminClientPaginationSpecification baseline =
+            GatewayAdminClientPaginationSpecification.OpaqueCursorV1;
+        GatewayAdminClientPaginationSpecification[] variants =
+        [
+            baseline with { DefaultMaximum = 65 },
+            baseline with { MinimumMaximum = 2 },
+            baseline with { MaximumMaximum = 257 },
+        ];
+
+        foreach (GatewayAdminClientPaginationSpecification specification in variants)
+        {
+            var schema = GatewayAdminOpenApiDocumentTransformer.PaginationMaximumSchema(specification);
+            schema.Minimum.Should().Be(specification.MinimumMaximum!.Value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            schema.Maximum.Should().Be(specification.MaximumMaximum!.Value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            schema.Default!.GetValue<int>().Should().Be(specification.DefaultMaximum);
+            string description = GatewayAdminOpenApiDocumentTransformer.PaginationDescription(specification);
+            description.Should().Contain(specification.MinimumMaximum!.Value.ToString())
+                .And.Contain(specification.DefaultMaximum!.Value.ToString())
+                .And.Contain(specification.MaximumMaximum!.Value.ToString());
+        }
+    }
+
+    [Fact]
     public void Endpoint_ledger_maps_one_static_capability_and_exact_resource_policy_per_scope()
     {
         WebApplicationBuilder builder = WebApplication.CreateBuilder();

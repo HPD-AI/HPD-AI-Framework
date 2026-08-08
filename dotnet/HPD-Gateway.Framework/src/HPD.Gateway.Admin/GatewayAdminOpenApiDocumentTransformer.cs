@@ -3,6 +3,7 @@ using HPD.Gateway.Effective;
 using HPD.Gateway.Management;
 using Microsoft.AspNetCore.OpenApi;
 using Microsoft.OpenApi;
+using System.Text.Json.Nodes;
 
 namespace HPD.Gateway.Admin;
 
@@ -166,15 +167,35 @@ internal sealed class GatewayAdminOpenApiDocumentTransformer(GatewayAdminOpenApi
                 StringSchema(514, 3, "^\"(?=[!-~]{1,512}\"$)[^\",]+\"$"),
                 "One strong quoted entity-tag containing 1-512 visible-ASCII characters except quote and comma; " +
                 "weak, wildcard, unquoted, duplicate, and comma-joined validators are rejected. Absence asserts create-only."));
-        if (semantics.Pagination == GatewayAdminClientPaginationKind.OpaqueCursor)
+        if (semantics.Pagination.Kind == GatewayAdminClientPaginationKind.OpaqueCursor)
         {
             parameters.Add(Parameter("maximum", ParameterLocation.Query, required: false,
-                new OpenApiSchema { Type = JsonSchemaType.Integer, Minimum = "1", Maximum = "256" },
-                "Maximum page size; defaults to 64."));
+                PaginationMaximumSchema(semantics.Pagination), PaginationDescription(semantics.Pagination)));
             parameters.Add(Parameter("cursor", ParameterLocation.Query, required: false,
                 StringSchema(4096), "Opaque stable continuation token."));
         }
         return parameters;
+    }
+
+    internal static OpenApiSchema PaginationMaximumSchema(GatewayAdminClientPaginationSpecification specification)
+    {
+        specification.Validate();
+        if (specification.Kind != GatewayAdminClientPaginationKind.OpaqueCursor)
+            throw new InvalidOperationException("Pagination schema requires opaque-cursor pagination.");
+        return new OpenApiSchema
+        {
+            Type = JsonSchemaType.Integer,
+            Minimum = specification.MinimumMaximum!.Value.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            Maximum = specification.MaximumMaximum!.Value.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            Default = JsonValue.Create(specification.DefaultMaximum!.Value),
+        };
+    }
+
+    internal static string PaginationDescription(GatewayAdminClientPaginationSpecification specification)
+    {
+        specification.Validate();
+        return $"Maximum page size from {specification.MinimumMaximum!.Value} to " +
+            $"{specification.MaximumMaximum!.Value}; defaults to {specification.DefaultMaximum!.Value}.";
     }
 
     private static OpenApiParameter Parameter(

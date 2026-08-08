@@ -349,7 +349,7 @@ public sealed class GatewayAdminHttpTests
             if (ifMatch) AssertParameter(parameters, "If-Match", "header", required: false, maximumLength: 514,
                 minimumLength: 3, pattern: "^\"(?=[!-~]{1,512}\"$)[^\",]+\"$");
             else parameters.Should().NotContain(parameter => parameter.GetProperty("name").GetString() == "If-Match");
-            bool paged = semantics.Pagination == GatewayAdminClientPaginationKind.OpaqueCursor;
+            bool paged = semantics.Pagination.Kind == GatewayAdminClientPaginationKind.OpaqueCursor;
             if (paged)
             {
                 AssertParameter(parameters, "maximum", "query", required: false);
@@ -357,6 +357,7 @@ public sealed class GatewayAdminHttpTests
                     .GetProperty("schema");
                 maximum.GetProperty("minimum").GetInt32().Should().Be(1);
                 maximum.GetProperty("maximum").GetInt32().Should().Be(256);
+                maximum.GetProperty("default").GetInt32().Should().Be(64);
                 AssertParameter(parameters, "cursor", "query", required: false, maximumLength: 4096);
             }
             else

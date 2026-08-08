@@ -12,6 +12,32 @@ internal enum GatewayAdminClientSuccessMeaning : byte { CompletedRead, Created, 
 internal enum GatewayAdminClientPaginationKind : byte { None, OpaqueCursor }
 internal enum GatewayAdminClientRequestBodyPresence : byte { None, Required, Optional }
 
+internal sealed record GatewayAdminClientPaginationSpecification(
+    GatewayAdminClientPaginationKind Kind,
+    int? DefaultMaximum,
+    int? MinimumMaximum,
+    int? MaximumMaximum)
+{
+    internal static GatewayAdminClientPaginationSpecification None { get; } =
+        new(GatewayAdminClientPaginationKind.None, null, null, null);
+
+    internal static GatewayAdminClientPaginationSpecification OpaqueCursorV1 { get; } =
+        new(GatewayAdminClientPaginationKind.OpaqueCursor, 64, 1, 256);
+
+    internal void Validate()
+    {
+        if (Kind == GatewayAdminClientPaginationKind.None)
+        {
+            if (DefaultMaximum is not null || MinimumMaximum is not null || MaximumMaximum is not null)
+                throw new InvalidOperationException("Non-paged operations cannot declare pagination bounds.");
+            return;
+        }
+        if (DefaultMaximum is not { } value || MinimumMaximum is not { } minimum ||
+            MaximumMaximum is not { } maximum || minimum < 1 || minimum > value || value > maximum)
+            throw new InvalidOperationException("Opaque cursor pagination requires an ordered positive minimum, default, and maximum.");
+    }
+}
+
 internal sealed record GatewayAdminClientOperationSemantics(
     string Operation,
     Type? RequestType,
@@ -22,7 +48,7 @@ internal sealed record GatewayAdminClientOperationSemantics(
     GatewayAdminClientIdempotency Idempotency,
     GatewayAdminClientDesiredPrecondition DesiredPrecondition,
     bool ProtectedNotFound,
-    GatewayAdminClientPaginationKind Pagination,
+    GatewayAdminClientPaginationSpecification Pagination,
     ImmutableArray<int> DocumentedErrors);
 
 internal static class GatewayAdminClientSemanticLedger
@@ -70,18 +96,18 @@ internal static class GatewayAdminClientSemanticLedger
         string operation, Type success, ImmutableArray<int> errors, Type? request = null, bool protectedNotFound = false) =>
         Create(operation, request, success, 200, GatewayAdminClientSuccessMeaning.CompletedRead,
             GatewayAdminClientIdempotency.Forbidden, GatewayAdminClientDesiredPrecondition.Forbidden,
-            protectedNotFound, GatewayAdminClientPaginationKind.None, errors);
+            protectedNotFound, GatewayAdminClientPaginationSpecification.None, errors);
 
     private static GatewayAdminClientOperationSemantics Page(string operation, Type success, ImmutableArray<int> errors) =>
         Create(operation, null, success, 200, GatewayAdminClientSuccessMeaning.CompletedRead,
             GatewayAdminClientIdempotency.Forbidden, GatewayAdminClientDesiredPrecondition.Forbidden,
-            true, GatewayAdminClientPaginationKind.OpaqueCursor, errors);
+            true, GatewayAdminClientPaginationSpecification.OpaqueCursorV1, errors);
 
     private static GatewayAdminClientOperationSemantics Created(
         string operation, Type success, ImmutableArray<int> errors, Type? request = null) =>
         Create(operation, request, success, 201, GatewayAdminClientSuccessMeaning.Created,
             GatewayAdminClientIdempotency.Required, GatewayAdminClientDesiredPrecondition.Forbidden,
-            true, GatewayAdminClientPaginationKind.None, errors);
+            true, GatewayAdminClientPaginationSpecification.None, errors);
 
     private static GatewayAdminClientOperationSemantics Accepted(
         string operation, Type success, ImmutableArray<int> errors, Type request,
@@ -89,7 +115,7 @@ internal static class GatewayAdminClientSemanticLedger
         Create(operation, request, success, 202, GatewayAdminClientSuccessMeaning.AcceptedNotActive,
             GatewayAdminClientIdempotency.Required,
             cas ? GatewayAdminClientDesiredPrecondition.CreateOrReplace : GatewayAdminClientDesiredPrecondition.Forbidden,
-            true, GatewayAdminClientPaginationKind.None, errors, bodyOptional);
+            true, GatewayAdminClientPaginationSpecification.None, errors, bodyOptional);
 
     private static GatewayAdminClientOperationSemantics Create(
         string operation,
@@ -100,11 +126,23 @@ internal static class GatewayAdminClientSemanticLedger
         GatewayAdminClientIdempotency idempotency,
         GatewayAdminClientDesiredPrecondition desiredPrecondition,
         bool protectedNotFound,
-        GatewayAdminClientPaginationKind pagination,
+        GatewayAdminClientPaginationSpecification pagination,
         ImmutableArray<int> documentedErrors,
         bool bodyOptional = false) =>
-        new(operation, request, request is null ? GatewayAdminClientRequestBodyPresence.None :
+        CreateValidated(operation, request, success, successStatus, successMeaning, idempotency,
+            desiredPrecondition, protectedNotFound, pagination, documentedErrors, bodyOptional);
+
+    private static GatewayAdminClientOperationSemantics CreateValidated(
+        string operation, Type? request, Type success, int successStatus,
+        GatewayAdminClientSuccessMeaning successMeaning, GatewayAdminClientIdempotency idempotency,
+        GatewayAdminClientDesiredPrecondition desiredPrecondition, bool protectedNotFound,
+        GatewayAdminClientPaginationSpecification pagination, ImmutableArray<int> documentedErrors,
+        bool bodyOptional)
+    {
+        pagination.Validate();
+        return new(operation, request, request is null ? GatewayAdminClientRequestBodyPresence.None :
             bodyOptional ? GatewayAdminClientRequestBodyPresence.Optional : GatewayAdminClientRequestBodyPresence.Required,
             success, successStatus, successMeaning, idempotency,
             desiredPrecondition, protectedNotFound, pagination, documentedErrors);
+    }
 }
