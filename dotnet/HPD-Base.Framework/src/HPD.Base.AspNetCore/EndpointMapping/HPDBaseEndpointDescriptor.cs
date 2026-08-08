@@ -39,7 +39,13 @@ public enum HPDBaseEndpointOperation
     /// <summary>Subscribes to realtime delivery.</summary>
     RealtimeSubscribe,
     /// <summary>Explains a policy decision.</summary>
-    PolicyExplain
+    PolicyExplain,
+    /// <summary>Executes policy-safe vector ranking.</summary>
+    VectorQuery,
+    /// <summary>Reads vector-index metadata.</summary>
+    VectorMetadataRead,
+    /// <summary>Rebuilds one vector index.</summary>
+    VectorRebuild
 }
 
 /// <summary>Describes one exact BASE HTTP endpoint.</summary>
@@ -84,4 +90,12 @@ public static class HPDBaseCapabilities
     public const string AdministrationRecordsRead = "base.administration.records.read";
     /// <summary>Explains policy decisions.</summary>
     public const string PolicyExplain = "base.policy.explain";
+    /// <summary>Executes vector ranking.</summary>
+    public const string VectorQuery = "base.vector.query";
+    /// <summary>Reads safe vector-index metadata.</summary>
+    public const string VectorMetadataRead = "base.vector.metadata.read";
+    /// <summary>Reads safe vector-index diagnostics.</summary>
+    public const string VectorDiagnosticsRead = "base.vector.diagnostics.read";
+    /// <summary>Rebuilds one vector index.</summary>
+    public const string VectorRebuild = "base.vector.rebuild";
 }

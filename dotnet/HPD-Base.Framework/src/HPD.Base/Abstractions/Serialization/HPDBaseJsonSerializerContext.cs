@@ -269,6 +269,8 @@ using AtomicMutationProcessingOutcomeConverter = LowerCamelJsonStringEnumConvert
 [JsonSerializable(typeof(StoreAnnotation))]
 [JsonSerializable(typeof(IndexDefinition))]
 [JsonSerializable(typeof(IndexDefinition[]))]
+[JsonSerializable(typeof(VectorIndexDefinition))]
+[JsonSerializable(typeof(VectorIndexDefinition[]))]
 [JsonSerializable(typeof(IndexPart))]
 [JsonSerializable(typeof(IndexPart[]))]
 [JsonSerializable(typeof(RecordEnvelope))]
@@ -453,6 +455,8 @@ using AtomicMutationProcessingOutcomeConverter = LowerCamelJsonStringEnumConvert
 [JsonSerializable(typeof(BaseLogicalField[]))]
 [JsonSerializable(typeof(BaseLogicalIndex))]
 [JsonSerializable(typeof(BaseLogicalIndex[]))]
+[JsonSerializable(typeof(BaseLogicalVectorIndex))]
+[JsonSerializable(typeof(BaseLogicalVectorIndex[]))]
 [JsonSerializable(typeof(BaseLogicalRead))]
 [JsonSerializable(typeof(BaseLogicalRead[]))]
 [JsonSerializable(typeof(BaseLogicalSchema))]
@@ -500,6 +504,10 @@ using AtomicMutationProcessingOutcomeConverter = LowerCamelJsonStringEnumConvert
 [JsonSerializable(typeof(BaseBackupManifest))]
 [JsonSerializable(typeof(BasePurgeRequest))]
 [JsonSerializable(typeof(BasePurgeResult))]
+[JsonSerializable(typeof(BaseVectorConsistencyToken))]
+[JsonSerializable(typeof(BaseVectorAuthoritySnapshot))]
+[JsonSerializable(typeof(BaseVectorRebuildRequest))]
+[JsonSerializable(typeof(BaseVectorRebuildResult))]
 public partial class HPDBaseJsonSerializerContext : JsonSerializerContext
 {
     /// <summary>Performs create Options.</summary>

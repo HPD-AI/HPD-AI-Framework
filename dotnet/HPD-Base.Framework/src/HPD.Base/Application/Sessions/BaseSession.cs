@@ -15,6 +15,7 @@ public sealed class BaseSession
     private readonly IBaseRealtimeFeedSource? _realtime;
     private readonly IBaseLiveQueryCoordinator? _liveQueries;
     private readonly IBaseRegisteredReadRuntime? _reads;
+    private readonly IServiceProvider _services;
 
     internal BaseSession(
         IBaseRecordRuntime runtime,
@@ -26,7 +27,8 @@ public sealed class BaseSession
         IBaseRealtimeFeedSource? realtime = null,
         IBaseLiveQueryCoordinator? liveQueries = null,
         IBaseRegisteredReadRuntime? reads = null,
-        int maxQueryPageSize = 500)
+        int maxQueryPageSize = 500,
+        IServiceProvider? services = null)
     {
         _runtime = runtime;
         _timeProvider = timeProvider;
@@ -37,6 +39,7 @@ public sealed class BaseSession
         _realtime = realtime;
         _liveQueries = liveQueries;
         _reads = reads;
+        _services = services ?? EmptyServiceProvider.Instance;
         MaxQueryPageSize = maxQueryPageSize;
     }
 
@@ -97,6 +100,7 @@ public sealed class BaseSession
     internal int MaxQueryPageSize { get; }
 
     internal PrincipalContext Principal => _principal;
+    internal IServiceProvider Services => _services;
 
     internal FileOperationContext FileContext() => new()
     {
@@ -126,4 +130,10 @@ public sealed class BaseSession
     private static TService Missing<TService>(string feature) =>
         throw new InvalidOperationException(
             $"HPD.BASE {feature} support is not installed. Register the feature in AddHPDBase.");
+
+    private sealed class EmptyServiceProvider : IServiceProvider
+    {
+        internal static EmptyServiceProvider Instance { get; } = new();
+        public object? GetService(Type serviceType) => null;
+    }
 }

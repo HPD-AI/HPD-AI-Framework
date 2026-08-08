@@ -396,6 +396,49 @@ public sealed class BaseCollectionGeneratorTests
         Run(source).Diagnostics.Should().ContainSingle(item => item.Id == "HPDBASE012");
     }
 
+    [Fact]
+    public void VectorIndexGeneratesTypedHandleAndLogicalSchema()
+    {
+        const string source = """
+            using HPD.Base;
+            using System.Text.Json.Serialization;
+            [BaseCollection("documents", typeof(AppJsonContext))]
+            [BaseVectorIndex("document.semantic", nameof(Embedding), VectorSpace = "text.embedding.v1", Dimensions = 3, Function = BaseVectorFunction.Cosine, FilterFields = [nameof(Tenant)])]
+            public partial record Document
+            {
+                [BaseField("document.embedding", Operators = BaseFieldOperator.None)] public required BaseVector Embedding { get; init; }
+                [BaseField("document.tenant", Operators = BaseFieldOperator.Equality)] public required string Tenant { get; init; }
+            }
+            [JsonSerializable(typeof(Document))] public partial class AppJsonContext : JsonSerializerContext;
+            """;
+
+        GeneratorResult result = Run(source);
+
+        result.Diagnostics.Should().BeEmpty();
+        result.GeneratedSource.Should().Contain("BaseVectorIndex<global::Document> Semantic");
+        result.GeneratedSource.Should().Contain("Type = \"vector\"");
+        result.GeneratedSource.Should().Contain("Format = \"float32\"");
+        result.GeneratedSource.Should().Contain("VectorSpaceId = \"text.embedding.v1\"");
+    }
+
+    [Fact]
+    public void OrdinaryIndexCannotContainVectorField()
+    {
+        const string source = """
+            using HPD.Base;
+            using System.Text.Json.Serialization;
+            [BaseCollection("documents", typeof(AppJsonContext))]
+            [BaseIndex("document.embedding.index", nameof(Embedding))]
+            public partial record Document
+            {
+                [BaseField("document.embedding", Operators = BaseFieldOperator.Equality)] public required BaseVector Embedding { get; init; }
+            }
+            [JsonSerializable(typeof(Document))] public partial class AppJsonContext : JsonSerializerContext;
+            """;
+
+        Run(source).Diagnostics.Should().ContainSingle(item => item.Id == "HPDBASE009");
+    }
+
     private static GeneratorResult Run(string source)
     {
         var parseOptions = new CSharpParseOptions(LanguageVersion.CSharp14);
@@ -430,6 +473,7 @@ public sealed class BaseCollectionGeneratorTests
         return trustedAssemblies
             .Split(Path.PathSeparator)
             .Append(typeof(BaseCollection<>).Assembly.Location)
+            .Append(typeof(BaseVector).Assembly.Location)
             .Distinct(StringComparer.Ordinal)
             .Select(path => (MetadataReference)MetadataReference.CreateFromFile(path))
             .ToImmutableArray();

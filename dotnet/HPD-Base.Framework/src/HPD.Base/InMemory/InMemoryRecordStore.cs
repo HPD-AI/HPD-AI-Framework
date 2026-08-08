@@ -1820,6 +1820,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         Administration = new BaseAdministrationCapability
         {
             Backup = false, Validate = false, Restore = false, AdministrativePurge = true,
+            VectorRebuild = false,
             OnlineBackup = false, WritersBlockedDuringBackup = false, ReadersBlockedDuringBackup = false,
             RestoreRequiresExclusiveMaintenance = false, Durable = false, MaxArtifactBytes = 0,
         },

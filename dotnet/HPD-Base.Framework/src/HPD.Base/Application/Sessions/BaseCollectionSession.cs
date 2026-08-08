@@ -20,6 +20,7 @@ public sealed class BaseCollectionSession<T>
 
     /// <summary>Gets the typed collection contract.</summary>
     public BaseCollection<T> Contract => _collection;
+    internal BaseSession Session => _session;
 
     /// <summary>Begins a typed bounded query.</summary>
     public BaseQuery<T> Query() => new(_session, _collection);

@@ -32,7 +32,8 @@ public static class HPDBaseSqliteServiceCollectionExtensions
                 provider.GetService<TimeProvider>() ?? TimeProvider.System,
                 tokenProtector: tokenRegistration?.ExplicitlyConfigured == true
                     ? provider.GetRequiredService<BaseOpaqueTokenProtector>()
-                    : null);
+                    : null,
+                mutationProjectionContributors: provider.GetServices<ISqliteAtomicMutationProjection>());
         });
         services.TryAddSingleton<IRecordStore>(provider => provider.GetRequiredService<SqliteRecordStore>());
         services.TryAddSingleton<IRecordMutationStore>(provider => provider.GetRequiredService<SqliteRecordStore>());

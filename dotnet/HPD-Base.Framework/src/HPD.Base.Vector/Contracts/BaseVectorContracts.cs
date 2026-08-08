@@ -1,16 +1,5 @@
 namespace HPD.Base;
 
-/// <summary>Identifies one portable vector comparison function.</summary>
-public enum BaseVectorFunction
-{
-    /// <summary>Ranks larger cosine similarity as nearer.</summary>
-    CosineSimilarity,
-    /// <summary>Ranks larger dot-product similarity as nearer.</summary>
-    DotProductSimilarity,
-    /// <summary>Ranks smaller Euclidean distance as nearer.</summary>
-    EuclideanDistance,
-}
-
 /// <summary>Identifies whether a larger or smaller vector measure is nearer.</summary>
 public enum BaseVectorMeasureDirection
 {
@@ -65,4 +54,26 @@ public static class BaseVectorErrorCodes
     public const string NonFinite = "base.vector.nonFinite";
     /// <summary>A cosine vector has zero norm.</summary>
     public const string ZeroNorm = "base.vector.zeroNorm";
+    /// <summary>The requested bound exceeds a configured limit.</summary>
+    public const string LimitExceeded = "base.vector.limitExceeded";
+    /// <summary>The provider is unavailable.</summary>
+    public const string ProviderUnavailable = "base.vector.providerUnavailable";
+    /// <summary>The effective policy constraint cannot be enforced exactly.</summary>
+    public const string PolicyConstraintUnsupported = "base.vector.policyConstraintUnsupported";
+    /// <summary>The opaque consistency token is invalid.</summary>
+    public const string ConsistencyInvalid = "base.vector.consistencyInvalid";
+    /// <summary>The opaque consistency token expired.</summary>
+    public const string ConsistencyExpired = "base.vector.consistencyExpired";
+    /// <summary>The opaque consistency token belongs to another authority scope.</summary>
+    public const string ConsistencyScopeMismatch = "base.vector.consistencyScopeMismatch";
+    /// <summary>The requested consistency point cannot be satisfied.</summary>
+    public const string ConsistencyUnavailable = "base.vector.consistencyUnavailable";
+    /// <summary>The authority snapshot changed before hydration completed.</summary>
+    public const string SnapshotChanged = "base.vector.snapshotChanged";
+    /// <summary>The provider returned invalid result evidence.</summary>
+    public const string ProviderResultInvalid = "base.vector.providerResultInvalid";
+    /// <summary>The operation exceeded its deadline.</summary>
+    public const string Timeout = "base.vector.timeout";
+    /// <summary>The caller cancelled its wait.</summary>
+    public const string Cancelled = "base.vector.cancelled";
 }

@@ -193,6 +193,25 @@ public sealed record BaseLogicalIndex
     public bool Unique { get; init; }
 }
 
+/// <summary>Contains one canonical logical vector-index asset.</summary>
+public sealed record BaseLogicalVectorIndex
+{
+    /// <summary>Gets the stable collection identifier.</summary>
+    public required string CollectionId { get; init; }
+    /// <summary>Gets the stable vector-index identifier.</summary>
+    public required string Id { get; init; }
+    /// <summary>Gets the stable vector-field identifier.</summary>
+    public required string VectorFieldId { get; init; }
+    /// <summary>Gets the stable semantic vector-space identifier.</summary>
+    public required string VectorSpaceId { get; init; }
+    /// <summary>Gets the exact dimensions.</summary>
+    public required int Dimensions { get; init; }
+    /// <summary>Gets the portable comparison function.</summary>
+    public required BaseVectorFunction Function { get; init; }
+    /// <summary>Gets the stable pre-ranking filter-field identifiers.</summary>
+    public required string[] FilterFieldIds { get; init; }
+}
+
 /// <summary>Represents base Logical Read.</summary>
 public sealed record BaseLogicalRead
 {
@@ -219,6 +238,8 @@ public sealed record BaseLogicalSchema
     public required RelationDefinition[] Relations { get; init; }
     /// <summary>Gets or sets indexes.</summary>
     public required BaseLogicalIndex[] Indexes { get; init; }
+    /// <summary>Gets the canonical vector-index assets.</summary>
+    public required BaseLogicalVectorIndex[] VectorIndexes { get; init; }
     /// <summary>Gets or sets read Definitions.</summary>
     public required BaseLogicalRead[] ReadDefinitions { get; init; }
     /// <summary>Gets or sets canonical Checksum.</summary>

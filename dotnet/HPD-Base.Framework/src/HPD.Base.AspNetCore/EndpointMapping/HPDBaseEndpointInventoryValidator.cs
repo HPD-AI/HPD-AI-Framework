@@ -54,7 +54,11 @@ internal sealed class HPDBaseEndpointInventoryValidator(
         ["base.files.objects.head"] = Protected("HEAD", "/files/{bucketId}/objects/{objectId}", HPDBaseEndpointOperation.FileRead, HPDBaseCapabilities.FilesRead),
         ["base.files.objects.metadata.get"] = Protected("GET", "/files/{bucketId}/objects/{objectId}/metadata", HPDBaseEndpointOperation.FileRead, HPDBaseCapabilities.FilesRead),
         ["base.files.objects.delete"] = Protected("DELETE", "/files/{bucketId}/objects/{objectId}", HPDBaseEndpointOperation.FileDelete, HPDBaseCapabilities.FilesDelete),
-        ["base.realtime.websocket"] = Protected("GET", "/realtime/v1/socket", HPDBaseEndpointOperation.RealtimeSubscribe, HPDBaseCapabilities.RealtimeSubscribe)
+        ["base.realtime.websocket"] = Protected("GET", "/realtime/v1/socket", HPDBaseEndpointOperation.RealtimeSubscribe, HPDBaseCapabilities.RealtimeSubscribe),
+        ["hpd.base.vector.query"] = Protected("POST", "/base/vector/{collectionId}/{vectorIndexId}/query", HPDBaseEndpointOperation.VectorQuery, HPDBaseCapabilities.VectorQuery),
+        ["hpd.base.vector.metadata.list"] = Control("GET", "/base/vector/indexes", HPDBaseEndpointOperation.VectorMetadataRead, HPDBaseCapabilities.VectorMetadataRead),
+        ["hpd.base.vector.diagnostics.read"] = Control("GET", "/base/vector/indexes/{collectionId}/{vectorIndexId}/diagnostics", HPDBaseEndpointOperation.DiagnosticsRead, HPDBaseCapabilities.VectorDiagnosticsRead),
+        ["hpd.base.vector.rebuild"] = Control("POST", "/base/vector/indexes/{collectionId}/{vectorIndexId}/rebuild", HPDBaseEndpointOperation.VectorRebuild, HPDBaseCapabilities.VectorRebuild)
     };
 
     internal void Validate()

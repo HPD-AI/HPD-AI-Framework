@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 namespace HPD.Base;
 
 /// <summary>Declares one generated vector index over an immutable <see cref="BaseVector"/> field.</summary>
@@ -37,5 +39,16 @@ public sealed record BaseVectorIndex<T>
     /// <summary>Gets the declared comparison function.</summary>
     public required BaseVectorFunction Function { get; init; }
     /// <summary>Gets the stable filter-field identifiers.</summary>
-    public required string[] FilterFieldIds { get; init; }
+    public required ImmutableArray<string> FilterFieldIds { get; init; }
+    /// <summary>Gets the provider-neutral logical index definition.</summary>
+    public VectorIndexDefinition Definition => new()
+    {
+        Id = Id,
+        CollectionId = CollectionId,
+        VectorFieldId = VectorFieldId,
+        VectorSpaceId = VectorSpaceId,
+        Dimensions = Dimensions,
+        Function = Function,
+        FilterFieldIds = FilterFieldIds.ToArray(),
+    };
 }

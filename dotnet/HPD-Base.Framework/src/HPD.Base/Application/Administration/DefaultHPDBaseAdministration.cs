@@ -29,6 +29,14 @@ internal sealed class DefaultHPDBaseAdministration(
             await services.GetRequiredService<IBaseMutationCoordinator>().ExecutePurgeAsync(request, cancellationToken).ConfigureAwait(false),
             static value => value);
 
+    public async ValueTask<BaseResult<BaseVectorRebuildResult>> RebuildVectorIndexAsync(BaseVectorRebuildRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        IBaseVectorRebuildService? vector = services.GetService<IBaseVectorRebuildService>();
+        if (vector is null) return await Unsupported<BaseVectorRebuildResult>(cancellationToken).ConfigureAwait(false);
+        return BaseResultMapper.Map<BaseVectorRebuildResult, BaseVectorRebuildResult>(await vector.RebuildAsync(request, cancellationToken).ConfigureAwait(false), static value => value);
+    }
+
     private static ValueTask<BaseResult<T>> Unsupported<T>(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -91,6 +99,7 @@ internal sealed class DefaultHPDBaseAdministration(
     private static BaseAdministrationCapability UnavailableCapability { get; } = new()
     {
         Backup = false, Validate = false, Restore = false, AdministrativePurge = true,
+        VectorRebuild = false,
         OnlineBackup = false, WritersBlockedDuringBackup = false, ReadersBlockedDuringBackup = false,
         RestoreRequiresExclusiveMaintenance = false, Durable = false, MaxArtifactBytes = 0,
     };

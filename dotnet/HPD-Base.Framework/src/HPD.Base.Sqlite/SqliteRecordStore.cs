@@ -20,6 +20,14 @@ public sealed partial class SqliteRecordStore :
     IRecordStoreAdministration,
     IAsyncDisposable
 {
+    internal SqliteConnectionFactory VectorConnections => _connections;
+    internal SqliteNames VectorNames => _names;
+    internal SqlitePhysicalModel VectorPhysicalModel => _physical;
+    internal string VectorStoreId => _options.StoreId;
+    internal long VectorSchemaGeneration => Volatile.Read(ref _schemaGeneration);
+    internal int VectorCommandTimeoutSeconds => TimeoutSeconds();
+    internal ValueTask<IAsyncDisposable> AcquireVectorGenerationExclusiveAsync(CancellationToken cancellationToken) => _schemaGenerationGate.AcquireExclusiveAsync(cancellationToken);
+    internal ValueTask<IAsyncDisposable> AcquireVectorGenerationSharedAsync(CancellationToken cancellationToken) => _schemaGenerationGate.AcquireSharedAsync(cancellationToken);
     private readonly HPDBaseSqliteOptions _options;
     private readonly SqliteConnectionFactory _connections;
     private readonly SqliteSchemaInitializer _schema;
@@ -34,6 +42,7 @@ public sealed partial class SqliteRecordStore :
     private readonly ISqliteTransactionResourceDisposer _transactionResourceDisposer;
     private readonly ISqliteSchemaCommandController _schemaCommands;
     private readonly ISqliteAdministrationOperationController _administrationOperations;
+    private readonly ISqliteAtomicMutationProjection[] _mutationProjectionContributors;
     private readonly SemaphoreSlim _keepAliveGate = new(1, 1);
     private readonly SemaphoreSlim _mutationExecutionSlots;
     private readonly SemaphoreSlim _administrationExecutionSlots;
@@ -69,7 +78,8 @@ public sealed partial class SqliteRecordStore :
         ISqliteTransactionResourceDisposer? transactionResourceDisposer = null,
         ISqliteSchemaCommandController? schemaCommands = null,
         ISqliteAdministrationOperationController? administrationOperations = null,
-        BaseOpaqueTokenProtector? tokenProtector = null)
+        BaseOpaqueTokenProtector? tokenProtector = null,
+        IEnumerable<ISqliteAtomicMutationProjection>? mutationProjectionContributors = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(loggerFactory);
@@ -78,6 +88,9 @@ public sealed partial class SqliteRecordStore :
         ValidateOptions(_options);
         _logger = loggerFactory.CreateLogger<SqliteRecordStore>();
         _timeProvider = timeProvider;
+        _mutationProjectionContributors = mutationProjectionContributors?.OrderBy(static item => item.Id, StringComparer.Ordinal).ToArray() ?? [];
+        if (_mutationProjectionContributors.Length > 16 || _mutationProjectionContributors.Select(static item => item.Id).Distinct(StringComparer.Ordinal).Count() != _mutationProjectionContributors.Length || _mutationProjectionContributors.Any(static item => item is not ISqliteAtomicMutationProjectionCatalog))
+            throw new ArgumentException("SQLite mutation projections must have unique IDs, bounded count, and private statement catalogs.", nameof(mutationProjectionContributors));
         _transactions = transactions ?? DefaultSqliteTransactionController.Instance;
         _sessionOperations =
             sessionOperations ?? DefaultSqliteSessionOperationController.Instance;
@@ -86,7 +99,10 @@ public sealed partial class SqliteRecordStore :
         _schemaCommands = schemaCommands ?? DefaultSqliteSchemaCommandController.Instance;
         _administrationOperations = administrationOperations ?? DefaultSqliteAdministrationOperationController.Instance;
         _connections = new SqliteConnectionFactory(_options);
-        _schema = new SqliteSchemaInitializer(_options);
+        _schema = new SqliteSchemaInitializer(
+            _options,
+            _mutationProjectionContributors.Cast<ISqliteAtomicMutationProjectionCatalog>().SelectMany(static catalog => catalog.SchemaStatements).ToArray(),
+            _mutationProjectionContributors.Cast<ISqliteAtomicMutationProjectionCatalog>().SelectMany(static catalog => catalog.RequiredSchemaTables).ToArray());
         _names = new SqliteNames(_options);
         _physical = new SqlitePhysicalModel(_options);
         RecoverRestoreMarkerIfPresent();
@@ -110,6 +126,7 @@ public sealed partial class SqliteRecordStore :
             Validate = administration,
             Restore = administration,
             AdministrativePurge = true,
+            VectorRebuild = _mutationProjectionContributors.Any(static projection => string.Equals(projection.Id, "hpd.base.vector.sqlitevec", StringComparison.Ordinal)),
             OnlineBackup = administration,
             WritersBlockedDuringBackup = true,
             ReadersBlockedDuringBackup = true,

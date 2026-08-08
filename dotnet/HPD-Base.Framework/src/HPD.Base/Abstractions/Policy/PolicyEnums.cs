@@ -23,7 +23,9 @@ File,
     /// <summary>Identifies schema.</summary>
 Schema,
     /// <summary>Identifies admin Metadata.</summary>
-AdminMetadata
+AdminMetadata,
+    /// <summary>Identifies one vector index and its influence boundary.</summary>
+VectorIndex
 }
 
 /// <summary>Defines policy Effect.</summary>
@@ -168,5 +170,7 @@ File,
     /// <summary>Identifies schema.</summary>
 Schema,
     /// <summary>Identifies admin.</summary>
-Admin
+Admin,
+    /// <summary>Identifies one vector index or a collection's vector indexes.</summary>
+VectorIndex
 }

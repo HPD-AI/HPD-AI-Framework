@@ -42,7 +42,8 @@ internal sealed class DefaultBaseSessionFactory(
             services.GetService<IBaseRealtimeFeedSource>(),
             services.GetService<IBaseLiveQueryCoordinator>(),
             services.GetService<IBaseRegisteredReadRuntime>(),
-            runtimeOptions.Value.Limits.MaxPageSize);
+            runtimeOptions.Value.Limits.MaxPageSize,
+            services);
     }
 
     private static PrincipalContext Snapshot(PrincipalContext principal) =>

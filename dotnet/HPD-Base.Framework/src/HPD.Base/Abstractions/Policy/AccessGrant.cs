@@ -44,6 +44,8 @@ public sealed record ResourceScope
     public string? RecordId { get; init; }
     /// <summary>Gets or sets the field path.</summary>
     public string? FieldPath { get; init; }
+    /// <summary>Gets the optional stable vector-index identifier.</summary>
+    public string? VectorIndexId { get; init; }
     /// <summary>Gets or sets the tenant ID.</summary>
     public string? TenantId { get; init; }
 }

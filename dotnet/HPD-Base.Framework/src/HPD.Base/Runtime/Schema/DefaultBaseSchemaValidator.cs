@@ -166,6 +166,13 @@ internal sealed class DefaultBaseSchemaValidator : IBaseSchemaValidator
                 return ValidationError("base.runtime.payload.nonNullable", $"Field '{name}' cannot be null.", name);
             }
 
+            if (field.Type == "vector" && value.ValueKind != JsonValueKind.Null)
+            {
+                VectorIndexDefinition[] vectorIndexes = (collection.VectorIndexes ?? []).Where(index => string.Equals(index.VectorFieldId, field.Id, StringComparison.Ordinal)).ToArray();
+                BaseError? vectorError = ValidateVector(value, vectorIndexes, name);
+                if (vectorError is not null) return vectorError;
+            }
+
             var updateOperation = operation is SchemaValidationOperation.Patch or SchemaValidationOperation.Replace;
             var runtimeWritten = runtimeWrittenFields.Contains(name);
             if (!runtimeWritten && (field.ReadOnly || field.System || (updateOperation && field.Visibility?.HiddenInUpdate == true)))
@@ -184,6 +191,26 @@ internal sealed class DefaultBaseSchemaValidator : IBaseSchemaValidator
             }
         }
 
+        return null;
+    }
+
+    private static BaseError? ValidateVector(JsonElement value, VectorIndexDefinition[] indexes, string fieldName)
+    {
+        if (indexes.Length == 0 || value.ValueKind != JsonValueKind.Array)
+            return ValidationError("base.vector.invalid", "The vector value is invalid.", fieldName);
+        int dimensions = 0;
+        double squaredNorm = 0;
+        foreach (JsonElement element in value.EnumerateArray())
+        {
+            if (element.ValueKind != JsonValueKind.Number || !element.TryGetSingle(out float number) || !float.IsFinite(number))
+                return ValidationError("base.vector.nonFinite", "The vector must contain only finite float32 values.", fieldName);
+            dimensions++;
+            squaredNorm += (double)number * number;
+        }
+        if (indexes.Any(index => dimensions != index.Dimensions))
+            return ValidationError("base.vector.dimensionMismatch", "The vector dimensions do not match the index.", fieldName);
+        if (indexes.Any(static index => index.Function == BaseVectorFunction.CosineSimilarity) && (!(squaredNorm > 0) || !double.IsFinite(squaredNorm)))
+            return ValidationError("base.vector.zeroNorm", "Cosine vectors require a finite non-zero norm.", fieldName);
         return null;
     }
 

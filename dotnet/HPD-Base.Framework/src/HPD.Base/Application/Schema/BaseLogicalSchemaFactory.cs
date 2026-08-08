@@ -38,6 +38,20 @@ internal static class BaseLogicalSchemaFactory
             FieldIds = (index.Parts ?? []).Select(static part => part.FieldId!).ToArray(),
             Unique = index.Unique,
         }).OrderBy(static value => value.Id, StringComparer.Ordinal).ToArray();
+        BaseLogicalVectorIndex[] vectorIndexes = sourceCollections
+            .SelectMany(static collection => collection.VectorIndexes ?? [])
+            .Select(static index => new BaseLogicalVectorIndex
+            {
+                CollectionId = index.CollectionId,
+                Id = index.Id,
+                VectorFieldId = index.VectorFieldId,
+                VectorSpaceId = index.VectorSpaceId,
+                Dimensions = index.Dimensions,
+                Function = index.Function,
+                FilterFieldIds = [.. index.FilterFieldIds.Order(StringComparer.Ordinal)],
+            })
+            .OrderBy(static value => value.Id, StringComparer.Ordinal)
+            .ToArray();
         BaseLogicalRead[] reads = sourceReads.Select(static read => new BaseLogicalRead
         {
             Id = read.Id,
@@ -45,7 +59,7 @@ internal static class BaseLogicalSchemaFactory
             ProjectionFieldIds = read.Plan.Projection.Select(static projection => projection.FieldId).ToArray(),
         }).ToArray();
 
-        string checksum = Checksum(options.ApplicationId, options.ContractVersion, collections, fields, relations, indexes, reads);
+        string checksum = Checksum(options.ApplicationId, options.ContractVersion, collections, fields, relations, indexes, vectorIndexes, reads);
         return new BaseLogicalSchema
         {
             ApplicationId = options.ApplicationId,
@@ -54,6 +68,7 @@ internal static class BaseLogicalSchemaFactory
             Fields = fields,
             Relations = relations,
             Indexes = indexes,
+            VectorIndexes = vectorIndexes,
             ReadDefinitions = reads,
             CanonicalChecksum = checksum,
         };
@@ -62,6 +77,7 @@ internal static class BaseLogicalSchemaFactory
     private static string Checksum(
         string applicationId, string contractVersion, BaseLogicalCollection[] collections,
         BaseLogicalField[] fields, RelationDefinition[] relations, BaseLogicalIndex[] indexes,
+        BaseLogicalVectorIndex[] vectorIndexes,
         BaseLogicalRead[] reads)
     {
         var writer = new ArrayBufferWriter<byte>();
@@ -76,6 +92,12 @@ internal static class BaseLogicalSchemaFactory
             Write(writer, value.Ordered); Write(writer, value.InverseNavigationId); Write(writer, (int)value.DeleteBehavior);
         }
         foreach (BaseLogicalIndex value in indexes) { Write(writer, "index"); Write(writer, value.CollectionId); Write(writer, value.Id); foreach (string field in value.FieldIds) Write(writer, field); Write(writer, value.Unique); }
+        foreach (BaseLogicalVectorIndex value in vectorIndexes)
+        {
+            Write(writer, "vector-index"); Write(writer, value.CollectionId); Write(writer, value.Id);
+            Write(writer, value.VectorFieldId); Write(writer, value.VectorSpaceId); Write(writer, value.Dimensions);
+            Write(writer, (int)value.Function); foreach (string field in value.FilterFieldIds) Write(writer, field);
+        }
         foreach (BaseLogicalRead value in reads) { Write(writer, "read"); Write(writer, value.Id); foreach (string source in value.SourceIds) Write(writer, source); foreach (string field in value.ProjectionFieldIds) Write(writer, field); }
         return Convert.ToHexStringLower(SHA256.HashData(writer.WrittenSpan));
     }

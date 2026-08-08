@@ -840,13 +840,38 @@ public sealed partial class SqliteRecordStore
                 token => AdvancePurgeGenerationCoreAsync(collection, expectedGeneration, token));
 
         /// <inheritdoc />
-        public ValueTask<OperationResult> ApplyMutationProjectionsAsync(
+        public async ValueTask<OperationResult> ApplyMutationProjectionsAsync(
             BaseAtomicMutationProjectionRequest request,
             CancellationToken cancellationToken = default)
         {
             ArgumentNullException.ThrowIfNull(request);
             cancellationToken.ThrowIfCancellationRequested();
-            return ValueTask.FromResult(OperationResults.NoContent());
+            foreach (ISqliteAtomicMutationProjection contributor in _owner._mutationProjectionContributors)
+            {
+                var context = new SqliteAtomicProjectionContext(_owner, _connection, _transaction, (ISqliteAtomicMutationProjectionCatalog)contributor);
+                OperationResult result = await contributor.ApplyAsync(context, request, cancellationToken).ConfigureAwait(false);
+                if (!result.Status.IsSuccess()) return result;
+            }
+            return OperationResults.NoContent();
+        }
+
+        private sealed class SqliteAtomicProjectionContext(SqliteRecordStore owner, SqliteConnection connection, SqliteTransaction transaction, ISqliteAtomicMutationProjectionCatalog catalog) : ISqliteAtomicProjectionContext
+        {
+            public long SchemaGeneration => owner.VectorSchemaGeneration;
+
+            public async ValueTask<OperationResult<int>> ExecuteAsync(string statementId, System.Collections.Immutable.ImmutableArray<SqliteProjectionValue> parameters, CancellationToken cancellationToken = default)
+            {
+                SqliteProjectionStatement? statement = catalog.Statements.SingleOrDefault(item => string.Equals(item.Id, statementId, StringComparison.Ordinal));
+                if (statement is null || parameters.IsDefault || parameters.Select(static item => item.Name).Distinct(StringComparer.Ordinal).Count() != parameters.Length || !statement.ParameterNames.SequenceEqual(parameters.Select(static item => item.Name), StringComparer.Ordinal))
+                    return OperationResults.ValidationFailed<int>(new BaseError { Code = "base.sqlite.projection.invalid", Message = "The SQLite projection statement is invalid.", Category = ErrorCategory.Validation });
+                await using SqliteCommand command = connection.CreateCommand();
+                command.Transaction = transaction;
+                command.CommandText = statement.Sql;
+                command.CommandTimeout = owner.VectorCommandTimeoutSeconds;
+                foreach (SqliteProjectionValue parameter in parameters) command.Parameters.AddWithValue("$" + parameter.Name, parameter.Value);
+                int affected = await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+                return affected <= statement.MaximumAffectedRows ? OperationResults.Ok(affected) : OperationResults.StoreError<int>(new BaseError { Code = "base.sqlite.projection.affectedRowsExceeded", Message = "The SQLite projection exceeded its affected-row bound.", Category = ErrorCategory.Store });
+            }
         }
 
         /// <summary>Executes the close async operation.</summary>

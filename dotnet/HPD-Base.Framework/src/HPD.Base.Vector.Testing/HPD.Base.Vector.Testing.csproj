@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <TargetFrameworks></TargetFrameworks>
+    <RootNamespace>HPD.Base.Vector.Testing</RootNamespace>
+    <AssemblyName>HPD.Base.Vector.Testing</AssemblyName>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD.Base.Vector.Testing</PackageId>
+    <Description>Deterministic exact vector provider and conformance helpers for HPD Base tests.</Description>
+    <PackageTags>hpd;base;vector;testing</PackageTags>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+  <ItemGroup><ProjectReference Include="../HPD.Base.Vector/HPD.Base.Vector.csproj" /></ItemGroup>
+</Project>

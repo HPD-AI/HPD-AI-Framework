@@ -3,6 +3,7 @@ using System.Globalization;
 namespace HPD.Base;
 
 /// <summary>Contains one immutable, finite, application-supplied float32 vector.</summary>
+[System.Text.Json.Serialization.JsonConverter(typeof(BaseVectorJsonConverter))]
 public readonly struct BaseVector : IEquatable<BaseVector>
 {
     private readonly float[]? _values;
@@ -11,6 +12,7 @@ public readonly struct BaseVector : IEquatable<BaseVector>
 
     /// <summary>Gets the number of vector dimensions, or zero for an invalid default value.</summary>
     public int Dimensions => _values?.Length ?? 0;
+    internal bool IsZeroNorm => _values is not null && _values.All(static value => value == 0F);
 
     /// <summary>Gets the value at the requested dimension.</summary>
     /// <param name="index">The zero-based dimension.</param>

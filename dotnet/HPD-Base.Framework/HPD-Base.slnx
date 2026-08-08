@@ -10,6 +10,9 @@
     <Project Path="src/HPD.Base.Generators/HPD.Base.Generators.csproj" />
     <Project Path="src/HPD.Base.Testing/HPD.Base.Testing.csproj" />
     <Project Path="src/HPD.Base.Vector/HPD.Base.Vector.csproj" />
+    <Project Path="src/HPD.Base.Vector.SqliteVec/HPD.Base.Vector.SqliteVec.csproj" />
+    <Project Path="src/HPD.Base.Vector.AspNetCore/HPD.Base.Vector.AspNetCore.csproj" />
+    <Project Path="src/HPD.Base.Vector.Testing/HPD.Base.Vector.Testing.csproj" />
     <Project Path="src/HPD.Base.Sqlite/HPD.Base.Sqlite.csproj" />
     <Project Path="src/HPD.Base.AspNetCore/HPD.Base.AspNetCore.csproj" />
     <Project Path="src/HPD.Base.Studio/HPD.Base.Studio.csproj" />
@@ -27,6 +30,8 @@
   </Folder>
   <Folder Name="/Tests/">
     <Project Path="test/HPD.Base.Vector.Tests/HPD.Base.Vector.Tests.csproj" />
+    <Project Path="test/HPD.Base.Vector.AotSmoke/HPD.Base.Vector.AotSmoke.csproj" />
+    <Project Path="test/HPD.Base.Vector.SqliteVec.Tests/HPD.Base.Vector.SqliteVec.Tests.csproj" />
     <Project Path="test/HPD.Base.StoreConformance/HPD.Base.StoreConformance.csproj" />
     <Project Path="test/HPD.Base.Sqlite.Tests/HPD.Base.Sqlite.Tests.csproj" />
     <Project Path="test/HPD.Base.Sqlite.AotSmoke/HPD.Base.Sqlite.AotSmoke.csproj" />

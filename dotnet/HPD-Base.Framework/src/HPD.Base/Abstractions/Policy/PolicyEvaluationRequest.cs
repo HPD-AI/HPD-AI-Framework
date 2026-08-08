@@ -35,4 +35,8 @@ public sealed record PolicyResource
     public string? RecordId { get; init; }
     /// <summary>Gets or sets the field path.</summary>
     public string? FieldPath { get; init; }
+    /// <summary>Gets the stable vector-index identifier for vector resources.</summary>
+    public string? VectorIndexId { get; init; }
+    /// <summary>Gets the stable vector-space identifier for vector resources.</summary>
+    public string? VectorSpaceId { get; init; }
 }

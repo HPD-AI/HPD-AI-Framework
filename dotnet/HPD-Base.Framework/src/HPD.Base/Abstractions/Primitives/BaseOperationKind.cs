@@ -40,5 +40,9 @@ RealtimeSubscribe,
     /// <summary>Identifies host backup creation or validation.</summary>
     AdminBackup,
     /// <summary>Identifies destructive host restore.</summary>
-    AdminRestore
+    AdminRestore,
+    /// <summary>Identifies policy-safe vector ranking.</summary>
+    VectorQuery,
+    /// <summary>Identifies vector-index rebuild administration.</summary>
+    VectorRebuild
 }

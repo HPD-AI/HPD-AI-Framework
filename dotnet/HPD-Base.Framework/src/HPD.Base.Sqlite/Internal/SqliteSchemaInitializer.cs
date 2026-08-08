@@ -9,13 +9,17 @@ internal sealed class SqliteSchemaInitializer
     private readonly HPDBaseSqliteOptions _options;
     private readonly SqliteNames _names;
     private readonly SqlitePhysicalModel _physical;
+    private readonly string[] _projectionSchemaStatements;
+    private readonly string[] _projectionSchemaTables;
 
     /// <summary>Initializes a new instance.</summary>
-    public SqliteSchemaInitializer(HPDBaseSqliteOptions options)
+    public SqliteSchemaInitializer(HPDBaseSqliteOptions options, string[]? projectionSchemaStatements = null, string[]? projectionSchemaTables = null)
     {
         _options = options;
         _names = new SqliteNames(options);
         _physical = new SqlitePhysicalModel(options);
+        _projectionSchemaStatements = projectionSchemaStatements?.ToArray() ?? [];
+        _projectionSchemaTables = projectionSchemaTables?.Distinct(StringComparer.Ordinal).ToArray() ?? [];
     }
 
     /// <summary>Executes the initialize async operation.</summary>
@@ -126,6 +130,7 @@ CREATE TABLE IF NOT EXISTS {_names.OperationReceipts} (
             statements.Add($"CREATE INDEX IF NOT EXISTS {relation.TargetIndex} ON {relation.Table}(target_record_id, source_record_id);");
         }
         statements.Add($"CREATE INDEX IF NOT EXISTS {_names.MutationJournalScopeIndex} ON {_names.MutationJournal}(tenant_id, collection_id, record_id, position);");
+        statements.AddRange(_projectionSchemaStatements);
         return statements.ToArray();
     }
 
@@ -293,6 +298,9 @@ ON CONFLICT(collection_id) DO UPDATE SET native_name = excluded.native_name, mut
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
 
+        foreach (string statement in _projectionSchemaStatements)
+            await ExecuteAsync(connection, statement, cancellationToken).ConfigureAwait(false);
+
         var missing = await GetMissingSchemaPartsAsync(connection, cancellationToken).ConfigureAwait(false);
         if (missing.Length != 0)
         {
@@ -314,7 +322,8 @@ ON CONFLICT(collection_id) DO UPDATE SET native_name = excluded.native_name, mut
         var missing = new List<string>();
         foreach (var table in new[] { _names.Collections, _names.ProviderState, _names.MutationJournal, _names.OperationReceipts, _names.SchemaIdentity, _names.SchemaBaseline, _names.SchemaAssets, _names.SchemaHistory, _names.SchemaLease }
             .Concat(_physical.Collections.Select(static collection => collection.Table))
-            .Concat(_physical.Relations.Select(static relation => relation.Table)))
+            .Concat(_physical.Relations.Select(static relation => relation.Table))
+            .Concat(_projectionSchemaTables))
         {
             if (!await ObjectExistsAsync(connection, "table", table, cancellationToken).ConfigureAwait(false))
             {

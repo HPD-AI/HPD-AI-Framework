@@ -23,6 +23,8 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         "HPD.Base.BaseIndexAttribute";
     private const string RelationAttribute =
         "HPD.Base.BaseRelationAttribute";
+    private const string VectorIndexAttribute =
+        "HPD.Base.BaseVectorIndexAttribute";
     private const string JsonPropertyNameAttribute =
         "System.Text.Json.Serialization.JsonPropertyNameAttribute";
     private const string JsonOptionsAttribute =
@@ -444,7 +446,9 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         }
 
         var indexes = new List<IndexModel>();
+        var vectorIndexes = new List<VectorIndexModel>();
         var indexIds = new HashSet<string>(StringComparer.Ordinal);
+        var vectorHandleNames = new HashSet<string>(StringComparer.Ordinal);
         foreach (AttributeData indexAttribute in symbol.GetAttributes()
             .Where(attribute =>
                 attribute.AttributeClass != null &&
@@ -518,6 +522,17 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
                     return null;
                 }
 
+                if (field.TypeName == "global::HPD.Base.BaseVector")
+                {
+                    context.ReportDiagnostic(Diagnostic.Create(
+                        InvalidIndex,
+                        indexLocation,
+                        collectionId,
+                        indexId,
+                        "vector fields may only participate in a BaseVectorIndex"));
+                    return null;
+                }
+
                 indexFields.Add(field);
             }
 
@@ -530,6 +545,77 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
             });
         }
 
+        foreach (AttributeData vectorAttribute in symbol.GetAttributes()
+            .Where(attribute => attribute.AttributeClass?.ToDisplayString() == VectorIndexAttribute))
+        {
+            string vectorIndexId = GetConstructorString(vectorAttribute, 0);
+            string vectorPropertyName = GetConstructorString(vectorAttribute, 1);
+            Location location = GetLocation(vectorAttribute, symbol);
+            string vectorSpace = GetNamedString(vectorAttribute, "VectorSpace");
+            int dimensions = (int)GetNamedInt64(vectorAttribute, "Dimensions", 0);
+            int function = (int)GetNamedInt64(vectorAttribute, "Function", 0);
+            if (!IsValidId(vectorIndexId) || !indexIds.Add(vectorIndexId))
+            {
+                context.ReportDiagnostic(Diagnostic.Create(InvalidIndex, location, collectionId, vectorIndexId ?? string.Empty, "the stable vector-index identifier is invalid or duplicated"));
+                return null;
+            }
+            if (!IsValidId(vectorSpace) || dimensions is < 1 or > 32768 || function is < 0 or > 2)
+            {
+                context.ReportDiagnostic(Diagnostic.Create(InvalidIndex, location, collectionId, vectorIndexId, "the vector space, dimensions, or function is invalid"));
+                return null;
+            }
+            if (!propertyFields.TryGetValue(vectorPropertyName, out FieldModel vectorField)
+                || vectorField.TypeName != "global::HPD.Base.BaseVector"
+                || vectorField.Operators != 0)
+            {
+                context.ReportDiagnostic(Diagnostic.Create(InvalidIndex, location, collectionId, vectorIndexId, "the vector property must be a stored BaseVector field with BaseFieldOperator.None"));
+                return null;
+            }
+
+            var filterFields = new List<FieldModel>();
+            var filterProperties = new HashSet<string>(StringComparer.Ordinal);
+            foreach (TypedConstant constant in GetNamedArray(vectorAttribute, "FilterFields"))
+            {
+                string propertyName = constant.Value as string;
+                if (propertyName == null
+                    || !propertyFields.TryGetValue(propertyName, out FieldModel filterField)
+                    || filterField == vectorField
+                    || (filterField.Operators & 1) == 0
+                    || !filterProperties.Add(propertyName))
+                {
+                    context.ReportDiagnostic(Diagnostic.Create(InvalidIndex, location, collectionId, vectorIndexId, "filter fields must be unique stored equality-capable non-vector properties"));
+                    return null;
+                }
+                filterFields.Add(filterField);
+            }
+            if (filterFields.Count > 16)
+            {
+                context.ReportDiagnostic(Diagnostic.Create(InvalidIndex, location, collectionId, vectorIndexId, "at most 16 filter fields are permitted"));
+                return null;
+            }
+            string handleName = VectorHandleName(vectorIndexId);
+            if (!vectorHandleNames.Add(handleName))
+            {
+                context.ReportDiagnostic(Diagnostic.Create(
+                    InvalidIndex,
+                    location,
+                    collectionId,
+                    vectorIndexId,
+                    "the generated vector-index member name collides with another vector index"));
+                return null;
+            }
+            vectorIndexes.Add(new VectorIndexModel
+            {
+                Id = vectorIndexId,
+                PropertyName = handleName,
+                VectorField = vectorField,
+                VectorSpaceId = vectorSpace,
+                Dimensions = dimensions,
+                Function = function,
+                FilterFields = filterFields,
+            });
+        }
+
         string fullTypeName =
             symbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
         string metadataName = symbol.ToDisplayString(
@@ -539,6 +625,7 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
 
         fields.Sort(static (left, right) => StringComparer.Ordinal.Compare(left.Id, right.Id));
         indexes.Sort(static (left, right) => StringComparer.Ordinal.Compare(left.Id, right.Id));
+        vectorIndexes.Sort(static (left, right) => StringComparer.Ordinal.Compare(left.Id, right.Id));
 
         return new CollectionModel
         {
@@ -555,6 +642,7 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
             MutationMode = mutationMode,
             Fields = fields,
             Indexes = indexes,
+            VectorIndexes = vectorIndexes,
             ContextTypeName =
                 jsonContext.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
             HintName = "HPDBaseCollection_" + Sanitize(metadataName),
@@ -629,6 +717,31 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
 
         source.AppendLine("    }");
         source.AppendLine();
+        if (model.VectorIndexes.Count != 0)
+        {
+            source.AppendLine("    /// <summary>Provides typed handles for the collection's declared vector indexes.</summary>");
+            source.AppendLine("    public static class VectorIndexes");
+            source.AppendLine("    {");
+            foreach (VectorIndexModel index in model.VectorIndexes)
+            {
+                source.Append("        /// <summary>Gets vector index <c>").Append(index.Id).AppendLine("</c>.</summary>");
+                source.Append("        public static global::HPD.Base.BaseVectorIndex<").Append(model.FullTypeName).Append("> ")
+                    .Append(index.PropertyName).AppendLine(" { get; } = new()");
+                source.AppendLine("        {");
+                source.Append("            CollectionId = ").Append(Literal(model.CollectionId)).AppendLine(",");
+                source.Append("            Id = ").Append(Literal(index.Id)).AppendLine(",");
+                source.Append("            VectorFieldId = ").Append(Literal(index.VectorField.Id)).AppendLine(",");
+                source.Append("            VectorSpaceId = ").Append(Literal(index.VectorSpaceId)).AppendLine(",");
+                source.Append("            Dimensions = ").Append(index.Dimensions).AppendLine(",");
+                source.Append("            Function = (global::HPD.Base.BaseVectorFunction)").Append(index.Function).AppendLine(",");
+                source.Append("            FilterFieldIds = global::System.Collections.Immutable.ImmutableArray.Create<string>(");
+                source.Append(string.Join(", ", index.FilterFields.Select(static field => Literal(field.Id))));
+                source.AppendLine("),");
+                source.AppendLine("        };");
+            }
+            source.AppendLine("    }");
+            source.AppendLine();
+        }
         source.Append("    private static global::HPD.Base.BaseCollection<")
             .Append(model.FullTypeName).AppendLine("> CreateHPDBaseCollection()");
         source.AppendLine("    {");
@@ -661,6 +774,7 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         source.AppendLine("                },");
         RenderFieldDefinitions(source, model);
         RenderIndexes(source, model);
+        RenderVectorIndexes(source, model);
         source.AppendLine("            },");
         source.AppendLine("            jsonTypeInfo,");
         source.AppendLine("            fields =>");
@@ -780,6 +894,31 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         source.AppendLine("                ],");
     }
 
+    private static void RenderVectorIndexes(StringBuilder source, CollectionModel model)
+    {
+        if (model.VectorIndexes.Count == 0)
+        {
+            source.AppendLine("                VectorIndexes = null,");
+            return;
+        }
+        source.AppendLine("                VectorIndexes =");
+        source.AppendLine("                [");
+        foreach (VectorIndexModel index in model.VectorIndexes)
+        {
+            source.AppendLine("                    new global::HPD.Base.VectorIndexDefinition");
+            source.AppendLine("                    {");
+            source.Append("                        Id = ").Append(Literal(index.Id)).AppendLine(",");
+            source.Append("                        CollectionId = ").Append(Literal(model.CollectionId)).AppendLine(",");
+            source.Append("                        VectorFieldId = ").Append(Literal(index.VectorField.Id)).AppendLine(",");
+            source.Append("                        VectorSpaceId = ").Append(Literal(index.VectorSpaceId)).AppendLine(",");
+            source.Append("                        Dimensions = ").Append(index.Dimensions).AppendLine(",");
+            source.Append("                        Function = (global::HPD.Base.BaseVectorFunction)").Append(index.Function).AppendLine(",");
+            source.Append("                        FilterFieldIds = [").Append(string.Join(", ", index.FilterFields.Select(static field => Literal(field.Id)))).AppendLine("],");
+            source.AppendLine("                    },");
+        }
+        source.AppendLine("                ],");
+    }
+
     private static bool IsSupported(INamedTypeSymbol symbol) =>
         symbol.TypeKind == TypeKind.Class &&
         symbol.ContainingType == null &&
@@ -872,6 +1011,19 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         }
 
         return null;
+    }
+
+    private static ImmutableArray<TypedConstant> GetNamedArray(AttributeData attribute, string name)
+    {
+        if (attribute != null)
+        {
+            foreach (KeyValuePair<string, TypedConstant> argument in attribute.NamedArguments)
+            {
+                if (argument.Key == name && argument.Value.Kind == TypedConstantKind.Array)
+                    return argument.Value.Values;
+            }
+        }
+        return ImmutableArray<TypedConstant>.Empty;
     }
 
     private static bool GetNamedBoolean(
@@ -1030,6 +1182,11 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
 
     private static string GetSchemaType(ITypeSymbol type)
     {
+        if (IsBaseVector(type))
+        {
+            return "vector";
+        }
+
         IArrayTypeSymbol array = type as IArrayTypeSymbol;
         if (array != null)
         {
@@ -1084,6 +1241,10 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
     private static string GetSchemaFormat(ITypeSymbol type)
     {
         string name = type.ToDisplayString();
+        if (IsBaseVector(type))
+        {
+            return "float32";
+        }
         if (name == "System.DateTime" || name == "System.DateTimeOffset")
         {
             return "date-time";
@@ -1103,6 +1264,12 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         return name == "System.DateTime" ||
                name == "System.DateTimeOffset" ||
                name == "System.Guid";
+    }
+
+    private static bool IsBaseVector(ITypeSymbol type)
+    {
+        string name = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        return name is "global::HPD.Base.BaseVector" or "BaseVector";
     }
 
     private static string ToCamelCase(string value)
@@ -1160,6 +1327,20 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         return result.ToString();
     }
 
+    private static string VectorHandleName(string id)
+    {
+        string tail = id.Split('.').Last();
+        var result = new StringBuilder(tail.Length);
+        bool upper = true;
+        foreach (char character in tail)
+        {
+            if (!char.IsLetterOrDigit(character)) { upper = true; continue; }
+            result.Append(upper ? char.ToUpperInvariant(character) : character);
+            upper = false;
+        }
+        return result.Length == 0 ? "Index" : EscapeIdentifier(result.ToString());
+    }
+
     private static string Literal(string value) =>
         SymbolDisplay.FormatLiteral(value ?? string.Empty, true);
 
@@ -1194,6 +1375,8 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         public List<FieldModel> Fields;
         /// <summary>Provides the indexes value.</summary>
         public List<IndexModel> Indexes;
+        /// <summary>Provides the vector indexes value.</summary>
+        public List<VectorIndexModel> VectorIndexes;
         /// <summary>Provides the context type name value.</summary>
         public string ContextTypeName;
         /// <summary>Provides the hint name value.</summary>
@@ -1266,5 +1449,16 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         public bool Required;
         /// <summary>Provides the fields value.</summary>
         public List<FieldModel> Fields;
+    }
+
+    private sealed class VectorIndexModel
+    {
+        public string Id;
+        public string PropertyName;
+        public FieldModel VectorField;
+        public string VectorSpaceId;
+        public int Dimensions;
+        public int Function;
+        public List<FieldModel> FilterFields;
     }
 }

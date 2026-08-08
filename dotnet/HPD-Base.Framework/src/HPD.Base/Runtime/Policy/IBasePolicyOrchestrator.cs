@@ -40,6 +40,10 @@ public sealed record BasePolicyRequest
     public AccessGrant[]? Grants { get; init; }
     /// <summary>Gets or sets the policy refs.</summary>
     public Dictionary<string, string>? PolicyRefs { get; init; }
+    /// <summary>Gets the optional stable vector-index identifier.</summary>
+    public string? VectorIndexId { get; init; }
+    /// <summary>Gets the optional stable vector-space identifier.</summary>
+    public string? VectorSpaceId { get; init; }
 }
 
 /// <summary>Represents a base policy evaluation.</summary>

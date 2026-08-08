@@ -8,3 +8,6 @@ using System.Runtime.CompilerServices;
 [assembly: InternalsVisibleTo("HPD.Base.Realtime")]
 [assembly: InternalsVisibleTo("HPD.Base.Sqlite")]
 [assembly: InternalsVisibleTo("HPD.Base.Sqlite.Tests")]
+[assembly: InternalsVisibleTo("HPD.Base.Vector")]
+[assembly: InternalsVisibleTo("HPD.Base.Vector.AspNetCore")]
+[assembly: InternalsVisibleTo("HPD.Base.Vector.SqliteVec")]
