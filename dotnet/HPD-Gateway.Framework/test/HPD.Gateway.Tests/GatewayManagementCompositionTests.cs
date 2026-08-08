@@ -179,21 +179,29 @@ public sealed class GatewayManagementCompositionTests
         string first = await ReserveEpoch(0x11, 0x41);
         string desiredTokenRotated = await ReserveEpoch(0x22, 0x41);
         string epochKeyChanged = await ReserveEpoch(0x11, 0x42);
+        string configurationMutatedAfterRegistration = await ReserveEpoch(0x11, 0x41, mutateAfterRegistration: true);
 
         desiredTokenRotated.Should().Be(first);
         epochKeyChanged.Should().NotBe(first);
+        configurationMutatedAfterRegistration.Should().Be(first);
 
-        static async Task<string> ReserveEpoch(byte tokenKey, byte epochKey)
+        static async Task<string> ReserveEpoch(byte tokenKey, byte epochKey, bool mutateAfterRegistration = false)
         {
             var services = new ServiceCollection();
             services.AddLogging();
             services.AddHpdGateway(static gateway => gateway.AddCoreFamilies());
-            services.AddHpdGatewayManagement(options =>
+            GatewayManagementBuilder management = services.AddHpdGatewayManagement(options =>
             {
                 options.ManagementAuthorityId = "authority-a";
                 options.DesiredStateTokenKey = Enumerable.Repeat(tokenKey, 32).ToArray();
                 options.EpochReservationKey = Enumerable.Repeat(epochKey, 32).ToArray();
             });
+            if (mutateAfterRegistration)
+            {
+                management.Options.DesiredStateTokenKey = Enumerable.Repeat((byte)0x7a, 32).ToArray();
+                management.Options.EpochReservationKey = Enumerable.Repeat((byte)0x7b, 32).ToArray();
+                management.Options.ManagementAuthorityId = "mutated-authority";
+            }
             await using ServiceProvider provider = services.BuildServiceProvider();
             GatewayManagementCommandResult result = await provider
                 .GetRequiredService<IGatewayManagementCommandCoordinator>()

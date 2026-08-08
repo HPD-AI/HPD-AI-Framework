@@ -147,7 +147,7 @@ public sealed partial record GatewayNodeActivationOutcome
     [BaseField("outcome.activation-intent-id")] public required string ActivationIntentId { get; init; }
     [BaseField("outcome.authority-id")] public required string AuthorityId { get; init; }
     [BaseField("outcome.authority-epoch")] public required string AuthorityEpoch { get; init; }
-    [BaseField("outcome.authority-version")] public required long AuthorityVersion { get; init; }
+    [BaseField("outcome.authority-version", Operators = BaseFieldOperator.Equal | BaseFieldOperator.Order)] public required long AuthorityVersion { get; init; }
     [BaseField("outcome.kind")] public required GatewayNodeOutcomeKind Kind { get; init; }
     [BaseField("outcome.code")] public required string Code { get; init; }
 }

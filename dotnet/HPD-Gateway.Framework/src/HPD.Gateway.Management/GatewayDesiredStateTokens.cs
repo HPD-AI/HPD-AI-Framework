@@ -5,7 +5,7 @@ namespace HPD.Gateway.Management;
 
 internal static class GatewayDesiredStateTokens
 {
-    internal static string Create(GatewayDesiredState desired, GatewayManagementOptions options)
+    internal static string Create(GatewayDesiredState desired, GatewayManagementRuntimeOptions options)
     {
         string payload = $"v1\n{desired.ManagementAuthorityId}\n{desired.NamespaceId}\n{desired.TargetNodeId}\n{desired.ActivationIntentId}\n{desired.RevisionId}\n{desired.CandidateId}";
         byte[] signature = HMACSHA256.HashData(options.GetTokenKey(), Encoding.UTF8.GetBytes(payload));

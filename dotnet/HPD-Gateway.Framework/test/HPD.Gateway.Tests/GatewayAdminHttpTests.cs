@@ -8,6 +8,7 @@ using HPD.Gateway.Admin;
 using HPD.Gateway;
 using HPD.Gateway.Management;
 using HPD.Gateway.Hosting;
+using HPD.Base;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
@@ -116,6 +117,58 @@ public sealed class GatewayAdminHttpTests
         document.RootElement.GetProperty("node").ValueKind.Should().Be(JsonValueKind.Null);
     }
 
+    [Theory]
+    [InlineData(GatewayNodeOutcomeKind.RejectedBeforePublish, "ObservedWithoutEffectiveProjection")]
+    [InlineData(GatewayNodeOutcomeKind.PublicationIndeterminate, "Indeterminate")]
+    public async Task Failed_or_indeterminate_activation_is_not_reported_as_never_attempted(
+        GatewayNodeOutcomeKind outcome, string expectedObservation)
+    {
+        await using WebApplication application = Build(resourceAllowed: true);
+        await application.StartAsync();
+        GatewayManagementCommandResult provisioned = await application.Services
+            .GetRequiredService<IGatewayManagementCommandCoordinator>()
+            .ProvisionLocalTargetAsync(new("ns", "node", "provision", new("actor", "test", "policy"), "correlation"));
+        provisioned.IsAccepted.Should().BeTrue(provisioned.Code);
+        BaseSession session = application.Services.GetRequiredService<IBaseSessionFactory>().For(new PrincipalContext
+        {
+            AuthenticationState = PrincipalAuthenticationState.System,
+            SubjectId = "gateway-admin-status-test",
+            AuthSource = GatewayManagementBasePolicy.TrustedSource,
+        }, options => options.Mode = OperationMode.System);
+        const string activationIntentId = "gwm.activation-intent.status-test";
+        (await session.Collection(GatewayDesiredState.Collection).CreateAsync(
+            GatewayAuthorityRecordIds.DesiredState("local", "node"),
+            new GatewayDesiredState
+            {
+                ManagementAuthorityId = "local",
+                TargetNodeId = "node",
+                NamespaceId = "ns",
+                ActivationIntentId = activationIntentId,
+                RevisionId = "gwm.revision.status-test",
+                CandidateId = "candidate-status-test",
+            })).RequireValue();
+        (await session.Collection(GatewayNodeActivationOutcome.Collection).CreateAsync(
+            RecordId.Create("gwm.node-outcome.status-test-" + outcome.ToString().ToLowerInvariant()),
+            new GatewayNodeActivationOutcome
+            {
+                NamespaceId = "ns",
+                TargetNodeId = "node",
+                ActivationIntentId = activationIntentId,
+                AuthorityId = "authority",
+                AuthorityEpoch = "epoch",
+                AuthorityVersion = 1,
+                Kind = outcome,
+                Code = "test." + outcome,
+            })).RequireValue();
+
+        HttpResponseMessage response = await application.GetTestClient().GetAsync(
+            "/management/gateway/v1/namespaces/ns/targets/node/status");
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        using JsonDocument document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        document.RootElement.GetProperty("nodeObservation").GetString().Should().Be(expectedObservation);
+        document.RootElement.GetProperty("node").ValueKind.Should().Be(JsonValueKind.Null);
+    }
+
     [Fact]
     public async Task Generated_openapi_contains_the_complete_typed_ledger()
     {
@@ -142,14 +195,18 @@ public sealed class GatewayAdminHttpTests
                 .Select(static parameter => parameter.GetProperty("name").GetString())
                 .Should().Equal(pathNames);
             foreach (string pathName in pathNames)
-                AssertParameter(parameters, pathName, "path", required: true, maximumLength: 128);
-            AssertParameter(parameters, "X-Correlation-ID", "header", required: false, maximumLength: 128);
+                AssertParameter(parameters, pathName, "path", required: true, maximumLength: 128,
+                    minimumLength: 1, pattern: "^[^\\u0000-\\u001F\\u007F-\\u009F]+$", descriptionContains: "128 UTF-8 bytes");
+            AssertParameter(parameters, "X-Correlation-ID", "header", required: false, maximumLength: 128,
+                minimumLength: 1, pattern: "^[!-~]+$");
             if (descriptor.Mutation)
-                AssertParameter(parameters, "Idempotency-Key", "header", required: true, maximumLength: 128);
+                AssertParameter(parameters, "Idempotency-Key", "header", required: true, maximumLength: 128,
+                    minimumLength: 1, pattern: "^[!-~]+$");
             else
                 parameters.Should().NotContain(parameter => parameter.GetProperty("name").GetString() == "Idempotency-Key");
             bool ifMatch = descriptor.Operation is "submit-and-activate" or "activate" or "rollback" or "import-and-activate";
-            if (ifMatch) AssertParameter(parameters, "If-Match", "header", required: false, maximumLength: 514);
+            if (ifMatch) AssertParameter(parameters, "If-Match", "header", required: false, maximumLength: 514,
+                minimumLength: 3, pattern: "^\"(?=[!-~]{1,512}\"$)[^\",]+\"$");
             else parameters.Should().NotContain(parameter => parameter.GetProperty("name").GetString() == "If-Match");
             bool paged = descriptor.Operation is "revisions" or "activations" or "audit";
             if (paged)
@@ -177,6 +234,7 @@ public sealed class GatewayAdminHttpTests
                 bool requestBodyIsRequired = requestBody.TryGetProperty("required", out JsonElement requiredProperty)
                     && requiredProperty.GetBoolean();
                 requestBodyIsRequired.Should().Be(descriptor.Operation is not ("activate" or "rollback"));
+                requestBody.GetProperty("description").GetString().Should().NotBeNullOrWhiteSpace();
             }
 
             JsonElement responses = operation.GetProperty("responses");
@@ -189,10 +247,88 @@ public sealed class GatewayAdminHttpTests
                     .TryGetProperty("schema", out _).Should().BeTrue();
             }
         }
+
+        JsonElement revisionSchema = RequestSchema(document.RootElement, paths, "/management/gateway/v1/namespaces/{ns}/targets/{target}/revisions", "post");
+        AssertStringProperty(revisionSchema, "configurationJson", 1, 4 * 1024 * 1024, descriptionContains: "UTF-8 bytes");
+        AssertStringProperty(revisionSchema, "sourceKind", 1, 128,
+            "^[^\\u0000-\\u001F\\u007F-\\u009F]+$", "128 UTF-8 bytes");
+        AssertStringProperty(revisionSchema, "sourceId", 1, 128,
+            "^[^\\u0000-\\u001F\\u007F-\\u009F]+$", "128 UTF-8 bytes");
+        AssertStringProperty(revisionSchema, "description", null, 1024);
+
+        JsonElement activationSchema = RequestSchema(document.RootElement, paths,
+            "/management/gateway/v1/namespaces/{ns}/targets/{target}/revisions/{revision}:activate", "post");
+        AssertStringProperty(activationSchema, "description", null, 1024);
+
+        JsonElement compareSchema = RequestSchema(document.RootElement, paths,
+            "/management/gateway/v1/namespaces/{ns}/targets/{target}/revisions:compare", "post");
+        AssertStringProperty(compareSchema, "leftRevisionId", 1, 128,
+            "^[^\\u0000-\\u001F\\u007F-\\u009F]+$", "128 UTF-8 bytes");
+        AssertStringProperty(compareSchema, "rightRevisionId", 1, 128,
+            "^[^\\u0000-\\u001F\\u007F-\\u009F]+$", "128 UTF-8 bytes");
+
+        JsonElement importSchema = RequestSchema(document.RootElement, paths,
+            "/management/gateway/v1/namespaces/{ns}/targets/{target}/revisions:import", "post");
+        AssertStringProperty(importSchema, "configurationJson", 1, 4 * 1024 * 1024, descriptionContains: "UTF-8 bytes");
+        AssertStringProperty(importSchema, "sourceId", 1, 128,
+            "^[^\\u0000-\\u001F\\u007F-\\u009F]+$", "128 UTF-8 bytes");
+        AssertStringProperty(importSchema, "description", null, 1024);
+
+        JsonElement backupSchema = RequestSchema(document.RootElement, paths,
+            "/management/gateway/v1/namespaces/{ns}/administration/backups", "post");
+        AssertStringProperty(backupSchema, "sinkName", 1, 128, "^[a-z0-9.-]+$");
+        AssertStringProperty(backupSchema, "artifactLabel", 1, 128, "^[A-Za-z0-9][A-Za-z0-9._-]*$");
+
+        JsonElement purgeSchema = RequestSchema(document.RootElement, paths,
+            "/management/gateway/v1/namespaces/{ns}/administration/purges", "post");
+        JsonElement resourceIds = purgeSchema.GetProperty("properties").GetProperty("resourceIds");
+        resourceIds.GetProperty("minItems").GetInt32().Should().Be(1);
+        resourceIds.GetProperty("maxItems").GetInt32().Should().Be(256);
+        resourceIds.GetProperty("description").GetString().Should().Contain("128 UTF-8 bytes");
+        resourceIds.GetProperty("items").GetProperty("pattern").GetString()
+            .Should().Be("^[^\\u0000-\\u001F\\u007F-\\u009F]+$");
+    }
+
+    private static JsonElement RequestSchema(
+        JsonElement document,
+        JsonElement paths,
+        string path,
+        string method)
+    {
+        JsonElement schema = paths.GetProperty(path).GetProperty(method)
+            .GetProperty("requestBody").GetProperty("content").GetProperty("application/json").GetProperty("schema");
+        if (!schema.TryGetProperty("$ref", out JsonElement reference)) return schema;
+        string name = reference.GetString()!.Split('/')[^1];
+        return document.GetProperty("components").GetProperty("schemas").GetProperty(name);
+    }
+
+    private static void AssertStringProperty(
+        JsonElement schema,
+        string propertyName,
+        int? minimumLength,
+        int maximumLength,
+        string? pattern = null,
+        string? descriptionContains = null)
+    {
+        JsonElement property = schema.GetProperty("properties").GetProperty(propertyName);
+        property.GetProperty("maxLength").GetInt32().Should().Be(maximumLength);
+        if (minimumLength is not null)
+            property.GetProperty("minLength").GetInt32().Should().Be(minimumLength);
+        if (pattern is not null)
+            property.GetProperty("pattern").GetString().Should().Be(pattern);
+        if (descriptionContains is not null)
+            property.GetProperty("description").GetString().Should().Contain(descriptionContains);
     }
 
     private static void AssertParameter(
-        JsonElement[] parameters, string name, string location, bool required, int? maximumLength = null)
+        JsonElement[] parameters,
+        string name,
+        string location,
+        bool required,
+        int? maximumLength = null,
+        int? minimumLength = null,
+        string? pattern = null,
+        string? descriptionContains = null)
     {
         JsonElement parameter = parameters.Single(value => value.GetProperty("name").GetString() == name);
         parameter.GetProperty("in").GetString().Should().Be(location);
@@ -200,6 +336,12 @@ public sealed class GatewayAdminHttpTests
             .Should().Be(required);
         if (maximumLength is not null)
             parameter.GetProperty("schema").GetProperty("maxLength").GetInt32().Should().Be(maximumLength);
+        if (minimumLength is not null)
+            parameter.GetProperty("schema").GetProperty("minLength").GetInt32().Should().Be(minimumLength);
+        if (pattern is not null)
+            parameter.GetProperty("schema").GetProperty("pattern").GetString().Should().Be(pattern);
+        if (descriptionContains is not null)
+            parameter.GetProperty("description").GetString().Should().Contain(descriptionContains);
     }
 
     private static string SuccessStatus(string operation) => operation switch

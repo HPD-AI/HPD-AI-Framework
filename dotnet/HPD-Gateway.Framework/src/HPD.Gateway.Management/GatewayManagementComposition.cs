@@ -33,6 +33,35 @@ public sealed class GatewayManagementOptions
     internal byte[] GetEpochReservationKey() => [.. _epochReservationKey!];
 }
 
+internal sealed class GatewayManagementRuntimeOptions
+{
+    private readonly byte[] _desiredStateTokenKey;
+    private readonly byte[] _epochReservationKey;
+
+    internal GatewayManagementRuntimeOptions(GatewayManagementOptions options)
+    {
+        ManagementAuthorityId = options.ManagementAuthorityId;
+        RequiredDurability = options.RequiredDurability;
+        MaximumTargets = options.MaximumTargets;
+        MaximumCommandUtf8Bytes = options.MaximumCommandUtf8Bytes;
+        MaximumDeliveryAttempts = options.MaximumDeliveryAttempts;
+        DeliveryClaimLease = options.DeliveryClaimLease;
+        ReconciliationInterval = options.ReconciliationInterval;
+        _desiredStateTokenKey = options.GetTokenKey();
+        _epochReservationKey = options.GetEpochReservationKey();
+    }
+
+    internal string ManagementAuthorityId { get; }
+    internal GatewayAuthorityDurability RequiredDurability { get; }
+    internal int MaximumTargets { get; }
+    internal int MaximumCommandUtf8Bytes { get; }
+    internal int MaximumDeliveryAttempts { get; }
+    internal TimeSpan DeliveryClaimLease { get; }
+    internal TimeSpan ReconciliationInterval { get; }
+    internal byte[] GetTokenKey() => [.. _desiredStateTokenKey];
+    internal byte[] GetEpochReservationKey() => [.. _epochReservationKey];
+}
+
 public sealed record GatewayAuthorityCapabilitySnapshot
 {
     public required string ProviderId { get; init; }
@@ -87,7 +116,7 @@ public static class GatewayManagementServiceCollectionExtensions
                 configureBase(builder);
         });
         services.Replace(ServiceDescriptor.Singleton<IPolicyEvaluator>(new GatewayManagementBasePolicy()));
-        services.AddSingleton(options);
+        services.AddSingleton(new GatewayManagementRuntimeOptions(options));
         services.TryAddSingleton<GatewayAuthorityRuntime>();
         services.TryAddSingleton<IGatewayAuthorityRuntime>(static provider =>
             provider.GetRequiredService<GatewayAuthorityRuntime>());
@@ -158,11 +187,11 @@ public interface IGatewayAuthorityRuntime
     ValueTask<GatewayAuthorityCapabilitySnapshot> InitializeAsync(CancellationToken cancellationToken = default);
 }
 
-public sealed class GatewayAuthorityRuntime(
+internal sealed class GatewayAuthorityRuntime(
     IHPDBaseApplication application,
     IRecordStoreRegistry stores,
     HPDBaseInstalledFeatures installed,
-    GatewayManagementOptions options) : IGatewayAuthorityRuntime
+    GatewayManagementRuntimeOptions options) : IGatewayAuthorityRuntime
 {
     private readonly SemaphoreSlim _initialization = new(1, 1);
     private GatewayAuthorityCapabilitySnapshot? _capabilities;

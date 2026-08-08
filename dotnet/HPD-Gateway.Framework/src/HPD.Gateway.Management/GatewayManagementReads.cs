@@ -84,7 +84,7 @@ public interface IGatewayManagementReader
 internal sealed class GatewayManagementReader(
     IGatewayAuthorityRuntime authority,
     IBaseSessionFactory sessions,
-    GatewayManagementOptions options) : IGatewayManagementReader
+    GatewayManagementRuntimeOptions options) : IGatewayManagementReader
 {
     public async ValueTask<bool> OwnsTargetAsync(
         string namespaceId, string targetNodeId, CancellationToken cancellationToken = default)

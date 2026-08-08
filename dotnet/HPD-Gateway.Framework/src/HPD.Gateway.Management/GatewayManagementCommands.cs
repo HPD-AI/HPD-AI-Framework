@@ -94,7 +94,7 @@ internal sealed class GatewayManagementCommandCoordinator(
     IGatewayAuthorityRuntime authority,
     IBaseSessionFactory sessions,
     HostCapabilitySnapshot gatewayCapabilities,
-    GatewayManagementOptions options) : IGatewayManagementCommandCoordinator
+    GatewayManagementRuntimeOptions options) : IGatewayManagementCommandCoordinator
 {
     private const string ContractVersion = "gateway.management.command.v1";
     private const string EpochReservationContractVersion = "gateway.management.epoch-reservation.v1";

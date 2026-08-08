@@ -15,7 +15,10 @@ public static class GatewayAdminServiceCollectionExtensions
             options.SerializerOptions.TypeInfoResolverChain.Insert(0, GatewayAdminJsonContext.Default);
         });
         services.AddOpenApi("hpd-gateway-v1", options =>
-            options.AddDocumentTransformer<GatewayAdminOpenApiDocumentTransformer>());
+        {
+            options.AddSchemaTransformer<GatewayAdminOpenApiSchemaTransformer>();
+            options.AddDocumentTransformer<GatewayAdminOpenApiDocumentTransformer>();
+        });
         services.AddSingleton<GatewayBackupSinkRegistry>();
         services.AddSingleton<GatewayAdminOpenApiContract>();
         return services;

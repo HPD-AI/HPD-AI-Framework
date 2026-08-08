@@ -51,7 +51,7 @@ internal sealed class GatewayManagementAdministration(
     IGatewayAuthorityRuntime authority,
     IBaseSessionFactory sessions,
     IHPDBaseAdministration administration,
-    GatewayManagementOptions options,
+    GatewayManagementRuntimeOptions options,
     TimeProvider timeProvider) : IGatewayManagementAdministration
 {
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, PendingObservation> _pending = new(StringComparer.Ordinal);

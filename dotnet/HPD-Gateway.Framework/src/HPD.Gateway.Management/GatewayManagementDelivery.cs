@@ -24,7 +24,7 @@ internal sealed class GatewayDeliveryCoordinator(
     IGatewayAuthorityRuntime authority,
     IBaseSessionFactory sessions,
     IGatewayNodeActivator activator,
-    GatewayManagementOptions options,
+    GatewayManagementRuntimeOptions options,
     TimeProvider timeProvider) : IGatewayDeliveryCoordinator
 {
     private readonly SemaphoreSlim _lease = new(1, 1);
@@ -273,7 +273,7 @@ internal sealed class GatewayDeliveryCoordinator(
 internal sealed class GatewayManagementReconciliationWorker(
     IGatewayDeliveryCoordinator delivery,
     IGatewayManagementAdministration administration,
-    GatewayManagementOptions options) : BackgroundService
+    GatewayManagementRuntimeOptions options) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {

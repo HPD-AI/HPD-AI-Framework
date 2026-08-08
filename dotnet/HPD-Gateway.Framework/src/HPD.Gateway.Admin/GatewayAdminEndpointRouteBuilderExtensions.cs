@@ -96,15 +96,31 @@ public static partial class GatewayAdminEndpointRouteBuilderExtensions
             IGatewayManagementStatusReader status = context.RequestServices.GetRequiredService<IGatewayManagementStatusReader>();
             GatewayNodeEffectiveObservation? effective = context.RequestServices.GetRequiredService<IGatewayNodeEffectiveReader>().GetCurrent();
             GatewayManagementStatusSnapshot snapshot = await status.GetCurrentAsync(ns, target, context.RequestAborted).ConfigureAwait(false);
+            GatewayDesiredProjection? desired = await context.RequestServices.GetRequiredService<IGatewayManagementReader>()
+                .GetDesiredProjectionAsync(ns, target, context.RequestAborted).ConfigureAwait(false);
             bool nodeObserved = effective is not null &&
                 StringComparer.Ordinal.Equals(effective.NamespaceId, ns) &&
-                StringComparer.Ordinal.Equals(effective.TargetNodeId, target);
+                StringComparer.Ordinal.Equals(effective.TargetNodeId, target) &&
+                desired is not null &&
+                StringComparer.Ordinal.Equals(effective.Snapshot.CandidateId.Value, desired.CandidateId);
             GatewayStatusSnapshot? node = nodeObserved
                 ? context.RequestServices.GetRequiredService<IGatewayStatusReader>().GetCurrent()
                 : null;
+            bool latestOutcomeMatchesDesired = desired is not null &&
+                StringComparer.Ordinal.Equals(snapshot.LatestNodeActivationIntentId, desired.ActivationIntentId);
+            GatewayNodeObservationState observation = nodeObserved
+                ? GatewayNodeObservationState.Observed
+                : latestOutcomeMatchesDesired &&
+                  snapshot.LatestNodeOutcome == GatewayNodeOutcomeKind.PublicationIndeterminate
+                    ? GatewayNodeObservationState.Indeterminate
+                    : snapshot.LatestNodeOutcome is not null
+                        ? GatewayNodeObservationState.ObservedWithoutEffectiveProjection
+                        : snapshot.NodeAttemptStarted
+                            ? GatewayNodeObservationState.NotObserved
+                            : GatewayNodeObservationState.NotAttempted;
             await Write(context, TypedResults.Json(new GatewayTargetStatusResponse(
                 snapshot,
-                nodeObserved ? GatewayNodeObservationState.Observed : GatewayNodeObservationState.NotAttempted,
+                observation,
                 node,
                 node?.GeneratedAt ?? DateTimeOffset.UtcNow,
                 node?.DetailsTruncated ?? false),

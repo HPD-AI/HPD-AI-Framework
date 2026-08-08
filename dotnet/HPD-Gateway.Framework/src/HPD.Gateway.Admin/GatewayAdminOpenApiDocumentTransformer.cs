@@ -6,6 +6,51 @@ using Microsoft.OpenApi;
 
 namespace HPD.Gateway.Admin;
 
+internal sealed class GatewayAdminOpenApiSchemaTransformer : IOpenApiSchemaTransformer
+{
+    public Task TransformAsync(
+        OpenApiSchema schema,
+        OpenApiSchemaTransformerContext context,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        string? property = context.JsonPropertyInfo?.Name;
+        Type declaringType = context.JsonPropertyInfo?.DeclaringType ?? context.JsonTypeInfo.Type;
+        if (declaringType == typeof(GatewayPurgeRequest) &&
+            StringComparer.OrdinalIgnoreCase.Equals(property, nameof(GatewayPurgeRequest.ResourceIds)))
+        {
+            schema.MinItems = 1;
+            schema.MaxItems = 256;
+            schema.Description = "One to 256 unique, ordinally sorted resource identifiers. Each value is NFC-normalized, " +
+                "contains no Unicode control characters, and is limited to 128 UTF-8 bytes.";
+            if (schema.Items is OpenApiSchema item)
+            {
+                item.Type = JsonSchemaType.String;
+                item.MinLength = 1;
+                item.MaxLength = 128;
+                item.Pattern = "^[^\\u0000-\\u001F\\u007F-\\u009F]+$";
+            }
+        }
+        else if ((declaringType == typeof(GatewayRevisionRequest) &&
+                  StringComparer.OrdinalIgnoreCase.Equals(property, nameof(GatewayRevisionRequest.ConfigurationJson))) ||
+                 (declaringType == typeof(GatewayImportRequest) &&
+                  StringComparer.OrdinalIgnoreCase.Equals(property, nameof(GatewayImportRequest.ConfigurationJson))))
+        {
+            schema.Description = "Canonical candidate text limited to 4,194,304 UTF-8 bytes; maxLength is the corresponding character ceiling.";
+        }
+        else if ((declaringType == typeof(GatewayRevisionRequest) &&
+                  (StringComparer.OrdinalIgnoreCase.Equals(property, nameof(GatewayRevisionRequest.SourceKind)) ||
+                   StringComparer.OrdinalIgnoreCase.Equals(property, nameof(GatewayRevisionRequest.SourceId)))) ||
+                 (declaringType == typeof(GatewayImportRequest) &&
+                  StringComparer.OrdinalIgnoreCase.Equals(property, nameof(GatewayImportRequest.SourceId))) ||
+                 declaringType == typeof(GatewayCompareRequest))
+        {
+            schema.Description = "NFC-normalized, control-free identifier limited to 128 UTF-8 bytes; maxLength is the character ceiling.";
+        }
+        return Task.CompletedTask;
+    }
+}
+
 internal sealed class GatewayAdminOpenApiContract
 {
     private readonly object _sync = new();
@@ -80,6 +125,7 @@ internal sealed class GatewayAdminOpenApiDocumentTransformer(GatewayAdminOpenApi
                 operation.RequestBody = new OpenApiRequestBody
                 {
                     Required = descriptor.Operation is not ("activate" or "rollback"),
+                    Description = RequestConstraintDescription(descriptor.Operation),
                     Content = new Dictionary<string, OpenApiMediaType>
                     {
                         ["application/json"] = new() { Schema = requestSchema },
@@ -105,16 +151,20 @@ internal sealed class GatewayAdminOpenApiDocumentTransformer(GatewayAdminOpenApi
     {
         var parameters = new List<IOpenApiParameter>();
         foreach (string name in PathParameterNames(descriptor.Pattern))
-            parameters.Add(Parameter(name, ParameterLocation.Path, required: true, StringSchema(128),
-                "Gateway resource identifier."));
+            parameters.Add(Parameter(name, ParameterLocation.Path, required: true,
+                StringSchema(128, 1, "^[^\\u0000-\\u001F\\u007F-\\u009F]+$"),
+                "Gateway resource identifier: NFC-normalized, no Unicode control characters, and 1-128 UTF-8 bytes. " +
+                "maxLength is the representable character bound; the 128-byte bound is enforced by the server."));
         parameters.Add(Parameter("X-Correlation-ID", ParameterLocation.Header, required: false,
-            StringSchema(128), "Bounded request correlation identifier."));
+            StringSchema(128, 1, "^[!-~]+$"), "Visible-ASCII request correlation identifier, 1-128 characters when supplied."));
         if (descriptor.Mutation)
             parameters.Add(Parameter("Idempotency-Key", ParameterLocation.Header, required: true,
-                StringSchema(128), "Visible-ASCII product idempotency identity."));
+                StringSchema(128, 1, "^[!-~]+$"), "Visible-ASCII product idempotency identity, 1-128 characters."));
         if (descriptor.Operation is "submit-and-activate" or "activate" or "rollback" or "import-and-activate")
             parameters.Add(Parameter("If-Match", ParameterLocation.Header, required: false,
-                StringSchema(514), "Exact desired-state generation validator; absence asserts create-only."));
+                StringSchema(514, 3, "^\"(?=[!-~]{1,512}\"$)[^\",]+\"$"),
+                "One strong quoted entity-tag containing 1-512 visible-ASCII characters except quote and comma; " +
+                "weak, wildcard, unquoted, duplicate, and comma-joined validators are rejected. Absence asserts create-only."));
         if (descriptor.Operation is "revisions" or "activations" or "audit")
         {
             parameters.Add(Parameter("maximum", ParameterLocation.Query, required: false,
@@ -136,10 +186,27 @@ internal sealed class GatewayAdminOpenApiDocumentTransformer(GatewayAdminOpenApi
         Description = description,
     };
 
-    private static OpenApiSchema StringSchema(int maximumLength) => new()
+    private static OpenApiSchema StringSchema(
+        int maximumLength,
+        int? minimumLength = null,
+        string? pattern = null) => new()
     {
         Type = JsonSchemaType.String,
         MaxLength = maximumLength,
+        MinLength = minimumLength,
+        Pattern = pattern,
+    };
+
+    private static string RequestConstraintDescription(string operation) => operation switch
+    {
+        "validate" => "A strict Gateway declaration document. The complete HTTP body and canonical configuration are each limited to 4,194,304 UTF-8 bytes.",
+        "submit" or "submit-and-activate" => "configurationJson is limited to 4,194,304 UTF-8 bytes; sourceKind and sourceId are NFC-normalized, control-free identifiers limited to 128 UTF-8 bytes; description is limited to 1,024 characters.",
+        "activate" or "rollback" => "The optional description is limited to 1,024 characters.",
+        "compare" => "Both revision identifiers are NFC-normalized, control-free values limited to 128 UTF-8 bytes.",
+        "import" or "import-and-activate" => "configurationJson is limited to 4,194,304 UTF-8 bytes; sourceId is NFC-normalized and control-free with a 128 UTF-8 byte limit; description is limited to 1,024 characters.",
+        "backup" => "sinkName is 1-128 lowercase ASCII letters, digits, dots, or hyphens. artifactLabel, when present, is 1-128 ASCII letters, digits, dots, underscores, or hyphens and begins with a letter or digit.",
+        "purge" => "resourceIds contains 1-256 unique, ordinally sorted, NFC-normalized, control-free identifiers; each identifier is limited to 128 UTF-8 bytes.",
+        _ => "Gateway Admin bounded request.",
     };
 
     private static IEnumerable<string> PathParameterNames(string pattern)

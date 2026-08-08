@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.ComponentModel.DataAnnotations;
 using System.Text.Json.Serialization;
 using HPD.Gateway.Effective;
 using HPD.Gateway.Status;
@@ -88,20 +89,41 @@ public sealed record GatewayAdminEndpointOptions
     public required ImmutableDictionary<string, string> CapabilityPolicies { get; init; }
 }
 
+internal static class GatewayAdminSchemaConstraints
+{
+    internal const string ComponentPattern = "^[^\\u0000-\\u001F\\u007F-\\u009F]+$";
+    internal const string BackupSinkPattern = "^[a-z0-9.-]+$";
+    internal const string ArtifactLabelPattern = "^[A-Za-z0-9][A-Za-z0-9._-]*$";
+}
+
 public sealed record GatewayRevisionRequest
 {
+    [Required, StringLength(4 * 1024 * 1024, MinimumLength = 1)]
     public required string ConfigurationJson { get; init; }
+    [Required, StringLength(128, MinimumLength = 1), RegularExpression(GatewayAdminSchemaConstraints.ComponentPattern)]
     public required string SourceKind { get; init; }
+    [Required, StringLength(128, MinimumLength = 1), RegularExpression(GatewayAdminSchemaConstraints.ComponentPattern)]
     public required string SourceId { get; init; }
+    [StringLength(1024)]
     public string? Description { get; init; }
 }
 
-public sealed record GatewayActivationRequest(string? Description = null);
-public sealed record GatewayCompareRequest(string LeftRevisionId, string RightRevisionId);
-public sealed record GatewayImportRequest(string ConfigurationJson, string SourceId, string? Description = null);
-public sealed record GatewayBackupRequest(string SinkName, string? ArtifactLabel = null);
+public sealed record GatewayActivationRequest(
+    [property: StringLength(1024)] string? Description = null);
+public sealed record GatewayCompareRequest(
+    [property: Required, StringLength(128, MinimumLength = 1), RegularExpression(GatewayAdminSchemaConstraints.ComponentPattern)] string LeftRevisionId,
+    [property: Required, StringLength(128, MinimumLength = 1), RegularExpression(GatewayAdminSchemaConstraints.ComponentPattern)] string RightRevisionId);
+public sealed record GatewayImportRequest(
+    [property: Required, StringLength(4 * 1024 * 1024, MinimumLength = 1)] string ConfigurationJson,
+    [property: Required, StringLength(128, MinimumLength = 1), RegularExpression(GatewayAdminSchemaConstraints.ComponentPattern)] string SourceId,
+    [property: StringLength(1024)] string? Description = null);
+public sealed record GatewayBackupRequest(
+    [property: Required, StringLength(128, MinimumLength = 1), RegularExpression(GatewayAdminSchemaConstraints.BackupSinkPattern)] string SinkName,
+    [property: StringLength(128, MinimumLength = 1), RegularExpression(GatewayAdminSchemaConstraints.ArtifactLabelPattern)] string? ArtifactLabel = null);
 public enum GatewayPurgeCategory : byte { RevisionContent, ValidationContent, ActivationOutcomeHistory, AuditHistory }
-public sealed record GatewayPurgeRequest(GatewayPurgeCategory Category, ImmutableArray<string> ResourceIds);
+public sealed record GatewayPurgeRequest(
+    GatewayPurgeCategory Category,
+    ImmutableArray<string> ResourceIds);
 public sealed record GatewayOperationResponse(string OperationId, string State, string Code, bool Duplicate = false);
 public sealed record GatewayActivationHistoryResponse(
     GatewayAdminPage<GatewayActivationProjection> Intents,
@@ -112,7 +134,14 @@ public sealed record GatewayActivationProjection(
 public sealed record GatewayOutcomeProjection(
     string OutcomeId, string ActivationIntentId, ulong AuthorityVersion,
     GatewayNodeOutcomeKind Kind, string Code, DateTimeOffset? ObservedAt);
-public enum GatewayNodeObservationState : byte { NotAttempted, Observed }
+public enum GatewayNodeObservationState : byte
+{
+    NotAttempted,
+    Observed,
+    ObservedWithoutEffectiveProjection,
+    NotObserved,
+    Indeterminate,
+}
 public sealed record GatewayTargetStatusResponse(
     GatewayManagementStatusSnapshot Management,
     GatewayNodeObservationState NodeObservation,
