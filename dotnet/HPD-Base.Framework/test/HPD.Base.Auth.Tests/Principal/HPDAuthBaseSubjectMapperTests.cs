@@ -156,6 +156,37 @@ public sealed class HPDBaseAuthSubjectProjectorTests
             .WithMessage("base.auth.actor.projectionFailed");
     }
 
+    [Fact]
+    public void CallbackOwnedOptionsCannotMutateTheRuntimeSnapshot()
+    {
+        HPDBaseAuthOptions? retained = null;
+        var services = Services(options =>
+        {
+            retained = options;
+            options.CopiedClaimTypes = ["safe"];
+            options.MaxClaims = 1;
+        });
+        retained!.CopiedClaimTypes = ["refresh_token"];
+        retained.MaxClaims = 64;
+        using var provider = services.BuildServiceProvider();
+        HPDBaseAuthSnapshot snapshot = provider.GetRequiredService<HPDBaseAuthSnapshot>();
+
+        snapshot.CopiedClaimTypes.Should().Equal("safe");
+        snapshot.MaxClaims.Should().Be(1);
+    }
+
+    [Fact]
+    public void CompetingClosedOptionsAuthorityFailsRegistration()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<Microsoft.Extensions.Options.IOptions<HPDBaseAuthOptions>>(
+            Microsoft.Extensions.Options.Options.Create(new HPDBaseAuthOptions()));
+
+        Action action = () => services.AddHPDBaseAuthServices();
+
+        action.Should().Throw<InvalidOperationException>().WithMessage("base.auth.options.ambiguous");
+    }
+
     private static ServiceCollection Services(Action<HPDBaseAuthOptions>? configure = null)
     {
         var services = new ServiceCollection();

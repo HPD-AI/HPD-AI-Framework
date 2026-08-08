@@ -2,7 +2,6 @@ using System.Security.Claims;
 using HPD.Base.Auth;
 using HPD.Base;
 using HPD.Base.AspNetCore;
-using Microsoft.Extensions.Options;
 
 namespace HPD.Base.Auth;
 
@@ -11,15 +10,15 @@ namespace HPD.Base.Auth;
 /// </summary>
 internal sealed class HPDBaseAuthSubjectProjector
 {
-    private readonly HPDBaseAuthOptions _options;
+    private readonly HPDBaseAuthSnapshot _options;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="HPDBaseAuthSubjectProjector"/> class.
     /// </summary>
     /// <param name="options">The adapter options.</param>
-    public HPDBaseAuthSubjectProjector(IOptions<HPDBaseAuthOptions> options)
+    public HPDBaseAuthSubjectProjector(HPDBaseAuthSnapshot options)
     {
-        _options = options.Value;
+        _options = options;
     }
 
     /// <summary>

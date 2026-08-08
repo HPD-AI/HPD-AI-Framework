@@ -5,14 +5,13 @@ using HPD.Base.AspNetCore;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Options;
 
 namespace HPD.Base.Auth;
 
 /// <summary>
 /// Enriches mapped principals with safe facts from HPD.Auth <see cref="ApplicationUser"/> when Identity services are registered.
 /// </summary>
-internal sealed class HPDBaseAuthUserManagerPrincipalEnricher(IOptions<HPDBaseAuthOptions> options) : IHPDBaseAuthPrincipalEnricher
+internal sealed class HPDBaseAuthUserManagerPrincipalEnricher(HPDBaseAuthSnapshot options) : IHPDBaseAuthPrincipalEnricher
 {
     /// <inheritdoc />
     public async ValueTask<PrincipalContext> EnrichAsync(
@@ -44,7 +43,7 @@ internal sealed class HPDBaseAuthUserManagerPrincipalEnricher(IOptions<HPDBaseAu
         foreach (string requiredAction in user.RequiredActions.Distinct(StringComparer.Ordinal))
             AddMultipleClaim(claims, "hpd.auth.user.required_action", requiredAction);
 
-        if (claims.Count > options.Value.MaxClaims)
+        if (claims.Count > options.MaxClaims)
             throw new InvalidOperationException("base.auth.actor.projectionFailed");
 
         var tenantId = principal.CurrentTenantId;

@@ -27,10 +27,13 @@ public static class HPDBaseAspNetCoreServiceCollectionExtensions
         var options = new HPDBaseAspNetCoreOptions();
         configure?.Invoke(options);
         HPDBaseHttpAuthOptionsValidator.ValidateAndFreeze(options.Auth);
+        HPDBaseAspNetCoreSnapshot snapshot = HPDBaseAspNetCoreSnapshot.Create(options);
+        if (services.Any(descriptor => descriptor.ServiceType == typeof(IOptions<HPDBaseAspNetCoreOptions>) ||
+            descriptor.ServiceType == typeof(HPDBaseAspNetCoreOptions) || descriptor.ServiceType == typeof(HPDBaseAspNetCoreSnapshot)))
+            throw new InvalidOperationException("base.http.options.ambiguous");
 
         services.AddOptions();
-        services.TryAddSingleton(options);
-        services.TryAddSingleton<IOptions<HPDBaseAspNetCoreOptions>>(Options.Create(options));
+        services.AddSingleton(snapshot);
         services.TryAddSingleton(TimeProvider.System);
 
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IConfigureOptions<JsonOptions>, HPDBaseAspNetCoreJsonOptionsSetup>());

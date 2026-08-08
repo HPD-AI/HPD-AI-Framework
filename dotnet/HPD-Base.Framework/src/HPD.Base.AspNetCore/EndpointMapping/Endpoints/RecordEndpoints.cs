@@ -419,7 +419,7 @@ internal static class RecordEndpoints
         httpContext.Request.RouteValues[key]?.ToString() ?? string.Empty;
 
     private static HPDBaseHttpLimitOptions Limits(HttpContext httpContext) =>
-        httpContext.RequestServices.GetRequiredService<IOptions<HPDBaseAspNetCoreOptions>>().Value.Limits;
+        httpContext.RequestServices.GetRequiredService<HPDBaseAspNetCoreSnapshot>().Limits;
 
     private static HPDBaseHttpResultMappingContext Mapping(OperationContext operation) =>
         new() { CorrelationId = operation.CorrelationId };

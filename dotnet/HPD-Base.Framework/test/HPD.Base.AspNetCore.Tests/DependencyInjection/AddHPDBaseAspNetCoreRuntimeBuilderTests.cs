@@ -1,5 +1,4 @@
 using HPD.Base.AspNetCore;
-using Microsoft.Extensions.Options;
 
 namespace HPD.Base.AspNetCore.Tests.DependencyInjection;
 
@@ -16,6 +15,6 @@ public sealed class AddHPDBaseAspNetCoreRuntimeBuilderTests
         returned.Should().BeSameAs(builder);
         using var provider = services.BuildServiceProvider();
         provider.GetRequiredService<IBaseHttpPrincipalContextFactory>().Should().NotBeNull();
-        provider.GetRequiredService<IOptions<HPDBaseAspNetCoreOptions>>().Value.RequestContext.IncludeIpAddress.Should().BeTrue();
+        provider.GetRequiredService<HPDBaseAspNetCoreSnapshot>().RequestContext.IncludeIpAddress.Should().BeTrue();
     }
 }

@@ -1,7 +1,6 @@
 using HPD.Base.Auth;
 using HPD.Base;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 
 namespace HPD.Base.Auth;
 
@@ -10,7 +9,7 @@ namespace HPD.Base.Auth;
 /// </summary>
 internal sealed class HPDBaseAuthPolicyEvaluator : IPolicyEvaluator
 {
-    private readonly HPDBaseAuthOptions _options;
+    private readonly HPDBaseAuthSnapshot _options;
     private readonly IEnumerable<IHPDBaseAuthGrantProvider> _grantProviders;
     private readonly IEnumerable<IHPDBaseAuthHostIntegrationStatus> _hostStatuses;
     private readonly IEnumerable<IHPDBaseAuthInnerPolicyEvaluator> _innerEvaluators;
@@ -25,13 +24,13 @@ internal sealed class HPDBaseAuthPolicyEvaluator : IPolicyEvaluator
     /// <param name="innerEvaluators">Optional inner policy evaluators.</param>
     /// <param name="logger">The policy evaluator logger.</param>
     public HPDBaseAuthPolicyEvaluator(
-        IOptions<HPDBaseAuthOptions> options,
+        HPDBaseAuthSnapshot options,
         IEnumerable<IHPDBaseAuthGrantProvider> grantProviders,
         IEnumerable<IHPDBaseAuthHostIntegrationStatus> hostStatuses,
         IEnumerable<IHPDBaseAuthInnerPolicyEvaluator> innerEvaluators,
         ILogger<HPDBaseAuthPolicyEvaluator> logger)
     {
-        _options = options.Value;
+        _options = options;
         _grantProviders = grantProviders;
         _hostStatuses = hostStatuses;
         _innerEvaluators = innerEvaluators;

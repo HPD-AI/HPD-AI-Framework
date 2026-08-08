@@ -6,7 +6,6 @@ using HPD.Base;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 
 namespace HPD.Base.Auth;
 
@@ -16,7 +15,7 @@ namespace HPD.Base.Auth;
 internal sealed class HPDBaseAuthHttpPrincipalMapper : IBaseHttpPrincipalMapper
 {
     private readonly HPDBaseAuthSubjectProjector _subjectMapper;
-    private readonly HPDBaseAuthOptions _options;
+    private readonly HPDBaseAuthSnapshot _options;
     private readonly IEnumerable<IHPDBaseAuthPrincipalEnricher> _enrichers;
     private readonly ILogger<HPDBaseAuthHttpPrincipalMapper> _logger;
     private readonly DefaultBaseHttpPrincipalMapper _genericMapper;
@@ -31,14 +30,14 @@ internal sealed class HPDBaseAuthHttpPrincipalMapper : IBaseHttpPrincipalMapper
     /// <param name="logger">The principal mapper logger.</param>
     public HPDBaseAuthHttpPrincipalMapper(
         HPDBaseAuthSubjectProjector subjectMapper,
-        IOptions<HPDBaseAuthOptions> options,
+        HPDBaseAuthSnapshot options,
         IEnumerable<IHPDBaseAuthPrincipalEnricher> enrichers,
         DefaultBaseHttpPrincipalMapper genericMapper,
         IAuthenticatedActorProjector actorProjector,
         ILogger<HPDBaseAuthHttpPrincipalMapper> logger)
     {
         _subjectMapper = subjectMapper;
-        _options = options.Value;
+        _options = options;
         _enrichers = enrichers;
         _genericMapper = genericMapper;
         _actorProjector = actorProjector;

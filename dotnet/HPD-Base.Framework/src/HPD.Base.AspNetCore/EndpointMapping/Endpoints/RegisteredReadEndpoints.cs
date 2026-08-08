@@ -61,7 +61,7 @@ internal static class RegisteredReadEndpoints
     private static async Task Execute(HttpContext context, IBaseReadRegistration registration)
     {
         object? parameters;
-        long maximumBody = context.RequestServices.GetRequiredService<IOptions<HPDBaseAspNetCoreOptions>>().Value.Limits.MaxRequestBodyLength;
+        long maximumBody = context.RequestServices.GetRequiredService<HPDBaseAspNetCoreSnapshot>().Limits.MaxRequestBodyLength;
         if (context.Request.ContentLength is { } length && length > maximumBody) { await BodyTooLarge(context); return; }
         await using var body = new LimitedRequestBodyStream(context.Request.Body, maximumBody);
         try { parameters = await JsonSerializer.DeserializeAsync(body, registration.ParameterJsonTypeInfo, context.RequestAborted).ConfigureAwait(false); }

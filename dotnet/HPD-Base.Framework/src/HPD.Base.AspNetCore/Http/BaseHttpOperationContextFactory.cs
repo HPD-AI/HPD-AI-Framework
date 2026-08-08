@@ -2,23 +2,22 @@ using HPD.Base;
 using HPD.Base.AspNetCore;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
-using Microsoft.Extensions.Options;
 
 namespace HPD.Base.AspNetCore;
 
 internal sealed class BaseHttpOperationContextFactory : IBaseHttpOperationContextFactory
 {
-    private readonly HPDBaseAspNetCoreOptions _options;
+    private readonly HPDBaseAspNetCoreSnapshot _options;
     private readonly TimeProvider _timeProvider;
     private readonly IBaseHttpCorrelationProvider _correlation;
 
     /// <summary>Initializes a new instance.</summary>
     public BaseHttpOperationContextFactory(
-        IOptions<HPDBaseAspNetCoreOptions> options,
+        HPDBaseAspNetCoreSnapshot options,
         TimeProvider timeProvider,
         IBaseHttpCorrelationProvider correlation)
     {
-        _options = options.Value;
+        _options = options;
         _timeProvider = timeProvider;
         _correlation = correlation;
     }

@@ -1,15 +1,14 @@
 using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Options;
 
 namespace HPD.Base.AspNetCore;
 
-internal sealed class DefaultBaseHttpCorrelationProvider(IOptions<HPDBaseAspNetCoreOptions> options)
+internal sealed class DefaultBaseHttpCorrelationProvider(HPDBaseAspNetCoreSnapshot options)
     : IBaseHttpCorrelationProvider
 {
     public string GetCorrelationId(HttpContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
-        string header = options.Value.RequestContext.CorrelationIdHeaderName;
+        string header = options.RequestContext.CorrelationIdHeaderName;
         if (!context.Request.Headers.TryGetValue(header, out var supplied) || supplied.Count == 0)
             return Copy(context.TraceIdentifier);
         if (supplied.Count != 1 || !Valid(supplied[0]))

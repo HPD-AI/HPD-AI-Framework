@@ -1,7 +1,6 @@
 using HPD.Base.Auth;
 using HPD.Base;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 
 namespace HPD.Base.Auth;
 
@@ -39,7 +38,7 @@ internal sealed class HPDBaseAuthHealthContributor : IBaseHealthContributor
 /// </summary>
 internal sealed class HPDBaseAuthDiagnosticContributor : IBaseDiagnosticContributor
 {
-    private readonly HPDBaseAuthOptions _options;
+    private readonly HPDBaseAuthSnapshot _options;
     private readonly IEnumerable<IHPDBaseAuthHostIntegrationStatus> _hostStatuses;
     private readonly IEnumerable<IHPDBaseAuthGrantProvider> _grantProviders;
     private readonly ILogger<HPDBaseAuthDiagnosticContributor> _logger;
@@ -52,12 +51,12 @@ internal sealed class HPDBaseAuthDiagnosticContributor : IBaseDiagnosticContribu
     /// <param name="grantProviders">Registered grant providers.</param>
     /// <param name="logger">The diagnostic contributor logger.</param>
     public HPDBaseAuthDiagnosticContributor(
-        IOptions<HPDBaseAuthOptions> options,
+        HPDBaseAuthSnapshot options,
         IEnumerable<IHPDBaseAuthHostIntegrationStatus> hostStatuses,
         IEnumerable<IHPDBaseAuthGrantProvider> grantProviders,
         ILogger<HPDBaseAuthDiagnosticContributor> logger)
     {
-        _options = options.Value;
+        _options = options;
         _hostStatuses = hostStatuses;
         _grantProviders = grantProviders;
         _logger = logger;

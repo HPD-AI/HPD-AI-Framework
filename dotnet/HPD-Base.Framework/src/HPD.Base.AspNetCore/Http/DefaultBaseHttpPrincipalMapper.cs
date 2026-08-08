@@ -1,11 +1,10 @@
 using System.Security.Claims;
 using HPD.Base;
 using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Options;
 
 namespace HPD.Base.AspNetCore;
 
-internal sealed class DefaultBaseHttpPrincipalMapper(IOptions<HPDBaseAspNetCoreOptions> options)
+internal sealed class DefaultBaseHttpPrincipalMapper(HPDBaseAspNetCoreSnapshot options)
     : IBaseHttpPrincipalMapper
 {
     public ValueTask<PrincipalContext> MapAsync(
@@ -28,7 +27,7 @@ internal sealed class DefaultBaseHttpPrincipalMapper(IOptions<HPDBaseAspNetCoreO
                 AuthSource = "aspnet"
             });
 
-        HPDBaseHttpAuthOptions auth = options.Value.Auth;
+        HPDBaseHttpAuthOptions auth = options.Auth;
         string? subjectId = BasePrincipalProjectionGuard.Single(user, auth.SubjectIdClaimTypes, 256, "subject");
         string? displayName = BasePrincipalProjectionGuard.Single(user, auth.DisplayNameClaimTypes, 256, "display name");
         if (displayName is null && user.Identity.Name is { } identityName)

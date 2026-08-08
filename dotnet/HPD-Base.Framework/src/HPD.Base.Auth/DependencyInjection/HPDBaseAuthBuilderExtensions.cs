@@ -44,9 +44,12 @@ public static class HPDBaseAuthBuilderExtensions
     private static IServiceCollection AddHPDBaseAuthServices(this IServiceCollection services, HPDBaseAuthOptions options)
     {
             HPDBaseAuthOptionsValidator.ValidateAndFreeze(options);
+            HPDBaseAuthSnapshot snapshot = HPDBaseAuthSnapshot.Create(options);
+            if (services.Any(descriptor => descriptor.ServiceType == typeof(IOptions<HPDBaseAuthOptions>) ||
+                descriptor.ServiceType == typeof(HPDBaseAuthOptions) || descriptor.ServiceType == typeof(HPDBaseAuthSnapshot)))
+                throw new InvalidOperationException("base.auth.options.ambiguous");
             services.AddOptions();
-            services.TryAddSingleton(options);
-            services.TryAddSingleton<IOptions<HPDBaseAuthOptions>>(Options.Create(options));
+            services.AddSingleton(snapshot);
             services.TryAddSingleton<HPDBaseAuthSubjectProjector>();
             services.TryAddEnumerable(ServiceDescriptor.Singleton<IPolicyEvaluator, HPDBaseAuthPolicyEvaluator>());
             services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseDescriptorContributor, HPDBaseAuthDescriptorContributor>());
@@ -54,7 +57,7 @@ public static class HPDBaseAuthBuilderExtensions
             services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseDiagnosticContributor, HPDBaseAuthDiagnosticContributor>());
             services.TryAddEnumerable(ServiceDescriptor.Singleton<IHPDBaseAuthHostIntegrationStatus, HPDBaseAuthAspNetCoreHostIntegrationStatus>());
             services.TryAddEnumerable(ServiceDescriptor.Singleton<IHPDBaseEndpointSecurityMetadataValidator, HPDBaseControlPlaneMetadataValidator>());
-            if (options.EnrichFromUserManager)
+            if (snapshot.EnrichFromUserManager)
                 services.TryAddEnumerable(ServiceDescriptor.Scoped<IHPDBaseAuthPrincipalEnricher, HPDBaseAuthUserManagerPrincipalEnricher>());
             services.Replace(ServiceDescriptor.Scoped<IBaseHttpPrincipalMapper, HPDBaseAuthHttpPrincipalMapper>());
             services.Replace(ServiceDescriptor.Scoped<IBaseHttpCorrelationProvider, HPDBaseAuthCorrelationProvider>());
