@@ -55,6 +55,9 @@ public static partial class GatewayAdminEndpointRouteBuilderExtensions
 
         Map(group, options, security, "validate", async context =>
         {
+            IGatewayAdminActorProjector projector = context.RequestServices.GetRequiredService<IGatewayAdminActorProjector>();
+            GatewayAdminRequestAttribution attribution = await projector.ProjectAsync(
+                context, GatewayAdminCapabilities.RevisionValidate, context.RequestAborted).ConfigureAwait(false);
             HostCapabilitySnapshot capabilities = context.RequestServices.GetRequiredService<HostCapabilitySnapshot>();
             GatewayHostCapabilitySnapshotResponse host = GatewayHostCapabilityProjector.Project(capabilities);
             byte[] body = await ReadBoundedBodyAsync(context.Request, context.RequestAborted).ConfigureAwait(false);
@@ -71,7 +74,7 @@ public static partial class GatewayAdminEndpointRouteBuilderExtensions
                 candidate.CanonicalDocument?.ContentHash.Value,
                 host.SnapshotAlgorithm,
                 host.SnapshotValue,
-                context.TraceIdentifier,
+                attribution.CorrelationId,
                 DateTimeOffset.UtcNow);
             await Write(context, TypedResults.Json(response, GatewayAdminJsonContext.Default.GatewayValidationResponse)).ConfigureAwait(false);
         });

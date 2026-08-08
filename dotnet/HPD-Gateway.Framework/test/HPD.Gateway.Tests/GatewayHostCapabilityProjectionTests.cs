@@ -26,18 +26,16 @@ public sealed class GatewayHostCapabilityProjectionTests
             "authorization", "cookie", "proxy-authorization", "x-api-key");
     }
 
-    [Fact]
-    public void Every_behavior_affecting_change_changes_snapshot_identity()
+    [Theory]
+    [MemberData(nameof(BehaviorAffectingMutations))]
+    public void Every_projected_behavior_affecting_change_changes_snapshot_identity(
+        string field, HostCapabilityRegistration changed)
     {
         HostCapabilityRegistration baseline = Registration(reverse: false);
-        string original = GatewayHostCapabilityProjector.Project(
-            HostCapabilitySnapshot.Create(baseline)).SnapshotValue;
+        string original = Identity(baseline);
+        string updated = Identity(changed);
 
-        HostCapabilityRegistration changed = baseline with { AllowInspectionFileSpill = false };
-        string updated = GatewayHostCapabilityProjector.Project(
-            HostCapabilitySnapshot.Create(changed)).SnapshotValue;
-
-        updated.Should().NotBe(original);
+        updated.Should().NotBe(original, field);
     }
 
     [Fact]
@@ -45,8 +43,7 @@ public sealed class GatewayHostCapabilityProjectionTests
     {
         HostCapabilityRegistration baseline = Registration(reverse: false);
         OutputCacheCapability profile = baseline.OutputCacheProfiles.Single();
-        string original = GatewayHostCapabilityProjector.Project(
-            HostCapabilitySnapshot.Create(baseline)).SnapshotValue;
+        string original = Identity(baseline);
 
         HostCapabilityRegistration changed = baseline with
         {
@@ -55,8 +52,7 @@ public sealed class GatewayHostCapabilityProjectionTests
                 profile with { Expiration = profile.Expiration.Add(TimeSpan.FromTicks(1)) },
             ],
         };
-        string updated = GatewayHostCapabilityProjector.Project(
-            HostCapabilitySnapshot.Create(changed)).SnapshotValue;
+        string updated = Identity(changed);
 
         updated.Should().NotBe(original);
     }
@@ -89,6 +85,121 @@ public sealed class GatewayHostCapabilityProjectionTests
         longName.Should().Throw<ArgumentException>().WithMessage("*bounded*");
         tooManyHosts.Should().Throw<ArgumentException>().WithMessage("*hostnames*");
     }
+
+    [Fact]
+    public void Registration_materialization_is_single_pass_and_stops_at_maximum_plus_one()
+    {
+        var infinite = new CountingInfiniteEnumerable<string>("policy");
+        Action veryLarge = () => HostCapabilitySnapshot.Create(new HostCapabilityRegistration
+        {
+            AuthorizationPolicies = Enumerable.Range(0, int.MaxValue).Select(static index => $"policy-{index}"),
+        });
+        Action unbounded = () => HostCapabilitySnapshot.Create(new HostCapabilityRegistration
+        {
+            AuthorizationPolicies = infinite,
+        });
+        var singleUse = new SingleUseEnumerable<string>(["policy"]);
+
+        veryLarge.Should().Throw<ArgumentException>().WithMessage("*maximum of 256*");
+        unbounded.Should().Throw<ArgumentException>().WithMessage("*maximum of 256*");
+        infinite.MoveNextCount.Should().Be(257);
+        HostCapabilitySnapshot.Create(new HostCapabilityRegistration
+        {
+            AuthorizationPolicies = singleUse,
+        }).AuthorizationPolicies.Should().ContainSingle("policy");
+        singleUse.GetEnumeratorCount.Should().Be(1);
+    }
+
+    [Fact]
+    public void Registration_does_not_swallow_source_enumeration_failures()
+    {
+        static IEnumerable<string> Throwing()
+        {
+            yield return "first";
+            throw new InvalidOperationException("source-failed");
+        }
+
+        Action action = () => HostCapabilitySnapshot.Create(new HostCapabilityRegistration
+        {
+            AuthorizationPolicies = Throwing(),
+        });
+
+        action.Should().Throw<InvalidOperationException>().WithMessage("source-failed");
+    }
+
+    [Fact]
+    public void Normalization_only_registration_changes_preserve_snapshot_identity()
+    {
+        HostCapabilityRegistration baseline = Registration(reverse: false);
+        ListenerCapability[] listeners = baseline.Listeners.Cast<ListenerCapability>().Reverse()
+            .Select(static listener => listener with
+            {
+                Hostnames = listener.Hostnames.Select(static host => host.ToLowerInvariant()).Reverse().ToImmutableArray(),
+            }).ToArray();
+        OutputCacheCapability cache = baseline.OutputCacheProfiles.Single();
+        HostCapabilityRegistration normalized = baseline with
+        {
+            Listeners = listeners,
+            DiscoveryProviders = baseline.DiscoveryProviders.Reverse(),
+            SecretProviders = baseline.SecretProviders.Reverse(),
+            AuthorizationPolicies = baseline.AuthorizationPolicies.Reverse(),
+            OutputCacheProfiles = [cache with { HeaderNames = ["accept"] }],
+            ProtectedCredentialHeaders = ["x-api-key"],
+        };
+
+        Identity(normalized).Should().Be(Identity(baseline));
+    }
+
+    public static IEnumerable<object[]> BehaviorAffectingMutations()
+    {
+        HostCapabilityRegistration baseline = Registration(reverse: false);
+        ListenerCapability[] listeners = baseline.Listeners.Cast<ListenerCapability>().ToArray();
+        DiscoveryProviderCapability[] discoveries = baseline.DiscoveryProviders.Cast<DiscoveryProviderCapability>().ToArray();
+        OutputCacheCapability cache = baseline.OutputCacheProfiles.Single();
+        UpstreamResilienceCapability resilience = baseline.UpstreamResilienceProfiles.Single();
+
+        yield return Case("installed families", baseline with { InstalledFamilies = GatewayDeclarationFamilies.AllBaseline });
+        yield return Case("listener id", baseline with { Listeners = [listeners[0] with { Id = new("edge") }, listeners[1]] });
+        yield return Case("listener role", baseline with { Listeners = [listeners[0] with { Role = ListenerRole.Management }, listeners[1]] });
+        yield return Case("listener protocols", baseline with { Listeners = [listeners[0] with { Protocols = ListenerProtocols.Http1 }, listeners[1]] });
+        yield return Case("listener hostname", baseline with { Listeners = [listeners[0] with { Hostnames = ["changed.example.com"] }, listeners[1]] });
+        yield return Case("listener tls", baseline with { Listeners = [listeners[0] with { Tls = false }, listeners[1]] });
+        yield return Case("discovery id", baseline with { DiscoveryProviders = [discoveries[0] with { Id = new("changed") }, discoveries[1]] });
+        yield return Case("discovery supported parameters", baseline with { DiscoveryProviders = [discoveries[0] with { SupportedParameters = ["region", "zone", "rack"] }, discoveries[1]] });
+        yield return Case("discovery required parameters", baseline with { DiscoveryProviders = [discoveries[0] with { RequiredParameters = ["region", "zone"] }, discoveries[1]] });
+        yield return Case("discovery unknown parameters", baseline with { DiscoveryProviders = [discoveries[0] with { AllowUnknownParameters = true }, discoveries[1]] });
+        yield return Case("discovery https", baseline with { DiscoveryProviders = [discoveries[0] with { ProducesHttpsEndpoints = false }, discoveries[1]] });
+        yield return Case("secret provider", baseline with { SecretProviders = [new ProviderId("other")] });
+        yield return Case("authorization policy", baseline with { AuthorizationPolicies = ["other"] });
+        yield return Case("cors policy", baseline with { CorsPolicies = ["other"] });
+        yield return Case("admission policy", baseline with { TrafficAdmissionPolicies = ["other"] });
+        yield return Case("timeout policy", baseline with { RequestTimeoutPolicies = ["other"] });
+        yield return Case("affinity policy", baseline with { SessionAffinityPolicies = ["other"] });
+        yield return Case("affinity failure policy", baseline with { SessionAffinityFailurePolicies = ["other"] });
+        yield return Case("passive health policy", baseline with { PassiveHealthPolicies = ["other"] });
+        yield return Case("active health policy", baseline with { ActiveHealthPolicies = ["other"] });
+        yield return Case("inspector", baseline with { RequestInspectors = ["other"] });
+        yield return Case("cache name", baseline with { OutputCacheProfiles = [cache with { Name = "other" }] });
+        yield return Case("cache version", baseline with { OutputCacheProfiles = [cache with { Version = 2 }] });
+        yield return Case("cache store", baseline with { OutputCacheProfiles = [cache with { StoreId = "other" }] });
+        yield return Case("cache expiration", baseline with { OutputCacheProfiles = [cache with { Expiration = TimeSpan.FromSeconds(61) }] });
+        yield return Case("cache body bound", baseline with { OutputCacheProfiles = [cache with { MaximumBodyBytes = 2_048 }] });
+        yield return Case("cache capacity", baseline with { OutputCacheProfiles = [cache with { StoreCapacityBytes = 8_192 }] });
+        yield return Case("cache query dimensions", baseline with { OutputCacheProfiles = [cache with { QueryKeys = ["country"] }] });
+        yield return Case("cache header dimensions", baseline with { OutputCacheProfiles = [cache with { HeaderNames = ["Content-Type"] }] });
+        yield return Case("resilience name", baseline with { UpstreamResilienceProfiles = [resilience with { Name = "other" }] });
+        yield return Case("resilience version", baseline with { UpstreamResilienceProfiles = [resilience with { Version = 2 }] });
+        yield return Case("resilience strategies", baseline with { UpstreamResilienceProfiles = [resilience with { Strategies = UpstreamResilienceStrategies.SelectedResponseRetry }] });
+        yield return Case("resilience statuses", baseline with { UpstreamResilienceProfiles = [resilience with { RetryStatusCodes = [408, 504] }] });
+        yield return Case("resilience attempts", baseline with { UpstreamResilienceProfiles = [resilience with { MaximumRetryAttempts = 3 }] });
+        yield return Case("protected header", baseline with { ProtectedCredentialHeaders = ["X-Other-Credential"] });
+        yield return Case("inspection spill", baseline with { AllowInspectionFileSpill = false });
+    }
+
+    private static object[] Case(string field, HostCapabilityRegistration registration) => [field, registration];
+
+    private static string Identity(HostCapabilityRegistration registration) =>
+        GatewayHostCapabilityProjector.Project(HostCapabilitySnapshot.Create(registration)).SnapshotValue;
 
     private static HostCapabilityRegistration Registration(bool reverse)
     {
@@ -136,5 +247,35 @@ public sealed class GatewayHostCapabilityProjectionTests
             ProtectedCredentialHeaders = ["X-Api-Key"],
             AllowInspectionFileSpill = true,
         };
+    }
+
+    private sealed class CountingInfiniteEnumerable<T>(T value) : IEnumerable<T>
+    {
+        public int MoveNextCount { get; private set; }
+
+        public IEnumerator<T> GetEnumerator()
+        {
+            while (true)
+            {
+                MoveNextCount++;
+                yield return value;
+            }
+        }
+
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+    }
+
+    private sealed class SingleUseEnumerable<T>(IEnumerable<T> source) : IEnumerable<T>
+    {
+        public int GetEnumeratorCount { get; private set; }
+
+        public IEnumerator<T> GetEnumerator()
+        {
+            GetEnumeratorCount++;
+            if (GetEnumeratorCount != 1) throw new InvalidOperationException("enumerated twice");
+            return source.GetEnumerator();
+        }
+
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
     }
 }

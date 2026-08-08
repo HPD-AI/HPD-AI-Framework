@@ -129,6 +129,7 @@ public sealed class GatewayAdminHttpTests
         {
             Content = new ByteArrayContent(json),
         };
+        request.Headers.Add("X-Correlation-ID", "validation-correlation");
         request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/hpd.gateway+json");
         HttpResponseMessage validationResponse = await client.SendAsync(request);
         validationResponse.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -140,7 +141,7 @@ public sealed class GatewayAdminHttpTests
         validation.RootElement.GetProperty("contentHashValue").GetString().Should().HaveLength(64);
         validation.RootElement.GetProperty("hostCapabilitySnapshotAlgorithm").GetString().Should().Be(hostAlgorithm);
         validation.RootElement.GetProperty("hostCapabilitySnapshotValue").GetString().Should().Be(hostValue);
-        validation.RootElement.GetProperty("correlationId").GetString().Should().NotBeNullOrWhiteSpace();
+        validation.RootElement.GetProperty("correlationId").GetString().Should().Be("validation-correlation");
         validation.RootElement.GetProperty("observedAt").GetDateTimeOffset().Should().BeCloseTo(DateTimeOffset.UtcNow, TimeSpan.FromMinutes(1));
         validation.RootElement.TryGetProperty("canonicalJson", out _).Should().BeFalse();
     }
@@ -552,8 +553,15 @@ public sealed class GatewayAdminHttpTests
     private sealed class TestActorProjector : IGatewayAdminActorProjector
     {
         public ValueTask<GatewayAdminRequestAttribution> ProjectAsync(
-            HttpContext context, string capability, CancellationToken cancellationToken = default) =>
-            ValueTask.FromResult(new GatewayAdminRequestAttribution("actor", "test", capability, "correlation"));
+            HttpContext context, string capability, CancellationToken cancellationToken = default)
+        {
+            string correlation = context.Request.Headers["X-Correlation-ID"] is { Count: 1 } values &&
+                values[0] is { Length: > 0 and <= 128 } value
+                    ? value
+                    : "correlation";
+            return ValueTask.FromResult(new GatewayAdminRequestAttribution(
+                "actor", "test", capability, correlation));
+        }
     }
 
     private sealed class TestAuthenticationHandler(

@@ -116,6 +116,7 @@ public sealed class HostCapabilitySnapshot
     private const int MaximumNamedCapabilities = 256;
     private const int MaximumProfiles = 128;
     private const int MaximumListenerHostnames = 64;
+    private const int MaximumCustomProtectedHeaders = 32;
     private const int MaximumCapabilityNameBytes = 128;
     private const int MaximumHostnameBytes = 256;
 
@@ -169,36 +170,22 @@ public sealed class HostCapabilitySnapshot
         ArgumentNullException.ThrowIfNull(registration);
         registration = registration with
         {
-            Listeners = Required(registration.Listeners, nameof(registration.Listeners)).ToArray(),
-            DiscoveryProviders = Required(registration.DiscoveryProviders, nameof(registration.DiscoveryProviders)).ToArray(),
-            SecretProviders = Required(registration.SecretProviders, nameof(registration.SecretProviders)).ToArray(),
-            AuthorizationPolicies = Required(registration.AuthorizationPolicies, nameof(registration.AuthorizationPolicies)).ToArray(),
-            CorsPolicies = Required(registration.CorsPolicies, nameof(registration.CorsPolicies)).ToArray(),
-            TrafficAdmissionPolicies = Required(registration.TrafficAdmissionPolicies, nameof(registration.TrafficAdmissionPolicies)).ToArray(),
-            RequestTimeoutPolicies = Required(registration.RequestTimeoutPolicies, nameof(registration.RequestTimeoutPolicies)).ToArray(),
-            OutputCacheProfiles = Required(registration.OutputCacheProfiles, nameof(registration.OutputCacheProfiles)).ToArray(),
-            SessionAffinityPolicies = Required(registration.SessionAffinityPolicies, nameof(registration.SessionAffinityPolicies)).ToArray(),
-            SessionAffinityFailurePolicies = Required(registration.SessionAffinityFailurePolicies, nameof(registration.SessionAffinityFailurePolicies)).ToArray(),
-            PassiveHealthPolicies = Required(registration.PassiveHealthPolicies, nameof(registration.PassiveHealthPolicies)).ToArray(),
-            ActiveHealthPolicies = Required(registration.ActiveHealthPolicies, nameof(registration.ActiveHealthPolicies)).ToArray(),
-            RequestInspectors = Required(registration.RequestInspectors, nameof(registration.RequestInspectors)).ToArray(),
-            UpstreamResilienceProfiles = Required(registration.UpstreamResilienceProfiles, nameof(registration.UpstreamResilienceProfiles)).ToArray(),
-            ProtectedCredentialHeaders = Required(registration.ProtectedCredentialHeaders, nameof(registration.ProtectedCredentialHeaders)).ToArray()
+            Listeners = MaterializeBounded(registration.Listeners, MaximumListeners, nameof(registration.Listeners)),
+            DiscoveryProviders = MaterializeBounded(registration.DiscoveryProviders, MaximumProviders, nameof(registration.DiscoveryProviders)),
+            SecretProviders = MaterializeBounded(registration.SecretProviders, MaximumProviders, nameof(registration.SecretProviders)),
+            AuthorizationPolicies = MaterializeBounded(registration.AuthorizationPolicies, MaximumNamedCapabilities, nameof(registration.AuthorizationPolicies)),
+            CorsPolicies = MaterializeBounded(registration.CorsPolicies, MaximumNamedCapabilities, nameof(registration.CorsPolicies)),
+            TrafficAdmissionPolicies = MaterializeBounded(registration.TrafficAdmissionPolicies, MaximumNamedCapabilities, nameof(registration.TrafficAdmissionPolicies)),
+            RequestTimeoutPolicies = MaterializeBounded(registration.RequestTimeoutPolicies, MaximumNamedCapabilities, nameof(registration.RequestTimeoutPolicies)),
+            OutputCacheProfiles = MaterializeBounded(registration.OutputCacheProfiles, MaximumProfiles, nameof(registration.OutputCacheProfiles)),
+            SessionAffinityPolicies = MaterializeBounded(registration.SessionAffinityPolicies, MaximumNamedCapabilities, nameof(registration.SessionAffinityPolicies)),
+            SessionAffinityFailurePolicies = MaterializeBounded(registration.SessionAffinityFailurePolicies, MaximumNamedCapabilities, nameof(registration.SessionAffinityFailurePolicies)),
+            PassiveHealthPolicies = MaterializeBounded(registration.PassiveHealthPolicies, MaximumNamedCapabilities, nameof(registration.PassiveHealthPolicies)),
+            ActiveHealthPolicies = MaterializeBounded(registration.ActiveHealthPolicies, MaximumNamedCapabilities, nameof(registration.ActiveHealthPolicies)),
+            RequestInspectors = MaterializeBounded(registration.RequestInspectors, MaximumNamedCapabilities, nameof(registration.RequestInspectors)),
+            UpstreamResilienceProfiles = MaterializeBounded(registration.UpstreamResilienceProfiles, MaximumProfiles, nameof(registration.UpstreamResilienceProfiles)),
+            ProtectedCredentialHeaders = MaterializeBounded(registration.ProtectedCredentialHeaders, MaximumCustomProtectedHeaders, nameof(registration.ProtectedCredentialHeaders))
         };
-        RequireMaximum(registration.Listeners, MaximumListeners, nameof(registration.Listeners));
-        RequireMaximum(registration.DiscoveryProviders, MaximumProviders, nameof(registration.DiscoveryProviders));
-        RequireMaximum(registration.SecretProviders, MaximumProviders, nameof(registration.SecretProviders));
-        RequireMaximum(registration.AuthorizationPolicies, MaximumNamedCapabilities, nameof(registration.AuthorizationPolicies));
-        RequireMaximum(registration.CorsPolicies, MaximumNamedCapabilities, nameof(registration.CorsPolicies));
-        RequireMaximum(registration.TrafficAdmissionPolicies, MaximumNamedCapabilities, nameof(registration.TrafficAdmissionPolicies));
-        RequireMaximum(registration.RequestTimeoutPolicies, MaximumNamedCapabilities, nameof(registration.RequestTimeoutPolicies));
-        RequireMaximum(registration.OutputCacheProfiles, MaximumProfiles, nameof(registration.OutputCacheProfiles));
-        RequireMaximum(registration.SessionAffinityPolicies, MaximumNamedCapabilities, nameof(registration.SessionAffinityPolicies));
-        RequireMaximum(registration.SessionAffinityFailurePolicies, MaximumNamedCapabilities, nameof(registration.SessionAffinityFailurePolicies));
-        RequireMaximum(registration.PassiveHealthPolicies, MaximumNamedCapabilities, nameof(registration.PassiveHealthPolicies));
-        RequireMaximum(registration.ActiveHealthPolicies, MaximumNamedCapabilities, nameof(registration.ActiveHealthPolicies));
-        RequireMaximum(registration.RequestInspectors, MaximumNamedCapabilities, nameof(registration.RequestInspectors));
-        RequireMaximum(registration.UpstreamResilienceProfiles, MaximumProfiles, nameof(registration.UpstreamResilienceProfiles));
         if ((registration.InstalledFamilies & ~GatewayDeclarationFamilies.All) != 0)
             throw new ArgumentException("Installed declaration-family flags are invalid.", nameof(registration));
 
@@ -306,9 +293,8 @@ public sealed class HostCapabilitySnapshot
 
     private static ImmutableArray<string> ProtectedHeaders(IEnumerable<string> values)
     {
-        const int maximumCustomHeaders = 32;
         var custom = values.ToArray();
-        if (custom.Length > maximumCustomHeaders)
+        if (custom.Length > MaximumCustomProtectedHeaders)
             throw new ArgumentException("Protected credential header count exceeds its bound.", nameof(values));
 
         var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -372,10 +358,18 @@ public sealed class HostCapabilitySnapshot
 
     private static IEnumerable<T> Required<T>(IEnumerable<T>? values, string name) => values ?? throw new ArgumentException("Capability collection cannot be null.", name);
 
-    private static void RequireMaximum<T>(IEnumerable<T> values, int maximum, string name)
+    private static T[] MaterializeBounded<T>(IEnumerable<T>? values, int maximum, string name)
     {
-        if (values.Count() > maximum)
-            throw new ArgumentException($"Capability collection exceeds its maximum of {maximum} entries.", name);
+        ArgumentNullException.ThrowIfNull(values, name);
+        var result = new List<T>(Math.Min(maximum, 16));
+        using IEnumerator<T> enumerator = values.GetEnumerator();
+        while (enumerator.MoveNext())
+        {
+            if (result.Count == maximum)
+                throw new ArgumentException($"Capability collection exceeds its maximum of {maximum} entries.", name);
+            result.Add(enumerator.Current);
+        }
+        return result.ToArray();
     }
 
     private static bool IsBoundedUtf8(string value, int maximum) =>
