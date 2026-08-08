@@ -39,6 +39,11 @@ public sealed class GatewayAdminContractTests
             semantics.Idempotency.Should().Be(endpoint.Mutation
                 ? GatewayAdminClientIdempotency.Required
                 : GatewayAdminClientIdempotency.Forbidden);
+            semantics.RequestBodyPresence.Should().Be(semantics.RequestType is null
+                ? GatewayAdminClientRequestBodyPresence.None
+                : endpoint.Operation is "activate" or "rollback"
+                    ? GatewayAdminClientRequestBodyPresence.Optional
+                    : GatewayAdminClientRequestBodyPresence.Required);
             semantics.DesiredPrecondition.Should().Be(endpoint.Operation is
                 "submit-and-activate" or "activate" or "rollback" or "import-and-activate"
                     ? GatewayAdminClientDesiredPrecondition.CreateOrReplace
@@ -52,7 +57,12 @@ public sealed class GatewayAdminContractTests
             });
             semantics.DocumentedErrors.Should().Equal(
                 GatewayAdminOpenApiMetadata.ErrorStatuses(endpoint.Operation));
+            semantics.DocumentedErrors.Should().BeInAscendingOrder().And.OnlyHaveUniqueItems();
         }
+
+        GatewayAdminClientOperationSemantics submit = GatewayAdminClientSemanticLedger.For("submit");
+        (submit with { Operation = "renamed-without-reclassification" }).DocumentedErrors
+            .Should().Equal(submit.DocumentedErrors);
     }
 
     [Fact]

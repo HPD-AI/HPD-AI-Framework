@@ -322,6 +322,7 @@ public sealed class GatewayAdminHttpTests
             .Should().HaveCount(23);
         foreach (GatewayAdminEndpointDescriptor descriptor in GatewayAdminEndpointLedger.V1)
         {
+            GatewayAdminClientOperationSemantics semantics = GatewayAdminClientSemanticLedger.For(descriptor.Operation);
             JsonElement operation = paths
                 .GetProperty("/management/gateway/v1" + descriptor.Pattern)
                 .GetProperty(descriptor.Method.ToLowerInvariant());
@@ -339,16 +340,16 @@ public sealed class GatewayAdminHttpTests
                     minimumLength: 1, pattern: "^[^\\u0000-\\u001F\\u007F-\\u009F]+$", descriptionContains: "128 UTF-8 bytes");
             AssertParameter(parameters, "X-Correlation-ID", "header", required: false, maximumLength: 128,
                 minimumLength: 1, pattern: "^[!-~]+$");
-            if (descriptor.Mutation)
+            if (semantics.Idempotency == GatewayAdminClientIdempotency.Required)
                 AssertParameter(parameters, "Idempotency-Key", "header", required: true, maximumLength: 128,
                     minimumLength: 1, pattern: "^[!-~]+$");
             else
                 parameters.Should().NotContain(parameter => parameter.GetProperty("name").GetString() == "Idempotency-Key");
-            bool ifMatch = descriptor.Operation is "submit-and-activate" or "activate" or "rollback" or "import-and-activate";
+            bool ifMatch = semantics.DesiredPrecondition == GatewayAdminClientDesiredPrecondition.CreateOrReplace;
             if (ifMatch) AssertParameter(parameters, "If-Match", "header", required: false, maximumLength: 514,
                 minimumLength: 3, pattern: "^\"(?=[!-~]{1,512}\"$)[^\",]+\"$");
             else parameters.Should().NotContain(parameter => parameter.GetProperty("name").GetString() == "If-Match");
-            bool paged = descriptor.Operation is "revisions" or "activations" or "audit";
+            bool paged = semantics.Pagination == GatewayAdminClientPaginationKind.OpaqueCursor;
             if (paged)
             {
                 AssertParameter(parameters, "maximum", "query", required: false);
@@ -361,8 +362,7 @@ public sealed class GatewayAdminHttpTests
             else
                 parameters.Should().NotContain(parameter => parameter.GetProperty("in").GetString() == "query");
 
-            bool hasBody = descriptor.Operation is "validate" or "submit" or "submit-and-activate" or
-                "activate" or "rollback" or "compare" or "import" or "import-and-activate" or "backup" or "purge";
+            bool hasBody = semantics.RequestBodyPresence != GatewayAdminClientRequestBodyPresence.None;
             operation.TryGetProperty("requestBody", out JsonElement requestBody).Should().Be(hasBody);
             if (hasBody)
             {
@@ -373,12 +373,13 @@ public sealed class GatewayAdminHttpTests
                     media.Value.GetProperty("schema").ValueKind == JsonValueKind.Object);
                 bool requestBodyIsRequired = requestBody.TryGetProperty("required", out JsonElement requiredProperty)
                     && requiredProperty.GetBoolean();
-                requestBodyIsRequired.Should().Be(descriptor.Operation is not ("activate" or "rollback"));
+                requestBodyIsRequired.Should().Be(
+                    semantics.RequestBodyPresence == GatewayAdminClientRequestBodyPresence.Required);
                 requestBody.GetProperty("description").GetString().Should().NotBeNullOrWhiteSpace();
             }
 
             JsonElement responses = operation.GetProperty("responses");
-            responses.TryGetProperty(SuccessStatus(descriptor.Operation), out JsonElement success).Should().BeTrue();
+            responses.TryGetProperty(semantics.SuccessStatus.ToString(), out JsonElement success).Should().BeTrue();
             success.GetProperty("content").GetProperty("application/json").TryGetProperty("schema", out _).Should().BeTrue();
             foreach (string error in ErrorStatuses(descriptor.Operation))
             {

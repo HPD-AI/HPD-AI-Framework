@@ -21,7 +21,7 @@ internal static class GatewayAdminOpenApiMetadata
         if (request is not null)
             builder.Metadata.Add(new AcceptsMetadata(
                 ["application/json", "application/hpd.gateway+json"], request,
-                descriptor.Operation is "activate" or "rollback"));
+                semantics.RequestBodyPresence == GatewayAdminClientRequestBodyPresence.Optional));
 
         builder.Metadata.Add(new ProducesMetadata(semantics.SuccessType, semantics.SuccessStatus, "application/json"));
 

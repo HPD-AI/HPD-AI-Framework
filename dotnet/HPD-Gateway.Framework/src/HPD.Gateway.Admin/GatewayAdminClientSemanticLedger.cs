@@ -10,10 +10,12 @@ internal enum GatewayAdminClientIdempotency : byte { Forbidden, Required }
 internal enum GatewayAdminClientDesiredPrecondition : byte { Forbidden, CreateOrReplace }
 internal enum GatewayAdminClientSuccessMeaning : byte { CompletedRead, Created, AcceptedNotActive }
 internal enum GatewayAdminClientPaginationKind : byte { None, OpaqueCursor }
+internal enum GatewayAdminClientRequestBodyPresence : byte { None, Required, Optional }
 
 internal sealed record GatewayAdminClientOperationSemantics(
     string Operation,
     Type? RequestType,
+    GatewayAdminClientRequestBodyPresence RequestBodyPresence,
     Type SuccessType,
     int SuccessStatus,
     GatewayAdminClientSuccessMeaning SuccessMeaning,
@@ -25,85 +27,69 @@ internal sealed record GatewayAdminClientOperationSemantics(
 
 internal static class GatewayAdminClientSemanticLedger
 {
+    private static readonly ImmutableArray<int> PublicReadErrors = [401, 403, 429, 500, 504];
+    private static readonly ImmutableArray<int> ProtectedReadErrors = [401, 403, 404, 429, 500, 504];
+    private static readonly ImmutableArray<int> PublicBodyErrors = [400, 401, 403, 413, 415, 429, 500, 504];
+    private static readonly ImmutableArray<int> ProtectedBodyErrors = [400, 401, 403, 404, 413, 415, 429, 500, 504];
+    private static readonly ImmutableArray<int> ProvisionErrors = [401, 403, 404, 409, 422, 429, 500, 503, 504];
+    private static readonly ImmutableArray<int> MutationBodyErrors = [400, 401, 403, 404, 409, 413, 415, 422, 429, 500, 503, 504];
+    private static readonly ImmutableArray<int> AdministrationErrors = [400, 401, 403, 404, 413, 415, 429, 500, 503, 504];
+    private static readonly ImmutableArray<int> ExportErrors = [401, 403, 404, 410, 429, 500, 504];
+
     internal static ImmutableArray<GatewayAdminClientOperationSemantics> V1 { get; } =
     [
-        Read("capabilities", typeof(GatewayCapabilityCatalog)),
-        Read("host-capabilities", typeof(GatewayHostCapabilitySnapshotResponse)),
-        Read("validate", typeof(GatewayValidationResponse), typeof(GatewayConfiguration)),
-        Created("provision", typeof(GatewayProvisionResponse)),
-        Read("desired", typeof(GatewayDesiredProjection), protectedNotFound: true),
-        Read("status", typeof(GatewayTargetStatusResponse), protectedNotFound: true),
-        Read("effective", typeof(GatewayEffectiveSnapshot), protectedNotFound: true),
-        Created("submit", typeof(GatewayRevisionResponse), typeof(GatewayRevisionRequest), protectedNotFound: true),
-        Accepted("submit-and-activate", typeof(GatewayRevisionResponse), typeof(GatewayRevisionRequest), cas: true),
-        Page("revisions", typeof(GatewayAdminPage<GatewayRevisionProjection>)),
-        Read("revision", typeof(GatewayRevisionProjection), protectedNotFound: true),
-        Read("validation", typeof(GatewayValidationProjection), protectedNotFound: true),
-        Accepted("activate", typeof(GatewayRevisionResponse), typeof(GatewayActivationRequest), cas: true),
-        Accepted("rollback", typeof(GatewayRevisionResponse), typeof(GatewayActivationRequest), cas: true),
-        Page("activations", typeof(GatewayActivationHistoryResponse)),
-        Read("compare", typeof(GatewayRevisionComparison), typeof(GatewayCompareRequest), protectedNotFound: true),
-        Read("export", typeof(GatewayExportResponse), protectedNotFound: true),
-        Created("import", typeof(GatewayRevisionResponse), typeof(GatewayImportRequest), protectedNotFound: true),
-        Accepted("import-and-activate", typeof(GatewayRevisionResponse), typeof(GatewayImportRequest), cas: true),
-        Read("operation", typeof(GatewayOperationProjection), protectedNotFound: true),
-        Page("audit", typeof(GatewayAdminPage<GatewayAuditProjection>)),
-        Accepted("backup", typeof(GatewayAdministrativeResponse), typeof(GatewayBackupRequest), protectedNotFound: true, cas: false),
-        Accepted("purge", typeof(GatewayAdministrativeResponse), typeof(GatewayPurgeRequest), protectedNotFound: true, cas: false),
+        Read("capabilities", typeof(GatewayCapabilityCatalog), PublicReadErrors),
+        Read("host-capabilities", typeof(GatewayHostCapabilitySnapshotResponse), PublicReadErrors),
+        Read("validate", typeof(GatewayValidationResponse), PublicBodyErrors, typeof(GatewayConfiguration)),
+        Created("provision", typeof(GatewayProvisionResponse), ProvisionErrors),
+        Read("desired", typeof(GatewayDesiredProjection), ProtectedReadErrors, protectedNotFound: true),
+        Read("status", typeof(GatewayTargetStatusResponse), ProtectedReadErrors, protectedNotFound: true),
+        Read("effective", typeof(GatewayEffectiveSnapshot), ProtectedReadErrors, protectedNotFound: true),
+        Created("submit", typeof(GatewayRevisionResponse), MutationBodyErrors, typeof(GatewayRevisionRequest)),
+        Accepted("submit-and-activate", typeof(GatewayRevisionResponse), MutationBodyErrors, typeof(GatewayRevisionRequest), cas: true),
+        Page("revisions", typeof(GatewayAdminPage<GatewayRevisionProjection>), ProtectedReadErrors),
+        Read("revision", typeof(GatewayRevisionProjection), ProtectedReadErrors, protectedNotFound: true),
+        Read("validation", typeof(GatewayValidationProjection), ProtectedReadErrors, protectedNotFound: true),
+        Accepted("activate", typeof(GatewayRevisionResponse), MutationBodyErrors, typeof(GatewayActivationRequest), cas: true, bodyOptional: true),
+        Accepted("rollback", typeof(GatewayRevisionResponse), MutationBodyErrors, typeof(GatewayActivationRequest), cas: true, bodyOptional: true),
+        Page("activations", typeof(GatewayActivationHistoryResponse), ProtectedReadErrors),
+        Read("compare", typeof(GatewayRevisionComparison), ProtectedBodyErrors, typeof(GatewayCompareRequest), protectedNotFound: true),
+        Read("export", typeof(GatewayExportResponse), ExportErrors, protectedNotFound: true),
+        Created("import", typeof(GatewayRevisionResponse), MutationBodyErrors, typeof(GatewayImportRequest)),
+        Accepted("import-and-activate", typeof(GatewayRevisionResponse), MutationBodyErrors, typeof(GatewayImportRequest), cas: true),
+        Read("operation", typeof(GatewayOperationProjection), ProtectedReadErrors, protectedNotFound: true),
+        Page("audit", typeof(GatewayAdminPage<GatewayAuditProjection>), ProtectedReadErrors),
+        Accepted("backup", typeof(GatewayAdministrativeResponse), AdministrationErrors, typeof(GatewayBackupRequest)),
+        Accepted("purge", typeof(GatewayAdministrativeResponse), AdministrationErrors, typeof(GatewayPurgeRequest)),
     ];
 
     internal static GatewayAdminClientOperationSemantics For(string operation) =>
         V1.Single(item => StringComparer.Ordinal.Equals(item.Operation, operation));
 
-    internal static IEnumerable<int> ErrorStatuses(string operation)
-    {
-        yield return 401;
-        yield return 403;
-        yield return 429;
-        yield return 500;
-        yield return 504;
-        if (operation is not ("capabilities" or "host-capabilities" or "validate")) yield return 404;
-        if (operation is "validate" or "submit" or "submit-and-activate" or "activate" or "rollback" or
-            "compare" or "import" or "import-and-activate" or "backup" or "purge")
-        {
-            yield return 400;
-            yield return 413;
-            yield return 415;
-        }
-        if (operation is "provision" or "submit" or "submit-and-activate" or "activate" or "rollback" or
-            "import" or "import-and-activate")
-        {
-            yield return 409;
-            yield return 422;
-            yield return 503;
-        }
-        if (operation == "export") yield return 410;
-        if (operation is "backup" or "purge") yield return 503;
-    }
-
     private static GatewayAdminClientOperationSemantics Read(
-        string operation, Type success, Type? request = null, bool protectedNotFound = false) =>
+        string operation, Type success, ImmutableArray<int> errors, Type? request = null, bool protectedNotFound = false) =>
         Create(operation, request, success, 200, GatewayAdminClientSuccessMeaning.CompletedRead,
             GatewayAdminClientIdempotency.Forbidden, GatewayAdminClientDesiredPrecondition.Forbidden,
-            protectedNotFound, GatewayAdminClientPaginationKind.None);
+            protectedNotFound, GatewayAdminClientPaginationKind.None, errors);
 
-    private static GatewayAdminClientOperationSemantics Page(string operation, Type success) =>
+    private static GatewayAdminClientOperationSemantics Page(string operation, Type success, ImmutableArray<int> errors) =>
         Create(operation, null, success, 200, GatewayAdminClientSuccessMeaning.CompletedRead,
             GatewayAdminClientIdempotency.Forbidden, GatewayAdminClientDesiredPrecondition.Forbidden,
-            true, GatewayAdminClientPaginationKind.OpaqueCursor);
+            true, GatewayAdminClientPaginationKind.OpaqueCursor, errors);
 
     private static GatewayAdminClientOperationSemantics Created(
-        string operation, Type success, Type? request = null, bool protectedNotFound = true) =>
+        string operation, Type success, ImmutableArray<int> errors, Type? request = null) =>
         Create(operation, request, success, 201, GatewayAdminClientSuccessMeaning.Created,
             GatewayAdminClientIdempotency.Required, GatewayAdminClientDesiredPrecondition.Forbidden,
-            protectedNotFound, GatewayAdminClientPaginationKind.None);
+            true, GatewayAdminClientPaginationKind.None, errors);
 
     private static GatewayAdminClientOperationSemantics Accepted(
-        string operation, Type success, Type request, bool protectedNotFound = true, bool cas = false) =>
+        string operation, Type success, ImmutableArray<int> errors, Type request,
+        bool cas = false, bool bodyOptional = false) =>
         Create(operation, request, success, 202, GatewayAdminClientSuccessMeaning.AcceptedNotActive,
             GatewayAdminClientIdempotency.Required,
             cas ? GatewayAdminClientDesiredPrecondition.CreateOrReplace : GatewayAdminClientDesiredPrecondition.Forbidden,
-            protectedNotFound, GatewayAdminClientPaginationKind.None);
+            true, GatewayAdminClientPaginationKind.None, errors, bodyOptional);
 
     private static GatewayAdminClientOperationSemantics Create(
         string operation,
@@ -114,8 +100,11 @@ internal static class GatewayAdminClientSemanticLedger
         GatewayAdminClientIdempotency idempotency,
         GatewayAdminClientDesiredPrecondition desiredPrecondition,
         bool protectedNotFound,
-        GatewayAdminClientPaginationKind pagination) =>
-        new(operation, request, success, successStatus, successMeaning, idempotency,
-            desiredPrecondition, protectedNotFound, pagination,
-            ErrorStatuses(operation).Distinct().Order().ToImmutableArray());
+        GatewayAdminClientPaginationKind pagination,
+        ImmutableArray<int> documentedErrors,
+        bool bodyOptional = false) =>
+        new(operation, request, request is null ? GatewayAdminClientRequestBodyPresence.None :
+            bodyOptional ? GatewayAdminClientRequestBodyPresence.Optional : GatewayAdminClientRequestBodyPresence.Required,
+            success, successStatus, successMeaning, idempotency,
+            desiredPrecondition, protectedNotFound, pagination, documentedErrors);
 }

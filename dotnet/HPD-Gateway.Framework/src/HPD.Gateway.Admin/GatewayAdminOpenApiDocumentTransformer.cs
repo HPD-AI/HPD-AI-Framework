@@ -95,6 +95,7 @@ internal sealed class GatewayAdminOpenApiDocumentTransformer(GatewayAdminOpenApi
         document.Paths ??= new OpenApiPaths();
         foreach (GatewayAdminEndpointDescriptor descriptor in GatewayAdminEndpointLedger.V1)
         {
+            GatewayAdminClientOperationSemantics semantics = GatewayAdminClientSemanticLedger.For(descriptor.Operation);
             string path = "/management/gateway/v1" + descriptor.Pattern;
             if (!document.Paths.TryGetValue(path, out IOpenApiPathItem? existing))
             {
@@ -107,7 +108,7 @@ internal sealed class GatewayAdminOpenApiDocumentTransformer(GatewayAdminOpenApi
             {
                 OperationId = "HpdGatewayAdmin." + descriptor.Operation,
                 Responses = new OpenApiResponses(),
-                Parameters = Parameters(descriptor),
+                Parameters = Parameters(descriptor, semantics),
                 Security =
                 [
                     new OpenApiSecurityRequirement
@@ -116,7 +117,6 @@ internal sealed class GatewayAdminOpenApiDocumentTransformer(GatewayAdminOpenApi
                     }
                 ],
             };
-            GatewayAdminClientOperationSemantics semantics = GatewayAdminClientSemanticLedger.For(descriptor.Operation);
             Type? requestType = semantics.RequestType;
             if (requestType is not null)
             {
@@ -124,7 +124,7 @@ internal sealed class GatewayAdminOpenApiDocumentTransformer(GatewayAdminOpenApi
                     requestType, null, cancellationToken).ConfigureAwait(false);
                 operation.RequestBody = new OpenApiRequestBody
                 {
-                    Required = descriptor.Operation is not ("activate" or "rollback"),
+                    Required = semantics.RequestBodyPresence == GatewayAdminClientRequestBodyPresence.Required,
                     Description = RequestConstraintDescription(descriptor.Operation),
                     Content = new Dictionary<string, OpenApiMediaType>
                     {
@@ -139,14 +139,16 @@ internal sealed class GatewayAdminOpenApiDocumentTransformer(GatewayAdminOpenApi
                 Response("Gateway Admin success response.", responseSchema);
             IOpenApiSchema errorSchema = await context.GetOrCreateSchemaAsync(
                 typeof(GatewayAdminError), null, cancellationToken).ConfigureAwait(false);
-            foreach (int errorStatus in GatewayAdminOpenApiMetadata.ErrorStatuses(descriptor.Operation))
+            foreach (int errorStatus in semantics.DocumentedErrors)
                 operation.Responses[errorStatus.ToString(System.Globalization.CultureInfo.InvariantCulture)] =
                     Response("Gateway Admin bounded error response.", errorSchema);
             pathItem.Operations[descriptor.Method == "GET" ? HttpMethod.Get : HttpMethod.Post] = operation;
         }
     }
 
-    private static List<IOpenApiParameter> Parameters(GatewayAdminEndpointDescriptor descriptor)
+    private static List<IOpenApiParameter> Parameters(
+        GatewayAdminEndpointDescriptor descriptor,
+        GatewayAdminClientOperationSemantics semantics)
     {
         var parameters = new List<IOpenApiParameter>();
         foreach (string name in PathParameterNames(descriptor.Pattern))
@@ -156,15 +158,15 @@ internal sealed class GatewayAdminOpenApiDocumentTransformer(GatewayAdminOpenApi
                 "maxLength is the representable character bound; the 128-byte bound is enforced by the server."));
         parameters.Add(Parameter("X-Correlation-ID", ParameterLocation.Header, required: false,
             StringSchema(128, 1, "^[!-~]+$"), "Visible-ASCII request correlation identifier, 1-128 characters when supplied."));
-        if (descriptor.Mutation)
+        if (semantics.Idempotency == GatewayAdminClientIdempotency.Required)
             parameters.Add(Parameter("Idempotency-Key", ParameterLocation.Header, required: true,
                 StringSchema(128, 1, "^[!-~]+$"), "Visible-ASCII product idempotency identity, 1-128 characters."));
-        if (descriptor.Operation is "submit-and-activate" or "activate" or "rollback" or "import-and-activate")
+        if (semantics.DesiredPrecondition == GatewayAdminClientDesiredPrecondition.CreateOrReplace)
             parameters.Add(Parameter("If-Match", ParameterLocation.Header, required: false,
                 StringSchema(514, 3, "^\"(?=[!-~]{1,512}\"$)[^\",]+\"$"),
                 "One strong quoted entity-tag containing 1-512 visible-ASCII characters except quote and comma; " +
                 "weak, wildcard, unquoted, duplicate, and comma-joined validators are rejected. Absence asserts create-only."));
-        if (descriptor.Operation is "revisions" or "activations" or "audit")
+        if (semantics.Pagination == GatewayAdminClientPaginationKind.OpaqueCursor)
         {
             parameters.Add(Parameter("maximum", ParameterLocation.Query, required: false,
                 new OpenApiSchema { Type = JsonSchemaType.Integer, Minimum = "1", Maximum = "256" },
