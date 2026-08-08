@@ -26,12 +26,29 @@ public enum InboundTlsFallback : byte
     RejectUnmatchedOrMissingSni = 0
 }
 
+public enum GatewayListenerRole : byte { DataPlane, Management }
+public enum GatewayManagementExposure : byte { LoopbackDevelopment, RemoteManaged }
+
 public sealed record GatewayHostConfiguration
 {
     public required GatewayHostSchemaVersion SchemaVersion { get; init; }
     public required ushort CanonicalizationVersion { get; init; }
     public required GatewayHostId HostId { get; init; }
     public ImmutableArray<GatewayHttpsListenerDeclaration> DataListeners { get; init; } = [];
+    public ImmutableArray<GatewayManagementListenerDeclaration> ManagementListeners { get; init; } = [];
+}
+
+public sealed record GatewayManagementListenerDeclaration
+{
+    public required ListenerId Id { get; init; }
+    public required GatewayListenerBindingKind Binding { get; init; }
+    public string? IpAddress { get; init; }
+    public required ushort Port { get; init; }
+    public required GatewayListenerProtocols Protocols { get; init; }
+    public required GatewayManagementExposure Exposure { get; init; }
+    public bool AllowDevelopmentCleartext { get; init; }
+    public GatewayInboundTlsDeclaration? Tls { get; init; }
+    public required string EndpointSurfaceId { get; init; }
 }
 
 public sealed record GatewayHttpsListenerDeclaration

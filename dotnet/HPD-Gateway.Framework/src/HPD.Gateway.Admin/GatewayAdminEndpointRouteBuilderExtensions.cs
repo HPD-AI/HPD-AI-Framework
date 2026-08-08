@@ -2,6 +2,8 @@ using System.Collections.Immutable;
 using System.Text;
 using System.Text.Json;
 using HPD.Gateway.Abstractions.Serialization;
+using HPD.Gateway.Abstractions;
+using HPD.Gateway.Hosting;
 using HPD.Gateway.Core;
 using HPD.Gateway.Management;
 using Microsoft.AspNetCore.Authorization;
@@ -147,6 +149,7 @@ public static class GatewayAdminEndpointRouteBuilderExtensions
         IEndpointConventionBuilder mapped = group.MapMethods(descriptor.Pattern, [descriptor.Method], handler)
             .WithName("HpdGatewayAdmin." + descriptor.Operation)
             .WithMetadata(descriptor)
+            .WithHpdGatewayEndpointRole(GatewayListenerRole.Management, options.EndpointSurfaceId, options.RequireManagementListener)
             .RequireAuthorization(options.CapabilityPolicies[descriptor.Capability]);
         security?.ApplyEndpoint(mapped, descriptor.Capability);
         return mapped;
@@ -292,6 +295,8 @@ public static class GatewayAdminEndpointRouteBuilderExtensions
         ArgumentException.ThrowIfNullOrWhiteSpace(options.AuthenticationScheme);
         ArgumentException.ThrowIfNullOrWhiteSpace(options.RateLimitPolicy);
         ArgumentException.ThrowIfNullOrWhiteSpace(options.RequestTimeoutPolicy);
+        if (!GatewayIdentifier.IsCanonical(options.EndpointSurfaceId))
+            throw new InvalidOperationException("The Gateway Admin endpoint surface ID is invalid.");
         _ = endpoints.ServiceProvider.GetRequiredService<IGatewayAdminActorProjector>();
         foreach (string capability in GatewayAdminCapabilities.All)
             if (!options.CapabilityPolicies.TryGetValue(capability, out string? policy) || string.IsNullOrWhiteSpace(policy))

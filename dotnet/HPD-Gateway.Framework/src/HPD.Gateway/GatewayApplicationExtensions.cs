@@ -1,6 +1,7 @@
 using HPD.Gateway.Core;
 using HPD.Gateway.Status;
 using HPD.Gateway.Yarp;
+using HPD.Gateway.Hosting;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -18,8 +19,10 @@ public static class GatewayApplicationExtensions
             .GetServices<IGatewayApplicationPipelineParticipant>()
             .OrderBy(static participant => participant.Order))
             participant.Configure(application);
+        application.UseHpdGatewayListenerRoles();
         application.MapHpdGatewayHealth();
-        application.MapHpdGatewayReverseProxy();
+        application.MapHpdGatewayReverseProxy()
+            .WithHpdGatewayEndpointRole(GatewayListenerRole.DataPlane, "gateway-data");
         return application;
     }
 }

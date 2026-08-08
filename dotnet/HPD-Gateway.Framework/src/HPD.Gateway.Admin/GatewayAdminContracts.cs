@@ -81,6 +81,7 @@ public sealed record GatewayAdminEndpointOptions
     public string RateLimitPolicy { get; init; } = "gateway-management";
     public string RequestTimeoutPolicy { get; init; } = "gateway-management";
     public bool RequireManagementListener { get; init; } = true;
+    public string EndpointSurfaceId { get; init; } = "gateway-admin-v1";
     public required ImmutableDictionary<string, string> CapabilityPolicies { get; init; }
 }
 

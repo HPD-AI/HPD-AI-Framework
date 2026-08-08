@@ -140,8 +140,64 @@ public static class GatewayHostCandidateReader
                 Tls = listener.Tls with { Sni = sni.OrderBy(static item => item.HostnamePattern, StringComparer.Ordinal).ToImmutableArray() }
             });
         }
+        if (configuration.ManagementListeners.IsDefault || configuration.ManagementListeners.Length > 8)
+            Add(errors, "host.management-listener-bound", "managementListeners", "Zero to eight management listeners are supported.");
+        var management = ImmutableArray.CreateBuilder<GatewayManagementListenerDeclaration>();
+        var surfaceIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var (listener, index) in configuration.ManagementListeners.IsDefault ? [] : configuration.ManagementListeners.Select((value, index) => (value, index)))
+        {
+            string path = $"managementListeners[{index}]";
+            if (listener is null) { Add(errors, "host.management-listener-required", path, "Management listener is required."); continue; }
+            if (!GatewayIdentifier.IsCanonical(listener.Id.Value) || !listenerIds.Add(listener.Id.Value))
+                Add(errors, "host.invalid-listener-id", $"{path}.id", "Listener ID must be canonical and globally unique.");
+            if (listener.Port == 0 || !listenerPorts.Add(listener.Port))
+                Add(errors, "host.listener-conflict", $"{path}.port", "Management listener port must be nonzero and globally unique.");
+            if (listener.Protocols is not (GatewayListenerProtocols.Http1 or GatewayListenerProtocols.Http2 or (GatewayListenerProtocols.Http1 | GatewayListenerProtocols.Http2)))
+                Add(errors, "host.invalid-protocols", $"{path}.protocols", "Only HTTP/1, HTTP/2, or HTTP/1+2 is supported.");
+            if (!Enum.IsDefined(listener.Binding) || !Enum.IsDefined(listener.Exposure))
+                Add(errors, "host.invalid-management-listener", path, "Management listener binding or exposure is unsupported.");
+            if (!GatewayIdentifier.IsCanonical(listener.EndpointSurfaceId) || !surfaceIds.Add(listener.EndpointSurfaceId))
+                Add(errors, "host.invalid-management-surface", $"{path}.endpointSurfaceId", "Management surface ID must be canonical and unique.");
+            string? normalizedAddress = null;
+            if (listener.Binding == GatewayListenerBindingKind.IpAddress)
+            {
+                if (!IPAddress.TryParse(listener.IpAddress, out IPAddress? address))
+                    Add(errors, "host.invalid-address", $"{path}.ipAddress", "Explicit IP binding requires a valid IP literal.");
+                else normalizedAddress = address.ToString();
+            }
+            else if (listener.IpAddress is not null)
+                Add(errors, "host.unexpected-address", $"{path}.ipAddress", "Only explicit-IP binding accepts an address.");
+            bool cleartext = listener.Tls is null;
+            if (cleartext && (!listener.AllowDevelopmentCleartext || listener.Exposure != GatewayManagementExposure.LoopbackDevelopment || listener.Binding != GatewayListenerBindingKind.Loopback))
+                Add(errors, "host.management-tls-required", $"{path}.tls", "Management TLS is required except for explicit loopback development cleartext.");
+            if (!cleartext && listener.AllowDevelopmentCleartext)
+                Add(errors, "host.unexpected-cleartext-flag", $"{path}.allowDevelopmentCleartext", "The cleartext flag is valid only when TLS is absent.");
+            if (listener.Exposure == GatewayManagementExposure.RemoteManaged && cleartext)
+                Add(errors, "host.remote-management-tls-required", $"{path}.tls", "Remote management always requires TLS.");
+            GatewayInboundTlsDeclaration? normalizedTls = listener.Tls;
+            if (listener.Tls is { } tls)
+            {
+                if (tls.Fallback != InboundTlsFallback.RejectUnmatchedOrMissingSni || tls.Sni.IsDefaultOrEmpty)
+                    Add(errors, "host.invalid-management-tls", $"{path}.tls", "Management TLS requires no-fallback SNI.");
+                var entries = ImmutableArray.CreateBuilder<GatewaySniTlsDeclaration>();
+                var names = new HashSet<string>(StringComparer.Ordinal);
+                foreach (GatewaySniTlsDeclaration entry in tls.Sni.IsDefault ? [] : tls.Sni)
+                {
+                    string? name = NormalizeSni(entry?.HostnamePattern);
+                    if (entry is null || name is null || !names.Add(name) || !ValidSecret(entry.Certificate))
+                        Add(errors, "host.invalid-management-sni", $"{path}.tls.sni", "Management SNI entry is invalid or duplicated.");
+                    else entries.Add(entry with { HostnamePattern = name });
+                }
+                normalizedTls = tls with { Sni = entries.OrderBy(static value => value.HostnamePattern, StringComparer.Ordinal).ToImmutableArray() };
+            }
+            management.Add(listener with { IpAddress = normalizedAddress, Tls = normalizedTls });
+        }
         if (errors.Count > 0) return new GatewayHostCandidateResult { Errors = errors.ToImmutable() };
-        var normalizedConfiguration = configuration with { DataListeners = listeners.OrderBy(static item => item.Id.Value, StringComparer.Ordinal).ToImmutableArray() };
+        var normalizedConfiguration = configuration with
+        {
+            DataListeners = listeners.OrderBy(static item => item.Id.Value, StringComparer.Ordinal).ToImmutableArray(),
+            ManagementListeners = management.OrderBy(static item => item.Id.Value, StringComparer.Ordinal).ToImmutableArray(),
+        };
         var canonical = JsonSerializer.SerializeToUtf8Bytes(normalizedConfiguration, GatewayHostJsonContext.Default.GatewayHostConfiguration);
         return new GatewayHostCandidateResult
         {
