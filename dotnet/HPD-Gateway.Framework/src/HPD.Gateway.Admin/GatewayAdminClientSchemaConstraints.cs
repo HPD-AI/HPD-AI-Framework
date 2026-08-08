@@ -72,11 +72,10 @@ internal static class GatewayAdminClientSchemaConstraintLedger
         1, 128, GatewayAdminClientNormalization.Nfc, RejectUnicodeControls: true);
     private static readonly GatewayAdminClientConstraintRules Ordinary = new(MaximumUtf8Bytes: 16 * 1024);
     private static readonly GatewayAdminClientConstraintRules CandidateText = new(1, 4 * 1024 * 1024);
-    private static readonly GatewayAdminClientConstraintRules Description = new(MaximumUtf8Bytes: 1024);
     private static readonly GatewayAdminClientConstraintRules VisibleIdentity = new(
         1, 128, CharacterSet: GatewayAdminClientCharacterSet.VisibleAscii);
     private static readonly GatewayAdminClientConstraintRules DesiredToken = new(
-        1, 512, CharacterSet: GatewayAdminClientCharacterSet.StrongEntityTag);
+        1, 512, CharacterSet: GatewayAdminClientCharacterSet.VisibleAscii);
     private static readonly GatewayAdminClientConstraintRules Cursor = new(MaximumUtf8Bytes: 4096);
     private static readonly GatewayAdminClientConstraintRules LowercaseName = new(
         1, 128, CharacterSet: GatewayAdminClientCharacterSet.LowercaseAsciiName);
@@ -93,13 +92,10 @@ internal static class GatewayAdminClientSchemaConstraintLedger
         V<GatewayRevisionRequest>("configurationJson", rules: CandidateText),
         V<GatewayRevisionRequest>("sourceKind", rules: Resource),
         V<GatewayRevisionRequest>("sourceId", rules: Resource),
-        V<GatewayRevisionRequest>("description", rules: Description),
-        V<GatewayActivationRequest>("description", rules: Description),
         V<GatewayCompareRequest>("leftRevisionId", GatewayAdminClientStringBrand.RevisionId, Resource),
         V<GatewayCompareRequest>("rightRevisionId", GatewayAdminClientStringBrand.RevisionId, Resource),
         V<GatewayImportRequest>("configurationJson", rules: CandidateText),
         V<GatewayImportRequest>("sourceId", rules: Resource),
-        V<GatewayImportRequest>("description", rules: Description),
         V<GatewayBackupRequest>("sinkName", rules: LowercaseName),
         V<GatewayBackupRequest>("artifactLabel", rules: ArtifactLabel),
         C<GatewayPurgeRequest>("resourceIds", PurgeCollection),

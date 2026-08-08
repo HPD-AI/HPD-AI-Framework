@@ -430,6 +430,33 @@ public sealed class GatewayAdminHttpTests
         resourceIds.GetProperty("items").GetProperty("description").GetString().Should().Contain("128");
         resourceIds.GetProperty("items").GetProperty("pattern").GetString()
             .Should().Be("^[^\\u0000-\\u001F\\u007F-\\u009F]{1,128}$");
+
+        JsonElement submitResponseSchema = paths
+            .GetProperty("/management/gateway/v1/namespaces/{ns}/targets/{target}/revisions")
+            .GetProperty("post").GetProperty("responses").GetProperty("201")
+            .GetProperty("content").GetProperty("application/json").GetProperty("schema");
+        JsonElement responseSchema = submitResponseSchema;
+        JsonElement desiredTokenSchema = responseSchema.GetProperty("properties").GetProperty("desiredStateToken");
+        desiredTokenSchema.GetProperty("pattern").GetString().Should().Be("^[!-~]{1,512}$");
+
+        const string opaqueToken = "opaque-desired-token";
+        byte[] responseJson = JsonSerializer.SerializeToUtf8Bytes(
+            new GatewayRevisionResponse("revision-1", opaqueToken, false),
+            GatewayAdminJsonContext.Default.GatewayRevisionResponse);
+        using JsonDocument serializedResponse = JsonDocument.Parse(responseJson);
+        string runtimeToken = serializedResponse.RootElement.GetProperty("desiredStateToken").GetString()!;
+        runtimeToken.Should().Be(opaqueToken);
+        System.Text.RegularExpressions.Regex.IsMatch(runtimeToken,
+            desiredTokenSchema.GetProperty("pattern").GetString()!).Should().BeTrue();
+        runtimeToken.Should().NotStartWith("\"").And.NotEndWith("\"");
+
+        JsonElement submitAndActivate = paths
+            .GetProperty("/management/gateway/v1/namespaces/{ns}/targets/{target}/revisions:submitAndActivate")
+            .GetProperty("post");
+        submitAndActivate.GetProperty("parameters").EnumerateArray()
+            .Single(static value => value.GetProperty("name").GetString() == "If-Match")
+            .GetProperty("schema").GetProperty("pattern").GetString()
+            .Should().Be("^\"(?=[!-~]{1,512}\"$)[^\",]+\"$");
     }
 
     private static JsonElement RequestSchema(

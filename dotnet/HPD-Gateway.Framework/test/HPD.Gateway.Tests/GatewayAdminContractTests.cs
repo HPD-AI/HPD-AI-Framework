@@ -260,7 +260,7 @@ public sealed class GatewayAdminContractTests
     {
         ImmutableArray<GatewayAdminClientSchemaConstraint> constraints =
             GatewayAdminClientSchemaConstraintLedger.V1;
-        constraints.Should().HaveCount(46);
+        constraints.Should().HaveCount(43);
         constraints.Should().OnlyHaveUniqueItems(value =>
             $"{value.SchemaType.AssemblyQualifiedName}|{value.PropertyName}|{value.AppliesTo}");
         foreach (GatewayAdminClientSchemaConstraint constraint in constraints)
@@ -280,6 +280,13 @@ public sealed class GatewayAdminContractTests
                 value.Rules.Cardinality == GatewayAdminClientCardinality.Multiple);
         constraints.Where(static value => value.Brand != GatewayAdminClientStringBrand.None)
             .Should().OnlyContain(static value => value.AppliesTo != GatewayAdminClientSchemaConstraintTarget.Collection);
+
+        constraints.Where(static value => value.Brand == GatewayAdminClientStringBrand.DesiredStateToken)
+            .Should().OnlyContain(static value => value.Rules.CharacterSet == GatewayAdminClientCharacterSet.VisibleAscii);
+        GatewayAdminClientSemanticLedger.For("submit-and-activate").ParameterConstraints
+            .Single(static value => value.Brand == GatewayAdminClientStringBrand.DesiredStateToken)
+            .Rules.CharacterSet.Should().Be(GatewayAdminClientCharacterSet.StrongEntityTag);
+        constraints.Should().NotContain(static value => value.PropertyName == "description");
     }
 
     [Fact]
