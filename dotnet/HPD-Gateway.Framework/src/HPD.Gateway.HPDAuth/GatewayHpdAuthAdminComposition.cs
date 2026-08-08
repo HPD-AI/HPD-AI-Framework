@@ -34,6 +34,18 @@ internal sealed class GatewayHpdAuthAdminBridge(
     IAuthCorrelationContext correlation,
     ControlPlaneRegistry registry) : IGatewayAdminActorProjector, IGatewayAdminSecurityMetadataProvider
 {
+    public void Validate(GatewayAdminEndpointOptions endpointOptions)
+    {
+        ControlPlaneProfile profile = registry.GetProfile(options.Profile);
+        if (!StringComparer.Ordinal.Equals(endpointOptions.AuthenticationScheme, profile.AuthenticationScheme) ||
+            !StringComparer.Ordinal.Equals(endpointOptions.RateLimitPolicy, profile.RateLimitPolicy) ||
+            !StringComparer.Ordinal.Equals(endpointOptions.RequestTimeoutPolicy, profile.RequestTimeoutPolicy))
+            throw new InvalidOperationException("The Gateway Admin endpoint options do not match the selected HPD.Auth control-plane profile.");
+        foreach (string capability in GatewayAdminCapabilities.All)
+            if (!StringComparer.Ordinal.Equals(endpointOptions.CapabilityPolicies[capability], registry.GetAuthorizationPolicy(capability)))
+                throw new InvalidOperationException("The Gateway Admin capability mapping does not match HPD.Auth authority.");
+    }
+
     public async ValueTask<GatewayAdminRequestAttribution> ProjectAsync(
         HttpContext context, string capability, CancellationToken cancellationToken = default)
     {

@@ -5,6 +5,8 @@ using System.Text.Encodings.Web;
 using FluentAssertions;
 using HPD.Gateway.Abstractions;
 using HPD.Gateway.Admin;
+using HPD.Gateway;
+using HPD.Gateway.Management;
 using HPD.Gateway.Hosting;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
@@ -77,6 +79,8 @@ public sealed class GatewayAdminHttpTests
         }));
         builder.Services.AddRequestTimeouts(options => options.AddPolicy("gateway-management", TimeSpan.FromSeconds(5)));
         builder.Services.AddSingleton<IGatewayAdminActorProjector, TestActorProjector>();
+        builder.Services.AddHpdGateway(static gateway => gateway.AddCoreFamilies());
+        builder.Services.AddHpdGatewayManagement();
         builder.Services.AddHpdGatewayAdmin();
         WebApplication app = builder.Build();
         app.UseRouting();

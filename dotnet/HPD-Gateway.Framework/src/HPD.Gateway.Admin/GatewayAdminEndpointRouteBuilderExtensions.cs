@@ -36,6 +36,7 @@ public static partial class GatewayAdminEndpointRouteBuilderExtensions
         group.WithRequestTimeout(options.RequestTimeoutPolicy);
         group.WithTags("HPD Gateway Management v1");
         IGatewayAdminSecurityMetadataProvider? security = endpoints.ServiceProvider.GetService<IGatewayAdminSecurityMetadataProvider>();
+        security?.Validate(options);
         security?.ApplyGroup(group);
 
         Map(group, options, security, "capabilities", context => Write(context, TypedResults.Json(
@@ -249,6 +250,8 @@ public static partial class GatewayAdminEndpointRouteBuilderExtensions
                 GatewayAdminJsonContext.Default.GatewayRevisionResponse,
                 statusCode: projection == CommandProjection.Revision ? 201 : 202);
         }
+        if (result.Code is "management.target.not-owned" or "management.revision.not-found")
+            return NotFound(context);
         int status = result.State switch
         {
             GatewayManagementCommandState.Invalid => 422,
@@ -304,6 +307,7 @@ public static partial class GatewayAdminEndpointRouteBuilderExtensions
 
     private static bool ValidComponent(string? value) => value is { Length: > 0 and <= 128 }
         && value.IsNormalized(NormalizationForm.FormC)
+        && Encoding.UTF8.GetByteCount(value) <= 128
         && !value.Any(char.IsControl);
 
     private static bool ValidVisibleAscii(string? value, int maximum) =>
@@ -324,6 +328,15 @@ public static partial class GatewayAdminEndpointRouteBuilderExtensions
         if (!GatewayIdentifier.IsCanonical(options.EndpointSurfaceId))
             throw new InvalidOperationException("The Gateway Admin endpoint surface ID is invalid.");
         _ = endpoints.ServiceProvider.GetRequiredService<IGatewayAdminActorProjector>();
+        _ = endpoints.ServiceProvider.GetRequiredService<HostCapabilitySnapshot>();
+        _ = endpoints.ServiceProvider.GetRequiredService<IGatewayManagementCommandCoordinator>();
+        _ = endpoints.ServiceProvider.GetRequiredService<IGatewayManagementApplication>();
+        _ = endpoints.ServiceProvider.GetRequiredService<IGatewayManagementReader>();
+        _ = endpoints.ServiceProvider.GetRequiredService<IGatewayManagementAdministration>();
+        _ = endpoints.ServiceProvider.GetRequiredService<IGatewayManagementStatusReader>();
+        _ = endpoints.ServiceProvider.GetRequiredService<IGatewayStatusReader>();
+        _ = endpoints.ServiceProvider.GetRequiredService<IGatewayNodeEffectiveReader>();
+        _ = endpoints.ServiceProvider.GetRequiredService<GatewayBackupSinkRegistry>();
         if (options.CapabilityPolicies.Count != GatewayAdminCapabilities.All.Length ||
             options.CapabilityPolicies.Keys.Except(GatewayAdminCapabilities.All, StringComparer.Ordinal).Any())
             throw new InvalidOperationException("The Gateway Admin capability-policy catalog is not the exact v1 catalog.");

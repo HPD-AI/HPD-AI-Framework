@@ -71,6 +71,7 @@ public interface IGatewayAdminActorProjector
 
 public interface IGatewayAdminSecurityMetadataProvider
 {
+    void Validate(GatewayAdminEndpointOptions options);
     void ApplyGroup(IEndpointConventionBuilder group);
     void ApplyEndpoint(IEndpointConventionBuilder endpoint, string capability);
 }
@@ -102,8 +103,14 @@ public enum GatewayPurgeCategory : byte { RevisionContent, ValidationContent, Ac
 public sealed record GatewayPurgeRequest(GatewayPurgeCategory Category, ImmutableArray<string> ResourceIds);
 public sealed record GatewayOperationResponse(string OperationId, string State, string Code, bool Duplicate = false);
 public sealed record GatewayActivationHistoryResponse(
-    GatewayManagedPage<GatewayActivationIntent> Intents,
-    GatewayManagedPage<GatewayNodeActivationOutcome> Outcomes);
+    GatewayAdminPage<GatewayActivationProjection> Intents,
+    GatewayAdminPage<GatewayOutcomeProjection> Outcomes);
+public sealed record GatewayActivationProjection(
+    string IntentId, string RevisionId, string CandidateId, string ContentHashValue,
+    ulong AuthorityVersion, DateTimeOffset? AcceptedAt);
+public sealed record GatewayOutcomeProjection(
+    string OutcomeId, string ActivationIntentId, ulong AuthorityVersion,
+    GatewayNodeOutcomeKind Kind, string Code, DateTimeOffset? ObservedAt);
 public sealed record GatewayTargetStatusResponse(
     GatewayManagementStatusSnapshot Management,
     GatewayStatusSnapshot Node,
@@ -146,6 +153,10 @@ public sealed record GatewayCapabilityCatalog(ImmutableArray<string> Capabilitie
 [JsonSerializable(typeof(GatewayPurgeRequest))]
 [JsonSerializable(typeof(GatewayOperationResponse))]
 [JsonSerializable(typeof(GatewayActivationHistoryResponse))]
+[JsonSerializable(typeof(GatewayActivationProjection))]
+[JsonSerializable(typeof(GatewayOutcomeProjection))]
+[JsonSerializable(typeof(GatewayAdminPage<GatewayActivationProjection>))]
+[JsonSerializable(typeof(GatewayAdminPage<GatewayOutcomeProjection>))]
 [JsonSerializable(typeof(GatewayTargetStatusResponse))]
 [JsonSerializable(typeof(GatewayExportResponse))]
 [JsonSerializable(typeof(GatewayAdministrativeResponse))]
@@ -164,8 +175,6 @@ public sealed record GatewayCapabilityCatalog(ImmutableArray<string> Capabilitie
 [JsonSerializable(typeof(GatewayAdminError))]
 [JsonSerializable(typeof(GatewayCapabilityCatalog))]
 [JsonSerializable(typeof(GatewayManagementStatusSnapshot))]
-[JsonSerializable(typeof(GatewayManagedPage<GatewayActivationIntent>))]
-[JsonSerializable(typeof(GatewayManagedPage<GatewayNodeActivationOutcome>))]
 [JsonSerializable(typeof(GatewayRevisionComparison))]
 [JsonSerializable(typeof(GatewayEffectiveSnapshot))]
 [JsonSerializable(typeof(GatewayStatusSnapshot))]

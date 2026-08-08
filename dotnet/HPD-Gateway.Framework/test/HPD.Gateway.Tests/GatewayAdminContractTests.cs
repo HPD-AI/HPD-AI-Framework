@@ -3,6 +3,10 @@ using System.Security.Claims;
 using System.Text.Encodings.Web;
 using FluentAssertions;
 using HPD.Gateway.Admin;
+using HPD.Gateway;
+using HPD.Gateway.Management;
+using HPD.Gateway.HPDAuth;
+using HPD.Auth.ControlPlane;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
@@ -24,6 +28,8 @@ public sealed class GatewayAdminContractTests
     {
         WebApplicationBuilder builder = WebApplication.CreateBuilder();
         builder.Services.AddLogging();
+        builder.Services.AddHpdGateway(static gateway => gateway.AddCoreFamilies());
+        builder.Services.AddHpdGatewayManagement();
         builder.Services.AddAuthentication("test").AddScheme<AuthenticationSchemeOptions, TestAuthenticationHandler>("test", null);
         builder.Services.AddAuthorization(options =>
         {
@@ -92,6 +98,10 @@ public sealed class GatewayAdminContractTests
     public void Mapping_rejects_an_incomplete_capability_policy_catalog()
     {
         WebApplicationBuilder builder = WebApplication.CreateBuilder();
+        builder.Services.AddLogging();
+        builder.Services.AddHpdGateway(static gateway => gateway.AddCoreFamilies());
+        builder.Services.AddHpdGatewayManagement();
+        builder.Services.AddHpdGatewayAdmin();
         builder.Services.AddSingleton<IGatewayAdminActorProjector, TestActorProjector>();
         WebApplication application = builder.Build();
         Action map = () => application.MapHpdGatewayAdmin(new GatewayAdminEndpointOptions
@@ -99,6 +109,40 @@ public sealed class GatewayAdminContractTests
             CapabilityPolicies = ImmutableDictionary<string, string>.Empty,
         });
         map.Should().Throw<InvalidOperationException>().WithMessage("*exact v1 catalog*");
+    }
+
+    [Fact]
+    public void HpdAuth_bridge_rejects_split_brain_endpoint_profile_options()
+    {
+        WebApplicationBuilder builder = WebApplication.CreateBuilder();
+        builder.Services.AddLogging();
+        builder.Services.AddHpdGateway(static gateway => gateway.AddCoreFamilies());
+        builder.Services.AddHpdGatewayManagement();
+        builder.Services.AddHpdGatewayAdmin();
+        builder.Services.AddHPDControlPlane(options =>
+        {
+            options.AddProfile("gateway", profile =>
+            {
+                profile.AuthenticationScheme = "hpd-auth";
+                profile.AuthenticationProfile = "gateway";
+                profile.ActorIdentifierClaim = ClaimTypes.NameIdentifier;
+                profile.RateLimitPolicy = "hpd-rate";
+                profile.RequestTimeoutPolicy = "hpd-timeout";
+            });
+            foreach (string capability in GatewayAdminCapabilities.All)
+                options.MapCapability(capability, "hpd-policy");
+        });
+        builder.Services.AddHpdGatewayAdminHpdAuth("gateway");
+        WebApplication application = builder.Build();
+        Action map = () => application.MapHpdGatewayAdmin(new GatewayAdminEndpointOptions
+        {
+            AuthenticationScheme = "different",
+            RateLimitPolicy = "hpd-rate",
+            RequestTimeoutPolicy = "hpd-timeout",
+            CapabilityPolicies = GatewayAdminCapabilities.All.ToImmutableDictionary(
+                static capability => capability, static _ => "hpd-policy", StringComparer.Ordinal),
+        });
+        map.Should().Throw<InvalidOperationException>().WithMessage("*do not match*");
     }
 
     private sealed class TestActorProjector : IGatewayAdminActorProjector

@@ -98,7 +98,15 @@ public static partial class GatewayAdminEndpointRouteBuilderExtensions
         IGatewayManagementReader reader = context.RequestServices.GetRequiredService<IGatewayManagementReader>();
         var intents = await reader.ListActivationsAsync(ns, target, maximum, cursor, context.RequestAborted).ConfigureAwait(false);
         var outcomes = await reader.ListOutcomesAsync(ns, target, maximum, cursor, context.RequestAborted).ConfigureAwait(false);
-        await Write(context, TypedResults.Json(new GatewayActivationHistoryResponse(intents, outcomes),
+        var projectedIntents = new GatewayAdminPage<GatewayActivationProjection>(intents.Items.Select(static item =>
+            new GatewayActivationProjection(item.Id, item.Value.RevisionId, item.Value.CandidateId,
+                item.Value.ContentHashValue, checked((ulong)item.Value.AuthorityVersion), item.CreatedAt)).ToImmutableArray(),
+            intents.ContinuationToken, intents.HasMore);
+        var projectedOutcomes = new GatewayAdminPage<GatewayOutcomeProjection>(outcomes.Items.Select(static item =>
+            new GatewayOutcomeProjection(item.Id, item.Value.ActivationIntentId,
+                checked((ulong)item.Value.AuthorityVersion), item.Value.Kind, item.Value.Code, item.CreatedAt)).ToImmutableArray(),
+            outcomes.ContinuationToken, outcomes.HasMore);
+        await Write(context, TypedResults.Json(new GatewayActivationHistoryResponse(projectedIntents, projectedOutcomes),
             GatewayAdminJsonContext.Default.GatewayActivationHistoryResponse)).ConfigureAwait(false);
     }
 
