@@ -431,6 +431,43 @@ public sealed class HPDBaseAuthPolicyEvaluatorTests
         decision.Constraints.ReadMask.Include.Should().ContainSingle("title");
     }
 
+    [Fact]
+    public async Task NestedConfiguredQueryValuesAreFrozenBeforePolicyEvaluation()
+    {
+        QueryValue nested = new()
+        {
+            Kind = QueryValueKind.Array,
+            Array = [new QueryValue { Kind = QueryValueKind.String, String = "original" }]
+        };
+        AccessGrant grant = Grant("frozen-filter", GrantEffect.Allow, new AccessSubject { Kind = AccessSubjectKind.User }) with
+        {
+            Condition = new FilterExpression
+            {
+                Kind = FilterNodeKind.Compare,
+                Field = "tags",
+                Operator = FilterOperator.Equal,
+                Value = nested,
+                Values = [nested],
+                Arguments = [nested]
+            }
+        };
+        using ServiceProvider provider = Services(options => options.StaticGrants = [grant]).BuildServiceProvider();
+        nested.Array![0] = new QueryValue { Kind = QueryValueKind.String, String = "mutated" };
+
+        PolicyDecision decision = await provider.GetRequiredService<IPolicyEvaluator>().EvaluateAsync(
+            Request(new PrincipalContext
+            {
+                AuthenticationState = PrincipalAuthenticationState.Authenticated,
+                SubjectKind = AccessSubjectKind.User,
+                Subjects = [new AccessSubject { Kind = AccessSubjectKind.User }]
+            }));
+
+        FilterExpression filter = decision.Constraints!.RecordFilter!;
+        filter.Value!.Array![0].String.Should().Be("original");
+        filter.Values![0].Array![0].String.Should().Be("original");
+        filter.Arguments![0].Array![0].String.Should().Be("original");
+    }
+
     private static ServiceCollection Services(Action<HPDBaseAuthOptions>? configure = null)
     {
         var services = ServicesWithoutDetectedHost(configure);

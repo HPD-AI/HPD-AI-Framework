@@ -68,8 +68,16 @@ internal sealed class HPDBaseAuthSnapshot
     private static FilterExpression? CloneFilter(FilterExpression? filter) => filter is null ? null : filter with
     {
         Field = CopyNullable(filter.Field), ModuleId = CopyNullable(filter.ModuleId), Name = CopyNullable(filter.Name),
-        Values = filter.Values is null ? null : [.. filter.Values], Arguments = filter.Arguments is null ? null : [.. filter.Arguments],
+        Value = CloneQueryValue(filter.Value),
+        Values = filter.Values?.Select(CloneQueryValueRequired).ToArray(),
+        Arguments = filter.Arguments?.Select(CloneQueryValueRequired).ToArray(),
         Children = filter.Children?.Select(child => CloneFilter(child)!).ToArray()
+    };
+    private static QueryValue? CloneQueryValue(QueryValue? value) => value is null ? null : CloneQueryValueRequired(value);
+    private static QueryValue CloneQueryValueRequired(QueryValue value) => value with
+    {
+        String = CopyNullable(value.String), Decimal = CopyNullable(value.Decimal), Id = CopyNullable(value.Id),
+        Array = value.Array?.Select(CloneQueryValueRequired).ToArray()
     };
     private static string[]? Clone(string[]? values) => values?.Select(Copy).ToArray();
     private static string Copy(string value) => new(value.AsSpan());
