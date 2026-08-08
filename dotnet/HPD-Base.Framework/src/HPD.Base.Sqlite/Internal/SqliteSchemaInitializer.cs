@@ -11,15 +11,17 @@ internal sealed class SqliteSchemaInitializer
     private readonly SqlitePhysicalModel _physical;
     private readonly string[] _projectionSchemaStatements;
     private readonly string[] _projectionSchemaTables;
+    private readonly SqliteProjectionTableShape[] _projectionSchemaShapes;
 
     /// <summary>Initializes a new instance.</summary>
-    public SqliteSchemaInitializer(HPDBaseSqliteOptions options, string[]? projectionSchemaStatements = null, string[]? projectionSchemaTables = null)
+    public SqliteSchemaInitializer(HPDBaseSqliteOptions options, string[]? projectionSchemaStatements = null, string[]? projectionSchemaTables = null, SqliteProjectionTableShape[]? projectionSchemaShapes = null)
     {
         _options = options;
         _names = new SqliteNames(options);
         _physical = new SqlitePhysicalModel(options);
         _projectionSchemaStatements = projectionSchemaStatements?.ToArray() ?? [];
         _projectionSchemaTables = projectionSchemaTables?.Distinct(StringComparer.Ordinal).ToArray() ?? [];
+        _projectionSchemaShapes = projectionSchemaShapes?.ToArray() ?? [];
     }
 
     /// <summary>Executes the initialize async operation.</summary>
@@ -343,6 +345,8 @@ ON CONFLICT(collection_id) DO UPDATE SET native_name = excluded.native_name, mut
                 missing.AddRange(await GetMissingRelationColumnsAsync(connection, relation, cancellationToken).ConfigureAwait(false));
                 missing.AddRange(await GetMalformedRelationColumnsAsync(connection, relation, cancellationToken).ConfigureAwait(false));
             }
+            foreach (SqliteProjectionTableShape shape in _projectionSchemaShapes)
+                missing.AddRange(await GetMalformedProjectionColumnsAsync(connection, shape, cancellationToken).ConfigureAwait(false));
             missing.AddRange(await GetMissingMutationJournalColumnsAsync(connection, cancellationToken).ConfigureAwait(false));
             missing.AddRange(await GetMissingReceiptColumnsAsync(connection, cancellationToken).ConfigureAwait(false));
             missing.AddRange(await GetMalformedMutationJournalColumnsAsync(connection, cancellationToken).ConfigureAwait(false));
@@ -480,6 +484,18 @@ ON CONFLICT(collection_id) DO UPDATE SET native_name = excluded.native_name, mut
         Check(shapes, malformed, relation.Table, "source_record_id", "TEXT", true, true);
         Check(shapes, malformed, relation.Table, "target_record_id", "TEXT", true, false);
         Check(shapes, malformed, relation.Table, "ordinal", "INTEGER", true, true);
+        return malformed.ToArray();
+    }
+
+    private async ValueTask<string[]> GetMalformedProjectionColumnsAsync(SqliteConnection connection, SqliteProjectionTableShape projection, CancellationToken cancellationToken)
+    {
+        Dictionary<string, ColumnShape> shapes = await GetColumnShapesAsync(connection, projection.Table, cancellationToken).ConfigureAwait(false);
+        var malformed = new List<string>();
+        foreach (SqliteProjectionColumnShape expected in projection.Columns)
+        {
+            if (!shapes.ContainsKey(expected.Name)) malformed.Add("column:" + projection.Table + "." + expected.Name);
+            else Check(shapes, malformed, projection.Table, expected.Name, expected.Type, expected.NotNull, expected.PrimaryKey);
+        }
         return malformed.ToArray();
     }
 

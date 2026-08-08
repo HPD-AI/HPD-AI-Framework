@@ -151,7 +151,12 @@ internal sealed class DefaultBaseApplicationLifetime : IBaseApplicationLifetime
     public CancellationToken Stopping => CancellationToken.None;
 }
 
-internal sealed class DefaultBaseProviderBootstrap(IServiceProvider services, HPDBaseInstalledFeatures features, IBaseApplicationLifetime lifetime) : IBaseProviderBootstrap
+internal sealed class DefaultBaseProviderBootstrap(
+    IServiceProvider services,
+    HPDBaseInstalledFeatures features,
+    IBaseApplicationLifetime lifetime,
+    Microsoft.Extensions.Options.IOptions<HPDBaseTokenProtectionOptions> tokenOptions,
+    TimeProvider timeProvider) : IBaseProviderBootstrap
 {
     private readonly Lock _gate = new();
     private Task? _initialization;
@@ -168,7 +173,18 @@ internal sealed class DefaultBaseProviderBootstrap(IServiceProvider services, HP
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Stopping);
         timeout.CancelAfter(TimeSpan.FromSeconds(30));
+        ValidateTokenLifetimes(tokenOptions.Value, timeProvider.GetUtcNow());
         foreach (IHPDBaseBuilderExtension extension in features.Extensions)
             await extension.InitializeAsync(services, timeout.Token).ConfigureAwait(false);
+    }
+
+    private static void ValidateTokenLifetimes(HPDBaseTokenProtectionOptions options, DateTimeOffset now)
+    {
+        BaseOpaqueTokenKey active = options.ActiveKey;
+        if (now < active.IssueNotBefore || active.IssueUntil is { } issueUntil && now >= issueUntil)
+            throw new InvalidOperationException("The active BASE token key is outside its issuance lifetime.");
+        foreach (BaseOpaqueTokenKey key in options.DecryptionKeys ?? [])
+            if (key.DecryptUntil is { } decryptUntil && now >= decryptUntil)
+                throw new InvalidOperationException("A retained BASE token key is outside its decryption lifetime.");
     }
 }

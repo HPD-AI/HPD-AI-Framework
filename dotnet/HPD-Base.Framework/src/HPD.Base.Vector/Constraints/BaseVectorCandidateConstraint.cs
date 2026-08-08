@@ -114,14 +114,14 @@ public abstract record BaseVectorCandidateConstraint
     {
         /// <summary>Initializes an IN node with owned values.</summary>
         public In(BaseVectorFilterField field, IEnumerable<BaseVectorFilterValue> values)
-        { Field = field; Values = values?.ToImmutableArray() ?? throw new ArgumentNullException(nameof(values)); if (Values.Length is < 1 or > 64) throw new ArgumentOutOfRangeException(nameof(values)); if (Values.Any(v => v is null || v.Kind != field.ValueKind)) throw new ArgumentException("Every value must match the field kind.", nameof(values)); }
+        { Field = field; Values = values is null ? throw new ArgumentNullException(nameof(values)) : ImmutableArray.CreateRange(values.ToArray()); if (Values.Length is < 1 or > 64) throw new ArgumentOutOfRangeException(nameof(values)); if (Values.Any(v => v is null || v.Kind != field.ValueKind)) throw new ArgumentException("Every value must match the field kind.", nameof(values)); }
         /// <summary>Gets the field.</summary>
         public BaseVectorFilterField Field { get; }
         /// <summary>Gets the immutable values.</summary>
         public ImmutableArray<BaseVectorFilterValue> Values { get; }
     }
     private static ImmutableArray<BaseVectorCandidateConstraint> Copy(IEnumerable<BaseVectorCandidateConstraint> children)
-    { var result = children?.ToImmutableArray() ?? throw new ArgumentNullException(nameof(children)); if (result.Length is < 1 or > 16 || result.Any(static child => child is null)) throw new ArgumentOutOfRangeException(nameof(children)); return result; }
+    { var result = children is null ? throw new ArgumentNullException(nameof(children)) : ImmutableArray.CreateRange(children.ToArray()); if (result.Length is < 1 or > 16 || result.Any(static child => child is null)) throw new ArgumentOutOfRangeException(nameof(children)); return result; }
 }
 
 /// <summary>Contains the immutable SHA-256 identity of one normalized vector constraint.</summary>

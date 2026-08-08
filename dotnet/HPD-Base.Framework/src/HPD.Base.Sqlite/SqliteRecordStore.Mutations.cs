@@ -849,7 +849,8 @@ public sealed partial class SqliteRecordStore
             foreach (ISqliteAtomicMutationProjection contributor in _owner._mutationProjectionContributors)
             {
                 var context = new SqliteAtomicProjectionContext(_owner, _connection, _transaction, (ISqliteAtomicMutationProjectionCatalog)contributor);
-                OperationResult result = await contributor.ApplyAsync(context, request, cancellationToken).ConfigureAwait(false);
+                BaseAtomicMutationProjectionRequest isolated = BaseAtomicMutationProjectionFactory.Clone(request);
+                OperationResult result = await contributor.ApplyAsync(context, isolated, cancellationToken).ConfigureAwait(false);
                 if (!result.Status.IsSuccess()) return result;
             }
             return OperationResults.NoContent();

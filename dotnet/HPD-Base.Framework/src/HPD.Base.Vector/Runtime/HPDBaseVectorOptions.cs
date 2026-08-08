@@ -23,6 +23,8 @@ public sealed class HPDBaseVectorOptions
     public TimeSpan AdministrationTimeout { get; set; } = TimeSpan.FromMinutes(5);
     /// <summary>Gets or sets the maximum concurrent rebuilds per store.</summary>
     public int MaxConcurrentRebuilds { get; set; } = 1;
+    /// <summary>Gets or sets the explicit default used only by derived-journal providers.</summary>
+    public BaseVectorConsistencyRequirement? DerivedProviderDefaultConsistency { get; set; }
 
     internal void Validate()
     {
@@ -33,8 +35,12 @@ public sealed class HPDBaseVectorOptions
         InRange(ConsistencyTokenLifetime, TimeSpan.FromMinutes(1), TimeSpan.FromDays(30), nameof(ConsistencyTokenLifetime));
         InRange(ShutdownDrainTimeout, TimeSpan.FromMilliseconds(100), TimeSpan.FromMinutes(1), nameof(ShutdownDrainTimeout));
         InRange(AdministrationTimeout, TimeSpan.FromSeconds(1), TimeSpan.FromHours(1), nameof(AdministrationTimeout));
+        if (DerivedProviderDefaultConsistency is not null and not BaseVectorConsistencyRequirement.Available and not BaseVectorConsistencyRequirement.BoundedStaleness)
+            throw new ArgumentException("A derived-provider default must be Available or BoundedStaleness.", nameof(DerivedProviderDefaultConsistency));
+        if (DerivedProviderDefaultConsistency is BaseVectorConsistencyRequirement.BoundedStaleness bounded && bounded.MaximumAge <= TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(DerivedProviderDefaultConsistency));
     }
     private static void InRange(TimeSpan value, TimeSpan minimum, TimeSpan maximum, string name) { if (value < minimum || value > maximum) throw new ArgumentOutOfRangeException(name); }
 }
 
-internal sealed record HPDBaseVectorSnapshot(int MaxDimensions, int MaxTopK, int MaxFilterFields, TimeSpan ProviderTimeout, TimeSpan ConsistencyWaitTimeout, TimeSpan ConsistencyTokenLifetime, int MaxActiveAndQuarantinedOperations, TimeSpan ShutdownDrainTimeout, TimeSpan AdministrationTimeout, int MaxConcurrentRebuilds);
+internal sealed record HPDBaseVectorSnapshot(int MaxDimensions, int MaxTopK, int MaxFilterFields, TimeSpan ProviderTimeout, TimeSpan ConsistencyWaitTimeout, TimeSpan ConsistencyTokenLifetime, int MaxActiveAndQuarantinedOperations, TimeSpan ShutdownDrainTimeout, TimeSpan AdministrationTimeout, int MaxConcurrentRebuilds, BaseVectorConsistencyRequirement? DerivedProviderDefaultConsistency);

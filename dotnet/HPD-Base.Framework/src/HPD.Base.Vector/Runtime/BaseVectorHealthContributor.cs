@@ -2,7 +2,8 @@ namespace HPD.Base;
 
 internal sealed class BaseVectorHealthContributor(
     IBaseVectorAdministration administration,
-    TimeProvider timeProvider) : IBaseHealthContributor, IBaseDiagnosticContributor
+    TimeProvider timeProvider,
+    BaseVectorOperationalState operationalState) : IBaseHealthContributor, IBaseDiagnosticContributor
 {
     public string Id => "hpd.base.vector";
 
@@ -16,7 +17,7 @@ internal sealed class BaseVectorHealthContributor(
                 ? HealthStatus.Unhealthy
                 : indexes.Any(static index => index.State == BaseVectorIndexState.Building)
                     ? HealthStatus.Degraded
-                    : HealthStatus.Healthy;
+                    : operationalState.Quarantined > 0 ? HealthStatus.Degraded : HealthStatus.Healthy;
 
         return
         [
@@ -36,6 +37,8 @@ internal sealed class BaseVectorHealthContributor(
                     Metric("readyIndexCount", indexes.Count(static index => index.State == BaseVectorIndexState.Ready)),
                     Metric("buildingIndexCount", indexes.Count(static index => index.State == BaseVectorIndexState.Building)),
                     Metric("closedIndexCount", indexes.Count(static index => index.State is BaseVectorIndexState.RebuildRequired or BaseVectorIndexState.UnhealthyIndeterminate)),
+                    Metric("activeOperations", operationalState.Active),
+                    Metric("quarantinedOperations", operationalState.Quarantined),
                 ],
             },
         ];

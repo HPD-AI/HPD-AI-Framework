@@ -31,7 +31,9 @@
   <Folder Name="/Tests/">
     <Project Path="test/HPD.Base.Vector.Tests/HPD.Base.Vector.Tests.csproj" />
     <Project Path="test/HPD.Base.Vector.AotSmoke/HPD.Base.Vector.AotSmoke.csproj" />
+    <Project Path="test/HPD.Base.Vector.DerivedAotSmoke/HPD.Base.Vector.DerivedAotSmoke.csproj" />
     <Project Path="test/HPD.Base.Vector.SqliteVec.Tests/HPD.Base.Vector.SqliteVec.Tests.csproj" />
+    <Project Path="test/HPD.Base.Vector.AspNetCore.Tests/HPD.Base.Vector.AspNetCore.Tests.csproj" />
     <Project Path="test/HPD.Base.StoreConformance/HPD.Base.StoreConformance.csproj" />
     <Project Path="test/HPD.Base.Sqlite.Tests/HPD.Base.Sqlite.Tests.csproj" />
     <Project Path="test/HPD.Base.Sqlite.AotSmoke/HPD.Base.Sqlite.AotSmoke.csproj" />

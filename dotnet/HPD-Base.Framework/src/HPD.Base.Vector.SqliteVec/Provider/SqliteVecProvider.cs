@@ -125,7 +125,7 @@ internal sealed class SqliteVecProvider(SqliteRecordStore store, SqliteVecModel 
                 return $", {(source.PresenceColumn is null ? "1" : source.PresenceColumn)}, {source.Column}";
             }));
             string vectorPredicate = vectorField.PresenceColumn is null ? $"{vectorField.Column} IS NOT NULL" : $"{vectorField.PresenceColumn}=1 AND {vectorField.Column} IS NOT NULL";
-            rebuild.CommandText = $"DELETE FROM {index.Table}; INSERT INTO {index.Table}(record_id,revision,journal_position,vector{carrierColumns}) SELECT record_id,CAST(revision AS TEXT),$position,vec_f32({vectorField.Column}){sourceColumns} FROM {physical.Table} WHERE {vectorPredicate};";
+            rebuild.CommandText = $"DELETE FROM {index.Table}; INSERT INTO {index.Table}(record_id,revision,journal_position,vector{carrierColumns}) SELECT record_id,'sqlite:' || CAST(revision AS TEXT),$position,vec_f32({vectorField.Column}){sourceColumns} FROM {physical.Table} WHERE {vectorPredicate};";
             rebuild.Parameters.AddWithValue("$position", before.HighWatermark.Value);
             await rebuild.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }

@@ -17,6 +17,25 @@ internal sealed class SqliteVecMutationProjection : ISqliteAtomicMutationProject
     IReadOnlyList<SqliteProjectionStatement> ISqliteAtomicMutationProjectionCatalog.Statements => _statements;
     IReadOnlyList<string> ISqliteAtomicMutationProjectionCatalog.SchemaStatements => _model.SchemaStatements().ToArray();
     IReadOnlyList<string> ISqliteAtomicMutationProjectionCatalog.RequiredSchemaTables => [SqliteVecModel.StateTable, .. _model.Indexes.Select(static index => index.Table)];
+    IReadOnlyList<SqliteProjectionTableShape> ISqliteAtomicMutationProjectionCatalog.RequiredSchemaShapes =>
+    [
+        new(SqliteVecModel.StateTable,
+        [
+            new("collection_id", "TEXT", true, true), new("index_id", "TEXT", true, true),
+            new("generation", "INTEGER", true, false), new("purge_generation", "INTEGER", true, false),
+            new("applied_position", "INTEGER", true, false), new("state", "TEXT", true, false),
+        ]),
+        .. _model.Indexes.Select(static index => new SqliteProjectionTableShape(index.Table,
+        [
+            new("record_id", "TEXT", true, true), new("revision", "TEXT", true, false),
+            new("journal_position", "INTEGER", true, false), new("vector", "BLOB", true, false),
+            .. index.Filters.SelectMany(static filter => new[]
+            {
+                new SqliteProjectionColumnShape(filter.PresenceColumn, "INTEGER", true, false),
+                new SqliteProjectionColumnShape(filter.ValueColumn, filter.SqlType, false, false),
+            }),
+        ])),
+    ];
 
     public async ValueTask<OperationResult> ApplyAsync(ISqliteAtomicProjectionContext context, BaseAtomicMutationProjectionRequest request, CancellationToken cancellationToken = default)
     {

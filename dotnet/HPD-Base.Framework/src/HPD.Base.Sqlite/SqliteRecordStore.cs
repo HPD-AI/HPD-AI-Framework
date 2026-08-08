@@ -102,7 +102,8 @@ public sealed partial class SqliteRecordStore :
         _schema = new SqliteSchemaInitializer(
             _options,
             _mutationProjectionContributors.Cast<ISqliteAtomicMutationProjectionCatalog>().SelectMany(static catalog => catalog.SchemaStatements).ToArray(),
-            _mutationProjectionContributors.Cast<ISqliteAtomicMutationProjectionCatalog>().SelectMany(static catalog => catalog.RequiredSchemaTables).ToArray());
+            _mutationProjectionContributors.Cast<ISqliteAtomicMutationProjectionCatalog>().SelectMany(static catalog => catalog.RequiredSchemaTables).ToArray(),
+            _mutationProjectionContributors.Cast<ISqliteAtomicMutationProjectionCatalog>().SelectMany(static catalog => catalog.RequiredSchemaShapes).ToArray());
         _names = new SqliteNames(_options);
         _physical = new SqlitePhysicalModel(_options);
         RecoverRestoreMarkerIfPresent();

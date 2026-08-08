@@ -1,4 +1,6 @@
 using FluentAssertions;
+using System.Collections.Immutable;
+using System.Runtime.InteropServices;
 using Xunit;
 
 namespace HPD.Base.Vector.Tests;
@@ -57,5 +59,23 @@ public sealed class BaseVectorContractTests
         var options = new HPDBaseVectorOptions { MaxTopK = 1_001 };
         Action validate = options.Validate;
         validate.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
+    public void Constraint_nodes_do_not_retain_caller_owned_immutable_array_storage()
+    {
+        var field = new BaseVectorFilterField("document.tenant", BaseVectorFilterValueKind.String);
+        var first = new BaseVectorCandidateConstraint.Equal(field, BaseVectorFilterValue.FromString("a"));
+        var second = new BaseVectorCandidateConstraint.Equal(field, BaseVectorFilterValue.FromString("b"));
+        ImmutableArray<BaseVectorCandidateConstraint> children = [first, second];
+        ImmutableArray<BaseVectorFilterValue> values = [BaseVectorFilterValue.FromString("a"), BaseVectorFilterValue.FromString("b")];
+        var and = new BaseVectorCandidateConstraint.And(children);
+        var @in = new BaseVectorCandidateConstraint.In(field, values);
+
+        ImmutableCollectionsMarshal.AsArray(children)![0] = new BaseVectorCandidateConstraint.False();
+        ImmutableCollectionsMarshal.AsArray(values)![0] = BaseVectorFilterValue.FromString("changed");
+
+        and.Children[0].Should().BeSameAs(first);
+        @in.Values[0].Text.Should().Be("a");
     }
 }

@@ -24,10 +24,18 @@ public static class HPDBaseVectorBuilderExtensions
             var configured = new HPDBaseVectorOptions();
             configure?.Invoke(configured);
             configured.Validate();
-            var snapshot = new HPDBaseVectorSnapshot(configured.MaxDimensions, configured.MaxTopK, configured.MaxFilterFields, configured.ProviderTimeout, configured.ConsistencyWaitTimeout, configured.ConsistencyTokenLifetime, configured.MaxActiveAndQuarantinedOperations, configured.ShutdownDrainTimeout, configured.AdministrationTimeout, configured.MaxConcurrentRebuilds);
+            BaseVectorConsistencyRequirement? derivedDefault = configured.DerivedProviderDefaultConsistency switch
+            {
+                BaseVectorConsistencyRequirement.Available => new BaseVectorConsistencyRequirement.Available(),
+                BaseVectorConsistencyRequirement.BoundedStaleness bounded => new BaseVectorConsistencyRequirement.BoundedStaleness(bounded.MaximumAge),
+                null => null,
+                _ => throw new InvalidOperationException("The derived-provider consistency default is invalid."),
+            };
+            var snapshot = new HPDBaseVectorSnapshot(configured.MaxDimensions, configured.MaxTopK, configured.MaxFilterFields, configured.ProviderTimeout, configured.ConsistencyWaitTimeout, configured.ConsistencyTokenLifetime, configured.MaxActiveAndQuarantinedOperations, configured.ShutdownDrainTimeout, configured.AdministrationTimeout, configured.MaxConcurrentRebuilds, derivedDefault);
             VectorIndexDefinition[] indexes = collections.SelectMany(static collection => collection.VectorIndexes ?? []).ToArray();
             if (indexes.Any(index => index.Dimensions > snapshot.MaxDimensions || index.FilterFieldIds.Length > snapshot.MaxFilterFields)) throw new InvalidOperationException("A declared vector index exceeds the configured vector limits.");
             services.AddSingleton(snapshot);
+            services.AddSingleton<BaseVectorOperationalState>();
             services.TryAddSingleton(TimeProvider.System);
             services.AddSingleton<IBaseVectorRuntime, DefaultBaseVectorRuntime>();
             services.AddSingleton<IBaseVectorAdministration, DefaultBaseVectorAdministration>();
@@ -41,7 +49,11 @@ public static class HPDBaseVectorBuilderExtensions
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (!services.GetRequiredService<BaseTokenProtectionRegistration>().ExplicitlyConfigured) throw new InvalidOperationException("base.vector.tokenProtectionRequired: vector execution requires explicitly configured persistent token protection.");
-            if (services.GetServices<IBaseVectorProvider>().Count() != 1 || services.GetServices<IBaseVectorAuthority>().Count() != 1) throw new InvalidOperationException("base.vector.providerUnavailable: vector execution requires exactly one provider and one authority implementation.");
+            IBaseVectorProvider[] providers = services.GetServices<IBaseVectorProvider>().ToArray();
+            if (providers.Length != 1 || services.GetServices<IBaseVectorAuthority>().Count() != 1) throw new InvalidOperationException("base.vector.providerUnavailable: vector execution requires exactly one provider and one authority implementation.");
+            HPDBaseVectorSnapshot snapshot = services.GetRequiredService<HPDBaseVectorSnapshot>();
+            if (providers[0].Descriptor.Consistency == BaseVectorProviderConsistency.DerivedJournal && snapshot.DerivedProviderDefaultConsistency is null)
+                throw new InvalidOperationException("base.vector.consistencyInvalid: a derived vector provider requires an explicit default consistency mode.");
             return ValueTask.CompletedTask;
         }
     }

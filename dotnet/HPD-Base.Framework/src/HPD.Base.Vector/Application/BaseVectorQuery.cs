@@ -44,6 +44,29 @@ public sealed class BaseVectorQuery<T>
         return new(_session, _index, _vector, _constraint is BaseVectorCandidateConstraint.True ? leaf : new BaseVectorCandidateConstraint.And([_constraint, leaf]), _take, _consistency);
     }
 
+    /// <summary>Adds one generated equality filter combined with the existing filters by OR.</summary>
+    public BaseVectorQuery<T> OrWhere<TValue>(BaseField<T, TValue> field, TValue value)
+    {
+        ArgumentNullException.ThrowIfNull(field);
+        if (!_index.FilterFieldIds.Contains(field.Id, StringComparer.Ordinal)) throw new InvalidOperationException($"Field '{field.Id}' is not declared as a vector filter field.");
+        var leaf = new BaseVectorCandidateConstraint.Equal(ToFilterField(field, value), ToFilterValue(value));
+        return new(_session, _index, _vector, _constraint is BaseVectorCandidateConstraint.True ? leaf : new BaseVectorCandidateConstraint.Or([_constraint, leaf]), _take, _consistency);
+    }
+
+    /// <summary>Adds a bounded generated IN filter combined with the existing filters by AND.</summary>
+    public BaseVectorQuery<T> WhereAny<TValue>(BaseField<T, TValue> field, params TValue[] values)
+    {
+        ArgumentNullException.ThrowIfNull(field);
+        ArgumentNullException.ThrowIfNull(values);
+        if (values.Length is < 1 or > 16) throw new ArgumentOutOfRangeException(nameof(values));
+        if (!_index.FilterFieldIds.Contains(field.Id, StringComparer.Ordinal)) throw new InvalidOperationException($"Field '{field.Id}' is not declared as a vector filter field.");
+        BaseVectorFilterValue[] converted = values.Select(ToFilterValue).ToArray();
+        BaseVectorFilterValueKind kind = converted[0].Kind;
+        if (converted.Any(value => value.Kind != kind)) throw new ArgumentException("Every IN value must use the same portable value kind.", nameof(values));
+        var leaf = new BaseVectorCandidateConstraint.In(new BaseVectorFilterField(field.Id, kind), converted);
+        return new(_session, _index, _vector, _constraint is BaseVectorCandidateConstraint.True ? leaf : new BaseVectorCandidateConstraint.And([_constraint, leaf]), _take, _consistency);
+    }
+
     /// <summary>Sets the required bounded top-K result count.</summary>
     public BaseVectorQuery<T> Take(int count) => count > 0 ? new(_session, _index, _vector, _constraint, count, _consistency) : throw new ArgumentOutOfRangeException(nameof(count));
 

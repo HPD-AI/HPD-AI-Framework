@@ -10,7 +10,8 @@ internal sealed class DefaultBaseVectorRuntime(
     IBaseRecordRedactor redactor,
     BaseOpaqueTokenProtector tokens,
     HPDBaseVectorSnapshot options,
-    TimeProvider timeProvider) : IBaseVectorRuntime
+    TimeProvider timeProvider,
+    BaseVectorOperationalState operationalState) : IBaseVectorRuntime, IAsyncDisposable
 {
     private readonly SemaphoreSlim _providerSlots = new(options.MaxActiveAndQuarantinedOperations, options.MaxActiveAndQuarantinedOperations);
     public async ValueTask<OperationResult<BaseVectorRuntimeResult>> ExecuteAsync(BaseVectorRuntimeRequest request, CancellationToken cancellationToken)
@@ -38,28 +39,52 @@ internal sealed class DefaultBaseVectorRuntime(
         IBaseVectorProvider provider = installed[0];
         if (request.Take > provider.Descriptor.MaximumTopK) return Failure<BaseVectorRuntimeResult>(OperationStatus.ValidationFailed, BaseVectorErrorCodes.LimitExceeded, "The requested vector result bound is invalid.", ErrorCategory.Validation);
 
-        BaseVectorConsistencyRequirement requirement = request.Consistency ?? (provider.Descriptor.Consistency == BaseVectorProviderConsistency.TransactionalCurrent ? new BaseVectorConsistencyRequirement.Current() : new BaseVectorConsistencyRequirement.Available());
-        OperationResult<IBaseVectorHydrationSession> open = await Open(request, requirement, cancellationToken).ConfigureAwait(false);
-        if (!open.Status.IsSuccess() || open.Value is null) return CopyFailure<BaseVectorRuntimeResult, IBaseVectorHydrationSession>(open);
-        await using IBaseVectorHydrationSession session = open.Value;
-        OperationResult<BaseVectorRuntimeResult>? tokenFailure = ValidateConsistency(requirement, session.Snapshot);
-        if (tokenFailure is not null) return tokenFailure;
-
-        BaseVectorCandidateConstraint effective;
-        try { effective = Combine(request.Constraint, LowerPolicy(influence.Value!.EffectiveRecordFilter, request.Index)); }
-        catch (NotSupportedException) { return Failure<BaseVectorRuntimeResult>(OperationStatus.Unsupported, BaseVectorErrorCodes.PolicyConstraintUnsupported, "The effective policy cannot be enforced by this vector index.", ErrorCategory.Unsupported); }
-        (BaseVectorCandidateConstraint normalized, BaseVectorConstraintDigest digest) = BaseVectorConstraintNormalizer.Normalize(effective);
-
-        BaseVectorConstraintPreparation preparation;
-        BaseVectorProviderResult ranked;
-        try
+        BaseVectorConsistencyRequirement requirement = request.Consistency ?? (provider.Descriptor.Consistency == BaseVectorProviderConsistency.TransactionalCurrent
+            ? new BaseVectorConsistencyRequirement.Current()
+            : options.DerivedProviderDefaultConsistency ?? throw new InvalidOperationException("A derived vector provider has no configured consistency default."));
+        long consistencyStarted = System.Diagnostics.Stopwatch.GetTimestamp();
+        IBaseVectorHydrationSession session;
+        while (true)
         {
-            preparation = await InvokeBoundedAsync(token => provider.PrepareAsync(new BaseVectorProviderPreparationRequest { Index = request.Index, Constraint = normalized, ConstraintDigest = digest, Snapshot = session.Snapshot }, token), cancellationToken).ConfigureAwait(false);
-            if (preparation.Enforcement != BaseVectorConstraintEnforcement.PreRankingExact || !preparation.ConstraintDigest.Equals(digest)) return Failure<BaseVectorRuntimeResult>(OperationStatus.Unsupported, BaseVectorErrorCodes.PolicyConstraintUnsupported, "The vector provider cannot prove exact candidate enforcement.", ErrorCategory.Unsupported);
-            ranked = await InvokeBoundedAsync(token => provider.SearchAsync(new BaseVectorExecutionRequest { Index = request.Index, Vector = request.Vector, Take = request.Take, Plan = preparation.Plan, Snapshot = session.Snapshot, Consistency = requirement, CorrelationId = request.Operation.CorrelationId }, token), cancellationToken).ConfigureAwait(false);
+            TimeSpan elapsed = System.Diagnostics.Stopwatch.GetElapsedTime(consistencyStarted);
+            TimeSpan remaining = options.ConsistencyWaitTimeout - elapsed;
+            if (remaining <= TimeSpan.Zero) return Failure<BaseVectorRuntimeResult>(OperationStatus.StoreError, BaseVectorErrorCodes.Timeout, "The vector consistency wait exceeded its deadline.", ErrorCategory.Store);
+            OperationResult<IBaseVectorHydrationSession> open = await Open(request, requirement, remaining, cancellationToken).ConfigureAwait(false);
+            if (!open.Status.IsSuccess() || open.Value is null) return CopyFailure<BaseVectorRuntimeResult, IBaseVectorHydrationSession>(open);
+            session = open.Value;
+            OperationResult<BaseVectorRuntimeResult>? tokenFailure = ValidateConsistency(requirement, session.Snapshot);
+            if (tokenFailure?.Error?.Code == BaseVectorErrorCodes.ConsistencyUnavailable && provider.Descriptor.Consistency == BaseVectorProviderConsistency.DerivedJournal)
+            {
+                await session.DisposeAsync().ConfigureAwait(false);
+                TimeSpan pause = remaining < TimeSpan.FromMilliseconds(10) ? remaining : TimeSpan.FromMilliseconds(10);
+                try { await Task.Delay(pause, cancellationToken).ConfigureAwait(false); }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    return Failure<BaseVectorRuntimeResult>(OperationStatus.StoreError, BaseVectorErrorCodes.Cancelled, "The vector operation was cancelled.", ErrorCategory.Store);
+                }
+                continue;
+            }
+            if (tokenFailure is not null) { await session.DisposeAsync().ConfigureAwait(false); return tokenFailure; }
+            break;
         }
-        catch (TimeoutException) { return Failure<BaseVectorRuntimeResult>(OperationStatus.StoreError, BaseVectorErrorCodes.Timeout, "The vector operation exceeded its deadline.", ErrorCategory.Store); }
+        await using (session.ConfigureAwait(false))
+        {
+            BaseVectorCandidateConstraint effective;
+            try { effective = Combine(request.Constraint, LowerPolicy(influence.Value!.EffectiveRecordFilter, request.Index)); }
+            catch (NotSupportedException) { return Failure<BaseVectorRuntimeResult>(OperationStatus.Unsupported, BaseVectorErrorCodes.PolicyConstraintUnsupported, "The effective policy cannot be enforced by this vector index.", ErrorCategory.Unsupported); }
+            (BaseVectorCandidateConstraint normalized, BaseVectorConstraintDigest digest) = BaseVectorConstraintNormalizer.Normalize(effective);
+
+            BaseVectorConstraintPreparation preparation;
+            BaseVectorProviderResult ranked;
+            try
+            {
+                preparation = await InvokeBoundedAsync(token => provider.PrepareAsync(new BaseVectorProviderPreparationRequest { Index = request.Index, Constraint = normalized, ConstraintDigest = digest, Snapshot = session.Snapshot }, token), cancellationToken).ConfigureAwait(false);
+                if (preparation.Enforcement != BaseVectorConstraintEnforcement.PreRankingExact || !preparation.ConstraintDigest.Equals(digest)) return Failure<BaseVectorRuntimeResult>(OperationStatus.Unsupported, BaseVectorErrorCodes.PolicyConstraintUnsupported, "The vector provider cannot prove exact candidate enforcement.", ErrorCategory.Unsupported);
+                ranked = await InvokeBoundedAsync(token => provider.SearchAsync(new BaseVectorExecutionRequest { Index = request.Index, Vector = request.Vector, Take = request.Take, Plan = preparation.Plan, Snapshot = session.Snapshot, Consistency = requirement, CorrelationId = request.Operation.CorrelationId }, token), cancellationToken).ConfigureAwait(false);
+            }
+            catch (TimeoutException) { return Failure<BaseVectorRuntimeResult>(OperationStatus.StoreError, BaseVectorErrorCodes.Timeout, "The vector operation exceeded its deadline.", ErrorCategory.Store); }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { return Failure<BaseVectorRuntimeResult>(OperationStatus.StoreError, BaseVectorErrorCodes.Cancelled, "The vector operation was cancelled.", ErrorCategory.Store); }
+        catch (OperationCanceledException) { return Failure<BaseVectorRuntimeResult>(OperationStatus.StoreError, BaseVectorErrorCodes.Timeout, "The vector operation exceeded its deadline.", ErrorCategory.Store); }
         catch (Exception) { return Failure<BaseVectorRuntimeResult>(OperationStatus.CapabilityUnavailable, BaseVectorErrorCodes.ProviderUnavailable, "The vector provider is unavailable.", ErrorCategory.Capability); }
 
         if (!ValidProviderResult(ranked, session.Snapshot, request, provider)) return Failure<BaseVectorRuntimeResult>(OperationStatus.StoreError, BaseVectorErrorCodes.ProviderResultInvalid, "The vector provider returned invalid result evidence.", ErrorCategory.Store);
@@ -68,6 +93,7 @@ internal sealed class DefaultBaseVectorRuntime(
         try { hydrated = await InvokeBoundedAsync(token => session.GetExactAsync(request.Collection, identities, request.Operation, token), cancellationToken).ConfigureAwait(false); }
         catch (TimeoutException) { return Failure<BaseVectorRuntimeResult>(OperationStatus.StoreError, BaseVectorErrorCodes.Timeout, "The vector hydration exceeded its deadline.", ErrorCategory.Store); }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { return Failure<BaseVectorRuntimeResult>(OperationStatus.StoreError, BaseVectorErrorCodes.Cancelled, "The vector operation was cancelled.", ErrorCategory.Store); }
+        catch (OperationCanceledException) { return Failure<BaseVectorRuntimeResult>(OperationStatus.StoreError, BaseVectorErrorCodes.Timeout, "The vector hydration exceeded its deadline.", ErrorCategory.Store); }
         catch (Exception) { return Failure<BaseVectorRuntimeResult>(OperationStatus.CapabilityUnavailable, BaseVectorErrorCodes.ProviderUnavailable, "The vector provider is unavailable.", ErrorCategory.Capability); }
         if (!hydrated.Status.IsSuccess() || hydrated.Value is null) return Failure<BaseVectorRuntimeResult>(OperationStatus.Conflict, BaseVectorErrorCodes.SnapshotChanged, "The authoritative vector snapshot changed.", ErrorCategory.Conflict);
 
@@ -82,23 +108,36 @@ internal sealed class DefaultBaseVectorRuntime(
             matches.Add(new BaseVectorRuntimeMatch { Record = redactor.RedactRecord(envelope, request.Collection, disclosure.Value!, VisibilityLevel.Authenticated), Rank = i + 1, Measure = candidate.Measure });
         }
 
-        return OperationResults.Ok(new BaseVectorRuntimeResult { Matches = matches.ToArray(), VectorIndexId = request.Index.Id, VectorIndexGeneration = session.Snapshot.VectorIndexGeneration, ProviderId = provider.Descriptor.Id, Accuracy = ranked.Accuracy, ConsistencyToken = Issue(session.Snapshot) });
+            return OperationResults.Ok(new BaseVectorRuntimeResult { Matches = matches.ToArray(), VectorIndexId = request.Index.Id, VectorIndexGeneration = session.Snapshot.VectorIndexGeneration, ProviderId = provider.Descriptor.Id, Accuracy = ranked.Accuracy, ConsistencyToken = Issue(session.Snapshot) });
+        }
     }
 
     public async ValueTask<OperationResult<BaseVectorConsistencyToken>> CaptureAsync(CollectionDefinition collection, VectorIndexDefinition index, PrincipalContext principal, OperationContext operation, CancellationToken cancellationToken)
     {
         OperationResult<BasePolicyEvaluation> allowed = await policy.EvaluateReadAsync(new BasePolicyRequest { Principal = principal, Operation = operation, Collection = collection, ResourceKind = PolicyResourceKind.VectorIndex, VectorIndexId = index.Id, VectorSpaceId = index.VectorSpaceId }, cancellationToken).ConfigureAwait(false);
         if (!allowed.Status.IsSuccess()) return CopyFailure<BaseVectorConsistencyToken, BasePolicyEvaluation>(allowed);
-        OperationResult<IBaseVectorHydrationSession> opened = await authority.OpenAsync(collection, index, new BaseVectorConsistencyRequirement.Current(), operation, cancellationToken).ConfigureAwait(false);
+        OperationResult<IBaseVectorHydrationSession> opened;
+        try
+        {
+            opened = await InvokeBoundedAsync(
+                token => authority.OpenAsync(collection, index, new BaseVectorConsistencyRequirement.Current(), operation, token),
+                options.ConsistencyWaitTimeout,
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (TimeoutException) { return Failure<BaseVectorConsistencyToken>(OperationStatus.StoreError, BaseVectorErrorCodes.Timeout, "The vector consistency capture exceeded its deadline.", ErrorCategory.Store); }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { return Failure<BaseVectorConsistencyToken>(OperationStatus.StoreError, BaseVectorErrorCodes.Cancelled, "The vector operation was cancelled.", ErrorCategory.Store); }
+        catch (OperationCanceledException) { return Failure<BaseVectorConsistencyToken>(OperationStatus.StoreError, BaseVectorErrorCodes.Timeout, "The vector consistency capture exceeded its deadline.", ErrorCategory.Store); }
+        catch (Exception) { return Failure<BaseVectorConsistencyToken>(OperationStatus.CapabilityUnavailable, BaseVectorErrorCodes.ProviderUnavailable, "The vector provider is unavailable.", ErrorCategory.Capability); }
         if (!opened.Status.IsSuccess() || opened.Value is null) return CopyFailure<BaseVectorConsistencyToken, IBaseVectorHydrationSession>(opened);
         await using (opened.Value.ConfigureAwait(false)) return OperationResults.Ok(Issue(opened.Value.Snapshot));
     }
 
-    private async ValueTask<OperationResult<IBaseVectorHydrationSession>> Open(BaseVectorRuntimeRequest request, BaseVectorConsistencyRequirement requirement, CancellationToken cancellationToken)
+    private async ValueTask<OperationResult<IBaseVectorHydrationSession>> Open(BaseVectorRuntimeRequest request, BaseVectorConsistencyRequirement requirement, TimeSpan timeout, CancellationToken cancellationToken)
     {
-        try { return await authority.OpenAsync(request.Collection, request.Index, requirement, request.Operation, cancellationToken).AsTask().WaitAsync(options.ConsistencyWaitTimeout, cancellationToken).ConfigureAwait(false); }
+        try { return await InvokeBoundedAsync(token => authority.OpenAsync(request.Collection, request.Index, requirement, request.Operation, token), timeout, cancellationToken).ConfigureAwait(false); }
         catch (TimeoutException) { return Failure<IBaseVectorHydrationSession>(OperationStatus.StoreError, BaseVectorErrorCodes.Timeout, "The vector consistency wait exceeded its deadline.", ErrorCategory.Store); }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { return Failure<IBaseVectorHydrationSession>(OperationStatus.StoreError, BaseVectorErrorCodes.Cancelled, "The vector operation was cancelled.", ErrorCategory.Store); }
+        catch (OperationCanceledException) { return Failure<IBaseVectorHydrationSession>(OperationStatus.StoreError, BaseVectorErrorCodes.Timeout, "The vector consistency wait exceeded its deadline.", ErrorCategory.Store); }
         catch (Exception) { return Failure<IBaseVectorHydrationSession>(OperationStatus.CapabilityUnavailable, BaseVectorErrorCodes.ProviderUnavailable, "The vector provider is unavailable.", ErrorCategory.Capability); }
     }
 
@@ -129,33 +168,79 @@ internal sealed class DefaultBaseVectorRuntime(
         return BaseVectorConsistencyTokenIssuer.Issue(snapshot, tokens, issuedAt, checked(issuedAt + options.ConsistencyTokenLifetime));
     }
 
-    private async ValueTask<T> InvokeBoundedAsync<T>(Func<CancellationToken, ValueTask<T>> invoke, CancellationToken cancellationToken)
+    private ValueTask<T> InvokeBoundedAsync<T>(Func<CancellationToken, ValueTask<T>> invoke, CancellationToken cancellationToken) =>
+        InvokeBoundedAsync(invoke, options.ProviderTimeout, cancellationToken);
+
+    private async ValueTask<T> InvokeBoundedAsync<T>(Func<CancellationToken, ValueTask<T>> invoke, TimeSpan timeout, CancellationToken cancellationToken)
     {
-        if (!await _providerSlots.WaitAsync(options.ProviderTimeout, cancellationToken).ConfigureAwait(false)) throw new TimeoutException();
+        if (!await _providerSlots.WaitAsync(timeout, cancellationToken).ConfigureAwait(false)) throw new TimeoutException();
+        operationalState.Enter();
+        var lifetime = new CancellationTokenSource(timeout);
         bool release = true;
         Task<T>? work = null;
         try
         {
-            work = invoke(cancellationToken).AsTask();
-            return await work.WaitAsync(options.ProviderTimeout, cancellationToken).ConfigureAwait(false);
+            work = invoke(lifetime.Token).AsTask();
+            return await work.WaitAsync(timeout, cancellationToken).ConfigureAwait(false);
         }
         catch when (work is { IsCompleted: false })
         {
             release = false;
-            _ = work.ContinueWith(static (_, state) => ((SemaphoreSlim)state!).Release(), _providerSlots, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            operationalState.Quarantine();
+            _ = ReleaseQuarantinedAsync(work, lifetime);
             throw;
         }
         finally
         {
-            if (release) _providerSlots.Release();
+            if (release) { lifetime.Dispose(); operationalState.Exit(); _providerSlots.Release(); }
         }
+    }
+
+    private async Task ReleaseQuarantinedAsync<T>(Task<T> work, CancellationTokenSource lifetime)
+    {
+        try
+        {
+            T completed = await work.ConfigureAwait(false);
+            if (completed is IAsyncDisposable disposable)
+                await disposable.DisposeAsync().ConfigureAwait(false);
+        }
+        catch { }
+        finally
+        {
+            lifetime.Dispose();
+            operationalState.ReleaseQuarantine();
+            _providerSlots.Release();
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        using var drain = new CancellationTokenSource(options.ShutdownDrainTimeout);
+        try
+        {
+            while (operationalState.Active + operationalState.Quarantined > 0)
+                await Task.Delay(TimeSpan.FromMilliseconds(10), drain.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (drain.IsCancellationRequested) { }
+        if (operationalState.Active + operationalState.Quarantined == 0)
+            _providerSlots.Dispose();
     }
 
     private static bool ValidProviderResult(BaseVectorProviderResult result, BaseVectorAuthoritySnapshot snapshot, BaseVectorRuntimeRequest request, IBaseVectorProvider provider)
     {
         if (result is null || result.Snapshot != snapshot || result.Candidates is null || result.Candidates.Length > request.Take || result.Accuracy == BaseVectorResultAccuracy.Approximate && provider.Descriptor.Exact) return false;
         var ids = new HashSet<RecordId>();
-        for (int i = 0; i < result.Candidates.Length; i++) { BaseVectorCandidate item = result.Candidates[i]; if (item.Rank != i + 1 || !ids.Add(item.RecordId) || !double.IsFinite(item.Measure.Value) || item.Measure.Function != request.Index.Function || item.IndexedPosition.Value > snapshot.HighWatermark.Value) return false; }
+        for (int i = 0; i < result.Candidates.Length; i++)
+        {
+            BaseVectorCandidate item = result.Candidates[i];
+            if (item.Rank != i + 1 || string.IsNullOrWhiteSpace(item.RecordId.Value) || string.IsNullOrWhiteSpace(item.IndexedRevision.Value) || !ids.Add(item.RecordId) || !double.IsFinite(item.Measure.Value) || item.Measure.Function != request.Index.Function || item.IndexedPosition.Value < 0 || item.IndexedPosition.Value > snapshot.HighWatermark.Value) return false;
+            BaseVectorMeasureDirection expectedDirection = request.Index.Function == BaseVectorFunction.EuclideanDistance ? BaseVectorMeasureDirection.LowerIsNearer : BaseVectorMeasureDirection.HigherIsNearer;
+            if (item.Measure.Direction != expectedDirection) return false;
+            if (i == 0) continue;
+            BaseVectorCandidate previous = result.Candidates[i - 1];
+            bool outOfOrder = expectedDirection == BaseVectorMeasureDirection.LowerIsNearer ? previous.Measure.Value > item.Measure.Value : previous.Measure.Value < item.Measure.Value;
+            if (outOfOrder || previous.Measure.Value == item.Measure.Value && StringComparer.Ordinal.Compare(previous.RecordId.Value, item.RecordId.Value) > 0) return false;
+        }
         return true;
     }
 

@@ -101,7 +101,7 @@ public static class HPDBaseVectorAspNetCoreExtensions
         OperationResult<BasePolicyEvaluation> allowed = await context.RequestServices.GetRequiredService<IBasePolicyOrchestrator>().EvaluateWriteAsync(new BasePolicyRequest { Principal = principal, Operation = operation, Collection = collection, ResourceKind = PolicyResourceKind.VectorIndex, VectorIndexId = indexId, VectorSpaceId = (collection.VectorIndexes ?? []).Single(index => index.Id == indexId).VectorSpaceId }, context.RequestAborted).ConfigureAwait(false);
         if (!allowed.Status.IsSuccess()) { await Error(context, 403, "base.vector.unauthorized", "The vector rebuild is not authorized."); return; }
         BaseResult<BaseVectorRebuildResult> result = await context.RequestServices.GetRequiredService<IHPDBaseAdministration>().RebuildVectorIndexAsync(new BaseVectorRebuildRequest { StoreId = body.StoreId, Principal = principal, CollectionId = collectionId, VectorIndexId = indexId, ExpectedGeneration = body.ExpectedGeneration, ExpectedPurgeGeneration = body.ExpectedPurgeGeneration, Confirmation = body.Confirmation }, context.RequestAborted).ConfigureAwait(false);
-        if (!result.TryGetValue(out BaseVectorRebuildResult? rebuilt) || rebuilt is null) { BaseError? failure = (result as BaseFailure<BaseVectorRebuildResult>)?.Error; await Error(context, result.Status == OperationStatus.Conflict ? 409 : result.Status == OperationStatus.NotFound ? 404 : result.Status == OperationStatus.PolicyDenied ? 403 : 400, failure?.Code ?? "base.vector.providerUnavailable", "The vector rebuild failed."); return; }
+        if (!result.TryGetValue(out BaseVectorRebuildResult? rebuilt) || rebuilt is null) { BaseError? failure = (result as BaseFailure<BaseVectorRebuildResult>)?.Error; await Error(context, RebuildStatus(result.Status, failure?.Code), failure?.Code ?? "base.vector.providerUnavailable", "The vector rebuild failed."); return; }
         context.Response.ContentType = "application/json; charset=utf-8";
         await JsonSerializer.SerializeAsync(context.Response.Body, rebuilt, BaseVectorHttpJsonContext.Default.BaseVectorRebuildResult, context.RequestAborted).ConfigureAwait(false);
     }
@@ -116,7 +116,27 @@ public static class HPDBaseVectorAspNetCoreExtensions
         return children.Length switch { 0 => new BaseVectorCandidateConstraint.True(), 1 => children[0], _ => new BaseVectorCandidateConstraint.And(children) };
     }
     private static BaseVectorConsistencyRequirement Consistency(BaseVectorHttpQueryRequest request) => request.Consistency switch { null or "current" when request.ConsistencyToken is null => new BaseVectorConsistencyRequirement.Current(), "available" when request.ConsistencyToken is null => new BaseVectorConsistencyRequirement.Available(), "atLeast" when request.ConsistencyToken is not null => new BaseVectorConsistencyRequirement.AtLeast(BaseVectorConsistencyToken.Parse(request.ConsistencyToken)), _ => throw new FormatException() };
-    private static int Status(OperationResult<BaseVectorRuntimeResult> result) => result.Error?.Code switch { "base.vector.consistencyExpired" => 410, "base.vector.consistencyScopeMismatch" or "base.vector.snapshotChanged" => 409, "base.vector.consistencyUnavailable" or "base.vector.providerUnavailable" => 424, "base.vector.providerResultInvalid" => 502, "base.vector.timeout" => 504, "base.vector.cancelled" => 408, _ => result.Status == OperationStatus.Unsupported ? 422 : result.Status == OperationStatus.PolicyDenied ? 403 : 400 };
+    private static int Status(OperationResult<BaseVectorRuntimeResult> result) => result.Error?.Code switch
+    {
+        "base.vector.indexNotFound" => 404,
+        "base.vector.consistencyExpired" => 410,
+        "base.vector.consistencyScopeMismatch" or "base.vector.snapshotChanged" => 409,
+        "base.vector.indexUnavailable" or "base.vector.indexBuilding" or "base.vector.indexStale" or "base.vector.rebuildRequired" or "base.vector.consistencyUnavailable" or "base.vector.providerUnavailable" or "base.vector.capabilityUnavailable" or "base.vector.providerUnsupportedPlatform" or "base.vector.tokenProtectionRequired" => 424,
+        "base.vector.filterUnsupported" or "base.vector.policyConstraintUnsupported" => 422,
+        "base.vector.providerResultInvalid" => 502,
+        "base.vector.hydrationFailed" or "base.vector.rebuildIndeterminate" or "base.vector.administrationFailed" => 500,
+        "base.vector.timeout" => 504,
+        "base.vector.cancelled" => 408,
+        _ => result.Status == OperationStatus.Unsupported ? 422 : result.Status == OperationStatus.PolicyDenied ? 403 : 400,
+    };
+    private static int RebuildStatus(OperationStatus status, string? code) => code switch
+    {
+        "base.vector.timeout" => 504,
+        "base.vector.cancelled" => 408,
+        "base.vector.providerUnavailable" or "base.vector.indexUnavailable" or "base.vector.capabilityUnavailable" => 424,
+        "base.vector.rebuildIndeterminate" or "base.vector.administrationFailed" => 500,
+        _ => status == OperationStatus.Conflict ? 409 : status == OperationStatus.NotFound ? 404 : status == OperationStatus.PolicyDenied ? 403 : 400,
+    };
     private static async Task Error(HttpContext context, int status, string code, string message) { context.Response.StatusCode = status; context.Response.ContentType = "application/json; charset=utf-8"; await JsonSerializer.SerializeAsync(context.Response.Body, new BaseVectorHttpError { Code = code, Message = message }, BaseVectorHttpJsonContext.Default.BaseVectorHttpError, context.RequestAborted); }
 
     private static IEndpointConventionBuilder WithVectorRequest(this IEndpointConventionBuilder builder, Type requestType)

@@ -62,6 +62,9 @@ internal interface ISqliteAtomicMutationProjectionCatalog
     IReadOnlyList<SqliteProjectionStatement> Statements { get; }
     IReadOnlyList<string> SchemaStatements { get; }
     IReadOnlyList<string> RequiredSchemaTables { get; }
+    IReadOnlyList<SqliteProjectionTableShape> RequiredSchemaShapes { get; }
 }
 
 internal sealed record SqliteProjectionStatement(string Id, string Sql, string[] ParameterNames, int MaximumAffectedRows);
+internal sealed record SqliteProjectionTableShape(string Table, IReadOnlyList<SqliteProjectionColumnShape> Columns);
+internal sealed record SqliteProjectionColumnShape(string Name, string Type, bool NotNull, bool PrimaryKey);

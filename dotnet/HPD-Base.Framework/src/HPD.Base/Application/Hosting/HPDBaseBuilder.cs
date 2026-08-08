@@ -219,6 +219,7 @@ public sealed class HPDBaseBuilder
         HPDBaseTokenProtectionOptions tokenOptions = CreateTokenOptions();
         _tokenProtection?.Invoke(tokenOptions);
         ValidateTokenOptions(tokenOptions);
+        tokenOptions = CloneTokenOptions(tokenOptions);
         _services.AddSingleton(Microsoft.Extensions.Options.Options.Create(tokenOptions));
         _services.AddSingleton(new BaseTokenProtectionRegistration(_tokenProtection is not null));
         _services.TryAddSingleton<BaseOpaqueTokenProtector>();
@@ -297,6 +298,21 @@ public sealed class HPDBaseBuilder
                 throw new ArgumentException("A decryption-only token key requires its issuance-stop instant.", nameof(options));
         }
     }
+
+    private static HPDBaseTokenProtectionOptions CloneTokenOptions(HPDBaseTokenProtectionOptions options) => new()
+    {
+        ActiveKey = CloneKey(options.ActiveKey),
+        DecryptionKeys = (options.DecryptionKeys ?? []).Select(CloneKey).ToArray(),
+    };
+
+    private static BaseOpaqueTokenKey CloneKey(BaseOpaqueTokenKey key) => new()
+    {
+        Id = key.Id,
+        Key = key.Key.ToArray(),
+        IssueNotBefore = key.IssueNotBefore,
+        IssueUntil = key.IssueUntil,
+        DecryptUntil = key.DecryptUntil,
+    };
 
     /// <summary>Performs validate Index Capabilities.</summary>
     private static void ValidateIndexCapabilities(CollectionDefinition[] collections, IHPDBaseBuilderExtension provider)

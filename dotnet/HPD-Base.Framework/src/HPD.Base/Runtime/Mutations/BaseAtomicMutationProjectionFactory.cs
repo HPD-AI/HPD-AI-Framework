@@ -6,6 +6,28 @@ namespace HPD.Base;
 
 internal static class BaseAtomicMutationProjectionFactory
 {
+    public static BaseAtomicMutationProjectionRequest Clone(BaseAtomicMutationProjectionRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ImmutableArray<BaseAtomicMutationProjectionFact>.Builder mutations = ImmutableArray.CreateBuilder<BaseAtomicMutationProjectionFact>(request.Mutations.Length);
+        foreach (BaseAtomicMutationProjectionFact mutation in request.Mutations)
+            mutations.Add(new BaseAtomicMutationProjectionFact(
+                CopyNullable(mutation.ItemId),
+                mutation.RequestedOperation,
+                mutation.CommittedOperation,
+                mutation.UpsertOutcome,
+                Copy(mutation.CollectionId),
+                Copy(mutation.EventId),
+                mutation.JournalPosition,
+                CloneRecord(mutation.Before),
+                CloneRecord(mutation.After),
+                mutation.ChangedFieldIds.Select(Copy).ToImmutableArray()));
+        BaseCollectionPurgeProjectionFact? purge = request.Purge is null
+            ? null
+            : new BaseCollectionPurgeProjectionFact(Copy(request.Purge.CollectionId), request.Purge.PreviousGeneration, request.Purge.PublishedGeneration);
+        return new BaseAtomicMutationProjectionRequest(mutations.MoveToImmutable(), purge);
+    }
+
     public static BaseAtomicMutationProjectionRequest Create(
         IReadOnlyList<BaseRecordMutationFact> mutations,
         BaseCollectionPurgeProjectionFact? purge = null)
@@ -101,4 +123,15 @@ internal static class BaseAtomicMutationProjectionFactory
 
     private static string Copy(string value) => new(value.AsSpan());
     private static string? CopyNullable(string? value) => value is null ? null : Copy(value);
+
+    private static BaseAtomicProjectionRecord? CloneRecord(BaseAtomicProjectionRecord? record)
+    {
+        if (record is null) return null;
+        return new BaseAtomicProjectionRecord(
+            new RecordId(Copy(record.Id.Value)),
+            new RevisionToken(Copy(record.Revision.Value)),
+            record.Fields.Select(static field => new BaseAtomicProjectionField(
+                Copy(field.StableFieldId),
+                new BaseAtomicProjectionValue(field.Value.Kind, ImmutableArray.CreateRange(field.Value.CanonicalJsonUtf8.ToArray())))).ToImmutableArray());
+    }
 }

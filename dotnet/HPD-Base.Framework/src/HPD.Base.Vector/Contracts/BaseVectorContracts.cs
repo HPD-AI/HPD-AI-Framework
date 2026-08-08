@@ -58,6 +58,20 @@ public static class BaseVectorErrorCodes
     public const string LimitExceeded = "base.vector.limitExceeded";
     /// <summary>The provider is unavailable.</summary>
     public const string ProviderUnavailable = "base.vector.providerUnavailable";
+    /// <summary>The requested vector index was not found.</summary>
+    public const string IndexNotFound = "base.vector.indexNotFound";
+    /// <summary>The requested vector index is unavailable.</summary>
+    public const string IndexUnavailable = "base.vector.indexUnavailable";
+    /// <summary>The requested vector index is still building.</summary>
+    public const string IndexBuilding = "base.vector.indexBuilding";
+    /// <summary>The requested vector index is stale.</summary>
+    public const string IndexStale = "base.vector.indexStale";
+    /// <summary>The requested vector index requires an explicit rebuild.</summary>
+    public const string RebuildRequired = "base.vector.rebuildRequired";
+    /// <summary>The installed provider cannot supply the requested capability.</summary>
+    public const string CapabilityUnavailable = "base.vector.capabilityUnavailable";
+    /// <summary>The caller filter cannot be represented by this provider.</summary>
+    public const string FilterUnsupported = "base.vector.filterUnsupported";
     /// <summary>The effective policy constraint cannot be enforced exactly.</summary>
     public const string PolicyConstraintUnsupported = "base.vector.policyConstraintUnsupported";
     /// <summary>The opaque consistency token is invalid.</summary>
@@ -72,8 +86,20 @@ public static class BaseVectorErrorCodes
     public const string SnapshotChanged = "base.vector.snapshotChanged";
     /// <summary>The provider returned invalid result evidence.</summary>
     public const string ProviderResultInvalid = "base.vector.providerResultInvalid";
+    /// <summary>The native provider is unavailable on the current platform.</summary>
+    public const string ProviderUnsupportedPlatform = "base.vector.providerUnsupportedPlatform";
+    /// <summary>Persistent token protection is required.</summary>
+    public const string TokenProtectionRequired = "base.vector.tokenProtectionRequired";
+    /// <summary>Authoritative candidate hydration failed.</summary>
+    public const string HydrationFailed = "base.vector.hydrationFailed";
     /// <summary>The operation exceeded its deadline.</summary>
     public const string Timeout = "base.vector.timeout";
     /// <summary>The caller cancelled its wait.</summary>
     public const string Cancelled = "base.vector.cancelled";
+    /// <summary>The requested rebuild conflicts with current index state.</summary>
+    public const string RebuildConflict = "base.vector.rebuildConflict";
+    /// <summary>The rebuild publication outcome cannot be determined safely.</summary>
+    public const string RebuildIndeterminate = "base.vector.rebuildIndeterminate";
+    /// <summary>The vector administration operation failed.</summary>
+    public const string AdministrationFailed = "base.vector.administrationFailed";
 }

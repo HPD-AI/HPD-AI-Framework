@@ -5,7 +5,8 @@ internal sealed class DefaultBaseVectorAdministration(
     BaseCollectionRegistry collections,
     IBasePolicyOrchestrator policy,
     HPDBaseVectorSnapshot options,
-    TimeProvider timeProvider) : IBaseVectorAdministration, IBaseVectorRebuildService
+    TimeProvider timeProvider,
+    BaseVectorOperationalState operationalState) : IBaseVectorAdministration, IBaseVectorRebuildService
 {
     private readonly SemaphoreSlim _rebuildSlots = new(options.MaxConcurrentRebuilds, options.MaxConcurrentRebuilds);
     public ValueTask<OperationResult<BaseVectorIndexStatus[]>> ListAsync(CancellationToken cancellationToken = default) =>
@@ -26,6 +27,7 @@ internal sealed class DefaultBaseVectorAdministration(
         IBaseVectorAdministrationProvider[] installed = providers.ToArray();
         if (installed.Length != 1) return Unavailable<BaseVectorRebuildResult>();
         if (!await _rebuildSlots.WaitAsync(options.AdministrationTimeout, cancellationToken).ConfigureAwait(false)) return Timeout<BaseVectorRebuildResult>();
+        operationalState.Enter();
         var lifetime = new CancellationTokenSource(options.AdministrationTimeout);
         Task<OperationResult<BaseVectorRebuildResult>> work = installed[0].RebuildAsync(request, lifetime.Token).AsTask();
         bool release = true;
@@ -35,21 +37,22 @@ internal sealed class DefaultBaseVectorAdministration(
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            if (!work.IsCompleted) { release = false; ReleaseWhenComplete(work, lifetime); }
+            if (!work.IsCompleted) { release = false; operationalState.Quarantine(); ReleaseWhenComplete(work, lifetime); }
             return new OperationResult<BaseVectorRebuildResult> { Status = OperationStatus.StoreError, Error = new BaseError { Code = BaseVectorErrorCodes.Cancelled, Message = "The vector rebuild wait was cancelled.", Category = ErrorCategory.Store } };
         }
         catch (TimeoutException)
         {
-            if (!work.IsCompleted) { release = false; ReleaseWhenComplete(work, lifetime); }
+            if (!work.IsCompleted) { release = false; operationalState.Quarantine(); ReleaseWhenComplete(work, lifetime); }
             return Timeout<BaseVectorRebuildResult>();
         }
         catch (Exception)
         {
+            if (!work.IsCompleted) { release = false; operationalState.Quarantine(); ReleaseWhenComplete(work, lifetime); }
             return Unavailable<BaseVectorRebuildResult>();
         }
         finally
         {
-            if (release) { lifetime.Dispose(); _rebuildSlots.Release(); }
+            if (release) { lifetime.Dispose(); operationalState.Exit(); _rebuildSlots.Release(); }
         }
     }
 
@@ -61,7 +64,7 @@ internal sealed class DefaultBaseVectorAdministration(
         return await invoke(installed[0]).ConfigureAwait(false);
     }
 
-    private void ReleaseWhenComplete(Task work, CancellationTokenSource lifetime) => _ = work.ContinueWith(static (_, state) => { var owned = ((SemaphoreSlim Slots, CancellationTokenSource Lifetime))state!; owned.Lifetime.Dispose(); owned.Slots.Release(); }, (_rebuildSlots, lifetime), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+    private void ReleaseWhenComplete(Task work, CancellationTokenSource lifetime) => _ = work.ContinueWith(static (_, state) => { var owned = ((SemaphoreSlim Slots, CancellationTokenSource Lifetime, BaseVectorOperationalState State))state!; owned.Lifetime.Dispose(); owned.State.ReleaseQuarantine(); owned.Slots.Release(); }, (_rebuildSlots, lifetime, operationalState), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
     private static OperationResult<T> Unavailable<T>() => new() { Status = OperationStatus.CapabilityUnavailable, Error = new BaseError { Code = BaseVectorErrorCodes.ProviderUnavailable, Message = "The vector provider is unavailable.", Category = ErrorCategory.Capability } };
     private static OperationResult<T> Timeout<T>() => new() { Status = OperationStatus.StoreError, Error = new BaseError { Code = BaseVectorErrorCodes.Timeout, Message = "The vector administration operation exceeded its deadline.", Category = ErrorCategory.Store } };
 }

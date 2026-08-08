@@ -4,11 +4,52 @@ using HPD.Base.Sqlite;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Options;
 using System.Text.Json;
+using System.Collections.Immutable;
+using System.Runtime.InteropServices;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace HPD.Base.Sqlite.Tests.Storage;
 
 public sealed class SqliteAtomicMutationTests
 {
+    [Fact]
+    public async Task Transactional_projection_contributors_receive_separately_owned_deep_graphs()
+    {
+        CollectionDefinition collection = Collection("isolated") with
+        {
+            Fields = [new FieldDefinition { Id = "isolated.value", Name = "value", Type = BaseFieldTypes.String }]
+        };
+        var hostile = new HostileProjection();
+        var observer = new ObservingProjection();
+        await using var store = new SqliteRecordStore(
+            new HPDBaseSqliteOptions { StoreId = $"isolation-{Guid.NewGuid():N}", Collections = [collection] },
+            NullLoggerFactory.Instance,
+            TimeProvider.System,
+            mutationProjectionContributors: [observer, hostile]);
+        await store.InitializeUnacceptedSchemaForTestsAsync();
+
+        RecordMutationExecutionResult result = await store.ExecuteAtomicAsync(
+            new CallbackProcessor(async (session, cancellationToken) =>
+            {
+                OperationResult<RecordMutationSessionResult> created = await session.CreateAsync(
+                    collection,
+                    new RecordCreateRequest { RequestedId = new RecordId("one"), Payload = Payload("one") },
+                    MutationContext(BaseRecordMutationKind.Create, "event-one", collection.Id),
+                    cancellationToken);
+                BaseRecordMutationFact mutation = created.Value!.Mutation;
+                OperationResult projections = await session.ApplyMutationProjectionsAsync(
+                    BaseAtomicMutationProjectionFactory.Create([mutation]), cancellationToken);
+                projections.IsSuccess().Should().BeTrue();
+                return Ready([mutation]);
+            }),
+            ExecutionRequest());
+
+        result.Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
+        observer.ObservedEventId.Should().Be("event-one");
+        observer.ObservedFieldId.Should().Be("isolated.value");
+        observer.ObservedCanonicalValue.Should().Equal("\"one\""u8.ToArray());
+    }
+
     [Fact]
     public async Task SingleAndAtomicExecutorsUseTransactionBoundSessions()
     {
@@ -1087,6 +1128,51 @@ public sealed class SqliteAtomicMutationTests
             }
 
             _resources.Clear();
+        }
+    }
+
+    private abstract class ProjectionBase : ISqliteAtomicMutationProjection, ISqliteAtomicMutationProjectionCatalog
+    {
+        public abstract string Id { get; }
+        public IReadOnlyList<SqliteProjectionStatement> Statements => [];
+        public IReadOnlyList<string> SchemaStatements => [];
+        public IReadOnlyList<string> RequiredSchemaTables => [];
+        public IReadOnlyList<SqliteProjectionTableShape> RequiredSchemaShapes => [];
+        public abstract ValueTask<OperationResult> ApplyAsync(ISqliteAtomicProjectionContext context, BaseAtomicMutationProjectionRequest request, CancellationToken cancellationToken = default);
+    }
+
+    private sealed class HostileProjection : ProjectionBase
+    {
+        public override string Id => "a-hostile";
+
+        public override ValueTask<OperationResult> ApplyAsync(ISqliteAtomicProjectionContext context, BaseAtomicMutationProjectionRequest request, CancellationToken cancellationToken = default)
+        {
+            BaseAtomicMutationProjectionFact fact = request.Mutations[0];
+            ImmutableCollectionsMarshal.AsArray(fact.After!.Fields)![0] = new BaseAtomicProjectionField(
+                "corrupted.field",
+                new BaseAtomicProjectionValue(BaseAtomicProjectionValueKind.String, ImmutableArray.Create<byte>(1, 2, 3)));
+            ImmutableCollectionsMarshal.AsArray(request.Mutations)![0] = new BaseAtomicMutationProjectionFact(
+                null, fact.RequestedOperation, fact.CommittedOperation, fact.UpsertOutcome, "corrupted", "corrupted-event",
+                fact.JournalPosition, fact.Before, fact.After, fact.ChangedFieldIds);
+            return ValueTask.FromResult(OperationResults.NoContent());
+        }
+    }
+
+    private sealed class ObservingProjection : ProjectionBase
+    {
+        public override string Id => "z-observer";
+        public string? ObservedEventId { get; private set; }
+        public string? ObservedFieldId { get; private set; }
+        public byte[]? ObservedCanonicalValue { get; private set; }
+
+        public override ValueTask<OperationResult> ApplyAsync(ISqliteAtomicProjectionContext context, BaseAtomicMutationProjectionRequest request, CancellationToken cancellationToken = default)
+        {
+            BaseAtomicMutationProjectionFact fact = request.Mutations.Single();
+            BaseAtomicProjectionField field = fact.After!.Fields.Single();
+            ObservedEventId = fact.EventId;
+            ObservedFieldId = field.StableFieldId;
+            ObservedCanonicalValue = field.Value.CanonicalJsonUtf8.ToArray();
+            return ValueTask.FromResult(OperationResults.NoContent());
         }
     }
 
