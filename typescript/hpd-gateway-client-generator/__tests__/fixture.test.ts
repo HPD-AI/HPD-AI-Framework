@@ -114,6 +114,20 @@ describe("real Gateway snapshot", () => {
     rehash(beyondPropertyLimit);
     expect(() => parse(beyondPropertyLimit)).toThrow(/Aggregate schema property bound/u);
   });
+
+  it("preserves non-NFC OpenAPI presentation while rejecting it in the manifest", () => {
+    const presentation = clone();
+    const decomposed = "Gate\u0301way presentation";
+    presentation.openApi.info.title = decomposed;
+    rehash(presentation);
+    const parsed = parse(presentation);
+    expect((parsed.openApi.info as Record<string, unknown>).title).toBe(decomposed);
+    expect(parsed.sourceSha256).toBe("e78576aee5b8c0ae1c2fa52e3260cb54cce81e54fdb7ba296ec1781ee00344f4");
+
+    const semantic = clone();
+    semantic.manifest.operations[0].capability = "gate\u0301way.capability";
+    expect(() => parse(semantic)).toThrow(/Invalid capability/u);
+  });
 });
 
 function clone(): Record<string, any> { return JSON.parse(fixture.toString("utf8")) as Record<string, any>; }
@@ -161,7 +175,7 @@ function aggregatePropertyCount(schemas: Record<string, any>): number {
 
 function rehash(value: Record<string, any>): void {
   const openApi = framedHash("HPD.Gateway.OpenApi.v1\0", canonicalJson(value.openApi as JsonValue));
-  const manifest = framedHash("HPD.Gateway.ClientManifest.v1\0", canonicalJson(value.manifest as JsonValue));
+  const manifest = framedHash("HPD.Gateway.ClientManifest.v1\0", canonicalJson(value.manifest as JsonValue, true));
   value.openApiSha256 = hex(openApi);
   value.manifestSha256 = hex(manifest);
   value.sourceSha256 = hex(framedHash("HPD.Gateway.ClientSnapshot.v1\0", openApi, manifest));

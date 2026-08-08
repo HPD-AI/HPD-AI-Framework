@@ -25,7 +25,8 @@ describe("canonical generation input", () => {
 
   it("rejects unsafe numbers and non-NFC manifest strings", () => {
     expect(() => canonicalJson(9_007_199_254_740_992)).toThrow(/safe integers/u);
-    expect(() => canonicalJson("e\u0301")).toThrow(/NFC/u);
+    expect(new TextDecoder().decode(canonicalJson("e\u0301"))).toBe('"é"');
+    expect(() => canonicalJson("e\u0301", true)).toThrow(/NFC/u);
   });
 
   it("orders property names by Unicode scalar value", () => {

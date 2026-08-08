@@ -25,7 +25,7 @@ export function parseSnapshot(bytes: Uint8Array): GatewayClientGenerationSnapsho
   const manifest = validateManifest(snapshot.manifest);
   validateOpenApi(openApi, manifest);
   const openApiBytes = canonicalJson(openApi);
-  const manifestBytes = canonicalJson(manifest as unknown as JsonValue);
+  const manifestBytes = canonicalJson(manifest as unknown as JsonValue, true);
   const openApiDigest = framedHash("HPD.Gateway.OpenApi.v1\0", openApiBytes);
   const manifestDigest = framedHash("HPD.Gateway.ClientManifest.v1\0", manifestBytes);
   if (hex(openApiDigest) !== openApiSha256) fail("OpenAPI payload hash mismatch.");

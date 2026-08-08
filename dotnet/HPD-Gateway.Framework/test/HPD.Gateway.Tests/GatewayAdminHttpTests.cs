@@ -366,6 +366,16 @@ public sealed class GatewayAdminHttpTests
         changed.OpenApiSha256.Should().NotBe(snapshot.OpenApiSha256);
         changed.SourceSha256.Should().NotBe(snapshot.SourceSha256);
 
+        const string decomposedPresentation = "Gate\u0301way presentation";
+        JsonObject nonNfcPresentation = JsonNode.Parse(json)!.AsObject();
+        nonNfcPresentation["info"]!["title"] = decomposedPresentation;
+        GatewayClientGenerationSnapshotV1 nonNfcSnapshot = GatewayClientGenerationSnapshotV1.Create(
+            Encoding.UTF8.GetBytes(nonNfcPresentation.ToJsonString()), "test");
+        nonNfcSnapshot.SourceSha256.Should().Be("e78576aee5b8c0ae1c2fa52e3260cb54cce81e54fdb7ba296ec1781ee00344f4");
+        using (JsonDocument nonNfcEnvelope = JsonDocument.Parse(nonNfcSnapshot.SnapshotUtf8.ToArray()))
+            nonNfcEnvelope.RootElement.GetProperty("openApi").GetProperty("info").GetProperty("title")
+                .GetString().Should().Be(decomposedPresentation);
+
         JsonObject securityDrift = JsonNode.Parse(json)!.AsObject();
         securityDrift["components"]!["securitySchemes"]!["test"]!["in"] = "header";
         FluentActions.Invoking(() => GatewayClientGenerationSnapshotV1.Create(

@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import type { JsonValue } from "./types.js";
 
-export function canonicalJson(value: JsonValue): Uint8Array {
-  return new TextEncoder().encode(write(value, 0, ""));
+export function canonicalJson(value: JsonValue, requireNfc = false): Uint8Array {
+  return new TextEncoder().encode(write(value, 0, "", requireNfc));
 }
 
 export function framedHash(frame: string, ...values: readonly Uint8Array[]): Uint8Array {
@@ -19,12 +19,12 @@ export function framedHash(frame: string, ...values: readonly Uint8Array[]): Uin
 
 export function hex(value: Uint8Array): string { return Buffer.from(value).toString("hex"); }
 
-function write(value: JsonValue, depth: number, path: string): string {
+function write(value: JsonValue, depth: number, path: string, requireNfc: boolean): string {
   if (depth > 64) throw new Error("JSON depth exceeds 64.");
   if (value === null || typeof value === "boolean") return String(value);
   if (typeof value === "string") {
     requireWellFormed(value);
-    if (value !== value.normalize("NFC")) throw new Error("Manifest strings must be NFC.");
+    if (requireNfc && value !== value.normalize("NFC")) throw new Error("Manifest strings must be NFC.");
     return JSON.stringify(value);
   }
   if (typeof value === "number") {
@@ -33,14 +33,14 @@ function write(value: JsonValue, depth: number, path: string): string {
   }
   if (Array.isArray(value)) {
     if (value.length > 10_000) throw new Error("JSON array exceeds 10,000 items.");
-    return `[${value.map(item => write(item, depth + 1, path)).join(",")}]`;
+    return `[${value.map(item => write(item, depth + 1, path, requireNfc)).join(",")}]`;
   }
   const object = value as Readonly<Record<string, JsonValue>>;
   for (const key of Object.keys(object)) requireWellFormed(key);
   const keys = Object.keys(object).sort(scalarOrdinal);
   const maximum = path === "/components/schemas" || path === "/openApi/components/schemas" ? 512 : 256;
   if (keys.length > maximum) throw new Error(`JSON object exceeds ${maximum} properties.`);
-  return `{${keys.map(key => `${JSON.stringify(key)}:${write(object[key]!, depth + 1, `${path}/${escapePointer(key)}`)}`).join(",")}}`;
+  return `{${keys.map(key => `${JSON.stringify(key)}:${write(object[key]!, depth + 1, `${path}/${escapePointer(key)}`, requireNfc)}`).join(",")}}`;
 }
 
 export function scalarOrdinal(left: string, right: string): number {
