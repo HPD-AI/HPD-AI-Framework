@@ -24,6 +24,18 @@ public interface IGatewayManagementReader
         string operation,
         string idempotencyKey,
         CancellationToken cancellationToken = default);
+    ValueTask<GatewayManagedRecord<GatewayCommandReceipt>?> GetOperationAsync(
+        string namespaceId,
+        string operationId,
+        CancellationToken cancellationToken = default);
+    ValueTask<GatewayManagedRecord<GatewayAcceptedRevision>?> GetRevisionAsync(
+        string namespaceId,
+        string revisionId,
+        CancellationToken cancellationToken = default);
+    ValueTask<GatewayManagedRecord<GatewayValidationRecord>?> GetValidationAsync(
+        string namespaceId,
+        string validationId,
+        CancellationToken cancellationToken = default);
     ValueTask<GatewayManagedPage<GatewayAcceptedRevision>> ListRevisionsAsync(
         string namespaceId,
         int maximum,
@@ -31,6 +43,18 @@ public interface IGatewayManagementReader
         CancellationToken cancellationToken = default);
     ValueTask<GatewayManagedPage<GatewayAdministrativeAuditRecord>> ListAuditAsync(
         string namespaceId,
+        int maximum,
+        string? continuationToken = null,
+        CancellationToken cancellationToken = default);
+    ValueTask<GatewayManagedPage<GatewayActivationIntent>> ListActivationsAsync(
+        string namespaceId,
+        string targetNodeId,
+        int maximum,
+        string? continuationToken = null,
+        CancellationToken cancellationToken = default);
+    ValueTask<GatewayManagedPage<GatewayNodeActivationOutcome>> ListOutcomesAsync(
+        string namespaceId,
+        string targetNodeId,
         int maximum,
         string? continuationToken = null,
         CancellationToken cancellationToken = default);
@@ -72,6 +96,35 @@ internal sealed class GatewayManagementReader(
         return match is null ? null : Project(match);
     }
 
+    public async ValueTask<GatewayManagedRecord<GatewayCommandReceipt>?> GetOperationAsync(
+        string namespaceId, string operationId,
+        CancellationToken cancellationToken = default)
+    {
+        Validate(namespaceId, nameof(namespaceId));
+        Validate(operationId, nameof(operationId));
+        await authority.InitializeAsync(cancellationToken).ConfigureAwait(false);
+        BaseRecord<GatewayCommandReceipt>[] records = (await Session(namespaceId)
+            .Collection(GatewayCommandReceipt.Collection).Query()
+            .Where(GatewayCommandReceipt.Fields.NamespaceId, namespaceId)
+            .Where(GatewayCommandReceipt.Fields.StableOperationId, operationId)
+            .Take(2).ToArrayAsync(2, cancellationToken)
+            .ConfigureAwait(false)).RequireValue();
+        BaseRecord<GatewayCommandReceipt>? match = records.SingleOrDefault(record =>
+            StringComparer.Ordinal.Equals(record.Value.NamespaceId, namespaceId) &&
+            StringComparer.Ordinal.Equals(record.Value.StableOperationId, operationId));
+        return match is null ? null : Project(match);
+    }
+
+    public ValueTask<GatewayManagedRecord<GatewayAcceptedRevision>?> GetRevisionAsync(
+        string namespaceId, string revisionId, CancellationToken cancellationToken = default) =>
+        Get(namespaceId, revisionId, Session(namespaceId).Collection(GatewayAcceptedRevision.Collection),
+            static value => value.NamespaceId, cancellationToken);
+
+    public ValueTask<GatewayManagedRecord<GatewayValidationRecord>?> GetValidationAsync(
+        string namespaceId, string validationId, CancellationToken cancellationToken = default) =>
+        Get(namespaceId, validationId, Session(namespaceId).Collection(GatewayValidationRecord.Collection),
+            static value => value.NamespaceId, cancellationToken);
+
     public ValueTask<GatewayManagedPage<GatewayAcceptedRevision>> ListRevisionsAsync(
         string namespaceId, int maximum, string? continuationToken = null,
         CancellationToken cancellationToken = default) =>
@@ -89,6 +142,42 @@ internal sealed class GatewayManagementReader(
             Session(namespaceId).Collection(GatewayAdministrativeAuditRecord.Collection).Query(),
             static value => value.NamespaceId,
             cancellationToken);
+
+    public ValueTask<GatewayManagedPage<GatewayActivationIntent>> ListActivationsAsync(
+        string namespaceId, string targetNodeId, int maximum, string? continuationToken = null,
+        CancellationToken cancellationToken = default)
+    {
+        Validate(targetNodeId, nameof(targetNodeId));
+        return Page(namespaceId, maximum, continuationToken,
+            Session(namespaceId).Collection(GatewayActivationIntent.Collection).Query(),
+            value => StringComparer.Ordinal.Equals(value.TargetNodeId, targetNodeId) ? value.NamespaceId : string.Empty,
+            cancellationToken);
+    }
+
+    public ValueTask<GatewayManagedPage<GatewayNodeActivationOutcome>> ListOutcomesAsync(
+        string namespaceId, string targetNodeId, int maximum, string? continuationToken = null,
+        CancellationToken cancellationToken = default)
+    {
+        Validate(targetNodeId, nameof(targetNodeId));
+        return Page(namespaceId, maximum, continuationToken,
+            Session(namespaceId).Collection(GatewayNodeActivationOutcome.Collection).Query(),
+            value => StringComparer.Ordinal.Equals(value.TargetNodeId, targetNodeId) ? value.NamespaceId : string.Empty,
+            cancellationToken);
+    }
+
+    private async ValueTask<GatewayManagedRecord<T>?> Get<T>(
+        string namespaceId, string recordId, BaseCollectionSession<T> collection,
+        Func<T, string> namespaceSelector, CancellationToken cancellationToken)
+    {
+        Validate(namespaceId, nameof(namespaceId));
+        Validate(recordId, nameof(recordId));
+        await authority.InitializeAsync(cancellationToken).ConfigureAwait(false);
+        BaseResult<BaseRecord<T>> result = await collection.GetAsync(RecordId.Create(recordId), cancellationToken).ConfigureAwait(false);
+        return result.TryGetValue(out BaseRecord<T>? record) &&
+            StringComparer.Ordinal.Equals(namespaceSelector(record!.Value), namespaceId)
+                ? Project(record)
+                : null;
+    }
 
     private async ValueTask<GatewayManagedPage<T>> Page<T>(
         string namespaceId,

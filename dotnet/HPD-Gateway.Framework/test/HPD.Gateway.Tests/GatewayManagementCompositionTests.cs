@@ -100,6 +100,44 @@ public sealed class GatewayManagementCompositionTests
     }
 
     [Fact]
+    public async Task Local_target_provisioning_reserves_one_namespace_neutral_epoch_before_acceptance()
+    {
+        await using ServiceProvider provider = InMemoryProvider();
+        var commands = provider.GetRequiredService<IGatewayManagementCommandCoordinator>();
+        var actor = new GatewayManagementActor("actor-a", "test", "manage");
+        var command = new GatewayLocalProvisionTargetCommand(
+            "namespace-a", "node-reserved", "key-a", actor, "correlation-a");
+
+        GatewayManagementCommandResult accepted = await commands.ProvisionLocalTargetAsync(command);
+        GatewayManagementCommandResult duplicate = await commands.ProvisionLocalTargetAsync(command);
+        GatewayManagementCommandResult competing = await commands.ProvisionLocalTargetAsync(command with
+        {
+            NamespaceId = "namespace-b",
+            IdempotencyKey = "key-b",
+            CorrelationId = "correlation-b",
+        });
+        BaseRecord<GatewayTargetEpochReservation>[] reservations = (await TrustedSession(provider)
+            .Collection(GatewayTargetEpochReservation.Collection).Query()
+            .Take(2).ToArrayAsync(2)).RequireValue();
+        BaseRecord<GatewayTargetEpochReservationReceipt>[] receipts = (await TrustedSession(provider)
+            .Collection(GatewayTargetEpochReservationReceipt.Collection).Query()
+            .Take(2).ToArrayAsync(2)).RequireValue();
+        BaseRecord<GatewayNodeDeliveryAuthorityState>[] delivery = (await TrustedSession(provider)
+            .Collection(GatewayNodeDeliveryAuthorityState.Collection).Query()
+            .Take(2).ToArrayAsync(2)).RequireValue();
+
+        accepted.State.Should().Be(GatewayManagementCommandState.Accepted, accepted.Code);
+        duplicate.State.Should().Be(GatewayManagementCommandState.Duplicate, duplicate.Code);
+        competing.State.Should().Be(GatewayManagementCommandState.Conflict, competing.Code);
+        reservations.Should().ContainSingle();
+        receipts.Should().ContainSingle();
+        delivery.Should().ContainSingle();
+        reservations[0].Value.AuthorityEpoch.Should().Be(delivery[0].Value.AuthorityEpoch);
+        reservations[0].Value.AuthorityEpoch.Should().HaveLength(32);
+        reservations[0].Value.Should().NotBeNull();
+    }
+
+    [Fact]
     public async Task Submit_accepts_through_the_authoritative_reader_and_commits_the_complete_graph()
     {
         var services = new ServiceCollection();
@@ -130,12 +168,10 @@ public sealed class GatewayManagementCompositionTests
             .GetRequiredService<IGatewayManagementReader>().GetDesiredAsync("node-a");
 
         accepted.State.Should().Be(GatewayManagementCommandState.Accepted, accepted.Code);
-        accepted.DesiredStateToken.Should().NotBeNullOrWhiteSpace();
+        accepted.DesiredStateToken.Should().BeNull();
         duplicate.State.Should().Be(GatewayManagementCommandState.Duplicate, duplicate.Code);
-        duplicate.DesiredStateToken.Should().Be(accepted.DesiredStateToken);
-        desired.Should().NotBeNull();
-        desired!.Value.NamespaceId.Should().Be("namespace-a");
-        desired.Value.RevisionId.Should().Be(accepted.OperationId);
+        duplicate.DesiredStateToken.Should().BeNull();
+        desired.Should().BeNull("submit-only must not change desired state");
     }
 
     [Fact]
@@ -149,7 +185,7 @@ public sealed class GatewayManagementCompositionTests
         ImmutableArray<byte> configuration = ConfigurationBytes();
         var firstCommand = new GatewaySubmitCommand(
             "namespace-a", "node-a", "submit-a", actor, "correlation-b",
-            "test", "source-a", "first", configuration, Activate: false);
+            "test", "source-a", "first", configuration, Activate: true);
         GatewayManagementCommandResult first = await commands.SubmitAsync(firstCommand);
         var secondCommand = firstCommand with
         {
@@ -640,7 +676,7 @@ public sealed class GatewayManagementCompositionTests
             ImmutableArray<byte> configuration = ConfigurationBytes();
             var firstCommand = new GatewaySubmitCommand(
                 "namespace-a", "node-a", "submit-a", actor, "correlation-b",
-                "test", "source-a", "first", configuration, Activate: false);
+                "test", "source-a", "first", configuration, Activate: true);
             GatewayManagementCommandResult first = await commands.SubmitAsync(firstCommand);
             GatewayManagementCommandResult second = await commands.SubmitAsync(firstCommand with
             {
@@ -652,7 +688,7 @@ public sealed class GatewayManagementCompositionTests
             });
             second.State.Should().Be(GatewayManagementCommandState.Accepted, second.Code);
             (await provider.GetRequiredService<IGatewayDeliveryCoordinator>().ReconcileOnceAsync())
-                .Failed.Should().Be(1);
+                .Failed.Should().Be(2);
             BaseSession session = TrustedSession(provider);
             BaseRecord<GatewayAcceptedRevision> firstRevision = (await session
                 .Collection(GatewayAcceptedRevision.Collection)

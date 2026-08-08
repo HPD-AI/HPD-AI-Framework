@@ -6,6 +6,7 @@
     <IsPackable>true</IsPackable>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="../HPD.Gateway.Admin/HPD.Gateway.Admin.csproj" />
     <ProjectReference Include="../HPD.Gateway.Management/HPD.Gateway.Management.csproj" />
     <ProjectReference Include="../../../HPD-Auth.Framework/src/HPD.Auth.ControlPlane.AspNetCore/HPD.Auth.ControlPlane.AspNetCore.csproj" />
     <ProjectReference Include="../../../HPD-Auth.Framework/src/HPD.Auth.Core/HPD.Auth.Core.csproj" />

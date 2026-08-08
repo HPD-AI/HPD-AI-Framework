@@ -13,6 +13,12 @@ internal static class GatewayAuthorityRecordIds
     internal static RecordId TargetOwnership(string managementAuthorityId, string targetNodeId) =>
         Create("target-ownership", managementAuthorityId, targetNodeId);
 
+    internal static RecordId TargetEpochReservation(string managementAuthorityId, string targetNodeId) =>
+        Create("target-epoch-reservation", managementAuthorityId, targetNodeId);
+
+    internal static RecordId TargetEpochReservationReceipt(string managementAuthorityId, string targetNodeId) =>
+        Create("target-epoch-reservation-receipt", managementAuthorityId, targetNodeId);
+
     internal static RecordId NodeDeliveryAuthority(string managementAuthorityId, string targetNodeId) =>
         Create("delivery-authority", managementAuthorityId, targetNodeId);
 

@@ -9,6 +9,8 @@ public static class GatewayAuthoritySchema
     public const string ValidationRecords = "gateway.management.validations";
     public const string AdministrativeAudit = "gateway.management.audit";
     public const string TargetOwnership = "gateway.management.target-ownership";
+    public const string TargetEpochReservations = "gateway.management.target-epoch-reservations";
+    public const string TargetEpochReservationReceipts = "gateway.management.target-epoch-reservation-receipts";
     public const string DesiredStates = "gateway.management.desired";
     public const string NodeDeliveryAuthorities = "gateway.management.delivery-authorities";
     public const string ActivationIntents = "gateway.management.activation-intents";
@@ -27,7 +29,8 @@ public static class GatewayAuthoritySchema
             AdministrativeCompletions, AdministrativeObservations,
             AdministrativeOperationIntents, CommandReceipts, DeliveryOutbox,
             DesiredStates, NodeDeliveryAuthorities, NodeOutcomes,
-            PurgeAuthorities, TargetOwnership, ValidationRecords,
+            PurgeAuthorities, TargetEpochReservationReceipts,
+            TargetEpochReservations, TargetOwnership, ValidationRecords,
         }.Order(StringComparer.Ordinal).ToImmutableArray();
 
     public static void AddTo(HPDBaseBuilder builder)
@@ -37,6 +40,8 @@ public static class GatewayAuthoritySchema
         builder.AddCollection(GatewayValidationRecord.Collection);
         builder.AddCollection(GatewayAdministrativeAuditRecord.Collection);
         builder.AddCollection(GatewayTargetOwnership.Collection);
+        builder.AddCollection(GatewayTargetEpochReservation.Collection);
+        builder.AddCollection(GatewayTargetEpochReservationReceipt.Collection);
         builder.AddCollection(GatewayDesiredState.Collection);
         builder.AddCollection(GatewayNodeDeliveryAuthorityState.Collection);
         builder.AddCollection(GatewayActivationIntent.Collection);

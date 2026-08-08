@@ -60,6 +60,24 @@ public sealed partial record GatewayTargetOwnership
     [BaseField("ownership.namespace-id")] public required string NamespaceId { get; init; }
 }
 
+[BaseCollection(GatewayAuthoritySchema.TargetEpochReservations, typeof(GatewayManagementJsonContext), MutationMode = BaseCollectionMutationMode.AppendOnly)]
+public sealed partial record GatewayTargetEpochReservation
+{
+    [BaseField("epoch-reservation.management-authority-id")] public required string ManagementAuthorityId { get; init; }
+    [BaseField("epoch-reservation.target-node-id")] public required string TargetNodeId { get; init; }
+    [BaseField("epoch-reservation.authority-epoch")] public required string AuthorityEpoch { get; init; }
+    [BaseField("epoch-reservation.contract-version")] public required string ContractVersion { get; init; }
+}
+
+[BaseCollection(GatewayAuthoritySchema.TargetEpochReservationReceipts, typeof(GatewayManagementJsonContext), MutationMode = BaseCollectionMutationMode.AppendOnly)]
+public sealed partial record GatewayTargetEpochReservationReceipt
+{
+    [BaseField("epoch-reservation-receipt.reservation-id")] public required string ReservationId { get; init; }
+    [BaseField("epoch-reservation-receipt.epoch-digest")] public required string EpochDigest { get; init; }
+    [BaseField("epoch-reservation-receipt.result-code")] public required string StableResultCode { get; init; }
+    [BaseField("epoch-reservation-receipt.contract-version")] public required string ContractVersion { get; init; }
+}
+
 [BaseCollection(GatewayAuthoritySchema.DesiredStates, typeof(GatewayManagementJsonContext), MutationMode = BaseCollectionMutationMode.Mutable)]
 [BaseIndex("gateway.desired.namespace", nameof(NamespaceId), Required = false)]
 public sealed partial record GatewayDesiredState
@@ -132,6 +150,7 @@ public sealed partial record GatewayNodeActivationOutcome
 
 [BaseCollection(GatewayAuthoritySchema.CommandReceipts, typeof(GatewayManagementJsonContext), MutationMode = BaseCollectionMutationMode.AppendOnly)]
 [BaseIndex("gateway.receipts.lookup", nameof(NamespaceId), nameof(Operation), nameof(IdempotencyKey), Required = false)]
+[BaseIndex("gateway.receipts.operation", nameof(NamespaceId), nameof(StableOperationId), Required = false)]
 public sealed partial record GatewayCommandReceipt
 {
     private byte[] _fingerprint = [];
@@ -192,6 +211,8 @@ public sealed partial record GatewayAdministrativeOperationCompletion
 [JsonSerializable(typeof(GatewayValidationRecord))]
 [JsonSerializable(typeof(GatewayAdministrativeAuditRecord))]
 [JsonSerializable(typeof(GatewayTargetOwnership))]
+[JsonSerializable(typeof(GatewayTargetEpochReservation))]
+[JsonSerializable(typeof(GatewayTargetEpochReservationReceipt))]
 [JsonSerializable(typeof(GatewayDesiredState))]
 [JsonSerializable(typeof(GatewayNodeDeliveryAuthorityState))]
 [JsonSerializable(typeof(GatewayActivationIntent))]

@@ -18,6 +18,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/HPD.Gateway/HPD.Gateway.csproj" />
+    <ProjectReference Include="../../src/HPD.Gateway.Admin/HPD.Gateway.Admin.csproj" />
     <ProjectReference Include="../../src/HPD.Gateway.Abstractions/HPD.Gateway.Abstractions.csproj" />
     <ProjectReference Include="../../src/HPD.Gateway.Core/HPD.Gateway.Core.csproj" />
     <ProjectReference Include="../../src/HPD.Gateway.Effective/HPD.Gateway.Effective.csproj" />

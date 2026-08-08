@@ -21,6 +21,13 @@ public sealed record GatewayProvisionTargetCommand(
     string CorrelationId,
     string AuthorityEpoch);
 
+public sealed record GatewayLocalProvisionTargetCommand(
+    string NamespaceId,
+    string TargetNodeId,
+    string IdempotencyKey,
+    GatewayManagementActor Actor,
+    string CorrelationId);
+
 public sealed record GatewaySubmitCommand(
     string NamespaceId,
     string TargetNodeId,
@@ -33,6 +40,15 @@ public sealed record GatewaySubmitCommand(
     ImmutableArray<byte> Utf8Configuration,
     string? ExpectedDesiredStateToken = null,
     bool Activate = true);
+
+public sealed record GatewayActivateRevisionCommand(
+    string NamespaceId,
+    string TargetNodeId,
+    string RevisionId,
+    string IdempotencyKey,
+    GatewayManagementActor Actor,
+    string CorrelationId,
+    string? ExpectedDesiredStateToken = null);
 
 public enum GatewayManagementCommandState : byte
 {
@@ -56,12 +72,20 @@ public sealed record GatewayManagementCommandResult(
 
 public interface IGatewayManagementCommandCoordinator
 {
+    ValueTask<GatewayManagementCommandResult> ProvisionLocalTargetAsync(
+        GatewayLocalProvisionTargetCommand command,
+        CancellationToken cancellationToken = default);
+
     ValueTask<GatewayManagementCommandResult> ProvisionTargetAsync(
         GatewayProvisionTargetCommand command,
         CancellationToken cancellationToken = default);
 
     ValueTask<GatewayManagementCommandResult> SubmitAsync(
         GatewaySubmitCommand command,
+        CancellationToken cancellationToken = default);
+
+    ValueTask<GatewayManagementCommandResult> ActivateRevisionAsync(
+        GatewayActivateRevisionCommand command,
         CancellationToken cancellationToken = default);
 }
 
@@ -72,7 +96,40 @@ internal sealed class GatewayManagementCommandCoordinator(
     GatewayManagementOptions options) : IGatewayManagementCommandCoordinator
 {
     private const string ContractVersion = "gateway.management.command.v1";
+    private const string EpochReservationContractVersion = "gateway.management.epoch-reservation.v1";
+    private const int MaximumTargetEpochReservations = 4_096;
     private readonly SemaphoreSlim _commands = new(1, 1);
+
+    public async ValueTask<GatewayManagementCommandResult> ProvisionLocalTargetAsync(
+        GatewayLocalProvisionTargetCommand command,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+        ValidateCommon(command.NamespaceId, command.TargetNodeId, command.IdempotencyKey, command.Actor, command.CorrelationId);
+        await authority.InitializeAsync(cancellationToken).ConfigureAwait(false);
+        await _commands.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            BaseSession session = Session(command.Actor, command.NamespaceId, command.CorrelationId);
+            RecordId productReceiptId = GatewayAuthorityRecordIds.CommandFact(
+                "receipt", command.NamespaceId, "provision-target", command.IdempotencyKey, ContractVersion);
+            bool productReceiptExists = (await session.Collection(GatewayCommandReceipt.Collection)
+                .GetAsync(productReceiptId, cancellationToken).ConfigureAwait(false)).TryGetValue(out _);
+            EpochReservationResolution reservation = await ResolveTargetEpochReservationAsync(
+                session, command.TargetNodeId, allowCreate: !productReceiptExists, cancellationToken).ConfigureAwait(false);
+            if (!reservation.IsResolved)
+                return new(reservation.State, reservation.Code);
+
+            return await ProvisionTargetCoreAsync(new GatewayProvisionTargetCommand(
+                command.NamespaceId,
+                command.TargetNodeId,
+                command.IdempotencyKey,
+                command.Actor,
+                command.CorrelationId,
+                reservation.AuthorityEpoch!), cancellationToken).ConfigureAwait(false);
+        }
+        finally { _commands.Release(); }
+    }
 
     public async ValueTask<GatewayManagementCommandResult> ProvisionTargetAsync(
         GatewayProvisionTargetCommand command,
@@ -85,6 +142,15 @@ internal sealed class GatewayManagementCommandCoordinator(
         await _commands.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            return await ProvisionTargetCoreAsync(command, cancellationToken).ConfigureAwait(false);
+        }
+        finally { _commands.Release(); }
+    }
+
+    private async ValueTask<GatewayManagementCommandResult> ProvisionTargetCoreAsync(
+        GatewayProvisionTargetCommand command,
+        CancellationToken cancellationToken)
+    {
             RecordId ownershipId = GatewayAuthorityRecordIds.TargetOwnership(options.ManagementAuthorityId, command.TargetNodeId);
             RecordId deliveryId = GatewayAuthorityRecordIds.NodeDeliveryAuthority(options.ManagementAuthorityId, command.TargetNodeId);
             byte[] fingerprint = Fingerprint(
@@ -119,9 +185,114 @@ internal sealed class GatewayManagementCommandCoordinator(
             batch.Create(GatewayCommandReceipt.Collection, receiptId, Receipt(
                 command.NamespaceId, "provision-target", command.IdempotencyKey, fingerprint, "provisioned", ownershipId.Value));
             return await CommitAsync(batch, ownershipId.Value, cancellationToken).ConfigureAwait(false);
-        }
-        finally { _commands.Release(); }
     }
+
+    private async ValueTask<EpochReservationResolution> ResolveTargetEpochReservationAsync(
+        BaseSession session,
+        string targetNodeId,
+        bool allowCreate,
+        CancellationToken cancellationToken)
+    {
+        RecordId reservationId = GatewayAuthorityRecordIds.TargetEpochReservation(options.ManagementAuthorityId, targetNodeId);
+        RecordId receiptId = GatewayAuthorityRecordIds.TargetEpochReservationReceipt(options.ManagementAuthorityId, targetNodeId);
+        EpochReservationResolution existing = await ReadTargetEpochReservationAsync(
+            session, reservationId, receiptId, targetNodeId, cancellationToken).ConfigureAwait(false);
+        if (existing.IsResolved || existing.State == GatewayManagementCommandState.Unavailable)
+            return existing;
+        if (!allowCreate)
+            return new(false, null, GatewayManagementCommandState.Unavailable, "management.epoch-reservation.missing");
+
+        BaseRecord<GatewayTargetEpochReservation>[] reservations = (await session
+            .Collection(GatewayTargetEpochReservation.Collection).Query()
+            .Take(MaximumTargetEpochReservations + 1)
+            .ToArrayAsync(MaximumTargetEpochReservations + 1, cancellationToken)
+            .ConfigureAwait(false)).RequireValue();
+        if (reservations.Length >= MaximumTargetEpochReservations)
+            return new(false, null, GatewayManagementCommandState.Unavailable, "management.epoch-reservation.capacity-exhausted");
+
+        string attemptId = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16));
+        string epoch = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16));
+        string epochDigest = Convert.ToHexStringLower(SHA256.HashData(Encoding.ASCII.GetBytes(epoch)));
+        byte[] fingerprint = Fingerprint(
+            "reserve-target-epoch", options.ManagementAuthorityId, targetNodeId, attemptId, epoch);
+        var identity = BaseMutationRequestIdentity.Create(
+            $"gateway-authority:{options.ManagementAuthorityId}",
+            "gateway.reserve-target-epoch",
+            attemptId,
+            BaseMutationRequestFingerprint.Create(fingerprint));
+        BaseBatchBuilder batch = session.Atomic(identity);
+        batch.Create(GatewayTargetEpochReservation.Collection, reservationId, new GatewayTargetEpochReservation
+        {
+            ManagementAuthorityId = options.ManagementAuthorityId,
+            TargetNodeId = targetNodeId,
+            AuthorityEpoch = epoch,
+            ContractVersion = EpochReservationContractVersion,
+        });
+        batch.Create(GatewayTargetEpochReservationReceipt.Collection, receiptId, new GatewayTargetEpochReservationReceipt
+        {
+            ReservationId = reservationId.Value,
+            EpochDigest = epochDigest,
+            StableResultCode = "management.epoch-reservation.committed",
+            ContractVersion = EpochReservationContractVersion,
+        });
+
+        BaseResult<BaseBatchResult> committed = await batch.CommitAsync(cancellationToken).ConfigureAwait(false);
+        if (committed is BaseFailure<BaseBatchResult> failure &&
+            failure.Error.Code == BaseMutationRequestErrorCodes.OutcomeUnknown)
+            return new(false, null, GatewayManagementCommandState.OutcomeUnknown, failure.Error.Code);
+
+        EpochReservationResolution resolved = await ReadTargetEpochReservationAsync(
+            session, reservationId, receiptId, targetNodeId, cancellationToken).ConfigureAwait(false);
+        if (resolved.IsResolved)
+            return resolved;
+        if (committed is BaseFailure<BaseBatchResult> failed)
+            return new(false, null,
+                failed.Status == OperationStatus.Conflict
+                    ? GatewayManagementCommandState.Conflict
+                    : GatewayManagementCommandState.Unavailable,
+                failed.Error.Code);
+        return new(false, null, GatewayManagementCommandState.Unavailable,
+            ((BaseSuccess<BaseBatchResult>)committed).Value.Error?.Code ?? "management.epoch-reservation.rolled-back");
+    }
+
+    private async ValueTask<EpochReservationResolution> ReadTargetEpochReservationAsync(
+        BaseSession session,
+        RecordId reservationId,
+        RecordId receiptId,
+        string targetNodeId,
+        CancellationToken cancellationToken)
+    {
+        BaseResult<BaseRecord<GatewayTargetEpochReservation>> reservationResult = await session
+            .Collection(GatewayTargetEpochReservation.Collection).GetAsync(reservationId, cancellationToken).ConfigureAwait(false);
+        BaseResult<BaseRecord<GatewayTargetEpochReservationReceipt>> receiptResult = await session
+            .Collection(GatewayTargetEpochReservationReceipt.Collection).GetAsync(receiptId, cancellationToken).ConfigureAwait(false);
+        bool hasReservation = reservationResult.TryGetValue(out BaseRecord<GatewayTargetEpochReservation>? reservation);
+        bool hasReceipt = receiptResult.TryGetValue(out BaseRecord<GatewayTargetEpochReservationReceipt>? receipt);
+        if (!hasReservation && !hasReceipt)
+            return new(false, null, GatewayManagementCommandState.Invalid, "management.epoch-reservation.absent");
+        if (!hasReservation || !hasReceipt)
+            return new(false, null, GatewayManagementCommandState.Unavailable, "management.epoch-reservation.corrupt");
+
+        GatewayTargetEpochReservation value = reservation!.Value;
+        GatewayTargetEpochReservationReceipt receiptValue = receipt!.Value;
+        string digest = Convert.ToHexStringLower(SHA256.HashData(Encoding.ASCII.GetBytes(value.AuthorityEpoch)));
+        bool valid = StringComparer.Ordinal.Equals(value.ManagementAuthorityId, options.ManagementAuthorityId)
+            && StringComparer.Ordinal.Equals(value.TargetNodeId, targetNodeId)
+            && StringComparer.Ordinal.Equals(value.ContractVersion, EpochReservationContractVersion)
+            && StringComparer.Ordinal.Equals(receiptValue.ReservationId, reservationId.Value)
+            && StringComparer.Ordinal.Equals(receiptValue.EpochDigest, digest)
+            && StringComparer.Ordinal.Equals(receiptValue.ContractVersion, EpochReservationContractVersion)
+            && GatewayAuthorityRecordIds.IsCanonicalComponent(value.AuthorityEpoch);
+        return valid
+            ? new(true, value.AuthorityEpoch, GatewayManagementCommandState.Accepted, receiptValue.StableResultCode)
+            : new(false, null, GatewayManagementCommandState.Unavailable, "management.epoch-reservation.corrupt");
+    }
+
+    private readonly record struct EpochReservationResolution(
+        bool IsResolved,
+        string? AuthorityEpoch,
+        GatewayManagementCommandState State,
+        string Code);
 
     public async ValueTask<GatewayManagementCommandResult> SubmitAsync(
         GatewaySubmitCommand command,
@@ -183,8 +354,10 @@ internal sealed class GatewayManagementCommandCoordinator(
                     priorReceipt.Value.StableOperationId,
                     priorReceipt.Value.StableDesiredStateToken);
             }
-            if (!ValidateDesiredToken(command, desired))
+            if (command.Activate && !ValidateDesiredToken(command, desired))
                 return new(GatewayManagementCommandState.Conflict, "management.desired-token.conflict");
+            if (!command.Activate && command.ExpectedDesiredStateToken is not null)
+                return new(GatewayManagementCommandState.Invalid, "management.desired-token.forbidden");
             var identity = BaseMutationRequestIdentity.Create(
                 $"gateway:{command.NamespaceId}", $"gateway.{operation}", command.IdempotencyKey,
                 BaseMutationRequestFingerprint.Create(fingerprint));
@@ -225,7 +398,15 @@ internal sealed class GatewayManagementCommandCoordinator(
             batch.Create(GatewayAdministrativeAuditRecord.Collection, auditId, Audit(
                 command.NamespaceId, command.Actor, operation, "accepted", command.CorrelationId, revisionId.Value));
 
-            string selectedIntentId = command.Activate ? intentId.Value : revisionId.Value;
+            if (!command.Activate)
+            {
+                batch.Create(GatewayCommandReceipt.Collection, receiptId, Receipt(
+                    command.NamespaceId, operation, command.IdempotencyKey, fingerprint,
+                    "accepted", revisionId.Value));
+                return await CommitAsync(batch, revisionId.Value, cancellationToken).ConfigureAwait(false);
+            }
+
+            string selectedIntentId = intentId.Value;
             var nextDesired = new GatewayDesiredState
             {
                 ManagementAuthorityId = options.ManagementAuthorityId,
@@ -241,33 +422,30 @@ internal sealed class GatewayManagementCommandCoordinator(
                 desired is null ? RecordUpsertExistenceCondition.CreateOnly : RecordUpsertExistenceCondition.UpdateOnly,
                 desired?.Revision);
 
-            if (command.Activate)
+            batch.Replace(GatewayNodeDeliveryAuthorityState.Collection, deliveryId, delivery.Value with
             {
-                batch.Replace(GatewayNodeDeliveryAuthorityState.Collection, deliveryId, delivery.Value with
-                {
-                    NextAuthorityVersion = assignedVersion + 1,
-                }, delivery.Revision);
-                batch.Create(GatewayActivationIntent.Collection, intentId, new GatewayActivationIntent
-                {
-                    NamespaceId = command.NamespaceId,
-                    TargetNodeId = command.TargetNodeId,
-                    RevisionId = revisionId.Value,
-                    CandidateId = candidateId,
-                    ContentHashValue = canonical.ContentHash.Value,
-                    AuthorityId = delivery.Value.AuthorityId,
-                    AuthorityEpoch = delivery.Value.AuthorityEpoch,
-                    AuthorityVersion = assignedVersion,
-                });
-                RecordId outboxId = GatewayAuthorityRecordIds.CommandFact("outbox", command.NamespaceId, operation, command.IdempotencyKey, intentId.Value, command.TargetNodeId, ContractVersion);
-                batch.Create(GatewayDeliveryOutboxItem.Collection, outboxId, new GatewayDeliveryOutboxItem
-                {
-                    NamespaceId = command.NamespaceId,
-                    TargetNodeId = command.TargetNodeId,
-                    ActivationIntentId = intentId.Value,
-                    State = GatewayDeliveryState.Immediate,
-                    AttemptCount = 0,
-                });
-            }
+                NextAuthorityVersion = assignedVersion + 1,
+            }, delivery.Revision);
+            batch.Create(GatewayActivationIntent.Collection, intentId, new GatewayActivationIntent
+            {
+                NamespaceId = command.NamespaceId,
+                TargetNodeId = command.TargetNodeId,
+                RevisionId = revisionId.Value,
+                CandidateId = candidateId,
+                ContentHashValue = canonical.ContentHash.Value,
+                AuthorityId = delivery.Value.AuthorityId,
+                AuthorityEpoch = delivery.Value.AuthorityEpoch,
+                AuthorityVersion = assignedVersion,
+            });
+            RecordId outboxId = GatewayAuthorityRecordIds.CommandFact("outbox", command.NamespaceId, operation, command.IdempotencyKey, intentId.Value, command.TargetNodeId, ContractVersion);
+            batch.Create(GatewayDeliveryOutboxItem.Collection, outboxId, new GatewayDeliveryOutboxItem
+            {
+                NamespaceId = command.NamespaceId,
+                TargetNodeId = command.TargetNodeId,
+                ActivationIntentId = intentId.Value,
+                State = GatewayDeliveryState.Immediate,
+                AttemptCount = 0,
+            });
 
             batch.Create(GatewayCommandReceipt.Collection, receiptId, Receipt(
                 command.NamespaceId, operation, command.IdempotencyKey, fingerprint,
@@ -275,6 +453,119 @@ internal sealed class GatewayManagementCommandCoordinator(
             return await CommitDesiredAsync(
                 batch, desiredItem, command.NamespaceId, command.TargetNodeId,
                 desiredId, revisionId.Value, selectedDesiredToken, cancellationToken).ConfigureAwait(false);
+        }
+        finally { _commands.Release(); }
+    }
+
+    public async ValueTask<GatewayManagementCommandResult> ActivateRevisionAsync(
+        GatewayActivateRevisionCommand command,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+        ValidateCommon(command.NamespaceId, command.TargetNodeId, command.IdempotencyKey, command.Actor, command.CorrelationId);
+        Validate(command.RevisionId, nameof(command.RevisionId));
+        await authority.InitializeAsync(cancellationToken).ConfigureAwait(false);
+        await _commands.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            BaseSession session = Session(command.Actor, command.NamespaceId, command.CorrelationId);
+            RecordId ownershipId = GatewayAuthorityRecordIds.TargetOwnership(options.ManagementAuthorityId, command.TargetNodeId);
+            BaseResult<BaseRecord<GatewayTargetOwnership>> ownershipResult = await session
+                .Collection(GatewayTargetOwnership.Collection).GetAsync(ownershipId, cancellationToken).ConfigureAwait(false);
+            if (!ownershipResult.TryGetValue(out BaseRecord<GatewayTargetOwnership>? ownership) ||
+                !StringComparer.Ordinal.Equals(ownership!.Value.NamespaceId, command.NamespaceId))
+                return new(GatewayManagementCommandState.Conflict, "management.target.not-owned");
+
+            BaseResult<BaseRecord<GatewayAcceptedRevision>> revisionResult = await session
+                .Collection(GatewayAcceptedRevision.Collection).GetAsync(RecordId.Create(command.RevisionId), cancellationToken).ConfigureAwait(false);
+            if (!revisionResult.TryGetValue(out BaseRecord<GatewayAcceptedRevision>? revision) ||
+                !StringComparer.Ordinal.Equals(revision!.Value.NamespaceId, command.NamespaceId))
+                return new(GatewayManagementCommandState.Invalid, "management.revision.not-found");
+
+            RecordId deliveryId = GatewayAuthorityRecordIds.NodeDeliveryAuthority(options.ManagementAuthorityId, command.TargetNodeId);
+            BaseRecord<GatewayNodeDeliveryAuthorityState> delivery = (await session
+                .Collection(GatewayNodeDeliveryAuthorityState.Collection).GetAsync(deliveryId, cancellationToken).ConfigureAwait(false)).RequireValue();
+            RecordId desiredId = GatewayAuthorityRecordIds.DesiredState(options.ManagementAuthorityId, command.TargetNodeId);
+            BaseResult<BaseRecord<GatewayDesiredState>> desiredResult = await session
+                .Collection(GatewayDesiredState.Collection).GetAsync(desiredId, cancellationToken).ConfigureAwait(false);
+            BaseRecord<GatewayDesiredState>? desired = desiredResult.TryGetValue(out BaseRecord<GatewayDesiredState>? current) ? current : null;
+            const string operation = "activate-existing";
+            byte[] fingerprint = Fingerprint(
+                operation, command.NamespaceId, command.TargetNodeId, command.RevisionId,
+                command.Actor.ActorId, command.Actor.AuthenticationScheme, command.Actor.AuthorizationPolicy,
+                command.CorrelationId, command.ExpectedDesiredStateToken ?? string.Empty);
+            RecordId receiptId = GatewayAuthorityRecordIds.CommandFact("receipt", command.NamespaceId, operation, command.IdempotencyKey, ContractVersion);
+            BaseResult<BaseRecord<GatewayCommandReceipt>> priorReceiptResult = await session
+                .Collection(GatewayCommandReceipt.Collection).GetAsync(receiptId, cancellationToken).ConfigureAwait(false);
+            if (priorReceiptResult.TryGetValue(out BaseRecord<GatewayCommandReceipt>? priorReceipt))
+            {
+                if (!CryptographicOperations.FixedTimeEquals(fingerprint, priorReceipt!.Value.Fingerprint))
+                    return new(GatewayManagementCommandState.Conflict, "management.idempotency-key.reused");
+                return new(GatewayManagementCommandState.Duplicate, "management.duplicate",
+                    priorReceipt.Value.StableOperationId, priorReceipt.Value.StableDesiredStateToken);
+            }
+            if (!ValidateDesiredToken(command.ExpectedDesiredStateToken, desired))
+                return new(GatewayManagementCommandState.Conflict, "management.desired-token.conflict");
+
+            long assignedVersion = delivery.Value.NextAuthorityVersion;
+            if (assignedVersion < 1 || assignedVersion == long.MaxValue)
+                return new(GatewayManagementCommandState.Conflict, "management.authority-version.exhausted");
+            RecordId intentId = GatewayAuthorityRecordIds.CommandFact(
+                "activation-intent", command.NamespaceId, operation, command.IdempotencyKey, command.TargetNodeId, ContractVersion);
+            string candidateId = DeriveText("candidate", command.NamespaceId, command.RevisionId, revision.Value.ContentHashValue);
+            var nextDesired = new GatewayDesiredState
+            {
+                ManagementAuthorityId = options.ManagementAuthorityId,
+                TargetNodeId = command.TargetNodeId,
+                NamespaceId = command.NamespaceId,
+                ActivationIntentId = intentId.Value,
+                RevisionId = command.RevisionId,
+                CandidateId = candidateId,
+            };
+            string selectedDesiredToken = ProtectDesiredToken(nextDesired);
+            var identity = BaseMutationRequestIdentity.Create(
+                $"gateway:{command.NamespaceId}", "gateway.activate-existing", command.IdempotencyKey,
+                BaseMutationRequestFingerprint.Create(fingerprint));
+            BaseBatchBuilder batch = session.Atomic(identity);
+            batch.Replace(GatewayNodeDeliveryAuthorityState.Collection, deliveryId, delivery.Value with
+            {
+                NextAuthorityVersion = assignedVersion + 1,
+            }, delivery.Revision);
+            batch.Create(GatewayActivationIntent.Collection, intentId, new GatewayActivationIntent
+            {
+                NamespaceId = command.NamespaceId,
+                TargetNodeId = command.TargetNodeId,
+                RevisionId = command.RevisionId,
+                CandidateId = candidateId,
+                ContentHashValue = revision.Value.ContentHashValue,
+                AuthorityId = delivery.Value.AuthorityId,
+                AuthorityEpoch = delivery.Value.AuthorityEpoch,
+                AuthorityVersion = assignedVersion,
+            });
+            RecordId outboxId = GatewayAuthorityRecordIds.CommandFact(
+                "outbox", command.NamespaceId, operation, command.IdempotencyKey,
+                intentId.Value, command.TargetNodeId, ContractVersion);
+            batch.Create(GatewayDeliveryOutboxItem.Collection, outboxId, new GatewayDeliveryOutboxItem
+            {
+                NamespaceId = command.NamespaceId,
+                TargetNodeId = command.TargetNodeId,
+                ActivationIntentId = intentId.Value,
+                State = GatewayDeliveryState.Immediate,
+                AttemptCount = 0,
+            });
+            BaseBatchItem<GatewayDesiredState> desiredItem = batch.Upsert(
+                GatewayDesiredState.Collection, desiredId, nextDesired, nextDesired,
+                desired is null ? RecordUpsertExistenceCondition.CreateOnly : RecordUpsertExistenceCondition.UpdateOnly,
+                desired?.Revision);
+            RecordId auditId = GatewayAuthorityRecordIds.CommandFact(
+                "acceptance-audit", command.NamespaceId, operation, command.IdempotencyKey, ContractVersion);
+            batch.Create(GatewayAdministrativeAuditRecord.Collection, auditId, Audit(
+                command.NamespaceId, command.Actor, operation, "accepted", command.CorrelationId, intentId.Value));
+            batch.Create(GatewayCommandReceipt.Collection, receiptId, Receipt(
+                command.NamespaceId, operation, command.IdempotencyKey, fingerprint,
+                "accepted", intentId.Value, selectedDesiredToken));
+            return await CommitDesiredAsync(batch, desiredItem, command.NamespaceId, command.TargetNodeId,
+                desiredId, intentId.Value, selectedDesiredToken, cancellationToken).ConfigureAwait(false);
         }
         finally { _commands.Release(); }
     }
@@ -364,12 +655,15 @@ internal sealed class GatewayManagementCommandCoordinator(
     }
 
     private bool ValidateDesiredToken(GatewaySubmitCommand command, BaseRecord<GatewayDesiredState>? desired)
+        => ValidateDesiredToken(command.ExpectedDesiredStateToken, desired);
+
+    private bool ValidateDesiredToken(string? expectedDesiredStateToken, BaseRecord<GatewayDesiredState>? desired)
     {
         if (desired is null)
-            return command.ExpectedDesiredStateToken is null;
-        return command.ExpectedDesiredStateToken is not null &&
+            return expectedDesiredStateToken is null;
+        return expectedDesiredStateToken is not null &&
             CryptographicOperations.FixedTimeEquals(
-                Encoding.ASCII.GetBytes(command.ExpectedDesiredStateToken),
+                Encoding.ASCII.GetBytes(expectedDesiredStateToken),
                 Encoding.ASCII.GetBytes(ProtectDesiredToken(desired.Value)));
     }
 
