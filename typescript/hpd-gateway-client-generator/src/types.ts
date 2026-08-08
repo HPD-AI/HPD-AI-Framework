@@ -71,3 +71,13 @@ export interface GatewaySchemaConstraint {
   readonly brand: GatewayStringBrand;
   readonly rules: GatewayConstraintRules;
 }
+
+export interface GenerationPlan {
+  readonly sourceSha256: string;
+  readonly openApiSha256: string;
+  readonly manifestSha256: string;
+  readonly outputPlanSha256: string;
+  readonly operations: readonly GatewayClientOperation[];
+  readonly schemas: Readonly<Record<string, JsonValue>>;
+  readonly schemaConstraints: readonly GatewaySchemaConstraint[];
+}
