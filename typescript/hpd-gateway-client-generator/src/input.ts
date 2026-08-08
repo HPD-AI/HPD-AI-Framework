@@ -210,18 +210,46 @@ function validateOpenApi(openApi: Readonly<Record<string, JsonValue>>, manifest:
     if (wire.operationId !== operation.openApiOperationId) fail(`Operation ID drift for ${operation.operation}.`);
     const key = `${operation.method} ${operation.path}`;
     if (!observed.add(key)) fail("Duplicate method/path operation.");
+    const securityRequirements = array(wire.security, "operation security");
+    if (securityRequirements.length !== 1) fail("Every operation requires exactly one security requirement.");
+    const securityRequirement = object(securityRequirements[0], "security requirement");
+    exact(securityRequirement, [manifest.securityScheme]);
+    if (!Array.isArray(securityRequirement[manifest.securityScheme]) || (securityRequirement[manifest.securityScheme] as unknown[]).length !== 0)
+      fail("Gateway bearer security scopes must be empty.");
     const parameters = array(wire.parameters, "parameters");
     const wireParameters = parameters.map(value => {
       const parameter = object(value, "parameter");
+      exact(parameter, ["name", "in", "description", "schema", ...(parameter.required === undefined ? [] : ["required"])]);
+      if (typeof parameter.name !== "string" || !["path", "query", "header"].includes(String(parameter.in))) fail("Invalid OpenAPI parameter identity.");
+      if (parameter.description !== undefined && typeof parameter.description !== "string") fail("Invalid parameter description.");
       return `${String(parameter.in)}\0${String(parameter.name)}`;
     }).sort();
     const expectedParameters = operation.parameterConstraints.map(value => `${value.location}\0${value.name}`).sort();
     if (!equal(wireParameters, expectedParameters)) fail(`Parameter drift for ${operation.operation}.`);
+    for (const constraint of operation.parameterConstraints) {
+      const parameter = parameters.map(value => object(value, "parameter")).find(value => value.in === constraint.location && value.name === constraint.name)!;
+      if ((parameter.required === true) !== constraint.required) fail(`Parameter required drift for ${operation.operation}.`);
+      const parameterSchema = object(parameter.schema, "parameter schema");
+      if (constraint.location === "query" && constraint.name === "maximum") {
+        if (parameterSchema.type !== "integer" || parameterSchema.minimum !== operation.pagination.minimumMaximum ||
+            parameterSchema.maximum !== operation.pagination.maximumMaximum || parameterSchema.default !== operation.pagination.defaultMaximum)
+          fail("Pagination maximum constraint drift.");
+      } else correlateConstraintSchema(parameterSchema, constraint.rules, constraint.location === "header" && constraint.name === "If-Match");
+    }
     const responses = object(wire.responses, "responses");
     const statuses = Object.keys(responses).sort();
     const expectedStatuses = [String(operation.success.status), ...operation.documentedErrors.map(String)].sort();
     if (!equal(statuses, expectedStatuses)) fail(`Response drift for ${operation.operation}.`);
-    requireSchemaRef(responseSchema(responses[String(operation.success.status)]), operation.success.schemaRef, schemas);
+    for (const [status, responseValue] of Object.entries(responses)) {
+      const response = object(responseValue, "response");
+      exact(response, ["description", "content"]);
+      if (typeof response.description !== "string") fail("Invalid response description.");
+      const content = object(response.content, "response content");
+      exact(content, ["application/json"]);
+      const expected = status === String(operation.success.status) ? operation.success.schemaRef :
+        "#/components/schemas/HPD_Gateway_Admin_GatewayAdminError";
+      requireSchemaRef(object(content["application/json"], "response media").schema, expected, schemas);
+    }
     if (operation.requestBody.presence !== "none") {
       const body = object(wire.requestBody, "requestBody");
       const required = body.required === true;
@@ -236,13 +264,32 @@ function validateOpenApi(openApi: Readonly<Record<string, JsonValue>>, manifest:
   if (operationCount !== manifest.operations.length) fail("OpenAPI contains additional operations.");
   for (const constraint of manifest.schemaConstraints) {
     const schema = object(schemas[constraint.schemaRef.slice("#/components/schemas/".length)], "constrained schema");
-    resolvePointer(schema, constraint.propertyPointer);
+    const property = object(resolvePointer(schema, constraint.propertyPointer), "constrained property");
+    if (constraint.appliesTo === "collection") {
+      if (property.type !== "array" || property.minItems !== constraint.rules.collectionMinimum ||
+          property.maxItems !== constraint.rules.collectionMaximum) fail("Schema collection constraint drift.");
+    } else {
+      const target = constraint.appliesTo === "items" ? object(property.items, "constrained items") : property;
+      if (constraint.brand !== "none" || constraint.rules.maximumUtf8Bytes !== null)
+        correlateConstraintSchema(target, constraint.rules, false);
+    }
   }
 }
 
-const schemaFields = ["$ref", "type", "format", "description", "enum", "const", "oneOf", "discriminator", "properties", "required", "additionalProperties", "items", "minItems", "maxItems", "minLength", "maxLength", "pattern", "minimum", "maximum", "default"] as const;
+function correlateConstraintSchema(schema: Record<string, unknown>, rules: GatewayConstraintRules, framedEntityTag: boolean): void {
+  if (schema.type !== "string") fail("Constrained parameter must be a string.");
+  const minimum = framedEntityTag && rules.minimumUtf8Bytes !== null ? rules.minimumUtf8Bytes + 2 :
+    rules.characterSet === "unicode" && (rules.minimumUtf8Bytes ?? 0) > 0 ? 1 : rules.minimumUtf8Bytes;
+  const maximum = framedEntityTag && rules.maximumUtf8Bytes !== null ? rules.maximumUtf8Bytes + 2 : rules.maximumUtf8Bytes;
+  if (minimum !== null && schema.minLength !== minimum) fail("Parameter minimum constraint drift.");
+  if (maximum !== null && schema.maxLength !== maximum) fail("Parameter maximum constraint drift.");
+  if (rules.characterSet !== "unicode" || rules.rejectUnicodeControls)
+    if (typeof schema.pattern !== "string" || schema.pattern.length === 0) fail("Parameter character-set constraint drift.");
+}
+
+const schemaFields = ["$ref", "type", "title", "format", "description", "enum", "const", "oneOf", "discriminator", "properties", "required", "additionalProperties", "items", "minItems", "maxItems", "uniqueItems", "minLength", "maxLength", "pattern", "minimum", "maximum", "default"] as const;
 const schemaTypes = ["string", "integer", "number", "boolean", "object", "array", "null"] as const;
-const schemaFormats = ["uri", "uint16", "int32", "int64", "uint64", "date-time"] as const;
+const schemaFormats = ["uri", "uuid", "uint16", "int32", "int64", "uint64", "date-time"] as const;
 
 function validateSchemas(schemas: Record<string, unknown>): void {
   const names = Object.keys(schemas);
@@ -285,6 +332,7 @@ function validateSchema(input: unknown, schemas: Record<string, unknown>, path: 
   const nonNullTypes = types.filter(value => value !== "null");
   if (new Set(types).size !== types.length || nonNullTypes.length > 1) fail("Invalid schema type union.");
   if (schema.format !== undefined) one(schema.format, schemaFormats, "schema format");
+  if (schema.title !== undefined) boundedString(schema.title, "schema title", 16_384);
   if (schema.description !== undefined) boundedString(schema.description, "schema description", 16_384);
   if (schema.pattern !== undefined) boundedString(schema.pattern, "schema pattern", 16_384);
   for (const field of ["minItems", "maxItems"] as const)
@@ -298,6 +346,8 @@ function validateSchema(input: unknown, schemas: Record<string, unknown>, path: 
     const required = stringArray(schema.required, "required", 10_000);
     if (new Set(required).size !== required.length) fail("Duplicate required property.");
   }
+  if (schema.uniqueItems !== undefined && typeof schema.uniqueItems !== "boolean") fail("Invalid uniqueItems.");
+  if (schema.additionalProperties === true) fail("Free-form additional properties are unsupported.");
   if (schema.additionalProperties !== undefined && typeof schema.additionalProperties !== "boolean")
     validateSchema(schema.additionalProperties, schemas, `${path}/additionalProperties`);
   if (schema.items !== undefined) validateSchema(schema.items, schemas, `${path}/items`);
@@ -326,6 +376,20 @@ function validateSchema(input: unknown, schemas: Record<string, unknown>, path: 
       const reference = localRef(value);
       if (schemas[reference.slice("#/components/schemas/".length)] === undefined) fail(`Unresolved discriminator reference '${reference}'.`);
     }
+    const observed = new Set<string>();
+    for (const branchValue of array(schema.oneOf, "oneOf")) {
+      const branch = object(branchValue, "discriminator branch");
+      const reference = localRef(branch.$ref);
+      const target = object(schemas[reference.slice("#/components/schemas/".length)], "discriminator target");
+      const required = stringArray(target.required, "discriminator required", 10_000);
+      if (!required.includes(discriminator.propertyName as string)) fail("Discriminator property must be required in every branch.");
+      const tagSchema = object(object(target.properties, "discriminator properties")[discriminator.propertyName as string], "discriminator tag");
+      const tag = typeof tagSchema.const === "string" ? tagSchema.const :
+        Array.isArray(tagSchema.enum) && tagSchema.enum.length === 1 && typeof tagSchema.enum[0] === "string" ? tagSchema.enum[0] : null;
+      if (tag === null || observed.has(tag) || mapping[tag] !== reference) fail("Discriminator branch correlation drift.");
+      observed.add(tag);
+    }
+    if (observed.size !== Object.keys(mapping).length) fail("Discriminator mapping contains additional entries.");
   }
   if (types.length === 0 && schema.oneOf === undefined && schema.const === undefined && schema.enum === undefined && schema.properties === undefined)
     fail(`Schema '${path}' has no supported shape.`);

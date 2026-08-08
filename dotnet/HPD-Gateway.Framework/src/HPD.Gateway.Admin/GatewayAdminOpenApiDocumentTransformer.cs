@@ -17,6 +17,10 @@ internal sealed class GatewayAdminOpenApiSchemaTransformer(GatewayAdminOpenApiCo
     {
         cancellationToken.ThrowIfCancellationRequested();
         Type schemaType = Nullable.GetUnderlyingType(context.JsonTypeInfo.Type) ?? context.JsonTypeInfo.Type;
+        if (schemaType == typeof(long) || schemaType == typeof(ulong))
+            schema.Type = Nullable.GetUnderlyingType(context.JsonTypeInfo.Type) is null
+                ? JsonSchemaType.String
+                : JsonSchemaType.String | JsonSchemaType.Null;
         if (schemaType.IsEnum)
         {
             schema.Type = JsonSchemaType.String;
@@ -249,9 +253,11 @@ internal sealed class GatewayAdminOpenApiDocumentTransformer(GatewayAdminOpenApi
     private static void NormalizeSchema(OpenApiDocument document, OpenApiSchema schema, HashSet<OpenApiSchema> visited)
     {
         if (!visited.Add(schema)) return;
-        if (schema.Type is { } wireType &&
-            wireType.HasFlag(JsonSchemaType.Integer) && wireType.HasFlag(JsonSchemaType.String))
-            schema.Type = wireType & ~JsonSchemaType.String;
+        if (schema.Type is { } wireType && wireType.HasFlag(JsonSchemaType.Integer))
+        {
+            if (schema.Format is not ("int64" or "uint64") && wireType.HasFlag(JsonSchemaType.String))
+                schema.Type = wireType & ~JsonSchemaType.String;
+        }
         if (schema.AnyOf is { Count: > 0 })
         {
             if (schema.OneOf is { Count: > 0 })
@@ -292,6 +298,8 @@ internal sealed class GatewayAdminOpenApiDocumentTransformer(GatewayAdminOpenApi
                 "discovery" => typeof(DiscoveredEndpointSource),
                 _ => throw new InvalidOperationException("Gateway Admin discriminator value is unsupported."),
             };
+            concrete.Required ??= new HashSet<string>(StringComparer.Ordinal);
+            concrete.Required.Add(propertyName);
             string id = GatewayAdminSchemaReferenceIds.Create(branchType)!;
             IDictionary<string, IOpenApiSchema> components = document.Components?.Schemas ??
                 throw new InvalidOperationException("Gateway Admin schema component catalog is missing.");

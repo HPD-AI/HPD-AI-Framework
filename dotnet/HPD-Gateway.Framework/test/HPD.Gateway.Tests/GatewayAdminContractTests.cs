@@ -29,6 +29,21 @@ namespace HPD.Gateway.Tests;
 public sealed class GatewayAdminContractTests
 {
     [Fact]
+    public void Admin_64_bit_wire_values_are_exact_decimal_strings()
+    {
+        var options = new System.Text.Json.JsonSerializerOptions();
+        options.Converters.Add(GatewayInt64JsonConverter.Instance);
+        options.Converters.Add(GatewayUInt64JsonConverter.Instance);
+
+        System.Text.Json.JsonSerializer.Serialize(long.MinValue, options).Should().Be("\"-9223372036854775808\"");
+        System.Text.Json.JsonSerializer.Serialize(ulong.MaxValue, options).Should().Be("\"18446744073709551615\"");
+        System.Text.Json.JsonSerializer.Deserialize<long>("\"-9223372036854775808\"", options).Should().Be(long.MinValue);
+        System.Text.Json.JsonSerializer.Deserialize<ulong>("\"18446744073709551615\"", options).Should().Be(ulong.MaxValue);
+        FluentActions.Invoking(() => System.Text.Json.JsonSerializer.Deserialize<ulong>("18446744073709551615", options))
+            .Should().Throw<System.Text.Json.JsonException>();
+    }
+
+    [Fact]
     public void Generation_json_reader_is_bounded_and_rejects_duplicate_members()
     {
         GatewayBoundedJson.ParseObject("{}"u8).Should().NotBeNull();

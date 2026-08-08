@@ -11,6 +11,8 @@ public static class GatewayAdminServiceCollectionExtensions
         services.AddProblemDetails();
         services.ConfigureHttpJsonOptions(options =>
         {
+            options.SerializerOptions.Converters.Add(GatewayInt64JsonConverter.Instance);
+            options.SerializerOptions.Converters.Add(GatewayUInt64JsonConverter.Instance);
             options.SerializerOptions.TypeInfoResolverChain.Insert(0, GatewayJsonSerializerContext.Default);
             options.SerializerOptions.TypeInfoResolverChain.Insert(0, GatewayAdminJsonContext.Default);
         });
@@ -25,6 +27,38 @@ public static class GatewayAdminServiceCollectionExtensions
         services.AddSingleton<GatewayAdminOpenApiContract>();
         return services;
     }
+}
+
+internal sealed class GatewayInt64JsonConverter : System.Text.Json.Serialization.JsonConverter<long>
+{
+    internal static GatewayInt64JsonConverter Instance { get; } = new();
+    public override long Read(ref System.Text.Json.Utf8JsonReader reader, Type typeToConvert, System.Text.Json.JsonSerializerOptions options)
+    {
+        string? text = reader.TokenType == System.Text.Json.JsonTokenType.String ? reader.GetString() : null;
+        if (text is null || !long.TryParse(text, System.Globalization.NumberStyles.AllowLeadingSign,
+                System.Globalization.CultureInfo.InvariantCulture, out long value) ||
+            value.ToString(System.Globalization.CultureInfo.InvariantCulture) != text)
+            throw new System.Text.Json.JsonException("Expected a canonical signed 64-bit decimal string.");
+        return value;
+    }
+    public override void Write(System.Text.Json.Utf8JsonWriter writer, long value, System.Text.Json.JsonSerializerOptions options) =>
+        writer.WriteStringValue(value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+}
+
+internal sealed class GatewayUInt64JsonConverter : System.Text.Json.Serialization.JsonConverter<ulong>
+{
+    internal static GatewayUInt64JsonConverter Instance { get; } = new();
+    public override ulong Read(ref System.Text.Json.Utf8JsonReader reader, Type typeToConvert, System.Text.Json.JsonSerializerOptions options)
+    {
+        string? text = reader.TokenType == System.Text.Json.JsonTokenType.String ? reader.GetString() : null;
+        if (text is null || !ulong.TryParse(text, System.Globalization.NumberStyles.None,
+                System.Globalization.CultureInfo.InvariantCulture, out ulong value) ||
+            value.ToString(System.Globalization.CultureInfo.InvariantCulture) != text)
+            throw new System.Text.Json.JsonException("Expected a canonical unsigned 64-bit decimal string.");
+        return value;
+    }
+    public override void Write(System.Text.Json.Utf8JsonWriter writer, ulong value, System.Text.Json.JsonSerializerOptions options) =>
+        writer.WriteStringValue(value.ToString(System.Globalization.CultureInfo.InvariantCulture));
 }
 
 internal static class GatewayAdminSchemaReferenceIds
