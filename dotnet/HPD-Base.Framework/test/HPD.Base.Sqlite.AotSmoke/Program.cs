@@ -36,6 +36,7 @@ try
         {
             Id = 1,
             Key = Enumerable.Repeat((byte)0x62, 32).ToArray(),
+            IssueNotBefore = DateTimeOffset.UnixEpoch,
         });
         builder.UseSqlite(options =>
         {

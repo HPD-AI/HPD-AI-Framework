@@ -107,9 +107,24 @@ internal sealed class DefaultBasePurgeProcessor(
             return Failed(generation.Error ?? Error(BaseCollectionErrorCodes.PurgeFailed, "The purge generation could not be advanced.", ErrorCategory.Store));
 
         PurgeGeneration = generation.Value;
+        BaseRecordMutationFact[] mutations = _attempts.Select(static attempt => attempt.Mutation!).ToArray();
+        OperationResult projections = await session.ApplyMutationProjectionsAsync(
+            BaseAtomicMutationProjectionFactory.Create(
+                mutations,
+                BaseAtomicMutationProjectionFactory.Purge(
+                    commands[0].Collection.Id,
+                    generation.Value - 1,
+                    generation.Value)),
+            cancellationToken).ConfigureAwait(false);
+        if (!projections.IsSuccess())
+            return Failed(projections.Error ?? Error(
+                "base.runtime.mutationProjectionFailed",
+                "A transactional mutation projection failed.",
+                ErrorCategory.Store));
+
         return new AtomicMutationProcessingResult(
             AtomicMutationProcessingOutcome.ReadyToCommit,
-            _attempts.Select(static attempt => attempt.Mutation!).ToArray());
+            mutations);
     }
 
     private static bool WriteCheckDenied(RecordPayload payload, BasePolicyEvaluation evaluation) =>

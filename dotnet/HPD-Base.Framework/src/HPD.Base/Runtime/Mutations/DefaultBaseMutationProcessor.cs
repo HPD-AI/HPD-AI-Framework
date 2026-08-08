@@ -200,9 +200,19 @@ internal sealed class DefaultBaseMutationProcessor(
                 return Failed(attempt.Error ?? Error("base.runtime.batch.itemInvalid", "A batch item failed.", ErrorCategory.Unexpected));
         }
 
+        BaseRecordMutationFact[] mutations = _attempts.Select(static attempt => attempt.Mutation!).ToArray();
+        OperationResult projections = await session.ApplyMutationProjectionsAsync(
+            BaseAtomicMutationProjectionFactory.Create(mutations),
+            cancellationToken).ConfigureAwait(false);
+        if (!projections.IsSuccess())
+            return Failed(projections.Error ?? Error(
+                "base.runtime.mutationProjectionFailed",
+                "A transactional mutation projection failed.",
+                ErrorCategory.Store));
+
         return new AtomicMutationProcessingResult(
             AtomicMutationProcessingOutcome.ReadyToCommit,
-            _attempts.Select(static attempt => attempt.Mutation!).ToArray());
+            mutations);
     }
 
     private async ValueTask<BaseMutationAttempt> ProcessCommandAsync(

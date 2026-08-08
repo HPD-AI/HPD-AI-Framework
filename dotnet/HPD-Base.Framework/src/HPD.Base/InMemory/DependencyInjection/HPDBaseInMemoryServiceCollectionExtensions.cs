@@ -43,7 +43,8 @@ internal static class HPDBaseInMemoryServiceCollectionExtensions
                 ActiveKey = new BaseOpaqueTokenKey
                 {
                     Id = 0,
-                    Key = System.Security.Cryptography.RandomNumberGenerator.GetBytes(32)
+                    Key = System.Security.Cryptography.RandomNumberGenerator.GetBytes(32),
+                    IssueNotBefore = DateTimeOffset.UnixEpoch
                 }
             }));
         services.TryAddSingleton(new BaseTokenProtectionRegistration(false));

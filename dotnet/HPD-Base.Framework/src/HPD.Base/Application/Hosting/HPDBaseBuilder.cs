@@ -268,7 +268,7 @@ public sealed class HPDBaseBuilder
 
     private static HPDBaseTokenProtectionOptions CreateTokenOptions() => new()
     {
-        ActiveKey = new BaseOpaqueTokenKey { Id = 0, Key = System.Security.Cryptography.RandomNumberGenerator.GetBytes(32) },
+        ActiveKey = new BaseOpaqueTokenKey { Id = 0, Key = System.Security.Cryptography.RandomNumberGenerator.GetBytes(32), IssueNotBefore = DateTimeOffset.UnixEpoch },
     };
 
     private static void ValidateTokenOptions(HPDBaseTokenProtectionOptions options)
@@ -276,6 +276,26 @@ public sealed class HPDBaseBuilder
         BaseOpaqueTokenKey[] keys = [options.ActiveKey, .. options.DecryptionKeys ?? []];
         if (keys.Any(static key => key?.Key is not { Length: 32 }) || keys.Select(static key => key.Id).Distinct().Count() != keys.Length)
             throw new ArgumentException("Token protection keys must have unique IDs and exactly 32 bytes.", nameof(options));
+        if (keys.Any(static key => key.IssueNotBefore.Offset != TimeSpan.Zero
+            || key.IssueUntil is { } issueUntil && issueUntil.Offset != TimeSpan.Zero
+            || key.DecryptUntil is { } decryptUntil && decryptUntil.Offset != TimeSpan.Zero))
+            throw new ArgumentException("Token protection key lifecycle instants must use UTC offset zero.", nameof(options));
+        if (options.ActiveKey.IssueUntil is null && options.ActiveKey.DecryptUntil is not null)
+            throw new ArgumentException("An indefinitely issuing active token key cannot have a finite decryption lifetime.", nameof(options));
+        foreach (BaseOpaqueTokenKey key in keys)
+        {
+            if (key.IssueUntil is { } issueUntil && issueUntil <= key.IssueNotBefore)
+                throw new ArgumentException("A token key issuance lifetime is invalid.", nameof(options));
+            if (key.DecryptUntil is { } decryptUntil
+                && (key.IssueUntil is not { } stopped
+                    || decryptUntil < checked(stopped + TimeSpan.FromDays(30))))
+                throw new ArgumentException("A retained token key must decrypt for at least 30 days after issuance stops.", nameof(options));
+        }
+        foreach (BaseOpaqueTokenKey key in options.DecryptionKeys ?? [])
+        {
+            if (key.IssueUntil is null)
+                throw new ArgumentException("A decryption-only token key requires its issuance-stop instant.", nameof(options));
+        }
     }
 
     /// <summary>Performs validate Index Capabilities.</summary>

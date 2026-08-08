@@ -80,11 +80,14 @@ internal class FakeRecordStore : IAtomicRecordStore
     public RecordPatchRequest? LastPatchRequest { get; protected set; }
     public RecordReplaceRequest? LastReplaceRequest { get; protected set; }
     public Action? AfterCreateCommitted { get; set; }
+    public BaseAtomicMutationProjectionRequest? LastProjectionRequest { get; private set; }
 
     public void AddRecord(RecordEnvelope record)
     {
         ArgumentNullException.ThrowIfNull(record);
-        Records[record.Id.Value] = record;
+        Records[record.Id.Value] = record.Metadata.Revision is null
+            ? record with { Metadata = record.Metadata with { Revision = new RevisionToken("1") } }
+            : record;
     }
 
     public ValueTask<OperationResult<RecordPage>> ListAsync(
@@ -393,6 +396,16 @@ internal class FakeRecordStore : IAtomicRecordStore
             return ValueTask.FromResult(OperationResults.Ok(++_purgeGeneration));
         }
 
+        public ValueTask<OperationResult> ApplyMutationProjectionsAsync(
+            BaseAtomicMutationProjectionRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            EnsureActive();
+            cancellationToken.ThrowIfCancellationRequested();
+            owner.LastProjectionRequest = request;
+            return ValueTask.FromResult(OperationResults.NoContent());
+        }
+
         private OperationResult<RecordMutationSessionResult> SessionResult(
             OperationStatus status,
             RecordMutationSessionContext context,
@@ -489,7 +502,7 @@ internal class FakeRecordStore : IAtomicRecordStore
             CollectionId = collection.Id,
             Id = id,
             Payload = payload,
-            Metadata = new RecordMetadata()
+            Metadata = new RecordMetadata { Revision = new RevisionToken("1") }
         };
 
         private static RecordPayload Merge(RecordPayload existing, RecordPayload patch)

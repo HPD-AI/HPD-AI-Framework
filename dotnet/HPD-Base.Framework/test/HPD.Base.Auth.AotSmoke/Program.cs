@@ -60,7 +60,7 @@ try
         })
         .ConfigureTokenProtection(options => options.ActiveKey = new BaseOpaqueTokenKey
         {
-            Id = 3, Key = Enumerable.Repeat((byte)0x74, 32).ToArray(),
+            Id = 3, Key = Enumerable.Repeat((byte)0x74, 32).ToArray(), IssueNotBefore = DateTimeOffset.UnixEpoch,
         })
         .AddCollection(items)
         .AddAspNetCore()

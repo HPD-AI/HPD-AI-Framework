@@ -839,6 +839,16 @@ public sealed partial class SqliteRecordStore
                 cancellationToken,
                 token => AdvancePurgeGenerationCoreAsync(collection, expectedGeneration, token));
 
+        /// <inheritdoc />
+        public ValueTask<OperationResult> ApplyMutationProjectionsAsync(
+            BaseAtomicMutationProjectionRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(request);
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.FromResult(OperationResults.NoContent());
+        }
+
         /// <summary>Executes the close async operation.</summary>
         public async ValueTask CloseAsync()
         {
@@ -1325,7 +1335,7 @@ public sealed partial class SqliteRecordStore
             RecordEnvelope? before,
             RecordEnvelope? after,
             DeleteResult? delete,
-            EventReference committedEvent)
+            MutationJournalAppendResult committedEvent)
         {
             RecordUpsertOutcome? upsertOutcome =
                 context.RequestedOperation == BaseRecordMutationKind.Upsert
@@ -1340,7 +1350,8 @@ public sealed partial class SqliteRecordStore
                 CommittedOperation = committedOperation,
                 UpsertOutcome = upsertOutcome,
                 Collection = collection,
-                Event = committedEvent,
+                Event = committedEvent.Event,
+                JournalPosition = committedEvent.Position,
                 Before = before,
                 After = after,
                 Delete = delete,

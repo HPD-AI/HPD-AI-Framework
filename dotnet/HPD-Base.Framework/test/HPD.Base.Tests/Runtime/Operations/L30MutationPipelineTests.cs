@@ -78,6 +78,9 @@ public sealed class L30MutationPipelineTests
         Assert.Equal(["first", "second"], result.Value.Items.Select(static item => item.ItemId));
         Assert.Equal(1, store.AtomicExecutionCalls);
         Assert.Equal(0, store.SingleExecutionCalls);
+        BaseAtomicMutationProjectionRequest projection = Assert.IsType<BaseAtomicMutationProjectionRequest>(store.LastProjectionRequest);
+        Assert.Equal(2, projection.Mutations.Length);
+        Assert.Equal(["first", "second"], projection.Mutations.Select(static mutation => mutation.ItemId));
     }
 
     [Fact]

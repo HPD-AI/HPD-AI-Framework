@@ -20,6 +20,7 @@ builder.Services.AddHPDBase(hpd => hpd
     {
         Id = 1,
         Key = Enumerable.Repeat((byte)0x37, 32).ToArray(),
+        IssueNotBefore = DateTimeOffset.UnixEpoch,
     })
     .AddCollection(items));
 

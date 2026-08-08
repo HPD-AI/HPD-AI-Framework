@@ -7,6 +7,12 @@ public sealed record BaseOpaqueTokenKey
     public required byte Id { get; init; }
     /// <summary>Gets the 32-byte key material. BASE copies it during option validation.</summary>
     public required byte[] Key { get; init; }
+    /// <summary>Gets the inclusive UTC instant at which this key may begin issuing tokens.</summary>
+    public required DateTimeOffset IssueNotBefore { get; init; }
+    /// <summary>Gets the optional exclusive UTC instant at which this key stops issuing tokens.</summary>
+    public DateTimeOffset? IssueUntil { get; init; }
+    /// <summary>Gets the optional exclusive UTC instant at which this key stops decrypting tokens.</summary>
+    public DateTimeOffset? DecryptUntil { get; init; }
 }
 
 /// <summary>Configures the shared closed key ring for purpose-bound BASE tokens.</summary>

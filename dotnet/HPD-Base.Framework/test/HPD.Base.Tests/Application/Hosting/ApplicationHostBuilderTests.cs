@@ -539,7 +539,7 @@ public sealed class ApplicationHostBuilderTests
             var services = new ServiceCollection().AddLogging();
             services.AddHPDBase(builder => builder
                 .ConfigureSchema(options => { options.ApplicationId = "administration-test"; options.PlanProtectionKey = Enumerable.Repeat((byte)0x72, 32).ToArray(); })
-                .ConfigureTokenProtection(options => options.ActiveKey = new BaseOpaqueTokenKey { Id = 7, Key = tokenKey })
+                .ConfigureTokenProtection(options => options.ActiveKey = new BaseOpaqueTokenKey { Id = 7, Key = tokenKey, IssueNotBefore = DateTimeOffset.UnixEpoch })
                 .ReplacePolicyEvaluator<AdministrationAllowPolicyEvaluator>()
                 .AddCollection(GeneratedProject.Collection)
                 .UseSqlite(options => { options.DataSource = path; options.StoreId = "sqlite"; options.AdministrationEnabled = true; }));

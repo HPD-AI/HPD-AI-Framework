@@ -255,7 +255,8 @@ public sealed class SqliteCursorPaginationTests
             ActiveKey = new BaseOpaqueTokenKey
             {
                 Id = 9,
-                Key = Enumerable.Repeat((byte)0x99, 32).ToArray()
+                Key = Enumerable.Repeat((byte)0x99, 32).ToArray(),
+                IssueNotBefore = DateTimeOffset.UnixEpoch
             }
         }));
 

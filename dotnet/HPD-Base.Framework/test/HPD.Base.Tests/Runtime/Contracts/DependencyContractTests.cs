@@ -8,6 +8,7 @@ public sealed class DependencyContractTests
         "System.Runtime.InteropServices",
         "System.Collections",
         "System.Collections.Concurrent",
+        "System.Collections.Immutable",
         "System.ComponentModel",
         "System.Linq",
         "System.Memory",

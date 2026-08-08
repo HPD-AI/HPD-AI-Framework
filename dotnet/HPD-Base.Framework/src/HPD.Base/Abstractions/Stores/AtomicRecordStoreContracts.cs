@@ -120,6 +120,9 @@ public sealed record BaseRecordMutationFact
     /// </summary>
     public required EventReference Event { get; init; }
 
+    /// <summary>Gets the provider-local provisional mutation-journal position.</summary>
+    public BaseMutationJournalPosition JournalPosition { get; init; }
+
     /// <summary>Gets the unredacted record state before the mutation, when applicable.</summary>
     public RecordEnvelope? Before { get; init; }
 
@@ -287,6 +290,14 @@ public interface IAtomicRecordSession
     ValueTask<OperationResult<long>> AdvancePurgeGenerationAsync(
         CollectionDefinition collection,
         long? expectedGeneration,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Applies every installed provider-owned projection inside this transaction.</summary>
+    /// <param name="request">The deeply immutable canonical projection facts.</param>
+    /// <param name="cancellationToken">Cancellation requested before confirmed commit.</param>
+    /// <returns>A bounded success or failure result.</returns>
+    ValueTask<OperationResult> ApplyMutationProjectionsAsync(
+        BaseAtomicMutationProjectionRequest request,
         CancellationToken cancellationToken = default);
 }
 

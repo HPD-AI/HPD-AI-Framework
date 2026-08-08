@@ -155,6 +155,7 @@ public sealed class BaseSessionModuleTests
                     {
                         Id = 7,
                         Key = Enumerable.Repeat((byte)0x47, 32).ToArray(),
+                        IssueNotBefore = DateTimeOffset.UnixEpoch,
                     })
                     .AddRealtime());
             var session = host.Session(

@@ -86,6 +86,7 @@ public sealed class BaseQueryCursorCodecTests
             {
                 Id = 4,
                 Key = Enumerable.Repeat((byte)0x44, 32).ToArray(),
+                IssueNotBefore = DateTimeOffset.UnixEpoch,
             },
         }));
 }

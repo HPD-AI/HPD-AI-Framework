@@ -24,7 +24,7 @@ public static class HPDBaseRealtimeServiceCollectionExtensions
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<IOptions<HPDBaseTokenProtectionOptions>>(_ => Options.Create(new HPDBaseTokenProtectionOptions
         {
-            ActiveKey = new BaseOpaqueTokenKey { Id = 0, Key = System.Security.Cryptography.RandomNumberGenerator.GetBytes(32) },
+            ActiveKey = new BaseOpaqueTokenKey { Id = 0, Key = System.Security.Cryptography.RandomNumberGenerator.GetBytes(32), IssueNotBefore = DateTimeOffset.UnixEpoch },
         }));
         services.TryAddSingleton<BaseOpaqueTokenProtector>();
         services.TryAddSingleton(new BaseTokenProtectionRegistration(false));

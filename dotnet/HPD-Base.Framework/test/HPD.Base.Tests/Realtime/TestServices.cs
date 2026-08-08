@@ -18,6 +18,7 @@ internal static class TestServices
             {
                 Id = 11,
                 Key = Enumerable.Repeat((byte)0x6B, 32).ToArray(),
+                IssueNotBefore = DateTimeOffset.UnixEpoch,
             },
         }));
         if (enableDependencies)

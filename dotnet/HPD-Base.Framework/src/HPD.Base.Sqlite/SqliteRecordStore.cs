@@ -586,7 +586,7 @@ WHERE event_id = $eventId
         return await reader.ReadAsync(cancellationToken).ConfigureAwait(false) ? collection.ReadEnvelope(reader, _options.StoreId) : null;
     }
 
-    private async ValueTask<EventReference> AppendMutationJournalAsync(
+    private async ValueTask<MutationJournalAppendResult> AppendMutationJournalAsync(
         SqliteConnection connection,
         SqliteTransaction transaction,
         string eventId,
@@ -610,7 +610,8 @@ INSERT INTO {_names.MutationJournal}(
   collection_id, record_id, before_json, after_json)
 VALUES(
   $eventId, $eventType, $schemaVersion, $occurredAt, $tenantId, $operation, $visibility,
-  $collectionId, $recordId, $beforeJson, $afterJson);
+  $collectionId, $recordId, $beforeJson, $afterJson)
+RETURNING position;
 """;
         command.CommandTimeout = commandTimeoutSeconds;
         command.Parameters.AddWithValue("$eventId", eventId);
@@ -624,17 +625,24 @@ VALUES(
         command.Parameters.AddWithValue("$recordId", recordId.Value);
         command.Parameters.AddWithValue("$beforeJson", SerializeSnapshot(before));
         command.Parameters.AddWithValue("$afterJson", SerializeSnapshot(after));
-        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        object? scalar = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+        long position = Convert.ToInt64(scalar, System.Globalization.CultureInfo.InvariantCulture);
 
-        return new EventReference
-        {
-            EventId = eventId,
-            Type = type,
-            Stream = "base.mutations",
-            PublishedAt = occurredAt,
-            Guarantee = EventDeliveryGuarantee.Transactional
-        };
+        return new MutationJournalAppendResult(
+            new EventReference
+            {
+                EventId = eventId,
+                Type = type,
+                Stream = "base.mutations",
+                PublishedAt = occurredAt,
+                Guarantee = EventDeliveryGuarantee.Transactional
+            },
+            new BaseMutationJournalPosition(position));
     }
+
+    private readonly record struct MutationJournalAppendResult(
+        EventReference Event,
+        BaseMutationJournalPosition Position);
 
     private async ValueTask PruneMutationJournalAsync(
         SqliteConnection connection,

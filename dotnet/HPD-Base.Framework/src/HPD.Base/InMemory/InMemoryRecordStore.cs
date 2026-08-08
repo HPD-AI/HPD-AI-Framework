@@ -67,7 +67,8 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             ActiveKey = new BaseOpaqueTokenKey
             {
                 Id = 0,
-                Key = RandomNumberGenerator.GetBytes(32)
+                Key = RandomNumberGenerator.GetBytes(32),
+                IssueNotBefore = DateTimeOffset.UnixEpoch
             }
         }));
 
@@ -2036,6 +2037,16 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                         "The purge generation is exhausted."));
                 return ValueTask.FromResult(OperationResults.Ok(++state.PurgeGeneration));
             });
+
+        /// <inheritdoc />
+        public ValueTask<OperationResult> ApplyMutationProjectionsAsync(
+            BaseAtomicMutationProjectionRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(request);
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.FromResult(OperationResults.NoContent());
+        }
 
         /// <summary>Executes the close async operation.</summary>
         public async ValueTask CloseAsync()
