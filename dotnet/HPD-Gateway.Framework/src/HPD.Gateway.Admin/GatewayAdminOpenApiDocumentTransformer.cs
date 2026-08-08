@@ -16,6 +16,26 @@ internal sealed class GatewayAdminOpenApiSchemaTransformer(GatewayAdminOpenApiCo
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        Type schemaType = Nullable.GetUnderlyingType(context.JsonTypeInfo.Type) ?? context.JsonTypeInfo.Type;
+        if (schemaType.IsEnum)
+        {
+            schema.Type = JsonSchemaType.String;
+            schema.Enum = Enum.GetNames(schemaType).Select(static value => JsonValue.Create(value)).ToList<JsonNode>();
+        }
+        if (context.JsonPropertyInfo?.PropertyType == typeof(ImmutableArray<MetadataEntry>))
+        {
+            schema.Items = new OpenApiSchema
+            {
+                Type = JsonSchemaType.Object,
+                Properties = new Dictionary<string, IOpenApiSchema>(StringComparer.Ordinal)
+                {
+                    ["name"] = new OpenApiSchema { Type = JsonSchemaType.String },
+                    ["value"] = new OpenApiSchema { Type = JsonSchemaType.String },
+                },
+                Required = new HashSet<string>(["name", "value"], StringComparer.Ordinal),
+                AdditionalPropertiesAllowed = false,
+            };
+        }
         string? property = context.JsonPropertyInfo?.Name;
         Type declaringType = context.JsonPropertyInfo?.DeclaringType ?? context.JsonTypeInfo.Type;
         if (property is null) return Task.CompletedTask;
@@ -218,7 +238,7 @@ internal sealed class GatewayAdminOpenApiDocumentTransformer(GatewayAdminOpenApi
     {
         string id = GatewayAdminSchemaReferenceIds.Create(type) ??
             throw new InvalidOperationException("Gateway Admin wire type has no stable schema reference ID.");
-        if (schema is OpenApiSchema concrete) NormalizeSchema(concrete, new HashSet<OpenApiSchema>(ReferenceEqualityComparer.Instance));
+        if (schema is OpenApiSchema concrete) NormalizeSchema(document, concrete, new HashSet<OpenApiSchema>(ReferenceEqualityComparer.Instance));
         if (schema is not OpenApiSchemaReference)
             document.Components!.Schemas!.TryAdd(id, schema);
         else if (!document.Components!.Schemas!.ContainsKey(id))
@@ -226,9 +246,12 @@ internal sealed class GatewayAdminOpenApiDocumentTransformer(GatewayAdminOpenApi
         return new OpenApiSchemaReference(id, document, null);
     }
 
-    private static void NormalizeSchema(OpenApiSchema schema, HashSet<OpenApiSchema> visited)
+    private static void NormalizeSchema(OpenApiDocument document, OpenApiSchema schema, HashSet<OpenApiSchema> visited)
     {
         if (!visited.Add(schema)) return;
+        if (schema.Type is { } wireType &&
+            wireType.HasFlag(JsonSchemaType.Integer) && wireType.HasFlag(JsonSchemaType.String))
+            schema.Type = wireType & ~JsonSchemaType.String;
         if (schema.AnyOf is { Count: > 0 })
         {
             if (schema.OneOf is { Count: > 0 })
@@ -238,12 +261,46 @@ internal sealed class GatewayAdminOpenApiDocumentTransformer(GatewayAdminOpenApi
         }
         if (schema.Properties is not null)
             foreach (IOpenApiSchema child in schema.Properties.Values)
-                if (child is OpenApiSchema concrete) NormalizeSchema(concrete, visited);
-        if (schema.Items is OpenApiSchema items) NormalizeSchema(items, visited);
-        if (schema.AdditionalProperties is OpenApiSchema additional) NormalizeSchema(additional, visited);
+                if (child is OpenApiSchema concrete) NormalizeSchema(document, concrete, visited);
+        if (schema.Items is OpenApiSchema items) NormalizeSchema(document, items, visited);
+        if (schema.AdditionalProperties is OpenApiSchema additional) NormalizeSchema(document, additional, visited);
         if (schema.OneOf is not null)
             foreach (IOpenApiSchema child in schema.OneOf)
-                if (child is OpenApiSchema concrete) NormalizeSchema(concrete, visited);
+                if (child is OpenApiSchema concrete) NormalizeSchema(document, concrete, visited);
+        ComponentizeDiscriminatedBranches(document, schema);
+    }
+
+    private static void ComponentizeDiscriminatedBranches(OpenApiDocument document, OpenApiSchema schema)
+    {
+        if (schema.Discriminator is not { PropertyName: { Length: > 0 } propertyName, Mapping: { Count: > 0 } mapping } ||
+            schema.OneOf is not { Count: > 0 } branches)
+            return;
+        var replacements = new List<IOpenApiSchema>(branches.Count);
+        foreach (IOpenApiSchema branch in branches)
+        {
+            if (branch is not OpenApiSchema concrete || concrete.Properties is null ||
+                !concrete.Properties.TryGetValue(propertyName, out IOpenApiSchema? discriminatorSchema) ||
+                discriminatorSchema is not OpenApiSchema discriminator || discriminator.Enum is not { Count: 1 } values ||
+                values[0]?.GetValueKind() != System.Text.Json.JsonValueKind.String)
+                throw new InvalidOperationException("Gateway Admin discriminated union branch is not closed.");
+            string value = values[0]!.GetValue<string>();
+            if (!mapping.ContainsKey(value))
+                throw new InvalidOperationException("Gateway Admin discriminator mapping is incomplete.");
+            Type branchType = value switch
+            {
+                "static" => typeof(StaticEndpointSource),
+                "discovery" => typeof(DiscoveredEndpointSource),
+                _ => throw new InvalidOperationException("Gateway Admin discriminator value is unsupported."),
+            };
+            string id = GatewayAdminSchemaReferenceIds.Create(branchType)!;
+            IDictionary<string, IOpenApiSchema> components = document.Components?.Schemas ??
+                throw new InvalidOperationException("Gateway Admin schema component catalog is missing.");
+            if (!components.TryAdd(id, concrete) && !ReferenceEquals(components[id], concrete))
+                throw new InvalidOperationException("Gateway Admin discriminator component identity collided.");
+            replacements.Add(new OpenApiSchemaReference(id, document, null));
+            mapping[value] = new OpenApiSchemaReference(id, document, null);
+        }
+        schema.OneOf = replacements;
     }
 
     private static List<IOpenApiParameter> Parameters(GatewayAdminClientOperationSemantics semantics)

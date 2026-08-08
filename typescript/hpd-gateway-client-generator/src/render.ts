@@ -71,7 +71,8 @@ function schemaType(value: JsonValue, plan: GenerationPlan, names: ReadonlyMap<s
     return refName(schema.$ref, names);
   }
   const nullable = Array.isArray(schema.type) && schema.type.includes("null");
-  const type = Array.isArray(schema.type) ? schema.type.find(value => value !== "null") : schema.type;
+  const wireTypes = Array.isArray(schema.type) ? schema.type.filter(value => value !== "null") : [schema.type];
+  const type = wireTypes[0];
   let result: string;
   if (Array.isArray(schema.enum)) result = schema.enum.map(value => JSON.stringify(value)).join(" | ");
   else if (schema.const !== undefined) result = JSON.stringify(schema.const);
@@ -79,9 +80,9 @@ function schemaType(value: JsonValue, plan: GenerationPlan, names: ReadonlyMap<s
   else if (type === "string") result = constraintBrand(plan.schemaConstraints, schemaRef) ?? "string";
   else if (type === "integer" || type === "number") result = "number";
   else if (type === "boolean") result = "boolean";
-  else if (type === "array") result = `readonly ${schemaType(schema.items!, plan, names, schemaRef, visiting)}[]`;
+  else if (type === "array") result = `readonly (${schemaType(schema.items!, plan, names, schemaRef, visiting)})[]`;
   else if (type === "object" || schema.properties !== undefined) result = objectType(schema, plan, names, schemaRef, visiting);
-  else result = "unknown";
+  else throw new Error(`Unsupported or empty schema '${schemaRef}'.`);
   return nullable ? `${result} | null` : result;
 }
 

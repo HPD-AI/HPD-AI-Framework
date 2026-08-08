@@ -27,6 +27,23 @@ describe("real Gateway snapshot", () => {
     rehash(value);
     expect(() => parseSnapshot(new TextEncoder().encode(JSON.stringify(value)))).toThrow(/unknown members/u);
   });
+
+  it("rejects empty, unsupported, and cyclic schemas before generation", () => {
+    const empty = JSON.parse(fixture.toString("utf8")) as Record<string, any>;
+    empty.openApi.components.schemas.HPD_Gateway_Admin_GatewayAdminError = {};
+    rehash(empty);
+    expect(() => parseSnapshot(new TextEncoder().encode(JSON.stringify(empty)))).toThrow(/Empty schema/u);
+
+    const unsupported = JSON.parse(fixture.toString("utf8")) as Record<string, any>;
+    unsupported.openApi.components.schemas.HPD_Gateway_Admin_GatewayAdminError.invented = true;
+    rehash(unsupported);
+    expect(() => parseSnapshot(new TextEncoder().encode(JSON.stringify(unsupported)))).toThrow(/unknown members/u);
+
+    const cyclic = JSON.parse(fixture.toString("utf8")) as Record<string, any>;
+    cyclic.openApi.components.schemas.HPD_Gateway_Admin_GatewayAdminError = { $ref: "#/components/schemas/HPD_Gateway_Admin_GatewayAdminError" };
+    rehash(cyclic);
+    expect(() => parseSnapshot(new TextEncoder().encode(JSON.stringify(cyclic)))).toThrow(/Cyclic schema reference/u);
+  });
 });
 
 function rehash(value: Record<string, any>): void {

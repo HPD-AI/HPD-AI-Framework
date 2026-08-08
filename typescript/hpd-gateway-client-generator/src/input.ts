@@ -149,6 +149,11 @@ function exact(value: Record<string, unknown>, fields: readonly string[]): void 
     fail("Object contains missing or unknown members.");
 }
 
+function only(value: Record<string, unknown>, fields: readonly string[]): void {
+  const allowed = new Set(fields);
+  if (Object.keys(value).some(field => !allowed.has(field))) fail("Object contains unknown members.");
+}
+
 function digest(value: unknown, name: string): string {
   if (typeof value !== "string" || !hashPattern.test(value)) fail(`Invalid ${name}.`);
   return value;
@@ -190,6 +195,7 @@ function validateOpenApi(openApi: Readonly<Record<string, JsonValue>>, manifest:
   const components = object(openApi.components, "components");
   exact(components, ["schemas", "securitySchemes"]);
   const schemas = object(components.schemas, "schemas");
+  validateSchemas(schemas);
   const securitySchemes = object(components.securitySchemes, "securitySchemes");
   if (Object.keys(securitySchemes).length !== 1) fail("Exactly one security scheme is required.");
   const security = object(securitySchemes[manifest.securityScheme], "security scheme");
@@ -232,6 +238,106 @@ function validateOpenApi(openApi: Readonly<Record<string, JsonValue>>, manifest:
     const schema = object(schemas[constraint.schemaRef.slice("#/components/schemas/".length)], "constrained schema");
     resolvePointer(schema, constraint.propertyPointer);
   }
+}
+
+const schemaFields = ["$ref", "type", "format", "description", "enum", "const", "oneOf", "discriminator", "properties", "required", "additionalProperties", "items", "minItems", "maxItems", "minLength", "maxLength", "pattern", "minimum", "maximum", "default"] as const;
+const schemaTypes = ["string", "integer", "number", "boolean", "object", "array", "null"] as const;
+const schemaFormats = ["uri", "uint16", "int32", "int64", "uint64", "date-time"] as const;
+
+function validateSchemas(schemas: Record<string, unknown>): void {
+  const names = Object.keys(schemas);
+  if (names.length === 0 || names.length > 10_000) fail("Invalid schema component collection.");
+  for (const name of names) {
+    boundedString(name, "schema component name", 512);
+    validateSchema(schemas[name], schemas, `#/components/schemas/${name}`);
+  }
+  const edges = new Map<string, Set<string>>();
+  for (const name of names) {
+    const found = new Set<string>();
+    collectSchemaReferences(schemas[name], found);
+    edges.set(name, found);
+  }
+  const active = new Set<string>();
+  const complete = new Set<string>();
+  const visit = (name: string): void => {
+    if (active.has(name)) fail(`Cyclic schema reference '${name}'.`);
+    if (complete.has(name)) return;
+    active.add(name);
+    for (const target of edges.get(name) ?? []) visit(target);
+    active.delete(name);
+    complete.add(name);
+  };
+  for (const name of names) visit(name);
+}
+
+function validateSchema(input: unknown, schemas: Record<string, unknown>, path: string): void {
+  const schema = object(input, `schema ${path}`);
+  if (Object.keys(schema).length === 0) fail(`Empty schema '${path}'.`);
+  only(schema, schemaFields);
+  if (schema.$ref !== undefined) {
+    const reference = localRef(schema.$ref);
+    if (schemas[reference.slice("#/components/schemas/".length)] === undefined) fail(`Unresolved reference '${reference}'.`);
+    if (Object.keys(schema).length !== 1) fail("Schema references cannot have siblings.");
+    return;
+  }
+  const types = Array.isArray(schema.type) ? schema.type.map(value => one(value, schemaTypes, "schema type")) :
+    schema.type === undefined ? [] : [one(schema.type, schemaTypes, "schema type")];
+  const nonNullTypes = types.filter(value => value !== "null");
+  if (new Set(types).size !== types.length || nonNullTypes.length > 1) fail("Invalid schema type union.");
+  if (schema.format !== undefined) one(schema.format, schemaFormats, "schema format");
+  if (schema.description !== undefined) boundedString(schema.description, "schema description", 16_384);
+  if (schema.pattern !== undefined) boundedString(schema.pattern, "schema pattern", 16_384);
+  for (const field of ["minItems", "maxItems"] as const)
+    if (schema[field] !== undefined && (!Number.isSafeInteger(schema[field]) || (schema[field] as number) < 0 || (schema[field] as number) > 10_000)) fail(`Invalid ${field}.`);
+  for (const field of ["minLength", "maxLength"] as const)
+    if (schema[field] !== undefined && (!Number.isSafeInteger(schema[field]) || (schema[field] as number) < 0 || (schema[field] as number) > 4_194_304)) fail(`Invalid ${field}.`);
+  for (const field of ["minimum", "maximum"] as const)
+    if (schema[field] !== undefined && typeof schema[field] !== "string") fail(`Invalid ${field}.`);
+  if (schema.enum !== undefined && (!Array.isArray(schema.enum) || schema.enum.length === 0 || schema.enum.length > 10_000)) fail("Invalid schema enum.");
+  if (schema.required !== undefined) {
+    const required = stringArray(schema.required, "required", 10_000);
+    if (new Set(required).size !== required.length) fail("Duplicate required property.");
+  }
+  if (schema.additionalProperties !== undefined && typeof schema.additionalProperties !== "boolean")
+    validateSchema(schema.additionalProperties, schemas, `${path}/additionalProperties`);
+  if (schema.items !== undefined) validateSchema(schema.items, schemas, `${path}/items`);
+  if (schema.properties !== undefined) {
+    const properties = object(schema.properties, "schema properties");
+    if (Object.keys(properties).length > 10_000) fail("Schema property bound exceeded.");
+    for (const [name, value] of Object.entries(properties)) {
+      boundedString(name, "schema property name", 512);
+      validateSchema(value, schemas, `${path}/properties/${name}`);
+    }
+  }
+  if (schema.oneOf !== undefined) {
+    const alternatives = array(schema.oneOf, "oneOf");
+    if (alternatives.length < 2 || alternatives.length > 256) fail("Invalid oneOf alternatives.");
+    for (let index = 0; index < alternatives.length; index++) validateSchema(alternatives[index], schemas, `${path}/oneOf/${index}`);
+  }
+  if (schema.discriminator !== undefined) {
+    if (schema.oneOf === undefined) fail("A discriminator requires oneOf.");
+    const discriminator = object(schema.discriminator, "schema discriminator");
+    exact(discriminator, ["propertyName", "mapping"]);
+    boundedString(discriminator.propertyName, "discriminator property", 512);
+    const mapping = object(discriminator.mapping, "discriminator mapping");
+    if (Object.keys(mapping).length < 2 || Object.keys(mapping).length > 256) fail("Invalid discriminator mapping.");
+    for (const [key, value] of Object.entries(mapping)) {
+      boundedString(key, "discriminator value", 512);
+      const reference = localRef(value);
+      if (schemas[reference.slice("#/components/schemas/".length)] === undefined) fail(`Unresolved discriminator reference '${reference}'.`);
+    }
+  }
+  if (types.length === 0 && schema.oneOf === undefined && schema.const === undefined && schema.enum === undefined && schema.properties === undefined)
+    fail(`Schema '${path}' has no supported shape.`);
+}
+
+function collectSchemaReferences(input: unknown, output: Set<string>): void {
+  const schema = object(input, "schema reference graph");
+  if (typeof schema.$ref === "string") { output.add(schema.$ref.slice("#/components/schemas/".length)); return; }
+  if (schema.items !== undefined) collectSchemaReferences(schema.items, output);
+  if (schema.additionalProperties !== undefined && typeof schema.additionalProperties !== "boolean") collectSchemaReferences(schema.additionalProperties, output);
+  if (schema.properties !== undefined) for (const value of Object.values(object(schema.properties, "schema properties"))) collectSchemaReferences(value, output);
+  if (schema.oneOf !== undefined) for (const value of array(schema.oneOf, "oneOf")) collectSchemaReferences(value, output);
 }
 
 function responseSchema(value: unknown): unknown {
