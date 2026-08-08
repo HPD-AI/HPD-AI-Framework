@@ -8,6 +8,7 @@ public static class GatewayAdminServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
         services.AddProblemDetails();
+        services.AddOpenApi("hpd-gateway-v1");
         services.AddSingleton<GatewayBackupSinkRegistry>();
         return services;
     }

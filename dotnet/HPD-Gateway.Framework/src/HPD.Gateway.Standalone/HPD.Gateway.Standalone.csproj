@@ -16,7 +16,13 @@
     <ProjectReference Include="../HPD.Gateway/HPD.Gateway.csproj" />
     <ProjectReference Include="../HPD.Gateway.Abstractions/HPD.Gateway.Abstractions.csproj" />
     <ProjectReference Include="../HPD.Gateway.Hosting/HPD.Gateway.Hosting.csproj" />
+    <ProjectReference Include="../HPD.Gateway.Admin/HPD.Gateway.Admin.csproj" />
+    <ProjectReference Include="../HPD.Gateway.Management/HPD.Gateway.Management.csproj" />
+    <ProjectReference Include="../HPD.Gateway.HPDAuth/HPD.Gateway.HPDAuth.csproj" />
     <ProjectReference Include="../HPD.Gateway.OutputCaching/HPD.Gateway.OutputCaching.csproj" />
     <ProjectReference Include="../HPD.Gateway.Resilience/HPD.Gateway.Resilience.csproj" />
+    <ProjectReference Include="../../../HPD-Base.Framework/src/HPD.Base.Sqlite/HPD.Base.Sqlite.csproj" />
+    <ProjectReference Include="../../../HPD-Auth.Framework/src/HPD.Auth.ControlPlane.AspNetCore/HPD.Auth.ControlPlane.AspNetCore.csproj" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.10" />
   </ItemGroup>
 </Project>

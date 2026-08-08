@@ -17,7 +17,19 @@ internal sealed record GatewayStandaloneBootstrap
     public required string AuthorityId { get; init; }
     public required string AuthorityEpoch { get; init; }
     public required ulong AuthorityVersion { get; init; }
+    public required GatewayStandaloneManagement Management { get; init; }
     public ImmutableArray<GatewayStandaloneCertificateSource> Certificates { get; init; } = [];
+}
+
+internal sealed record GatewayStandaloneManagement
+{
+    public required string DatabasePath { get; init; }
+    public required string ManagementAuthorityId { get; init; }
+    public required string PlanProtectionKeyHex { get; init; }
+    public required string TokenProtectionKeyHex { get; init; }
+    public required string DesiredStateTokenKeyHex { get; init; }
+    public required string JwtAuthority { get; init; }
+    public required string JwtAudience { get; init; }
 }
 
 internal sealed record GatewayStandaloneCertificateSource
@@ -36,12 +48,14 @@ internal sealed record GatewayStandaloneCertificateSource
     UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
     GenerationMode = JsonSourceGenerationMode.Default)]
 [JsonSerializable(typeof(GatewayStandaloneBootstrap))]
+[JsonSerializable(typeof(GatewayStandaloneManagement))]
 internal partial class GatewayStandaloneJsonContext : JsonSerializerContext;
 
 internal sealed record GatewayStandaloneInputs(
     GatewayHostCandidate Host,
     GatewayNodeActivationRequest InitialCandidate,
-    ImmutableArray<(SecretReference Reference, GatewayPfxCertificateSource Source)> Certificates);
+    ImmutableArray<(SecretReference Reference, GatewayPfxCertificateSource Source)> Certificates,
+    GatewayStandaloneManagement Management);
 
 internal static class GatewayStandaloneBootstrapReader
 {
@@ -98,7 +112,8 @@ internal static class GatewayStandaloneBootstrapReader
                 bootstrap.AuthorityEpoch,
                 bootstrap.AuthorityVersion,
                 gatewayBytes),
-            certificates);
+            certificates,
+            bootstrap.Management);
     }
 
     private static ImmutableArray<byte> ReadBounded(string path, int maximumBytes, string kind)
@@ -116,7 +131,7 @@ internal static class GatewayStandaloneBootstrapReader
 
     private static void Validate(GatewayStandaloneBootstrap bootstrap)
     {
-        if (!StringComparer.Ordinal.Equals(bootstrap.SchemaVersion, "hpd.gateway.standalone/v1"))
+        if (!StringComparer.Ordinal.Equals(bootstrap.SchemaVersion, "hpd.gateway.standalone/v2"))
             throw new InvalidOperationException("The standalone bootstrap schema is unsupported.");
         ValidatePath(bootstrap.HostConfigurationPath);
         ValidatePath(bootstrap.GatewayConfigurationPath);
@@ -127,6 +142,7 @@ internal static class GatewayStandaloneBootstrapReader
             throw new InvalidOperationException("The standalone activation identity is invalid.");
         if (bootstrap.Certificates.IsDefault || bootstrap.Certificates.Length is < 1 or > 1_024)
             throw new InvalidOperationException("The standalone certificate catalog is uninitialized or outside its bound.");
+        ValidateManagement(bootstrap.Management);
         var references = new HashSet<SecretReference>();
         foreach (var certificate in bootstrap.Certificates)
         {
@@ -140,6 +156,26 @@ internal static class GatewayStandaloneBootstrapReader
                 !IsEnvironmentVariableName(certificate.PasswordEnvironmentVariable))
                 throw new InvalidOperationException("A certificate password environment-variable name is invalid.");
         }
+    }
+
+    private static void ValidateManagement(GatewayStandaloneManagement? management)
+    {
+        if (management is null)
+            throw new InvalidOperationException("The standalone management configuration is required.");
+        ValidatePath(management.DatabasePath);
+        if (!GatewayIdentifier.IsCanonical(management.ManagementAuthorityId) ||
+            !Uri.TryCreate(management.JwtAuthority, UriKind.Absolute, out Uri? authority) || authority.Scheme != Uri.UriSchemeHttps ||
+            !BoundedIdentity(management.JwtAudience))
+            throw new InvalidOperationException("The standalone management identity is invalid.");
+        ValidateKey(management.PlanProtectionKeyHex);
+        ValidateKey(management.TokenProtectionKeyHex);
+        ValidateKey(management.DesiredStateTokenKeyHex);
+    }
+
+    private static void ValidateKey(string value)
+    {
+        if (value.Length != 64 || !value.All(Uri.IsHexDigit))
+            throw new InvalidOperationException("Standalone management protection keys must be 32-byte hexadecimal values.");
     }
 
     private static void RejectDuplicateProperties(ReadOnlySpan<byte> utf8Json)

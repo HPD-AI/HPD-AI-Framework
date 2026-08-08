@@ -10,6 +10,7 @@ using HPD.Base.Sqlite;
 using HPD.Gateway.Abstractions;
 using HPD.Gateway;
 using HPD.Gateway.Abstractions.Serialization;
+using HPD.Gateway.Admin;
 using HPD.Gateway.Core;
 using HPD.Gateway.Effective.Serialization;
 using HPD.Gateway.Inspection;
@@ -842,6 +843,8 @@ static async Task SmokeManagementRuntimeAsync()
     _ = GatewayValidationRecord.Collection.Definition;
     _ = GatewayAdministrativeAuditRecord.Collection.Definition;
     _ = GatewayTargetOwnership.Collection.Definition;
+    _ = GatewayTargetEpochReservation.Collection.Definition;
+    _ = GatewayTargetEpochReservationReceipt.Collection.Definition;
     _ = GatewayDesiredState.Collection.Definition;
     _ = GatewayNodeDeliveryAuthorityState.Collection.Definition;
     _ = GatewayActivationIntent.Collection.Definition;
@@ -859,6 +862,8 @@ static async Task SmokeManagementRuntimeAsync()
         new GatewayValidationRecord { NamespaceId = "ns", Outcome = GatewayValidationOutcome.Valid, ContentHashValue = "hash", DiagnosticsJson = [], CorrelationId = "correlation" },
         new GatewayAdministrativeAuditRecord { NamespaceId = "ns", ActorId = "actor", AuthenticationScheme = "test", AuthorizationPolicy = "admin", Operation = "submit", ResultCode = "accepted", CorrelationId = "correlation", SubjectId = "revision" },
         new GatewayTargetOwnership { ManagementAuthorityId = "management", TargetNodeId = "node", NamespaceId = "ns" },
+        new GatewayTargetEpochReservation { ManagementAuthorityId = "management", TargetNodeId = "node", AuthorityEpoch = "epoch", ContractVersion = "gateway.management.epoch-reservation.v1" },
+        new GatewayTargetEpochReservationReceipt { ReservationId = "reservation", EpochDigest = new string('a', 64), StableResultCode = "accepted", ContractVersion = "gateway.management.epoch-reservation.v1" },
         new GatewayDesiredState { ManagementAuthorityId = "management", TargetNodeId = "node", NamespaceId = "ns", ActivationIntentId = "intent", RevisionId = "revision", CandidateId = "candidate" },
         new GatewayNodeDeliveryAuthorityState { ManagementAuthorityId = "management", TargetNodeId = "node", NamespaceId = "ns", AuthorityId = "authority", AuthorityEpoch = "epoch", NextAuthorityVersion = 2 },
         new GatewayActivationIntent { NamespaceId = "ns", TargetNodeId = "node", RevisionId = "revision", CandidateId = "candidate", ContentHashValue = "hash", AuthorityId = "authority", AuthorityEpoch = "epoch", AuthorityVersion = 1 },
@@ -879,6 +884,26 @@ static async Task SmokeManagementRuntimeAsync()
             throw new InvalidOperationException("Management record serialization failed.");
     }
 
+    object[] adminDtos =
+    [
+        new GatewayRevisionRequest { ConfigurationJson = "{}", SourceKind = "code", SourceId = "source" },
+        new GatewayActivationRequest("description"),
+        new GatewayCompareRequest("left", "right"),
+        new GatewayImportRequest("{}", "artifact"),
+        new GatewayBackupRequest("sink", "artifact"),
+        new GatewayPurgeRequest(GatewayPurgeCategory.AuditHistory, ["audit"]),
+        new GatewayOperationResponse("operation", "accepted", "code"),
+        new GatewayExportResponse("v1", "revision", "sha-256", "hash", "{}"),
+        new GatewayAdministrativeResponse("operation", GatewayAdministrativeCompletionState.Completed, "completed"),
+    ];
+    foreach (object dto in adminDtos)
+    {
+        var typeInfo = GatewayAdminJsonContext.Default.GetTypeInfo(dto.GetType())
+            ?? throw new InvalidOperationException("Admin JSON metadata is unavailable.");
+        if (JsonSerializer.SerializeToUtf8Bytes(dto, typeInfo).Length == 0)
+            throw new InvalidOperationException("Admin DTO serialization failed.");
+    }
+
     var services = new ServiceCollection();
     services.AddLogging();
     services.AddHpdGateway(static gateway => gateway.AddCoreFamilies());
@@ -890,10 +915,10 @@ static async Task SmokeManagementRuntimeAsync()
         throw new InvalidOperationException("AOT InMemory authority durability is incorrect.");
     GatewayManagementCommandResult provisioned = await provider
         .GetRequiredService<IGatewayManagementCommandCoordinator>()
-        .ProvisionTargetAsync(new GatewayProvisionTargetCommand(
+        .ProvisionLocalTargetAsync(new GatewayLocalProvisionTargetCommand(
             "aot-ns", "aot-node", "aot-key",
             new GatewayManagementActor("aot-actor", "aot", "manage"),
-            "aot-correlation", "aot-epoch"));
+            "aot-correlation"));
     if (!provisioned.IsAccepted)
         throw new InvalidOperationException("AOT authority provisioning failed: " + provisioned.Code);
 

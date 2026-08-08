@@ -26,6 +26,7 @@ public interface IGatewayManagementAdministration
         string namespaceId,
         string idempotencyKey,
         GatewayManagementActor actor,
+        string artifactIdentity,
         Stream destination,
         CancellationToken cancellationToken = default);
     ValueTask<GatewayAdministrativeResult> PurgeAsync(
@@ -77,16 +78,19 @@ internal sealed class GatewayManagementAdministration(
         string namespaceId,
         string idempotencyKey,
         GatewayManagementActor actor,
+        string artifactIdentity,
         Stream destination,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(destination);
+        if (!GatewayAuthorityRecordIds.IsCanonicalComponent(artifactIdentity))
+            throw new ArgumentException("The backup artifact identity is invalid.", nameof(artifactIdentity));
         GatewayAuthorityCapabilitySnapshot capabilities = await authority.InitializeAsync(cancellationToken).ConfigureAwait(false);
         if (!capabilities.BackupSupported)
             return new("", GatewayAdministrativeCompletionState.IndeterminatePending, "management.backup.unsupported");
         PreparedIntent prepared = await PrepareIntent(
             namespaceId, idempotencyKey, actor, GatewayAdministrativeOperationKind.Backup,
-            $"store:{capabilities.StoreId}", null, null, null, cancellationToken).ConfigureAwait(false);
+            $"store:{capabilities.StoreId}:artifact:{artifactIdentity}", null, null, null, cancellationToken).ConfigureAwait(false);
         if (!prepared.Created)
             return await ResolveExisting(prepared, cancellationToken).ConfigureAwait(false);
         BaseResult<BaseBackupManifest> executed = await administration.CreateBackupAsync(destination, new BaseBackupRequest

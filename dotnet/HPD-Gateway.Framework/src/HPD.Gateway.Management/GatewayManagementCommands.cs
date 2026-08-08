@@ -669,15 +669,11 @@ internal sealed class GatewayManagementCommandCoordinator(
         return expectedDesiredStateToken is not null &&
             CryptographicOperations.FixedTimeEquals(
                 Encoding.ASCII.GetBytes(expectedDesiredStateToken),
-                Encoding.ASCII.GetBytes(ProtectDesiredToken(desired.Value)));
+                Encoding.ASCII.GetBytes(GatewayDesiredStateTokens.Create(desired.Value, options)));
     }
 
-    private string ProtectDesiredToken(GatewayDesiredState desired)
-    {
-        string payload = $"v1\n{desired.ManagementAuthorityId}\n{desired.NamespaceId}\n{desired.TargetNodeId}\n{desired.ActivationIntentId}\n{desired.RevisionId}\n{desired.CandidateId}";
-        byte[] signature = HMACSHA256.HashData(options.GetTokenKey(), Encoding.UTF8.GetBytes(payload));
-        return Convert.ToBase64String(Encoding.UTF8.GetBytes(payload)) + "." + Convert.ToHexStringLower(signature);
-    }
+    private string ProtectDesiredToken(GatewayDesiredState desired) =>
+        GatewayDesiredStateTokens.Create(desired, options);
 
     private static GatewayAdministrativeAuditRecord Audit(
         string namespaceId, GatewayManagementActor actor, string operation,

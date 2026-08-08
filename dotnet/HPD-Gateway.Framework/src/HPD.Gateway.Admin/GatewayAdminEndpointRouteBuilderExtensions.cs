@@ -58,13 +58,13 @@ public static partial class GatewayAdminEndpointRouteBuilderExtensions
             string ns = Route(context, "ns");
             string target = Route(context, "target");
             IAuthorizationService authorization = context.RequestServices.GetRequiredService<IAuthorizationService>();
-            IGatewayAdminActorProjector projector = context.RequestServices.GetRequiredService<IGatewayAdminActorProjector>();
-            IGatewayManagementCommandCoordinator commands = context.RequestServices.GetRequiredService<IGatewayManagementCommandCoordinator>();
             if (!ValidComponent(ns) || !ValidComponent(target)) { await Write(context, Invalid(context)); return; }
             if (!await AuthorizeResource(context, authorization, ns, target, GatewayAdminResourceKind.Target).ConfigureAwait(false))
             { await Write(context, NotFound(context)); return; }
             if (!TryMutationHeaders(context, allowIfMatch: false, out string key, out _, out IResult? failure))
             { await Write(context, failure!); return; }
+            IGatewayAdminActorProjector projector = context.RequestServices.GetRequiredService<IGatewayAdminActorProjector>();
+            IGatewayManagementCommandCoordinator commands = context.RequestServices.GetRequiredService<IGatewayManagementCommandCoordinator>();
             GatewayAdminRequestAttribution attribution = await projector.ProjectAsync(
                 context, GatewayAdminCapabilities.TargetProvision, context.RequestAborted).ConfigureAwait(false);
             GatewayManagementCommandResult result = await commands.ProvisionLocalTargetAsync(new(
@@ -77,13 +77,13 @@ public static partial class GatewayAdminEndpointRouteBuilderExtensions
             string ns = Route(context, "ns");
             string target = Route(context, "target");
             IAuthorizationService authorization = context.RequestServices.GetRequiredService<IAuthorizationService>();
-            IGatewayManagementReader reader = context.RequestServices.GetRequiredService<IGatewayManagementReader>();
             if (!ValidComponent(ns) || !ValidComponent(target)) { await Write(context, Invalid(context)); return; }
             if (!await AuthorizeResource(context, authorization, ns, target, GatewayAdminResourceKind.Target).ConfigureAwait(false))
             { await Write(context, NotFound(context)); return; }
-            GatewayManagedRecord<GatewayDesiredState>? desired = await reader.GetDesiredAsync(target, context.RequestAborted).ConfigureAwait(false);
-            IResult result = desired is not null && StringComparer.Ordinal.Equals(desired.Value.NamespaceId, ns)
-                ? TypedResults.Json(desired, GatewayAdminJsonContext.Default.GatewayManagedRecordGatewayDesiredState)
+            IGatewayManagementReader reader = context.RequestServices.GetRequiredService<IGatewayManagementReader>();
+            GatewayDesiredProjection? desired = await reader.GetDesiredProjectionAsync(ns, target, context.RequestAborted).ConfigureAwait(false);
+            IResult result = desired is not null
+                ? TypedResults.Json(desired, GatewayAdminJsonContext.Default.GatewayDesiredProjection)
                 : NotFound(context);
             await Write(context, result).ConfigureAwait(false);
         });
@@ -93,10 +93,10 @@ public static partial class GatewayAdminEndpointRouteBuilderExtensions
             string ns = Route(context, "ns");
             string target = Route(context, "target");
             IAuthorizationService authorization = context.RequestServices.GetRequiredService<IAuthorizationService>();
-            IGatewayManagementStatusReader status = context.RequestServices.GetRequiredService<IGatewayManagementStatusReader>();
             if (!ValidComponent(ns) || !ValidComponent(target)) { await Write(context, Invalid(context)); return; }
             if (!await AuthorizeResource(context, authorization, ns, target, GatewayAdminResourceKind.Target).ConfigureAwait(false))
             { await Write(context, NotFound(context)); return; }
+            IGatewayManagementStatusReader status = context.RequestServices.GetRequiredService<IGatewayManagementStatusReader>();
             GatewayManagementStatusSnapshot snapshot = await status.GetCurrentAsync(context.RequestAborted).ConfigureAwait(false);
             GatewayStatusSnapshot node = context.RequestServices.GetRequiredService<IGatewayStatusReader>().GetCurrent();
             await Write(context, TypedResults.Json(new GatewayTargetStatusResponse(
@@ -113,30 +113,36 @@ public static partial class GatewayAdminEndpointRouteBuilderExtensions
             string ns = Route(context, "ns");
             string target = Route(context, "target");
             IAuthorizationService authorization = context.RequestServices.GetRequiredService<IAuthorizationService>();
-            IGatewayManagementReader reader = context.RequestServices.GetRequiredService<IGatewayManagementReader>();
             if (!ValidComponent(ns) || !ValidComponent(target)) { await Write(context, Invalid(context)); return; }
             if (!await AuthorizeResource(context, authorization, ns, target, GatewayAdminResourceKind.Target).ConfigureAwait(false))
             { await Write(context, NotFound(context)); return; }
+            IGatewayManagementReader reader = context.RequestServices.GetRequiredService<IGatewayManagementReader>();
             if (!TryPage(context, out int maximum, out string? cursor, out IResult? pageFailure))
             { await Write(context, pageFailure!); return; }
             GatewayManagedPage<GatewayAcceptedRevision> page = await reader.ListRevisionsAsync(
                 ns, maximum, cursor, context.RequestAborted).ConfigureAwait(false);
-            await Write(context, TypedResults.Json(page, GatewayAdminJsonContext.Default.GatewayManagedPageGatewayAcceptedRevision)).ConfigureAwait(false);
+            var projected = new GatewayAdminPage<GatewayRevisionProjection>(
+                page.Items.Select(ProjectRevision).ToImmutableArray(), page.ContinuationToken, page.HasMore);
+            await Write(context, TypedResults.Json(projected, GatewayAdminJsonContext.Default.GatewayAdminPageGatewayRevisionProjection)).ConfigureAwait(false);
         });
 
         Map(group, options, security, "audit", async context =>
         {
             string ns = Route(context, "ns");
             IAuthorizationService authorization = context.RequestServices.GetRequiredService<IAuthorizationService>();
-            IGatewayManagementReader reader = context.RequestServices.GetRequiredService<IGatewayManagementReader>();
             if (!ValidComponent(ns)) { await Write(context, Invalid(context)); return; }
             if (!await AuthorizeResource(context, authorization, ns, null, GatewayAdminResourceKind.Namespace).ConfigureAwait(false))
             { await Write(context, NotFound(context)); return; }
+            IGatewayManagementReader reader = context.RequestServices.GetRequiredService<IGatewayManagementReader>();
             if (!TryPage(context, out int maximum, out string? cursor, out IResult? pageFailure))
             { await Write(context, pageFailure!); return; }
             GatewayManagedPage<GatewayAdministrativeAuditRecord> page = await reader.ListAuditAsync(
                 ns, maximum, cursor, context.RequestAborted).ConfigureAwait(false);
-            await Write(context, TypedResults.Json(page, GatewayAdminJsonContext.Default.GatewayManagedPageGatewayAdministrativeAuditRecord)).ConfigureAwait(false);
+            var projected = new GatewayAdminPage<GatewayAuditProjection>(page.Items.Select(static item => new GatewayAuditProjection(
+                item.Id, item.Value.ActorId, item.Value.Operation, item.Value.ResultCode,
+                item.Value.CorrelationId, item.Value.SubjectId, item.CreatedAt)).ToImmutableArray(),
+                page.ContinuationToken, page.HasMore);
+            await Write(context, TypedResults.Json(projected, GatewayAdminJsonContext.Default.GatewayAdminPageGatewayAuditProjection)).ConfigureAwait(false);
         });
 
         MapAdditional(group, options, security);
@@ -167,8 +173,6 @@ public static partial class GatewayAdminEndpointRouteBuilderExtensions
         string ns = Route(context, "ns");
         string target = Route(context, "target");
         IAuthorizationService authorization = context.RequestServices.GetRequiredService<IAuthorizationService>();
-        IGatewayAdminActorProjector projector = context.RequestServices.GetRequiredService<IGatewayAdminActorProjector>();
-        IGatewayManagementCommandCoordinator commands = context.RequestServices.GetRequiredService<IGatewayManagementCommandCoordinator>();
         if (!ValidComponent(ns) || !ValidComponent(target)) { await Write(context, Invalid(context)); return; }
         if (!await AuthorizeResource(context, authorization, ns, target, GatewayAdminResourceKind.Target).ConfigureAwait(false))
         { await Write(context, NotFound(context)); return; }
@@ -180,6 +184,8 @@ public static partial class GatewayAdminEndpointRouteBuilderExtensions
         catch (JsonException) { await Write(context, Invalid(context)); return; }
         if (request is null || !ValidComponent(request.SourceKind) || !ValidComponent(request.SourceId) ||
             request.Description is { Length: > 1024 }) { await Write(context, Invalid(context)); return; }
+        IGatewayAdminActorProjector projector = context.RequestServices.GetRequiredService<IGatewayAdminActorProjector>();
+        IGatewayManagementCommandCoordinator commands = context.RequestServices.GetRequiredService<IGatewayManagementCommandCoordinator>();
         if (Encoding.UTF8.GetByteCount(request.ConfigurationJson) > MaximumBodyBytes)
         { await Write(context, Error(context, 413, "gateway.admin.request.tooLarge", "The request is too large.")); return; }
         byte[] configuration = Encoding.UTF8.GetBytes(request.ConfigurationJson);
@@ -255,6 +261,15 @@ public static partial class GatewayAdminEndpointRouteBuilderExtensions
 
     private static async ValueTask<byte[]> ReadBoundedBodyAsync(HttpRequest request, CancellationToken cancellationToken)
     {
+        if (request.Headers.ContentEncoding.Count != 0)
+            throw new BadHttpRequestException("Content encoding is unsupported.", 415);
+        if (request.ContentType is not null)
+        {
+            string mediaType = request.ContentType.Split(';', 2)[0].Trim();
+            if (!StringComparer.OrdinalIgnoreCase.Equals(mediaType, "application/json") &&
+                !StringComparer.OrdinalIgnoreCase.Equals(mediaType, "application/hpd.gateway+json"))
+                throw new BadHttpRequestException("Content type is unsupported.", 415);
+        }
         if (request.ContentLength is > MaximumBodyBytes) throw new BadHttpRequestException("Request body too large.", 413);
         using var stream = new MemoryStream();
         byte[] buffer = new byte[16 * 1024];
@@ -276,6 +291,13 @@ public static partial class GatewayAdminEndpointRouteBuilderExtensions
 
     private static IResult NotFound(HttpContext context) =>
         Error(context, 404, "gateway.admin.resource.notFound", "The resource was not found.");
+
+    private static GatewayRevisionProjection ProjectRevision(GatewayManagedRecord<GatewayAcceptedRevision> item) =>
+        new(item.Id, item.Value.ContentHashAlgorithm, item.Value.ContentHashValue,
+            item.Value.SchemaVersion, item.Value.CanonicalizationVersion,
+            item.Value.ParentRevisionId, item.Value.DerivedFromRevisionId,
+            item.Value.ValidationId, item.Value.SourceKind, item.Value.SourceId,
+            item.Value.Description, item.CreatedAt);
 
     private static IResult Error(HttpContext context, int status, string code, string title) =>
         TypedResults.Json(new GatewayAdminError(code, title), GatewayAdminJsonContext.Default.GatewayAdminError, statusCode: status);
@@ -302,6 +324,9 @@ public static partial class GatewayAdminEndpointRouteBuilderExtensions
         if (!GatewayIdentifier.IsCanonical(options.EndpointSurfaceId))
             throw new InvalidOperationException("The Gateway Admin endpoint surface ID is invalid.");
         _ = endpoints.ServiceProvider.GetRequiredService<IGatewayAdminActorProjector>();
+        if (options.CapabilityPolicies.Count != GatewayAdminCapabilities.All.Length ||
+            options.CapabilityPolicies.Keys.Except(GatewayAdminCapabilities.All, StringComparer.Ordinal).Any())
+            throw new InvalidOperationException("The Gateway Admin capability-policy catalog is not the exact v1 catalog.");
         foreach (string capability in GatewayAdminCapabilities.All)
             if (!options.CapabilityPolicies.TryGetValue(capability, out string? policy) || string.IsNullOrWhiteSpace(policy))
                 throw new InvalidOperationException($"The Gateway Admin capability '{capability}' has no policy mapping.");

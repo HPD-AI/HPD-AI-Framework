@@ -114,6 +114,21 @@ public sealed record GatewayExportResponse(
     string ContentHashValue, string ConfigurationJson);
 public sealed record GatewayAdministrativeResponse(
     string OperationId, GatewayAdministrativeCompletionState State, string Code, string? ArtifactReference = null);
+public sealed record GatewayAdminPage<T>(ImmutableArray<T> Items, string? ContinuationToken, bool HasMore);
+public sealed record GatewayRevisionProjection(
+    string RevisionId, string ContentHashAlgorithm, string ContentHashValue,
+    string SchemaVersion, string CanonicalizationVersion, string? ParentRevisionId,
+    string? DerivedFromRevisionId, string ValidationId, string SourceKind,
+    string SourceId, string? Description, DateTimeOffset? AcceptedAt);
+public sealed record GatewayValidationProjection(
+    string ValidationId, GatewayValidationOutcome Outcome, string? ContentHashValue,
+    ImmutableArray<GatewayAdminDiagnostic> Diagnostics, DateTimeOffset? ValidatedAt);
+public sealed record GatewayOperationProjection(
+    string OperationId, string Operation, string ResultCode,
+    string? DesiredStateToken, DateTimeOffset? AcceptedAt);
+public sealed record GatewayAuditProjection(
+    string AuditId, string ActorId, string Operation, string ResultCode,
+    string CorrelationId, string SubjectId, DateTimeOffset? RecordedAt);
 
 public sealed record GatewayProvisionResponse(string OperationId, bool Duplicate);
 public sealed record GatewayRevisionResponse(string RevisionId, string? DesiredStateToken, bool Duplicate);
@@ -134,19 +149,21 @@ public sealed record GatewayCapabilityCatalog(ImmutableArray<string> Capabilitie
 [JsonSerializable(typeof(GatewayTargetStatusResponse))]
 [JsonSerializable(typeof(GatewayExportResponse))]
 [JsonSerializable(typeof(GatewayAdministrativeResponse))]
+[JsonSerializable(typeof(GatewayDesiredProjection))]
+[JsonSerializable(typeof(GatewayRevisionProjection))]
+[JsonSerializable(typeof(GatewayValidationProjection))]
+[JsonSerializable(typeof(GatewayOperationProjection))]
+[JsonSerializable(typeof(GatewayAuditProjection))]
+[JsonSerializable(typeof(GatewayAdminPage<GatewayRevisionProjection>))]
+[JsonSerializable(typeof(GatewayAdminPage<GatewayAuditProjection>))]
 [JsonSerializable(typeof(GatewayProvisionResponse))]
 [JsonSerializable(typeof(GatewayRevisionResponse))]
 [JsonSerializable(typeof(GatewayValidationResponse))]
 [JsonSerializable(typeof(GatewayAdminDiagnostic))]
+[JsonSerializable(typeof(ImmutableArray<GatewayAdminDiagnostic>))]
 [JsonSerializable(typeof(GatewayAdminError))]
 [JsonSerializable(typeof(GatewayCapabilityCatalog))]
 [JsonSerializable(typeof(GatewayManagementStatusSnapshot))]
-[JsonSerializable(typeof(GatewayManagedRecord<GatewayDesiredState>))]
-[JsonSerializable(typeof(GatewayManagedPage<GatewayAcceptedRevision>))]
-[JsonSerializable(typeof(GatewayManagedPage<GatewayAdministrativeAuditRecord>))]
-[JsonSerializable(typeof(GatewayManagedRecord<GatewayAcceptedRevision>))]
-[JsonSerializable(typeof(GatewayManagedRecord<GatewayValidationRecord>))]
-[JsonSerializable(typeof(GatewayManagedRecord<GatewayCommandReceipt>))]
 [JsonSerializable(typeof(GatewayManagedPage<GatewayActivationIntent>))]
 [JsonSerializable(typeof(GatewayManagedPage<GatewayNodeActivationOutcome>))]
 [JsonSerializable(typeof(GatewayRevisionComparison))]

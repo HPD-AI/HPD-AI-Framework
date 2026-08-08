@@ -98,7 +98,7 @@ public sealed class GatewayAdminContractTests
         {
             CapabilityPolicies = ImmutableDictionary<string, string>.Empty,
         });
-        map.Should().Throw<InvalidOperationException>().WithMessage("*has no policy mapping*");
+        map.Should().Throw<InvalidOperationException>().WithMessage("*exact v1 catalog*");
     }
 
     private sealed class TestActorProjector : IGatewayAdminActorProjector

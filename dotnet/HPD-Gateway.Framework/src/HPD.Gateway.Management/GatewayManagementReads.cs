@@ -14,9 +14,22 @@ public sealed record GatewayManagedPage<T>(
     string? ContinuationToken,
     bool HasMore);
 
+public sealed record GatewayDesiredProjection(
+    string TargetNodeId,
+    string NamespaceId,
+    string ActivationIntentId,
+    string RevisionId,
+    string CandidateId,
+    string DesiredStateToken,
+    DateTimeOffset? ObservedAt);
+
 public interface IGatewayManagementReader
 {
     ValueTask<GatewayManagedRecord<GatewayDesiredState>?> GetDesiredAsync(
+        string targetNodeId,
+        CancellationToken cancellationToken = default);
+    ValueTask<GatewayDesiredProjection?> GetDesiredProjectionAsync(
+        string namespaceId,
         string targetNodeId,
         CancellationToken cancellationToken = default);
     ValueTask<GatewayManagedRecord<GatewayCommandReceipt>?> FindByIdempotencyAsync(
@@ -65,6 +78,15 @@ internal sealed class GatewayManagementReader(
     IBaseSessionFactory sessions,
     GatewayManagementOptions options) : IGatewayManagementReader
 {
+    public async ValueTask<GatewayDesiredProjection?> GetDesiredProjectionAsync(
+        string namespaceId, string targetNodeId, CancellationToken cancellationToken = default)
+    {
+        Validate(namespaceId, nameof(namespaceId));
+        GatewayManagedRecord<GatewayDesiredState>? desired = await GetDesiredAsync(targetNodeId, cancellationToken).ConfigureAwait(false);
+        if (desired is null || !StringComparer.Ordinal.Equals(desired.Value.NamespaceId, namespaceId)) return null;
+        return new(targetNodeId, namespaceId, desired.Value.ActivationIntentId, desired.Value.RevisionId,
+            desired.Value.CandidateId, GatewayDesiredStateTokens.Create(desired.Value, options), desired.UpdatedAt ?? desired.CreatedAt);
+    }
     public async ValueTask<GatewayManagedRecord<GatewayDesiredState>?> GetDesiredAsync(
         string targetNodeId,
         CancellationToken cancellationToken = default)

@@ -31,8 +31,8 @@ public sealed class GatewayStandaloneBootstrapTests
         using var files = StandaloneFiles.Create();
         File.WriteAllText(files.BootstrapPath,
             File.ReadAllText(files.BootstrapPath).Replace(
-                "\"schemaVersion\":\"hpd.gateway.standalone/v1\"",
-                "\"schemaVersion\":\"hpd.gateway.standalone/v1\",\"schemaVersion\":\"hpd.gateway.standalone/v1\"",
+                "\"schemaVersion\":\"hpd.gateway.standalone/v2\"",
+                "\"schemaVersion\":\"hpd.gateway.standalone/v2\",\"schemaVersion\":\"hpd.gateway.standalone/v2\"",
                 StringComparison.Ordinal));
 
         FluentActions.Invoking(() => GatewayStandaloneBootstrapReader.Read(files.BootstrapPath))
@@ -114,13 +114,23 @@ public sealed class GatewayStandaloneBootstrapTests
         {
             var bootstrap = new GatewayStandaloneBootstrap
             {
-                SchemaVersion = "hpd.gateway.standalone/v1",
+                SchemaVersion = "hpd.gateway.standalone/v2",
                 HostConfigurationPath = Path.Combine(Directory, "host.json"),
                 GatewayConfigurationPath = Path.Combine(Directory, "gateway.json"),
                 CandidateId = new("candidate"),
                 AuthorityId = "authority",
                 AuthorityEpoch = "epoch",
                 AuthorityVersion = 1,
+                Management = new GatewayStandaloneManagement
+                {
+                    DatabasePath = Path.Combine(Directory, "management.db"),
+                    ManagementAuthorityId = "local",
+                    PlanProtectionKeyHex = new string('1', 64),
+                    TokenProtectionKeyHex = new string('2', 64),
+                    DesiredStateTokenKeyHex = new string('3', 64),
+                    JwtAuthority = "https://issuer.example",
+                    JwtAudience = "hpd-gateway",
+                },
                 Certificates =
                 [
                     new GatewayStandaloneCertificateSource

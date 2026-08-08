@@ -40,14 +40,24 @@ public static partial class GatewayAdminEndpointRouteBuilderExtensions
         if (revision)
         {
             GatewayManagedRecord<GatewayAcceptedRevision>? value = await reader.GetRevisionAsync(ns, id, context.RequestAborted).ConfigureAwait(false);
-            await Write(context, value is null ? NotFound(context) : TypedResults.Json(value,
-                GatewayAdminJsonContext.Default.GatewayManagedRecordGatewayAcceptedRevision)).ConfigureAwait(false);
+            await Write(context, value is null ? NotFound(context) : TypedResults.Json(ProjectRevision(value),
+                GatewayAdminJsonContext.Default.GatewayRevisionProjection)).ConfigureAwait(false);
         }
         else
         {
             GatewayManagedRecord<GatewayValidationRecord>? value = await reader.GetValidationAsync(ns, id, context.RequestAborted).ConfigureAwait(false);
-            await Write(context, value is null ? NotFound(context) : TypedResults.Json(value,
-                GatewayAdminJsonContext.Default.GatewayManagedRecordGatewayValidationRecord)).ConfigureAwait(false);
+            if (value is null) { await Write(context, NotFound(context)); return; }
+            ImmutableArray<GatewayAdminDiagnostic> diagnostics;
+            try
+            {
+                diagnostics = JsonSerializer.Deserialize(value.Value.DiagnosticsJson,
+                    GatewayAdminJsonContext.Default.ImmutableArrayGatewayAdminDiagnostic);
+                if (diagnostics.IsDefault) diagnostics = [];
+            }
+            catch (JsonException) { diagnostics = []; }
+            await Write(context, TypedResults.Json(new GatewayValidationProjection(
+                value.Id, value.Value.Outcome, value.Value.ContentHashValue,
+                diagnostics, value.CreatedAt), GatewayAdminJsonContext.Default.GatewayValidationProjection)).ConfigureAwait(false);
         }
     }
 
@@ -150,8 +160,10 @@ public static partial class GatewayAdminEndpointRouteBuilderExtensions
         if (!await AdmitNamespace(context, ns, operation, false).ConfigureAwait(false)) return;
         GatewayManagedRecord<GatewayCommandReceipt>? value = await context.RequestServices.GetRequiredService<IGatewayManagementReader>()
             .GetOperationAsync(ns, operation, context.RequestAborted).ConfigureAwait(false);
-        await Write(context, value is null ? NotFound(context) : TypedResults.Json(value,
-            GatewayAdminJsonContext.Default.GatewayManagedRecordGatewayCommandReceipt)).ConfigureAwait(false);
+        await Write(context, value is null ? NotFound(context) : TypedResults.Json(new GatewayOperationProjection(
+            value.Id, value.Value.Operation, value.Value.StableResultCode,
+            value.Value.StableDesiredStateToken, value.CreatedAt),
+            GatewayAdminJsonContext.Default.GatewayOperationProjection)).ConfigureAwait(false);
     }
 
     private static async Task Backup(HttpContext context)
@@ -167,10 +179,13 @@ public static partial class GatewayAdminEndpointRouteBuilderExtensions
         { await Write(context, Invalid(context)); return; }
         GatewayAdminRequestAttribution attribution = await Attribution(context, GatewayAdminCapabilities.BackupWrite).ConfigureAwait(false);
         GatewayBackupArtifact artifact = await sink!.OpenAsync(request.ArtifactLabel, context.RequestAborted).ConfigureAwait(false);
+        if (artifact.Destination is null || !artifact.Destination.CanWrite || !ValidVisibleAscii(artifact.PublicReference, 256))
+        { artifact.Destination?.Dispose(); await Write(context, Error(context, 503, "gateway.admin.backup.sinkUnavailable", "The backup sink is unavailable.")); return; }
         await using (artifact.Destination.ConfigureAwait(false))
         {
             GatewayAdministrativeResult result = await context.RequestServices.GetRequiredService<IGatewayManagementAdministration>()
-                .CreateBackupAsync(ns, key, attribution.ToActor(), artifact.Destination, context.RequestAborted).ConfigureAwait(false);
+                .CreateBackupAsync(ns, key, attribution.ToActor(), BackupArtifactIdentity(request),
+                    artifact.Destination, context.RequestAborted).ConfigureAwait(false);
             await Write(context, ProjectAdministration(result, artifact.PublicReference)).ConfigureAwait(false);
         }
     }
@@ -252,6 +267,13 @@ public static partial class GatewayAdminEndpointRouteBuilderExtensions
     private static bool ValidLabel(string? value) => value is null || value is { Length: >= 1 and <= 128 }
         && char.IsAsciiLetterOrDigit(value[0])
         && value.All(static character => char.IsAsciiLetterOrDigit(character) || character is '.' or '_' or '-');
+
+    private static string BackupArtifactIdentity(GatewayBackupRequest request)
+    {
+        byte[] digest = System.Security.Cryptography.SHA256.HashData(
+            Encoding.UTF8.GetBytes(request.SinkName + "\n" + (request.ArtifactLabel ?? string.Empty)));
+        return "backup-" + Convert.ToHexStringLower(digest);
+    }
 
     private static IResult ProjectAdministration(GatewayAdministrativeResult result, string? artifactReference) =>
         TypedResults.Json(new GatewayAdministrativeResponse(result.OperationId, result.State, result.Code, artifactReference),
