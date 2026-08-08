@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { canonicalJson, framedHash, hex } from "../src/canonical.js";
 import { parseSnapshot } from "../src/input.js";
 import { createGenerationPlan } from "../src/normalize.js";
+import { render } from "../src/render.js";
 import type { JsonValue } from "../src/types.js";
 
 const fixture = readFileSync(new URL("../fixtures/gateway-client-snapshot.json", import.meta.url));
@@ -76,6 +77,25 @@ describe("real Gateway snapshot", () => {
     identity.sourceSha256 = "0".repeat(64);
     expect(() => parse(identity)).toThrow(/source hash mismatch/u);
   });
+
+  it("renders every operation deterministically from semantically reordered input", () => {
+    const original = clone();
+    const reordered = clone();
+    reordered.openApi = reverseObjects(reordered.openApi);
+    reordered.manifest = reverseObjects(reordered.manifest);
+    rehash(reordered);
+    const originalPlan = createGenerationPlan(parse(original));
+    const reorderedPlan = createGenerationPlan(parse(reordered));
+    const originalFiles = render(originalPlan);
+    expect(render(reorderedPlan)).toEqual(originalFiles);
+    const operations = originalFiles["operations.ts"]!;
+    for (const operation of original.manifest.operations) {
+      const name = operation.operation.split(/[^A-Za-z0-9]+/u).filter(Boolean)
+        .map((part: string) => part[0]!.toUpperCase() + part.slice(1)).join("");
+      expect(operations).toContain(`export interface ${name}Input`);
+      expect(operations).toContain(`export type ${name}Result`);
+    }
+  });
 });
 
 function clone(): Record<string, any> { return JSON.parse(fixture.toString("utf8")) as Record<string, any>; }
@@ -83,6 +103,11 @@ function parse(value: Record<string, any>) { return parseSnapshot(new TextEncode
 function operation(value: Record<string, any>, index: number): Record<string, any> {
   const semantic = value.manifest.operations[index];
   return value.openApi.paths[semantic.path][semantic.method.toLowerCase()] as Record<string, any>;
+}
+function reverseObjects(value: any): any {
+  if (Array.isArray(value)) return value.map(reverseObjects);
+  if (value === null || typeof value !== "object") return value;
+  return Object.fromEntries(Object.entries(value).reverse().map(([key, child]) => [key, reverseObjects(child)]));
 }
 
 function rehash(value: Record<string, any>): void {
