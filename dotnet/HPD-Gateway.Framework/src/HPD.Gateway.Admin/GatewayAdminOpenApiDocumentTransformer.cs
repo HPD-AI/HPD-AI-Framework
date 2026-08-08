@@ -3,6 +3,7 @@ using HPD.Gateway.Effective;
 using HPD.Gateway.Management;
 using Microsoft.AspNetCore.OpenApi;
 using Microsoft.OpenApi;
+using System.Collections.Immutable;
 using System.Text.Json.Nodes;
 
 namespace HPD.Gateway.Admin;
@@ -17,38 +18,51 @@ internal sealed class GatewayAdminOpenApiSchemaTransformer : IOpenApiSchemaTrans
         cancellationToken.ThrowIfCancellationRequested();
         string? property = context.JsonPropertyInfo?.Name;
         Type declaringType = context.JsonPropertyInfo?.DeclaringType ?? context.JsonTypeInfo.Type;
-        if (declaringType == typeof(GatewayPurgeRequest) &&
-            StringComparer.OrdinalIgnoreCase.Equals(property, nameof(GatewayPurgeRequest.ResourceIds)))
+        if (property is null) return Task.CompletedTask;
+        ImmutableArray<GatewayAdminClientSchemaConstraint> constraints =
+            GatewayAdminClientSchemaConstraintLedger.For(declaringType, property);
+        foreach (GatewayAdminClientSchemaConstraint constraint in constraints)
         {
-            schema.MinItems = 1;
-            schema.MaxItems = 256;
-            schema.Description = "One to 256 unique, ordinally sorted resource identifiers. Each value is NFC-normalized, " +
-                "contains no Unicode control characters, and is limited to 128 UTF-8 bytes.";
-            if (schema.Items is OpenApiSchema item)
+            GatewayAdminClientConstraintRules rules = constraint.Rules;
+            if (constraint.AppliesTo == GatewayAdminClientSchemaConstraintTarget.Collection)
             {
-                item.Type = JsonSchemaType.String;
-                item.MinLength = 1;
-                item.MaxLength = 128;
-                item.Pattern = "^[^\\u0000-\\u001F\\u007F-\\u009F]+$";
+                schema.MinItems = rules.CollectionMinimum;
+                schema.MaxItems = rules.CollectionMaximum;
+                schema.Description = $"{rules.CollectionMinimum}-{rules.CollectionMaximum} items; " +
+                    $"uniqueness {rules.Uniqueness}, ordering {rules.Ordering}.";
+                continue;
             }
-        }
-        else if ((declaringType == typeof(GatewayRevisionRequest) &&
-                  StringComparer.OrdinalIgnoreCase.Equals(property, nameof(GatewayRevisionRequest.ConfigurationJson))) ||
-                 (declaringType == typeof(GatewayImportRequest) &&
-                  StringComparer.OrdinalIgnoreCase.Equals(property, nameof(GatewayImportRequest.ConfigurationJson))))
-        {
-            schema.Description = "Canonical candidate text limited to 4,194,304 UTF-8 bytes; maxLength is the corresponding character ceiling.";
-        }
-        else if ((declaringType == typeof(GatewayRevisionRequest) &&
-                  (StringComparer.OrdinalIgnoreCase.Equals(property, nameof(GatewayRevisionRequest.SourceKind)) ||
-                   StringComparer.OrdinalIgnoreCase.Equals(property, nameof(GatewayRevisionRequest.SourceId)))) ||
-                 (declaringType == typeof(GatewayImportRequest) &&
-                  StringComparer.OrdinalIgnoreCase.Equals(property, nameof(GatewayImportRequest.SourceId))) ||
-                 declaringType == typeof(GatewayCompareRequest))
-        {
-            schema.Description = "NFC-normalized, control-free identifier limited to 128 UTF-8 bytes; maxLength is the character ceiling.";
+            OpenApiSchema target = constraint.AppliesTo == GatewayAdminClientSchemaConstraintTarget.Items
+                ? schema.Items as OpenApiSchema ?? throw new InvalidOperationException("Schema item constraint target is missing.")
+                : schema;
+            ApplyStringRules(target, rules);
+            target.Description = $"Semantic UTF-8 bytes {rules.MinimumUtf8Bytes?.ToString() ?? "0"}-" +
+                $"{rules.MaximumUtf8Bytes}; normalization {rules.Normalization}; character set {rules.CharacterSet}.";
         }
         return Task.CompletedTask;
+    }
+
+    private static void ApplyStringRules(OpenApiSchema schema, GatewayAdminClientConstraintRules rules)
+    {
+        schema.Type = JsonSchemaType.String;
+        schema.MaxLength = rules.MaximumUtf8Bytes;
+        schema.MinLength = rules.CharacterSet is GatewayAdminClientCharacterSet.VisibleAscii or
+            GatewayAdminClientCharacterSet.LowercaseAsciiName or GatewayAdminClientCharacterSet.AsciiArtifactLabel or
+            GatewayAdminClientCharacterSet.StrongEntityTag
+                ? rules.MinimumUtf8Bytes
+                : rules.MinimumUtf8Bytes > 0 ? 1 : 0;
+        schema.Pattern = rules.CharacterSet switch
+        {
+            GatewayAdminClientCharacterSet.VisibleAscii => $"^[!-~]{{{rules.MinimumUtf8Bytes ?? 0},{rules.MaximumUtf8Bytes}}}$",
+            GatewayAdminClientCharacterSet.LowercaseAsciiName => $"^[a-z0-9.-]{{{rules.MinimumUtf8Bytes ?? 0},{rules.MaximumUtf8Bytes}}}$",
+            GatewayAdminClientCharacterSet.AsciiArtifactLabel =>
+                $"^[A-Za-z0-9][A-Za-z0-9._-]{{{Math.Max(0, (rules.MinimumUtf8Bytes ?? 1) - 1)},{rules.MaximumUtf8Bytes - 1}}}$",
+            GatewayAdminClientCharacterSet.StrongEntityTag =>
+                $"^\"(?=[!-~]{{{rules.MinimumUtf8Bytes},{rules.MaximumUtf8Bytes}}}\"$)[^\",]+\"$",
+            _ when rules.RejectUnicodeControls =>
+                $"^[^\\u0000-\\u001F\\u007F-\\u009F]{{{(rules.MinimumUtf8Bytes > 0 ? 1 : 0)},{rules.MaximumUtf8Bytes}}}$",
+            _ => null,
+        };
     }
 }
 

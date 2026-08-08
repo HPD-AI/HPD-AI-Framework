@@ -393,9 +393,9 @@ public sealed class GatewayAdminHttpTests
         JsonElement revisionSchema = RequestSchema(document.RootElement, paths, "/management/gateway/v1/namespaces/{ns}/targets/{target}/revisions", "post");
         AssertStringProperty(revisionSchema, "configurationJson", 1, 4 * 1024 * 1024, descriptionContains: "UTF-8 bytes");
         AssertStringProperty(revisionSchema, "sourceKind", 1, 128,
-            "^[^\\u0000-\\u001F\\u007F-\\u009F]+$", "128 UTF-8 bytes");
+            "^[^\\u0000-\\u001F\\u007F-\\u009F]{1,128}$", "128");
         AssertStringProperty(revisionSchema, "sourceId", 1, 128,
-            "^[^\\u0000-\\u001F\\u007F-\\u009F]+$", "128 UTF-8 bytes");
+            "^[^\\u0000-\\u001F\\u007F-\\u009F]{1,128}$", "128");
         AssertStringProperty(revisionSchema, "description", null, 1024);
 
         JsonElement activationSchema = RequestSchema(document.RootElement, paths,
@@ -405,30 +405,31 @@ public sealed class GatewayAdminHttpTests
         JsonElement compareSchema = RequestSchema(document.RootElement, paths,
             "/management/gateway/v1/namespaces/{ns}/targets/{target}/revisions:compare", "post");
         AssertStringProperty(compareSchema, "leftRevisionId", 1, 128,
-            "^[^\\u0000-\\u001F\\u007F-\\u009F]+$", "128 UTF-8 bytes");
+            "^[^\\u0000-\\u001F\\u007F-\\u009F]{1,128}$", "128");
         AssertStringProperty(compareSchema, "rightRevisionId", 1, 128,
-            "^[^\\u0000-\\u001F\\u007F-\\u009F]+$", "128 UTF-8 bytes");
+            "^[^\\u0000-\\u001F\\u007F-\\u009F]{1,128}$", "128");
 
         JsonElement importSchema = RequestSchema(document.RootElement, paths,
             "/management/gateway/v1/namespaces/{ns}/targets/{target}/revisions:import", "post");
         AssertStringProperty(importSchema, "configurationJson", 1, 4 * 1024 * 1024, descriptionContains: "UTF-8 bytes");
         AssertStringProperty(importSchema, "sourceId", 1, 128,
-            "^[^\\u0000-\\u001F\\u007F-\\u009F]+$", "128 UTF-8 bytes");
+            "^[^\\u0000-\\u001F\\u007F-\\u009F]{1,128}$", "128");
         AssertStringProperty(importSchema, "description", null, 1024);
 
         JsonElement backupSchema = RequestSchema(document.RootElement, paths,
             "/management/gateway/v1/namespaces/{ns}/administration/backups", "post");
-        AssertStringProperty(backupSchema, "sinkName", 1, 128, "^[a-z0-9.-]+$");
-        AssertStringProperty(backupSchema, "artifactLabel", 1, 128, "^[A-Za-z0-9][A-Za-z0-9._-]*$");
+        AssertStringProperty(backupSchema, "sinkName", 1, 128, "^[a-z0-9.-]{1,128}$");
+        AssertStringProperty(backupSchema, "artifactLabel", 1, 128, "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$");
 
         JsonElement purgeSchema = RequestSchema(document.RootElement, paths,
             "/management/gateway/v1/namespaces/{ns}/administration/purges", "post");
         JsonElement resourceIds = purgeSchema.GetProperty("properties").GetProperty("resourceIds");
         resourceIds.GetProperty("minItems").GetInt32().Should().Be(1);
         resourceIds.GetProperty("maxItems").GetInt32().Should().Be(256);
-        resourceIds.GetProperty("description").GetString().Should().Contain("128 UTF-8 bytes");
+        resourceIds.GetProperty("description").GetString().Should().Contain("Ordinal");
+        resourceIds.GetProperty("items").GetProperty("description").GetString().Should().Contain("128");
         resourceIds.GetProperty("items").GetProperty("pattern").GetString()
-            .Should().Be("^[^\\u0000-\\u001F\\u007F-\\u009F]+$");
+            .Should().Be("^[^\\u0000-\\u001F\\u007F-\\u009F]{1,128}$");
     }
 
     private static JsonElement RequestSchema(

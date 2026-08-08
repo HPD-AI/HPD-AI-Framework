@@ -256,6 +256,33 @@ public sealed class GatewayAdminContractTests
     }
 
     [Fact]
+    public void Schema_constraint_ledger_is_closed_bounded_and_explicitly_branded()
+    {
+        ImmutableArray<GatewayAdminClientSchemaConstraint> constraints =
+            GatewayAdminClientSchemaConstraintLedger.V1;
+        constraints.Should().HaveCount(46);
+        constraints.Should().OnlyHaveUniqueItems(value =>
+            $"{value.SchemaType.AssemblyQualifiedName}|{value.PropertyName}|{value.AppliesTo}");
+        foreach (GatewayAdminClientSchemaConstraint constraint in constraints)
+            ((Action)constraint.Validate).Should().NotThrow();
+
+        GatewayAdminClientStringBrand[] ownedBrands = GatewayAdminClientSemanticLedger.V1
+            .SelectMany(static value => value.ParameterConstraints)
+            .Select(static value => value.Brand)
+            .Concat(constraints.Select(static value => value.Brand))
+            .Distinct()
+            .Order()
+            .ToArray();
+        ownedBrands.Should().Equal(Enum.GetValues<GatewayAdminClientStringBrand>().Order());
+
+        constraints.Where(static value => value.AppliesTo == GatewayAdminClientSchemaConstraintTarget.Collection)
+            .Should().OnlyContain(static value => value.Brand == GatewayAdminClientStringBrand.None &&
+                value.Rules.Cardinality == GatewayAdminClientCardinality.Multiple);
+        constraints.Where(static value => value.Brand != GatewayAdminClientStringBrand.None)
+            .Should().OnlyContain(static value => value.AppliesTo != GatewayAdminClientSchemaConstraintTarget.Collection);
+    }
+
+    [Fact]
     public void Endpoint_ledger_maps_one_static_capability_and_exact_resource_policy_per_scope()
     {
         WebApplicationBuilder builder = WebApplication.CreateBuilder();
