@@ -281,6 +281,4 @@ public sealed record GatewayResilienceCapabilityProjection(
 [JsonSerializable(typeof(GatewayRevisionComparison))]
 [JsonSerializable(typeof(GatewayEffectiveSnapshot))]
 [JsonSerializable(typeof(GatewayStatusSnapshot))]
-[JsonSerializable(typeof(GatewayClientGenerationManifestV1))]
-[JsonSerializable(typeof(GatewayClientGenerationSnapshotV1))]
 public sealed partial class GatewayAdminJsonContext : JsonSerializerContext;

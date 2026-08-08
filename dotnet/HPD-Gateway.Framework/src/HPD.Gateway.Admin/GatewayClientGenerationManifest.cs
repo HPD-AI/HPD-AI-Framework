@@ -5,10 +5,15 @@ using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 
 namespace HPD.Gateway.Admin;
 
-public sealed record GatewayClientGenerationManifestV1(
+[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase, UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
+[JsonSerializable(typeof(GatewayClientGenerationManifestV1))]
+internal sealed partial class GatewayClientGenerationJsonContext : JsonSerializerContext;
+
+internal sealed record GatewayClientGenerationManifestV1(
     int SchemaVersion,
     string ApiVersion,
     string OpenApiDocumentName,
@@ -16,7 +21,7 @@ public sealed record GatewayClientGenerationManifestV1(
     ImmutableArray<GatewayClientOperationV1> Operations,
     ImmutableArray<GatewaySchemaConstraintV1> SchemaConstraints);
 
-public sealed record GatewayClientOperationV1(
+internal sealed record GatewayClientOperationV1(
     string Operation,
     string OpenApiOperationId,
     string Method,
@@ -34,12 +39,12 @@ public sealed record GatewayClientOperationV1(
     GatewayClientPaginationV1 Pagination,
     ImmutableArray<GatewayParameterConstraintV1> ParameterConstraints);
 
-public sealed record GatewayClientSuccessV1(int Status, string SchemaRef, string Meaning);
-public sealed record GatewayClientRequestBodyV1(string Presence, string? SchemaRef, ImmutableArray<string> MediaTypes);
-public sealed record GatewayClientPaginationV1(string Kind, int? DefaultMaximum, int? MinimumMaximum, int? MaximumMaximum);
-public sealed record GatewayParameterConstraintV1(string Location, string Name, bool Required, string Brand, GatewayConstraintRulesV1 Rules);
-public sealed record GatewaySchemaConstraintV1(string SchemaRef, string PropertyPointer, string AppliesTo, string Brand, GatewayConstraintRulesV1 Rules);
-public sealed record GatewayConstraintRulesV1(
+internal sealed record GatewayClientSuccessV1(int Status, string SchemaRef, string Meaning);
+internal sealed record GatewayClientRequestBodyV1(string Presence, string? SchemaRef, ImmutableArray<string> MediaTypes);
+internal sealed record GatewayClientPaginationV1(string Kind, int? DefaultMaximum, int? MinimumMaximum, int? MaximumMaximum);
+internal sealed record GatewayParameterConstraintV1(string Location, string Name, bool Required, string Brand, GatewayConstraintRulesV1 Rules);
+internal sealed record GatewaySchemaConstraintV1(string SchemaRef, string PropertyPointer, string AppliesTo, string Brand, GatewayConstraintRulesV1 Rules);
+internal sealed record GatewayConstraintRulesV1(
     int? MinimumUtf8Bytes,
     int? MaximumUtf8Bytes,
     string Normalization,
@@ -51,31 +56,59 @@ public sealed record GatewayConstraintRulesV1(
     string Ordering,
     string Cardinality);
 
-public sealed record GatewayClientGenerationSnapshotV1(
-    int SnapshotVersion,
-    string HashAlgorithm,
-    string OpenApiSha256,
-    string ManifestSha256,
-    string SourceSha256,
-    JsonObject OpenApi,
-    GatewayClientGenerationManifestV1 Manifest);
-
-internal static class GatewayClientGenerationSnapshotFactory
+internal sealed class GatewayClientGenerationSnapshotV1
 {
+    private GatewayClientGenerationSnapshotV1(
+        string openApiSha256,
+        string manifestSha256,
+        string sourceSha256,
+        GatewayClientGenerationManifestV1 manifest,
+        ImmutableArray<byte> snapshotUtf8)
+    {
+        OpenApiSha256 = openApiSha256;
+        ManifestSha256 = manifestSha256;
+        SourceSha256 = sourceSha256;
+        Manifest = manifest;
+        SnapshotUtf8 = snapshotUtf8;
+    }
+
+    internal int SnapshotVersion => 1;
+    internal string HashAlgorithm => "sha-256";
+    internal string OpenApiSha256 { get; }
+    internal string ManifestSha256 { get; }
+    internal string SourceSha256 { get; }
+    internal GatewayClientGenerationManifestV1 Manifest { get; }
+    internal ImmutableArray<byte> SnapshotUtf8 { get; }
+
     internal static GatewayClientGenerationSnapshotV1 Create(JsonObject openApi, string securityScheme)
     {
         ArgumentNullException.ThrowIfNull(openApi);
         GatewayClientOpenApiJsonValidator.Validate(openApi, securityScheme);
         GatewayClientGenerationManifestV1 manifest = ProjectFromManagedLedger(securityScheme);
         byte[] openApiBytes = GatewayCanonicalJson.Serialize(openApi);
-        JsonNode manifestNode = JsonSerializer.SerializeToNode(manifest, GatewayAdminJsonContext.Default.GatewayClientGenerationManifestV1)
+        JsonNode manifestNode = JsonSerializer.SerializeToNode(manifest, GatewayClientGenerationJsonContext.Default.GatewayClientGenerationManifestV1)
             ?? throw new InvalidOperationException("Manifest serialization failed.");
         byte[] manifestBytes = GatewayCanonicalJson.Serialize(manifestNode);
         byte[] openApiDigest = Hash("HPD.Gateway.OpenApi.v1\0", openApiBytes);
         byte[] manifestDigest = Hash("HPD.Gateway.ClientManifest.v1\0", manifestBytes);
         byte[] sourceDigest = HashPair("HPD.Gateway.ClientSnapshot.v1\0", openApiDigest, manifestDigest);
-        return new(1, "sha-256", Convert.ToHexStringLower(openApiDigest), Convert.ToHexStringLower(manifestDigest),
-            Convert.ToHexStringLower(sourceDigest), openApi, manifest);
+        string openApiHash = Convert.ToHexStringLower(openApiDigest);
+        string manifestHash = Convert.ToHexStringLower(manifestDigest);
+        string sourceHash = Convert.ToHexStringLower(sourceDigest);
+        var envelope = new JsonObject
+        {
+            ["snapshotVersion"] = 1,
+            ["hashAlgorithm"] = "sha-256",
+            ["openApiSha256"] = openApiHash,
+            ["manifestSha256"] = manifestHash,
+            ["sourceSha256"] = sourceHash,
+            ["openApi"] = openApi.DeepClone(),
+            ["manifest"] = manifestNode.DeepClone(),
+        };
+        ImmutableArray<byte> snapshotBytes = GatewayCanonicalJson.Serialize(envelope).ToImmutableArray();
+        if (snapshotBytes.Length > 8 * 1024 * 1024)
+            throw new InvalidOperationException("Gateway client generation snapshot exceeds 8 MiB.");
+        return new(openApiHash, manifestHash, sourceHash, manifest, snapshotBytes);
     }
 
     private static GatewayClientGenerationManifestV1 ProjectFromManagedLedger(string securityScheme)
