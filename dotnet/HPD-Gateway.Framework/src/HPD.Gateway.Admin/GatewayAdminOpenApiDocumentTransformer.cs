@@ -142,6 +142,7 @@ internal sealed class GatewayAdminOpenApiDocumentTransformer(GatewayAdminOpenApi
         document.Info.Version = "1.0.0";
         string securityScheme = contract.GetSecurityScheme();
         document.Components ??= new OpenApiComponents();
+        document.Components.Schemas ??= new Dictionary<string, IOpenApiSchema>();
         document.Components.SecuritySchemes ??= new Dictionary<string, IOpenApiSecurityScheme>();
         document.Components.SecuritySchemes.TryAdd(securityScheme, new OpenApiSecurityScheme
         {
@@ -179,6 +180,7 @@ internal sealed class GatewayAdminOpenApiDocumentTransformer(GatewayAdminOpenApi
             {
                 IOpenApiSchema requestSchema = await context.GetOrCreateSchemaAsync(
                     requestType, null, cancellationToken).ConfigureAwait(false);
+                requestSchema = ComponentSchema(document, requestType, requestSchema);
                 operation.RequestBody = new OpenApiRequestBody
                 {
                     Required = semantics.RequestBodyPresence == GatewayAdminClientRequestBodyPresence.Required,
@@ -192,16 +194,34 @@ internal sealed class GatewayAdminOpenApiDocumentTransformer(GatewayAdminOpenApi
             }
             IOpenApiSchema responseSchema = await context.GetOrCreateSchemaAsync(
                 semantics.SuccessType, null, cancellationToken).ConfigureAwait(false);
+            responseSchema = ComponentSchema(document, semantics.SuccessType, responseSchema);
             operation.Responses[semantics.SuccessStatus.ToString(System.Globalization.CultureInfo.InvariantCulture)] =
                 Response("Gateway Admin success response.", responseSchema);
             IOpenApiSchema errorSchema = await context.GetOrCreateSchemaAsync(
                 typeof(GatewayAdminError), null, cancellationToken).ConfigureAwait(false);
+            errorSchema = ComponentSchema(document, typeof(GatewayAdminError), errorSchema);
             foreach (int errorStatus in semantics.DocumentedErrors)
                 operation.Responses[errorStatus.ToString(System.Globalization.CultureInfo.InvariantCulture)] =
                     Response("Gateway Admin bounded error response.", errorSchema);
             pathItem.Operations[descriptor.Method == "GET" ? HttpMethod.Get : HttpMethod.Post] = operation;
         }
+        foreach (Type schemaType in GatewayAdminClientSchemaConstraintLedger.V1.Select(x => x.SchemaType).Distinct())
+        {
+            IOpenApiSchema schema = await context.GetOrCreateSchemaAsync(schemaType, null, cancellationToken).ConfigureAwait(false);
+            _ = ComponentSchema(document, schemaType, schema);
+        }
         correlation.RequireComplete();
+    }
+
+    private static IOpenApiSchema ComponentSchema(OpenApiDocument document, Type type, IOpenApiSchema schema)
+    {
+        string id = GatewayAdminSchemaReferenceIds.Create(type) ??
+            throw new InvalidOperationException("Gateway Admin wire type has no stable schema reference ID.");
+        if (schema is not OpenApiSchemaReference)
+            document.Components!.Schemas!.TryAdd(id, schema);
+        else if (!document.Components!.Schemas!.ContainsKey(id))
+            throw new InvalidOperationException("Gateway Admin schema reference has no local component target.");
+        return new OpenApiSchemaReference(id, document, null);
     }
 
     private static List<IOpenApiParameter> Parameters(GatewayAdminClientOperationSemantics semantics)

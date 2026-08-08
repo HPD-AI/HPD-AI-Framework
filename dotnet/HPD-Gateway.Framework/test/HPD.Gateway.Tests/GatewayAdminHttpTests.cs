@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Net;
 using System.Security.Claims;
 using System.Text.Encodings.Web;
+using System.Text.Json.Nodes;
 using FluentAssertions;
 using HPD.Gateway.Abstractions;
 using HPD.Gateway.Abstractions.Serialization;
@@ -308,6 +309,36 @@ public sealed class GatewayAdminHttpTests
         await application.StartAsync();
         string json = await application.GetTestClient().GetStringAsync("/openapi/hpd-gateway-v1.json");
         using JsonDocument document = JsonDocument.Parse(json);
+        GatewayClientGenerationSnapshotV1 snapshot = GatewayClientGenerationSnapshotFactory.Create(
+            JsonNode.Parse(json)!.AsObject(), "test");
+        snapshot.Manifest.Operations.Should().HaveCount(23);
+        snapshot.Manifest.SchemaConstraints.Should().HaveCount(GatewayAdminClientSchemaConstraintLedger.V1.Length);
+        snapshot.OpenApiSha256.Should().MatchRegex("^[0-9a-f]{64}$");
+        snapshot.ManifestSha256.Should().MatchRegex("^[0-9a-f]{64}$");
+        snapshot.SourceSha256.Should().MatchRegex("^[0-9a-f]{64}$");
+        GatewayClientGenerationSnapshotFactory.Create(JsonNode.Parse(json)!.AsObject(), "test").SourceSha256
+            .Should().Be(snapshot.SourceSha256);
+        JsonObject reordered = new();
+        foreach ((string key, JsonNode? value) in JsonNode.Parse(json)!.AsObject().Reverse())
+            reordered.Add(key, value?.DeepClone());
+        GatewayClientGenerationSnapshotFactory.Create(reordered, "test").SourceSha256
+            .Should().Be(snapshot.SourceSha256, "OpenAPI object order is non-behavioral");
+
+        JsonObject presentationDrift = JsonNode.Parse(json)!.AsObject();
+        presentationDrift["info"]!["title"] = "Changed presentation";
+        GatewayClientGenerationSnapshotV1 changed = GatewayClientGenerationSnapshotFactory.Create(presentationDrift, "test");
+        changed.ManifestSha256.Should().Be(snapshot.ManifestSha256);
+        changed.OpenApiSha256.Should().NotBe(snapshot.OpenApiSha256);
+        changed.SourceSha256.Should().NotBe(snapshot.SourceSha256);
+
+        JsonObject securityDrift = JsonNode.Parse(json)!.AsObject();
+        securityDrift["components"]!["securitySchemes"]!["test"]!["in"] = "header";
+        FluentActions.Invoking(() => GatewayClientGenerationSnapshotFactory.Create(securityDrift, "test"))
+            .Should().Throw<InvalidOperationException>();
+        JsonObject operationDrift = JsonNode.Parse(json)!.AsObject();
+        operationDrift["paths"]!["/management/gateway/v1/capabilities"]!["get"]!["operationId"] = "drift";
+        FluentActions.Invoking(() => GatewayClientGenerationSnapshotFactory.Create(operationDrift, "test"))
+            .Should().Throw<InvalidOperationException>();
         JsonElement securityScheme = document.RootElement.GetProperty("components")
             .GetProperty("securitySchemes").GetProperty("test");
         securityScheme.GetProperty("type").GetString().Should().Be("http");
@@ -435,7 +466,7 @@ public sealed class GatewayAdminHttpTests
             .GetProperty("/management/gateway/v1/namespaces/{ns}/targets/{target}/revisions")
             .GetProperty("post").GetProperty("responses").GetProperty("201")
             .GetProperty("content").GetProperty("application/json").GetProperty("schema");
-        JsonElement responseSchema = submitResponseSchema;
+        JsonElement responseSchema = ResolveSchema(document.RootElement, submitResponseSchema);
         JsonElement desiredTokenSchema = responseSchema.GetProperty("properties").GetProperty("desiredStateToken");
         desiredTokenSchema.GetProperty("pattern").GetString().Should().Be("^[!-~]{1,512}$");
 
@@ -467,6 +498,11 @@ public sealed class GatewayAdminHttpTests
     {
         JsonElement schema = paths.GetProperty(path).GetProperty(method)
             .GetProperty("requestBody").GetProperty("content").GetProperty("application/json").GetProperty("schema");
+        return ResolveSchema(document, schema);
+    }
+
+    private static JsonElement ResolveSchema(JsonElement document, JsonElement schema)
+    {
         if (!schema.TryGetProperty("$ref", out JsonElement reference)) return schema;
         string name = reference.GetString()!.Split('/')[^1];
         return document.GetProperty("components").GetProperty("schemas").GetProperty(name);
