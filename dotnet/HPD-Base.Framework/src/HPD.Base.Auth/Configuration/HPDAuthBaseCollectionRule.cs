@@ -3,7 +3,7 @@ namespace HPD.Base.Auth;
 /// <summary>
 /// Describes simple collection authorization rules derived from HPD.Auth principal state.
 /// </summary>
-public sealed record HPDAuthBaseCollectionRule
+public sealed record HPDBaseAuthCollectionRule
 {
     /// <summary>
     /// Gets the collection id this rule applies to.

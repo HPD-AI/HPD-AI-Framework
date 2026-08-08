@@ -11,11 +11,11 @@ internal static class DiagnosticEndpoints
 {
     /// <summary>Executes the map public operation.</summary>
     public static void MapPublic(IEndpointRouteBuilder endpoints) =>
-        endpoints.MapGet("/diagnostics", (RequestDelegate)Public).WithHPDBaseOpenApi(BaseRouteIds.Diagnostics).WithName(BaseRouteIds.Diagnostics);
+        endpoints.MapGet("/diagnostics", (RequestDelegate)Public).WithHPDBaseEndpoint(BaseRouteIds.Diagnostics, HPDBaseEndpointAudience.Public, HPDBaseEndpointOperation.DiagnosticsRead).WithHPDBaseOpenApi(BaseRouteIds.Diagnostics).WithName(BaseRouteIds.Diagnostics);
 
     /// <summary>Executes the map admin operation.</summary>
-    public static void MapAdmin(IEndpointRouteBuilder endpoints) =>
-        endpoints.MapGet("/diagnostics", (RequestDelegate)Admin).WithHPDBaseOpenApi(BaseHttpRouteNames.AdminDiagnostics).WithName(BaseHttpRouteNames.AdminDiagnostics);
+    public static void MapAdmin(IEndpointRouteBuilder endpoints, Action<IEndpointConventionBuilder, HPDBaseEndpointDescriptor>? convention = null) =>
+        endpoints.MapGet("/diagnostics", (RequestDelegate)Admin).WithHPDBaseEndpoint(BaseHttpRouteNames.AdminDiagnostics, HPDBaseEndpointAudience.ControlPlane, HPDBaseEndpointOperation.DiagnosticsRead, HPDBaseCapabilities.AdministrationDiagnosticsRead, convention).WithHPDBaseOpenApi(BaseHttpRouteNames.AdminDiagnostics).WithName(BaseHttpRouteNames.AdminDiagnostics);
 
     private static Task Public(HttpContext httpContext) => Execute(httpContext,
         services => Handle(httpContext, services.GetRequiredService<IHPDBaseRuntime>(), services.GetRequiredService<IBaseHttpPrincipalContextFactory>(), services.GetRequiredService<IBaseHttpOperationContextFactory>(), services.GetRequiredService<IBaseHttpResultMapper>(), VisibilityLevel.Public, OperationMode.User, false, httpContext.RequestAborted));
@@ -25,7 +25,7 @@ internal static class DiagnosticEndpoints
 
     private static async Task<IResult> Handle(HttpContext httpContext, IHPDBaseRuntime runtime, IBaseHttpPrincipalContextFactory principalFactory, IBaseHttpOperationContextFactory operationFactory, IBaseHttpResultMapper resultMapper, VisibilityLevel view, OperationMode mode, bool isAdmin, CancellationToken cancellationToken)
     {
-        var principal = await principalFactory.CreateAsync(httpContext, isAdmin ? HPDBaseEndpointKind.AdminMetadata : HPDBaseEndpointKind.PublicMetadata, cancellationToken);
+        var principal = await principalFactory.CreateAsync(httpContext, cancellationToken);
         var operation = operationFactory.Create(httpContext, principal, BaseOperationKind.SchemaRead, "base", mode: mode);
         var result = await runtime.Diagnostics.GetDiagnosticsAsync(principal, operation, view, cancellationToken);
         return resultMapper.ToHttpResult(result, httpContext, new HPDBaseHttpResultMappingContext { IsAdmin = isAdmin, CorrelationId = operation.CorrelationId });

@@ -26,6 +26,7 @@ public static class HPDBaseAspNetCoreServiceCollectionExtensions
 
         var options = new HPDBaseAspNetCoreOptions();
         configure?.Invoke(options);
+        HPDBaseHttpAuthOptionsValidator.ValidateAndFreeze(options.Auth);
 
         services.AddOptions();
         services.TryAddSingleton(options);
@@ -33,14 +34,18 @@ public static class HPDBaseAspNetCoreServiceCollectionExtensions
         services.TryAddSingleton(TimeProvider.System);
 
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IConfigureOptions<JsonOptions>, HPDBaseAspNetCoreJsonOptionsSetup>());
-        services.TryAddSingleton<IBaseHttpPrincipalContextFactory, BaseHttpPrincipalContextFactory>();
-        services.TryAddSingleton<IBaseHttpOperationContextFactory, BaseHttpOperationContextFactory>();
+        services.TryAddScoped<IBaseHttpPrincipalContextFactory, BaseHttpPrincipalContextFactory>();
+        services.TryAddSingleton<DefaultBaseHttpPrincipalMapper>();
+        services.TryAddSingleton<IBaseHttpPrincipalMapper>(static provider => provider.GetRequiredService<DefaultBaseHttpPrincipalMapper>());
+        services.TryAddScoped<IBaseHttpOperationContextFactory, BaseHttpOperationContextFactory>();
+        services.TryAddSingleton<IBaseHttpCorrelationProvider, DefaultBaseHttpCorrelationProvider>();
         services.TryAddSingleton<IBaseHttpResultMapper, BaseHttpResultMapper>();
         services.TryAddSingleton<BaseProblemDetailsFactory>();
         services.TryAddSingleton<IBaseHttpQueryBinder, BaseHttpQueryBinder>();
         services.Replace(ServiceDescriptor.Singleton<IBaseApplicationLifetime, AspNetCoreBaseApplicationLifetime>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseDescriptorContributor, AspNetCoreProjectionDescriptorContributor>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<Microsoft.Extensions.Hosting.IHostedService, HPDBaseApplicationHostedService>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<Microsoft.Extensions.Hosting.IHostedService, HPDBaseEndpointInventoryValidator>());
 
         return services;
     }

@@ -1,11 +1,11 @@
 namespace HPD.Base.Auth.Tests.Policy;
 
-public sealed class HPDAuthBasePolicyEvaluatorTests
+public sealed class HPDBaseAuthPolicyEvaluatorTests
 {
     [Fact]
     public async Task AnonymousFailsClosedByDefault()
     {
-        using var provider = Services().BuildServiceProvider();
+        using var provider = Services(options => options.AllowAdminBypass = true).BuildServiceProvider();
         var evaluator = provider.GetRequiredService<IPolicyEvaluator>();
 
         var decision = await evaluator.EvaluateAsync(Request(PrincipalAuthenticationState.Anonymous));
@@ -22,7 +22,7 @@ public sealed class HPDAuthBasePolicyEvaluatorTests
         {
             options.CollectionRules =
             [
-                new HPDAuthBaseCollectionRule
+                new HPDBaseAuthCollectionRule
                 {
                     CollectionId = "items",
                     ReadRoles = ["Reader"],
@@ -53,7 +53,7 @@ public sealed class HPDAuthBasePolicyEvaluatorTests
             options.RequireHPDAuthServices = false;
             options.CollectionRules =
             [
-                new HPDAuthBaseCollectionRule
+                new HPDBaseAuthCollectionRule
                 {
                     CollectionId = "items",
                     ReadRoles = ["Reader"],
@@ -78,7 +78,7 @@ public sealed class HPDAuthBasePolicyEvaluatorTests
     [Fact]
     public async Task AdminBypassAllowsAndAuditsBypass()
     {
-        using var provider = Services().BuildServiceProvider();
+        using var provider = Services(options => options.AllowAdminBypass = true).BuildServiceProvider();
         var evaluator = provider.GetRequiredService<IPolicyEvaluator>();
         var principal = new PrincipalContext
         {
@@ -102,7 +102,7 @@ public sealed class HPDAuthBasePolicyEvaluatorTests
         {
             options.CollectionRules =
             [
-                new HPDAuthBaseCollectionRule
+                new HPDBaseAuthCollectionRule
                 {
                     CollectionId = "items",
                     ReadRoles = ["Reader"],
@@ -171,7 +171,7 @@ public sealed class HPDAuthBasePolicyEvaluatorTests
                 {
                     Kind = AccessSubjectKind.ServicePrincipal,
                     Id = "svc-1",
-                    Source = HPDAuthBaseSources.Auth
+                    Source = HPDBaseAuthSources.Auth
                 }
             ]
         };
@@ -191,7 +191,7 @@ public sealed class HPDAuthBasePolicyEvaluatorTests
     public async Task GrantProviderCanAllowReadWithRecordFilter()
     {
         var services = Services();
-        services.AddSingleton<IHPDAuthBaseGrantProvider>(new AllowingGrantProvider());
+        services.AddSingleton<IHPDBaseAuthGrantProvider>(new AllowingGrantProvider());
         using var provider = services.BuildServiceProvider();
         var evaluator = provider.GetRequiredService<IPolicyEvaluator>();
 
@@ -216,7 +216,7 @@ public sealed class HPDAuthBasePolicyEvaluatorTests
         {
             options.StaticGrants =
             [
-                Grant("write", GrantEffect.Allow, subject, HPDAuthBasePolicyActions.Create) with
+                Grant("write", GrantEffect.Allow, subject, HPDBaseAuthPolicyActions.Create) with
                 {
                     WriteCondition = OwnerFilter("user-1")
                 }
@@ -247,7 +247,7 @@ public sealed class HPDAuthBasePolicyEvaluatorTests
         {
             options.StaticGrants =
             [
-                Grant("write", GrantEffect.Allow, subject, HPDAuthBasePolicyActions.Create) with
+                Grant("write", GrantEffect.Allow, subject, HPDBaseAuthPolicyActions.Create) with
                 {
                     Condition = OwnerFilter("user-1")
                 }
@@ -274,7 +274,7 @@ public sealed class HPDAuthBasePolicyEvaluatorTests
     {
         var grantProvider = new CapturingGrantProvider();
         var services = Services();
-        services.AddSingleton<IHPDAuthBaseGrantProvider>(grantProvider);
+        services.AddSingleton<IHPDBaseAuthGrantProvider>(grantProvider);
         using var provider = services.BuildServiceProvider();
         var evaluator = provider.GetRequiredService<IPolicyEvaluator>();
         var principal = new PrincipalContext
@@ -316,7 +316,7 @@ public sealed class HPDAuthBasePolicyEvaluatorTests
         {
             options.CollectionRules =
             [
-                new HPDAuthBaseCollectionRule
+                new HPDBaseAuthCollectionRule
                 {
                     CollectionId = "items",
                     WriteRoles = ["Editor"],
@@ -347,17 +347,17 @@ public sealed class HPDAuthBasePolicyEvaluatorTests
     {
         var services = Services(options =>
         {
-            options.PolicyCompositionMode = HPDAuthBasePolicyCompositionMode.HPDAuthThenInner;
+            options.PolicyCompositionMode = HPDBaseAuthPolicyCompositionMode.HPDAuthThenInner;
             options.CollectionRules =
             [
-                new HPDAuthBaseCollectionRule
+                new HPDBaseAuthCollectionRule
                 {
                     CollectionId = "items",
                     ReadRoles = ["Reader"]
                 }
             ];
         });
-        services.AddSingleton<IHPDAuthBaseInnerPolicyEvaluator>(new FixedInnerPolicyEvaluator(new PolicyDecision
+        services.AddSingleton<IHPDBaseAuthInnerPolicyEvaluator>(new FixedInnerPolicyEvaluator(new PolicyDecision
         {
             Effect = PolicyEffect.Deny,
             Outcome = PolicyOutcome.Denied,
@@ -382,10 +382,10 @@ public sealed class HPDAuthBasePolicyEvaluatorTests
     {
         var services = Services(options =>
         {
-            options.PolicyCompositionMode = HPDAuthBasePolicyCompositionMode.HPDAuthThenInner;
+            options.PolicyCompositionMode = HPDBaseAuthPolicyCompositionMode.HPDAuthThenInner;
             options.CollectionRules =
             [
-                new HPDAuthBaseCollectionRule
+                new HPDBaseAuthCollectionRule
                 {
                     CollectionId = "items",
                     ReadRoles = ["Reader"],
@@ -394,7 +394,7 @@ public sealed class HPDAuthBasePolicyEvaluatorTests
                 }
             ];
         });
-        services.AddSingleton<IHPDAuthBaseInnerPolicyEvaluator>(new FixedInnerPolicyEvaluator(new PolicyDecision
+        services.AddSingleton<IHPDBaseAuthInnerPolicyEvaluator>(new FixedInnerPolicyEvaluator(new PolicyDecision
         {
             Effect = PolicyEffect.Allow,
             Outcome = PolicyOutcome.AllowedWithConstraints,
@@ -431,18 +431,18 @@ public sealed class HPDAuthBasePolicyEvaluatorTests
         decision.Constraints.ReadMask.Include.Should().ContainSingle("title");
     }
 
-    private static ServiceCollection Services(Action<HPDBaseHPDAuthOptions>? configure = null)
+    private static ServiceCollection Services(Action<HPDBaseAuthOptions>? configure = null)
     {
         var services = ServicesWithoutDetectedHost(configure);
-        services.AddSingleton<IHPDAuthBaseHostIntegrationStatus>(new DetectedHostIntegrationStatus());
+        services.AddSingleton<IHPDBaseAuthHostIntegrationStatus>(new DetectedHostIntegrationStatus());
         return services;
     }
 
-    private static ServiceCollection ServicesWithoutDetectedHost(Action<HPDBaseHPDAuthOptions>? configure = null)
+    private static ServiceCollection ServicesWithoutDetectedHost(Action<HPDBaseAuthOptions>? configure = null)
     {
         var services = new ServiceCollection();
         services.AddLogging();
-        services.AddHPDBaseHPDAuth(configure);
+        services.AddHPDBaseAuthServices(configure);
         return services;
     }
 
@@ -479,7 +479,7 @@ public sealed class HPDAuthBasePolicyEvaluatorTests
         string id,
         GrantEffect effect,
         AccessSubject subject,
-        string action = HPDAuthBasePolicyActions.Read) => new()
+        string action = HPDBaseAuthPolicyActions.Read) => new()
     {
         Id = id,
         Effect = effect,
@@ -526,10 +526,10 @@ public sealed class HPDAuthBasePolicyEvaluatorTests
         }
     };
 
-    private sealed class AllowingGrantProvider : IHPDAuthBaseGrantProvider
+    private sealed class AllowingGrantProvider : IHPDBaseAuthGrantProvider
     {
         public ValueTask<IReadOnlyList<AccessGrant>> GetGrantsAsync(
-            HPDAuthBaseGrantRequest request,
+            HPDBaseAuthGrantRequest request,
             CancellationToken cancellationToken = default)
         {
             var grants = new[]
@@ -538,7 +538,7 @@ public sealed class HPDAuthBasePolicyEvaluatorTests
                 {
                     Id = "provider-allow",
                     Effect = GrantEffect.Allow,
-                    Action = HPDAuthBasePolicyActions.Read,
+                    Action = HPDBaseAuthPolicyActions.Read,
                     Subject = new AccessSubject
                     {
                         Kind = AccessSubjectKind.User,
@@ -567,7 +567,7 @@ public sealed class HPDAuthBasePolicyEvaluatorTests
         }
     }
 
-    private sealed class DetectedHostIntegrationStatus : IHPDAuthBaseHostIntegrationStatus
+    private sealed class DetectedHostIntegrationStatus : IHPDBaseAuthHostIntegrationStatus
     {
         public bool HPDAuthServicesDetected => true;
 
@@ -576,12 +576,12 @@ public sealed class HPDAuthBasePolicyEvaluatorTests
         public string[] MissingRequiredServiceNames => [];
     }
 
-    private sealed class CapturingGrantProvider : IHPDAuthBaseGrantProvider
+    private sealed class CapturingGrantProvider : IHPDBaseAuthGrantProvider
     {
-        public HPDAuthBaseGrantRequest? Request { get; private set; }
+        public HPDBaseAuthGrantRequest? Request { get; private set; }
 
         public ValueTask<IReadOnlyList<AccessGrant>> GetGrantsAsync(
-            HPDAuthBaseGrantRequest request,
+            HPDBaseAuthGrantRequest request,
             CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -590,7 +590,7 @@ public sealed class HPDAuthBasePolicyEvaluatorTests
         }
     }
 
-    private sealed class FixedInnerPolicyEvaluator : IHPDAuthBaseInnerPolicyEvaluator
+    private sealed class FixedInnerPolicyEvaluator : IHPDBaseAuthInnerPolicyEvaluator
     {
         private readonly PolicyDecision _decision;
 

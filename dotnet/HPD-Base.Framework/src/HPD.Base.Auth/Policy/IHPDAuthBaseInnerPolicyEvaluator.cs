@@ -5,7 +5,7 @@ namespace HPD.Base.Auth;
 /// <summary>
 /// Provides an optional downstream policy evaluator composed with the HPD.Auth BASE adapter.
 /// </summary>
-public interface IHPDAuthBaseInnerPolicyEvaluator
+public interface IHPDBaseAuthInnerPolicyEvaluator
 {
     /// <summary>
     /// Evaluates the supplied BASE policy request.
@@ -21,7 +21,7 @@ public interface IHPDAuthBaseInnerPolicyEvaluator
 /// <summary>
 /// Controls how the HPD.Auth BASE adapter composes with an optional inner evaluator.
 /// </summary>
-public enum HPDAuthBasePolicyCompositionMode
+public enum HPDBaseAuthPolicyCompositionMode
 {
     /// <summary>
     /// Evaluate only HPD.Auth adapter grants and rules.

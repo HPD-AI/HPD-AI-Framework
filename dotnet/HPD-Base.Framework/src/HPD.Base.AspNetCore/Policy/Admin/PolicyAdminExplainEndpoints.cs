@@ -16,11 +16,12 @@ public static class PolicyAdminExplainEndpoints
     /// <summary>
     /// Maps <c>POST /base/admin/policy/explain</c> relative to the supplied admin route group.
     /// </summary>
-    public static IEndpointRouteBuilder Map(IEndpointRouteBuilder endpoints)
+    public static IEndpointRouteBuilder Map(IEndpointRouteBuilder endpoints, Action<IEndpointConventionBuilder, HPDBaseEndpointDescriptor>? convention = null)
     {
         ArgumentNullException.ThrowIfNull(endpoints);
 
         endpoints.MapPost("/policy/explain", (RequestDelegate)Explain)
+            .WithHPDBaseEndpoint(BaseHttpRouteNames.AdminPolicyExplain, HPDBaseEndpointAudience.ControlPlane, HPDBaseEndpointOperation.PolicyExplain, HPDBaseCapabilities.PolicyExplain, convention)
             .WithHPDBaseOpenApi(BaseHttpRouteNames.AdminPolicyExplain)
             .WithName(BaseHttpRouteNames.AdminPolicyExplain);
         return endpoints;
@@ -74,7 +75,7 @@ public static class PolicyAdminExplainEndpoints
             return resultMapper.ToHttpResult(problem, httpContext, new HPDBaseHttpResultMappingContext { IsAdmin = true, CorrelationId = httpContext.TraceIdentifier });
         }
 
-        var principal = await principalFactory.CreateAsync(httpContext, HPDBaseEndpointKind.AdminMetadata, cancellationToken).ConfigureAwait(false);
+        var principal = await principalFactory.CreateAsync(httpContext, cancellationToken).ConfigureAwait(false);
         var operation = operationFactory.Create(
             httpContext,
             principal,

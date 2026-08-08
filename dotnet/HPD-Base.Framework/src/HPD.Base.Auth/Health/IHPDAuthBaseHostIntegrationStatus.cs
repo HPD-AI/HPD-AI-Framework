@@ -3,7 +3,7 @@ namespace HPD.Base.Auth;
 /// <summary>
 /// Reports whether an HPD.Auth host integration is present for the BASE adapter.
 /// </summary>
-public interface IHPDAuthBaseHostIntegrationStatus
+internal interface IHPDBaseAuthHostIntegrationStatus
 {
     /// <summary>
     /// Gets a value indicating whether HPD.Auth host services were detected.

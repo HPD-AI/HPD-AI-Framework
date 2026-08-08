@@ -2,20 +2,20 @@ using HPD.Base;
 
 namespace HPD.Base.Auth.Tests.Health;
 
-public sealed class HPDAuthBaseDiagnosticContributorTests
+public sealed class HPDBaseAuthDiagnosticContributorTests
 {
     [Fact]
     public async Task EmitsAdminDiagnosticWhenHPDAuthServicesAreRequiredButNotDetected()
     {
         using var provider = Services().BuildServiceProvider();
         var contributor = provider.GetServices<IBaseDiagnosticContributor>()
-            .OfType<HPDAuthBaseDiagnosticContributor>()
+            .OfType<HPDBaseAuthDiagnosticContributor>()
             .Single();
 
         var diagnostics = await contributor.GetDiagnosticsAsync();
 
         diagnostics.Should().Contain(diagnostic =>
-            diagnostic.Id == HPDAuthBaseDiagnosticIds.MissingAuthServices
+            diagnostic.Id == HPDBaseAuthDiagnosticIds.MissingAuthServices
             && diagnostic.Visibility == VisibilityLevel.Admin
             && diagnostic.Severity == DiagnosticSeverity.Info);
     }
@@ -25,27 +25,27 @@ public sealed class HPDAuthBaseDiagnosticContributorTests
     {
         using var provider = Services(options => options.RequireHPDAuthServices = false).BuildServiceProvider();
         var contributor = provider.GetServices<IBaseDiagnosticContributor>()
-            .OfType<HPDAuthBaseDiagnosticContributor>()
+            .OfType<HPDBaseAuthDiagnosticContributor>()
             .Single();
 
         var diagnostics = await contributor.GetDiagnosticsAsync();
 
-        diagnostics.Should().NotContain(diagnostic => diagnostic.Id == HPDAuthBaseDiagnosticIds.MissingAuthServices);
+        diagnostics.Should().NotContain(diagnostic => diagnostic.Id == HPDBaseAuthDiagnosticIds.MissingAuthServices);
     }
 
     [Fact]
     public async Task SuppressesDiagnosticWhenHostIntegrationIsDetected()
     {
         var services = Services();
-        services.AddSingleton<IHPDAuthBaseHostIntegrationStatus>(new DetectedHostIntegrationStatus());
+        services.AddSingleton<IHPDBaseAuthHostIntegrationStatus>(new DetectedHostIntegrationStatus());
         using var provider = services.BuildServiceProvider();
         var contributor = provider.GetServices<IBaseDiagnosticContributor>()
-            .OfType<HPDAuthBaseDiagnosticContributor>()
+            .OfType<HPDBaseAuthDiagnosticContributor>()
             .Single();
 
         var diagnostics = await contributor.GetDiagnosticsAsync();
 
-        diagnostics.Should().NotContain(diagnostic => diagnostic.Id == HPDAuthBaseDiagnosticIds.MissingAuthServices);
+        diagnostics.Should().NotContain(diagnostic => diagnostic.Id == HPDBaseAuthDiagnosticIds.MissingAuthServices);
     }
 
     [Fact]
@@ -53,23 +53,23 @@ public sealed class HPDAuthBaseDiagnosticContributorTests
     {
         using var provider = Services(options => options.RequireHPDAuthServices = false).BuildServiceProvider();
         var contributor = provider.GetServices<IBaseDiagnosticContributor>()
-            .OfType<HPDAuthBaseDiagnosticContributor>()
+            .OfType<HPDBaseAuthDiagnosticContributor>()
             .Single();
 
         var diagnostics = await contributor.GetDiagnosticsAsync();
 
-        diagnostics.Should().ContainSingle(diagnostic => diagnostic.Id == HPDAuthBaseDiagnosticIds.NoGrantProvider);
+        diagnostics.Should().ContainSingle(diagnostic => diagnostic.Id == HPDBaseAuthDiagnosticIds.NoGrantProvider);
     }
 
-    private static ServiceCollection Services(Action<HPDBaseHPDAuthOptions>? configure = null)
+    private static ServiceCollection Services(Action<HPDBaseAuthOptions>? configure = null)
     {
         var services = new ServiceCollection();
         services.AddLogging();
-        services.AddHPDBaseHPDAuth(configure);
+        services.AddHPDBaseAuthServices(configure);
         return services;
     }
 
-    private sealed class DetectedHostIntegrationStatus : IHPDAuthBaseHostIntegrationStatus
+    private sealed class DetectedHostIntegrationStatus : IHPDBaseAuthHostIntegrationStatus
     {
         public bool HPDAuthServicesDetected => true;
 

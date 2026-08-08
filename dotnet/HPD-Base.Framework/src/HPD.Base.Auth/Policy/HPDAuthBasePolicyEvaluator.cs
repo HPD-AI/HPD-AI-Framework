@@ -8,28 +8,28 @@ namespace HPD.Base.Auth;
 /// <summary>
 /// Evaluates BASE policy requests using HPD.Auth-mapped principals, configured collection rules, and optional grants.
 /// </summary>
-public sealed class HPDAuthBasePolicyEvaluator : IPolicyEvaluator
+internal sealed class HPDBaseAuthPolicyEvaluator : IPolicyEvaluator
 {
-    private readonly HPDBaseHPDAuthOptions _options;
-    private readonly IEnumerable<IHPDAuthBaseGrantProvider> _grantProviders;
-    private readonly IEnumerable<IHPDAuthBaseHostIntegrationStatus> _hostStatuses;
-    private readonly IEnumerable<IHPDAuthBaseInnerPolicyEvaluator> _innerEvaluators;
-    private readonly ILogger<HPDAuthBasePolicyEvaluator> _logger;
+    private readonly HPDBaseAuthOptions _options;
+    private readonly IEnumerable<IHPDBaseAuthGrantProvider> _grantProviders;
+    private readonly IEnumerable<IHPDBaseAuthHostIntegrationStatus> _hostStatuses;
+    private readonly IEnumerable<IHPDBaseAuthInnerPolicyEvaluator> _innerEvaluators;
+    private readonly ILogger<HPDBaseAuthPolicyEvaluator> _logger;
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="HPDAuthBasePolicyEvaluator"/> class.
+    /// Initializes a new instance of the <see cref="HPDBaseAuthPolicyEvaluator"/> class.
     /// </summary>
     /// <param name="options">Adapter options.</param>
     /// <param name="grantProviders">Optional grant providers.</param>
     /// <param name="hostStatuses">Host integration status providers.</param>
     /// <param name="innerEvaluators">Optional inner policy evaluators.</param>
     /// <param name="logger">The policy evaluator logger.</param>
-    public HPDAuthBasePolicyEvaluator(
-        IOptions<HPDBaseHPDAuthOptions> options,
-        IEnumerable<IHPDAuthBaseGrantProvider> grantProviders,
-        IEnumerable<IHPDAuthBaseHostIntegrationStatus> hostStatuses,
-        IEnumerable<IHPDAuthBaseInnerPolicyEvaluator> innerEvaluators,
-        ILogger<HPDAuthBasePolicyEvaluator> logger)
+    public HPDBaseAuthPolicyEvaluator(
+        IOptions<HPDBaseAuthOptions> options,
+        IEnumerable<IHPDBaseAuthGrantProvider> grantProviders,
+        IEnumerable<IHPDBaseAuthHostIntegrationStatus> hostStatuses,
+        IEnumerable<IHPDBaseAuthInnerPolicyEvaluator> innerEvaluators,
+        ILogger<HPDBaseAuthPolicyEvaluator> logger)
     {
         _options = options.Value;
         _grantProviders = grantProviders;
@@ -51,8 +51,8 @@ public sealed class HPDAuthBasePolicyEvaluator : IPolicyEvaluator
             _options.PolicyCompositionMode,
             async () => _options.PolicyCompositionMode switch
         {
-            HPDAuthBasePolicyCompositionMode.HPDAuthThenInner => await EvaluateHPDAuthThenInnerAsync(request, cancellationToken).ConfigureAwait(false),
-            HPDAuthBasePolicyCompositionMode.InnerThenHPDAuth => await EvaluateInnerThenHPDAuthAsync(request, cancellationToken).ConfigureAwait(false),
+            HPDBaseAuthPolicyCompositionMode.HPDAuthThenInner => await EvaluateHPDAuthThenInnerAsync(request, cancellationToken).ConfigureAwait(false),
+            HPDBaseAuthPolicyCompositionMode.InnerThenHPDAuth => await EvaluateInnerThenHPDAuthAsync(request, cancellationToken).ConfigureAwait(false),
             _ => await EvaluateAdapterAsync(request, cancellationToken).ConfigureAwait(false)
         }).ConfigureAwait(false);
     }
@@ -334,7 +334,7 @@ public sealed class HPDAuthBasePolicyEvaluator : IPolicyEvaluator
                     cancellationToken.ThrowIfCancellationRequested();
                     try
                     {
-                        var provided = await provider.GetGrantsAsync(new HPDAuthBaseGrantRequest
+                        var provided = await provider.GetGrantsAsync(new HPDBaseAuthGrantRequest
                         {
                             Principal = request.Principal,
                             Operation = request.Operation,
@@ -393,7 +393,7 @@ public sealed class HPDAuthBasePolicyEvaluator : IPolicyEvaluator
         if (allows.Length == 0)
             return null;
 
-        var filter = action == HPDAuthBasePolicyActions.Read
+        var filter = action == HPDBaseAuthPolicyActions.Read
             ? CombineFilters(allows.Select(grant => grant.Condition).Where(static condition => condition is not null)!)
             : null;
         var writeCheck = IsWriteAction(action)
@@ -417,11 +417,11 @@ public sealed class HPDAuthBasePolicyEvaluator : IPolicyEvaluator
 
     private PolicyDecision? EvaluateRule(
         PolicyEvaluationRequest request,
-        HPDAuthBaseCollectionRule rule,
+        HPDBaseAuthCollectionRule rule,
         AccessSubject[] subjects,
         string action)
     {
-        var isRead = action == HPDAuthBasePolicyActions.Read;
+        var isRead = action == HPDBaseAuthPolicyActions.Read;
         var roles = request.Principal.Roles ?? [];
         var allowed = isRead
             ? rule.AllowAnonymousRead && request.Principal.AuthenticationState == PrincipalAuthenticationState.Anonymous
@@ -441,7 +441,7 @@ public sealed class HPDAuthBasePolicyEvaluator : IPolicyEvaluator
     }
 
     private static PolicyConstraints? ConstraintsFor(
-        HPDAuthBaseCollectionRule rule,
+        HPDBaseAuthCollectionRule rule,
         PolicyEvaluationRequest request,
         bool isRead)
     {
@@ -595,17 +595,17 @@ public sealed class HPDAuthBasePolicyEvaluator : IPolicyEvaluator
         allowedRoles is { Length: > 0 } && roles.Any(role => allowedRoles.Contains(role, StringComparer.Ordinal));
 
     private static bool IsWriteAction(string action) =>
-        string.Equals(action, HPDAuthBasePolicyActions.Create, StringComparison.Ordinal)
-        || string.Equals(action, HPDAuthBasePolicyActions.Update, StringComparison.Ordinal)
-        || string.Equals(action, HPDAuthBasePolicyActions.Delete, StringComparison.Ordinal);
+        string.Equals(action, HPDBaseAuthPolicyActions.Create, StringComparison.Ordinal)
+        || string.Equals(action, HPDBaseAuthPolicyActions.Update, StringComparison.Ordinal)
+        || string.Equals(action, HPDBaseAuthPolicyActions.Delete, StringComparison.Ordinal);
 
     private static string ActionFor(BaseOperationKind operation) => operation switch
     {
-        BaseOperationKind.List or BaseOperationKind.Query or BaseOperationKind.Get => HPDAuthBasePolicyActions.Read,
-        BaseOperationKind.Create => HPDAuthBasePolicyActions.Create,
-        BaseOperationKind.Patch or BaseOperationKind.Replace => HPDAuthBasePolicyActions.Update,
-        BaseOperationKind.Delete => HPDAuthBasePolicyActions.Delete,
-        BaseOperationKind.AdminInspect => HPDAuthBasePolicyActions.AdminMetadataRead,
+        BaseOperationKind.List or BaseOperationKind.Query or BaseOperationKind.Get => HPDBaseAuthPolicyActions.Read,
+        BaseOperationKind.Create => HPDBaseAuthPolicyActions.Create,
+        BaseOperationKind.Patch or BaseOperationKind.Replace => HPDBaseAuthPolicyActions.Update,
+        BaseOperationKind.Delete => HPDBaseAuthPolicyActions.Delete,
+        BaseOperationKind.AdminInspect => HPDBaseAuthPolicyActions.AdminMetadataRead,
         _ => operation.ToString()
     };
 
@@ -624,7 +624,7 @@ public sealed class HPDAuthBasePolicyEvaluator : IPolicyEvaluator
             Constraints = constraints,
             Audit = new PolicyAuditInfo
             {
-                EvaluatorId = HPDAuthBaseIds.PolicyEvaluator,
+                EvaluatorId = HPDBaseAuthIds.PolicyEvaluator,
                 MatchedSubjects = subjects,
                 MatchedGrantIds = matchedGrantIds,
                 AdminBypass = adminBypass,
@@ -648,7 +648,7 @@ public sealed class HPDAuthBasePolicyEvaluator : IPolicyEvaluator
             SafeMessage = safeMessage,
             Audit = new PolicyAuditInfo
             {
-                EvaluatorId = HPDAuthBaseIds.PolicyEvaluator,
+                EvaluatorId = HPDBaseAuthIds.PolicyEvaluator,
                 MatchedSubjects = subjects,
                 MatchedGrantIds = matchedGrantIds,
                 CorrelationId = request.Operation.CorrelationId
@@ -659,7 +659,7 @@ public sealed class HPDAuthBasePolicyEvaluator : IPolicyEvaluator
 /// <summary>
 /// Names policy action strings emitted by the HPD.Auth adapter.
 /// </summary>
-public static class HPDAuthBasePolicyActions
+public static class HPDBaseAuthPolicyActions
 {
     /// <summary>
     /// Read action.
@@ -690,7 +690,7 @@ public static class HPDAuthBasePolicyActions
 /// <summary>
 /// Names stable ids used by the HPD.Auth adapter.
 /// </summary>
-public static class HPDAuthBaseIds
+public static class HPDBaseAuthIds
 {
     /// <summary>
     /// The adapter module id.

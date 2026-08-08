@@ -13,7 +13,7 @@ public sealed class HPDAuthLoggingTests
         await using var provider = services.BuildServiceProvider();
 
         var diagnostics = await provider.GetRequiredService<IEnumerable<IBaseDiagnosticContributor>>()
-            .Single(contributor => contributor is HPDAuthBaseDiagnosticContributor)
+            .Single(contributor => contributor is HPDBaseAuthDiagnosticContributor)
             .GetDiagnosticsAsync();
 
         diagnostics.Should().HaveCount(2);
@@ -27,7 +27,7 @@ public sealed class HPDAuthLoggingTests
     {
         using var collector = new LogCollector();
         var services = Services(collector, options => options.RequireHPDAuthServices = false);
-        services.AddSingleton<IHPDAuthBaseGrantProvider>(new ThrowingGrantProvider());
+        services.AddSingleton<IHPDBaseAuthGrantProvider>(new ThrowingGrantProvider());
         await using var provider = services.BuildServiceProvider();
 
         var action = async () => await provider.GetRequiredService<IPolicyEvaluator>().EvaluateAsync(Request(Principal()));
@@ -77,7 +77,7 @@ public sealed class HPDAuthLoggingTests
                 {
                     Id = "private-grant-id",
                     Effect = GrantEffect.Allow,
-                    Action = HPDAuthBasePolicyActions.Read,
+                    Action = HPDBaseAuthPolicyActions.Read,
                     Subject = new AccessSubject { Kind = AccessSubjectKind.Authenticated },
                     Scope = new ResourceScope { Kind = ResourceScopeKind.Runtime }
                 }
@@ -93,11 +93,11 @@ public sealed class HPDAuthLoggingTests
 
     private static ServiceCollection Services(
         LogCollector collector,
-        Action<HPDBaseHPDAuthOptions>? configure = null)
+        Action<HPDBaseAuthOptions>? configure = null)
     {
         var services = new ServiceCollection();
         services.AddLogging(builder => builder.SetMinimumLevel(LogLevel.Trace).AddProvider(collector));
-        services.AddHPDBaseHPDAuth(configure);
+        services.AddHPDBaseAuthServices(configure);
         return services;
     }
 
@@ -151,12 +151,12 @@ public sealed class HPDAuthLoggingTests
         Resource = new PolicyResource { Kind = PolicyResourceKind.Query }
     };
 
-    private sealed class ThrowingGrantProvider : IHPDAuthBaseGrantProvider
+    private sealed class ThrowingGrantProvider : IHPDBaseAuthGrantProvider
     {
         public const string Secret = "private-provider-exception-message";
 
         public ValueTask<IReadOnlyList<AccessGrant>> GetGrantsAsync(
-            HPDAuthBaseGrantRequest request,
+            HPDBaseAuthGrantRequest request,
             CancellationToken cancellationToken = default) =>
             throw new InvalidOperationException(Secret);
     }

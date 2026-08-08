@@ -15,7 +15,9 @@ public sealed class PublicApiShapeTests
 
         publicTypes.Should().Contain([
             typeof(HPDBaseAspNetCoreOptions).FullName!,
-            typeof(HPDBaseEndpointOptions).FullName!,
+            typeof(HPDBasePublicEndpointOptions).FullName!,
+            typeof(HPDBaseApplicationEndpointOptions).FullName!,
+            typeof(HPDBaseEndpointDescriptor).FullName!,
             typeof(BaseHttpHeaders).FullName!,
             typeof(IBaseHttpPrincipalContextFactory).FullName!,
             typeof(IBaseHttpPrincipalMapper).FullName!,
@@ -52,7 +54,7 @@ public sealed class PublicApiShapeTests
     {
         typeof(HPDBaseEndpointRouteBuilderExtensions)
             .GetMethods(BindingFlags.Public | BindingFlags.Static)
-            .Where(method => method.Name == "MapHPDBaseApi")
+            .Where(method => method.Name is "MapHPDBasePublicApi" or "MapHPDBaseApplicationApi")
             .Should()
             .HaveCount(2);
 

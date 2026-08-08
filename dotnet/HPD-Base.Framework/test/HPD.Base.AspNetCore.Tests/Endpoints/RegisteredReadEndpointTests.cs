@@ -28,7 +28,7 @@ public sealed class RegisteredReadEndpointTests
         json.Should().Contain("\"items\":[{\"value\":\"needle\"}]").And.Contain("\"page\":2").And.Contain("\"perPage\":3");
         registration.RequestedPage.Should().Be(new BaseReadPageRequest(2, 3));
         Endpoint endpoint = app.Services.GetRequiredService<EndpointDataSource>().Endpoints.Single(item =>
-            item.Metadata.GetMetadata<IEndpointNameMetadata>()?.EndpointName == "base.reads.test-read");
+            item.Metadata.GetMetadata<HPDBaseEndpointDescriptor>()?.EndpointId == "base.reads.public.test-read");
         endpoint.Metadata.GetMetadata<IAcceptsMetadata>()!.RequestType.Should().Be(typeof(TestReadParameters));
         endpoint.Metadata.GetOrderedMetadata<IProducesResponseTypeMetadata>().Single(item => item.StatusCode == 200).Type.Should().Be(typeof(BasePage<TestReadRow>));
 
@@ -37,7 +37,7 @@ public sealed class RegisteredReadEndpointTests
         JsonElement operation = document.RootElement.GetProperty("paths").GetProperty("/base/reads/test-read").GetProperty("post");
         operation.GetProperty("requestBody").ValueKind.Should().Be(JsonValueKind.Object);
         operation.GetProperty("responses").EnumerateObject().Select(static response => response.Name)
-            .Should().BeEquivalentTo("200", "400", "403", "413", "424", "500", "503");
+            .Should().BeEquivalentTo("200", "400", "401", "403", "413", "424", "500", "503");
     }
 
     [Theory]
@@ -87,24 +87,23 @@ public sealed class RegisteredReadEndpointTests
             },
             configureEndpoints: options =>
             {
-                options.RequireAuthorizationForAdminRoutes = true;
-                options.AdminPolicyName = "read-admin";
+                options.ControlPlanePolicy = "read-admin";
             },
             mapOpenApi: true);
 
         Endpoint[] endpoints = app.Services.GetRequiredService<EndpointDataSource>().Endpoints.ToArray();
         RouteEndpoint publicEndpoint = endpoints.OfType<RouteEndpoint>().Single(endpoint =>
-            endpoint.Metadata.GetMetadata<IEndpointNameMetadata>()?.EndpointName == "base.reads.public-read");
+            endpoint.Metadata.GetMetadata<HPDBaseEndpointDescriptor>()?.EndpointId == "base.reads.public.public-read");
         RouteEndpoint adminEndpoint = endpoints.OfType<RouteEndpoint>().Single(endpoint =>
-            endpoint.Metadata.GetMetadata<IEndpointNameMetadata>()?.EndpointName == "base.reads.admin-read");
+            endpoint.Metadata.GetMetadata<HPDBaseEndpointDescriptor>()?.EndpointId == "base.reads.admin.admin-read");
         publicEndpoint.RoutePattern.RawText.Should().Be("/base/reads/public-read");
         adminEndpoint.RoutePattern.RawText.Should().Be("/base/admin/reads/admin-read");
         adminEndpoint.Metadata.GetOrderedMetadata<IAuthorizeData>()
-            .Should().ContainSingle(metadata => metadata.Policy == "read-admin");
+            .Should().OnlyContain(metadata => metadata.Policy == "read-admin");
         adminEndpoint.Metadata.GetOrderedMetadata<IProducesResponseTypeMetadata>()
             .Should().Contain(metadata => metadata.StatusCode == StatusCodes.Status401Unauthorized);
-        endpoints.Select(endpoint => endpoint.Metadata.GetMetadata<IEndpointNameMetadata>()?.EndpointName)
-            .Should().NotContain("base.reads.internal-read");
+        endpoints.Select(endpoint => endpoint.Metadata.GetMetadata<HPDBaseEndpointDescriptor>()?.EndpointId)
+            .Should().NotContain("base.reads.public.internal-read");
 
         using JsonDocument publicDocument = JsonDocument.Parse(await (await app.GetTestClient()
             .GetAsync("/base/openapi/base-public.json")).Content.ReadAsStringAsync());

@@ -812,11 +812,13 @@ public sealed class SqliteAtomicMutationTests
     }
 
     private static SqliteRecordStore Store() =>
-        SqliteTestFactory.Create(new HPDBaseSqliteOptions
-        {
-            StoreId = $"atomic-{Guid.NewGuid():N}",
-            Collections = [Collection("items"), Collection("first"), Collection("second")]
-        });
+        SqliteTestFactory.Create(
+            new HPDBaseSqliteOptions
+            {
+                StoreId = $"atomic-{Guid.NewGuid():N}",
+                Collections = [Collection("items"), Collection("first"), Collection("second")]
+            },
+            new MutableTimeProvider(DateTimeOffset.Parse("2026-07-30T12:00:00Z")));
 
     private static SqliteRecordStore FaultableStore(
         ISqliteTransactionController transactions) =>
@@ -826,6 +828,7 @@ public sealed class SqliteAtomicMutationTests
                 StoreId = $"atomic-{Guid.NewGuid():N}",
                 Collections = [Collection("items")]
             },
+            new MutableTimeProvider(DateTimeOffset.Parse("2026-07-30T12:00:00Z")),
             transactions: transactions);
 
     private static string PhysicalTable(string collectionId) => "b_c_" + Convert.ToHexStringLower(

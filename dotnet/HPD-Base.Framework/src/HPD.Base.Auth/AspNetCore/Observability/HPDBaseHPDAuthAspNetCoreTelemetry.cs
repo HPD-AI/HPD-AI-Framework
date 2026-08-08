@@ -17,9 +17,9 @@ internal static class HPDBaseHPDAuthAspNetCoreTelemetry
         description: "Records HPD.BASE HPD.Auth ASP.NET principal mapping duration.");
 
     /// <summary>Executes the trace map async operation.</summary>
-    public static async ValueTask<PrincipalContext?> TraceMapAsync(
+    public static async ValueTask<PrincipalContext> TraceMapAsync(
         int enricherCount,
-        Func<ValueTask<PrincipalContext?>> invoke)
+        Func<ValueTask<PrincipalContext>> invoke)
     {
         using var activity = Start(HPDBaseTelemetrySpans.AuthPrincipalMap, "principalMap");
         var startedAt = Stopwatch.GetTimestamp();

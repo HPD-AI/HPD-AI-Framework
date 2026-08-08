@@ -2,12 +2,11 @@ namespace HPD.Base.AspNetCore;
 
 internal static class EndpointRouteBuilderValidation
 {
-    /// <summary>Executes the validate operation.</summary>
-    public static void Validate(HPDBaseEndpointOptions options)
+    internal static string RoutePrefix(string routePrefix)
     {
-        ArgumentNullException.ThrowIfNull(options);
-        ArgumentException.ThrowIfNullOrWhiteSpace(options.RoutePrefix);
-        if (!options.RoutePrefix.StartsWith("/", StringComparison.Ordinal))
-            throw new ArgumentException("RoutePrefix must start with '/'.", nameof(options));
+        ArgumentException.ThrowIfNullOrWhiteSpace(routePrefix);
+        if (!routePrefix.StartsWith("/", StringComparison.Ordinal) || routePrefix.Length > 256 || routePrefix.Any(char.IsControl))
+            throw new ArgumentException("Route prefix must be an absolute bounded route pattern.", nameof(routePrefix));
+        return routePrefix == "/" ? routePrefix : routePrefix.TrimEnd('/');
     }
 }

@@ -13,12 +13,12 @@ public sealed class HPDAuthTelemetryTests
         using var activities = new ActivityCollector(HPDBaseActivitySourceNames.HPDAuth);
         using var metrics = new MeterCollector(HPDBaseMeterNames.HPDAuth);
         var services = new ServiceCollection().AddLogging();
-        services.AddHPDBaseHPDAuth(options =>
+        services.AddHPDBaseAuthServices(options =>
         {
             options.RequireHPDAuthServices = false;
             options.AllowAdminBypass = true;
         });
-        services.AddSingleton<IHPDAuthBaseGrantProvider>(new SecretGrantProvider());
+        services.AddSingleton<IHPDBaseAuthGrantProvider>(new SecretGrantProvider());
         using var provider = services.BuildServiceProvider();
         var evaluator = provider.GetRequiredService<IPolicyEvaluator>();
 
@@ -32,7 +32,7 @@ public sealed class HPDAuthTelemetryTests
             Roles = ["role-secret"]
         }));
         var missingHostServices = new ServiceCollection().AddLogging();
-        missingHostServices.AddHPDBaseHPDAuth();
+        missingHostServices.AddHPDBaseAuthServices();
         using var missingHostProvider = missingHostServices.BuildServiceProvider();
         await missingHostProvider.GetRequiredService<IPolicyEvaluator>().EvaluateAsync(Request(Principal()));
 
@@ -69,8 +69,8 @@ public sealed class HPDAuthTelemetryTests
     public async Task PolicyEvaluationWorksWithoutConfiguredTelemetryListeners()
     {
         var services = new ServiceCollection().AddLogging();
-        services.AddHPDBaseHPDAuth(options => options.RequireHPDAuthServices = false);
-        services.AddSingleton<IHPDAuthBaseGrantProvider>(new SecretGrantProvider());
+        services.AddHPDBaseAuthServices(options => options.RequireHPDAuthServices = false);
+        services.AddSingleton<IHPDBaseAuthGrantProvider>(new SecretGrantProvider());
         using var provider = services.BuildServiceProvider();
 
         var decision = await provider.GetRequiredService<IPolicyEvaluator>().EvaluateAsync(Request(Principal()));
@@ -115,10 +115,10 @@ public sealed class HPDAuthTelemetryTests
     private static string[] TagValues(Activity activity) =>
         activity.TagObjects.Select(tag => Convert.ToString(tag.Value, System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty).ToArray();
 
-    private sealed class SecretGrantProvider : IHPDAuthBaseGrantProvider
+    private sealed class SecretGrantProvider : IHPDBaseAuthGrantProvider
     {
         public ValueTask<IReadOnlyList<AccessGrant>> GetGrantsAsync(
-            HPDAuthBaseGrantRequest request,
+            HPDBaseAuthGrantRequest request,
             CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -128,7 +128,7 @@ public sealed class HPDAuthTelemetryTests
                 {
                     Id = "grant-secret",
                     Effect = GrantEffect.Allow,
-                    Action = HPDAuthBasePolicyActions.Read,
+                    Action = HPDBaseAuthPolicyActions.Read,
                     Subject = new AccessSubject
                     {
                         Kind = AccessSubjectKind.User,

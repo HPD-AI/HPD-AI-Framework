@@ -3,7 +3,7 @@ using HPD.Base;
 
 namespace HPD.Base.Auth.Tests.Policy;
 
-public sealed class HPDAuthBasePolicyExplainIntegrationTests
+public sealed class HPDBaseAuthPolicyExplainIntegrationTests
 {
     [Fact]
     public async Task ExplainRedactsHPDAuthTenantFilterAndSummarizesReadMask()
@@ -14,7 +14,7 @@ public sealed class HPDAuthBasePolicyExplainIntegrationTests
             options.AllowAdminBypass = false;
             options.CollectionRules =
             [
-                new HPDAuthBaseCollectionRule
+                new HPDBaseAuthCollectionRule
                 {
                     CollectionId = "items",
                     ReadRoles = ["Reader"],
@@ -54,7 +54,7 @@ public sealed class HPDAuthBasePolicyExplainIntegrationTests
             options.AllowAdminBypass = false;
             options.CollectionRules =
             [
-                new HPDAuthBaseCollectionRule
+                new HPDBaseAuthCollectionRule
                 {
                     CollectionId = "items",
                     WriteRoles = ["Editor"],
@@ -92,7 +92,7 @@ public sealed class HPDAuthBasePolicyExplainIntegrationTests
             options.AllowAdminBypass = false;
             options.CollectionRules =
             [
-                new HPDAuthBaseCollectionRule
+                new HPDBaseAuthCollectionRule
                 {
                     CollectionId = "items",
                     ReadRoles = ["Reader"],
@@ -112,16 +112,16 @@ public sealed class HPDAuthBasePolicyExplainIntegrationTests
         result.Value.Decision!.ReasonCode.Should().Be("hpd.auth.base.missingAuthServices");
     }
 
-    private static ServiceProvider BuildProvider(Action<HPDBaseHPDAuthOptions> configure, bool detectedHost = true)
+    private static ServiceProvider BuildProvider(Action<HPDBaseAuthOptions> configure, bool detectedHost = true)
     {
         var services = new ServiceCollection().AddLogging();
         services.AddSingleton<IBaseDescriptorContributor>(new CollectionContributor());
         if (detectedHost)
         {
-            services.AddSingleton<IHPDAuthBaseHostIntegrationStatus>(new DetectedHostIntegrationStatus());
+            services.AddSingleton<IHPDBaseAuthHostIntegrationStatus>(new DetectedHostIntegrationStatus());
         }
 
-        services.AddHPDBaseHPDAuth(configure);
+        services.AddHPDBaseAuthServices(configure);
         services.AddHPDBaseRuntime();
         var provider = services.BuildServiceProvider();
         provider.GetRequiredService<IBaseDescriptorRegistry>().RebuildAsync().AsTask().GetAwaiter().GetResult();
@@ -191,7 +191,7 @@ public sealed class HPDAuthBasePolicyExplainIntegrationTests
         }
     }
 
-    private sealed class DetectedHostIntegrationStatus : IHPDAuthBaseHostIntegrationStatus
+    private sealed class DetectedHostIntegrationStatus : IHPDBaseAuthHostIntegrationStatus
     {
         public bool HPDAuthServicesDetected => true;
         public string? Source => "test";

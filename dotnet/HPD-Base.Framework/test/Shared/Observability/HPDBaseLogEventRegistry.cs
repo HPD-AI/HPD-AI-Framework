@@ -128,9 +128,6 @@ internal static class HPDBaseLogEventRegistry
         new("HPD.Base.Auth.HPDAuth", 6004, "PrivilegedBypassUsed", LogLevel.Debug,
             "An HPD.Auth privileged bypass was applied ({BypassKind}).",
             ["BypassKind"]),
-        new("HPD.Base.Auth.HPDAuth.AspNetCore", 6500, "HostIntegrationUnavailable", LogLevel.Warning,
-            "The HPD.Auth ASP.NET host integration is unavailable ({DiagnosticCode}).",
-            ["DiagnosticCode"]),
         new("HPD.Base.Auth.HPDAuth.AspNetCore", 6502, "PrincipalEnrichmentFailed", LogLevel.Warning,
             "HPD.Auth principal enrichment failed ({ErrorCategory}, {ErrorCode}).",
             ["ErrorCategory", "ErrorCode"])

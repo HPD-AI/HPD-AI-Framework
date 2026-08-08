@@ -15,7 +15,7 @@ internal static class RegisteredReadEndpoints
     internal static bool HasExposure(IServiceProvider services, BaseReadExposure exposure) =>
         services.GetService<BaseReadRegistry>()?.Registrations.Values.Any(read => read.Exposure == exposure) == true;
 
-    internal static void Map(IEndpointRouteBuilder endpoints, BaseReadExposure exposure, bool routeRequiresAuthorization)
+    internal static void Map(IEndpointRouteBuilder endpoints, BaseReadExposure exposure, HPDBaseEndpointAudience audience, Action<IEndpointConventionBuilder, HPDBaseEndpointDescriptor>? convention = null)
     {
         BaseReadRegistry? registry = endpoints.ServiceProvider.GetService<BaseReadRegistry>();
         if (registry is null) return;
@@ -24,8 +24,12 @@ internal static class RegisteredReadEndpoints
             .OrderBy(static value => value.Id, StringComparer.Ordinal))
         {
             IBaseReadRegistration captured = registration;
-            string operationId = "base.reads." + captured.Id;
+            string operationId = "base.reads." + (exposure == BaseReadExposure.Admin ? "admin." : "public.") + captured.Id;
+            string capability = exposure == BaseReadExposure.Admin
+                ? HPDBaseCapabilities.AdministrationRecordsRead
+                : HPDBaseCapabilities.RecordsRead;
             var route = endpoints.MapPost("/reads/" + captured.Id, (RequestDelegate)(context => Execute(context, captured)))
+                .WithHPDBaseEndpoint(operationId, audience, HPDBaseEndpointOperation.RegisteredRead, capability, convention)
                 .WithHPDBaseRegisteredReadOpenApi(
                     operationId,
                     captured.ParameterJsonTypeInfo.Type,
@@ -36,7 +40,7 @@ internal static class RegisteredReadEndpoints
             {
                 builder.Metadata.Add(new AcceptsMetadata(["application/json"], captured.ParameterJsonTypeInfo.Type, false));
                 builder.Metadata.Add(new ResponseMetadata(captured.ResponseType, StatusCodes.Status200OK, "application/json"));
-                foreach (int status in routeRequiresAuthorization
+                foreach (int status in audience is HPDBaseEndpointAudience.Application or HPDBaseEndpointAudience.ControlPlane
                     ? new[] { 400, 401, 403, 413, 424, 500, 503 }
                     : new[] { 400, 403, 413, 424, 500, 503 })
                     builder.Metadata.Add(new ResponseMetadata(typeof(ProblemDetails), status, "application/problem+json"));
@@ -61,7 +65,7 @@ internal static class RegisteredReadEndpoints
         catch (ArgumentOutOfRangeException) { await Problem(context, OperationStatus.ValidationFailed, new BaseError { Code = "base.relational.read.invalid", Message = "The registered read page is invalid.", Category = ErrorCategory.Validation }); return; }
 
         IServiceProvider services = context.RequestServices;
-        PrincipalContext principal = await services.GetRequiredService<IBaseHttpPrincipalContextFactory>().CreateAsync(context, HPDBaseEndpointKind.Records, context.RequestAborted).ConfigureAwait(false);
+        PrincipalContext principal = await services.GetRequiredService<IBaseHttpPrincipalContextFactory>().CreateAsync(context, context.RequestAborted).ConfigureAwait(false);
         OperationContext operation = services.GetRequiredService<IBaseHttpOperationContextFactory>().Create(context, principal, BaseOperationKind.Query, registration.Id);
         BaseUntypedRegisteredReadResult result = await registration.ExecuteAsync(services.GetRequiredService<IBaseRegisteredReadRuntime>(), parameters, request, principal, operation, context.RequestAborted).ConfigureAwait(false);
         if (result.Items is null || result.Page is null) { await Problem(context, result.Status, result.Error); return; }

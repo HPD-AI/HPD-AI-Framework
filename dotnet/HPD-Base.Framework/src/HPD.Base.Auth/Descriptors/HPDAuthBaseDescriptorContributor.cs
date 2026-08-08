@@ -6,10 +6,10 @@ namespace HPD.Base.Auth;
 /// <summary>
 /// Contributes HPD.Auth adapter descriptors to the BASE manifest.
 /// </summary>
-public sealed class HPDAuthBaseDescriptorContributor : IBaseDescriptorContributor
+internal sealed class HPDBaseAuthDescriptorContributor : IBaseDescriptorContributor
 {
     /// <inheritdoc />
-    public string Id => HPDAuthBaseIds.Module;
+    public string Id => HPDBaseAuthIds.Module;
 
     /// <inheritdoc />
     public void Contribute(IBaseDescriptorContributionBuilder builder)
@@ -18,38 +18,38 @@ public sealed class HPDAuthBaseDescriptorContributor : IBaseDescriptorContributo
 
         builder.AddModule(new BaseModuleDescriptor
         {
-            Id = HPDAuthBaseIds.Module,
+            Id = HPDBaseAuthIds.Module,
             Name = "HPD.BASE HPD.Auth Adapter",
             Kind = BaseModuleKind.Policy,
             Version = "1.0.0",
             Status = ModuleStatus.Installed,
-            ContributedCapabilities = [HPDAuthBaseFeatureIds.PolicyEvaluator],
-            ContributedHealthRefIds = [HPDAuthBaseHealthIds.Registration],
+            ContributedCapabilities = [HPDBaseAuthFeatureIds.PolicyEvaluator],
+            ContributedHealthRefIds = [HPDBaseAuthHealthIds.Registration],
             ContributedDiagnosticIds =
             [
-                HPDAuthBaseDiagnosticIds.MissingAuthServices,
-                HPDAuthBaseDiagnosticIds.NoGrantProvider,
-                HPDAuthBaseDiagnosticIds.TenantClaimMissing,
-                HPDAuthBaseDiagnosticIds.AdminPolicyNotConfigured,
-                HPDAuthBaseDiagnosticIds.UnsupportedCondition,
-                HPDAuthBaseDiagnosticIds.AspNetMapperNotRegistered
+                HPDBaseAuthDiagnosticIds.MissingAuthServices,
+                HPDBaseAuthDiagnosticIds.NoGrantProvider,
+                HPDBaseAuthDiagnosticIds.TenantClaimMissing,
+                HPDBaseAuthDiagnosticIds.AdminPolicyNotConfigured,
+                HPDBaseAuthDiagnosticIds.UnsupportedCondition,
+                HPDBaseAuthDiagnosticIds.AspNetMapperNotRegistered
             ],
             Visibility = VisibilityLevel.Public
         });
 
         builder.AddHealthRef(new HealthRefDescriptor
         {
-            Id = HPDAuthBaseHealthIds.Registration,
+            Id = HPDBaseAuthHealthIds.Registration,
             Scope = HealthScope.Module,
-            TargetRef = HPDAuthBaseIds.Module,
+            TargetRef = HPDBaseAuthIds.Module,
             Visibility = VisibilityLevel.Public
         });
 
         builder.AddHealth(new HealthDescriptor
         {
-            Id = HPDAuthBaseHealthIds.Registration,
+            Id = HPDBaseAuthHealthIds.Registration,
             Scope = HealthScope.Module,
-            TargetRef = HPDAuthBaseIds.Module,
+            TargetRef = HPDBaseAuthIds.Module,
             Status = HealthStatus.Healthy,
             CheckedAt = DateTimeOffset.UnixEpoch,
             Summary = "HPD.Auth adapter is registered.",
@@ -70,7 +70,7 @@ public sealed class HPDAuthBaseDescriptorContributor : IBaseDescriptorContributo
                 Id = diagnosticId,
                 Code = diagnosticId,
                 Severity = DiagnosticSeverity.Info,
-                TargetRef = HPDAuthBaseIds.Module,
+                TargetRef = HPDBaseAuthIds.Module,
                 Message = "HPD.Auth adapter diagnostics are available.",
                 PublicMessage = "HPD.Auth adapter diagnostics are available.",
                 Category = DiagnosticCategory.Policy,
@@ -82,7 +82,7 @@ public sealed class HPDAuthBaseDescriptorContributor : IBaseDescriptorContributo
         builder.AddCapabilities(new CapabilityDescriptor
         {
             DescriptorVersion = "1.0",
-            RuntimeId = HPDAuthBaseIds.Module,
+            RuntimeId = HPDBaseAuthIds.Module,
             Families =
             [
                 new CapabilityFamilyDescriptor
@@ -90,15 +90,15 @@ public sealed class HPDAuthBaseDescriptorContributor : IBaseDescriptorContributo
                     FamilyId = "auth.hpd-auth",
                     FamilyVersion = "1.0",
                     Status = CapabilityStatus.Available,
-                    OwnerModuleId = HPDAuthBaseIds.Module,
+                    OwnerModuleId = HPDBaseAuthIds.Module,
                     Visibility = VisibilityLevel.Public,
                     Features =
                     [
-                        Feature(HPDAuthBaseFeatureIds.PrincipalMap, VisibilityLevel.Public),
-                        Feature(HPDAuthBaseFeatureIds.TenantMap, VisibilityLevel.Public),
-                        Feature(HPDAuthBaseFeatureIds.SubjectMap, VisibilityLevel.Public),
-                        Feature(HPDAuthBaseFeatureIds.PolicyEvaluator, VisibilityLevel.Public),
-                        Feature(HPDAuthBaseFeatureIds.GrantProvider, VisibilityLevel.Admin)
+                        Feature(HPDBaseAuthFeatureIds.PrincipalMap, VisibilityLevel.Public),
+                        Feature(HPDBaseAuthFeatureIds.TenantMap, VisibilityLevel.Public),
+                        Feature(HPDBaseAuthFeatureIds.SubjectMap, VisibilityLevel.Public),
+                        Feature(HPDBaseAuthFeatureIds.PolicyEvaluator, VisibilityLevel.Public),
+                        Feature(HPDBaseAuthFeatureIds.GrantProvider, VisibilityLevel.Admin)
                     ]
                 }
             ]
@@ -112,26 +112,26 @@ public sealed class HPDAuthBaseDescriptorContributor : IBaseDescriptorContributo
         Status = CapabilityStatus.Available,
         SupportLevel = SupportLevel.Optional,
         Scope = CapabilityScope.Runtime,
-        HealthRef = HPDAuthBaseHealthIds.Registration,
-        DiagnosticRefs = [HPDAuthBaseDiagnosticIds.MissingAuthServices],
+        HealthRef = HPDBaseAuthHealthIds.Registration,
+        DiagnosticRefs = [HPDBaseAuthDiagnosticIds.MissingAuthServices],
         Visibility = visibility
     };
 
     private static string[] DiagnosticIds =>
     [
-        HPDAuthBaseDiagnosticIds.MissingAuthServices,
-        HPDAuthBaseDiagnosticIds.NoGrantProvider,
-        HPDAuthBaseDiagnosticIds.TenantClaimMissing,
-        HPDAuthBaseDiagnosticIds.AdminPolicyNotConfigured,
-        HPDAuthBaseDiagnosticIds.UnsupportedCondition,
-        HPDAuthBaseDiagnosticIds.AspNetMapperNotRegistered
+        HPDBaseAuthDiagnosticIds.MissingAuthServices,
+        HPDBaseAuthDiagnosticIds.NoGrantProvider,
+        HPDBaseAuthDiagnosticIds.TenantClaimMissing,
+        HPDBaseAuthDiagnosticIds.AdminPolicyNotConfigured,
+        HPDBaseAuthDiagnosticIds.UnsupportedCondition,
+        HPDBaseAuthDiagnosticIds.AspNetMapperNotRegistered
     ];
 }
 
 /// <summary>
 /// Names feature ids contributed by the HPD.Auth adapter.
 /// </summary>
-public static class HPDAuthBaseFeatureIds
+public static class HPDBaseAuthFeatureIds
 {
     /// <summary>
     /// Principal mapping feature id.

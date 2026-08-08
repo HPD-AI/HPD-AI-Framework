@@ -10,7 +10,7 @@ namespace HPD.Base.Auth;
 /// <summary>
 /// Enriches mapped principals with safe facts from HPD.Auth <see cref="ApplicationUser"/> when Identity services are registered.
 /// </summary>
-public sealed class HPDAuthBaseUserManagerPrincipalEnricher : IHPDAuthBaseHttpPrincipalEnricher
+internal sealed class HPDBaseAuthUserManagerPrincipalEnricher : IHPDBaseAuthPrincipalEnricher
 {
     /// <inheritdoc />
     public async ValueTask<PrincipalContext> EnrichAsync(
@@ -36,7 +36,7 @@ public sealed class HPDAuthBaseUserManagerPrincipalEnricher : IHPDAuthBaseHttpPr
         var claims = new List<ClaimValue>(principal.Claims ?? []);
         AddClaim(claims, "hpd.auth.user.is_active", user.IsActive ? "true" : "false");
         AddClaim(claims, "hpd.auth.user.is_deleted", user.IsDeleted ? "true" : "false");
-        AddClaim(claims, HPDAuthBaseClaimTypes.SubscriptionTier, user.SubscriptionTier);
+        AddClaim(claims, HPDBaseAuthClaimTypes.SubscriptionTier, user.SubscriptionTier);
         if (!string.IsNullOrWhiteSpace(user.Audience))
             AddClaim(claims, "aud", user.Audience);
         if (user.RequiredActions.Count > 0)

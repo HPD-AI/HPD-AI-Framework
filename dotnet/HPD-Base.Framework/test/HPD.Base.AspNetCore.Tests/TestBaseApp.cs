@@ -6,7 +6,7 @@ internal static class TestBaseApp
         Action<HPD.Base.AspNetCore.HPDBaseAspNetCoreOptions>? configureAspNetCore = null,
         IPolicyEvaluator? policyEvaluator = null,
         Action<IServiceCollection>? configureServices = null,
-        Action<HPD.Base.AspNetCore.HPDBaseEndpointOptions>? configureEndpoints = null,
+        Action<TestEndpointOptions>? configureEndpoints = null,
         Action<HPD.Base.AspNetCore.HPDBaseOpenApiOptions>? configureOpenApi = null,
         Action<HPD.Base.AspNetCore.HPDBaseOpenApiEndpointOptions>? configureOpenApiEndpoints = null,
         bool mapOpenApi = false)
@@ -17,7 +17,11 @@ internal static class TestBaseApp
         });
 
         builder.WebHost.UseTestServer();
+        builder.Services.AddAuthorizationBuilder()
+            .AddPolicy("test-application", policy => policy.RequireAssertion(_ => true))
+            .AddPolicy("test-control-plane", policy => policy.RequireAssertion(_ => true));
         builder.Services.AddSingleton(policyEvaluator ?? new AllowPolicyEvaluator());
+        builder.Services.AddSingleton<IBaseHttpPrincipalMapper, TestPrincipalMapper>();
         configureServices?.Invoke(builder.Services);
         if (mapOpenApi)
             builder.Services.AddHPDBaseOpenApi(configureOpenApi);
@@ -33,11 +37,33 @@ internal static class TestBaseApp
         var app = builder.Build();
         app.Services.GetRequiredService<IRecordStoreRegistry>().AddHPDBaseInMemoryStore(app.Services);
         await app.Services.GetRequiredService<IBaseDescriptorRegistry>().RebuildAsync();
-        app.MapHPDBaseApi(options =>
+        var endpoints = new TestEndpointOptions();
+        configureEndpoints?.Invoke(endpoints);
+        app.MapHPDBasePublicApi(options =>
         {
-            options.RequireAuthorizationForAdminRoutes = false;
-            configureEndpoints?.Invoke(options);
+            options.RoutePrefix = endpoints.RoutePrefix;
+            options.MetadataMode = HPDBasePublicMetadataMode.Full;
+            options.MapDiagnostics = true;
         });
+        if (endpoints.MapRecords)
+            app.MapHPDBaseApplicationApi(new HPDBaseApplicationEndpointOptions
+            {
+                RoutePrefix = endpoints.RoutePrefix,
+                AuthorizationPolicy = "test-application",
+                MapRecords = true,
+                MapRegisteredReads = false
+            });
+        var control = app.MapGroup(endpoints.RoutePrefix).RequireAuthorization(endpoints.ControlPlanePolicy);
+        control.MapHPDBaseControlPlaneEndpoints(
+            app,
+            new HPDBaseControlPlaneEndpointSelection
+            {
+                MapRecords = false,
+                MapRegisteredReads = true,
+                MapAdministration = true,
+                MapPolicyExplain = endpoints.MapPolicyExplain
+            },
+            (endpoint, _) => endpoint.RequireAuthorization(endpoints.ControlPlanePolicy));
         if (mapOpenApi)
             app.MapHPDBaseOpenApi(configureOpenApiEndpoints);
         await app.StartAsync();
@@ -86,6 +112,25 @@ internal static class TestBaseApp
             }
         };
     }
+}
+
+internal sealed class TestPrincipalMapper(DefaultBaseHttpPrincipalMapper generic) : IBaseHttpPrincipalMapper
+{
+    public ValueTask<PrincipalContext> MapAsync(
+        Microsoft.AspNetCore.Http.HttpContext httpContext,
+        HPDBaseEndpointDescriptor endpoint,
+        CancellationToken cancellationToken = default) =>
+        generic.MapAsync(httpContext, endpoint.Audience == HPDBaseEndpointAudience.ControlPlane
+            ? endpoint with { Audience = HPDBaseEndpointAudience.Application }
+            : endpoint, cancellationToken);
+}
+
+internal sealed class TestEndpointOptions
+{
+    public string RoutePrefix { get; set; } = "/base";
+    public bool MapRecords { get; set; } = true;
+    public bool MapPolicyExplain { get; set; }
+    public string ControlPlanePolicy { get; set; } = "test-control-plane";
 }
 
 internal sealed class AllowPolicyEvaluator : IPolicyEvaluator

@@ -57,7 +57,7 @@ internal sealed class BaseRealtimeWebSocketEndpoint(
         try
         {
             using var socket = await context.WebSockets.AcceptWebSocketAsync().ConfigureAwait(false);
-            var principal = await principals.CreateAsync(context, HPDBaseEndpointKind.Records, context.RequestAborted).ConfigureAwait(false);
+            var principal = await principals.CreateAsync(context, context.RequestAborted).ConfigureAwait(false);
             var session = new BaseRealtimeWebSocketSession(
                 socket, feeds, json.Options, options.Value, stats, principal, sessionLogger, timeProvider);
             HPDBaseRealtimeAspNetCoreTelemetry.Finish(acceptActivity, "ok");

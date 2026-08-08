@@ -8,15 +8,15 @@ namespace HPD.Base.Auth;
 /// <summary>
 /// Maps HPD.Auth-compatible claims into BASE principal and subject contracts.
 /// </summary>
-public sealed class HPDAuthBaseSubjectMapper
+internal sealed class HPDBaseAuthSubjectProjector
 {
-    private readonly HPDBaseHPDAuthOptions _options;
+    private readonly HPDBaseAuthOptions _options;
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="HPDAuthBaseSubjectMapper"/> class.
+    /// Initializes a new instance of the <see cref="HPDBaseAuthSubjectProjector"/> class.
     /// </summary>
     /// <param name="options">The adapter options.</param>
-    public HPDAuthBaseSubjectMapper(IOptions<HPDBaseHPDAuthOptions> options)
+    public HPDBaseAuthSubjectProjector(IOptions<HPDBaseAuthOptions> options)
     {
         _options = options.Value;
     }
@@ -43,10 +43,10 @@ public sealed class HPDAuthBaseSubjectMapper
                     new AccessSubject
                     {
                         Kind = AccessSubjectKind.Anonymous,
-                        Source = HPDAuthBaseSources.Auth
+                        Source = HPDBaseAuthSources.Auth
                     }
                 ],
-                AuthSource = HPDAuthBaseSources.Auth
+                AuthSource = HPDBaseAuthSources.Auth
             };
         }
 
@@ -65,7 +65,7 @@ public sealed class HPDAuthBaseSubjectMapper
             new()
             {
                 Kind = AccessSubjectKind.Authenticated,
-                Source = HPDAuthBaseSources.Auth
+                Source = HPDBaseAuthSources.Auth
             }
         };
 
@@ -76,7 +76,7 @@ public sealed class HPDAuthBaseSubjectMapper
                 Kind = AccessSubjectKind.User,
                 Id = subjectId,
                 TenantId = tenantId,
-                Source = HPDAuthBaseSources.Auth
+                Source = HPDBaseAuthSources.Auth
             });
         }
 
@@ -87,7 +87,7 @@ public sealed class HPDAuthBaseSubjectMapper
                 Kind = AccessSubjectKind.Tenant,
                 Id = tenantId,
                 TenantId = tenantId,
-                Source = HPDAuthBaseSources.Auth
+                Source = HPDBaseAuthSources.Auth
             });
         }
 
@@ -98,7 +98,7 @@ public sealed class HPDAuthBaseSubjectMapper
                 Kind = AccessSubjectKind.ServicePrincipal,
                 Id = servicePrincipalId,
                 TenantId = tenantId,
-                Source = HPDAuthBaseSources.Auth
+                Source = HPDBaseAuthSources.Auth
             });
         }
 
@@ -109,7 +109,7 @@ public sealed class HPDAuthBaseSubjectMapper
                 Kind = AccessSubjectKind.Admin,
                 Id = subjectId ?? displayName ?? "admin",
                 TenantId = tenantId,
-                Source = HPDAuthBaseSources.Auth
+                Source = HPDBaseAuthSources.Auth
             });
         }
 
@@ -118,11 +118,11 @@ public sealed class HPDAuthBaseSubjectMapper
             Kind = AccessSubjectKind.Role,
             Id = role,
             TenantId = tenantId,
-            Source = HPDAuthBaseSources.Auth
+            Source = HPDBaseAuthSources.Auth
         }));
 
         var claims = principal.Claims
-            .Where(claim => !IsSensitive(claim.Type, _options.SensitiveClaimTypeFragments))
+            .Where(claim => _options.CopiedClaimTypes.Contains(claim.Type, StringComparer.Ordinal))
             .Take(Math.Max(0, _options.MaxClaims))
             .Select(static claim => new ClaimValue
             {
@@ -158,13 +158,13 @@ public sealed class HPDAuthBaseSubjectMapper
                     {
                         TenantId = tenantId,
                         Roles = roles.Length == 0 ? null : roles,
-                        Source = HPDAuthBaseSources.Auth
+                        Source = HPDBaseAuthSources.Auth
                     }
                 ],
             CurrentTenantId = tenantId,
             SessionId = ClaimValue(principal, _options.SessionIdClaimType),
             CredentialId = ClaimValue(principal, _options.CredentialIdClaimType),
-            AuthSource = HPDAuthBaseSources.Auth
+            AuthSource = HPDBaseAuthSources.Auth
         };
     }
 
@@ -186,8 +186,6 @@ public sealed class HPDAuthBaseSubjectMapper
         return principal.Claims.Where(claim => allowed.Contains(claim.Type)).Select(static claim => claim.Value);
     }
 
-    private static bool IsSensitive(string claimType, IEnumerable<string> fragments) =>
-        fragments.Any(fragment => claimType.Contains(fragment, StringComparison.OrdinalIgnoreCase));
 
     private static string? Limit(string? value, int maxLength) =>
         string.IsNullOrEmpty(value) || value.Length <= maxLength ? value : value[..maxLength];
@@ -196,7 +194,7 @@ public sealed class HPDAuthBaseSubjectMapper
 /// <summary>
 /// Names source identifiers emitted by the HPD.Auth adapter.
 /// </summary>
-public static class HPDAuthBaseSources
+public static class HPDBaseAuthSources
 {
     /// <summary>
     /// Source id used for HPD.Auth adapter mapped facts.

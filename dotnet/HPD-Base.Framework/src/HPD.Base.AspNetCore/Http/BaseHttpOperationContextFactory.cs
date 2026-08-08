@@ -10,14 +10,17 @@ internal sealed class BaseHttpOperationContextFactory : IBaseHttpOperationContex
 {
     private readonly HPDBaseAspNetCoreOptions _options;
     private readonly TimeProvider _timeProvider;
+    private readonly IBaseHttpCorrelationProvider _correlation;
 
     /// <summary>Initializes a new instance.</summary>
     public BaseHttpOperationContextFactory(
         IOptions<HPDBaseAspNetCoreOptions> options,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        IBaseHttpCorrelationProvider correlation)
     {
         _options = options.Value;
         _timeProvider = timeProvider;
+        _correlation = correlation;
     }
 
     /// <summary>Executes the create operation.</summary>
@@ -33,7 +36,7 @@ internal sealed class BaseHttpOperationContextFactory : IBaseHttpOperationContex
         ArgumentNullException.ThrowIfNull(principal);
 
         var requestOptions = _options.RequestContext;
-        var correlationId = SafeHeader(httpContext, requestOptions.CorrelationIdHeaderName, 128) ?? httpContext.TraceIdentifier;
+        var correlationId = _correlation.GetCorrelationId(httpContext);
 
         return new OperationContext
         {

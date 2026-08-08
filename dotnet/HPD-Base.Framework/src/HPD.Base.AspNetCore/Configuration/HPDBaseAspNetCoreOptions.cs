@@ -8,11 +8,6 @@ namespace HPD.Base.AspNetCore;
 public sealed class HPDBaseAspNetCoreOptions
 {
     /// <summary>
-    /// Gets or sets endpoint mapping options.
-    /// </summary>
-    public HPDBaseEndpointOptions Endpoints { get; set; } = new();
-
-    /// <summary>
     /// Gets or sets ProblemDetails mapping options.
     /// </summary>
     public HPDBaseProblemDetailsOptions ProblemDetails { get; set; } = new();

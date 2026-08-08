@@ -9,6 +9,7 @@ var builder = WebApplication.CreateSlimBuilder(
     args.Where(argument => !string.Equals(argument, "--verify", StringComparison.Ordinal)).ToArray());
 
 builder.Services.AddSingleton<IPolicyEvaluator, SmokePolicyEvaluator>();
+builder.Services.AddAuthorizationBuilder().AddPolicy("application", policy => policy.RequireAssertion(_ => true));
 var items = BaseCollection.Define(
     "items",
     HPDBaseJsonSerializerContext.Default.JsonElement,
@@ -23,7 +24,11 @@ builder.Services.AddHPDBase(hpd => hpd
     .AddCollection(items));
 
 var app = builder.Build();
-app.MapHPDBaseApi();
+app.MapHPDBasePublicApi();
+app.MapHPDBaseApplicationApi(new HPDBaseApplicationEndpointOptions
+{
+    AuthorizationPolicy = "application"
+});
 
 app.MapGet("/", () => "HPD.Base.AspNetCore AOT smoke");
 
