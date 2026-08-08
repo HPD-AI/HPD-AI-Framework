@@ -95,9 +95,10 @@ public static partial class GatewayAdminEndpointRouteBuilderExtensions
             if (!await AdmitTarget(context, ns, target).ConfigureAwait(false)) return;
             IGatewayManagementStatusReader status = context.RequestServices.GetRequiredService<IGatewayManagementStatusReader>();
             GatewayNodeEffectiveObservation? effective = context.RequestServices.GetRequiredService<IGatewayNodeEffectiveReader>().GetCurrent();
-            GatewayManagementStatusSnapshot snapshot = await status.GetCurrentAsync(ns, target, context.RequestAborted).ConfigureAwait(false);
             GatewayDesiredProjection? desired = await context.RequestServices.GetRequiredService<IGatewayManagementReader>()
                 .GetDesiredProjectionAsync(ns, target, context.RequestAborted).ConfigureAwait(false);
+            GatewayManagementStatusSnapshot snapshot = await status.GetCurrentAsync(
+                ns, target, desired?.ActivationIntentId, context.RequestAborted).ConfigureAwait(false);
             bool nodeObserved = effective is not null &&
                 StringComparer.Ordinal.Equals(effective.NamespaceId, ns) &&
                 StringComparer.Ordinal.Equals(effective.TargetNodeId, target) &&
@@ -106,12 +107,9 @@ public static partial class GatewayAdminEndpointRouteBuilderExtensions
             GatewayStatusSnapshot? node = nodeObserved
                 ? context.RequestServices.GetRequiredService<IGatewayStatusReader>().GetCurrent()
                 : null;
-            bool latestOutcomeMatchesDesired = desired is not null &&
-                StringComparer.Ordinal.Equals(snapshot.LatestNodeActivationIntentId, desired.ActivationIntentId);
             GatewayNodeObservationState observation = nodeObserved
                 ? GatewayNodeObservationState.Observed
-                : latestOutcomeMatchesDesired &&
-                  snapshot.LatestNodeOutcome == GatewayNodeOutcomeKind.PublicationIndeterminate
+                : snapshot.LatestNodeOutcome == GatewayNodeOutcomeKind.PublicationIndeterminate
                     ? GatewayNodeObservationState.Indeterminate
                     : snapshot.LatestNodeOutcome is not null
                         ? GatewayNodeObservationState.ObservedWithoutEffectiveProjection

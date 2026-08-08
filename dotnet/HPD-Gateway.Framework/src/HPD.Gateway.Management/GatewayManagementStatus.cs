@@ -16,7 +16,10 @@ public sealed record GatewayManagementStatusSnapshot(
 public interface IGatewayManagementStatusReader
 {
     ValueTask<GatewayManagementStatusSnapshot> GetCurrentAsync(
-        string namespaceId, string targetNodeId, CancellationToken cancellationToken = default);
+        string namespaceId,
+        string targetNodeId,
+        string? desiredActivationIntentId,
+        CancellationToken cancellationToken = default);
 }
 
 internal sealed class GatewayManagementStatusReader(
@@ -25,7 +28,10 @@ internal sealed class GatewayManagementStatusReader(
     GatewayManagementRuntimeOptions options) : IGatewayManagementStatusReader
 {
     public async ValueTask<GatewayManagementStatusSnapshot> GetCurrentAsync(
-        string namespaceId, string targetNodeId, CancellationToken cancellationToken = default)
+        string namespaceId,
+        string targetNodeId,
+        string? desiredActivationIntentId,
+        CancellationToken cancellationToken = default)
     {
         GatewayAuthorityCapabilitySnapshot capabilities;
         try { capabilities = await authority.InitializeAsync(cancellationToken).ConfigureAwait(false); }
@@ -56,22 +62,29 @@ internal sealed class GatewayManagementStatusReader(
         int pending = observedItems.Count(static item => item.Value.State is
             GatewayDeliveryState.Immediate or GatewayDeliveryState.Claimed or
             GatewayDeliveryState.RetryScheduled or GatewayDeliveryState.OutcomePersistencePending);
-        BaseResult<BaseRecord<GatewayNodeActivationOutcome>[]> outcomeResult = await session
-            .Collection(GatewayNodeActivationOutcome.Collection).Query()
-            .Where(GatewayNodeActivationOutcome.Fields.NamespaceId, namespaceId)
-            .Where(GatewayNodeActivationOutcome.Fields.TargetNodeId, targetNodeId)
-            .OrderByDescending(GatewayNodeActivationOutcome.Fields.AuthorityVersion)
-            .Take(1).ToArrayAsync(1, cancellationToken)
-            .ConfigureAwait(false);
-        BaseRecord<GatewayNodeActivationOutcome>? latestOutcomeRecord = outcomeResult.TryGetValue(
-            out BaseRecord<GatewayNodeActivationOutcome>[]? outcomes)
-                ? outcomes!
-                    .Where(item => StringComparer.Ordinal.Equals(item.Value.NamespaceId, namespaceId) &&
-                        StringComparer.Ordinal.Equals(item.Value.TargetNodeId, targetNodeId))
-                    .FirstOrDefault()
-                : null;
+        BaseRecord<GatewayNodeActivationOutcome>[] outcomes = [];
+        if (desiredActivationIntentId is not null)
+        {
+            BaseResult<BaseRecord<GatewayNodeActivationOutcome>[]> outcomeResult = await session
+                .Collection(GatewayNodeActivationOutcome.Collection).Query()
+                .Where(GatewayNodeActivationOutcome.Fields.NamespaceId, namespaceId)
+                .Where(GatewayNodeActivationOutcome.Fields.TargetNodeId, targetNodeId)
+                .Where(GatewayNodeActivationOutcome.Fields.ActivationIntentId, desiredActivationIntentId)
+                .OrderByDescending(GatewayNodeActivationOutcome.Fields.AuthorityVersion)
+                .Take(1).ToArrayAsync(1, cancellationToken)
+                .ConfigureAwait(false);
+            if (outcomeResult.TryGetValue(out BaseRecord<GatewayNodeActivationOutcome>[]? values))
+                outcomes = values!;
+        }
+        BaseRecord<GatewayNodeActivationOutcome>? latestOutcomeRecord = outcomes
+            .Where(item => StringComparer.Ordinal.Equals(item.Value.NamespaceId, namespaceId) &&
+                StringComparer.Ordinal.Equals(item.Value.TargetNodeId, targetNodeId) &&
+                StringComparer.Ordinal.Equals(item.Value.ActivationIntentId, desiredActivationIntentId))
+            .FirstOrDefault();
         GatewayNodeOutcomeKind? latestOutcome = latestOutcomeRecord?.Value.Kind;
         BaseRecord<GatewayDeliveryOutboxItem>? latestPending = observedItems
+            .Where(item => StringComparer.Ordinal.Equals(
+                item.Value.ActivationIntentId, desiredActivationIntentId))
             .Where(static item => item.Value.PendingOutcomeKind is not null)
             .OrderByDescending(static item => item.UpdatedAt ?? item.CreatedAt)
             .FirstOrDefault();
@@ -82,6 +95,7 @@ internal sealed class GatewayManagementStatusReader(
             pending > 0 ? "management.delivery.pending" : "management.ready",
             latestOutcome,
             latestOutcomeRecord?.Value.ActivationIntentId ?? latestPending?.Value.ActivationIntentId,
-            observedItems.Any(static item => item.Value.AttemptCount > 0));
+            observedItems.Any(item => item.Value.AttemptCount > 0 &&
+                StringComparer.Ordinal.Equals(item.Value.ActivationIntentId, desiredActivationIntentId)));
     }
 }

@@ -170,6 +170,68 @@ public sealed class GatewayAdminHttpTests
     }
 
     [Fact]
+    public async Task Historical_rejection_and_attempt_do_not_describe_unattempted_current_desire()
+    {
+        await using WebApplication application = Build(resourceAllowed: true);
+        await application.StartAsync();
+        GatewayManagementCommandResult provisioned = await application.Services
+            .GetRequiredService<IGatewayManagementCommandCoordinator>()
+            .ProvisionLocalTargetAsync(new("ns", "node", "provision", new("actor", "test", "policy"), "correlation"));
+        provisioned.IsAccepted.Should().BeTrue(provisioned.Code);
+        BaseSession session = application.Services.GetRequiredService<IBaseSessionFactory>().For(new PrincipalContext
+        {
+            AuthenticationState = PrincipalAuthenticationState.System,
+            SubjectId = "gateway-admin-generation-test",
+            AuthSource = GatewayManagementBasePolicy.TrustedSource,
+        }, options => options.Mode = OperationMode.System);
+        (await session.Collection(GatewayDesiredState.Collection).CreateAsync(
+            GatewayAuthorityRecordIds.DesiredState("local", "node"),
+            new GatewayDesiredState
+            {
+                ManagementAuthorityId = "local",
+                TargetNodeId = "node",
+                NamespaceId = "ns",
+                ActivationIntentId = "gwm.activation-intent.desired-b",
+                RevisionId = "gwm.revision.desired-b",
+                CandidateId = "candidate-desired-b",
+            })).RequireValue();
+        (await session.Collection(GatewayNodeActivationOutcome.Collection).CreateAsync(
+            RecordId.Create("gwm.node-outcome.historical-a"),
+            new GatewayNodeActivationOutcome
+            {
+                NamespaceId = "ns",
+                TargetNodeId = "node",
+                ActivationIntentId = "gwm.activation-intent.historical-a",
+                AuthorityId = "authority",
+                AuthorityEpoch = "epoch",
+                AuthorityVersion = 1,
+                Kind = GatewayNodeOutcomeKind.RejectedBeforePublish,
+                Code = "historical.rejected",
+            })).RequireValue();
+        (await session.Collection(GatewayDeliveryOutboxItem.Collection).CreateAsync(
+            RecordId.Create("gwm.outbox.historical-a"),
+            new GatewayDeliveryOutboxItem
+            {
+                NamespaceId = "ns",
+                TargetNodeId = "node",
+                ActivationIntentId = "gwm.activation-intent.historical-a",
+                State = GatewayDeliveryState.TerminalFailure,
+                AttemptCount = 1,
+            })).RequireValue();
+
+        HttpResponseMessage status = await application.GetTestClient().GetAsync(
+            "/management/gateway/v1/namespaces/ns/targets/node/status");
+        using JsonDocument statusDocument = JsonDocument.Parse(await status.Content.ReadAsStringAsync());
+        statusDocument.RootElement.GetProperty("nodeObservation").GetString().Should().Be("NotAttempted");
+
+        HttpResponseMessage history = await application.GetTestClient().GetAsync(
+            "/management/gateway/v1/namespaces/ns/targets/node/activations");
+        using JsonDocument historyDocument = JsonDocument.Parse(await history.Content.ReadAsStringAsync());
+        historyDocument.RootElement.GetProperty("outcomes").GetProperty("items")[0]
+            .GetProperty("code").GetString().Should().Be("historical.rejected");
+    }
+
+    [Fact]
     public async Task Generated_openapi_contains_the_complete_typed_ledger()
     {
         await using WebApplication application = Build(resourceAllowed: true, mapOpenApi: true);
