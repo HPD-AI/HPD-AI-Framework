@@ -1,4 +1,7 @@
 using System.Net;
+using System.Net.Http.Json;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using FluentAssertions;
 using HPD.Base.AspNetCore;
 using HPD.Base.Vector.AspNetCore;
@@ -51,6 +54,37 @@ public sealed class VectorEndpointTests
         (await response.Content.ReadAsStringAsync()).Should().Contain("base.vector.limitExceeded").And.NotContain(new string('x', 64));
     }
 
+    [Theory]
+    [InlineData("omit", false)]
+    [InlineData("include", true)]
+    public async Task Measure_disclosure_is_explicit_and_closed(string mode, bool expectedMeasure)
+    {
+        await using WebApplication app = await CreateAsync(mapVector: true);
+        HttpResponseMessage response = await app.GetTestClient().PostAsJsonAsync(
+            "/base/vector/http_vectors/http.vector.search/query",
+            new { vector = new[] { 1f, 0f }, take = 1, measureDisclosure = mode, consistency = "current" });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        using JsonDocument json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        JsonElement match = json.RootElement.GetProperty("matches")[0];
+        match.TryGetProperty("measure", out _).Should().Be(expectedMeasure);
+    }
+
+    [Theory]
+    [InlineData("{\"vector\":[1,0],\"take\":1,\"consistency\":\"current\"}")]
+    [InlineData("{\"vector\":[1,0],\"take\":1,\"measureDisclosure\":\"unknown\",\"consistency\":\"current\"}")]
+    [InlineData("{\"vector\":[1,0],\"take\":1,\"measureDisclosure\":99,\"consistency\":\"current\"}")]
+    public async Task Missing_or_invalid_measure_disclosure_fails_closed(string json)
+    {
+        await using WebApplication app = await CreateAsync(mapVector: true);
+        using var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
+
+        HttpResponseMessage response = await app.GetTestClient().PostAsync("/base/vector/http_vectors/http.vector.search/query", content);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync()).Should().Contain("base.vector.invalid");
+    }
+
     private static async Task<WebApplication> CreateAsync(bool mapVector)
     {
         WebApplicationBuilder builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Testing" });
@@ -58,6 +92,8 @@ public sealed class VectorEndpointTests
         builder.Services.AddAuthorization(options => options.AddPolicy("application", policy => policy.RequireAssertion(static _ => true)));
         builder.Services.AddHPDBase(baseBuilder => baseBuilder
             .ConfigureTokenProtection(options => options.ActiveKey = new BaseOpaqueTokenKey { Id = 1, Key = new byte[32], IssueNotBefore = DateTimeOffset.UnixEpoch })
+            .ReplacePolicyEvaluator<AllowVectorPolicy>()
+            .AddCollection(HttpVectorDocument.Collection)
             .AddVector()
             .UseTestVectorProvider());
         builder.Services.AddHPDBaseAspNetCore();
@@ -67,6 +103,21 @@ public sealed class VectorEndpointTests
         RouteGroupBuilder group = app.MapHPDBaseApplicationApi(new HPDBaseApplicationEndpointOptions { AuthorizationPolicy = "application", MapRecords = true });
         if (mapVector) group.MapHPDBaseVectorApplicationApi();
         await app.StartAsync();
+        (await app.Services.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
+        app.Services.GetRequiredService<BaseTestVectorStore>().Seed(HttpVectorDocument.Collection.Id, HttpVectorDocument.VectorIndexes.Search.Definition.Id,
+        [
+            new BaseTestVectorEntry
+            {
+                Record = new RecordEnvelope
+                {
+                    CollectionId = HttpVectorDocument.Collection.Id,
+                    Id = new RecordId("one"),
+                    Payload = new RecordPayload { Kind = RecordPayloadKind.FieldMap, Fields = new Dictionary<string, JsonElement> { [nameof(HttpVectorDocument.Label)] = JsonSerializer.SerializeToElement("one"), [nameof(HttpVectorDocument.Embedding)] = JsonSerializer.SerializeToElement(new[] { 1f, 0f }) } },
+                    Metadata = new RecordMetadata { Revision = new RevisionToken("test:1") },
+                },
+                Vector = BaseVector.Create([1, 0]),
+            },
+        ]);
         return app;
     }
 
@@ -79,4 +130,20 @@ public sealed class VectorEndpointTests
         }
         protected override bool TryComputeLength(out long length) { length = 0; return false; }
     }
+}
+
+[BaseCollection("http_vectors", typeof(HttpVectorJsonContext))]
+[BaseVectorIndex("http.vector.search", nameof(HttpVectorDocument.Embedding), VectorSpace = "http.space.v1", Dimensions = 2, Function = BaseVectorFunction.CosineSimilarity)]
+public partial record HttpVectorDocument
+{
+    [BaseField("http.vector.label")] public required string Label { get; init; }
+    [BaseField("http.vector.embedding", Operators = BaseFieldOperator.None)] public required BaseVector Embedding { get; init; }
+}
+
+[JsonSerializable(typeof(HttpVectorDocument))]
+public partial class HttpVectorJsonContext : JsonSerializerContext;
+
+public sealed class AllowVectorPolicy : IPolicyEvaluator
+{
+    public ValueTask<PolicyDecision> EvaluateAsync(PolicyEvaluationRequest request, CancellationToken cancellationToken = default) => ValueTask.FromResult(PolicyDecision.Allow());
 }

@@ -129,6 +129,6 @@ public interface IBaseVectorHydrationSession : IAsyncDisposable
 /// <summary>Opens provider-specific authority snapshots used for ranking and hydration.</summary>
 public interface IBaseVectorAuthority
 {
-    /// <summary>Opens one finite authority snapshot for the requested index and consistency requirement.</summary>
+    /// <summary>Opens one finite authority snapshot. A derived provider captures the authoritative head once for <see cref="BaseVectorConsistencyRequirement.Current"/> and waits only for that captured position.</summary>
     ValueTask<OperationResult<IBaseVectorHydrationSession>> OpenAsync(CollectionDefinition collection, VectorIndexDefinition index, BaseVectorConsistencyRequirement consistency, OperationContext context, CancellationToken cancellationToken = default);
 }

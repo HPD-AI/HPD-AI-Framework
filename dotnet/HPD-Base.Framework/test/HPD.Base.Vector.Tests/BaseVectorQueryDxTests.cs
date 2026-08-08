@@ -41,6 +41,15 @@ public sealed class BaseVectorQueryDxTests
         orResult.Matches[0].Record.Id.Value.Should().Be("a");
         inResult.Matches.Should().ContainSingle();
         inResult.Matches[0].Record.Id.Value.Should().Be("a");
+
+        string[] sixtyFour = Enumerable.Range(0, 63).Select(static value => "missing-" + value).Append("one").ToArray();
+        BaseVectorResult<VectorDxDocument> maxIn = (await session.Collection(VectorDxDocument.Collection)
+            .Vector(VectorDxDocument.VectorIndexes.Cosine).Nearest(BaseVector.Create([1, 0]))
+            .WhereAny(VectorDxDocument.Fields.Tenant, sixtyFour).Take(1).ExecuteAsync()).RequireValue();
+        maxIn.Matches.Should().ContainSingle();
+        Action tooMany = () => session.Collection(VectorDxDocument.Collection).Vector(VectorDxDocument.VectorIndexes.Cosine)
+            .WhereAny(VectorDxDocument.Fields.Tenant, Enumerable.Range(0, 65).Select(static value => value.ToString()).ToArray());
+        tooMany.Should().Throw<ArgumentOutOfRangeException>();
     }
 
     [Theory]
@@ -146,6 +155,33 @@ public sealed class BaseVectorQueryDxTests
     }
 
     [Fact]
+    public async Task Derived_current_captures_one_finite_head_and_waits_only_for_that_head()
+    {
+        await using ServiceProvider provider = Build(
+            vector =>
+            {
+                vector.DerivedProviderDefaultConsistency = new BaseVectorConsistencyRequirement.Available();
+                vector.ConsistencyWaitTimeout = TimeSpan.FromSeconds(1);
+            },
+            testing => testing.Consistency = BaseVectorProviderConsistency.DerivedJournal);
+        BaseTestVectorStore store = provider.GetRequiredService<BaseTestVectorStore>();
+        store.Seed(VectorDxDocument.Collection.Id, VectorDxDocument.VectorIndexes.Cosine.Definition.Id, [Entry("a", "one", [1, 0])]);
+        store.SetDerivedState(VectorDxDocument.Collection.Id, VectorDxDocument.VectorIndexes.Cosine.Definition.Id, 5, 3, DateTimeOffset.UtcNow);
+        BaseVectorQuery<VectorDxDocument> vectors = provider.GetRequiredService<IBaseSessionFactory>().For(Admin())
+            .Collection(VectorDxDocument.Collection).Vector(VectorDxDocument.VectorIndexes.Cosine);
+
+        Task<BaseResult<BaseVectorResult<VectorDxDocument>>> pending = vectors.Nearest(BaseVector.Create([1, 0]))
+            .WithConsistency(new BaseVectorConsistencyRequirement.Current()).Take(1).ExecuteAsync().AsTask();
+        await Task.Delay(50);
+        store.SetDerivedState(VectorDxDocument.Collection.Id, VectorDxDocument.VectorIndexes.Cosine.Definition.Id, 6, 3, DateTimeOffset.UtcNow);
+        store.ApplyDerivedPosition(VectorDxDocument.Collection.Id, VectorDxDocument.VectorIndexes.Cosine.Definition.Id, 4, DateTimeOffset.UtcNow);
+        store.ApplyDerivedPosition(VectorDxDocument.Collection.Id, VectorDxDocument.VectorIndexes.Cosine.Definition.Id, 5, DateTimeOffset.UtcNow);
+
+        BaseVectorResult<VectorDxDocument> result = (await pending).RequireValue();
+        result.Matches.Should().ContainSingle();
+    }
+
+    [Fact]
     public async Task Shutdown_drain_is_bounded_when_quarantined_work_ignores_cancellation()
     {
         ServiceProvider provider = Build(
@@ -160,6 +196,23 @@ public sealed class BaseVectorQueryDxTests
 
         stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromMilliseconds(350));
         await Task.Delay(450);
+    }
+
+    [Fact]
+    public async Task Non_cooperative_administration_reads_are_bounded_and_quarantined()
+    {
+        await using ServiceProvider provider = Build(
+            vector => { vector.AdministrationTimeout = TimeSpan.FromSeconds(1); vector.MaxActiveAndQuarantinedOperations = 1; },
+            testing => { testing.AdministrationDelay = TimeSpan.FromMilliseconds(1_400); testing.IgnoreAdministrationCancellation = true; });
+        IBaseVectorAdministration administration = provider.GetRequiredService<IBaseVectorAdministration>();
+
+        OperationResult<BaseVectorIndexStatus[]> result = await administration.ListAsync();
+        BaseVectorOperationalState state = provider.GetRequiredService<BaseVectorOperationalState>();
+
+        result.Error!.Code.Should().Be(BaseVectorErrorCodes.Timeout);
+        state.Quarantined.Should().Be(1);
+        await Task.Delay(500);
+        state.Quarantined.Should().Be(0);
     }
 
     [Fact]

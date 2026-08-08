@@ -18,9 +18,9 @@ public static class HPDBaseVectorTestingBuilderExtensions
         {
             var options = new BaseTestVectorProviderOptions();
             configure?.Invoke(options);
-            if (options.SearchDelay < TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(options.SearchDelay));
-            services.AddSingleton(new BaseTestVectorProviderSnapshot(options.Consistency, options.SearchDelay, options.IgnoreSearchCancellation));
-            services.AddSingleton<BaseTestVectorStore>(); services.AddSingleton<BaseTestVectorProvider>(); services.AddSingleton<IBaseVectorProvider>(static provider => provider.GetRequiredService<BaseTestVectorProvider>()); services.AddSingleton<IBaseVectorAuthority>(static provider => provider.GetRequiredService<BaseTestVectorProvider>());
+            if (options.SearchDelay < TimeSpan.Zero || options.AdministrationDelay < TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(options.SearchDelay));
+            services.AddSingleton(new BaseTestVectorProviderSnapshot(options.Consistency, options.SearchDelay, options.IgnoreSearchCancellation, options.AdministrationDelay, options.IgnoreAdministrationCancellation));
+            services.AddSingleton<BaseTestVectorStore>(); services.AddSingleton<BaseTestVectorProvider>(); services.AddSingleton<IBaseVectorProvider>(static provider => provider.GetRequiredService<BaseTestVectorProvider>()); services.AddSingleton<IBaseVectorAuthority>(static provider => provider.GetRequiredService<BaseTestVectorProvider>()); services.AddSingleton<IBaseVectorAdministrationProvider>(static provider => provider.GetRequiredService<BaseTestVectorProvider>());
         }
         public ValueTask InitializeAsync(IServiceProvider services, CancellationToken cancellationToken = default) { cancellationToken.ThrowIfCancellationRequested(); return ValueTask.CompletedTask; }
     }
@@ -35,6 +35,10 @@ public sealed class BaseTestVectorProviderOptions
     public TimeSpan SearchDelay { get; set; }
     /// <summary>Gets or sets whether the artificial delay deliberately ignores cancellation.</summary>
     public bool IgnoreSearchCancellation { get; set; }
+    /// <summary>Gets or sets a deterministic artificial administration-inspection delay.</summary>
+    public TimeSpan AdministrationDelay { get; set; }
+    /// <summary>Gets or sets whether administration inspection deliberately ignores cancellation.</summary>
+    public bool IgnoreAdministrationCancellation { get; set; }
 }
 
-internal sealed record BaseTestVectorProviderSnapshot(BaseVectorProviderConsistency Consistency, TimeSpan SearchDelay, bool IgnoreSearchCancellation);
+internal sealed record BaseTestVectorProviderSnapshot(BaseVectorProviderConsistency Consistency, TimeSpan SearchDelay, bool IgnoreSearchCancellation, TimeSpan AdministrationDelay, bool IgnoreAdministrationCancellation);

@@ -20,5 +20,6 @@
     <ProjectReference Include="../../src/HPD.Base.AspNetCore/HPD.Base.AspNetCore.csproj" />
     <ProjectReference Include="../../src/HPD.Base.Vector.AspNetCore/HPD.Base.Vector.AspNetCore.csproj" />
     <ProjectReference Include="../../src/HPD.Base.Vector.Testing/HPD.Base.Vector.Testing.csproj" />
+    <ProjectReference Include="../../src/HPD.Base.Generators/HPD.Base.Generators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
 </Project>

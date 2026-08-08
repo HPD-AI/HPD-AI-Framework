@@ -58,7 +58,7 @@ public sealed class BaseVectorQuery<T>
     {
         ArgumentNullException.ThrowIfNull(field);
         ArgumentNullException.ThrowIfNull(values);
-        if (values.Length is < 1 or > 16) throw new ArgumentOutOfRangeException(nameof(values));
+        if (values.Length is < 1 or > 64) throw new ArgumentOutOfRangeException(nameof(values));
         if (!_index.FilterFieldIds.Contains(field.Id, StringComparer.Ordinal)) throw new InvalidOperationException($"Field '{field.Id}' is not declared as a vector filter field.");
         BaseVectorFilterValue[] converted = values.Select(ToFilterValue).ToArray();
         BaseVectorFilterValueKind kind = converted[0].Kind;

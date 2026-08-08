@@ -1,4 +1,15 @@
+using System.Text.Json.Serialization;
+
 namespace HPD.Base.Vector.AspNetCore;
+
+/// <summary>Controls whether labeled vector measures are disclosed in an HTTP result.</summary>
+public enum BaseVectorHttpMeasureDisclosure
+{
+    /// <summary>Omits measures while preserving rank and authoritative records.</summary>
+    Omit,
+    /// <summary>Includes the finite function-labeled measure for each match.</summary>
+    Include,
+}
 
 /// <summary>Contains one bounded HTTP vector query.</summary>
 public sealed record BaseVectorHttpQueryRequest
@@ -7,6 +18,8 @@ public sealed record BaseVectorHttpQueryRequest
     public required float[] Vector { get; init; }
     /// <summary>Gets the required top-K bound.</summary>
     public required int Take { get; init; }
+    /// <summary>Gets the explicit closed measure-disclosure mode.</summary>
+    public required BaseVectorHttpMeasureDisclosure MeasureDisclosure { get; init; }
     /// <summary>Gets optional equality filters over declared stable field IDs.</summary>
     public BaseVectorHttpFilter[] Filters { get; init; } = [];
     /// <summary>Gets the consistency mode: current, available, or atLeast.</summary>
@@ -44,8 +57,9 @@ public sealed record BaseVectorHttpMatch
     public required RecordEnvelope Record { get; init; }
     /// <summary>Gets the one-based rank.</summary>
     public required int Rank { get; init; }
-    /// <summary>Gets the labeled finite measure.</summary>
-    public required BaseVectorMeasure Measure { get; init; }
+    /// <summary>Gets the labeled finite measure when explicitly requested.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public BaseVectorMeasure? Measure { get; init; }
 }
 
 /// <summary>Contains one complete bounded HTTP vector result.</summary>
