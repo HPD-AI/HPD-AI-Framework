@@ -60,6 +60,23 @@ public sealed class GatewayAdminContractTests
     }
 
     [Fact]
+    public void Canonical_json_rejects_lone_surrogates_in_names_and_values()
+    {
+        foreach (string invalid in new[] { "\uD800", "\uDC00" })
+        {
+            FluentActions.Invoking(() => GatewayCanonicalJson.Serialize(
+                    new System.Text.Json.Nodes.JsonObject { [invalid] = "value" }))
+                .Should().Throw<InvalidOperationException>().WithMessage("*lone UTF-16 surrogates*");
+            FluentActions.Invoking(() => GatewayCanonicalJson.Serialize(
+                    new System.Text.Json.Nodes.JsonObject { ["key"] = invalid }))
+                .Should().Throw<InvalidOperationException>().WithMessage("*lone UTF-16 surrogates*");
+        }
+        FluentActions.Invoking(() => GatewayCanonicalJson.Serialize(
+                new System.Text.Json.Nodes.JsonObject { ["key"] = "\U0001F600" }))
+            .Should().NotThrow();
+    }
+
+    [Fact]
     public void Generation_json_reader_is_bounded_and_rejects_duplicate_members()
     {
         GatewayBoundedJson.ParseObject("{}"u8).Should().NotBeNull();

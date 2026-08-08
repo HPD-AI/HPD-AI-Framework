@@ -35,4 +35,12 @@ describe("canonical generation input", () => {
     const text = new TextDecoder().decode(canonicalJson({ [supplementary]: 2, [bmp]: 1 }));
     expect(text.indexOf(bmp)).toBeLessThan(text.indexOf(supplementary));
   });
+
+  it("rejects lone high and low surrogates in names and values", () => {
+    for (const invalid of ["\uD800", "\uDC00"]) {
+      expect(() => canonicalJson({ [invalid]: "value" })).toThrow(/lone UTF-16 surrogates/u);
+      expect(() => canonicalJson({ key: invalid })).toThrow(/lone UTF-16 surrogates/u);
+    }
+    expect(() => canonicalJson({ key: "\uD83D\uDE00" })).not.toThrow();
+  });
 });

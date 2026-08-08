@@ -321,6 +321,37 @@ public sealed class GatewayAdminHttpTests
             await File.WriteAllBytesAsync(snapshotOutput, snapshot.SnapshotUtf8.ToArray());
         GatewayClientGenerationSnapshotV1.Create(Encoding.UTF8.GetBytes(json), "test").SourceSha256
             .Should().Be(snapshot.SourceSha256);
+        foreach (int schemaCount in new[] { 257, 512 })
+        {
+            JsonObject boundedDocument = JsonNode.Parse(json)!.AsObject();
+            JsonObject schemas = boundedDocument["components"]!["schemas"]!.AsObject();
+            for (int index = schemas.Count; index < schemaCount; index++)
+                schemas.Add($"Synthetic_{index:D3}", new JsonObject { ["type"] = "string" });
+            GatewayClientGenerationSnapshotV1 bounded = GatewayClientGenerationSnapshotV1.Create(
+                Encoding.UTF8.GetBytes(boundedDocument.ToJsonString()), "test");
+            using JsonDocument envelope = JsonDocument.Parse(bounded.SnapshotUtf8.ToArray());
+            envelope.RootElement.GetProperty("openApi").GetProperty("components").GetProperty("schemas")
+                .EnumerateObject().Should().HaveCount(schemaCount);
+        }
+        JsonObject oversizedDocument = JsonNode.Parse(json)!.AsObject();
+        JsonObject oversizedSchemas = oversizedDocument["components"]!["schemas"]!.AsObject();
+        for (int index = oversizedSchemas.Count; index < 513; index++)
+            oversizedSchemas.Add($"Synthetic_{index:D3}", new JsonObject { ["type"] = "string" });
+        FluentActions.Invoking(() => GatewayClientGenerationSnapshotV1.Create(
+                Encoding.UTF8.GetBytes(oversizedDocument.ToJsonString()), "test"))
+            .Should().Throw<InvalidOperationException>();
+        foreach (string invalid in new[] { "\uD800", "\uDC00" })
+        {
+            string escaped = invalid == "\uD800" ? "\\uD800" : "\\uDC00";
+            string malformedValue = json.Replace("HPD.Gateway Admin API", escaped, StringComparison.Ordinal);
+            FluentActions.Invoking(() => GatewayClientGenerationSnapshotV1.Create(
+                    Encoding.UTF8.GetBytes(malformedValue), "test"))
+                .Should().Throw<InvalidOperationException>().WithMessage("*lone UTF-16 surrogates*");
+            string malformedKey = json[..^1] + $",\"{escaped}\":true}}";
+            FluentActions.Invoking(() => GatewayClientGenerationSnapshotV1.Create(
+                    Encoding.UTF8.GetBytes(malformedKey), "test"))
+                .Should().Throw<InvalidOperationException>().WithMessage("*lone UTF-16 surrogates*");
+        }
         JsonObject reordered = new();
         foreach ((string key, JsonNode? value) in JsonNode.Parse(json)!.AsObject().Reverse())
             reordered.Add(key, value?.DeepClone());

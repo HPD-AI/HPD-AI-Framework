@@ -196,6 +196,7 @@ internal static class GatewayBoundedJson
     {
         if (utf8.Length is < 2 or > MaximumBytes)
             throw new InvalidOperationException("Gateway client generation JSON is outside its byte bound.");
+        RejectLoneEscapedSurrogates(utf8);
         var reader = new Utf8JsonReader(utf8, new JsonReaderOptions
         {
             AllowTrailingCommas = false,
@@ -242,6 +243,50 @@ internal static class GatewayBoundedJson
             throw new InvalidOperationException("Gateway client generation JSON is incomplete.");
         return JsonNode.Parse(utf8)?.AsObject() ??
             throw new InvalidOperationException("Gateway client generation JSON root must be an object.");
+    }
+
+    private static void RejectLoneEscapedSurrogates(ReadOnlySpan<byte> utf8)
+    {
+        bool inString = false;
+        for (int index = 0; index < utf8.Length; index++)
+        {
+            byte current = utf8[index];
+            if (current == (byte)'"') { inString = !inString; continue; }
+            if (!inString || current != (byte)'\\') continue;
+            if (++index >= utf8.Length) throw new InvalidOperationException("Gateway client generation JSON is malformed.");
+            if (utf8[index] != (byte)'u') continue;
+            int scalar = ReadHexEscape(utf8, index + 1);
+            index += 4;
+            if (scalar is >= 0xD800 and <= 0xDBFF)
+            {
+                if (index + 6 >= utf8.Length || utf8[index + 1] != (byte)'\\' || utf8[index + 2] != (byte)'u')
+                    throw new InvalidOperationException("Canonical JSON rejects lone UTF-16 surrogates.");
+                int low = ReadHexEscape(utf8, index + 3);
+                if (low is < 0xDC00 or > 0xDFFF)
+                    throw new InvalidOperationException("Canonical JSON rejects lone UTF-16 surrogates.");
+                index += 6;
+            }
+            else if (scalar is >= 0xDC00 and <= 0xDFFF)
+                throw new InvalidOperationException("Canonical JSON rejects lone UTF-16 surrogates.");
+        }
+    }
+
+    private static int ReadHexEscape(ReadOnlySpan<byte> utf8, int start)
+    {
+        if (start + 4 > utf8.Length) throw new InvalidOperationException("Gateway client generation JSON is malformed.");
+        int result = 0;
+        for (int index = start; index < start + 4; index++)
+        {
+            int digit = utf8[index] switch
+            {
+                >= (byte)'0' and <= (byte)'9' => utf8[index] - (byte)'0',
+                >= (byte)'a' and <= (byte)'f' => utf8[index] - (byte)'a' + 10,
+                >= (byte)'A' and <= (byte)'F' => utf8[index] - (byte)'A' + 10,
+                _ => throw new InvalidOperationException("Gateway client generation JSON has an invalid Unicode escape."),
+            };
+            result = (result << 4) | digit;
+        }
+        return result;
     }
 
     private static void CountArrayItem(Stack<Frame> frames)
@@ -440,9 +485,10 @@ internal static class GatewayCanonicalJson
         {
             case null: writer.WriteNullValue(); break;
             case JsonObject value:
-                int maximumProperties = path == "/components/schemas" ? 512 : 256;
+                int maximumProperties = path is "/components/schemas" or "/openApi/components/schemas" ? 512 : 256;
                 if (value.Count > maximumProperties)
                     throw new InvalidOperationException($"Canonical JSON object exceeds {maximumProperties} properties.");
+                foreach ((string name, JsonNode? _) in value) ValidateUnicode(name);
                 writer.WriteStartObject();
                 foreach ((string name, JsonNode? child) in value.OrderBy(x => x.Key, UnicodeScalarComparer.Instance))
                 {
@@ -456,7 +502,7 @@ internal static class GatewayCanonicalJson
                 writer.WriteStartArray(); foreach (JsonNode? child in value) Write(writer, child, depth + 1, path); writer.WriteEndArray();
                 break;
             case JsonValue value:
-                if (value.TryGetValue<string>(out string? text)) { writer.WriteStringValue(text); break; }
+                if (value.TryGetValue<string>(out string? text)) { ValidateUnicode(text); writer.WriteStringValue(text); break; }
                 if (value.TryGetValue<bool>(out bool boolean)) { writer.WriteBooleanValue(boolean); break; }
                 if (value.TryGetValue<int>(out int integer)) { writer.WriteNumberValue(integer); break; }
                 if (value.TryGetValue<long>(out long longInteger)) { writer.WriteNumberValue(longInteger); break; }
@@ -465,7 +511,11 @@ internal static class GatewayCanonicalJson
                 JsonElement element = value.GetValue<JsonElement>();
                 switch (element.ValueKind)
                 {
-                    case JsonValueKind.String: writer.WriteStringValue(element.GetString()); break;
+                    case JsonValueKind.String:
+                        string? elementText = element.GetString();
+                        ValidateUnicode(elementText);
+                        writer.WriteStringValue(elementText);
+                        break;
                     case JsonValueKind.Number:
                         if (!element.TryGetInt64(out long number)) throw new InvalidOperationException("Canonical JSON permits integers only.");
                         writer.WriteNumberValue(number); break;
@@ -479,6 +529,18 @@ internal static class GatewayCanonicalJson
         }
     }
 
+    private static void ValidateUnicode(string? value)
+    {
+        if (value is null) return;
+        ReadOnlySpan<char> remaining = value;
+        while (!remaining.IsEmpty)
+        {
+            if (Rune.DecodeFromUtf16(remaining, out _, out int consumed) != System.Buffers.OperationStatus.Done)
+                throw new InvalidOperationException("Canonical JSON rejects lone UTF-16 surrogates.");
+            remaining = remaining[consumed..];
+        }
+    }
+
     private sealed class UnicodeScalarComparer : IComparer<string>
     {
         internal static UnicodeScalarComparer Instance { get; } = new();
@@ -487,6 +549,8 @@ internal static class GatewayCanonicalJson
             if (ReferenceEquals(left, right)) return 0;
             if (left is null) return -1;
             if (right is null) return 1;
+            ValidateUnicode(left);
+            ValidateUnicode(right);
             ReadOnlySpan<char> leftSpan = left;
             ReadOnlySpan<char> rightSpan = right;
             while (!leftSpan.IsEmpty && !rightSpan.IsEmpty)

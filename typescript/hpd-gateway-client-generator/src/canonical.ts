@@ -23,6 +23,7 @@ function write(value: JsonValue, depth: number, path: string): string {
   if (depth > 64) throw new Error("JSON depth exceeds 64.");
   if (value === null || typeof value === "boolean") return String(value);
   if (typeof value === "string") {
+    requireWellFormed(value);
     if (value !== value.normalize("NFC")) throw new Error("Manifest strings must be NFC.");
     return JSON.stringify(value);
   }
@@ -35,13 +36,16 @@ function write(value: JsonValue, depth: number, path: string): string {
     return `[${value.map(item => write(item, depth + 1, path)).join(",")}]`;
   }
   const object = value as Readonly<Record<string, JsonValue>>;
+  for (const key of Object.keys(object)) requireWellFormed(key);
   const keys = Object.keys(object).sort(scalarOrdinal);
-  const maximum = path === "/components/schemas" ? 512 : 256;
+  const maximum = path === "/components/schemas" || path === "/openApi/components/schemas" ? 512 : 256;
   if (keys.length > maximum) throw new Error(`JSON object exceeds ${maximum} properties.`);
   return `{${keys.map(key => `${JSON.stringify(key)}:${write(object[key]!, depth + 1, `${path}/${escapePointer(key)}`)}`).join(",")}}`;
 }
 
 export function scalarOrdinal(left: string, right: string): number {
+  requireWellFormed(left);
+  requireWellFormed(right);
   const leftValues = [...left].map(value => value.codePointAt(0)!);
   const rightValues = [...right].map(value => value.codePointAt(0)!);
   const length = Math.min(leftValues.length, rightValues.length);
@@ -50,3 +54,15 @@ export function scalarOrdinal(left: string, right: string): number {
   return leftValues.length < rightValues.length ? -1 : leftValues.length > rightValues.length ? 1 : 0;
 }
 function escapePointer(value: string): string { return value.replaceAll("~", "~0").replaceAll("/", "~1"); }
+function requireWellFormed(value: string): void {
+  for (let index = 0; index < value.length; index++) {
+    const current = value.charCodeAt(index);
+    if (current >= 0xD800 && current <= 0xDBFF) {
+      const next = value.charCodeAt(index + 1);
+      if (!(next >= 0xDC00 && next <= 0xDFFF)) throw new Error("Canonical JSON rejects lone UTF-16 surrogates.");
+      index++;
+    } else if (current >= 0xDC00 && current <= 0xDFFF) {
+      throw new Error("Canonical JSON rejects lone UTF-16 surrogates.");
+    }
+  }
+}
