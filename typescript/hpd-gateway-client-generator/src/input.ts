@@ -136,9 +136,13 @@ function rules(input: unknown): GatewayConstraintRules {
 }
 
 function object(value: unknown, scope: string): Record<string, unknown> {
+  return boundedObject(value, scope, 256);
+}
+
+function boundedObject(value: unknown, scope: string, maximumProperties: number): Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) fail(`${scope} must be an object.`);
   const result = value as Record<string, unknown>;
-  if (Object.keys(result).length > 256) fail(`${scope} exceeds 256 properties.`);
+  if (Object.keys(result).length > maximumProperties) fail(`${scope} exceeds ${maximumProperties} properties.`);
   return result;
 }
 
@@ -194,7 +198,7 @@ function validateOpenApi(openApi: Readonly<Record<string, JsonValue>>, manifest:
   if (typeof openApi.openapi !== "string" || !openApi.openapi.startsWith("3.1.")) fail("OpenAPI must be 3.1.x.");
   const components = object(openApi.components, "components");
   exact(components, ["schemas", "securitySchemes"]);
-  const schemas = object(components.schemas, "schemas");
+  const schemas = boundedObject(components.schemas, "schemas", 512);
   validateSchemas(schemas);
   const securitySchemes = object(components.securitySchemes, "securitySchemes");
   if (Object.keys(securitySchemes).length !== 1) fail("Exactly one security scheme is required.");
@@ -293,10 +297,13 @@ const schemaFormats = ["uri", "uuid", "uint16", "int32", "int64", "uint64", "dat
 
 function validateSchemas(schemas: Record<string, unknown>): void {
   const names = Object.keys(schemas);
-  if (names.length === 0 || names.length > 10_000) fail("Invalid schema component collection.");
+  if (names.length === 0 || names.length > 512) fail("Invalid schema component collection.");
+  let propertyCount = 0;
   for (const name of names) {
     boundedString(name, "schema component name", 512);
     validateSchema(schemas[name], schemas, `#/components/schemas/${name}`);
+    propertyCount += countSchemaProperties(schemas[name]);
+    if (propertyCount > 4_096) fail("Aggregate schema property bound exceeded.");
   }
   const edges = new Map<string, Set<string>>();
   for (const name of names) {
@@ -315,6 +322,22 @@ function validateSchemas(schemas: Record<string, unknown>): void {
     complete.add(name);
   };
   for (const name of names) visit(name);
+}
+
+function countSchemaProperties(input: unknown): number {
+  const schema = object(input, "schema property count");
+  if (schema.$ref !== undefined) return 0;
+  let count = 0;
+  if (schema.properties !== undefined) {
+    const properties = object(schema.properties, "schema properties");
+    count += Object.keys(properties).length;
+    for (const value of Object.values(properties)) count += countSchemaProperties(value);
+  }
+  if (schema.items !== undefined) count += countSchemaProperties(schema.items);
+  if (schema.additionalProperties !== undefined && typeof schema.additionalProperties !== "boolean")
+    count += countSchemaProperties(schema.additionalProperties);
+  if (schema.oneOf !== undefined) for (const value of array(schema.oneOf, "oneOf")) count += countSchemaProperties(value);
+  return count;
 }
 
 function validateSchema(input: unknown, schemas: Record<string, unknown>, path: string): void {

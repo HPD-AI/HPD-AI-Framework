@@ -186,7 +186,9 @@ internal static class GatewayBoundedJson
 {
     private const int MaximumBytes = 8 * 1024 * 1024;
     private const int MaximumTokens = 750_000;
-    private const int MaximumProperties = 256;
+    // The schema component catalog has a dedicated 512-entry contract. All
+    // other objects are subsequently constrained by their closed validators.
+    private const int MaximumProperties = 512;
     private const int MaximumArrayItems = 10_000;
     private const int MaximumStringUtf8Bytes = 16 * 1024;
 
@@ -427,25 +429,31 @@ internal static class GatewayCanonicalJson
     {
         using var stream = new MemoryStream();
         using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping }))
-            Write(writer, node, 0);
+            Write(writer, node, 0, "");
         return stream.ToArray();
     }
 
-    private static void Write(Utf8JsonWriter writer, JsonNode? node, int depth)
+    private static void Write(Utf8JsonWriter writer, JsonNode? node, int depth, string path)
     {
         if (depth > 64) throw new InvalidOperationException("Canonical JSON exceeds maximum depth.");
         switch (node)
         {
             case null: writer.WriteNullValue(); break;
             case JsonObject value:
+                int maximumProperties = path == "/components/schemas" ? 512 : 256;
+                if (value.Count > maximumProperties)
+                    throw new InvalidOperationException($"Canonical JSON object exceeds {maximumProperties} properties.");
                 writer.WriteStartObject();
-                foreach ((string name, JsonNode? child) in value.OrderBy(x => x.Key, StringComparer.Ordinal))
-                { writer.WritePropertyName(name); Write(writer, child, depth + 1); }
+                foreach ((string name, JsonNode? child) in value.OrderBy(x => x.Key, UnicodeScalarComparer.Instance))
+                {
+                    writer.WritePropertyName(name);
+                    Write(writer, child, depth + 1, path + "/" + name.Replace("~", "~0", StringComparison.Ordinal).Replace("/", "~1", StringComparison.Ordinal));
+                }
                 writer.WriteEndObject();
                 break;
             case JsonArray value:
                 if (value.Count > 10_000) throw new InvalidOperationException("Canonical JSON array exceeds its bound.");
-                writer.WriteStartArray(); foreach (JsonNode? child in value) Write(writer, child, depth + 1); writer.WriteEndArray();
+                writer.WriteStartArray(); foreach (JsonNode? child in value) Write(writer, child, depth + 1, path); writer.WriteEndArray();
                 break;
             case JsonValue value:
                 if (value.TryGetValue<string>(out string? text)) { writer.WriteStringValue(text); break; }
@@ -468,6 +476,29 @@ internal static class GatewayCanonicalJson
                 }
                 break;
             default: throw new InvalidOperationException("Unsupported canonical JSON node.");
+        }
+    }
+
+    private sealed class UnicodeScalarComparer : IComparer<string>
+    {
+        internal static UnicodeScalarComparer Instance { get; } = new();
+        public int Compare(string? left, string? right)
+        {
+            if (ReferenceEquals(left, right)) return 0;
+            if (left is null) return -1;
+            if (right is null) return 1;
+            ReadOnlySpan<char> leftSpan = left;
+            ReadOnlySpan<char> rightSpan = right;
+            while (!leftSpan.IsEmpty && !rightSpan.IsEmpty)
+            {
+                Rune.DecodeFromUtf16(leftSpan, out Rune leftRune, out int leftConsumed);
+                Rune.DecodeFromUtf16(rightSpan, out Rune rightRune, out int rightConsumed);
+                int comparison = leftRune.Value.CompareTo(rightRune.Value);
+                if (comparison != 0) return comparison;
+                leftSpan = leftSpan[leftConsumed..];
+                rightSpan = rightSpan[rightConsumed..];
+            }
+            return leftSpan.IsEmpty ? rightSpan.IsEmpty ? 0 : -1 : 1;
         }
     }
 }

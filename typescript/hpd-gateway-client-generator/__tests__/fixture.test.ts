@@ -95,6 +95,24 @@ describe("real Gateway snapshot", () => {
       expect(operations).toContain(`export interface ${name}Input`);
       expect(operations).toContain(`export type ${name}Result`);
     }
+    expect(operations).toContain("readonly maximum?: number");
+    expect(operations).not.toContain("readonly maximum?: string");
+  });
+
+  it("enforces the exact schema and aggregate-property bounds", () => {
+    for (const count of [257, 512]) {
+      const value = withSchemaCount(count);
+      rehash(value);
+      expect(() => parse(value)).not.toThrow();
+    }
+    expect(() => rehash(withSchemaCount(513))).toThrow(/512 properties/u);
+
+    const atPropertyLimit = withAggregatePropertyCount(4_096);
+    rehash(atPropertyLimit);
+    expect(() => parse(atPropertyLimit)).not.toThrow();
+    const beyondPropertyLimit = withAggregatePropertyCount(4_097);
+    rehash(beyondPropertyLimit);
+    expect(() => parse(beyondPropertyLimit)).toThrow(/Aggregate schema property bound/u);
   });
 });
 
@@ -108,6 +126,37 @@ function reverseObjects(value: any): any {
   if (Array.isArray(value)) return value.map(reverseObjects);
   if (value === null || typeof value !== "object") return value;
   return Object.fromEntries(Object.entries(value).reverse().map(([key, child]) => [key, reverseObjects(child)]));
+}
+function withSchemaCount(count: number): Record<string, any> {
+  const value = clone();
+  const schemas = value.openApi.components.schemas as Record<string, any>;
+  for (let index = Object.keys(schemas).length; index < count; index++) schemas[`Synthetic_${index.toString().padStart(3, "0")}`] = { type: "string" };
+  return value;
+}
+function withAggregatePropertyCount(target: number): Record<string, any> {
+  const value = clone();
+  const schemas = value.openApi.components.schemas as Record<string, any>;
+  let remaining = target - aggregatePropertyCount(schemas);
+  let schemaIndex = 0;
+  while (remaining > 0) {
+    const count = Math.min(remaining, 256);
+    schemas[`PropertyBound_${schemaIndex++}`] = {
+      type: "object",
+      properties: Object.fromEntries(Array.from({ length: count }, (_, index) => [`p${index.toString().padStart(3, "0")}`, { type: "string" }])),
+    };
+    remaining -= count;
+  }
+  return value;
+}
+function aggregatePropertyCount(schemas: Record<string, any>): number {
+  const count = (schema: any): number => {
+    if (!schema || typeof schema !== "object" || schema.$ref) return 0;
+    let result = schema.properties ? Object.keys(schema.properties).length + Object.values(schema.properties).reduce((sum: number, child) => sum + count(child), 0) : 0;
+    if (schema.items) result += count(schema.items);
+    if (schema.oneOf) result += schema.oneOf.reduce((sum: number, child: any) => sum + count(child), 0);
+    return result;
+  };
+  return Object.values(schemas).reduce((sum: number, schema) => sum + count(schema), 0);
 }
 
 function rehash(value: Record<string, any>): void {

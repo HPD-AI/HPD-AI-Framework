@@ -80,4 +80,5 @@ export interface GenerationPlan {
   readonly operations: readonly GatewayClientOperation[];
   readonly schemas: Readonly<Record<string, JsonValue>>;
   readonly schemaConstraints: readonly GatewaySchemaConstraint[];
+  readonly parameterKinds: Readonly<Record<string, "string" | "number">>;
 }

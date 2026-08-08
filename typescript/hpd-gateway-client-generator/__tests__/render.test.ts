@@ -15,6 +15,10 @@ describe("contract rendering", () => {
         schemaRef: "#/components/schemas/HPD_Gateway_Admin_Request", propertyPointer: "/properties/revisionId",
         appliesTo: "value", brand: "revision-id", rules: rules,
       }],
+      parameterKinds: {
+        "activate\0header\0Idempotency-Key": "string",
+        "activate\0header\0If-Match": "string",
+      },
       operations: [{
         operation: "activate", openApiOperationId: "HpdGatewayAdmin.activate", method: "POST", path: "/management/gateway/v1/activate",
         capability: "activate", resourcePolicy: "target", resourceKind: "target", mutation: true,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canonicalJson, framedHash, hex } from "../src/canonical.js";
+import { canonicalJson, framedHash, hex, scalarOrdinal } from "../src/canonical.js";
 import { parseSnapshot } from "../src/input.js";
 
 describe("canonical generation input", () => {
@@ -26,5 +26,13 @@ describe("canonical generation input", () => {
   it("rejects unsafe numbers and non-NFC manifest strings", () => {
     expect(() => canonicalJson(9_007_199_254_740_992)).toThrow(/safe integers/u);
     expect(() => canonicalJson("e\u0301")).toThrow(/NFC/u);
+  });
+
+  it("orders property names by Unicode scalar value", () => {
+    const bmp = "\uE000";
+    const supplementary = "\u{10000}";
+    expect(scalarOrdinal(bmp, supplementary)).toBeLessThan(0);
+    const text = new TextDecoder().decode(canonicalJson({ [supplementary]: 2, [bmp]: 1 }));
+    expect(text.indexOf(bmp)).toBeLessThan(text.indexOf(supplementary));
   });
 });

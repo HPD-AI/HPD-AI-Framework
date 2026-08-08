@@ -44,6 +44,22 @@ public sealed class GatewayAdminContractTests
     }
 
     [Fact]
+    public void Canonical_json_orders_names_by_Unicode_scalar_value()
+    {
+        const string bmp = "\uE000";
+        const string supplementary = "\U00010000";
+        var value = new System.Text.Json.Nodes.JsonObject
+        {
+            [supplementary] = 2,
+            [bmp] = 1,
+        };
+
+        using System.Text.Json.JsonDocument canonical = System.Text.Json.JsonDocument.Parse(GatewayCanonicalJson.Serialize(value));
+        canonical.RootElement.EnumerateObject().Select(static property => property.Name)
+            .Should().ContainInOrder(bmp, supplementary);
+    }
+
+    [Fact]
     public void Generation_json_reader_is_bounded_and_rejects_duplicate_members()
     {
         GatewayBoundedJson.ParseObject("{}"u8).Should().NotBeNull();
