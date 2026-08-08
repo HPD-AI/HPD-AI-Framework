@@ -183,14 +183,14 @@ internal sealed class GatewayAdminOpenApiDocumentTransformer(GatewayAdminOpenApi
         return rules.CharacterSet switch
         {
             GatewayAdminClientCharacterSet.StrongEntityTag =>
-                StringSchema(rules.MaximumUtf8Bytes!.Value + 2, rules.MinimumUtf8Bytes!.Value + 2,
+                StringSchema(checked(rules.MaximumUtf8Bytes!.Value + 2), checked(rules.MinimumUtf8Bytes!.Value + 2),
                     $"^\"(?=[!-~]{{{rules.MinimumUtf8Bytes.Value},{rules.MaximumUtf8Bytes.Value}}}\"$)[^\",]+\"$"),
             GatewayAdminClientCharacterSet.VisibleAscii =>
                 StringSchema(rules.MaximumUtf8Bytes!.Value, rules.MinimumUtf8Bytes,
                     $"^[!-~]{{{rules.MinimumUtf8Bytes ?? 0},{rules.MaximumUtf8Bytes.Value}}}$"),
             _ when rules.RejectUnicodeControls =>
-                StringSchema(rules.MaximumUtf8Bytes!.Value, rules.MinimumUtf8Bytes,
-                    $"^[^\\u0000-\\u001F\\u007F-\\u009F]{{{rules.MinimumUtf8Bytes ?? 0},{rules.MaximumUtf8Bytes.Value}}}$"),
+                StringSchema(rules.MaximumUtf8Bytes!.Value, rules.MinimumUtf8Bytes > 0 ? 1 : 0,
+                    $"^[^\\u0000-\\u001F\\u007F-\\u009F]{{{(rules.MinimumUtf8Bytes > 0 ? 1 : 0)},{rules.MaximumUtf8Bytes.Value}}}$"),
             _ => StringSchema(rules.MaximumUtf8Bytes!.Value, rules.MinimumUtf8Bytes),
         };
     }

@@ -36,6 +36,9 @@ internal sealed record GatewayAdminClientParameterConstraint(
     GatewayAdminClientStringBrand Brand,
     GatewayAdminClientConstraintRules Rules)
 {
+    internal const int MaximumOrdinaryStringUtf8Bytes = 16 * 1024;
+    internal const int MaximumCollectionItems = 10_000;
+
     internal void Validate()
     {
         if (!Enum.IsDefined(Location) || !Enum.IsDefined(Brand) || string.IsNullOrWhiteSpace(Name) ||
@@ -49,10 +52,10 @@ internal sealed record GatewayAdminClientParameterConstraint(
             !Enum.IsDefined(Rules.Uniqueness) || !Enum.IsDefined(Rules.Ordering) ||
             !Enum.IsDefined(Rules.Cardinality))
             throw new InvalidOperationException("Gateway client parameter rules contain an unknown value.");
-        if (Rules.MinimumUtf8Bytes is < 0 || Rules.MaximumUtf8Bytes is < 1 ||
+        if (Rules.MinimumUtf8Bytes is < 0 || Rules.MaximumUtf8Bytes is < 1 or > MaximumOrdinaryStringUtf8Bytes ||
             Rules.MinimumUtf8Bytes > Rules.MaximumUtf8Bytes)
             throw new InvalidOperationException("Gateway client parameter byte bounds are invalid.");
-        if (Rules.CollectionMinimum is < 0 || Rules.CollectionMaximum is < 1 ||
+        if (Rules.CollectionMinimum is < 0 || Rules.CollectionMaximum is < 1 or > MaximumCollectionItems ||
             Rules.CollectionMinimum > Rules.CollectionMaximum)
             throw new InvalidOperationException("Gateway client parameter collection bounds are invalid.");
         if (Rules.Cardinality == GatewayAdminClientCardinality.Single &&

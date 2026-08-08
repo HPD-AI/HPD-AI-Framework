@@ -154,6 +154,12 @@ public sealed class GatewayAdminContractTests
         GatewayAdminClientParameterConstraint resource = GatewayAdminClientSemanticLedger.For("desired")
             .ParameterConstraints.Single(static value => value.Brand == GatewayAdminClientStringBrand.NamespaceId);
         resource = resource with { Rules = resource.Rules with { MinimumUtf8Bytes = 2, MaximumUtf8Bytes = 127 } };
+        var resourceSchema = GatewayAdminOpenApiDocumentTransformer.ParameterStringSchema(resource);
+        resourceSchema.MinLength.Should().Be(1);
+        resourceSchema.MaxLength.Should().Be(127);
+        resourceSchema.Pattern.Should().Contain("{1,127}");
+        System.Text.RegularExpressions.Regex.IsMatch("é", resourceSchema.Pattern!).Should().BeTrue();
+        System.Text.Encoding.UTF8.GetByteCount("é").Should().Be(2);
         GatewayAdminOpenApiDocumentTransformer.ParameterDescription(resource)
             .Should().Contain("2-127").And.NotContain("1-128");
 
@@ -190,6 +196,28 @@ public sealed class GatewayAdminContractTests
         };
         ((Action)invalidRange.Validate).Should().Throw<InvalidOperationException>();
 
+        GatewayAdminClientParameterConstraint aboveStringCeiling = correlation with
+        {
+            Rules = correlation.Rules with
+            {
+                MaximumUtf8Bytes = GatewayAdminClientParameterConstraint.MaximumOrdinaryStringUtf8Bytes + 1,
+            },
+        };
+        ((Action)aboveStringCeiling.Validate).Should().Throw<InvalidOperationException>();
+
+        GatewayAdminClientParameterConstraint integerOverflow = correlation with
+        {
+            Brand = GatewayAdminClientStringBrand.DesiredStateToken,
+            Name = "If-Match",
+            Rules = correlation.Rules with
+            {
+                CharacterSet = GatewayAdminClientCharacterSet.StrongEntityTag,
+                MaximumUtf8Bytes = int.MaxValue,
+            },
+        };
+        ((Action)(() => GatewayAdminOpenApiDocumentTransformer.ParameterStringSchema(integerOverflow)))
+            .Should().Throw<InvalidOperationException>();
+
         GatewayAdminClientParameterConstraint invalidCardinality = correlation with
         {
             Rules = correlation.Rules with
@@ -199,6 +227,16 @@ public sealed class GatewayAdminContractTests
             },
         };
         ((Action)invalidCardinality.Validate).Should().Throw<InvalidOperationException>();
+
+        GatewayAdminClientParameterConstraint aboveCollectionCeiling = correlation with
+        {
+            Rules = correlation.Rules with
+            {
+                Cardinality = GatewayAdminClientCardinality.Multiple,
+                CollectionMaximum = GatewayAdminClientParameterConstraint.MaximumCollectionItems + 1,
+            },
+        };
+        ((Action)aboveCollectionCeiling.Validate).Should().Throw<InvalidOperationException>();
 
         GatewayAdminClientParameterConstraint invalidBrandTarget = correlation with
         {
