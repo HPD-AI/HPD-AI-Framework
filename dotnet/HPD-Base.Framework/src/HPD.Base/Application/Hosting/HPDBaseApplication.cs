@@ -1,3 +1,5 @@
+using Microsoft.Extensions.DependencyInjection;
+
 namespace HPD.Base;
 /// <summary>Identifies the asynchronous HPD.BASE application lifecycle state.</summary>
 public enum BaseApplicationReadinessState
@@ -174,8 +176,74 @@ internal sealed class DefaultBaseProviderBootstrap(
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Stopping);
         timeout.CancelAfter(TimeSpan.FromSeconds(30));
         ValidateTokenLifetimes(tokenOptions.Value, timeProvider.GetUtcNow());
+        var storeContext = new HPDBaseStoreInitializationContext(services, features.StoreProvider, features.StoreReceipt);
+        try
+        {
+            await features.StoreProvider.Installer.InitializeAsync(storeContext, timeout.Token).ConfigureAwait(false);
+        }
+        finally
+        {
+            storeContext.Complete();
+        }
         foreach (IHPDBaseBuilderExtension extension in features.Extensions)
             await extension.InitializeAsync(services, timeout.Token).ConfigureAwait(false);
+        ValidateAuthorityGraph();
+        if (services.GetService<HPDBaseVectorSnapshot>() is { } snapshot)
+        {
+            if (!string.Equals(features.Provider, "inmemory", StringComparison.Ordinal) &&
+                !services.GetRequiredService<BaseTokenProtectionRegistration>().ExplicitlyConfigured)
+                throw new InvalidOperationException("base.vector.tokenProtectionRequired: vector execution requires explicitly configured token protection.");
+            IBaseVectorProvider[] providers = services.GetServices<IBaseVectorProvider>().ToArray();
+            if (providers.Length != 1 || services.GetServices<IBaseVectorAuthority>().Count() != 1)
+                throw new InvalidOperationException("base.vector.providerUnavailable: vector execution requires exactly one provider and authority.");
+            if (providers[0].Descriptor.Consistency == BaseVectorProviderConsistency.DerivedJournal && snapshot.DerivedProviderDefaultConsistency is null)
+                throw new InvalidOperationException("base.vector.consistencyInvalid: a derived provider requires an explicit consistency default.");
+        }
+    }
+
+    private void ValidateAuthorityGraph()
+    {
+        HPDBaseStoreInstallationMarker[] markers = services.GetServices<HPDBaseStoreInstallationMarker>().ToArray();
+        if (markers.Length != 1 || markers[0].Identity != features.StoreReceipt.Identity)
+            throw new InvalidOperationException("base.store.authorityAmbiguous");
+        RecordStoreRegistration[] registrations = services.GetRequiredService<IRecordStoreRegistry>().GetRegistrations();
+        if (registrations.Length != 1)
+            throw new InvalidOperationException("base.store.authorityAmbiguous");
+        RecordStoreRegistration registration = registrations[0];
+        IRecordStore[] recordStores = services.GetServices<IRecordStore>().ToArray();
+        if (recordStores.Length != 1 || !ReferenceEquals(recordStores[0], registration.Store) ||
+            !string.Equals(registration.StoreId, features.StoreReceipt.RecordStoreRegistrationId, StringComparison.Ordinal))
+            throw new InvalidOperationException("base.store.authorityAmbiguous");
+
+        object store = registration.Store;
+        IBaseVectorProvider[] vectorProviders = services.GetServices<IBaseVectorProvider>().ToArray();
+        IBaseVectorAuthority[] vectorAuthorities = services.GetServices<IBaseVectorAuthority>().ToArray();
+        foreach (string role in features.StoreReceipt.RequiredRoles)
+        {
+            bool valid = role switch
+            {
+                "records" => store is IRecordStore,
+                "mutation" => store is IRecordMutationStore,
+                "atomic" => store is IAtomicRecordStore,
+                "schema" => store is IBaseSchemaStore,
+                "relational" => store is IRelationalReadStore,
+                "journal" or "history" => store is ITransactionalMutationJournalStore,
+                "administration" => store is IRecordStoreAdministration,
+                "vector.provider" => vectorProviders.Length == 1,
+                "vector.authority" => vectorAuthorities.Length == 1 && vectorProviders.Length == 1 && ReferenceEquals(vectorAuthorities[0], vectorProviders[0]),
+                _ => false,
+            };
+            if (!valid)
+                throw new InvalidOperationException("base.store.authorityAmbiguous");
+        }
+
+        if (services.GetServices<IRecordMutationStore>().Count() != 1 ||
+            services.GetServices<IAtomicRecordStore>().Count() != 1)
+            throw new InvalidOperationException("base.store.authorityAmbiguous");
+        if (features.StoreReceipt.RequiredRoles.Contains("vector.provider", StringComparer.Ordinal) &&
+            (services.GetServices<IBaseVectorAdministrationProvider>().Count() != 1 ||
+             !ReferenceEquals(services.GetServices<IBaseVectorAdministrationProvider>().Single(), vectorProviders[0])))
+            throw new InvalidOperationException("base.store.authorityAmbiguous");
     }
 
     private static void ValidateTokenLifetimes(HPDBaseTokenProtectionOptions options, DateTimeOffset now)

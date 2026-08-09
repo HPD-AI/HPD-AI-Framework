@@ -149,7 +149,7 @@ public sealed class RelationalExecutionParityTests
             builder.ConfigureSchema(options => options.PlanProtectionKey = Enumerable.Repeat((byte)0x77, 32).ToArray())
                 .AddCollection(DateTimeParityRecord.Collection)
                 .AddRead(DateTimeParityRead.Definition);
-            if (sqlitePath is not null) builder.UseSqlite(options => options.DataSource = sqlitePath);
+            if (sqlitePath is not null) builder.UseStore(SqliteStore.Configure(options => options.DataSource = sqlitePath));
         });
         await using ServiceProvider provider = services.BuildServiceProvider();
         if (sqlitePath is not null)
@@ -184,7 +184,7 @@ public sealed class RelationalExecutionParityTests
         {
             builder.ConfigureSchema(options => options.PlanProtectionKey = Enumerable.Repeat((byte)0x76, 32).ToArray())
                 .AddCollection(NullableParityRecord.Collection);
-            if (sqlitePath is not null) builder.UseSqlite(options => options.DataSource = sqlitePath);
+            if (sqlitePath is not null) builder.UseStore(SqliteStore.Configure(options => options.DataSource = sqlitePath));
         });
         await using ServiceProvider provider = services.BuildServiceProvider();
         if (sqlitePath is not null)
@@ -249,7 +249,7 @@ public sealed class RelationalExecutionParityTests
             builder.ConfigureSchema(options => options.PlanProtectionKey = Enumerable.Repeat((byte)0x75, 32).ToArray())
                 .AddCollection(GroupedPageRecord.Collection)
                 .AddRead(GroupedPageRead.Definition);
-            if (sqlitePath is not null) builder.UseSqlite(options => options.DataSource = sqlitePath);
+            if (sqlitePath is not null) builder.UseStore(SqliteStore.Configure(options => options.DataSource = sqlitePath));
         });
         await using ServiceProvider provider = services.BuildServiceProvider();
         if (sqlitePath is not null)
@@ -277,7 +277,7 @@ public sealed class RelationalExecutionParityTests
         {
             builder.ConfigureSchema(options => options.PlanProtectionKey = Enumerable.Repeat((byte)0x73, 32).ToArray());
             builder.AddCollection(AggregateRecord.Collection);
-            if (sqlitePath is not null) builder.UseSqlite(options => options.DataSource = sqlitePath);
+            if (sqlitePath is not null) builder.UseStore(SqliteStore.Configure(options => options.DataSource = sqlitePath));
         });
         await using ServiceProvider provider = services.BuildServiceProvider();
         if (sqlitePath is not null)
@@ -320,7 +320,7 @@ public sealed class RelationalExecutionParityTests
         {
             builder.ConfigureSchema(options => options.PlanProtectionKey = Enumerable.Repeat((byte)0x74, 32).ToArray());
             builder.AddCollection(JoinLeft.Collection).AddCollection(JoinRight.Collection);
-            if (sqlitePath is not null) builder.UseSqlite(options => options.DataSource = sqlitePath);
+            if (sqlitePath is not null) builder.UseStore(SqliteStore.Configure(options => options.DataSource = sqlitePath));
         });
         await using ServiceProvider provider = services.BuildServiceProvider();
         if (sqlitePath is not null)

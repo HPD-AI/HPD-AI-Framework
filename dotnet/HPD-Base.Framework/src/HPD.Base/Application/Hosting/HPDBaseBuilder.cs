@@ -3,17 +3,11 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace HPD.Base;
-/// <summary>Installs one optional provider or hosting integration into HPD.BASE.</summary>
+/// <summary>Installs one optional non-store hosting integration into HPD.BASE.</summary>
 public interface IHPDBaseBuilderExtension
 {
     /// <summary>Gets id.</summary>
     string Id { get; }
-
-    /// <summary>Gets is Record Provider.</summary>
-    bool IsRecordProvider { get; }
-
-    /// <summary>Gets supports Required Indexes.</summary>
-    bool SupportsRequiredIndexes { get; }
 
     /// <summary>Performs configure.</summary>
     void Configure(IServiceCollection services, IReadOnlyList<CollectionDefinition> collections);
@@ -34,6 +28,7 @@ public sealed class HPDBaseBuilder
     private readonly List<BaseDependencyTemplate> _dependencyTemplates = [];
     /// <summary>Provides _extensions.</summary>
     private readonly List<IHPDBaseBuilderExtension> _extensions = [];
+    private HPDBaseStoreProvider? _storeProvider;
     /// <summary>Provides _runtime.</summary>
     private Action<HPDBaseRuntimeOptions>? _runtime;
     /// <summary>Provides _files.</summary>
@@ -51,6 +46,7 @@ public sealed class HPDBaseBuilder
     /// <summary>Provides _schema.</summary>
     private Action<HPDBaseSchemaOptions>? _schema;
     private Action<HPDBaseTokenProtectionOptions>? _tokenProtection;
+    private Action<HPDBaseVectorOptions>? _vector;
     /// <summary>Provides _built.</summary>
     private bool _built;
     internal HPDBaseBuilder(IServiceCollection services) => _services = services;
@@ -92,6 +88,28 @@ public sealed class HPDBaseBuilder
     {
         ArgumentNullException.ThrowIfNull(configure);
         _inMemoryStore += configure;
+        return this;
+    }
+
+    /// <summary>Selects the one explicit authoritative store bundle.</summary>
+    /// <param name="provider">The immutable validated provider descriptor.</param>
+    /// <returns>This builder.</returns>
+    public HPDBaseBuilder UseStore(HPDBaseStoreProvider provider)
+    {
+        ArgumentNullException.ThrowIfNull(provider);
+        if (_storeProvider is not null)
+            throw new InvalidOperationException("base.store.selection.duplicate");
+        _storeProvider = provider;
+        return this;
+    }
+
+    /// <summary>Configures provider-neutral vector execution when generated schema declares vector indexes.</summary>
+    /// <param name="configure">The vector runtime configuration callback.</param>
+    /// <returns>This builder.</returns>
+    public HPDBaseBuilder ConfigureVector(Action<HPDBaseVectorOptions> configure)
+    {
+        ArgumentNullException.ThrowIfNull(configure);
+        _vector += configure;
         return this;
     }
 
@@ -194,12 +212,9 @@ public sealed class HPDBaseBuilder
         if (_built)
             throw new InvalidOperationException("The HPD.BASE builder was already applied.");
         _built = true;
-        IHPDBaseBuilderExtension[] explicitProviders = _extensions.Where(static item => item.IsRecordProvider).ToArray();
-        if (explicitProviders.Length > 1)
-            throw new InvalidOperationException("Select at most one explicit HPD.BASE record provider.");
-        if (explicitProviders.Length == 1 && _inMemoryStore is not null)
+        if (_storeProvider is not null && _inMemoryStore is not null)
             throw new InvalidOperationException("ConfigureInMemoryStore cannot be combined with an explicit HPD.BASE record provider.");
-        IHPDBaseBuilderExtension provider = explicitProviders.Length == 1 ? explicitProviders[0] : new InMemoryProviderInstaller(_inMemoryStore);
+        HPDBaseStoreProvider provider = _storeProvider ?? InMemoryProviderInstaller.Create(_inMemoryStore);
         CollectionDefinition[] collections = _collections.Values.ToArray();
         var relationalOptions = new HPDBaseRelationalOptions();
         _relational?.Invoke(relationalOptions);
@@ -258,10 +273,21 @@ public sealed class HPDBaseBuilder
             _services.AddHPDBaseLiveQuery(_liveQueries);
         }
 
-        IHPDBaseBuilderExtension[] installedExtensions = explicitProviders.Length == 0 ? [provider, .._extensions] : _extensions.ToArray();
+        IHPDBaseBuilderExtension[] installedExtensions = _extensions.ToArray();
         foreach (IHPDBaseBuilderExtension extension in installedExtensions)
             extension.Configure(_services, collections);
-        _services.AddSingleton(new HPDBaseInstalledFeatures { Provider = provider.Id, CollectionIds = collections.Select(static item => item.Id).ToArray(), ReadIds = _reads.Keys.ToArray(), Files = _files is not null, Dependencies = _dependencies is not null, Realtime = _realtime is not null, LiveQueries = _liveQueries is not null, ExtensionIds = installedExtensions.Select(static item => item.Id).ToArray(), Extensions = installedExtensions, LogicalSchema = logicalSchema });
+        var installation = new HPDBaseStoreInstallationContext(_services, provider, collections);
+        HPDBaseStoreRegistrationReceipt receipt;
+        try { receipt = provider.Installer.Configure(installation); }
+        catch (InvalidOperationException exception) when (exception.Message.StartsWith("base.store.", StringComparison.Ordinal)) { throw; }
+        catch (Exception) { throw new InvalidOperationException("base.store.providerInvalid"); }
+        finally { installation.Complete(); }
+        if (receipt is null || receipt.Kind != provider.Kind || receipt.ProtocolVersion != provider.ProtocolVersion ||
+            !string.Equals(receipt.SchemaDigest, HPDBaseStoreInstallationContext.ComputeSchemaDigest(collections), StringComparison.Ordinal) ||
+            !receipt.ContributorIds.SequenceEqual(provider.RegistrationIds, StringComparer.Ordinal))
+            throw new InvalidOperationException("base.store.providerInvalid");
+        ConfigureVectorRuntime(collections);
+        _services.AddSingleton(new HPDBaseInstalledFeatures { Provider = provider.Kind, StoreProvider = provider, StoreReceipt = receipt, CollectionIds = collections.Select(static item => item.Id).ToArray(), ReadIds = _reads.Keys.ToArray(), Files = _files is not null, Dependencies = _dependencies is not null, Realtime = _realtime is not null, LiveQueries = _liveQueries is not null, ExtensionIds = installedExtensions.Select(static item => item.Id).ToArray(), Extensions = installedExtensions, LogicalSchema = logicalSchema });
         _services.TryAddSingleton<IHPDBaseApplication, DefaultHPDBaseApplication>();
         _services.TryAddSingleton<IHPDBaseAdministration, DefaultHPDBaseAdministration>();
         _services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseHealthContributor, BaseApplicationHealthContributor>());
@@ -315,11 +341,33 @@ public sealed class HPDBaseBuilder
     };
 
     /// <summary>Performs validate Index Capabilities.</summary>
-    private static void ValidateIndexCapabilities(CollectionDefinition[] collections, IHPDBaseBuilderExtension provider)
+    private void ConfigureVectorRuntime(CollectionDefinition[] collections)
+    {
+        VectorIndexDefinition[] indexes = collections.SelectMany(static collection => collection.VectorIndexes ?? []).ToArray();
+        if (indexes.Length == 0)
+            return;
+        var configured = new HPDBaseVectorOptions();
+        _vector?.Invoke(configured);
+        configured.Validate();
+        var snapshot = new HPDBaseVectorSnapshot(configured.MaxDimensions, configured.MaxTopK, configured.MaxFilterFields, configured.ProviderTimeout, configured.ConsistencyWaitTimeout, configured.ConsistencyTokenLifetime, configured.MaxActiveAndQuarantinedOperations, configured.ShutdownDrainTimeout, configured.AdministrationTimeout, configured.MaxConcurrentRebuilds, configured.DerivedProviderDefaultConsistency);
+        if (indexes.Any(index => index.Dimensions > snapshot.MaxDimensions || index.FilterFieldIds.Length > snapshot.MaxFilterFields))
+            throw new InvalidOperationException("A declared vector index exceeds the configured vector limits.");
+        _services.AddSingleton(snapshot);
+        _services.AddSingleton<BaseVectorOperationalState>();
+        _services.TryAddSingleton(TimeProvider.System);
+        _services.AddSingleton<IBaseVectorRuntime, DefaultBaseVectorRuntime>();
+        _services.AddSingleton<IBaseVectorAdministration, DefaultBaseVectorAdministration>();
+        _services.AddSingleton<IBaseVectorRebuildService>(static serviceProvider => (DefaultBaseVectorAdministration)serviceProvider.GetRequiredService<IBaseVectorAdministration>());
+        _services.AddSingleton<IBaseDescriptorContributor, BaseVectorDescriptorContributor>();
+        _services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseHealthContributor, BaseVectorHealthContributor>());
+        _services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseDiagnosticContributor, BaseVectorHealthContributor>());
+    }
+
+    private static void ValidateIndexCapabilities(CollectionDefinition[] collections, HPDBaseStoreProvider provider)
     {
         IndexDefinition? required = collections.SelectMany(static collection => collection.Indexes ?? []).FirstOrDefault(static index => index.Enforcement != EnforcementOwner.Advisory);
-        if (required is not null && !provider.SupportsRequiredIndexes)
-            throw new InvalidOperationException($"Required physical index '{required.CollectionId}/{required.Id}' cannot be installed by " + $"the selected provider '{provider.Id}'. Mark it Advisory or select a capable provider.");
+        if (required is not null && !provider.Capabilities.HasFlag(BaseStoreProviderCapabilities.RequiredIndexes))
+            throw new InvalidOperationException($"Required physical index '{required.CollectionId}/{required.Id}' cannot be installed by the selected provider '{provider.Kind}'. Mark it Advisory or select a capable provider.");
     }
 }
 
@@ -343,6 +391,8 @@ public sealed record HPDBaseInstalledFeatures
     /// <summary>Gets or sets live Queries.</summary>
     public bool LiveQueries { get; init; }
     internal IHPDBaseBuilderExtension[] Extensions { get; init; } = [];
+    internal HPDBaseStoreProvider StoreProvider { get; init; } = null!;
+    internal HPDBaseStoreRegistrationReceipt StoreReceipt { get; init; } = null!;
     internal BaseLogicalSchema LogicalSchema { get; init; } = null!;
 }
 

@@ -29,9 +29,13 @@ internal static class HPDBaseInMemoryServiceCollectionExtensions
         Action<HPDBaseInMemoryStoreOptions>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(services);
+        if (services.Any(static descriptor => descriptor.ServiceType == typeof(HPDBaseInMemoryStoreOptions) || descriptor.ServiceType == typeof(IOptions<HPDBaseInMemoryStoreOptions>)))
+            throw new InvalidOperationException("base.store.authorityAmbiguous");
 
         var options = new HPDBaseInMemoryStoreOptions();
         configure?.Invoke(options);
+        Validate(options);
+        options = Clone(options);
 
         services.AddOptions();
         services.TryAddSingleton(options);
@@ -75,4 +79,33 @@ internal static class HPDBaseInMemoryServiceCollectionExtensions
 
         return services;
     }
+
+    private static void Validate(HPDBaseInMemoryStoreOptions options)
+    {
+        if (options.MaxVectorIndexedRecords is < 1 or > 1_000_000)
+            throw new ArgumentOutOfRangeException(nameof(options.MaxVectorIndexedRecords));
+        if (options.MaxVectorBytes is < 1_048_576 or > 2_147_483_648)
+            throw new ArgumentOutOfRangeException(nameof(options.MaxVectorBytes));
+        if (options.MaxVectorSourceRecordsPerCollection is < 1 or > 100_000)
+            throw new ArgumentOutOfRangeException(nameof(options.MaxVectorSourceRecordsPerCollection));
+    }
+
+    private static HPDBaseInMemoryStoreOptions Clone(HPDBaseInMemoryStoreOptions value) => new()
+    {
+        StoreId = value.StoreId, ModuleId = value.ModuleId, ModuleName = value.ModuleName,
+        StoreVersion = value.StoreVersion, CollectionIds = value.CollectionIds.ToArray(),
+        Collections = value.Collections?.ToArray(), DefaultPageSize = value.DefaultPageSize,
+        MaxPageSize = value.MaxPageSize, MaxFilterDepth = value.MaxFilterDepth,
+        MaxFilterNodes = value.MaxFilterNodes, MaxSerializedQueryLength = value.MaxSerializedQueryLength,
+        MaxInValues = value.MaxInValues, MaxSortFields = value.MaxSortFields,
+        MaxSelectFields = value.MaxSelectFields, MaxStreamItems = value.MaxStreamItems,
+        AllowClientRequestedIds = value.AllowClientRequestedIds,
+        EnableStreamingCapability = value.EnableStreamingCapability,
+        MaxVectorIndexedRecords = value.MaxVectorIndexedRecords, MaxVectorBytes = value.MaxVectorBytes,
+        MaxVectorSourceRecordsPerCollection = value.MaxVectorSourceRecordsPerCollection,
+        ContributeModuleDescriptor = value.ContributeModuleDescriptor,
+        ContributeCapabilities = value.ContributeCapabilities, ContributeHealth = value.ContributeHealth,
+        ContributeDiagnostics = value.ContributeDiagnostics, HealthRefId = value.HealthRefId,
+        DiagnosticRefId = value.DiagnosticRefId,
+    };
 }

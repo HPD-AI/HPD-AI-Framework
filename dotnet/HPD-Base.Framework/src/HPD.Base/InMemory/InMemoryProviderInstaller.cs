@@ -2,32 +2,45 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Base;
 
-internal sealed class InMemoryProviderInstaller(
-    Action<HPDBaseInMemoryStoreOptions>? configure) : IHPDBaseBuilderExtension
+internal sealed class InMemoryProviderInstaller(Action<HPDBaseInMemoryStoreOptions>? configure) : IHPDBaseStoreInstaller
 {
-    /// <summary>Gets the ID.</summary>
-    public string Id => "inmemory";
-    /// <summary>Gets the is record provider.</summary>
-    public bool IsRecordProvider => true;
-    /// <summary>Gets the supports required indexes.</summary>
-    public bool SupportsRequiredIndexes => false;
+    internal static HPDBaseStoreProvider Create(Action<HPDBaseInMemoryStoreOptions>? configure) =>
+        HPDBaseStoreProviderFactory.Create(new BaseStoreProviderDescriptor
+        {
+            Kind = "inmemory",
+            ProtocolVersion = HPDBaseStoreProviderFactory.ProtocolVersion,
+            Capabilities = BaseStoreProviderCapabilities.Records |
+                BaseStoreProviderCapabilities.AtomicMutations |
+                BaseStoreProviderCapabilities.RelationalExecution |
+                BaseStoreProviderCapabilities.CoLocatedVectors,
+            RegistrationIds = ["inmemory.records"],
+        }, new InMemoryProviderInstaller(configure));
 
-    /// <summary>Executes the configure operation.</summary>
-    public void Configure(IServiceCollection services, IReadOnlyList<CollectionDefinition> collections)
+    public HPDBaseStoreRegistrationReceipt Configure(HPDBaseStoreInstallationContext context)
     {
-        services.AddHPDBaseInMemoryStore(options =>
+        bool hasVectors = context.Collections.SelectMany(static item => item.VectorIndexes ?? []).Any();
+        string? storeId = null;
+        context.Services.AddHPDBaseInMemoryStore(options =>
         {
             configure?.Invoke(options);
-            options.CollectionIds = collections.Select(static item => item.Id).ToArray();
-            options.Collections = collections.ToArray();
+            options.CollectionIds = context.Collections.Select(static item => item.Id).ToArray();
+            options.Collections = context.Collections.ToArray();
+            storeId = options.StoreId;
         });
+        if (hasVectors && !context.Services.Any(static descriptor => descriptor.ServiceType == typeof(IBaseVectorProvider)))
+        {
+            context.Services.AddSingleton<InMemoryVectorProvider>();
+            context.Services.AddSingleton<IBaseVectorProvider>(static provider => provider.GetRequiredService<InMemoryVectorProvider>());
+            context.Services.AddSingleton<IBaseVectorAuthority>(static provider => provider.GetRequiredService<InMemoryVectorProvider>());
+            context.Services.AddSingleton<IBaseVectorAdministrationProvider>(static provider => provider.GetRequiredService<InMemoryVectorProvider>());
+        }
+        return context.CreateReceipt(storeId ?? throw new InvalidOperationException("base.store.providerInvalid"));
     }
 
-    /// <summary>Executes the initialize async operation.</summary>
-    public ValueTask InitializeAsync(IServiceProvider services, CancellationToken cancellationToken = default)
+    public async ValueTask InitializeAsync(HPDBaseStoreInitializationContext context, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        services.GetRequiredService<IRecordStoreRegistry>().AddHPDBaseInMemoryStore(services);
-        return ValueTask.CompletedTask;
+        await context.Services.GetRequiredService<InMemoryRecordStore>().InitializeVectorProjectionAsync(cancellationToken).ConfigureAwait(false);
+        context.Services.GetRequiredService<IRecordStoreRegistry>().AddHPDBaseInMemoryStore(context.Services);
     }
 }

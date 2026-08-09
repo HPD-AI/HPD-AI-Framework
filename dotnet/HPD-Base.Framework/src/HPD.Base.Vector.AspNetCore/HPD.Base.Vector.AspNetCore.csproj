@@ -1,5 +1,0 @@
-<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup><TargetFramework>net10.0</TargetFramework><TargetFrameworks></TargetFrameworks><RootNamespace>HPD.Base.Vector.AspNetCore</RootNamespace><AssemblyName>HPD.Base.Vector.AspNetCore</AssemblyName><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings><GenerateDocumentationFile>true</GenerateDocumentationFile><IsPackable>true</IsPackable><PackageId>HPD.Base.Vector.AspNetCore</PackageId><Description>Bounded L38-aware ASP.NET Core projection for HPD Base vector execution.</Description><PackageTags>hpd;base;vector;aspnetcore;aot</PackageTags><IsAotCompatible>true</IsAotCompatible><EnableTrimAnalyzer>true</EnableTrimAnalyzer><EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer><EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules></PropertyGroup>
-  <ItemGroup><FrameworkReference Include="Microsoft.AspNetCore.App" /></ItemGroup>
-  <ItemGroup><ProjectReference Include="../HPD.Base.Vector/HPD.Base.Vector.csproj" /><ProjectReference Include="../HPD.Base.AspNetCore/HPD.Base.AspNetCore.csproj" /></ItemGroup>
-</Project>

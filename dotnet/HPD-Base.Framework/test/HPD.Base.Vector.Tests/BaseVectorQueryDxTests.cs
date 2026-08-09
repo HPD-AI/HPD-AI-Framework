@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using FluentAssertions;
-using HPD.Base.Vector.Testing;
+using HPD.Base.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
@@ -9,6 +9,232 @@ namespace HPD.Base.Vector.Tests;
 
 public sealed class BaseVectorQueryDxTests
 {
+    [Fact]
+    public async Task DeclaringVectorSchemaAutomaticallyActivatesTransactionalInMemoryExecution()
+    {
+        var services = new ServiceCollection().AddLogging();
+        services.AddHPDBase(builder => builder
+            .ReplacePolicyEvaluator<AllowAllVectorPolicy>()
+            .AddCollection(VectorDxDocument.Collection));
+        await using ServiceProvider provider = services.BuildServiceProvider();
+        (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
+        BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(Admin());
+        (await session.Collection(VectorDxDocument.Collection).CreateAsync(new RecordId("automatic"), new VectorDxDocument
+        {
+            Title = "Automatic",
+            Tenant = "tenant-a",
+            Embedding = BaseVector.Create([1, 0]),
+        })).Should().BeOfType<BaseSuccess<BaseRecord<VectorDxDocument>>>();
+
+        BaseVectorResult<VectorDxDocument> result = (await session.Collection(VectorDxDocument.Collection)
+            .Vector(VectorDxDocument.VectorIndexes.Cosine)
+            .Nearest(BaseVector.Create([1, 0]))
+            .Where(VectorDxDocument.Fields.Tenant, "tenant-a")
+            .Take(1)
+            .ExecuteAsync()).RequireValue();
+
+        result.Matches.Should().ContainSingle();
+        result.Matches[0].Record.Id.Value.Should().Be("automatic");
+        provider.GetRequiredService<IBaseVectorProvider>().Descriptor.Id.Should().Be("inmemory");
+
+        OperationResult<BaseVectorRebuildResult> rebuild = await provider
+            .GetRequiredService<IBaseVectorAdministrationProvider>()
+            .RebuildAsync(new BaseVectorRebuildRequest
+            {
+                StoreId = HPDBaseInMemoryDefaults.DefaultStoreId,
+                Principal = Admin(),
+                CollectionId = VectorDxDocument.Collection.Id,
+                VectorIndexId = VectorDxDocument.VectorIndexes.Cosine.Definition.Id,
+                ExpectedGeneration = 1,
+                ExpectedPurgeGeneration = 0,
+                Confirmation = "rebuild",
+            }, CancellationToken.None);
+        rebuild.IsSuccess().Should().BeTrue();
+        rebuild.Value!.PublishedGeneration.Should().Be(2);
+
+        BaseVectorResult<VectorDxDocument> afterRebuild = (await session.Collection(VectorDxDocument.Collection)
+            .Vector(VectorDxDocument.VectorIndexes.Cosine)
+            .Nearest(BaseVector.Create([1, 0]))
+            .Take(1)
+            .ExecuteAsync()).RequireValue();
+        afterRebuild.Matches.Should().ContainSingle().Which.Record.Id.Value.Should().Be("automatic");
+    }
+
+    [Fact]
+    public async Task InMemoryVectorCapacityFailureRollsBackTheRecordAndPublishedProjection()
+    {
+        var services = new ServiceCollection().AddLogging();
+        services.AddHPDBase(builder => builder
+            .ReplacePolicyEvaluator<AllowAllVectorPolicy>()
+            .ConfigureInMemoryStore(options => options.MaxVectorIndexedRecords = 3)
+            .AddCollection(VectorDxDocument.Collection));
+        await using ServiceProvider provider = services.BuildServiceProvider();
+        (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
+        BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(Admin());
+        BaseCollectionSession<VectorDxDocument> collection = session.Collection(VectorDxDocument.Collection);
+        (await collection.CreateAsync(new RecordId("kept"), new VectorDxDocument
+        {
+            Title = "Kept", Tenant = "tenant-a", Embedding = BaseVector.Create([1, 0]),
+        })).Should().BeOfType<BaseSuccess<BaseRecord<VectorDxDocument>>>();
+
+        BaseResult<BaseRecord<VectorDxDocument>> rejected = await collection.CreateAsync(new RecordId("rolled-back"), new VectorDxDocument
+        {
+            Title = "Rejected", Tenant = "tenant-a", Embedding = BaseVector.Create([0, 1]),
+        });
+
+        ((BaseFailure<BaseRecord<VectorDxDocument>>)rejected).Error.Code.Should().Be("base.vector.inMemory.capacityExceeded");
+        (await collection.GetAsync(new RecordId("rolled-back"))).Should().BeOfType<BaseFailure<BaseRecord<VectorDxDocument>>>();
+        BaseVectorResult<VectorDxDocument> vectors = (await collection.Vector(VectorDxDocument.VectorIndexes.Cosine)
+            .Nearest(BaseVector.Create([1, 0])).Take(10).ExecuteAsync()).RequireValue();
+        vectors.Matches.Should().ContainSingle().Which.Record.Id.Value.Should().Be("kept");
+    }
+
+    [Fact]
+    public async Task InvalidCosineVectorRollsBackTheAuthoritativeMutation()
+    {
+        var services = new ServiceCollection().AddLogging();
+        services.AddHPDBase(builder => builder
+            .ReplacePolicyEvaluator<AllowAllVectorPolicy>()
+            .AddCollection(VectorDxDocument.Collection));
+        await using ServiceProvider provider = services.BuildServiceProvider();
+        (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
+        BaseCollectionSession<VectorDxDocument> collection = provider.GetRequiredService<IBaseSessionFactory>().For(Admin()).Collection(VectorDxDocument.Collection);
+
+        BaseResult<BaseRecord<VectorDxDocument>> rejected = await collection.CreateAsync(new RecordId("zero"), new VectorDxDocument
+        {
+            Title = "Zero", Tenant = "tenant-a", Embedding = BaseVector.Create([0, 0]),
+        });
+
+        ((BaseFailure<BaseRecord<VectorDxDocument>>)rejected).Error.Code.Should().Be("base.vector.zeroNorm");
+        (await collection.GetAsync(new RecordId("zero"))).Should().BeOfType<BaseFailure<BaseRecord<VectorDxDocument>>>();
+    }
+
+    [Fact]
+    public async Task InMemoryVectorSourceCapacityCountsRecordsWithoutVectorsAndRollsBackOverflow()
+    {
+        var services = new ServiceCollection().AddLogging();
+        services.AddHPDBase(builder => builder
+            .ReplacePolicyEvaluator<AllowAllVectorPolicy>()
+            .ConfigureInMemoryStore(options => options.MaxVectorSourceRecordsPerCollection = 1)
+            .AddCollection(VectorDxDocument.Collection));
+        await using ServiceProvider provider = services.BuildServiceProvider();
+        (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
+        BaseCollectionSession<VectorDxDocument> collection = provider.GetRequiredService<IBaseSessionFactory>().For(Admin()).Collection(VectorDxDocument.Collection);
+        (await collection.CreateAsync(new RecordId("first"), new VectorDxDocument
+        {
+            Title = "First", Tenant = "tenant-a", Embedding = BaseVector.Create([1, 0]),
+        })).Should().BeOfType<BaseSuccess<BaseRecord<VectorDxDocument>>>();
+
+        BaseResult<BaseRecord<VectorDxDocument>> rejected = await collection.CreateAsync(new RecordId("overflow"), new VectorDxDocument
+        {
+            Title = "Overflow", Tenant = "tenant-a", Embedding = BaseVector.Create([0, 1]),
+        });
+
+        ((BaseFailure<BaseRecord<VectorDxDocument>>)rejected).Error.Code.Should().Be("base.vector.inMemory.sourceCapacityExceeded");
+        (await collection.GetAsync(new RecordId("overflow"))).Should().BeOfType<BaseFailure<BaseRecord<VectorDxDocument>>>();
+    }
+
+    [Fact]
+    public async Task InMemoryProjectionSourceUsesBoundedOrdinalSingleUseCursorsOverOneRetainedRoot()
+    {
+        var services = new ServiceCollection().AddLogging();
+        services.AddHPDBase(builder => builder
+            .ReplacePolicyEvaluator<AllowAllVectorPolicy>()
+            .AddCollection(VectorDxDocument.Collection));
+        await using ServiceProvider provider = services.BuildServiceProvider();
+        (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
+        BaseCollectionSession<VectorDxDocument> collection = provider.GetRequiredService<IBaseSessionFactory>().For(Admin()).Collection(VectorDxDocument.Collection);
+        foreach (string id in new[] { "c", "a", "b" })
+            (await collection.CreateAsync(new RecordId(id), new VectorDxDocument
+            {
+                Title = id, Tenant = "tenant-a", Embedding = BaseVector.Create([1, 0]),
+            })).Should().BeOfType<BaseSuccess<BaseRecord<VectorDxDocument>>>();
+
+        IInMemoryProjectionAuthority authority = provider.GetRequiredService<InMemoryRecordStore>();
+        IInMemoryProjectionReadSession session = (await authority.CaptureAsync(CancellationToken.None)).Value!;
+        BaseInMemoryProjectionIndexHandle handle = session.ProjectionSnapshot.GetIndexHandles().Single(item => item.Index.Id == VectorDxDocument.VectorIndexes.Cosine.Definition.Id);
+        OperationResult<BaseInMemoryProjectionSourcePage> first = await session.EnumerateProjectionSourceAsync(handle, new BaseInMemoryProjectionSourceScanRequest(2), CancellationToken.None);
+        OperationResult<BaseInMemoryProjectionSourcePage> second = await session.EnumerateProjectionSourceAsync(handle, new BaseInMemoryProjectionSourceScanRequest(2, first.Value!.Cursor), CancellationToken.None);
+        OperationResult<BaseInMemoryProjectionSourcePage> replay = await session.EnumerateProjectionSourceAsync(handle, new BaseInMemoryProjectionSourceScanRequest(2, first.Value.Cursor), CancellationToken.None);
+
+        first.Value.Records.Select(static record => record.RecordId.Value).Should().Equal("a", "b");
+        first.Value.ExaminedSourceEntries.Should().Be(2);
+        second.Value!.Records.Select(static record => record.RecordId.Value).Should().Equal("c");
+        second.Value.Cursor.Should().BeNull();
+        replay.Error!.Code.Should().Be("base.vector.inMemory.scanContinuationInvalid");
+
+        await session.DisposeAsync();
+        OperationResult<BaseInMemoryProjectionSourcePage> closed = await session.EnumerateProjectionSourceAsync(handle, new BaseInMemoryProjectionSourceScanRequest(), CancellationToken.None);
+        closed.Error!.Code.Should().Be("base.vector.inMemory.sessionClosed");
+    }
+
+    [Fact]
+    public async Task InMemoryProjectionReplacementRejectsASupersededRootAndInvalidatesItsWriter()
+    {
+        var services = new ServiceCollection().AddLogging();
+        services.AddHPDBase(builder => builder
+            .ReplacePolicyEvaluator<AllowAllVectorPolicy>()
+            .AddCollection(VectorDxDocument.Collection));
+        await using ServiceProvider provider = services.BuildServiceProvider();
+        (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
+        BaseCollectionSession<VectorDxDocument> collection = provider.GetRequiredService<IBaseSessionFactory>().For(Admin()).Collection(VectorDxDocument.Collection);
+        (await collection.CreateAsync(new RecordId("before"), new VectorDxDocument
+        {
+            Title = "Before", Tenant = "tenant-a", Embedding = BaseVector.Create([1, 0]),
+        })).Should().BeOfType<BaseSuccess<BaseRecord<VectorDxDocument>>>();
+        IInMemoryProjectionAuthority authority = provider.GetRequiredService<InMemoryRecordStore>();
+        await using IInMemoryProjectionReadSession session = (await authority.CaptureAsync(CancellationToken.None)).Value!;
+        BaseInMemoryProjectionIndexHandle handle = session.ProjectionSnapshot.GetIndexHandles().Single(item => item.Index.Id == VectorDxDocument.VectorIndexes.Cosine.Definition.Id);
+        await using IInMemoryProjectionReplacement replacement = (await authority.BeginReplacementAsync(
+            session.ProjectionSnapshot.RootGeneration,
+            handle.Generation,
+            CancellationToken.None)).Value!;
+        BaseInMemoryProjectionSourcePage source = (await session.EnumerateProjectionSourceAsync(handle, new BaseInMemoryProjectionSourceScanRequest(), CancellationToken.None)).Value!;
+        replacement.Writer.EnsureIndex(handle);
+        foreach (BaseInMemoryProjectionSourceRecord record in source.Records) replacement.Writer.SetCarrier(handle, record);
+        replacement.Writer.AdvanceAppliedPosition(handle, session.ProjectionSnapshot.GlobalMutationHighWater);
+
+        (await collection.CreateAsync(new RecordId("concurrent"), new VectorDxDocument
+        {
+            Title = "Concurrent", Tenant = "tenant-a", Embedding = BaseVector.Create([0, 1]),
+        })).Should().BeOfType<BaseSuccess<BaseRecord<VectorDxDocument>>>();
+        OperationResult<BaseInMemoryProjectionReplacementOutcome> publication = await replacement.PublishAsync(CancellationToken.None);
+
+        publication.Value.Should().Be(BaseInMemoryProjectionReplacementOutcome.RootGenerationChanged);
+        Action retainedWriter = () => replacement.Writer.EnsureIndex(handle);
+        retainedWriter.Should().Throw<ObjectDisposedException>();
+    }
+
+    [Fact]
+    public async Task InMemoryCarrierPositionRemainsRecordLocalWhileEveryIndexConsumesTheGlobalHighWater()
+    {
+        var services = new ServiceCollection().AddLogging();
+        services.AddHPDBase(builder => builder
+            .ReplacePolicyEvaluator<AllowAllVectorPolicy>()
+            .AddCollection(VectorDxDocument.Collection)
+            .AddCollection(VectorOtherDocument.Collection));
+        await using ServiceProvider provider = services.BuildServiceProvider();
+        (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
+        BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(Admin());
+        (await session.Collection(VectorDxDocument.Collection).CreateAsync(new RecordId("vector"), new VectorDxDocument
+        {
+            Title = "Vector", Tenant = "tenant-a", Embedding = BaseVector.Create([1, 0]),
+        })).Should().BeOfType<BaseSuccess<BaseRecord<VectorDxDocument>>>();
+        (await session.Collection(VectorOtherDocument.Collection).CreateAsync(new RecordId("unrelated"), new VectorOtherDocument
+        {
+            Name = "Unrelated",
+        })).Should().BeOfType<BaseSuccess<BaseRecord<VectorOtherDocument>>>();
+
+        IInMemoryProjectionAuthority authority = provider.GetRequiredService<InMemoryRecordStore>();
+        await using IInMemoryProjectionReadSession projection = (await authority.CaptureAsync(CancellationToken.None)).Value!;
+        BaseInMemoryProjectionIndexHandle handle = projection.ProjectionSnapshot.GetIndexHandles().Single(item => item.Index.Id == VectorDxDocument.VectorIndexes.Cosine.Definition.Id);
+        BaseInMemoryProjectionSourcePage page = (await projection.EnumerateProjectionSourceAsync(handle, new BaseInMemoryProjectionSourceScanRequest(), CancellationToken.None)).Value!;
+
+        page.Records.Should().ContainSingle().Which.LatestMutationPosition.Should().Be(1);
+        projection.ProjectionSnapshot.GlobalMutationHighWater.Should().Be(2);
+        handle.Owner.GlobalMutationHighWater.Should().Be(2);
+    }
+
     [Fact]
     public async Task Typed_or_and_in_filters_and_boundary_ties_are_deterministic()
     {
@@ -248,7 +474,7 @@ public sealed class BaseVectorQueryDxTests
             .ConfigureTokenProtection(options => options.ActiveKey = new BaseOpaqueTokenKey { Id = 1, Key = new byte[32], IssueNotBefore = DateTimeOffset.UnixEpoch })
             .ReplacePolicyEvaluator<DenyVectorPolicy>()
             .AddCollection(VectorDxDocument.Collection)
-            .AddVector()
+
             .UseTestVectorProvider());
         await using ServiceProvider provider = services.BuildServiceProvider();
         (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
@@ -267,12 +493,14 @@ public sealed class BaseVectorQueryDxTests
         var services = new ServiceCollection();
         services.AddLogging();
         if (timeProvider is not null) services.AddSingleton<TimeProvider>(timeProvider);
-        services.AddHPDBase(builder => builder
-            .ConfigureTokenProtection(options => options.ActiveKey = new BaseOpaqueTokenKey { Id = 1, Key = new byte[32], IssueNotBefore = DateTimeOffset.UnixEpoch })
-            .ReplacePolicyEvaluator<AllowAllVectorPolicy>()
-            .AddCollection(VectorDxDocument.Collection)
-            .AddVector(vector)
-            .UseTestVectorProvider(testing));
+        services.AddHPDBase(builder =>
+        {
+            builder.ConfigureTokenProtection(options => options.ActiveKey = new BaseOpaqueTokenKey { Id = 1, Key = new byte[32], IssueNotBefore = DateTimeOffset.UnixEpoch })
+                .ReplacePolicyEvaluator<AllowAllVectorPolicy>()
+                .AddCollection(VectorDxDocument.Collection)
+                .UseTestVectorProvider(testing);
+            if (vector is not null) builder.ConfigureVector(vector);
+        });
         ServiceProvider provider = services.BuildServiceProvider();
         provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync().AsTask().GetAwaiter().GetResult().IsSuccess().Should().BeTrue();
         return provider;
@@ -316,7 +544,14 @@ public partial record VectorDxDocument
     [BaseField("vector.dx.embedding", Operators = BaseFieldOperator.None)] public required BaseVector Embedding { get; init; }
 }
 
+[BaseCollection("vector_dx_other", typeof(VectorDxJsonContext))]
+public partial record VectorOtherDocument
+{
+    [BaseField("vector.dx.other.name")] public required string Name { get; init; }
+}
+
 [JsonSerializable(typeof(VectorDxDocument))]
+[JsonSerializable(typeof(VectorOtherDocument))]
 public partial class VectorDxJsonContext : JsonSerializerContext;
 
 public sealed class AllowAllVectorPolicy : IPolicyEvaluator

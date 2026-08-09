@@ -94,38 +94,8 @@ public sealed class SchemaLifecycleAdversarialTests
                 options.CommitCompletionTimeout = TimeSpan.FromMilliseconds(10);
             })
             .AddCollection(GeneratedProject.Collection)
-            .Use(new HostileSchemaInstaller(store)));
+            .UseStore(TestStoreProvider.Create(store, schema: true)));
         return services.BuildServiceProvider();
-    }
-}
-
-internal sealed class HostileSchemaInstaller(HostileSchemaStore store) : IHPDBaseBuilderExtension
-{
-    public string Id => store.Capabilities.StoreId;
-    public bool IsRecordProvider => true;
-    public bool SupportsRequiredIndexes => true;
-    public void Configure(IServiceCollection services, IReadOnlyList<CollectionDefinition> collections)
-    {
-        services.AddSingleton(store);
-        services.AddSingleton<IBaseDescriptorContributor>(new HostileSchemaDescriptorContributor(collections, Id));
-    }
-    public ValueTask InitializeAsync(IServiceProvider services, CancellationToken cancellationToken = default)
-    {
-        services.GetRequiredService<IRecordStoreRegistry>().Add(new RecordStoreRegistration
-        {
-            StoreId = Id, Store = store, CollectionIds = [GeneratedProject.Collection.Id],
-        });
-        return ValueTask.CompletedTask;
-    }
-}
-
-internal sealed class HostileSchemaDescriptorContributor(IReadOnlyList<CollectionDefinition> collections, string storeId) : IBaseDescriptorContributor
-{
-    public string Id => "hostile-schema-descriptor";
-    public void Contribute(IBaseDescriptorContributionBuilder builder)
-    {
-        foreach (CollectionDefinition collection in collections)
-            builder.AddCollection(collection with { Store = new StoreAnnotation { StoreId = storeId, Owner = EnforcementOwner.Store } });
     }
 }
 

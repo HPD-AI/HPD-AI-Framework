@@ -21,8 +21,6 @@ public static class HPDBaseAuthBuilderExtensions
     private sealed class Installer(Action<HPDBaseAuthOptions>? configure) : IHPDBaseBuilderExtension
     {
         public string Id => "hpdAuth";
-        public bool IsRecordProvider => false;
-        public bool SupportsRequiredIndexes => false;
 
         public void Configure(IServiceCollection services, IReadOnlyList<CollectionDefinition> collections)
         {

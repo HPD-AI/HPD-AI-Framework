@@ -29,14 +29,16 @@ public sealed class PublicApiShapeTests
             .Select(method => method.Name)
             .Should().NotContain(name => name.Contains("ExecuteSql", StringComparison.Ordinal) || name.Contains("Migration", StringComparison.Ordinal));
         publicTypes.Select(type => type.FullName).Any(name => name is not null && name.Contains("SqliteConnection", StringComparison.Ordinal)).Should().BeFalse();
-        publicTypes.SelectMany(type => type.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static))
-            .SelectMany(method => method.GetParameters().Select(parameter => parameter.ParameterType).Append(method.ReturnType))
-            .Any(type => type == typeof(DbConnection)
-                || type == typeof(DbTransaction)
-                || type.FullName?.Contains("SqliteConnection", StringComparison.Ordinal) == true
-                || type.FullName?.Contains("SqliteTransaction", StringComparison.Ordinal) == true
-                || type.IsGenericType && type.GetGenericTypeDefinition() == typeof(IQueryable<>))
-            .Should().BeFalse();
+        var nativeLeaks = publicTypes.SelectMany(type => type.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static))
+            .SelectMany(method => method.GetParameters().Select(parameter => (method, type: parameter.ParameterType)).Append((method: method, type: method.ReturnType)))
+            .Where(item => item.type == typeof(DbConnection)
+                || item.type == typeof(DbTransaction)
+                || item.type.FullName?.Contains("SqliteConnection", StringComparison.Ordinal) == true
+                || item.type.FullName?.Contains("SqliteTransaction", StringComparison.Ordinal) == true
+                || item.type.IsGenericType && item.type.GetGenericTypeDefinition() == typeof(IQueryable<>))
+            .Select(item => $"{item.method.DeclaringType!.FullName}.{item.method.Name}: {item.type.FullName}")
+            .ToArray();
+        nativeLeaks.Should().BeEmpty();
     }
 
     [Fact]

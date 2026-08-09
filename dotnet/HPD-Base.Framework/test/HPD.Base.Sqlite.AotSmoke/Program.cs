@@ -38,12 +38,12 @@ try
             Key = Enumerable.Repeat((byte)0x62, 32).ToArray(),
             IssueNotBefore = DateTimeOffset.UnixEpoch,
         });
-        builder.UseSqlite(options =>
+        builder.UseStore(SqliteStore.Configure(options =>
         {
             options.StoreId = "smoke.sqlite";
             options.DataSource = dataSource;
             options.AdministrationEnabled = true;
-        });
+        }));
         builder.AddCollection(items);
         foreach (BaseCollection<JsonElement> collection in authorityCollections)
             builder.AddCollection(collection);

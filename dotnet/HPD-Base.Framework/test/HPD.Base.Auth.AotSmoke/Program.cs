@@ -76,12 +76,12 @@ try
                 WriteRoles = ["Writer"], RequireTenantMatch = false,
             }];
         })
-        .UseSqlite(options =>
+        .UseStore(SqliteStore.Configure(options =>
         {
             options.StoreId = "auth.sqlite";
             options.DataSource = dataSource;
             options.AdministrationEnabled = true;
-        }));
+        })));
 
     await using WebApplication app = builder.Build();
     app.UseHPDControlPlaneCorrelation();

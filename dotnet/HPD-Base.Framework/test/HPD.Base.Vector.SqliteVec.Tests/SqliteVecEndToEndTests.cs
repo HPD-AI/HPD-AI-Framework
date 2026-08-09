@@ -1,7 +1,6 @@
 using System.Text.Json.Serialization;
 using FluentAssertions;
 using HPD.Base.Sqlite;
-using HPD.Base.Vector.SqliteVec;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
@@ -22,9 +21,9 @@ public sealed class SqliteVecEndToEndTests
                 .ConfigureSchema(options => { options.ApplicationId = "vector-admin-tests"; options.PlanProtectionKey = Enumerable.Repeat((byte)0x52, 32).ToArray(); })
                 .ConfigureTokenProtection(options => options.ActiveKey = new BaseOpaqueTokenKey { Id = 5, Key = Enumerable.Repeat((byte)0x62, 32).ToArray(), IssueNotBefore = DateTimeOffset.UnixEpoch })
                 .AddCollection(VectorDocument.Collection)
-                .UseSqlite(options => { options.DataSource = path; options.StoreId = "sqlite"; options.AdministrationEnabled = true; })
-                .AddVector()
-                .UseSqliteVec());
+                .UseStore(SqliteStore.Configure(options => { options.DataSource = path; options.StoreId = "sqlite"; options.AdministrationEnabled = true; }))
+
+                );
             services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
             await using ServiceProvider provider = services.BuildServiceProvider();
             IBaseSchemaManager schema = provider.GetRequiredService<IBaseSchemaManager>();
@@ -74,9 +73,9 @@ public sealed class SqliteVecEndToEndTests
         Action registration = () => services.AddHPDBase(builder => builder
             .ConfigureTokenProtection(options => options.ActiveKey = new BaseOpaqueTokenKey { Id = 1, Key = new byte[32], IssueNotBefore = DateTimeOffset.UnixEpoch })
             .AddCollection(DotVectorDocument.Collection)
-            .UseSqlite(options => options.DataSource = ":memory:")
-            .AddVector()
-            .UseSqliteVec());
+            .UseStore(SqliteStore.Configure(options => options.DataSource = ":memory:"))
+
+            );
 
         registration.Should().Throw<InvalidOperationException>();
     }
@@ -92,9 +91,9 @@ public sealed class SqliteVecEndToEndTests
                 .ConfigureSchema(options => { options.ApplicationId = "vector-tests"; options.PlanProtectionKey = Enumerable.Repeat((byte)0x51, 32).ToArray(); })
                 .ConfigureTokenProtection(options => options.ActiveKey = new BaseOpaqueTokenKey { Id = 4, Key = Enumerable.Repeat((byte)0x61, 32).ToArray(), IssueNotBefore = DateTimeOffset.UnixEpoch })
                 .AddCollection(VectorDocument.Collection)
-                .UseSqlite(options => { options.DataSource = path; options.StoreId = "sqlite"; })
-                .AddVector()
-                .UseSqliteVec());
+                .UseStore(SqliteStore.Configure(options => { options.DataSource = path; options.StoreId = "sqlite"; }))
+
+                );
             services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
             await using ServiceProvider provider = services.BuildServiceProvider();
             IBaseSchemaManager schema = provider.GetRequiredService<IBaseSchemaManager>();

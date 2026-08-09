@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text.Json;
 using FluentAssertions;
+using HPD.Base.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Base.Tests.Application;
@@ -221,11 +222,11 @@ public sealed class GatewayAuthorityProvingFixtureTests
             });
             foreach (BaseCollection<JsonElement> collection in collections)
                 builder.AddCollection(collection);
-            builder.UseSqlite(options =>
+            builder.UseStore(SqliteStore.Configure(options =>
             {
                 options.StoreId = "gateway-proof";
                 options.DataSource = database;
-            });
+            }));
         });
         return services;
     }

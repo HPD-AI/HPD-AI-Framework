@@ -1,5 +1,5 @@
 using FluentAssertions;
-using HPD.Base.Vector.Testing;
+using HPD.Base.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
@@ -54,7 +54,7 @@ public sealed class BaseVectorInitializationTests
                     },
                 ];
             })
-            .AddVector()
+            .AddCollection(VectorDxDocument.Collection)
             .UseTestVectorProvider());
         await using ServiceProvider provider = services.BuildServiceProvider();
 
@@ -71,7 +71,7 @@ public sealed class BaseVectorInitializationTests
         services.AddSingleton<TimeProvider>(new FixedTimeProvider(Now));
         services.AddHPDBase(builder => builder
             .ConfigureTokenProtection(options => options.ActiveKey = ValidKey())
-            .AddVector()
+            .AddCollection(VectorDxDocument.Collection)
             .UseTestVectorProvider(options => options.Consistency = BaseVectorProviderConsistency.DerivedJournal));
         await using ServiceProvider provider = services.BuildServiceProvider();
 
@@ -87,7 +87,7 @@ public sealed class BaseVectorInitializationTests
         services.AddSingleton<TimeProvider>(new FixedTimeProvider(Now));
         services.AddHPDBase(builder => builder
             .ConfigureTokenProtection(options => options.ActiveKey = ValidKey())
-            .AddVector(options => options.DerivedProviderDefaultConsistency = new BaseVectorConsistencyRequirement.BoundedStaleness(TimeSpan.FromMinutes(1)))
+            .ConfigureVector(options => options.DerivedProviderDefaultConsistency = new BaseVectorConsistencyRequirement.BoundedStaleness(TimeSpan.FromMinutes(1)))
             .UseTestVectorProvider(options => options.Consistency = BaseVectorProviderConsistency.DerivedJournal));
         await using ServiceProvider provider = services.BuildServiceProvider();
 
@@ -109,7 +109,7 @@ public sealed class BaseVectorInitializationTests
                 options.ActiveKey = new BaseOpaqueTokenKey { Id = 7, Key = key, IssueNotBefore = Now.AddDays(-1) };
                 retained = options;
             })
-            .AddVector()
+            .AddCollection(VectorDxDocument.Collection)
             .UseTestVectorProvider());
         key.AsSpan().Clear();
         retained!.ActiveKey = retained.ActiveKey with { IssueNotBefore = Now.AddDays(1) };
@@ -126,7 +126,7 @@ public sealed class BaseVectorInitializationTests
         services.AddSingleton<TimeProvider>(new FixedTimeProvider(Now));
         services.AddHPDBase(builder => builder
             .ConfigureTokenProtection(options => options.ActiveKey = key)
-            .AddVector()
+            .AddCollection(VectorDxDocument.Collection)
             .UseTestVectorProvider());
         return services.BuildServiceProvider();
     }

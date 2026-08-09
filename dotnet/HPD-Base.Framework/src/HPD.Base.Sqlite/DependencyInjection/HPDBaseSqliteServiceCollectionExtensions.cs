@@ -17,8 +17,11 @@ public static class HPDBaseSqliteServiceCollectionExtensions
     public static IServiceCollection AddHPDBaseSqliteStore(this IServiceCollection services, Action<HPDBaseSqliteOptions>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(services);
+        if (services.Any(static descriptor => descriptor.ServiceType == typeof(HPDBaseSqliteOptions) || descriptor.ServiceType == typeof(IOptions<HPDBaseSqliteOptions>)))
+            throw new InvalidOperationException("base.store.authorityAmbiguous");
         var options = new HPDBaseSqliteOptions();
         configure?.Invoke(options);
+        options = Clone(options);
 
         services.AddOptions();
         services.TryAddSingleton(options);
@@ -64,4 +67,29 @@ public static class HPDBaseSqliteServiceCollectionExtensions
 
         return services;
     }
+
+    private static HPDBaseSqliteOptions Clone(HPDBaseSqliteOptions value) => new()
+    {
+        StoreId = new string(value.StoreId.AsSpan()), ModuleId = new string(value.ModuleId.AsSpan()),
+        ModuleName = new string(value.ModuleName.AsSpan()), StoreVersion = new string(value.StoreVersion.AsSpan()),
+        ConnectionString = value.ConnectionString is null ? null : new string(value.ConnectionString.AsSpan()),
+        DataSource = value.DataSource is null ? null : new string(value.DataSource.AsSpan()),
+        SchemaPrefix = new string(value.SchemaPrefix.AsSpan()), EnableWal = value.EnableWal,
+        BusyTimeout = value.BusyTimeout, CommandTimeout = value.CommandTimeout,
+        DefaultPageSize = value.DefaultPageSize, MaxPageSize = value.MaxPageSize,
+        MaxFilterDepth = value.MaxFilterDepth, MaxFilterNodes = value.MaxFilterNodes,
+        MaxInValues = value.MaxInValues, MaxSortFields = value.MaxSortFields,
+        MaxSelectFields = value.MaxSelectFields, AllowClientRequestedIds = value.AllowClientRequestedIds,
+        ContributeModuleDescriptor = value.ContributeModuleDescriptor, ContributeCapabilities = value.ContributeCapabilities,
+        ContributeHealth = value.ContributeHealth, ContributeDiagnostics = value.ContributeDiagnostics,
+        ContributeRelationalDescriptors = value.ContributeRelationalDescriptors, InitializeSQLitePCLRaw = value.InitializeSQLitePCLRaw,
+        MutationJournalRetention = value.MutationJournalRetention, MutationJournalMaxEntries = value.MutationJournalMaxEntries,
+        MutationJournalMaxReadSize = value.MutationJournalMaxReadSize, MaxTrackedMutationExecutions = value.MaxTrackedMutationExecutions,
+        QuarantinedMutationDrainTimeout = value.QuarantinedMutationDrainTimeout, AdministrationEnabled = value.AdministrationEnabled,
+        MaxBackupArtifactBytes = value.MaxBackupArtifactBytes, AdministrationAcquisitionTimeout = value.AdministrationAcquisitionTimeout,
+        NativeBackupCompletionWait = value.NativeBackupCompletionWait, RestoreStagingTimeout = value.RestoreStagingTimeout,
+        IntegrityCheckTimeout = value.IntegrityCheckTimeout, MaxQuarantinedAdministrationExecutions = value.MaxQuarantinedAdministrationExecutions,
+        HealthRefId = new string(value.HealthRefId.AsSpan()), DiagnosticRefId = new string(value.DiagnosticRefId.AsSpan()),
+        Collections = value.Collections.ToArray(),
+    };
 }

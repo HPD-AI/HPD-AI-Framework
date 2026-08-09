@@ -4,8 +4,8 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using FluentAssertions;
 using HPD.Base.AspNetCore;
-using HPD.Base.Vector.AspNetCore;
-using HPD.Base.Vector.Testing;
+using HPD.Base;
+using HPD.Base.Testing;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -94,7 +94,7 @@ public sealed class VectorEndpointTests
             .ConfigureTokenProtection(options => options.ActiveKey = new BaseOpaqueTokenKey { Id = 1, Key = new byte[32], IssueNotBefore = DateTimeOffset.UnixEpoch })
             .ReplacePolicyEvaluator<AllowVectorPolicy>()
             .AddCollection(HttpVectorDocument.Collection)
-            .AddVector()
+
             .UseTestVectorProvider());
         builder.Services.AddHPDBaseAspNetCore();
         builder.Services.AddHPDBaseVectorAspNetCore(options => options.MaxRequestBodyBytes = 16 * 1024);

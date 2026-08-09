@@ -57,7 +57,8 @@ public sealed class PublicApiShapeTests
                 typeof(IAtomicRecordStore),
                 typeof(IStreamingRecordStore),
                 typeof(IRelationalReadStore),
-                typeof(IConsistentRecordIncludeStore)
+                typeof(IConsistentRecordIncludeStore),
+                typeof(IInMemoryProjectionAuthority)
             ]);
     }
 
@@ -74,5 +75,47 @@ public sealed class PublicApiShapeTests
             .GetMethod(methodName, BindingFlags.Instance | BindingFlags.Public)
             .Should()
             .BeNull();
+    }
+
+    [Fact]
+    public void ProjectionAuthorityAndAllStateMachineryRemainInternalAndUnresolvable()
+    {
+        Type[] infrastructure =
+        [
+            typeof(IInMemoryAtomicMutationProjection),
+            typeof(IInMemoryProjectionAuthority),
+            typeof(IInMemoryProjectionReadSession),
+            typeof(IInMemoryProjectionReplacement),
+            typeof(BaseInMemoryProjectionSnapshot),
+            typeof(BaseInMemoryProjectionStateReader),
+            typeof(BaseInMemoryProjectionStateWriter),
+            typeof(BaseInMemoryProjectionIndexHandle),
+            typeof(BaseInMemoryProjectionSourceCursor),
+            typeof(BaseInMemoryProjectionSourceRecord),
+            typeof(BaseInMemoryProjectionSourcePage),
+        ];
+        infrastructure.Should().OnlyContain(static type => !type.IsPublic && !type.IsNestedPublic);
+
+        var services = new ServiceCollection();
+        services.AddHPDBase(_ => { });
+        using ServiceProvider provider = services.BuildServiceProvider();
+        provider.GetService<IInMemoryProjectionAuthority>().Should().BeNull();
+        provider.GetService<IInMemoryAtomicMutationProjection>().Should().BeNull();
+        provider.GetService<IInMemoryProjectionReadSession>().Should().BeNull();
+        provider.GetService<IInMemoryProjectionReplacement>().Should().BeNull();
+    }
+
+    [Fact]
+    public void NoVectorSchemaAllocatesNoVectorContributorIdentityOrServices()
+    {
+        var services = new ServiceCollection();
+        services.AddHPDBase(_ => { });
+        using ServiceProvider provider = services.BuildServiceProvider();
+        InMemoryRecordStore store = provider.GetRequiredService<InMemoryRecordStore>();
+
+        provider.GetServices<IBaseVectorProvider>().Should().BeEmpty();
+        provider.GetServices<IBaseVectorAuthority>().Should().BeEmpty();
+        typeof(InMemoryRecordStore).GetField("_vectorProjection", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(store).Should().BeNull();
+        typeof(InMemoryRecordStore).GetField("_vectorIdentityDigest", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(store).Should().BeNull();
     }
 }

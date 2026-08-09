@@ -11,14 +11,128 @@ namespace HPD.Base;
 /// <summary>
 /// Process-local, thread-safe, non-durable HPD.BASE record store implementation.
 /// </summary>
-internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreamingRecordStore, IRelationalReadStore, IConsistentRecordIncludeStore
+internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreamingRecordStore, IRelationalReadStore, IConsistentRecordIncludeStore, IInMemoryProjectionAuthority
 {
+    public async ValueTask<OperationResult<IInMemoryProjectionReadSession>> CaptureAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        await _stateGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            InMemoryVectorRootLease lease = RetainVectorRoot();
+            return OperationResults.Ok<IInMemoryProjectionReadSession>(new InMemoryProjectionReadSession(
+                lease,
+                _generation,
+                VectorIdentityDigest,
+                _options.Collections ?? []));
+        }
+        finally
+        {
+            _stateGate.Release();
+        }
+    }
+
+    public ValueTask<OperationResult<IInMemoryProjectionReplacement>> BeginReplacementAsync(
+        long expectedRootGeneration,
+        long expectedProjectionGeneration,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (expectedRootGeneration < 0 || expectedProjectionGeneration < 1)
+            return ValueTask.FromResult(OperationResults.ValidationFailed<IInMemoryProjectionReplacement>(new BaseError
+            {
+                Code = "base.vector.inMemory.projectionInvalid",
+                Message = "The in-memory projection replacement is invalid.",
+                Category = ErrorCategory.Validation,
+            }));
+        return ValueTask.FromResult(OperationResults.Ok<IInMemoryProjectionReplacement>(new InMemoryProjectionReplacement(this, expectedRootGeneration, expectedProjectionGeneration)));
+    }
+
+    internal async ValueTask<OperationResult<BaseInMemoryProjectionReplacementOutcome>> PublishProjectionReplacementAsync(
+        long expectedRootGeneration,
+        long expectedProjectionGeneration,
+        BaseInMemoryProjectionIndexHandle handle,
+        InMemoryVectorProjectionState replacement,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        await _stateGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_generation != expectedRootGeneration)
+                return OperationResults.Ok(BaseInMemoryProjectionReplacementOutcome.RootGenerationChanged);
+            string key = handle.Collection.Id + "\n" + handle.Index.Id;
+            InMemoryStoreState captured = Volatile.Read(ref _publishedState);
+            long currentGeneration = captured.VectorProjections.GetValueOrDefault(key)?.Generation ?? 1;
+            if (currentGeneration != expectedProjectionGeneration)
+                return OperationResults.Ok(BaseInMemoryProjectionReplacementOutcome.ProjectionGenerationChanged);
+            if (handle.Owner.RootGeneration != expectedRootGeneration ||
+                !string.Equals(handle.Owner.SchemaDigest, HPDBaseStoreInstallationContext.ComputeSchemaDigest(_options.Collections ?? []), StringComparison.Ordinal) ||
+                handle.Generation != expectedProjectionGeneration ||
+                replacement.Generation != checked(expectedProjectionGeneration + 1) ||
+                replacement.AppliedThrough != captured.GlobalMutationPosition ||
+                replacement.PurgeGeneration != (captured.Collections.GetValueOrDefault(handle.Collection.Id)?.PurgeGeneration ?? 0))
+                return OperationResults.Ok(BaseInMemoryProjectionReplacementOutcome.InvalidState);
+
+            InMemoryStoreState working = captured.Clone();
+            working.VectorProjections[key] = replacement.Clone();
+            long carriers = 0, bytes = 0;
+            foreach (InMemoryVectorProjectionState projection in working.VectorProjections.Values)
+            foreach (InMemoryVectorCarrier carrier in projection.Carriers.Values)
+            {
+                carriers = checked(carriers + 1);
+                bytes = checked(bytes + (long)carrier.Vector.Dimensions * sizeof(float));
+            }
+            if (carriers > _options.MaxVectorIndexedRecords || bytes > _options.MaxVectorBytes)
+                return OperationResults.Ok(BaseInMemoryProjectionReplacementOutcome.CapacityExceeded);
+            Volatile.Write(ref _publishedState, working);
+            _generation++;
+            return OperationResults.Ok(BaseInMemoryProjectionReplacementOutcome.Published);
+        }
+        catch (OverflowException)
+        {
+            return OperationResults.Ok(BaseInMemoryProjectionReplacementOutcome.InvalidState);
+        }
+        finally
+        {
+            _stateGate.Release();
+        }
+    }
+
+    internal InMemoryStoreState CaptureVectorRoot() => Volatile.Read(ref _publishedState);
+
     private readonly HPDBaseInMemoryStoreOptions _options;
     private readonly BaseQueryCursorCodec _queryCursors;
     private readonly TimeProvider _timeProvider;
+    private readonly IInMemoryAtomicMutationProjection? _vectorProjection;
     private readonly SemaphoreSlim _stateGate = new(1, 1);
+    private readonly Lock _vectorLeaseGate = new();
+    private readonly Dictionary<InMemoryStoreState, int> _retainedVectorRoots = new(ReferenceEqualityComparer.Instance);
     private InMemoryStoreState _publishedState = new();
     private long _generation;
+    private readonly string? _vectorIdentityDigest;
+    internal string VectorIdentityDigest => _vectorIdentityDigest ?? throw new InvalidOperationException("base.vector.providerUnavailable");
+
+    internal InMemoryVectorRootLease RetainVectorRoot()
+    {
+        InMemoryStoreState root = CaptureVectorRoot();
+        lock (_vectorLeaseGate) _retainedVectorRoots[root] = _retainedVectorRoots.GetValueOrDefault(root) + 1;
+        return new InMemoryVectorRootLease(root, ReleaseVectorRoot);
+    }
+
+    private void ReleaseVectorRoot(InMemoryStoreState root)
+    {
+        lock (_vectorLeaseGate)
+        {
+            int count = _retainedVectorRoots.GetValueOrDefault(root);
+            if (count <= 1) _retainedVectorRoots.Remove(root); else _retainedVectorRoots[root] = count - 1;
+        }
+    }
+
+    internal ValueTask<OperationResult> InitializeVectorProjectionAsync(CancellationToken cancellationToken) =>
+        _vectorProjection is null
+            ? ValueTask.FromResult(OperationResults.NoContent())
+            : _vectorProjection.InitializeAsync(new BaseInMemoryProjectionInitializationContext(_options), cancellationToken);
 
     /// <summary>
     /// Initializes a new store using configured options.
@@ -49,6 +163,11 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         _options = options ?? new HPDBaseInMemoryStoreOptions();
         _timeProvider = timeProvider;
         _queryCursors = new BaseQueryCursorCodec(tokenProtector, timeProvider);
+        if ((_options.Collections ?? []).Any(static collection => (collection.VectorIndexes ?? []).Length != 0))
+        {
+            _vectorProjection = new InMemoryVectorMutationProjection();
+            _vectorIdentityDigest = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
+        }
         ValidateOptions(_options);
         Capabilities = CreateCapabilities(_options);
         Includes = new RecordIncludeExecutionCapability
@@ -395,6 +514,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                         "The InMemory mutation snapshot was superseded by a concurrent commit."));
             }
 
+            working.GlobalMutationPosition = checked(working.GlobalMutationPosition + processing.Mutations.Length);
             Volatile.Write(ref _publishedState, working);
             _generation++;
             return new RecordMutationExecutionResult(
@@ -555,6 +675,8 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             return ValueTask.FromResult(InMemoryResultFactory.StoreError<RecordEnvelope>("base.collection.appendPosition.exhausted", "The collection append position is exhausted."));
         var record = new StoredRecord(collection.Id, id, payload, metadata, ++collectionState.NextAppendPosition);
         state.RecordsById.Add(id.Value, record);
+        if (state.RecordIdsOrdinal is not null)
+            state.RecordIdsOrdinal = state.RecordIdsOrdinal.Add(id.Value);
         return ValueTask.FromResult(InMemoryResultFactory.WithRevision(
             OperationResults.Created(RecordCloneHelpers.CloneEnvelope(record)), metadata));
     }
@@ -605,6 +727,8 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
 
         var previous = request.ReturnPrevious ? RecordCloneHelpers.CloneEnvelope(current) : null;
         state.RecordsById.Remove(id.Value);
+        if (state.RecordIdsOrdinal is not null)
+            state.RecordIdsOrdinal = state.RecordIdsOrdinal.Remove(id.Value);
         var result = OperationResults.Deleted(new DeleteResult { Id = id, Deleted = true, Previous = previous });
         return ValueTask.FromResult(InMemoryResultFactory.WithRevision(result, current.Metadata));
     }
@@ -844,14 +968,22 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         };
     }
 
-    private static InMemoryCollectionState GetOrCreateCollection(InMemoryStoreState state, string collectionId)
+    private InMemoryCollectionState GetOrCreateCollection(InMemoryStoreState state, string collectionId)
     {
         if (state.Collections.TryGetValue(collectionId, out var collection))
         {
             return collection;
         }
 
-        collection = new InMemoryCollectionState();
+        bool vectorEnabled = (_options.Collections ?? []).Any(definition =>
+            string.Equals(definition.Id, collectionId, StringComparison.Ordinal) &&
+            (definition.VectorIndexes ?? []).Length != 0);
+        collection = new InMemoryCollectionState
+        {
+            RecordIdsOrdinal = vectorEnabled
+                ? System.Collections.Immutable.ImmutableSortedSet.Create<string>(StringComparer.Ordinal)
+                : null,
+        };
         state.Collections.Add(collectionId, collection);
         return collection;
     }
@@ -2024,7 +2156,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     return ValueTask.FromResult(InMemoryResultFactory.Unsupported<long>(
                         BaseCollectionErrorCodes.PurgeUnsupported,
                         "The collection does not support administrative purge."));
-                InMemoryCollectionState state = GetOrCreateCollection(_working, collection.Id);
+                InMemoryCollectionState state = _owner.GetOrCreateCollection(_working, collection.Id);
                 if (expectedGeneration is { } expected && expected != state.PurgeGeneration)
                     return ValueTask.FromResult(OperationResults.Conflict<long>(new BaseError
                     {
@@ -2040,13 +2172,37 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             });
 
         /// <inheritdoc />
-        public ValueTask<OperationResult> ApplyMutationProjectionsAsync(
+        public async ValueTask<OperationResult> ApplyMutationProjectionsAsync(
             BaseAtomicMutationProjectionRequest request,
             CancellationToken cancellationToken = default)
         {
             ArgumentNullException.ThrowIfNull(request);
             cancellationToken.ThrowIfCancellationRequested();
-            return ValueTask.FromResult(OperationResults.NoContent());
+            IInMemoryAtomicMutationProjection? projection = _owner._vectorProjection;
+            if (projection is null) return OperationResults.NoContent();
+            try
+            {
+                return await projection.ApplyAsync(
+                    new BaseInMemoryProjectionMutationContext(_working, _owner._options, request),
+                    cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception)
+            {
+                return new OperationResult
+                {
+                    Status = OperationStatus.StoreError,
+                    Error = new BaseError
+                    {
+                        Code = "base.runtime.projectionFailed",
+                        Message = "A transactional projection failed.",
+                        Category = ErrorCategory.Store,
+                    },
+                };
+            }
         }
 
         /// <summary>Executes the close async operation.</summary>
@@ -2232,4 +2388,11 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         /// <summary>Gets the children.</summary>
         public Dictionary<string, SelectNode> Children { get; } = new(StringComparer.Ordinal);
     }
+}
+
+internal sealed class InMemoryVectorRootLease(InMemoryStoreState root, Action<InMemoryStoreState> release) : IDisposable
+{
+    private int _disposed;
+    internal InMemoryStoreState Root { get; } = root;
+    public void Dispose() { if (Interlocked.Exchange(ref _disposed, 1) == 0) release(Root); }
 }
