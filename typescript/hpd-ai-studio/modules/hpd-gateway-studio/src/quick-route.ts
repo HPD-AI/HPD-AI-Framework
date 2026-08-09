@@ -1,10 +1,32 @@
 import type { GatewayClient } from '@hpd/gateway-client';
 import { createGatewayDeclarationController, type GatewayDeclarationController, type GatewayServerValidationEvidence } from './declaration-state.ts';
 import { framedSha256, lengthFrame, sha256Segments, uint64 } from './sha256.ts';
+import { serializeGatewayJson } from './authored-json.ts';
 
 const encoder=new TextEncoder();
 export interface GatewayQuickRouteProposalV1{readonly contractVersion:1;readonly baseEditGeneration:bigint;readonly baseSourceSha256:string;readonly principalGeneration:bigint;readonly capabilitySnapshotAlgorithm:string;readonly capabilitySnapshotValue:string;readonly proposedUtf8:string;readonly proposedSourceSha256:string;readonly proposalId:string;}
 export interface GatewayQuickRouteCoordinator{create(proposedUtf8:string):GatewayQuickRouteProposalV1|null;validateAndCommit(proposal:GatewayQuickRouteProposalV1):Promise<boolean>;cancel():void;dispose():void;}
+export interface GatewayQuickRouteInput { readonly routeId:string; readonly path:string; readonly methods:readonly string[]; readonly hosts:readonly string[]; readonly listenerId:string; readonly upstreamId:string; readonly destinationId:string; readonly destinationAddress:string; readonly authorizationPolicy:string; readonly corsPolicy:string; readonly trafficAdmissionPolicy:string; readonly outputCachePolicy:string; }
+export interface GatewayQuickRouteBuild { readonly proposedUtf8:string; readonly changedPointers:readonly string[]; }
+export function buildGatewayQuickRoute(declaration:GatewayDeclarationController,input:GatewayQuickRouteInput):GatewayQuickRouteBuild|null{
+  const graph=declaration.snapshot().document.compatibleGraph;if(graph===null||!validInput(input))return null;
+  const document=JSON.parse(serializeGatewayJson(graph)) as Record<string,unknown>;
+  const routes=Array.isArray(document.routes)?[...document.routes] as Record<string,unknown>[]:[];
+  const upstreams=Array.isArray(document.upstreams)?[...document.upstreams] as Record<string,unknown>[]:[];
+  if(duplicate(routes,input.routeId)||duplicate(upstreams,input.upstreamId))return null;
+  const routeIndex=routes.findIndex(value=>identity(value)===input.routeId);const upstreamIndex=upstreams.findIndex(value=>identity(value)===input.upstreamId);
+  const existingUpstream=upstreamIndex<0?null:upstreams[upstreamIndex]!;const existingEndpoints=record(existingUpstream?.endpoints)?existingUpstream.endpoints as Record<string,unknown>:null;
+  if(existingEndpoints!==null&&existingEndpoints.kind!=='static')return null;
+  const destinations=Array.isArray(existingEndpoints?.destinations)?[...existingEndpoints.destinations] as Record<string,unknown>[]:[];
+  if(duplicate(destinations,input.destinationId))return null;const destinationIndex=destinations.findIndex(value=>identity(value)===input.destinationId);
+  const destination={...(destinationIndex<0?{}:destinations[destinationIndex]),id:{value:input.destinationId},address:input.destinationAddress};if(destinationIndex<0)destinations.push(destination);else destinations[destinationIndex]=destination;
+  const upstream={...(existingUpstream??{}),id:{value:input.upstreamId},endpoints:{...(existingEndpoints??{}),kind:'static',destinations}};if(upstreamIndex<0)upstreams.push(upstream);else upstreams[upstreamIndex]=upstream;
+  const declarations:Record<string,unknown>={};if(input.authorizationPolicy)declarations.authorization={inline:{policyName:input.authorizationPolicy}};if(input.corsPolicy)declarations.cors={inline:{policyName:input.corsPolicy}};if(input.trafficAdmissionPolicy)declarations.trafficAdmission={inline:{policyName:input.trafficAdmissionPolicy}};if(input.outputCachePolicy)declarations.outputCache={inline:{policyName:input.outputCachePolicy}};
+  const existingRoute=routeIndex<0?null:routes[routeIndex]!;const match:Record<string,unknown>={};if(input.path)match.path=input.path;if(input.methods.length)match.methods=[...input.methods];if(input.hosts.length)match.hosts=[...input.hosts];
+  const route:Record<string,unknown>={...(existingRoute??{}),id:{value:input.routeId},match,upstream:{value:input.upstreamId}};if(input.listenerId)route.listener={value:input.listenerId};else delete route.listener;if(Object.keys(declarations).length)route.declarations=declarations;else delete route.declarations;
+  if(routeIndex<0)routes.push(route);else routes[routeIndex]=route;document.routes=routes;document.upstreams=upstreams;
+  return Object.freeze({proposedUtf8:JSON.stringify(document),changedPointers:Object.freeze([`/routes/${routeIndex<0?routes.length-1:routeIndex}`,`/upstreams/${upstreamIndex<0?upstreams.length-1:upstreamIndex}`,`/upstreams/${upstreamIndex<0?upstreams.length-1:upstreamIndex}/endpoints/destinations/${destinationIndex<0?destinations.length-1:destinationIndex}`])});
+}
 interface Options{readonly declaration:GatewayDeclarationController;readonly client:GatewayClient;readonly principalGeneration:()=>bigint;readonly capabilityIdentity:()=>Readonly<{algorithm:string;value:string}>|null;}
 export function createGatewayQuickRouteCoordinator(options:Options):GatewayQuickRouteCoordinator{let current:string|null=null;let generation=0;let disposed=false;return Object.freeze({
   create(proposedUtf8:string){if(disposed||encoder.encode(proposedUtf8).byteLength>4*1024*1024)return null;const base=options.declaration.snapshot().document,capability=options.capabilityIdentity();if(base.compatibleGraph===null||capability===null)return null;const probe=createGatewayDeclarationController();const candidate=probe.replaceRaw(proposedUtf8);probe.dispose();if(candidate.compatibleGraph===null||candidate.state!=='LocallyValidNotServerValidated')return null;const principal=options.principalGeneration();const source=framedSha256('hpd.gateway.authored-source.v1\0',encoder.encode(proposedUtf8));const id=proposalIdentity(base.editGeneration,base.sourceSha256,principal,capability.algorithm,capability.value,proposedUtf8);current=id;generation++;return Object.freeze({contractVersion:1,baseEditGeneration:base.editGeneration,baseSourceSha256:base.sourceSha256,principalGeneration:principal,capabilitySnapshotAlgorithm:capability.algorithm,capabilitySnapshotValue:capability.value,proposedUtf8,proposedSourceSha256:source,proposalId:id});},
@@ -12,3 +34,7 @@ export function createGatewayQuickRouteCoordinator(options:Options):GatewayQuick
   cancel(){generation++;current=null;},dispose(){if(!disposed){disposed=true;generation++;current=null;}}
 });}
 function proposalIdentity(base:bigint,source:string,principal:bigint,algorithm:string,value:string,proposed:string):string{return sha256Segments(encoder.encode('hpd.gateway.quick-route-proposal.v1\0'),uint64(base),lengthFrame(encoder.encode(source)),uint64(principal),lengthFrame(encoder.encode(algorithm)),lengthFrame(encoder.encode(value)),lengthFrame(encoder.encode(proposed)));}
+function validInput(input:GatewayQuickRouteInput):boolean{const values=[input.routeId,input.upstreamId,input.destinationId,input.destinationAddress];return values.every(value=>value.length>0&&new TextEncoder().encode(value).byteLength<=4096)&&input.methods.length<=64&&input.hosts.length<=64&&/^https?:\/\//u.test(input.destinationAddress);}
+function identity(value:Record<string,unknown>):string|null{return record(value.id)&&typeof value.id.value==='string'?value.id.value:null;}
+function duplicate(values:readonly Record<string,unknown>[],id:string):boolean{return values.filter(value=>identity(value)===id).length>1;}
+function record(value:unknown):value is Record<string,unknown>{return typeof value==='object'&&value!==null&&!Array.isArray(value);}

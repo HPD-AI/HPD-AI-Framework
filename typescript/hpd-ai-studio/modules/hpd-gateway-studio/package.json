@@ -11,7 +11,9 @@
     }
   },
   "scripts": {
+    "pretest": "npm --prefix ../../../hpd-gateway-client run build",
     "test": "vitest run",
+    "pretypecheck": "npm --prefix ../../../hpd-gateway-client run build",
     "typecheck": "svelte-check --tsconfig ./tsconfig.json"
   },
   "files": ["src", "README.md"],

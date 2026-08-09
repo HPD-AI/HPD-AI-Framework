@@ -6,4 +6,5 @@ export * from "./contract.js";
 export * from "./schemas.js";
 export * from "./operations.js";
 export * from "./result.js";
+export * from "./runtime.js";
 export * from "./editor-contract.js";

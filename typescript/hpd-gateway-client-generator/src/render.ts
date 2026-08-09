@@ -14,7 +14,7 @@ export function render(plan: GenerationPlan): Readonly<Record<string, string>> {
     "operations.ts": banner + renderOperations(plan, names),
     "runtime.ts": banner + renderRuntime(plan),
     "result.ts": banner + resultContract,
-    "index.ts": banner + `export * from "./contract.js";\nexport * from "./schemas.js";\nexport * from "./operations.js";\nexport * from "./result.js";\nexport * from "./editor-contract.js";\n`,
+    "index.ts": banner + `export * from "./contract.js";\nexport * from "./schemas.js";\nexport * from "./operations.js";\nexport * from "./result.js";\nexport * from "./runtime.js";\nexport * from "./editor-contract.js";\n`,
     "snapshot.json": JSON.stringify({
       generatorVersion: "0.1.0",
       sourceSha256: plan.sourceSha256,
