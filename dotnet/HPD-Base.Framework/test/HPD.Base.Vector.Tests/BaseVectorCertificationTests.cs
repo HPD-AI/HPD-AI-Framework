@@ -1,5 +1,6 @@
 using FluentAssertions;
 using HPD.Base.Testing;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace HPD.Base.Vector.Tests;
@@ -21,7 +22,7 @@ public sealed class BaseVectorCertificationTests
     {
         var fixture = new Fixture();
         BaseVectorCertificationReport report = await BaseVectorProviderCertification.RunAsync(fixture, BaseVectorCertificationPlan.RequiredLocal());
-        report.Succeeded.Should().BeTrue();
+        report.Succeeded.Should().BeTrue(string.Join("; ", report.Cases.Select(static item => $"{item.CaseId}:{item.Code}:{item.Message}")));
         report.Cases.Should().HaveCount(12).And.OnlyContain(static result => result.Outcome == BaseVectorCertificationCaseOutcome.Passed);
         fixture.Created.Should().Be(12);
         fixture.Disposed.Should().Be(12);
@@ -58,6 +59,18 @@ public sealed class BaseVectorCertificationTests
         report.Succeeded.Should().BeFalse();
         report.Cases.Where(static result => !result.CaseId.Contains(".fault.", StringComparison.Ordinal))
             .Should().OnlyContain(static result => result.Code == "base.testing.vector.queryEvidenceInvalid");
+    }
+
+    [Fact]
+    public async Task Self_reported_fault_without_external_failure_fails_certification()
+    {
+        var fixture = new Fixture(successfulFaultOperations: true);
+
+        BaseVectorCertificationReport report = await BaseVectorProviderCertification.RunAsync(fixture, BaseVectorCertificationPlan.RequiredLocal());
+
+        report.Succeeded.Should().BeFalse();
+        report.Cases.Where(static result => result.CaseId.Contains(".fault.", StringComparison.Ordinal))
+            .Should().OnlyContain(static result => result.Code == "base.testing.vector.faultOutcomeInvalid");
     }
 
     [Theory]
@@ -109,8 +122,6 @@ public sealed class BaseVectorCertificationTests
             typeof(BaseVectorCertificationProviderState),
             typeof(BaseVectorCertificationIndexState),
             typeof(BaseVectorCertificationFaultState),
-            typeof(BaseVectorCertificationQueryResult),
-            typeof(BaseVectorCertificationQueryMatch),
             typeof(BaseVectorCertificationObservationPage),
             typeof(BaseVectorCertificationObservation),
             typeof(BaseVectorCertificationObservationFact),
@@ -155,7 +166,8 @@ public sealed class BaseVectorCertificationTests
         bool throwOnCreate = false,
         bool throwOnDispose = false,
         int faultObservationOffset = 0,
-        bool rejectQueries = false) : IBaseVectorProviderCertificationFixture
+        bool rejectQueries = false,
+        bool successfulFaultOperations = false) : IBaseVectorProviderCertificationFixture
     {
         public int Created { get; private set; }
         public int Disposed { get; private set; }
@@ -172,23 +184,45 @@ public sealed class BaseVectorCertificationTests
             request.Schema.Id.Should().Be("hpd.base.vector.certification.v1");
             ReceivedFaults.Add(request.Fault.Kind);
             Created++;
-            return ValueTask.FromResult<IBaseVectorCertificationHost>(new Host(this, cancelDuringInitialization, throwOnDispose, request.Fault, faultObservationOffset, rejectQueries));
+            return ValueTask.FromResult<IBaseVectorCertificationHost>(new Host(this, cancelDuringInitialization, throwOnDispose, request.Fault, faultObservationOffset, rejectQueries, request.Schema, successfulFaultOperations));
         }
 
-        private sealed class Host(Fixture owner, CancellationTokenSource? cancelDuringInitialization, bool throwOnDispose, BaseVectorCertificationFaultPlan fault, int faultObservationOffset, bool rejectQueries) : IBaseVectorCertificationHost, IBaseVectorCertificationAuthorityControl, IBaseVectorCertificationProviderControl, IBaseVectorCertificationQueryControl, IBaseVectorCertificationObservationSource
+        private sealed class Host : IBaseVectorCertificationHost, IBaseVectorCertificationAuthorityControl, IBaseVectorCertificationProviderControl, IBaseVectorCertificationObservationSource
         {
+            private readonly Fixture _owner;
+            private readonly bool _throwOnDispose;
+            private readonly BaseVectorCertificationFaultPlan _fault;
+            private readonly int _faultObservationOffset;
+            private readonly ServiceProvider _services;
+            private readonly bool _successfulFaultOperations;
             private long _position;
             private long _indexGeneration = 1;
-            public IHPDBaseApplication Application { get; } = new Application(cancelDuringInitialization);
+            public Host(Fixture owner, CancellationTokenSource? cancelDuringInitialization, bool throwOnDispose, BaseVectorCertificationFaultPlan fault, int faultObservationOffset, bool rejectQueries, BaseVectorCertificationSchema schema, bool successfulFaultOperations)
+            {
+                _owner = owner; _throwOnDispose = throwOnDispose; _fault = fault; _faultObservationOffset = faultObservationOffset; _successfulFaultOperations = successfulFaultOperations;
+                var services = new ServiceCollection();
+                services.AddLogging();
+                services.AddHPDBase(builder =>
+                {
+                    schema.Configure(builder);
+                    if (rejectQueries) builder.UseTestVectorProvider();
+                });
+                _services = services.BuildServiceProvider();
+                IHPDBaseApplication application = _services.GetRequiredService<IHPDBaseApplication>();
+                Application = cancelDuringInitialization is null ? application : new Application(application, cancelDuringInitialization);
+                Sessions = _services.GetRequiredService<IBaseSessionFactory>();
+            }
+            public string StoreId => "inmemory";
+            public IHPDBaseApplication Application { get; }
+            public IBaseSessionFactory Sessions { get; }
             public IBaseVectorCertificationAuthorityControl Authority => this;
             public IBaseVectorCertificationProviderControl Provider => this;
-            public IBaseVectorCertificationQueryControl Queries => this;
             public IBaseVectorCertificationObservationSource Observations => this;
-            public ValueTask DisposeAsync() { owner.Disposed++; return throwOnDispose ? ValueTask.FromException(new InvalidOperationException("fixture-secret")) : ValueTask.CompletedTask; }
-            public ValueTask<OperationResult<BaseVectorCertificationAuthorityHead>> CaptureHeadAsync(CancellationToken cancellationToken = default) { owner.CapturedHeads++; return ValueTask.FromResult(OperationResults.Ok(Head())); }
+            public async ValueTask DisposeAsync() { _owner.Disposed++; await _services.DisposeAsync(); if (_throwOnDispose) throw new InvalidOperationException("fixture-secret"); }
+            public ValueTask<OperationResult<BaseVectorCertificationAuthorityHead>> CaptureHeadAsync(CancellationToken cancellationToken = default) { _owner.CapturedHeads++; return ValueTask.FromResult(OperationResults.Ok(Head())); }
             public ValueTask<OperationResult<BaseVectorCertificationAuthorityState>> InspectAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(OperationResults.Ok(BaseVectorCertificationAuthorityState.Create(Head(), [], [])));
-            ValueTask<OperationResult<BaseVectorCertificationProviderState>> IBaseVectorCertificationProviderControl.InspectAsync(CancellationToken cancellationToken) { owner.ProviderInspections++; return ValueTask.FromResult(OperationResults.Ok(BaseVectorCertificationProviderState.Create([]))); }
-            public ValueTask<OperationResult<BaseVectorCertificationObservationPage>> ReadAsync(BaseVectorCertificationObservationRequest request, CancellationToken cancellationToken = default) { owner.ObservationReads++; return ValueTask.FromResult(OperationResults.Ok(BaseVectorCertificationObservationPage.Create(0, request.AfterSequenceExclusive, false, []))); }
+            ValueTask<OperationResult<BaseVectorCertificationProviderState>> IBaseVectorCertificationProviderControl.InspectAsync(CancellationToken cancellationToken) { _owner.ProviderInspections++; return ValueTask.FromResult(FaultOr(BaseVectorCertificationProviderState.Create([]))); }
+            public ValueTask<OperationResult<BaseVectorCertificationObservationPage>> ReadAsync(BaseVectorCertificationObservationRequest request, CancellationToken cancellationToken = default) { _owner.ObservationReads++; return ValueTask.FromResult(OperationResults.Ok(BaseVectorCertificationObservationPage.Create(0, request.AfterSequenceExclusive, false, []))); }
             public ValueTask<OperationResult<BaseVectorCertificationSeedResult>> SeedAsync(BaseVectorCertificationSeedRequest request, CancellationToken cancellationToken = default) => ValueTask.FromResult(OperationResults.Ok(BaseVectorCertificationSeedResult.Create(request.Records.Count, Head())));
             public ValueTask<OperationResult<BaseVectorCertificationMutationResult>> CommitAsync(BaseVectorCertificationMutationRequest request, CancellationToken cancellationToken = default)
             {
@@ -202,38 +236,29 @@ public sealed class BaseVectorCertificationTests
                 return ValueTask.FromResult(OperationResults.Ok(BaseVectorCertificationTransitionResult.Create(request.Kind, request.CollectionId, request.IndexId, previous, _indexGeneration)));
             }
             public ValueTask<OperationResult<BaseVectorCertificationPruneResult>> PruneHistoryAsync(BaseVectorCertificationPruneRequest request, CancellationToken cancellationToken = default) => ValueTask.FromResult(OperationResults.CapabilityUnavailable<BaseVectorCertificationPruneResult>(new BaseError { Code = "base.testing.vector.operationNotApplicable", Message = "The certification operation is not applicable.", Category = ErrorCategory.Capability }));
-            public ValueTask<OperationResult<BaseVectorCertificationAdvanceResult>> AdvanceAsync(BaseVectorCertificationAdvanceRequest request, CancellationToken cancellationToken = default) => ValueTask.FromResult(OperationResults.CapabilityUnavailable<BaseVectorCertificationAdvanceResult>(new BaseError { Code = "base.testing.vector.operationNotApplicable", Message = "The certification operation is not applicable.", Category = ErrorCategory.Capability }));
-            public ValueTask<OperationResult<BaseVectorCertificationVisibilityResult>> PublishVisibilityAsync(BaseVectorCertificationVisibilityRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-            public ValueTask<OperationResult<BaseVectorCertificationRebuildResult>> RebuildAsync(BaseVectorCertificationRebuildRequest request, CancellationToken cancellationToken = default) { long previous = _indexGeneration++; return ValueTask.FromResult(OperationResults.Ok(BaseVectorCertificationRebuildResult.Create(request.CollectionId, request.IndexId, previous, _indexGeneration, Head()))); }
+            public ValueTask<OperationResult<BaseVectorCertificationAdvanceResult>> AdvanceAsync(BaseVectorCertificationAdvanceRequest request, CancellationToken cancellationToken = default) => ValueTask.FromResult(_fault.Kind == BaseVectorCertificationFaultKind.None ? OperationResults.CapabilityUnavailable<BaseVectorCertificationAdvanceResult>(new BaseError { Code = "base.testing.vector.operationNotApplicable", Message = "The certification operation is not applicable.", Category = ErrorCategory.Capability }) : FaultOr(BaseVectorCertificationAdvanceResult.Create(0, 0, 0, 0)));
+            public ValueTask<OperationResult<BaseVectorCertificationVisibilityResult>> PublishVisibilityAsync(BaseVectorCertificationVisibilityRequest request, CancellationToken cancellationToken = default) => ValueTask.FromResult(FaultOr(BaseVectorCertificationVisibilityResult.Create(0, 0, 0)));
+            public ValueTask<OperationResult<BaseVectorCertificationRebuildResult>> RebuildAsync(BaseVectorCertificationRebuildRequest request, CancellationToken cancellationToken = default) { long previous = _indexGeneration++; return ValueTask.FromResult(FaultOr(BaseVectorCertificationRebuildResult.Create(request.CollectionId, request.IndexId, previous, _indexGeneration, Head()))); }
             public ValueTask<OperationResult<BaseVectorCertificationFaultState>> InspectFaultAsync(CancellationToken cancellationToken = default)
             {
-                int observed = fault.Kind == BaseVectorCertificationFaultKind.None ? 0 : Math.Max(0, fault.Occurrence + faultObservationOffset);
-                return ValueTask.FromResult(OperationResults.Ok(BaseVectorCertificationFaultState.Create(fault.Kind, fault.Occurrence, observed, fault.Kind != BaseVectorCertificationFaultKind.None && observed >= fault.Occurrence, false)));
+                int observed = _fault.Kind == BaseVectorCertificationFaultKind.None ? 0 : Math.Max(0, _fault.Occurrence + _faultObservationOffset);
+                return ValueTask.FromResult(OperationResults.Ok(BaseVectorCertificationFaultState.Create(_fault.Kind, _fault.Occurrence, observed, _fault.Kind != BaseVectorCertificationFaultKind.None && observed >= _fault.Occurrence, false)));
             }
-            public ValueTask<OperationResult<BaseVectorCertificationQueryResult>> ExecuteAsync(BaseVectorCertificationQueryRequest request, CancellationToken cancellationToken = default) =>
-                rejectQueries
-                    ? ValueTask.FromResult(OperationResults.CapabilityUnavailable<BaseVectorCertificationQueryResult>(new BaseError { Code = "fixture.queryUnavailable", Message = "Query unavailable.", Category = ErrorCategory.Capability }))
-                    : ValueTask.FromResult(OperationResults.Ok(BaseVectorCertificationQueryResult.Create(request.Scenario,
-                        request.Scenario is BaseVectorCertificationQueryScenario.CosineRanking or BaseVectorCertificationQueryScenario.EuclideanRanking or BaseVectorCertificationQueryScenario.DotProductRanking
-                            ? [BaseVectorCertificationQueryMatch.Create("record-a", "revision-a", 1, Math.Max(1, _position)), BaseVectorCertificationQueryMatch.Create("record-b", "revision-b", 0, Math.Max(1, _position - 1))]
-                            : [BaseVectorCertificationQueryMatch.Create("record-a", "revision-a", 1, Math.Max(1, _position))],
-                        request.Scenario is BaseVectorCertificationQueryScenario.CosineRanking or BaseVectorCertificationQueryScenario.EuclideanRanking or BaseVectorCertificationQueryScenario.DotProductRanking ? 2 : 1,
-                        request.Scenario is BaseVectorCertificationQueryScenario.CosineRanking or BaseVectorCertificationQueryScenario.EuclideanRanking or BaseVectorCertificationQueryScenario.DotProductRanking ? 2 : 1)));
+            private OperationResult<T> FaultOr<T>(T value) => _fault.Kind != BaseVectorCertificationFaultKind.None && !_successfulFaultOperations
+                ? OperationResults.StoreError<T>(new BaseError { Code = "base.testing.vector.faultObserved", Message = "The certification fault was externally observed.", Category = ErrorCategory.Store })
+                : OperationResults.Ok(value);
             private BaseVectorCertificationAuthorityHead Head() => BaseVectorCertificationAuthorityHead.Create(new string('a', 64), 0, 0, 0, _position, DateTimeOffset.UnixEpoch);
         }
 
-        private sealed class Application(CancellationTokenSource? cancelDuringInitialization) : IHPDBaseApplication
+        private sealed class Application(IHPDBaseApplication inner, CancellationTokenSource cancelDuringInitialization) : IHPDBaseApplication
         {
-            public BaseApplicationReadiness CurrentReadiness { get; } = new() { State = BaseApplicationReadinessState.Ready, ProviderReady = true, RequiredAssetsReady = true };
-            public IHPDBaseAdministration Administration => throw new NotSupportedException();
+            public BaseApplicationReadiness CurrentReadiness => inner.CurrentReadiness;
+            public IHPDBaseAdministration Administration => inner.Administration;
             public ValueTask<OperationResult<BaseApplicationReadiness>> InitializeAsync(CancellationToken cancellationToken = default)
             {
-                if (cancelDuringInitialization is not null)
-                {
-                    cancelDuringInitialization.Cancel();
-                    cancellationToken.ThrowIfCancellationRequested();
-                }
-                return ValueTask.FromResult(OperationResults.Ok(CurrentReadiness));
+                cancelDuringInitialization.Cancel();
+                cancellationToken.ThrowIfCancellationRequested();
+                return inner.InitializeAsync(cancellationToken);
             }
         }
     }

@@ -93,7 +93,7 @@ public sealed class BaseVectorCertificationReport
 public static class BaseVectorProviderCertification
 {
     /// <summary>Gets the supported certification protocol version.</summary>
-    public const int ProtocolVersion = 2;
+    public const int ProtocolVersion = 3;
 
     /// <summary>Runs the selected required plan against fresh isolated hosts.</summary>
     public static async ValueTask<BaseVectorCertificationReport> RunAsync(IBaseVectorProviderCertificationFixture fixture, BaseVectorCertificationPlan plan, CancellationToken cancellationToken = default)
@@ -181,26 +181,30 @@ public static class BaseVectorProviderCertification
         if (providerClass == BaseVectorCertificationProviderClass.CoLocatedTransactional && IsDerivedOnly(kind))
             return Failed(testCase.Id, "base.testing.vector.adapterFailed", "The certification runner selected an inapplicable fault.");
 
+        OperationStatus externalStatus;
         switch (kind)
         {
             case BaseVectorCertificationFaultKind.RebuildPublishResponseLoss:
             case BaseVectorCertificationFaultKind.NonCooperativeOperation:
-                _ = await host.Provider.RebuildAsync(BaseVectorCertificationRebuildRequest.Create(schema.CollectionId, schema.CosineIndexId), cancellationToken).ConfigureAwait(false);
+                externalStatus = (await host.Provider.RebuildAsync(BaseVectorCertificationRebuildRequest.Create(schema.CollectionId, schema.CosineIndexId), cancellationToken).ConfigureAwait(false)).Status;
                 break;
             case BaseVectorCertificationFaultKind.DelaySearchVisibility:
-                _ = await host.Provider.PublishVisibilityAsync(BaseVectorCertificationVisibilityRequest.Create(0), cancellationToken).ConfigureAwait(false);
+                externalStatus = (await host.Provider.PublishVisibilityAsync(BaseVectorCertificationVisibilityRequest.Create(0), cancellationToken).ConfigureAwait(false)).Status;
                 break;
             case BaseVectorCertificationFaultKind.CredentialFailure:
             case BaseVectorCertificationFaultKind.TerminalSchemaFailure:
             case BaseVectorCertificationFaultKind.MalformedCandidates:
             case BaseVectorCertificationFaultKind.DuplicateCandidates:
             case BaseVectorCertificationFaultKind.OversizedCandidates:
-                _ = await host.Provider.InspectAsync(cancellationToken).ConfigureAwait(false);
+                externalStatus = (await host.Provider.InspectAsync(cancellationToken).ConfigureAwait(false)).Status;
                 break;
             default:
-                _ = await host.Provider.AdvanceAsync(BaseVectorCertificationAdvanceRequest.Create(0), cancellationToken).ConfigureAwait(false);
+                externalStatus = (await host.Provider.AdvanceAsync(BaseVectorCertificationAdvanceRequest.Create(0), cancellationToken).ConfigureAwait(false)).Status;
                 break;
         }
+
+        if (externalStatus is OperationStatus.Ok or OperationStatus.Created or OperationStatus.NoContent)
+            return Failed(testCase.Id, "base.testing.vector.faultOutcomeInvalid", "The injected fault did not produce the required external failure outcome.");
 
         OperationResult<BaseVectorCertificationFaultState> state = await host.Provider.InspectFaultAsync(cancellationToken).ConfigureAwait(false);
         if (!state.IsSuccess() || state.Value is null || state.Value.Kind != kind ||
@@ -231,24 +235,33 @@ public static class BaseVectorProviderCertification
     private static async ValueTask<BaseVectorCertificationCaseResult> ExecuteProtocolCaseAsync(IBaseVectorCertificationHost host, BaseVectorCertificationProviderClass providerClass, string caseId, CancellationToken cancellationToken)
     {
         BaseVectorCertificationSchema schema = BaseVectorCertificationSchema.Version1;
-        BaseVectorCertificationRecord first = Record("record-a", "tenant-a", [1, 0]);
-        BaseVectorCertificationRecord second = Record("record-b", "tenant-b", [0, 1]);
-        OperationResult<BaseVectorCertificationSeedResult> seed = await host.Authority.SeedAsync(BaseVectorCertificationSeedRequest.Create([first, second]), cancellationToken).ConfigureAwait(false);
-        if (!seed.IsSuccess() || seed.Value is null || seed.Value.SeededRecords != 2)
-            return Failed(caseId, "base.testing.vector.adapterFailed", "The certification authority rejected canonical seed state.");
-        if (seed.Value.Head.HighWaterPosition < seed.Value.Head.EarliestRetainedPosition)
-            return Failed(caseId, "base.testing.vector.adapterFailed", "The certification authority returned invalid seed evidence.");
-        BaseVectorCertificationRecord replaced = Record("record-a", "tenant-a", [0.75f, 0.25f]);
-        OperationResult<BaseVectorCertificationMutationResult> mutation = await host.Authority.CommitAsync(BaseVectorCertificationMutationRequest.Create([
-            BaseVectorCertificationMutation.Create(BaseVectorCertificationMutationKind.Replace, "record-a", replaced),
-        ]), cancellationToken).ConfigureAwait(false);
-        if (!mutation.IsSuccess() || mutation.Value is null || mutation.Value.CommittedMutations != 1 || mutation.Value.FirstPosition <= 0 || mutation.Value.LastPosition < mutation.Value.FirstPosition)
-            return Failed(caseId, "base.testing.vector.adapterFailed", "The certification authority returned invalid mutation evidence.");
+        BaseSession session = host.Sessions.For(new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.Admin, SubjectId = "certification-runner" });
+        BaseCollectionSession<BaseVectorCertificationSchemaRecord> collection = session.Collection(BaseVectorCertificationSchemaRecord.Collection);
+        BaseRecord<BaseVectorCertificationSchemaRecord> createdA = (await collection.CreateAsync(new RecordId("record-a"), Record("tenant-a", true, 10, null, "secret-a", [1, 0]), cancellationToken).ConfigureAwait(false)).RequireValue();
+        _ = (await collection.CreateAsync(new RecordId("record-b"), Record("tenant-b", false, 20, "present", "secret-b", [0, 1]), cancellationToken).ConfigureAwait(false)).RequireValue();
+        _ = (await collection.CreateAsync(new RecordId("record-c"), Record("tenant-a", true, 30, "present", "secret-c", [0.75f, 0.25f]), cancellationToken).ConfigureAwait(false)).RequireValue();
+        BaseRecord<BaseVectorCertificationSchemaRecord> replacedA = (await collection.ReplaceAsync(new RecordId("record-a"), Record("tenant-a", true, 10, null, "secret-a-v2", [0.75f, 0.25f]), cancellationToken: cancellationToken).ConfigureAwait(false)).RequireValue();
+        if (createdA.Revision is null || replacedA.Revision is null || createdA.Revision == replacedA.Revision)
+            return Failed(caseId, "base.testing.vector.revisionInvalid", "Canonical mutation revisions were not authoritative.");
+
+        if (caseId.Contains("atomicity", StringComparison.Ordinal))
+        {
+            BaseBatchBuilder batch = session.Atomic();
+            batch.Create(BaseVectorCertificationSchemaRecord.Collection, new RecordId("rollback-probe"), Record("tenant-a", true, 1, null, null, [1, 0]));
+            batch.Create(BaseVectorCertificationSchemaRecord.Collection, new RecordId("record-a"), Record("tenant-a", true, 1, null, null, [1, 0]));
+            BaseBatchResult rolledBack = (await batch.CommitAsync(cancellationToken).ConfigureAwait(false)).RequireValue();
+            if (rolledBack.Outcome != BaseRecordBatchOutcome.RolledBack || (await collection.GetAsync(new RecordId("rollback-probe"), cancellationToken).ConfigureAwait(false)) is BaseSuccess<BaseRecord<BaseVectorCertificationSchemaRecord>>)
+                return Failed(caseId, "base.testing.vector.atomicityInvalid", "The canonical failed batch was not fully rolled back.");
+        }
+
+        if (!await ValidateRealQueriesAsync(host, replacedA.Revision.Value, cancellationToken).ConfigureAwait(false))
+            return Failed(caseId, "base.testing.vector.queryEvidenceInvalid", "The BASE-owned canonical query oracle failed before rebuild.");
+
         OperationResult<BaseVectorCertificationAuthorityHead> head = await host.Authority.CaptureHeadAsync(cancellationToken).ConfigureAwait(false);
         OperationResult<BaseVectorCertificationAuthorityState> authority = await host.Authority.InspectAsync(cancellationToken).ConfigureAwait(false);
         OperationResult<BaseVectorCertificationProviderState> provider = await host.Provider.InspectAsync(cancellationToken).ConfigureAwait(false);
         OperationResult<BaseVectorCertificationObservationPage> observations = await host.Observations.ReadAsync(BaseVectorCertificationObservationRequest.Create(), cancellationToken).ConfigureAwait(false);
-        if (!head.IsSuccess() || head.Value is null || head.Value.HighWaterPosition < mutation.Value.LastPosition || head.Value.HighWaterPosition < head.Value.EarliestRetainedPosition || !authority.IsSuccess() || !provider.IsSuccess() || !observations.IsSuccess())
+        if (!head.IsSuccess() || head.Value is null || head.Value.HighWaterPosition < head.Value.EarliestRetainedPosition || !authority.IsSuccess() || !provider.IsSuccess() || !observations.IsSuccess())
             return Failed(caseId, "base.testing.vector.adapterFailed", "The certification adapter returned invalid protocol state.");
         if (!string.Equals(authority.Value!.Head.StoreIdentityDigest, head.Value.StoreIdentityDigest, StringComparison.Ordinal) ||
             observations.Value is null || observations.Value.Entries.Count > 256)
@@ -272,57 +285,56 @@ public static class BaseVectorProviderCertification
             if (!NotApplicable(advance) || !NotApplicable(prune))
                 return Failed(caseId, "base.testing.vector.adapterFailed", "The certification adapter violated provider-class applicability.");
         }
-        if (!await ValidQueryEvidenceAsync(host, BaseVectorCertificationQueryScenario.CosineRanking, cancellationToken).ConfigureAwait(false))
-            return Failed(caseId, "base.testing.vector.queryEvidenceInvalid", "The provider did not prove vector behavior before rebuild.");
-        if (caseId.Contains("lifecycle", StringComparison.Ordinal))
+        BaseVectorResult<BaseVectorCertificationSchemaRecord> beforeRebuild = (await collection.Vector(BaseVectorCertificationSchemaRecord.VectorIndexes.Cosine).Nearest(BaseVector.Create([1, 0])).Take(3).ExecuteAsync(cancellationToken).ConfigureAwait(false)).RequireValue();
+        BaseResult<BaseVectorRebuildResult> rebuild = await host.Application.Administration.RebuildVectorIndexAsync(new BaseVectorRebuildRequest
         {
-            OperationResult<BaseVectorCertificationTransitionResult> transition = await host.Authority.TransitionAsync(
-                BaseVectorCertificationTransitionRequest.Create(BaseVectorCertificationTransitionKind.AdvanceIndexGeneration, schema.CollectionId, schema.CosineIndexId),
-                cancellationToken).ConfigureAwait(false);
-            if (!transition.IsSuccess() || transition.Value is null || transition.Value.CurrentGeneration != transition.Value.PreviousGeneration + 1)
-                return Failed(caseId, "base.testing.vector.adapterFailed", "The certification authority rejected a generation transition.");
-        }
-        OperationResult<BaseVectorCertificationRebuildResult> rebuild = await host.Provider.RebuildAsync(BaseVectorCertificationRebuildRequest.Create(schema.CollectionId, schema.CosineIndexId), cancellationToken).ConfigureAwait(false);
-        if (!rebuild.IsSuccess() || rebuild.Value is null || rebuild.Value.CurrentGeneration != rebuild.Value.PreviousGeneration + 1 ||
-            !string.Equals(rebuild.Value.CollectionId, schema.CollectionId, StringComparison.Ordinal) ||
-            !string.Equals(rebuild.Value.IndexId, schema.CosineIndexId, StringComparison.Ordinal))
-            return Failed(caseId, "base.testing.vector.adapterFailed", "The certification provider rebuild failed.");
+            StoreId = host.StoreId,
+            Principal = new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.Admin, SubjectId = "certification-runner" },
+            CollectionId = schema.CollectionId,
+            VectorIndexId = schema.CosineIndexId,
+            ExpectedGeneration = beforeRebuild.VectorIndexGeneration,
+            ExpectedPurgeGeneration = 0,
+            Confirmation = "rebuild",
+        }, cancellationToken).ConfigureAwait(false);
+        if (rebuild is not BaseSuccess<BaseVectorRebuildResult> rebuilt || rebuilt.Value.PublishedGeneration != beforeRebuild.VectorIndexGeneration + 1)
+            return Failed(caseId, "base.testing.vector.rebuildInvalid", "The BASE administration rebuild did not publish the next generation.");
+        if (!await ValidateRealQueriesAsync(host, replacedA.Revision.Value, cancellationToken).ConfigureAwait(false))
+            return Failed(caseId, "base.testing.vector.queryEvidenceInvalid", "The BASE-owned canonical query oracle failed after rebuild.");
         OperationResult<BaseVectorCertificationFaultState> fault = await host.Provider.InspectFaultAsync(cancellationToken).ConfigureAwait(false);
         if (!fault.IsSuccess() || fault.Value is null || fault.Value.Kind != BaseVectorCertificationFaultKind.None)
             return Failed(caseId, "base.testing.vector.faultNotConsumed", "The certification fault state is invalid.");
-        BaseVectorCertificationQueryScenario[] scenarios = caseId.Contains("ranking", StringComparison.Ordinal)
-            ? Enum.GetValues<BaseVectorCertificationQueryScenario>()
-            : [BaseVectorCertificationQueryScenario.CosineRanking];
-        foreach (BaseVectorCertificationQueryScenario scenario in scenarios)
-        {
-            OperationResult<BaseVectorCertificationQueryResult> query = await host.Queries.ExecuteAsync(BaseVectorCertificationQueryRequest.Create(scenario), cancellationToken).ConfigureAwait(false);
-            if (!query.IsSuccess() || query.Value is null || !ValidQueryEvidence(query.Value, scenario))
-                return Failed(caseId, "base.testing.vector.queryEvidenceInvalid", "The provider did not prove the required vector query behavior.");
-        }
         return Passed(caseId);
 
         static bool NotApplicable<T>(OperationResult<T> result) =>
             result.Status == OperationStatus.CapabilityUnavailable &&
             string.Equals(result.Error?.Code, "base.testing.vector.operationNotApplicable", StringComparison.Ordinal);
 
-        BaseVectorCertificationRecord Record(string id, string tenant, float[] vector) => BaseVectorCertificationRecord.Create(id,
-        [
-            BaseVectorCertificationField.Create(schema.TenantFieldId, BaseVectorCertificationValue.String(tenant)),
-            BaseVectorCertificationField.Create(schema.VectorFieldId, BaseVectorCertificationValue.Vector(BaseVector.Create(vector))),
-        ]);
+        static BaseVectorCertificationSchemaRecord Record(string tenant, bool active, long priority, string? optional, string? secret, float[] vector) => new()
+        { Tenant = tenant, Active = active, Priority = priority, Optional = optional, Secret = secret, Embedding = BaseVector.Create(vector) };
     }
-    private static async ValueTask<bool> ValidQueryEvidenceAsync(IBaseVectorCertificationHost host, BaseVectorCertificationQueryScenario scenario, CancellationToken cancellationToken)
+    private static async ValueTask<bool> ValidateRealQueriesAsync(IBaseVectorCertificationHost host, RevisionToken expectedARevision, CancellationToken cancellationToken)
     {
-        OperationResult<BaseVectorCertificationQueryResult> query = await host.Queries.ExecuteAsync(BaseVectorCertificationQueryRequest.Create(scenario), cancellationToken).ConfigureAwait(false);
-        return query.IsSuccess() && query.Value is not null && ValidQueryEvidence(query.Value, scenario);
-    }
-    private static bool ValidQueryEvidence(BaseVectorCertificationQueryResult value, BaseVectorCertificationQueryScenario scenario)
-    {
-        string[] expected = scenario is BaseVectorCertificationQueryScenario.CosineRanking or BaseVectorCertificationQueryScenario.EuclideanRanking or BaseVectorCertificationQueryScenario.DotProductRanking
-            ? ["record-a", "record-b"] : ["record-a"];
-        return value.Scenario == scenario && value.HydratedRecords == expected.Length && value.AuthorizedCandidates >= expected.Length &&
-            value.Matches.Select(static match => match.RecordId).SequenceEqual(expected, StringComparer.Ordinal) &&
-            value.Matches.All(static match => !string.IsNullOrEmpty(match.Revision) && double.IsFinite(match.Measure) && match.IndexedPosition >= 1);
+        BaseSession unrestricted = host.Sessions.For(new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.Admin, SubjectId = "certification-runner" });
+        BaseCollectionSession<BaseVectorCertificationSchemaRecord> collection = unrestricted.Collection(BaseVectorCertificationSchemaRecord.Collection);
+        BaseVectorResult<BaseVectorCertificationSchemaRecord> cosine = (await collection.Vector(BaseVectorCertificationSchemaRecord.VectorIndexes.Cosine).Nearest(BaseVector.Create([1, 0])).Take(3).ExecuteAsync(cancellationToken).ConfigureAwait(false)).RequireValue();
+        BaseVectorResult<BaseVectorCertificationSchemaRecord> euclidean = (await collection.Vector(BaseVectorCertificationSchemaRecord.VectorIndexes.Euclidean).Nearest(BaseVector.Create([1, 0])).Take(3).ExecuteAsync(cancellationToken).ConfigureAwait(false)).RequireValue();
+        BaseVectorResult<BaseVectorCertificationSchemaRecord> dot = (await collection.Vector(BaseVectorCertificationSchemaRecord.VectorIndexes.Dot).Nearest(BaseVector.Create([1, 0])).Take(3).ExecuteAsync(cancellationToken).ConfigureAwait(false)).RequireValue();
+        string[] expected = ["record-a", "record-c", "record-b"];
+        if (!Ids(cosine).SequenceEqual(expected) || !Ids(euclidean).SequenceEqual(expected) || !Ids(dot).SequenceEqual(expected) ||
+            !Near(cosine.Matches[0].Measure.Value, 0.9486832980505138) || !Near(euclidean.Matches[0].Measure.Value, Math.Sqrt(0.125)) || !Near(dot.Matches[0].Measure.Value, 0.75) ||
+            cosine.Matches[0].Record.Revision != expectedARevision || cosine.Matches[0].Record.Value.Secret != "secret-a-v2")
+            return false;
+        BaseVectorResult<BaseVectorCertificationSchemaRecord> filters = (await collection.Vector(BaseVectorCertificationSchemaRecord.VectorIndexes.Cosine).Nearest(BaseVector.Create([1, 0]))
+            .Where(BaseVectorCertificationSchemaRecord.Fields.Active, true).WhereAny(BaseVectorCertificationSchemaRecord.Fields.Priority, 10L, 30L)
+            .Where(BaseVectorCertificationSchemaRecord.Fields.Optional, (string)null!).OrWhere(BaseVectorCertificationSchemaRecord.Fields.Optional, "present").Take(3).ExecuteAsync(cancellationToken).ConfigureAwait(false)).RequireValue();
+        if (!Ids(filters).SequenceEqual(["record-a", "record-c", "record-b"])) return false;
+        BaseSession restricted = host.Sessions.For(new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.Authenticated, SubjectId = "certification-restricted" });
+        BaseVectorResult<BaseVectorCertificationSchemaRecord> secured = (await restricted.Collection(BaseVectorCertificationSchemaRecord.Collection).Vector(BaseVectorCertificationSchemaRecord.VectorIndexes.Cosine)
+            .Nearest(BaseVector.Create([0, 1])).Take(3).ExecuteAsync(cancellationToken).ConfigureAwait(false)).RequireValue();
+        return Ids(secured).All(static id => id is "record-a" or "record-c") && secured.Matches.All(static match => match.Record.Redacted && match.Record.Value.Secret is null);
+
+        static IEnumerable<string> Ids(BaseVectorResult<BaseVectorCertificationSchemaRecord> result) => result.Matches.Select(static match => match.Record.Id.Value);
+        static bool Near(double actual, double expected) => Math.Abs(actual - expected) <= 1e-6;
     }
     private static BaseVectorCertificationCaseResult Passed(string id) => new(id, BaseVectorCertificationCaseOutcome.Passed);
     private static BaseVectorCertificationCaseResult Failed(string id, string code, string message) => new(id, BaseVectorCertificationCaseOutcome.Failed, code, message);

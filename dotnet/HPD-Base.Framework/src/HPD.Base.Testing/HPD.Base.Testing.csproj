@@ -16,6 +16,10 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../HPD.Base/HPD.Base.csproj" />
+    <ProjectReference Include="../HPD.Base.Generators/HPD.Base.Generators.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false"
+                      GlobalPropertiesToRemove="PublishAot;RuntimeIdentifier;SelfContained" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.10" />

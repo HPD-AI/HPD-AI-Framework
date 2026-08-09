@@ -113,6 +113,10 @@ internal sealed class DefaultHPDBaseApplication(IBaseProviderBootstrap bootstrap
         {
             return Fail("base.application.initializationTimeout");
         }
+        catch (InvalidOperationException exception) when (string.Equals(exception.Message, "base.store.authorityAmbiguous", StringComparison.Ordinal))
+        {
+            return Fail("base.store.authorityAmbiguous");
+        }
         catch
         {
             return Fail("base.application.initializationFailed");

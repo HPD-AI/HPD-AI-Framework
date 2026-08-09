@@ -14,7 +14,9 @@ internal static class Program
         WebApplicationBuilder host = WebApplication.CreateSlimBuilder();
         host.Services.AddHPDBase(builder => builder
             .ReplacePolicyEvaluator<AllowAll>()
-            .AddCollection(InMemoryVectorRecord.Collection));
+            .ConfigureVector(options => options.MaxTopK = 1_000)
+            .AddCollection(InMemoryVectorRecord.Collection)
+            .AddCollection(InMemoryUnrelatedRecord.Collection));
         host.Services.AddHPDBaseAspNetCore();
         host.Services.AddHPDBaseVectorAspNetCore();
         await using WebApplication app = host.Build();
@@ -61,6 +63,7 @@ internal static class Program
         Process process = Process.GetCurrentProcess();
         process.Refresh();
         long baseline = process.WorkingSet64;
+        (await session.Collection(InMemoryUnrelatedRecord.Collection).CreateAsync(new RecordId("unrelated"), new InMemoryUnrelatedRecord { Value = "untouched" })).RequireValue();
 
         for (int offset = 0; offset < recordCount; offset += 100)
         {
@@ -79,11 +82,32 @@ internal static class Program
         OperationResult<IInMemoryProjectionReadSession> firstCapture = await ((IInMemoryProjectionAuthority)store).CaptureAsync(CancellationToken.None);
         if (!firstCapture.IsSuccess() || firstCapture.Value is null) return 10;
         await using IInMemoryProjectionReadSession firstRoot = firstCapture.Value;
+        BaseInMemoryProjectionIndexHandle firstHandle = firstRoot.ProjectionSnapshot.GetIndexHandles().Single(handle => handle.Index.Id == InMemoryVectorRecord.VectorIndexes.Cosine.Definition.Id);
+        if (firstRoot.ProjectionSnapshot.GetIndexHandles().Any(handle => handle.Collection.Id == InMemoryUnrelatedRecord.Collection.Id) || firstRoot.ProjectionSnapshot.AuthoritativeRecordCounts[InMemoryUnrelatedRecord.Collection.Id] != 1) return 23;
+        IReadOnlyDictionary<string, InMemoryVectorCarrier> firstCarriers = firstRoot.State.GetCarriers(firstHandle);
+        if (firstCarriers.Count != vectorCount || !firstCarriers.TryGetValue("capacity-000000", out InMemoryVectorCarrier? firstCarrier)) return 14;
+        int examined = 0;
+        int previousExamined = -1;
+        BaseInMemoryProjectionSourceCursor? scanCursor = null;
+        do
+        {
+            OperationResult<BaseInMemoryProjectionSourcePage> page = await firstRoot.EnumerateProjectionSourceAsync(firstHandle, new BaseInMemoryProjectionSourceScanRequest(1_024, scanCursor), CancellationToken.None);
+            if (!page.IsSuccess() || page.Value is null || page.Value.ExaminedSourceEntries is < 1 or > 1_024) return 15;
+            examined = checked(examined + page.Value.ExaminedSourceEntries);
+            if (examined <= previousExamined) return 16;
+            previousExamined = examined;
+            scanCursor = page.Value.Cursor;
+        }
+        while (scanCursor is not null);
+        if (examined != recordCount) return 17;
         await session.Collection(InMemoryVectorRecord.Collection).ReplaceAsync(new RecordId("capacity-000000"), new InMemoryVectorRecord
         { Label = "mutation-one", Tenant = new RecordId("capacity"), Active = true, Priority = 0, Optional = null, Embedding = BaseVector.Create([1, 0]) });
         OperationResult<IInMemoryProjectionReadSession> secondCapture = await ((IInMemoryProjectionAuthority)store).CaptureAsync(CancellationToken.None);
         if (!secondCapture.IsSuccess() || secondCapture.Value is null) return 11;
         await using IInMemoryProjectionReadSession secondRoot = secondCapture.Value;
+        BaseInMemoryProjectionIndexHandle secondHandle = secondRoot.ProjectionSnapshot.GetIndexHandles().Single(handle => handle.Index.Id == InMemoryVectorRecord.VectorIndexes.Cosine.Definition.Id);
+        IReadOnlyDictionary<string, InMemoryVectorCarrier> secondCarriers = secondRoot.State.GetCarriers(secondHandle);
+        if (secondCarriers.Count != vectorCount || !secondCarriers.TryGetValue("capacity-000000", out InMemoryVectorCarrier? secondCarrier) || secondCarrier.Revision == firstCarrier.Revision) return 18;
         await session.Collection(InMemoryVectorRecord.Collection).ReplaceAsync(new RecordId("capacity-000000"), new InMemoryVectorRecord
         { Label = "mutation-two", Tenant = new RecordId("capacity"), Active = true, Priority = 0, Optional = null, Embedding = BaseVector.Create([1, 0]) });
 
@@ -95,10 +119,19 @@ internal static class Program
             StoreId = "inmemory", Principal = principal, CollectionId = target.CollectionId, VectorIndexId = target.VectorIndexId,
             ExpectedGeneration = target.Generation, ExpectedPurgeGeneration = target.PurgeGeneration, Confirmation = "rebuild",
         });
+        if (rebuilt is not BaseSuccess<BaseVectorRebuildResult> rebuiltSuccess || rebuiltSuccess.Value.PublishedGeneration != target.Generation + 1) return 19;
+        BaseVectorResult<InMemoryVectorRecord> searchable = (await session.Collection(InMemoryVectorRecord.Collection)
+            .Vector(InMemoryVectorRecord.VectorIndexes.Cosine).Nearest(BaseVector.Create([1, 0])).Take(1_000).ExecuteAsync()).RequireValue();
+        if (searchable.Matches.Length != vectorCount || searchable.VectorIndexGeneration != rebuiltSuccess.Value.PublishedGeneration) return 20;
+        OperationResult<IInMemoryProjectionReadSession> currentCapture = await ((IInMemoryProjectionAuthority)store).CaptureAsync(CancellationToken.None);
+        if (!currentCapture.IsSuccess() || currentCapture.Value is null) return 21;
+        await using IInMemoryProjectionReadSession currentRoot = currentCapture.Value;
+        BaseInMemoryProjectionIndexHandle currentHandle = currentRoot.ProjectionSnapshot.GetIndexHandles().Single(handle => handle.Index.Id == InMemoryVectorRecord.VectorIndexes.Cosine.Definition.Id);
+        if (currentRoot.State.GetCarriers(currentHandle).Count != vectorCount || firstRoot.State.GetCarriers(firstHandle)["capacity-000000"].Revision != firstCarrier.Revision || secondRoot.State.GetCarriers(secondHandle)["capacity-000000"].Revision != secondCarrier.Revision) return 22;
         process.Refresh();
         long retainedBytes = Math.Max(0, process.WorkingSet64 - baseline);
-        Console.WriteLine($"records={recordCount} vectors={vectorCount} retainedRoots=2 scanPageMaximum=256 retainedBytes={retainedBytes} elapsedSeconds={elapsed.Elapsed.TotalSeconds:F1}");
-        return rebuilt is BaseSuccess<BaseVectorRebuildResult> && retainedBytes <= maximumRetainedBytes && elapsed.Elapsed < TimeSpan.FromHours(1) ? 0 : 12;
+        Console.WriteLine($"records={recordCount} vectors={vectorCount} searchable={searchable.Matches.Length} retainedRoots=2 scanPageMaximum=1024 examined={examined} retainedBytes={retainedBytes} elapsedSeconds={elapsed.Elapsed.TotalSeconds:F1}");
+        return retainedBytes <= maximumRetainedBytes && elapsed.Elapsed < TimeSpan.FromHours(1) ? 0 : 12;
     }
 }
 
@@ -116,7 +149,14 @@ internal partial record InMemoryVectorRecord
     [BaseField("inmemory.vector.embedding", Operators = BaseFieldOperator.None)] public BaseVector? Embedding { get; init; }
 }
 
+[BaseCollection("inmemory_unrelated_records", typeof(InMemoryVectorJsonContext))]
+internal partial record InMemoryUnrelatedRecord
+{
+    [BaseField("inmemory.unrelated.value")] public required string Value { get; init; }
+}
+
 [JsonSerializable(typeof(InMemoryVectorRecord))]
+[JsonSerializable(typeof(InMemoryUnrelatedRecord))]
 internal partial class InMemoryVectorJsonContext : JsonSerializerContext;
 
 internal sealed class AllowAll : IPolicyEvaluator

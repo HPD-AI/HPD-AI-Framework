@@ -157,7 +157,7 @@ internal sealed class InMemoryVectorProvider(
                     {
                         OperationResult<BaseInMemoryProjectionSourcePage> page = await session.EnumerateProjectionSourceAsync(
                             handle,
-                            new BaseInMemoryProjectionSourceScanRequest(256, cursor),
+                            new BaseInMemoryProjectionSourceScanRequest(1_024, cursor),
                             cancellationToken).ConfigureAwait(false);
                         if (!page.IsSuccess() || page.Value is null)
                             return CopyFailure<BaseVectorRebuildResult, BaseInMemoryProjectionSourcePage>(page);

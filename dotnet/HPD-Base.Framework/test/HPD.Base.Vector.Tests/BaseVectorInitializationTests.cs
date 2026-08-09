@@ -132,7 +132,7 @@ public sealed class BaseVectorInitializationTests
         OperationResult<BaseApplicationReadiness> result = await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync();
 
         result.Status.Should().Be(OperationStatus.StoreError);
-        result.Error!.Code.Should().Be("base.application.initializationFailed");
+        result.Error!.Code.Should().Be("base.store.authorityAmbiguous");
     }
 
     private static ServiceProvider Build(BaseOpaqueTokenKey key)

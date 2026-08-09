@@ -140,23 +140,6 @@ public enum BaseVectorCertificationObservationKind
     OperationResult,
 }
 
-/// <summary>Identifies one closed vector-query behavior exercised by certification.</summary>
-public enum BaseVectorCertificationQueryScenario
-{
-    /// <summary>Cosine ranking with deterministic boundary ties.</summary>
-    CosineRanking,
-    /// <summary>Euclidean ranking with deterministic boundary ties.</summary>
-    EuclideanRanking,
-    /// <summary>Dot-product ranking with deterministic boundary ties.</summary>
-    DotProductRanking,
-    /// <summary>Policy filtering before ranking.</summary>
-    PolicyBeforeRanking,
-    /// <summary>Missing, null, equality, IN, AND, and OR filter truth tables.</summary>
-    CandidateFilterTruthTable,
-    /// <summary>Exact-revision hydration and redaction.</summary>
-    ExactHydration,
-}
-
 /// <summary>Provides a provider-specific isolated certification host.</summary>
 public interface IBaseVectorProviderCertificationFixture
 {
@@ -171,23 +154,18 @@ public interface IBaseVectorProviderCertificationFixture
 /// <summary>Owns one isolated certification case.</summary>
 public interface IBaseVectorCertificationHost : IAsyncDisposable
 {
+    /// <summary>Gets the configured authoritative store identifier.</summary>
+    string StoreId { get; }
     /// <summary>Gets the initialized BASE application.</summary>
     IHPDBaseApplication Application { get; }
     /// <summary>Gets authoritative controls.</summary>
     IBaseVectorCertificationAuthorityControl Authority { get; }
     /// <summary>Gets provider controls.</summary>
     IBaseVectorCertificationProviderControl Provider { get; }
-    /// <summary>Gets the real vector-query control.</summary>
-    IBaseVectorCertificationQueryControl Queries { get; }
+    /// <summary>Gets the BASE-owned session factory used by the protocol runner.</summary>
+    IBaseSessionFactory Sessions { get; }
     /// <summary>Gets bounded observations.</summary>
     IBaseVectorCertificationObservationSource Observations { get; }
-}
-
-/// <summary>Executes closed certification searches through the provider's supported BASE query path.</summary>
-public interface IBaseVectorCertificationQueryControl
-{
-    /// <summary>Executes one closed query scenario and returns bounded result evidence.</summary>
-    ValueTask<OperationResult<BaseVectorCertificationQueryResult>> ExecuteAsync(BaseVectorCertificationQueryRequest request, CancellationToken cancellationToken = default);
 }
 
 /// <summary>Controls the authoritative side of one closed certification case.</summary>
@@ -309,4 +287,11 @@ public sealed class BaseVectorCertificationSchema
     public string VectorFieldId => "hpd.base.vector.certification.vector";
     /// <summary>Gets the canonical tenant filter field identifier.</summary>
     public string TenantFieldId => "hpd.base.vector.certification.tenant";
+    /// <summary>Installs the protocol-owned generated schema and policy into a fresh certification host.</summary>
+    public void Configure(HPDBaseBuilder builder)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        builder.AddCollection(BaseVectorCertificationSchemaRecord.Collection)
+            .ReplacePolicyEvaluator<BaseVectorCertificationPolicy>();
+    }
 }
