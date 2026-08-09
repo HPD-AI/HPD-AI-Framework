@@ -1,16 +1,20 @@
 #!/usr/bin/env node
-import { emit } from "./emit.js";
+import { emit, emitEditor } from "./emit.js";
 import { loadSnapshot } from "./input.js";
 import { createGenerationPlan } from "./normalize.js";
+import { createEditorContract, loadEditorLedger } from "./editor.js";
 
 async function main(args: readonly string[]): Promise<void> {
   if (args[0] !== "generate") usage();
   const snapshot = option(args, "--snapshot");
+  const editorLedger = option(args, "--editor-ledger");
   const output = option(args, "--out");
-  const known = new Set(["generate", "--snapshot", snapshot, "--out", output, "--clean"]);
+  const known = new Set(["generate", "--snapshot", snapshot, "--editor-ledger", editorLedger, "--out", output, "--clean"]);
   if (args.some(value => !known.has(value))) usage();
-  const files = await emit(createGenerationPlan(await loadSnapshot(snapshot)), output, args.includes("--clean"));
-  process.stdout.write(`Generated ${files.length} Gateway contract files in ${output}.\n`);
+  const parsedSnapshot = await loadSnapshot(snapshot);
+  const files = await emit(createGenerationPlan(parsedSnapshot), output, args.includes("--clean"));
+  const editorFiles = await emitEditor(createEditorContract(parsedSnapshot, await loadEditorLedger(editorLedger)), output);
+  process.stdout.write(`Generated ${files.length + editorFiles.length} Gateway contract files in ${output}.\n`);
 }
 
 function option(args: readonly string[], name: string): string {
@@ -21,7 +25,7 @@ function option(args: readonly string[], name: string): string {
 }
 
 function usage(): never {
-  process.stderr.write("Usage: hpd-gateway-client-generator generate --snapshot <file> --out <directory> [--clean]\n");
+  process.stderr.write("Usage: hpd-gateway-client-generator generate --snapshot <file> --editor-ledger <file> --out <directory> [--clean]\n");
   process.exit(2);
 }
 

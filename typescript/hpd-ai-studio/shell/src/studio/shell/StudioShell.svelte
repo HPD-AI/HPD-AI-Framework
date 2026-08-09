@@ -12,7 +12,7 @@
   }));
 </script>
 
-<div class="grid min-h-screen grid-cols-[var(--spacing-studio-sidebar)_minmax(0,1fr)] bg-studio-bg text-studio-ink">
+<div class="grid min-h-screen grid-cols-1 bg-studio-bg text-studio-ink lg:grid-cols-[var(--spacing-studio-sidebar)_minmax(0,1fr)]">
   <Sidebar {studio} {observation} />
-  <section class="grid min-h-screen min-w-0">{@render main?.()}</section>
+  <section class="grid min-h-0 min-w-0 lg:min-h-screen">{@render main?.()}</section>
 </div>

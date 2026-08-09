@@ -30,9 +30,11 @@
 <StudioShell {studio} {observation}>
   {#snippet main()}
     {#if Page && observation.route}
-      <StudioModuleBoundary context={observation.route.context}>
-        <Page />
-      </StudioModuleBoundary>
+      {#key observation.route.context}
+        <StudioModuleBoundary context={observation.route.context}>
+          <Page />
+        </StudioModuleBoundary>
+      {/key}
     {:else}
       <StudioUnavailable />
     {/if}

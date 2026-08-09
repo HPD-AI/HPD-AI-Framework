@@ -4,8 +4,11 @@ import { agentStudioModule } from '@hpd-research/hpd-agent-studio';
 import { authStudioModule } from '@hpd-research/hpd-auth-studio';
 import { baseStudioModule } from '@hpd-research/hpd-base-studio';
 import { graphStudioModule } from '@hpd-research/hpd-graph-studio';
+import { createGatewayStudioModule } from '@hpd-research/hpd-gateway-studio';
+import { createGatewayClient } from '@hpd/gateway-client';
 import { mlStudioModule } from '@hpd-research/hpd-ml-studio';
 import { ragStudioModule } from '@hpd-research/hpd-rag-studio';
+import { resolveModuleContext } from '../../../../hpd-studio-core/src/context-internal.ts';
 
 const modules: readonly StudioModule[] = [
   agentStudioModule,
@@ -13,11 +16,21 @@ const modules: readonly StudioModule[] = [
   baseStudioModule,
   graphStudioModule,
   mlStudioModule,
-  ragStudioModule
+  ragStudioModule,
+  createGatewayStudioModule({
+    client: createGatewayClient({
+      baseUrl: 'https://gateway.example',
+      authentication: { getAccessToken: () => null },
+      fetch: async () => { throw new Error('Unauthenticated conformance fixture must not fetch.'); }
+    })
+  })
 ];
 const authentication: StudioAuthenticationService = {
   snapshot: () => ({ isAuthenticated: false }),
-  subscribe: () => () => {}
+  subscribe: (listener) => {
+    listener({ isAuthenticated: false });
+    return () => {};
+  }
 };
 
 async function compose(selected: readonly StudioModule[]) {
@@ -57,5 +70,13 @@ describe('placeholder module composition fixtures', () => {
       await forward.dispose();
       await reverse.dispose();
     }
+  });
+
+  it('retains the Gateway module-owned controller until disposal', async () => {
+    const runtime = await compose([modules.find((module) => module.id === 'gateway')!]);
+    const context = resolveModuleContext(runtime.routes[0]!.context);
+    expect(context.get('gateway-controller')).toBeDefined();
+    await runtime.dispose();
+    expect(() => resolveModuleContext(runtime.routes[0]!.context)).toThrow();
   });
 });

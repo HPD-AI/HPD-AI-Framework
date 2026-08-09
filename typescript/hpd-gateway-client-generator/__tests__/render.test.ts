@@ -3,7 +3,7 @@ import { render } from "../src/render.js";
 import type { GenerationPlan } from "../src/types.js";
 
 describe("contract rendering", () => {
-  it("emits the six dependency-free files and preserves CAS semantics", () => {
+  it("emits the dependency-free contract and runtime files and preserves CAS semantics", () => {
     const plan: GenerationPlan = {
       sourceSha256: "a".repeat(64), openApiSha256: "b".repeat(64), manifestSha256: "c".repeat(64), outputPlanSha256: "d".repeat(64),
       schemas: {
@@ -33,7 +33,7 @@ describe("contract rendering", () => {
       }],
     };
     const files = render(plan);
-    expect(Object.keys(files).sort()).toEqual(["contract.ts", "index.ts", "operations.ts", "result.ts", "schemas.ts", "snapshot.json"]);
+    expect(Object.keys(files).sort()).toEqual(["contract.ts", "index.ts", "operations.ts", "result.ts", "runtime.ts", "schemas.ts", "snapshot.json"]);
     expect(files["operations.ts"]).toContain("readonly desiredPrecondition: S.GatewayDesiredPrecondition");
     expect(files["operations.ts"]).toContain("GatewayOperationResult<S.Response, 202, 400 | 409>");
     expect(files["schemas.ts"]).toContain("readonly revisionId: GatewayRevisionId");

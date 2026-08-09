@@ -168,7 +168,7 @@ function fail(message: string): never { throw new Error(message); }
 
 // JSON.parse keeps the last duplicate property. This bounded lexical pass rejects
 // duplicates before materialization while respecting strings and object scopes.
-function rejectDuplicateObjectNames(text: string): void {
+export function rejectDuplicateObjectNames(text: string): void {
   const stack: Array<Set<string> | null> = [];
   let index = 0;
   while (index < text.length) {

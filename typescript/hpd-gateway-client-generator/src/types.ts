@@ -82,3 +82,20 @@ export interface GenerationPlan {
   readonly schemaConstraints: readonly GatewaySchemaConstraint[];
   readonly parameterKinds: Readonly<Record<string, "string" | "number">>;
 }
+
+export interface GatewayEditorLedgerExport {
+  readonly exportVersion: 1;
+  readonly hashAlgorithm: "sha-256";
+  readonly envelopeSha256: string;
+  readonly envelope: Readonly<Record<string, JsonValue>>;
+}
+
+export interface GatewayDeclarationEditorContract {
+  readonly editorContractVersion: 1;
+  readonly declarationSchemaRef: string;
+  readonly editorLedgerSha256: string;
+  readonly openApiSha256: string;
+  readonly manifestSha256: string;
+  readonly sourceSha256: string;
+  readonly fields: readonly Readonly<Record<string, JsonValue>>[];
+}

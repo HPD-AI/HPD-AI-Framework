@@ -1,0 +1,34 @@
+{
+  "name": "@hpd-research/hpd-gateway-studio",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Governed HPD Gateway module for HPD Studio.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "svelte": "./src/index.ts",
+      "import": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "svelte-check --tsconfig ./tsconfig.json"
+  },
+  "files": ["src", "README.md"],
+  "dependencies": {
+    "@hpd/gateway-client": "file:../../../hpd-gateway-client"
+  },
+  "peerDependencies": {
+    "@hpd-research/hpd-studio-core": "0.1.0",
+    "svelte": "^5.0.0"
+  },
+  "devDependencies": {
+    "@hpd-research/hpd-studio-core": "file:../../../hpd-studio-core",
+    "@types/node": "^24.0.0",
+    "svelte": "^5.0.0",
+    "svelte-check": "^4.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^4.0.0"
+  },
+  "license": "FSL-1.1-ALv2"
+}
