@@ -330,14 +330,14 @@ public sealed class BaseVectorQueryDxTests
             testing => testing.Consistency = BaseVectorProviderConsistency.DerivedJournal);
         BaseTestVectorStore store = provider.GetRequiredService<BaseTestVectorStore>();
         store.Seed(VectorDxDocument.Collection.Id, VectorDxDocument.VectorIndexes.Cosine.Definition.Id, [Entry("a", "one", [1, 0])]);
-        store.SetDerivedState(VectorDxDocument.Collection.Id, VectorDxDocument.VectorIndexes.Cosine.Definition.Id, 5, 3, DateTimeOffset.UtcNow.AddMinutes(-2));
+        store.SetDerivedState(VectorDxDocument.Collection.Id, VectorDxDocument.VectorIndexes.Cosine.Definition.Id, 5, 3, 3, DateTimeOffset.UtcNow.AddMinutes(-2));
         BaseVectorQuery<VectorDxDocument> query = provider.GetRequiredService<IBaseSessionFactory>().For(Admin()).Collection(VectorDxDocument.Collection).Vector(VectorDxDocument.VectorIndexes.Cosine).Nearest(BaseVector.Create([1, 0])).Take(1);
 
         BaseResult<BaseVectorResult<VectorDxDocument>> stale = await query.ExecuteAsync();
         BaseVectorResult<VectorDxDocument> explicitlyAvailable = (await query.WithConsistency(new BaseVectorConsistencyRequirement.Available()).ExecuteAsync()).RequireValue();
         store.ApplyDerivedPosition(VectorDxDocument.Collection.Id, VectorDxDocument.VectorIndexes.Cosine.Definition.Id, 5, DateTimeOffset.UtcNow);
         BaseResult<BaseVectorResult<VectorDxDocument>> gap = await query.WithConsistency(new BaseVectorConsistencyRequirement.Available()).ExecuteAsync();
-        store.SetDerivedState(VectorDxDocument.Collection.Id, VectorDxDocument.VectorIndexes.Cosine.Definition.Id, 5, 5, DateTimeOffset.UtcNow);
+        store.SetDerivedState(VectorDxDocument.Collection.Id, VectorDxDocument.VectorIndexes.Cosine.Definition.Id, 5, 5, 5, DateTimeOffset.UtcNow);
         store.OvertakeDerivedRetention(VectorDxDocument.Collection.Id, VectorDxDocument.VectorIndexes.Cosine.Definition.Id);
         BaseResult<BaseVectorResult<VectorDxDocument>> overtaken = await query.WithConsistency(new BaseVectorConsistencyRequirement.Available()).ExecuteAsync();
 
@@ -359,22 +359,23 @@ public sealed class BaseVectorQueryDxTests
             testing => testing.Consistency = BaseVectorProviderConsistency.DerivedJournal);
         BaseTestVectorStore store = provider.GetRequiredService<BaseTestVectorStore>();
         store.Seed(VectorDxDocument.Collection.Id, VectorDxDocument.VectorIndexes.Cosine.Definition.Id, [Entry("a", "one", [1, 0])]);
-        store.SetDerivedState(VectorDxDocument.Collection.Id, VectorDxDocument.VectorIndexes.Cosine.Definition.Id, 5, 5, DateTimeOffset.UtcNow);
+        store.SetDerivedState(VectorDxDocument.Collection.Id, VectorDxDocument.VectorIndexes.Cosine.Definition.Id, 5, 5, 5, DateTimeOffset.UtcNow);
         BaseVectorQuery<VectorDxDocument> vectors = provider.GetRequiredService<IBaseSessionFactory>().For(Admin())
             .Collection(VectorDxDocument.Collection).Vector(VectorDxDocument.VectorIndexes.Cosine);
         BaseVectorConsistencyToken token = (await vectors.CaptureConsistencyAsync()).RequireValue();
-        store.SetDerivedState(VectorDxDocument.Collection.Id, VectorDxDocument.VectorIndexes.Cosine.Definition.Id, 5, 3, DateTimeOffset.UtcNow);
+        store.SetDerivedState(VectorDxDocument.Collection.Id, VectorDxDocument.VectorIndexes.Cosine.Definition.Id, 5, 3, 3, DateTimeOffset.UtcNow);
 
         Task<BaseResult<BaseVectorResult<VectorDxDocument>>> pending = vectors.Nearest(BaseVector.Create([1, 0]))
             .WithConsistency(new BaseVectorConsistencyRequirement.AtLeast(token)).Take(1).ExecuteAsync().AsTask();
         await Task.Delay(50);
         store.ApplyDerivedPosition(VectorDxDocument.Collection.Id, VectorDxDocument.VectorIndexes.Cosine.Definition.Id, 4, DateTimeOffset.UtcNow);
         store.ApplyDerivedPosition(VectorDxDocument.Collection.Id, VectorDxDocument.VectorIndexes.Cosine.Definition.Id, 5, DateTimeOffset.UtcNow);
+        store.PublishDerivedPosition(VectorDxDocument.Collection.Id, VectorDxDocument.VectorIndexes.Cosine.Definition.Id, 5);
 
         BaseVectorResult<VectorDxDocument> result = (await pending).RequireValue();
         result.Matches.Should().ContainSingle();
 
-        store.SetDerivedState(VectorDxDocument.Collection.Id, VectorDxDocument.VectorIndexes.Cosine.Definition.Id, 5, 3, DateTimeOffset.UtcNow);
+        store.SetDerivedState(VectorDxDocument.Collection.Id, VectorDxDocument.VectorIndexes.Cosine.Definition.Id, 5, 3, 3, DateTimeOffset.UtcNow);
         BaseResult<BaseVectorResult<VectorDxDocument>> timedOut = await vectors.Nearest(BaseVector.Create([1, 0]))
             .WithConsistency(new BaseVectorConsistencyRequirement.AtLeast(token)).Take(1).ExecuteAsync();
         ((BaseFailure<BaseVectorResult<VectorDxDocument>>)timedOut).Error.Code.Should().Be(BaseVectorErrorCodes.Timeout);
@@ -392,16 +393,17 @@ public sealed class BaseVectorQueryDxTests
             testing => testing.Consistency = BaseVectorProviderConsistency.DerivedJournal);
         BaseTestVectorStore store = provider.GetRequiredService<BaseTestVectorStore>();
         store.Seed(VectorDxDocument.Collection.Id, VectorDxDocument.VectorIndexes.Cosine.Definition.Id, [Entry("a", "one", [1, 0])]);
-        store.SetDerivedState(VectorDxDocument.Collection.Id, VectorDxDocument.VectorIndexes.Cosine.Definition.Id, 5, 3, DateTimeOffset.UtcNow);
+        store.SetDerivedState(VectorDxDocument.Collection.Id, VectorDxDocument.VectorIndexes.Cosine.Definition.Id, 5, 3, 3, DateTimeOffset.UtcNow);
         BaseVectorQuery<VectorDxDocument> vectors = provider.GetRequiredService<IBaseSessionFactory>().For(Admin())
             .Collection(VectorDxDocument.Collection).Vector(VectorDxDocument.VectorIndexes.Cosine);
 
         Task<BaseResult<BaseVectorResult<VectorDxDocument>>> pending = vectors.Nearest(BaseVector.Create([1, 0]))
             .WithConsistency(new BaseVectorConsistencyRequirement.Current()).Take(1).ExecuteAsync().AsTask();
         await Task.Delay(50);
-        store.SetDerivedState(VectorDxDocument.Collection.Id, VectorDxDocument.VectorIndexes.Cosine.Definition.Id, 6, 3, DateTimeOffset.UtcNow);
+        store.SetDerivedState(VectorDxDocument.Collection.Id, VectorDxDocument.VectorIndexes.Cosine.Definition.Id, 6, 3, 3, DateTimeOffset.UtcNow);
         store.ApplyDerivedPosition(VectorDxDocument.Collection.Id, VectorDxDocument.VectorIndexes.Cosine.Definition.Id, 4, DateTimeOffset.UtcNow);
         store.ApplyDerivedPosition(VectorDxDocument.Collection.Id, VectorDxDocument.VectorIndexes.Cosine.Definition.Id, 5, DateTimeOffset.UtcNow);
+        store.PublishDerivedPosition(VectorDxDocument.Collection.Id, VectorDxDocument.VectorIndexes.Cosine.Definition.Id, 5);
 
         BaseVectorResult<VectorDxDocument> result = (await pending).RequireValue();
         result.Matches.Should().ContainSingle();

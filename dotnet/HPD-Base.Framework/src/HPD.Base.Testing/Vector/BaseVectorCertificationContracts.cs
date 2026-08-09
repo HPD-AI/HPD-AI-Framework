@@ -38,8 +38,14 @@ public enum BaseVectorCertificationFaultKind
     FencingLoss,
     /// <summary>Loses a rebuild publication response.</summary>
     RebuildPublishResponseLoss,
-    /// <summary>Ignores operation cancellation.</summary>
-    NonCooperativeOperation,
+    /// <summary>Ignores query cancellation.</summary>
+    NonCooperativeQuery,
+    /// <summary>Ignores derived carrier-write cancellation.</summary>
+    NonCooperativeWrite,
+    /// <summary>Ignores inspection cancellation.</summary>
+    NonCooperativeInspection,
+    /// <summary>Ignores rebuild cancellation.</summary>
+    NonCooperativeRebuild,
     /// <summary>Returns malformed candidates.</summary>
     MalformedCandidates,
     /// <summary>Returns duplicate candidates.</summary>
@@ -72,7 +78,7 @@ public sealed class BaseVectorCertificationFaultPlan
         if (kind == BaseVectorCertificationFaultKind.None && (occurrence != 1 || delay != TimeSpan.Zero || partialSuccessCount != 0))
             throw new ArgumentException("The no-fault plan cannot carry fault parameters.");
         if (occurrence is < 1 or > 16) throw new ArgumentOutOfRangeException(nameof(occurrence));
-        bool delayKind = kind is BaseVectorCertificationFaultKind.DelaySearchVisibility or BaseVectorCertificationFaultKind.NonCooperativeOperation;
+        bool delayKind = kind is BaseVectorCertificationFaultKind.DelaySearchVisibility or BaseVectorCertificationFaultKind.NonCooperativeQuery or BaseVectorCertificationFaultKind.NonCooperativeWrite or BaseVectorCertificationFaultKind.NonCooperativeInspection or BaseVectorCertificationFaultKind.NonCooperativeRebuild;
         if (delayKind ? delay < TimeSpan.FromMilliseconds(1) || delay > TimeSpan.FromMinutes(5) : delay != TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(delay));
         if (kind == BaseVectorCertificationFaultKind.PartialBatchSuccess ? partialSuccessCount is < 1 or > 255 : partialSuccessCount != 0) throw new ArgumentOutOfRangeException(nameof(partialSuccessCount));
         return new(kind, occurrence, delay, partialSuccessCount);

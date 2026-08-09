@@ -40,15 +40,15 @@ public sealed class BaseTestVectorStore
         {
             (string Collection, string Index) key = (new string(collectionId.AsSpan()), new string(vectorIndexId.AsSpan()));
             _entries = _entries.SetItem(key, copy);
-            _derived = _derived.SetItem(key, new DerivedState(copy.Length, copy.Length, DateTimeOffset.UtcNow, false));
+            _derived = _derived.SetItem(key, new DerivedState(copy.Length, copy.Length, copy.Length, DateTimeOffset.UtcNow, false));
         }
     }
 
     /// <summary>Sets bounded durable-watermark evidence for a derived-provider test.</summary>
-    public void SetDerivedState(string collectionId, string vectorIndexId, long authoritativePosition, long appliedPosition, DateTimeOffset appliedAt, bool rebuildRequired = false)
+    public void SetDerivedState(string collectionId, string vectorIndexId, long authoritativePosition, long appliedPosition, long searchVisiblePosition, DateTimeOffset appliedAt, bool rebuildRequired = false)
     {
-        if (authoritativePosition < 0 || appliedPosition < 0 || appliedPosition > authoritativePosition || appliedAt.Offset != TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(appliedPosition));
-        lock (_gate) _derived = _derived.SetItem((new string(collectionId.AsSpan()), new string(vectorIndexId.AsSpan())), new DerivedState(authoritativePosition, appliedPosition, appliedAt, rebuildRequired));
+        if (authoritativePosition < 0 || appliedPosition < 0 || appliedPosition > authoritativePosition || searchVisiblePosition < 0 || searchVisiblePosition > appliedPosition || appliedAt.Offset != TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(appliedPosition));
+        lock (_gate) _derived = _derived.SetItem((new string(collectionId.AsSpan()), new string(vectorIndexId.AsSpan())), new DerivedState(authoritativePosition, appliedPosition, searchVisiblePosition, appliedAt, rebuildRequired));
     }
 
     /// <summary>Applies one ordered journal position idempotently or closes the fixture on a gap.</summary>
@@ -57,11 +57,23 @@ public sealed class BaseTestVectorStore
         lock (_gate)
         {
             (string Collection, string Index) key = (collectionId, vectorIndexId);
-            DerivedState state = _derived.TryGetValue(key, out DerivedState? existing) ? existing : new DerivedState(position, 0, appliedAt, false);
+            DerivedState state = _derived.TryGetValue(key, out DerivedState? existing) ? existing : new DerivedState(position, 0, 0, appliedAt, false);
             if (position <= state.AppliedPosition) return;
             _derived = _derived.SetItem(key, position == state.AppliedPosition + 1
                 ? state with { AuthoritativePosition = Math.Max(state.AuthoritativePosition, position), AppliedPosition = position, AppliedAt = appliedAt }
                 : state with { AuthoritativePosition = Math.Max(state.AuthoritativePosition, position), RebuildRequired = true });
+        }
+    }
+
+    /// <summary>Publishes an already applied derived position to the searchable generation.</summary>
+    public void PublishDerivedPosition(string collectionId, string vectorIndexId, long position)
+    {
+        lock (_gate)
+        {
+            (string Collection, string Index) key = (collectionId, vectorIndexId);
+            DerivedState state = _derived.TryGetValue(key, out DerivedState? existing) ? existing : throw new InvalidOperationException("Derived state has not been initialized.");
+            if (position < state.SearchVisiblePosition || position > state.AppliedPosition) throw new ArgumentOutOfRangeException(nameof(position));
+            _derived = _derived.SetItem(key, state with { SearchVisiblePosition = position });
         }
     }
 
@@ -70,12 +82,14 @@ public sealed class BaseTestVectorStore
     { lock (_gate) { (string, string) key = (collectionId, vectorIndexId); if (_derived.TryGetValue(key, out DerivedState? state)) _derived = _derived.SetItem(key, state with { RebuildRequired = true }); } }
 
     internal ImmutableArray<BaseTestVectorEntry> Read(string collectionId, string vectorIndexId) => _entries.TryGetValue((collectionId, vectorIndexId), out var entries) ? entries : [];
-    internal DerivedState ReadDerived(string collectionId, string vectorIndexId) => _derived.TryGetValue((collectionId, vectorIndexId), out DerivedState? state) ? state : new DerivedState(0, 0, DateTimeOffset.UnixEpoch, false);
-    internal sealed record DerivedState(long AuthoritativePosition, long AppliedPosition, DateTimeOffset AppliedAt, bool RebuildRequired);
+    internal DerivedState ReadDerived(string collectionId, string vectorIndexId) => _derived.TryGetValue((collectionId, vectorIndexId), out DerivedState? state) ? state : new DerivedState(0, 0, 0, DateTimeOffset.UnixEpoch, false);
+    internal sealed record DerivedState(long AuthoritativePosition, long AppliedPosition, long SearchVisiblePosition, DateTimeOffset AppliedAt, bool RebuildRequired);
 }
 
 internal sealed class BaseTestVectorProvider(BaseTestVectorStore store, BaseTestVectorProviderSnapshot options, TimeProvider timeProvider, BaseCollectionRegistry collections) : IBaseVectorProvider, IBaseVectorAuthority, IBaseVectorAdministrationProvider
 {
+    private long _inspectionFaultCalls;
+    private long _rebuildFaultCalls;
     public BaseVectorProviderDescriptor Descriptor { get; } = new() { Id = "testing", Consistency = options.Consistency, Exact = true, MaximumTopK = 1_000 };
 
     public async ValueTask<OperationResult<IBaseVectorHydrationSession>> OpenAsync(CollectionDefinition collection, VectorIndexDefinition index, BaseVectorConsistencyRequirement consistency, OperationContext context, CancellationToken cancellationToken = default)
@@ -89,18 +103,19 @@ internal sealed class BaseTestVectorProvider(BaseTestVectorStore store, BaseTest
         if (options.Consistency == BaseVectorProviderConsistency.DerivedJournal)
         {
             long currentTarget = consistency is BaseVectorConsistencyRequirement.Current ? derived.AuthoritativePosition : 0;
-            while (consistency is BaseVectorConsistencyRequirement.Current && derived.AppliedPosition < currentTarget && !derived.RebuildRequired)
+            while (consistency is BaseVectorConsistencyRequirement.Current && derived.SearchVisiblePosition < currentTarget && !derived.RebuildRequired)
             {
                 await Task.Delay(TimeSpan.FromMilliseconds(10), cancellationToken).ConfigureAwait(false);
                 derived = store.ReadDerived(collection.Id, index.Id);
             }
+            entries = store.Read(collection.Id, index.Id);
             if (derived.RebuildRequired)
                 return OperationResults.CapabilityUnavailable<IBaseVectorHydrationSession>(new BaseError { Code = BaseVectorErrorCodes.RebuildRequired, Message = "The derived vector index requires rebuild.", Category = ErrorCategory.Capability });
             if (consistency is BaseVectorConsistencyRequirement.BoundedStaleness bounded && timeProvider.GetUtcNow() - derived.AppliedAt > bounded.MaximumAge)
                 return OperationResults.CapabilityUnavailable<IBaseVectorHydrationSession>(new BaseError { Code = BaseVectorErrorCodes.ConsistencyUnavailable, Message = "The derived vector index exceeds the requested staleness bound.", Category = ErrorCategory.Capability });
         }
         string digest = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(collection.Id + ":" + index.Id)));
-        long highWatermark = options.Consistency == BaseVectorProviderConsistency.DerivedJournal ? derived.AppliedPosition : entries.Length;
+        long highWatermark = options.Consistency == BaseVectorProviderConsistency.DerivedJournal ? derived.SearchVisiblePosition : entries.Length;
         return OperationResults.Ok<IBaseVectorHydrationSession>(new Session(entries, new BaseVectorAuthoritySnapshot { StoreIdentityDigest = digest, RestoreEpoch = 0, SchemaGeneration = 1, CollectionId = collection.Id, PurgeGeneration = 0, VectorIndexId = index.Id, VectorIndexGeneration = 1, VectorSpaceId = index.VectorSpaceId, HighWatermark = new BaseMutationJournalPosition(highWatermark) }));
     }
 
@@ -126,7 +141,7 @@ internal sealed class BaseTestVectorProvider(BaseTestVectorStore store, BaseTest
 
     public async ValueTask<OperationResult<BaseVectorIndexStatus[]>> ListAsync(CancellationToken cancellationToken)
     {
-        await DelayAdministration(cancellationToken).ConfigureAwait(false);
+        await DelayAdministration(cancellationToken, rebuild: false).ConfigureAwait(false);
         BaseVectorIndexStatus[] statuses = collections.Collections.Values
             .SelectMany(collection => (collection.VectorIndexes ?? []).Select(index => Status(collection, index)))
             .OrderBy(static status => status.CollectionId, StringComparer.Ordinal)
@@ -137,30 +152,35 @@ internal sealed class BaseTestVectorProvider(BaseTestVectorStore store, BaseTest
 
     public async ValueTask<OperationResult<BaseVectorIndexStatus>> GetAsync(string collectionId, string vectorIndexId, CancellationToken cancellationToken)
     {
-        await DelayAdministration(cancellationToken).ConfigureAwait(false);
+        await DelayAdministration(cancellationToken, rebuild: false).ConfigureAwait(false);
         if (!collections.Collections.TryGetValue(collectionId, out CollectionDefinition? collection) ||
             (collection.VectorIndexes ?? []).SingleOrDefault(index => index.Id == vectorIndexId) is not { } index)
             return OperationResults.NotFound<BaseVectorIndexStatus>(new BaseError { Code = BaseVectorErrorCodes.IndexNotFound, Message = "The vector index was not found.", Category = ErrorCategory.NotFound });
         return OperationResults.Ok(Status(collection, index));
     }
 
-    public ValueTask<OperationResult<BaseVectorRebuildResult>> RebuildAsync(BaseVectorRebuildRequest request, CancellationToken cancellationToken)
+    public async ValueTask<OperationResult<BaseVectorRebuildResult>> RebuildAsync(BaseVectorRebuildRequest request, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        if (options.CertificationFault == BaseVectorCertificationFaultKind.NonCooperativeRebuild)
+            await DelayAdministration(cancellationToken, rebuild: true).ConfigureAwait(false);
         if (options.CertificationFault == BaseVectorCertificationFaultKind.RebuildPublishResponseLoss)
-            return ValueTask.FromResult(OperationResults.StoreError<BaseVectorRebuildResult>(new BaseError { Code = BaseVectorErrorCodes.RebuildIndeterminate, Message = "The vector rebuild outcome is indeterminate.", Category = ErrorCategory.Store }));
+            return OperationResults.StoreError<BaseVectorRebuildResult>(new BaseError { Code = BaseVectorErrorCodes.RebuildIndeterminate, Message = "The vector rebuild outcome is indeterminate.", Category = ErrorCategory.Store });
         if (!options.SupportsRebuild)
-            return ValueTask.FromResult(OperationResults.CapabilityUnavailable<BaseVectorRebuildResult>(new BaseError { Code = BaseVectorErrorCodes.CapabilityUnavailable, Message = "The testing provider does not rebuild indexes.", Category = ErrorCategory.Capability }));
+            return OperationResults.CapabilityUnavailable<BaseVectorRebuildResult>(new BaseError { Code = BaseVectorErrorCodes.CapabilityUnavailable, Message = "The testing provider does not rebuild indexes.", Category = ErrorCategory.Capability });
         CollectionDefinition collection = collections.Collections[request.CollectionId];
         VectorIndexDefinition index = collection.VectorIndexes!.Single(item => item.Id == request.VectorIndexId);
         BaseTestVectorStore.DerivedState state = store.ReadDerived(request.CollectionId, request.VectorIndexId);
         var snapshot = new BaseVectorAuthoritySnapshot { StoreIdentityDigest = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(request.CollectionId + ":" + request.VectorIndexId))), RestoreEpoch = 0, SchemaGeneration = 1, CollectionId = request.CollectionId, PurgeGeneration = request.ExpectedPurgeGeneration, VectorIndexId = request.VectorIndexId, VectorIndexGeneration = request.ExpectedGeneration + 1, VectorSpaceId = index.VectorSpaceId, HighWatermark = new BaseMutationJournalPosition(state.AppliedPosition) };
-        return ValueTask.FromResult(OperationResults.Ok(new BaseVectorRebuildResult { StoreId = request.StoreId, CollectionId = request.CollectionId, VectorIndexId = request.VectorIndexId, PreviousGeneration = request.ExpectedGeneration, PublishedGeneration = request.ExpectedGeneration + 1, SourceSnapshot = snapshot, AppliedThrough = BaseVectorConsistencyToken.Parse("testing-rebuild-token"), CompletedAt = DateTimeOffset.UtcNow }));
+        return OperationResults.Ok(new BaseVectorRebuildResult { StoreId = request.StoreId, CollectionId = request.CollectionId, VectorIndexId = request.VectorIndexId, PreviousGeneration = request.ExpectedGeneration, PublishedGeneration = request.ExpectedGeneration + 1, SourceSnapshot = snapshot, AppliedThrough = BaseVectorConsistencyToken.Parse("testing-rebuild-token"), CompletedAt = DateTimeOffset.UtcNow });
     }
 
-    private async ValueTask DelayAdministration(CancellationToken cancellationToken)
+    private async ValueTask DelayAdministration(CancellationToken cancellationToken, bool rebuild)
     {
-        if (options.AdministrationDelay > TimeSpan.Zero)
+        bool applies = options.CertificationFault == BaseVectorCertificationFaultKind.None ||
+            rebuild && options.CertificationFault == BaseVectorCertificationFaultKind.NonCooperativeRebuild && Interlocked.Increment(ref _rebuildFaultCalls) == 1 ||
+            !rebuild && options.CertificationFault == BaseVectorCertificationFaultKind.NonCooperativeInspection && Interlocked.Increment(ref _inspectionFaultCalls) == 1;
+        if (applies && options.AdministrationDelay > TimeSpan.Zero)
             await Task.Delay(options.AdministrationDelay, options.IgnoreAdministrationCancellation ? CancellationToken.None : cancellationToken).ConfigureAwait(false);
     }
 
