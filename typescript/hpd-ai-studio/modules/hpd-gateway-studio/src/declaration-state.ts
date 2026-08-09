@@ -102,12 +102,12 @@ function materialize(source: string, generation: bigint): AuthoredGatewayDocumen
   const parsed = parseGatewayJson(source);
   if (!parsed.ok) return seal(source, generation, sourceSha256, null, null, 'RawMalformed', [parsed.diagnostic]);
   const compatibility = validateGatewaySchema(parsed.graph);
-  if (compatibility.length > 0) return seal(source, generation, sourceSha256, parsed.graph, null, 'RawOnlyIncompatible', compatibility);
+  if (compatibility.diagnostics.length > 0) return seal(source, generation, sourceSha256, parsed.graph, null, 'RawOnlyIncompatible', compatibility.diagnostics,compatibility.truncatedDiagnostics);
   const completeness = validateMinimum(parsed.graph);
   return seal(source, generation, sourceSha256, parsed.graph, parsed.graph, completeness.length === 0 ? 'LocallyValidNotServerValidated' : 'LocallyIncomplete', completeness);
 }
-function seal(source:string,generation:bigint,hash:string,graph:GatewayJsonObject|null,compatible:GatewayJsonObject|null,state:GatewayLocalValidationState,diagnostics:readonly GatewayJsonDiagnostic[]):AuthoredGatewayDocument {
-  const kept=diagnostics.slice(0,1024).map(value=>Object.freeze(value)); return Object.freeze({utf8Text:source,editGeneration:generation,sourceSha256:hash,graph,compatibleGraph:compatible,state,diagnostics:Object.freeze(kept),truncatedDiagnostics:Math.max(0,diagnostics.length-kept.length),validation:null});
+function seal(source:string,generation:bigint,hash:string,graph:GatewayJsonObject|null,compatible:GatewayJsonObject|null,state:GatewayLocalValidationState,diagnostics:readonly GatewayJsonDiagnostic[],knownTruncated=0):AuthoredGatewayDocument {
+  const kept=diagnostics.slice(0,1024).map(value=>Object.freeze(value)); return Object.freeze({utf8Text:source,editGeneration:generation,sourceSha256:hash,graph,compatibleGraph:compatible,state,diagnostics:Object.freeze(kept),truncatedDiagnostics:knownTruncated+Math.max(0,diagnostics.length-kept.length),validation:null});
 }
 
 function validateMinimum(root:GatewayJsonObject):GatewayJsonDiagnostic[]{const map=new Map(root.entries.map(value=>[value.name,value.value]));const diagnostics:GatewayJsonDiagnostic[]=[];const version=map.get('schemaVersion');const versionMap=version?.kind==='object'?new Map(version.entries.map(value=>[value.name,value.value])):null;if(versionMap?.get('major')?.kind!=='number'||(versionMap.get('major') as any).lexeme!=='1'||versionMap.get('minor')?.kind!=='number'||(versionMap.get('minor') as any).lexeme!=='0')diagnostics.push({code:'schema-version-required',path:'/schemaVersion',offset:0});if(map.get('canonicalizationVersion')?.kind!=='number'||(map.get('canonicalizationVersion') as any).lexeme!=='1')diagnostics.push({code:'canonicalization-version-required',path:'/canonicalizationVersion',offset:0});return diagnostics;}

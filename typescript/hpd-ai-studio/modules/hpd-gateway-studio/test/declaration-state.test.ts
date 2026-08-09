@@ -30,6 +30,8 @@ describe('lossless authored Gateway document', () => {
     expect(parseGatewayJson(`{${properties}}`)).toMatchObject({ ok: false, diagnostic: { code: 'property-bound-exceeded' } });
   });
 
+  it('reports bounded diagnostics and the truthful number truncated',()=>{const controller=createGatewayDeclarationController();const routes=Array.from({length:300},(_,index)=>`{"invented${index}":true}`).join(',');const document=controller.replaceRaw(`{"schemaVersion":{"major":1,"minor":0},"canonicalizationVersion":1,"routes":[${routes}]}`);expect(document.state).toBe('RawOnlyIncompatible');expect(document.diagnostics).toHaveLength(1024);expect(document.truncatedDiagnostics).toBeGreaterThan(0);expect(document.diagnostics.length+document.truncatedDiagnostics).toBe(1200);});
+
   it('advances one authority generation for malformed and incompatible raw text', () => {
     const controller = createGatewayDeclarationController();
     const malformed = controller.replaceRaw('{');
