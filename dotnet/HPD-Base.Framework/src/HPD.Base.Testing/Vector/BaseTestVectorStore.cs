@@ -81,6 +81,9 @@ internal sealed class BaseTestVectorProvider(BaseTestVectorStore store, BaseTest
     public async ValueTask<OperationResult<IBaseVectorHydrationSession>> OpenAsync(CollectionDefinition collection, VectorIndexDefinition index, BaseVectorConsistencyRequirement consistency, OperationContext context, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        if (options.CertificationFault == BaseVectorCertificationFaultKind.CredentialFailure) throw new InvalidOperationException("certification credential fault");
+        if (options.CertificationFault == BaseVectorCertificationFaultKind.TerminalSchemaFailure)
+            return OperationResults.CapabilityUnavailable<IBaseVectorHydrationSession>(new BaseError { Code = BaseVectorErrorCodes.RebuildRequired, Message = "The derived vector index requires rebuild.", Category = ErrorCategory.Capability });
         ImmutableArray<BaseTestVectorEntry> entries = store.Read(collection.Id, index.Id);
         BaseTestVectorStore.DerivedState derived = store.ReadDerived(collection.Id, index.Id);
         if (options.Consistency == BaseVectorProviderConsistency.DerivedJournal)
@@ -111,7 +114,13 @@ internal sealed class BaseTestVectorProvider(BaseTestVectorStore store, BaseTest
         if (options.SearchDelay > TimeSpan.Zero)
             await Task.Delay(options.SearchDelay, options.IgnoreSearchCancellation ? CancellationToken.None : cancellationToken).ConfigureAwait(false);
         ImmutableArray<BaseTestVectorEntry> entries = store.Read(request.Index.CollectionId, request.Index.Id);
-        var ranked = entries.Where(entry => Matches(plan.Constraint, entry.Filters)).Select(entry => (Entry: entry, Measure: Measure(request.Index.Function, request.Vector, entry.Vector))).OrderBy(item => request.Index.Function == BaseVectorFunction.CosineSimilarity ? -item.Measure : item.Measure).ThenBy(static item => item.Entry.Record.Id.Value, StringComparer.Ordinal).ThenBy(static item => item.Entry.Record.Metadata.Revision!.Value.Value, StringComparer.Ordinal).Take(request.Take).Select((item, rank) => new BaseVectorCandidate { RecordId = item.Entry.Record.Id, IndexedRevision = item.Entry.Record.Metadata.Revision!.Value, IndexedPosition = new BaseMutationJournalPosition(rank + 1), Rank = rank + 1, Measure = new BaseVectorMeasure { Function = request.Index.Function, Value = item.Measure, Direction = request.Index.Function == BaseVectorFunction.EuclideanDistance ? BaseVectorMeasureDirection.LowerIsNearer : BaseVectorMeasureDirection.HigherIsNearer } }).ToArray();
+        BaseVectorCandidate[] ranked = entries.Where(entry => Matches(plan.Constraint, entry.Filters)).Select(entry => (Entry: entry, Measure: Measure(request.Index.Function, request.Vector, entry.Vector))).OrderBy(item => request.Index.Function == BaseVectorFunction.EuclideanDistance ? item.Measure : -item.Measure).ThenBy(static item => item.Entry.Record.Id.Value, StringComparer.Ordinal).ThenBy(static item => item.Entry.Record.Metadata.Revision!.Value.Value, StringComparer.Ordinal).Take(request.Take).Select((item, rank) => new BaseVectorCandidate { RecordId = item.Entry.Record.Id, IndexedRevision = item.Entry.Record.Metadata.Revision!.Value, IndexedPosition = new BaseMutationJournalPosition(rank + 1), Rank = rank + 1, Measure = new BaseVectorMeasure { Function = request.Index.Function, Value = item.Measure, Direction = request.Index.Function == BaseVectorFunction.EuclideanDistance ? BaseVectorMeasureDirection.LowerIsNearer : BaseVectorMeasureDirection.HigherIsNearer } }).ToArray();
+        if (options.CertificationFault == BaseVectorCertificationFaultKind.MalformedCandidates && ranked.Length != 0)
+            ranked[0] = ranked[0] with { Rank = 2 };
+        else if (options.CertificationFault == BaseVectorCertificationFaultKind.DuplicateCandidates && ranked.Length != 0)
+            ranked = [ranked[0], ranked[0] with { Rank = 2 }];
+        else if (options.CertificationFault == BaseVectorCertificationFaultKind.OversizedCandidates && ranked.Length != 0)
+            ranked = Enumerable.Range(0, request.Take + 1).Select(index => ranked[0] with { Rank = index + 1, RecordId = new RecordId($"oversized-{index}") }).ToArray();
         return new BaseVectorProviderResult { Snapshot = request.Snapshot, Candidates = ranked, Accuracy = BaseVectorResultAccuracy.Exact };
     }
 
@@ -135,8 +144,19 @@ internal sealed class BaseTestVectorProvider(BaseTestVectorStore store, BaseTest
         return OperationResults.Ok(Status(collection, index));
     }
 
-    public ValueTask<OperationResult<BaseVectorRebuildResult>> RebuildAsync(BaseVectorRebuildRequest request, CancellationToken cancellationToken) =>
-        ValueTask.FromResult(OperationResults.CapabilityUnavailable<BaseVectorRebuildResult>(new BaseError { Code = BaseVectorErrorCodes.CapabilityUnavailable, Message = "The testing provider does not rebuild indexes.", Category = ErrorCategory.Capability }));
+    public ValueTask<OperationResult<BaseVectorRebuildResult>> RebuildAsync(BaseVectorRebuildRequest request, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (options.CertificationFault == BaseVectorCertificationFaultKind.RebuildPublishResponseLoss)
+            return ValueTask.FromResult(OperationResults.StoreError<BaseVectorRebuildResult>(new BaseError { Code = BaseVectorErrorCodes.RebuildIndeterminate, Message = "The vector rebuild outcome is indeterminate.", Category = ErrorCategory.Store }));
+        if (!options.SupportsRebuild)
+            return ValueTask.FromResult(OperationResults.CapabilityUnavailable<BaseVectorRebuildResult>(new BaseError { Code = BaseVectorErrorCodes.CapabilityUnavailable, Message = "The testing provider does not rebuild indexes.", Category = ErrorCategory.Capability }));
+        CollectionDefinition collection = collections.Collections[request.CollectionId];
+        VectorIndexDefinition index = collection.VectorIndexes!.Single(item => item.Id == request.VectorIndexId);
+        BaseTestVectorStore.DerivedState state = store.ReadDerived(request.CollectionId, request.VectorIndexId);
+        var snapshot = new BaseVectorAuthoritySnapshot { StoreIdentityDigest = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(request.CollectionId + ":" + request.VectorIndexId))), RestoreEpoch = 0, SchemaGeneration = 1, CollectionId = request.CollectionId, PurgeGeneration = request.ExpectedPurgeGeneration, VectorIndexId = request.VectorIndexId, VectorIndexGeneration = request.ExpectedGeneration + 1, VectorSpaceId = index.VectorSpaceId, HighWatermark = new BaseMutationJournalPosition(state.AppliedPosition) };
+        return ValueTask.FromResult(OperationResults.Ok(new BaseVectorRebuildResult { StoreId = request.StoreId, CollectionId = request.CollectionId, VectorIndexId = request.VectorIndexId, PreviousGeneration = request.ExpectedGeneration, PublishedGeneration = request.ExpectedGeneration + 1, SourceSnapshot = snapshot, AppliedThrough = BaseVectorConsistencyToken.Parse("testing-rebuild-token"), CompletedAt = DateTimeOffset.UtcNow }));
+    }
 
     private async ValueTask DelayAdministration(CancellationToken cancellationToken)
     {

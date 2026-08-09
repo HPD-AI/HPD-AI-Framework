@@ -18,7 +18,7 @@ public static class HPDBaseVectorTestingBuilderExtensions
             configure?.Invoke(options);
             if (options.SearchDelay < TimeSpan.Zero || options.AdministrationDelay < TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(options.SearchDelay));
             services.AddSingleton<BaseExplicitVectorProviderRegistration>();
-            services.AddSingleton(new BaseTestVectorProviderSnapshot(options.Consistency, options.SearchDelay, options.IgnoreSearchCancellation, options.AdministrationDelay, options.IgnoreAdministrationCancellation));
+            services.AddSingleton(new BaseTestVectorProviderSnapshot(options.Consistency, options.SearchDelay, options.IgnoreSearchCancellation, options.AdministrationDelay, options.IgnoreAdministrationCancellation, options.SupportsRebuild, options.CertificationFault));
             services.AddSingleton<BaseTestVectorStore>(); services.AddSingleton<BaseTestVectorProvider>(); services.AddSingleton<IBaseVectorProvider>(static provider => provider.GetRequiredService<BaseTestVectorProvider>()); services.AddSingleton<IBaseVectorAuthority>(static provider => provider.GetRequiredService<BaseTestVectorProvider>()); services.AddSingleton<IBaseVectorAdministrationProvider>(static provider => provider.GetRequiredService<BaseTestVectorProvider>());
         }
         public ValueTask InitializeAsync(IServiceProvider services, CancellationToken cancellationToken = default) { cancellationToken.ThrowIfCancellationRequested(); return ValueTask.CompletedTask; }
@@ -38,6 +38,10 @@ public sealed class BaseTestVectorProviderOptions
     public TimeSpan AdministrationDelay { get; set; }
     /// <summary>Gets or sets whether administration inspection deliberately ignores cancellation.</summary>
     public bool IgnoreAdministrationCancellation { get; set; }
+    /// <summary>Gets or sets whether the fixture publishes a deterministic successful rebuild result.</summary>
+    public bool SupportsRebuild { get; set; }
+    /// <summary>Gets or sets the exact certification-only provider fault.</summary>
+    public BaseVectorCertificationFaultKind CertificationFault { get; set; }
 }
 
-internal sealed record BaseTestVectorProviderSnapshot(BaseVectorProviderConsistency Consistency, TimeSpan SearchDelay, bool IgnoreSearchCancellation, TimeSpan AdministrationDelay, bool IgnoreAdministrationCancellation);
+internal sealed record BaseTestVectorProviderSnapshot(BaseVectorProviderConsistency Consistency, TimeSpan SearchDelay, bool IgnoreSearchCancellation, TimeSpan AdministrationDelay, bool IgnoreAdministrationCancellation, bool SupportsRebuild, BaseVectorCertificationFaultKind CertificationFault);

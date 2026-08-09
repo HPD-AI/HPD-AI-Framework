@@ -1,6 +1,7 @@
 using FluentAssertions;
 using HPD.Base.Testing;
 using Microsoft.Extensions.DependencyInjection;
+using System.Text.Json;
 using Xunit;
 
 namespace HPD.Base.Vector.Tests;
@@ -27,10 +28,33 @@ public sealed class BaseVectorCertificationTests
         fixture.Created.Should().Be(12);
         fixture.Disposed.Should().Be(12);
         fixture.CapturedHeads.Should().Be(5);
-        fixture.ProviderInspections.Should().Be(10);
+        fixture.ProviderInspections.Should().Be(5);
         fixture.ObservationReads.Should().Be(12);
         fixture.ReceivedFaults.Distinct().Should().BeEquivalentTo(Enum.GetValues<BaseVectorCertificationFaultKind>()
             .Where(static kind => kind is BaseVectorCertificationFaultKind.None or >= BaseVectorCertificationFaultKind.RebuildPublishResponseLoss));
+    }
+
+    [Fact]
+    public async Task DerivedPlanUsesTheSameCommittedMutationAuthorityAndNonzeroHead()
+    {
+        var fixture = new Fixture(providerClass: BaseVectorCertificationProviderClass.DerivedJournal);
+
+        BaseVectorCertificationReport report = await BaseVectorProviderCertification.RunAsync(fixture, BaseVectorCertificationPlan.RequiredLocal());
+
+        report.Succeeded.Should().BeTrue(string.Join("; ", report.Cases.Select(static item => $"{item.CaseId}:{item.Code}:{item.Message}")));
+        fixture.MaximumCapturedHead.Should().BeGreaterThan(0);
+    }
+
+    [Fact]
+    public async Task DerivedPlanRejectsAnAuthorityDisconnectedFromSessionMutations()
+    {
+        var fixture = new Fixture(providerClass: BaseVectorCertificationProviderClass.DerivedJournal, disconnectDerivedHead: true);
+
+        BaseVectorCertificationReport report = await BaseVectorProviderCertification.RunAsync(fixture, BaseVectorCertificationPlan.RequiredLocal());
+
+        report.Succeeded.Should().BeFalse();
+        report.Cases.Where(static result => !result.CaseId.Contains(".fault.", StringComparison.Ordinal))
+            .Should().OnlyContain(static result => result.Code == "base.testing.vector.derivedHeadInvalid");
     }
 
     [Fact]
@@ -167,16 +191,19 @@ public sealed class BaseVectorCertificationTests
         bool throwOnDispose = false,
         int faultObservationOffset = 0,
         bool rejectQueries = false,
-        bool successfulFaultOperations = false) : IBaseVectorProviderCertificationFixture
+        bool successfulFaultOperations = false,
+        BaseVectorCertificationProviderClass providerClass = BaseVectorCertificationProviderClass.CoLocatedTransactional,
+        bool disconnectDerivedHead = false) : IBaseVectorProviderCertificationFixture
     {
         public int Created { get; private set; }
         public int Disposed { get; private set; }
         public int CapturedHeads { get; private set; }
         public int ProviderInspections { get; private set; }
         public int ObservationReads { get; private set; }
+        public long MaximumCapturedHead { get; private set; }
         public List<BaseVectorCertificationFaultKind> ReceivedFaults { get; } = [];
-        public BaseVectorCertificationIdentity Identity { get; } = BaseVectorCertificationIdentity.Create(protocolVersion, "test.package", "1.0.0", "1.0.0", "1.0.0", "osx-arm64", "local", BaseVectorCertificationProviderClass.CoLocatedTransactional);
-        public BaseVectorCertificationProviderClass ProviderClass => BaseVectorCertificationProviderClass.CoLocatedTransactional;
+        public BaseVectorCertificationIdentity Identity { get; } = BaseVectorCertificationIdentity.Create(protocolVersion, "test.package", "1.0.0", "1.0.0", "1.0.0", "osx-arm64", "local", providerClass);
+        public BaseVectorCertificationProviderClass ProviderClass => providerClass;
         public ValueTask<IBaseVectorCertificationHost> CreateHostAsync(BaseVectorCertificationHostRequest request, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -184,7 +211,7 @@ public sealed class BaseVectorCertificationTests
             request.Schema.Id.Should().Be("hpd.base.vector.certification.v1");
             ReceivedFaults.Add(request.Fault.Kind);
             Created++;
-            return ValueTask.FromResult<IBaseVectorCertificationHost>(new Host(this, cancelDuringInitialization, throwOnDispose, request.Fault, faultObservationOffset, rejectQueries, request.Schema, successfulFaultOperations));
+            return ValueTask.FromResult<IBaseVectorCertificationHost>(new Host(this, cancelDuringInitialization, throwOnDispose, request.Fault, faultObservationOffset, rejectQueries, request.Schema, successfulFaultOperations, providerClass, disconnectDerivedHead));
         }
 
         private sealed class Host : IBaseVectorCertificationHost, IBaseVectorCertificationAuthorityControl, IBaseVectorCertificationProviderControl, IBaseVectorCertificationObservationSource
@@ -195,22 +222,48 @@ public sealed class BaseVectorCertificationTests
             private readonly int _faultObservationOffset;
             private readonly ServiceProvider _services;
             private readonly bool _successfulFaultOperations;
+            private readonly BaseVectorCertificationProviderClass _providerClass;
+            private readonly bool _disconnectDerivedHead;
+            private readonly DerivedMutationAuthority? _derived;
             private long _position;
             private long _indexGeneration = 1;
-            public Host(Fixture owner, CancellationTokenSource? cancelDuringInitialization, bool throwOnDispose, BaseVectorCertificationFaultPlan fault, int faultObservationOffset, bool rejectQueries, BaseVectorCertificationSchema schema, bool successfulFaultOperations)
+            public Host(Fixture owner, CancellationTokenSource? cancelDuringInitialization, bool throwOnDispose, BaseVectorCertificationFaultPlan fault, int faultObservationOffset, bool rejectQueries, BaseVectorCertificationSchema schema, bool successfulFaultOperations, BaseVectorCertificationProviderClass providerClass, bool disconnectDerivedHead)
             {
-                _owner = owner; _throwOnDispose = throwOnDispose; _fault = fault; _faultObservationOffset = faultObservationOffset; _successfulFaultOperations = successfulFaultOperations;
+                _owner = owner; _throwOnDispose = throwOnDispose; _fault = fault; _faultObservationOffset = faultObservationOffset; _successfulFaultOperations = successfulFaultOperations; _providerClass = providerClass; _disconnectDerivedHead = disconnectDerivedHead;
+                bool queryFault = fault.Kind is BaseVectorCertificationFaultKind.MalformedCandidates or BaseVectorCertificationFaultKind.DuplicateCandidates or BaseVectorCertificationFaultKind.OversizedCandidates or BaseVectorCertificationFaultKind.CredentialFailure or BaseVectorCertificationFaultKind.TerminalSchemaFailure or BaseVectorCertificationFaultKind.NonCooperativeOperation;
+                bool usesTestProvider = providerClass == BaseVectorCertificationProviderClass.DerivedJournal || rejectQueries || queryFault || fault.Kind == BaseVectorCertificationFaultKind.RebuildPublishResponseLoss;
+                bool needsObserver = providerClass == BaseVectorCertificationProviderClass.DerivedJournal || queryFault;
                 var services = new ServiceCollection();
                 services.AddLogging();
                 services.AddHPDBase(builder =>
                 {
                     schema.Configure(builder);
-                    if (rejectQueries) builder.UseTestVectorProvider();
+                    if (usesTestProvider)
+                    {
+                        builder.ConfigureVector(options =>
+                        {
+                            if (providerClass == BaseVectorCertificationProviderClass.DerivedJournal) options.DerivedProviderDefaultConsistency = new BaseVectorConsistencyRequirement.BoundedStaleness(TimeSpan.FromMinutes(5));
+                            if (fault.Kind == BaseVectorCertificationFaultKind.NonCooperativeOperation) options.ProviderTimeout = TimeSpan.FromMilliseconds(100);
+                        }).UseTestVectorProvider(options =>
+                        {
+                            options.Consistency = providerClass == BaseVectorCertificationProviderClass.DerivedJournal ? BaseVectorProviderConsistency.DerivedJournal : BaseVectorProviderConsistency.TransactionalCurrent;
+                            options.SupportsRebuild = true;
+                            options.CertificationFault = successfulFaultOperations ? BaseVectorCertificationFaultKind.None : fault.Kind;
+                            if (fault.Kind == BaseVectorCertificationFaultKind.NonCooperativeOperation && !successfulFaultOperations) { options.SearchDelay = TimeSpan.FromMilliseconds(300); options.IgnoreSearchCancellation = true; }
+                        });
+                    }
                 });
+                if (needsObserver)
+                {
+                    services.AddSingleton(new FixtureMode(providerClass == BaseVectorCertificationProviderClass.DerivedJournal));
+                    services.AddSingleton<DerivedMutationAuthority>();
+                    services.AddSingleton<IBaseCommittedMutationObserver>(static provider => provider.GetRequiredService<DerivedMutationAuthority>());
+                }
                 _services = services.BuildServiceProvider();
                 IHPDBaseApplication application = _services.GetRequiredService<IHPDBaseApplication>();
                 Application = cancelDuringInitialization is null ? application : new Application(application, cancelDuringInitialization);
                 Sessions = _services.GetRequiredService<IBaseSessionFactory>();
+                _derived = needsObserver ? _services.GetRequiredService<DerivedMutationAuthority>() : null;
             }
             public string StoreId => "inmemory";
             public IHPDBaseApplication Application { get; }
@@ -219,7 +272,7 @@ public sealed class BaseVectorCertificationTests
             public IBaseVectorCertificationProviderControl Provider => this;
             public IBaseVectorCertificationObservationSource Observations => this;
             public async ValueTask DisposeAsync() { _owner.Disposed++; await _services.DisposeAsync(); if (_throwOnDispose) throw new InvalidOperationException("fixture-secret"); }
-            public ValueTask<OperationResult<BaseVectorCertificationAuthorityHead>> CaptureHeadAsync(CancellationToken cancellationToken = default) { _owner.CapturedHeads++; return ValueTask.FromResult(OperationResults.Ok(Head())); }
+            public ValueTask<OperationResult<BaseVectorCertificationAuthorityHead>> CaptureHeadAsync(CancellationToken cancellationToken = default) { _owner.CapturedHeads++; BaseVectorCertificationAuthorityHead head = Head(); _owner.MaximumCapturedHead = Math.Max(_owner.MaximumCapturedHead, head.HighWaterPosition); return ValueTask.FromResult(OperationResults.Ok(head)); }
             public ValueTask<OperationResult<BaseVectorCertificationAuthorityState>> InspectAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(OperationResults.Ok(BaseVectorCertificationAuthorityState.Create(Head(), [], [])));
             ValueTask<OperationResult<BaseVectorCertificationProviderState>> IBaseVectorCertificationProviderControl.InspectAsync(CancellationToken cancellationToken) { _owner.ProviderInspections++; return ValueTask.FromResult(FaultOr(BaseVectorCertificationProviderState.Create([]))); }
             public ValueTask<OperationResult<BaseVectorCertificationObservationPage>> ReadAsync(BaseVectorCertificationObservationRequest request, CancellationToken cancellationToken = default) { _owner.ObservationReads++; return ValueTask.FromResult(OperationResults.Ok(BaseVectorCertificationObservationPage.Create(0, request.AfterSequenceExclusive, false, []))); }
@@ -235,9 +288,16 @@ public sealed class BaseVectorCertificationTests
                 long previous = _indexGeneration++;
                 return ValueTask.FromResult(OperationResults.Ok(BaseVectorCertificationTransitionResult.Create(request.Kind, request.CollectionId, request.IndexId, previous, _indexGeneration)));
             }
-            public ValueTask<OperationResult<BaseVectorCertificationPruneResult>> PruneHistoryAsync(BaseVectorCertificationPruneRequest request, CancellationToken cancellationToken = default) => ValueTask.FromResult(OperationResults.CapabilityUnavailable<BaseVectorCertificationPruneResult>(new BaseError { Code = "base.testing.vector.operationNotApplicable", Message = "The certification operation is not applicable.", Category = ErrorCategory.Capability }));
-            public ValueTask<OperationResult<BaseVectorCertificationAdvanceResult>> AdvanceAsync(BaseVectorCertificationAdvanceRequest request, CancellationToken cancellationToken = default) => ValueTask.FromResult(_fault.Kind == BaseVectorCertificationFaultKind.None ? OperationResults.CapabilityUnavailable<BaseVectorCertificationAdvanceResult>(new BaseError { Code = "base.testing.vector.operationNotApplicable", Message = "The certification operation is not applicable.", Category = ErrorCategory.Capability }) : FaultOr(BaseVectorCertificationAdvanceResult.Create(0, 0, 0, 0)));
-            public ValueTask<OperationResult<BaseVectorCertificationVisibilityResult>> PublishVisibilityAsync(BaseVectorCertificationVisibilityRequest request, CancellationToken cancellationToken = default) => ValueTask.FromResult(FaultOr(BaseVectorCertificationVisibilityResult.Create(0, 0, 0)));
+            public ValueTask<OperationResult<BaseVectorCertificationPruneResult>> PruneHistoryAsync(BaseVectorCertificationPruneRequest request, CancellationToken cancellationToken = default) => ValueTask.FromResult(_providerClass == BaseVectorCertificationProviderClass.DerivedJournal ? OperationResults.Ok(BaseVectorCertificationPruneResult.Create(0, request.RetainFromPositionInclusive, Math.Max(request.RetainFromPositionInclusive, _derived!.Position))) : OperationResults.CapabilityUnavailable<BaseVectorCertificationPruneResult>(new BaseError { Code = "base.testing.vector.operationNotApplicable", Message = "The certification operation is not applicable.", Category = ErrorCategory.Capability }));
+            public ValueTask<OperationResult<BaseVectorCertificationAdvanceResult>> AdvanceAsync(BaseVectorCertificationAdvanceRequest request, CancellationToken cancellationToken = default)
+            {
+                if (_fault.Kind != BaseVectorCertificationFaultKind.None && _fault.Kind is >= BaseVectorCertificationFaultKind.FailBeforeSend and <= BaseVectorCertificationFaultKind.FencingLoss) return ValueTask.FromResult(FaultOr(BaseVectorCertificationAdvanceResult.Create(0, 0, 0, 0)));
+                if (_providerClass != BaseVectorCertificationProviderClass.DerivedJournal) return ValueTask.FromResult(OperationResults.CapabilityUnavailable<BaseVectorCertificationAdvanceResult>(new BaseError { Code = "base.testing.vector.operationNotApplicable", Message = "The certification operation is not applicable.", Category = ErrorCategory.Capability }));
+                long previous = _derived!.AppliedPosition;
+                _derived.AdvanceTo(request.ThroughPositionInclusive);
+                return ValueTask.FromResult(OperationResults.Ok(BaseVectorCertificationAdvanceResult.Create(checked((int)(request.ThroughPositionInclusive - previous)), previous, request.ThroughPositionInclusive, request.ThroughPositionInclusive)));
+            }
+            public ValueTask<OperationResult<BaseVectorCertificationVisibilityResult>> PublishVisibilityAsync(BaseVectorCertificationVisibilityRequest request, CancellationToken cancellationToken = default) => ValueTask.FromResult(_fault.Kind == BaseVectorCertificationFaultKind.None && _providerClass == BaseVectorCertificationProviderClass.DerivedJournal ? OperationResults.Ok(BaseVectorCertificationVisibilityResult.Create(0, request.ThroughPositionInclusive, request.ThroughPositionInclusive)) : FaultOr(BaseVectorCertificationVisibilityResult.Create(0, 0, 0)));
             public ValueTask<OperationResult<BaseVectorCertificationRebuildResult>> RebuildAsync(BaseVectorCertificationRebuildRequest request, CancellationToken cancellationToken = default) { long previous = _indexGeneration++; return ValueTask.FromResult(FaultOr(BaseVectorCertificationRebuildResult.Create(request.CollectionId, request.IndexId, previous, _indexGeneration, Head()))); }
             public ValueTask<OperationResult<BaseVectorCertificationFaultState>> InspectFaultAsync(CancellationToken cancellationToken = default)
             {
@@ -245,9 +305,84 @@ public sealed class BaseVectorCertificationTests
                 return ValueTask.FromResult(OperationResults.Ok(BaseVectorCertificationFaultState.Create(_fault.Kind, _fault.Occurrence, observed, _fault.Kind != BaseVectorCertificationFaultKind.None && observed >= _fault.Occurrence, false)));
             }
             private OperationResult<T> FaultOr<T>(T value) => _fault.Kind != BaseVectorCertificationFaultKind.None && !_successfulFaultOperations
-                ? OperationResults.StoreError<T>(new BaseError { Code = "base.testing.vector.faultObserved", Message = "The certification fault was externally observed.", Category = ErrorCategory.Store })
+                ? OperationResults.StoreError<T>(new BaseError { Code = "base.testing.vector.fault." + string.Concat(_fault.Kind.ToString().Select((character, index) => char.IsUpper(character) && index != 0 ? "-" + char.ToLowerInvariant(character) : char.ToLowerInvariant(character).ToString())), Message = "The certification fault was externally observed.", Category = ErrorCategory.Store })
                 : OperationResults.Ok(value);
-            private BaseVectorCertificationAuthorityHead Head() => BaseVectorCertificationAuthorityHead.Create(new string('a', 64), 0, 0, 0, _position, DateTimeOffset.UnixEpoch);
+            private BaseVectorCertificationAuthorityHead Head() => BaseVectorCertificationAuthorityHead.Create(new string('a', 64), 0, 0, 0, _disconnectDerivedHead ? 0 : _derived?.Position ?? _position, DateTimeOffset.UnixEpoch);
+        }
+
+        private sealed record FixtureMode(bool Derived);
+
+        private sealed class DerivedMutationAuthority(BaseTestVectorStore store, FixtureMode mode) : IBaseCommittedMutationObserver
+        {
+            private readonly object _gate = new();
+            private readonly Dictionary<string, BaseTestVectorEntry> _records = new(StringComparer.Ordinal);
+            private readonly SortedDictionary<long, BaseTestVectorEntry[]> _history = [];
+            private long _position;
+            private long _applied;
+            public long Position { get { lock (_gate) return _position; } }
+            public long AppliedPosition { get { lock (_gate) return _applied; } }
+
+            public ValueTask ObserveAsync(BaseRecordMutationEvent mutation, CancellationToken cancellationToken = default)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!string.Equals(mutation.Resource.CollectionId, Collection, StringComparison.Ordinal)) return ValueTask.CompletedTask;
+                lock (_gate)
+                {
+                    _position++;
+                    if (mutation.After is { Payload.Fields: not null, Metadata.Revision: not null } after)
+                        _records[after.Id.Value] = Entry(after, after.Payload.Fields);
+                    else if (mutation.Resource.RecordId is { } id) _records.Remove(id.Value);
+                    _history[_position] = _records.Values.ToArray();
+                    if (mode.Derived) PublishAuthority(); else PublishCurrent();
+                }
+                return ValueTask.CompletedTask;
+            }
+
+            public void AdvanceTo(long target)
+            {
+                lock (_gate)
+                {
+                    if (target < _applied || target > _position) throw new ArgumentOutOfRangeException(nameof(target));
+                    foreach (string index in Indexes)
+                    {
+                        store.Seed(Collection, index, target == 0 ? [] : _history[target]);
+                        store.SetDerivedState(Collection, index, _position, _applied, DateTimeOffset.UtcNow);
+                        for (long position = _applied + 1; position <= target; position++) store.ApplyDerivedPosition(Collection, index, position, DateTimeOffset.UtcNow);
+                    }
+                    _applied = target;
+                }
+            }
+
+            private void PublishAuthority()
+            {
+                foreach (string index in Indexes)
+                {
+                    if (_position == 1) store.Seed(Collection, index, []);
+                    store.SetDerivedState(Collection, index, _position, _applied, DateTimeOffset.UtcNow);
+                }
+            }
+
+            private void PublishCurrent()
+            {
+                foreach (string index in Indexes) store.Seed(Collection, index, _records.Values);
+                _applied = _position;
+            }
+
+            private static BaseTestVectorEntry Entry(RecordSnapshot after, Dictionary<string, JsonElement> fields)
+            {
+                float[] vector = fields["Embedding"].EnumerateArray().Select(static item => item.GetSingle()).ToArray();
+                var filters = new Dictionary<string, BaseVectorFilterValue>(StringComparer.Ordinal)
+                {
+                    ["hpd.base.vector.certification.tenant"] = BaseVectorFilterValue.FromString(fields["Tenant"].GetString()!),
+                    ["hpd.base.vector.certification.active"] = BaseVectorFilterValue.FromBoolean(fields["Active"].GetBoolean()),
+                    ["hpd.base.vector.certification.priority"] = BaseVectorFilterValue.FromInteger(fields["Priority"].GetInt64()),
+                    ["hpd.base.vector.certification.optional"] = fields["Optional"].ValueKind == JsonValueKind.Null ? BaseVectorFilterValue.Null() : BaseVectorFilterValue.FromString(fields["Optional"].GetString()!),
+                };
+                return new BaseTestVectorEntry { Record = new RecordEnvelope { CollectionId = after.CollectionId, Id = after.Id, Payload = after.Payload!, Metadata = after.Metadata! }, Vector = BaseVector.Create(vector), Filters = filters };
+            }
+
+            private const string Collection = "hpd.base.vector.certification.records";
+            private static readonly string[] Indexes = ["hpd.base.vector.certification.cosine", "hpd.base.vector.certification.euclidean", "hpd.base.vector.certification.dot"];
         }
 
         private sealed class Application(IHPDBaseApplication inner, CancellationTokenSource cancelDuringInitialization) : IHPDBaseApplication
