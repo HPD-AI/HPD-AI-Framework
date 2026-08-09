@@ -94,6 +94,7 @@ internal sealed class CollectionModel
                 "created_at TEXT NOT NULL",
                 "updated_at TEXT NOT NULL",
                 "append_position INTEGER NOT NULL UNIQUE CHECK (append_position > 0)",
+                "latest_mutation_position INTEGER NOT NULL DEFAULT 0 CHECK (latest_mutation_position >= 0)",
             };
             foreach (FieldModel field in Fields)
             {

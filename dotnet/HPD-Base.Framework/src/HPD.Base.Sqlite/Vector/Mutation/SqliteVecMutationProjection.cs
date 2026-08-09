@@ -11,7 +11,7 @@ internal sealed class SqliteVecMutationProjection : ISqliteAtomicMutationProject
     internal SqliteVecMutationProjection(SqliteVecModel model)
     {
         _model = model;
-        _statements = model.Indexes.SelectMany(index => new[] { Upsert(index), Delete(index), Purge(index), Advance(index), AdvancePurge(index) }).ToArray();
+        _statements = model.Indexes.SelectMany(index => new[] { Upsert(index), Delete(index), Advance(index), AdvancePurge(index) }).ToArray();
     }
     public string Id => "hpd.base.vector.sqlitevec";
     IReadOnlyList<SqliteProjectionStatement> ISqliteAtomicMutationProjectionCatalog.Statements => _statements;
@@ -87,8 +87,6 @@ internal sealed class SqliteVecMutationProjection : ISqliteAtomicMutationProject
         {
             foreach (SqliteVecModel.IndexModel index in _model.Indexes.Where(item => item.Definition.CollectionId == purge.CollectionId))
             {
-                OperationResult<int> purged = await context.ExecuteAsync(PurgeId(index), [], cancellationToken).ConfigureAwait(false);
-                if (!purged.Status.IsSuccess()) return Copy(purged);
                 OperationResult<int> advanced = await context.ExecuteAsync(AdvancePurgeId(index), [SqliteProjectionValue.Integer("purge", purge.PublishedGeneration)], cancellationToken).ConfigureAwait(false);
                 if (!advanced.Status.IsSuccess()) return Copy(advanced);
             }
@@ -106,12 +104,10 @@ internal sealed class SqliteVecMutationProjection : ISqliteAtomicMutationProject
         return new(UpsertId(index), $"INSERT INTO {index.Table}(record_id,revision,journal_position,vector{columns}) VALUES ($record,$revision,$position,$vector{values}) ON CONFLICT(record_id) DO UPDATE SET revision=excluded.revision,journal_position=excluded.journal_position,vector=excluded.vector{updates};", names.ToArray(), 1);
     }
     private static SqliteProjectionStatement Delete(SqliteVecModel.IndexModel index) => new(DeleteId(index), $"DELETE FROM {index.Table} WHERE record_id=$record;", ["record"], 1);
-    private static SqliteProjectionStatement Purge(SqliteVecModel.IndexModel index) => new(PurgeId(index), $"DELETE FROM {index.Table};", [], int.MaxValue);
     private static SqliteProjectionStatement Advance(SqliteVecModel.IndexModel index) => new(AdvanceId(index), $"UPDATE {SqliteVecModel.StateTable} SET applied_position=MAX(applied_position,$position) WHERE collection_id='{index.Definition.CollectionId.Replace("'", "''", StringComparison.Ordinal)}' AND index_id='{index.Definition.Id.Replace("'", "''", StringComparison.Ordinal)}';", ["position"], 1);
     private static SqliteProjectionStatement AdvancePurge(SqliteVecModel.IndexModel index) => new(AdvancePurgeId(index), $"UPDATE {SqliteVecModel.StateTable} SET purge_generation=$purge WHERE collection_id='{index.Definition.CollectionId.Replace("'", "''", StringComparison.Ordinal)}' AND index_id='{index.Definition.Id.Replace("'", "''", StringComparison.Ordinal)}';", ["purge"], 1);
     private static string UpsertId(SqliteVecModel.IndexModel index) => index.Definition.Id + ".upsert";
     private static string DeleteId(SqliteVecModel.IndexModel index) => index.Definition.Id + ".delete";
-    private static string PurgeId(SqliteVecModel.IndexModel index) => index.Definition.Id + ".purge";
     private static string AdvanceId(SqliteVecModel.IndexModel index) => index.Definition.Id + ".advance";
     private static string AdvancePurgeId(SqliteVecModel.IndexModel index) => index.Definition.Id + ".advancePurge";
     private static byte[] FloatBytes(float[] values) { byte[] bytes = new byte[values.Length * sizeof(float)]; Buffer.BlockCopy(values, 0, bytes, 0, bytes.Length); return bytes; }

@@ -422,6 +422,27 @@ public sealed class BaseCollectionGeneratorTests
     }
 
     [Fact]
+    public void NullableVectorFieldGeneratesSparseVectorIndex()
+    {
+        const string source = """
+            using HPD.Base;
+            using System.Text.Json.Serialization;
+            [BaseCollection("documents", typeof(AppJsonContext))]
+            [BaseVectorIndex("document.semantic", nameof(Embedding), VectorSpace = "text.embedding.v1", Dimensions = 3)]
+            public partial record Document
+            {
+                [BaseField("document.embedding", Operators = BaseFieldOperator.None)] public BaseVector? Embedding { get; init; }
+            }
+            [JsonSerializable(typeof(Document))] public partial class AppJsonContext : JsonSerializerContext;
+            """;
+
+        GeneratorResult result = Run(source);
+
+        result.Diagnostics.Should().BeEmpty();
+        result.GeneratedSource.Should().Contain("BaseVectorIndex<global::Document> Semantic");
+    }
+
+    [Fact]
     public void OrdinaryIndexCannotContainVectorField()
     {
         const string source = """

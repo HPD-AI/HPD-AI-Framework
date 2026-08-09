@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using System.Diagnostics;
 using HPD.Base;
 using HPD.Base.AspNetCore;
 using Microsoft.AspNetCore.Builder;
@@ -8,7 +9,7 @@ namespace HPD.Base.InMemory.Vector.AotSmoke;
 
 internal static class Program
 {
-    private static async Task<int> Main()
+    private static async Task<int> Main(string[] args)
     {
         WebApplicationBuilder host = WebApplication.CreateSlimBuilder();
         host.Services.AddHPDBase(builder => builder
@@ -22,6 +23,8 @@ internal static class Program
         if (!(await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess()) return 2;
         PrincipalContext principal = new() { AuthenticationState = PrincipalAuthenticationState.Admin, SubjectId = "aot" };
         BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(principal);
+        if (args is ["--capacity"])
+            return await RunCapacityGateAsync(provider, session, principal);
         (await session.Collection(InMemoryVectorRecord.Collection).CreateAsync(new RecordId("one"), new InMemoryVectorRecord { Label = "one", Tenant = new RecordId("tenant-a"), Active = true, Priority = 7, Optional = null, Embedding = BaseVector.Create([1, 0]) })).RequireValue();
         (await session.Collection(InMemoryVectorRecord.Collection).CreateAsync(new RecordId("two"), new InMemoryVectorRecord { Label = "two", Tenant = new RecordId("tenant-b"), Active = false, Priority = 9, Optional = "present", Embedding = BaseVector.Create([0, 1]) })).RequireValue();
 
@@ -41,9 +44,61 @@ internal static class Program
             .Vector(InMemoryVectorRecord.VectorIndexes.Dot).Nearest(BaseVector.Create([1, 0])).Take(2).ExecuteAsync()).RequireValue();
         OperationResult<BaseVectorIndexStatus[]> statuses = await provider.GetRequiredService<IBaseVectorAdministration>().ListAsync();
         HealthDescriptor[][] health = await Task.WhenAll(provider.GetServices<IBaseHealthContributor>().Select(async contributor => await contributor.GetHealthAsync()));
-        if (cosine.Matches is not [{ Record.Id.Value: "one" }] || euclidean.Matches.Length != 2 || consistent.Matches.Length != 2 || dot.Matches.Length != 2 ||
-            !statuses.IsSuccess() || statuses.Value?.Length != 3 || health.SelectMany(static value => value).Any(static value => value.Status == HealthStatus.Unhealthy)) return 4;
+        if (cosine.Matches is not [{ Record.Id.Value: "one" }] || euclidean.Matches is not [{ Record.Id.Value: "two" }] || consistent.Matches.Length != 2 || dot.Matches.Length != 2 ||
+            !statuses.IsSuccess() || statuses.Value?.Length != 3 || health.SelectMany(static value => value).Any(static value => value.Status == HealthStatus.Unhealthy))
+        {
+            return 4;
+        }
         return 0;
+    }
+
+    private static async Task<int> RunCapacityGateAsync(IServiceProvider provider, BaseSession session, PrincipalContext principal)
+    {
+        const int recordCount = 100_000;
+        const int vectorCount = 999;
+        const long maximumRetainedBytes = 512L * 1024 * 1024;
+        var elapsed = Stopwatch.StartNew();
+        Process process = Process.GetCurrentProcess();
+        process.Refresh();
+        long baseline = process.WorkingSet64;
+
+        for (int offset = 0; offset < recordCount; offset += 100)
+        {
+            BaseBatchBuilder batch = session.Atomic();
+            int end = Math.Min(recordCount, offset + 100);
+            for (int index = offset; index < end; index++)
+                batch.Create(InMemoryVectorRecord.Collection, new RecordId($"capacity-{index:D6}"), new InMemoryVectorRecord
+                {
+                    Label = $"record-{index:D6}", Tenant = new RecordId("capacity"), Active = true,
+                    Priority = index, Optional = null, Embedding = index < vectorCount ? BaseVector.Create([1, index / 1000f]) : null,
+                });
+            (await batch.CommitAsync()).RequireValue().RequireCommitted();
+        }
+
+        InMemoryRecordStore store = provider.GetRequiredService<InMemoryRecordStore>();
+        OperationResult<IInMemoryProjectionReadSession> firstCapture = await ((IInMemoryProjectionAuthority)store).CaptureAsync(CancellationToken.None);
+        if (!firstCapture.IsSuccess() || firstCapture.Value is null) return 10;
+        await using IInMemoryProjectionReadSession firstRoot = firstCapture.Value;
+        await session.Collection(InMemoryVectorRecord.Collection).ReplaceAsync(new RecordId("capacity-000000"), new InMemoryVectorRecord
+        { Label = "mutation-one", Tenant = new RecordId("capacity"), Active = true, Priority = 0, Optional = null, Embedding = BaseVector.Create([1, 0]) });
+        OperationResult<IInMemoryProjectionReadSession> secondCapture = await ((IInMemoryProjectionAuthority)store).CaptureAsync(CancellationToken.None);
+        if (!secondCapture.IsSuccess() || secondCapture.Value is null) return 11;
+        await using IInMemoryProjectionReadSession secondRoot = secondCapture.Value;
+        await session.Collection(InMemoryVectorRecord.Collection).ReplaceAsync(new RecordId("capacity-000000"), new InMemoryVectorRecord
+        { Label = "mutation-two", Tenant = new RecordId("capacity"), Active = true, Priority = 0, Optional = null, Embedding = BaseVector.Create([1, 0]) });
+
+        OperationResult<BaseVectorIndexStatus[]> listed = await provider.GetRequiredService<IBaseVectorAdministration>().ListAsync();
+        if (!listed.IsSuccess() || listed.Value is null) return 13;
+        BaseVectorIndexStatus target = listed.Value.Single(status => status.VectorIndexId == InMemoryVectorRecord.VectorIndexes.Cosine.Definition.Id);
+        BaseResult<BaseVectorRebuildResult> rebuilt = await provider.GetRequiredService<IHPDBaseAdministration>().RebuildVectorIndexAsync(new BaseVectorRebuildRequest
+        {
+            StoreId = "inmemory", Principal = principal, CollectionId = target.CollectionId, VectorIndexId = target.VectorIndexId,
+            ExpectedGeneration = target.Generation, ExpectedPurgeGeneration = target.PurgeGeneration, Confirmation = "rebuild",
+        });
+        process.Refresh();
+        long retainedBytes = Math.Max(0, process.WorkingSet64 - baseline);
+        Console.WriteLine($"records={recordCount} vectors={vectorCount} retainedRoots=2 scanPageMaximum=256 retainedBytes={retainedBytes} elapsedSeconds={elapsed.Elapsed.TotalSeconds:F1}");
+        return rebuilt is BaseSuccess<BaseVectorRebuildResult> && retainedBytes <= maximumRetainedBytes && elapsed.Elapsed < TimeSpan.FromHours(1) ? 0 : 12;
     }
 }
 
@@ -58,7 +113,7 @@ internal partial record InMemoryVectorRecord
     [BaseField("inmemory.vector.active")] public required bool Active { get; init; }
     [BaseField("inmemory.vector.priority")] public required long Priority { get; init; }
     [BaseField("inmemory.vector.optional")] public string? Optional { get; init; }
-    [BaseField("inmemory.vector.embedding", Operators = BaseFieldOperator.None)] public required BaseVector Embedding { get; init; }
+    [BaseField("inmemory.vector.embedding", Operators = BaseFieldOperator.None)] public BaseVector? Embedding { get; init; }
 }
 
 [JsonSerializable(typeof(InMemoryVectorRecord))]

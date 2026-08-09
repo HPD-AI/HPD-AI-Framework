@@ -468,6 +468,7 @@ ON CONFLICT(collection_id) DO UPDATE SET native_name = excluded.native_name, mut
         Check(shapes, malformed, collection.Table, "created_at", "TEXT", true, false);
         Check(shapes, malformed, collection.Table, "updated_at", "TEXT", true, false);
         Check(shapes, malformed, collection.Table, "append_position", "INTEGER", true, false);
+        Check(shapes, malformed, collection.Table, "latest_mutation_position", "INTEGER", true, false);
         foreach (SqlitePhysicalModel.FieldModel field in collection.Fields)
         {
             if (field.PresenceColumn is not null) Check(shapes, malformed, collection.Table, field.PresenceColumn, "INTEGER", true, false);

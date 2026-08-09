@@ -93,7 +93,7 @@ public sealed class BaseVectorCertificationReport
 public static class BaseVectorProviderCertification
 {
     /// <summary>Gets the supported certification protocol version.</summary>
-    public const int ProtocolVersion = 1;
+    public const int ProtocolVersion = 2;
 
     /// <summary>Runs the selected required plan against fresh isolated hosts.</summary>
     public static async ValueTask<BaseVectorCertificationReport> RunAsync(IBaseVectorProviderCertificationFixture fixture, BaseVectorCertificationPlan plan, CancellationToken cancellationToken = default)
@@ -272,6 +272,8 @@ public static class BaseVectorProviderCertification
             if (!NotApplicable(advance) || !NotApplicable(prune))
                 return Failed(caseId, "base.testing.vector.adapterFailed", "The certification adapter violated provider-class applicability.");
         }
+        if (!await ValidQueryEvidenceAsync(host, BaseVectorCertificationQueryScenario.CosineRanking, cancellationToken).ConfigureAwait(false))
+            return Failed(caseId, "base.testing.vector.queryEvidenceInvalid", "The provider did not prove vector behavior before rebuild.");
         if (caseId.Contains("lifecycle", StringComparison.Ordinal))
         {
             OperationResult<BaseVectorCertificationTransitionResult> transition = await host.Authority.TransitionAsync(
@@ -288,6 +290,15 @@ public static class BaseVectorProviderCertification
         OperationResult<BaseVectorCertificationFaultState> fault = await host.Provider.InspectFaultAsync(cancellationToken).ConfigureAwait(false);
         if (!fault.IsSuccess() || fault.Value is null || fault.Value.Kind != BaseVectorCertificationFaultKind.None)
             return Failed(caseId, "base.testing.vector.faultNotConsumed", "The certification fault state is invalid.");
+        BaseVectorCertificationQueryScenario[] scenarios = caseId.Contains("ranking", StringComparison.Ordinal)
+            ? Enum.GetValues<BaseVectorCertificationQueryScenario>()
+            : [BaseVectorCertificationQueryScenario.CosineRanking];
+        foreach (BaseVectorCertificationQueryScenario scenario in scenarios)
+        {
+            OperationResult<BaseVectorCertificationQueryResult> query = await host.Queries.ExecuteAsync(BaseVectorCertificationQueryRequest.Create(scenario), cancellationToken).ConfigureAwait(false);
+            if (!query.IsSuccess() || query.Value is null || !ValidQueryEvidence(query.Value, scenario))
+                return Failed(caseId, "base.testing.vector.queryEvidenceInvalid", "The provider did not prove the required vector query behavior.");
+        }
         return Passed(caseId);
 
         static bool NotApplicable<T>(OperationResult<T> result) =>
@@ -299,6 +310,19 @@ public static class BaseVectorProviderCertification
             BaseVectorCertificationField.Create(schema.TenantFieldId, BaseVectorCertificationValue.String(tenant)),
             BaseVectorCertificationField.Create(schema.VectorFieldId, BaseVectorCertificationValue.Vector(BaseVector.Create(vector))),
         ]);
+    }
+    private static async ValueTask<bool> ValidQueryEvidenceAsync(IBaseVectorCertificationHost host, BaseVectorCertificationQueryScenario scenario, CancellationToken cancellationToken)
+    {
+        OperationResult<BaseVectorCertificationQueryResult> query = await host.Queries.ExecuteAsync(BaseVectorCertificationQueryRequest.Create(scenario), cancellationToken).ConfigureAwait(false);
+        return query.IsSuccess() && query.Value is not null && ValidQueryEvidence(query.Value, scenario);
+    }
+    private static bool ValidQueryEvidence(BaseVectorCertificationQueryResult value, BaseVectorCertificationQueryScenario scenario)
+    {
+        string[] expected = scenario is BaseVectorCertificationQueryScenario.CosineRanking or BaseVectorCertificationQueryScenario.EuclideanRanking or BaseVectorCertificationQueryScenario.DotProductRanking
+            ? ["record-a", "record-b"] : ["record-a"];
+        return value.Scenario == scenario && value.HydratedRecords == expected.Length && value.AuthorizedCandidates >= expected.Length &&
+            value.Matches.Select(static match => match.RecordId).SequenceEqual(expected, StringComparer.Ordinal) &&
+            value.Matches.All(static match => !string.IsNullOrEmpty(match.Revision) && double.IsFinite(match.Measure) && match.IndexedPosition >= 1);
     }
     private static BaseVectorCertificationCaseResult Passed(string id) => new(id, BaseVectorCertificationCaseOutcome.Passed);
     private static BaseVectorCertificationCaseResult Failed(string id, string code, string message) => new(id, BaseVectorCertificationCaseOutcome.Failed, code, message);

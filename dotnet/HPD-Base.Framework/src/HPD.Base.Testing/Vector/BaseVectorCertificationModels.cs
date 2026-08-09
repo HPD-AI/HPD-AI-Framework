@@ -126,6 +126,62 @@ public sealed class BaseVectorCertificationObservationRequest
     public static BaseVectorCertificationObservationRequest Create(long afterSequenceExclusive = 0, int take = 256) => afterSequenceExclusive < 0 || take is < 1 or > 256 ? throw new ArgumentOutOfRangeException(nameof(afterSequenceExclusive)) : new(afterSequenceExclusive, take);
 }
 
+/** <summary>Requests one closed certification vector query.</summary> */
+public sealed class BaseVectorCertificationQueryRequest
+{
+    private BaseVectorCertificationQueryRequest(BaseVectorCertificationQueryScenario scenario) => Scenario = scenario;
+    /** <summary>Gets the behavior scenario.</summary> */
+    public BaseVectorCertificationQueryScenario Scenario { get; }
+    /** <summary>Creates a validated immutable query request.</summary> */
+    public static BaseVectorCertificationQueryRequest Create(BaseVectorCertificationQueryScenario scenario) =>
+        !Enum.IsDefined(scenario) ? throw new ArgumentOutOfRangeException(nameof(scenario)) : new(scenario);
+}
+
+/** <summary>Contains one authoritative hydrated certification match.</summary> */
+public sealed class BaseVectorCertificationQueryMatch
+{
+    private BaseVectorCertificationQueryMatch(string recordId, string revision, double measure, long indexedPosition)
+    { RecordId = recordId; Revision = revision; Measure = measure; IndexedPosition = indexedPosition; }
+    /** <summary>Gets the canonical record identifier.</summary> */
+    public string RecordId { get; }
+    /** <summary>Gets the exact hydrated revision.</summary> */
+    public string Revision { get; }
+    /** <summary>Gets the finite disclosed measure.</summary> */
+    public double Measure { get; }
+    /** <summary>Gets the record-local authoritative mutation position.</summary> */
+    public long IndexedPosition { get; }
+    /** <summary>Creates validated immutable query-match evidence.</summary> */
+    public static BaseVectorCertificationQueryMatch Create(string recordId, string revision, double measure, long indexedPosition) =>
+        !double.IsFinite(measure) || indexedPosition < 1
+            ? throw new ArgumentOutOfRangeException(nameof(measure))
+            : new(BaseVectorCertificationValidation.Id(recordId, nameof(recordId)), BaseVectorCertificationValidation.Id(revision, nameof(revision)), measure, indexedPosition);
+    internal BaseVectorCertificationQueryMatch Copy() => Create(RecordId, Revision, Measure, IndexedPosition);
+}
+
+/** <summary>Contains bounded evidence from one real certification search.</summary> */
+public sealed class BaseVectorCertificationQueryResult
+{
+    private BaseVectorCertificationQueryResult(BaseVectorCertificationQueryScenario scenario, IReadOnlyList<BaseVectorCertificationQueryMatch> matches, int authorizedCandidates, int hydratedRecords)
+    { Scenario = scenario; Matches = Array.AsReadOnly(matches.Select(static value => value.Copy()).ToArray()); AuthorizedCandidates = authorizedCandidates; HydratedRecords = hydratedRecords; }
+    /** <summary>Gets the executed scenario.</summary> */
+    public BaseVectorCertificationQueryScenario Scenario { get; }
+    /** <summary>Gets ordered authoritative hydrated matches.</summary> */
+    public IReadOnlyList<BaseVectorCertificationQueryMatch> Matches { get; }
+    /** <summary>Gets candidates remaining after policy and candidate-filter enforcement.</summary> */
+    public int AuthorizedCandidates { get; }
+    /** <summary>Gets records hydrated at exact indexed revisions.</summary> */
+    public int HydratedRecords { get; }
+    /** <summary>Creates validated, deeply owned query evidence.</summary> */
+    public static BaseVectorCertificationQueryResult Create(BaseVectorCertificationQueryScenario scenario, IReadOnlyList<BaseVectorCertificationQueryMatch> matches, int authorizedCandidates, int hydratedRecords)
+    {
+        if (!Enum.IsDefined(scenario)) throw new ArgumentOutOfRangeException(nameof(scenario));
+        ReadOnlyCollection<BaseVectorCertificationQueryMatch> copy = BaseVectorCertificationValidation.Copy(matches, 1, 64, nameof(matches), static value => value.Copy());
+        if (authorizedCandidates < copy.Count || hydratedRecords != copy.Count || copy.Select(static value => value.RecordId).Distinct(StringComparer.Ordinal).Count() != copy.Count)
+            throw new ArgumentException("The certification query evidence is invalid.");
+        return new(scenario, copy, authorizedCandidates, hydratedRecords);
+    }
+}
+
 /** <summary>Contains one closed certification record.</summary> */
 public sealed class BaseVectorCertificationRecord
 {

@@ -120,6 +120,21 @@ public sealed class BaseVectorInitializationTests
         result.Status.Should().Be(OperationStatus.Ok);
     }
 
+    [Fact]
+    public async Task Arbitrary_pre_registration_cannot_suppress_the_automatic_in_memory_vector_authority()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<IBaseVectorProvider, HostileVectorProvider>();
+        services.AddHPDBase(builder => builder.AddCollection(VectorDxDocument.Collection));
+        await using ServiceProvider provider = services.BuildServiceProvider();
+
+        provider.GetServices<IBaseVectorProvider>().Should().HaveCount(2);
+        OperationResult<BaseApplicationReadiness> result = await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync();
+
+        result.Status.Should().Be(OperationStatus.StoreError);
+        result.Error!.Code.Should().Be("base.application.initializationFailed");
+    }
+
     private static ServiceProvider Build(BaseOpaqueTokenKey key)
     {
         var services = new ServiceCollection();
@@ -141,5 +156,12 @@ public sealed class BaseVectorInitializationTests
     private sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => now;
+    }
+
+    private sealed class HostileVectorProvider : IBaseVectorProvider
+    {
+        public BaseVectorProviderDescriptor Descriptor { get; } = new() { Id = "hostile", Consistency = BaseVectorProviderConsistency.TransactionalCurrent, Exact = true, MaximumTopK = 1 };
+        public ValueTask<BaseVectorConstraintPreparation> PrepareAsync(BaseVectorProviderPreparationRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public ValueTask<BaseVectorProviderResult> SearchAsync(BaseVectorExecutionRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 }

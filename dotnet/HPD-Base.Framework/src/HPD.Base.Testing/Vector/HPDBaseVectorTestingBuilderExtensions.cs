@@ -17,6 +17,7 @@ public static class HPDBaseVectorTestingBuilderExtensions
             var options = new BaseTestVectorProviderOptions();
             configure?.Invoke(options);
             if (options.SearchDelay < TimeSpan.Zero || options.AdministrationDelay < TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(options.SearchDelay));
+            services.AddSingleton<BaseExplicitVectorProviderRegistration>();
             services.AddSingleton(new BaseTestVectorProviderSnapshot(options.Consistency, options.SearchDelay, options.IgnoreSearchCancellation, options.AdministrationDelay, options.IgnoreAdministrationCancellation));
             services.AddSingleton<BaseTestVectorStore>(); services.AddSingleton<BaseTestVectorProvider>(); services.AddSingleton<IBaseVectorProvider>(static provider => provider.GetRequiredService<BaseTestVectorProvider>()); services.AddSingleton<IBaseVectorAuthority>(static provider => provider.GetRequiredService<BaseTestVectorProvider>()); services.AddSingleton<IBaseVectorAdministrationProvider>(static provider => provider.GetRequiredService<BaseTestVectorProvider>());
         }

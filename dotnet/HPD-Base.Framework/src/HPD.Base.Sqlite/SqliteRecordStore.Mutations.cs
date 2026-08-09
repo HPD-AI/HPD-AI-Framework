@@ -1004,6 +1004,7 @@ public sealed partial class SqliteRecordStore
                 after,
                 cancellationToken,
                 CommandTimeoutSeconds()).ConfigureAwait(false);
+            await SetLatestMutationPositionAsync(physical, id, journal.Position, cancellationToken).ConfigureAwait(false);
             var value = SessionResult(
                 collection,
                 context,
@@ -1190,6 +1191,7 @@ public sealed partial class SqliteRecordStore
                 after,
                 cancellationToken,
                 CommandTimeoutSeconds()).ConfigureAwait(false);
+            await SetLatestMutationPositionAsync(physical, id, journal.Position, cancellationToken).ConfigureAwait(false);
             var value = SessionResult(
                 collection,
                 context,
@@ -1324,6 +1326,22 @@ public sealed partial class SqliteRecordStore
                     await insert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
                 }
             }
+        }
+
+        private async ValueTask SetLatestMutationPositionAsync(
+            SqlitePhysicalModel.CollectionModel physical,
+            RecordId recordId,
+            BaseMutationJournalPosition position,
+            CancellationToken cancellationToken)
+        {
+            await using SqliteCommand command = _connection.CreateCommand();
+            command.Transaction = _transaction;
+            command.CommandText = $"UPDATE {physical.Table} SET latest_mutation_position=$position WHERE record_id=$record;";
+            command.CommandTimeout = CommandTimeoutSeconds();
+            command.Parameters.AddWithValue("$position", position.Value);
+            command.Parameters.AddWithValue("$record", recordId.Value);
+            if (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+                throw new InvalidOperationException("The authoritative mutation position could not be recorded.");
         }
 
         private async ValueTask<bool> HasRestrictedIncomingReferenceAsync(string collectionId, string targetRecordId, CancellationToken cancellationToken)

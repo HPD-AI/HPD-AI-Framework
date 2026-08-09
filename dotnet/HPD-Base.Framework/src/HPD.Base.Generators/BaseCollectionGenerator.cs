@@ -565,10 +565,10 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
                 return null;
             }
             if (!propertyFields.TryGetValue(vectorPropertyName, out FieldModel vectorField)
-                || vectorField.TypeName != "global::HPD.Base.BaseVector"
+                || vectorField.TypeName is not ("global::HPD.Base.BaseVector" or "global::HPD.Base.BaseVector?")
                 || vectorField.Operators != 0)
             {
-                context.ReportDiagnostic(Diagnostic.Create(InvalidIndex, location, collectionId, vectorIndexId, "the vector property must be a stored BaseVector field with BaseFieldOperator.None"));
+                context.ReportDiagnostic(Diagnostic.Create(InvalidIndex, location, collectionId, vectorIndexId, "the vector property must be a stored BaseVector or nullable BaseVector field with BaseFieldOperator.None"));
                 return null;
             }
 

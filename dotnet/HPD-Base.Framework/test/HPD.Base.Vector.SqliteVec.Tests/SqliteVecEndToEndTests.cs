@@ -9,6 +9,61 @@ namespace HPD.Base.Vector.SqliteVec.Tests;
 public sealed class SqliteVecEndToEndTests
 {
     [Fact]
+    public async Task Selective_purge_preserves_surviving_carriers_and_rebuildability()
+    {
+        string path = Path.Combine(Path.GetTempPath(), "hpd-base-vector-purge-" + Guid.NewGuid().ToString("N") + ".db");
+        try
+        {
+            var services = new ServiceCollection().AddLogging();
+            services.AddHPDBase(builder => builder
+                .ConfigureSchema(options => { options.ApplicationId = "vector-purge-tests"; options.PlanProtectionKey = Enumerable.Repeat((byte)0x71, 32).ToArray(); })
+                .ConfigureTokenProtection(options => options.ActiveKey = new BaseOpaqueTokenKey { Id = 8, Key = Enumerable.Repeat((byte)0x72, 32).ToArray(), IssueNotBefore = DateTimeOffset.UnixEpoch })
+                .AddCollection(PurgeVectorDocument.Collection)
+                .UseStore(SqliteStore.Configure(options => { options.DataSource = path; options.StoreId = "sqlite"; options.AdministrationEnabled = true; })));
+            services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
+            await using ServiceProvider provider = services.BuildServiceProvider();
+            IBaseSchemaManager schema = provider.GetRequiredService<IBaseSchemaManager>();
+            BaseSchemaPlan plan = (await schema.PlanAsync(new BaseSchemaPlanRequest { StoreId = "sqlite" })).Value!;
+            (await schema.ApplyAsync(new BaseSchemaApplyRequest { ProtectedArtifact = plan.ProtectedArtifact })).IsSuccess().Should().BeTrue();
+            (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
+            var principal = new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.System, SubjectId = "administrator" };
+            BaseCollectionSession<PurgeVectorDocument> collection = provider.GetRequiredService<IBaseSessionFactory>().For(principal).Collection(PurgeVectorDocument.Collection);
+            (await collection.CreateAsync(new RecordId("purged"), new PurgeVectorDocument { Title = "Purged", Embedding = BaseVector.Create([1, 0]) })).RequireValue();
+            (await collection.CreateAsync(new RecordId("survivor"), new PurgeVectorDocument { Title = "Survivor", Embedding = BaseVector.Create([0, 1]) })).RequireValue();
+
+            BasePurgeResult purge = (await provider.GetRequiredService<IHPDBaseAdministration>().PurgeAsync(new BasePurgeRequest
+            {
+                CollectionId = PurgeVectorDocument.Collection.Id,
+                RecordIds = [new RecordId("purged")],
+                Principal = principal,
+                ReasonCode = "retention",
+                AuditReference = "vector-purge-test",
+                EvaluatedAt = DateTimeOffset.UtcNow,
+                ExpectedPurgeGeneration = 0,
+            })).RequireValue();
+            purge.PurgedCount.Should().Be(1);
+            BaseVectorResult<PurgeVectorDocument> afterPurge = (await collection.Vector(PurgeVectorDocument.VectorIndexes.Semantic).Nearest(BaseVector.Create([0, 1])).Take(2).ExecuteAsync()).RequireValue();
+            afterPurge.Matches.Select(static match => match.Record.Id.Value).Should().Equal("survivor");
+
+            IBaseVectorAdministration vectors = provider.GetRequiredService<IBaseVectorAdministration>();
+            BaseVectorIndexStatus status = (await vectors.GetAsync(PurgeVectorDocument.Collection.Id, PurgeVectorDocument.VectorIndexes.Semantic.Id)).Value!;
+            (await provider.GetRequiredService<IHPDBaseAdministration>().RebuildVectorIndexAsync(new BaseVectorRebuildRequest
+            {
+                StoreId = "sqlite", Principal = principal, CollectionId = status.CollectionId,
+                VectorIndexId = status.VectorIndexId, ExpectedGeneration = status.Generation,
+                ExpectedPurgeGeneration = status.PurgeGeneration, Confirmation = "REBUILD VECTOR INDEX",
+            })).RequireValue();
+            BaseVectorResult<PurgeVectorDocument> afterRebuild = (await collection.Vector(PurgeVectorDocument.VectorIndexes.Semantic).Nearest(BaseVector.Create([0, 1])).Take(2).ExecuteAsync()).RequireValue();
+            afterRebuild.Matches.Select(static match => match.Record.Id.Value).Should().Equal("survivor");
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            foreach (string candidate in new[] { path, path + "-wal", path + "-shm" }) if (File.Exists(candidate)) File.Delete(candidate);
+        }
+    }
+
+    [Fact]
     public async Task Backup_validation_and_restore_preserve_vector_carriers_and_invalidate_old_tokens()
     {
         string temporaryDirectory = Path.GetFullPath(Path.GetTempPath());
@@ -145,6 +200,21 @@ public sealed class SqliteVecEndToEndTests
             BaseResult<BaseVectorResult<VectorDocument>> stale = await session.Collection(VectorDocument.Collection).Vector(VectorDocument.VectorIndexes.Semantic).Nearest(BaseVector.Create([1, 0])).Take(1).WithConsistency(new BaseVectorConsistencyRequirement.AtLeast(consistency)).ExecuteAsync();
             (stale as BaseFailure<BaseVectorResult<VectorDocument>>)!.Error.Code.Should().Be(BaseVectorErrorCodes.ConsistencyScopeMismatch);
 
+            await using (var positions = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}"))
+            {
+                await positions.OpenAsync();
+                await using Microsoft.Data.Sqlite.SqliteCommand table = positions.CreateCommand();
+                table.CommandText = "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'b_v_%' ORDER BY name LIMIT 1;";
+                string carrier = (string)(await table.ExecuteScalarAsync())!;
+                await using Microsoft.Data.Sqlite.SqliteCommand exact = positions.CreateCommand();
+                exact.CommandText = $"SELECT record_id,journal_position FROM {carrier} WHERE record_id IN ('a','b','c') ORDER BY record_id;";
+                await using Microsoft.Data.Sqlite.SqliteDataReader reader = await exact.ExecuteReaderAsync();
+                var values = new List<(string Id, long Position)>();
+                while (await reader.ReadAsync()) values.Add((reader.GetString(0), reader.GetInt64(1)));
+                values.Select(static value => value.Id).Should().Equal("a", "b", "c");
+                values.Select(static value => value.Position).Should().OnlyHaveUniqueItems();
+            }
+
             BaseResult<BaseRecord<VectorDocument>> rejected = await session.Collection(VectorDocument.Collection).CreateAsync(new RecordId("zero"), new VectorDocument { Title = "Zero", Tenant = "one", Embedding = BaseVector.Create([0, 0]) });
             rejected.Status.Should().Be(OperationStatus.ValidationFailed);
             (await session.Collection(VectorDocument.Collection).GetAsync(new RecordId("zero"))).Status.Should().Be(OperationStatus.NotFound);
@@ -197,3 +267,14 @@ internal sealed class AllowPolicyEvaluator : IPolicyEvaluator
 {
     public ValueTask<PolicyDecision> EvaluateAsync(PolicyEvaluationRequest request, CancellationToken cancellationToken = default) => ValueTask.FromResult(PolicyDecision.Allow());
 }
+
+[BaseCollection("purge_vector_documents", typeof(PurgeVectorJsonContext), MutationMode = BaseCollectionMutationMode.AppendOnlyWithAdministrativePurge)]
+[BaseVectorIndex("purge.vector.semantic", nameof(PurgeVectorDocument.Embedding), VectorSpace = "purge.space.v1", Dimensions = 2, Function = BaseVectorFunction.CosineSimilarity)]
+public partial record PurgeVectorDocument
+{
+    [BaseField("purge.vector.title")] public required string Title { get; init; }
+    [BaseField("purge.vector.embedding", Operators = BaseFieldOperator.None)] public required BaseVector Embedding { get; init; }
+}
+
+[JsonSerializable(typeof(PurgeVectorDocument))]
+public partial class PurgeVectorJsonContext : JsonSerializerContext;

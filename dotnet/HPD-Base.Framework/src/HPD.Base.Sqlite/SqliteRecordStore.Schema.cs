@@ -608,7 +608,7 @@ public sealed partial class SqliteRecordStore
             .Where(asset => asset.LogicalId.StartsWith("f:" + collectionId + ":", StringComparison.Ordinal))
             .Select(static asset => asset.LogicalId.Split(':')[2])
             .ToHashSet(StringComparer.Ordinal);
-        var columns = new List<string> { "record_id", "revision", "created_at", "updated_at", "append_position" };
+        var columns = new List<string> { "record_id", "revision", "created_at", "updated_at", "append_position", "latest_mutation_position" };
         var values = new List<string>(columns);
         foreach (SqlitePhysicalModel.FieldModel field in collection.Fields)
         {

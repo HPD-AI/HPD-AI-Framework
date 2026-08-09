@@ -140,6 +140,23 @@ public enum BaseVectorCertificationObservationKind
     OperationResult,
 }
 
+/// <summary>Identifies one closed vector-query behavior exercised by certification.</summary>
+public enum BaseVectorCertificationQueryScenario
+{
+    /// <summary>Cosine ranking with deterministic boundary ties.</summary>
+    CosineRanking,
+    /// <summary>Euclidean ranking with deterministic boundary ties.</summary>
+    EuclideanRanking,
+    /// <summary>Dot-product ranking with deterministic boundary ties.</summary>
+    DotProductRanking,
+    /// <summary>Policy filtering before ranking.</summary>
+    PolicyBeforeRanking,
+    /// <summary>Missing, null, equality, IN, AND, and OR filter truth tables.</summary>
+    CandidateFilterTruthTable,
+    /// <summary>Exact-revision hydration and redaction.</summary>
+    ExactHydration,
+}
+
 /// <summary>Provides a provider-specific isolated certification host.</summary>
 public interface IBaseVectorProviderCertificationFixture
 {
@@ -160,8 +177,17 @@ public interface IBaseVectorCertificationHost : IAsyncDisposable
     IBaseVectorCertificationAuthorityControl Authority { get; }
     /// <summary>Gets provider controls.</summary>
     IBaseVectorCertificationProviderControl Provider { get; }
+    /// <summary>Gets the real vector-query control.</summary>
+    IBaseVectorCertificationQueryControl Queries { get; }
     /// <summary>Gets bounded observations.</summary>
     IBaseVectorCertificationObservationSource Observations { get; }
+}
+
+/// <summary>Executes closed certification searches through the provider's supported BASE query path.</summary>
+public interface IBaseVectorCertificationQueryControl
+{
+    /// <summary>Executes one closed query scenario and returns bounded result evidence.</summary>
+    ValueTask<OperationResult<BaseVectorCertificationQueryResult>> ExecuteAsync(BaseVectorCertificationQueryRequest request, CancellationToken cancellationToken = default);
 }
 
 /// <summary>Controls the authoritative side of one closed certification case.</summary>

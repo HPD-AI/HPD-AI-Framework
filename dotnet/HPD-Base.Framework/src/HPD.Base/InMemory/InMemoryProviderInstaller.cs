@@ -27,7 +27,7 @@ internal sealed class InMemoryProviderInstaller(Action<HPDBaseInMemoryStoreOptio
             options.Collections = context.Collections.ToArray();
             storeId = options.StoreId;
         });
-        if (hasVectors && !context.Services.Any(static descriptor => descriptor.ServiceType == typeof(IBaseVectorProvider)))
+        if (hasVectors && !context.Services.Any(static descriptor => descriptor.ServiceType == typeof(BaseExplicitVectorProviderRegistration)))
         {
             context.Services.AddSingleton<InMemoryVectorProvider>();
             context.Services.AddSingleton<IBaseVectorProvider>(static provider => provider.GetRequiredService<InMemoryVectorProvider>());
@@ -44,3 +44,5 @@ internal sealed class InMemoryProviderInstaller(Action<HPDBaseInMemoryStoreOptio
         context.Services.GetRequiredService<IRecordStoreRegistry>().AddHPDBaseInMemoryStore(context.Services);
     }
 }
+
+internal sealed class BaseExplicitVectorProviderRegistration;

@@ -9,7 +9,7 @@ public sealed class BaseVectorCertificationTests
     [Fact]
     public async Task ProtocolMismatchCreatesNoHostAndReturnsSafeFailure()
     {
-        var fixture = new Fixture(protocolVersion: 2);
+        var fixture = new Fixture(protocolVersion: 1);
         BaseVectorCertificationReport report = await BaseVectorProviderCertification.RunAsync(fixture, BaseVectorCertificationPlan.RequiredLocal());
         report.Succeeded.Should().BeFalse();
         report.Cases.Should().ContainSingle().Which.Code.Should().Be("base.testing.vector.protocolUnsupported");
@@ -46,6 +46,18 @@ public sealed class BaseVectorCertificationTests
         await action.Should().ThrowAsync<OperationCanceledException>();
         fixture.Created.Should().Be(1);
         fixture.Disposed.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Control_only_adapter_without_query_evidence_fails_certification()
+    {
+        var fixture = new Fixture(rejectQueries: true);
+
+        BaseVectorCertificationReport report = await BaseVectorProviderCertification.RunAsync(fixture, BaseVectorCertificationPlan.RequiredLocal());
+
+        report.Succeeded.Should().BeFalse();
+        report.Cases.Where(static result => !result.CaseId.Contains(".fault.", StringComparison.Ordinal))
+            .Should().OnlyContain(static result => result.Code == "base.testing.vector.queryEvidenceInvalid");
     }
 
     [Theory]
@@ -97,6 +109,8 @@ public sealed class BaseVectorCertificationTests
             typeof(BaseVectorCertificationProviderState),
             typeof(BaseVectorCertificationIndexState),
             typeof(BaseVectorCertificationFaultState),
+            typeof(BaseVectorCertificationQueryResult),
+            typeof(BaseVectorCertificationQueryMatch),
             typeof(BaseVectorCertificationObservationPage),
             typeof(BaseVectorCertificationObservation),
             typeof(BaseVectorCertificationObservationFact),
@@ -136,11 +150,12 @@ public sealed class BaseVectorCertificationTests
     }
 
     private sealed class Fixture(
-        int protocolVersion = 1,
+        int protocolVersion = BaseVectorProviderCertification.ProtocolVersion,
         CancellationTokenSource? cancelDuringInitialization = null,
         bool throwOnCreate = false,
         bool throwOnDispose = false,
-        int faultObservationOffset = 0) : IBaseVectorProviderCertificationFixture
+        int faultObservationOffset = 0,
+        bool rejectQueries = false) : IBaseVectorProviderCertificationFixture
     {
         public int Created { get; private set; }
         public int Disposed { get; private set; }
@@ -157,16 +172,17 @@ public sealed class BaseVectorCertificationTests
             request.Schema.Id.Should().Be("hpd.base.vector.certification.v1");
             ReceivedFaults.Add(request.Fault.Kind);
             Created++;
-            return ValueTask.FromResult<IBaseVectorCertificationHost>(new Host(this, cancelDuringInitialization, throwOnDispose, request.Fault, faultObservationOffset));
+            return ValueTask.FromResult<IBaseVectorCertificationHost>(new Host(this, cancelDuringInitialization, throwOnDispose, request.Fault, faultObservationOffset, rejectQueries));
         }
 
-        private sealed class Host(Fixture owner, CancellationTokenSource? cancelDuringInitialization, bool throwOnDispose, BaseVectorCertificationFaultPlan fault, int faultObservationOffset) : IBaseVectorCertificationHost, IBaseVectorCertificationAuthorityControl, IBaseVectorCertificationProviderControl, IBaseVectorCertificationObservationSource
+        private sealed class Host(Fixture owner, CancellationTokenSource? cancelDuringInitialization, bool throwOnDispose, BaseVectorCertificationFaultPlan fault, int faultObservationOffset, bool rejectQueries) : IBaseVectorCertificationHost, IBaseVectorCertificationAuthorityControl, IBaseVectorCertificationProviderControl, IBaseVectorCertificationQueryControl, IBaseVectorCertificationObservationSource
         {
             private long _position;
             private long _indexGeneration = 1;
             public IHPDBaseApplication Application { get; } = new Application(cancelDuringInitialization);
             public IBaseVectorCertificationAuthorityControl Authority => this;
             public IBaseVectorCertificationProviderControl Provider => this;
+            public IBaseVectorCertificationQueryControl Queries => this;
             public IBaseVectorCertificationObservationSource Observations => this;
             public ValueTask DisposeAsync() { owner.Disposed++; return throwOnDispose ? ValueTask.FromException(new InvalidOperationException("fixture-secret")) : ValueTask.CompletedTask; }
             public ValueTask<OperationResult<BaseVectorCertificationAuthorityHead>> CaptureHeadAsync(CancellationToken cancellationToken = default) { owner.CapturedHeads++; return ValueTask.FromResult(OperationResults.Ok(Head())); }
@@ -194,6 +210,15 @@ public sealed class BaseVectorCertificationTests
                 int observed = fault.Kind == BaseVectorCertificationFaultKind.None ? 0 : Math.Max(0, fault.Occurrence + faultObservationOffset);
                 return ValueTask.FromResult(OperationResults.Ok(BaseVectorCertificationFaultState.Create(fault.Kind, fault.Occurrence, observed, fault.Kind != BaseVectorCertificationFaultKind.None && observed >= fault.Occurrence, false)));
             }
+            public ValueTask<OperationResult<BaseVectorCertificationQueryResult>> ExecuteAsync(BaseVectorCertificationQueryRequest request, CancellationToken cancellationToken = default) =>
+                rejectQueries
+                    ? ValueTask.FromResult(OperationResults.CapabilityUnavailable<BaseVectorCertificationQueryResult>(new BaseError { Code = "fixture.queryUnavailable", Message = "Query unavailable.", Category = ErrorCategory.Capability }))
+                    : ValueTask.FromResult(OperationResults.Ok(BaseVectorCertificationQueryResult.Create(request.Scenario,
+                        request.Scenario is BaseVectorCertificationQueryScenario.CosineRanking or BaseVectorCertificationQueryScenario.EuclideanRanking or BaseVectorCertificationQueryScenario.DotProductRanking
+                            ? [BaseVectorCertificationQueryMatch.Create("record-a", "revision-a", 1, Math.Max(1, _position)), BaseVectorCertificationQueryMatch.Create("record-b", "revision-b", 0, Math.Max(1, _position - 1))]
+                            : [BaseVectorCertificationQueryMatch.Create("record-a", "revision-a", 1, Math.Max(1, _position))],
+                        request.Scenario is BaseVectorCertificationQueryScenario.CosineRanking or BaseVectorCertificationQueryScenario.EuclideanRanking or BaseVectorCertificationQueryScenario.DotProductRanking ? 2 : 1,
+                        request.Scenario is BaseVectorCertificationQueryScenario.CosineRanking or BaseVectorCertificationQueryScenario.EuclideanRanking or BaseVectorCertificationQueryScenario.DotProductRanking ? 2 : 1)));
             private BaseVectorCertificationAuthorityHead Head() => BaseVectorCertificationAuthorityHead.Create(new string('a', 64), 0, 0, 0, _position, DateTimeOffset.UnixEpoch);
         }
 
