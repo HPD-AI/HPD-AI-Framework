@@ -317,8 +317,14 @@ public sealed class GatewayAdminHttpTests
         snapshot.OpenApiSha256.Should().MatchRegex("^[0-9a-f]{64}$");
         snapshot.ManifestSha256.Should().MatchRegex("^[0-9a-f]{64}$");
         snapshot.SourceSha256.Should().MatchRegex("^[0-9a-f]{64}$");
+        GatewayDeclarationEditorLedgerExportDocument editorLedger =
+            GatewayDeclarationEditorLedgerExporter.Export(JsonNode.Parse(json)!.AsObject());
+        editorLedger.Value.Envelope.Records.Should().HaveCount(365);
+        editorLedger.Value.EnvelopeSha256.Should().MatchRegex("^[0-9a-f]{64}$");
         if (Environment.GetEnvironmentVariable("HPD_GATEWAY_SNAPSHOT_OUT") is { Length: > 0 } snapshotOutput)
             await File.WriteAllBytesAsync(snapshotOutput, snapshot.SnapshotUtf8.ToArray());
+        if (Environment.GetEnvironmentVariable("HPD_GATEWAY_EDITOR_LEDGER_OUT") is { Length: > 0 } editorOutput)
+            await File.WriteAllBytesAsync(editorOutput, editorLedger.Utf8.ToArray());
         GatewayClientGenerationSnapshotV1.Create(Encoding.UTF8.GetBytes(json), "test").SourceSha256
             .Should().Be(snapshot.SourceSha256);
         foreach (int schemaCount in new[] { 257, 512 })
