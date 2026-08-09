@@ -16,7 +16,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-for command in dotnet openssl python3 curl jq; do
+for command in dotnet openssl python3 curl jq node npm; do
   command -v "$command" >/dev/null || { echo "missing required command: $command" >&2; exit 2; }
 done
 
@@ -35,10 +35,16 @@ PY
 )
 
 publish="$work/publish"
-dotnet publish "$gateway_root/src/HPD.Gateway.Standalone/HPD.Gateway.Standalone.csproj" \
-  -c Release -r "$runtime_id" -p:PublishAot=true -p:StripSymbols=true -m:1 -o "$publish"
-binary="$publish/HPD.Gateway.Standalone"
-test -x "$binary"
+if [[ "${HPD_GATEWAY_E2E_FRAMEWORK_DEPENDENT:-0}" == "1" ]]; then
+  dotnet publish "$gateway_root/src/HPD.Gateway.Standalone/HPD.Gateway.Standalone.csproj" \
+    -c Release -p:PublishAot=false -m:1 -o "$publish"
+  binary=(dotnet "$publish/HPD.Gateway.Standalone.dll")
+else
+  dotnet publish "$gateway_root/src/HPD.Gateway.Standalone/HPD.Gateway.Standalone.csproj" \
+    -c Release -r "$runtime_id" -p:PublishAot=true -p:StripSymbols=true -m:1 -o "$publish"
+  test -x "$publish/HPD.Gateway.Standalone"
+  binary=("$publish/HPD.Gateway.Standalone")
+fi
 
 openssl req -x509 -newkey rsa:2048 -sha256 -nodes \
   -keyout "$work/key.pem" -out "$work/cert.pem" -days 2 -subj '/CN=localhost' \
@@ -114,7 +120,7 @@ auth=(-H "Authorization: Bearer $jwt")
 
 start_gateway() {
   HPD_GATEWAY_E2E_PFX_PASSWORD=evidence ASPNETCORE_ENVIRONMENT=Development \
-    "$binary" "$work/bootstrap.json" >"$work/gateway.log" 2>&1 &
+    "${binary[@]}" "$work/bootstrap.json" >"$work/gateway.log" 2>&1 &
   gateway_pid=$!
   for _ in $(seq 1 100); do
     if curl -fsS "${auth[@]}" "http://127.0.0.1:$management_port/management/gateway/v1/capabilities" >/dev/null; then return; fi
@@ -138,8 +144,13 @@ expect_status() {
   [[ "$actual" == "$expected" ]] || { echo "expected $expected, got $actual" >&2; cat "$work/response" >&2; exit 1; }
 }
 
+npm --prefix "$dotnet_root/../typescript/hpd-gateway-client-generator" run build >/dev/null
+npm --prefix "$dotnet_root/../typescript/hpd-gateway-client" run generate >/dev/null
+npm --prefix "$dotnet_root/../typescript/hpd-gateway-client" run build >/dev/null
 start_gateway
 expect_status 200 "${auth[@]}" "http://127.0.0.1:$management_port/management/gateway/v1/capabilities"
+HPD_GATEWAY_CLIENT_E2E_URL="http://127.0.0.1:$management_port" \
+HPD_GATEWAY_CLIENT_E2E_TOKEN="$jwt" node "$script_dir/gateway-client.mjs" || { cat "$work/gateway.log" >&2; exit 1; }
 expect_status 404 "${auth[@]}" "http://127.0.0.1:$management_port/management/gateway/v1/namespaces/foreign/targets/node-a/status"
 expect_status 404 "${auth[@]}" "https://localhost:$data_port/management/gateway/v1/capabilities"
 expect_status 200 "${auth[@]}" "http://127.0.0.1:$management_port/openapi/hpd-gateway-v1.json"
@@ -182,4 +193,8 @@ expect_status 200 "https://localhost:$data_port/"
 grep -q 'native-standalone-forwarding-ok' "$work/response"
 stop_gateway
 
-echo "HPD.Gateway standalone Native AOT E2E passed"
+if [[ "${HPD_GATEWAY_E2E_FRAMEWORK_DEPENDENT:-0}" == "1" ]]; then
+  echo "HPD.Gateway standalone framework-dependent E2E passed"
+else
+  echo "HPD.Gateway standalone Native AOT E2E passed"
+fi
