@@ -4,6 +4,11 @@ namespace HPD.Agent.Authority;
 
 internal static class CapacityLedgerCodecsV1
 {
+    internal const string ReservationSchemaId = "hpd.capacity-reservation-fact-body.v1";
+    internal const string SettlementSchemaId = "hpd.capacity-settlement-fact-body.v1";
+    internal const ushort Major = 1;
+    internal const ushort Minor = 0;
+
     internal static byte[] EncodeReservation(CapacityReservationFactBodyV1 value)
     {
         ArgumentNullException.ThrowIfNull(value);
@@ -72,6 +77,12 @@ internal static class CapacityLedgerCodecsV1
             reader.ReadEndMap();
             return new CapacitySettlementFactBodyV1(grant, operation, expected, kind, charges, evidenceAt);
         }, out value);
+
+    internal static Hash256 ComputeReservationHash(CapacityReservationFactBodyV1 value) =>
+        AuthorityIntegrityHashV1.Compute(ReservationSchemaId, Major, Minor, EncodeReservation(value));
+
+    internal static Hash256 ComputeSettlementHash(CapacitySettlementFactBodyV1 value) =>
+        AuthorityIntegrityHashV1.Compute(SettlementSchemaId, Major, Minor, EncodeSettlement(value));
 
     private static void WriteRequest(CborWriter writer, CapacityRequestV1 value)
     {

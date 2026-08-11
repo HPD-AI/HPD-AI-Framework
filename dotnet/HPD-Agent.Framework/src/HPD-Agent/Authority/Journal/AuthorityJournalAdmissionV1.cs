@@ -137,6 +137,26 @@ internal sealed class AuthorityGenerationTransitionPayloadRegistrationV1 : Autho
         decoded.Axis == _axis;
 }
 
+internal sealed class CapacityReservationPayloadRegistrationV1 : AuthorityPayloadRegistrationV1
+{
+    internal CapacityReservationPayloadRegistrationV1() :
+        base(new BoundedAscii(CapacityLedgerCodecsV1.ReservationSchemaId), CapacityLedgerCodecsV1.Major,
+            CapacityLedgerCodecsV1.Minor, OwnerSliceId.S2, ProposedAuthorityFactV1.MaximumPayloadBytes) { }
+
+    private protected override bool ValidateCanonicalPayload(ReadOnlyMemory<byte> payload, SessionAuthorityStampV1 session) =>
+        CapacityLedgerCodecsV1.TryDecodeReservation(payload, out var value) && value!.Request.Authority.Session == session;
+}
+
+internal sealed class CapacitySettlementPayloadRegistrationV1 : AuthorityPayloadRegistrationV1
+{
+    internal CapacitySettlementPayloadRegistrationV1() :
+        base(new BoundedAscii(CapacityLedgerCodecsV1.SettlementSchemaId), CapacityLedgerCodecsV1.Major,
+            CapacityLedgerCodecsV1.Minor, OwnerSliceId.S2, ProposedAuthorityFactV1.MaximumPayloadBytes) { }
+
+    private protected override bool ValidateCanonicalPayload(ReadOnlyMemory<byte> payload, SessionAuthorityStampV1 session) =>
+        CapacityLedgerCodecsV1.TryDecodeSettlement(payload, out var value) && value!.ExpectedFact.Session == session;
+}
+
 internal static class AuthoritySchemaIdentityV1
 {
     private static ReadOnlySpan<byte> Domain => "hpd-schema-id-v1\0"u8;
