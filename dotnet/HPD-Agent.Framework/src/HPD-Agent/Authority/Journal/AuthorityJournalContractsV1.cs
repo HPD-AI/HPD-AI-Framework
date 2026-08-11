@@ -29,55 +29,6 @@ public enum OwnerSliceId : ushort
     AgentCore = 12,
 }
 
-/// <summary>Describes the exact generated-registry validation of one canonical owner payload.</summary>
-public enum AuthorityPayloadValidationV1 : ushort
-{
-    /// <summary>The schema, version, owner, canonical bytes, and hash match the registry.</summary>
-    Exact = 1,
-    /// <summary>The schema identity is not registered.</summary>
-    UnknownSchema = 2,
-    /// <summary>The requested version is not registered for the schema.</summary>
-    VersionMismatch = 3,
-    /// <summary>The proposed semantic owner does not own the schema.</summary>
-    OwnerMismatch = 4,
-    /// <summary>The payload is not canonical or violates its registered schema.</summary>
-    InvalidPayload = 5,
-    /// <summary>The supplied hash does not equal the schema-bound canonical hash.</summary>
-    HashMismatch = 6,
-}
-
-/// <summary>Validates owner payloads against the generated exact schema and codec registry.</summary>
-public interface IAuthorityPayloadSchemaRegistryV1
-{
-    /// <summary>Validates the complete schema/version/owner/bytes/hash tuple without performing an effect.</summary>
-    /// <param name="schema">The proposed registered schema version.</param>
-    /// <param name="owner">The proposed semantic owner.</param>
-    /// <param name="canonicalPayload">The bounded canonical owner-payload bytes.</param>
-    /// <param name="payloadHash">The proposed schema-bound authority hash.</param>
-    /// <returns>The closed exact validation disposition.</returns>
-    AuthorityPayloadValidationV1 Validate(
-        SchemaReferenceV1 schema,
-        OwnerSliceId owner,
-        ReadOnlySpan<byte> canonicalPayload,
-        Hash256 payloadHash);
-}
-
-/// <summary>Measures the exact canonical encoding of one complete append batch.</summary>
-public interface IAuthorityAppendBatchCodecV1
-{
-    /// <summary>Returns the exact canonical encoded byte count for the supplied complete batch fields.</summary>
-    /// <param name="session">The authority session key.</param>
-    /// <param name="expectedSessionHead">The expected session head.</param>
-    /// <param name="expectedThreadHeads">Canonical expected thread heads.</param>
-    /// <param name="facts">Proposed facts in append order.</param>
-    /// <returns>The exact canonical encoded byte count.</returns>
-    ulong GetEncodedLength(
-        SessionAuthorityStampV1 session,
-        long expectedSessionHead,
-        IReadOnlyList<ThreadExpectedHeadV1> expectedThreadHeads,
-        IReadOnlyList<ProposedAuthorityFactV1> facts);
-}
-
 /// <summary>Contains bounded correlations that never define authority ordering.</summary>
 public readonly record struct CorrelationEnvelopeV1
 {
@@ -129,7 +80,8 @@ public readonly record struct CorrelationEnvelopeV1
         ParticipantId is not { IsValid: false } && OperationId is not { IsValid: false };
 }
 
-/// <summary>Contains one immutable, bounded authority fact proposed before position assignment.</summary>
+/// <summary>Contains one immutable, bounded authority fact proposed before trusted admission validation and position assignment.</summary>
+/// <remarks>A proposal is not authority truth. The journal revalidates schema, version, owner, canonical bytes, and hash before P0.</remarks>
 public sealed class ProposedAuthorityFactV1
 {
     /// <summary>The maximum canonical payload size in bytes.</summary>
@@ -145,7 +97,6 @@ public sealed class ProposedAuthorityFactV1
     /// <param name="payloadHash">The schema-bound canonical payload hash.</param>
     /// <param name="correlation">Bounded nonordering correlations.</param>
     /// <param name="observedAt">The producer's audit timestamp; never an ordering source.</param>
-    /// <param name="schemaRegistry">The generated exact schema/owner/codec/hash registry.</param>
     /// <exception cref="ArgumentException">An identity, enum, schema, hash, correlation, or timestamp is invalid.</exception>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="payload"/> exceeds one MiB.</exception>
     public ProposedAuthorityFactV1(
@@ -156,10 +107,8 @@ public sealed class ProposedAuthorityFactV1
         ReadOnlySpan<byte> payload,
         Hash256 payloadHash,
         CorrelationEnvelopeV1 correlation,
-        UtcInstant observedAt,
-        IAuthorityPayloadSchemaRegistryV1 schemaRegistry)
+        UtcInstant observedAt)
     {
-        ArgumentNullException.ThrowIfNull(schemaRegistry);
         if (!factId.IsValid) throw new ArgumentException("A fact identity is required.", nameof(factId));
         if (threadId is { } thread && !thread.IsValid) throw new ArgumentException("A present thread identity must be valid.", nameof(threadId));
         if (!Enum.IsDefined(owner)) throw new ArgumentException("The owner is outside the closed registry.", nameof(owner));
@@ -168,9 +117,6 @@ public sealed class ProposedAuthorityFactV1
         Span<byte> hashBytes = stackalloc byte[32];
         if (!payloadHash.TryWriteBytes(hashBytes)) throw new ArgumentException("A canonical payload hash is required.", nameof(payloadHash));
         if (!correlation.IsValid) throw new ArgumentException("A valid correlation envelope is required.", nameof(correlation));
-        var validation = schemaRegistry.Validate(payloadSchema, owner, payload, payloadHash);
-        if (validation != AuthorityPayloadValidationV1.Exact)
-            throw new ArgumentException($"The owner payload failed generated-registry validation: {validation}.", nameof(payload));
         FactId = factId;
         ThreadId = threadId;
         Owner = owner;
@@ -243,7 +189,6 @@ public sealed class AppendAuthorityBatchV1
     /// <param name="expectedThreadHeads">Strictly unique expected thread-generation heads.</param>
     /// <param name="facts">One to 256 proposed facts in caller-significant order.</param>
     /// <param name="maximumEncodedBytes">The positive bounded encoded-byte admission limit.</param>
-    /// <param name="codec">The canonical batch codec used for exact encoded-byte admission.</param>
     /// <exception cref="ArgumentNullException">A collection is null.</exception>
     /// <exception cref="ArgumentException">A scalar, item, identity, or scope is invalid or duplicated.</exception>
     /// <exception cref="ArgumentOutOfRangeException">A count or byte bound is invalid.</exception>
@@ -252,10 +197,8 @@ public sealed class AppendAuthorityBatchV1
         long expectedSessionHead,
         IEnumerable<ThreadExpectedHeadV1> expectedThreadHeads,
         IEnumerable<ProposedAuthorityFactV1> facts,
-        uint maximumEncodedBytes,
-        IAuthorityAppendBatchCodecV1 codec)
+        uint maximumEncodedBytes)
     {
-        ArgumentNullException.ThrowIfNull(codec);
         if (!session.IsValid) throw new ArgumentException("A valid session authority key is required.", nameof(session));
         if (expectedSessionHead < 0) throw new ArgumentOutOfRangeException(nameof(expectedSessionHead));
         if (maximumEncodedBytes == 0 || maximumEncodedBytes > ProposedAuthorityFactV1.MaximumPayloadBytes)
@@ -290,9 +233,6 @@ public sealed class AppendAuthorityBatchV1
         if (scopedThreads.Length != heads.Count || scopedThreads.Any(thread => !heads.Any(head => head.ThreadId == thread)))
             throw new ArgumentException("Expected thread heads must exactly cover the batch's thread-scoped facts.", nameof(expectedThreadHeads));
 
-        var exactEncodedBytes = codec.GetEncodedLength(session, expectedSessionHead, heads, proposed);
-        if (exactEncodedBytes == 0 || exactEncodedBytes > maximumEncodedBytes)
-            throw new ArgumentOutOfRangeException(nameof(maximumEncodedBytes), "The canonical encoded batch exceeds its admission limit.");
 
         Session = session;
         ExpectedSessionHead = expectedSessionHead;
@@ -310,7 +250,7 @@ public sealed class AppendAuthorityBatchV1
     public IReadOnlyList<ThreadExpectedHeadV1> ExpectedThreadHeads { get; }
     /// <summary>Gets proposed facts in caller-significant atomic order.</summary>
     public IReadOnlyList<ProposedAuthorityFactV1> Facts { get; }
-    /// <summary>Gets the positive encoded-byte admission limit.</summary>
+    /// <summary>Gets the caller's positive encoded-byte admission limit; the trusted journal computes and enforces the exact canonical size.</summary>
     public uint MaximumEncodedBytes { get; }
 
     private static int CompareThreadIds(ThreadId left, ThreadId right)
