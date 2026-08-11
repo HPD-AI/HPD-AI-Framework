@@ -146,7 +146,30 @@ public sealed class GatewaySharedAdmissionTests
         provider.Calls.Should().Be(1);
         provider.Complete(Acquired(0, 1_000));
         using RateLimitLease initial = await first;
-        initial.IsAcquired.Should().BeTrue("work dispatched before the atomic disposal boundary may still resolve");
+        initial.IsAcquired.Should().BeFalse("disposal ends caller observation without creating another dispatch");
+    }
+
+    [Fact]
+    public async Task Throwing_or_blocking_provider_cancellation_callbacks_cannot_escape_cleanup()
+    {
+        var throwing = new CancellationCallbackProvider(throws: true);
+        GatewayTrafficAdmissionRegistry throwingRegistry = Registry(throwing, timeout: TimeSpan.FromSeconds(5));
+        Task<RateLimitLease> dispatched = new GatewayTrafficAdmissionLimiter(throwingRegistry).AcquireAsync(Context(Plan())).AsTask();
+        await throwing.WaitForCall();
+        FluentActions.Invoking(throwingRegistry.Dispose).Should().NotThrow();
+        throwing.Complete(Acquired(0, 1_000));
+        using RateLimitLease completed = await dispatched;
+        completed.IsAcquired.Should().BeFalse();
+
+        var blocking = new CancellationCallbackProvider(throws: false);
+        using GatewayTrafficAdmissionRegistry timeoutRegistry = Registry(blocking, timeout: TimeSpan.FromMilliseconds(25));
+        Task<RateLimitLease> timed = new GatewayTrafficAdmissionLimiter(timeoutRegistry).AcquireAsync(Context(Plan())).AsTask();
+        await blocking.WaitForCall();
+        using RateLimitLease indeterminate = await timed.WaitAsync(TimeSpan.FromSeconds(1));
+        indeterminate.IsAcquired.Should().BeFalse();
+        await blocking.WaitForCallback();
+        blocking.ReleaseCallback();
+        blocking.Complete(Acquired(0, 1_000));
     }
 
     [Fact]
@@ -395,6 +418,31 @@ public sealed class GatewaySharedAdmissionTests
             while (_pending.TryDequeue(out TaskCompletionSource<GatewaySharedAdmissionDecision>? source))
                 source.TrySetResult(decision);
         }
+    }
+
+    private sealed class CancellationCallbackProvider(bool throws) : IGatewaySharedAdmissionProvider
+    {
+        private readonly TaskCompletionSource _called = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _callback = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly ManualResetEventSlim _release = new(false);
+        private readonly TaskCompletionSource<GatewaySharedAdmissionDecision> _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public ValueTask<GatewaySharedAdmissionDecision> AcquireAsync(GatewaySharedAdmissionRequest request, CancellationToken cancellationToken)
+        {
+            cancellationToken.Register(() =>
+            {
+                _callback.TrySetResult();
+                if (throws) throw new InvalidOperationException("provider cancellation callback");
+                _release.Wait();
+            });
+            _called.TrySetResult();
+            return new(_completion.Task);
+        }
+
+        internal Task WaitForCall() => _called.Task;
+        internal Task WaitForCallback() => _callback.Task;
+        internal void ReleaseCallback() => _release.Set();
+        internal void Complete(GatewaySharedAdmissionDecision decision) => _completion.TrySetResult(decision);
     }
 
     private sealed class InProcessAtomicAuthority : IGatewaySharedAdmissionCertificationAuthority

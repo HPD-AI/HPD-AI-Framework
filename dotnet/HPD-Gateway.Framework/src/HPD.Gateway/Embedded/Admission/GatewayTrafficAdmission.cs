@@ -322,7 +322,10 @@ internal sealed class GatewayTrafficAdmissionRegistry(
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
         foreach (var runtime in runtimes.Values)
-            runtime.Dispose();
+        {
+            try { runtime.Dispose(); }
+            catch { }
+        }
     }
 }
 
@@ -769,6 +772,7 @@ internal sealed class GatewaySharedAdmissionProviderRuntime : IDisposable
         }
 
         Task<GatewaySharedAdmissionDecision> operation;
+        var providerCancellation = new CancellationTokenSource();
         lock (_dispatchGate)
         {
             if (Volatile.Read(ref _disposed) != 0 || admission.IsCancellationRequested)
@@ -781,36 +785,42 @@ internal sealed class GatewaySharedAdmissionProviderRuntime : IDisposable
             Interlocked.Increment(ref _active);
             try
             {
-                operation = _registration.Provider.AcquireAsync(request, admission.Token).AsTask();
+                operation = _registration.Provider.AcquireAsync(request, providerCancellation.Token).AsTask();
             }
             catch
             {
+                providerCancellation.Dispose();
                 ReleaseCapacity();
                 return Infrastructure(GatewaySharedAdmissionDecisionKind.UnavailableBeforePossibleCommit, "provider-invocation-failed");
             }
         }
 
         if (operation.IsCompleted)
-            return CompleteSynchronously(request, operation);
+            return CompleteSynchronously(request, operation, providerCancellation);
 
         TimeSpan remaining = _registration.OperationTimeout - _timeProvider.GetElapsedTime(startedAt);
         if (remaining <= TimeSpan.Zero)
         {
+            SignalAndDispose(providerCancellation);
             Interlocked.Increment(ref _detached);
             _ = ObserveDetachedAsync(operation);
             return Infrastructure(GatewaySharedAdmissionDecisionKind.IndeterminateAfterPossibleCommit, "provider-outcome-indeterminate");
         }
         Task completed = await Task.WhenAny(operation,
-            Task.Delay(remaining, _timeProvider, callerCancellation)).ConfigureAwait(false);
+            Task.Delay(remaining, _timeProvider, admission.Token)).ConfigureAwait(false);
         if (ReferenceEquals(completed, operation))
-            return CompleteSynchronously(request, operation);
+            return CompleteSynchronously(request, operation, providerCancellation);
 
+        SignalAndDispose(providerCancellation);
         Interlocked.Increment(ref _detached);
         _ = ObserveDetachedAsync(operation);
         return Infrastructure(GatewaySharedAdmissionDecisionKind.IndeterminateAfterPossibleCommit, "provider-outcome-indeterminate");
     }
 
-    private GatewaySharedAdmissionDecision CompleteSynchronously(GatewaySharedAdmissionRequest request, Task<GatewaySharedAdmissionDecision> operation)
+    private GatewaySharedAdmissionDecision CompleteSynchronously(
+        GatewaySharedAdmissionRequest request,
+        Task<GatewaySharedAdmissionDecision> operation,
+        CancellationTokenSource providerCancellation)
     {
         try
         {
@@ -825,6 +835,7 @@ internal sealed class GatewaySharedAdmissionProviderRuntime : IDisposable
         }
         finally
         {
+            providerCancellation.Dispose();
             ReleaseCapacity();
         }
     }
@@ -856,7 +867,47 @@ internal sealed class GatewaySharedAdmissionProviderRuntime : IDisposable
         var cancel = false;
         lock (_dispatchGate)
             cancel = Interlocked.Exchange(ref _disposed, 1) == 0;
-        if (cancel) _disposeCancellation.Cancel();
+        if (cancel) SignalCancellation(_disposeCancellation);
+    }
+
+    private static void SignalCancellation(CancellationTokenSource source)
+    {
+        try
+        {
+            Task signaling = source.CancelAsync();
+            if (!signaling.IsCompletedSuccessfully)
+                _ = ObserveCancellationAsync(signaling);
+        }
+        catch { }
+    }
+
+    private static void SignalAndDispose(CancellationTokenSource source)
+    {
+        try
+        {
+            Task signaling = source.CancelAsync();
+            if (signaling.IsCompletedSuccessfully)
+                source.Dispose();
+            else
+                _ = ObserveCancellationAndDisposeAsync(signaling, source);
+        }
+        catch
+        {
+            source.Dispose();
+        }
+    }
+
+    private static async Task ObserveCancellationAsync(Task signaling)
+    {
+        try { await signaling.ConfigureAwait(false); }
+        catch { }
+    }
+
+    private static async Task ObserveCancellationAndDisposeAsync(Task signaling, CancellationTokenSource source)
+    {
+        try { await signaling.ConfigureAwait(false); }
+        catch { }
+        finally { source.Dispose(); }
     }
 
     private static GatewaySharedAdmissionDecision Infrastructure(
