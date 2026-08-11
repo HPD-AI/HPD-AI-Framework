@@ -11,7 +11,7 @@ public sealed class RuntimeParticipantContractsV1Tests
         var descriptor = new RuntimeParticipantDescriptorV1(
             new("provider"), new("S5"), new("ProviderProtocolEffects"),
             [new("session"), new("resources")], AuthorityAxisId.Provider,
-            new DurationNs(1), new DurationNs(2), new DurationNs(3),
+            new DurationNs(1), new DurationNs(2), new DurationNs(3), new DurationNs(4),
             [new("provider-inflight"), new("encoded-bytes")]);
 
         Assert.Equal(["resources", "session"], descriptor.Dependencies.Select(static value => value.ToString()));
@@ -26,6 +26,7 @@ public sealed class RuntimeParticipantContractsV1Tests
         Assert.Throws<ArgumentException>(() => Create(dimensions: [new("unknown-dimension")]));
         Assert.Throws<ArgumentException>(() => Create(dependencies: [new("session"), new("session")]));
         Assert.Throws<ArgumentException>(() => Create(prepare: new DurationNs(0)));
+        Assert.Throws<ArgumentException>(() => Create(start: new DurationNs(0)));
         Assert.Throws<ArgumentOutOfRangeException>(() => Create(dependencies: Enumerable.Range(0, 33).Select(index => new BoundedAscii($"p{index}"))));
     }
 
@@ -36,12 +37,21 @@ public sealed class RuntimeParticipantContractsV1Tests
         var authority = ExpectedAuthorityVectorV1.Create(session, []);
         var context = new RuntimeParticipantContextV1(ParticipantId.Create(), authority);
         var result = new RuntimeParticipantResultV1(RuntimeParticipantDispositionV1.Succeeded, new("Prepared"));
+        var handle = new RuntimePreparedHandleV1(new("session"), context);
+        var prepared = new RuntimeParticipantPrepareResultV1(RuntimeParticipantDispositionV1.Succeeded, new("Prepared"), handle);
 
         Assert.True(context.ParticipantId.IsValid);
-        Assert.True(result.IsSuccess);
+        Assert.True(context.IsValid);
+        Assert.True(result.IsSuccess && result.IsValid);
+        Assert.True(prepared.IsSuccess && prepared.IsValid);
         Assert.Throws<ArgumentException>(() => new RuntimeParticipantContextV1(default, authority));
         Assert.Throws<ArgumentNullException>(() => new RuntimeParticipantContextV1(ParticipantId.Create(), null!));
         Assert.Throws<ArgumentException>(() => new RuntimeParticipantResultV1((RuntimeParticipantDispositionV1)99, new("bad")));
+        Assert.Throws<ArgumentException>(() => new RuntimeParticipantPrepareResultV1(RuntimeParticipantDispositionV1.Succeeded, new("bad"), null));
+        Assert.Throws<ArgumentException>(() => new RuntimeParticipantPrepareResultV1(RuntimeParticipantDispositionV1.Refused, new("bad"), handle));
+        Assert.False(default(RuntimeParticipantContextV1).IsValid);
+        Assert.False(default(RuntimeParticipantResultV1).IsValid);
+        Assert.False(default(RuntimeParticipantPrepareResultV1).IsValid);
     }
 
     [Fact]
@@ -56,7 +66,8 @@ public sealed class RuntimeParticipantContractsV1Tests
         IEnumerable<BoundedAscii>? dependencies = null,
         AuthorityAxisId axis = AuthorityAxisId.Runtime,
         DurationNs? prepare = null,
+        DurationNs? start = null,
         IEnumerable<BoundedAscii>? dimensions = null) =>
         new(new("session"), new("S1"), new("SessionLifecycle"), dependencies ?? [], axis,
-            prepare ?? new DurationNs(1), new DurationNs(1), new DurationNs(1), dimensions ?? [new("journal-bytes")]);
+            prepare ?? new DurationNs(1), start ?? new DurationNs(1), new DurationNs(1), new DurationNs(1), dimensions ?? [new("journal-bytes")]);
 }

@@ -70,6 +70,9 @@ public readonly record struct RuntimeParticipantResultV1
 
     /// <summary>Gets whether the transition completed successfully.</summary>
     public bool IsSuccess => Disposition == RuntimeParticipantDispositionV1.Succeeded;
+
+    /// <summary>Gets whether the disposition and result code are valid.</summary>
+    public bool IsValid => Enum.IsDefined(Disposition) && Code.IsValid;
 }
 
 /// <summary>Identifies one participant operation within an admitted session authority vector.</summary>
@@ -93,6 +96,75 @@ public readonly record struct RuntimeParticipantContextV1
 
     /// <summary>Gets the session and sparse owner-axis fences.</summary>
     public ExpectedAuthorityVectorV1 Authority { get; }
+
+    /// <summary>Gets whether the participant identity and authority vector are present.</summary>
+    public bool IsValid => ParticipantId.IsValid && Authority is not null;
+}
+
+/// <summary>Identifies operational state prepared for one descriptor and authority-fenced participant.</summary>
+/// <remarks>This handle is not authority truth and cannot replace an admitted start fact or owner receipt.</remarks>
+public sealed class RuntimePreparedHandleV1
+{
+    /// <summary>Initializes a validated prepared handle.</summary>
+    /// <param name="descriptorId">The plan-local participant descriptor identity.</param>
+    /// <param name="context">The S1-allocated participant and authority fences used during preparation.</param>
+    /// <exception cref="ArgumentException"><paramref name="descriptorId"/> or <paramref name="context"/> is invalid.</exception>
+    public RuntimePreparedHandleV1(BoundedAscii descriptorId, RuntimeParticipantContextV1 context)
+    {
+        if (!descriptorId.IsValid)
+            throw new ArgumentException("A participant descriptor identity is required.", nameof(descriptorId));
+        if (!context.IsValid)
+            throw new ArgumentException("A valid participant context is required.", nameof(context));
+        DescriptorId = descriptorId;
+        Context = context;
+    }
+
+    /// <summary>Gets the plan-local participant descriptor identity.</summary>
+    public BoundedAscii DescriptorId { get; }
+
+    /// <summary>Gets the participant identity and authority fences used during preparation.</summary>
+    public RuntimeParticipantContextV1 Context { get; }
+}
+
+/// <summary>Contains the bounded preparation disposition and its success-only operational handle.</summary>
+public readonly record struct RuntimeParticipantPrepareResultV1
+{
+    /// <summary>Initializes a preparation result with a strict disposition-to-handle invariant.</summary>
+    /// <param name="disposition">The closed preparation disposition.</param>
+    /// <param name="code">A bounded stable code that consumers must escape before rendering.</param>
+    /// <param name="handle">The prepared handle, required only for success.</param>
+    /// <exception cref="ArgumentException">A scalar is invalid, success lacks a handle, or a nonsuccess result includes one.</exception>
+    public RuntimeParticipantPrepareResultV1(
+        RuntimeParticipantDispositionV1 disposition,
+        BoundedAscii code,
+        RuntimePreparedHandleV1? handle)
+    {
+        if (!Enum.IsDefined(disposition))
+            throw new ArgumentException("The participant disposition is outside the closed registry.", nameof(disposition));
+        if (!code.IsValid)
+            throw new ArgumentException("A stable participant result code is required.", nameof(code));
+        if ((disposition == RuntimeParticipantDispositionV1.Succeeded) != (handle is not null))
+            throw new ArgumentException("Only successful preparation contains a prepared handle.", nameof(handle));
+        Disposition = disposition;
+        Code = code;
+        Handle = handle;
+    }
+
+    /// <summary>Gets the closed preparation disposition.</summary>
+    public RuntimeParticipantDispositionV1 Disposition { get; }
+
+    /// <summary>Gets the bounded stable result code.</summary>
+    public BoundedAscii Code { get; }
+
+    /// <summary>Gets the success-only prepared handle.</summary>
+    public RuntimePreparedHandleV1? Handle { get; }
+
+    /// <summary>Gets whether the result is valid and obeys the disposition-to-handle invariant.</summary>
+    public bool IsValid => Enum.IsDefined(Disposition) && Code.IsValid &&
+        (Disposition == RuntimeParticipantDispositionV1.Succeeded) == (Handle is not null);
+
+    /// <summary>Gets whether preparation succeeded and produced a handle.</summary>
+    public bool IsSuccess => IsValid && Disposition == RuntimeParticipantDispositionV1.Succeeded;
 }
 
 /// <summary>Describes one bounded, generation-fenced neutral runtime participant.</summary>
@@ -112,6 +184,7 @@ public sealed class RuntimeParticipantDescriptorV1
     /// <param name="dependencies">Plan-local participant identifiers that must start first.</param>
     /// <param name="generationFence">The registered owner axis fencing callbacks and effects.</param>
     /// <param name="maxPrepare">The positive preparation bound.</param>
+    /// <param name="maxStart">The positive start bound.</param>
     /// <param name="maxDrain">The positive drain bound.</param>
     /// <param name="maxTerminate">The positive termination bound.</param>
     /// <param name="capacityDimensions">Registered S2 dimension tokens charged by the participant.</param>
@@ -125,6 +198,7 @@ public sealed class RuntimeParticipantDescriptorV1
         IEnumerable<BoundedAscii> dependencies,
         AuthorityAxisId generationFence,
         DurationNs maxPrepare,
+        DurationNs maxStart,
         DurationNs maxDrain,
         DurationNs maxTerminate,
         IEnumerable<BoundedAscii> capacityDimensions)
@@ -134,6 +208,7 @@ public sealed class RuntimeParticipantDescriptorV1
         if (!seam.IsValid) throw new ArgumentException("A participant seam is required.", nameof(seam));
         if (!Enum.IsDefined(generationFence)) throw new ArgumentException("The generation fence is outside the closed axis registry.", nameof(generationFence));
         if (maxPrepare.Nanoseconds <= 0) throw new ArgumentException("The preparation bound must be positive.", nameof(maxPrepare));
+        if (maxStart.Nanoseconds <= 0) throw new ArgumentException("The start bound must be positive.", nameof(maxStart));
         if (maxDrain.Nanoseconds <= 0) throw new ArgumentException("The drain bound must be positive.", nameof(maxDrain));
         if (maxTerminate.Nanoseconds <= 0) throw new ArgumentException("The termination bound must be positive.", nameof(maxTerminate));
         Id = id;
@@ -142,6 +217,7 @@ public sealed class RuntimeParticipantDescriptorV1
         Dependencies = Array.AsReadOnly(Canonicalize(dependencies, nameof(dependencies), null));
         GenerationFence = generationFence;
         MaxPrepare = maxPrepare;
+        MaxStart = maxStart;
         MaxDrain = maxDrain;
         MaxTerminate = maxTerminate;
         CapacityDimensions = Array.AsReadOnly(Canonicalize(capacityDimensions, nameof(capacityDimensions), RegisteredDimensions));
@@ -159,6 +235,8 @@ public sealed class RuntimeParticipantDescriptorV1
     public AuthorityAxisId GenerationFence { get; }
     /// <summary>Gets the positive preparation bound.</summary>
     public DurationNs MaxPrepare { get; }
+    /// <summary>Gets the positive start bound.</summary>
+    public DurationNs MaxStart { get; }
     /// <summary>Gets the positive drain bound.</summary>
     public DurationNs MaxDrain { get; }
     /// <summary>Gets the positive termination bound.</summary>
@@ -198,13 +276,13 @@ public interface IRuntimeParticipantV1 : IAsyncDisposable
     /// <param name="context">The S1-allocated participant and authority fences.</param>
     /// <param name="cancellationToken">Cancels bounded preparation.</param>
     /// <returns>The typed preparation result.</returns>
-    ValueTask<RuntimeParticipantResultV1> PrepareAsync(RuntimeParticipantContextV1 context, CancellationToken cancellationToken);
+    ValueTask<RuntimeParticipantPrepareResultV1> PrepareAsync(RuntimeParticipantContextV1 context, CancellationToken cancellationToken);
 
     /// <summary>Starts the already prepared participant after Agent admission.</summary>
-    /// <param name="context">The same participant and authority fences used during preparation.</param>
+    /// <param name="handle">The operational handle produced by successful preparation.</param>
     /// <param name="cancellationToken">Cancels bounded start.</param>
     /// <returns>The typed start result.</returns>
-    ValueTask<RuntimeParticipantResultV1> StartAsync(RuntimeParticipantContextV1 context, CancellationToken cancellationToken);
+    ValueTask<RuntimeParticipantResultV1> StartAsync(RuntimePreparedHandleV1 handle, CancellationToken cancellationToken);
 
     /// <summary>Stops new admission and converges already admitted work.</summary>
     /// <param name="intent">The graceful or forced drain intent.</param>
