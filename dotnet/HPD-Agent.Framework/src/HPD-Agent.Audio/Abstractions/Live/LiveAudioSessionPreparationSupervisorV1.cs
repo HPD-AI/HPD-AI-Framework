@@ -9,7 +9,12 @@ internal abstract record LiveAudioSessionPreparationResultV1
     internal sealed record Rejected(LiveAudioSessionStartRejectionV1 Reason) : LiveAudioSessionPreparationResultV1;
     internal sealed record Conflict(JournalPositionV1 ExistingPosition, Hash256 ExistingFingerprint) : LiveAudioSessionPreparationResultV1;
     internal sealed record JoinedExisting(JournalPositionV1 ReservationPosition, Hash256 RequestFingerprint) : LiveAudioSessionPreparationResultV1;
-    internal sealed record ReservedNeedsConvergence(JournalPositionV1 ReservationPosition, BoundedAscii SafeCode) : LiveAudioSessionPreparationResultV1;
+    internal sealed record ReservedNeedsConvergence(LiveAudioSessionPreparationSupervisorV1.CleanAbandonment Abandonment)
+        : LiveAudioSessionPreparationResultV1
+    {
+        internal JournalPositionV1 ReservationPosition => Abandonment.ReservationPosition;
+        internal BoundedAscii SafeCode => Abandonment.SafeCode;
+    }
     internal sealed record OutcomeUnknown(OperationId OperationId, JournalPositionV1? ReservationPosition,
         BoundedAscii SafeCode) : LiveAudioSessionPreparationResultV1;
 }
@@ -89,6 +94,21 @@ internal sealed class LiveAudioPreparedSessionV1
 
 internal static class LiveAudioSessionPreparationSupervisorV1
 {
+    private static readonly object AbandonmentIssuer = new();
+
+    internal sealed class CleanAbandonment
+    {
+        internal CleanAbandonment(object issuer, LiveAudioSessionStartRequestV1 request,
+            JournalPositionV1 reservationPosition, BoundedAscii safeCode)
+        {
+            if (!ReferenceEquals(issuer, AbandonmentIssuer)) throw new ArgumentException("Only the preparation supervisor can attest clean abandonment.", nameof(issuer));
+            Request = request; ReservationPosition = reservationPosition; SafeCode = safeCode;
+        }
+        internal LiveAudioSessionStartRequestV1 Request { get; }
+        internal JournalPositionV1 ReservationPosition { get; }
+        internal BoundedAscii SafeCode { get; }
+    }
+
     internal static async ValueTask<LiveAudioSessionPreparationResultV1> PrepareAsync(
         IAuthorityJournalV1 journal, LiveAudioSessionStartRequestV1 request, LiveAudioParticipantFactoryCatalogV1 catalog,
         MonotonicStampV1 reservationMonotonicNow, UtcInstant reservationUtcNow,
@@ -142,7 +162,7 @@ internal static class LiveAudioSessionPreparationSupervisorV1
                 journal, request, acquisitionMonotonicNow, acquisitionUtcNow, cancellationToken).ConfigureAwait(false);
             if (acquisition is LiveAudioProofValidationResultV1.Rejected)
                 return new LiveAudioSessionPreparationResultV1.ReservedNeedsConvergence(
-                    reserved.Position, new BoundedAscii("acquisition-proof-stale"));
+                    new CleanAbandonment(AbandonmentIssuer, request, reserved.Position, new BoundedAscii("acquisition-proof-stale")));
             if (acquisition is LiveAudioProofValidationResultV1.OutcomeUnknown acquisitionUnknown)
                 return new LiveAudioSessionPreparationResultV1.OutcomeUnknown(
                     request.OperationId, reserved.Position, acquisitionUnknown.SafeCode);
@@ -150,7 +170,7 @@ internal static class LiveAudioSessionPreparationSupervisorV1
         catch (OperationCanceledException)
         {
             return new LiveAudioSessionPreparationResultV1.ReservedNeedsConvergence(
-                reserved.Position, new BoundedAscii("acquisition-cancelled"));
+                new CleanAbandonment(AbandonmentIssuer, request, reserved.Position, new BoundedAscii("acquisition-cancelled")));
         }
         catch (Exception)
         {
@@ -168,14 +188,16 @@ internal static class LiveAudioSessionPreparationSupervisorV1
             LiveAudioParticipantPreparationResultV1.OutcomeUnknown unknownPreparation =>
                 new LiveAudioSessionPreparationResultV1.OutcomeUnknown(
                     request.OperationId, reserved.Position, unknownPreparation.SafeCode),
-            LiveAudioParticipantPreparationResultV1.Unavailable => NeedsConvergence(reserved.Position, "participant-unavailable"),
-            LiveAudioParticipantPreparationResultV1.Failed failed => NeedsConvergence(reserved.Position, failed.SafeCode.ToString()),
-            LiveAudioParticipantPreparationResultV1.Cancelled => NeedsConvergence(reserved.Position, "participant-preparation-cancelled"),
+            LiveAudioParticipantPreparationResultV1.Unavailable => NeedsConvergence(request, reserved.Position, "participant-unavailable"),
+            LiveAudioParticipantPreparationResultV1.Failed failed => NeedsConvergence(request, reserved.Position, failed.SafeCode.ToString()),
+            LiveAudioParticipantPreparationResultV1.Cancelled => NeedsConvergence(request, reserved.Position, "participant-preparation-cancelled"),
             _ => new LiveAudioSessionPreparationResultV1.OutcomeUnknown(
                 request.OperationId, reserved.Position, new BoundedAscii("participant-result-unknown")),
         };
     }
 
-    private static LiveAudioSessionPreparationResultV1 NeedsConvergence(JournalPositionV1 position, string code) =>
-        new LiveAudioSessionPreparationResultV1.ReservedNeedsConvergence(position, new BoundedAscii(code));
+    private static LiveAudioSessionPreparationResultV1 NeedsConvergence(
+        LiveAudioSessionStartRequestV1 request, JournalPositionV1 position, string code) =>
+        new LiveAudioSessionPreparationResultV1.ReservedNeedsConvergence(
+            new CleanAbandonment(AbandonmentIssuer, request, position, new BoundedAscii(code)));
 }

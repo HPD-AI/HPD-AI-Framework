@@ -176,7 +176,7 @@ public sealed class LiveAudioSessionPreparationSupervisorV1Tests
         public ValueTask DisposeAsync() { calls.Add($"dispose:{key}"); return hangDispose ? new ValueTask(_never.Task) : ValueTask.CompletedTask; }
     }
 
-    private sealed class Fixture
+    internal sealed class Fixture
     {
         private readonly TenantId _tenant = TenantId.Create();
         private readonly ClockDomainId _clock = ClockDomainId.Create();
@@ -194,6 +194,7 @@ public sealed class LiveAudioSessionPreparationSupervisorV1Tests
             Journal = new InMemoryAuthorityJournalV1(new AuthorityPayloadAdmissionRegistryV1([
                 new AuthorityGenerationInitializationPayloadRegistrationV1(AuthorityAxisId.Graph),
                 new AuthorityGenerationInitializationPayloadRegistrationV1(AuthorityAxisId.Activity),
+                new AuthorityGenerationTransitionPayloadRegistrationV1(AuthorityAxisId.Graph),
                 new CapacityReservationPayloadRegistrationV1(), new CapacitySettlementPayloadRegistrationV1(),
                 new CaptureAuthorizationPayloadRegistrationV1(), new CaptureGrantCommittedPayloadRegistrationV1(),
                 new SessionLifecycleCommandPayloadRegistrationV1(), new SessionLifecycleFactPayloadRegistrationV1()]),
@@ -242,6 +243,28 @@ public sealed class LiveAudioSessionPreparationSupervisorV1Tests
         internal async Task<IReadOnlyList<AuthorityFactEnvelopeV1>> FactsAsync() =>
             Assert.IsType<ReadAuthorityRangeResultV1.Batch>(await Journal.ReadAsync(
                 new ReadAuthorityRangeV1(Session, 0, long.MaxValue, 32, 1_048_576))).Facts;
+
+        internal async Task AdvanceGraphAsync()
+        {
+            var old = Assert.IsType<AuthorityAxisValueV1.Graph>(Authority.Axes.Single(value =>
+                value.AxisId == AuthorityAxisId.Graph).Value).Value;
+            var next = GraphGenerationId.Create();
+            Span<byte> oldBytes = stackalloc byte[16]; Span<byte> nextBytes = stackalloc byte[16];
+            Assert.True(old.TryWriteBytes(oldBytes)); Assert.True(next.TryWriteBytes(nextBytes));
+            var registration = new AuthorityGenerationTransitionPayloadRegistrationV1(AuthorityAxisId.Graph);
+            var writer = new CborWriter(CborConformanceMode.Ctap2Canonical);
+            writer.WriteStartMap(4);
+            writer.WriteUInt64(1); SessionAuthorityStampV1Codec.Write(writer, Session);
+            writer.WriteUInt64(2); writer.WriteByteString(oldBytes);
+            writer.WriteUInt64(3); writer.WriteByteString(nextBytes);
+            writer.WriteUInt64(4); writer.WriteUInt64((ushort)registration.Owner);
+            writer.WriteEndMap(); var payload = writer.Encode(); var facts = await FactsAsync();
+            var proposal = new ProposedAuthorityFactV1(JournalFactId.Create(), null, registration.Owner, registration.Schema,
+                payload, AuthorityPayloadHashV1.Compute(registration.SchemaToken, registration.Schema, payload),
+                Correlation(), new UtcInstant(150));
+            Assert.IsType<AppendAuthorityResultV1.Committed>(await Journal.AppendAsync(
+                new AppendAuthorityBatchV1(Session, facts.Count, [], [proposal], 16_384)));
+        }
 
         private LiveAudioSessionStartRequestV1 MakeRequest(CapacityGrantSnapshotV1 capacity,
             CaptureGrantProofV1 capture, bool includeActivity) => new(Operation, null, Correlation(), LiveAudioPlanId.Create(),
