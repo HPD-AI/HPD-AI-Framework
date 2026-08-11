@@ -4,6 +4,29 @@ namespace HPD.Agent.Tests.Authority;
 
 public sealed class AuthorityScalarTests
 {
+    private static readonly string[] ExpectedFamilyRows =
+    [
+        "ten|TenantId|S1|S1|correlation", "prn|PrincipalId|S9|S9|privacy", "sub|SubjectId|S9|S9|privacy",
+        "ses|SessionId|S1|S1|correlation", "thr|ThreadId|S1|S1|correlation", "liv|LiveSessionId|S1|S1|authority",
+        "run|RuntimeGenerationId|S1|S1|generation", "par|ParticipantId|S1|S1|authority",
+        "fct|JournalFactId|S1|S1|authority", "sch|SchemaId|S1|S1|registry", "aut|AuthorizationId|S9|S9|privacy",
+        "prj|ProjectionId|S9|S9|projection", "op|OperationId|S1|S1|operation", "cpy|CopyId|S9|S9|privacy",
+        "cpr|CopyRangeId|S9|S9|privacy", "cgr|CaptureGrantId|S9|S9|privacy", "cap|CaptureId|S9|S9|privacy",
+        "dsc|DisclosureId|S9|S9|privacy", "hld|HoldId|S9|S9|privacy", "del|DeletionId|S9|S9|privacy",
+        "exp|ExportId|S9|S9|privacy", "cnt|ContentId|S9|S9|custody", "sbr|SubscriberId|S9|S9|delivery",
+        "grf|GraphGenerationId|S2|S2|generation", "act|ActivityGenerationId|S3|S3|generation",
+        "trn|TurnGenerationId|S4|S4|generation", "pvg|ProviderGenerationId|S5|S5|generation",
+        "out|OutputGenerationId|S6|S6|generation", "snk|SinkGenerationId|S6|S6|generation",
+        "tol|ToolGenerationId|S7|S7|generation", "rte|RouteGenerationId|S8|S8|generation",
+        "prv|PrivacyGenerationId|S9|S9|generation", "trp|TransportGenerationId|S11|S11|generation",
+        "cpp|CapacityPurposeId|S2|S2|capacity", "pur|PurposeId|S9|S9|privacy",
+        "aud|AudienceId|S9|S9|privacy", "lim|LimitationId|S1|S1|qualification",
+        "cus|CustodianDescriptorId|S9|S9|privacy", "pvd|ProviderId|AgentCore|AgentCore|provider",
+        "pvf|ProviderFamilyId|AgentCore|AgentCore|provider", "fac|ProviderFactoryId|AgentCore|AgentCore|provider",
+        "pln|LiveAudioPlanId|S1|S1|composition", "env|EnvironmentProfileId|S1|S1|qualification",
+        "srf|SurfaceId|S1|S1|qualification", "clk|ClockDomainId|S1|S1|clock", "boo|BootId|S1|S1|clock",
+    ];
+
     [Fact]
     public void StableIds_RoundTripCanonicalText()
     {
@@ -21,6 +44,27 @@ public sealed class AuthorityScalarTests
     {
         var bytes = Convert.FromHexString("000102030405060708090a0b0c0d0e0f");
         Assert.Equal("fct:00041061050R3GG28A1C60T3GF", StableId128.FromBytes(bytes).Format("fct"));
+    }
+
+    [Fact]
+    public void GeneratedFamilyLedger_IsExactAndEveryWrapperParsesItsFamily()
+    {
+        var actual = AuthorityIdFamilyRegistryV1.All.Select(
+            row => $"{row.Token}|{row.Type}|{row.Owner}|{row.AllocatorOwner}|{row.Kind}").ToArray();
+        Assert.Equal(ExpectedFamilyRows, actual);
+        Assert.Equal(46, actual.Distinct(StringComparer.Ordinal).Count());
+
+        var raw = StableId128.FromBytes(Convert.FromHexString("000102030405060708090a0b0c0d0e0f"));
+        foreach (var row in AuthorityIdFamilyRegistryV1.All)
+        {
+            var wrapper = typeof(LiveSessionId).Assembly.GetType($"HPD.Agent.Authority.{row.Type}", throwOnError: true)!;
+            var method = wrapper.GetMethod("TryParse", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)!;
+            var arguments = new object?[] { raw.Format(row.Token), null };
+            Assert.True((bool)method.Invoke(null, arguments)!);
+            Assert.NotNull(arguments[1]);
+            Assert.Equal(raw.Format(row.Token), arguments[1]!.ToString());
+            Assert.False((bool)method.Invoke(null, new object?[] { $"bad:{raw.Format(row.Token).Split(':')[1]}", null })!);
+        }
     }
 
     [Theory]
