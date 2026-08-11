@@ -2,6 +2,14 @@ using HPD.Agent.Authority;
 
 namespace HPD.Agent.Audio;
 
+internal abstract record LiveAudioProofValidationResultV1
+{
+    private LiveAudioProofValidationResultV1() { }
+    internal sealed record Valid : LiveAudioProofValidationResultV1;
+    internal sealed record Rejected(LiveAudioSessionStartRejectionV1 Reason) : LiveAudioProofValidationResultV1;
+    internal sealed record OutcomeUnknown(BoundedAscii SafeCode) : LiveAudioProofValidationResultV1;
+}
+
 /// <summary>Admits only the inert S1 Starting reservation after re-reading current S2 and S9 proofs.</summary>
 /// <remarks>This coordinator never constructs participants or invokes provider, device, network, media, output, or transport effects.</remarks>
 public static class LiveAudioSessionReservationCoordinatorV1
@@ -18,25 +26,11 @@ public static class LiveAudioSessionReservationCoordinatorV1
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(journal); ArgumentNullException.ThrowIfNull(request);
-        if (!monotonicNow.IsValid) throw new ArgumentException("A monotonic observation is required.", nameof(monotonicNow));
-        var deadline = monotonicNow.CompareTo(request.TerminalDeadline);
-        if (deadline == ClockComparison.Incomparable) throw new ArgumentException("The observation must use the request clock and boot.", nameof(monotonicNow));
-        if (deadline is ClockComparison.Equal or ClockComparison.Later)
-            return new LiveAudioSessionStartResultV1.Rejected(LiveAudioSessionStartRejectionV1.DeadlineReached);
-
-        var capacity = await CapacityAdmissionCoordinatorV1.ReadCurrentAsync(journal, request.ExpectedAuthority.Session,
-            request.CapacityGrant.GrantId, monotonicNow, cancellationToken).ConfigureAwait(false);
-        if (capacity is not CapacityGrantReadResultV1.Current currentCapacity ||
-            currentCapacity.Grant.OperationId != request.OperationId || currentCapacity.Grant.Authority != request.ExpectedAuthority)
-            return new LiveAudioSessionStartResultV1.Rejected(capacity is CapacityGrantReadResultV1.StaleAuthority
-                ? LiveAudioSessionStartRejectionV1.StaleAuthority : LiveAudioSessionStartRejectionV1.CapacityUnavailable);
-
-        var capture = await CaptureGrantAdmissionV1.ReadCurrentAsync(journal, request.ExpectedAuthority.Session,
-            request.CaptureGrant.GrantId, utcNow, cancellationToken).ConfigureAwait(false);
-        if (capture is not CaptureGrantReadResultV1.Active activeCapture || !Matches(request.CaptureGrant, activeCapture.Proof))
-            return new LiveAudioSessionStartResultV1.Rejected(capture is CaptureGrantReadResultV1.Inactive inactive &&
-                inactive.State == CaptureGrantStateV1.Revoked
-                ? LiveAudioSessionStartRejectionV1.StaleAuthority : LiveAudioSessionStartRejectionV1.CaptureUnauthorized);
+        var validation = await RevalidateProofsAsync(journal, request, monotonicNow, utcNow, cancellationToken).ConfigureAwait(false);
+        if (validation is LiveAudioProofValidationResultV1.Rejected validationRejected)
+            return new LiveAudioSessionStartResultV1.Rejected(validationRejected.Reason);
+        if (validation is LiveAudioProofValidationResultV1.OutcomeUnknown validationUnknown)
+            return new LiveAudioSessionStartResultV1.OutcomeUnknown(request.OperationId, validationUnknown.SafeCode);
 
         var body = new SessionLifecycleCommandBodyV1.ReserveStarting(request.OperationId, request.Fingerprint);
         var command = new SessionLifecycleCommandV1(request.ExpectedAuthority.Session, request.ExpectedAuthority,
@@ -63,6 +57,38 @@ public static class LiveAudioSessionReservationCoordinatorV1
                 new LiveAudioSessionStartResultV1.OutcomeUnknown(request.OperationId, new BoundedAscii("lifecycle-retry-required")),
             _ => new LiveAudioSessionStartResultV1.OutcomeUnknown(request.OperationId, new BoundedAscii("lifecycle-result-unknown")),
         };
+    }
+
+    internal static async ValueTask<LiveAudioProofValidationResultV1> RevalidateProofsAsync(
+        IAuthorityJournalV1 journal, LiveAudioSessionStartRequestV1 request, MonotonicStampV1 monotonicNow,
+        UtcInstant utcNow, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(journal); ArgumentNullException.ThrowIfNull(request);
+        if (!monotonicNow.IsValid) throw new ArgumentException("A monotonic observation is required.", nameof(monotonicNow));
+        var deadline = monotonicNow.CompareTo(request.TerminalDeadline);
+        if (deadline == ClockComparison.Incomparable)
+            throw new ArgumentException("The observation must use the request clock and boot.", nameof(monotonicNow));
+        if (deadline is ClockComparison.Equal or ClockComparison.Later)
+            return new LiveAudioProofValidationResultV1.Rejected(LiveAudioSessionStartRejectionV1.DeadlineReached);
+
+        var capacity = await CapacityAdmissionCoordinatorV1.ReadCurrentAsync(journal, request.ExpectedAuthority.Session,
+            request.CapacityGrant.GrantId, monotonicNow, cancellationToken).ConfigureAwait(false);
+        if (capacity is CapacityGrantReadResultV1.OutcomeUnknown capacityUnknown)
+            return new LiveAudioProofValidationResultV1.OutcomeUnknown(capacityUnknown.SafeCode);
+        if (capacity is not CapacityGrantReadResultV1.Current currentCapacity ||
+            currentCapacity.Grant.OperationId != request.OperationId || currentCapacity.Grant.Authority != request.ExpectedAuthority)
+            return new LiveAudioProofValidationResultV1.Rejected(capacity is CapacityGrantReadResultV1.StaleAuthority
+                ? LiveAudioSessionStartRejectionV1.StaleAuthority : LiveAudioSessionStartRejectionV1.CapacityUnavailable);
+
+        var capture = await CaptureGrantAdmissionV1.ReadCurrentAsync(journal, request.ExpectedAuthority.Session,
+            request.CaptureGrant.GrantId, utcNow, cancellationToken).ConfigureAwait(false);
+        if (capture is CaptureGrantReadResultV1.OutcomeUnknown captureUnknown)
+            return new LiveAudioProofValidationResultV1.OutcomeUnknown(captureUnknown.SafeCode);
+        if (capture is not CaptureGrantReadResultV1.Active activeCapture || !Matches(request.CaptureGrant, activeCapture.Proof))
+            return new LiveAudioProofValidationResultV1.Rejected(
+                capture is CaptureGrantReadResultV1.Inactive inactive && inactive.State == CaptureGrantStateV1.Revoked
+                    ? LiveAudioSessionStartRejectionV1.StaleAuthority : LiveAudioSessionStartRejectionV1.CaptureUnauthorized);
+        return new LiveAudioProofValidationResultV1.Valid();
     }
 
     private static bool Matches(CaptureGrantProofV1 requested, CaptureGrantProofV1 current) =>
