@@ -1,3 +1,4 @@
+using System.Formats.Cbor;
 using HPD.Agent.Authority;
 
 namespace HPD.Agent.Tests.Authority;
@@ -40,6 +41,22 @@ public sealed class SemanticAcceptanceAdmissionV1Tests
         Assert.Equal(committed.Position, retry.Position);
         Assert.Equal(4, Assert.IsType<ReadAuthorityRangeResultV1.Batch>(await fixture.Journal.ReadAsync(
             new ReadAuthorityRangeV1(fixture.Session, 0, long.MaxValue, 16, 65_536))).SnapshotThrough);
+    }
+
+    [Fact]
+    public async Task Admission_RetryReturnsOriginalFactAfterARelevantAxisChanges()
+    {
+        var fixture = new Fixture();
+        var (disposition, graph) = await fixture.SeedGraphDispositionAsync();
+        var committed = Assert.IsType<SemanticAcceptanceAdmissionResultV1.Committed>(
+            await SemanticAcceptanceAdmissionV1.AdmitAsync(fixture.Journal, disposition)).Envelope;
+        await fixture.AppendGraphTransitionAsync(expectedHead: 4, graph, Stable(48));
+
+        var retry = Assert.IsType<SemanticAcceptanceAdmissionResultV1.AlreadyCommitted>(
+            await SemanticAcceptanceAdmissionV1.AdmitAsync(fixture.Journal, disposition)).Envelope;
+
+        Assert.Equal(committed.FactId, retry.FactId);
+        Assert.Equal(committed.Position, retry.Position);
     }
 
     [Fact]
@@ -106,6 +123,8 @@ public sealed class SemanticAcceptanceAdmissionV1Tests
                 new SessionAuthorityStampPayloadRegistrationV1(),
                 new SubmissionDispositionChosenPayloadRegistrationV1(),
                 new SemanticInputAcceptedPayloadRegistrationV1(),
+                new AuthorityGenerationInitializationPayloadRegistrationV1(AuthorityAxisId.Graph),
+                new AuthorityGenerationTransitionPayloadRegistrationV1(AuthorityAxisId.Graph),
             ]);
             Journal = new InMemoryAuthorityJournalV1(registry, () => new UtcInstant(123),
                 new AuthorityJournalCapacityV1(16, 256, 4 * 1024 * 1024));
@@ -143,10 +162,73 @@ public sealed class SemanticAcceptanceAdmissionV1Tests
             Assert.IsType<AppendAuthorityResultV1.Committed>(result);
         }
 
+        internal async Task<(JournalPositionV1 Position, StableId128 Graph)> SeedGraphDispositionAsync()
+        {
+            var seedValue = new SessionAuthorityStampV1(RuntimeGenerationId.Create(), LiveSessionId.Create());
+            var seedPayload = SessionAuthorityStampV1Codec.Encode(seedValue);
+            var seed = Proposal(new SessionAuthorityStampPayloadRegistrationV1(), OwnerSliceId.S1, seedPayload, OperationId.Create());
+            var first = Assert.IsType<AppendAuthorityResultV1.Committed>(await Journal.AppendAsync(
+                new AppendAuthorityBatchV1(Session, 0, [], [seed], 16_384))).Envelopes[0].Position;
+            var graph = Stable(16);
+            var initialization = new AuthorityGenerationInitializationPayloadRegistrationV1(AuthorityAxisId.Graph);
+            var initPayload = EncodeGeneration(Session, graph, null, initialization.Owner);
+            Assert.IsType<AppendAuthorityResultV1.Committed>(await Journal.AppendAsync(
+                new AppendAuthorityBatchV1(Session, 1, [],
+                    [Proposal(initialization, initialization.Owner, initPayload, OperationId.Create())], 16_384)));
+            var operation = OperationId.Create();
+            var value = new SubmissionDispositionChosenV1(operation, first,
+                ExpectedAuthorityVectorV1.Create(Session,
+                    [new AuthorityAxisValueV1.Graph(GraphGenerationId.FromValue(graph))]),
+                SubmissionDispositionV1.SubmissionClaimed);
+            var payload = SubmissionDispositionChosenV1Codec.Encode(value);
+            var proposal = Proposal(new SubmissionDispositionChosenPayloadRegistrationV1(), OwnerSliceId.S1, payload, operation);
+            var position = Assert.IsType<AppendAuthorityResultV1.Committed>(await Journal.AppendAsync(
+                new AppendAuthorityBatchV1(Session, 2, [], [proposal], 16_384))).Envelopes[0].Position;
+            return (position, graph);
+        }
+
+        internal async Task AppendGraphTransitionAsync(long expectedHead, StableId128 expected, StableId128 proposed)
+        {
+            var registration = new AuthorityGenerationTransitionPayloadRegistrationV1(AuthorityAxisId.Graph);
+            var payload = EncodeGeneration(Session, expected, proposed, registration.Owner);
+            Assert.IsType<AppendAuthorityResultV1.Committed>(await Journal.AppendAsync(
+                new AppendAuthorityBatchV1(Session, expectedHead, [],
+                    [Proposal(registration, registration.Owner, payload, OperationId.Create())], 16_384)));
+        }
+
         private ProposedAuthorityFactV1 Proposal(AuthorityPayloadRegistrationV1 registration, OwnerSliceId owner, byte[] payload, OperationId operation) =>
             new(JournalFactId.Create(), null, owner, registration.Schema, payload,
                 AuthorityPayloadHashV1.Compute(registration.SchemaToken, registration.Schema, payload),
                 new CorrelationEnvelopeV1(_tenant, operationId: operation), new UtcInstant(100));
+
+        private static byte[] EncodeGeneration(
+            SessionAuthorityStampV1 session, StableId128 expected, StableId128? proposed, OwnerSliceId owner)
+        {
+            Span<byte> expectedBytes = stackalloc byte[16];
+            Assert.True(expected.TryWriteBytes(expectedBytes));
+            var writer = new CborWriter(CborConformanceMode.Ctap2Canonical);
+            writer.WriteStartMap(proposed is null ? 3 : 4);
+            writer.WriteUInt64(1); SessionAuthorityStampV1Codec.Write(writer, session);
+            writer.WriteUInt64(2); writer.WriteByteString(expectedBytes);
+            if (proposed is { } next)
+            {
+                Span<byte> proposedBytes = stackalloc byte[16];
+                Assert.True(next.TryWriteBytes(proposedBytes));
+                writer.WriteUInt64(3); writer.WriteByteString(proposedBytes);
+                writer.WriteUInt64(4);
+            }
+            else writer.WriteUInt64(3);
+            writer.WriteUInt64((ushort)owner);
+            writer.WriteEndMap();
+            return writer.Encode();
+        }
+    }
+
+    private static StableId128 Stable(byte seed)
+    {
+        Span<byte> bytes = stackalloc byte[16];
+        for (var index = 0; index < bytes.Length; index++) bytes[index] = (byte)(seed + index);
+        return StableId128.FromBytes(bytes);
     }
 
     private sealed class RacingJournal(Fixture fixture) : IAuthorityJournalV1
