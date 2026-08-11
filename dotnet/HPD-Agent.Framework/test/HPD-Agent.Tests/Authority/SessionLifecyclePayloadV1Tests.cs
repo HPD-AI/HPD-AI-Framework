@@ -117,7 +117,7 @@ public sealed class SessionLifecyclePayloadV1Tests
     [Fact]
     public void Registrations_RequireExactS1SchemaCanonicalPayloadAndEmbeddedSession()
     {
-        var command = CreateCommand();
+        var command = CreateValidCommand();
         var commandRegistration = new SessionLifecycleCommandPayloadRegistrationV1();
         var factRegistration = new SessionLifecycleFactPayloadRegistrationV1();
         Assert.Equal(OwnerSliceId.S1, commandRegistration.Owner);
@@ -128,16 +128,14 @@ public sealed class SessionLifecyclePayloadV1Tests
         Assert.False(commandRegistration.Validate(
             SessionLifecyclePayloadV1Codec.Encode(command),
             new SessionAuthorityStampV1(RuntimeGenerationId.Create(), LiveSessionId.Create())));
-        Assert.True(factRegistration.Validate(
-            SessionLifecyclePayloadV1Codec.Encode(new SessionLifecycleFactV1(
-                command.Session, command.ExpectedAuthority, command.Body.ToArray())), command.Session));
+        Assert.True(factRegistration.Validate(SessionLifecyclePayloadV1Codec.Encode(CreateValidFact()), command.Session));
         Assert.False(factRegistration.Validate(new byte[] { 0xff }, command.Session));
     }
 
     [Fact]
     public async Task Journal_AdmitsExactLifecyclePayloadAndRejectsOwnerHashAndSessionContradictions()
     {
-        var command = CreateCommand();
+        var command = CreateValidCommand();
         var registration = new SessionLifecycleCommandPayloadRegistrationV1();
         var registry = new AuthorityPayloadAdmissionRegistryV1([registration]);
         var payload = SessionLifecyclePayloadV1Codec.Encode(command);
@@ -171,6 +169,32 @@ public sealed class SessionLifecyclePayloadV1Tests
     {
         var (session, vector) = Authority();
         return new SessionLifecycleCommandV1(session, vector, [1, 2]);
+    }
+
+    private static SessionLifecycleCommandV1 CreateValidCommand()
+    {
+        var (session, vector) = Authority();
+        var inner = new SessionLifecycleCommandBodyV1.ReserveStarting(
+            OperationId.FromValue(StableId128.FromBytes(Convert.FromHexString("000102030405060708090a0b0c0d0e0f"))),
+            Hash256.Compute("start"u8));
+        return new SessionLifecycleCommandV1(session, vector, SessionLifecycleBodyCodecsV1.Encode(inner));
+    }
+
+    private static SessionLifecycleFactV1 CreateValidFact()
+    {
+        var command = CreateValidCommand();
+        var inner = new SessionLifecycleFactBodyV1(
+            OperationId.FromValue(StableId128.FromBytes(Convert.FromHexString("000102030405060708090a0b0c0d0e0f"))),
+            new JournalPositionV1(command.Session, 1), null, null, SessionLifecycleOutcomeV1.Applied,
+            new SessionLifecycleSnapshotBodyV1(
+                SessionLifecycleStateWireV1.Starting, SessionAdmissionWireV1.Closed,
+                SessionAvailabilityWireV1.Unavailable, SessionReadinessWireV1.Unpublished,
+                SessionTerminalIntentWireV1.None, SessionTerminalCauseWireV1.None,
+                SessionTerminalIntentWireV1.None, SessionTerminalCauseWireV1.None,
+                SessionTerminalSeverityWireV1.None, SessionConvergencePhaseWireV1.None,
+                SessionMutationFenceWireV1.Open, false), null);
+        return new SessionLifecycleFactV1(command.Session, command.ExpectedAuthority,
+            SessionLifecycleBodyCodecsV1.Encode(inner));
     }
 
     private static (SessionAuthorityStampV1 Session, ExpectedAuthorityVectorV1 Vector) Authority()
