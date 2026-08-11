@@ -80,7 +80,7 @@ public sealed class GatewayDeclarationEditorLedgerTests
             GatewayDeclarationEditorLedgerExporter.Export(ReverseObjects(openApi).AsObject());
 
         first.Utf8.Should().Equal(second.Utf8);
-        first.Value.Envelope.Records.Should().HaveCount(366);
+        first.Value.Envelope.Records.Should().HaveCount(420);
         first.Value.Envelope.Records.Select(static record => record.Target.OccurrencePath)
             .Distinct(OccurrencePathComparer.Instance).Should().HaveSameCount(first.Value.Envelope.Records);
         first.Value.Envelope.Records.Where(static record =>

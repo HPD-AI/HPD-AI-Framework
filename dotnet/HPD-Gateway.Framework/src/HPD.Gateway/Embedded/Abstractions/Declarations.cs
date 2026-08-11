@@ -27,7 +27,7 @@ public sealed record GatewayDefinitions
 
     public ImmutableArray<DeclarationDefinition<CorsPolicyBinding>> Cors { get; init; } = [];
 
-    public ImmutableArray<DeclarationDefinition<TrafficAdmissionBinding>> TrafficAdmission { get; init; } = [];
+    public ImmutableArray<DeclarationDefinition<TrafficAdmissionPlan>> TrafficAdmission { get; init; } = [];
 
     public ImmutableArray<DeclarationDefinition<RequestTimeoutBinding>> RequestTimeout { get; init; } = [];
 
@@ -46,7 +46,7 @@ public sealed record RouteDeclarations
 
     public DeclarationReference<CorsPolicyBinding>? Cors { get; init; }
 
-    public DeclarationReference<TrafficAdmissionBinding>? TrafficAdmission { get; init; }
+    public DeclarationReference<TrafficAdmissionPlan>? TrafficAdmission { get; init; }
 
     public DeclarationReference<RequestTimeoutBinding>? RequestTimeout { get; init; }
 
@@ -69,7 +69,7 @@ public sealed record GatewayRootDeclarations
 
     public DeclarationReference<CorsPolicyBinding>? Cors { get; init; }
 
-    public DeclarationReference<TrafficAdmissionBinding>? TrafficAdmission { get; init; }
+    public DeclarationReference<TrafficAdmissionPlan>? TrafficAdmission { get; init; }
 
     public DeclarationReference<RequestTimeoutBinding>? RequestTimeout { get; init; }
 
@@ -85,8 +85,6 @@ public sealed record GatewayRootDeclarations
 public sealed record NamedAuthorizationPolicy(string PolicyName);
 
 public sealed record CorsPolicyBinding(string PolicyName);
-
-public sealed record TrafficAdmissionBinding(string PolicyName);
 
 public sealed record RequestTimeoutBinding
 {

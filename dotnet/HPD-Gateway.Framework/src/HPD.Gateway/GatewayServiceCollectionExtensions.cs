@@ -1,7 +1,9 @@
 using System.Collections.Immutable;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace HPD.Gateway;
@@ -19,6 +21,7 @@ public static class GatewayServiceCollectionExtensions
 
         var staged = new ServiceCollection();
         staged.AddReverseProxy();
+        staged.AddRateLimiter(static _ => { });
         staged.AddHpdGatewayYarpPublication();
         staged.AddHpdGatewayYarpMaterialization();
         staged.AddHpdGatewayStatus();
@@ -74,7 +77,7 @@ public static class GatewayServiceCollectionExtensions
             ProtectedCredentialHeaders = state.ProtectedCredentialHeaders,
             AuthorizationPolicies = state.AuthorizationPolicies,
             CorsPolicies = state.CorsPolicies,
-            TrafficAdmissionPolicies = state.TrafficAdmissionPolicies,
+            TrafficAdmissionProfiles = state.TrafficAdmissionProfiles,
             RequestTimeoutPolicies = state.RequestTimeoutPolicies,
             AllowInspectionFileSpill = state.AllowInspectionFileSpill
         });

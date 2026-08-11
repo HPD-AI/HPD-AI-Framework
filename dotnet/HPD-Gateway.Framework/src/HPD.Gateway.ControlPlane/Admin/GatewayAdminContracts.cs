@@ -249,7 +249,7 @@ internal sealed record GatewayHostCapabilityProjection(
     ImmutableArray<string> SecretProviders,
     ImmutableArray<string> AuthorizationPolicies,
     ImmutableArray<string> CorsPolicies,
-    ImmutableArray<string> TrafficAdmissionPolicies,
+    ImmutableArray<GatewayTrafficAdmissionCapabilityProjection> TrafficAdmissionProfiles,
     ImmutableArray<string> RequestTimeoutPolicies,
     ImmutableArray<GatewayOutputCacheCapabilityProjection> OutputCacheProfiles,
     ImmutableArray<string> SessionAffinityPolicies,
@@ -267,6 +267,27 @@ internal sealed record GatewayListenerCapabilityProjection(
     ImmutableArray<string> Protocols,
     ImmutableArray<string> Hostnames,
     bool Tls);
+
+internal sealed record GatewayTrafficAdmissionCapabilityProjection(
+    string Name,
+    ushort ContractVersion,
+    string Scope,
+    string Kind,
+    string? RateAlgorithm,
+    string Partition,
+    string FailureDisposition,
+    string MinimumLimit,
+    string MaximumLimit,
+    string? MinimumPeriodTicks,
+    string? MaximumPeriodTicks,
+    int MinimumSegments,
+    int MaximumSegments,
+    int MinimumQueue,
+    int MaximumQueue,
+    string AuthorityId,
+    string BehaviorHashAlgorithm,
+    string BehaviorHashValue,
+    int? AcquisitionOrdinal);
 
 internal sealed record GatewayDiscoveryProfileCapabilityProjection(
     string Id,

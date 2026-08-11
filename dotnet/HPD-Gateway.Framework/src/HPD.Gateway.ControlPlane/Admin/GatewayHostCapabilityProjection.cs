@@ -49,7 +49,17 @@ internal static class GatewayHostCapabilityProjector
                 .Order(StringComparer.Ordinal).ToImmutableArray(),
             Sort(snapshot.AuthorizationPolicies),
             Sort(snapshot.CorsPolicies),
-            Sort(snapshot.TrafficAdmissionPolicies),
+            snapshot.TrafficAdmissionProfiles.Values.OrderBy(static value => value.Name, StringComparer.Ordinal)
+                .Select(static value => new GatewayTrafficAdmissionCapabilityProjection(
+                    value.Name, value.ContractVersion, value.Scope.ToString(), value.Kind.ToString(), value.RateAlgorithm?.ToString(),
+                    value.Partition.ToString(), value.FailureDisposition.ToString(),
+                    value.Limits.MinimumLimit.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    value.Limits.MaximumLimit.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    value.Limits.MinimumPeriod?.Ticks.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    value.Limits.MaximumPeriod?.Ticks.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    value.Limits.MinimumSegments, value.Limits.MaximumSegments, value.Limits.MinimumQueue, value.Limits.MaximumQueue,
+                    value.AuthorityId, value.BehaviorIdentity.Algorithm, value.BehaviorIdentity.Value, value.AcquisitionOrdinal))
+                .ToImmutableArray(),
             Sort(snapshot.RequestTimeoutPolicies),
             snapshot.OutputCacheProfiles.Values
                 .OrderBy(static value => value.Name, StringComparer.Ordinal)

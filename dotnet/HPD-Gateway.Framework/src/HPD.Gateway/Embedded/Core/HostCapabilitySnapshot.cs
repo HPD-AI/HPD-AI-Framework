@@ -114,7 +114,7 @@ public sealed record HostCapabilityRegistration
     public GatewayDeclarationFamilies InstalledFamilies { get; init; }
     public IEnumerable<string> AuthorizationPolicies { get; init; } = [];
     public IEnumerable<string> CorsPolicies { get; init; } = [];
-    public IEnumerable<string> TrafficAdmissionPolicies { get; init; } = [];
+    public IEnumerable<TrafficAdmissionCapability> TrafficAdmissionProfiles { get; init; } = [];
     public IEnumerable<string> RequestTimeoutPolicies { get; init; } = [];
     public IEnumerable<OutputCacheCapability> OutputCacheProfiles { get; init; } = [];
     public IEnumerable<string> SessionAffinityPolicies { get; init; } = [];
@@ -152,7 +152,7 @@ public sealed class HostCapabilitySnapshot
         InstalledFamilies = registration.InstalledFamilies;
         AuthorizationPolicies = Names(registration.AuthorizationPolicies);
         CorsPolicies = Names(registration.CorsPolicies);
-        TrafficAdmissionPolicies = Names(registration.TrafficAdmissionPolicies);
+        TrafficAdmissionProfiles = AdmissionProfiles(registration.TrafficAdmissionProfiles);
         RequestTimeoutPolicies = Names(registration.RequestTimeoutPolicies);
         ProtectedCredentialHeaders = ProtectedHeaders(registration.ProtectedCredentialHeaders);
         OutputCacheProfiles = CacheProfiles(registration.OutputCacheProfiles, ProtectedCredentialHeaders);
@@ -172,7 +172,7 @@ public sealed class HostCapabilitySnapshot
     public GatewayDeclarationFamilies InstalledFamilies { get; }
     public ImmutableHashSet<string> AuthorizationPolicies { get; }
     public ImmutableHashSet<string> CorsPolicies { get; }
-    public ImmutableHashSet<string> TrafficAdmissionPolicies { get; }
+    public ImmutableDictionary<string, TrafficAdmissionCapability> TrafficAdmissionProfiles { get; }
     public ImmutableHashSet<string> RequestTimeoutPolicies { get; }
     public ImmutableHashSet<string> OutputCachePolicies { get; }
     public ImmutableDictionary<string, OutputCacheCapability> OutputCacheProfiles { get; }
@@ -195,7 +195,7 @@ public sealed class HostCapabilitySnapshot
             SecretProviders = MaterializeBounded(registration.SecretProviders, MaximumProviders, nameof(registration.SecretProviders)),
             AuthorizationPolicies = MaterializeBounded(registration.AuthorizationPolicies, MaximumNamedCapabilities, nameof(registration.AuthorizationPolicies)),
             CorsPolicies = MaterializeBounded(registration.CorsPolicies, MaximumNamedCapabilities, nameof(registration.CorsPolicies)),
-            TrafficAdmissionPolicies = MaterializeBounded(registration.TrafficAdmissionPolicies, MaximumNamedCapabilities, nameof(registration.TrafficAdmissionPolicies)),
+            TrafficAdmissionProfiles = MaterializeBounded(registration.TrafficAdmissionProfiles, MaximumProfiles, nameof(registration.TrafficAdmissionProfiles)),
             RequestTimeoutPolicies = MaterializeBounded(registration.RequestTimeoutPolicies, MaximumNamedCapabilities, nameof(registration.RequestTimeoutPolicies)),
             OutputCacheProfiles = MaterializeBounded(registration.OutputCacheProfiles, MaximumProfiles, nameof(registration.OutputCacheProfiles)),
             SessionAffinityPolicies = MaterializeBounded(registration.SessionAffinityPolicies, MaximumNamedCapabilities, nameof(registration.SessionAffinityPolicies)),
@@ -249,7 +249,7 @@ public sealed class HostCapabilitySnapshot
 
         ValidateNames(registration.AuthorizationPolicies, nameof(registration.AuthorizationPolicies));
         ValidateNames(registration.CorsPolicies, nameof(registration.CorsPolicies));
-        ValidateNames(registration.TrafficAdmissionPolicies, nameof(registration.TrafficAdmissionPolicies));
+        _ = AdmissionProfiles(registration.TrafficAdmissionProfiles);
         ValidateNames(registration.RequestTimeoutPolicies, nameof(registration.RequestTimeoutPolicies));
         ValidateNames(registration.SessionAffinityPolicies, nameof(registration.SessionAffinityPolicies));
         ValidateNames(registration.SessionAffinityFailurePolicies, nameof(registration.SessionAffinityFailurePolicies));
@@ -263,6 +263,30 @@ public sealed class HostCapabilitySnapshot
     }
 
     private static ImmutableHashSet<string> Names(IEnumerable<string> values) => values.ToImmutableHashSet(StringComparer.Ordinal);
+
+    private static ImmutableDictionary<string, TrafficAdmissionCapability> AdmissionProfiles(IEnumerable<TrafficAdmissionCapability> values)
+    {
+        var profiles = ImmutableDictionary.CreateBuilder<string, TrafficAdmissionCapability>(StringComparer.Ordinal);
+        foreach (var profile in values)
+        {
+            if (profile is null || !GatewayIdentifier.IsCanonical(profile.Name) || profile.ContractVersion == 0 ||
+                !Enum.IsDefined(profile.Scope) || !Enum.IsDefined(profile.Kind) || !Enum.IsDefined(profile.Partition) ||
+                !Enum.IsDefined(profile.FailureDisposition) || string.IsNullOrWhiteSpace(profile.AuthorityId) ||
+                profile.AuthorityId.Length > 256 || profile.BehaviorIdentity.Algorithm != "sha-256" ||
+                profile.BehaviorIdentity.Value is not { Length: 64 } hash ||
+                !hash.All(static c => c is >= '0' and <= '9' or >= 'a' and <= 'f') ||
+                profile.Scope != TrafficAdmissionScope.ProcessLocal ||
+                profile.FailureDisposition != TrafficAdmissionFailureDisposition.Reject ||
+                (profile.Kind == TrafficAdmissionKind.RequestRate) != profile.RateAlgorithm.HasValue ||
+                (profile.AcquisitionOrdinal.HasValue != (profile.Kind == TrafficAdmissionKind.Concurrency)) ||
+                !profiles.TryAdd(profile.Name, profile))
+                throw new ArgumentException("Traffic-admission capabilities are invalid, unsupported, or duplicated.", nameof(values));
+        }
+        var ordinals = profiles.Values.Where(static p => p.AcquisitionOrdinal.HasValue).Select(static p => p.AcquisitionOrdinal!.Value).Order().ToArray();
+        if (!ordinals.SequenceEqual(Enumerable.Range(0, ordinals.Length)))
+            throw new ArgumentException("Concurrency acquisition ordinals must form one closed sequence.", nameof(values));
+        return profiles.ToImmutable();
+    }
 
     private static ImmutableDictionary<string, UpstreamResilienceCapability> ResilienceProfiles(IEnumerable<UpstreamResilienceCapability> values)
     {

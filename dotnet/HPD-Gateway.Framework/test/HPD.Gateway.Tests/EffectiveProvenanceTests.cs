@@ -314,7 +314,7 @@ public sealed class EffectiveProvenanceTests
             {
                 Authorization = Inline(new NamedAuthorizationPolicy("authenticated")),
                 Cors = Inline(new CorsPolicyBinding("cors-policy")),
-                TrafficAdmission = Inline(new TrafficAdmissionBinding("admission")),
+                TrafficAdmission = Inline(new TrafficAdmissionPlan { Entries = [new FixedWindowAdmissionEntry { Profile = "admission", PermitLimit = 100, Window = TimeSpan.FromMinutes(1) }] }),
                 RequestTimeout = Inline(new RequestTimeoutBinding { Timeout = TimeSpan.FromSeconds(7) }),
                 Inspection = Inline(inspection),
                 CredentialDisposition = Inline(new CredentialDispositionBinding { Kind = CredentialDispositionKind.Strip })
@@ -340,7 +340,7 @@ public sealed class EffectiveProvenanceTests
                 GatewayDeclarationFamilies.RequestTransforms | GatewayDeclarationFamilies.ResponseTransforms,
             AuthorizationPolicies = ["authenticated"],
             CorsPolicies = ["cors-policy"],
-            TrafficAdmissionPolicies = ["admission"],
+            TrafficAdmissionProfiles = [TrafficAdmissionTestData.Capability("admission")],
             RequestInspectors = ["inspector"],
             ProtectedCredentialHeaders = ["x-api-key"]
         });
@@ -353,7 +353,8 @@ public sealed class EffectiveProvenanceTests
         var native = result.PreparedApplication!.Routes.Single();
         native.AuthorizationPolicy.Should().Be("authenticated");
         native.CorsPolicy.Should().Be("cors-policy");
-        native.RateLimiterPolicy.Should().Be("admission");
+        native.RateLimiterPolicy.Should().BeNull();
+        native.Metadata.Should().ContainKey(GatewayTrafficAdmissionMetadataCodec.Plan);
         native.Timeout.Should().Be(TimeSpan.FromSeconds(7));
         native.Metadata![GatewayInspectionMetadata.Inspector].Should().Be("inspector");
         native.Transforms.Should().NotBeEmpty();

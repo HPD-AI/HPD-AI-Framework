@@ -11,7 +11,7 @@ internal static class GatewayDeclarationEditorLedgerProjector
     private const string Prefix = "#/components/schemas/";
     private const string RootName = "HPD_Gateway_Abstractions_GatewayConfiguration";
     private const string ExpectedOccurrenceCatalogSha256 =
-        "a25a8e220b638e540839da329bebe9f0c88789c33360fc20b9a35ecfd51ecb0b";
+        "bb7e3fb8a3f3bbba372bb96bd037e643455dae981299a3056cb8cf7edda0205c";
 
     internal static GatewayDeclarationEditorLedgerEnvelope Project(JsonObject openApi)
     {
@@ -139,6 +139,11 @@ internal static class GatewayDeclarationEditorLedgerProjector
         private void WalkNested(JsonObject schema, ImmutableArray<GatewayEditorOccurrenceStep> path,
             string owner, string ownerPointer)
         {
+            if (schema["oneOf"] is JsonArray)
+            {
+                WalkUnion(schema, path);
+                return;
+            }
             if (schema["$ref"]?.GetValue<string>() is { } reference)
             {
                 string name = LocalName(reference);
@@ -227,7 +232,7 @@ internal static class GatewayDeclarationEditorLedgerProjector
             {
                 GatewayEditorDeclarationFamily.Authorization => "HPD_Gateway_Abstractions_NamedAuthorizationPolicy",
                 GatewayEditorDeclarationFamily.Cors => "HPD_Gateway_Abstractions_CorsPolicyBinding",
-                GatewayEditorDeclarationFamily.TrafficAdmission => "HPD_Gateway_Abstractions_TrafficAdmissionBinding",
+                GatewayEditorDeclarationFamily.TrafficAdmission => "HPD_Gateway_Abstractions_TrafficAdmissionPlan",
                 GatewayEditorDeclarationFamily.OutputCache => "HPD_Gateway_Abstractions_OutputCacheBinding",
                 GatewayEditorDeclarationFamily.RequestTimeout => "HPD_Gateway_Abstractions_RequestTimeoutBinding",
                 GatewayEditorDeclarationFamily.Inspection => "HPD_Gateway_Abstractions_RequestInspectionBinding",
@@ -376,11 +381,12 @@ internal static class GatewayDeclarationEditorLedgerProjector
     {
         string[] properties = Properties(path);
         string property = properties[^1];
+        if (family == GatewayEditorDeclarationFamily.TrafficAdmission && property == "profile")
+            return (GatewayEditorCapabilityKind.TrafficAdmissionPolicy, ["/profile"]);
         if (property == "policyName") return family switch
         {
             GatewayEditorDeclarationFamily.Authorization => (GatewayEditorCapabilityKind.AuthorizationPolicy, ["/policyName"]),
             GatewayEditorDeclarationFamily.Cors => (GatewayEditorCapabilityKind.CorsPolicy, ["/policyName"]),
-            GatewayEditorDeclarationFamily.TrafficAdmission => (GatewayEditorCapabilityKind.TrafficAdmissionPolicy, ["/policyName"]),
             GatewayEditorDeclarationFamily.RequestTimeout => (GatewayEditorCapabilityKind.RequestTimeoutPolicy, ["/policyName"]),
             GatewayEditorDeclarationFamily.OutputCache => (GatewayEditorCapabilityKind.OutputCacheProfile, ["/policyName"]),
             _ => (GatewayEditorCapabilityKind.None, []),

@@ -80,7 +80,7 @@ function validateEnvelope(input: unknown): Readonly<Record<string, JsonValue>> {
   exact(value, envelopeKeys);
   if (value.schemaVersion !== 1 || value.declarationSchemaRef !== rootRef) fail("Unsupported editor envelope identity.");
   const records = array(value.records, "editor records", 50_000).map(validateRecord);
-  if (records.length !== 366) fail("Editor occurrence catalog must contain exactly 366 records.");
+  if (records.length !== 420) fail("Editor occurrence catalog must contain exactly 420 records.");
   let prior: readonly unknown[] | null = null;
   const seen = new Set<string>();
   for (const record of records) {

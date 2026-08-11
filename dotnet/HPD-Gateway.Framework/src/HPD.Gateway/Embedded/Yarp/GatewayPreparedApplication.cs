@@ -285,7 +285,7 @@ internal sealed class GatewayPreparedApplication
         {
             RequireRecord(route.RouteId, GatewayEffectiveFamilies.Authorization, route.AuthorizationPolicy is not null, seen, snapshot);
             RequireRecord(route.RouteId, GatewayEffectiveFamilies.Cors, route.CorsPolicy is not null, seen, snapshot);
-            RequireRecord(route.RouteId, GatewayEffectiveFamilies.TrafficAdmission, route.RateLimiterPolicy is not null, seen, snapshot);
+            RequireRecord(route.RouteId, GatewayEffectiveFamilies.TrafficAdmission, route.Metadata?.ContainsKey(GatewayTrafficAdmissionMetadataCodec.Plan) == true, seen, snapshot);
             RequireRecord(route.RouteId, GatewayEffectiveFamilies.RequestTimeout, route.TimeoutPolicy is not null || route.Timeout is not null, seen, snapshot);
             RequireRecord(route.RouteId, GatewayEffectiveFamilies.OutputCache, route.OutputCachePolicy is not null, seen, snapshot);
             RequireRecord(route.RouteId, GatewayEffectiveFamilies.Inspection,
@@ -334,7 +334,7 @@ internal sealed class GatewayPreparedApplication
     {
         GatewayEffectiveFamilies.Authorization => route.AuthorizationPolicy is not null && record.NativeProjection.Seam == "RouteConfig.AuthorizationPolicy",
         GatewayEffectiveFamilies.Cors => route.CorsPolicy is not null && record.NativeProjection.Seam == "RouteConfig.CorsPolicy",
-        GatewayEffectiveFamilies.TrafficAdmission => route.RateLimiterPolicy is not null && record.NativeProjection.Seam == "RouteConfig.RateLimiterPolicy",
+        GatewayEffectiveFamilies.TrafficAdmission => route.Metadata?.ContainsKey(GatewayTrafficAdmissionMetadataCodec.Plan) == true && record.NativeProjection.Seam == "RouteConfig.Metadata/HPD traffic admission",
         GatewayEffectiveFamilies.RequestTimeout => (route.TimeoutPolicy is not null || route.Timeout is not null) && record.NativeProjection.Seam == "RouteConfig.TimeoutPolicy/Timeout",
         GatewayEffectiveFamilies.OutputCache => route.OutputCachePolicy is not null && record.NativeProjection.Seam == "RouteConfig.OutputCachePolicy",
         GatewayEffectiveFamilies.Inspection => route.Metadata?.ContainsKey("hpd.gateway.inspection.inspector") == true && record.NativeProjection.Seam == "RouteConfig.Metadata/HPD inspection",

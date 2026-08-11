@@ -74,7 +74,6 @@ internal static class GatewayRuntimeGraphIdentity
         writer.Add(value.ClusterId);
         writer.Add(value.Order);
         writer.Add(value.AuthorizationPolicy);
-        writer.Add(value.RateLimiterPolicy);
         writer.Add(value.OutputCachePolicy);
         writer.Add(value.TimeoutPolicy);
         writer.Add(value.Timeout?.Ticks);

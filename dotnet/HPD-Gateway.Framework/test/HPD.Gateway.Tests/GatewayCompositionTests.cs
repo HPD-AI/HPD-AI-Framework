@@ -125,8 +125,7 @@ public sealed class GatewayCompositionTests
             builder.ProtectCredentialHeaders("X-Api-Key");
             builder.AddAuthorizationPolicy("auth", policy => policy.RequireAssertion(_ => true));
             builder.AddCorsPolicy("cors", policy => policy.AllowAnyOrigin());
-            builder.AddTrafficAdmissionPolicy("admission", static _ =>
-                RateLimitPartition.GetNoLimiter("global"));
+            builder.AddTrafficAdmission(registry => registry.AddLocalFixedWindow("admission"));
             builder.AddRequestTimeoutPolicy("timeout", TimeSpan.FromSeconds(5));
             builder.AddUpstreamResilience(registry => registry.Add(new GatewayResilienceProfile
             {
@@ -159,7 +158,7 @@ public sealed class GatewayCompositionTests
         capabilities.ProtectedCredentialHeaders.Should().Contain("x-api-key");
         capabilities.AuthorizationPolicies.Should().ContainSingle("auth");
         capabilities.CorsPolicies.Should().ContainSingle("cors");
-        capabilities.TrafficAdmissionPolicies.Should().ContainSingle("admission");
+        capabilities.TrafficAdmissionProfiles.Should().ContainKey("admission");
         capabilities.RequestTimeoutPolicies.Should().ContainSingle("timeout");
         capabilities.UpstreamResilienceProfiles["safe"].Version.Should().Be(3);
         capabilities.OutputCacheProfiles["cache"].Version.Should().Be(4);

@@ -13,4 +13,5 @@ namespace HPD.Gateway;
 [JsonSerializable(typeof(GatewayPortableDocumentResult))]
 [JsonSerializable(typeof(GatewayCanonicalizationResult))]
 [JsonSerializable(typeof(GatewayValidationResult))]
+[JsonSerializable(typeof(TrafficAdmissionPlan))]
 internal partial class GatewayJsonSerializerContext : JsonSerializerContext;

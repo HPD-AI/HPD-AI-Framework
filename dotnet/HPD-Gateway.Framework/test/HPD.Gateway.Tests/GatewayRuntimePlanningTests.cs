@@ -30,7 +30,7 @@ public sealed class GatewayRuntimePlanningTests
             {
                 Authorization = Inline(new NamedAuthorizationPolicy("root-auth")),
                 Cors = Inline(new CorsPolicyBinding("root-cors")),
-                TrafficAdmission = Inline(new TrafficAdmissionBinding("root-admission")),
+                TrafficAdmission = Inline(new TrafficAdmissionPlan { Entries = [new FixedWindowAdmissionEntry { Profile = "root-admission", PermitLimit = 100, Window = TimeSpan.FromMinutes(1) }] }),
                 RequestTimeout = Inline(new RequestTimeoutBinding { PolicyName = "root-timeout" }),
                 OutputCache = Inline(new OutputCacheBinding("root-cache")),
                 CredentialDisposition = Inline(new CredentialDispositionBinding { Kind = CredentialDispositionKind.Strip })
@@ -110,7 +110,8 @@ public sealed class GatewayRuntimePlanningTests
         route.Order.Should().Be(-10);
         route.AuthorizationPolicy.Should().Be("route-auth");
         route.CorsPolicy.Should().Be("root-cors");
-        route.RateLimiterPolicy.Should().Be("root-admission");
+        route.RateLimiterPolicy.Should().BeNull();
+        route.Metadata.Should().ContainKey(GatewayTrafficAdmissionMetadataCodec.Plan);
         route.OutputCachePolicy.Should().Be("root-cache");
         route.Timeout.Should().Be(TimeSpan.FromSeconds(7));
         route.TimeoutPolicy.Should().BeNull();
@@ -247,7 +248,7 @@ public sealed class GatewayRuntimePlanningTests
             {
                 Authorization = Inline(new NamedAuthorizationPolicy("root-auth")),
                 Cors = Inline(new CorsPolicyBinding("root-cors")),
-                TrafficAdmission = Inline(new TrafficAdmissionBinding("root-admission")),
+                TrafficAdmission = Inline(new TrafficAdmissionPlan { Entries = [new FixedWindowAdmissionEntry { Profile = "root-admission", PermitLimit = 100, Window = TimeSpan.FromMinutes(1) }] }),
                 RequestTimeout = Inline(new RequestTimeoutBinding { PolicyName = "root-timeout" }),
                 OutputCache = Inline(new OutputCacheBinding("root-cache")),
                 CredentialDisposition = Inline(new CredentialDispositionBinding { Kind = CredentialDispositionKind.Strip })
@@ -361,7 +362,7 @@ public sealed class GatewayRuntimePlanningTests
             ("route-cluster", [route with { ClusterId = "changed" }], plan.Clusters),
             ("route-order", [route with { Order = 42 }], plan.Clusters),
             ("authorization", [route with { AuthorizationPolicy = "changed" }], plan.Clusters),
-            ("rate-limit", [route with { RateLimiterPolicy = "changed" }], plan.Clusters),
+            ("admission", [route with { Metadata = route.Metadata!.ToImmutableDictionary(StringComparer.Ordinal).SetItem(GatewayTrafficAdmissionMetadataCodec.PlanIdentity, new string('b', 64)) }], plan.Clusters),
             ("output-cache", [route with { OutputCachePolicy = "changed" }], plan.Clusters),
             ("timeout-policy", [route with { TimeoutPolicy = "changed" }], plan.Clusters),
             ("timeout", [route with { Timeout = TimeSpan.FromTicks(123) }], plan.Clusters),
@@ -1185,7 +1186,7 @@ public sealed class GatewayRuntimePlanningTests
         InstalledFamilies = GatewayDeclarationFamilies.AllBaseline | GatewayDeclarationFamilies.CredentialDisposition,
         AuthorizationPolicies = ["root-auth", "route-auth", "orders.read"],
         CorsPolicies = ["root-cors"],
-        TrafficAdmissionPolicies = ["root-admission"],
+        TrafficAdmissionProfiles = [TrafficAdmissionTestData.Capability("root-admission")],
         RequestTimeoutPolicies = ["root-timeout"],
         OutputCacheProfiles = [CacheCapability("root-cache")],
         SessionAffinityPolicies = ["Cookie"],

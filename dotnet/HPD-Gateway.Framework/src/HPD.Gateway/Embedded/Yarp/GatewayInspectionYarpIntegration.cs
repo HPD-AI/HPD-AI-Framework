@@ -107,12 +107,30 @@ internal static class GatewayInspectionYarpExtensions
         if (participants.Any(static participant => participant.IsMapped)) throw new InvalidOperationException("The HPD reverse-proxy pipeline can be mapped only once.");
         foreach (var participant in participants) participant.MarkMapped();
         var inspectionInstalled = endpoints.ServiceProvider.GetService<GatewayInspectionRegistry>() is not null;
-        return endpoints.MapReverseProxy(proxy =>
+        var builder = endpoints.MapReverseProxy(proxy =>
         {
             if (inspectionInstalled) proxy.UseMiddleware<GatewayInspectionMiddleware>();
             proxy.UseSessionAffinity();
             proxy.UseLoadBalancing();
             proxy.UsePassiveHealthChecks();
         });
+        if (endpoints.ServiceProvider.GetService<GatewayTrafficAdmissionRegistry>() is { } admission)
+            builder.ConfigureEndpoints((endpoint, route) => endpoint.Add(builder =>
+            {
+                if (route.Metadata is null || !route.Metadata.TryGetValue(GatewayTrafficAdmissionMetadataCodec.Plan, out var encoded)) return;
+                if (!route.Metadata.TryGetValue(GatewayRuntimePlanner.ApplicationIdMetadata, out var applicationId) ||
+                    !route.Metadata.TryGetValue(GatewayRuntimePlanner.SymbolicPlanIdentityMetadata, out var symbolic) ||
+                    !route.Metadata.TryGetValue(GatewayTrafficAdmissionMetadataCodec.PlanIdentity, out var planIdentity))
+                    throw new InvalidOperationException("Traffic-admission endpoint metadata is incomplete.");
+                var plan = GatewayTrafficAdmissionMetadataCodec.Decode(encoded);
+                if (GatewayRuntimePlanner.HashTrafficAdmission(plan).Value != planIdentity)
+                    throw new InvalidOperationException("Traffic-admission endpoint plan identity is invalid.");
+                foreach (var entry in plan.Entries)
+                    if (!admission.TryGet(entry.ProfileName, out _)) throw new InvalidOperationException("Traffic-admission endpoint references an unavailable runtime profile.");
+                builder.Metadata.Add(new GatewayTrafficAdmissionMetadata(applicationId,
+                    new ContentHash("sha-256", symbolic), new RouteId(route.RouteId),
+                    new ContentHash("sha-256", planIdentity), plan));
+            }));
+        return builder;
     }
 }

@@ -271,7 +271,7 @@ internal static class GatewayCandidateValidator
         if (definitions is null) return;
         Each(definitions.Authorization, "definitions.authorization", x => x.PolicyName, c.AuthorizationPolicies, errors);
         Each(definitions.Cors, "definitions.cors", x => x.PolicyName, c.CorsPolicies, errors);
-        Each(definitions.TrafficAdmission, "definitions.trafficAdmission", x => x.PolicyName, c.TrafficAdmissionPolicies, errors);
+        EachAdmission(definitions.TrafficAdmission, "definitions.trafficAdmission", c.TrafficAdmissionProfiles, errors);
         Each(definitions.RequestTimeout, "definitions.requestTimeout", x => x.PolicyName, c.RequestTimeoutPolicies, errors);
         Each(definitions.OutputCache, "definitions.outputCache", x => x.PolicyName, c.OutputCachePolicies, errors);
         Each(definitions.Inspection, "definitions.inspection", x => x.InspectorName, c.RequestInspectors, errors, "inspectorName");
@@ -283,12 +283,54 @@ internal static class GatewayCandidateValidator
         for (var i = 0; i < values.Length; i++) if (values[i]?.Specification is { } value) Resolve(selector(value), available, $"{path}[{i}].specification.{member}", errors);
     }
 
+    private static void EachAdmission(ImmutableArray<DeclarationDefinition<TrafficAdmissionPlan>> values, string path, ImmutableDictionary<string, TrafficAdmissionCapability> available, ImmutableArray<GatewayValidationError>.Builder errors)
+    {
+        if (values.IsDefault) return;
+        for (var i = 0; i < values.Length; i++)
+            if (values[i]?.Specification is { } plan) ResolveAdmission(plan, $"{path}[{i}].specification", available, errors);
+    }
+
+    private static void ResolveAdmissionReference(DeclarationReference<TrafficAdmissionPlan>? reference, ImmutableArray<DeclarationDefinition<TrafficAdmissionPlan>>? definitions, ImmutableDictionary<string, TrafficAdmissionCapability> available, string path, ImmutableArray<GatewayValidationError>.Builder errors)
+    {
+        if (reference?.Inline is { } inline) ResolveAdmission(inline, $"{path}.inline", available, errors);
+        if (reference?.Definition is { } id && definitions is { } values && !values.IsDefault && values.FirstOrDefault(x => x?.Id == id)?.Specification is { } specification)
+            ResolveAdmission(specification, $"{path}.definition", available, errors);
+    }
+
+    private static void ResolveAdmission(TrafficAdmissionPlan plan, string path, ImmutableDictionary<string, TrafficAdmissionCapability> available, ImmutableArray<GatewayValidationError>.Builder errors)
+    {
+        if (plan.Entries.IsDefault) return;
+        for (var i = 0; i < plan.Entries.Length; i++)
+        {
+            var entry = plan.Entries[i];
+            if (entry is null || !available.TryGetValue(entry.ProfileName, out var capability))
+            {
+                Add(errors, GatewayValidationErrorCode.UnresolvedReference, $"{path}.entries[{i}].profile", "Traffic-admission profile is not installed.");
+                continue;
+            }
+            var valid = entry switch
+            {
+                FixedWindowAdmissionEntry value => capability is { Kind: TrafficAdmissionKind.RequestRate, RateAlgorithm: TrafficAdmissionRateAlgorithm.FixedWindow } && Within(value.PermitLimit, value.Window, capability.Limits),
+                SlidingWindowAdmissionEntry value => capability is { Kind: TrafficAdmissionKind.RequestRate, RateAlgorithm: TrafficAdmissionRateAlgorithm.SlidingWindow } && Within(value.PermitLimit, value.Window, capability.Limits) && value.SegmentsPerWindow >= capability.Limits.MinimumSegments && value.SegmentsPerWindow <= capability.Limits.MaximumSegments,
+                TokenBucketAdmissionEntry value => capability is { Kind: TrafficAdmissionKind.RequestRate, RateAlgorithm: TrafficAdmissionRateAlgorithm.TokenBucket } && Within(value.TokenLimit, value.ReplenishmentPeriod, capability.Limits) && value.TokensPerPeriod >= capability.Limits.MinimumLimit && value.TokensPerPeriod <= capability.Limits.MaximumLimit,
+                ConcurrencyAdmissionEntry value => capability is { Kind: TrafficAdmissionKind.Concurrency, RateAlgorithm: null, Scope: TrafficAdmissionScope.ProcessLocal } && value.PermitLimit >= capability.Limits.MinimumLimit && value.PermitLimit <= capability.Limits.MaximumLimit && value.QueueLimit >= capability.Limits.MinimumQueue && value.QueueLimit <= capability.Limits.MaximumQueue,
+                _ => false
+            };
+            if (!valid) Add(errors, GatewayValidationErrorCode.InvalidValue, $"{path}.entries[{i}]", "Traffic-admission entry is incompatible with the installed typed capability.");
+        }
+    }
+
+    private static bool Within(long limit, TimeSpan period, TrafficAdmissionLimits bounds) =>
+        limit >= bounds.MinimumLimit && limit <= bounds.MaximumLimit &&
+        (!bounds.MinimumPeriod.HasValue || period >= bounds.MinimumPeriod.Value) &&
+        (!bounds.MaximumPeriod.HasValue || period <= bounds.MaximumPeriod.Value);
+
     private static void ValidateDeclarations(RouteDeclarations? d, string path, GatewayDefinitions? definitions, HostCapabilitySnapshot c, ImmutableArray<GatewayValidationError>.Builder errors)
     {
         if (d is null) return;
         ResolveReference(d.Authorization, definitions?.Authorization, x => x.PolicyName, c.AuthorizationPolicies, $"{path}.authorization", errors);
         ResolveReference(d.Cors, definitions?.Cors, x => x.PolicyName, c.CorsPolicies, $"{path}.cors", errors);
-        ResolveReference(d.TrafficAdmission, definitions?.TrafficAdmission, x => x.PolicyName, c.TrafficAdmissionPolicies, $"{path}.trafficAdmission", errors);
+        ResolveAdmissionReference(d.TrafficAdmission, definitions?.TrafficAdmission, c.TrafficAdmissionProfiles, $"{path}.trafficAdmission", errors);
         ResolveReference(d.RequestTimeout, definitions?.RequestTimeout, x => x.PolicyName, c.RequestTimeoutPolicies, $"{path}.requestTimeout", errors);
         ResolveReference(d.OutputCache, definitions?.OutputCache, x => x.PolicyName, c.OutputCachePolicies, $"{path}.outputCache", errors);
         ResolveReference(d.Inspection, definitions?.Inspection, x => x.InspectorName, c.RequestInspectors, $"{path}.inspection", errors, "inspectorName");
@@ -300,7 +342,7 @@ internal static class GatewayCandidateValidator
         if (d is null) return;
         ResolveReference(d.Authorization, definitions?.Authorization, x => x.PolicyName, c.AuthorizationPolicies, "rootDefaults.authorization", errors);
         ResolveReference(d.Cors, definitions?.Cors, x => x.PolicyName, c.CorsPolicies, "rootDefaults.cors", errors);
-        ResolveReference(d.TrafficAdmission, definitions?.TrafficAdmission, x => x.PolicyName, c.TrafficAdmissionPolicies, "rootDefaults.trafficAdmission", errors);
+        ResolveAdmissionReference(d.TrafficAdmission, definitions?.TrafficAdmission, c.TrafficAdmissionProfiles, "rootDefaults.trafficAdmission", errors);
         ResolveReference(d.RequestTimeout, definitions?.RequestTimeout, x => x.PolicyName, c.RequestTimeoutPolicies, "rootDefaults.requestTimeout", errors);
         ResolveReference(d.OutputCache, definitions?.OutputCache, x => x.PolicyName, c.OutputCachePolicies, "rootDefaults.outputCache", errors);
         ResolveReference(d.Inspection, definitions?.Inspection, x => x.InspectorName, c.RequestInspectors, "rootDefaults.inspection", errors, "inspectorName");

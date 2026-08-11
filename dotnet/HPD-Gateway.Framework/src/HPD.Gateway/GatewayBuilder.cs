@@ -1,11 +1,8 @@
 using System.Collections.Immutable;
-using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Cors.Infrastructure;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Timeouts;
-using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Gateway;
@@ -22,7 +19,7 @@ public sealed class GatewayBuilder
     private ImmutableArray<string> _protectedCredentialHeaders = [];
     private readonly HashSet<string> _authorizationPolicies = new(StringComparer.Ordinal);
     private readonly HashSet<string> _corsPolicies = new(StringComparer.Ordinal);
-    private readonly HashSet<string> _trafficAdmissionPolicies = new(StringComparer.Ordinal);
+    private GatewayTrafficAdmissionRegistry? _trafficAdmission;
     private readonly HashSet<string> _requestTimeoutPolicies = new(StringComparer.Ordinal);
     private bool _allowInspectionFileSpill;
 
@@ -103,14 +100,20 @@ public sealed class GatewayBuilder
         return this;
     }
 
-    public GatewayBuilder AddTrafficAdmissionPolicy<TPartitionKey>(
-        string name,
-        Func<HttpContext, RateLimitPartition<TPartitionKey>> partitioner)
-        where TPartitionKey : notnull
+    public GatewayBuilder AddTrafficAdmission(Action<GatewayTrafficAdmissionRegistryBuilder> configure)
     {
-        ArgumentNullException.ThrowIfNull(partitioner);
-        AddPolicyName(name, _trafficAdmissionPolicies, GatewayDeclarationFamilies.TrafficAdmission);
-        Services.AddRateLimiter(options => options.AddPolicy(name, partitioner));
+        ThrowIfSealed();
+        ArgumentNullException.ThrowIfNull(configure);
+        if (_trafficAdmission is not null)
+            throw new InvalidOperationException("Traffic admission is already registered.");
+        var builder = new GatewayTrafficAdmissionRegistryBuilder();
+        configure(builder);
+        var registry = builder.Build();
+        if (registry.Capabilities.IsEmpty)
+            throw new InvalidOperationException("At least one traffic-admission profile must be registered.");
+        _trafficAdmission = registry;
+        Services.AddSingleton(registry);
+        _installedFamilies |= GatewayDeclarationFamilies.TrafficAdmission;
         return this;
     }
 
@@ -163,7 +166,7 @@ public sealed class GatewayBuilder
             _protectedCredentialHeaders,
             _authorizationPolicies.Order(StringComparer.Ordinal).ToImmutableArray(),
             _corsPolicies.Order(StringComparer.Ordinal).ToImmutableArray(),
-            _trafficAdmissionPolicies.Order(StringComparer.Ordinal).ToImmutableArray(),
+            _trafficAdmission?.Capabilities ?? [],
             _requestTimeoutPolicies.Order(StringComparer.Ordinal).ToImmutableArray(),
             _allowInspectionFileSpill);
     }
@@ -196,7 +199,7 @@ internal sealed record GatewayCompositionState(
     ImmutableArray<string> ProtectedCredentialHeaders,
     ImmutableArray<string> AuthorizationPolicies,
     ImmutableArray<string> CorsPolicies,
-    ImmutableArray<string> TrafficAdmissionPolicies,
+    ImmutableArray<TrafficAdmissionCapability> TrafficAdmissionProfiles,
     ImmutableArray<string> RequestTimeoutPolicies,
     bool AllowInspectionFileSpill);
 

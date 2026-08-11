@@ -486,7 +486,7 @@ internal static class GatewayConfigurationValidator
     {
         ValidateDefinitionSpecifications(definitions.Authorization, "definitions.authorization", static (value, path, e) => ValidatePolicyName(value.PolicyName, $"{path}.policyName", e), errors);
         ValidateDefinitionSpecifications(definitions.Cors, "definitions.cors", static (value, path, e) => ValidatePolicyName(value.PolicyName, $"{path}.policyName", e), errors);
-        ValidateDefinitionSpecifications(definitions.TrafficAdmission, "definitions.trafficAdmission", static (value, path, e) => ValidatePolicyName(value.PolicyName, $"{path}.policyName", e), errors);
+        ValidateDefinitionSpecifications(definitions.TrafficAdmission, "definitions.trafficAdmission", ValidateTrafficAdmission, errors);
         ValidateDefinitionSpecifications(definitions.RequestTimeout, "definitions.requestTimeout", ValidateTimeout, errors);
         ValidateDefinitionSpecifications(definitions.OutputCache, "definitions.outputCache", static (value, path, e) => ValidatePolicyName(value.PolicyName, $"{path}.policyName", e), errors);
         ValidateDefinitionSpecifications(definitions.Telemetry, "definitions.telemetry", ValidateTelemetry, errors);
@@ -545,7 +545,7 @@ internal static class GatewayConfigurationValidator
     private static void ValidateCommonDeclarations(
         DeclarationReference<NamedAuthorizationPolicy>? authorization,
         DeclarationReference<CorsPolicyBinding>? cors,
-        DeclarationReference<TrafficAdmissionBinding>? trafficAdmission,
+        DeclarationReference<TrafficAdmissionPlan>? trafficAdmission,
         DeclarationReference<RequestTimeoutBinding>? requestTimeout,
         DeclarationReference<OutputCacheBinding>? outputCache,
         DeclarationReference<TelemetryEnrichment>? telemetry,
@@ -564,7 +564,7 @@ internal static class GatewayConfigurationValidator
     {
         ValidateReference(authorization, $"{path}.authorization", authorizationDefinitions, static (value, p, e) => ValidatePolicyName(value.PolicyName, $"{p}.policyName", e), errors);
         ValidateReference(cors, $"{path}.cors", corsDefinitions, static (value, p, e) => ValidatePolicyName(value.PolicyName, $"{p}.policyName", e), errors);
-        ValidateReference(trafficAdmission, $"{path}.trafficAdmission", trafficAdmissionDefinitions, static (value, p, e) => ValidatePolicyName(value.PolicyName, $"{p}.policyName", e), errors);
+        ValidateReference(trafficAdmission, $"{path}.trafficAdmission", trafficAdmissionDefinitions, ValidateTrafficAdmission, errors);
         ValidateReference(requestTimeout, $"{path}.requestTimeout", requestTimeoutDefinitions, ValidateTimeout, errors);
         ValidateReference(outputCache, $"{path}.outputCache", outputCacheDefinitions, static (value, p, e) => ValidatePolicyName(value.PolicyName, $"{p}.policyName", e), errors);
         ValidateReference(telemetry, $"{path}.telemetry", telemetryDefinitions, ValidateTelemetry, errors);
@@ -609,6 +609,55 @@ internal static class GatewayConfigurationValidator
         }
         ValidateOptionalText(value.PolicyName, $"{path}.policyName", errors);
         ValidatePositive(value.Timeout, $"{path}.timeout", errors);
+    }
+
+    private static void ValidateTrafficAdmission(TrafficAdmissionPlan value, string path, ImmutableArray<GatewayValidationError>.Builder errors)
+    {
+        if (value.Entries.IsDefault || value.Entries.Length is < 1 or > 8)
+        {
+            Add(errors, GatewayValidationErrorCode.InvalidValue, $"{path}.entries", "Traffic admission requires 1-8 entries.");
+            return;
+        }
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        var rateCount = 0;
+        var concurrencyCount = 0;
+        for (var i = 0; i < value.Entries.Length; i++)
+        {
+            var entry = value.Entries[i];
+            var itemPath = $"{path}.entries[{i}]";
+            if (entry is null) { Add(errors, GatewayValidationErrorCode.MissingRequiredValue, itemPath, "Admission entry is required."); continue; }
+            ValidateId(entry.ProfileName, $"{itemPath}.profile", errors);
+            if (!names.Add(entry.ProfileName)) Add(errors, GatewayValidationErrorCode.DuplicateIdentity, $"{itemPath}.profile", "Admission profile is duplicated.");
+            switch (entry)
+            {
+                case FixedWindowAdmissionEntry fixedEntry:
+                    rateCount++; ValidateRate(fixedEntry.PermitLimit, fixedEntry.Window, itemPath, errors); break;
+                case SlidingWindowAdmissionEntry sliding:
+                    rateCount++; ValidateRate(sliding.PermitLimit, sliding.Window, itemPath, errors);
+                    var windowMs = sliding.Window.Ticks / TimeSpan.TicksPerMillisecond;
+                    if (sliding.SegmentsPerWindow is < 2 or > 64 || sliding.Window.Ticks % TimeSpan.TicksPerMillisecond != 0 || windowMs % sliding.SegmentsPerWindow != 0)
+                        Add(errors, GatewayValidationErrorCode.InvalidValue, itemPath, "Sliding segments must be 2-64 and divide the whole-millisecond window.");
+                    break;
+                case TokenBucketAdmissionEntry token:
+                    rateCount++;
+                    if (token.TokenLimit is < 1 or > 100_000_000 || token.TokensPerPeriod is < 1 or > 100_000_000 || token.ReplenishmentPeriod < TimeSpan.FromMilliseconds(100) || token.ReplenishmentPeriod > TimeSpan.FromDays(1) || token.ReplenishmentPeriod.Ticks % TimeSpan.TicksPerMillisecond != 0)
+                        Add(errors, GatewayValidationErrorCode.InvalidValue, itemPath, "Token bucket values are outside their bounds.");
+                    break;
+                case ConcurrencyAdmissionEntry concurrency:
+                    concurrencyCount++;
+                    if (concurrency.PermitLimit is < 1 or > 100_000_000 || concurrency.QueueLimit is < 0 or > 100_000)
+                        Add(errors, GatewayValidationErrorCode.InvalidValue, itemPath, "Concurrency values are outside their bounds.");
+                    break;
+                default: Add(errors, GatewayValidationErrorCode.InvalidValue, itemPath, "Admission entry kind is unsupported."); break;
+            }
+        }
+        if (rateCount > 4 || concurrencyCount > 4) Add(errors, GatewayValidationErrorCode.InvalidValue, $"{path}.entries", "Admission supports at most four rate and four concurrency entries.");
+    }
+
+    private static void ValidateRate(long limit, TimeSpan window, string path, ImmutableArray<GatewayValidationError>.Builder errors)
+    {
+        if (limit is < 1 or > 100_000_000 || window < TimeSpan.FromSeconds(1) || window > TimeSpan.FromDays(1) || window.Ticks % TimeSpan.TicksPerMillisecond != 0)
+            Add(errors, GatewayValidationErrorCode.InvalidValue, path, "Rate values are outside their bounds.");
     }
 
     private static void ValidateInspection(RequestInspectionBinding value, string path, ImmutableArray<GatewayValidationError>.Builder errors)

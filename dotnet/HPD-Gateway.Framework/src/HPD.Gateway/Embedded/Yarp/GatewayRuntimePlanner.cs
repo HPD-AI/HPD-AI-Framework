@@ -194,8 +194,8 @@ internal sealed class GatewayRuntimePlanner(
             static value => GatewayEffectiveProjectionBuilder.Hash("authorization/v1", value.PolicyName));
         var cors = effective.Resolve(route.Id, GatewayEffectiveFamilies.Cors, "RouteConfig.CorsPolicy", root.Cors, declarations.Cors, definitions.Cors,
             static value => GatewayEffectiveProjectionBuilder.Hash("cors/v1", value.PolicyName));
-        var admission = effective.Resolve(route.Id, GatewayEffectiveFamilies.TrafficAdmission, "RouteConfig.RateLimiterPolicy", root.TrafficAdmission, declarations.TrafficAdmission, definitions.TrafficAdmission,
-            static value => GatewayEffectiveProjectionBuilder.Hash("traffic-admission/v1", value.PolicyName));
+        var admission = effective.Resolve(route.Id, GatewayEffectiveFamilies.TrafficAdmission, "RouteConfig.Metadata/HPD traffic admission", root.TrafficAdmission, declarations.TrafficAdmission, definitions.TrafficAdmission,
+            HashTrafficAdmission);
         var timeoutSelection = effective.Resolve(route.Id, GatewayEffectiveFamilies.RequestTimeout, "RouteConfig.TimeoutPolicy/Timeout", root.RequestTimeout, declarations.RequestTimeout, definitions.RequestTimeout,
             static value => GatewayEffectiveProjectionBuilder.Hash("request-timeout/v1", value.PolicyName, value.Timeout?.Ticks.ToString()));
         var outputCache = effective.Resolve(route.Id, GatewayEffectiveFamilies.OutputCache, "RouteConfig.OutputCachePolicy", root.OutputCache, declarations.OutputCache, definitions.OutputCache,
@@ -213,6 +213,11 @@ internal sealed class GatewayRuntimePlanner(
         metadata.Add("hpd.gateway.route-id", route.Id.Value);
         metadata.Add(ApplicationIdMetadata, applicationId);
         metadata.Add(SymbolicPlanIdentityMetadata, symbolicPlanIdentity.Value);
+        if (admission.Value is not null)
+        {
+            metadata.Add(GatewayTrafficAdmissionMetadataCodec.Plan, GatewayTrafficAdmissionMetadataCodec.Encode(admission.Value));
+            metadata.Add(GatewayTrafficAdmissionMetadataCodec.PlanIdentity, HashTrafficAdmission(admission.Value).Value);
+        }
         if (inspection is not null)
         {
             if (_inspectionRegistry is null || !_inspectionRegistry.TryGet(inspection.InspectorName, out _))
@@ -234,7 +239,6 @@ internal sealed class GatewayRuntimePlanner(
             Match = MaterializeMatch(route.Match),
             AuthorizationPolicy = authorization.Value?.PolicyName,
             CorsPolicy = cors.Value?.PolicyName,
-            RateLimiterPolicy = admission.Value?.PolicyName,
             OutputCachePolicy = outputCache.Value?.PolicyName,
             TimeoutPolicy = timeout?.PolicyName,
             Timeout = timeout?.Timeout,
@@ -273,6 +277,19 @@ internal sealed class GatewayRuntimePlanner(
                 _ => throw new InvalidOperationException()
             };
         return native;
+    }
+
+    internal static ContentHash HashTrafficAdmission(TrafficAdmissionPlan plan)
+    {
+        var fields = plan.Entries.Select(static entry => entry switch
+        {
+            FixedWindowAdmissionEntry value => $"fixedWindow|{value.Profile}|{value.PermitLimit}|{value.Window.Ticks}",
+            SlidingWindowAdmissionEntry value => $"slidingWindow|{value.Profile}|{value.PermitLimit}|{value.Window.Ticks}|{value.SegmentsPerWindow}",
+            TokenBucketAdmissionEntry value => $"tokenBucket|{value.Profile}|{value.TokenLimit}|{value.TokensPerPeriod}|{value.ReplenishmentPeriod.Ticks}",
+            ConcurrencyAdmissionEntry value => $"concurrency|{value.Profile}|{value.PermitLimit}|{value.QueueLimit}",
+            _ => throw new InvalidOperationException("Unsupported traffic-admission entry.")
+        }).ToArray();
+        return GatewayEffectiveProjectionBuilder.Hash(["traffic-admission/v2", .. fields]);
     }
 
     private static RouteMatch MaterializeMatch(HttpRouteMatch match) => new()

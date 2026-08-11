@@ -378,7 +378,7 @@ public sealed class GatewayAdminHttpTests
         snapshot.SourceSha256.Should().MatchRegex("^[0-9a-f]{64}$");
         GatewayDeclarationEditorLedgerExportDocument editorLedger =
             GatewayDeclarationEditorLedgerExporter.Export(JsonNode.Parse(json)!.AsObject());
-        editorLedger.Value.Envelope.Records.Should().HaveCount(366);
+        editorLedger.Value.Envelope.Records.Should().HaveCount(420);
         editorLedger.Value.EnvelopeSha256.Should().MatchRegex("^[0-9a-f]{64}$");
         if (Environment.GetEnvironmentVariable("HPD_GATEWAY_SNAPSHOT_OUT") is { Length: > 0 } snapshotOutput)
             await File.WriteAllBytesAsync(snapshotOutput, snapshot.SnapshotUtf8.ToArray());

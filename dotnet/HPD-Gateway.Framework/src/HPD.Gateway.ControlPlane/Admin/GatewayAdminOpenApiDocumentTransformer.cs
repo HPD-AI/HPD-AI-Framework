@@ -271,11 +271,16 @@ internal sealed class GatewayAdminOpenApiDocumentTransformer(GatewayAdminOpenApi
                     Response("Gateway Admin bounded error response.", errorSchema);
             pathItem.Operations[descriptor.Method == "GET" ? HttpMethod.Get : HttpMethod.Post] = operation;
         }
-        foreach (Type schemaType in GatewayAdminClientSchemaConstraintLedger.V1.Select(x => x.SchemaType).Distinct())
+        foreach (Type schemaType in GatewayAdminClientSchemaConstraintLedger.V1.Select(x => x.SchemaType).Distinct()
+            .Concat([typeof(TrafficAdmissionPlan), typeof(TrafficAdmissionEntry), typeof(FixedWindowAdmissionEntry),
+                typeof(SlidingWindowAdmissionEntry), typeof(TokenBucketAdmissionEntry), typeof(ConcurrencyAdmissionEntry)]).Distinct())
         {
             IOpenApiSchema schema = await context.GetOrCreateSchemaAsync(schemaType, null, cancellationToken).ConfigureAwait(false);
             _ = ComponentSchema(document, schemaType, schema);
         }
+        foreach (Type branch in new[] { typeof(TrafficAdmissionEntry), typeof(FixedWindowAdmissionEntry), typeof(SlidingWindowAdmissionEntry), typeof(TokenBucketAdmissionEntry), typeof(ConcurrencyAdmissionEntry) })
+            foreach (GatewayAdminClientSchemaConstraint constraint in GatewayAdminClientSchemaConstraintLedger.For(branch, "profile"))
+                contract.RecordSchemaTarget(constraint);
         correlation.RequireComplete();
     }
 
@@ -283,7 +288,17 @@ internal sealed class GatewayAdminOpenApiDocumentTransformer(GatewayAdminOpenApi
     {
         string id = GatewayAdminSchemaReferenceIds.Create(type) ??
             throw new InvalidOperationException("Gateway Admin wire type has no stable schema reference ID.");
-        if (schema is OpenApiSchema concrete) NormalizeSchema(document, concrete, new HashSet<OpenApiSchema>(ReferenceEqualityComparer.Instance));
+        if (schema is OpenApiSchema concrete)
+        {
+            NormalizeSchema(document, concrete, new HashSet<OpenApiSchema>(ReferenceEqualityComparer.Instance));
+            if (type.IsAssignableTo(typeof(TrafficAdmissionEntry)) || type == typeof(TrafficAdmissionEntry))
+            {
+                concrete.Properties ??= new Dictionary<string, IOpenApiSchema>(StringComparer.Ordinal);
+                concrete.Properties.TryAdd("profile", new OpenApiSchema { Type = JsonSchemaType.String });
+                concrete.Required ??= new HashSet<string>(StringComparer.Ordinal);
+                concrete.Required.Add("profile");
+            }
+        }
         if (schema is not OpenApiSchemaReference)
             document.Components!.Schemas!.TryAdd(id, schema);
         else if (!document.Components!.Schemas!.ContainsKey(id))
@@ -339,14 +354,21 @@ internal sealed class GatewayAdminOpenApiDocumentTransformer(GatewayAdminOpenApi
                 "serviceDiscovery" => typeof(ServiceDiscoveryEndpointSource),
                 "command" => typeof(GatewayCommandOperationProjection),
                 "administration" => typeof(GatewayAdministrativeOperationProjection),
+                "fixedWindow" => typeof(FixedWindowAdmissionEntry),
+                "slidingWindow" => typeof(SlidingWindowAdmissionEntry),
+                "tokenBucket" => typeof(TokenBucketAdmissionEntry),
+                "concurrency" => typeof(ConcurrencyAdmissionEntry),
                 _ => throw new InvalidOperationException("Gateway Admin discriminator value is unsupported."),
             };
+            if (branchType.IsAssignableTo(typeof(TrafficAdmissionEntry)) && !concrete.Properties.ContainsKey("profile"))
+                concrete.Properties["profile"] = new OpenApiSchema { Type = JsonSchemaType.String };
             concrete.Required ??= new HashSet<string>(StringComparer.Ordinal);
             concrete.Required.Add(propertyName);
+            if (branchType.IsAssignableTo(typeof(TrafficAdmissionEntry))) concrete.Required.Add("profile");
             string id = GatewayAdminSchemaReferenceIds.Create(branchType)!;
             IDictionary<string, IOpenApiSchema> components = document.Components?.Schemas ??
                 throw new InvalidOperationException("Gateway Admin schema component catalog is missing.");
-            components.TryAdd(id, concrete);
+            components[id] = concrete;
             replacements.Add(new OpenApiSchemaReference(id, document, null));
             mapping[value] = new OpenApiSchemaReference(id, document, null);
         }

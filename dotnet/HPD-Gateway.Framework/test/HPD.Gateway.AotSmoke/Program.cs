@@ -120,10 +120,10 @@ var configuration = new GatewayConfiguration
         ],
         TrafficAdmission =
         [
-            new DeclarationDefinition<TrafficAdmissionBinding>
+            new DeclarationDefinition<TrafficAdmissionPlan>
             {
                 Id = new DefinitionId("admission"),
-                Specification = new TrafficAdmissionBinding("GatewayAdmission")
+                Specification = new TrafficAdmissionPlan { Entries = [new FixedWindowAdmissionEntry { Profile = "gateway-admission", PermitLimit = 100, Window = TimeSpan.FromMinutes(1) }] }
             }
         ],
         RequestTimeout =
@@ -179,7 +179,7 @@ var configuration = new GatewayConfiguration
     RootDefaults = new GatewayRootDeclarations
     {
         Cors = new DeclarationReference<CorsPolicyBinding> { Definition = new DefinitionId("cors") },
-        TrafficAdmission = new DeclarationReference<TrafficAdmissionBinding> { Definition = new DefinitionId("admission") },
+        TrafficAdmission = new DeclarationReference<TrafficAdmissionPlan> { Definition = new DefinitionId("admission") },
         RequestTimeout = new DeclarationReference<RequestTimeoutBinding> { Definition = new DefinitionId("timeout") },
         Telemetry = new DeclarationReference<TelemetryEnrichment> { Definition = new DefinitionId("telemetry") },
         CredentialDisposition = new DeclarationReference<CredentialDispositionBinding> { Definition = new DefinitionId("strip-credentials") }
@@ -342,13 +342,20 @@ var configuration = new GatewayConfiguration
     ]
 };
 
-var json = configuration.ToCanonicalDocument().Utf8Json.ToArray();
+var portableConfiguration = GatewayConfigurationCanonicalizer.TryCanonicalize(configuration);
+if (!portableConfiguration.IsCanonicalized)
+    throw new InvalidOperationException($"Portable AOT candidate was rejected: {string.Join(", ", portableConfiguration.Errors.Select(static item => $"{item.Code}@{item.Path}"))}");
+var json = portableConfiguration.Document!.Utf8Json.ToArray();
 var capabilities = HostCapabilitySnapshot.Create(new HostCapabilityRegistration
 {
     InstalledFamilies = GatewayDeclarationFamilies.All,
     AuthorizationPolicies = ["GatewayUsers"],
     CorsPolicies = ["GatewayCors"],
-    TrafficAdmissionPolicies = ["GatewayAdmission"],
+    TrafficAdmissionProfiles = [new TrafficAdmissionCapability("gateway-admission", 1, TrafficAdmissionScope.ProcessLocal,
+        TrafficAdmissionKind.RequestRate, TrafficAdmissionRateAlgorithm.FixedWindow, TrafficAdmissionPartitionKind.Global,
+        TrafficAdmissionFailureDisposition.Reject,
+        new TrafficAdmissionLimits(1, 100_000_000, TimeSpan.FromSeconds(1), TimeSpan.FromDays(1), 2, 64, 0, 100_000),
+        "hpd.gateway/process-local", new ContentHash("sha-256", new string('a', 64)), null)],
     OutputCacheProfiles =
     [
         new OutputCacheCapability(
@@ -484,11 +491,6 @@ var services = new ServiceCollection();
 services.AddLogging();
 services.AddAuthorizationBuilder().AddPolicy("GatewayUsers", policy => policy.RequireAssertion(_ => true));
 services.AddCors(options => options.AddPolicy("GatewayCors", policy => policy.AllowAnyOrigin()));
-services.AddRateLimiter(options => options.AddFixedWindowLimiter("GatewayAdmission", limiter =>
-{
-    limiter.PermitLimit = 10;
-    limiter.Window = TimeSpan.FromMinutes(1);
-}));
 services.AddHpdGatewayOutputCaching(builder => builder.Add(new GatewayOutputCacheProfile
 {
     Name = "gateway-cache",
@@ -969,6 +971,11 @@ static async Task SmokeManagementRuntimeAsync()
     services.AddHpdGateway(static gateway =>
     {
         gateway.EnableCoreDeclarations();
+        gateway.AddTrafficAdmission(admission => admission
+            .AddLocalFixedWindow("aot-rate")
+            .AddLocalSlidingWindow("aot-sliding")
+            .AddLocalTokenBucket("aot-token")
+            .AddLocalConcurrency("aot-concurrency"));
         gateway.AddMicrosoftDiscovery("aot-discovery", profile =>
         {
             profile.Schemes = [ServiceDiscoveryScheme.Http];

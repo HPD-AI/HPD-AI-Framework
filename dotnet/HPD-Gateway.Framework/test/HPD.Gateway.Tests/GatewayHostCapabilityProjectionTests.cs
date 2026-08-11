@@ -236,7 +236,7 @@ public sealed class GatewayHostCapabilityProjectionTests
         yield return Case("secret provider", baseline with { SecretProviders = [new ProviderId("other")] });
         yield return Case("authorization policy", baseline with { AuthorizationPolicies = ["other"] });
         yield return Case("cors policy", baseline with { CorsPolicies = ["other"] });
-        yield return Case("admission policy", baseline with { TrafficAdmissionPolicies = ["other"] });
+        yield return Case("admission policy", baseline with { TrafficAdmissionProfiles = [TrafficAdmissionTestData.Capability("other")] });
         yield return Case("timeout policy", baseline with { RequestTimeoutPolicies = ["other"] });
         yield return Case("affinity policy", baseline with { SessionAffinityPolicies = ["other"] });
         yield return Case("affinity failure policy", baseline with { SessionAffinityFailurePolicies = ["other"] });
@@ -297,7 +297,7 @@ public sealed class GatewayHostCapabilityProjectionTests
                 : [new ProviderId("files"), new ProviderId("vault")],
             AuthorizationPolicies = reverse ? authorization.Reverse() : authorization,
             CorsPolicies = ["cors"],
-            TrafficAdmissionPolicies = ["admission"],
+            TrafficAdmissionProfiles = [TrafficAdmissionTestData.Capability("admission")],
             RequestTimeoutPolicies = ["timeout"],
             OutputCacheProfiles =
             [

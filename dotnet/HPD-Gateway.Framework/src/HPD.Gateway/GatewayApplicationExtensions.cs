@@ -32,7 +32,9 @@ internal sealed class GatewayNativePolicyPipeline(GatewayCompositionState state)
     {
         if (!state.CorsPolicies.IsEmpty) application.UseCors();
         if (!state.AuthorizationPolicies.IsEmpty) application.UseAuthorization();
-        if (!state.TrafficAdmissionPolicies.IsEmpty) application.UseRateLimiter();
+        if (!state.TrafficAdmissionProfiles.IsEmpty)
+            application.UseRateLimiter(GatewayTrafficAdmissionMiddleware.CreateOptions(
+                application.ApplicationServices.GetRequiredService<GatewayTrafficAdmissionRegistry>()));
         if (!state.RequestTimeoutPolicies.IsEmpty) application.UseRequestTimeouts();
     }
 }
