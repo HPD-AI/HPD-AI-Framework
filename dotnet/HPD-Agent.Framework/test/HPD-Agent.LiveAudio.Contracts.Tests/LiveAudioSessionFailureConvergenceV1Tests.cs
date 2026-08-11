@@ -78,6 +78,32 @@ public sealed class LiveAudioSessionFailureConvergenceV1Tests
                 fixture.Journal, abandoned.Abandonment, new UtcInstant(200)));
     }
 
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    [InlineData(5)]
+    [InlineData(6)]
+    public async Task Crash_after_each_committed_command_or_result_recovers_the_same_chain(int crashAfterAppend)
+    {
+        var fixture = await LiveAudioSessionPreparationSupervisorV1Tests.Fixture.CreateAsync();
+        var abandoned = Assert.IsType<LiveAudioSessionPreparationResultV1.ReservedNeedsConvergence>(
+            await fixture.PrepareAsync(new LiveAudioParticipantFactoryCatalogV1([new RefusingFactory([])])));
+        var before = (await fixture.FactsAsync()).Count;
+        var faulting = new CommitThenThrowJournal(fixture.Journal, crashAfterAppend);
+
+        Assert.IsType<LiveAudioSessionFailureConvergenceResultV1.OutcomeUnknown>(
+            await LiveAudioSessionFailureConvergenceV1.ConvergeAsync(
+                faulting, abandoned.Abandonment, new UtcInstant(200)));
+
+        var recovered = await LiveAudioSessionFailureConvergenceV1.ConvergeAsync(
+            fixture.Journal, abandoned.Abandonment, new UtcInstant(201));
+        Assert.True(recovered is LiveAudioSessionFailureConvergenceResultV1.Completed
+            or LiveAudioSessionFailureConvergenceResultV1.AlreadyCompleted);
+        Assert.Equal(before + 6, (await fixture.FactsAsync()).Count);
+    }
+
     private sealed class RefusingFactory(List<string> calls) : ILiveAudioParticipantFactoryV1
     {
         public LiveAudioParticipantDescriptorV1 Descriptor { get; } = new(
@@ -87,6 +113,27 @@ public sealed class LiveAudioSessionFailureConvergenceV1Tests
             LiveAudioParticipantPreparationContextV1 context, CancellationToken cancellationToken = default)
         { calls.Add("prepare:media"); return ValueTask.FromResult<LiveAudioParticipantFactoryResultV1>(
             new LiveAudioParticipantFactoryResultV1.Refused(new BoundedAscii("fixture-refused"))); }
+    }
+
+    private sealed class CommitThenThrowJournal(IAuthorityJournalV1 inner, int throwAfterAppend) : IAuthorityJournalV1
+    {
+        private int _appendCount;
+
+        public async ValueTask<AppendAuthorityResultV1> AppendAsync(
+            AppendAuthorityBatchV1 request, CancellationToken cancellationToken = default)
+        {
+            var result = await inner.AppendAsync(request, cancellationToken);
+            if (Interlocked.Increment(ref _appendCount) == throwAfterAppend)
+            {
+                Assert.IsType<AppendAuthorityResultV1.Committed>(result);
+                throw new IOException("fixture crash after durable append");
+            }
+            return result;
+        }
+
+        public ValueTask<ReadAuthorityRangeResultV1> ReadAsync(
+            ReadAuthorityRangeV1 request, CancellationToken cancellationToken = default) =>
+            inner.ReadAsync(request, cancellationToken);
     }
 
     private static LiveAudioSessionStartRequestV1 GoldenRequest()
