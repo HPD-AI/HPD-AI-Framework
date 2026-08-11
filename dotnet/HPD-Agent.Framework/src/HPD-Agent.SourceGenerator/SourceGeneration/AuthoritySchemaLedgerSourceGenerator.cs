@@ -128,10 +128,45 @@ public sealed class AuthoritySchemaLedgerSourceGenerator : IIncrementalGenerator
             source.AppendLine("    ];");
         }
         source.AppendLine("}");
+        var axes = sections["Axes"].Select(static row => row.Split('|')).ToArray();
+        source.AppendLine("\n/// <summary>Identifies one registered authority-generation axis.</summary>");
+        source.AppendLine("public enum AuthorityAxisId : ushort\n{");
+        foreach (var axis in axes)
+        {
+            var member = AxisMember(axis[1]);
+            source.Append("    /// <summary>Identifies the ").Append(member).Append(" axis owned by ").Append(axis[2]).AppendLine(".</summary>");
+            source.Append("    ").Append(member).Append(" = ").Append(axis[0]).AppendLine(",");
+        }
+        source.AppendLine("}");
+        source.AppendLine("\n/// <summary>Provides the closed typed values permitted in a sparse expected-authority vector.</summary>");
+        source.AppendLine("public abstract record AuthorityAxisValueV1\n{");
+        source.AppendLine("    private AuthorityAxisValueV1() { }");
+        source.AppendLine("    /// <summary>Gets the registered axis represented by this value.</summary>");
+        source.AppendLine("    public abstract AuthorityAxisId AxisId { get; }");
+        source.AppendLine("    internal abstract bool TryWriteBytes(global::System.Span<byte> destination);");
+        foreach (var axis in axes.Where(static axis => string.Equals(axis[3], "SparseAxisEntry", StringComparison.Ordinal)))
+        {
+            var member = AxisMember(axis[1]);
+            source.Append("    /// <summary>Contains a validated ").Append(member).Append(" generation owned by ").Append(axis[2]).AppendLine(".</summary>");
+            source.Append("    public sealed record ").Append(member).AppendLine(" : AuthorityAxisValueV1\n    {");
+            source.Append("        /// <summary>Initializes the typed ").Append(member).AppendLine(" axis value.</summary>");
+            source.Append("        public ").Append(member).Append('(').Append(axis[1]).AppendLine(" value)\n        {");
+            source.AppendLine("            if (!value.IsValid) throw new global::System.ArgumentException(\"A generation identifier is required.\", nameof(value));");
+            source.AppendLine("            Value = value;\n        }");
+            source.Append("        /// <summary>Gets the typed ").Append(member).AppendLine(" generation identifier.</summary>");
+            source.Append("        public ").Append(axis[1]).AppendLine(" Value { get; }");
+            source.Append("        /// <inheritdoc />\n        public override AuthorityAxisId AxisId => AuthorityAxisId.").Append(member).AppendLine(";");
+            source.AppendLine("        internal override bool TryWriteBytes(global::System.Span<byte> destination) => Value.TryWriteBytes(destination);");
+            source.AppendLine("    }");
+        }
+        source.AppendLine("}");
         context.AddSource("AuthoritySchemaLedgerV1.g.cs", source.ToString());
     }
 
     private static string Escape(string value) => value.Replace("\\", "\\\\").Replace("\"", "\\\"");
+    private static string AxisMember(string wrapper) => wrapper.EndsWith("GenerationId", StringComparison.Ordinal)
+        ? wrapper.Substring(0, wrapper.Length - "GenerationId".Length)
+        : throw new InvalidOperationException($"Axis wrapper {wrapper} does not end in GenerationId.");
     private static void Fail(SourceProductionContext context, string reason) =>
         context.ReportDiagnostic(Diagnostic.Create(InvalidLedger, Location.None, reason));
 }
