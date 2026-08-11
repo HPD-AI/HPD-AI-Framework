@@ -69,6 +69,7 @@ public sealed class AuthorityFactEnvelopeV1
     /// <summary>Gets the stored canonical integrity evidence.</summary>
     public IntegrityEnvelopeV1 Integrity { get; }
     internal ReadOnlySpan<byte> PayloadBytes => _payload;
+    internal ReadOnlyMemory<byte> PayloadMemory => _payload;
 }
 
 /// <summary>Represents every closed outcome of one authority append attempt.</summary>
