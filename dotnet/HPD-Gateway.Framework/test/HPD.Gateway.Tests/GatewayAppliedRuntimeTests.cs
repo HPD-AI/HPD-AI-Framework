@@ -87,7 +87,68 @@ public sealed class GatewayAppliedRuntimeTests
         applied.Scope.Should().Be(TrafficAdmissionScope.ProcessLocal);
         applied.Kind.Should().Be(TrafficAdmissionKind.RequestRate);
         applied.RateAlgorithm.Should().Be(TrafficAdmissionRateAlgorithm.FixedWindow);
+        applied.PermitLimit.Should().Be(10);
+        applied.WindowMilliseconds.Should().Be(1_000);
+        applied.TokenLimit.Should().BeNull();
+        applied.ConcurrencyPermitLimit.Should().BeNull();
     }
+
+    [Fact]
+    public void Applied_admission_projection_covers_every_algorithm_and_authority_correlation()
+    {
+        ContentHash behavior = Hash('a');
+        ContentHash projector = Hash('b');
+        ContentHash provider = Hash('c');
+        ContentHash fallback = Hash('d');
+        var limits = new TrafficAdmissionLimits(1, 1_000, TimeSpan.FromMilliseconds(100),
+            TimeSpan.FromHours(1), 2, 64, 0, 100);
+        TrafficAdmissionCapability Shared(string name, TrafficAdmissionRateAlgorithm algorithm) => new(
+            name, 1, TrafficAdmissionScope.Deployment, TrafficAdmissionKind.RequestRate, algorithm,
+            TrafficAdmissionPartitionKind.Custom, TrafficAdmissionFailureDisposition.LocalFallback,
+            limits, "deployment-a", behavior, null, "projector", projector, "redis", provider,
+            TimeSpan.FromMilliseconds(250), 32, "fallback", fallback);
+
+        GatewayAppliedTrafficAdmissionEntry fixedWindow = GatewayRuntimeApplicationObserver.CreateAppliedAdmissionEntry(0,
+            new FixedWindowAdmissionEntry { Profile = "fixed", PermitLimit = 101, Window = TimeSpan.FromSeconds(2) },
+            Shared("fixed", TrafficAdmissionRateAlgorithm.FixedWindow));
+        fixedWindow.PermitLimit.Should().Be(101);
+        fixedWindow.WindowMilliseconds.Should().Be(2_000);
+        fixedWindow.PartitionProjectorId.Should().Be("projector");
+        fixedWindow.PartitionProjectorIdentity.Should().Be(projector);
+        fixedWindow.ProviderId.Should().Be("redis");
+        fixedWindow.ProviderBehaviorIdentity.Should().Be(provider);
+        fixedWindow.OperationTimeoutMilliseconds.Should().Be(250);
+        fixedWindow.MaximumConcurrentInvocations.Should().Be(32);
+        fixedWindow.LocalFallbackProfile.Should().Be("fallback");
+        fixedWindow.LocalFallbackIdentity.Should().Be(fallback);
+
+        GatewayAppliedTrafficAdmissionEntry sliding = GatewayRuntimeApplicationObserver.CreateAppliedAdmissionEntry(1,
+            new SlidingWindowAdmissionEntry { Profile = "sliding", PermitLimit = 202, Window = TimeSpan.FromSeconds(4), SegmentsPerWindow = 8 },
+            Shared("sliding", TrafficAdmissionRateAlgorithm.SlidingWindow));
+        sliding.PermitLimit.Should().Be(202);
+        sliding.WindowMilliseconds.Should().Be(4_000);
+        sliding.SegmentsPerWindow.Should().Be(8);
+
+        GatewayAppliedTrafficAdmissionEntry token = GatewayRuntimeApplicationObserver.CreateAppliedAdmissionEntry(2,
+            new TokenBucketAdmissionEntry { Profile = "token", TokenLimit = 303, TokensPerPeriod = 7, ReplenishmentPeriod = TimeSpan.FromMilliseconds(500) },
+            Shared("token", TrafficAdmissionRateAlgorithm.TokenBucket));
+        token.TokenLimit.Should().Be(303);
+        token.TokensPerPeriod.Should().Be(7);
+        token.ReplenishmentPeriodMilliseconds.Should().Be(500);
+
+        var concurrencyCapability = new TrafficAdmissionCapability("concurrency", 1,
+            TrafficAdmissionScope.ProcessLocal, TrafficAdmissionKind.Concurrency, null,
+            TrafficAdmissionPartitionKind.Route, TrafficAdmissionFailureDisposition.Reject, limits,
+            "hpd.gateway/process-local", behavior, 9);
+        GatewayAppliedTrafficAdmissionEntry concurrency = GatewayRuntimeApplicationObserver.CreateAppliedAdmissionEntry(3,
+            new ConcurrencyAdmissionEntry { Profile = "concurrency", PermitLimit = 11, QueueLimit = 5 }, concurrencyCapability);
+        concurrency.AcquisitionOrdinal.Should().Be(9);
+        concurrency.ConcurrencyPermitLimit.Should().Be(11);
+        concurrency.QueueLimit.Should().Be(5);
+        concurrency.ProviderId.Should().BeNull();
+    }
+
+    private static ContentHash Hash(char value) => new("sha-256", new string(value, 64));
 
     [Fact]
     public async Task WrongMixedAndFailedCallbacksCannotReplaceLastAppliedTruth()

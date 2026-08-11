@@ -745,7 +745,7 @@ if (readyResponse.StatusCode != HttpStatusCode.OK)
     throw new InvalidOperationException("Native AOT readiness did not become ready after exact publication.");
 var statusSnapshot = liveProxy.Services.GetRequiredService<IGatewayStatusReader>().GetCurrent();
 _ = JsonSerializer.SerializeToUtf8Bytes(statusSnapshot, GatewayStatusJsonContext.Default.GatewayStatusSnapshot);
-if (statusSnapshot.Readiness.Serving != GatewayReadinessState.Ready || statusSnapshot.Conditions.Length != 7)
+if (statusSnapshot.Readiness.Serving != GatewayReadinessState.Ready || statusSnapshot.Conditions.Length != 8)
     throw new InvalidOperationException("Native AOT status snapshot was not ready or complete.");
 using var liveRequest = new HttpRequestMessage(HttpMethod.Get, "/retry");
 liveRequest.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "native-aot-secret");

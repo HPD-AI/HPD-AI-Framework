@@ -137,10 +137,12 @@ internal sealed class GatewayStatusCoordinator : BackgroundService, IGatewayStat
     {
         var publication = _publication.GetCurrent();
         GatewayAppliedRuntimeObservation? applied = _appliedRuntime.GetCurrent();
-        GatewayAdmissionStatusSnapshot admission = _admission?.GetCurrent() ?? new(1, [], false);
+        GatewayAdmissionStatusSnapshot installedAdmission = _admission?.GetCurrent() ?? new(1, [], false);
         var host = BuildHost(sequence, now, forceStopping);
         var publicationStatus = BuildPublication(publication);
         bool appliedMatches = MatchesApplied(publicationStatus.Active, applied?.Snapshot);
+        GatewayAdmissionStatusSnapshot admission = ScopeAdmissionToApplied(
+            installedAdmission, applied?.Snapshot, appliedMatches);
         var upstreams = BuildUpstreams(publication, applied?.Snapshot, appliedMatches,
             sequence, now, out var truncated, out var upstreamsReady);
         var reasons = ImmutableArray.CreateBuilder<GatewayStatusReason>();
@@ -200,6 +202,26 @@ internal sealed class GatewayStatusCoordinator : BackgroundService, IGatewayStat
         StringComparer.Ordinal.Equals(active.ContentHash, applied.CandidateContentHash.Value) &&
         StringComparer.Ordinal.Equals(active.ApplicationId, applied.ApplicationId) &&
         active.SymbolicPlanIdentity == applied.SymbolicPlanIdentity;
+
+    internal static GatewayAdmissionStatusSnapshot ScopeAdmissionToApplied(
+        GatewayAdmissionStatusSnapshot installed,
+        GatewayAppliedRuntimeSnapshot? applied,
+        bool appliedMatches)
+    {
+        if (!appliedMatches || applied is null)
+            return new(installed.SchemaVersion, [], false);
+        var selected = applied.Routes
+            .SelectMany(static route => route.TrafficAdmission?.Entries ?? [])
+            .GroupBy(static entry => entry.Profile, StringComparer.Ordinal)
+            .ToImmutableDictionary(static group => group.Key,
+                static group => group.Select(static entry => entry.BehaviorIdentity).Distinct().Single(),
+                StringComparer.Ordinal);
+        return new(installed.SchemaVersion, installed.Profiles
+            .Where(profile => selected.TryGetValue(profile.Profile, out ContentHash identity) &&
+                identity == profile.BehaviorIdentity)
+            .OrderBy(static profile => profile.Profile, StringComparer.Ordinal)
+            .ToImmutableArray(), installed.IsTruncated);
+    }
 
     private GatewayHostStatus BuildHost(ulong sequence, DateTimeOffset now, bool forceStopping)
     {

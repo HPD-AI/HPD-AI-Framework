@@ -92,7 +92,24 @@ public sealed record GatewayAppliedTrafficAdmissionEntry(
     TrafficAdmissionPartitionKind Partition,
     TrafficAdmissionFailureDisposition FailureDisposition,
     string AuthorityId,
-    ContentHash BehaviorIdentity);
+    ContentHash BehaviorIdentity,
+    int? AcquisitionOrdinal,
+    long? PermitLimit,
+    long? WindowMilliseconds,
+    int? SegmentsPerWindow,
+    long? TokenLimit,
+    long? TokensPerPeriod,
+    long? ReplenishmentPeriodMilliseconds,
+    int? ConcurrencyPermitLimit,
+    int? QueueLimit,
+    string? PartitionProjectorId,
+    ContentHash? PartitionProjectorIdentity,
+    string? ProviderId,
+    ContentHash? ProviderBehaviorIdentity,
+    long? OperationTimeoutMilliseconds,
+    int? MaximumConcurrentInvocations,
+    string? LocalFallbackProfile,
+    ContentHash? LocalFallbackIdentity);
 
 public sealed record GatewayAppliedTrafficAdmissionPlan(
     ContentHash PlanIdentity,

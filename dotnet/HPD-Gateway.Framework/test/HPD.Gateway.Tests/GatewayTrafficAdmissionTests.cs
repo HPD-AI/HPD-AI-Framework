@@ -220,9 +220,10 @@ public sealed class GatewayTrafficAdmissionTests
         failed.TryGetMetadata(GatewayAdmissionMetadata.Outcome, out var failureOutcome).Should().BeTrue();
         failureOutcome.Should().Be(GatewayAdmissionOutcome.Infrastructure);
 
-        var (capacityLimiter, _) = Create(
-            builder => builder.AddLocalFixedWindow("source", options => options.Partition = TrafficAdmissionPartitionKind.SourceIp),
-            new FixedWindowAdmissionEntry { Profile = "source", PermitLimit = 1, Window = TimeSpan.FromMinutes(1) });
+        var capacityBuilder = new GatewayTrafficAdmissionRegistryBuilder();
+        capacityBuilder.AddLocalFixedWindow("source", options => options.Partition = TrafficAdmissionPartitionKind.SourceIp);
+        using GatewayTrafficAdmissionRegistry capacityRegistry = capacityBuilder.Build();
+        var capacityLimiter = new GatewayTrafficAdmissionLimiter(capacityRegistry);
         var capacityPlan = new TrafficAdmissionPlan { Entries = [new FixedWindowAdmissionEntry { Profile = "source", PermitLimit = 1, Window = TimeSpan.FromMinutes(1) }] };
         var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var acquisitions = Enumerable.Range(1, 4_097).Select(async index =>
@@ -252,6 +253,10 @@ public sealed class GatewayTrafficAdmissionTests
         using var newRejection = await capacityLimiter.AcquireAsync(anotherNew);
         newRejection.TryGetMetadata(GatewayAdmissionMetadata.Outcome, out var newOutcome).Should().BeTrue();
         newOutcome.Should().Be(GatewayAdmissionOutcome.Infrastructure);
+        GatewayAdmissionProfileStatus capacityStatus = capacityRegistry.GetCurrent().Profiles.Single();
+        capacityStatus.Acquired.Should().Be(4_096);
+        capacityStatus.Rejected.Should().Be(1);
+        capacityStatus.InfrastructureFailures.Should().Be(2);
     }
 
     [Fact]

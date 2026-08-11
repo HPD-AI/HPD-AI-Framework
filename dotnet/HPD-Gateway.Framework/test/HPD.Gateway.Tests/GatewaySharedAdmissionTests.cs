@@ -48,6 +48,27 @@ public sealed class GatewaySharedAdmissionTests
     }
 
     [Fact]
+    public async Task Process_local_outcomes_are_counted_once_for_acquisition_and_rejection()
+    {
+        var builder = new GatewayTrafficAdmissionRegistryBuilder();
+        builder.AddLocalFixedWindow("local", options => options.MaximumLimit = 1);
+        using GatewayTrafficAdmissionRegistry registry = builder.Build();
+        var plan = new TrafficAdmissionPlan
+        {
+            Entries = [new FixedWindowAdmissionEntry { Profile = "local", PermitLimit = 1, Window = TimeSpan.FromHours(1) }]
+        };
+        var limiter = new GatewayTrafficAdmissionLimiter(registry);
+        using RateLimitLease acquired = await limiter.AcquireAsync(Context(plan));
+        using RateLimitLease rejected = await limiter.AcquireAsync(Context(plan));
+
+        GatewayAdmissionProfileStatus status = registry.GetCurrent().Profiles.Single();
+        status.State.Should().Be(GatewayAdmissionAuthorityState.NotRequired);
+        status.Acquired.Should().Be(1);
+        status.Rejected.Should().Be(1);
+        status.InfrastructureFailures.Should().Be(0);
+    }
+
+    [Fact]
     public async Task Every_shared_request_dispatches_once_and_preserves_authoritative_facts()
     {
         var provider = new SequenceProvider(
@@ -91,6 +112,13 @@ public sealed class GatewaySharedAdmissionTests
             using RateLimitLease second = await limiter.AcquireAsync(Context(Plan()));
             first.IsAcquired.Should().BeTrue();
             second.IsAcquired.Should().BeFalse();
+            GatewayAdmissionProfileStatus shared = fallback.GetCurrent().Profiles.Single(value => value.Profile == "shared");
+            shared.Acquired.Should().Be(1);
+            shared.Rejected.Should().Be(1);
+            shared.LocalFallbacks.Should().Be(2);
+            GatewayAdmissionProfileStatus local = fallback.GetCurrent().Profiles.Single(value => value.Profile == "fallback");
+            local.Acquired.Should().Be(1);
+            local.Rejected.Should().Be(1);
         }
         using (GatewayTrafficAdmissionRegistry indeterminate = Registry(
             new SequenceProvider(Infrastructure(GatewaySharedAdmissionDecisionKind.IndeterminateAfterPossibleCommit)),

@@ -172,6 +172,7 @@ public sealed record GatewayAdmissionProfileStatus(
     string Profile,
     TrafficAdmissionScope Scope,
     string AuthorityId,
+    ContentHash BehaviorIdentity,
     GatewayAdmissionAuthorityState State,
     [property: JsonNumberHandling(JsonNumberHandling.WriteAsString | JsonNumberHandling.AllowReadingFromString)] long Acquired,
     [property: JsonNumberHandling(JsonNumberHandling.WriteAsString | JsonNumberHandling.AllowReadingFromString)] long Rejected,
@@ -186,7 +187,7 @@ public sealed record GatewayAdmissionStatusSnapshot(
     ImmutableArray<GatewayAdmissionProfileStatus> Profiles,
     bool IsTruncated);
 
-public interface IGatewayAdmissionStatusReader
+internal interface IGatewayAdmissionStatusReader
 {
     GatewayAdmissionStatusSnapshot GetCurrent();
     CancellationToken GetChangeToken();

@@ -12,7 +12,7 @@ describe("Gateway declaration editor contract", () => {
   it("correlates all 420 fields and pins deterministic source identity", () => {
     const contract = createEditorContract(parseSnapshot(snapshotBytes), parseEditorLedger(ledgerBytes));
     expect(contract.fields).toHaveLength(420);
-    expect(contract.sourceSha256).toBe("636ce5de12f4a769b3e20639ec455bc0f631abf585d5a98ce9835fdb8b2fbaae");
+    expect(contract.sourceSha256).toBe("8f41ae331e7e8fe7b945a72185cd6ea566f1f4c3b931afc2ff0ad84971ec9aea");
     expect(Object.keys(renderEditorContract(contract)).sort()).toEqual(["editor-contract.json", "editor-contract.ts"]);
   });
 

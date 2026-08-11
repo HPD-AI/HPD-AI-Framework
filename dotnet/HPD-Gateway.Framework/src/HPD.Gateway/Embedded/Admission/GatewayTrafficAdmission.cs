@@ -658,7 +658,7 @@ internal sealed class GatewayAdmissionProfileRuntime : IDisposable
                 : !_observed
                     ? GatewayAdmissionAuthorityState.NotObserved
                     : (GatewayAdmissionAuthorityState)_authorityState;
-            return new(Capability.Name, Capability.Scope, Capability.AuthorityId, state,
+            return new(Capability.Name, Capability.Scope, Capability.AuthorityId, Capability.BehaviorIdentity, state,
                 _acquired, _rejected, _infrastructure, _bypasses, _fallbacks,
                 !_observed ? null : DateTimeOffset.FromUnixTimeMilliseconds(_lastObservedUnixMilliseconds),
                 _safeDiagnosticCode);
@@ -719,24 +719,39 @@ internal sealed class GatewayAdmissionProfileRuntime : IDisposable
     {
         if (Capability.Scope == TrafficAdmissionScope.Deployment)
             return AcquireSharedAsync(entry, key, cancellationToken);
-        object state;
+        return AcquireLocalAsync(entry, key, cancellationToken);
+    }
+
+    private async ValueTask<RateLimitLease> AcquireLocalAsync(
+        TrafficAdmissionEntry entry,
+        string key,
+        CancellationToken cancellationToken)
+    {
+        RateLimitLease lease;
+        object? state = null;
         lock (_statesGate)
         {
             if (_disposed != 0)
-                return ValueTask.FromResult<RateLimitLease>(GatewayAdmissionLease.Infrastructure("Disposed"));
-            if (!_states.TryGetValue(key, out state!))
+                lease = GatewayAdmissionLease.Infrastructure("Disposed");
+            else if (!_states.TryGetValue(key, out state))
             {
                 if (_states.Count >= MaximumPartitions)
-                    return ValueTask.FromResult<RateLimitLease>(GatewayAdmissionLease.Infrastructure("PartitionCapacity"));
-                state = Create(entry);
-                _states.Add(key, state);
+                    lease = GatewayAdmissionLease.Infrastructure("PartitionCapacity");
+                else
+                {
+                    state = Create(entry);
+                    _states.Add(key, state);
+                    lease = null!;
+                }
             }
+            else lease = null!;
         }
-        return entry switch
-        {
-            ConcurrencyAdmissionEntry => ((ConcurrencyLimiter)state).AcquireAsync(1, cancellationToken),
-            _ => ValueTask.FromResult(((GatewayLocalRateState)state).Acquire(entry, _timeProvider.GetUtcNow().ToUnixTimeMilliseconds()))
-        };
+        if (lease is null)
+            lease = entry is ConcurrencyAdmissionEntry
+                ? await ((ConcurrencyLimiter)state!).AcquireAsync(1, cancellationToken).ConfigureAwait(false)
+                : ((GatewayLocalRateState)state!).Acquire(entry, _timeProvider.GetUtcNow().ToUnixTimeMilliseconds());
+        ObserveLocalOutcome(lease);
+        return lease;
     }
 
     private async ValueTask<RateLimitLease> AcquireSharedAsync(
@@ -745,7 +760,10 @@ internal sealed class GatewayAdmissionProfileRuntime : IDisposable
         CancellationToken cancellationToken)
     {
         if (_sharedProvider is null || _providerId is null || entry is not RequestRateAdmissionEntry)
+        {
+            Observe(GatewayAdmissionAuthorityState.Unavailable, infrastructure: true, diagnostic: "shared-provider-unavailable");
             return GatewayAdmissionLease.Infrastructure("SharedProviderUnavailable");
+        }
         GatewaySharedAdmissionRequest request;
         try
         {
@@ -753,6 +771,7 @@ internal sealed class GatewayAdmissionProfileRuntime : IDisposable
         }
         catch
         {
+            Observe(GatewayAdmissionAuthorityState.Unavailable, infrastructure: true, diagnostic: "shared-request-invalid");
             return GatewayAdmissionLease.Infrastructure("SharedRequestInvalid");
         }
         GatewaySharedAdmissionDecision decision = await _sharedProvider.AcquireAsync(request, cancellationToken).ConfigureAwait(false);
@@ -774,7 +793,12 @@ internal sealed class GatewayAdmissionProfileRuntime : IDisposable
                 if (Capability.FailureDisposition == TrafficAdmissionFailureDisposition.LocalFallback && _localFallback is not null)
                 {
                     RateLimitLease fallback = await _localFallback.AcquireAsync(entry, key, cancellationToken).ConfigureAwait(false);
-                    Observe(GatewayAdmissionAuthorityState.DegradedLocalFallback, fallback: true, diagnostic: "shared-provider-unavailable");
+                    GatewayAdmissionOutcome fallbackOutcome = Outcome(fallback);
+                    Observe(GatewayAdmissionAuthorityState.DegradedLocalFallback,
+                        acquired: fallbackOutcome == GatewayAdmissionOutcome.Acquired,
+                        rejected: fallbackOutcome == GatewayAdmissionOutcome.Exhausted,
+                        infrastructure: fallbackOutcome == GatewayAdmissionOutcome.Infrastructure,
+                        fallback: true, diagnostic: "shared-provider-unavailable");
                     return fallback;
                 }
                 Observe(GatewayAdmissionAuthorityState.Unavailable, infrastructure: true, diagnostic: "shared-provider-unavailable");
@@ -791,6 +815,24 @@ internal sealed class GatewayAdmissionProfileRuntime : IDisposable
                 Observe(GatewayAdmissionAuthorityState.Unavailable, infrastructure: true, diagnostic: "shared-provider-failure");
                 return GatewayAdmissionLease.Infrastructure("SharedProviderFailure");
         }
+    }
+
+    private void ObserveLocalOutcome(RateLimitLease lease)
+    {
+        GatewayAdmissionOutcome outcome = Outcome(lease);
+        Observe(GatewayAdmissionAuthorityState.NotRequired,
+            acquired: outcome == GatewayAdmissionOutcome.Acquired,
+            rejected: outcome == GatewayAdmissionOutcome.Exhausted,
+            infrastructure: outcome == GatewayAdmissionOutcome.Infrastructure,
+            diagnostic: outcome == GatewayAdmissionOutcome.Infrastructure ? "local-admission-failure" : null);
+    }
+
+    private static GatewayAdmissionOutcome Outcome(RateLimitLease lease)
+    {
+        if (lease.TryGetMetadata(GatewayAdmissionMetadata.Outcome, out object? value) &&
+            value is GatewayAdmissionOutcome outcome)
+            return outcome;
+        return lease.IsAcquired ? GatewayAdmissionOutcome.Acquired : GatewayAdmissionOutcome.Exhausted;
     }
 
     private void Observe(

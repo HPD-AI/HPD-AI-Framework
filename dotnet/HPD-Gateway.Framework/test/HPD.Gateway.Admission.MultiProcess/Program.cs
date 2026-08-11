@@ -13,6 +13,7 @@ return args.FirstOrDefault() switch
 
 static async Task<int> RunWorkerAsync(WorkerOptions options)
 {
+    var timeoutProvider = new HangingBenchmarkProvider();
     WebApplication backend = WebApplication.CreateSlimBuilder().Build();
     backend.Urls.Add($"http://127.0.0.1:{options.BackendPort}");
     backend.MapGet("/{**path}", async (HttpContext context) =>
@@ -54,6 +55,22 @@ static async Task<int> RunWorkerAsync(WorkerOptions options)
                 local.MinimumPeriod = TimeSpan.FromSeconds(1);
                 local.MaximumPeriod = TimeSpan.FromHours(1);
             });
+            admission.AddLocalFixedWindow("projection-benchmark", local =>
+            {
+                local.Partition = TrafficAdmissionPartitionKind.SourceIp;
+                local.MinimumLimit = 1;
+                local.MaximumLimit = 100_000_000;
+                local.MinimumPeriod = TimeSpan.FromSeconds(1);
+                local.MaximumPeriod = TimeSpan.FromHours(1);
+            });
+            admission.AddSharedProvider("timeout-benchmark", timeoutProvider, shared =>
+            {
+                shared.AuthorityId = "benchmark-timeout";
+                shared.BehaviorIdentity = new ContentHash("sha-256", new string('e', 64));
+                shared.OperationTimeout = TimeSpan.FromMilliseconds(50);
+                shared.MaximumConcurrentInvocations = 2;
+            });
+            admission.AddSharedFixedWindow("timeout-benchmark", "timeout-benchmark");
             if (options.FailureDisposition == "fallback")
                 admission.AddLocalFixedWindow("node-fallback");
             void ConfigureShared(GatewaySharedAdmissionProfileOptions shared)
@@ -86,6 +103,10 @@ static async Task<int> RunWorkerAsync(WorkerOptions options)
         GatewayRedisAdmissionHealthSnapshot snapshot = health.GetSnapshot();
         return Results.Text($"connected={snapshot.IsConnected};acquired={snapshot.Acquired};rejected={snapshot.Rejected};unavailable={snapshot.Unavailable};indeterminate={snapshot.Indeterminate}");
     });
+    app.MapGet("/worker/runtime-metrics", () => Results.Text(string.Create(
+        System.Globalization.CultureInfo.InvariantCulture,
+        $"allocated={GC.GetTotalAllocatedBytes(false)};gen0={GC.CollectionCount(0)};gen1={GC.CollectionCount(1)};gen2={GC.CollectionCount(2)};timeout-active={timeoutProvider.Active};timeout-max={timeoutProvider.MaximumObserved}")));
+    app.MapPost("/worker/release-timeouts", () => { timeoutProvider.Release(); return Results.Ok(); });
     app.MapHpdGateway();
     try { await app.RunAsync(); }
     finally { await backend.DisposeAsync(); }
@@ -171,6 +192,46 @@ static GatewayConfiguration CreateConfiguration(WorkerOptions options)
             },
             new RouteDeclaration
             {
+                Id = new RouteId("projection"),
+                Match = new HttpRouteMatch { Path = "/projection/{**catch-all}" },
+                Upstream = new UpstreamId("backend"),
+                Declarations = new RouteDeclarations
+                {
+                    TrafficAdmission = new DeclarationReference<TrafficAdmissionPlan>
+                    {
+                        Inline = new TrafficAdmissionPlan
+                        {
+                            Entries = [new FixedWindowAdmissionEntry
+                            {
+                                Profile = "projection-benchmark", PermitLimit = 100_000_000,
+                                Window = TimeSpan.FromHours(1)
+                            }]
+                        }
+                    }
+                }
+            },
+            new RouteDeclaration
+            {
+                Id = new RouteId("timeout"),
+                Match = new HttpRouteMatch { Path = "/timeout/{**catch-all}" },
+                Upstream = new UpstreamId("backend"),
+                Declarations = new RouteDeclarations
+                {
+                    TrafficAdmission = new DeclarationReference<TrafficAdmissionPlan>
+                    {
+                        Inline = new TrafficAdmissionPlan
+                        {
+                            Entries = [new FixedWindowAdmissionEntry
+                            {
+                                Profile = "timeout-benchmark", PermitLimit = 100_000_000,
+                                Window = TimeSpan.FromHours(1)
+                            }]
+                        }
+                    }
+                }
+            },
+            new RouteDeclaration
+            {
                 Id = new RouteId("quota"),
                 Match = new HttpRouteMatch { Path = "/quota/{**catch-all}" },
                 Upstream = new UpstreamId("backend"),
@@ -216,9 +277,54 @@ static async Task<int> RunControllerAsync(ControllerOptions options)
         {
             BenchmarkSummary baseline = await MeasureAsync(client, workers[0], "baseline");
             BenchmarkSummary local = await MeasureAsync(client, workers[0], "local");
+            BenchmarkSummary projection = await MeasureAsync(client, workers[0], "projection");
             BenchmarkSummary shared = await MeasureAsync(client, workers[0], "quota");
+            RuntimeMetrics beforeTimeout = await ReadMetricsAsync(client, workers[0]);
+            Task<HttpResponseMessage>[] hanging = Enumerable.Range(0, 2)
+                .Select(_ => client.GetAsync($"http://127.0.0.1:{workers[0].Port}/timeout/measured")).ToArray();
+            await Task.Delay(10);
+            long saturatedStarted = Stopwatch.GetTimestamp();
+            using HttpResponseMessage saturated = await client.GetAsync($"http://127.0.0.1:{workers[0].Port}/timeout/saturated");
+            double saturationMicroseconds = (Stopwatch.GetTimestamp() - saturatedStarted) * 1_000_000d / Stopwatch.Frequency;
+            HttpResponseMessage[] timedOut = await Task.WhenAll(hanging);
+            try
+            {
+                if (saturated.StatusCode != HttpStatusCode.ServiceUnavailable ||
+                    timedOut.Any(static response => response.StatusCode != HttpStatusCode.ServiceUnavailable))
+                    throw new InvalidOperationException("Provider timeout/capacity evidence did not fail closed.");
+            }
+            finally
+            {
+                foreach (HttpResponseMessage response in timedOut) response.Dispose();
+            }
+            RuntimeMetrics afterTimeout = await ReadMetricsAsync(client, workers[0]);
+            if (afterTimeout.TimeoutMaximumObserved != 2 || afterTimeout.TimeoutActive != 2)
+                throw new InvalidOperationException("Provider invocation capacity was not retained through timeout.");
+            using (await client.PostAsync($"http://127.0.0.1:{workers[0].Port}/worker/release-timeouts", null)) { }
+
+            int underLoadSuccess = 0;
+            using var loadCancellation = new CancellationTokenSource();
+            Task load = Task.Run(async () =>
+            {
+                while (!loadCancellation.IsCancellationRequested)
+                {
+                    using HttpResponseMessage response = await client.GetAsync(
+                        $"http://127.0.0.1:{workers[0].Port}/baseline/load", loadCancellation.Token);
+                    if (response.IsSuccessStatusCode) Interlocked.Increment(ref underLoadSuccess);
+                }
+            });
+            WorkerProcess replacement = WorkerProcess.Start(options, 1, generation: 2);
+            workers.Add(replacement);
+            await replacement.WaitUntilReadyAsync();
+            using (HttpResponseMessage replacementResponse = await client.GetAsync(
+                $"http://127.0.0.1:{replacement.Port}/quota/replacement"))
+                replacementResponse.EnsureSuccessStatusCode();
+            loadCancellation.Cancel();
+            try { await load; } catch (OperationCanceledException) { }
+            if (underLoadSuccess == 0)
+                throw new InvalidOperationException("No request completed while the replacement generation activated.");
             Console.WriteLine(string.Create(System.Globalization.CultureInfo.InvariantCulture,
-                $"benchmark schema=hpd.gateway.admission.benchmark/v1 runtime={System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription} os={System.Runtime.InteropServices.RuntimeInformation.OSDescription} architecture={System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture} transport=loopback-http1-sequential-keepalive warmup=250 measured=2000 baseline={baseline} process-local={local} redis-shared={shared}"));
+                $"benchmark schema=hpd.gateway.admission.benchmark/v2 runtime={System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription} os={System.Runtime.InteropServices.RuntimeInformation.OSDescription} architecture={System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture} transport=loopback-http1-sequential-keepalive warmup=250 measured=2000 baseline={baseline} process-local={local} partition-projection={projection} redis-shared={shared} provider-capacity=2 provider-max-observed={afterTimeout.TimeoutMaximumObserved} timeout-results=2x503 saturation-result={(int)saturated.StatusCode} saturation-latency={saturationMicroseconds:F3}us activation-under-load-success={underLoadSuccess} timeout-allocation-delta={afterTimeout.AllocatedBytes - beforeTimeout.AllocatedBytes} timeout-gc-delta={afterTimeout.Gen0 - beforeTimeout.Gen0}/{afterTimeout.Gen1 - beforeTimeout.Gen1}/{afterTimeout.Gen2 - beforeTimeout.Gen2}"));
             return 0;
         }
         if (options.Scenario == "recovery")
@@ -359,6 +465,7 @@ static async Task<BenchmarkSummary> MeasureAsync(HttpClient client, WorkerProces
         using HttpResponseMessage warmup = await client.GetAsync($"http://127.0.0.1:{worker.Port}/{route}/warmup");
         warmup.EnsureSuccessStatusCode();
     }
+    RuntimeMetrics before = await ReadMetricsAsync(client, worker);
     var samples = new long[2_000];
     for (int index = 0; index < samples.Length; index++)
     {
@@ -368,10 +475,24 @@ static async Task<BenchmarkSummary> MeasureAsync(HttpClient client, WorkerProces
         samples[index] = Stopwatch.GetTimestamp() - started;
     }
     Array.Sort(samples);
+    RuntimeMetrics after = await ReadMetricsAsync(client, worker);
     double ToMicroseconds(long ticks) => ticks * 1_000_000d / Stopwatch.Frequency;
     return new(route, ToMicroseconds(samples[samples.Length / 2]),
         ToMicroseconds(samples[(int)Math.Ceiling(samples.Length * .95) - 1]),
-        ToMicroseconds(samples[(int)Math.Ceiling(samples.Length * .999) - 1]));
+        ToMicroseconds(samples[(int)Math.Ceiling(samples.Length * .99) - 1]),
+        ToMicroseconds(samples[(int)Math.Ceiling(samples.Length * .999) - 1]),
+        after.AllocatedBytes - before.AllocatedBytes,
+        checked((int)(after.Gen0 - before.Gen0)), checked((int)(after.Gen1 - before.Gen1)),
+        checked((int)(after.Gen2 - before.Gen2)));
+}
+
+static async Task<RuntimeMetrics> ReadMetricsAsync(HttpClient client, WorkerProcess worker)
+{
+    string value = await client.GetStringAsync($"http://127.0.0.1:{worker.Port}/worker/runtime-metrics");
+    Dictionary<string, long> fields = value.Split(';').Select(static field => field.Split('='))
+        .ToDictionary(static field => field[0], static field => long.Parse(field[1], System.Globalization.CultureInfo.InvariantCulture), StringComparer.Ordinal);
+    return new(fields["allocated"], fields["gen0"], fields["gen1"], fields["gen2"],
+        checked((int)fields["timeout-active"]), checked((int)fields["timeout-max"]));
 }
 
 static async Task ExpectStatusAsync(HttpClient client, WorkerProcess worker, HttpStatusCode expected)
@@ -392,10 +513,46 @@ static async Task WaitForFileAsync(string path)
     }
 }
 
-sealed record BenchmarkSummary(string Path, double P50Microseconds, double P95Microseconds, double P999Microseconds)
+sealed record BenchmarkSummary(
+    string Path,
+    double P50Microseconds,
+    double P95Microseconds,
+    double P99Microseconds,
+    double P999Microseconds,
+    long AllocatedBytes,
+    int Gen0Collections,
+    int Gen1Collections,
+    int Gen2Collections)
 {
     public override string ToString() => string.Create(System.Globalization.CultureInfo.InvariantCulture,
-        $"{Path}:p50={P50Microseconds:F3}us,p95={P95Microseconds:F3}us,p99.9={P999Microseconds:F3}us");
+        $"{Path}:p50={P50Microseconds:F3}us,p95={P95Microseconds:F3}us,p99={P99Microseconds:F3}us,p99.9={P999Microseconds:F3}us,allocated={AllocatedBytes},gc={Gen0Collections}/{Gen1Collections}/{Gen2Collections}");
+}
+
+sealed record RuntimeMetrics(long AllocatedBytes, long Gen0, long Gen1, long Gen2, int TimeoutActive, int TimeoutMaximumObserved);
+
+sealed class HangingBenchmarkProvider : IGatewaySharedAdmissionProvider
+{
+    private readonly TaskCompletionSource<GatewaySharedAdmissionDecision> _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private int _active;
+    private int _maximum;
+    internal int Active => Volatile.Read(ref _active);
+    internal int MaximumObserved => Volatile.Read(ref _maximum);
+
+    public async ValueTask<GatewaySharedAdmissionDecision> AcquireAsync(
+        GatewaySharedAdmissionRequest request,
+        CancellationToken cancellationToken)
+    {
+        int active = Interlocked.Increment(ref _active);
+        int observed;
+        while (active > (observed = Volatile.Read(ref _maximum)) &&
+               Interlocked.CompareExchange(ref _maximum, active, observed) != observed) { }
+        try { return await _completion.Task.ConfigureAwait(false); }
+        finally { Interlocked.Decrement(ref _active); }
+    }
+
+    internal void Release() => _completion.TrySetResult(new GatewaySharedAdmissionDecision(
+        GatewaySharedAdmissionDecisionKind.IndeterminateAfterPossibleCommit,
+        null, null, null, null, "released"));
 }
 
 sealed record WorkerOptions(

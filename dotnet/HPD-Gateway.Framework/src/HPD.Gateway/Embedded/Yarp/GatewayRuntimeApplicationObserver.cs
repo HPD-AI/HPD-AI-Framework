@@ -206,11 +206,35 @@ internal sealed class GatewayRuntimeApplicationObserver : IGatewayNodeAppliedRun
         {
             if (!_admissionCapabilities.TryGetValue(entry.ProfileName, out TrafficAdmissionCapability? capability))
                 throw new InvalidOperationException("Applied traffic-admission profile is not installed.");
-            return new GatewayAppliedTrafficAdmissionEntry(order, capability.Name, capability.Scope, capability.Kind,
-                capability.RateAlgorithm, capability.Partition, capability.FailureDisposition,
-                capability.AuthorityId, capability.BehaviorIdentity);
+            return CreateAppliedAdmissionEntry(order, entry, capability);
         }).ToImmutableArray();
         return new(new ContentHash("sha-256", identity), entries);
+    }
+
+    internal static GatewayAppliedTrafficAdmissionEntry CreateAppliedAdmissionEntry(
+        int order,
+        TrafficAdmissionEntry entry,
+        TrafficAdmissionCapability capability)
+    {
+        var fixedWindow = entry as FixedWindowAdmissionEntry;
+        var slidingWindow = entry as SlidingWindowAdmissionEntry;
+        var tokenBucket = entry as TokenBucketAdmissionEntry;
+        var concurrency = entry as ConcurrencyAdmissionEntry;
+        return new GatewayAppliedTrafficAdmissionEntry(order, capability.Name, capability.Scope, capability.Kind,
+            capability.RateAlgorithm, capability.Partition, capability.FailureDisposition,
+            capability.AuthorityId, capability.BehaviorIdentity, capability.AcquisitionOrdinal,
+            fixedWindow?.PermitLimit ?? slidingWindow?.PermitLimit,
+            fixedWindow?.Window.TotalMilliseconds is { } fixedMilliseconds ? checked((long)fixedMilliseconds) :
+                slidingWindow?.Window.TotalMilliseconds is { } slidingMilliseconds ? checked((long)slidingMilliseconds) : null,
+            slidingWindow?.SegmentsPerWindow,
+            tokenBucket?.TokenLimit, tokenBucket?.TokensPerPeriod,
+            tokenBucket?.ReplenishmentPeriod.TotalMilliseconds is { } replenishmentMilliseconds
+                ? checked((long)replenishmentMilliseconds) : null,
+            concurrency?.PermitLimit, concurrency?.QueueLimit,
+            capability.PartitionProjectorId, capability.PartitionProjectorIdentity,
+            capability.ProviderId, capability.ProviderBehaviorIdentity,
+            capability.OperationTimeout?.TotalMilliseconds is { } timeoutMilliseconds ? checked((long)timeoutMilliseconds) : null,
+            capability.MaximumConcurrentInvocations, capability.LocalFallbackProfile, capability.LocalFallbackIdentity);
     }
 
     private static GatewayAppliedUpstream BuildUpstream(

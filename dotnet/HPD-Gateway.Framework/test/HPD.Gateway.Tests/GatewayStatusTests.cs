@@ -19,6 +19,29 @@ namespace HPD.Gateway.Tests;
 public sealed class GatewayStatusTests
 {
     [Fact]
+    public void Admission_status_contains_only_profiles_selected_by_the_acknowledged_applied_generation()
+    {
+        var installed = new GatewayAdmissionStatusSnapshot(1,
+        [
+            AdmissionStatus("profile-a", GatewayAdmissionAuthorityState.Unavailable),
+            AdmissionStatus("profile-b", GatewayAdmissionAuthorityState.Healthy),
+        ], false);
+        GatewayAppliedRuntimeSnapshot appliedA = AppliedAdmission("profile-a");
+        GatewayAppliedRuntimeSnapshot appliedB = AppliedAdmission("profile-b");
+
+        GatewayStatusCoordinator.ScopeAdmissionToApplied(installed, appliedA, true).Profiles
+            .Should().ContainSingle().Which.Profile.Should().Be("profile-a");
+        GatewayStatusCoordinator.ScopeAdmissionToApplied(installed, appliedB, true).Profiles
+            .Should().ContainSingle().Which.Profile.Should().Be("profile-b");
+        var changedBehavior = installed with
+        {
+            Profiles = [installed.Profiles[1] with { BehaviorIdentity = new ContentHash("sha-256", new string('b', 64)) }]
+        };
+        GatewayStatusCoordinator.ScopeAdmissionToApplied(changedBehavior, appliedB, true).Profiles.Should().BeEmpty();
+        GatewayStatusCoordinator.ScopeAdmissionToApplied(installed, appliedB, false).Profiles.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task HealthEndpointsTransitionAfterExactPublicationAndRemainReadyAfterDuplicate()
     {
         await using var application = await StartApplication();
@@ -399,6 +422,26 @@ public sealed class GatewayStatusTests
             new ContentHash("sha-256", new string('a', 64))),
         "0123456789abcdef0123456789abcdef", new ContentHash("sha-256", new string('b', 64)),
         "native", DateTimeOffset.UtcNow);
+
+    private static GatewayAdmissionProfileStatus AdmissionStatus(
+        string profile,
+        GatewayAdmissionAuthorityState state) => new(profile, TrafficAdmissionScope.Deployment,
+            "deployment-a", new ContentHash("sha-256", new string('a', 64)), state,
+            1, 2, 3, 4, 5, DateTimeOffset.UnixEpoch, "test");
+
+    private static GatewayAppliedRuntimeSnapshot AppliedAdmission(string profile)
+    {
+        ContentHash hash = new("sha-256", new string('a', 64));
+        var entry = new GatewayAppliedTrafficAdmissionEntry(0, profile, TrafficAdmissionScope.Deployment,
+            TrafficAdmissionKind.RequestRate, TrafficAdmissionRateAlgorithm.FixedWindow,
+            TrafficAdmissionPartitionKind.Global, TrafficAdmissionFailureDisposition.Reject,
+            "deployment-a", hash, null, 10, 1_000, null, null, null, null, null, null,
+            null, null, "redis", hash, 100, 32, null, null);
+        return new GatewayAppliedRuntimeSnapshot(1, new CandidateId("candidate"), hash,
+            "0123456789abcdef0123456789abcdef", hash, DateTimeOffset.UnixEpoch,
+            [new GatewayAppliedRoute("route", [], new GatewayAppliedTrafficAdmissionPlan(hash, [entry]))],
+            [], true, false);
+    }
 
     private static GatewayAppliedRuntimeObservation Applied(
         ActivePublicationIdentity active,

@@ -67,7 +67,7 @@
       ]
     }
   ],
-  "PublicTypeCount": 298,
+  "PublicTypeCount": 297,
   "PublicTypes": [
     {
       "Product": "HPD.Gateway",
@@ -1448,12 +1448,6 @@
       "PackageId": "HPD.Gateway",
       "Namespace": "HPD.Gateway",
       "Type": "HPD.Gateway.IGatewayAdmissionPartitionProjector"
-    },
-    {
-      "Product": "HPD.Gateway",
-      "PackageId": "HPD.Gateway",
-      "Namespace": "HPD.Gateway",
-      "Type": "HPD.Gateway.IGatewayAdmissionStatusReader"
     },
     {
       "Product": "HPD.Gateway",

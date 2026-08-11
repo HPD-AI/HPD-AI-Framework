@@ -121,6 +121,8 @@ describe('Gateway operations controller',()=>{
    const diagnose=readFileSync(new URL('../src/GatewayDiagnose.svelte',import.meta.url),'utf8');
    expect(diagnose).toContain('{#if exportFailure}');
    expect(diagnose).toContain('The bounded diagnostic envelope could not be produced.');
+   for(const field of ['permitLimit','segmentsPerWindow','tokenLimit','concurrencyPermitLimit','partitionProjectorId','providerId','localFallbackProfile','behaviorIdentity'])
+     expect(diagnose).toContain(field);
  });
  it('accepts the exact one-MiB diagnostic boundary and deterministically truncates max plus one',()=>{
    const records=Array.from({length:512},(_,index)=>effectiveRecord(index));
