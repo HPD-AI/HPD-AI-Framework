@@ -118,6 +118,7 @@ public sealed class GatewayBuilder
             throw new InvalidOperationException("At least one traffic-admission profile must be registered.");
         _trafficAdmission = registry;
         Services.AddSingleton<GatewayTrafficAdmissionRegistry>(_ => registry);
+        Services.AddSingleton<IGatewayAdmissionStatusReader>(_ => registry);
         _installedFamilies |= GatewayDeclarationFamilies.TrafficAdmission;
         return this;
     }

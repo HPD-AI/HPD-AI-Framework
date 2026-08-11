@@ -9,6 +9,7 @@ internal sealed class GatewayRuntimeApplicationObserver : IGatewayNodeAppliedRun
     private const int MaximumFailures = 256;
     private readonly GatewayDestinationResolver _resolver;
     private readonly TimeProvider _timeProvider;
+    private readonly ImmutableDictionary<string, TrafficAdmissionCapability> _admissionCapabilities;
     private readonly object _gate = new();
     private readonly Dictionary<string, Envelope> _applications = new(StringComparer.Ordinal);
     private readonly Queue<string> _order = new();
@@ -17,10 +18,15 @@ internal sealed class GatewayRuntimeApplicationObserver : IGatewayNodeAppliedRun
     private CancellationTokenSource _changed = new();
     private bool _disposed;
 
-    internal GatewayRuntimeApplicationObserver(GatewayDestinationResolver resolver, TimeProvider timeProvider)
+    internal GatewayRuntimeApplicationObserver(
+        GatewayDestinationResolver resolver,
+        TimeProvider timeProvider,
+        GatewayTrafficAdmissionRegistry? admission = null)
     {
         _resolver = resolver;
         _timeProvider = timeProvider;
+        _admissionCapabilities = admission?.Capabilities.ToImmutableDictionary(static value => value.Name, StringComparer.Ordinal) ??
+            ImmutableDictionary<string, TrafficAdmissionCapability>.Empty.WithComparers(StringComparer.Ordinal);
     }
 
     public GatewayAppliedRuntimeObservation? GetCurrent()
@@ -174,7 +180,8 @@ internal sealed class GatewayRuntimeApplicationObserver : IGatewayNodeAppliedRun
         ImmutableArray<GatewayAppliedRoute> routes = config.Routes
             .OrderBy(static route => route.RouteId, StringComparer.Ordinal)
             .Select(route => new GatewayAppliedRoute(route.RouteId,
-                records[route.RouteId].OrderBy(static record => record.Family, StringComparer.Ordinal).ToImmutableArray()))
+                records[route.RouteId].OrderBy(static record => record.Family, StringComparer.Ordinal).ToImmutableArray(),
+                BuildAdmission(route)))
             .ToImmutableArray();
         ImmutableDictionary<string, GatewayRuntimeDependencyBinding> dependencies = application.Plan.Dependencies
             .ToImmutableDictionary(static value => value.UpstreamId, StringComparer.Ordinal);
@@ -186,6 +193,24 @@ internal sealed class GatewayRuntimeApplicationObserver : IGatewayNodeAppliedRun
             .ToImmutableArray();
         return new(1, application.Identity.CandidateId, application.Identity.ContentHash,
             application.ApplicationId, application.SymbolicPlanIdentity, _timeProvider.GetUtcNow(), routes, upstreams, true, false);
+    }
+
+    private GatewayAppliedTrafficAdmissionPlan? BuildAdmission(RouteConfig route)
+    {
+        if (route.Metadata is null ||
+            !route.Metadata.TryGetValue(GatewayTrafficAdmissionMetadataCodec.Plan, out string? encoded) ||
+            !route.Metadata.TryGetValue(GatewayTrafficAdmissionMetadataCodec.PlanIdentity, out string? identity))
+            return null;
+        TrafficAdmissionPlan plan = GatewayTrafficAdmissionMetadataCodec.Decode(encoded);
+        ImmutableArray<GatewayAppliedTrafficAdmissionEntry> entries = plan.Entries.Select((entry, order) =>
+        {
+            if (!_admissionCapabilities.TryGetValue(entry.ProfileName, out TrafficAdmissionCapability? capability))
+                throw new InvalidOperationException("Applied traffic-admission profile is not installed.");
+            return new GatewayAppliedTrafficAdmissionEntry(order, capability.Name, capability.Scope, capability.Kind,
+                capability.RateAlgorithm, capability.Partition, capability.FailureDisposition,
+                capability.AuthorityId, capability.BehaviorIdentity);
+        }).ToImmutableArray();
+        return new(new ContentHash("sha-256", identity), entries);
     }
 
     private static GatewayAppliedUpstream BuildUpstream(

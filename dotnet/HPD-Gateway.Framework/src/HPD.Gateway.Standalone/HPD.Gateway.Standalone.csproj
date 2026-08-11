@@ -14,6 +14,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../HPD.Gateway/HPD.Gateway.csproj" />
+    <ProjectReference Include="../HPD.Gateway.Admission.Redis/HPD.Gateway.Admission.Redis.csproj" />
     <ProjectReference Include="../HPD.Gateway.ControlPlane/HPD.Gateway.ControlPlane.csproj" />
     <ProjectReference Include="../HPD.Gateway.ControlPlane.HPDAuth/HPD.Gateway.ControlPlane.HPDAuth.csproj" />
     <ProjectReference Include="../HPD.Gateway.ControlPlane.Sqlite/HPD.Gateway.ControlPlane.Sqlite.csproj" />

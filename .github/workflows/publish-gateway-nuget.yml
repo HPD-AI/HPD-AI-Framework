@@ -126,7 +126,8 @@ jobs:
             --gateway-version "${{ needs.determine-version.outputs.version }}" \
             --base-version "$HPD_BASE_VERSION" \
             --auth-version "$HPD_AUTH_VERSION" \
-            --platform-version "$HPD_PLATFORM_VERSION"
+            --platform-version "$HPD_PLATFORM_VERSION" \
+            --inventory dotnet/HPD-Gateway.Framework/tools/HPD.Gateway.PublicApiLedger/final-products.json
 
       - name: Upload HPD Gateway packages
         uses: actions/upload-artifact@v4

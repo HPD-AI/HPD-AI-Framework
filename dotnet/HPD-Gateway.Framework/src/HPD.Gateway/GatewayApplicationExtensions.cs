@@ -1,4 +1,6 @@
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Gateway;
@@ -33,8 +35,13 @@ internal sealed class GatewayNativePolicyPipeline(GatewayCompositionState state)
         if (!state.CorsPolicies.IsEmpty) application.UseCors();
         if (!state.AuthorizationPolicies.IsEmpty) application.UseAuthorization();
         if (!state.TrafficAdmissionProfiles.IsEmpty)
-            application.UseRateLimiter(GatewayTrafficAdmissionMiddleware.CreateOptions(
-                application.ApplicationServices.GetRequiredService<GatewayTrafficAdmissionRegistry>()));
+        {
+            RateLimiterOptions options = GatewayTrafficAdmissionMiddleware.CreateOptions(
+                application.ApplicationServices.GetRequiredService<GatewayTrafficAdmissionRegistry>());
+            application.UseWhen(
+                static context => context.GetEndpoint()?.Metadata.GetMetadata<GatewayTrafficAdmissionMetadata>() is not null,
+                branch => branch.UseRateLimiter(options));
+        }
         if (!state.RequestTimeoutPolicies.IsEmpty) application.UseRequestTimeouts();
     }
 }

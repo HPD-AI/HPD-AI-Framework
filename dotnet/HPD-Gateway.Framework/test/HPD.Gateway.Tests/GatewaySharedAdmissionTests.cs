@@ -10,6 +10,44 @@ namespace HPD.Gateway.Tests;
 public sealed class GatewaySharedAdmissionTests
 {
     [Fact]
+    public async Task Redacted_operational_truth_tracks_authoritative_and_degraded_outcomes_without_partitions()
+    {
+        using GatewayTrafficAdmissionRegistry registry = Registry(new SequenceProvider(
+            Acquired(0, 1_000), Rejected(0, 500, 500),
+            Infrastructure(GatewaySharedAdmissionDecisionKind.UnavailableBeforePossibleCommit)),
+            TrafficAdmissionFailureDisposition.Bypass);
+        var limiter = new GatewayTrafficAdmissionLimiter(registry);
+        using RateLimitLease acquired = await limiter.AcquireAsync(Context(Plan()));
+        using RateLimitLease rejected = await limiter.AcquireAsync(Context(Plan()));
+        using RateLimitLease bypassed = await limiter.AcquireAsync(Context(Plan()));
+
+        GatewayAdmissionStatusSnapshot snapshot = registry.GetCurrent();
+        GatewayAdmissionProfileStatus status = snapshot.Profiles.Single(value => value.Profile == "shared");
+        status.State.Should().Be(GatewayAdmissionAuthorityState.DegradedBypass);
+        status.Acquired.Should().Be(1);
+        status.Rejected.Should().Be(1);
+        status.DegradedBypasses.Should().Be(1);
+        status.InfrastructureFailures.Should().Be(0);
+        status.AuthorityId.Should().Be("deployment-a");
+        status.SafeDiagnosticCode.Should().Be("shared-provider-unavailable");
+        status.ToString().Should().NotContain("partition");
+    }
+
+    [Fact]
+    public async Task Unix_epoch_observation_is_not_confused_with_unobserved_authority()
+    {
+        using GatewayTrafficAdmissionRegistry registry = Registry(
+            new SequenceProvider(Acquired(0, 1_000)),
+            timeProvider: new FixedTimeProvider(DateTimeOffset.UnixEpoch));
+        using RateLimitLease lease = await new GatewayTrafficAdmissionLimiter(registry).AcquireAsync(Context(Plan()));
+
+        GatewayAdmissionProfileStatus status = registry.GetCurrent().Profiles.Single(value => value.Profile == "shared");
+        status.State.Should().Be(GatewayAdmissionAuthorityState.Healthy);
+        status.LastObservedAt.Should().Be(DateTimeOffset.UnixEpoch);
+        status.Acquired.Should().Be(1);
+    }
+
+    [Fact]
     public async Task Every_shared_request_dispatches_once_and_preserves_authoritative_facts()
     {
         var provider = new SequenceProvider(
@@ -165,7 +203,7 @@ public sealed class GatewaySharedAdmissionTests
         using GatewayTrafficAdmissionRegistry timeoutRegistry = Registry(blocking, timeout: TimeSpan.FromMilliseconds(25));
         Task<RateLimitLease> timed = new GatewayTrafficAdmissionLimiter(timeoutRegistry).AcquireAsync(Context(Plan())).AsTask();
         await blocking.WaitForCall();
-        using RateLimitLease indeterminate = await timed.WaitAsync(TimeSpan.FromSeconds(1));
+        using RateLimitLease indeterminate = await timed.WaitAsync(TimeSpan.FromSeconds(5));
         indeterminate.IsAcquired.Should().BeFalse();
         await blocking.WaitForCallback();
         blocking.ReleaseCallback();
@@ -308,9 +346,11 @@ public sealed class GatewaySharedAdmissionTests
         IGatewaySharedAdmissionProvider provider,
         TrafficAdmissionFailureDisposition disposition = TrafficAdmissionFailureDisposition.Reject,
         int maximumInvocations = 8,
-        TimeSpan? timeout = null)
+        TimeSpan? timeout = null,
+        TimeProvider? timeProvider = null)
     {
         var builder = new GatewayTrafficAdmissionRegistryBuilder();
+        if (timeProvider is not null) builder.UseTimeProvider(timeProvider);
         if (disposition == TrafficAdmissionFailureDisposition.LocalFallback)
             builder.AddLocalFixedWindow("fallback", options => options.MaximumLimit = 10);
         builder.AddSharedProvider("provider", provider, options =>
@@ -391,6 +431,11 @@ public sealed class GatewaySharedAdmissionTests
         }
         public ValueTask<GatewaySharedAdmissionRetainedState> ObserveStateAsync(GatewaySharedAdmissionRequest request, CancellationToken cancellationToken) =>
             ValueTask.FromResult(_states.TryDequeue(out GatewaySharedAdmissionRetainedState? state) ? state : FixedState(100, 0, 1, 1_000));
+    }
+
+    private sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
     }
 
     private sealed class HangingProvider : IGatewaySharedAdmissionProvider

@@ -305,9 +305,11 @@ export function createGatewayOperationsController(options: GatewayOperationsCont
     const effective = observation.effective;
     const allRecords=effective.state==='value'&&effective.value
       ? effective.value.routes.flatMap(route=>route.contributions):[];
+    const allAdmissionPlans=effective.state==='value'&&effective.value
+      ? effective.value.routes.filter(route=>route.trafficAdmission!=null).map(route=>({routeId:route.routeId,trafficAdmission:route.trafficAdmission!})):[];
     const allUpstreams=effective.state==='value'&&effective.value?[...effective.value.upstreams]:[];
-    const consideredRecords=[...allRecords.slice(0,512)],consideredUpstreams=[...allUpstreams.slice(0,512)],consideredIntents=[...managed.activationIntents.slice(0,256)],consideredOutcomes=[...managed.activationOutcomes.slice(0,256)];
-    let recordCount=consideredRecords.length,upstreamCount=consideredUpstreams.length,intentCount=consideredIntents.length,outcomeCount=consideredOutcomes.length;
+    const consideredRecords=[...allRecords.slice(0,512)],consideredAdmissionPlans=[...allAdmissionPlans.slice(0,512)],consideredUpstreams=[...allUpstreams.slice(0,512)],consideredIntents=[...managed.activationIntents.slice(0,256)],consideredOutcomes=[...managed.activationOutcomes.slice(0,256)];
+    let recordCount=consideredRecords.length,admissionPlanCount=consideredAdmissionPlans.length,upstreamCount=consideredUpstreams.length,intentCount=consideredIntents.length,outcomeCount=consideredOutcomes.length;
     const build=()=>({
       context: { namespaceId: context.namespaceId, targetNodeId: context.targetId },
       exportVersion: '1', generatedAt: now().toISOString(), kind: 'hpd-gateway-studio-diagnostic-observation',
@@ -316,7 +318,8 @@ export function createGatewayOperationsController(options: GatewayOperationsCont
         effective: effective.state === 'value' && effective.value ? { state:'value', value: {
           applicationId: effective.value.applicationId, appliedAt: effective.value.appliedAt,
           candidateContentHash: effective.value.candidateContentHash, candidateId: effective.value.candidateId,
-          isTruncated: effective.value.isTruncated, records: consideredRecords.slice(0,recordCount), schemaVersion: effective.value.schemaVersion,
+          admissionPlans: consideredAdmissionPlans.slice(0,admissionPlanCount), isTruncated: effective.value.isTruncated,
+          records: consideredRecords.slice(0,recordCount), schemaVersion: effective.value.schemaVersion,
           symbolicPlanIdentity: effective.value.symbolicPlanIdentity, upstreams: consideredUpstreams.slice(0,upstreamCount),
         }} : { state: effective.state, value: null },
         status: { state:'value', value: observation.status },
@@ -327,6 +330,7 @@ export function createGatewayOperationsController(options: GatewayOperationsCont
       truncation: { statusSourceTruncated: observation.status.isTruncated,
         effectiveSourceTruncated: effective.state === 'value' ? Boolean(effective.value?.isTruncated) : false,
         effectiveRecordsOmittedLocally: Math.max(0,allRecords.length-recordCount),
+        admissionPlansOmittedLocally: Math.max(0,allAdmissionPlans.length-admissionPlanCount),
         appliedUpstreamsOmittedLocally: Math.max(0,allUpstreams.length-upstreamCount),
         activationIntentsOmittedLocally: Math.max(0,managed.activationIntents.length-intentCount),
         activationOutcomesOmittedLocally: Math.max(0,managed.activationOutcomes.length-outcomeCount),
@@ -334,11 +338,12 @@ export function createGatewayOperationsController(options: GatewayOperationsCont
         activationOutcomesMayHaveMoreAtSource: managed.outcomesHaveMore },
     });
     const size=()=>new TextEncoder().encode(canonicalJson(build())).length;
-    const saved=[recordCount,upstreamCount,intentCount,outcomeCount];recordCount=0;upstreamCount=0;intentCount=0;outcomeCount=0;
-    if(size()>262_144)return null;[recordCount,upstreamCount,intentCount,outcomeCount]=saved;
+    const saved=[recordCount,admissionPlanCount,upstreamCount,intentCount,outcomeCount];recordCount=0;admissionPlanCount=0;upstreamCount=0;intentCount=0;outcomeCount=0;
+    if(size()>262_144)return null;[recordCount,admissionPlanCount,upstreamCount,intentCount,outcomeCount]=saved;
     if(size()>1_048_576){intentCount=largestFittingPrefix(intentCount,value=>{intentCount=value;return size()<=1_048_576;});}
     if(size()>1_048_576){outcomeCount=largestFittingPrefix(outcomeCount,value=>{outcomeCount=value;return size()<=1_048_576;});}
     if(size()>1_048_576){recordCount=largestFittingPrefix(recordCount,value=>{recordCount=value;return size()<=1_048_576;});}
+    if(size()>1_048_576){admissionPlanCount=largestFittingPrefix(admissionPlanCount,value=>{admissionPlanCount=value;return size()<=1_048_576;});}
     if(size()>1_048_576){upstreamCount=largestFittingPrefix(upstreamCount,value=>{upstreamCount=value;return size()<=1_048_576;});}
     const bytes = new TextEncoder().encode(canonicalJson(build()));
     if (bytes.length > 1_048_576) return null;

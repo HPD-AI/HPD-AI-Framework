@@ -1,12 +1,15 @@
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
+import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 
 const feed = resolve(process.argv[2] ?? "");
 const argumentsByName = parseArguments(process.argv.slice(3));
 const standalone = argumentsByName.get("standalone") ? resolve(argumentsByName.get("standalone")) : null;
+const inventory = argumentsByName.get("inventory") ? resolve(argumentsByName.get("inventory")) : null;
 if (!process.argv[2])
-  throw new Error("Usage: validate-slice6-release.mjs <package-feed> --gateway-version <version> --base-version <version> --auth-version <version> --platform-version <version> [--standalone <publish-directory>]");
+  throw new Error("Usage: validate-slice6-release.mjs <package-feed> --gateway-version <version> --base-version <version> --auth-version <version> --platform-version <version> --inventory <final-products.json> [--standalone <publish-directory>]");
+if (inventory === null || !existsSync(inventory)) throw new Error("The committed final-product inventory is required.");
 
 const gatewayVersion = requireArgument("gateway-version");
 const baseVersion = requireArgument("base-version");
@@ -54,6 +57,8 @@ for (const [id, expectedDependencies] of products) {
   process.stdout.write(`${basename(packagePath)}: payload and dependency graph accepted.\n`);
 }
 
+validateFinalInventory();
+
 if (standalone !== null) {
   const executable = join(standalone, process.platform === "win32" ? "HPD.Gateway.Standalone.exe" : "HPD.Gateway.Standalone");
   if (!existsSync(executable)) throw new Error("Standalone executable distribution is missing its entry point.");
@@ -70,6 +75,33 @@ if (standalone !== null) {
 function unzip(path, args) {
   const result = spawnSync("unzip", [args[0], path, ...args.slice(1)], { encoding: "utf8", maxBuffer: 32 * 1024 * 1024 });
   if (result.status !== 0) throw new Error(`Could not inspect ${path}: ${result.stderr}`);
+  return result.stdout;
+}
+function validateFinalInventory() {
+  const work = mkdtempSync(join(tmpdir(), "hpd-gateway-final-products-"));
+  const assemblies = join(work, "assemblies");
+  const generated = join(work, "final-products.json");
+  mkdirSync(assemblies);
+  try {
+    for (const id of products.keys()) {
+      const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const packageName = packages.find(name => new RegExp(`^${escaped}\\.[0-9].*\\.nupkg$`, "i").test(name));
+      writeFileSync(join(assemblies, `${id}.dll`), unzipBytes(join(feed, packageName), `lib/net10.0/${id}.dll`));
+    }
+    const project = resolve(import.meta.dirname, "HPD.Gateway.PublicApiLedger/HPD.Gateway.PublicApiLedger.csproj");
+    const result = spawnSync("dotnet", ["run", "--project", project, "-c", "Release", "--", "--generate-final-products", assemblies, generated],
+      { encoding: "utf8", maxBuffer: 32 * 1024 * 1024 });
+    if (result.status !== 0) throw new Error(`Final-product inventory generation failed.\n${result.stdout}${result.stderr}`);
+    if (!readFileSync(generated).equals(readFileSync(inventory)))
+      throw new Error("The committed final-product inventory does not match the exact packaged assemblies.");
+    process.stdout.write("Final seven-product ownership inventory matches the exact packaged assemblies.\n");
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+}
+function unzipBytes(path, member) {
+  const result = spawnSync("unzip", ["-p", path, member], { encoding: null, maxBuffer: 32 * 1024 * 1024 });
+  if (result.status !== 0 || result.stdout.length === 0) throw new Error(`Could not inspect ${member} in ${path}.`);
   return result.stdout;
 }
 function ordinal(left, right) { return left < right ? -1 : left > right ? 1 : 0; }

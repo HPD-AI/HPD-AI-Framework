@@ -71,7 +71,9 @@ cat > "$work/gateway.json" <<JSON
   "metadata":{"labels":[],"annotations":[]},
   "routes":[{"id":{"value":"route"},"enabled":true,"listener":{"value":"https"},
     "match":{"methods":[],"hosts":["localhost"],"path":"/{**catchall}","headers":[],"query":[]},
-    "upstream":{"value":"backend"},"declarations":{},"metadata":{"labels":[],"annotations":[]}}],
+    "upstream":{"value":"backend"},"declarations":{"trafficAdmission":{"inline":{"entries":[
+      {"kind":"fixedWindow","profile":"local-fixed-global","permitLimit":100000,"window":"00:01:00"}
+    ]}}},"metadata":{"labels":[],"annotations":[]}}],
   "upstreams":[{"id":{"value":"backend"},"endpoints":{"kind":"static","destinations":[
     {"id":{"value":"one"},"address":"http://127.0.0.1:$backend_port/","metadata":{"labels":[],"annotations":[]}}]},
     "loadBalancing":{"kind":"powerOfTwoChoices"},

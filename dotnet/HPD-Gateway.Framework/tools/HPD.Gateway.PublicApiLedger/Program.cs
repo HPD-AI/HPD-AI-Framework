@@ -5,6 +5,12 @@ using System.Text;
 using System.Text.Json;
 using HPD.Gateway.PublicApiLedger.Tests;
 
+if (args.Length == 3 && args[0] == "--generate-final-products")
+{
+    GenerateFinalProductInventory(Path.GetFullPath(args[1]), Path.GetFullPath(args[2]));
+    return 0;
+}
+
 if (args.Length == 3 && args[0] == "--validate-consolidated-root")
 {
     ValidateConsolidatedRoot(Path.GetFullPath(args[1]), Path.GetFullPath(args[2]));
@@ -117,6 +123,53 @@ else if (args.Length == 4)
     Console.WriteLine("Classification, signature closure, and product manifests passed.");
 }
 return 0;
+
+static void GenerateFinalProductInventory(string assemblyDirectory, string outputFile)
+{
+    var products = new (string Project, string? PackageId, string Namespace, bool Packable, string[] Dependencies)[]
+    {
+        ("HPD.Gateway", "HPD.Gateway", "HPD.Gateway", true, []),
+        ("HPD.Gateway.ControlPlane", "HPD.Gateway.ControlPlane", "HPD.Gateway.ControlPlane", true, ["HPD.Gateway"]),
+        ("HPD.Gateway.ControlPlane.Sqlite", "HPD.Gateway.ControlPlane.Sqlite", "HPD.Gateway.ControlPlane.Sqlite", true, ["HPD.Gateway.ControlPlane"]),
+        ("HPD.Gateway.ControlPlane.HPDAuth", "HPD.Gateway.ControlPlane.HPDAuth", "HPD.Gateway.ControlPlane.HPDAuth", true, ["HPD.Gateway.ControlPlane"]),
+        ("HPD.Gateway.Discovery.Microsoft", "HPD.Gateway.Discovery.Microsoft", "HPD.Gateway.Discovery.Microsoft", true, ["HPD.Gateway"]),
+        ("HPD.Gateway.Admission.Redis", "HPD.Gateway.Admission.Redis", "HPD.Gateway.Admission.Redis", true, ["HPD.Gateway"]),
+        ("HPD.Gateway.Standalone", null, "HPD.Gateway.Standalone", false,
+            ["HPD.Gateway", "HPD.Gateway.ControlPlane", "HPD.Gateway.ControlPlane.Sqlite", "HPD.Gateway.ControlPlane.HPDAuth", "HPD.Gateway.Admission.Redis"]),
+    };
+    var records = new List<FinalPublicType>();
+    foreach (var product in products.Where(static value => value.Packable))
+    {
+        string path = Path.Combine(assemblyDirectory, product.Project + ".dll");
+        if (!File.Exists(path)) throw new FileNotFoundException($"Final product assembly '{product.Project}' is missing.", path);
+        using var stream = File.OpenRead(path);
+        using var pe = new PEReader(stream);
+        MetadataReader metadata = pe.GetMetadataReader();
+        foreach (TypeDefinitionHandle handle in metadata.TypeDefinitions)
+        {
+            TypeDefinition definition = metadata.GetTypeDefinition(handle);
+            if (!IsPublic(definition.Attributes) || metadata.GetString(definition.Name) == "<Module>") continue;
+            string typeNamespace = GetEffectiveNamespace(metadata, handle);
+            if (typeNamespace != product.Namespace && !typeNamespace.StartsWith(product.Namespace + ".", StringComparison.Ordinal))
+                throw new InvalidOperationException($"Public type '{GetTypePath(metadata, handle)}' escapes product namespace '{product.Namespace}'.");
+            records.Add(new FinalPublicType(product.Project, product.PackageId!, typeNamespace,
+                string.IsNullOrEmpty(typeNamespace) ? GetTypePath(metadata, handle) : typeNamespace + "." + GetTypePath(metadata, handle)));
+        }
+    }
+    records.Sort(static (left, right) => StringComparer.Ordinal.Compare(left.Type, right.Type));
+    string[] duplicates = records.GroupBy(static value => value.Type, StringComparer.Ordinal)
+        .Where(static group => group.Count() != 1).Select(static group => group.Key).ToArray();
+    if (duplicates.Length != 0) throw new InvalidOperationException("Duplicate final public identities: " + string.Join(", ", duplicates));
+    var envelope = new FinalProductInventory(
+        "hpd-gateway-final-product-inventory/v1",
+        products.Select(static value => new FinalProduct(value.Project, value.PackageId, value.Namespace,
+            value.Packable, value.Dependencies)).ToArray(),
+        records.Count,
+        records.ToArray());
+    Directory.CreateDirectory(Path.GetDirectoryName(outputFile)!);
+    File.WriteAllText(outputFile, JsonSerializer.Serialize(envelope, new JsonSerializerOptions { WriteIndented = true }) + "\n");
+    Console.WriteLine($"Generated final seven-product inventory with {records.Count} public types.");
+}
 
 static void ValidateConsolidatedRoot(string assemblyPath, string classificationFile)
 {
@@ -542,16 +595,18 @@ static IReadOnlyDictionary<string, ProductManifest> ValidateProductManifests(str
         ["HPD.Gateway.ControlPlane.Sqlite"] = new("HPD.Gateway.ControlPlane.Sqlite", "HPD.Gateway.ControlPlane.Sqlite", true, ["HPD.Gateway.ControlPlane"]),
         ["HPD.Gateway.ControlPlane.HPDAuth"] = new("HPD.Gateway.ControlPlane.HPDAuth", "HPD.Gateway.ControlPlane.HPDAuth", true, ["HPD.Gateway.ControlPlane"]),
         ["HPD.Gateway.Discovery.Microsoft"] = new("HPD.Gateway.Discovery.Microsoft", "HPD.Gateway.Discovery.Microsoft", true, ["HPD.Gateway"]),
+        ["HPD.Gateway.Admission.Redis"] = new("HPD.Gateway.Admission.Redis", "HPD.Gateway.Admission.Redis", true, ["HPD.Gateway"]),
         ["HPD.Gateway.Standalone"] = new(null, "HPD.Gateway.Standalone", false,
         [
             "HPD.Gateway",
             "HPD.Gateway.ControlPlane",
             "HPD.Gateway.ControlPlane.Sqlite",
-            "HPD.Gateway.ControlPlane.HPDAuth"
+            "HPD.Gateway.ControlPlane.HPDAuth",
+            "HPD.Gateway.Admission.Redis"
         ])
     };
     if (!products.Keys.Order(StringComparer.Ordinal).SequenceEqual(expectedProducts.Keys.Order(StringComparer.Ordinal), StringComparer.Ordinal))
-        throw new InvalidOperationException("Product manifest must contain exactly the six Decision 0016 products.");
+        throw new InvalidOperationException("Product manifest must contain exactly the seven Decision 0017 products.");
     foreach ((string project, ExpectedProduct expected) in expectedProducts)
     {
         ProductManifest actual = products[project];
@@ -559,10 +614,10 @@ static IReadOnlyDictionary<string, ProductManifest> ValidateProductManifests(str
             actual.RootNamespace != expected.RootNamespace ||
             actual.Packable != expected.Packable ||
             !actual.Dependencies.SequenceEqual(expected.Dependencies, StringComparer.Ordinal))
-            throw new InvalidOperationException($"Product '{project}' does not match its closed Decision 0016 identity and dependency record.");
+            throw new InvalidOperationException($"Product '{project}' does not match its closed Decision 0017 identity and dependency record.");
     }
-    if (packageIds.Count != 5)
-        throw new InvalidOperationException("Exactly five library products must be packable.");
+    if (packageIds.Count != 6)
+        throw new InvalidOperationException("Exactly six library products must be packable.");
 
     foreach (ProductManifest product in products.Values)
         foreach (string dependency in product.Dependencies)
@@ -641,6 +696,25 @@ internal sealed record ExpectedProduct(
     string RootNamespace,
     bool Packable,
     string[] Dependencies);
+
+internal sealed record FinalProduct(
+    string Project,
+    string? PackageId,
+    string RootNamespace,
+    bool Packable,
+    string[] ProductDependencies);
+
+internal sealed record FinalPublicType(
+    string Product,
+    string PackageId,
+    string Namespace,
+    string Type);
+
+internal sealed record FinalProductInventory(
+    string InventoryVersion,
+    IReadOnlyList<FinalProduct> Products,
+    int PublicTypeCount,
+    IReadOnlyList<FinalPublicType> PublicTypes);
 
 [System.Text.Json.Serialization.JsonSerializable(typeof(LedgerEnvelope))]
 [System.Text.Json.Serialization.JsonSourceGenerationOptions(

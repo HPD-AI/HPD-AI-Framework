@@ -13,6 +13,7 @@ function status(serving: 'Ready' | 'NotReady' = 'Ready', publication = 'ActiveAc
     management: { authorityReady: true, code: 'Ready', durability: 'RestartDurable', indeterminateDeliveryCount: 0, latestNodeActivationIntentId: 'intent' as never, latestNodeOutcome: 'ActiveAcknowledged', nodeAttemptStarted: true, pendingDeliveryCount: 0, servingReadinessAffected: false },
     node: {
       conditions: [], detailsTruncated: false, generatedAt: '2026-08-08T00:00:00Z', processInstanceId: 'process', snapshotSequence: '1', upstreams: [],
+      trafficAdmission: { schemaVersion: 1, profiles: [], isTruncated: false },
       host: { desiredConfigurationHash: null, runningConfigurationHash: null, reasons: [], state: 'Ready', stamp: stamp() },
       intent: { state: 'NotManaged', stamp: stamp() }, preparation: { candidateId: 'candidate' as never, state: 'Prepared', stamp: stamp() },
       publication: { active: active(), attemptedCandidateId: 'candidate' as never, lastKnownGood: active(), reasons: [], state: publication as never, stamp: stamp() },

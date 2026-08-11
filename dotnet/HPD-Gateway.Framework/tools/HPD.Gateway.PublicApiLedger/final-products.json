@@ -1,0 +1,1861 @@
+{
+  "InventoryVersion": "hpd-gateway-final-product-inventory/v1",
+  "Products": [
+    {
+      "Project": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "RootNamespace": "HPD.Gateway",
+      "Packable": true,
+      "ProductDependencies": []
+    },
+    {
+      "Project": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "RootNamespace": "HPD.Gateway.ControlPlane",
+      "Packable": true,
+      "ProductDependencies": [
+        "HPD.Gateway"
+      ]
+    },
+    {
+      "Project": "HPD.Gateway.ControlPlane.Sqlite",
+      "PackageId": "HPD.Gateway.ControlPlane.Sqlite",
+      "RootNamespace": "HPD.Gateway.ControlPlane.Sqlite",
+      "Packable": true,
+      "ProductDependencies": [
+        "HPD.Gateway.ControlPlane"
+      ]
+    },
+    {
+      "Project": "HPD.Gateway.ControlPlane.HPDAuth",
+      "PackageId": "HPD.Gateway.ControlPlane.HPDAuth",
+      "RootNamespace": "HPD.Gateway.ControlPlane.HPDAuth",
+      "Packable": true,
+      "ProductDependencies": [
+        "HPD.Gateway.ControlPlane"
+      ]
+    },
+    {
+      "Project": "HPD.Gateway.Discovery.Microsoft",
+      "PackageId": "HPD.Gateway.Discovery.Microsoft",
+      "RootNamespace": "HPD.Gateway.Discovery.Microsoft",
+      "Packable": true,
+      "ProductDependencies": [
+        "HPD.Gateway"
+      ]
+    },
+    {
+      "Project": "HPD.Gateway.Admission.Redis",
+      "PackageId": "HPD.Gateway.Admission.Redis",
+      "RootNamespace": "HPD.Gateway.Admission.Redis",
+      "Packable": true,
+      "ProductDependencies": [
+        "HPD.Gateway"
+      ]
+    },
+    {
+      "Project": "HPD.Gateway.Standalone",
+      "PackageId": null,
+      "RootNamespace": "HPD.Gateway.Standalone",
+      "Packable": false,
+      "ProductDependencies": [
+        "HPD.Gateway",
+        "HPD.Gateway.ControlPlane",
+        "HPD.Gateway.ControlPlane.Sqlite",
+        "HPD.Gateway.ControlPlane.HPDAuth",
+        "HPD.Gateway.Admission.Redis"
+      ]
+    }
+  ],
+  "PublicTypeCount": 298,
+  "PublicTypes": [
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.ActiveHealthCheckDeclaration"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.ActivePublicationIdentity"
+    },
+    {
+      "Product": "HPD.Gateway.Admission.Redis",
+      "PackageId": "HPD.Gateway.Admission.Redis",
+      "Namespace": "HPD.Gateway.Admission.Redis",
+      "Type": "HPD.Gateway.Admission.Redis.GatewayRedisAdmissionExtensions"
+    },
+    {
+      "Product": "HPD.Gateway.Admission.Redis",
+      "PackageId": "HPD.Gateway.Admission.Redis",
+      "Namespace": "HPD.Gateway.Admission.Redis",
+      "Type": "HPD.Gateway.Admission.Redis.GatewayRedisAdmissionHealthSnapshot"
+    },
+    {
+      "Product": "HPD.Gateway.Admission.Redis",
+      "PackageId": "HPD.Gateway.Admission.Redis",
+      "Namespace": "HPD.Gateway.Admission.Redis",
+      "Type": "HPD.Gateway.Admission.Redis.GatewayRedisAdmissionOptions"
+    },
+    {
+      "Product": "HPD.Gateway.Admission.Redis",
+      "PackageId": "HPD.Gateway.Admission.Redis",
+      "Namespace": "HPD.Gateway.Admission.Redis",
+      "Type": "HPD.Gateway.Admission.Redis.IGatewayRedisAdmissionHealth"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.CandidateId"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.ConcurrencyAdmissionEntry"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.ContentHash"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayAcceptedRevision\u002BFields"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayActivateRevisionCommand"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayActivationIntent\u002BFields"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayAdminApiOptions"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayAdminCapabilities"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayAdminRequestAttribution"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayAdminResource"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayAdminResourceKind"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayAdminResourcePolicies"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayAdministrativeArtifactObservation\u002BFields"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayAdministrativeAuditRecord\u002BFields"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayAdministrativeCompletionState"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayAdministrativeExecutionState\u002BFields"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayAdministrativeObservationKind"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayAdministrativeOperationCompletion\u002BFields"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayAdministrativeOperationIntent\u002BFields"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayAdministrativeOperationKind"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayAdministrativeOperationObservation\u002BFields"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayAdministrativeOperationReadProjection"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayAdministrativeOperationReadState"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayAdministrativeResult"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayApplicationReadResult\u00601"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayApplicationReadState"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayAuthorityCapabilitySnapshot"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayAuthorityDurability"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayBackupArtifact"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayBackupSinkRegistry"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayCommandReceipt\u002BFields"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayControlPlaneBuilder"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayControlPlaneEndpointRouteBuilderExtensions"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayControlPlaneServiceCollectionExtensions"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayDeliveryOutboxItem\u002BFields"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayDesiredProjection"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayDesiredState\u002BFields"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayLocalProvisionTargetCommand"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayManagedPage\u00601"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayManagedRecord\u00601"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayManagementActor"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayManagementCommandResult"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayManagementCommandState"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayManagementOptions"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayManagementPurgeCategory"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayManagementStatusSnapshot"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayNodeActivationOutcome\u002BFields"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayNodeDeliveryAuthorityState\u002BFields"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayNodeOutcomeKind"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayProvisionTargetCommand"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayPurgeAuthorityState\u002BFields"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayRevisionActivationKind"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayRevisionComparison"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayRevisionDifference"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayRevisionExport"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayRevisionMutation"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayRollbackMutation"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayStudioEndpointOptions"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewaySubmitCommand"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayTargetEpochReservation\u002BFields"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayTargetEpochReservationReceipt\u002BFields"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayTargetOwnership\u002BFields"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayValidationOutcome"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.GatewayValidationRecord\u002BFields"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane.HPDAuth",
+      "PackageId": "HPD.Gateway.ControlPlane.HPDAuth",
+      "Namespace": "HPD.Gateway.ControlPlane.HPDAuth",
+      "Type": "HPD.Gateway.ControlPlane.HPDAuth.GatewayHpdAuthAdminServiceCollectionExtensions"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane.HPDAuth",
+      "PackageId": "HPD.Gateway.ControlPlane.HPDAuth",
+      "Namespace": "HPD.Gateway.ControlPlane.HPDAuth",
+      "Type": "HPD.Gateway.ControlPlane.HPDAuth.GatewayManagementActorProjection"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.IGatewayAdminActorProjector"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.IGatewayAdminSecurityMetadataProvider"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.IGatewayBackupSink"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.IGatewayManagementAdministration"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.IGatewayManagementApplication"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.IGatewayManagementCommandCoordinator"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane",
+      "PackageId": "HPD.Gateway.ControlPlane",
+      "Namespace": "HPD.Gateway.ControlPlane",
+      "Type": "HPD.Gateway.ControlPlane.IGatewayManagementStatusReader"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane.Sqlite",
+      "PackageId": "HPD.Gateway.ControlPlane.Sqlite",
+      "Namespace": "HPD.Gateway.ControlPlane.Sqlite",
+      "Type": "HPD.Gateway.ControlPlane.Sqlite.GatewaySqliteAuthorityOptions"
+    },
+    {
+      "Product": "HPD.Gateway.ControlPlane.Sqlite",
+      "PackageId": "HPD.Gateway.ControlPlane.Sqlite",
+      "Namespace": "HPD.Gateway.ControlPlane.Sqlite",
+      "Type": "HPD.Gateway.ControlPlane.Sqlite.GatewaySqliteControlPlaneExtensions"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.CorsPolicyBinding"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.CredentialDispositionBinding"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.CredentialDispositionKind"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.DeclarationDefinition\u00601"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.DeclarationFamilyId"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.DeclarationReference\u00601"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.DefinitionId"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.DestinationDeclaration"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.DestinationId"
+    },
+    {
+      "Product": "HPD.Gateway.Discovery.Microsoft",
+      "PackageId": "HPD.Gateway.Discovery.Microsoft",
+      "Namespace": "HPD.Gateway.Discovery.Microsoft",
+      "Type": "HPD.Gateway.Discovery.Microsoft.GatewayHostNameMetadataPolicy"
+    },
+    {
+      "Product": "HPD.Gateway.Discovery.Microsoft",
+      "PackageId": "HPD.Gateway.Discovery.Microsoft",
+      "Namespace": "HPD.Gateway.Discovery.Microsoft",
+      "Type": "HPD.Gateway.Discovery.Microsoft.GatewayMicrosoftConfigurationOptions"
+    },
+    {
+      "Product": "HPD.Gateway.Discovery.Microsoft",
+      "PackageId": "HPD.Gateway.Discovery.Microsoft",
+      "Namespace": "HPD.Gateway.Discovery.Microsoft",
+      "Type": "HPD.Gateway.Discovery.Microsoft.GatewayMicrosoftDiscoveryExtensions"
+    },
+    {
+      "Product": "HPD.Gateway.Discovery.Microsoft",
+      "PackageId": "HPD.Gateway.Discovery.Microsoft",
+      "Namespace": "HPD.Gateway.Discovery.Microsoft",
+      "Type": "HPD.Gateway.Discovery.Microsoft.GatewayMicrosoftDiscoveryProfileBuilder"
+    },
+    {
+      "Product": "HPD.Gateway.Discovery.Microsoft",
+      "PackageId": "HPD.Gateway.Discovery.Microsoft",
+      "Namespace": "HPD.Gateway.Discovery.Microsoft",
+      "Type": "HPD.Gateway.Discovery.Microsoft.GatewayMicrosoftDnsOptions"
+    },
+    {
+      "Product": "HPD.Gateway.Discovery.Microsoft",
+      "PackageId": "HPD.Gateway.Discovery.Microsoft",
+      "Namespace": "HPD.Gateway.Discovery.Microsoft",
+      "Type": "HPD.Gateway.Discovery.Microsoft.GatewayMicrosoftDnsSrvOptions"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.DiscoveryProfileCapability"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.DiscoveryProfileId"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.DiscoveryProviderKind"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.DiscoveryRuntimeKind"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.DiscoveryStaleBehavior"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.FixedWindowAdmissionEntry"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayActiveConfigurationIdentity"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayAdmissionAuthorityState"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayAdmissionPartitionContext"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayAdmissionPartitionFailure"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayAdmissionPartitionResult"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayAdmissionProfileStatus"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayAdmissionStatusSnapshot"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayApplicationExtensions"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayAppliedMembershipDisposition"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayAppliedRoute"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayAppliedRuntimeObservation"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayAppliedRuntimeSnapshot"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayAppliedTrafficAdmissionEntry"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayAppliedTrafficAdmissionPlan"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayAppliedUpstream"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayAppliedUpstreamKind"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayAttemptTimeoutProfile"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayBuilder"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayCandidateReadResult"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayCandidateReader"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayCanonicalDocument"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayCertificateSourceRegistryBuilder"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayCircuitBreakerProfile"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayCondition"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayConditionType"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayConditionValue"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayConfiguration"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayContributionDisposition"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayContributionScope"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayContributionSourceKind"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayDeclarationFamilies"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayDefinitions"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayDiscoveryObservationState"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayDiscoveryStatus"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayEffectiveBounds"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayEffectiveComposition"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayEffectiveContribution"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayEffectiveDiagnostic"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayEffectiveFamilies"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayEffectiveRecord"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayEffectiveTargetKind"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayEndpointRoleMetadata"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayHostCandidate"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayHostConfiguration"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayHostId"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayHostLifecycleExtensions"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayHostSchemaVersion"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayHostStatus"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayHostingCompositionExtensions"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayHttpsListenerDeclaration"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayIdentifier"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayInboundTlsDeclaration"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayInspectionCompleteness"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayInspectionContext"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayInspectionDecision"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayInspectionDisposition"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayInspectionRegistryBuilder"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayIntentStatus"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayKestrelHostingExtensions"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayListenerBindingKind"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayListenerProtocols"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayListenerRole"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayListenerRoleExtensions"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayLocalAdmissionOptions"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayManagementExposure"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayManagementListenerDeclaration"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayMaterializationDisposition"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayNativeEligibilityState"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayNativeProjection"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayNativeUpstreamStatus"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayNodeActivationDiagnostic"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayNodeActivationRequest"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayNodeActivationResult"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayNodeActivationState"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayOutboundConcurrencyProfile"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayOutputCacheBuilderExtensions"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayOutputCacheProfile"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayOutputCacheRegistryBuilder"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayPfxCertificateSource"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayPreparationStatus"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayPublicationDiagnostic"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayPublicationOutcome"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayPublicationState"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayPublicationStatus"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayReadinessResponse"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayReadinessState"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayReadinessStatus"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayResilienceBuilderExtensions"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayResilienceProfile"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayResilienceRegistryBuilder"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayResponseRetryProfile"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayRootDeclarations"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewaySchemaVersion"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayServiceCollectionExtensions"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewaySharedAdmissionCertification"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewaySharedAdmissionCertificationReport"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewaySharedAdmissionCertificationVector"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewaySharedAdmissionContract"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewaySharedAdmissionDecision"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewaySharedAdmissionDecisionKind"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewaySharedAdmissionProfileOptions"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewaySharedAdmissionProviderOptions"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewaySharedAdmissionProviderStatistics"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewaySharedAdmissionRequest"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewaySharedAdmissionRetainedState"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewaySharedAdmissionSegmentState"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewaySniTlsDeclaration"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayStatusExtensions"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayStatusHostState"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayStatusIntentState"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayStatusObservationStamp"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayStatusPreparationState"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayStatusPublicationState"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayStatusReason"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayStatusSnapshot"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayTrafficAdmissionRegistryBuilder"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayValidationError"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayValidationErrorCode"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.GatewayValidationResult"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.HeaderTransformKind"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.HealthCheckDeclaration"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.HostCapabilityRegistration"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.HostCapabilitySnapshot"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.HttpHeaderMatch"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.HttpQueryMatch"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.HttpRouteMatch"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.HttpVersionSelection"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.IGatewayAdmissionPartitionProjector"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.IGatewayAdmissionStatusReader"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.IGatewayInspectionFeature"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.IGatewayNodeActivator"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.IGatewayNodeAppliedRuntimeReader"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.IGatewayRequestInspector"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.IGatewaySharedAdmissionCertificationAuthority"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.IGatewaySharedAdmissionProvider"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.IGatewayStatusReader"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.IHpdGatewayListenerFeature"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.InboundTlsFallback"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.ListenerCapability"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.ListenerId"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.ListenerProtocols"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.ListenerRole"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.LoadBalancingDeclaration"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.LoadBalancingKind"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.MetadataEntry"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.NamedAuthorizationPolicy"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.OrderedRequestTransforms"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.OrderedResponseTransforms"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.OutputCacheBinding"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.OutputCacheCapability"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.OutputCacheStoreScope"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.PassiveHealthCheckDeclaration"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.ProviderId"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.ProviderObjectId"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.PublicationCandidateIdentity"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.RequestHeaderTransform"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.RequestInspectionBinding"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.RequestInspectionMode"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.RequestInspectionSpillPolicy"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.RequestRateAdmissionEntry"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.RequestTimeoutBinding"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.ResourceMetadata"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.ResponseHeaderTransform"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.RouteDeclaration"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.RouteDeclarations"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.RouteId"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.SecretReference"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.ServiceDiscoveryEndpointName"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.ServiceDiscoveryEndpointSource"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.ServiceDiscoveryName"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.ServiceDiscoveryScheme"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.SessionAffinityDeclaration"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.SlidingWindowAdmissionEntry"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.StaticEndpointSource"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.TelemetryEnrichment"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.TextMatchKind"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.TokenBucketAdmissionEntry"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.TrafficAdmissionCapability"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.TrafficAdmissionEntry"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.TrafficAdmissionFailureDisposition"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.TrafficAdmissionKind"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.TrafficAdmissionLimits"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.TrafficAdmissionPartitionKind"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.TrafficAdmissionPlan"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.TrafficAdmissionRateAlgorithm"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.TrafficAdmissionScope"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.UpstreamDeclaration"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.UpstreamEndpointSource"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.UpstreamHttpVersion"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.UpstreamId"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.UpstreamRequestDeclaration"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.UpstreamResilienceBinding"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.UpstreamResilienceCapability"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.UpstreamResilienceStrategies"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.UpstreamTlsDeclaration"
+    },
+    {
+      "Product": "HPD.Gateway",
+      "PackageId": "HPD.Gateway",
+      "Namespace": "HPD.Gateway",
+      "Type": "HPD.Gateway.UpstreamTransportDeclaration"
+    }
+  ]
+}

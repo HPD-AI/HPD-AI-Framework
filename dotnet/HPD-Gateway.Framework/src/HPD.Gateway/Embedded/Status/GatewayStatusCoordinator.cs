@@ -16,12 +16,14 @@ internal sealed class GatewayStatusCoordinator : BackgroundService, IGatewayStat
     private readonly object _sync = new();
     private readonly IGatewayPublicationObservationReader _publication;
     private readonly IGatewayNodeAppliedRuntimeReader _appliedRuntime;
+    private readonly IGatewayAdmissionStatusReader? _admission;
     private readonly IProxyStateLookup _proxy;
     private readonly GatewayHostRuntimeStatus? _host;
     private readonly IHostApplicationLifetime _lifetime;
     private readonly string _processInstanceId = Guid.NewGuid().ToString("N");
     private readonly IDisposable _publicationSubscription;
     private readonly IDisposable _appliedRuntimeSubscription;
+    private readonly IDisposable? _admissionSubscription;
     private GatewayStatusSnapshot _current;
     private string _currentKey = string.Empty;
     private CancellationTokenSource _changed = new();
@@ -30,6 +32,7 @@ internal sealed class GatewayStatusCoordinator : BackgroundService, IGatewayStat
     internal GatewayStatusCoordinator(
         IEnumerable<IGatewayPublicationObservationReader> publications,
         IEnumerable<IGatewayNodeAppliedRuntimeReader> appliedRuntimeReaders,
+        IEnumerable<IGatewayAdmissionStatusReader> admissionReaders,
         IProxyStateLookup proxy,
         IEnumerable<GatewayHostRuntimeStatus> hosts,
         IHostApplicationLifetime lifetime)
@@ -42,6 +45,10 @@ internal sealed class GatewayStatusCoordinator : BackgroundService, IGatewayStat
         if (installedAppliedRuntimeReaders.Length != 1)
             throw new InvalidOperationException("Exactly one HPD Gateway applied-runtime authority must be installed.");
         _appliedRuntime = installedAppliedRuntimeReaders[0];
+        var installedAdmissionReaders = admissionReaders.ToArray();
+        if (installedAdmissionReaders.Length > 1)
+            throw new InvalidOperationException("At most one HPD Gateway admission status authority may be installed.");
+        _admission = installedAdmissionReaders.SingleOrDefault();
         _proxy = proxy;
         _lifetime = lifetime;
         var installedHosts = hosts.ToArray();
@@ -52,6 +59,8 @@ internal sealed class GatewayStatusCoordinator : BackgroundService, IGatewayStat
         _publicationSubscription = ChangeToken.OnChange(_publication.GetChangeToken, Refresh);
         _appliedRuntimeSubscription = ChangeToken.OnChange(
             () => new CancellationChangeToken(_appliedRuntime.GetChangeToken()), Refresh);
+        _admissionSubscription = _admission is null ? null : ChangeToken.OnChange(
+            () => new CancellationChangeToken(_admission.GetChangeToken()), Refresh);
     }
 
     public GatewayStatusSnapshot GetCurrent()
@@ -92,6 +101,7 @@ internal sealed class GatewayStatusCoordinator : BackgroundService, IGatewayStat
         }
         _publicationSubscription.Dispose();
         _appliedRuntimeSubscription.Dispose();
+        _admissionSubscription?.Dispose();
         try { changed.Cancel(); }
         catch (AggregateException) { }
         changed.Dispose();
@@ -127,6 +137,7 @@ internal sealed class GatewayStatusCoordinator : BackgroundService, IGatewayStat
     {
         var publication = _publication.GetCurrent();
         GatewayAppliedRuntimeObservation? applied = _appliedRuntime.GetCurrent();
+        GatewayAdmissionStatusSnapshot admission = _admission?.GetCurrent() ?? new(1, [], false);
         var host = BuildHost(sequence, now, forceStopping);
         var publicationStatus = BuildPublication(publication);
         bool appliedMatches = MatchesApplied(publicationStatus.Active, applied?.Snapshot);
@@ -160,7 +171,10 @@ internal sealed class GatewayStatusCoordinator : BackgroundService, IGatewayStat
             servingReady ? GatewayReadinessState.Ready : GatewayReadinessState.NotReady,
             boundedReasons,
             stamp);
-        var conditions = BuildConditions(sequence, now, configurationReady, servingReady, host, publicationStatus, providersAcceptable, destinationsEligible);
+        var admissionAcceptable = admission.Profiles.All(static profile => profile.State is
+            GatewayAdmissionAuthorityState.NotRequired or GatewayAdmissionAuthorityState.Healthy);
+        var conditions = BuildConditions(sequence, now, configurationReady, servingReady, host, publicationStatus,
+            providersAcceptable, destinationsEligible, admissionAcceptable);
         return new GatewayStatusSnapshot(
             _processInstanceId,
             sequence,
@@ -172,6 +186,7 @@ internal sealed class GatewayStatusCoordinator : BackgroundService, IGatewayStat
             host,
             publicationStatus,
             upstreams,
+            admission,
             readiness,
             conditions,
             truncated || reasons.Count > MaximumReasons);
@@ -365,7 +380,8 @@ internal sealed class GatewayStatusCoordinator : BackgroundService, IGatewayStat
 
     private ImmutableArray<GatewayCondition> BuildConditions(
         ulong sequence, DateTimeOffset now, bool configurationReady, bool servingReady,
-        GatewayHostStatus host, GatewayPublicationStatus publication, bool providersAcceptable, bool destinationsReady)
+        GatewayHostStatus host, GatewayPublicationStatus publication, bool providersAcceptable, bool destinationsReady,
+        bool admissionAcceptable)
     {
         var hostReady = host.State is GatewayStatusHostState.NotApplicable or GatewayStatusHostState.Ready or GatewayStatusHostState.RestartRequired;
         return
@@ -376,7 +392,9 @@ internal sealed class GatewayStatusCoordinator : BackgroundService, IGatewayStat
             Condition(GatewayConditionType.HostRestartRequired, host.State == GatewayStatusHostState.RestartRequired, host.State == GatewayStatusHostState.RestartRequired ? "gateway.host.restart_required" : "gateway.host.current", sequence, now),
             Condition(GatewayConditionType.PublicationCertain, publication.State != GatewayStatusPublicationState.PublicationIndeterminate, publication.State == GatewayStatusPublicationState.PublicationIndeterminate ? "gateway.publication.indeterminate" : "gateway.publication.certain", sequence, now),
             Condition(GatewayConditionType.ProvidersAcceptable, providersAcceptable, providersAcceptable ? "gateway.discovery.acceptable" : "gateway.discovery.not_acceptable", sequence, now),
-            Condition(GatewayConditionType.DestinationsEligible, destinationsReady, destinationsReady ? "gateway.destination.eligible" : "gateway.destination.none_eligible", sequence, now)
+            Condition(GatewayConditionType.DestinationsEligible, destinationsReady, destinationsReady ? "gateway.destination.eligible" : "gateway.destination.none_eligible", sequence, now),
+            Condition(GatewayConditionType.AdmissionAuthoritiesAcceptable, admissionAcceptable,
+                admissionAcceptable ? "gateway.admission.acceptable" : "gateway.admission.degraded", sequence, now)
         ];
     }
 
@@ -409,6 +427,12 @@ internal sealed class GatewayStatusCoordinator : BackgroundService, IGatewayStat
             .Append('|').Append(snapshot.DetailsTruncated);
         foreach (var reason in snapshot.Publication.Reasons) builder.Append('|').Append(reason.Code);
         foreach (var reason in snapshot.Readiness.Reasons) builder.Append('|').Append(reason.Code);
+        foreach (var profile in snapshot.TrafficAdmission.Profiles)
+            builder.Append('|').Append(profile.Profile).Append(':').Append(profile.State).Append(':')
+                .Append(profile.Acquired).Append(':').Append(profile.Rejected).Append(':')
+                .Append(profile.InfrastructureFailures).Append(':').Append(profile.DegradedBypasses).Append(':')
+                .Append(profile.LocalFallbacks).Append(':').Append(profile.LastObservedAt?.UtcTicks).Append(':')
+                .Append(profile.SafeDiagnosticCode);
         foreach (var condition in snapshot.Conditions)
             builder.Append('|').Append(condition.Type).Append(':').Append(condition.Value).Append(':').Append(condition.ReasonCode);
         foreach (var upstream in snapshot.Upstreams)

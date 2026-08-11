@@ -123,6 +123,7 @@ internal static class GatewayAdminClientNullableSchemaLedger
         (typeof(GatewayTargetStatusResponse), "node"),
         (typeof(HPD.Gateway.GatewayPublicationStatus), "active"),
         (typeof(HPD.Gateway.GatewayPublicationStatus), "lastKnownGood"),
+        (typeof(HPD.Gateway.GatewayAppliedRoute), "trafficAdmission"),
     ];
 
     internal static bool Contains(Type type, string property) => V1.Contains((type, property));

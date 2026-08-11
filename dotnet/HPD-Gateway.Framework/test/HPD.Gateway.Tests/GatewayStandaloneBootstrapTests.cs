@@ -43,6 +43,42 @@ public sealed class GatewayStandaloneBootstrapTests
             .WithMessage("*environment-variable name is invalid*");
     }
 
+    [Fact]
+    public void BootstrapReaderSnapshotsOptionalRedisAuthorityFromEnvironmentAndRejectsMalformedBounds()
+    {
+        using var files = StandaloneFiles.Create();
+        string variable = $"HPD_GATEWAY_REDIS_{Guid.NewGuid():N}";
+        Environment.SetEnvironmentVariable(variable, "localhost:6379,abortConnect=false");
+        try
+        {
+            files.WriteBootstrap(null, new GatewayStandaloneRedisAdmission
+            {
+                AuthorityId = "fleet",
+                ConfigurationEnvironmentVariable = variable,
+                OperationTimeoutMilliseconds = 125,
+                MaximumConcurrentInvocations = 64
+            });
+            GatewayStandaloneInputs inputs = GatewayStandaloneBootstrapReader.Read(files.BootstrapPath);
+            inputs.RedisAdmission.Should().NotBeNull();
+            inputs.RedisAdmission!.Configuration.Should().Be("localhost:6379,abortConnect=false");
+            inputs.RedisAdmission.OperationTimeout.Should().Be(TimeSpan.FromMilliseconds(125));
+
+            files.WriteBootstrap(null, new GatewayStandaloneRedisAdmission
+            {
+                AuthorityId = "fleet",
+                ConfigurationEnvironmentVariable = variable,
+                MaximumConcurrentInvocations = 4_097
+            });
+            FluentActions.Invoking(() => GatewayStandaloneBootstrapReader.Read(files.BootstrapPath))
+                .Should().Throw<InvalidOperationException>()
+                .WithMessage("*Redis admission configuration is invalid*");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(variable, null);
+        }
+    }
+
     private sealed class StandaloneFiles : IDisposable
     {
         private StandaloneFiles(string directory, byte[] gatewayBytes)
@@ -108,7 +144,9 @@ public sealed class GatewayStandaloneBootstrapTests
             return files;
         }
 
-        internal void WriteBootstrap(string? passwordEnvironmentVariable)
+        internal void WriteBootstrap(
+            string? passwordEnvironmentVariable,
+            GatewayStandaloneRedisAdmission? redisAdmission = null)
         {
             var bootstrap = new GatewayStandaloneBootstrap
             {
@@ -134,6 +172,7 @@ public sealed class GatewayStandaloneBootstrapTests
                     JwtAudience = "hpd-gateway",
                     JwtSigningKeyHex = new string('4', 64),
                 },
+                RedisAdmission = redisAdmission,
                 Certificates =
                 [
                     new GatewayStandaloneCertificateSource

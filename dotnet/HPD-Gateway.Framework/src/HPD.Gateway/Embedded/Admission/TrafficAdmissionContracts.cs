@@ -154,3 +154,40 @@ public sealed record TrafficAdmissionCapability(
     int? MaximumConcurrentInvocations = null,
     string? LocalFallbackProfile = null,
     ContentHash? LocalFallbackIdentity = null);
+
+[JsonConverter(typeof(StrictStringEnumJsonConverter<GatewayAdmissionAuthorityState>))]
+public enum GatewayAdmissionAuthorityState : byte
+{
+    NotRequired = 0,
+    NotObserved = 1,
+    Healthy = 2,
+    DegradedBypass = 3,
+    DegradedLocalFallback = 4,
+    Unavailable = 5,
+    Indeterminate = 6,
+    ConfigurationConflict = 7,
+}
+
+public sealed record GatewayAdmissionProfileStatus(
+    string Profile,
+    TrafficAdmissionScope Scope,
+    string AuthorityId,
+    GatewayAdmissionAuthorityState State,
+    [property: JsonNumberHandling(JsonNumberHandling.WriteAsString | JsonNumberHandling.AllowReadingFromString)] long Acquired,
+    [property: JsonNumberHandling(JsonNumberHandling.WriteAsString | JsonNumberHandling.AllowReadingFromString)] long Rejected,
+    [property: JsonNumberHandling(JsonNumberHandling.WriteAsString | JsonNumberHandling.AllowReadingFromString)] long InfrastructureFailures,
+    [property: JsonNumberHandling(JsonNumberHandling.WriteAsString | JsonNumberHandling.AllowReadingFromString)] long DegradedBypasses,
+    [property: JsonNumberHandling(JsonNumberHandling.WriteAsString | JsonNumberHandling.AllowReadingFromString)] long LocalFallbacks,
+    DateTimeOffset? LastObservedAt,
+    string? SafeDiagnosticCode);
+
+public sealed record GatewayAdmissionStatusSnapshot(
+    ushort SchemaVersion,
+    ImmutableArray<GatewayAdmissionProfileStatus> Profiles,
+    bool IsTruncated);
+
+public interface IGatewayAdmissionStatusReader
+{
+    GatewayAdmissionStatusSnapshot GetCurrent();
+    CancellationToken GetChangeToken();
+}

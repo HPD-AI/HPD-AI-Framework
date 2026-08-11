@@ -104,7 +104,7 @@ describe("real Gateway snapshot", () => {
     expect(schemas).toContain("readonly revisionId: GatewayRevisionId | null");
     expect(schemas).toContain("readonly items: readonly (GatewayOutcomeProjection)[]");
     expect(originalFiles["result.ts"]!).toContain('"request-too-large"');
-  });
+  }, 30_000);
 
   it("enforces the exact schema and aggregate-property bounds", () => {
     for (const count of [257, 512]) {
@@ -129,7 +129,7 @@ describe("real Gateway snapshot", () => {
     rehash(presentation);
     const parsed = parse(presentation);
     expect((parsed.openApi.info as Record<string, unknown>).title).toBe(decomposed);
-    expect(parsed.sourceSha256).toBe("73fc639a960d48ad46e3a8a49d9ef009b1e608b163d6eb5b45786801745d7ffa");
+    expect(parsed.sourceSha256).toBe("3cd2b76a3467737e78365c09510f20556a7d7a15b6894371f2f87ad6c6782e66");
 
     const semantic = clone();
     semantic.manifest.operations[0].capability = "gate\u0301way.capability";

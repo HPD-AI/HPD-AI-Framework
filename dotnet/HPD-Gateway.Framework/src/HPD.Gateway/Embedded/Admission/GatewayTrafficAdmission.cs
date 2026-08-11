@@ -195,6 +195,7 @@ public sealed class GatewayTrafficAdmissionRegistryBuilder
             .Select(static value => value.Name).Order(StringComparer.Ordinal).ToArray();
         var capabilities = ImmutableArray.CreateBuilder<TrafficAdmissionCapability>(_profiles.Count);
         var runtimes = ImmutableDictionary.CreateBuilder<string, GatewayAdmissionProfileRuntime>(StringComparer.Ordinal);
+        Action signalStatusChanged = static () => { };
         var providerRuntimes = _providers.ToDictionary(
             static pair => pair.Key,
             pair => new GatewaySharedAdmissionProviderRuntime(pair.Value, _timeProvider),
@@ -250,11 +251,13 @@ public sealed class GatewayTrafficAdmissionRegistryBuilder
                 localFallback?.Capability.BehaviorIdentity);
             capabilities.Add(capability);
             runtimes.Add(profile.Name, new GatewayAdmissionProfileRuntime(capability, projector, _timeProvider,
-                sharedProvider, localFallback, profile.ProviderId));
+                sharedProvider, localFallback, profile.ProviderId, () => signalStatusChanged()));
         }
-        return new GatewayTrafficAdmissionRegistry(
+        var registry = new GatewayTrafficAdmissionRegistry(
             capabilities.ToImmutable().OrderBy(static value => value.Name, StringComparer.Ordinal).ToImmutableArray(),
             runtimes.ToImmutable());
+        signalStatusChanged = registry.SignalStatusChanged;
+        return registry;
     }
 
     private static bool Contains(GatewayLocalAdmissionOptions fallback, GatewayLocalAdmissionOptions shared) =>
@@ -357,11 +360,37 @@ internal sealed class GatewaySharedAdmissionProviderRegistration(
 
 internal sealed class GatewayTrafficAdmissionRegistry(
     ImmutableArray<TrafficAdmissionCapability> capabilities,
-    ImmutableDictionary<string, GatewayAdmissionProfileRuntime> runtimes) : IDisposable
+    ImmutableDictionary<string, GatewayAdmissionProfileRuntime> runtimes) : IDisposable, IGatewayAdmissionStatusReader
 {
     private int _disposed;
+    private readonly object _statusGate = new();
+    private CancellationTokenSource _statusChanged = new();
     internal ImmutableArray<TrafficAdmissionCapability> Capabilities { get; } = capabilities;
     internal bool TryGet(string name, out GatewayAdmissionProfileRuntime runtime) => runtimes.TryGetValue(name, out runtime!);
+
+    public GatewayAdmissionStatusSnapshot GetCurrent() => new(1, runtimes.Values
+        .OrderBy(static runtime => runtime.Capability.Name, StringComparer.Ordinal)
+        .Select(static runtime => runtime.GetStatus())
+        .ToImmutableArray(), false);
+
+    public CancellationToken GetChangeToken()
+    {
+        lock (_statusGate) return _statusChanged.Token;
+    }
+
+    internal void SignalStatusChanged()
+    {
+        CancellationTokenSource previous;
+        lock (_statusGate)
+        {
+            if (_disposed != 0) return;
+            previous = _statusChanged;
+            _statusChanged = new();
+        }
+        try { previous.Cancel(); }
+        catch (AggregateException) { }
+        previous.Dispose();
+    }
 
     public void Dispose()
     {
@@ -372,6 +401,11 @@ internal sealed class GatewayTrafficAdmissionRegistry(
             try { runtime.Dispose(); }
             catch { }
         }
+        CancellationTokenSource changed;
+        lock (_statusGate) changed = _statusChanged;
+        try { changed.Cancel(); }
+        catch (AggregateException) { }
+        changed.Dispose();
     }
 }
 
@@ -584,14 +618,26 @@ internal sealed class GatewayAdmissionProfileRuntime : IDisposable
     private readonly GatewaySharedAdmissionProviderRuntime? _sharedProvider;
     private readonly GatewayAdmissionProfileRuntime? _localFallback;
     private readonly string? _providerId;
+    private readonly Action _signalStatusChanged;
+    private readonly object _statusSync = new();
     private int _disposed;
+    private bool _observed;
+    private long _acquired;
+    private long _rejected;
+    private long _infrastructure;
+    private long _bypasses;
+    private long _fallbacks;
+    private long _lastObservedUnixMilliseconds;
+    private int _authorityState;
+    private string? _safeDiagnosticCode;
     internal GatewayAdmissionProfileRuntime(
         TrafficAdmissionCapability capability,
         GatewayAdmissionProjectorRegistration? projector,
         TimeProvider timeProvider,
         GatewaySharedAdmissionProviderRuntime? sharedProvider = null,
         GatewayAdmissionProfileRuntime? localFallback = null,
-        string? providerId = null)
+        string? providerId = null,
+        Action? signalStatusChanged = null)
     {
         Capability = capability;
         _projector = projector;
@@ -599,8 +645,25 @@ internal sealed class GatewayAdmissionProfileRuntime : IDisposable
         _sharedProvider = sharedProvider;
         _localFallback = localFallback;
         _providerId = providerId;
+        _signalStatusChanged = signalStatusChanged ?? (() => { });
     }
     internal TrafficAdmissionCapability Capability { get; }
+
+    internal GatewayAdmissionProfileStatus GetStatus()
+    {
+        lock (_statusSync)
+        {
+            GatewayAdmissionAuthorityState state = Capability.Scope == TrafficAdmissionScope.ProcessLocal
+                ? GatewayAdmissionAuthorityState.NotRequired
+                : !_observed
+                    ? GatewayAdmissionAuthorityState.NotObserved
+                    : (GatewayAdmissionAuthorityState)_authorityState;
+            return new(Capability.Name, Capability.Scope, Capability.AuthorityId, state,
+                _acquired, _rejected, _infrastructure, _bypasses, _fallbacks,
+                !_observed ? null : DateTimeOffset.FromUnixTimeMilliseconds(_lastObservedUnixMilliseconds),
+                _safeDiagnosticCode);
+        }
+    }
 
     internal async ValueTask<GatewayProjectedPartition> ProjectAsync(
         HttpContext context,
@@ -696,25 +759,67 @@ internal sealed class GatewayAdmissionProfileRuntime : IDisposable
         switch (decision.Kind)
         {
             case GatewaySharedAdmissionDecisionKind.Acquired:
+                Observe(GatewayAdmissionAuthorityState.Healthy, acquired: true, diagnostic: null);
                 return GatewayAdmissionLease.Acquired(decision.Remaining!.Value, decision.ResetAfterMilliseconds!.Value);
             case GatewaySharedAdmissionDecisionKind.Rejected:
+                Observe(GatewayAdmissionAuthorityState.Healthy, rejected: true, diagnostic: null);
                 return GatewayAdmissionLease.Exhausted(decision.Remaining!.Value,
                     decision.RetryAfterMilliseconds!.Value, decision.ResetAfterMilliseconds!.Value);
             case GatewaySharedAdmissionDecisionKind.UnavailableBeforePossibleCommit:
                 if (Capability.FailureDisposition == TrafficAdmissionFailureDisposition.Bypass)
+                {
+                    Observe(GatewayAdmissionAuthorityState.DegradedBypass, bypass: true, diagnostic: "shared-provider-unavailable");
                     return GatewayAdmissionLease.DegradedBypass();
+                }
                 if (Capability.FailureDisposition == TrafficAdmissionFailureDisposition.LocalFallback && _localFallback is not null)
-                    return await _localFallback.AcquireAsync(entry, key, cancellationToken).ConfigureAwait(false);
+                {
+                    RateLimitLease fallback = await _localFallback.AcquireAsync(entry, key, cancellationToken).ConfigureAwait(false);
+                    Observe(GatewayAdmissionAuthorityState.DegradedLocalFallback, fallback: true, diagnostic: "shared-provider-unavailable");
+                    return fallback;
+                }
+                Observe(GatewayAdmissionAuthorityState.Unavailable, infrastructure: true, diagnostic: "shared-provider-unavailable");
                 return GatewayAdmissionLease.Infrastructure("SharedProviderUnavailable");
             case GatewaySharedAdmissionDecisionKind.CanceledBeforeDispatch when cancellationToken.IsCancellationRequested:
                 throw new OperationCanceledException(cancellationToken);
             case GatewaySharedAdmissionDecisionKind.ConfigurationConflict:
+                Observe(GatewayAdmissionAuthorityState.ConfigurationConflict, infrastructure: true, diagnostic: "shared-configuration-conflict");
                 return GatewayAdmissionLease.Infrastructure("SharedConfigurationConflict");
             case GatewaySharedAdmissionDecisionKind.IndeterminateAfterPossibleCommit:
+                Observe(GatewayAdmissionAuthorityState.Indeterminate, infrastructure: true, diagnostic: "shared-outcome-indeterminate");
                 return GatewayAdmissionLease.Infrastructure("SharedOutcomeIndeterminate");
             default:
+                Observe(GatewayAdmissionAuthorityState.Unavailable, infrastructure: true, diagnostic: "shared-provider-failure");
                 return GatewayAdmissionLease.Infrastructure("SharedProviderFailure");
         }
+    }
+
+    private void Observe(
+        GatewayAdmissionAuthorityState state,
+        bool acquired = false,
+        bool rejected = false,
+        bool infrastructure = false,
+        bool bypass = false,
+        bool fallback = false,
+        string? diagnostic = null)
+    {
+        lock (_statusSync)
+        {
+            _observed = true;
+            _authorityState = (int)state;
+            _lastObservedUnixMilliseconds = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
+            _safeDiagnosticCode = diagnostic;
+            if (acquired) Increment(ref _acquired);
+            if (rejected) Increment(ref _rejected);
+            if (infrastructure) Increment(ref _infrastructure);
+            if (bypass) Increment(ref _bypasses);
+            if (fallback) Increment(ref _fallbacks);
+        }
+        _signalStatusChanged();
+    }
+
+    private static void Increment(ref long value)
+    {
+        if (value < long.MaxValue) value++;
     }
 
     private GatewaySharedAdmissionRequest CreateSharedRequest(TrafficAdmissionEntry entry, string key)

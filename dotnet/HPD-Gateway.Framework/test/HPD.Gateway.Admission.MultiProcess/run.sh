@@ -52,6 +52,7 @@ run_case 500 concurrency round-robin fixed 1000
 run_case 600 quota round-robin sliding 50
 run_case 700 quota round-robin token 50
 run_case 750 race round-robin fixed 100 4
+run_case 775 benchmark sticky fixed 100000000 1
 
 dotnet "$assembly" controller --assembly "$assembly" \
   --redis "127.0.0.1:$((redis_port + 1)),abortConnect=false,connectTimeout=50" \

@@ -21,7 +21,8 @@ internal static class GatewayYarpServiceCollectionExtensions
             provider.GetService<TimeProvider>() ?? TimeProvider.System));
         services.AddSingleton(static provider => new GatewayRuntimeApplicationObserver(
             provider.GetRequiredService<GatewayDestinationResolver>(),
-            provider.GetService<TimeProvider>() ?? TimeProvider.System));
+            provider.GetService<TimeProvider>() ?? TimeProvider.System,
+            provider.GetService<GatewayTrafficAdmissionRegistry>()));
         services.AddSingleton<IGatewayNodeAppliedRuntimeReader>(static provider =>
             provider.GetRequiredService<GatewayRuntimeApplicationObserver>());
         services.AddSingleton(static provider => new HpdConfigChangeListener(

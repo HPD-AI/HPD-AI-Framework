@@ -1,9 +1,12 @@
 using System.Net;
 using System.Collections.Immutable;
 using System.Security.Claims;
+using System.Security.Cryptography;
+using System.Text;
 using HPD.Auth.ControlPlane;
 using HPD.Base;
 using HPD.Gateway;
+using HPD.Gateway.Admission.Redis;
 using HPD.Gateway.ControlPlane;
 using HPD.Gateway.ControlPlane.HPDAuth;
 using HPD.Gateway.ControlPlane.Sqlite;
@@ -45,6 +48,7 @@ builder.Services.AddHpdGateway(gateway =>
         Version = 1,
         Expiration = TimeSpan.FromMinutes(1)
     }));
+    gateway.AddTrafficAdmission(admission => ConfigureAdmission(admission, inputs.RedisAdmission));
     gateway.UseInitialCandidate(inputs.InitialCandidate);
 });
 const string adminProfile = "gateway-management";
@@ -145,6 +149,65 @@ application.MapHpdGatewayControlPlane();
 application.ValidateHpdGatewayEndpointRoles();
 await application.RunAsync();
 
+static void ConfigureAdmission(
+    GatewayTrafficAdmissionRegistryBuilder admission,
+    GatewayStandaloneRedisAdmissionInputs? redis)
+{
+    admission.AddPartitionProjector("standalone-subject", ProjectorIdentity("subject", ClaimTypes.NameIdentifier),
+        new StandaloneClaimPartitionProjector(ClaimTypes.NameIdentifier));
+    admission.AddPartitionProjector("standalone-tenant", ProjectorIdentity("tenant", "hpd_namespace"),
+        new StandaloneClaimPartitionProjector("hpd_namespace"));
+    admission.AddPartitionProjector("standalone-consumer", ProjectorIdentity("consumer", "hpd_consumer"),
+        new StandaloneClaimPartitionProjector("hpd_consumer"));
+    foreach ((TrafficAdmissionPartitionKind partition, string suffix, string? projector) in BuiltInPartitions())
+    {
+        void Configure(GatewayLocalAdmissionOptions options)
+        {
+            options.Partition = partition;
+            options.PartitionProjector = projector;
+        }
+        admission.AddLocalFixedWindow($"local-fixed-{suffix}", Configure);
+        admission.AddLocalSlidingWindow($"local-sliding-{suffix}", Configure);
+        admission.AddLocalTokenBucket($"local-token-{suffix}", Configure);
+        admission.AddLocalConcurrency($"local-concurrency-{suffix}", Configure);
+    }
+    if (redis is null) return;
+    admission.UseRedis("redis", options =>
+    {
+        options.AuthorityId = redis.AuthorityId;
+        options.Configuration = redis.Configuration;
+        options.KeyPrefix = redis.KeyPrefix;
+        options.Database = redis.Database;
+        options.OperationTimeout = redis.OperationTimeout;
+        options.MaximumConcurrentInvocations = redis.MaximumConcurrentInvocations;
+    });
+    foreach ((TrafficAdmissionPartitionKind partition, string suffix, string? projector) in BuiltInPartitions())
+    {
+        void Configure(GatewaySharedAdmissionProfileOptions options)
+        {
+            options.Partition = partition;
+            options.PartitionProjector = projector;
+        }
+        admission.AddSharedFixedWindow($"shared-fixed-{suffix}", "redis", Configure);
+        admission.AddSharedSlidingWindow($"shared-sliding-{suffix}", "redis", Configure);
+        admission.AddSharedTokenBucket($"shared-token-{suffix}", "redis", Configure);
+    }
+}
+
+static ContentHash ProjectorIdentity(string kind, string claim) => new(
+    "sha-256",
+    Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes($"hpd.gateway.standalone.partition/v1|{kind}|{claim}"))));
+
+static (TrafficAdmissionPartitionKind Partition, string Suffix, string? Projector)[] BuiltInPartitions() =>
+[
+    (TrafficAdmissionPartitionKind.Global, "global", null),
+    (TrafficAdmissionPartitionKind.Route, "route", null),
+    (TrafficAdmissionPartitionKind.SourceIp, "source-ip", null),
+    (TrafficAdmissionPartitionKind.AuthenticatedSubject, "subject", "standalone-subject"),
+    (TrafficAdmissionPartitionKind.Tenant, "tenant", "standalone-tenant"),
+    (TrafficAdmissionPartitionKind.Consumer, "consumer", "standalone-consumer")
+];
+
 static bool OwnsNamespace(Microsoft.AspNetCore.Authorization.AuthorizationHandlerContext context) =>
     context.Resource is GatewayAdminResource resource &&
     context.User.FindAll("hpd_namespace").Select(static claim => claim.Value)
@@ -177,4 +240,19 @@ internal sealed class StandaloneUnencodedInspector : IGatewayRequestInspector
         ValueTask.FromResult(context.ContentEncoded
             ? GatewayInspectionDecision.Reject("encoded-body-unsupported", 415)
             : GatewayInspectionDecision.Allow());
+}
+
+internal sealed class StandaloneClaimPartitionProjector(string claimType) : IGatewayAdmissionPartitionProjector
+{
+    public ValueTask<GatewayAdmissionPartitionResult> ProjectAsync(
+        GatewayAdmissionPartitionContext context,
+        CancellationToken cancellationToken)
+    {
+        if (cancellationToken.IsCancellationRequested)
+            return ValueTask.FromResult(GatewayAdmissionPartitionResult.Failed(GatewayAdmissionPartitionFailure.Canceled));
+        string[] values = context.Principal.FindAll(claimType).Select(static claim => claim.Value).Distinct(StringComparer.Ordinal).ToArray();
+        return ValueTask.FromResult(values.Length == 1
+            ? GatewayAdmissionPartitionResult.Success(values[0])
+            : GatewayAdmissionPartitionResult.Failed(GatewayAdmissionPartitionFailure.Unavailable));
+    }
 }

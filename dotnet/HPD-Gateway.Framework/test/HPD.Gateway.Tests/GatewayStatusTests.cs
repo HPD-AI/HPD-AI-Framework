@@ -46,7 +46,7 @@ public sealed class GatewayStatusTests
         snapshot.Publication.Active.Should().NotBeNull();
         snapshot.Readiness.Serving.Should().Be(GatewayReadinessState.Ready);
         snapshot.Upstreams.Should().ContainSingle(item => item.UpstreamId == "orders" && item.AvailableDestinationCount == 1);
-        snapshot.Conditions.Should().HaveCount(7).And.OnlyHaveUniqueItems(item => item.Type);
+        snapshot.Conditions.Should().HaveCount(8).And.OnlyHaveUniqueItems(item => item.Type);
     }
 
     [Fact]
@@ -167,7 +167,7 @@ public sealed class GatewayStatusTests
             new GatewayPublicationOutcome(GatewayPublicationState.ActiveAcknowledged, active.Candidate, active, active, active.NativeRevisionId, []),
             active, active, upstreams));
         using var applied = new FixedAppliedReader(Applied(active, upstreams.Select(static value => value.UpstreamId)));
-        using var coordinator = new GatewayStatusCoordinator([publication], [applied], new EmptyProxyLookup(), [], new TestLifetime());
+        using var coordinator = new GatewayStatusCoordinator([publication], [applied], [], new EmptyProxyLookup(), [], new TestLifetime());
 
         var snapshot = coordinator.GetCurrent();
 
@@ -223,7 +223,7 @@ public sealed class GatewayStatusTests
             new GatewayPublicationOutcome(GatewayPublicationState.ActiveAcknowledged, active.Candidate, active, active, active.NativeRevisionId, []),
             active, active, [new GatewayPublishedUpstream("orders", "HealthyOrPanic")]));
         using var applied = new FixedAppliedReader(Applied(active, ["orders"]));
-        using var coordinator = new GatewayStatusCoordinator([publication], [applied], new ThrowingProxyLookup(), [], new TestLifetime());
+        using var coordinator = new GatewayStatusCoordinator([publication], [applied], [], new ThrowingProxyLookup(), [], new TestLifetime());
 
         var snapshot = coordinator.GetCurrent();
 
@@ -245,7 +245,7 @@ public sealed class GatewayStatusTests
             ApplicationId = "ffffffffffffffffffffffffffffffff",
         }, ["orders"]);
         using var applied = new FixedAppliedReader(wrong);
-        using var coordinator = new GatewayStatusCoordinator([publication], [applied], new EmptyProxyLookup(), [], new TestLifetime());
+        using var coordinator = new GatewayStatusCoordinator([publication], [applied], [], new EmptyProxyLookup(), [], new TestLifetime());
 
         GatewayStatusSnapshot snapshot = coordinator.GetCurrent();
 
@@ -315,7 +315,7 @@ public sealed class GatewayStatusTests
             active.SymbolicPlanIdentity, DateTimeOffset.UtcNow, [], [upstream], true, false));
         using var publication = new FixedPublicationReader(source);
         using var applied = new FixedAppliedReader(observed);
-        using var coordinator = new GatewayStatusCoordinator([publication], [applied], lookup, [], new TestLifetime());
+        using var coordinator = new GatewayStatusCoordinator([publication], [applied], [], lookup, [], new TestLifetime());
 
         GatewayStatusSnapshot snapshot = coordinator.GetCurrent();
 

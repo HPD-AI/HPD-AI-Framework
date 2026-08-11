@@ -47,6 +47,13 @@ static async Task<int> RunWorkerAsync(WorkerOptions options)
                 local.MinimumQueue = 0;
                 local.MaximumQueue = 1_024;
             });
+            admission.AddLocalFixedWindow("local-benchmark", local =>
+            {
+                local.MinimumLimit = 1;
+                local.MaximumLimit = 100_000_000;
+                local.MinimumPeriod = TimeSpan.FromSeconds(1);
+                local.MaximumPeriod = TimeSpan.FromHours(1);
+            });
             if (options.FailureDisposition == "fallback")
                 admission.AddLocalFixedWindow("node-fallback");
             void ConfigureShared(GatewaySharedAdmissionProfileOptions shared)
@@ -134,6 +141,36 @@ static GatewayConfiguration CreateConfiguration(WorkerOptions options)
         [
             new RouteDeclaration
             {
+                Id = new RouteId("baseline"),
+                Match = new HttpRouteMatch { Path = "/baseline/{**catch-all}" },
+                Upstream = new UpstreamId("backend")
+            },
+            new RouteDeclaration
+            {
+                Id = new RouteId("local"),
+                Match = new HttpRouteMatch { Path = "/local/{**catch-all}" },
+                Upstream = new UpstreamId("backend"),
+                Declarations = new RouteDeclarations
+                {
+                    TrafficAdmission = new DeclarationReference<TrafficAdmissionPlan>
+                    {
+                        Inline = new TrafficAdmissionPlan
+                        {
+                            Entries =
+                            [
+                                new FixedWindowAdmissionEntry
+                                {
+                                    Profile = "local-benchmark",
+                                    PermitLimit = 100_000_000,
+                                    Window = TimeSpan.FromHours(1)
+                                }
+                            ]
+                        }
+                    }
+                }
+            },
+            new RouteDeclaration
+            {
                 Id = new RouteId("quota"),
                 Match = new HttpRouteMatch { Path = "/quota/{**catch-all}" },
                 Upstream = new UpstreamId("backend"),
@@ -175,6 +212,15 @@ static async Task<int> RunControllerAsync(ControllerOptions options)
         }
 
         using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+        if (options.Scenario == "benchmark")
+        {
+            BenchmarkSummary baseline = await MeasureAsync(client, workers[0], "baseline");
+            BenchmarkSummary local = await MeasureAsync(client, workers[0], "local");
+            BenchmarkSummary shared = await MeasureAsync(client, workers[0], "quota");
+            Console.WriteLine(string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                $"benchmark schema=hpd.gateway.admission.benchmark/v1 runtime={System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription} os={System.Runtime.InteropServices.RuntimeInformation.OSDescription} architecture={System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture} transport=loopback-http1-sequential-keepalive warmup=250 measured=2000 baseline={baseline} process-local={local} redis-shared={shared}"));
+            return 0;
+        }
         if (options.Scenario == "recovery")
         {
             if (options.ControlDirectory is null)
@@ -306,6 +352,28 @@ static async Task<int> RunControllerAsync(ControllerOptions options)
     }
 }
 
+static async Task<BenchmarkSummary> MeasureAsync(HttpClient client, WorkerProcess worker, string route)
+{
+    for (int index = 0; index < 250; index++)
+    {
+        using HttpResponseMessage warmup = await client.GetAsync($"http://127.0.0.1:{worker.Port}/{route}/warmup");
+        warmup.EnsureSuccessStatusCode();
+    }
+    var samples = new long[2_000];
+    for (int index = 0; index < samples.Length; index++)
+    {
+        long started = Stopwatch.GetTimestamp();
+        using HttpResponseMessage response = await client.GetAsync($"http://127.0.0.1:{worker.Port}/{route}/measured");
+        response.EnsureSuccessStatusCode();
+        samples[index] = Stopwatch.GetTimestamp() - started;
+    }
+    Array.Sort(samples);
+    double ToMicroseconds(long ticks) => ticks * 1_000_000d / Stopwatch.Frequency;
+    return new(route, ToMicroseconds(samples[samples.Length / 2]),
+        ToMicroseconds(samples[(int)Math.Ceiling(samples.Length * .95) - 1]),
+        ToMicroseconds(samples[(int)Math.Ceiling(samples.Length * .999) - 1]));
+}
+
 static async Task ExpectStatusAsync(HttpClient client, WorkerProcess worker, HttpStatusCode expected)
 {
     using HttpResponseMessage response = await client.GetAsync(
@@ -322,6 +390,12 @@ static async Task WaitForFileAsync(string path)
         if (Stopwatch.GetTimestamp() >= deadline) throw new TimeoutException($"Timed out waiting for {path}.");
         await Task.Delay(50);
     }
+}
+
+sealed record BenchmarkSummary(string Path, double P50Microseconds, double P95Microseconds, double P999Microseconds)
+{
+    public override string ToString() => string.Create(System.Globalization.CultureInfo.InvariantCulture,
+        $"{Path}:p50={P50Microseconds:F3}us,p95={P95Microseconds:F3}us,p99.9={P999Microseconds:F3}us");
 }
 
 sealed record WorkerOptions(

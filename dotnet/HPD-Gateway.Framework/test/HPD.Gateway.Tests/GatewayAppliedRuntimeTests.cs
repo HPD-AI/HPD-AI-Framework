@@ -76,6 +76,17 @@ public sealed class GatewayAppliedRuntimeTests
         (await publication).State.Should().Be(GatewayPublicationState.ActiveAcknowledged);
         GatewayAppliedRoute route = fixture.Observer.GetCurrent()!.Snapshot.Routes.Should().ContainSingle().Subject;
         route.Contributions.Should().ContainSingle(record => record.Family == GatewayEffectiveFamilies.TrafficAdmission);
+        route.TrafficAdmission.Should().NotBeNull();
+        route.TrafficAdmission!.PlanIdentity.Should().Be(GatewayRuntimePlanner.HashTrafficAdmission(new TrafficAdmissionPlan
+        {
+            Entries = [new FixedWindowAdmissionEntry { Profile = "shared", PermitLimit = 10, Window = TimeSpan.FromSeconds(1) }]
+        }));
+        GatewayAppliedTrafficAdmissionEntry applied = route.TrafficAdmission.Entries.Should().ContainSingle().Subject;
+        applied.Order.Should().Be(0);
+        applied.Profile.Should().Be("shared");
+        applied.Scope.Should().Be(TrafficAdmissionScope.ProcessLocal);
+        applied.Kind.Should().Be(TrafficAdmissionKind.RequestRate);
+        applied.RateAlgorithm.Should().Be(TrafficAdmissionRateAlgorithm.FixedWindow);
     }
 
     [Fact]
@@ -228,6 +239,7 @@ public sealed class GatewayAppliedRuntimeTests
 
     private sealed class Fixture : IDisposable
     {
+        private readonly GatewayTrafficAdmissionRegistry _admission;
         private readonly GatewayDestinationResolver _resolver;
         internal HpdProxyConfigProvider Provider { get; } = new();
         internal GatewayRuntimeApplicationObserver Observer { get; }
@@ -237,7 +249,9 @@ public sealed class GatewayAppliedRuntimeTests
         internal Fixture()
         {
             _resolver = new GatewayDestinationResolver(new GatewayDiscoveryProfileRegistry([]), new PassthroughConfigValidator(), TimeProvider.System);
-            Observer = new GatewayRuntimeApplicationObserver(_resolver, TimeProvider.System);
+            var admission = new GatewayTrafficAdmissionRegistryBuilder().AddLocalFixedWindow("shared").Build();
+            _admission = admission;
+            Observer = new GatewayRuntimeApplicationObserver(_resolver, TimeProvider.System, admission);
             Listener = new HpdConfigChangeListener(Provider, Observer);
             Publisher = new GatewayRuntimePublisher(Provider, Listener, [Provider], _resolver, Observer);
         }
@@ -260,6 +274,7 @@ public sealed class GatewayAppliedRuntimeTests
             Observer.Dispose();
             _resolver.Dispose();
             Provider.Dispose();
+            _admission.Dispose();
         }
     }
 

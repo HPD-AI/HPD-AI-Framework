@@ -45,6 +45,8 @@
       ? 'Aligned' : 'Diverged');
   const discovery = $derived(projectGatewayDiscovery(observedNode?.upstreams ?? [], effectiveRuntime));
   const discoverySummary = $derived(summarizeGatewayDiscovery(discovery));
+  const admissionProfiles = $derived(observedNode?.trafficAdmission.profiles ?? []);
+  const admissionDegraded = $derived(admissionProfiles.filter(profile => !['notRequired', 'notObserved', 'healthy'].includes(profile.state)).length);
 
   function requireController(value: GatewayStudioController | undefined): GatewayStudioController {
     if (!value) throw new Error('Gateway Studio controller is unavailable.');
@@ -145,6 +147,26 @@
                   <div class="flex flex-wrap items-start justify-between gap-2"><strong class="studio-text-safe">{upstream.upstreamId}</strong><span class="studio-badge">{upstream.state}</span></div>
                   <p class="studio-text-safe mt-2 text-xs text-studio-muted">{upstream.profile ?? 'Static'} · {upstream.service ?? 'No service query'}{upstream.endpoint ? ` / ${upstream.endpoint}` : ''}</p>
                   <dl class="mt-3 grid grid-cols-2 gap-2 text-xs"><div><dt class="studio-label">Applied / available</dt><dd>{upstream.appliedDestinationCount} / {upstream.availableDestinationCount}</dd></div><div><dt class="studio-label">Generation</dt><dd class="studio-text-safe font-mono">{upstream.membershipGeneration ?? 'static'}</dd></div><div><dt class="studio-label">Native eligibility</dt><dd>{upstream.eligibility}</dd></div><div><dt class="studio-label">Correlation</dt><dd>{upstream.correlation}</dd></div></dl>
+                </article>
+              {/each}
+            </div>
+          {/if}
+        </section>
+        <section class="grid gap-3" aria-labelledby="gateway-admission-heading">
+          <div class="flex flex-wrap items-start justify-between gap-3">
+            <div><h3 id="gateway-admission-heading" class="font-bold">Traffic admission authorities</h3><p class="text-sm text-studio-muted">Bounded aggregate authority health. Partitions, claims, Redis endpoints, keys, and provider exceptions are never exposed.</p></div>
+            <p class="studio-text-safe text-xs text-studio-muted">{admissionProfiles.length} profiles · {admissionDegraded} degraded or unavailable</p>
+          </div>
+          {#if admissionProfiles.length === 0}
+            <p class="rounded-studio border border-studio-line p-3 text-sm text-studio-muted">No traffic-admission profile is installed.</p>
+          {:else}
+            <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {#each admissionProfiles as profile (profile.profile)}
+                <article class="rounded-studio border border-studio-line p-4">
+                  <div class="flex flex-wrap items-start justify-between gap-2"><strong class="studio-text-safe">{profile.profile}</strong><span class="studio-badge">{profile.state}</span></div>
+                  <p class="studio-text-safe mt-2 text-xs text-studio-muted">{profile.scope} · authority {profile.authorityId}</p>
+                  <dl class="mt-3 grid grid-cols-2 gap-2 text-xs"><div><dt class="studio-label">Acquired / rejected</dt><dd>{profile.acquired} / {profile.rejected}</dd></div><div><dt class="studio-label">Infrastructure</dt><dd>{profile.infrastructureFailures}</dd></div><div><dt class="studio-label">Bypass / fallback</dt><dd>{profile.degradedBypasses} / {profile.localFallbacks}</dd></div><div><dt class="studio-label">Observed</dt><dd>{profile.lastObservedAt ?? 'Not observed'}</dd></div></dl>
+                  {#if profile.safeDiagnosticCode}<p class="studio-text-safe mt-2 text-xs text-studio-muted">{profile.safeDiagnosticCode}</p>{/if}
                 </article>
               {/each}
             </div>

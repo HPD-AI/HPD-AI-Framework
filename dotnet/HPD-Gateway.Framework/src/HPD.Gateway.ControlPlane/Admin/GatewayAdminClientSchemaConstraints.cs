@@ -221,6 +221,8 @@ internal static class GatewayAdminClientSchemaConstraintLedger
         ..NV<GatewayEffectiveContribution>("sourceIdentity"),
         ..NV<GatewayEffectiveDiagnostic>("code", "safeMessage"),
         ..NV<GatewayEffectiveRecord>("compilerPackage", "compilerVersion", "family", "targetId"),
+        ..NV<GatewayAppliedTrafficAdmissionEntry>("authorityId", "profile"),
+        ..NV<GatewayAdmissionProfileStatus>("authorityId", "profile", "safeDiagnosticCode"),
         ..NV<GatewayNativeProjection>("owner", "packageIdentity", "seam"),
         ..NV<GatewayManagementStatusSnapshot>("code"),
         ..NV<GatewayRevisionDifference>("kind", "path"),

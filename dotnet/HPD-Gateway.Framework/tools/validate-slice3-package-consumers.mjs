@@ -23,7 +23,7 @@ const verifiedIds = boundary === "slice6"
 const verifiedPackages = new Map(verifiedIds.map(artifact));
 const fixtures = JSON.parse(readFileSync(join(root, "test/HPD.Gateway.ConsumerContracts/fixtures.json"), "utf8"));
 const selectedIds = boundary === "slice5-redis"
-  ? ["redis-admission"]
+  ? ["redis-admission", "redis-admission-host-owned", "redis-provider-from-root-only"]
   : boundary === "slice4-all"
   ? ["control-plane-sqlite", "hpd-auth-security", "microsoft-configuration-discovery",
       "microsoft-dns-discovery", "full-cloud-equivalent", "obsolete-hpd-auth-namespace",

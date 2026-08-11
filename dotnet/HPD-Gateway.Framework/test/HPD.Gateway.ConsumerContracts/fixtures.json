@@ -70,6 +70,19 @@
       "source": "Positive/RedisAdmission.cs"
     },
     {
+      "id": "redis-admission-host-owned",
+      "expect": "success",
+      "packages": ["HPD.Gateway", "HPD.Gateway.Admission.Redis"],
+      "source": "Positive/RedisAdmissionHostOwned.cs"
+    },
+    {
+      "id": "redis-provider-from-root-only",
+      "expect": "failure",
+      "diagnostic": "CS0234",
+      "packages": ["HPD.Gateway"],
+      "source": "Negative/RedisProviderFromRootOnly.cs"
+    },
+    {
       "id": "full-cloud-equivalent",
       "expect": "success",
       "packages": [

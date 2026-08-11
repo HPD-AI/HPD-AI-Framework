@@ -18,7 +18,18 @@ internal sealed record GatewayStandaloneBootstrap
     public required string AuthorityEpoch { get; init; }
     public required ulong AuthorityVersion { get; init; }
     public required GatewayStandaloneManagement Management { get; init; }
+    public GatewayStandaloneRedisAdmission? RedisAdmission { get; init; }
     public ImmutableArray<GatewayStandaloneCertificateSource> Certificates { get; init; } = [];
+}
+
+internal sealed record GatewayStandaloneRedisAdmission
+{
+    public required string AuthorityId { get; init; }
+    public required string ConfigurationEnvironmentVariable { get; init; }
+    public string KeyPrefix { get; init; } = "hpd:gateway:admission";
+    public int Database { get; init; } = -1;
+    public int OperationTimeoutMilliseconds { get; init; } = 75;
+    public int MaximumConcurrentInvocations { get; init; } = 1_024;
 }
 
 internal sealed record GatewayStandaloneManagement
@@ -52,13 +63,23 @@ internal sealed record GatewayStandaloneCertificateSource
     GenerationMode = JsonSourceGenerationMode.Default)]
 [JsonSerializable(typeof(GatewayStandaloneBootstrap))]
 [JsonSerializable(typeof(GatewayStandaloneManagement))]
+[JsonSerializable(typeof(GatewayStandaloneRedisAdmission))]
 internal partial class GatewayStandaloneJsonContext : JsonSerializerContext;
 
 internal sealed record GatewayStandaloneInputs(
     GatewayHostCandidate Host,
     GatewayNodeActivationRequest InitialCandidate,
     ImmutableArray<(SecretReference Reference, GatewayPfxCertificateSource Source)> Certificates,
-    GatewayStandaloneManagement Management);
+    GatewayStandaloneManagement Management,
+    GatewayStandaloneRedisAdmissionInputs? RedisAdmission);
+
+internal sealed record GatewayStandaloneRedisAdmissionInputs(
+    string AuthorityId,
+    string Configuration,
+    string KeyPrefix,
+    int Database,
+    TimeSpan OperationTimeout,
+    int MaximumConcurrentInvocations);
 
 internal static class GatewayStandaloneBootstrapReader
 {
@@ -107,6 +128,16 @@ internal static class GatewayStandaloneBootstrapReader
                 new SecretReference(certificate.Provider, certificate.Name, certificate.Version),
                 new GatewayPfxCertificateSource { Path = certificate.PfxPath, Password = password });
         }).ToImmutableArray();
+        GatewayStandaloneRedisAdmissionInputs? redisAdmission = bootstrap.RedisAdmission is null
+            ? null
+            : new(
+                bootstrap.RedisAdmission.AuthorityId,
+                Environment.GetEnvironmentVariable(bootstrap.RedisAdmission.ConfigurationEnvironmentVariable)
+                    ?? throw new InvalidOperationException("The standalone Redis admission configuration environment variable is unavailable."),
+                bootstrap.RedisAdmission.KeyPrefix,
+                bootstrap.RedisAdmission.Database,
+                TimeSpan.FromMilliseconds(bootstrap.RedisAdmission.OperationTimeoutMilliseconds),
+                bootstrap.RedisAdmission.MaximumConcurrentInvocations);
         return new GatewayStandaloneInputs(
             host.Candidate!,
             new GatewayNodeActivationRequest(
@@ -118,7 +149,8 @@ internal static class GatewayStandaloneBootstrapReader
                 bootstrap.AuthorityVersion,
                 gatewayBytes),
             certificates,
-            bootstrap.Management);
+            bootstrap.Management,
+            redisAdmission);
     }
 
     private static ImmutableArray<byte> ReadBounded(string path, int maximumBytes, string kind)
@@ -150,6 +182,7 @@ internal static class GatewayStandaloneBootstrapReader
         if (bootstrap.Certificates.IsDefault || bootstrap.Certificates.Length is < 1 or > 1_024)
             throw new InvalidOperationException("The standalone certificate catalog is uninitialized or outside its bound.");
         ValidateManagement(bootstrap.Management);
+        ValidateRedisAdmission(bootstrap.RedisAdmission);
         var references = new HashSet<SecretReference>();
         foreach (var certificate in bootstrap.Certificates)
         {
@@ -163,6 +196,19 @@ internal static class GatewayStandaloneBootstrapReader
                 !IsEnvironmentVariableName(certificate.PasswordEnvironmentVariable))
                 throw new InvalidOperationException("A certificate password environment-variable name is invalid.");
         }
+    }
+
+    private static void ValidateRedisAdmission(GatewayStandaloneRedisAdmission? admission)
+    {
+        if (admission is null) return;
+        if (!GatewayIdentifier.IsCanonical(admission.AuthorityId) ||
+            !IsEnvironmentVariableName(admission.ConfigurationEnvironmentVariable) ||
+            string.IsNullOrWhiteSpace(admission.KeyPrefix) || admission.KeyPrefix.Length > 128 ||
+            admission.KeyPrefix.Any(static value => value is < '!' or > '~' or '{' or '}') ||
+            admission.Database is < -1 or > 15 ||
+            admission.OperationTimeoutMilliseconds is < 1 or > 30_000 ||
+            admission.MaximumConcurrentInvocations is < 1 or > 4_096)
+            throw new InvalidOperationException("The standalone Redis admission configuration is invalid or outside its bound.");
     }
 
     private static void ValidateManagement(GatewayStandaloneManagement? management)

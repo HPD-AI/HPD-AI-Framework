@@ -83,7 +83,25 @@ public enum GatewayAppliedMembershipDisposition : byte
     RefreshFailed = 4,
 }
 
-public sealed record GatewayAppliedRoute(string RouteId, ImmutableArray<GatewayEffectiveRecord> Contributions);
+public sealed record GatewayAppliedTrafficAdmissionEntry(
+    int Order,
+    string Profile,
+    TrafficAdmissionScope Scope,
+    TrafficAdmissionKind Kind,
+    TrafficAdmissionRateAlgorithm? RateAlgorithm,
+    TrafficAdmissionPartitionKind Partition,
+    TrafficAdmissionFailureDisposition FailureDisposition,
+    string AuthorityId,
+    ContentHash BehaviorIdentity);
+
+public sealed record GatewayAppliedTrafficAdmissionPlan(
+    ContentHash PlanIdentity,
+    ImmutableArray<GatewayAppliedTrafficAdmissionEntry> Entries);
+
+public sealed record GatewayAppliedRoute(
+    string RouteId,
+    ImmutableArray<GatewayEffectiveRecord> Contributions,
+    GatewayAppliedTrafficAdmissionPlan? TrafficAdmission);
 
 public sealed record GatewayAppliedUpstream(
     string UpstreamId,

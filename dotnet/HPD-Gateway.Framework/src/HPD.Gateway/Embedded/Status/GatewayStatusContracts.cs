@@ -11,7 +11,7 @@ public enum GatewayStatusPublicationState : byte { NotAttempted, ActiveAcknowled
 public enum GatewayNativeEligibilityState : byte { NotObserved, EligibleDestinationsPresent, NoEligibleDestinations, PanicFallbackInUse }
 public enum GatewayDiscoveryObservationState : byte { NotRequired, Resolving, AppliedFresh, AppliedFreshEmpty, AppliedLastKnownDegraded, AppliedUnavailable, RefreshFailed, Indeterminate, NotObserved }
 public enum GatewayReadinessState : byte { Ready, NotReady }
-public enum GatewayConditionType : byte { ConfigurationReady, ServingReady, HostReady, HostRestartRequired, PublicationCertain, ProvidersAcceptable, DestinationsEligible }
+public enum GatewayConditionType : byte { ConfigurationReady, ServingReady, HostReady, HostRestartRequired, PublicationCertain, ProvidersAcceptable, DestinationsEligible, AdmissionAuthoritiesAcceptable }
 public enum GatewayConditionValue : byte { True, False, Unknown }
 
 public sealed record GatewayStatusReason(string Code, string? ResourceKind, string? ResourceId, string SafeMessage);
@@ -99,6 +99,7 @@ public sealed record GatewayStatusSnapshot(
     GatewayHostStatus Host,
     GatewayPublicationStatus Publication,
     ImmutableArray<GatewayNativeUpstreamStatus> Upstreams,
+    GatewayAdmissionStatusSnapshot TrafficAdmission,
     GatewayReadinessStatus Readiness,
     ImmutableArray<GatewayCondition> Conditions,
     bool DetailsTruncated);
