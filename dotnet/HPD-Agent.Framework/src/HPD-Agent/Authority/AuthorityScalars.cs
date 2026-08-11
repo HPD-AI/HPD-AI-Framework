@@ -112,6 +112,13 @@ public readonly struct Hash256 : IEquatable<Hash256>
     }
     /// <summary>Computes SHA-256 over the supplied bytes.</summary>
     internal static Hash256 Compute(ReadOnlySpan<byte> bytes) => new(SHA256.HashData(bytes));
+    internal bool TryWriteBytes(Span<byte> destination)
+    {
+        if (_bytes is null || destination.Length < 32)
+            return false;
+        _bytes.CopyTo(destination);
+        return true;
+    }
     /// <summary>Parses the canonical lowercase hexadecimal form.</summary>
     public static bool TryParse(string? text, out Hash256 value)
     {
