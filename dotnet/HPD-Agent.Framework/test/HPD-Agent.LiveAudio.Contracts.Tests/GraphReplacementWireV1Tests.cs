@@ -85,7 +85,7 @@ public sealed class GraphReplacementWireV1Tests
         {
             Assert.Equal((ulong)tag, reader.ReadUInt64()); writer.WriteUInt64((ulong)tag);
             if (tag == 4) { reader.ReadByteString(); writer.WriteByteString(nodeBytes); }
-            else writer.WriteEncodedValue(reader.ReadEncodedValue());
+            else writer.WriteEncodedValue(reader.ReadEncodedValue().Span);
         }
         reader.ReadEndMap(); writer.WriteEndMap(); return writer.Encode();
     }

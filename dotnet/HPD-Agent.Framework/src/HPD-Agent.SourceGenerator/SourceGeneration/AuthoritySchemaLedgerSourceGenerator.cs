@@ -13,19 +13,19 @@ namespace HPD.Agent.SourceGenerator.SourceGeneration;
 [Generator]
 public sealed class AuthoritySchemaLedgerSourceGenerator : IIncrementalGenerator
 {
-    private const string ExpectedCanonicalSha256 = "521c7f6369e5a17b986fbb9b086c2b36590473836745014277ab946c70d5d55b";
+    private const string ExpectedCanonicalSha256 = "39ad4a88d4e38a495f5ce96646dc158d71b329f601ff037072e7f813e5647891";
     private static readonly DiagnosticDescriptor InvalidLedger = new(
         "HPDA002", "Invalid authority schema ledger", "Authority schema ledger is invalid: {0}",
         "HPD.Authority", DiagnosticSeverity.Error, true);
 
     private static readonly (string Name, int Count)[] ExpectedSections =
     [
-        ("IdFamilies", 47), ("IdFamilyCborUsages", 95), ("Axes", 11), ("Dimensions", 14),
+        ("IdFamilies", 47), ("IdFamilyCborUsages", 97), ("Axes", 11), ("Dimensions", 14),
         ("LinearizationPoints", 39), ("WireTypes", 34), ("WireTypeMembers", 134),
-        ("Schemas", 113), ("SchemaFields", 442),
+        ("Schemas", 120), ("SchemaFields", 476),
         ("AxisValueBindings", 11), ("CapacitySubjectBindings", 11), ("UnionDiscriminators", 9),
-        ("JsonProjectionContexts", 113), ("CborCodecHashInventory", 113),
-        ("AuthorityPayloadDiscriminators", 33), ("GenerationTransitionSchemas", 11),
+        ("JsonProjectionContexts", 120), ("CborCodecHashInventory", 120),
+        ("AuthorityPayloadDiscriminators", 35), ("GenerationTransitionSchemas", 11),
         ("GenerationInitializationSchemas", 10),
         ("NativeSchemaInventory", 0),
     ];
@@ -114,10 +114,10 @@ public sealed class AuthoritySchemaLedgerSourceGenerator : IIncrementalGenerator
         }
 
         var schemas = new HashSet<string>(sections["Schemas"].Select(static row => row.Split('|')[0]), StringComparer.Ordinal);
-        if (schemas.Count != 113 || sections["SchemaFields"].Any(row => !schemas.Contains(row.Split('|')[0])) ||
+        if (schemas.Count != 120 || sections["SchemaFields"].Any(row => !schemas.Contains(row.Split('|')[0])) ||
             sections["CborCodecHashInventory"].Any(row => !schemas.Contains(row.Split('|')[0])))
         {
-            Fail(context, "schema fields or codecs do not join the 113-schema registry");
+            Fail(context, "schema fields or codecs do not join the 120-schema registry");
             return;
         }
 

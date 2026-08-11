@@ -15,6 +15,15 @@ internal enum AuthorityPayloadAdmissionV1
 
 internal abstract class AuthorityPayloadRegistrationV1
 {
+    internal static AuthorityPayloadRegistrationV1 CreateOwnerRegistration(
+        BoundedAscii schemaToken,
+        ushort major,
+        ushort minor,
+        OwnerSliceId owner,
+        int maximumPayloadBytes,
+        Func<ReadOnlyMemory<byte>, SessionAuthorityStampV1, bool> validator) =>
+        new OwnerRegistration(schemaToken, major, minor, owner, maximumPayloadBytes, validator);
+
     private protected AuthorityPayloadRegistrationV1(
         BoundedAscii schemaToken,
         ushort major,
@@ -47,6 +56,17 @@ internal abstract class AuthorityPayloadRegistrationV1
         payload.Length <= MaximumPayloadBytes && ValidateCanonicalPayload(payload, session);
     private protected abstract bool ValidateCanonicalPayload(
         ReadOnlyMemory<byte> payload, SessionAuthorityStampV1 session);
+
+    private sealed class OwnerRegistration : AuthorityPayloadRegistrationV1
+    {
+        private readonly Func<ReadOnlyMemory<byte>, SessionAuthorityStampV1, bool> _validator;
+        internal OwnerRegistration(BoundedAscii schemaToken, ushort major, ushort minor, OwnerSliceId owner,
+            int maximumPayloadBytes, Func<ReadOnlyMemory<byte>, SessionAuthorityStampV1, bool> validator)
+            : base(schemaToken, major, minor, owner, maximumPayloadBytes) =>
+            _validator = validator ?? throw new ArgumentNullException(nameof(validator));
+        private protected override bool ValidateCanonicalPayload(ReadOnlyMemory<byte> payload,
+            SessionAuthorityStampV1 session) => _validator(payload, session);
+    }
 }
 
 internal sealed class SessionAuthorityStampPayloadRegistrationV1 : AuthorityPayloadRegistrationV1

@@ -30,20 +30,20 @@ public sealed class AuthoritySchemaLedgerTests
     public void GeneratedLedger_HasTheAcceptedExactCardinalities()
     {
         Assert.Equal(47, AuthoritySchemaLedgerV1.IdFamilies.Length);
-        Assert.Equal(95, AuthoritySchemaLedgerV1.IdFamilyCborUsages.Length);
+        Assert.Equal(97, AuthoritySchemaLedgerV1.IdFamilyCborUsages.Length);
         Assert.Equal(11, AuthoritySchemaLedgerV1.Axes.Length);
         Assert.Equal(14, AuthoritySchemaLedgerV1.Dimensions.Length);
         Assert.Equal(39, AuthoritySchemaLedgerV1.LinearizationPoints.Length);
         Assert.Equal(34, AuthoritySchemaLedgerV1.WireTypes.Length);
         Assert.Equal(134, AuthoritySchemaLedgerV1.WireTypeMembers.Length);
-        Assert.Equal(113, AuthoritySchemaLedgerV1.Schemas.Length);
-        Assert.Equal(442, AuthoritySchemaLedgerV1.SchemaFields.Length);
+        Assert.Equal(120, AuthoritySchemaLedgerV1.Schemas.Length);
+        Assert.Equal(476, AuthoritySchemaLedgerV1.SchemaFields.Length);
         Assert.Equal(11, AuthoritySchemaLedgerV1.AxisValueBindings.Length);
         Assert.Equal(11, AuthoritySchemaLedgerV1.CapacitySubjectBindings.Length);
         Assert.Equal(9, AuthoritySchemaLedgerV1.UnionDiscriminators.Length);
-        Assert.Equal(113, AuthoritySchemaLedgerV1.JsonProjectionContexts.Length);
-        Assert.Equal(113, AuthoritySchemaLedgerV1.CborCodecHashInventory.Length);
-        Assert.Equal(33, AuthoritySchemaLedgerV1.AuthorityPayloadDiscriminators.Length);
+        Assert.Equal(120, AuthoritySchemaLedgerV1.JsonProjectionContexts.Length);
+        Assert.Equal(120, AuthoritySchemaLedgerV1.CborCodecHashInventory.Length);
+        Assert.Equal(35, AuthoritySchemaLedgerV1.AuthorityPayloadDiscriminators.Length);
         Assert.Equal(11, AuthoritySchemaLedgerV1.GenerationTransitionSchemas.Length);
         Assert.Equal(10, AuthoritySchemaLedgerV1.GenerationInitializationSchemas.Length);
         Assert.Empty(AuthoritySchemaLedgerV1.NativeSchemaInventory);
@@ -111,6 +111,6 @@ public sealed class AuthoritySchemaLedgerTests
 
         Assert.Equal(schemas, codecs);
         Assert.Subset(schemas, fields);
-        Assert.Equal(107, AuthoritySchemaLedgerV1.JsonProjectionContexts.Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(113, AuthoritySchemaLedgerV1.JsonProjectionContexts.Distinct(StringComparer.Ordinal).Count());
     }
 }
