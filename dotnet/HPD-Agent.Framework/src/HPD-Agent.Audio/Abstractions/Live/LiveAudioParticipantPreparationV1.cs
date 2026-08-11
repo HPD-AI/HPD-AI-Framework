@@ -29,11 +29,8 @@ public sealed record LiveAudioParticipantPreparationContextV1
 /// <remarks>Implementations may validate configuration and allocate bounded local state only. Provider, device, network, media, output and transport effects are forbidden.</remarks>
 public interface ILiveAudioParticipantFactoryV1
 {
-    /// <summary>Gets the generated, application-catalog-scoped factory key.</summary>
-    BoundedAscii FactoryKey { get; }
-
-    /// <summary>Gets the sole domain owner of the prepared participant.</summary>
-    OwnerSliceId Owner { get; }
+    /// <summary>Gets the immutable generated descriptor for this application factory.</summary>
+    LiveAudioParticipantDescriptorV1 Descriptor { get; }
 
     /// <summary>Prepares bounded local state without starting an effect or publishing readiness.</summary>
     /// <param name="context">The exact request and participant specification.</param>
@@ -110,9 +107,8 @@ public sealed class LiveAudioParticipantFactoryCatalogV1
             ArgumentNullException.ThrowIfNull(factory);
             if (values.Count == MaximumFactories)
                 throw new ArgumentOutOfRangeException(nameof(factories));
-            if (!factory.FactoryKey.IsValid || factory.Owner is < OwnerSliceId.S2 or > OwnerSliceId.S11)
-                throw new ArgumentException("Each factory needs a registered key and S2 through S11 owner.", nameof(factories));
-            if (!values.TryAdd(factory.FactoryKey.ToString(), factory))
+            var descriptor = factory.Descriptor ?? throw new ArgumentException("Each factory needs a descriptor.", nameof(factories));
+            if (!values.TryAdd(descriptor.FactoryKey.ToString(), factory))
                 throw new ArgumentException("Factory keys must be unique within an application catalog.", nameof(factories));
         }
         if (values.Count == 0) throw new ArgumentOutOfRangeException(nameof(factories));
@@ -125,7 +121,7 @@ public sealed class LiveAudioParticipantFactoryCatalogV1
     internal bool TryResolve(LiveAudioParticipantSpecV1 specification, out ILiveAudioParticipantFactoryV1 factory)
     {
         ArgumentNullException.ThrowIfNull(specification);
-        return _factories.TryGetValue(specification.FactoryKey.ToString(), out factory!) && factory.Owner == specification.Owner;
+        return _factories.TryGetValue(specification.FactoryKey.ToString(), out factory!) && factory.Descriptor.Owner == specification.Owner;
     }
 }
 
@@ -150,15 +146,22 @@ internal static class LiveAudioParticipantPreparationCoordinatorV1
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(catalog);
         var prepared = new List<ILiveAudioPreparedParticipantV1>(request.Participants.Count);
-        var skipped = new List<BoundedAscii>();
-        foreach (var specification in request.Participants)
+        foreach (var specification in request.Participants.Where(value => value.Required))
+            if (!catalog.TryResolve(specification, out _))
+                return new LiveAudioParticipantPreparationResultV1.Unavailable(specification.FactoryKey);
+        LiveAudioParticipantPlanV1 plan;
+        try { plan = LiveAudioParticipantPlanCompilerV1.Compile(request, catalog); }
+        catch (ArgumentException)
         {
-            if (!catalog.TryResolve(specification, out var factory))
-            {
-                if (!specification.Required) { skipped.Add(specification.FactoryKey); continue; }
-                return await UnwindOrAsync(prepared,
-                    new LiveAudioParticipantPreparationResultV1.Unavailable(specification.FactoryKey)).ConfigureAwait(false);
-            }
+            return new LiveAudioParticipantPreparationResultV1.Failed(
+                new BoundedAscii("participant-plan"), new BoundedAscii("participant-plan-invalid"));
+        }
+        var specifications = request.Participants.ToDictionary(value => value.FactoryKey.ToString(), StringComparer.Ordinal);
+        var skipped = plan.SkippedOptionalFactories.ToList();
+        foreach (var descriptor in plan.Descriptors)
+        {
+            var specification = specifications[descriptor.FactoryKey.ToString()];
+            if (!catalog.TryResolve(specification, out var factory)) throw new InvalidOperationException("A compiled factory disappeared from an immutable catalog.");
             try
             {
                 var result = await factory.PrepareAsync(
@@ -185,6 +188,7 @@ internal static class LiveAudioParticipantPreparationCoordinatorV1
                     specification.FactoryKey, new BoundedAscii("participant-prepare-failed"))).ConfigureAwait(false);
             }
         }
+        skipped.Sort();
         return new LiveAudioParticipantPreparationResultV1.Prepared(prepared.AsReadOnly(), skipped.AsReadOnly());
     }
 

@@ -21,7 +21,22 @@ public sealed class LiveAudioParticipantPreparationV1Tests
     }
 
     [Fact]
-    public async Task Missing_factory_unwinds_prepared_handles_in_reverse_order()
+    public async Task Preparation_uses_compiled_dependency_order()
+    {
+        var fixture = new Fixture(); var calls = new List<string>();
+        var resources = new Factory("zeta", OwnerSliceId.S2, calls);
+        var provider = new Factory("alpha", OwnerSliceId.S5, calls,
+            dependencies: [new BoundedAscii("zeta")]);
+        var result = Assert.IsType<LiveAudioParticipantPreparationResultV1.Prepared>(
+            await LiveAudioParticipantPreparationCoordinatorV1.PrepareAsync(fixture.Request(
+                fixture.Spec("alpha", OwnerSliceId.S5), fixture.Spec("zeta", OwnerSliceId.S2)),
+                new LiveAudioParticipantFactoryCatalogV1([provider, resources])));
+        Assert.Equal(["prepare:zeta", "prepare:alpha"], calls);
+        foreach (var participant in result.Participants) await participant.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task Missing_required_factory_fails_before_any_preparation()
     {
         var fixture = new Fixture(); var calls = new List<string>();
         var catalog = new LiveAudioParticipantFactoryCatalogV1([
@@ -31,7 +46,7 @@ public sealed class LiveAudioParticipantPreparationV1Tests
                 fixture.Spec("alpha", OwnerSliceId.S2), fixture.Spec("beta", OwnerSliceId.S3),
                 fixture.Spec("zeta", OwnerSliceId.S11)), catalog));
         Assert.Equal("zeta", result.FactoryKey.ToString());
-        Assert.Equal(["prepare:alpha", "prepare:beta", "dispose:beta", "dispose:alpha"], calls);
+        Assert.Empty(calls);
     }
 
     [Fact]
@@ -39,11 +54,13 @@ public sealed class LiveAudioParticipantPreparationV1Tests
     {
         var fixture = new Fixture(); var failedCalls = new List<string>();
         var failedCatalog = new LiveAudioParticipantFactoryCatalogV1([
-            new Factory("alpha", OwnerSliceId.S2, failedCalls), new Factory("beta", OwnerSliceId.S3, failedCalls, fail: true)]);
+            new Factory("alpha", OwnerSliceId.S2, failedCalls), new Factory("beta", OwnerSliceId.S3, failedCalls),
+            new Factory("gamma", OwnerSliceId.S4, failedCalls, fail: true)]);
         Assert.IsType<LiveAudioParticipantPreparationResultV1.Failed>(
             await LiveAudioParticipantPreparationCoordinatorV1.PrepareAsync(fixture.Request(
-                fixture.Spec("alpha", OwnerSliceId.S2), fixture.Spec("beta", OwnerSliceId.S3)), failedCatalog));
-        Assert.Equal(["prepare:alpha", "prepare:beta", "dispose:alpha"], failedCalls);
+                fixture.Spec("alpha", OwnerSliceId.S2), fixture.Spec("beta", OwnerSliceId.S3),
+                fixture.Spec("gamma", OwnerSliceId.S4)), failedCatalog));
+        Assert.Equal(["prepare:alpha", "prepare:beta", "prepare:gamma", "dispose:beta", "dispose:alpha"], failedCalls);
 
         var cancelledCalls = new List<string>(); using var cancellation = new CancellationTokenSource();
         var cancelledCatalog = new LiveAudioParticipantFactoryCatalogV1([
@@ -74,9 +91,10 @@ public sealed class LiveAudioParticipantPreparationV1Tests
     {
         var fixture = new Fixture(); var calls = new List<string>();
         var catalog = new LiveAudioParticipantFactoryCatalogV1([
-            new Factory("alpha", OwnerSliceId.S2, calls, disposeFails: true)]);
+            new Factory("alpha", OwnerSliceId.S2, calls, disposeFails: true),
+            new Factory("beta", OwnerSliceId.S3, calls, fail: true)]);
         var result = await LiveAudioParticipantPreparationCoordinatorV1.PrepareAsync(fixture.Request(
-            fixture.Spec("alpha", OwnerSliceId.S2), fixture.Spec("zeta", OwnerSliceId.S11)), catalog);
+            fixture.Spec("alpha", OwnerSliceId.S2), fixture.Spec("beta", OwnerSliceId.S3)), catalog);
         Assert.IsType<LiveAudioParticipantPreparationResultV1.OutcomeUnknown>(result);
     }
 
@@ -91,10 +109,10 @@ public sealed class LiveAudioParticipantPreparationV1Tests
     }
 
     private sealed class Factory(string key, OwnerSliceId owner, List<string> calls, bool fail = false,
-        CancellationTokenSource? cancel = null, bool refuse = false, bool disposeFails = false) : ILiveAudioParticipantFactoryV1
+        CancellationTokenSource? cancel = null, bool refuse = false, bool disposeFails = false,
+        BoundedAscii[]? dependencies = null) : ILiveAudioParticipantFactoryV1
     {
-        public BoundedAscii FactoryKey { get; } = new(key);
-        public OwnerSliceId Owner { get; } = owner;
+        public LiveAudioParticipantDescriptorV1 Descriptor { get; } = DescriptorFor(key, owner, dependencies ?? []);
         public ValueTask<LiveAudioParticipantFactoryResultV1> PrepareAsync(
             LiveAudioParticipantPreparationContextV1 context, CancellationToken cancellationToken = default)
         {
@@ -107,6 +125,24 @@ public sealed class LiveAudioParticipantPreparationV1Tests
                 new LiveAudioParticipantFactoryResultV1.Prepared(new Prepared(key, owner, calls, disposeFails)));
         }
     }
+
+    private static LiveAudioParticipantDescriptorV1 DescriptorFor(string key, OwnerSliceId owner, BoundedAscii[] dependencies) => new(
+        new BoundedAscii(key), owner, AxisFor(owner), dependencies, [new CapacityDimensionId(1)],
+        new DurationNs(5_000_000_000), new DurationNs(30_000_000_000), new DurationNs(5_000_000_000));
+
+    private static AuthorityAxisId AxisFor(OwnerSliceId owner) => owner switch
+    {
+        OwnerSliceId.S2 => AuthorityAxisId.Graph,
+        OwnerSliceId.S3 => AuthorityAxisId.Activity,
+        OwnerSliceId.S4 => AuthorityAxisId.Turn,
+        OwnerSliceId.S5 => AuthorityAxisId.Provider,
+        OwnerSliceId.S6 => AuthorityAxisId.Output,
+        OwnerSliceId.S7 => AuthorityAxisId.Tool,
+        OwnerSliceId.S8 => AuthorityAxisId.Route,
+        OwnerSliceId.S9 => AuthorityAxisId.Privacy,
+        OwnerSliceId.S11 => AuthorityAxisId.Transport,
+        _ => throw new ArgumentOutOfRangeException(nameof(owner)),
+    };
 
     private sealed class Prepared(string key, OwnerSliceId owner, List<string> calls, bool disposeFails) : ILiveAudioPreparedParticipantV1
     {
@@ -133,7 +169,7 @@ public sealed class LiveAudioParticipantPreparationV1Tests
 
         internal Fixture()
         {
-            _authority = ExpectedAuthorityVectorV1.Create(_session, []);
+            _authority = ExpectedAuthorityVectorV1.Create(_session, AllAxes());
             var position = new JournalPositionV1(_session, 1);
             _capacity = new CapacityGrantSnapshotV1(CapacityGrantId.Create(), _operation, _authority, position, position,
                 new CapacityGrantExpiryV1.NoExpiry(), CapacityGrantStateV1.Reserved, [null!]);
@@ -155,5 +191,17 @@ public sealed class LiveAudioParticipantPreparationV1Tests
             if (!Hash256.TryCreate(bytes, out var result)) throw new InvalidOperationException();
             return result;
         }
+        private static AuthorityAxisValueV1[] AllAxes() =>
+        [
+            new AuthorityAxisValueV1.Graph(GraphGenerationId.Create()),
+            new AuthorityAxisValueV1.Activity(ActivityGenerationId.Create()),
+            new AuthorityAxisValueV1.Turn(TurnGenerationId.Create()),
+            new AuthorityAxisValueV1.Provider(ProviderGenerationId.Create()),
+            new AuthorityAxisValueV1.Output(OutputGenerationId.Create()),
+            new AuthorityAxisValueV1.Tool(ToolGenerationId.Create()),
+            new AuthorityAxisValueV1.Route(RouteGenerationId.Create()),
+            new AuthorityAxisValueV1.Privacy(PrivacyGenerationId.Create()),
+            new AuthorityAxisValueV1.Transport(TransportGenerationId.Create()),
+        ];
     }
 }
