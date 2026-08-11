@@ -112,6 +112,7 @@ public sealed class AuthorityIdSourceGeneratorTests
                 internal static StableId128 CreateRandom() => default;
                 internal static bool TryParse(string? text, string family, out StableId128 value) { value = default; return false; }
                 internal string Format(string family) => string.Empty;
+                internal bool TryWriteBytes(global::System.Span<byte> destination) => false;
             }
             """;
         var compilation = CSharpCompilation.Create(

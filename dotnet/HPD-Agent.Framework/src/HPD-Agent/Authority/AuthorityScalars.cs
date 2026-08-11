@@ -84,6 +84,15 @@ internal readonly struct StableId128 : IEquatable<StableId128>
         return new string(result);
     }
 
+    internal bool TryWriteBytes(Span<byte> destination)
+    {
+        if (destination.Length < 16 || Equals(default))
+            return false;
+        BinaryPrimitives.WriteUInt64BigEndian(destination, _high);
+        BinaryPrimitives.WriteUInt64BigEndian(destination[8..], _low);
+        return true;
+    }
+
     public bool Equals(StableId128 other) => _high == other._high && _low == other._low;
     public override bool Equals(object? obj) => obj is StableId128 other && Equals(other);
     public override int GetHashCode() => HashCode.Combine(_high, _low);
@@ -95,6 +104,12 @@ public readonly struct Hash256 : IEquatable<Hash256>
 {
     private readonly byte[]? _bytes;
     private Hash256(byte[] bytes) => _bytes = bytes;
+    internal static Hash256 FromBytes(ReadOnlySpan<byte> bytes)
+    {
+        if (bytes.Length != 32)
+            throw new ArgumentException("An authority hash is exactly 32 bytes.", nameof(bytes));
+        return new(bytes.ToArray());
+    }
     /// <summary>Computes SHA-256 over the supplied bytes.</summary>
     internal static Hash256 Compute(ReadOnlySpan<byte> bytes) => new(SHA256.HashData(bytes));
     /// <summary>Parses the canonical lowercase hexadecimal form.</summary>
