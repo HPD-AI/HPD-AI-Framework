@@ -12,6 +12,7 @@ public sealed class AuthoritySchemaLedgerTests
         ("Dimensions", AuthoritySchemaLedgerV1.Dimensions),
         ("LinearizationPoints", AuthoritySchemaLedgerV1.LinearizationPoints),
         ("WireTypes", AuthoritySchemaLedgerV1.WireTypes),
+        ("WireTypeMembers", AuthoritySchemaLedgerV1.WireTypeMembers),
         ("Schemas", AuthoritySchemaLedgerV1.Schemas),
         ("SchemaFields", AuthoritySchemaLedgerV1.SchemaFields),
         ("AxisValueBindings", AuthoritySchemaLedgerV1.AxisValueBindings),
@@ -33,7 +34,8 @@ public sealed class AuthoritySchemaLedgerTests
         Assert.Equal(11, AuthoritySchemaLedgerV1.Axes.Length);
         Assert.Equal(14, AuthoritySchemaLedgerV1.Dimensions.Length);
         Assert.Equal(39, AuthoritySchemaLedgerV1.LinearizationPoints.Length);
-        Assert.Equal(27, AuthoritySchemaLedgerV1.WireTypes.Length);
+        Assert.Equal(29, AuthoritySchemaLedgerV1.WireTypes.Length);
+        Assert.Equal(118, AuthoritySchemaLedgerV1.WireTypeMembers.Length);
         Assert.Equal(110, AuthoritySchemaLedgerV1.Schemas.Length);
         Assert.Equal(428, AuthoritySchemaLedgerV1.SchemaFields.Length);
         Assert.Equal(11, AuthoritySchemaLedgerV1.AxisValueBindings.Length);
@@ -45,6 +47,10 @@ public sealed class AuthoritySchemaLedgerTests
         Assert.Equal(11, AuthoritySchemaLedgerV1.GenerationTransitionSchemas.Length);
         Assert.Equal(10, AuthoritySchemaLedgerV1.GenerationInitializationSchemas.Length);
         Assert.Empty(AuthoritySchemaLedgerV1.NativeSchemaInventory);
+        Assert.Contains("CapacitySubjectValueV1|union-discriminator|1|CapacitySubjectValueKindV1", AuthoritySchemaLedgerV1.WireTypeMembers);
+        Assert.Contains("CapacitySubjectValueV1|union-variant|1|StableId|2|value|StableId128", AuthoritySchemaLedgerV1.WireTypeMembers);
+        Assert.Contains("CapacitySubjectValueV1|union-variant|2|OwnerSlice|2|value|OwnerSliceId", AuthoritySchemaLedgerV1.WireTypeMembers);
+        Assert.Contains("10|Owner|OwnerSliceId|None|OwnerSlice", AuthoritySchemaLedgerV1.CapacitySubjectBindings);
     }
 
     [Fact]
