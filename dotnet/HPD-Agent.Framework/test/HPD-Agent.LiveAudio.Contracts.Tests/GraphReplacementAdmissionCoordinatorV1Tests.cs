@@ -111,7 +111,7 @@ public sealed class GraphReplacementAdmissionCoordinatorV1Tests
         Assert.Throws<ArgumentOutOfRangeException>(() => new GraphReplacementAdmissionResultV1.RetryRequired(-1));
     }
 
-    private sealed class Fixture
+    internal sealed class Fixture
     {
         private readonly TenantId _tenant = TenantId.Create();
         private readonly ClockDomainId _clock = ClockDomainId.Create();
@@ -137,7 +137,8 @@ public sealed class GraphReplacementAdmissionCoordinatorV1Tests
                 new AuthorityGenerationTransitionPayloadRegistrationV1(AuthorityAxisId.Graph),
                 new CapacityReservationPayloadRegistrationV1(), new CapacitySettlementPayloadRegistrationV1(),
                 GraphReplacementPayloadRegistrationsV1.Installed, GraphReplacementPayloadRegistrationsV1.Command,
-                GraphReplacementPayloadRegistrationsV1.Fact,
+                GraphReplacementPayloadRegistrationsV1.Fact, GraphRuntimePayloadRegistrationsV1.Command,
+                GraphRuntimePayloadRegistrationsV1.Fact,
             ]), () => new UtcInstant(100), new AuthorityJournalCapacityV1(2, 64, 8 * 1024 * 1024));
             await f.AppendGraphInitializationAsync();
             var source = await f.ActiveGrantAsync();
