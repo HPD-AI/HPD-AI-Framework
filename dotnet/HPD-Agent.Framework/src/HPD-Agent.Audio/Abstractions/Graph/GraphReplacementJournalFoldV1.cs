@@ -16,7 +16,9 @@ internal abstract record GraphReplacementJournalFoldResultV1
         GraphReplacementStateV1? State, IReadOnlyList<PendingGraphReplacementCommandV1> PendingCommands,
         AuthorityFactEnvelopeV1? TargetCommandFact = null,
         AuthorityFactEnvelopeV1? TargetResultFact = null,
-        AuthorityFactEnvelopeV1? InstallationFact = null) : GraphReplacementJournalFoldResultV1;
+        AuthorityFactEnvelopeV1? InstallationFact = null,
+        GraphReplacementSnapshotWireV1? Wire = null,
+        AuthorityFactEnvelopeV1? TargetTransitionFact = null) : GraphReplacementJournalFoldResultV1;
 
     internal sealed record RuntimeReplaced(RuntimeGenerationId Replacement, long LastPosition)
         : GraphReplacementJournalFoldResultV1;
@@ -90,6 +92,7 @@ internal static class GraphReplacementJournalFoldV1
         private BufferedCommit? _bufferedCommit;
         private AuthorityFactEnvelopeV1? _targetCommand;
         private AuthorityFactEnvelopeV1? _targetResult;
+        private AuthorityFactEnvelopeV1? _targetTransition;
         private bool _targetSeen;
 
         internal Accumulator(SessionAuthorityStampV1 session, JournalFactId? targetCommandFactId = null)
@@ -186,7 +189,7 @@ internal static class GraphReplacementJournalFoldV1
                 return Invalid("invalid-authority-history", _vector.LastVerifiedPosition);
             return new GraphReplacementJournalFoldResultV1.Current(_expectedPosition - 1, current.Snapshot, _state,
                 Array.AsReadOnly(_commands.OrderBy(static x => x.Key).Select(static x => x.Value).ToArray()),
-                _targetCommand, _targetResult, _installationFact);
+                _targetCommand, _targetResult, _installationFact, _wire, _targetTransition);
         }
 
         internal long LastVerifiedPosition => _expectedPosition - 1;
@@ -298,6 +301,7 @@ internal static class GraphReplacementJournalFoldV1
             { Fail("invalid-atomic-commit-pair"); return; }
             _state = buffered.State; _wire = buffered.Wire; _bufferedCommit = null;
             if (_targetCommandFactId == buffered.Pending.Envelope.FactId) _targetResult = buffered.ResultEnvelope;
+            if (_targetCommandFactId == buffered.Pending.Envelope.FactId) _targetTransition = envelope;
             _expectedPosition += 2;
         }
 
@@ -346,6 +350,32 @@ internal static class GraphReplacementJournalFoldV1
         GraphReplacementJournalCommandV1.SettleSource x => new GraphReplacementCommandV1.SettleSource(x.Operation, x.Predecessor, pending.ReferencedGrant!),
         _ => throw new InvalidOperationException(),
     };
+
+    internal sealed record RenderedFact(GraphReplacementFactBodyV1 Body, bool RequiresGraphTransition,
+        GraphGenerationId? PreviousGraph, GraphGenerationId? NextGraph);
+
+    internal static RenderedFact? RenderFact(GraphReplacementJournalFoldResultV1.Current current,
+        PendingGraphReplacementCommandV1 pending, JournalPositionV1 resultPosition)
+    {
+        if (current.State is null || current.Wire is null || !resultPosition.IsValid ||
+            resultPosition.Session != pending.Envelope.Position.Session || resultPosition.Sequence <= current.SnapshotThrough)
+            return null;
+        var reduction = SessionLifecycleJournalFoldV1.Matches(pending.Outer.ExpectedAuthority, current.Authority)
+            ? GraphReplacementReducerV1.Apply(current.State, ToReducerCommand(pending), resultPosition)
+            : new GraphReplacementReductionResultV1.Rejected(current.State, Code("authority-vector-stale"));
+        var rendered = Render(reduction, pending.Command.Kind, pending.Envelope.Position, resultPosition);
+        if (rendered is null) return null;
+        var value = rendered.Value;
+        var successfulCommit = pending.Command is GraphReplacementJournalCommandV1.Commit &&
+            reduction is GraphReplacementReductionResultV1.Applied;
+        if (successfulCommit && resultPosition.Sequence == long.MaxValue) return null;
+        var wire = RenderWire(current.Wire, value.State, pending, resultPosition,
+            reduction is GraphReplacementReductionResultV1.Applied);
+        return new(new GraphReplacementFactBodyV1(pending.Envelope.Position,
+            pending.Command.ExpectedPredecessor, current.State.LastFact, value.Outcome, wire, value.SafeCode),
+            successfulCommit, successfulCommit ? current.State.SourcePlan.GraphGeneration : null,
+            successfulCommit ? current.State.TargetPlan!.GraphGeneration : null);
+    }
 
     private static (GraphReplacementJournalOutcomeV1 Outcome, GraphReplacementStateV1 State, BoundedAscii? SafeCode)? Render(
         GraphReplacementReductionResultV1 result, GraphReplacementJournalCommandKindV1 kind,

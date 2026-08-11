@@ -213,7 +213,7 @@ internal static class GraphReplacementReducerV1
         observed.BootId == deadline.BootId && observed.Nanoseconds <= deadline.Nanoseconds &&
         deadline.Nanoseconds - observed.Nanoseconds <= MaximumOverlapNanoseconds;
 
-    private static bool SettlementMatches(CapacityGrantSnapshotV1? settlement,
+    internal static bool SettlementMatches(CapacityGrantSnapshotV1? settlement,
         CapacityGrantSnapshotV1 source, GraphTopologyPlanV1 plan) => settlement is not null &&
         settlement.GrantId == source.GrantId && settlement.GrantId == plan.CapacityGrantId &&
         settlement.Authority == source.Authority && settlement.GrantedAt == source.GrantedAt &&

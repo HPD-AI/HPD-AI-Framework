@@ -77,6 +77,26 @@ internal static class AuthorityGenerationTransitionCodecV1
         }
     }
 
+    internal static byte[] Encode(SessionAuthorityStampV1 session, AuthorityAxisId axis,
+        StableId128 expectedPrevious, StableId128 proposedNext)
+    {
+        var descriptor = Descriptors.SingleOrDefault(row => row.Axis == axis) ??
+            throw new ArgumentOutOfRangeException(nameof(axis));
+        if (!session.IsValid || expectedPrevious.Equals(proposedNext))
+            throw new ArgumentException("A valid session and distinct generation values are required.");
+        Span<byte> expected = stackalloc byte[16]; Span<byte> proposed = stackalloc byte[16];
+        if (!expectedPrevious.TryWriteBytes(expected) || !proposedNext.TryWriteBytes(proposed))
+            throw new ArgumentException("Both generation values are required.");
+        var writer = new CborWriter(CborConformanceMode.Ctap2Canonical);
+        writer.WriteStartMap(4);
+        writer.WriteUInt64(1); SessionAuthorityStampV1Codec.Write(writer, session);
+        writer.WriteUInt64(2); writer.WriteByteString(expected);
+        writer.WriteUInt64(3); writer.WriteByteString(proposed);
+        writer.WriteUInt64(4); writer.WriteUInt64((ushort)descriptor.Owner);
+        writer.WriteEndMap();
+        return writer.Encode();
+    }
+
     internal static SchemaReferenceV1 SchemaFor(AuthorityAxisId axis) =>
         Descriptors.Single(row => row.Axis == axis).Schema;
 
