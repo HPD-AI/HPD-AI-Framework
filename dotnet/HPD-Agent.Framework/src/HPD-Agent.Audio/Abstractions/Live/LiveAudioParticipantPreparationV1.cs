@@ -8,6 +8,8 @@ public sealed record LiveAudioParticipantPreparationContextV1
     /// <summary>Initializes a preparation context from an admitted inert start request and one requested specification.</summary>
     /// <param name="request">The admitted inert request whose proofs were revalidated at the reservation cut.</param>
     /// <param name="specification">The exact participant specification being prepared.</param>
+    /// <exception cref="ArgumentNullException">The request or specification is null.</exception>
+    /// <exception cref="ArgumentException">The specification is not part of the request.</exception>
     public LiveAudioParticipantPreparationContextV1(
         LiveAudioSessionStartRequestV1 request,
         LiveAudioParticipantSpecV1 specification)
@@ -51,6 +53,7 @@ public abstract record LiveAudioParticipantFactoryResultV1
     {
         /// <summary>Initializes a successful local preparation result.</summary>
         /// <param name="participant">The bounded local handle.</param>
+        /// <exception cref="ArgumentNullException">The participant is null.</exception>
         public Prepared(ILiveAudioPreparedParticipantV1 participant) =>
             Participant = participant ?? throw new ArgumentNullException(nameof(participant));
 
@@ -63,6 +66,7 @@ public abstract record LiveAudioParticipantFactoryResultV1
     {
         /// <summary>Initializes a typed local refusal.</summary>
         /// <param name="safeCode">A bounded nonsecret reason.</param>
+        /// <exception cref="ArgumentException">The safe code is invalid.</exception>
         public Refused(BoundedAscii safeCode)
         {
             if (!safeCode.IsValid) throw new ArgumentException("A bounded safe code is required.", nameof(safeCode));
@@ -94,21 +98,24 @@ public sealed class LiveAudioParticipantFactoryCatalogV1
     /// <summary>The maximum number of factories in one application catalog.</summary>
     public const int MaximumFactories = 64;
 
-    private readonly IReadOnlyDictionary<string, ILiveAudioParticipantFactoryV1> _factories;
+    private readonly IReadOnlyDictionary<string, FactoryEntry> _factories;
 
     /// <summary>Initializes a deeply owned, duplicate-free application catalog.</summary>
     /// <param name="factories">One to 64 explicitly supplied factories.</param>
+    /// <exception cref="ArgumentNullException">The collection or a factory is null.</exception>
+    /// <exception cref="ArgumentException">A key is duplicated or a descriptor is invalid.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">The catalog is empty or contains more than 64 factories.</exception>
     public LiveAudioParticipantFactoryCatalogV1(IEnumerable<ILiveAudioParticipantFactoryV1> factories)
     {
         ArgumentNullException.ThrowIfNull(factories);
-        var values = new Dictionary<string, ILiveAudioParticipantFactoryV1>(StringComparer.Ordinal);
+        var values = new Dictionary<string, FactoryEntry>(StringComparer.Ordinal);
         foreach (var factory in factories)
         {
             ArgumentNullException.ThrowIfNull(factory);
             if (values.Count == MaximumFactories)
                 throw new ArgumentOutOfRangeException(nameof(factories));
             var descriptor = factory.Descriptor ?? throw new ArgumentException("Each factory needs a descriptor.", nameof(factories));
-            if (!values.TryAdd(descriptor.FactoryKey.ToString(), factory))
+            if (!values.TryAdd(descriptor.FactoryKey.ToString(), new FactoryEntry(factory, descriptor)))
                 throw new ArgumentException("Factory keys must be unique within an application catalog.", nameof(factories));
         }
         if (values.Count == 0) throw new ArgumentOutOfRangeException(nameof(factories));
@@ -120,16 +127,29 @@ public sealed class LiveAudioParticipantFactoryCatalogV1
 
     internal bool TryResolve(LiveAudioParticipantSpecV1 specification, out ILiveAudioParticipantFactoryV1 factory)
     {
-        ArgumentNullException.ThrowIfNull(specification);
-        return _factories.TryGetValue(specification.FactoryKey.ToString(), out factory!) && factory.Descriptor.Owner == specification.Owner;
+        var found = TryResolve(specification, out factory, out _);
+        return found;
     }
+
+    internal bool TryResolve(LiveAudioParticipantSpecV1 specification, out ILiveAudioParticipantFactoryV1 factory,
+        out LiveAudioParticipantDescriptorV1 descriptor)
+    {
+        ArgumentNullException.ThrowIfNull(specification);
+        if (_factories.TryGetValue(specification.FactoryKey.ToString(), out var entry) && entry.Descriptor.Owner == specification.Owner)
+        {
+            factory = entry.Factory; descriptor = entry.Descriptor; return true;
+        }
+        factory = null!; descriptor = null!; return false;
+    }
+
+    private sealed record FactoryEntry(ILiveAudioParticipantFactoryV1 Factory, LiveAudioParticipantDescriptorV1 Descriptor);
 }
 
 internal abstract record LiveAudioParticipantPreparationResultV1
 {
     private LiveAudioParticipantPreparationResultV1() { }
     internal sealed record Prepared(IReadOnlyList<ILiveAudioPreparedParticipantV1> Participants,
-        IReadOnlyList<BoundedAscii> SkippedOptionalFactories) : LiveAudioParticipantPreparationResultV1;
+        IReadOnlyList<BoundedAscii> SkippedOptionalFactories, Hash256 EffectiveFingerprint) : LiveAudioParticipantPreparationResultV1;
     internal sealed record Unavailable(BoundedAscii FactoryKey) : LiveAudioParticipantPreparationResultV1;
     internal sealed record Failed(BoundedAscii FactoryKey, BoundedAscii SafeCode) : LiveAudioParticipantPreparationResultV1;
     internal sealed record Cancelled : LiveAudioParticipantPreparationResultV1;
@@ -145,7 +165,9 @@ internal static class LiveAudioParticipantPreparationCoordinatorV1
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(catalog);
-        var prepared = new List<ILiveAudioPreparedParticipantV1>(request.Participants.Count);
+        if (cancellationToken.IsCancellationRequested) return new LiveAudioParticipantPreparationResultV1.Cancelled();
+        var prepared = new List<PreparedEntry>(request.Participants.Count);
+        var participantIds = new HashSet<ParticipantId>();
         foreach (var specification in request.Participants.Where(value => value.Required))
             if (!catalog.TryResolve(specification, out _))
                 return new LiveAudioParticipantPreparationResultV1.Unavailable(specification.FactoryKey);
@@ -158,17 +180,37 @@ internal static class LiveAudioParticipantPreparationCoordinatorV1
         }
         var specifications = request.Participants.ToDictionary(value => value.FactoryKey.ToString(), StringComparer.Ordinal);
         var skipped = plan.SkippedOptionalFactories.ToList();
+        var skippedKeys = skipped.Select(value => value.ToString()).ToHashSet(StringComparer.Ordinal);
         foreach (var descriptor in plan.Descriptors)
         {
+            if (cancellationToken.IsCancellationRequested)
+                return await UnwindOrAsync(prepared, new LiveAudioParticipantPreparationResultV1.Cancelled()).ConfigureAwait(false);
             var specification = specifications[descriptor.FactoryKey.ToString()];
+            if (descriptor.Dependencies.Any(value => skippedKeys.Contains(value.ToString())))
+            {
+                if (!specification.Required) { skipped.Add(specification.FactoryKey); skippedKeys.Add(specification.FactoryKey.ToString()); continue; }
+                return await UnwindOrAsync(prepared, new LiveAudioParticipantPreparationResultV1.Failed(
+                    specification.FactoryKey, new BoundedAscii("participant-dependency-unavailable"))).ConfigureAwait(false);
+            }
             if (!catalog.TryResolve(specification, out var factory)) throw new InvalidOperationException("A compiled factory disappeared from an immutable catalog.");
+            Task<LiveAudioParticipantFactoryResultV1>? pending = null;
             try
             {
-                var result = await factory.PrepareAsync(
-                    new LiveAudioParticipantPreparationContextV1(request, specification), cancellationToken).ConfigureAwait(false);
+                using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                deadline.CancelAfter(ToTimeSpan(descriptor.MaximumPrepareDuration));
+                pending = factory.PrepareAsync(
+                    new LiveAudioParticipantPreparationContextV1(request, specification), deadline.Token).AsTask();
+                var result = await pending.WaitAsync(deadline.Token).ConfigureAwait(false);
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    if (result is LiveAudioParticipantFactoryResultV1.Prepared cancelledPrepared)
+                        prepared.Add(new PreparedEntry(cancelledPrepared.Participant, descriptor));
+                    return await UnwindOrAsync(prepared, new LiveAudioParticipantPreparationResultV1.Cancelled()).ConfigureAwait(false);
+                }
                 if (result is LiveAudioParticipantFactoryResultV1.Refused refused)
                 {
-                    if (!specification.Required) { skipped.Add(specification.FactoryKey); continue; }
+                    if (!specification.Required)
+                    { skipped.Add(specification.FactoryKey); skippedKeys.Add(specification.FactoryKey.ToString()); continue; }
                     return await UnwindOrAsync(prepared,
                         new LiveAudioParticipantPreparationResultV1.Failed(specification.FactoryKey, refused.SafeCode)).ConfigureAwait(false);
                 }
@@ -176,11 +218,19 @@ internal static class LiveAudioParticipantPreparationCoordinatorV1
                 if (participant is null || !participant.ParticipantId.IsValid || participant.FactoryKey != specification.FactoryKey ||
                     participant.Owner != specification.Owner)
                     throw new InvalidOperationException("The factory returned a handle outside its exact registration.");
-                prepared.Add(participant);
+                prepared.Add(new PreparedEntry(participant, descriptor));
+                if (!participantIds.Add(participant.ParticipantId))
+                    return await UnwindOrAsync(prepared, new LiveAudioParticipantPreparationResultV1.Failed(
+                        specification.FactoryKey, new BoundedAscii("participant-identity-duplicate"))).ConfigureAwait(false);
             }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            catch (OperationCanceledException)
             {
-                return await UnwindOrAsync(prepared, new LiveAudioParticipantPreparationResultV1.Cancelled()).ConfigureAwait(false);
+                if (pending is { IsCompleted: false }) _ = ObserveLatePreparationAsync(pending, descriptor);
+                LiveAudioParticipantPreparationResultV1 cancelled = cancellationToken.IsCancellationRequested && pending is not { IsCompleted: false }
+                    ? new LiveAudioParticipantPreparationResultV1.Cancelled()
+                    : new LiveAudioParticipantPreparationResultV1.OutcomeUnknown(
+                        new BoundedAscii(cancellationToken.IsCancellationRequested ? "participant-cancel-late" : "participant-prepare-timeout"));
+                return await UnwindOrAsync(prepared, cancelled).ConfigureAwait(false);
             }
             catch (Exception)
             {
@@ -189,21 +239,54 @@ internal static class LiveAudioParticipantPreparationCoordinatorV1
             }
         }
         skipped.Sort();
-        return new LiveAudioParticipantPreparationResultV1.Prepared(prepared.AsReadOnly(), skipped.AsReadOnly());
+        return new LiveAudioParticipantPreparationResultV1.Prepared(
+            Array.AsReadOnly(prepared.Select(value => value.Participant).ToArray()), skipped.AsReadOnly(),
+            LiveAudioParticipantEffectiveFingerprintV1.Compute(plan.Fingerprint, skipped));
     }
 
     private static async ValueTask<LiveAudioParticipantPreparationResultV1> UnwindOrAsync(
-        IReadOnlyList<ILiveAudioPreparedParticipantV1> prepared,
+        IReadOnlyList<PreparedEntry> prepared,
         LiveAudioParticipantPreparationResultV1 result)
     {
         var failed = false;
         for (var index = prepared.Count - 1; index >= 0; index--)
         {
-            try { await prepared[index].DisposeAsync().ConfigureAwait(false); }
-            catch { failed = true; }
+            Task? pending = null;
+            try
+            {
+                pending = prepared[index].Participant.DisposeAsync().AsTask();
+                await pending.WaitAsync(ToTimeSpan(prepared[index].Descriptor.MaximumTerminateDuration)).ConfigureAwait(false);
+            }
+            catch
+            {
+                failed = true;
+                if (pending is { IsCompleted: false }) _ = ObserveLateDisposalAsync(pending);
+            }
         }
         return failed
             ? new LiveAudioParticipantPreparationResultV1.OutcomeUnknown(new BoundedAscii("participant-unwind-unknown"))
             : result;
     }
+
+    private static async Task ObserveLatePreparationAsync(Task<LiveAudioParticipantFactoryResultV1> pending,
+        LiveAudioParticipantDescriptorV1 descriptor)
+    {
+        try
+        {
+            if (await pending.ConfigureAwait(false) is LiveAudioParticipantFactoryResultV1.Prepared prepared)
+            {
+                var disposal = prepared.Participant.DisposeAsync().AsTask();
+                await disposal.WaitAsync(ToTimeSpan(descriptor.MaximumTerminateDuration)).ConfigureAwait(false);
+            }
+        }
+        catch { }
+    }
+
+    private static async Task ObserveLateDisposalAsync(Task pending)
+    { try { await pending.ConfigureAwait(false); } catch { } }
+
+    private static TimeSpan ToTimeSpan(DurationNs duration) =>
+        TimeSpan.FromTicks(checked((duration.Nanoseconds + 99) / 100));
+
+    private sealed record PreparedEntry(ILiveAudioPreparedParticipantV1 Participant, LiveAudioParticipantDescriptorV1 Descriptor);
 }

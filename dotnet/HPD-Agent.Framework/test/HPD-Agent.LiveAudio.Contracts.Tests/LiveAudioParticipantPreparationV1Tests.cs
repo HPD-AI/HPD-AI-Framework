@@ -84,6 +84,58 @@ public sealed class LiveAudioParticipantPreparationV1Tests
                 fixture.Spec("zeta", OwnerSliceId.S11, required: false)), catalog));
         Assert.Single(result.Participants);
         Assert.Equal(["beta", "zeta"], result.SkippedOptionalFactories.Select(item => item.ToString()));
+        Assert.True(result.EffectiveFingerprint.TryWriteBytes(new byte[32]));
+    }
+
+    [Fact]
+    public async Task Optional_refusal_closes_dependent_subgraph()
+    {
+        var fixture = new Fixture(); var calls = new List<string>();
+        var catalog = new LiveAudioParticipantFactoryCatalogV1([
+            new Factory("alpha", OwnerSliceId.S2, calls, refuse: true),
+            new Factory("beta", OwnerSliceId.S3, calls, dependencies: [new BoundedAscii("alpha")])]);
+        var failed = Assert.IsType<LiveAudioParticipantPreparationResultV1.Failed>(
+            await LiveAudioParticipantPreparationCoordinatorV1.PrepareAsync(fixture.Request(
+                fixture.Spec("alpha", OwnerSliceId.S2, required: false), fixture.Spec("beta", OwnerSliceId.S3)), catalog));
+        Assert.Equal("participant-dependency-unavailable", failed.SafeCode.ToString());
+        Assert.Equal(["prepare:alpha"], calls);
+    }
+
+    [Fact]
+    public async Task Ignored_prepare_cancellation_is_bounded_and_unknown()
+    {
+        var fixture = new Fixture(); var calls = new List<string>();
+        var result = await LiveAudioParticipantPreparationCoordinatorV1.PrepareAsync(
+            fixture.Request(fixture.Spec("alpha", OwnerSliceId.S2)),
+            new LiveAudioParticipantFactoryCatalogV1([new HangingPrepareFactory("alpha", OwnerSliceId.S2, calls)]));
+        Assert.IsType<LiveAudioParticipantPreparationResultV1.OutcomeUnknown>(result);
+        Assert.Equal(["prepare:alpha"], calls);
+    }
+
+    [Fact]
+    public async Task Hanging_unwind_is_bounded_and_later_handles_still_cleanup()
+    {
+        var fixture = new Fixture(); var calls = new List<string>();
+        var catalog = new LiveAudioParticipantFactoryCatalogV1([
+            new Factory("alpha", OwnerSliceId.S2, calls), new HangingDisposeFactory("beta", OwnerSliceId.S3, calls),
+            new Factory("gamma", OwnerSliceId.S4, calls, fail: true)]);
+        var result = await LiveAudioParticipantPreparationCoordinatorV1.PrepareAsync(fixture.Request(
+            fixture.Spec("alpha", OwnerSliceId.S2), fixture.Spec("beta", OwnerSliceId.S3), fixture.Spec("gamma", OwnerSliceId.S4)), catalog);
+        Assert.IsType<LiveAudioParticipantPreparationResultV1.OutcomeUnknown>(result);
+        Assert.Equal(["prepare:alpha", "prepare:beta", "prepare:gamma", "dispose:beta", "dispose:alpha"], calls);
+    }
+
+    [Fact]
+    public async Task Duplicate_participant_identity_unwinds_all_handles()
+    {
+        var fixture = new Fixture(); var calls = new List<string>(); var id = ParticipantId.Create();
+        var catalog = new LiveAudioParticipantFactoryCatalogV1([
+            new FixedIdFactory("alpha", OwnerSliceId.S2, calls, id), new FixedIdFactory("beta", OwnerSliceId.S3, calls, id)]);
+        var failed = Assert.IsType<LiveAudioParticipantPreparationResultV1.Failed>(
+            await LiveAudioParticipantPreparationCoordinatorV1.PrepareAsync(fixture.Request(
+                fixture.Spec("alpha", OwnerSliceId.S2), fixture.Spec("beta", OwnerSliceId.S3)), catalog));
+        Assert.Equal("participant-identity-duplicate", failed.SafeCode.ToString());
+        Assert.Equal(["prepare:alpha", "prepare:beta", "dispose:beta", "dispose:alpha"], calls);
     }
 
     [Fact]
@@ -126,9 +178,10 @@ public sealed class LiveAudioParticipantPreparationV1Tests
         }
     }
 
-    private static LiveAudioParticipantDescriptorV1 DescriptorFor(string key, OwnerSliceId owner, BoundedAscii[] dependencies) => new(
+    private static LiveAudioParticipantDescriptorV1 DescriptorFor(string key, OwnerSliceId owner, BoundedAscii[] dependencies,
+        long prepareNanoseconds = 5_000_000_000, long terminateNanoseconds = 5_000_000_000) => new(
         new BoundedAscii(key), owner, AxisFor(owner), dependencies, [new CapacityDimensionId(1)],
-        new DurationNs(5_000_000_000), new DurationNs(30_000_000_000), new DurationNs(5_000_000_000));
+        new DurationNs(prepareNanoseconds), new DurationNs(30_000_000_000), new DurationNs(terminateNanoseconds));
 
     private static AuthorityAxisId AxisFor(OwnerSliceId owner) => owner switch
     {
@@ -154,6 +207,49 @@ public sealed class LiveAudioParticipantPreparationV1Tests
             calls.Add($"dispose:{key}");
             return disposeFails ? ValueTask.FromException(new InvalidOperationException("fixture dispose failure")) : ValueTask.CompletedTask;
         }
+    }
+
+    private sealed class HangingPrepareFactory(string key, OwnerSliceId owner, List<string> calls) : ILiveAudioParticipantFactoryV1
+    {
+        private readonly TaskCompletionSource<LiveAudioParticipantFactoryResultV1> _pending = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public LiveAudioParticipantDescriptorV1 Descriptor { get; } = DescriptorFor(key, owner, [], prepareNanoseconds: 5_000_000);
+        public ValueTask<LiveAudioParticipantFactoryResultV1> PrepareAsync(LiveAudioParticipantPreparationContextV1 context,
+            CancellationToken cancellationToken = default) { calls.Add($"prepare:{key}"); return new(_pending.Task); }
+    }
+
+    private sealed class HangingDisposeFactory(string key, OwnerSliceId owner, List<string> calls) : ILiveAudioParticipantFactoryV1
+    {
+        private readonly TaskCompletionSource _pending = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public LiveAudioParticipantDescriptorV1 Descriptor { get; } = DescriptorFor(key, owner, [], terminateNanoseconds: 5_000_000);
+        public ValueTask<LiveAudioParticipantFactoryResultV1> PrepareAsync(LiveAudioParticipantPreparationContextV1 context,
+            CancellationToken cancellationToken = default)
+        { calls.Add($"prepare:{key}"); return ValueTask.FromResult<LiveAudioParticipantFactoryResultV1>(
+            new LiveAudioParticipantFactoryResultV1.Prepared(new HangingHandle(key, owner, calls, _pending.Task))); }
+    }
+
+    private sealed class HangingHandle(string key, OwnerSliceId owner, List<string> calls, Task pending) : ILiveAudioPreparedParticipantV1
+    {
+        public ParticipantId ParticipantId { get; } = ParticipantId.Create();
+        public BoundedAscii FactoryKey { get; } = new(key);
+        public OwnerSliceId Owner { get; } = owner;
+        public ValueTask DisposeAsync() { calls.Add($"dispose:{key}"); return new ValueTask(pending); }
+    }
+
+    private sealed class FixedIdFactory(string key, OwnerSliceId owner, List<string> calls, ParticipantId id) : ILiveAudioParticipantFactoryV1
+    {
+        public LiveAudioParticipantDescriptorV1 Descriptor { get; } = DescriptorFor(key, owner, []);
+        public ValueTask<LiveAudioParticipantFactoryResultV1> PrepareAsync(LiveAudioParticipantPreparationContextV1 context,
+            CancellationToken cancellationToken = default)
+        { calls.Add($"prepare:{key}"); return ValueTask.FromResult<LiveAudioParticipantFactoryResultV1>(
+            new LiveAudioParticipantFactoryResultV1.Prepared(new FixedHandle(key, owner, calls, id))); }
+    }
+
+    private sealed class FixedHandle(string key, OwnerSliceId owner, List<string> calls, ParticipantId id) : ILiveAudioPreparedParticipantV1
+    {
+        public ParticipantId ParticipantId { get; } = id;
+        public BoundedAscii FactoryKey { get; } = new(key);
+        public OwnerSliceId Owner { get; } = owner;
+        public ValueTask DisposeAsync() { calls.Add($"dispose:{key}"); return ValueTask.CompletedTask; }
     }
 
     private sealed class Fixture

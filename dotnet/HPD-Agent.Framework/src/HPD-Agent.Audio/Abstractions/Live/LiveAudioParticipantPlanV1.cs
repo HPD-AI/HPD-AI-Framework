@@ -23,6 +23,9 @@ public sealed record LiveAudioParticipantDescriptorV1
     /// <param name="maximumPrepareDuration">The positive local preparation deadline.</param>
     /// <param name="maximumDrainDuration">The positive drain deadline.</param>
     /// <param name="maximumTerminateDuration">The positive termination deadline.</param>
+    /// <exception cref="ArgumentNullException">A dependency or capacity collection is null.</exception>
+    /// <exception cref="ArgumentException">A key, owner-axis pair, dependency, or capacity dimension is invalid or duplicated.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">A collection or deadline exceeds its bound.</exception>
     public LiveAudioParticipantDescriptorV1(BoundedAscii factoryKey, OwnerSliceId owner,
         AuthorityAxisId generationFence, IEnumerable<BoundedAscii> dependencies,
         IEnumerable<CapacityDimensionId> capacityDimensions, DurationNs maximumPrepareDuration,
@@ -61,21 +64,32 @@ public sealed record LiveAudioParticipantDescriptorV1
 
     private static BoundedAscii[] OwnDependencies(BoundedAscii self, IEnumerable<BoundedAscii> values)
     {
-        ArgumentNullException.ThrowIfNull(values); var result = values.ToArray();
-        if (result.Length > MaximumDependencies || result.Any(value => !value.IsValid || value == self))
-            throw new ArgumentException("Dependencies must be bounded, valid, and cannot name the participant itself.", nameof(values));
-        Array.Sort(result); if (result.Distinct().Count() != result.Length) throw new ArgumentException("Dependencies must be unique.", nameof(values));
-        return result;
+        ArgumentNullException.ThrowIfNull(values); var result = new List<BoundedAscii>(MaximumDependencies);
+        foreach (var value in values)
+        {
+            if (result.Count == MaximumDependencies) throw new ArgumentOutOfRangeException(nameof(values));
+            if (!value.IsValid || value == self)
+                throw new ArgumentException("Dependencies must be valid and cannot name the participant itself.", nameof(values));
+            result.Add(value);
+        }
+        var array = result.ToArray();
+        Array.Sort(array); if (array.Distinct().Count() != array.Length) throw new ArgumentException("Dependencies must be unique.", nameof(values));
+        return array;
     }
 
     private static CapacityDimensionId[] OwnDimensions(IEnumerable<CapacityDimensionId> values)
     {
-        ArgumentNullException.ThrowIfNull(values); var result = values.ToArray();
-        if (result.Length is 0 or > MaximumCapacityDimensions || result.Any(value => !value.IsValid))
-            throw new ArgumentException("Capacity dimensions must be nonempty, bounded, and registered.", nameof(values));
-        Array.Sort(result, static (left, right) => left.Value.CompareTo(right.Value));
-        if (result.Distinct().Count() != result.Length) throw new ArgumentException("Capacity dimensions must be unique.", nameof(values));
-        return result;
+        ArgumentNullException.ThrowIfNull(values); var result = new List<CapacityDimensionId>(MaximumCapacityDimensions);
+        foreach (var value in values)
+        {
+            if (result.Count == MaximumCapacityDimensions) throw new ArgumentOutOfRangeException(nameof(values));
+            if (!value.IsValid) throw new ArgumentException("Capacity dimensions must be registered.", nameof(values));
+            result.Add(value);
+        }
+        if (result.Count == 0) throw new ArgumentOutOfRangeException(nameof(values));
+        var array = result.ToArray(); Array.Sort(array, static (left, right) => left.Value.CompareTo(right.Value));
+        if (array.Distinct().Count() != array.Length) throw new ArgumentException("Capacity dimensions must be unique.", nameof(values));
+        return array;
     }
 
     private static void RequireDuration(DurationNs value, string name)
@@ -121,21 +135,36 @@ public static class LiveAudioParticipantPlanCompilerV1
     /// <param name="request">The inert start request.</param>
     /// <param name="catalog">The explicit application factory catalog.</param>
     /// <returns>A dependency-complete plan.</returns>
+    /// <exception cref="ArgumentNullException">The request or catalog is null.</exception>
     /// <exception cref="ArgumentException">A requested factory/dependency is absent, an owner differs, or the catalog contains a cycle.</exception>
     public static LiveAudioParticipantPlanV1 Compile(LiveAudioSessionStartRequestV1 request, LiveAudioParticipantFactoryCatalogV1 catalog)
     {
         ArgumentNullException.ThrowIfNull(request); ArgumentNullException.ThrowIfNull(catalog);
+        var requested = request.Participants.ToDictionary(item => item.FactoryKey.ToString(), StringComparer.Ordinal);
         var descriptors = new Dictionary<string, LiveAudioParticipantDescriptorV1>(StringComparer.Ordinal);
         var skipped = new List<BoundedAscii>();
         foreach (var specification in request.Participants)
         {
-            if (!catalog.TryResolve(specification, out var factory))
+            if (!catalog.TryResolve(specification, out _, out var descriptor))
             {
                 if (!specification.Required) { skipped.Add(specification.FactoryKey); continue; }
                 throw new ArgumentException($"Factory '{specification.FactoryKey}' is unavailable.", nameof(catalog));
             }
-            descriptors.Add(specification.FactoryKey.ToString(), factory.Descriptor);
+            descriptors.Add(specification.FactoryKey.ToString(), descriptor);
         }
+        var skippedKeys = skipped.Select(value => value.ToString()).ToHashSet(StringComparer.Ordinal);
+        for (var changed = true; changed;)
+        {
+            changed = false;
+            foreach (var pair in descriptors.ToArray())
+            {
+                if (!pair.Value.Dependencies.Any(value => skippedKeys.Contains(value.ToString()))) continue;
+                if (requested[pair.Key].Required)
+                    throw new ArgumentException($"Required participant '{pair.Key}' depends on an omitted optional participant.", nameof(request));
+                descriptors.Remove(pair.Key); skipped.Add(pair.Value.FactoryKey); skippedKeys.Add(pair.Key); changed = true;
+            }
+        }
+        skipped.Sort();
         foreach (var descriptor in descriptors.Values)
         {
             if (!request.ExpectedAuthority.Axes.Any(entry => entry.AxisId == descriptor.GenerationFence))
@@ -195,4 +224,21 @@ internal static class LiveAudioParticipantPlanRequestExtensionsV1
 {
     internal static byte[] FingerprintBytes(this LiveAudioSessionStartRequestV1 request)
     { Span<byte> bytes = stackalloc byte[32]; if (!request.Fingerprint.TryWriteBytes(bytes)) throw new ArgumentException("A request fingerprint is required."); return bytes.ToArray(); }
+}
+
+internal static class LiveAudioParticipantEffectiveFingerprintV1
+{
+    internal static Hash256 Compute(Hash256 planFingerprint, IReadOnlyList<BoundedAscii> skipped)
+    {
+        Span<byte> planBytes = stackalloc byte[32];
+        if (!planFingerprint.TryWriteBytes(planBytes)) throw new ArgumentException("A plan fingerprint is required.", nameof(planFingerprint));
+        var writer = new CborWriter(CborConformanceMode.Ctap2Canonical); writer.WriteStartMap(2);
+        writer.WriteUInt64(1); writer.WriteByteString(planBytes); writer.WriteUInt64(2); writer.WriteStartArray(skipped.Count);
+        foreach (var key in skipped.Order()) writer.WriteTextString(key.ToString());
+        writer.WriteEndArray(); writer.WriteEndMap();
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        hash.AppendData("hpd.live-audio-effective-participant-plan.v1@1.0\0"u8); hash.AppendData(writer.Encode());
+        if (!Hash256.TryCreate(hash.GetHashAndReset(), out var result)) throw new InvalidOperationException("SHA-256 returned an invalid digest.");
+        return result;
+    }
 }

@@ -33,6 +33,19 @@ public sealed class LiveAudioParticipantPlanV1Tests
     }
 
     [Fact]
+    public void Catalog_snapshots_each_descriptor_exactly_once()
+    {
+        var fixture = new Fixture();
+        var source = fixture.Factory("resources", OwnerSliceId.S2).Descriptor;
+        var factory = new CountingFactory(source);
+        var catalog = new LiveAudioParticipantFactoryCatalogV1([factory]);
+        var plan = LiveAudioParticipantPlanCompilerV1.Compile(
+            fixture.Request(fixture.Spec("resources", OwnerSliceId.S2)), catalog);
+        Assert.Single(plan.Descriptors);
+        Assert.Equal(1, factory.DescriptorReads);
+    }
+
+    [Fact]
     public void Fingerprint_is_stable_across_catalog_and_request_input_order()
     {
         var fixture = new Fixture();
@@ -80,6 +93,21 @@ public sealed class LiveAudioParticipantPlanV1Tests
             OwnerSliceId.S2, AuthorityAxisId.Graph, [], [new CapacityDimensionId(1)], new DurationNs(0), Duration(1), Duration(1)));
     }
 
+    [Fact]
+    public void Descriptor_stops_enumeration_at_max_plus_one()
+    {
+        var dependencies = new CountingEnumerable<BoundedAscii>(
+            Enumerable.Range(0, 18).Select(index => new BoundedAscii($"dependency-{index:D2}")));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new LiveAudioParticipantDescriptorV1(new BoundedAscii("media"),
+            OwnerSliceId.S2, AuthorityAxisId.Graph, dependencies, [new CapacityDimensionId(1)], Duration(1), Duration(1), Duration(1)));
+        Assert.Equal(17, dependencies.MoveNextCount);
+
+        var dimensions = new CountingEnumerable<CapacityDimensionId>(Enumerable.Repeat(new CapacityDimensionId(1), 18));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new LiveAudioParticipantDescriptorV1(new BoundedAscii("media"),
+            OwnerSliceId.S2, AuthorityAxisId.Graph, [], dimensions, Duration(1), Duration(1), Duration(1)));
+        Assert.Equal(17, dimensions.MoveNextCount);
+    }
+
     private static DurationNs Duration(long seconds) => new(seconds * 1_000_000_000);
 
     private sealed class Factory(LiveAudioParticipantDescriptorV1 descriptor) : ILiveAudioParticipantFactoryV1
@@ -89,6 +117,26 @@ public sealed class LiveAudioParticipantPlanV1Tests
             LiveAudioParticipantPreparationContextV1 context, CancellationToken cancellationToken = default) =>
             ValueTask.FromResult<LiveAudioParticipantFactoryResultV1>(
                 new LiveAudioParticipantFactoryResultV1.Refused(new BoundedAscii("not-used-by-plan-test")));
+    }
+
+    private sealed class CountingFactory(LiveAudioParticipantDescriptorV1 descriptor) : ILiveAudioParticipantFactoryV1
+    {
+        public int DescriptorReads { get; private set; }
+        public LiveAudioParticipantDescriptorV1 Descriptor { get { DescriptorReads++; return descriptor; } }
+        public ValueTask<LiveAudioParticipantFactoryResultV1> PrepareAsync(
+            LiveAudioParticipantPreparationContextV1 context, CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult<LiveAudioParticipantFactoryResultV1>(
+                new LiveAudioParticipantFactoryResultV1.Refused(new BoundedAscii("not-used-by-plan-test")));
+    }
+
+    private sealed class CountingEnumerable<T>(IEnumerable<T> source) : IEnumerable<T>
+    {
+        public int MoveNextCount { get; private set; }
+        public IEnumerator<T> GetEnumerator()
+        {
+            foreach (var item in source) { MoveNextCount++; yield return item; }
+        }
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
     }
 
     private sealed class Fixture
