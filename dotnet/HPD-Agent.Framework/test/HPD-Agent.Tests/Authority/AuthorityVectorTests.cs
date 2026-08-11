@@ -22,6 +22,13 @@ public sealed class AuthorityVectorTests
         var encoded = AuthorityVectorCodecsV1.Encode(vector);
         Assert.True(AuthorityVectorCodecsV1.TryDecodeVector(encoded, out var decoded));
         Assert.Equal(vector, decoded);
+        Assert.True(vector == decoded);
+        Assert.False(vector != decoded);
+        Assert.True(vector == ExpectedAuthorityVectorV1.Create(session,
+        [
+            new AuthorityAxisValueV1.Graph(GraphGenerationId.FromValue(First)),
+            new AuthorityAxisValueV1.Route(RouteGenerationId.FromValue(Second)),
+        ]));
         Assert.Equal("a201a20150000102030405060708090a0b0c0d0e0f0250101112131415161718191a1b1c1d1e1f0282a201020250000102030405060708090a0b0c0d0e0fa201090250101112131415161718191a1b1c1d1e1f", Convert.ToHexString(encoded).ToLowerInvariant());
     }
 

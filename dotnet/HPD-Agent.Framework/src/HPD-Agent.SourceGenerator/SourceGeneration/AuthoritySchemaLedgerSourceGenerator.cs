@@ -150,6 +150,8 @@ public sealed class AuthoritySchemaLedgerSourceGenerator : IIncrementalGenerator
             source.Append("    /// <summary>Contains a validated ").Append(member).Append(" generation owned by ").Append(axis[2]).AppendLine(".</summary>");
             source.Append("    public sealed record ").Append(member).AppendLine(" : AuthorityAxisValueV1\n    {");
             source.Append("        /// <summary>Initializes the typed ").Append(member).AppendLine(" axis value.</summary>");
+            source.AppendLine("        /// <param name=\"value\">The non-default semantic generation identifier.</param>");
+            source.AppendLine("        /// <exception cref=\"global::System.ArgumentException\">The identifier is the invalid default value.</exception>");
             source.Append("        public ").Append(member).Append('(').Append(axis[1]).AppendLine(" value)\n        {");
             source.AppendLine("            if (!value.IsValid) throw new global::System.ArgumentException(\"A generation identifier is required.\", nameof(value));");
             source.AppendLine("            Value = value;\n        }");

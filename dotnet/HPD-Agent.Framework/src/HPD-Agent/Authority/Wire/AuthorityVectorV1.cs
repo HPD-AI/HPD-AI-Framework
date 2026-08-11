@@ -72,6 +72,13 @@ public sealed class ExpectedAuthorityVectorV1 : IEquatable<ExpectedAuthorityVect
             hash.Add(axis);
         return hash.ToHashCode();
     }
+
+    /// <summary>Returns whether two vectors contain the same session and ordered axis values.</summary>
+    public static bool operator ==(ExpectedAuthorityVectorV1? left, ExpectedAuthorityVectorV1? right) =>
+        ReferenceEquals(left, right) || left is not null && left.Equals(right);
+
+    /// <summary>Returns whether two vectors differ by session or any ordered axis value.</summary>
+    public static bool operator !=(ExpectedAuthorityVectorV1? left, ExpectedAuthorityVectorV1? right) => !(left == right);
 }
 
 internal static class AuthorityVectorCodecsV1
