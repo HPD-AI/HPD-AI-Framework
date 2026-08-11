@@ -12,20 +12,21 @@ public sealed class AuthorityIdSourceGeneratorTests
     [Fact]
     public void ExactManifest_GeneratesAllSemanticWrappers()
     {
-        var result = Run(CreateManifest());
+        var (result, compilation) = Run(CreateManifest());
 
         Assert.DoesNotContain(result.Diagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
         var source = Assert.Single(result.GeneratedTrees).GetText().ToString();
         Assert.Equal(46, source.Split("public readonly record struct ").Length - 1);
         Assert.Contains("public readonly record struct JournalFactId", source, StringComparison.Ordinal);
         Assert.Contains("public readonly record struct TransportGenerationId", source, StringComparison.Ordinal);
+        Assert.DoesNotContain(compilation.GetDiagnostics(), diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
     }
 
     [Fact]
     public void DuplicateFamily_FailsGeneration()
     {
         var manifest = CreateManifest() + "\nten|DuplicateId|S1|S1|authority";
-        var result = Run(manifest);
+        var (result, _) = Run(manifest);
 
         var diagnostic = Assert.Single(result.Diagnostics, item => item.Id == "HPDA001");
         Assert.Equal(DiagnosticSeverity.Error, diagnostic.Severity);
@@ -41,10 +42,52 @@ public sealed class AuthorityIdSourceGeneratorTests
         var rows = CreateManifest().Split('\n');
         rows[0] = $"ten|TenantId|{owner}|{allocatorOwner}|{kind}";
 
-        var result = Run(string.Join("\n", rows));
+        var (result, _) = Run(string.Join("\n", rows));
 
         var diagnostic = Assert.Single(result.Diagnostics, item => item.Id == "HPDA001");
         Assert.Equal(DiagnosticSeverity.Error, diagnostic.Severity);
+        Assert.Empty(result.GeneratedTrees);
+    }
+
+    [Theory]
+    [InlineData("1InvalidId")]
+    [InlineData("invalidId")]
+    public void InvalidWrapperIdentifier_FailsGeneration(string type)
+    {
+        var rows = CreateManifest().Split('\n');
+        rows[0] = $"ten|{type}|S1|S1|correlation";
+
+        AssertInvalid(string.Join("\n", rows));
+    }
+
+    [Fact]
+    public void DuplicateWrapperType_FailsGeneration()
+    {
+        var rows = CreateManifest().Split('\n');
+        rows[1] = "prn|TenantId|S9|S9|privacy";
+
+        AssertInvalid(string.Join("\n", rows));
+    }
+
+    [Fact]
+    public void MalformedColumnCount_FailsGeneration()
+    {
+        var rows = CreateManifest().Split('\n');
+        rows[0] = "ten|TenantId|S1|S1";
+
+        AssertInvalid(string.Join("\n", rows));
+    }
+
+    [Fact]
+    public void MissingFamily_FailsGeneration() => AssertInvalid(string.Join("\n", CreateManifest().Split('\n').Skip(1)));
+
+    [Fact]
+    public void MultipleMatchingManifests_FailGeneration()
+    {
+        var (result, _) = Run(CreateManifest(), CreateManifest());
+
+        var diagnostic = Assert.Single(result.Diagnostics, item => item.Id == "HPDA001");
+        Assert.Contains("expected one manifest", diagnostic.GetMessage(), StringComparison.Ordinal);
         Assert.Empty(result.GeneratedTrees);
     }
 
@@ -60,14 +103,36 @@ public sealed class AuthorityIdSourceGeneratorTests
         Assert.Empty(result.GeneratedTrees);
     }
 
-    private static GeneratorDriverRunResult Run(string manifest)
+    private static (GeneratorDriverRunResult Result, Compilation Compilation) Run(params string[] manifests)
     {
-        var compilation = CSharpCompilation.Create("authority", [CSharpSyntaxTree.ParseText("internal sealed class C { }")]);
+        const string source = """
+            namespace HPD.Agent.Authority;
+            internal readonly struct StableId128
+            {
+                internal static StableId128 CreateRandom() => default;
+                internal static bool TryParse(string? text, string family, out StableId128 value) { value = default; return false; }
+                internal string Format(string family) => string.Empty;
+            }
+            """;
+        var compilation = CSharpCompilation.Create(
+            "authority",
+            [CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Latest))],
+            [MetadataReference.CreateFromFile(typeof(object).Assembly.Location)],
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
         GeneratorDriver driver = CSharpGeneratorDriver.Create(
             [new AuthorityIdSourceGenerator().AsSourceGenerator()],
-            additionalTexts: [new TextManifest(manifest)],
+            additionalTexts: manifests.Select(static manifest => new TextManifest(manifest)),
             parseOptions: new CSharpParseOptions(LanguageVersion.Latest));
-        return driver.RunGenerators(compilation).GetRunResult();
+        driver = driver.RunGeneratorsAndUpdateCompilation(compilation, out var updatedCompilation, out _);
+        return (driver.GetRunResult(), updatedCompilation);
+    }
+
+    private static void AssertInvalid(string manifest)
+    {
+        var (result, _) = Run(manifest);
+        var diagnostic = Assert.Single(result.Diagnostics, item => item.Id == "HPDA001");
+        Assert.Equal(DiagnosticSeverity.Error, diagnostic.Severity);
+        Assert.Empty(result.GeneratedTrees);
     }
 
     private static string CreateManifest() => string.Join("\n", AuthorityIdFamilyRegistryV1.All.Select(

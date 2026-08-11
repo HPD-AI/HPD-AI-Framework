@@ -97,7 +97,11 @@ public sealed class AuthorityIdSourceGenerator : IIncrementalGenerator
     }
 
     private static bool ValidToken(string token) => token.Length is >= 2 and <= 16 && token[0] is >= 'a' and <= 'z' && token.All(static c => c is >= 'a' and <= 'z' or >= '0' and <= '9' or '-');
-    private static bool ValidType(string type) => type.Length > 2 && type.EndsWith("Id", StringComparison.Ordinal) && type.All(static c => c is >= 'A' and <= 'Z' or >= 'a' and <= 'z' or >= '0' and <= '9');
+    private static bool ValidType(string type) =>
+        type.Length > 2 &&
+        type[0] is >= 'A' and <= 'Z' &&
+        type.EndsWith("Id", StringComparison.Ordinal) &&
+        type.All(static c => c is >= 'A' and <= 'Z' or >= 'a' and <= 'z' or >= '0' and <= '9');
 
     private sealed record Family(string Token, string Type, string Owner, string AllocatorOwner, string Kind);
 }
