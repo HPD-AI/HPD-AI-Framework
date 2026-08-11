@@ -65,6 +65,16 @@ internal sealed class SemanticInputAcceptedPayloadRegistrationV1 : AuthorityPayl
         SemanticInputAcceptedV1Codec.TryDecode(payload, out _);
 }
 
+internal sealed class SubmissionDispositionChosenPayloadRegistrationV1 : AuthorityPayloadRegistrationV1
+{
+    internal SubmissionDispositionChosenPayloadRegistrationV1() :
+        base(new BoundedAscii(SubmissionDispositionChosenV1Codec.SchemaId), SubmissionDispositionChosenV1Codec.Major,
+            SubmissionDispositionChosenV1Codec.Minor, OwnerSliceId.S1, 4096) { }
+
+    private protected override bool ValidateCanonicalPayload(ReadOnlyMemory<byte> payload) =>
+        SubmissionDispositionChosenV1Codec.TryDecode(payload, out _);
+}
+
 internal static class AuthoritySchemaIdentityV1
 {
     private static ReadOnlySpan<byte> Domain => "hpd-schema-id-v1\0"u8;
