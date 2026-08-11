@@ -96,7 +96,7 @@ public readonly record struct TenantId
     private readonly StableId128 _value;
     private TenantId(StableId128 value) => _value = value;
     /// <summary>Allocates a cryptographically random tenant identifier.</summary>
-    public static TenantId Create() => new(StableId128.CreateRandom());
+    internal static TenantId Create() => new(StableId128.CreateRandom());
     /// <summary>Parses a canonical tenant identifier without accepting aliases or noncanonical text.</summary>
     public static bool TryParse(string? text, out TenantId value) { var ok = StableId128.TryParse(text, "ten", out var parsed); value = ok ? new(parsed) : default; return ok; }
     /// <summary>Returns the canonical text form, or an empty string for the invalid default value.</summary>
@@ -110,7 +110,7 @@ public readonly record struct SessionId
     private readonly StableId128 _value;
     private SessionId(StableId128 value) => _value = value;
     /// <summary>Allocates a cryptographically random session correlation identifier.</summary>
-    public static SessionId Create() => new(StableId128.CreateRandom());
+    internal static SessionId Create() => new(StableId128.CreateRandom());
     /// <summary>Parses a canonical session identifier.</summary>
     public static bool TryParse(string? text, out SessionId value) { var ok = StableId128.TryParse(text, "ses", out var parsed); value = ok ? new(parsed) : default; return ok; }
     /// <summary>Returns the canonical text form, or an empty string for the invalid default value.</summary>
@@ -123,7 +123,7 @@ public readonly record struct ThreadId
     private readonly StableId128 _value;
     private ThreadId(StableId128 value) => _value = value;
     /// <summary>Allocates a cryptographically random thread identifier.</summary>
-    public static ThreadId Create() => new(StableId128.CreateRandom());
+    internal static ThreadId Create() => new(StableId128.CreateRandom());
     /// <summary>Parses a canonical <c>thr:</c> identifier.</summary>
     public static bool TryParse(string? text, out ThreadId value) { var ok = StableId128.TryParse(text, "thr", out var parsed); value = ok ? new(parsed) : default; return ok; }
     /// <summary>Returns the canonical text form, or an empty string for the invalid default value.</summary>
@@ -136,7 +136,7 @@ public readonly record struct LiveSessionId
     private readonly StableId128 _value;
     private LiveSessionId(StableId128 value) => _value = value;
     /// <summary>Allocates a cryptographically random live-session identifier.</summary>
-    public static LiveSessionId Create() => new(StableId128.CreateRandom());
+    internal static LiveSessionId Create() => new(StableId128.CreateRandom());
     /// <summary>Parses a canonical <c>liv:</c> identifier.</summary>
     public static bool TryParse(string? text, out LiveSessionId value) { var ok = StableId128.TryParse(text, "liv", out var parsed); value = ok ? new(parsed) : default; return ok; }
     /// <summary>Returns the canonical text form, or an empty string for the invalid default value.</summary>
@@ -149,7 +149,7 @@ public readonly record struct RuntimeGenerationId
     private readonly StableId128 _value;
     private RuntimeGenerationId(StableId128 value) => _value = value;
     /// <summary>Allocates a cryptographically random runtime-generation identifier.</summary>
-    public static RuntimeGenerationId Create() => new(StableId128.CreateRandom());
+    internal static RuntimeGenerationId Create() => new(StableId128.CreateRandom());
     /// <summary>Parses a canonical <c>run:</c> identifier.</summary>
     public static bool TryParse(string? text, out RuntimeGenerationId value) { var ok = StableId128.TryParse(text, "run", out var parsed); value = ok ? new(parsed) : default; return ok; }
     /// <summary>Returns the canonical text form, or an empty string for the invalid default value.</summary>
@@ -163,7 +163,7 @@ public readonly struct Hash256 : IEquatable<Hash256>
     private readonly byte[]? _bytes;
     private Hash256(byte[] bytes) => _bytes = bytes;
     /// <summary>Computes SHA-256 over the supplied bytes.</summary>
-    public static Hash256 Compute(ReadOnlySpan<byte> bytes) => new(SHA256.HashData(bytes));
+    internal static Hash256 Compute(ReadOnlySpan<byte> bytes) => new(SHA256.HashData(bytes));
     /// <summary>Parses the canonical lowercase hexadecimal form.</summary>
     public static bool TryParse(string? text, out Hash256 value)
     {
@@ -175,17 +175,34 @@ public readonly struct Hash256 : IEquatable<Hash256>
     }
     /// <summary>Returns canonical lowercase hexadecimal, or an empty string for the invalid default value.</summary>
     public override string ToString() => _bytes is null ? string.Empty : Convert.ToHexString(_bytes).ToLowerInvariant();
+    /// <inheritdoc />
     public bool Equals(Hash256 other) =>
         _bytes is null ? other._bytes is null : other._bytes is not null && _bytes.AsSpan().SequenceEqual(other._bytes);
+    /// <inheritdoc />
     public override bool Equals(object? obj) => obj is Hash256 other && Equals(other);
+    /// <inheritdoc />
     public override int GetHashCode() => _bytes is null ? 0 : HashCode.Combine(BinaryPrimitives.ReadUInt64BigEndian(_bytes), BinaryPrimitives.ReadUInt64BigEndian(_bytes.AsSpan(24)));
+    /// <summary>Returns whether two hashes contain the same 256 bits.</summary>
     public static bool operator ==(Hash256 left, Hash256 right) => left.Equals(right);
+    /// <summary>Returns whether two hashes contain different 256-bit values.</summary>
     public static bool operator !=(Hash256 left, Hash256 right) => !left.Equals(right);
 }
 
 /// <summary>Represents signed nanoseconds since the Unix epoch for evidence and display time.</summary>
 /// <remarks>Journal position, not this timestamp, defines authority order.</remarks>
-public readonly record struct UtcInstant(long NanosecondsSinceUnixEpoch);
+public readonly record struct UtcInstant
+{
+    /// <summary>Initializes an instant from an exact signed nanosecond count.</summary>
+    public UtcInstant(long nanosecondsSinceUnixEpoch) => NanosecondsSinceUnixEpoch = nanosecondsSinceUnixEpoch;
+    /// <summary>Gets signed nanoseconds since the Unix epoch.</summary>
+    public long NanosecondsSinceUnixEpoch { get; }
+}
 
 /// <summary>Represents a checked signed duration measured in nanoseconds.</summary>
-public readonly record struct DurationNs(long Nanoseconds);
+public readonly record struct DurationNs
+{
+    /// <summary>Initializes a duration from an exact signed nanosecond count.</summary>
+    public DurationNs(long nanoseconds) => Nanoseconds = nanoseconds;
+    /// <summary>Gets the signed nanosecond count.</summary>
+    public long Nanoseconds { get; }
+}
