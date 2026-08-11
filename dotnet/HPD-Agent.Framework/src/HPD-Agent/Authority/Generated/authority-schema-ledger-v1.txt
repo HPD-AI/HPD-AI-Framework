@@ -1,4 +1,4 @@
-# source-contract-sha256=a8ddcae50d97aa6f700935a83c307d0aba6f687c1e535eed3ca1e7f539fe8cee
+# source-contract-sha256=06d474e05d199bed8496c2d3c2fa7ca2c47af1c842fe8b2946363ff3533d058b
 # source-registry-sha256=398d87cfe580c005ebb92b1a4bc2bbc2c0137aa11950ccabcec069ec3e5744d4
 # generated input; section rows are canonical and ordered
 @IdFamilies
