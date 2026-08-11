@@ -16,6 +16,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="HPD.Agent.Audio.V2.Tests" />
+    <InternalsVisibleTo Include="HPD-Agent.Tests" />
   </ItemGroup>
 
   <ItemGroup>
