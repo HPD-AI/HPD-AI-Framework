@@ -41,8 +41,12 @@ internal abstract class AuthorityPayloadRegistrationV1
     internal BoundedAscii SchemaToken { get; }
     internal OwnerSliceId Owner { get; }
     internal int MaximumPayloadBytes { get; }
-    internal bool Validate(ReadOnlyMemory<byte> payload) => payload.Length <= MaximumPayloadBytes && ValidateCanonicalPayload(payload);
-    private protected abstract bool ValidateCanonicalPayload(ReadOnlyMemory<byte> payload);
+    internal bool Validate(ReadOnlyMemory<byte> payload) =>
+        payload.Length <= MaximumPayloadBytes && ValidateCanonicalPayload(payload, default);
+    internal bool Validate(ReadOnlyMemory<byte> payload, SessionAuthorityStampV1 session) =>
+        payload.Length <= MaximumPayloadBytes && ValidateCanonicalPayload(payload, session);
+    private protected abstract bool ValidateCanonicalPayload(
+        ReadOnlyMemory<byte> payload, SessionAuthorityStampV1 session);
 }
 
 internal sealed class SessionAuthorityStampPayloadRegistrationV1 : AuthorityPayloadRegistrationV1
@@ -51,7 +55,7 @@ internal sealed class SessionAuthorityStampPayloadRegistrationV1 : AuthorityPayl
         base(new BoundedAscii(SessionAuthorityStampV1Codec.SchemaId), SessionAuthorityStampV1Codec.Major,
             SessionAuthorityStampV1Codec.Minor, OwnerSliceId.S1, 64) { }
 
-    private protected override bool ValidateCanonicalPayload(ReadOnlyMemory<byte> payload) =>
+    private protected override bool ValidateCanonicalPayload(ReadOnlyMemory<byte> payload, SessionAuthorityStampV1 session) =>
         SessionAuthorityStampV1Codec.TryDecode(payload, out _);
 }
 
@@ -61,7 +65,7 @@ internal sealed class SemanticInputAcceptedPayloadRegistrationV1 : AuthorityPayl
         base(new BoundedAscii(SemanticInputAcceptedV1Codec.SchemaId), SemanticInputAcceptedV1Codec.Major,
             SemanticInputAcceptedV1Codec.Minor, OwnerSliceId.AgentCore, 4096) { }
 
-    private protected override bool ValidateCanonicalPayload(ReadOnlyMemory<byte> payload) =>
+    private protected override bool ValidateCanonicalPayload(ReadOnlyMemory<byte> payload, SessionAuthorityStampV1 session) =>
         SemanticInputAcceptedV1Codec.TryDecode(payload, out _);
 }
 
@@ -71,8 +75,38 @@ internal sealed class SubmissionDispositionChosenPayloadRegistrationV1 : Authori
         base(new BoundedAscii(SubmissionDispositionChosenV1Codec.SchemaId), SubmissionDispositionChosenV1Codec.Major,
             SubmissionDispositionChosenV1Codec.Minor, OwnerSliceId.S1, 4096) { }
 
-    private protected override bool ValidateCanonicalPayload(ReadOnlyMemory<byte> payload) =>
+    private protected override bool ValidateCanonicalPayload(ReadOnlyMemory<byte> payload, SessionAuthorityStampV1 session) =>
         SubmissionDispositionChosenV1Codec.TryDecode(payload, out _);
+}
+
+internal sealed class AuthorityGenerationInitializationPayloadRegistrationV1 : AuthorityPayloadRegistrationV1
+{
+    private readonly AuthorityAxisId _axis;
+
+    internal AuthorityGenerationInitializationPayloadRegistrationV1(AuthorityAxisId axis) :
+        base(AuthorityGenerationInitializationCodecV1.SchemaTokenFor(axis), 1, 0,
+            AuthorityGenerationInitializationCodecV1.OwnerFor(axis), 128) => _axis = axis;
+
+    private protected override bool ValidateCanonicalPayload(
+        ReadOnlyMemory<byte> payload, SessionAuthorityStampV1 session) =>
+        AuthorityGenerationInitializationCodecV1.Decode(
+            Schema, Owner, session, payload, out var decoded) == AuthorityGenerationInitializationDecodeV1.Valid &&
+        decoded.Axis == _axis;
+}
+
+internal sealed class AuthorityGenerationTransitionPayloadRegistrationV1 : AuthorityPayloadRegistrationV1
+{
+    private readonly AuthorityAxisId _axis;
+
+    internal AuthorityGenerationTransitionPayloadRegistrationV1(AuthorityAxisId axis) :
+        base(AuthorityGenerationTransitionCodecV1.SchemaTokenFor(axis), 1, 0,
+            AuthorityGenerationTransitionCodecV1.OwnerFor(axis), 160) => _axis = axis;
+
+    private protected override bool ValidateCanonicalPayload(
+        ReadOnlyMemory<byte> payload, SessionAuthorityStampV1 session) =>
+        AuthorityGenerationTransitionCodecV1.Decode(
+            Schema, Owner, session, payload, out var decoded) == AuthorityGenerationTransitionDecodeV1.Valid &&
+        decoded.Axis == _axis;
 }
 
 internal static class AuthoritySchemaIdentityV1
@@ -114,13 +148,16 @@ internal sealed class AuthorityPayloadAdmissionRegistryV1
         _registrations = map;
     }
 
-    internal AuthorityPayloadAdmissionV1 Validate(ProposedAuthorityFactV1 proposal, out AuthorityPayloadRegistrationV1? registration)
+    internal AuthorityPayloadAdmissionV1 Validate(
+        SessionAuthorityStampV1 session,
+        ProposedAuthorityFactV1 proposal,
+        out AuthorityPayloadRegistrationV1? registration)
     {
         if (!_registrations.TryGetValue(proposal.PayloadSchema.SchemaId, out registration) || registration.Schema != proposal.PayloadSchema)
             return AuthorityPayloadAdmissionV1.UnknownSchema;
         if (registration.Owner != proposal.Owner)
             return AuthorityPayloadAdmissionV1.OwnerMismatch;
-        if (!registration.Validate(proposal.PayloadMemory))
+        if (!registration.Validate(proposal.PayloadMemory, session))
             return AuthorityPayloadAdmissionV1.InvalidPayload;
         return AuthorityPayloadHashV1.Compute(registration.SchemaToken, proposal.PayloadSchema, proposal.PayloadBytes) == proposal.PayloadHash
             ? AuthorityPayloadAdmissionV1.Exact

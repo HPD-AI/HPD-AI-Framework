@@ -83,6 +83,9 @@ internal static class AuthorityGenerationTransitionCodecV1
     internal static OwnerSliceId OwnerFor(AuthorityAxisId axis) =>
         Descriptors.Single(row => row.Axis == axis).Owner;
 
+    internal static BoundedAscii SchemaTokenFor(AuthorityAxisId axis) =>
+        new(Descriptors.Single(row => row.Axis == axis).SchemaToken);
+
     private static Descriptor Create(string token, AuthorityAxisId axis, OwnerSliceId owner)
     {
         var expectedLedgerRow = $"{(ushort)axis}|{token}|{AxisType(axis).Replace("Id", "ChangedV1", StringComparison.Ordinal)}|{AxisType(axis)}|{owner}";

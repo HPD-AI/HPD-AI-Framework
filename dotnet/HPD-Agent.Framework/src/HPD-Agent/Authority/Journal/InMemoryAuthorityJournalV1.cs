@@ -92,7 +92,7 @@ internal sealed class InMemoryAuthorityJournalV1 : IAuthorityJournalV1
     {
         foreach (var fact in request.Facts)
         {
-            var disposition = _registry.Validate(fact, out _);
+            var disposition = _registry.Validate(request.Session, fact, out _);
             if (disposition == AuthorityPayloadAdmissionV1.UnknownSchema)
                 return new AppendAuthorityResultV1.UnknownSchema(fact.PayloadSchema);
             if (disposition != AuthorityPayloadAdmissionV1.Exact)
@@ -145,6 +145,13 @@ internal sealed class InMemoryAuthorityJournalV1 : IAuthorityJournalV1
                 return new AppendAuthorityResultV1.ThreadConflict(expected.ThreadId, expected.Sequence, 0);
         }
 
+        var nextGenerationState = state.Generation.Clone();
+        foreach (var proposal in request.Facts)
+        {
+            if (!nextGenerationState.TryApply(request.Session, proposal))
+                return new AppendAuthorityResultV1.InvalidPayload(new BoundedAscii("generation-state-conflict"));
+        }
+
         var nextHead = state.Head;
         var nextThreads = state.Threads.ToDictionary(static pair => pair.Key, static pair => pair.Value);
         var envelopes = new List<AuthorityFactEnvelopeV1>(request.Facts.Count);
@@ -174,7 +181,6 @@ internal sealed class InMemoryAuthorityJournalV1 : IAuthorityJournalV1
                 proposal.PayloadHash, proposal.Correlation, proposal.ObservedAt, admittedAt, integrity));
         }
 
-
         if (isNewSession && _sessions.Count >= _capacity.MaximumSessions)
             return new AppendAuthorityResultV1.CapacityRefused(CapacityDimensionId.QueueItems, 1, 0);
         var availableFacts = _capacity.MaximumFacts - _facts.Count;
@@ -187,6 +193,7 @@ internal sealed class InMemoryAuthorityJournalV1 : IAuthorityJournalV1
 
         var previousHead = state.Head;
         state.Head = nextHead;
+        state.Generation = nextGenerationState;
         state.Threads.Clear();
         foreach (var pair in nextThreads) state.Threads.Add(pair.Key, pair.Value);
         if (isNewSession) _sessions.Add(request.Session, state);
@@ -203,8 +210,53 @@ internal sealed class InMemoryAuthorityJournalV1 : IAuthorityJournalV1
     private sealed class SessionState
     {
         internal long Head { get; set; }
+        internal GenerationFoldState Generation { get; set; } = new();
         internal Dictionary<ThreadId, ThreadHead> Threads { get; } = [];
         internal List<StoredFact> Facts { get; } = [];
+    }
+
+    private sealed class GenerationFoldState
+    {
+        private readonly Dictionary<AuthorityAxisId, StableId128> _axes;
+
+        internal GenerationFoldState() => _axes = [];
+
+        private GenerationFoldState(Dictionary<AuthorityAxisId, StableId128> axes, RuntimeGenerationId? replacement)
+        {
+            _axes = axes;
+            Replacement = replacement;
+        }
+
+        private RuntimeGenerationId? Replacement { get; set; }
+
+        internal GenerationFoldState Clone() => new(
+            _axes.ToDictionary(static pair => pair.Key, static pair => pair.Value), Replacement);
+
+        internal bool TryApply(SessionAuthorityStampV1 session, ProposedAuthorityFactV1 proposal)
+        {
+            if (Replacement is not null) return false;
+            var initializationResult = AuthorityGenerationInitializationCodecV1.Decode(
+                proposal.PayloadSchema, proposal.Owner, session, proposal.PayloadMemory, out var initialization);
+            if (initializationResult == AuthorityGenerationInitializationDecodeV1.Invalid) return false;
+            if (initializationResult == AuthorityGenerationInitializationDecodeV1.Valid)
+                return _axes.TryAdd(initialization.Axis, initialization.Initial);
+
+            var transitionResult = AuthorityGenerationTransitionCodecV1.Decode(
+                proposal.PayloadSchema, proposal.Owner, session, proposal.PayloadMemory, out var transition);
+            if (transitionResult == AuthorityGenerationTransitionDecodeV1.Invalid) return false;
+            if (transitionResult == AuthorityGenerationTransitionDecodeV1.NotTransition) return true;
+            if (transition.Axis == AuthorityAxisId.Runtime)
+            {
+                if (RuntimeGenerationId.FromValue(transition.ExpectedPrevious) != session.RuntimeGenerationId)
+                    return false;
+                Replacement = RuntimeGenerationId.FromValue(transition.ProposedNext);
+                return true;
+            }
+            if (!_axes.TryGetValue(transition.Axis, out var current) || !current.Equals(transition.ExpectedPrevious))
+                return false;
+            _axes[transition.Axis] = transition.ProposedNext;
+            return true;
+        }
     }
 
     private sealed record StoredFact(SessionAuthorityStampV1 Session, AuthorityFactEnvelopeV1 Envelope, ulong EncodedBytes)

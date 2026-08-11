@@ -74,6 +74,11 @@ internal static class AuthorityGenerationInitializationCodecV1
     internal static OwnerSliceId OwnerFor(AuthorityAxisId axis) =>
         Descriptors.Single(row => row.Axis == axis).Owner;
 
+    internal static BoundedAscii SchemaTokenFor(AuthorityAxisId axis) =>
+        new(AuthoritySchemaLedgerV1.GenerationInitializationSchemas
+            .Single(row => row.StartsWith($"{(ushort)axis - 1}|", StringComparison.Ordinal))
+            .Split('|')[1]);
+
     private static Descriptor Create(string token, AuthorityAxisId axis, OwnerSliceId owner)
     {
         var axisType = AxisType(axis);
