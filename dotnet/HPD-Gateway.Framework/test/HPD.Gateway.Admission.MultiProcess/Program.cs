@@ -14,10 +14,13 @@ return args.FirstOrDefault() switch
 static async Task<int> RunWorkerAsync(WorkerOptions options)
 {
     var timeoutProvider = new HangingBenchmarkProvider();
+    var inFlightStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
     WebApplication backend = WebApplication.CreateSlimBuilder().Build();
     backend.Urls.Add($"http://127.0.0.1:{options.BackendPort}");
     backend.MapGet("/{**path}", async (HttpContext context) =>
     {
+        if (context.Request.Path.Value?.Contains("activation-inflight", StringComparison.Ordinal) == true)
+            inFlightStarted.TrySetResult();
         if (context.Request.Query.TryGetValue("delay", out var delay) &&
             int.TryParse(delay, out int milliseconds) && milliseconds is > 0 and <= 10_000)
             await Task.Delay(milliseconds, context.RequestAborted);
@@ -25,7 +28,7 @@ static async Task<int> RunWorkerAsync(WorkerOptions options)
     });
     await backend.StartAsync();
 
-    GatewayConfiguration configuration = CreateConfiguration(options);
+    GatewayConfiguration configuration = CreateConfiguration(options, options.Generation);
     GatewayCanonicalDocument document = configuration.ToCanonicalDocument();
     WebApplicationBuilder builder = WebApplication.CreateSlimBuilder();
     builder.WebHost.UseUrls($"http://127.0.0.1:{options.Port}");
@@ -107,13 +110,27 @@ static async Task<int> RunWorkerAsync(WorkerOptions options)
         System.Globalization.CultureInfo.InvariantCulture,
         $"allocated={GC.GetTotalAllocatedBytes(false)};gen0={GC.CollectionCount(0)};gen1={GC.CollectionCount(1)};gen2={GC.CollectionCount(2)};timeout-active={timeoutProvider.Active};timeout-max={timeoutProvider.MaximumObserved}")));
     app.MapPost("/worker/release-timeouts", () => { timeoutProvider.Release(); return Results.Ok(); });
+    app.MapGet("/worker/inflight-started", () => inFlightStarted.Task.IsCompleted ? Results.Ok() : Results.NotFound());
+    app.MapPost("/worker/activate-generation-2", async (IGatewayNodeActivator activator, CancellationToken cancellationToken) =>
+    {
+        GatewayCanonicalDocument replacement = CreateConfiguration(options, 2).ToCanonicalDocument();
+        long started = Stopwatch.GetTimestamp();
+        GatewayNodeActivationResult result = await activator.ActivateAsync(new GatewayNodeActivationRequest(
+            "evidence", options.ReplicaId, new CandidateId("candidate-2"),
+            options.AuthorityId, "epoch-1", 2, replacement.Utf8Json), cancellationToken);
+        double durationMicroseconds = (Stopwatch.GetTimestamp() - started) * 1_000_000d / Stopwatch.Frequency;
+        return result.IsActiveAcknowledged
+            ? Results.Text(string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                $"state=active-acknowledged;duration={durationMicroseconds:F3}"))
+            : Results.Problem($"Generation 2 was not acknowledged: {result.State}/{result.Publication?.State}.");
+    });
     app.MapHpdGateway();
     try { await app.RunAsync(); }
     finally { await backend.DisposeAsync(); }
     return 0;
 }
 
-static GatewayConfiguration CreateConfiguration(WorkerOptions options)
+static GatewayConfiguration CreateConfiguration(WorkerOptions options, ulong generation)
 {
     TrafficAdmissionEntry rate = options.Algorithm switch
     {
@@ -254,7 +271,15 @@ static GatewayConfiguration CreateConfiguration(WorkerOptions options)
                         }
                     }
                 }
-            }
+            },
+            .. generation >= 2
+                ? [new RouteDeclaration
+                {
+                    Id = new RouteId("generation-b"),
+                    Match = new HttpRouteMatch { Path = "/generation-b/{**catch-all}" },
+                    Upstream = new UpstreamId("backend")
+                }]
+                : Array.Empty<RouteDeclaration>()
         ]
     };
 }
@@ -303,6 +328,7 @@ static async Task<int> RunControllerAsync(ControllerOptions options)
             using (await client.PostAsync($"http://127.0.0.1:{workers[0].Port}/worker/release-timeouts", null)) { }
 
             int underLoadSuccess = 0;
+            int underLoadFailure = 0;
             using var loadCancellation = new CancellationTokenSource();
             Task load = Task.Run(async () =>
             {
@@ -311,20 +337,38 @@ static async Task<int> RunControllerAsync(ControllerOptions options)
                     using HttpResponseMessage response = await client.GetAsync(
                         $"http://127.0.0.1:{workers[0].Port}/baseline/load", loadCancellation.Token);
                     if (response.IsSuccessStatusCode) Interlocked.Increment(ref underLoadSuccess);
+                    else Interlocked.Increment(ref underLoadFailure);
                 }
             });
-            WorkerProcess replacement = WorkerProcess.Start(options, 1, generation: 2);
-            workers.Add(replacement);
-            await replacement.WaitUntilReadyAsync();
-            using (HttpResponseMessage replacementResponse = await client.GetAsync(
-                $"http://127.0.0.1:{replacement.Port}/quota/replacement"))
-                replacementResponse.EnsureSuccessStatusCode();
+
+            Task<HttpResponseMessage> oldInFlight = client.GetAsync(
+                $"http://127.0.0.1:{workers[0].Port}/baseline/activation-inflight?delay=750");
+            await WaitForStatusAsync(client,
+                $"http://127.0.0.1:{workers[0].Port}/worker/inflight-started", HttpStatusCode.OK);
+            int successesBeforeActivation = Volatile.Read(ref underLoadSuccess);
+            int failuresBeforeActivation = Volatile.Read(ref underLoadFailure);
+            using HttpResponseMessage activation = await client.PostAsync(
+                $"http://127.0.0.1:{workers[0].Port}/worker/activate-generation-2", null);
+            activation.EnsureSuccessStatusCode();
+            int transitionSuccess = Volatile.Read(ref underLoadSuccess) - successesBeforeActivation;
+            int transitionFailure = Volatile.Read(ref underLoadFailure) - failuresBeforeActivation;
+            string activationResult = await activation.Content.ReadAsStringAsync();
+            double activationMicroseconds = ParseMetric(activationResult, "duration");
+            using HttpResponseMessage generationB = await client.GetAsync(
+                $"http://127.0.0.1:{workers[0].Port}/generation-b/probe");
+            generationB.EnsureSuccessStatusCode();
+            using HttpResponseMessage oldInFlightResponse = await oldInFlight;
+            oldInFlightResponse.EnsureSuccessStatusCode();
             loadCancellation.Cancel();
             try { await load; } catch (OperationCanceledException) { }
             if (underLoadSuccess == 0)
-                throw new InvalidOperationException("No request completed while the replacement generation activated.");
+                throw new InvalidOperationException("No request completed while the loaded runtime activated generation B.");
+            if (underLoadFailure != 0)
+                throw new InvalidOperationException($"{underLoadFailure} requests failed while the loaded runtime activated generation B.");
+            if (transitionSuccess == 0)
+                throw new InvalidOperationException("No concurrent request completed during the A-to-B publication interval.");
             Console.WriteLine(string.Create(System.Globalization.CultureInfo.InvariantCulture,
-                $"benchmark schema=hpd.gateway.admission.benchmark/v2 runtime={System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription} os={System.Runtime.InteropServices.RuntimeInformation.OSDescription} architecture={System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture} transport=loopback-http1-sequential-keepalive warmup=250 measured=2000 baseline={baseline} process-local={local} partition-projection={projection} redis-shared={shared} provider-capacity=2 provider-max-observed={afterTimeout.TimeoutMaximumObserved} timeout-results=2x503 saturation-result={(int)saturated.StatusCode} saturation-latency={saturationMicroseconds:F3}us activation-under-load-success={underLoadSuccess} timeout-allocation-delta={afterTimeout.AllocatedBytes - beforeTimeout.AllocatedBytes} timeout-gc-delta={afterTimeout.Gen0 - beforeTimeout.Gen0}/{afterTimeout.Gen1 - beforeTimeout.Gen1}/{afterTimeout.Gen2 - beforeTimeout.Gen2}"));
+                $"benchmark schema=hpd.gateway.admission.benchmark/v2 runtime={System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription} os={System.Runtime.InteropServices.RuntimeInformation.OSDescription} architecture={System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture} transport=loopback-http1-sequential-keepalive warmup=250 measured=2000 baseline={baseline} process-local={local} partition-projection={projection} redis-shared={shared} provider-capacity=2 provider-max-observed={afterTimeout.TimeoutMaximumObserved} timeout-results=2x503 saturation-result={(int)saturated.StatusCode} saturation-latency={saturationMicroseconds:F3}us activation-duration={activationMicroseconds:F3}us activation-transition-success={transitionSuccess} activation-transition-failure={transitionFailure} activation-under-load-success={underLoadSuccess} activation-under-load-failure={underLoadFailure} old-inflight-status={(int)oldInFlightResponse.StatusCode} new-generation-status={(int)generationB.StatusCode} timeout-allocation-delta={afterTimeout.AllocatedBytes - beforeTimeout.AllocatedBytes} timeout-gc-delta={afterTimeout.Gen0 - beforeTimeout.Gen0}/{afterTimeout.Gen1 - beforeTimeout.Gen1}/{afterTimeout.Gen2 - beforeTimeout.Gen2}"));
             return 0;
         }
         if (options.Scenario == "recovery")
@@ -493,6 +537,28 @@ static async Task<RuntimeMetrics> ReadMetricsAsync(HttpClient client, WorkerProc
         .ToDictionary(static field => field[0], static field => long.Parse(field[1], System.Globalization.CultureInfo.InvariantCulture), StringComparer.Ordinal);
     return new(fields["allocated"], fields["gen0"], fields["gen1"], fields["gen2"],
         checked((int)fields["timeout-active"]), checked((int)fields["timeout-max"]));
+}
+
+static async Task WaitForStatusAsync(HttpClient client, string address, HttpStatusCode expected)
+{
+    long deadline = Stopwatch.GetTimestamp() + 10 * Stopwatch.Frequency;
+    while (true)
+    {
+        using HttpResponseMessage response = await client.GetAsync(address);
+        if (response.StatusCode == expected)
+            return;
+        if (Stopwatch.GetTimestamp() >= deadline)
+            throw new InvalidOperationException($"Timed out waiting for {(int)expected} from {address}.");
+        await Task.Delay(10);
+    }
+}
+
+static double ParseMetric(string text, string name)
+{
+    string prefix = name + "=";
+    string field = text.Split(';', StringSplitOptions.RemoveEmptyEntries)
+        .Single(value => value.StartsWith(prefix, StringComparison.Ordinal));
+    return double.Parse(field.AsSpan(prefix.Length), System.Globalization.CultureInfo.InvariantCulture);
 }
 
 static async Task ExpectStatusAsync(HttpClient client, WorkerProcess worker, HttpStatusCode expected)
