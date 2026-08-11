@@ -1,5 +1,7 @@
 namespace HPD.Agent.Authority;
 
+using System.Formats.Cbor;
+
 /// <summary>Describes the ordering relation between two monotonic stamps.</summary>
 public enum ClockComparison
 {
@@ -98,5 +100,62 @@ public readonly record struct MonotonicStampV1
         }
         duration = new DurationNs(negativeMagnitude == 1UL << 63 ? long.MinValue : -(long)negativeMagnitude);
         return ClockSubtractionStatus.Success;
+    }
+}
+
+internal static class MonotonicStampV1Codec
+{
+    internal static byte[] Encode(MonotonicStampV1 value)
+    {
+        if (!value.IsValid)
+            throw new ArgumentException("The monotonic stamp is invalid.", nameof(value));
+
+        var writer = new CborWriter(CborConformanceMode.Ctap2Canonical);
+        Span<byte> clockDomain = stackalloc byte[16];
+        Span<byte> boot = stackalloc byte[16];
+        if (!value.ClockDomainId.TryWriteBytes(clockDomain) || !value.BootId.TryWriteBytes(boot))
+            throw new ArgumentException("The monotonic stamp is invalid.", nameof(value));
+
+        writer.WriteStartMap(3);
+        writer.WriteUInt64(1);
+        writer.WriteByteString(clockDomain);
+        writer.WriteUInt64(2);
+        writer.WriteByteString(boot);
+        writer.WriteUInt64(3);
+        writer.WriteUInt64(value.Nanoseconds);
+        writer.WriteEndMap();
+        return writer.Encode();
+    }
+
+    internal static bool TryDecode(ReadOnlyMemory<byte> encoded, out MonotonicStampV1 value)
+    {
+        value = default;
+        try
+        {
+            var reader = new CborReader(encoded, CborConformanceMode.Ctap2Canonical, allowMultipleRootLevelValues: false);
+            if (reader.ReadStartMap() != 3 || reader.ReadUInt64() != 1)
+                return false;
+            var clockDomain = reader.ReadByteString();
+            if (clockDomain.Length != 16 || reader.ReadUInt64() != 2)
+                return false;
+            var boot = reader.ReadByteString();
+            if (boot.Length != 16 || reader.ReadUInt64() != 3)
+                return false;
+            var nanoseconds = reader.ReadUInt64();
+            reader.ReadEndMap();
+            if (reader.BytesRemaining != 0)
+                return false;
+
+            value = new MonotonicStampV1(
+                ClockDomainId.FromValue(StableId128.FromBytes(clockDomain)),
+                BootId.FromValue(StableId128.FromBytes(boot)),
+                nanoseconds);
+            return true;
+        }
+        catch (Exception exception) when (exception is CborContentException or InvalidOperationException or ArgumentException)
+        {
+            value = default;
+            return false;
+        }
     }
 }
