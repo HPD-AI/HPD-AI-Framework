@@ -55,6 +55,7 @@
 
   <ItemGroup>
     <AdditionalFiles Include="Authority/Generated/authority-id-families-v1.txt" />
+    <AdditionalFiles Include="Authority/Generated/authority-schema-ledger-v1.txt" />
   </ItemGroup>
 
   <!-- Pack source generator as analyzer in NuGet package -->
