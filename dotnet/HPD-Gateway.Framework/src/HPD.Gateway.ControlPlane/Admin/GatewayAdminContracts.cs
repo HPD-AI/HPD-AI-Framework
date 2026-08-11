@@ -290,7 +290,15 @@ internal sealed record GatewayTrafficAdmissionCapabilityProjection(
     int? AcquisitionOrdinal,
     string? PartitionProjectorId,
     string? PartitionProjectorHashAlgorithm,
-    string? PartitionProjectorHashValue);
+    string? PartitionProjectorHashValue,
+    string? ProviderId,
+    string? ProviderBehaviorHashAlgorithm,
+    string? ProviderBehaviorHashValue,
+    string? OperationTimeoutTicks,
+    int? MaximumConcurrentInvocations,
+    string? LocalFallbackProfile,
+    string? LocalFallbackHashAlgorithm,
+    string? LocalFallbackHashValue);
 
 internal sealed record GatewayDiscoveryProfileCapabilityProjection(
     string Id,

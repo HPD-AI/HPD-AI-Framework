@@ -88,7 +88,8 @@ internal sealed class GatewayRuntimePlan
         routes.Select(static value => value.RouteId).Distinct(StringComparer.Ordinal).Count() == routes.Length &&
         routes.All(route => route.Metadata is not null &&
             route.Metadata.TryGetValue(GatewayRuntimePlanner.ApplicationIdMetadata, out string? application) && application == applicationId &&
-            route.Metadata.TryGetValue(GatewayRuntimePlanner.SymbolicPlanIdentityMetadata, out string? plan) && plan == planIdentity);
+            route.Metadata.TryGetValue(GatewayRuntimePlanner.SymbolicPlanIdentityMetadata, out string? plan) && plan == planIdentity &&
+            GatewayTrafficAdmissionMetadataCodec.ValidateRoute(route));
 
     private static bool ValidResources(
         ImmutableArray<ClusterConfig> clusters,

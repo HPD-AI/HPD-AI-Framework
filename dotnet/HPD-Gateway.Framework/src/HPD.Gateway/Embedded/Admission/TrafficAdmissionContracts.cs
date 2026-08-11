@@ -147,4 +147,10 @@ public sealed record TrafficAdmissionCapability(
     ContentHash BehaviorIdentity,
     int? AcquisitionOrdinal,
     string? PartitionProjectorId = null,
-    ContentHash? PartitionProjectorIdentity = null);
+    ContentHash? PartitionProjectorIdentity = null,
+    string? ProviderId = null,
+    ContentHash? ProviderBehaviorIdentity = null,
+    TimeSpan? OperationTimeout = null,
+    int? MaximumConcurrentInvocations = null,
+    string? LocalFallbackProfile = null,
+    ContentHash? LocalFallbackIdentity = null);

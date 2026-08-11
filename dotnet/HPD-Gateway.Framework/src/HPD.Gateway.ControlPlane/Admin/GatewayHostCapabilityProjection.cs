@@ -59,7 +59,11 @@ internal static class GatewayHostCapabilityProjector
                     value.Limits.MaximumPeriod?.Ticks.ToString(System.Globalization.CultureInfo.InvariantCulture),
                     value.Limits.MinimumSegments, value.Limits.MaximumSegments, value.Limits.MinimumQueue, value.Limits.MaximumQueue,
                     value.AuthorityId, value.BehaviorIdentity.Algorithm, value.BehaviorIdentity.Value, value.AcquisitionOrdinal,
-                    value.PartitionProjectorId, value.PartitionProjectorIdentity?.Algorithm, value.PartitionProjectorIdentity?.Value))
+                    value.PartitionProjectorId, value.PartitionProjectorIdentity?.Algorithm, value.PartitionProjectorIdentity?.Value,
+                    value.ProviderId, value.ProviderBehaviorIdentity?.Algorithm, value.ProviderBehaviorIdentity?.Value,
+                    value.OperationTimeout?.Ticks.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    value.MaximumConcurrentInvocations, value.LocalFallbackProfile,
+                    value.LocalFallbackIdentity?.Algorithm, value.LocalFallbackIdentity?.Value))
                 .ToImmutableArray(),
             Sort(snapshot.RequestTimeoutPolicies),
             snapshot.OutputCacheProfiles.Values

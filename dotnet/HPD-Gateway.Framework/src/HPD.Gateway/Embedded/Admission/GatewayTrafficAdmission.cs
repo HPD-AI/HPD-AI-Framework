@@ -5,11 +5,12 @@ using System.Text.Json;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.RateLimiting;
+using Yarp.ReverseProxy.Configuration;
 using Yarp.ReverseProxy.Model;
 
 namespace HPD.Gateway;
 
-public sealed class GatewayLocalAdmissionOptions
+public class GatewayLocalAdmissionOptions
 {
     public TrafficAdmissionPartitionKind Partition { get; set; } = TrafficAdmissionPartitionKind.Global;
     public long MinimumLimit { get; set; } = 1;
@@ -26,8 +27,9 @@ public sealed class GatewayLocalAdmissionOptions
 public sealed class GatewayTrafficAdmissionRegistryBuilder
 {
     private const int MaximumProfiles = 128;
-    private readonly List<(string Name, TrafficAdmissionKind Kind, TrafficAdmissionRateAlgorithm? Algorithm, GatewayLocalAdmissionOptions Options)> _profiles = [];
+    private readonly List<GatewayAdmissionProfileRegistration> _profiles = [];
     private readonly Dictionary<string, GatewayAdmissionProjectorRegistration> _projectors = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, GatewaySharedAdmissionProviderRegistration> _providers = new(StringComparer.Ordinal);
     private TimeProvider _timeProvider = TimeProvider.System;
 
     public GatewayTrafficAdmissionRegistryBuilder UseTimeProvider(TimeProvider timeProvider)
@@ -59,6 +61,42 @@ public sealed class GatewayTrafficAdmissionRegistryBuilder
     public GatewayTrafficAdmissionRegistryBuilder AddLocalTokenBucket(string name, Action<GatewayLocalAdmissionOptions>? configure = null) => Add(name, TrafficAdmissionKind.RequestRate, TrafficAdmissionRateAlgorithm.TokenBucket, configure);
     public GatewayTrafficAdmissionRegistryBuilder AddLocalConcurrency(string name, Action<GatewayLocalAdmissionOptions>? configure = null) => Add(name, TrafficAdmissionKind.Concurrency, null, configure);
 
+    public GatewayTrafficAdmissionRegistryBuilder AddSharedProvider(
+        string providerId,
+        IGatewaySharedAdmissionProvider provider,
+        Action<GatewaySharedAdmissionProviderOptions> configure)
+    {
+        ArgumentNullException.ThrowIfNull(provider);
+        ArgumentNullException.ThrowIfNull(configure);
+        if (_providers.Count >= MaximumProfiles)
+            throw new InvalidOperationException("Shared-admission provider capacity was exceeded.");
+        if (!GatewayIdentifier.IsCanonical(providerId) || _providers.ContainsKey(providerId))
+            throw new ArgumentException("Shared-admission provider identities must be canonical and unique.", nameof(providerId));
+        var options = new GatewaySharedAdmissionProviderOptions
+        {
+            AuthorityId = string.Empty,
+            BehaviorIdentity = new ContentHash("sha-256", string.Empty),
+        };
+        configure(options);
+        ValidateProvider(options);
+        _providers.Add(providerId, new GatewaySharedAdmissionProviderRegistration(
+            providerId, options.AuthorityId, options.BehaviorIdentity, options.OperationTimeout,
+            options.MaximumConcurrentInvocations, provider));
+        return this;
+    }
+
+    public GatewayTrafficAdmissionRegistryBuilder AddSharedFixedWindow(
+        string name, string providerId, Action<GatewaySharedAdmissionProfileOptions>? configure = null) =>
+        AddShared(name, providerId, TrafficAdmissionRateAlgorithm.FixedWindow, configure);
+
+    public GatewayTrafficAdmissionRegistryBuilder AddSharedSlidingWindow(
+        string name, string providerId, Action<GatewaySharedAdmissionProfileOptions>? configure = null) =>
+        AddShared(name, providerId, TrafficAdmissionRateAlgorithm.SlidingWindow, configure);
+
+    public GatewayTrafficAdmissionRegistryBuilder AddSharedTokenBucket(
+        string name, string providerId, Action<GatewaySharedAdmissionProfileOptions>? configure = null) =>
+        AddShared(name, providerId, TrafficAdmissionRateAlgorithm.TokenBucket, configure);
+
     private GatewayTrafficAdmissionRegistryBuilder Add(string name, TrafficAdmissionKind kind, TrafficAdmissionRateAlgorithm? algorithm, Action<GatewayLocalAdmissionOptions>? configure)
     {
         if (_profiles.Count >= MaximumProfiles) throw new InvalidOperationException("Traffic-admission profile capacity was exceeded.");
@@ -67,23 +105,85 @@ public sealed class GatewayTrafficAdmissionRegistryBuilder
         var options = new GatewayLocalAdmissionOptions();
         configure?.Invoke(options);
         Validate(options, kind, algorithm);
-        _profiles.Add((name, kind, algorithm, Snapshot(options)));
+        _profiles.Add(new GatewayAdmissionProfileRegistration(name, TrafficAdmissionScope.ProcessLocal, kind, algorithm,
+            Snapshot(options), TrafficAdmissionFailureDisposition.Reject, null, null));
+        return this;
+    }
+
+    private GatewayTrafficAdmissionRegistryBuilder AddShared(
+        string name,
+        string providerId,
+        TrafficAdmissionRateAlgorithm algorithm,
+        Action<GatewaySharedAdmissionProfileOptions>? configure)
+    {
+        if (_profiles.Count >= MaximumProfiles) throw new InvalidOperationException("Traffic-admission profile capacity was exceeded.");
+        if (!GatewayIdentifier.IsCanonical(name) || _profiles.Any(value => StringComparer.Ordinal.Equals(value.Name, name)))
+            throw new ArgumentException("Traffic-admission profile names must be canonical and unique.", nameof(name));
+        if (!GatewayIdentifier.IsCanonical(providerId))
+            throw new ArgumentException("Shared-admission provider identity must be canonical.", nameof(providerId));
+        var options = new GatewaySharedAdmissionProfileOptions();
+        configure?.Invoke(options);
+        Validate(options, TrafficAdmissionKind.RequestRate, algorithm);
+        if (!Enum.IsDefined(options.FailureDisposition) ||
+            (options.FailureDisposition == TrafficAdmissionFailureDisposition.LocalFallback &&
+             !GatewayIdentifier.IsCanonical(options.LocalFallbackProfile!)) ||
+            (options.FailureDisposition != TrafficAdmissionFailureDisposition.LocalFallback && options.LocalFallbackProfile is not null))
+            throw new ArgumentException("Shared-admission failure disposition or fallback identity is invalid.", nameof(configure));
+        _profiles.Add(new GatewayAdmissionProfileRegistration(name, TrafficAdmissionScope.Deployment,
+            TrafficAdmissionKind.RequestRate, algorithm, Snapshot(options), options.FailureDisposition,
+            providerId, options.LocalFallbackProfile));
         return this;
     }
 
     internal GatewayTrafficAdmissionRegistry Build()
     {
+        foreach (GatewayAdmissionProfileRegistration profile in _profiles)
+        {
+            if (RequiresProjector(profile.Options.Partition) &&
+                (profile.Options.PartitionProjector is null || !_projectors.ContainsKey(profile.Options.PartitionProjector)))
+                throw new InvalidOperationException($"Traffic-admission profile '{profile.Name}' requires an installed partition projector.");
+            if (profile.Scope == TrafficAdmissionScope.Deployment &&
+                (profile.ProviderId is null || !_providers.ContainsKey(profile.ProviderId)))
+                throw new InvalidOperationException($"Traffic-admission profile '{profile.Name}' requires an installed shared provider.");
+            if (profile.LocalFallbackProfile is { } fallback && !_profiles.Any(value =>
+                    value.Name == fallback && value.Scope == TrafficAdmissionScope.ProcessLocal &&
+                    value.Kind == TrafficAdmissionKind.RequestRate && value.Algorithm == profile.Algorithm))
+                throw new InvalidOperationException($"Traffic-admission profile '{profile.Name}' has an invalid local fallback.");
+        }
+        if (_providers.Keys.Any(provider => !_profiles.Any(profile => profile.ProviderId == provider)))
+            throw new InvalidOperationException("Every shared-admission provider must be selected by at least one profile.");
         var concurrencyNames = _profiles.Where(static value => value.Kind == TrafficAdmissionKind.Concurrency)
             .Select(static value => value.Name).Order(StringComparer.Ordinal).ToArray();
         var capabilities = ImmutableArray.CreateBuilder<TrafficAdmissionCapability>(_profiles.Count);
         var runtimes = ImmutableDictionary.CreateBuilder<string, GatewayAdmissionProfileRuntime>(StringComparer.Ordinal);
-        foreach (var profile in _profiles.OrderBy(static value => value.Name, StringComparer.Ordinal))
+        var providerRuntimes = _providers.ToDictionary(
+            static pair => pair.Key,
+            pair => new GatewaySharedAdmissionProviderRuntime(pair.Value, _timeProvider),
+            StringComparer.Ordinal);
+        foreach (var profile in _profiles
+            .OrderBy(static value => value.Scope)
+            .ThenBy(static value => value.Name, StringComparer.Ordinal))
         {
             GatewayAdmissionProjectorRegistration? projector = null;
             if (RequiresProjector(profile.Options.Partition) &&
                 (profile.Options.PartitionProjector is null || !_projectors.TryGetValue(profile.Options.PartitionProjector, out projector)))
                 throw new InvalidOperationException($"Traffic-admission profile '{profile.Name}' requires an installed partition projector.");
             var ordinal = profile.Kind == TrafficAdmissionKind.Concurrency ? Array.IndexOf(concurrencyNames, profile.Name) : (int?)null;
+            GatewaySharedAdmissionProviderRuntime? sharedProvider = null;
+            GatewayAdmissionProfileRuntime? localFallback = null;
+            if (profile.Scope == TrafficAdmissionScope.Deployment)
+            {
+                if (profile.ProviderId is null || !_providers.TryGetValue(profile.ProviderId, out GatewaySharedAdmissionProviderRegistration? provider))
+                    throw new InvalidOperationException($"Traffic-admission profile '{profile.Name}' requires an installed shared provider.");
+                sharedProvider = providerRuntimes[profile.ProviderId];
+                if (profile.LocalFallbackProfile is not null)
+                {
+                    if (!runtimes.TryGetValue(profile.LocalFallbackProfile, out localFallback) ||
+                        localFallback.Capability.Scope != TrafficAdmissionScope.ProcessLocal ||
+                        localFallback.Capability.RateAlgorithm != profile.Algorithm)
+                        throw new InvalidOperationException($"Traffic-admission profile '{profile.Name}' has an invalid local fallback.");
+                }
+            }
             var limits = new TrafficAdmissionLimits(profile.Options.MinimumLimit, profile.Options.MaximumLimit,
                 profile.Kind == TrafficAdmissionKind.RequestRate ? profile.Options.MinimumPeriod : null,
                 profile.Kind == TrafficAdmissionKind.RequestRate ? profile.Options.MaximumPeriod : null,
@@ -91,18 +191,29 @@ public sealed class GatewayTrafficAdmissionRegistryBuilder
                 profile.Algorithm == TrafficAdmissionRateAlgorithm.SlidingWindow ? profile.Options.MaximumSegments : 0,
                 profile.Kind == TrafficAdmissionKind.Concurrency ? profile.Options.MinimumQueue : 0,
                 profile.Kind == TrafficAdmissionKind.Concurrency ? profile.Options.MaximumQueue : 0);
-            var identityText = string.Join('|', profile.Name, profile.Kind, profile.Algorithm, profile.Options.Partition,
+            var identityText = string.Join('|', profile.Name, profile.Scope, profile.Kind, profile.Algorithm, profile.Options.Partition,
                 limits.MinimumLimit, limits.MaximumLimit, limits.MinimumPeriod?.Ticks, limits.MaximumPeriod?.Ticks,
                 limits.MinimumSegments, limits.MaximumSegments, limits.MinimumQueue, limits.MaximumQueue,
-                projector?.Name, projector?.BehaviorIdentity.Value, ordinal);
+                projector?.Name, projector?.BehaviorIdentity.Value, ordinal, profile.ProviderId,
+                sharedProvider?.AuthorityId, sharedProvider?.BehaviorIdentity.Value,
+                sharedProvider?.OperationTimeout.Ticks, sharedProvider?.MaximumConcurrentInvocations,
+                profile.FailureDisposition,
+                profile.LocalFallbackProfile, localFallback?.Capability.BehaviorIdentity.Value);
             var identity = new ContentHash("sha-256", Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(identityText))));
-            var capability = new TrafficAdmissionCapability(profile.Name, 1, TrafficAdmissionScope.ProcessLocal, profile.Kind,
-                profile.Algorithm, profile.Options.Partition, TrafficAdmissionFailureDisposition.Reject, limits,
-                "hpd.gateway/process-local", identity, ordinal, projector?.Name, projector?.BehaviorIdentity);
+            var capability = new TrafficAdmissionCapability(profile.Name, 1, profile.Scope, profile.Kind,
+                profile.Algorithm, profile.Options.Partition, profile.FailureDisposition, limits,
+                sharedProvider?.AuthorityId ?? "hpd.gateway/process-local", identity, ordinal,
+                projector?.Name, projector?.BehaviorIdentity, profile.ProviderId,
+                sharedProvider?.BehaviorIdentity, sharedProvider?.OperationTimeout,
+                sharedProvider?.MaximumConcurrentInvocations, profile.LocalFallbackProfile,
+                localFallback?.Capability.BehaviorIdentity);
             capabilities.Add(capability);
-            runtimes.Add(profile.Name, new GatewayAdmissionProfileRuntime(capability, projector, _timeProvider));
+            runtimes.Add(profile.Name, new GatewayAdmissionProfileRuntime(capability, projector, _timeProvider,
+                sharedProvider, localFallback, profile.ProviderId));
         }
-        return new GatewayTrafficAdmissionRegistry(capabilities.MoveToImmutable(), runtimes.ToImmutable());
+        return new GatewayTrafficAdmissionRegistry(
+            capabilities.ToImmutable().OrderBy(static value => value.Name, StringComparer.Ordinal).ToImmutableArray(),
+            runtimes.ToImmutable());
     }
 
     private static GatewayLocalAdmissionOptions Snapshot(GatewayLocalAdmissionOptions value) => new()
@@ -143,12 +254,50 @@ public sealed class GatewayTrafficAdmissionRegistryBuilder
     private static bool RequiresProjector(TrafficAdmissionPartitionKind partition) => partition is
         TrafficAdmissionPartitionKind.AuthenticatedSubject or TrafficAdmissionPartitionKind.Tenant or
         TrafficAdmissionPartitionKind.Consumer or TrafficAdmissionPartitionKind.Custom;
+
+    private static void ValidateProvider(GatewaySharedAdmissionProviderOptions options)
+    {
+        if (string.IsNullOrWhiteSpace(options.AuthorityId) || options.AuthorityId.Length > 256 ||
+            options.AuthorityId.Any(char.IsControl) || options.BehaviorIdentity.Algorithm != "sha-256" ||
+            options.BehaviorIdentity.Value.Length != 64 ||
+            options.BehaviorIdentity.Value.Any(static value => value is not (>= '0' and <= '9') and not (>= 'a' and <= 'f')) ||
+            options.OperationTimeout < TimeSpan.FromMilliseconds(1) || options.OperationTimeout > TimeSpan.FromSeconds(30) ||
+            options.OperationTimeout.Ticks % TimeSpan.TicksPerMillisecond != 0 ||
+            options.MaximumConcurrentInvocations is < 1 or > 4_096)
+            throw new ArgumentException("Shared-admission provider options are invalid or unbounded.", nameof(options));
+    }
 }
+
+internal sealed record GatewayAdmissionProfileRegistration(
+    string Name,
+    TrafficAdmissionScope Scope,
+    TrafficAdmissionKind Kind,
+    TrafficAdmissionRateAlgorithm? Algorithm,
+    GatewayLocalAdmissionOptions Options,
+    TrafficAdmissionFailureDisposition FailureDisposition,
+    string? ProviderId,
+    string? LocalFallbackProfile);
 
 internal sealed record GatewayAdmissionProjectorRegistration(
     string Name,
     ContentHash BehaviorIdentity,
     IGatewayAdmissionPartitionProjector Projector);
+
+internal sealed class GatewaySharedAdmissionProviderRegistration(
+    string providerId,
+    string authorityId,
+    ContentHash behaviorIdentity,
+    TimeSpan operationTimeout,
+    int maximumConcurrentInvocations,
+    IGatewaySharedAdmissionProvider provider)
+{
+    internal string ProviderId { get; } = providerId;
+    internal string AuthorityId { get; } = authorityId;
+    internal ContentHash BehaviorIdentity { get; } = behaviorIdentity;
+    internal TimeSpan OperationTimeout { get; } = operationTimeout;
+    internal int MaximumConcurrentInvocations { get; } = maximumConcurrentInvocations;
+    internal IGatewaySharedAdmissionProvider Provider { get; } = provider;
+}
 
 internal sealed class GatewayTrafficAdmissionRegistry(
     ImmutableArray<TrafficAdmissionCapability> capabilities,
@@ -167,12 +316,43 @@ internal sealed class GatewayTrafficAdmissionRegistry(
     }
 }
 
-internal sealed record GatewayTrafficAdmissionMetadata(
-    string ApplicationId,
-    ContentHash SymbolicPlanIdentity,
-    RouteId RouteId,
-    ContentHash AdmissionPlanIdentity,
-    TrafficAdmissionPlan Plan);
+internal sealed class GatewayTrafficAdmissionMetadata
+{
+    private GatewayTrafficAdmissionMetadata(
+        string applicationId,
+        ContentHash symbolicPlanIdentity,
+        RouteId routeId,
+        ContentHash admissionPlanIdentity,
+        TrafficAdmissionPlan plan)
+    {
+        ApplicationId = applicationId;
+        SymbolicPlanIdentity = symbolicPlanIdentity;
+        RouteId = routeId;
+        AdmissionPlanIdentity = admissionPlanIdentity;
+        Plan = plan;
+    }
+
+    internal string ApplicationId { get; }
+    internal ContentHash SymbolicPlanIdentity { get; }
+    internal RouteId RouteId { get; }
+    internal ContentHash AdmissionPlanIdentity { get; }
+    internal TrafficAdmissionPlan Plan { get; }
+
+    internal static GatewayTrafficAdmissionMetadata Create(
+        string applicationId,
+        ContentHash symbolicPlanIdentity,
+        RouteId routeId,
+        ContentHash admissionPlanIdentity,
+        TrafficAdmissionPlan plan)
+    {
+        if (!GatewayTrafficAdmissionMetadataCodec.ValidApplicationId(applicationId) ||
+            !GatewayTrafficAdmissionMetadataCodec.ValidHash(symbolicPlanIdentity) ||
+            !GatewayIdentifier.IsCanonical(routeId.Value) || !GatewayTrafficAdmissionMetadataCodec.ValidHash(admissionPlanIdentity) ||
+            GatewayRuntimePlanner.HashTrafficAdmission(plan) != admissionPlanIdentity)
+            throw new ArgumentException("Traffic-admission runtime-generation metadata is invalid.");
+        return new GatewayTrafficAdmissionMetadata(applicationId, symbolicPlanIdentity, routeId, admissionPlanIdentity, plan);
+    }
+}
 
 internal static class GatewayTrafficAdmissionMetadataCodec
 {
@@ -188,6 +368,31 @@ internal static class GatewayTrafficAdmissionMetadataCodec
         return JsonSerializer.Deserialize(Convert.FromBase64String(encoded), GatewayJsonSerializerContext.Default.TrafficAdmissionPlan)
             ?? throw new InvalidOperationException("Traffic-admission plan metadata is invalid.");
     }
+
+    internal static bool ValidateRoute(RouteConfig route)
+    {
+        try
+        {
+            if (route.Metadata is null) return true;
+            bool hasPlan = route.Metadata.TryGetValue(Plan, out string? encoded);
+            bool hasIdentity = route.Metadata.TryGetValue(PlanIdentity, out string? identity);
+            if (hasPlan != hasIdentity) return false;
+            if (!hasPlan) return true;
+            if (!route.Metadata.TryGetValue(GatewayRuntimePlanner.ApplicationIdMetadata, out string? applicationId) ||
+                !route.Metadata.TryGetValue(GatewayRuntimePlanner.SymbolicPlanIdentityMetadata, out string? symbolic) ||
+                !ValidApplicationId(applicationId) || !ValidHash(symbolic) || !ValidHash(identity)) return false;
+            TrafficAdmissionPlan plan = Decode(encoded!);
+            return GatewayRuntimePlanner.HashTrafficAdmission(plan).Value == identity;
+        }
+        catch { return false; }
+    }
+
+    internal static bool ValidApplicationId(string? value) => value is { Length: GatewayRuntimePlan.MaximumApplicationIdLength } &&
+        value.All(static character => character is >= '0' and <= '9' or >= 'a' and <= 'f');
+
+    internal static bool ValidHash(ContentHash value) => value.Algorithm == "sha-256" && ValidHash(value.Value);
+    internal static bool ValidHash(string? value) => value is { Length: 64 } &&
+        value.All(static character => character is >= '0' and <= '9' or >= 'a' and <= 'f');
 }
 
 internal static class GatewayTrafficAdmissionMiddleware
@@ -256,6 +461,7 @@ internal sealed class GatewayTrafficAdmissionLimiter(GatewayTrafficAdmissionRegi
             projected.Add((entry, runtime, key + "\0" + GatewayRuntimePlanner.HashTrafficAdmission(new TrafficAdmissionPlan { Entries = [entry] }).Value));
         }
         var leases = new List<RateLimitLease>();
+        var degradedBypass = false;
         try
         {
             foreach (var item in projected.Where(static value => value.Entry is ConcurrencyAdmissionEntry)
@@ -281,9 +487,11 @@ internal sealed class GatewayTrafficAdmissionLimiter(GatewayTrafficAdmissionRegi
                     DisposeAll(leases);
                     return rejected;
                 }
+                if (lease.TryGetMetadata("HPD.Gateway.Admission.Degraded", out var degraded) && degraded is "Bypass")
+                    degradedBypass = true;
                 lease.Dispose();
             }
-            return new GatewayAdmissionLease(true, null, leases);
+            return GatewayAdmissionLease.Combined(leases, degradedBypass);
         }
         catch
         {
@@ -314,15 +522,24 @@ internal sealed class GatewayAdmissionProfileRuntime : IDisposable
     private readonly Dictionary<string, object> _states = new(StringComparer.Ordinal);
     private readonly GatewayAdmissionProjectorRegistration? _projector;
     private readonly TimeProvider _timeProvider;
+    private readonly GatewaySharedAdmissionProviderRuntime? _sharedProvider;
+    private readonly GatewayAdmissionProfileRuntime? _localFallback;
+    private readonly string? _providerId;
     private int _disposed;
     internal GatewayAdmissionProfileRuntime(
         TrafficAdmissionCapability capability,
         GatewayAdmissionProjectorRegistration? projector,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        GatewaySharedAdmissionProviderRuntime? sharedProvider = null,
+        GatewayAdmissionProfileRuntime? localFallback = null,
+        string? providerId = null)
     {
         Capability = capability;
         _projector = projector;
         _timeProvider = timeProvider;
+        _sharedProvider = sharedProvider;
+        _localFallback = localFallback;
+        _providerId = providerId;
     }
     internal TrafficAdmissionCapability Capability { get; }
 
@@ -378,6 +595,8 @@ internal sealed class GatewayAdmissionProfileRuntime : IDisposable
 
     internal ValueTask<RateLimitLease> AcquireAsync(TrafficAdmissionEntry entry, string key, CancellationToken cancellationToken)
     {
+        if (Capability.Scope == TrafficAdmissionScope.Deployment)
+            return AcquireSharedAsync(entry, key, cancellationToken);
         object state;
         lock (_statesGate)
         {
@@ -396,6 +615,62 @@ internal sealed class GatewayAdmissionProfileRuntime : IDisposable
             ConcurrencyAdmissionEntry => ((ConcurrencyLimiter)state).AcquireAsync(1, cancellationToken),
             _ => ValueTask.FromResult(((GatewayLocalRateState)state).Acquire(entry, _timeProvider.GetUtcNow().ToUnixTimeMilliseconds()))
         };
+    }
+
+    private async ValueTask<RateLimitLease> AcquireSharedAsync(
+        TrafficAdmissionEntry entry,
+        string key,
+        CancellationToken cancellationToken)
+    {
+        if (_sharedProvider is null || _providerId is null || entry is not RequestRateAdmissionEntry)
+            return GatewayAdmissionLease.Infrastructure("SharedProviderUnavailable");
+        GatewaySharedAdmissionRequest request;
+        try
+        {
+            request = CreateSharedRequest(entry, key);
+        }
+        catch
+        {
+            return GatewayAdmissionLease.Infrastructure("SharedRequestInvalid");
+        }
+        GatewaySharedAdmissionDecision decision = await _sharedProvider.AcquireAsync(request, cancellationToken).ConfigureAwait(false);
+        switch (decision.Kind)
+        {
+            case GatewaySharedAdmissionDecisionKind.Acquired:
+                return GatewayAdmissionLease.Acquired(decision.Remaining!.Value, decision.ResetAfterMilliseconds!.Value);
+            case GatewaySharedAdmissionDecisionKind.Rejected:
+                return GatewayAdmissionLease.Exhausted(decision.Remaining!.Value,
+                    decision.RetryAfterMilliseconds!.Value, decision.ResetAfterMilliseconds!.Value);
+            case GatewaySharedAdmissionDecisionKind.UnavailableBeforePossibleCommit:
+                if (Capability.FailureDisposition == TrafficAdmissionFailureDisposition.Bypass)
+                    return GatewayAdmissionLease.DegradedBypass();
+                if (Capability.FailureDisposition == TrafficAdmissionFailureDisposition.LocalFallback && _localFallback is not null)
+                    return await _localFallback.AcquireAsync(entry, key, cancellationToken).ConfigureAwait(false);
+                return GatewayAdmissionLease.Infrastructure("SharedProviderUnavailable");
+            case GatewaySharedAdmissionDecisionKind.CanceledBeforeDispatch when cancellationToken.IsCancellationRequested:
+                throw new OperationCanceledException(cancellationToken);
+            case GatewaySharedAdmissionDecisionKind.ConfigurationConflict:
+                return GatewayAdmissionLease.Infrastructure("SharedConfigurationConflict");
+            case GatewaySharedAdmissionDecisionKind.IndeterminateAfterPossibleCommit:
+                return GatewayAdmissionLease.Infrastructure("SharedOutcomeIndeterminate");
+            default:
+                return GatewayAdmissionLease.Infrastructure("SharedProviderFailure");
+        }
+    }
+
+    private GatewaySharedAdmissionRequest CreateSharedRequest(TrafficAdmissionEntry entry, string key)
+    {
+        var algorithm = Capability.RateAlgorithm ?? throw new InvalidOperationException();
+        (long limit, long tokens, long period, int segments) = entry switch
+        {
+            FixedWindowAdmissionEntry value => (value.PermitLimit, 0, checked((long)value.Window.TotalMilliseconds), 0),
+            SlidingWindowAdmissionEntry value => (value.PermitLimit, 0, checked((long)value.Window.TotalMilliseconds), value.SegmentsPerWindow),
+            TokenBucketAdmissionEntry value => (value.TokenLimit, value.TokensPerPeriod, checked((long)value.ReplenishmentPeriod.TotalMilliseconds), 0),
+            _ => throw new InvalidOperationException(),
+        };
+        return new GatewaySharedAdmissionRequest(GatewaySharedAdmissionContract.Version, _providerId!, Capability.AuthorityId,
+            Capability.Name, Capability.BehaviorIdentity, key, algorithm, limit, tokens, period, segments, 1,
+            Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16)));
     }
 
     private static object Create(TrafficAdmissionEntry entry) => entry switch
@@ -417,7 +692,153 @@ internal sealed class GatewayAdmissionProfileRuntime : IDisposable
         }
         foreach (var state in states)
             (state as IDisposable)?.Dispose();
+        _sharedProvider?.Dispose();
     }
+}
+
+internal sealed class GatewaySharedAdmissionProviderRuntime : IDisposable
+{
+    private readonly GatewaySharedAdmissionProviderRegistration _registration;
+    private readonly TimeProvider _timeProvider;
+    private readonly SemaphoreSlim _capacity;
+    private readonly CancellationTokenSource _disposeCancellation = new();
+    private int _active;
+    private long _saturated;
+    private long _detached;
+    private long _late;
+    private int _disposed;
+
+    internal GatewaySharedAdmissionProviderRuntime(
+        GatewaySharedAdmissionProviderRegistration registration,
+        TimeProvider timeProvider)
+    {
+        _registration = registration;
+        _timeProvider = timeProvider;
+        _capacity = new SemaphoreSlim(registration.MaximumConcurrentInvocations, registration.MaximumConcurrentInvocations);
+    }
+
+    internal string AuthorityId => _registration.AuthorityId;
+    internal ContentHash BehaviorIdentity => _registration.BehaviorIdentity;
+    internal TimeSpan OperationTimeout => _registration.OperationTimeout;
+    internal int MaximumConcurrentInvocations => _registration.MaximumConcurrentInvocations;
+
+    internal async ValueTask<GatewaySharedAdmissionDecision> AcquireAsync(
+        GatewaySharedAdmissionRequest request,
+        CancellationToken callerCancellation)
+    {
+        if (!GatewaySharedAdmissionContract.IsValidRequest(request, requireUnitPermit: true) ||
+            !StringComparer.Ordinal.Equals(request.ProviderId, _registration.ProviderId) ||
+            !StringComparer.Ordinal.Equals(request.AuthorityId, _registration.AuthorityId))
+            return Infrastructure(GatewaySharedAdmissionDecisionKind.UnavailableBeforePossibleCommit, "provider-request-invalid");
+        if (Volatile.Read(ref _disposed) != 0)
+            return Infrastructure(GatewaySharedAdmissionDecisionKind.UnavailableBeforePossibleCommit, "provider-disposed");
+        long startedAt = _timeProvider.GetTimestamp();
+        using var deadline = new CancellationTokenSource(_registration.OperationTimeout, _timeProvider);
+        using var admission = CancellationTokenSource.CreateLinkedTokenSource(
+            callerCancellation, deadline.Token, _disposeCancellation.Token);
+        try
+        {
+            await _capacity.WaitAsync(admission.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (callerCancellation.IsCancellationRequested)
+        {
+            return Infrastructure(GatewaySharedAdmissionDecisionKind.CanceledBeforeDispatch, "canceled-before-dispatch");
+        }
+        catch (OperationCanceledException)
+        {
+            Interlocked.Increment(ref _saturated);
+            return Infrastructure(GatewaySharedAdmissionDecisionKind.UnavailableBeforePossibleCommit, "capacity-unavailable");
+        }
+
+        if (_timeProvider.GetElapsedTime(startedAt) >= _registration.OperationTimeout)
+        {
+            _capacity.Release();
+            Interlocked.Increment(ref _saturated);
+            return Infrastructure(GatewaySharedAdmissionDecisionKind.UnavailableBeforePossibleCommit, "capacity-unavailable");
+        }
+
+        Interlocked.Increment(ref _active);
+        Task<GatewaySharedAdmissionDecision> operation;
+        try
+        {
+            operation = _registration.Provider.AcquireAsync(request, admission.Token).AsTask();
+        }
+        catch
+        {
+            ReleaseCapacity();
+            return Infrastructure(GatewaySharedAdmissionDecisionKind.UnavailableBeforePossibleCommit, "provider-invocation-failed");
+        }
+
+        if (operation.IsCompleted)
+            return CompleteSynchronously(operation);
+
+        TimeSpan remaining = _registration.OperationTimeout - _timeProvider.GetElapsedTime(startedAt);
+        if (remaining <= TimeSpan.Zero)
+        {
+            Interlocked.Increment(ref _detached);
+            _ = ObserveDetachedAsync(operation);
+            return Infrastructure(GatewaySharedAdmissionDecisionKind.IndeterminateAfterPossibleCommit, "provider-outcome-indeterminate");
+        }
+        Task completed = await Task.WhenAny(operation,
+            Task.Delay(remaining, _timeProvider, callerCancellation)).ConfigureAwait(false);
+        if (ReferenceEquals(completed, operation))
+            return CompleteSynchronously(operation);
+
+        Interlocked.Increment(ref _detached);
+        _ = ObserveDetachedAsync(operation);
+        return Infrastructure(GatewaySharedAdmissionDecisionKind.IndeterminateAfterPossibleCommit, "provider-outcome-indeterminate");
+    }
+
+    private GatewaySharedAdmissionDecision CompleteSynchronously(Task<GatewaySharedAdmissionDecision> operation)
+    {
+        try
+        {
+            GatewaySharedAdmissionDecision result = operation.GetAwaiter().GetResult();
+            return GatewaySharedAdmissionContract.IsValidDecision(result)
+                ? result
+                : Infrastructure(GatewaySharedAdmissionDecisionKind.IndeterminateAfterPossibleCommit, "provider-result-invalid");
+        }
+        catch
+        {
+            return Infrastructure(GatewaySharedAdmissionDecisionKind.IndeterminateAfterPossibleCommit, "provider-operation-failed");
+        }
+        finally
+        {
+            ReleaseCapacity();
+        }
+    }
+
+    private async Task ObserveDetachedAsync(Task<GatewaySharedAdmissionDecision> operation)
+    {
+        try { _ = await operation.ConfigureAwait(false); }
+        catch { }
+        finally
+        {
+            Interlocked.Increment(ref _late);
+            ReleaseCapacity();
+        }
+    }
+
+    private void ReleaseCapacity()
+    {
+        Interlocked.Decrement(ref _active);
+        _capacity.Release();
+    }
+
+    internal GatewaySharedAdmissionProviderStatistics GetStatistics() => new(
+        Math.Max(0, Volatile.Read(ref _active)), _registration.MaximumConcurrentInvocations,
+        Interlocked.Read(ref _saturated), Interlocked.Read(ref _detached), Interlocked.Read(ref _late),
+        Volatile.Read(ref _disposed) != 0);
+
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) == 0)
+            _disposeCancellation.Cancel();
+    }
+
+    private static GatewaySharedAdmissionDecision Infrastructure(
+        GatewaySharedAdmissionDecisionKind kind,
+        string diagnostic) => new(kind, null, null, null, null, diagnostic);
 }
 
 internal readonly record struct GatewayProjectedPartition(bool IsSuccess, string? Value, string Code)
@@ -588,6 +1009,19 @@ internal sealed class GatewayAdmissionLease(bool acquired, string? reason, IEnum
         [GatewayAdmissionMetadata.Outcome] = GatewayAdmissionOutcome.Infrastructure,
         ["Reason"] = reason
     });
+
+    internal static GatewayAdmissionLease DegradedBypass() => new(true, null, metadata: new Dictionary<string, object?>
+    {
+        [GatewayAdmissionMetadata.Outcome] = GatewayAdmissionOutcome.Acquired,
+        ["HPD.Gateway.Admission.Degraded"] = "Bypass"
+    });
+
+    internal static GatewayAdmissionLease Combined(IEnumerable<RateLimitLease> owned, bool degradedBypass) =>
+        new(true, null, owned, degradedBypass ? new Dictionary<string, object?>
+        {
+            [GatewayAdmissionMetadata.Outcome] = GatewayAdmissionOutcome.Acquired,
+            ["HPD.Gateway.Admission.Degraded"] = "Bypass"
+        } : null);
 
     internal static GatewayAdmissionLease FromRejectedEntry(RateLimitLease lease, bool concurrency)
     {

@@ -11,11 +11,42 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using System.Threading.RateLimiting;
 using Xunit;
+using Yarp.ReverseProxy.Configuration;
 
 namespace HPD.Gateway.Tests;
 
 public sealed class GatewayTrafficAdmissionTests
 {
+    [Fact]
+    public void Native_route_metadata_is_complete_hash_bound_and_not_publicly_forgeable()
+    {
+        TrafficAdmissionPlan plan = new()
+        {
+            Entries = [new FixedWindowAdmissionEntry { Profile = "rate", PermitLimit = 10, Window = TimeSpan.FromSeconds(1) }]
+        };
+        ContentHash planIdentity = GatewayRuntimePlanner.HashTrafficAdmission(plan);
+        var metadata = ImmutableDictionary<string, string>.Empty
+            .Add(GatewayRuntimePlanner.ApplicationIdMetadata, new string('a', 32))
+            .Add(GatewayRuntimePlanner.SymbolicPlanIdentityMetadata, new string('b', 64))
+            .Add(GatewayTrafficAdmissionMetadataCodec.Plan, GatewayTrafficAdmissionMetadataCodec.Encode(plan))
+            .Add(GatewayTrafficAdmissionMetadataCodec.PlanIdentity, planIdentity.Value);
+        GatewayTrafficAdmissionMetadataCodec.ValidateRoute(new RouteConfig { RouteId = "route", ClusterId = "upstream", Metadata = metadata })
+            .Should().BeTrue();
+        GatewayTrafficAdmissionMetadataCodec.ValidateRoute(new RouteConfig
+        {
+            RouteId = "route", ClusterId = "upstream", Metadata = metadata.SetItem(GatewayTrafficAdmissionMetadataCodec.PlanIdentity, new string('c', 64))
+        }).Should().BeFalse();
+        GatewayTrafficAdmissionMetadataCodec.ValidateRoute(new RouteConfig
+        {
+            RouteId = "route", ClusterId = "upstream", Metadata = metadata.Remove(GatewayTrafficAdmissionMetadataCodec.PlanIdentity)
+        }).Should().BeFalse();
+        typeof(GatewayTrafficAdmissionMetadata).GetConstructors(
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public).Should().BeEmpty();
+        typeof(GatewayTrafficAdmissionMetadata).GetProperties(
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic)
+            .Should().HaveCount(5).And.OnlyContain(static property => property.SetMethod == null);
+    }
+
     [Fact]
     public async Task Preliminary_attempt_never_consumes_and_authoritative_acquire_runs_once()
     {
@@ -461,15 +492,15 @@ public sealed class GatewayTrafficAdmissionTests
         builder.Services.AddRateLimiter(static _ => { });
         await using var application = builder.Build();
         application.UseRateLimiter(GatewayTrafficAdmissionMiddleware.CreateOptions(registry));
-        application.MapGet("/governed", static () => Results.Ok()).WithMetadata(new GatewayTrafficAdmissionMetadata(
-            "application", new ContentHash("sha-256", new string('a', 64)), new RouteId("route"), identity, plan));
+        application.MapGet("/governed", static () => Results.Ok()).WithMetadata(GatewayTrafficAdmissionMetadata.Create(
+            new string('a', 32), new ContentHash("sha-256", new string('a', 64)), new RouteId("route"), identity, plan));
         application.MapGet("/ordinary", static () => Results.Ok());
         var missingPlan = new TrafficAdmissionPlan
         {
             Entries = [new FixedWindowAdmissionEntry { Profile = "missing", PermitLimit = 1, Window = TimeSpan.FromMinutes(1) }]
         };
-        application.MapGet("/broken", static () => Results.Ok()).WithMetadata(new GatewayTrafficAdmissionMetadata(
-            "application", new ContentHash("sha-256", new string('a', 64)), new RouteId("broken"),
+        application.MapGet("/broken", static () => Results.Ok()).WithMetadata(GatewayTrafficAdmissionMetadata.Create(
+            new string('a', 32), new ContentHash("sha-256", new string('a', 64)), new RouteId("broken"),
             GatewayRuntimePlanner.HashTrafficAdmission(missingPlan), missingPlan));
         await application.StartAsync();
 
@@ -513,8 +544,8 @@ public sealed class GatewayTrafficAdmissionTests
         return context;
     }
 
-    private static GatewayTrafficAdmissionMetadata Metadata(TrafficAdmissionPlan plan) => new(
-        "application", new ContentHash("sha-256", new string('a', 64)), new RouteId("route"),
+    private static GatewayTrafficAdmissionMetadata Metadata(TrafficAdmissionPlan plan) => GatewayTrafficAdmissionMetadata.Create(
+        new string('a', 32), new ContentHash("sha-256", new string('a', 64)), new RouteId("route"),
         GatewayRuntimePlanner.HashTrafficAdmission(plan), plan);
 
     private static (GatewayTrafficAdmissionLimiter Limiter, DefaultHttpContext Context) CreateProjected(

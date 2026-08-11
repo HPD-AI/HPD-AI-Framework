@@ -275,8 +275,7 @@ public sealed class HostCapabilitySnapshot
                 profile.AuthorityId.Length > 256 || profile.BehaviorIdentity.Algorithm != "sha-256" ||
                 profile.BehaviorIdentity.Value is not { Length: 64 } hash ||
                 !hash.All(static c => c is >= '0' and <= '9' or >= 'a' and <= 'f') ||
-                profile.Scope != TrafficAdmissionScope.ProcessLocal ||
-                profile.FailureDisposition != TrafficAdmissionFailureDisposition.Reject ||
+                !IsValidAdmissionScope(profile) ||
                 (RequiresAdmissionProjector(profile.Partition) &&
                  (!GatewayIdentifier.IsCanonical(profile.PartitionProjectorId) ||
                   profile.PartitionProjectorIdentity is not { Algorithm: "sha-256", Value.Length: 64 } projectorHash ||
@@ -291,8 +290,38 @@ public sealed class HostCapabilitySnapshot
         var ordinals = profiles.Values.Where(static p => p.AcquisitionOrdinal.HasValue).Select(static p => p.AcquisitionOrdinal!.Value).Order().ToArray();
         if (!ordinals.SequenceEqual(Enumerable.Range(0, ordinals.Length)))
             throw new ArgumentException("Concurrency acquisition ordinals must form one closed sequence.", nameof(values));
+        foreach (TrafficAdmissionCapability profile in profiles.Values.Where(static value => value.Scope == TrafficAdmissionScope.Deployment))
+        {
+            if (profile.FailureDisposition == TrafficAdmissionFailureDisposition.LocalFallback &&
+                (profile.LocalFallbackProfile is not { } fallbackProfile || !GatewayIdentifier.IsCanonical(fallbackProfile) ||
+                 profile.LocalFallbackIdentity is not { } fallbackIdentity || !ValidSha256(fallbackIdentity) ||
+                 !profiles.TryGetValue(fallbackProfile, out TrafficAdmissionCapability? fallback) ||
+                 fallback.Scope != TrafficAdmissionScope.ProcessLocal || fallback.Kind != TrafficAdmissionKind.RequestRate ||
+                 fallback.RateAlgorithm != profile.RateAlgorithm || fallback.BehaviorIdentity != fallbackIdentity))
+                throw new ArgumentException("Deployment admission fallback correlation is invalid.", nameof(values));
+        }
         return profiles.ToImmutable();
     }
+
+    private static bool IsValidAdmissionScope(TrafficAdmissionCapability profile)
+    {
+        if (profile.Scope == TrafficAdmissionScope.ProcessLocal)
+            return profile.FailureDisposition == TrafficAdmissionFailureDisposition.Reject &&
+                profile.ProviderId is null && profile.ProviderBehaviorIdentity is null &&
+                profile.OperationTimeout is null && profile.MaximumConcurrentInvocations is null &&
+                profile.LocalFallbackProfile is null && profile.LocalFallbackIdentity is null;
+        return profile.Scope == TrafficAdmissionScope.Deployment && profile.Kind == TrafficAdmissionKind.RequestRate &&
+            GatewayIdentifier.IsCanonical(profile.ProviderId) &&
+            profile.ProviderBehaviorIdentity is { } providerIdentity && ValidSha256(providerIdentity) &&
+            profile.OperationTimeout is { } timeout && timeout >= TimeSpan.FromMilliseconds(1) && timeout <= TimeSpan.FromSeconds(30) &&
+            timeout.Ticks % TimeSpan.TicksPerMillisecond == 0 &&
+            profile.MaximumConcurrentInvocations is >= 1 and <= 4_096 &&
+            (profile.FailureDisposition == TrafficAdmissionFailureDisposition.LocalFallback ||
+             profile.LocalFallbackProfile is null && profile.LocalFallbackIdentity is null);
+    }
+
+    private static bool ValidSha256(ContentHash value) => value.Algorithm == "sha-256" &&
+        value.Value is { Length: 64 } hash && hash.All(static c => c is >= '0' and <= '9' or >= 'a' and <= 'f');
 
     private static bool RequiresAdmissionProjector(TrafficAdmissionPartitionKind partition) => partition is
         TrafficAdmissionPartitionKind.AuthenticatedSubject or TrafficAdmissionPartitionKind.Tenant or

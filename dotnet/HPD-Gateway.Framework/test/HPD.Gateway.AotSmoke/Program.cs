@@ -5,6 +5,7 @@ using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
+using System.Threading.RateLimiting;
 using HPD.Base;
 using HPD.Gateway;
 using HPD.Gateway.ControlPlane;
@@ -980,7 +981,15 @@ static async Task SmokeManagementRuntimeAsync()
             })
             .AddLocalSlidingWindow("aot-sliding")
             .AddLocalTokenBucket("aot-token")
-            .AddLocalConcurrency("aot-concurrency"));
+            .AddLocalConcurrency("aot-concurrency")
+            .AddSharedProvider("aot-shared", new AotSharedAdmissionProvider(), options =>
+            {
+                options.AuthorityId = "aot-deployment";
+                options.BehaviorIdentity = new ContentHash("sha-256", new string('c', 64));
+                options.OperationTimeout = TimeSpan.FromSeconds(1);
+                options.MaximumConcurrentInvocations = 4;
+            })
+            .AddSharedFixedWindow("aot-shared-rate", "aot-shared"));
         gateway.AddMicrosoftDiscovery("aot-discovery", profile =>
         {
             profile.Schemes = [ServiceDiscoveryScheme.Http];
@@ -990,6 +999,18 @@ static async Task SmokeManagementRuntimeAsync()
     services.AddHpdGatewayControlPlane(controlPlane => controlPlane
         .UseProcessLocalAuthority(options => options.ManagementAuthorityId = "aot-authority"));
     await using ServiceProvider provider = services.BuildServiceProvider();
+    TrafficAdmissionPlan sharedPlan = new()
+    {
+        Entries = [new FixedWindowAdmissionEntry { Profile = "aot-shared-rate", PermitLimit = 10, Window = TimeSpan.FromSeconds(1) }]
+    };
+    var sharedContext = new DefaultHttpContext();
+    sharedContext.SetEndpoint(new Endpoint(null, new EndpointMetadataCollection(GatewayTrafficAdmissionMetadata.Create(
+        new string('a', 32), new ContentHash("sha-256", new string('b', 64)), new RouteId("aot-route"),
+        GatewayRuntimePlanner.HashTrafficAdmission(sharedPlan), sharedPlan)), "aot-shared"));
+    using RateLimitLease sharedLease = await new GatewayTrafficAdmissionLimiter(
+        provider.GetRequiredService<GatewayTrafficAdmissionRegistry>()).AcquireAsync(sharedContext);
+    if (!sharedLease.IsAcquired)
+        throw new InvalidOperationException("AOT shared-admission execution failed.");
     GatewayDiscoveryResult discovery = await provider.GetRequiredService<IGatewayDiscoveryRuntimeProfile>()
         .ResolveAsync(new GatewayDiscoveryRequest(
             new DiscoveryProfileId("aot-discovery"), new ServiceDiscoveryName("aot-backend"), null,
@@ -1143,6 +1164,16 @@ file sealed class AotAdmissionProjector : IGatewayAdmissionPartitionProjector
         GatewayAdmissionPartitionContext context,
         CancellationToken cancellationToken) =>
         ValueTask.FromResult(GatewayAdmissionPartitionResult.Success("aot-subject"));
+}
+
+file sealed class AotSharedAdmissionProvider : IGatewaySharedAdmissionProvider
+{
+    public ValueTask<GatewaySharedAdmissionDecision> AcquireAsync(
+        GatewaySharedAdmissionRequest request,
+        CancellationToken cancellationToken) =>
+        ValueTask.FromResult(new GatewaySharedAdmissionDecision(
+            GatewaySharedAdmissionDecisionKind.Acquired, request.PermitLimit - request.PermitCount,
+            null, request.WindowMilliseconds, "aot-observation", null));
 }
 
 file sealed class NonSeekableReadStream(byte[] bytes) : MemoryStream(bytes)

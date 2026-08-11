@@ -127,7 +127,7 @@ internal static class GatewayInspectionYarpExtensions
                     throw new InvalidOperationException("Traffic-admission endpoint plan identity is invalid.");
                 foreach (var entry in plan.Entries)
                     if (!admission.TryGet(entry.ProfileName, out _)) throw new InvalidOperationException("Traffic-admission endpoint references an unavailable runtime profile.");
-                builder.Metadata.Add(new GatewayTrafficAdmissionMetadata(applicationId,
+                builder.Metadata.Add(GatewayTrafficAdmissionMetadata.Create(applicationId,
                     new ContentHash("sha-256", symbolic), new RouteId(route.RouteId),
                     new ContentHash("sha-256", planIdentity), plan));
             }));

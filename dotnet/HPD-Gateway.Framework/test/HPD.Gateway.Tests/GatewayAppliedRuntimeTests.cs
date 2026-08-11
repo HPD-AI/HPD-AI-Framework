@@ -56,6 +56,29 @@ public sealed class GatewayAppliedRuntimeTests
     }
 
     [Fact]
+    public async Task Traffic_admission_truth_appears_only_with_the_exact_acknowledged_generation()
+    {
+        using var fixture = new Fixture();
+        GatewayPreparedApplication application = ApplicationWithAdmission(7);
+        Task<GatewayPublicationOutcome> publication = fixture.Publisher.PublishAsync(
+            application, "namespace-a", "node-a", TimeSpan.FromSeconds(2));
+        IProxyConfig config = await fixture.WaitForRevision(application.NativeRevisionId);
+
+        fixture.Observer.GetCurrent().Should().BeNull();
+        fixture.Listener.ConfigurationApplied([new TestConfig("forged", config.Routes.Select(route => route with
+        {
+            Metadata = route.Metadata!.ToImmutableDictionary(StringComparer.Ordinal)
+                .SetItem(GatewayTrafficAdmissionMetadataCodec.PlanIdentity, new string('f', 64))
+        }).ToArray(), config.Clusters)]);
+        fixture.Observer.GetCurrent().Should().BeNull();
+
+        fixture.Listener.ConfigurationApplied([config]);
+        (await publication).State.Should().Be(GatewayPublicationState.ActiveAcknowledged);
+        GatewayAppliedRoute route = fixture.Observer.GetCurrent()!.Snapshot.Routes.Should().ContainSingle().Subject;
+        route.Contributions.Should().ContainSingle(record => record.Family == GatewayEffectiveFamilies.TrafficAdmission);
+    }
+
+    [Fact]
     public async Task WrongMixedAndFailedCallbacksCannotReplaceLastAppliedTruth()
     {
         using var fixture = new Fixture();
@@ -159,6 +182,48 @@ public sealed class GatewayAppliedRuntimeTests
             : [];
         return PreparedApplicationTestFactory.Create(identity, routes, clusters,
             $"native-{version}-{Guid.NewGuid():N}", new GatewayPreparedProjectionSnapshot(1, identity.CandidateId, identity.ContentHash, [], false));
+    }
+
+    private static GatewayPreparedApplication ApplicationWithAdmission(ulong version)
+    {
+        var identity = new PublicationCandidateIdentity(
+            new CandidateId($"candidate-{version}"), "authority", "epoch", version,
+            new ContentHash("sha-256", new string('a', 64)));
+        TrafficAdmissionPlan plan = new()
+        {
+            Entries = [new FixedWindowAdmissionEntry { Profile = "shared", PermitLimit = 10, Window = TimeSpan.FromSeconds(1) }]
+        };
+        ContentHash planIdentity = GatewayRuntimePlanner.HashTrafficAdmission(plan);
+        var route = new RouteConfig
+        {
+            RouteId = "route",
+            ClusterId = "upstream",
+            Match = new RouteMatch { Path = "/{**catch-all}" },
+            Metadata = ImmutableDictionary<string, string>.Empty
+                .Add(GatewayTrafficAdmissionMetadataCodec.Plan, GatewayTrafficAdmissionMetadataCodec.Encode(plan))
+                .Add(GatewayTrafficAdmissionMetadataCodec.PlanIdentity, planIdentity.Value),
+        };
+        var cluster = new ClusterConfig
+        {
+            ClusterId = "upstream",
+            Destinations = ImmutableDictionary<string, DestinationConfig>.Empty.Add(
+                "destination", new DestinationConfig { Address = "http://127.0.0.1:8080/" }),
+        };
+        ImmutableArray<GatewayEffectiveContribution> contributions =
+        [
+            new(GatewayContributionSourceKind.Inline, GatewayContributionScope.RouteLocal,
+                GatewayContributionDisposition.Selected, "routes/route", null, 0, planIdentity),
+            new(GatewayContributionSourceKind.HostProfile, GatewayContributionScope.Host,
+                GatewayContributionDisposition.Correlated, "profiles/shared", null, 1,
+                new ContentHash("sha-256", new string('b', 64))),
+        ];
+        var record = new GatewayEffectiveRecord(1, GatewayEffectiveTargetKind.Route, "route",
+            GatewayEffectiveFamilies.TrafficAdmission, GatewayEffectiveComposition.ReplaceMoreSpecific,
+            contributions, new GatewayNativeProjection("HPD.Gateway", "RouteConfig.Metadata/HPD traffic admission", "HPD.Gateway"),
+            "HPD.Gateway", "1.0.0", GatewayMaterializationDisposition.Materialized, planIdentity, []);
+        var snapshot = new GatewayPreparedProjectionSnapshot(1, identity.CandidateId, identity.ContentHash, [record], false);
+        return PreparedApplicationTestFactory.Create(identity, [route], [cluster],
+            $"native-{version}-{Guid.NewGuid():N}", snapshot);
     }
 
     private sealed class Fixture : IDisposable
