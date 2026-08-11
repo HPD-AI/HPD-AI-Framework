@@ -14,7 +14,9 @@ internal abstract record SessionLifecycleJournalFoldResultV1
         CurrentAuthorityVectorSnapshotV1 Authority,
         JournalPositionV1? PreviousLifecycleFact,
         SessionLifecycleSnapshotBodyV1? Snapshot,
-        IReadOnlyList<PendingSessionLifecycleCommandV1> PendingCommands) : SessionLifecycleJournalFoldResultV1;
+        IReadOnlyList<PendingSessionLifecycleCommandV1> PendingCommands,
+        AuthorityFactEnvelopeV1? TargetCommandFact = null,
+        AuthorityFactEnvelopeV1? TargetResultFact = null) : SessionLifecycleJournalFoldResultV1;
 
     internal sealed record GenerationReplaced(RuntimeGenerationId Replacement, long LastPosition) : SessionLifecycleJournalFoldResultV1;
 
@@ -40,22 +42,30 @@ internal static class SessionLifecycleJournalFoldV1
         return accumulator.Complete();
     }
 
-    internal static Accumulator CreateAccumulator(SessionAuthorityStampV1 session) => new(session);
+    internal static Accumulator CreateAccumulator(SessionAuthorityStampV1 session, JournalFactId? targetCommandFactId = null) =>
+        new(session, targetCommandFactId);
 
     internal sealed class Accumulator
     {
         private readonly SessionAuthorityStampV1 _session;
+        private readonly JournalFactId? _targetCommandFactId;
         private readonly AuthorityVectorReplayFoldV1.AuthorityVectorReplayAccumulatorV1 _vector;
         private readonly Dictionary<long, PendingSessionLifecycleCommandV1> _commands = [];
         private SessionLifecycleSnapshotBodyV1? _snapshot;
         private JournalPositionV1? _previous;
         private long _expectedPosition = 1;
         private SessionLifecycleJournalFoldResultV1.InvalidHistory? _invalid;
+        private AuthorityFactEnvelopeV1? _targetResultFact;
+        private AuthorityFactEnvelopeV1? _targetCommandFact;
+        private bool _targetCommandSeen;
 
-        internal Accumulator(SessionAuthorityStampV1 session)
+        internal Accumulator(SessionAuthorityStampV1 session, JournalFactId? targetCommandFactId = null)
         {
             if (!session.IsValid) throw new ArgumentException("A valid session authority stamp is required.", nameof(session));
+            if (targetCommandFactId is { IsValid: false })
+                throw new ArgumentException("A present target command identity must be valid.", nameof(targetCommandFactId));
             _session = session;
+            _targetCommandFactId = targetCommandFactId;
             _vector = AuthorityVectorReplayFoldV1.CreateAccumulator(session);
         }
 
@@ -84,15 +94,26 @@ internal static class SessionLifecycleJournalFoldV1
                     command.Session != _session || command.ExpectedAuthority.Session != _session ||
                     body.ExpectedLifecycleFact is { } expected && expected.Session != _session)
                     _invalid = Invalid("invalid-lifecycle-command", _expectedPosition - 1);
+                else if (_commands.Values.Any(item => item.Envelope.FactId == envelope.FactId) ||
+                         _targetCommandFactId == envelope.FactId && _targetCommandSeen)
+                    _invalid = Invalid("duplicate-lifecycle-command", _expectedPosition - 1);
                 else if (_commands.Count == MaximumPendingCommands)
                     _invalid = Invalid("pending-command-bound", _expectedPosition - 1);
                 else
+                {
                     _commands.Add(_expectedPosition, new(envelope, command, body));
+                    if (_targetCommandFactId == envelope.FactId)
+                    {
+                        _targetCommandSeen = true;
+                        _targetCommandFact = envelope;
+                    }
+                }
             }
             else if (envelope.PayloadSchema == FactSchema)
             {
-                var failure = ApplyFact(envelope, vectorResult, _commands, ref _snapshot, ref _previous);
+                var failure = ApplyFact(envelope, vectorResult, _commands, ref _snapshot, ref _previous, out var resolvedCommandId);
                 if (failure is not null) _invalid = Invalid(failure, _expectedPosition - 1);
+                else if (_targetCommandFactId == resolvedCommandId) _targetResultFact = envelope;
             }
             else if (envelope.PayloadSchema.SchemaId == CommandSchema.SchemaId || envelope.PayloadSchema.SchemaId == FactSchema.SchemaId)
                 _invalid = Invalid("unknown-lifecycle-version", _expectedPosition - 1);
@@ -109,7 +130,8 @@ internal static class SessionLifecycleJournalFoldV1
                 return Invalid("invalid-authority-history", _vector.LastVerifiedPosition);
             var pending = _commands.OrderBy(static pair => pair.Key).Select(static pair => pair.Value).ToArray();
             return new SessionLifecycleJournalFoldResultV1.Current(
-                _expectedPosition - 1, current.Snapshot, _previous, _snapshot, Array.AsReadOnly(pending));
+                _expectedPosition - 1, current.Snapshot, _previous, _snapshot, Array.AsReadOnly(pending),
+                _targetCommandFact, _targetResultFact);
         }
 
         internal long LastVerifiedPosition => _expectedPosition - 1;
@@ -120,8 +142,10 @@ internal static class SessionLifecycleJournalFoldV1
         AuthorityVectorReplayResultV1 vectorResult,
         IDictionary<long, PendingSessionLifecycleCommandV1> commands,
         ref SessionLifecycleSnapshotBodyV1? snapshot,
-        ref JournalPositionV1? previous)
+        ref JournalPositionV1? previous,
+        out JournalFactId resolvedCommandId)
     {
+        resolvedCommandId = default;
         if (envelope.Owner != OwnerSliceId.S1 ||
             !HasExactPayloadHash(envelope, FactRegistration) ||
             !SessionLifecyclePayloadV1Codec.TryDecodeFact(envelope.PayloadMemory, out var fact) ||
@@ -172,6 +196,7 @@ internal static class SessionLifecycleJournalFoldV1
             return "lifecycle-reduction-mismatch";
         snapshot = expectedSnapshot;
         previous = envelope.Position;
+        resolvedCommandId = pending.Envelope.FactId;
         return null;
     }
 

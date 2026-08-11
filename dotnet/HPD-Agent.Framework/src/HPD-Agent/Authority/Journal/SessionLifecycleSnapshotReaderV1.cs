@@ -47,6 +47,7 @@ internal static class SessionLifecycleSnapshotReaderV1
     internal static async ValueTask<SessionLifecycleSnapshotReadResultV1> ReadAsync(
         IAuthorityJournalV1 journal,
         SessionAuthorityStampV1 session,
+        JournalFactId? targetCommandFactId = null,
         ushort maximumFacts = AppendAuthorityBatchV1.MaximumItems,
         uint maximumEncodedBytes = ProposedAuthorityFactV1.MaximumPayloadBytes,
         CancellationToken cancellationToken = default)
@@ -55,7 +56,9 @@ internal static class SessionLifecycleSnapshotReaderV1
         if (!session.IsValid) throw new ArgumentException("A valid session authority stamp is required.", nameof(session));
         if (maximumFacts is 0 or > AppendAuthorityBatchV1.MaximumItems) throw new ArgumentOutOfRangeException(nameof(maximumFacts));
         if (maximumEncodedBytes is 0 or > ProposedAuthorityFactV1.MaximumPayloadBytes) throw new ArgumentOutOfRangeException(nameof(maximumEncodedBytes));
-        var accumulator = SessionLifecycleJournalFoldV1.CreateAccumulator(session);
+        if (targetCommandFactId is { IsValid: false })
+            throw new ArgumentException("A present target command identity must be valid.", nameof(targetCommandFactId));
+        var accumulator = SessionLifecycleJournalFoldV1.CreateAccumulator(session, targetCommandFactId);
         var cursor = 0L;
         long? snapshotThrough = null;
         while (true)

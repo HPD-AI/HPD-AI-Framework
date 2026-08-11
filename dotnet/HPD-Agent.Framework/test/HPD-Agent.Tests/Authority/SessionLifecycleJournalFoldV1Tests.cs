@@ -118,6 +118,18 @@ public sealed class SessionLifecycleJournalFoldV1Tests
             SessionLifecycleJournalFoldV1.Fold(fixture.Session, overflow)).SafeCode.ToString());
     }
 
+    [Fact]
+    public void DuplicateCommandIdentityAtAnotherPosition_QuarantinesInsteadOfThrowing()
+    {
+        var fixture = new Fixture();
+        var first = fixture.Command(new SessionLifecycleCommandBodyV1.ReserveStarting(
+            fixture.Operation(), Hash256.Compute("request"u8)), 1);
+        var duplicate = fixture.Copy(first, position: new JournalPositionV1(fixture.Session, 2));
+
+        Assert.Equal("duplicate-lifecycle-command", Assert.IsType<SessionLifecycleJournalFoldResultV1.InvalidHistory>(
+            SessionLifecycleJournalFoldV1.Fold(fixture.Session, [first, duplicate])).SafeCode.ToString());
+    }
+
     private sealed class Fixture
     {
         private readonly CorrelationEnvelopeV1 _correlation = new(TenantId.Create());
@@ -157,9 +169,10 @@ public sealed class SessionLifecycleJournalFoldV1Tests
         internal AuthorityFactEnvelopeV1 Copy(
             AuthorityFactEnvelopeV1 value,
             JournalFactId? factId = null,
+            JournalPositionV1? position = null,
             SchemaReferenceV1? payloadSchema = null,
             Hash256? payloadHash = null) => new(
-            factId ?? value.FactId, value.Position, value.ThreadScope, value.Owner,
+            factId ?? value.FactId, position ?? value.Position, value.ThreadScope, value.Owner,
             payloadSchema ?? value.PayloadSchema, value.Payload.ToArray(), payloadHash ?? value.PayloadHash,
             value.Correlation, value.ObservedAt, value.AdmittedAt, value.Integrity);
 

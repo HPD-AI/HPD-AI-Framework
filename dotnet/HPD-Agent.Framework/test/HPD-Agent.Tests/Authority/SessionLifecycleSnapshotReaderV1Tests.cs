@@ -17,12 +17,13 @@ public sealed class SessionLifecycleSnapshotReaderV1Tests
         var fact = await fixture.AppendAsync(fixture.Fact(commandOuter, factBody), body.OperationId, 1, command.Position);
 
         var read = Assert.IsType<SessionLifecycleSnapshotReadResultV1.Verified>(await SessionLifecycleSnapshotReaderV1.ReadAsync(
-            fixture.Journal, fixture.Session, maximumFacts: 1));
+            fixture.Journal, fixture.Session, command.FactId, maximumFacts: 1));
         var current = Assert.IsType<SessionLifecycleJournalFoldResultV1.Current>(read.Fold);
         Assert.Equal(2, read.SnapshotThrough);
         Assert.Equal(fact.Position, current.PreviousLifecycleFact);
         Assert.Equal(snapshot, current.Snapshot);
         Assert.Empty(current.PendingCommands);
+        Assert.Equal(fact.FactId, current.TargetResultFact?.FactId);
     }
 
     [Fact]
