@@ -79,6 +79,26 @@ internal sealed class SubmissionDispositionChosenPayloadRegistrationV1 : Authori
         SubmissionDispositionChosenV1Codec.TryDecode(payload, out _);
 }
 
+internal sealed class SessionLifecycleCommandPayloadRegistrationV1 : AuthorityPayloadRegistrationV1
+{
+    internal SessionLifecycleCommandPayloadRegistrationV1() :
+        base(new BoundedAscii(SessionLifecyclePayloadV1Codec.CommandSchemaId), SessionLifecyclePayloadV1Codec.Major,
+            SessionLifecyclePayloadV1Codec.Minor, OwnerSliceId.S1, SessionLifecyclePayloadV1Codec.MaximumEncodedBytes) { }
+
+    private protected override bool ValidateCanonicalPayload(ReadOnlyMemory<byte> payload, SessionAuthorityStampV1 session) =>
+        SessionLifecyclePayloadV1Codec.TryDecodeCommand(payload, out var value) && value!.Session == session;
+}
+
+internal sealed class SessionLifecycleFactPayloadRegistrationV1 : AuthorityPayloadRegistrationV1
+{
+    internal SessionLifecycleFactPayloadRegistrationV1() :
+        base(new BoundedAscii(SessionLifecyclePayloadV1Codec.FactSchemaId), SessionLifecyclePayloadV1Codec.Major,
+            SessionLifecyclePayloadV1Codec.Minor, OwnerSliceId.S1, SessionLifecyclePayloadV1Codec.MaximumEncodedBytes) { }
+
+    private protected override bool ValidateCanonicalPayload(ReadOnlyMemory<byte> payload, SessionAuthorityStampV1 session) =>
+        SessionLifecyclePayloadV1Codec.TryDecodeFact(payload, out var value) && value!.Session == session;
+}
+
 internal sealed class AuthorityGenerationInitializationPayloadRegistrationV1 : AuthorityPayloadRegistrationV1
 {
     private readonly AuthorityAxisId _axis;
