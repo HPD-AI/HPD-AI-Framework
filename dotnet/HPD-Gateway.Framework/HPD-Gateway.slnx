@@ -6,6 +6,7 @@
     <Project Path="src/HPD.Gateway.ControlPlane.Sqlite/HPD.Gateway.ControlPlane.Sqlite.csproj" />
     <Project Path="src/HPD.Gateway.Standalone/HPD.Gateway.Standalone.csproj" />
     <Project Path="src/HPD.Gateway.Discovery.Microsoft/HPD.Gateway.Discovery.Microsoft.csproj" />
+    <Project Path="src/HPD.Gateway.Admission.Redis/HPD.Gateway.Admission.Redis.csproj" />
   </Folder>
   <Folder Name="/test/">
     <Project Path="test/HPD.Gateway.Tests/HPD.Gateway.Tests.csproj" />

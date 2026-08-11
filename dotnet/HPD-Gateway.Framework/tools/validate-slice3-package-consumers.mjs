@@ -7,17 +7,24 @@ import { spawnSync } from "node:child_process";
 const root = resolve(import.meta.dirname, "..");
 const feed = resolve(process.argv[2] ?? "");
 const boundary = process.argv[3] ?? "slice3";
-if (!process.argv[2] || !["slice3", "slice4", "slice4-all", "slice6"].includes(boundary))
-  throw new Error("Usage: validate-slice3-package-consumers.mjs <package-feed> [slice3|slice4|slice4-all|slice6]");
-const verifiedIds = boundary === "slice4-all" || boundary === "slice6"
+if (!process.argv[2] || !["slice3", "slice4", "slice4-all", "slice5-redis", "slice6"].includes(boundary))
+  throw new Error("Usage: validate-slice3-package-consumers.mjs <package-feed> [slice3|slice4|slice4-all|slice5-redis|slice6]");
+const verifiedIds = boundary === "slice6"
+  ? ["HPD.Gateway", "HPD.Gateway.ControlPlane", "HPD.Gateway.ControlPlane.Sqlite",
+      "HPD.Gateway.ControlPlane.HPDAuth", "HPD.Gateway.Discovery.Microsoft", "HPD.Gateway.Admission.Redis"]
+  : boundary === "slice4-all"
   ? ["HPD.Gateway", "HPD.Gateway.ControlPlane", "HPD.Gateway.ControlPlane.Sqlite",
       "HPD.Gateway.ControlPlane.HPDAuth", "HPD.Gateway.Discovery.Microsoft"]
+  : boundary === "slice5-redis"
+    ? ["HPD.Gateway", "HPD.Gateway.Admission.Redis"]
   : boundary === "slice4"
     ? ["HPD.Gateway", "HPD.Gateway.ControlPlane", "HPD.Gateway.ControlPlane.Sqlite"]
     : ["HPD.Gateway", "HPD.Gateway.ControlPlane"];
 const verifiedPackages = new Map(verifiedIds.map(artifact));
 const fixtures = JSON.parse(readFileSync(join(root, "test/HPD.Gateway.ConsumerContracts/fixtures.json"), "utf8"));
-const selectedIds = boundary === "slice4-all"
+const selectedIds = boundary === "slice5-redis"
+  ? ["redis-admission"]
+  : boundary === "slice4-all"
   ? ["control-plane-sqlite", "hpd-auth-security", "microsoft-configuration-discovery",
       "microsoft-dns-discovery", "full-cloud-equivalent", "obsolete-hpd-auth-namespace",
       "obsolete-microsoft-discovery-method"]
@@ -39,6 +46,7 @@ writeFileSync(nugetConfig, `<?xml version="1.0" encoding="utf-8"?>
       <package pattern="HPD.Gateway" /><package pattern="HPD.Gateway.ControlPlane" />
       <package pattern="HPD.Gateway.ControlPlane.Sqlite" />
       <package pattern="HPD.Gateway.ControlPlane.HPDAuth" /><package pattern="HPD.Gateway.Discovery.Microsoft" />
+      <package pattern="HPD.Gateway.Admission.Redis" />
       <package pattern="HPD.Base" /><package pattern="HPD.Base.Sqlite" /><package pattern="HPD-Events" /><package pattern="HPD-AI.Platform" />
       <package pattern="HPD-Auth-*" />
     </packageSource>

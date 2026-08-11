@@ -64,6 +64,12 @@
       "source": "Positive/MicrosoftDnsDiscovery.cs"
     },
     {
+      "id": "redis-admission",
+      "expect": "success",
+      "packages": ["HPD.Gateway", "HPD.Gateway.Admission.Redis"],
+      "source": "Positive/RedisAdmission.cs"
+    },
+    {
       "id": "full-cloud-equivalent",
       "expect": "success",
       "packages": [

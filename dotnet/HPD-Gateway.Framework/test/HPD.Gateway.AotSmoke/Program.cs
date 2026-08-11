@@ -11,6 +11,7 @@ using HPD.Gateway;
 using HPD.Gateway.ControlPlane;
 using HPD.Gateway.ControlPlane.Sqlite;
 using HPD.Gateway.Discovery.Microsoft;
+using HPD.Gateway.Admission.Redis;
 using HPD.Gateway.ControlPlane.HPDAuth;
 using HPD.Auth.ControlPlane;
 using Microsoft.AspNetCore.Builder;
@@ -28,6 +29,19 @@ using Yarp.ReverseProxy.Configuration;
 using Yarp.ReverseProxy.Model;
 
 await SmokeManagementRuntimeAsync();
+
+var redisAdmission = new GatewayTrafficAdmissionRegistryBuilder();
+redisAdmission.UseRedis("aot-redis", options =>
+{
+    options.AuthorityId = "aot-deployment";
+    options.Configuration = "127.0.0.1:1,abortConnect=false,connectTimeout=10";
+});
+redisAdmission.AddSharedFixedWindow("aot-redis-rate", "aot-redis");
+using (GatewayTrafficAdmissionRegistry redisRegistry = redisAdmission.Build())
+    if (redisRegistry.Capabilities.Length != 1 || redisRegistry.Capabilities[0].Name != "aot-redis-rate")
+        throw new InvalidOperationException("Redis admission AOT composition failed.");
+if (Environment.GetEnvironmentVariable("HPD_GATEWAY_REDIS_AOT") is { } redisEndpoint)
+    await SmokeRedisAdmissionAsync(redisEndpoint);
 
 var authAdapterServices = new ServiceCollection();
 authAdapterServices.AddLogging();
@@ -1110,6 +1124,33 @@ static int AvailableAotPort()
     using var listener = new TcpListener(IPAddress.Loopback, 0);
     listener.Start();
     return ((IPEndPoint)listener.LocalEndpoint).Port;
+}
+
+static async Task SmokeRedisAdmissionAsync(string endpoint)
+{
+    GatewayRedisAdmissionSnapshot snapshot = GatewayRedisAdmissionSnapshot.Create("aot-redis", new GatewayRedisAdmissionOptions
+    {
+        AuthorityId = "aot-deployment",
+        Configuration = endpoint,
+        KeyPrefix = "hpd:aot:admission",
+    });
+    using var provider = new GatewayRedisAdmissionProvider(snapshot, null);
+    foreach (TrafficAdmissionRateAlgorithm algorithm in Enum.GetValues<TrafficAdmissionRateAlgorithm>())
+    {
+        var request = new GatewaySharedAdmissionRequest(1, "aot-redis", "aot-deployment",
+            $"aot-{algorithm.ToString().ToLowerInvariant()}-{Guid.NewGuid():N}",
+            new ContentHash("sha-256", new string('a', 64)), "aot-partition", algorithm,
+            1, algorithm == TrafficAdmissionRateAlgorithm.TokenBucket ? 1 : 0, 1_000,
+            algorithm == TrafficAdmissionRateAlgorithm.SlidingWindow ? 2 : 0, 1, new string('b', 32));
+        GatewaySharedAdmissionDecision acquired = await provider.AcquireAsync(request, default);
+        GatewaySharedAdmissionDecision rejected = await provider.AcquireAsync(
+            request with { AttemptId = new string('c', 32) }, default);
+        GatewaySharedAdmissionRetainedState state = await provider.ObserveStateAsync(request, default);
+        if (acquired.Kind != GatewaySharedAdmissionDecisionKind.Acquired ||
+            rejected.Kind != GatewaySharedAdmissionDecisionKind.Rejected ||
+            !GatewaySharedAdmissionContract.IsValidState(request, state))
+            throw new InvalidOperationException($"Redis admission AOT execution failed for {algorithm}.");
+    }
 }
 
 static async Task<string> SendAotTls(int port, string serverName)

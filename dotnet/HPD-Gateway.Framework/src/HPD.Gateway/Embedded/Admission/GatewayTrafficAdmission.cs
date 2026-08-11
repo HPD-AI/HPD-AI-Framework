@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.DependencyInjection;
 using Yarp.ReverseProxy.Configuration;
 using Yarp.ReverseProxy.Model;
 
@@ -31,6 +32,12 @@ public sealed class GatewayTrafficAdmissionRegistryBuilder
     private readonly Dictionary<string, GatewayAdmissionProjectorRegistration> _projectors = new(StringComparer.Ordinal);
     private readonly Dictionary<string, GatewaySharedAdmissionProviderRegistration> _providers = new(StringComparer.Ordinal);
     private TimeProvider _timeProvider = TimeProvider.System;
+
+    public GatewayTrafficAdmissionRegistryBuilder() : this(new ServiceCollection()) { }
+
+    internal GatewayTrafficAdmissionRegistryBuilder(IServiceCollection services) => Services = services;
+
+    internal IServiceCollection Services { get; }
 
     public GatewayTrafficAdmissionRegistryBuilder UseTimeProvider(TimeProvider timeProvider)
     {

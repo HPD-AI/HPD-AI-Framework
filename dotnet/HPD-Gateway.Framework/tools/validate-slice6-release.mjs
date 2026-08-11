@@ -19,6 +19,7 @@ const products = new Map([
   ["HPD.Gateway.ControlPlane.HPDAuth", new Map([["HPD-Auth-ControlPlane-AspNetCore", authVersion], ["HPD-Auth-Core", authVersion], ["HPD.Gateway.ControlPlane", gatewayVersion]])],
   ["HPD.Gateway.ControlPlane.Sqlite", new Map([["HPD.Base.Sqlite", baseVersion], ["HPD.Gateway.ControlPlane", gatewayVersion]])],
   ["HPD.Gateway.Discovery.Microsoft", new Map([["HPD.Gateway", gatewayVersion], ["Microsoft.Extensions.ServiceDiscovery", "10.7.0"], ["Microsoft.Extensions.ServiceDiscovery.Dns", "10.7.0"]])],
+  ["HPD.Gateway.Admission.Redis", new Map([["HPD.Gateway", gatewayVersion], ["StackExchange.Redis", "3.0.17"]])],
 ]);
 const packages = readdirSync(feed)
   .filter(name => /^HPD\.Gateway(?:\.|-)[^.]*.*\.nupkg$/i.test(name) && !name.endsWith(".snupkg"));

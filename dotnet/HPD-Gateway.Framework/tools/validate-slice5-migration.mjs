@@ -7,6 +7,7 @@ const docsRoot = resolve(gatewayRoot, "../../../../../../../Documents/HPD Gatewa
 
 const expectedProjects = [
   "HPD.Gateway",
+  "HPD.Gateway.Admission.Redis",
   "HPD.Gateway.ControlPlane",
   "HPD.Gateway.ControlPlane.HPDAuth",
   "HPD.Gateway.ControlPlane.Sqlite",

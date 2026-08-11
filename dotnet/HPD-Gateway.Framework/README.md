@@ -6,7 +6,8 @@ lifecycles while YARP and ASP.NET Core retain HTTP execution.
 
 ## Products
 
-The release contains five library packages and one executable distribution:
+The proposed Decision 0017 product graph contains six library packages and one
+executable distribution:
 
 | Product | Purpose |
 |---|---|
@@ -15,6 +16,7 @@ The release contains five library packages and one executable distribution:
 | `HPD.Gateway.ControlPlane.Sqlite` | Optional restart-durable SQLite authority |
 | `HPD.Gateway.ControlPlane.HPDAuth` | Optional HPD.Auth translation for the Admin API |
 | `HPD.Gateway.Discovery.Microsoft` | Optional governed Microsoft Service Discovery adapter |
+| `HPD.Gateway.Admission.Redis` | Optional governed Redis-compatible deployment admission authority |
 | `HPD.Gateway.Standalone` | Native AOT-compatible executable distribution |
 
 The packages are intentionally one-directional. Installing `HPD.Gateway` does
@@ -84,6 +86,30 @@ The adapter preserves Microsoft provider composition and watching while HPD
 owns immutable profile identity, bounds, stale policy, TLS admissibility,
 readiness correlation, and redacted applied truth.
 
+## Optional Redis-compatible admission
+
+```csharp
+builder.Services.AddHpdGateway(gateway =>
+{
+    gateway.EnableCoreDeclarations();
+    gateway.AddTrafficAdmission(admission =>
+    {
+        admission.UseRedis("deployment", redis =>
+        {
+            redis.AuthorityId = "orders-production";
+            redis.Configuration = configuration.GetConnectionString("admission")!;
+        });
+        admission.AddSharedFixedWindow("per-user", "deployment");
+    });
+});
+```
+
+The optional provider uses Redis time and one atomic bounded Lua operation for
+fixed-window, segmented sliding-window, and token-bucket quotas. It supports an
+HPD-owned connection or one explicitly keyed host-owned
+`IConnectionMultiplexer` instance. Credentials and endpoints never enter the
+public behavior identity or health projection.
+
 ## Contract boundary
 
 There are no compatibility packages, namespace aliases, type forwarders, or
@@ -94,6 +120,7 @@ legacy extension methods. Public Gateway library namespaces are exactly:
 - `HPD.Gateway.ControlPlane.Sqlite`
 - `HPD.Gateway.ControlPlane.HPDAuth`
 - `HPD.Gateway.Discovery.Microsoft`
+- `HPD.Gateway.Admission.Redis`
 
 See the official HPD Gateway documentation for runnable tutorials, complete
 declaration reference, Admin operations, Studio workflows, deployment, and

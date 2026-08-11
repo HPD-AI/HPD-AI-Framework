@@ -11,6 +11,7 @@
     <ProjectReference Include="../../src/HPD.Gateway/HPD.Gateway.csproj" />
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference Include="../../src/HPD.Gateway.Discovery.Microsoft/HPD.Gateway.Discovery.Microsoft.csproj" />
+    <ProjectReference Include="../../src/HPD.Gateway.Admission.Redis/HPD.Gateway.Admission.Redis.csproj" />
     <ProjectReference Include="../../src/HPD.Gateway.ControlPlane/HPD.Gateway.ControlPlane.csproj" />
     <ProjectReference Include="../../src/HPD.Gateway.ControlPlane.Sqlite/HPD.Gateway.ControlPlane.Sqlite.csproj" />
     <ProjectReference Include="../../src/HPD.Gateway.ControlPlane.HPDAuth/HPD.Gateway.ControlPlane.HPDAuth.csproj" />

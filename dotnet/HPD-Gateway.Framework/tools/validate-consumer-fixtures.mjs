@@ -73,10 +73,10 @@ for (const fixture of manifest.fixtures) {
   }
 }
 
-if (positive !== 11 || negative !== 4 || native !== 1 || manifest.fixtures.length !== 16)
-  throw new Error(`Expected eleven positive, four negative, and one Native AOT fixture; found ${positive}, ${negative}, and ${native}.`);
+if (positive !== 12 || negative !== 4 || native !== 1 || manifest.fixtures.length !== 17)
+  throw new Error(`Expected twelve positive, four negative, and one Native AOT fixture; found ${positive}, ${negative}, and ${native}.`);
 
-console.log('Consumer fixture contract passed: 11 package-positive, 4 package-negative, 1 Native AOT distribution; undeclared-owner and unused-package adversarial cases rejected.');
+console.log('Consumer fixture contract passed: 12 package-positive, 4 package-negative, 1 Native AOT distribution; undeclared-owner and unused-package adversarial cases rejected.');
 
 function validateImports(id, packages, namespaces) {
   const usedPackages = new Set();

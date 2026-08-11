@@ -86,6 +86,7 @@ jobs:
             "dotnet/HPD-Gateway.Framework/src/HPD.Gateway.ControlPlane.Sqlite/HPD.Gateway.ControlPlane.Sqlite.csproj"
             "dotnet/HPD-Gateway.Framework/src/HPD.Gateway.ControlPlane.HPDAuth/HPD.Gateway.ControlPlane.HPDAuth.csproj"
             "dotnet/HPD-Gateway.Framework/src/HPD.Gateway.Discovery.Microsoft/HPD.Gateway.Discovery.Microsoft.csproj"
+            "dotnet/HPD-Gateway.Framework/src/HPD.Gateway.Admission.Redis/HPD.Gateway.Admission.Redis.csproj"
           )
           dotnet/eng/nuget/validate-package-identities.sh "${PROJECTS[@]}"
 
@@ -120,7 +121,7 @@ jobs:
             dotnet pack "$PROJECT" --configuration Release --output ./nupkg-gateway \
               --nologo "${RELEASE_ARGS[@]}" "${VERSION_ARGS[@]}"
           done
-          test "$(find ./nupkg-gateway -maxdepth 1 -name '*.nupkg' | wc -l | tr -d ' ')" = "5"
+          test "$(find ./nupkg-gateway -maxdepth 1 -name '*.nupkg' | wc -l | tr -d ' ')" = "6"
           node dotnet/HPD-Gateway.Framework/tools/validate-slice6-release.mjs ./nupkg-gateway \
             --gateway-version "${{ needs.determine-version.outputs.version }}" \
             --base-version "$HPD_BASE_VERSION" \

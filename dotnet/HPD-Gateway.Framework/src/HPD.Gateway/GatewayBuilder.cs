@@ -106,7 +106,7 @@ public sealed class GatewayBuilder
         ArgumentNullException.ThrowIfNull(configure);
         if (_trafficAdmission is not null)
             throw new InvalidOperationException("Traffic admission is already registered.");
-        var builder = new GatewayTrafficAdmissionRegistryBuilder();
+        var builder = new GatewayTrafficAdmissionRegistryBuilder(Services);
         configure(builder);
         var registry = builder.Build();
         if (registry.Capabilities.IsEmpty)
