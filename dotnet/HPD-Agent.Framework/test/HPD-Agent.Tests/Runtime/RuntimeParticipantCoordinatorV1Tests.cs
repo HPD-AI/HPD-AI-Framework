@@ -131,7 +131,7 @@ public sealed class RuntimeParticipantCoordinatorV1Tests
         var termination = coordinator.TerminateAsync(RuntimeTerminationCauseV1.Requested).AsTask();
         Assert.False(termination.IsCompleted);
         participant.Release();
-        Assert.True((await termination).IsSuccess);
+        Assert.Equal(RuntimeParticipantDispositionV1.TimedOut, (await termination).Disposition);
         await WaitUntilAsync(() => coordinator.State == RuntimeParticipantCoordinatorStateV1.Completed);
         Assert.Contains("session:terminate:TimedOut", events);
     }

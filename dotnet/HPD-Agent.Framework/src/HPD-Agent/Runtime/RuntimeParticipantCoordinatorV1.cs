@@ -64,6 +64,7 @@ public sealed class RuntimeParticipantCoordinatorV1 : IAsyncDisposable
     private readonly SemaphoreSlim _gate = new(1, 1);
     private RuntimeParticipantCoordinatorStateV1 _state = RuntimeParticipantCoordinatorStateV1.Created;
     private Task? _quarantineCompletion;
+    private RuntimeParticipantResultV1? _quarantineFailure;
     private bool _disposeRequested;
 
     /// <summary>Initializes a coordinator whose participants exactly match a compiled plan.</summary>
@@ -120,7 +121,8 @@ public sealed class RuntimeParticipantCoordinatorV1 : IAsyncDisposable
                     EnterQuarantine(
                         invocation.Outstanding,
                         CauseFor(result.Disposition, RuntimeTerminationCauseV1.PrepareFailed),
-                        attempted.AsEnumerable().Reverse().ToArray());
+                        attempted.AsEnumerable().Reverse().ToArray(),
+                        new RuntimeParticipantResultV1(result.Disposition, result.Code));
                     return new RuntimeParticipantResultV1(result.Disposition, result.Code);
                 }
                 if (!result.IsValid)
@@ -167,7 +169,8 @@ public sealed class RuntimeParticipantCoordinatorV1 : IAsyncDisposable
                     EnterQuarantine(
                         invocation.Outstanding,
                         CauseFor(result.Disposition, RuntimeTerminationCauseV1.StartFailed),
-                        ParticipantsInPlanOrder().Reverse().ToArray());
+                        ParticipantsInPlanOrder().Reverse().ToArray(),
+                        result);
                     return result;
                 }
                 if (!result.IsValid)
@@ -211,7 +214,8 @@ public sealed class RuntimeParticipantCoordinatorV1 : IAsyncDisposable
                     EnterQuarantine(
                         invocation.Outstanding,
                         CauseFor(result.Disposition, RuntimeTerminationCauseV1.DrainFailed),
-                        ParticipantsInPlanOrder().Reverse().ToArray());
+                        ParticipantsInPlanOrder().Reverse().ToArray(),
+                        result);
                     return result;
                 }
                 if (!result.IsValid)
@@ -261,7 +265,7 @@ public sealed class RuntimeParticipantCoordinatorV1 : IAsyncDisposable
             _gate.Release();
         }
         await quarantine.WaitAsync(cancellationToken).ConfigureAwait(false);
-        return CompletedResult;
+        return _quarantineFailure ?? CompletedResult;
     }
 
     /// <summary>Terminates admitted resources, if any; quarantined work completes cleanup after it converges.</summary>
@@ -336,7 +340,8 @@ public sealed class RuntimeParticipantCoordinatorV1 : IAsyncDisposable
                 EnterQuarantine(
                     invocation.Outstanding,
                     RuntimeTerminationCauseV1.TimedOut,
-                    terminationOrder.Skip(index + 1).ToArray());
+                    terminationOrder.Skip(index + 1).ToArray(),
+                    result);
                 return result;
             }
             if (!result.IsValid)
@@ -459,8 +464,10 @@ public sealed class RuntimeParticipantCoordinatorV1 : IAsyncDisposable
     private void EnterQuarantine(
         Task outstanding,
         RuntimeTerminationCauseV1 cause,
-        IReadOnlyList<IRuntimeParticipantV1> remainingTerminationOrder)
+        IReadOnlyList<IRuntimeParticipantV1> remainingTerminationOrder,
+        RuntimeParticipantResultV1 failure)
     {
+        _quarantineFailure ??= failure;
         _state = RuntimeParticipantCoordinatorStateV1.Quarantined;
         _quarantineCompletion = CompleteQuarantineAsync(outstanding, cause, remainingTerminationOrder);
     }
@@ -472,6 +479,7 @@ public sealed class RuntimeParticipantCoordinatorV1 : IAsyncDisposable
     {
         try { await outstanding.ConfigureAwait(false); }
         catch (Exception) { }
+        Task? chainedCompletion = null;
         await _gate.WaitAsync().ConfigureAwait(false);
         try
         {
@@ -479,12 +487,16 @@ public sealed class RuntimeParticipantCoordinatorV1 : IAsyncDisposable
             {
                 _state = RuntimeParticipantCoordinatorStateV1.Terminating;
                 await ContinueUnwindAsync(remainingTerminationOrder, cause).ConfigureAwait(false);
+                if (_state == RuntimeParticipantCoordinatorStateV1.Quarantined)
+                    chainedCompletion = _quarantineCompletion;
             }
         }
         finally
         {
             _gate.Release();
         }
+        if (chainedCompletion is not null)
+            await chainedCompletion.ConfigureAwait(false);
     }
 
     private readonly record struct BoundedInvocation<T>(T Result, Task? Outstanding);
