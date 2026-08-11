@@ -1,17 +1,41 @@
 namespace HPD.Agent.Authority;
 
+internal readonly record struct AuthorityJournalCapacityV1
+{
+    internal AuthorityJournalCapacityV1(int maximumSessions, int maximumFacts, ulong maximumResidentBytes)
+    {
+        if (maximumSessions <= 0) throw new ArgumentOutOfRangeException(nameof(maximumSessions));
+        if (maximumFacts < maximumSessions) throw new ArgumentOutOfRangeException(nameof(maximumFacts));
+        if (maximumResidentBytes == 0) throw new ArgumentOutOfRangeException(nameof(maximumResidentBytes));
+        MaximumSessions = maximumSessions;
+        MaximumFacts = maximumFacts;
+        MaximumResidentBytes = maximumResidentBytes;
+    }
+
+    internal int MaximumSessions { get; }
+    internal int MaximumFacts { get; }
+    internal ulong MaximumResidentBytes { get; }
+}
+
 internal sealed class InMemoryAuthorityJournalV1 : IAuthorityJournalV1
 {
     private readonly object _gate = new();
     private readonly AuthorityPayloadAdmissionRegistryV1 _registry;
     private readonly Func<UtcInstant> _clock;
+    private readonly AuthorityJournalCapacityV1 _capacity;
     private readonly Dictionary<SessionAuthorityStampV1, SessionState> _sessions = [];
     private readonly Dictionary<JournalFactId, StoredFact> _facts = [];
+    private ulong _residentBytes;
 
-    internal InMemoryAuthorityJournalV1(AuthorityPayloadAdmissionRegistryV1 registry, Func<UtcInstant> clock)
+    internal InMemoryAuthorityJournalV1(
+        AuthorityPayloadAdmissionRegistryV1 registry,
+        Func<UtcInstant> clock,
+        AuthorityJournalCapacityV1 capacity)
     {
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
+        _capacity = capacity;
+        if (_capacity.MaximumSessions <= 0) throw new ArgumentException("A valid resident capacity is required.", nameof(capacity));
     }
 
     public ValueTask<AppendAuthorityResultV1> AppendAsync(AppendAuthorityBatchV1 request, CancellationToken cancellationToken = default)
@@ -57,11 +81,13 @@ internal sealed class InMemoryAuthorityJournalV1 : IAuthorityJournalV1
         var existing = request.Facts.Select(fact => _facts.TryGetValue(fact.FactId, out var stored) ? stored : null).ToArray();
         if (existing.Any(static item => item is not null))
         {
+            if (existing.Any(static item => item is null))
+                return new AppendAuthorityResultV1.InvalidPayload(new BoundedAscii("mixed-idempotency-batch"));
             for (var index = 0; index < request.Facts.Count; index++)
             {
                 var stored = existing[index];
                 var proposal = request.Facts[index];
-                if (stored is null || !stored.Matches(request.Session, proposal))
+                if (!stored!.Matches(request.Session, proposal))
                     return new AppendAuthorityResultV1.ContradictoryDuplicate(
                         proposal.FactId, stored?.Envelope.PayloadHash ?? proposal.PayloadHash, proposal.PayloadHash);
             }
@@ -86,6 +112,7 @@ internal sealed class InMemoryAuthorityJournalV1 : IAuthorityJournalV1
         var nextHead = state.Head;
         var nextThreads = state.Threads.ToDictionary(static pair => pair.Key, static pair => pair.Value);
         var envelopes = new List<AuthorityFactEnvelopeV1>(request.Facts.Count);
+        ulong batchResidentBytes = 0;
         var admittedAt = _clock();
         foreach (var proposal in request.Facts)
         {
@@ -102,10 +129,22 @@ internal sealed class InMemoryAuthorityJournalV1 : IAuthorityJournalV1
             var preimage = AuthorityCanonicalCborV1.EncodeEnvelopeWithoutIntegrity(proposal, position, threadPosition, admittedAt);
             var integrity = new IntegrityEnvelopeV1(1, 1,
                 AuthorityIntegrityHashV1.Compute("hpd.authority-fact-envelope.v1", 1, 0, preimage), []);
+            batchResidentBytes = checked(batchResidentBytes + AuthorityCanonicalCborV1.GetEnvelopeEncodedLength(preimage, integrity));
             envelopes.Add(new AuthorityFactEnvelopeV1(
                 proposal.FactId, position, threadPosition, proposal.Owner, proposal.PayloadSchema, proposal.PayloadBytes,
                 proposal.PayloadHash, proposal.Correlation, proposal.ObservedAt, admittedAt, integrity));
         }
+
+
+        if (isNewSession && _sessions.Count >= _capacity.MaximumSessions)
+            return new AppendAuthorityResultV1.CapacityRefused(CapacityDimensionId.QueueItems, 1, 0);
+        var availableFacts = _capacity.MaximumFacts - _facts.Count;
+        if (request.Facts.Count > availableFacts)
+            return new AppendAuthorityResultV1.CapacityRefused(
+                CapacityDimensionId.QueueItems, (ulong)request.Facts.Count, (ulong)Math.Max(availableFacts, 0));
+        var availableBytes = _capacity.MaximumResidentBytes - Math.Min(_capacity.MaximumResidentBytes, _residentBytes);
+        if (batchResidentBytes > availableBytes)
+            return new AppendAuthorityResultV1.CapacityRefused(CapacityDimensionId.JournalBytes, batchResidentBytes, availableBytes);
 
         var previousHead = state.Head;
         state.Head = nextHead;
@@ -113,6 +152,7 @@ internal sealed class InMemoryAuthorityJournalV1 : IAuthorityJournalV1
         foreach (var pair in nextThreads) state.Threads.Add(pair.Key, pair.Value);
         if (isNewSession) _sessions.Add(request.Session, state);
         foreach (var envelope in envelopes) _facts.Add(envelope.FactId, new StoredFact(request.Session, envelope));
+        _residentBytes = checked(_residentBytes + batchResidentBytes);
         return new AppendAuthorityResultV1.Committed(previousHead, nextHead, envelopes);
     }
 

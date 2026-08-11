@@ -1,4 +1,6 @@
 using System.Formats.Cbor;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace HPD.Agent.Authority;
 
@@ -11,39 +13,65 @@ internal enum AuthorityPayloadAdmissionV1
     HashMismatch,
 }
 
-internal sealed class AuthorityPayloadRegistrationV1
+internal abstract class AuthorityPayloadRegistrationV1
 {
-    private readonly Func<ReadOnlyMemory<byte>, bool> _validator;
-
-    internal AuthorityPayloadRegistrationV1(
-        SchemaReferenceV1 schema,
+    private protected AuthorityPayloadRegistrationV1(
         BoundedAscii schemaToken,
+        ushort major,
+        ushort minor,
         OwnerSliceId owner,
-        int maximumPayloadBytes,
-        Func<ReadOnlyMemory<byte>, bool> validator)
+        int maximumPayloadBytes)
     {
-        if (!schema.IsValid) throw new ArgumentException("A schema reference is required.", nameof(schema));
         if (!schemaToken.IsValid) throw new ArgumentException("A schema token is required.", nameof(schemaToken));
+        if (major == 0) throw new ArgumentOutOfRangeException(nameof(major));
         if (!Enum.IsDefined(owner)) throw new ArgumentException("A registered owner is required.", nameof(owner));
         if (maximumPayloadBytes is < 0 or > ProposedAuthorityFactV1.MaximumPayloadBytes) throw new ArgumentOutOfRangeException(nameof(maximumPayloadBytes));
-        ArgumentNullException.ThrowIfNull(validator);
-        var prefix = schemaToken.ToString() + "|" + schema.Major.ToString(System.Globalization.CultureInfo.InvariantCulture) + "." +
-            schema.Minor.ToString(System.Globalization.CultureInfo.InvariantCulture) + "|";
+        var prefix = schemaToken.ToString() + "|" + major.ToString(System.Globalization.CultureInfo.InvariantCulture) + "." +
+            minor.ToString(System.Globalization.CultureInfo.InvariantCulture) + "|";
         var registered = AuthoritySchemaLedgerV1.Schemas.SingleOrDefault(row => row.StartsWith(prefix, StringComparison.Ordinal));
         if (registered is null || !string.Equals(registered.Split('|')[2], owner.ToString(), StringComparison.Ordinal))
             throw new ArgumentException("The schema token, version, and semantic owner must exactly join the generated authority registry.", nameof(schemaToken));
-        Schema = schema;
+        Schema = new SchemaReferenceV1(AuthoritySchemaIdentityV1.Derive(schemaToken), major, minor);
         SchemaToken = schemaToken;
         Owner = owner;
         MaximumPayloadBytes = maximumPayloadBytes;
-        _validator = validator;
     }
 
     internal SchemaReferenceV1 Schema { get; }
     internal BoundedAscii SchemaToken { get; }
     internal OwnerSliceId Owner { get; }
     internal int MaximumPayloadBytes { get; }
-    internal bool Validate(ReadOnlyMemory<byte> payload) => payload.Length <= MaximumPayloadBytes && _validator(payload);
+    internal bool Validate(ReadOnlyMemory<byte> payload) => payload.Length <= MaximumPayloadBytes && ValidateCanonicalPayload(payload);
+    private protected abstract bool ValidateCanonicalPayload(ReadOnlyMemory<byte> payload);
+}
+
+internal sealed class SessionAuthorityStampPayloadRegistrationV1 : AuthorityPayloadRegistrationV1
+{
+    internal SessionAuthorityStampPayloadRegistrationV1() :
+        base(new BoundedAscii(SessionAuthorityStampV1Codec.SchemaId), SessionAuthorityStampV1Codec.Major,
+            SessionAuthorityStampV1Codec.Minor, OwnerSliceId.S1, 64) { }
+
+    private protected override bool ValidateCanonicalPayload(ReadOnlyMemory<byte> payload) =>
+        SessionAuthorityStampV1Codec.TryDecode(payload, out _);
+}
+
+internal static class AuthoritySchemaIdentityV1
+{
+    private static ReadOnlySpan<byte> Domain => "hpd-schema-id-v1\0"u8;
+
+    internal static SchemaId Derive(BoundedAscii schemaToken)
+    {
+        if (!schemaToken.IsValid) throw new ArgumentException("A schema token is required.", nameof(schemaToken));
+        var token = Encoding.ASCII.GetBytes(schemaToken.ToString());
+        var preimage = new byte[Domain.Length + token.Length];
+        Domain.CopyTo(preimage);
+        token.CopyTo(preimage.AsSpan(Domain.Length));
+        Span<byte> digest = stackalloc byte[32];
+        SHA256.HashData(preimage, digest);
+        if (digest[..16].IndexOfAnyExcept((byte)0) < 0)
+            throw new InvalidOperationException("The registered schema token derived the reserved all-zero identity.");
+        return SchemaId.FromValue(StableId128.FromBytes(digest[..16]));
+    }
 }
 
 internal sealed class AuthorityPayloadAdmissionRegistryV1
@@ -57,6 +85,7 @@ internal sealed class AuthorityPayloadAdmissionRegistryV1
         var tuples = new HashSet<(string Token, ushort Major, ushort Minor)>();
         foreach (var registration in registrations)
         {
+            if (map.Count == 256) throw new ArgumentOutOfRangeException(nameof(registrations), "At most 256 exact payload codecs may be registered in one journal registry.");
             if (registration is null || !map.TryAdd(registration.Schema.SchemaId, registration) ||
                 !tuples.Add((registration.SchemaToken.ToString(), registration.Schema.Major, registration.Schema.Minor)))
                 throw new ArgumentException("Schema registrations must be nonnull and unique by stable identity and token-version tuple.", nameof(registrations));
@@ -167,6 +196,15 @@ internal static class AuthorityCanonicalCborV1
         writer.WriteUInt64(11); writer.WriteInt64(admittedAt.NanosecondsSinceUnixEpoch);
         writer.WriteEndMap();
         return writer.Encode();
+    }
+
+    internal static ulong GetEnvelopeEncodedLength(byte[] envelopeWithoutIntegrity, IntegrityEnvelopeV1 integrity)
+    {
+        ArgumentNullException.ThrowIfNull(envelopeWithoutIntegrity);
+        ArgumentNullException.ThrowIfNull(integrity);
+        if (envelopeWithoutIntegrity.Length == 0 || envelopeWithoutIntegrity[0] != 0xab)
+            throw new ArgumentException("The envelope preimage must be the canonical eleven-field map.", nameof(envelopeWithoutIntegrity));
+        return checked((ulong)envelopeWithoutIntegrity.Length + 1UL + (ulong)AuthorityEnvelopePrimitiveCodecsV1.Encode(integrity).Length);
     }
 
     private static void WriteProposal(CborWriter writer, ProposedAuthorityFactV1 fact)

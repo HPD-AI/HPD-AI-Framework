@@ -44,8 +44,9 @@ public sealed class InMemoryAuthorityJournalV1Tests
         var changed = fixture.Fact(factId: original.FactId);
 
         Assert.IsType<AppendAuthorityResultV1.ContradictoryDuplicate>(await fixture.Journal.AppendAsync(fixture.Batch(1, [], [changed])));
-        Assert.IsType<AppendAuthorityResultV1.ContradictoryDuplicate>(await fixture.Journal.AppendAsync(
+        var mixed = Assert.IsType<AppendAuthorityResultV1.InvalidPayload>(await fixture.Journal.AppendAsync(
             fixture.Batch(1, [], [original, fixture.Fact()])));
+        Assert.Equal("mixed-idempotency-batch", mixed.SafeCode.ToString());
         var next = Assert.IsType<AppendAuthorityResultV1.Committed>(await fixture.Journal.AppendAsync(
             fixture.Batch(1, [], [fixture.Fact()])));
         Assert.Equal(2, next.CurrentHead);
@@ -126,15 +127,9 @@ public sealed class InMemoryAuthorityJournalV1Tests
     [Fact]
     public void Registry_RejectsOwnerAndTokenAliasContradictions()
     {
-        var schema = new SchemaReferenceV1(SchemaId.Create(), 1, 0);
-        var token = new BoundedAscii("hpd.session-authority-stamp.v1");
-        Assert.Throws<ArgumentException>(() => new AuthorityPayloadRegistrationV1(
-            schema, token, OwnerSliceId.S2, 1024, AuthorityCanonicalCborV1.IsSingleCanonicalValue));
-        var first = new AuthorityPayloadRegistrationV1(
-            schema, token, OwnerSliceId.S1, 1024, AuthorityCanonicalCborV1.IsSingleCanonicalValue);
-        var alias = new AuthorityPayloadRegistrationV1(
-            new SchemaReferenceV1(SchemaId.Create(), 1, 0), token, OwnerSliceId.S1, 1024,
-            AuthorityCanonicalCborV1.IsSingleCanonicalValue);
+        var first = new SessionAuthorityStampPayloadRegistrationV1();
+        var alias = new SessionAuthorityStampPayloadRegistrationV1();
+        Assert.Equal(AuthoritySchemaIdentityV1.Derive(new BoundedAscii(SessionAuthorityStampV1Codec.SchemaId)), first.Schema.SchemaId);
         Assert.Throws<ArgumentException>(() => new AuthorityPayloadAdmissionRegistryV1([first, alias]));
     }
 
@@ -150,17 +145,67 @@ public sealed class InMemoryAuthorityJournalV1Tests
             AuthorityCanonicalCborV1.GetAppendBatchEncodedLength(request));
     }
 
+    [Fact]
+    public async Task Append_ResidentFactByteAndSessionCapacitiesAreAtomic()
+    {
+        var factLimited = new Fixture(new AuthorityJournalCapacityV1(1, 1, 1_048_576));
+        Assert.IsType<AppendAuthorityResultV1.Committed>(await factLimited.Journal.AppendAsync(
+            factLimited.Batch(0, [], [factLimited.Fact()])));
+        Assert.IsType<AppendAuthorityResultV1.CapacityRefused>(await factLimited.Journal.AppendAsync(
+            factLimited.Batch(1, [], [factLimited.Fact()])));
+
+        var sessionLimited = new Fixture(new AuthorityJournalCapacityV1(1, 2, 1_048_576));
+        Assert.IsType<AppendAuthorityResultV1.Committed>(await sessionLimited.Journal.AppendAsync(
+            sessionLimited.Batch(0, [], [sessionLimited.Fact()])));
+        var otherSession = new SessionAuthorityStampV1(RuntimeGenerationId.Create(), LiveSessionId.Create());
+        Assert.IsType<AppendAuthorityResultV1.CapacityRefused>(await sessionLimited.Journal.AppendAsync(
+            sessionLimited.Batch(0, [], [sessionLimited.Fact()], session: otherSession)));
+
+        var byteLimited = new Fixture(new AuthorityJournalCapacityV1(1, 1, 1));
+        Assert.IsType<AppendAuthorityResultV1.CapacityRefused>(await byteLimited.Journal.AppendAsync(
+            byteLimited.Batch(0, [], [byteLimited.Fact()])));
+        Assert.IsType<AppendAuthorityResultV1.CapacityRefused>(await byteLimited.Journal.AppendAsync(
+            byteLimited.Batch(0, [], [byteLimited.Fact()])));
+    }
+
+    [Fact]
+    public void AdmissionSchemaHashBatchAndEnvelope_MatchIndependentGoldens()
+    {
+        var token = new BoundedAscii(SessionAuthorityStampV1Codec.SchemaId);
+        var schema = new SchemaReferenceV1(AuthoritySchemaIdentityV1.Derive(token), 1, 0);
+        Assert.Equal("sch:637NZQGC7QNR96H0V57WVXKY1V", schema.SchemaId.ToString());
+        var payload = Convert.FromHexString("a20150000102030405060708090a0b0c0d0e0f0250101112131415161718191a1b1c1d1e1f");
+        Assert.True(Hash256.TryParse("429698042c849d1302b7b44b7e16ee44d3a25d25ad58a548f30c7c472f1f304e", out var payloadHash));
+        Assert.Equal(payloadHash, AuthorityPayloadHashV1.Compute(token, schema, payload));
+        var session = new SessionAuthorityStampV1(
+            RuntimeGenerationId.FromValue(StableId128.FromBytes(Convert.FromHexString("202122232425262728292a2b2c2d2e2f"))),
+            LiveSessionId.FromValue(StableId128.FromBytes(Convert.FromHexString("303132333435363738393a3b3c3d3e3f"))));
+        var fact = new ProposedAuthorityFactV1(
+            JournalFactId.FromValue(StableId128.FromBytes(Convert.FromHexString("404142434445464748494a4b4c4d4e4f"))),
+            null, OwnerSliceId.S1, schema, payload, payloadHash,
+            new CorrelationEnvelopeV1(TenantId.FromValue(StableId128.FromBytes(Convert.FromHexString("505152535455565758595a5b5c5d5e5f")))),
+            new UtcInstant(100));
+        var request = new AppendAuthorityBatchV1(session, 0, [], [fact], 4096);
+        const string expectedBatch = "a501a20150202122232425262728292a2b2c2d2e2f0250303132333435363738393a3b3c3d3e3f020003800481a80150404142434445464748494a4b4c4d4e4f02a10100030104a30150c33d7f7830f7ae126883653f37d9f83b02010300055825a20150000102030405060708090a0b0c0d0e0f0250101112131415161718191a1b1c1d1e1f065820429698042c849d1302b7b44b7e16ee44d3a25d25ad58a548f30c7c472f1f304e07a60150505152535455565758595a5b5c5d5e5f02a1010003a1010004a1010005a1010006a1010008186405191000";
+        Assert.Equal(expectedBatch, Convert.ToHexString(AuthorityCanonicalCborV1.EncodeAppendBatch(request)).ToLowerInvariant());
+        Assert.Equal(216UL, AuthorityCanonicalCborV1.GetAppendBatchEncodedLength(request));
+        var preimage = AuthorityCanonicalCborV1.EncodeEnvelopeWithoutIntegrity(fact, new JournalPositionV1(session, 1), null, new UtcInstant(123));
+        const string expectedPreimage = "ab01010250404142434445464748494a4b4c4d4e4f03a201a20150202122232425262728292a2b2c2d2e2f0250303132333435363738393a3b3c3d3e3f020104a10100050106a30150c33d7f7830f7ae126883653f37d9f83b02010300075825a20150000102030405060708090a0b0c0d0e0f0250101112131415161718191a1b1c1d1e1f085820429698042c849d1302b7b44b7e16ee44d3a25d25ad58a548f30c7c472f1f304e09a60150505152535455565758595a5b5c5d5e5f02a1010003a1010004a1010005a1010006a101000a18640b187b";
+        Assert.Equal(expectedPreimage, Convert.ToHexString(preimage).ToLowerInvariant());
+        Assert.Equal("cbb16017f597b7e8f36566073de08f75ab143a8085865e6a2c6d717becdce410",
+            AuthorityIntegrityHashV1.Compute("hpd.authority-fact-envelope.v1", 1, 0, preimage).ToString());
+    }
+
     private sealed class Fixture
     {
         private readonly BoundedAscii _schemaToken = new("hpd.session-authority-stamp.v1");
-        internal Fixture()
+        internal Fixture(AuthorityJournalCapacityV1? capacity = null)
         {
-            Schema = new SchemaReferenceV1(SchemaId.Create(), 1, 0);
-            var registry = new AuthorityPayloadAdmissionRegistryV1([
-                new AuthorityPayloadRegistrationV1(Schema, _schemaToken, OwnerSliceId.S1, 1024,
-                    static payload => SessionAuthorityStampV1Codec.TryDecode(payload, out _)),
-            ]);
-            Journal = new InMemoryAuthorityJournalV1(registry, () => new UtcInstant(123));
+            var registration = new SessionAuthorityStampPayloadRegistrationV1();
+            Schema = registration.Schema;
+            var registry = new AuthorityPayloadAdmissionRegistryV1([registration]);
+            Journal = new InMemoryAuthorityJournalV1(registry, () => new UtcInstant(123),
+                capacity ?? new AuthorityJournalCapacityV1(1024, 4096, 16 * 1024 * 1024));
             Session = new SessionAuthorityStampV1(RuntimeGenerationId.Create(), LiveSessionId.Create());
         }
 
@@ -189,8 +234,9 @@ public sealed class InMemoryAuthorityJournalV1Tests
             long expectedSessionHead,
             IEnumerable<ThreadExpectedHeadV1> threadHeads,
             IEnumerable<ProposedAuthorityFactV1> facts,
-            uint maximumEncodedBytes = 4096) =>
-            new(Session, expectedSessionHead, threadHeads, facts, maximumEncodedBytes);
+            uint maximumEncodedBytes = 4096,
+            SessionAuthorityStampV1? session = null) =>
+            new(session ?? Session, expectedSessionHead, threadHeads, facts, maximumEncodedBytes);
 
     }
 }
