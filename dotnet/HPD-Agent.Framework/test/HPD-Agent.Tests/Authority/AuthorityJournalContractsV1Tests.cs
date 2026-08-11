@@ -36,11 +36,11 @@ public sealed class AuthorityJournalContractsV1Tests
         var threadA = ThreadId.Create();
         var threadB = ThreadId.Create();
         var heads = new[] { new ThreadExpectedHeadV1(threadB, 1, 0), new ThreadExpectedHeadV1(threadA, 2, 3) };
-        var first = Fact();
-        var second = Fact();
+        var first = Fact(threadId: threadA);
+        var second = Fact(threadId: threadB);
 
         var batch = new AppendAuthorityBatchV1(
-            Stamp(), 0, heads, [first, second], 1024);
+            Stamp(), 0, heads, [first, second], 1024, TestBatchCodec.Instance);
 
         Assert.Equal([first.FactId, second.FactId], batch.Facts.Select(static fact => fact.FactId));
         Assert.Equal(2, batch.ExpectedThreadHeads.Count);
@@ -52,14 +52,17 @@ public sealed class AuthorityJournalContractsV1Tests
     {
         var fact = Fact();
         var thread = ThreadId.Create();
-        Assert.Throws<ArgumentException>(() => new AppendAuthorityBatchV1(Stamp(), 0, [], [fact, fact], 1024));
+        Assert.Throws<ArgumentException>(() => new AppendAuthorityBatchV1(Stamp(), 0, [], [fact, fact], 1024, TestBatchCodec.Instance));
         Assert.Throws<ArgumentException>(() => new AppendAuthorityBatchV1(
-            Stamp(), 0, [new(thread, 1, 0), new(thread, 1, 0)], [fact], 1024));
-        Assert.Throws<ArgumentOutOfRangeException>(() => new AppendAuthorityBatchV1(Stamp(), 0, [], [], 1024));
+            Stamp(), 0, [new(thread, 1, 0), new(thread, 1, 0)], [fact], 1024, TestBatchCodec.Instance));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new AppendAuthorityBatchV1(Stamp(), 0, [], [], 1024, TestBatchCodec.Instance));
         Assert.Throws<ArgumentOutOfRangeException>(() => new AppendAuthorityBatchV1(
-            Stamp(), 0, [], Enumerable.Range(0, 257).Select(_ => Fact()), 1024));
+            Stamp(), 0, [], Enumerable.Range(0, 257).Select(_ => Fact()), 1024, TestBatchCodec.Instance));
         Assert.Throws<ArgumentOutOfRangeException>(() => new AppendAuthorityBatchV1(
-            Stamp(), 0, [], [Fact(payload: new byte[16])], 8));
+            Stamp(), 0, [], [Fact(payload: new byte[16])], 8, TestBatchCodec.Instance));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new AppendAuthorityBatchV1(
+            Stamp(), 0, Enumerable.Range(0, 257).Select(_ => new ThreadExpectedHeadV1(ThreadId.Create(), 1, 0)),
+            [fact], 1024, TestBatchCodec.Instance));
     }
 
     [Fact]
@@ -67,19 +70,24 @@ public sealed class AuthorityJournalContractsV1Tests
     {
         Assert.Equal(Enumerable.Range(1, 12).Select(static value => (ushort)value),
             Enum.GetValues<OwnerSliceId>().Select(static value => (ushort)value));
+        Assert.Equal(Enumerable.Range(1, 6).Select(static value => (ushort)value),
+            Enum.GetValues<AuthorityPayloadValidationV1>().Select(static value => (ushort)value));
     }
 
     private static ProposedAuthorityFactV1 Fact(
         JournalFactId? factId = null,
         OwnerSliceId owner = OwnerSliceId.S1,
         byte[]? payload = null,
-        Hash256? hash = null)
+        Hash256? hash = null,
+        ThreadId? threadId = null)
     {
         payload ??= [1];
+        var schema = new SchemaReferenceV1(SchemaId.Create(), 1, 0);
+        var registry = new TestSchemaRegistry(schema);
         return new ProposedAuthorityFactV1(
-            factId ?? JournalFactId.Create(), null, owner,
-            new SchemaReferenceV1(SchemaId.Create(), 1, 0), payload,
-            hash ?? Hash256.Compute(payload), new CorrelationEnvelopeV1(TenantId.Create()), new UtcInstant(0));
+            factId ?? JournalFactId.Create(), threadId, owner,
+            schema, payload, hash ?? registry.Hash(payload),
+            new CorrelationEnvelopeV1(TenantId.Create()), new UtcInstant(0), registry);
     }
 
     private static SessionAuthorityStampV1 Stamp() =>
@@ -92,5 +100,47 @@ public sealed class AuthorityJournalContractsV1Tests
         left.TryWriteBytes(leftBytes);
         right.TryWriteBytes(rightBytes);
         return leftBytes.SequenceCompareTo(rightBytes);
+    }
+
+    private sealed class TestSchemaRegistry(SchemaReferenceV1 expected) : IAuthorityPayloadSchemaRegistryV1
+    {
+        public AuthorityPayloadValidationV1 Validate(
+            SchemaReferenceV1 schema,
+            OwnerSliceId owner,
+            ReadOnlySpan<byte> canonicalPayload,
+            Hash256 payloadHash)
+        {
+            if (schema != expected) return AuthorityPayloadValidationV1.UnknownSchema;
+            if (owner != OwnerSliceId.S1) return AuthorityPayloadValidationV1.OwnerMismatch;
+            return payloadHash == Hash(canonicalPayload)
+                ? AuthorityPayloadValidationV1.Exact
+                : AuthorityPayloadValidationV1.HashMismatch;
+        }
+
+        public Hash256 Hash(ReadOnlySpan<byte> payload)
+        {
+            Span<byte> schema = stackalloc byte[16];
+            expected.SchemaId.TryWriteBytes(schema);
+            var input = new byte[schema.Length + 4 + payload.Length];
+            schema.CopyTo(input);
+            input[16] = (byte)(expected.Major >> 8);
+            input[17] = (byte)expected.Major;
+            input[18] = (byte)(expected.Minor >> 8);
+            input[19] = (byte)expected.Minor;
+            payload.CopyTo(input.AsSpan(20));
+            return Hash256.Compute(input);
+        }
+    }
+
+    private sealed class TestBatchCodec : IAuthorityAppendBatchCodecV1
+    {
+        public static TestBatchCodec Instance { get; } = new();
+
+        public ulong GetEncodedLength(
+            SessionAuthorityStampV1 session,
+            long expectedSessionHead,
+            IReadOnlyList<ThreadExpectedHeadV1> expectedThreadHeads,
+            IReadOnlyList<ProposedAuthorityFactV1> facts) =>
+            checked((ulong)(100 + expectedThreadHeads.Count * 40 + facts.Sum(static fact => 100 + fact.Payload.Count)));
     }
 }
