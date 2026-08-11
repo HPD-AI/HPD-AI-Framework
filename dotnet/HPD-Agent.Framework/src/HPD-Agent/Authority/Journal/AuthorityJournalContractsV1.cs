@@ -88,7 +88,7 @@ public sealed class ProposedAuthorityFactV1
     public const int MaximumPayloadBytes = 1_048_576;
     private readonly byte[] _payload;
 
-    /// <summary>Initializes a validated proposed authority fact and owns its payload bytes.</summary>
+    /// <summary>Initializes a structurally validated authority-fact proposal and owns its payload bytes.</summary>
     /// <param name="factId">The globally nonreusable fact identity.</param>
     /// <param name="threadId">The optional thread receiving a secondary position.</param>
     /// <param name="owner">The registered semantic owner.</param>
@@ -183,7 +183,8 @@ public sealed class AppendAuthorityBatchV1
     public const int MaximumItems = 256;
     private readonly ProposedAuthorityFactV1[] _facts;
 
-    /// <summary>Initializes and validates a complete append batch before mutation.</summary>
+    /// <summary>Initializes a structurally validated append request.</summary>
+    /// <remarks>The trusted journal must revalidate every schema, version, owner, canonical payload, schema-bound hash, and the exact canonical encoded size before mutation or P0.</remarks>
     /// <param name="session">The authority session key.</param>
     /// <param name="expectedSessionHead">The nonnegative expected session head.</param>
     /// <param name="expectedThreadHeads">Strictly unique expected thread-generation heads.</param>
