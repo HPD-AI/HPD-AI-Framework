@@ -86,7 +86,10 @@ internal sealed class SessionLifecycleCommandPayloadRegistrationV1 : AuthorityPa
             SessionLifecyclePayloadV1Codec.Minor, OwnerSliceId.S1, SessionLifecyclePayloadV1Codec.MaximumEncodedBytes) { }
 
     private protected override bool ValidateCanonicalPayload(ReadOnlyMemory<byte> payload, SessionAuthorityStampV1 session) =>
-        SessionLifecyclePayloadV1Codec.TryDecodeCommand(payload, out var value) && value!.Session == session;
+        SessionLifecyclePayloadV1Codec.TryDecodeCommand(payload, out var value) && value!.Session == session &&
+        value.BodyBytes.Length <= SessionLifecycleBodyCodecsV1.MaximumCommandBytes &&
+        SessionLifecycleBodyCodecsV1.TryDecodeCommand(value.BodyBytes.ToArray(), out var inner) &&
+        (inner!.ExpectedLifecycleFact is null || inner.ExpectedLifecycleFact.Value.Session == session);
 }
 
 internal sealed class SessionLifecycleFactPayloadRegistrationV1 : AuthorityPayloadRegistrationV1
@@ -96,7 +99,12 @@ internal sealed class SessionLifecycleFactPayloadRegistrationV1 : AuthorityPaylo
             SessionLifecyclePayloadV1Codec.Minor, OwnerSliceId.S1, SessionLifecyclePayloadV1Codec.MaximumEncodedBytes) { }
 
     private protected override bool ValidateCanonicalPayload(ReadOnlyMemory<byte> payload, SessionAuthorityStampV1 session) =>
-        SessionLifecyclePayloadV1Codec.TryDecodeFact(payload, out var value) && value!.Session == session;
+        SessionLifecyclePayloadV1Codec.TryDecodeFact(payload, out var value) && value!.Session == session &&
+        value.BodyBytes.Length <= SessionLifecycleBodyCodecsV1.MaximumFactBytes &&
+        SessionLifecycleBodyCodecsV1.TryDecodeFact(value.BodyBytes.ToArray(), out var inner) &&
+        inner!.CommandPosition.Session == session &&
+        (inner.CommandExpectedLifecycleFact is null || inner.CommandExpectedLifecycleFact.Value.Session == session) &&
+        (inner.PreviousLifecycleFact is null || inner.PreviousLifecycleFact.Value.Session == session);
 }
 
 internal sealed class AuthorityGenerationInitializationPayloadRegistrationV1 : AuthorityPayloadRegistrationV1
