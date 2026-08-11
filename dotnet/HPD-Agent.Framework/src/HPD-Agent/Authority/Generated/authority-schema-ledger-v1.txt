@@ -1,5 +1,5 @@
-# source-contract-sha256=62f4cba8803c59de4865e4e91032e40f6a83627c190ef32c88870aabfc7127e7
-# source-registry-sha256=3f39bc6a8ee809ad301bb2dc418d647616761cc5359077654999539cc4dfac4a
+# source-contract-sha256=b99aba4671cf00675a596906656d88c268bb4ba4599d391b832d0f6753027e9f
+# source-registry-sha256=3c159a04fdf5920bd376fc405409eccbe93b0c7fe0bb9b365390adf000632f10
 # generated input; section rows are canonical and ordered
 @IdFamilies
 ten|TenantId|owner=S1|allocator=S1|correlation
@@ -61,6 +61,7 @@ fct|hpd.proposed-authority-fact.v1|1|factId
 aut|hpd.copy-reservation.v1|9|authorizationId
 op|hpd.capacity-request.v1|1|operationId
 op|hpd.copy-reservation.v1|12|operationId
+op|hpd.capacity-settlement-fact-body.v1|2|operationId
 op|hpd.authority-fact-admitted.v1|1|operationId
 op|hpd.turn-decision-finalized.v1|1|operationId
 op|hpd.semantic-reservation-created.v1|1|operationId
@@ -100,6 +101,8 @@ op|hpd.privacy-fence-committed.v1|1|operationId
 op|hpd.custodian-receipt-admitted.v1|1|operationId
 op|hpd.privacy-terminal-folded.v1|1|operationId
 op|hpd.tombstone-committed-before-retirement.v1|1|operationId
+grt|hpd.capacity-reservation-fact-body.v1|1|grantId
+grt|hpd.capacity-settlement-fact-body.v1|1|grantId
 cpy|hpd.copy-reservation.v1|1|copyId
 grf|hpd.graph-generation-changed.v1|2|expectedPrevious
 grf|hpd.graph-generation-changed.v1|3|proposedNext
@@ -132,6 +135,7 @@ trp|hpd.transport-generation-changed.v1|2|expectedPrevious
 trp|hpd.transport-generation-changed.v1|3|proposedNext
 trp|hpd.transport-generation-initialized.v1|2|initial
 cpp|hpd.capacity-charge.v1|4|purpose
+cpp|hpd.capacity-settlement-charge.v1|3|purpose
 pur|hpd.copy-reservation.v1|6|purpose
 aud|hpd.copy-reservation.v1|7|audience
 cus|hpd.copy-reservation.v1|3|custodianId
@@ -238,6 +242,9 @@ CapacitySubjectV1|record
 CapacitySubjectValueV1|union
 CapacitySubjectValueKindV1|enum
 BoundedAscii|scalar
+CapacitySettlementKindV1|enum
+CapacityGrantExpiryKindV1|enum
+CapacityGrantExpiryV1|union
 @WireTypeMembers
 ThreadExpectedHeadV1|record|1|threadId|ThreadId
 ThreadExpectedHeadV1|record|2|generation|Int64Positive
@@ -357,6 +364,15 @@ CapacitySubjectValueV1|union-variant|2|OwnerSlice|2|value|OwnerSliceId
 CapacitySubjectValueKindV1|enum|1|StableId
 CapacitySubjectValueKindV1|enum|2|OwnerSlice
 BoundedAscii|scalar|BoundedAscii
+CapacitySettlementKindV1|enum|1|Activated
+CapacitySettlementKindV1|enum|2|Released
+CapacitySettlementKindV1|enum|3|Consumed
+CapacitySettlementKindV1|enum|4|MarkedUnknown
+CapacitySettlementKindV1|enum|5|Revoked
+CapacityGrantExpiryKindV1|enum|1|NoExpiry
+CapacityGrantExpiryKindV1|enum|2|At
+CapacityGrantExpiryV1|union-discriminator|1|CapacityGrantExpiryKindV1
+CapacityGrantExpiryV1|union-variant|2|At|2|value|MonotonicStampV1
 @Schemas
 hpd.journal-position.v1|1.0|S1|HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|DeterministicCborV1:hpd.journal-position.v1|hpd-authority-sha256-v1
 hpd.thread-position.v1|1.0|S1|HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|DeterministicCborV1:hpd.thread-position.v1|hpd-authority-sha256-v1
@@ -374,13 +390,16 @@ hpd.provider-catalog.v1|1.0|AgentCore|HPD-Agent|HPD.Agent.Generated.AuthorityJso
 hpd.live-audio-runtime-plan.v1|1.0|S1|HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|DeterministicCborV1:hpd.live-audio-runtime-plan.v1|hpd-authority-sha256-v1
 hpd.copy-reservation.v1|1.0|S9|HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|DeterministicCborV1:hpd.copy-reservation.v1|hpd-authority-sha256-v1
 hpd.qualification-cell.v1|1.0|S1|HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|DeterministicCborV1:hpd.qualification-cell.v1|hpd-authority-sha256-v1
+hpd.capacity-reservation-fact-body.v1|1.0|S2|HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|DeterministicCborV1:hpd.capacity-reservation-fact-body.v1|hpd-authority-sha256-v1
+hpd.capacity-settlement-charge.v1|1.0|S2|HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|DeterministicCborV1:hpd.capacity-settlement-charge.v1|hpd-authority-sha256-v1
+hpd.capacity-settlement-fact-body.v1|1.0|S2|HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|DeterministicCborV1:hpd.capacity-settlement-fact-body.v1|hpd-authority-sha256-v1
 hpd.authority-owner-payload.v1|1.0|S1|HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|DeterministicCborV1:hpd.authority-owner-payload.v1|hpd-authority-sha256-v1
 hpd.authority-payload-session-lifecycle-command.v1|1.0|S1|HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|DeterministicCborV1:hpd.authority-payload-session-lifecycle-command.v1|hpd-authority-sha256-v1
 hpd.authority-payload-session-lifecycle-fact.v1|1.0|S1|HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|DeterministicCborV1:hpd.authority-payload-session-lifecycle-fact.v1|hpd-authority-sha256-v1
 hpd.authority-payload-graph-mutation-command.v1|1.0|S2|HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|DeterministicCborV1:hpd.authority-payload-graph-mutation-command.v1|hpd-authority-sha256-v1
 hpd.authority-payload-graph-generation-changed.v1|1.0|S2|HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|DeterministicCborV1:hpd.authority-payload-graph-generation-changed.v1|hpd-authority-sha256-v1
-hpd.authority-payload-capacity-reservation-command.v1|1.0|S2|HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|DeterministicCborV1:hpd.authority-payload-capacity-reservation-command.v1|hpd-authority-sha256-v1
-hpd.authority-payload-capacity-settlement-fact.v1|1.0|S2|HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|DeterministicCborV1:hpd.authority-payload-capacity-settlement-fact.v1|hpd-authority-sha256-v1
+hpd.authority-payload-capacity-reservation-command.v1|1.0|S2|HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|DeterministicCborV1:hpd.authority-payload-capacity-reservation-command.v1|hpd-authority-sha256-v1
+hpd.authority-payload-capacity-settlement-fact.v1|1.0|S2|HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|DeterministicCborV1:hpd.authority-payload-capacity-settlement-fact.v1|hpd-authority-sha256-v1
 hpd.authority-payload-vad-observation.v1|1.0|S3|HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|DeterministicCborV1:hpd.authority-payload-vad-observation.v1|hpd-authority-sha256-v1
 hpd.authority-payload-activity-boundary-fact.v1|1.0|S3|HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|DeterministicCborV1:hpd.authority-payload-activity-boundary-fact.v1|hpd-authority-sha256-v1
 hpd.authority-payload-semantic-candidate.v1|1.0|S4|HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|DeterministicCborV1:hpd.authority-payload-semantic-candidate.v1|hpd-authority-sha256-v1
@@ -566,6 +585,18 @@ hpd.qualification-cell.v1|9|executionEvidence|NoneOr<EvidenceReferenceV1>|requir
 hpd.qualification-cell.v1|10|nativeExecution|Bool|required=true|scalar:Bool|union=None
 hpd.qualification-cell.v1|11|emulation|EmulationKindV1|required=true|registered-type:EmulationKindV1|union=None
 hpd.qualification-cell.v1|12|limitations|SortedArray<LimitationId>|required=true|items:0..256|union=None
+hpd.capacity-reservation-fact-body.v1|1|grantId|CapacityGrantId|required=true|stable-id-family-ledger:16-bytes/nonzero|union=None
+hpd.capacity-reservation-fact-body.v1|2|request|CapacityRequestV1|required=true|registered-type:CapacityRequestV1|union=None
+hpd.capacity-reservation-fact-body.v1|3|expiresAt|CapacityGrantExpiryV1|required=true|registered-type:CapacityGrantExpiryV1|union=None
+hpd.capacity-settlement-charge.v1|1|dimensionId|UInt16|required=true|scalar:UInt16|union=None
+hpd.capacity-settlement-charge.v1|2|scope|CapacityScopeV1|required=true|registered-type:CapacityScopeV1|union=None
+hpd.capacity-settlement-charge.v1|3|purpose|CapacityPurposeId|required=true|stable-id-family-ledger:16-bytes/nonzero|union=None
+hpd.capacity-settlement-charge.v1|4|amount|Int64Positive|required=true|scalar:Int64Positive|union=None
+hpd.capacity-settlement-fact-body.v1|1|grantId|CapacityGrantId|required=true|stable-id-family-ledger:16-bytes/nonzero|union=None
+hpd.capacity-settlement-fact-body.v1|2|operationId|OperationId|required=true|stable-id-family-ledger:16-bytes/nonzero|union=None
+hpd.capacity-settlement-fact-body.v1|3|expectedFact|JournalPositionV1|required=true|registered-type:JournalPositionV1|union=None
+hpd.capacity-settlement-fact-body.v1|4|kind|CapacitySettlementKindV1|required=true|registered-type:CapacitySettlementKindV1|union=None
+hpd.capacity-settlement-fact-body.v1|5|charges|SortedNonemptyArray<CapacitySettlementChargeV1>|required=true|items:1..256|union=None
 hpd.authority-owner-payload.v1|1|discriminator|UInt16Positive|required=true|scalar:UInt16Positive|union=None
 hpd.authority-owner-payload.v1|2|payload|BoundedBstr65536|required=true|bytes:0..65536|union=None
 hpd.authority-payload-session-lifecycle-command.v1|1|session|SessionAuthorityStampV1|required=true|registered-type:SessionAuthorityStampV1|union=None
@@ -939,6 +970,11 @@ HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|AuthorityOwnerPayloadV1
 HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|AxisEntryV1
 HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|CapacityChargeV1
 HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|CapacityRequestV1
+HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|CapacityReservationCommandV1
+HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|CapacityReservationFactBodyV1
+HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|CapacitySettlementChargeV1
+HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|CapacitySettlementFactBodyV1
+HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|CapacitySettlementFactV1
 HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|CopyReservationV1
 HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|CorrelationEnvelopeV1
 HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|ExpectedAuthorityVectorV1
@@ -961,8 +997,6 @@ HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|ThreadPositionV1
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|ActivityBoundaryFactV1
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|ActivityGenerationChangedV1
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|ActivityGenerationInitializedV1
-HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|CapacityReservationCommandV1
-HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|CapacitySettlementFactV1
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|CaptureAuthorizationCommandV1
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|CaptureGrantCommittedV1
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|CopyReservationCommandV1
@@ -1059,6 +1093,9 @@ hpd.provider-catalog.v1|1.0|DeterministicCborV1:hpd.provider-catalog.v1|hpd-auth
 hpd.live-audio-runtime-plan.v1|1.0|DeterministicCborV1:hpd.live-audio-runtime-plan.v1|hpd-authority-sha256-v1
 hpd.copy-reservation.v1|1.0|DeterministicCborV1:hpd.copy-reservation.v1|hpd-authority-sha256-v1
 hpd.qualification-cell.v1|1.0|DeterministicCborV1:hpd.qualification-cell.v1|hpd-authority-sha256-v1
+hpd.capacity-reservation-fact-body.v1|1.0|DeterministicCborV1:hpd.capacity-reservation-fact-body.v1|hpd-authority-sha256-v1
+hpd.capacity-settlement-charge.v1|1.0|DeterministicCborV1:hpd.capacity-settlement-charge.v1|hpd-authority-sha256-v1
+hpd.capacity-settlement-fact-body.v1|1.0|DeterministicCborV1:hpd.capacity-settlement-fact-body.v1|hpd-authority-sha256-v1
 hpd.authority-owner-payload.v1|1.0|DeterministicCborV1:hpd.authority-owner-payload.v1|hpd-authority-sha256-v1
 hpd.authority-payload-session-lifecycle-command.v1|1.0|DeterministicCborV1:hpd.authority-payload-session-lifecycle-command.v1|hpd-authority-sha256-v1
 hpd.authority-payload-session-lifecycle-fact.v1|1.0|DeterministicCborV1:hpd.authority-payload-session-lifecycle-fact.v1|hpd-authority-sha256-v1
