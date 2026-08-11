@@ -145,6 +145,7 @@ public sealed class ProposedAuthorityFactV1
     /// <summary>Gets the producer audit timestamp.</summary>
     public UtcInstant ObservedAt { get; }
     internal ReadOnlySpan<byte> PayloadBytes => _payload;
+    internal ReadOnlyMemory<byte> PayloadMemory => _payload;
 }
 
 /// <summary>Pins the expected secondary head of one thread generation.</summary>
