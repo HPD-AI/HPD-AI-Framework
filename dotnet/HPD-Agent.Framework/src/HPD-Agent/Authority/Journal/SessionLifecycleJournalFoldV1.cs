@@ -33,55 +33,86 @@ internal static class SessionLifecycleJournalFoldV1
         SessionAuthorityStampV1 session,
         IEnumerable<AuthorityFactEnvelopeV1> facts)
     {
-        if (!session.IsValid) throw new ArgumentException("A valid session authority stamp is required.", nameof(session));
         ArgumentNullException.ThrowIfNull(facts);
-        var vector = AuthorityVectorReplayFoldV1.CreateAccumulator(session);
-        var commands = new Dictionary<long, PendingSessionLifecycleCommandV1>();
-        SessionLifecycleSnapshotBodyV1? snapshot = null;
-        JournalPositionV1? previous = null;
-        var expectedPosition = 1L;
-
+        var accumulator = new Accumulator(session);
         foreach (var envelope in facts)
-        {
-            if (envelope is null || envelope.Position.Session != session || envelope.Position.Sequence != expectedPosition)
-                return Invalid("noncontiguous-history", expectedPosition - 1);
-            vector.Apply(envelope);
-            var vectorResult = vector.Complete();
-            if (vectorResult is AuthorityVectorReplayResultV1.InvalidHistory invalid)
-                return Invalid("invalid-authority-history", invalid.LastPosition);
+            accumulator.Apply(envelope);
+        return accumulator.Complete();
+    }
 
+    internal static Accumulator CreateAccumulator(SessionAuthorityStampV1 session) => new(session);
+
+    internal sealed class Accumulator
+    {
+        private readonly SessionAuthorityStampV1 _session;
+        private readonly AuthorityVectorReplayFoldV1.AuthorityVectorReplayAccumulatorV1 _vector;
+        private readonly Dictionary<long, PendingSessionLifecycleCommandV1> _commands = [];
+        private SessionLifecycleSnapshotBodyV1? _snapshot;
+        private JournalPositionV1? _previous;
+        private long _expectedPosition = 1;
+        private SessionLifecycleJournalFoldResultV1.InvalidHistory? _invalid;
+
+        internal Accumulator(SessionAuthorityStampV1 session)
+        {
+            if (!session.IsValid) throw new ArgumentException("A valid session authority stamp is required.", nameof(session));
+            _session = session;
+            _vector = AuthorityVectorReplayFoldV1.CreateAccumulator(session);
+        }
+
+        internal void Apply(AuthorityFactEnvelopeV1? envelope)
+        {
+            if (_invalid is not null) return;
+            if (envelope is null || envelope.Position.Session != _session || envelope.Position.Sequence != _expectedPosition)
+            {
+                _invalid = Invalid("noncontiguous-history", _expectedPosition - 1);
+                return;
+            }
+            _vector.Apply(envelope);
+            var vectorResult = _vector.Complete();
+            if (vectorResult is AuthorityVectorReplayResultV1.InvalidHistory invalid)
+            {
+                _invalid = Invalid("invalid-authority-history", invalid.LastPosition);
+                return;
+            }
             if (envelope.PayloadSchema == CommandSchema)
             {
                 if (envelope.Owner != OwnerSliceId.S1 ||
                     !HasExactPayloadHash(envelope, CommandRegistration) ||
                     !SessionLifecyclePayloadV1Codec.TryDecodeCommand(envelope.PayloadMemory, out var command) ||
                     !SessionLifecycleBodyCodecsV1.TryDecodeCommand(command!.BodyBytes.ToArray(), out var body) ||
-                    envelope.FactId != SessionLifecycleCommandFactIdV1.Derive(session, body!.OperationId) ||
-                    command.Session != session || command.ExpectedAuthority.Session != session ||
-                    body.ExpectedLifecycleFact is { } expected && expected.Session != session)
-                    return Invalid("invalid-lifecycle-command", expectedPosition - 1);
-                if (commands.Count == MaximumPendingCommands)
-                    return Invalid("pending-command-bound", expectedPosition - 1);
-                commands.Add(expectedPosition, new(envelope, command, body));
+                    envelope.FactId != SessionLifecycleCommandFactIdV1.Derive(_session, body!.OperationId) ||
+                    command.Session != _session || command.ExpectedAuthority.Session != _session ||
+                    body.ExpectedLifecycleFact is { } expected && expected.Session != _session)
+                    _invalid = Invalid("invalid-lifecycle-command", _expectedPosition - 1);
+                else if (_commands.Count == MaximumPendingCommands)
+                    _invalid = Invalid("pending-command-bound", _expectedPosition - 1);
+                else
+                    _commands.Add(_expectedPosition, new(envelope, command, body));
             }
             else if (envelope.PayloadSchema == FactSchema)
             {
-                var failure = ApplyFact(envelope, vectorResult, commands, ref snapshot, ref previous);
-                if (failure is not null) return Invalid(failure, expectedPosition - 1);
+                var failure = ApplyFact(envelope, vectorResult, _commands, ref _snapshot, ref _previous);
+                if (failure is not null) _invalid = Invalid(failure, _expectedPosition - 1);
             }
             else if (envelope.PayloadSchema.SchemaId == CommandSchema.SchemaId || envelope.PayloadSchema.SchemaId == FactSchema.SchemaId)
-                return Invalid("unknown-lifecycle-version", expectedPosition - 1);
-            expectedPosition++;
+                _invalid = Invalid("unknown-lifecycle-version", _expectedPosition - 1);
+            if (_invalid is null) _expectedPosition++;
         }
 
-        var completedVector = vector.Complete();
-        if (completedVector is AuthorityVectorReplayResultV1.GenerationReplaced replaced)
-            return new SessionLifecycleJournalFoldResultV1.GenerationReplaced(replaced.ReplacedBy, replaced.LastPosition);
-        if (completedVector is not AuthorityVectorReplayResultV1.Current current)
-            return Invalid("invalid-authority-history", vector.LastVerifiedPosition);
-        var pending = commands.OrderBy(static pair => pair.Key).Select(static pair => pair.Value).ToArray();
-        return new SessionLifecycleJournalFoldResultV1.Current(
-            expectedPosition - 1, current.Snapshot, previous, snapshot, Array.AsReadOnly(pending));
+        internal SessionLifecycleJournalFoldResultV1 Complete()
+        {
+            if (_invalid is not null) return _invalid;
+            var completedVector = _vector.Complete();
+            if (completedVector is AuthorityVectorReplayResultV1.GenerationReplaced replaced)
+                return new SessionLifecycleJournalFoldResultV1.GenerationReplaced(replaced.ReplacedBy, replaced.LastPosition);
+            if (completedVector is not AuthorityVectorReplayResultV1.Current current)
+                return Invalid("invalid-authority-history", _vector.LastVerifiedPosition);
+            var pending = _commands.OrderBy(static pair => pair.Key).Select(static pair => pair.Value).ToArray();
+            return new SessionLifecycleJournalFoldResultV1.Current(
+                _expectedPosition - 1, current.Snapshot, _previous, _snapshot, Array.AsReadOnly(pending));
+        }
+
+        internal long LastVerifiedPosition => _expectedPosition - 1;
     }
 
     private static string? ApplyFact(
