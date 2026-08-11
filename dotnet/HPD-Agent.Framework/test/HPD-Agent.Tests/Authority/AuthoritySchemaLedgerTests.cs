@@ -30,20 +30,20 @@ public sealed class AuthoritySchemaLedgerTests
     public void GeneratedLedger_HasTheAcceptedExactCardinalities()
     {
         Assert.Equal(47, AuthoritySchemaLedgerV1.IdFamilies.Length);
-        Assert.Equal(97, AuthoritySchemaLedgerV1.IdFamilyCborUsages.Length);
+        Assert.Equal(99, AuthoritySchemaLedgerV1.IdFamilyCborUsages.Length);
         Assert.Equal(11, AuthoritySchemaLedgerV1.Axes.Length);
         Assert.Equal(14, AuthoritySchemaLedgerV1.Dimensions.Length);
         Assert.Equal(39, AuthoritySchemaLedgerV1.LinearizationPoints.Length);
         Assert.Equal(34, AuthoritySchemaLedgerV1.WireTypes.Length);
         Assert.Equal(134, AuthoritySchemaLedgerV1.WireTypeMembers.Length);
-        Assert.Equal(120, AuthoritySchemaLedgerV1.Schemas.Length);
-        Assert.Equal(476, AuthoritySchemaLedgerV1.SchemaFields.Length);
+        Assert.Equal(125, AuthoritySchemaLedgerV1.Schemas.Length);
+        Assert.Equal(500, AuthoritySchemaLedgerV1.SchemaFields.Length);
         Assert.Equal(11, AuthoritySchemaLedgerV1.AxisValueBindings.Length);
         Assert.Equal(11, AuthoritySchemaLedgerV1.CapacitySubjectBindings.Length);
         Assert.Equal(9, AuthoritySchemaLedgerV1.UnionDiscriminators.Length);
-        Assert.Equal(120, AuthoritySchemaLedgerV1.JsonProjectionContexts.Length);
-        Assert.Equal(120, AuthoritySchemaLedgerV1.CborCodecHashInventory.Length);
-        Assert.Equal(35, AuthoritySchemaLedgerV1.AuthorityPayloadDiscriminators.Length);
+        Assert.Equal(125, AuthoritySchemaLedgerV1.JsonProjectionContexts.Length);
+        Assert.Equal(125, AuthoritySchemaLedgerV1.CborCodecHashInventory.Length);
+        Assert.Equal(37, AuthoritySchemaLedgerV1.AuthorityPayloadDiscriminators.Length);
         Assert.Equal(11, AuthoritySchemaLedgerV1.GenerationTransitionSchemas.Length);
         Assert.Equal(10, AuthoritySchemaLedgerV1.GenerationInitializationSchemas.Length);
         Assert.Empty(AuthoritySchemaLedgerV1.NativeSchemaInventory);
@@ -55,6 +55,13 @@ public sealed class AuthoritySchemaLedgerTests
         Assert.Contains("hpd.capacity-charge.v1|5|window|CapacityChargeWindowV1|required=true|registered-type:CapacityChargeWindowV1|union=None", AuthoritySchemaLedgerV1.SchemaFields);
         Assert.Contains("hpd.capacity-settlement-fact-body.v1|6|evidenceAt|MonotonicStampV1|required=true|registered-type:MonotonicStampV1|union=None", AuthoritySchemaLedgerV1.SchemaFields);
         Assert.Contains("10|Owner|OwnerSliceId|None|OwnerSlice", AuthoritySchemaLedgerV1.CapacitySubjectBindings);
+        Assert.Contains(AuthoritySchemaLedgerV1.Schemas, row => row.StartsWith("hpd.graph-runtime-command.v1|1.0|S2|HPD-Agent.Audio|", StringComparison.Ordinal));
+        Assert.Contains(AuthoritySchemaLedgerV1.Schemas, row => row.StartsWith("hpd.graph-runtime-snapshot.v1|1.0|S2|HPD-Agent.Audio|", StringComparison.Ordinal));
+        Assert.Contains(AuthoritySchemaLedgerV1.Schemas, row => row.StartsWith("hpd.graph-runtime-fact.v1|1.0|S2|HPD-Agent.Audio|", StringComparison.Ordinal));
+        Assert.Contains("hpd.authority-owner-payload.v1|36|GraphRuntimeCommand|hpd.authority-payload-graph-runtime-command.v1|GraphRuntimeCommandV1|S2", AuthoritySchemaLedgerV1.AuthorityPayloadDiscriminators);
+        Assert.Contains("hpd.authority-owner-payload.v1|37|GraphRuntimeFact|hpd.authority-payload-graph-runtime-fact.v1|GraphRuntimeFactV1|S2", AuthoritySchemaLedgerV1.AuthorityPayloadDiscriminators);
+        Assert.DoesNotContain(AuthoritySchemaLedgerV1.GenerationTransitionSchemas, row => row.Contains("GraphRuntime", StringComparison.Ordinal));
+        Assert.DoesNotContain(AuthoritySchemaLedgerV1.GenerationInitializationSchemas, row => row.Contains("GraphRuntime", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -71,6 +78,8 @@ public sealed class AuthoritySchemaLedgerTests
     {
         var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../"));
         var lines = File.ReadAllLines(Path.Combine(root, "src/HPD-Agent/Authority/Generated/authority-schema-ledger-v1.txt"));
+        Assert.Equal("# source-contract-sha256=d3d47e79408cc2751123f668e981a8397b0fe1a417c9c9d7754a13d0a73f1477", lines[0]);
+        Assert.Equal("# source-registry-sha256=0466ae9daa9e09137c14e2efdc067c70da6dee166d361f3286709927c8515911", lines[1]);
         var expected = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         List<string>? current = null;
         foreach (var line in lines)
@@ -111,6 +120,6 @@ public sealed class AuthoritySchemaLedgerTests
 
         Assert.Equal(schemas, codecs);
         Assert.Subset(schemas, fields);
-        Assert.Equal(113, AuthoritySchemaLedgerV1.JsonProjectionContexts.Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(116, AuthoritySchemaLedgerV1.JsonProjectionContexts.Distinct(StringComparer.Ordinal).Count());
     }
 }

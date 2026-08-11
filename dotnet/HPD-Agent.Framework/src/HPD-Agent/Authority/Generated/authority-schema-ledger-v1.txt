@@ -1,5 +1,5 @@
-# source-contract-sha256=06d474e05d199bed8496c2d3c2fa7ca2c47af1c842fe8b2946363ff3533d058b
-# source-registry-sha256=398d87cfe580c005ebb92b1a4bc2bbc2c0137aa11950ccabcec069ec3e5744d4
+# source-contract-sha256=d3d47e79408cc2751123f668e981a8397b0fe1a417c9c9d7754a13d0a73f1477
+# source-registry-sha256=0466ae9daa9e09137c14e2efdc067c70da6dee166d361f3286709927c8515911
 # generated input; section rows are canonical and ordered
 @IdFamilies
 ten|TenantId|owner=S1|allocator=S1|correlation
@@ -62,6 +62,7 @@ aut|hpd.copy-reservation.v1|9|authorizationId
 op|hpd.capacity-request.v1|1|operationId
 op|hpd.copy-reservation.v1|12|operationId
 op|hpd.capacity-settlement-fact-body.v1|2|operationId
+op|hpd.graph-runtime-snapshot.v1|6|activationOperationId
 op|hpd.authority-fact-admitted.v1|1|operationId
 op|hpd.turn-decision-finalized.v1|1|operationId
 op|hpd.semantic-reservation-created.v1|1|operationId
@@ -106,6 +107,7 @@ grt|hpd.capacity-settlement-fact-body.v1|1|grantId
 grt|hpd.graph-topology-plan.v1|3|capacityGrantId
 cpy|hpd.copy-reservation.v1|1|copyId
 grf|hpd.graph-topology-plan.v1|2|graphGeneration
+grf|hpd.graph-runtime-snapshot.v1|2|graphGeneration
 grf|hpd.graph-generation-changed.v1|2|expectedPrevious
 grf|hpd.graph-generation-changed.v1|3|proposedNext
 grf|hpd.graph-generation-initialized.v1|2|initial
@@ -440,11 +442,16 @@ hpd.authority-payload-transport-adapter-receipt.v1|1.0|S11|HPD-Agent.Audio|HPD.A
 hpd.authority-payload-transport-generation-changed.v1|1.0|S11|HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|DeterministicCborV1:hpd.authority-payload-transport-generation-changed.v1|hpd-authority-sha256-v1
 hpd.authority-payload-graph-topology-installed-fact.v1|1.0|S2|HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|DeterministicCborV1:hpd.authority-payload-graph-topology-installed-fact.v1|hpd-authority-sha256-v1
 hpd.authority-payload-graph-replacement-fact.v1|1.0|S2|HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|DeterministicCborV1:hpd.authority-payload-graph-replacement-fact.v1|hpd-authority-sha256-v1
+hpd.authority-payload-graph-runtime-command.v1|1.0|S2|HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|DeterministicCborV1:hpd.authority-payload-graph-runtime-command.v1|hpd-authority-sha256-v1
+hpd.authority-payload-graph-runtime-fact.v1|1.0|S2|HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|DeterministicCborV1:hpd.authority-payload-graph-runtime-fact.v1|hpd-authority-sha256-v1
 hpd.graph-topology-plan.v1|1.0|S2|HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|DeterministicCborV1:hpd.graph-topology-plan.v1|hpd-authority-sha256-v1
 hpd.graph-topology-installed.v1|1.0|S2|HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|DeterministicCborV1:hpd.graph-topology-installed.v1|hpd-authority-sha256-v1
 hpd.graph-replacement-command.v1|1.0|S2|HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|DeterministicCborV1:hpd.graph-replacement-command.v1|hpd-authority-sha256-v1
 hpd.graph-replacement-snapshot.v1|1.0|S2|HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|DeterministicCborV1:hpd.graph-replacement-snapshot.v1|hpd-authority-sha256-v1
 hpd.graph-replacement-fact.v1|1.0|S2|HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|DeterministicCborV1:hpd.graph-replacement-fact.v1|hpd-authority-sha256-v1
+hpd.graph-runtime-command.v1|1.0|S2|HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|DeterministicCborV1:hpd.graph-runtime-command.v1|hpd-authority-sha256-v1
+hpd.graph-runtime-snapshot.v1|1.0|S2|HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|DeterministicCborV1:hpd.graph-runtime-snapshot.v1|hpd-authority-sha256-v1
+hpd.graph-runtime-fact.v1|1.0|S2|HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|DeterministicCborV1:hpd.graph-runtime-fact.v1|hpd-authority-sha256-v1
 hpd.runtime-generation-changed.v1|1.0|S1|HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|DeterministicCborV1:hpd.runtime-generation-changed.v1|hpd-authority-sha256-v1
 hpd.graph-generation-changed.v1|1.0|S2|HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|DeterministicCborV1:hpd.graph-generation-changed.v1|hpd-authority-sha256-v1
 hpd.activity-generation-changed.v1|1.0|S3|HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|DeterministicCborV1:hpd.activity-generation-changed.v1|hpd-authority-sha256-v1
@@ -724,6 +731,12 @@ hpd.authority-payload-graph-topology-installed-fact.v1|3|body|BoundedBstr65536|r
 hpd.authority-payload-graph-replacement-fact.v1|1|session|SessionAuthorityStampV1|required=true|registered-type:SessionAuthorityStampV1|union=None
 hpd.authority-payload-graph-replacement-fact.v1|2|expectedAuthority|ExpectedAuthorityVectorV1|required=true|registered-type:ExpectedAuthorityVectorV1|union=None
 hpd.authority-payload-graph-replacement-fact.v1|3|body|BoundedBstr65536|required=true|bytes:0..65536|union=None
+hpd.authority-payload-graph-runtime-command.v1|1|session|SessionAuthorityStampV1|required=true|registered-type:SessionAuthorityStampV1|union=None
+hpd.authority-payload-graph-runtime-command.v1|2|expectedAuthority|ExpectedAuthorityVectorV1|required=true|registered-type:ExpectedAuthorityVectorV1|union=None
+hpd.authority-payload-graph-runtime-command.v1|3|body|BoundedBstr65536|required=true|bytes:0..65536|union=None
+hpd.authority-payload-graph-runtime-fact.v1|1|session|SessionAuthorityStampV1|required=true|registered-type:SessionAuthorityStampV1|union=None
+hpd.authority-payload-graph-runtime-fact.v1|2|expectedAuthority|ExpectedAuthorityVectorV1|required=true|registered-type:ExpectedAuthorityVectorV1|union=None
+hpd.authority-payload-graph-runtime-fact.v1|3|body|BoundedBstr65536|required=true|bytes:0..65536|union=None
 hpd.graph-topology-plan.v1|1|session|SessionAuthorityStampV1|required=true|registered-type:SessionAuthorityStampV1|union=None
 hpd.graph-topology-plan.v1|2|graphGeneration|GraphGenerationId|required=true|stable-id-family-ledger:16-bytes/nonzero|union=None
 hpd.graph-topology-plan.v1|3|capacityGrantId|CapacityGrantId|required=true|stable-id-family-ledger:16-bytes/nonzero|union=None
@@ -752,6 +765,24 @@ hpd.graph-replacement-fact.v1|3|actualPredecessor|JournalPositionV1|required=tru
 hpd.graph-replacement-fact.v1|4|outcome|UInt16Positive|required=true|scalar:UInt16Positive|union=None
 hpd.graph-replacement-fact.v1|5|resultingSnapshot|GraphReplacementSnapshotV1|required=true|registered-type:GraphReplacementSnapshotV1|union=None
 hpd.graph-replacement-fact.v1|6|safeCode|Optional<BoundedAscii>|required=true|registered-type:Optional<BoundedAscii>|union={'kind': 'closed', 'none': 0, 'some': 1}
+hpd.graph-runtime-command.v1|1|discriminator|UInt16Positive|required=true|closed-enum:GraphRuntimeCommandKindV1|union=None
+hpd.graph-runtime-command.v1|2|payload|BoundedBstr65536|required=true|bytes:1..65536|union=None
+hpd.graph-runtime-snapshot.v1|1|phase|UInt16Positive|required=true|closed-enum:GraphRuntimePhaseV1|union=None
+hpd.graph-runtime-snapshot.v1|2|graphGeneration|GraphGenerationId|required=true|stable-id-family-ledger:16-bytes/nonzero|union=None
+hpd.graph-runtime-snapshot.v1|3|topologyFingerprint|Hash256|required=true|registered-type:Hash256|union=None
+hpd.graph-runtime-snapshot.v1|4|capacityGrantFact|JournalPositionV1|required=true|registered-type:JournalPositionV1|union=None
+hpd.graph-runtime-snapshot.v1|5|currentAuthority|ExpectedAuthorityVectorV1|required=true|registered-type:ExpectedAuthorityVectorV1|union=None
+hpd.graph-runtime-snapshot.v1|6|activationOperationId|OperationId|required=true|stable-id-family-ledger:16-bytes/nonzero|union=None
+hpd.graph-runtime-snapshot.v1|7|activationFact|JournalPositionV1|required=true|registered-type:JournalPositionV1|union=None
+hpd.graph-runtime-snapshot.v1|8|lastRuntimeFact|JournalPositionV1|required=true|registered-type:JournalPositionV1|union=None
+hpd.graph-runtime-snapshot.v1|9|retirement|Optional<BoundedBstr4096>|required=true|registered-type:Optional<BoundedBstr4096>|union={'kind': 'closed', 'none': 0, 'some': 1}
+hpd.graph-runtime-fact.v1|1|commandFact|JournalPositionV1|required=true|registered-type:JournalPositionV1|union=None
+hpd.graph-runtime-fact.v1|2|expectedPredecessor|JournalPositionV1|required=true|registered-type:JournalPositionV1|union=None
+hpd.graph-runtime-fact.v1|3|actualPredecessor|JournalPositionV1|required=true|registered-type:JournalPositionV1|union=None
+hpd.graph-runtime-fact.v1|4|outcome|UInt16Positive|required=true|closed-enum:GraphRuntimeOutcomeV1|union=None
+hpd.graph-runtime-fact.v1|5|resultingSnapshot|Optional<GraphRuntimeSnapshotV1>|required=true|registered-type:Optional<GraphRuntimeSnapshotV1>|union={'kind': 'closed', 'none': 0, 'some': 1}
+hpd.graph-runtime-fact.v1|6|effectReceiptHash|Optional<Hash256>|required=true|registered-type:Optional<Hash256>|union={'kind': 'closed', 'none': 0, 'some': 1}
+hpd.graph-runtime-fact.v1|7|safeCode|Optional<BoundedAscii>|required=true|registered-type:Optional<BoundedAscii>|union={'kind': 'closed', 'none': 0, 'some': 1}
 hpd.runtime-generation-changed.v1|1|session|SessionAuthorityStampV1|required=true|registered-type:SessionAuthorityStampV1|union=None
 hpd.runtime-generation-changed.v1|2|expectedPrevious|RuntimeGenerationId|required=true|stable-id-family-ledger:16-bytes/nonzero|union=None
 hpd.runtime-generation-changed.v1|3|proposedNext|RuntimeGenerationId|required=true|stable-id-family-ledger:16-bytes/nonzero|union=None
@@ -1064,6 +1095,11 @@ HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|GraphRepla
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|GraphReplacementFactV1
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|GraphReplacementFactV1
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|GraphReplacementSnapshotV1
+HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|GraphRuntimeCommandV1
+HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|GraphRuntimeCommandV1
+HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|GraphRuntimeFactV1
+HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|GraphRuntimeFactV1
+HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|GraphRuntimeSnapshotV1
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|GraphTopologyInstalledFactV1
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|GraphTopologyInstalledV1
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|GraphTopologyPlanV1
@@ -1193,11 +1229,16 @@ hpd.authority-payload-transport-adapter-receipt.v1|1.0|DeterministicCborV1:hpd.a
 hpd.authority-payload-transport-generation-changed.v1|1.0|DeterministicCborV1:hpd.authority-payload-transport-generation-changed.v1|hpd-authority-sha256-v1
 hpd.authority-payload-graph-topology-installed-fact.v1|1.0|DeterministicCborV1:hpd.authority-payload-graph-topology-installed-fact.v1|hpd-authority-sha256-v1
 hpd.authority-payload-graph-replacement-fact.v1|1.0|DeterministicCborV1:hpd.authority-payload-graph-replacement-fact.v1|hpd-authority-sha256-v1
+hpd.authority-payload-graph-runtime-command.v1|1.0|DeterministicCborV1:hpd.authority-payload-graph-runtime-command.v1|hpd-authority-sha256-v1
+hpd.authority-payload-graph-runtime-fact.v1|1.0|DeterministicCborV1:hpd.authority-payload-graph-runtime-fact.v1|hpd-authority-sha256-v1
 hpd.graph-topology-plan.v1|1.0|DeterministicCborV1:hpd.graph-topology-plan.v1|hpd-authority-sha256-v1
 hpd.graph-topology-installed.v1|1.0|DeterministicCborV1:hpd.graph-topology-installed.v1|hpd-authority-sha256-v1
 hpd.graph-replacement-command.v1|1.0|DeterministicCborV1:hpd.graph-replacement-command.v1|hpd-authority-sha256-v1
 hpd.graph-replacement-snapshot.v1|1.0|DeterministicCborV1:hpd.graph-replacement-snapshot.v1|hpd-authority-sha256-v1
 hpd.graph-replacement-fact.v1|1.0|DeterministicCborV1:hpd.graph-replacement-fact.v1|hpd-authority-sha256-v1
+hpd.graph-runtime-command.v1|1.0|DeterministicCborV1:hpd.graph-runtime-command.v1|hpd-authority-sha256-v1
+hpd.graph-runtime-snapshot.v1|1.0|DeterministicCborV1:hpd.graph-runtime-snapshot.v1|hpd-authority-sha256-v1
+hpd.graph-runtime-fact.v1|1.0|DeterministicCborV1:hpd.graph-runtime-fact.v1|hpd-authority-sha256-v1
 hpd.runtime-generation-changed.v1|1.0|DeterministicCborV1:hpd.runtime-generation-changed.v1|hpd-authority-sha256-v1
 hpd.graph-generation-changed.v1|1.0|DeterministicCborV1:hpd.graph-generation-changed.v1|hpd-authority-sha256-v1
 hpd.activity-generation-changed.v1|1.0|DeterministicCborV1:hpd.activity-generation-changed.v1|hpd-authority-sha256-v1
@@ -1294,6 +1335,8 @@ hpd.authority-owner-payload.v1|32|TransportAdapterReceipt|hpd.authority-payload-
 hpd.authority-owner-payload.v1|33|TransportGenerationChanged|hpd.authority-payload-transport-generation-changed.v1|TransportGenerationChangedV1|S11
 hpd.authority-owner-payload.v1|34|GraphTopologyInstalledFact|hpd.authority-payload-graph-topology-installed-fact.v1|GraphTopologyInstalledFactV1|S2
 hpd.authority-owner-payload.v1|35|GraphReplacementFact|hpd.authority-payload-graph-replacement-fact.v1|GraphReplacementFactV1|S2
+hpd.authority-owner-payload.v1|36|GraphRuntimeCommand|hpd.authority-payload-graph-runtime-command.v1|GraphRuntimeCommandV1|S2
+hpd.authority-owner-payload.v1|37|GraphRuntimeFact|hpd.authority-payload-graph-runtime-fact.v1|GraphRuntimeFactV1|S2
 @GenerationTransitionSchemas
 1|hpd.runtime-generation-changed.v1|RuntimeGenerationChangedV1|RuntimeGenerationId|S1
 2|hpd.graph-generation-changed.v1|GraphGenerationChangedV1|GraphGenerationId|S2
