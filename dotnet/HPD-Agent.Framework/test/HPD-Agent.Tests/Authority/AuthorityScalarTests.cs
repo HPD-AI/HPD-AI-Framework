@@ -10,7 +10,8 @@ public sealed class AuthorityScalarTests
         "ses|SessionId|S1|S1|correlation", "thr|ThreadId|S1|S1|correlation", "liv|LiveSessionId|S1|S1|authority",
         "run|RuntimeGenerationId|S1|S1|generation", "par|ParticipantId|S1|S1|authority",
         "fct|JournalFactId|S1|S1|authority", "sch|SchemaId|S1|S1|registry", "aut|AuthorizationId|S9|S9|privacy",
-        "prj|ProjectionId|S9|S9|projection", "op|OperationId|S1|S1|operation", "cpy|CopyId|S9|S9|privacy",
+        "prj|ProjectionId|S9|S9|projection", "op|OperationId|S1|S1|operation", "grt|CapacityGrantId|S2|S2|capacity",
+        "cpy|CopyId|S9|S9|privacy",
         "cpr|CopyRangeId|S9|S9|privacy", "cgr|CaptureGrantId|S9|S9|privacy", "cap|CaptureId|S9|S9|privacy",
         "dsc|DisclosureId|S9|S9|privacy", "hld|HoldId|S9|S9|privacy", "del|DeletionId|S9|S9|privacy",
         "exp|ExportId|S9|S9|privacy", "cnt|ContentId|S9|S9|custody", "sbr|SubscriberId|S9|S9|delivery",
@@ -52,7 +53,7 @@ public sealed class AuthorityScalarTests
         var actual = AuthorityIdFamilyRegistryV1.All.Select(
             row => $"{row.Token}|{row.Type}|{row.Owner}|{row.AllocatorOwner}|{row.Kind}").ToArray();
         Assert.Equal(ExpectedFamilyRows, actual);
-        Assert.Equal(46, actual.Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(47, actual.Distinct(StringComparer.Ordinal).Count());
 
         var raw = StableId128.FromBytes(Convert.FromHexString("000102030405060708090a0b0c0d0e0f"));
         foreach (var row in AuthorityIdFamilyRegistryV1.All)

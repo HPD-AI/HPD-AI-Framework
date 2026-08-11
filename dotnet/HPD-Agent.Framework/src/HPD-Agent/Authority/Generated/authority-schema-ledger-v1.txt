@@ -1,5 +1,5 @@
-# source-contract-sha256=f5267c8c3874ef8846f8330eb85ae91f61678cd2f85a2bcb34dec668e76a3207
-# source-registry-sha256=daf2ca309cd5292bd6b19ebe6bc9891125a735e0934611437e07ed9d95c22b2e
+# source-contract-sha256=62f4cba8803c59de4865e4e91032e40f6a83627c190ef32c88870aabfc7127e7
+# source-registry-sha256=3f39bc6a8ee809ad301bb2dc418d647616761cc5359077654999539cc4dfac4a
 # generated input; section rows are canonical and ordered
 @IdFamilies
 ten|TenantId|owner=S1|allocator=S1|correlation
@@ -15,6 +15,7 @@ sch|SchemaId|owner=S1|allocator=S1|registry
 aut|AuthorizationId|owner=S9|allocator=S9|privacy
 prj|ProjectionId|owner=S9|allocator=S9|projection
 op|OperationId|owner=S1|allocator=S1|operation
+grt|CapacityGrantId|owner=S2|allocator=S2|capacity
 cpy|CopyId|owner=S9|allocator=S9|privacy
 cpr|CopyRangeId|owner=S9|allocator=S9|privacy
 cgr|CaptureGrantId|owner=S9|allocator=S9|privacy

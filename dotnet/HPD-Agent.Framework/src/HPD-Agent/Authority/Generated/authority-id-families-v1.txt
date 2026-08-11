@@ -12,6 +12,7 @@ sch|SchemaId|S1|S1|registry
 aut|AuthorizationId|S9|S9|privacy
 prj|ProjectionId|S9|S9|projection
 op|OperationId|S1|S1|operation
+grt|CapacityGrantId|S2|S2|capacity
 cpy|CopyId|S9|S9|privacy
 cpr|CopyRangeId|S9|S9|privacy
 cgr|CaptureGrantId|S9|S9|privacy

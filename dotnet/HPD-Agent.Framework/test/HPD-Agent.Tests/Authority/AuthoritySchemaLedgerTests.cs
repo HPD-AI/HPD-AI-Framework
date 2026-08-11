@@ -29,7 +29,7 @@ public sealed class AuthoritySchemaLedgerTests
     [Fact]
     public void GeneratedLedger_HasTheAcceptedExactCardinalities()
     {
-        Assert.Equal(46, AuthoritySchemaLedgerV1.IdFamilies.Length);
+        Assert.Equal(47, AuthoritySchemaLedgerV1.IdFamilies.Length);
         Assert.Equal(91, AuthoritySchemaLedgerV1.IdFamilyCborUsages.Length);
         Assert.Equal(11, AuthoritySchemaLedgerV1.Axes.Length);
         Assert.Equal(14, AuthoritySchemaLedgerV1.Dimensions.Length);
