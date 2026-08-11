@@ -772,8 +772,8 @@ HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|CorrelationEnvelopeV1
 HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|ExpectedAuthorityVectorV1
 HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|JournalPositionV1
 HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|ProposedAuthorityFactV1
-HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|ProviderContributionV1
 HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|ProviderCatalogV1
+HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|ProviderContributionV1
 HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|QualificationCellV1
 HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|RuntimeGenerationChangedV1
 HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|SemanticAcceptanceBoundV1
