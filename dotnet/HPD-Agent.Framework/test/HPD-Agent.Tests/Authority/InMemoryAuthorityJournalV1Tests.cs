@@ -1,4 +1,3 @@
-using System.Formats.Cbor;
 using HPD.Agent.Authority;
 
 namespace HPD.Agent.Tests.Authority;
@@ -42,7 +41,7 @@ public sealed class InMemoryAuthorityJournalV1Tests
         var fixture = new Fixture();
         var original = fixture.Fact();
         Assert.IsType<AppendAuthorityResultV1.Committed>(await fixture.Journal.AppendAsync(fixture.Batch(0, [], [original])));
-        var changed = fixture.Fact(factId: original.FactId, payloadValue: 7);
+        var changed = fixture.Fact(factId: original.FactId);
 
         Assert.IsType<AppendAuthorityResultV1.ContradictoryDuplicate>(await fixture.Journal.AppendAsync(fixture.Batch(1, [], [changed])));
         Assert.IsType<AppendAuthorityResultV1.ContradictoryDuplicate>(await fixture.Journal.AppendAsync(
@@ -128,7 +127,7 @@ public sealed class InMemoryAuthorityJournalV1Tests
     public void Registry_RejectsOwnerAndTokenAliasContradictions()
     {
         var schema = new SchemaReferenceV1(SchemaId.Create(), 1, 0);
-        var token = new BoundedAscii("hpd.authority-payload-session-lifecycle-command.v1");
+        var token = new BoundedAscii("hpd.session-authority-stamp.v1");
         Assert.Throws<ArgumentException>(() => new AuthorityPayloadRegistrationV1(
             schema, token, OwnerSliceId.S2, 1024, AuthorityCanonicalCborV1.IsSingleCanonicalValue));
         var first = new AuthorityPayloadRegistrationV1(
@@ -153,13 +152,13 @@ public sealed class InMemoryAuthorityJournalV1Tests
 
     private sealed class Fixture
     {
-        private readonly BoundedAscii _schemaToken = new("hpd.authority-payload-session-lifecycle-command.v1");
+        private readonly BoundedAscii _schemaToken = new("hpd.session-authority-stamp.v1");
         internal Fixture()
         {
             Schema = new SchemaReferenceV1(SchemaId.Create(), 1, 0);
             var registry = new AuthorityPayloadAdmissionRegistryV1([
                 new AuthorityPayloadRegistrationV1(Schema, _schemaToken, OwnerSliceId.S1, 1024,
-                    AuthorityCanonicalCborV1.IsSingleCanonicalValue),
+                    static payload => SessionAuthorityStampV1Codec.TryDecode(payload, out _)),
             ]);
             Journal = new InMemoryAuthorityJournalV1(registry, () => new UtcInstant(123));
             Session = new SessionAuthorityStampV1(RuntimeGenerationId.Create(), LiveSessionId.Create());
@@ -174,11 +173,11 @@ public sealed class InMemoryAuthorityJournalV1Tests
             ThreadId? threadId = null,
             OwnerSliceId owner = OwnerSliceId.S1,
             SchemaReferenceV1? schema = null,
-            int payloadValue = 1,
             byte[]? rawPayload = null,
             Hash256? hash = null)
         {
-            var payload = rawPayload ?? CanonicalInteger(payloadValue);
+            var payload = rawPayload ?? SessionAuthorityStampV1Codec.Encode(new SessionAuthorityStampV1(
+                RuntimeGenerationId.Create(), LiveSessionId.Create()));
             var reference = schema ?? Schema;
             return new ProposedAuthorityFactV1(
                 factId ?? JournalFactId.Create(), threadId, owner, reference, payload,
@@ -193,11 +192,5 @@ public sealed class InMemoryAuthorityJournalV1Tests
             uint maximumEncodedBytes = 4096) =>
             new(Session, expectedSessionHead, threadHeads, facts, maximumEncodedBytes);
 
-        private static byte[] CanonicalInteger(int value)
-        {
-            var writer = new CborWriter(CborConformanceMode.Ctap2Canonical);
-            writer.WriteInt32(value);
-            return writer.Encode();
-        }
     }
 }
