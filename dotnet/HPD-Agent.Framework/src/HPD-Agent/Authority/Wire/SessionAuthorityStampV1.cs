@@ -105,6 +105,10 @@ internal static class AuthorityIntegrityHashV1
 {
     internal static Hash256 Compute(string schemaId, ushort major, ushort minor, ReadOnlySpan<byte> canonical)
     {
+        if (string.IsNullOrEmpty(schemaId) || schemaId.Any(static character =>
+                character > 0x7f || character is not (>= 'a' and <= 'z') and not (>= '0' and <= '9') and not '.' and not '-') ||
+            !AuthoritySchemaLedgerV1.Schemas.Any(row => row.StartsWith(schemaId + "|", StringComparison.Ordinal)))
+            throw new ArgumentException("The schema ID must be an exact registered lowercase ASCII authority schema.", nameof(schemaId));
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         hash.AppendData("hpd-authority\0"u8);
         hash.AppendData(Encoding.UTF8.GetBytes(schemaId));

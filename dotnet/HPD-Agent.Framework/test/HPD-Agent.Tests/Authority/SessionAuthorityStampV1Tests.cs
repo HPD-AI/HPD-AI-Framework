@@ -47,6 +47,19 @@ public sealed class SessionAuthorityStampV1Tests
         Assert.False(default(SessionAuthorityStampV1).IsValid);
     }
 
+    [Theory]
+    [InlineData("")]
+    [InlineData("HPD.SESSION-AUTHORITY-STAMP.V1")]
+    [InlineData("hpd.session\0authority.v1")]
+    [InlineData("hpd.sessiön-authority-stamp.v1")]
+    [InlineData("hpd.unknown-schema.v1")]
+    public void IntegrityHash_RejectsMalformedOrUnregisteredSchemaIds(string schemaId) =>
+        Assert.Throws<ArgumentException>(() => AuthorityIntegrityHashV1.Compute(schemaId, 1, 0, []));
+
+    [Fact]
+    public void IntegrityHash_RejectsInvalidUtf16SchemaId() =>
+        Assert.Throws<ArgumentException>(() => AuthorityIntegrityHashV1.Compute("hpd.\ud800.v1", 1, 0, []));
+
     private static SessionAuthorityStampV1 CreateStamp() => new(
         RuntimeGenerationId.FromValue(StableId128.FromBytes(RuntimeBytes)),
         LiveSessionId.FromValue(StableId128.FromBytes(SessionBytes)));

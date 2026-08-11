@@ -8,6 +8,8 @@ public readonly record struct JournalPositionV1
     /// <summary>Initializes a validated journal position.</summary>
     /// <param name="session">The session authority stamp.</param>
     /// <param name="sequence">The positive contiguous session sequence.</param>
+    /// <exception cref="ArgumentException">The session stamp is invalid.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">The sequence is not positive.</exception>
     public JournalPositionV1(SessionAuthorityStampV1 session, long sequence)
     {
         if (!session.IsValid)
@@ -33,6 +35,11 @@ public readonly record struct JournalPositionV1
 public readonly record struct ThreadPositionV1
 {
     /// <summary>Initializes a validated thread position.</summary>
+    /// <param name="threadId">The thread owning the secondary position.</param>
+    /// <param name="generation">The positive thread generation.</param>
+    /// <param name="sequence">The positive sequence within the generation.</param>
+    /// <exception cref="ArgumentException">The thread identifier is invalid.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">The generation or sequence is not positive.</exception>
     public ThreadPositionV1(ThreadId threadId, long generation, long sequence)
     {
         if (!threadId.IsValid)
