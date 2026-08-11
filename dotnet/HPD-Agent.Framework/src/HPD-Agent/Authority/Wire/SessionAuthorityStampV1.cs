@@ -43,19 +43,23 @@ internal static class SessionAuthorityStampV1Codec
         if (!value.IsValid)
             throw new ArgumentException("The session authority stamp is invalid.", nameof(value));
 
+        var writer = new CborWriter(CborConformanceMode.Ctap2Canonical);
+        Write(writer, value);
+        return writer.Encode();
+    }
+
+    internal static void Write(CborWriter writer, SessionAuthorityStampV1 value)
+    {
         Span<byte> runtime = stackalloc byte[16];
         Span<byte> session = stackalloc byte[16];
-        if (!value.RuntimeGenerationId.TryWriteBytes(runtime) || !value.LiveSessionId.TryWriteBytes(session))
+        if (!value.IsValid || !value.RuntimeGenerationId.TryWriteBytes(runtime) || !value.LiveSessionId.TryWriteBytes(session))
             throw new ArgumentException("The session authority stamp is invalid.", nameof(value));
-
-        var writer = new CborWriter(CborConformanceMode.Ctap2Canonical);
         writer.WriteStartMap(2);
         writer.WriteUInt64(1);
         writer.WriteByteString(runtime);
         writer.WriteUInt64(2);
         writer.WriteByteString(session);
         writer.WriteEndMap();
-        return writer.Encode();
     }
 
     internal static bool TryDecode(ReadOnlyMemory<byte> encoded, out SessionAuthorityStampV1 value)
@@ -64,20 +68,9 @@ internal static class SessionAuthorityStampV1Codec
         try
         {
             var reader = new CborReader(encoded, CborConformanceMode.Ctap2Canonical, allowMultipleRootLevelValues: false);
-            if (reader.ReadStartMap() != 2 || reader.ReadUInt64() != 1)
-                return false;
-            var runtime = reader.ReadByteString();
-            if (runtime.Length != 16 || reader.ReadUInt64() != 2)
-                return false;
-            var session = reader.ReadByteString();
-            if (session.Length != 16)
-                return false;
-            reader.ReadEndMap();
+            value = Read(reader);
             if (reader.BytesRemaining != 0)
                 return false;
-            value = new(
-                RuntimeGenerationId.FromValue(StableId128.FromBytes(runtime)),
-                LiveSessionId.FromValue(StableId128.FromBytes(session)));
             return true;
         }
         catch (Exception exception) when (exception is CborContentException or InvalidOperationException or ArgumentException)
@@ -86,16 +79,39 @@ internal static class SessionAuthorityStampV1Codec
         }
     }
 
+    internal static SessionAuthorityStampV1 Read(CborReader reader)
+    {
+        if (reader.ReadStartMap() != 2 || reader.ReadUInt64() != 1)
+            throw new CborContentException("A session authority stamp must contain exactly tags 1 and 2.");
+        var runtime = reader.ReadByteString();
+        if (runtime.Length != 16 || reader.ReadUInt64() != 2)
+            throw new CborContentException("The runtime generation must be 16 bytes and precede tag 2.");
+        var session = reader.ReadByteString();
+        if (session.Length != 16)
+            throw new CborContentException("The live session must be exactly 16 bytes.");
+        reader.ReadEndMap();
+        return new(
+            RuntimeGenerationId.FromValue(StableId128.FromBytes(runtime)),
+            LiveSessionId.FromValue(StableId128.FromBytes(session)));
+    }
+
     internal static Hash256 ComputeIntegrityHash(SessionAuthorityStampV1 value)
     {
-        var canonical = Encode(value);
+        return AuthorityIntegrityHashV1.Compute(SchemaId, Major, Minor, Encode(value));
+    }
+}
+
+internal static class AuthorityIntegrityHashV1
+{
+    internal static Hash256 Compute(string schemaId, ushort major, ushort minor, ReadOnlySpan<byte> canonical)
+    {
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         hash.AppendData("hpd-authority\0"u8);
-        hash.AppendData(Encoding.UTF8.GetBytes(SchemaId));
+        hash.AppendData(Encoding.UTF8.GetBytes(schemaId));
         hash.AppendData([0]);
         Span<byte> version = stackalloc byte[4];
-        BinaryPrimitives.WriteUInt16BigEndian(version, Major);
-        BinaryPrimitives.WriteUInt16BigEndian(version[2..], Minor);
+        BinaryPrimitives.WriteUInt16BigEndian(version, major);
+        BinaryPrimitives.WriteUInt16BigEndian(version[2..], minor);
         hash.AppendData(version);
         hash.AppendData(canonical);
         return Hash256.FromBytes(hash.GetHashAndReset());
