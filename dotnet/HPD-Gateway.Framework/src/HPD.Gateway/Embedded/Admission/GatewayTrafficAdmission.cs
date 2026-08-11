@@ -66,7 +66,7 @@ public sealed class GatewayTrafficAdmissionRegistryBuilder
             throw new ArgumentException("Traffic-admission profile names must be canonical and unique.", nameof(name));
         var options = new GatewayLocalAdmissionOptions();
         configure?.Invoke(options);
-        Validate(options);
+        Validate(options, kind, algorithm);
         _profiles.Add((name, kind, algorithm, Snapshot(options)));
         return this;
     }
@@ -113,15 +113,30 @@ public sealed class GatewayTrafficAdmissionRegistryBuilder
         MinimumQueue = value.MinimumQueue, MaximumQueue = value.MaximumQueue, PartitionProjector = value.PartitionProjector
     };
 
-    private static void Validate(GatewayLocalAdmissionOptions value)
+    private static void Validate(
+        GatewayLocalAdmissionOptions value,
+        TrafficAdmissionKind kind,
+        TrafficAdmissionRateAlgorithm? algorithm)
     {
-        if (!Enum.IsDefined(value.Partition) || value.MinimumLimit < 1 || value.MaximumLimit < value.MinimumLimit || value.MaximumLimit > 100_000_000 ||
-            value.MinimumPeriod < TimeSpan.FromMilliseconds(100) || value.MaximumPeriod < value.MinimumPeriod || value.MaximumPeriod > TimeSpan.FromDays(1) ||
-            value.MinimumSegments < 2 || value.MaximumSegments < value.MinimumSegments || value.MaximumSegments > 64 ||
-            value.MinimumQueue < 0 || value.MaximumQueue < value.MinimumQueue || value.MaximumQueue > 100_000 ||
+        var commonInvalid = !Enum.IsDefined(value.Partition) || value.MinimumLimit < 1 ||
+            value.MaximumLimit < value.MinimumLimit || value.MaximumLimit > 100_000_000 ||
             (RequiresProjector(value.Partition) &&
              (value.PartitionProjector is null || !GatewayIdentifier.IsCanonical(value.PartitionProjector))) ||
-            (!RequiresProjector(value.Partition) && value.PartitionProjector is not null))
+            (!RequiresProjector(value.Partition) && value.PartitionProjector is not null);
+        var rateInvalid = kind == TrafficAdmissionKind.RequestRate &&
+            (algorithm is not { } rateAlgorithm || !Enum.IsDefined(rateAlgorithm) ||
+             value.MinimumPeriod < (rateAlgorithm == TrafficAdmissionRateAlgorithm.TokenBucket
+                 ? TimeSpan.FromMilliseconds(100)
+                 : TimeSpan.FromSeconds(1)) ||
+             value.MaximumPeriod < value.MinimumPeriod || value.MaximumPeriod > TimeSpan.FromDays(1) ||
+             value.MinimumPeriod.Ticks % TimeSpan.TicksPerMillisecond != 0 ||
+             value.MaximumPeriod.Ticks % TimeSpan.TicksPerMillisecond != 0 ||
+             (rateAlgorithm == TrafficAdmissionRateAlgorithm.SlidingWindow &&
+              (value.MinimumSegments < 2 || value.MaximumSegments < value.MinimumSegments || value.MaximumSegments > 64)));
+        var concurrencyInvalid = kind == TrafficAdmissionKind.Concurrency &&
+            (algorithm is not null || value.MinimumQueue < 0 || value.MaximumQueue < value.MinimumQueue || value.MaximumQueue > 100_000);
+        if (commonInvalid || rateInvalid || concurrencyInvalid ||
+            kind is not (TrafficAdmissionKind.RequestRate or TrafficAdmissionKind.Concurrency))
             throw new ArgumentException("Traffic-admission options are invalid or unbounded.", nameof(value));
     }
 

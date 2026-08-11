@@ -193,18 +193,66 @@ public sealed class GatewayTrafficAdmissionTests
             builder => builder.AddLocalFixedWindow("source", options => options.Partition = TrafficAdmissionPartitionKind.SourceIp),
             new FixedWindowAdmissionEntry { Profile = "source", PermitLimit = 1, Window = TimeSpan.FromMinutes(1) });
         var capacityPlan = new TrafficAdmissionPlan { Entries = [new FixedWindowAdmissionEntry { Profile = "source", PermitLimit = 1, Window = TimeSpan.FromMinutes(1) }] };
-        var acquisitions = Enumerable.Range(1, 4_097).Select(index =>
+        var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var acquisitions = Enumerable.Range(1, 4_097).Select(async index =>
         {
+            await start.Task;
             var context = Context(capacityPlan);
             context.Connection.RemoteIpAddress = IPAddress.Parse($"2001:db8::{index:x}");
-            return capacityLimiter.AcquireAsync(context).AsTask();
+            return (Index: index, Lease: await capacityLimiter.AcquireAsync(context));
         }).ToArray();
-        RateLimitLease[] results = await Task.WhenAll(acquisitions);
-        results.Count(static lease => lease.IsAcquired).Should().Be(4_096);
-        var overflowLease = results.Single(static lease => !lease.IsAcquired);
+        start.TrySetResult();
+        var results = await Task.WhenAll(acquisitions);
+        results.Count(static result => result.Lease.IsAcquired).Should().Be(4_096);
+        var overflowLease = results.Single(static result => !result.Lease.IsAcquired).Lease;
         overflowLease.TryGetMetadata(GatewayAdmissionMetadata.Outcome, out var overflowOutcome).Should().BeTrue();
         overflowOutcome.Should().Be(GatewayAdmissionOutcome.Infrastructure);
-        foreach (var lease in results) lease.Dispose();
+        var retainedIndex = results.First(static result => result.Lease.IsAcquired).Index;
+        foreach (var result in results) result.Lease.Dispose();
+
+        var retained = Context(capacityPlan);
+        retained.Connection.RemoteIpAddress = IPAddress.Parse($"2001:db8::{retainedIndex:x}");
+        using var retainedRejection = await capacityLimiter.AcquireAsync(retained);
+        retainedRejection.TryGetMetadata(GatewayAdmissionMetadata.Outcome, out var retainedOutcome).Should().BeTrue();
+        retainedOutcome.Should().Be(GatewayAdmissionOutcome.Exhausted);
+
+        var anotherNew = Context(capacityPlan);
+        anotherNew.Connection.RemoteIpAddress = IPAddress.Parse("2001:db8::1002");
+        using var newRejection = await capacityLimiter.AcquireAsync(anotherNew);
+        newRejection.TryGetMetadata(GatewayAdmissionMetadata.Outcome, out var newOutcome).Should().BeTrue();
+        newOutcome.Should().Be(GatewayAdmissionOutcome.Infrastructure);
+    }
+
+    [Fact]
+    public void Rate_profile_registration_enforces_algorithm_specific_period_minima()
+    {
+        FluentActions.Invoking(() => new GatewayTrafficAdmissionRegistryBuilder()
+            .AddLocalFixedWindow("fixed", options => options.MinimumPeriod = TimeSpan.FromMilliseconds(999)))
+            .Should().Throw<ArgumentException>();
+        FluentActions.Invoking(() => new GatewayTrafficAdmissionRegistryBuilder()
+            .AddLocalSlidingWindow("sliding", options => options.MinimumPeriod = TimeSpan.FromMilliseconds(999)))
+            .Should().Throw<ArgumentException>();
+        FluentActions.Invoking(() => new GatewayTrafficAdmissionRegistryBuilder()
+            .AddLocalTokenBucket("token", options => options.MinimumPeriod = TimeSpan.FromMilliseconds(99)))
+            .Should().Throw<ArgumentException>();
+
+        foreach (var registry in new[]
+        {
+            new GatewayTrafficAdmissionRegistryBuilder()
+                .AddLocalFixedWindow("fixed", options => options.MinimumPeriod = TimeSpan.FromMilliseconds(1_000)).Build(),
+            new GatewayTrafficAdmissionRegistryBuilder()
+                .AddLocalSlidingWindow("sliding", options => options.MinimumPeriod = TimeSpan.FromMilliseconds(1_000)).Build(),
+            new GatewayTrafficAdmissionRegistryBuilder()
+                .AddLocalTokenBucket("token", options => options.MinimumPeriod = TimeSpan.FromMilliseconds(100)).Build()
+        })
+        {
+            HostCapabilitySnapshot.Create(new HostCapabilityRegistration
+            {
+                InstalledFamilies = GatewayDeclarationFamilies.TrafficAdmission,
+                TrafficAdmissionProfiles = registry.Capabilities
+            }).TrafficAdmissionProfiles.Should().ContainSingle();
+            registry.Dispose();
+        }
     }
 
     [Fact]
