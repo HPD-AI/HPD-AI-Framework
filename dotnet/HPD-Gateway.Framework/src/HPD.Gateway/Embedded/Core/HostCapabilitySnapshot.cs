@@ -297,11 +297,20 @@ public sealed class HostCapabilitySnapshot
                  profile.LocalFallbackIdentity is not { } fallbackIdentity || !ValidSha256(fallbackIdentity) ||
                  !profiles.TryGetValue(fallbackProfile, out TrafficAdmissionCapability? fallback) ||
                  fallback.Scope != TrafficAdmissionScope.ProcessLocal || fallback.Kind != TrafficAdmissionKind.RequestRate ||
-                 fallback.RateAlgorithm != profile.RateAlgorithm || fallback.BehaviorIdentity != fallbackIdentity))
+                 fallback.RateAlgorithm != profile.RateAlgorithm || fallback.BehaviorIdentity != fallbackIdentity ||
+                 fallback.Partition != profile.Partition ||
+                 !StringComparer.Ordinal.Equals(fallback.PartitionProjectorId, profile.PartitionProjectorId) ||
+                 fallback.PartitionProjectorIdentity != profile.PartitionProjectorIdentity ||
+                 !Contains(fallback.Limits, profile.Limits)))
                 throw new ArgumentException("Deployment admission fallback correlation is invalid.", nameof(values));
         }
         return profiles.ToImmutable();
     }
+
+    private static bool Contains(TrafficAdmissionLimits fallback, TrafficAdmissionLimits shared) =>
+        fallback.MinimumLimit <= shared.MinimumLimit && fallback.MaximumLimit >= shared.MaximumLimit &&
+        fallback.MinimumPeriod <= shared.MinimumPeriod && fallback.MaximumPeriod >= shared.MaximumPeriod &&
+        fallback.MinimumSegments <= shared.MinimumSegments && fallback.MaximumSegments >= shared.MaximumSegments;
 
     private static bool IsValidAdmissionScope(TrafficAdmissionCapability profile)
     {

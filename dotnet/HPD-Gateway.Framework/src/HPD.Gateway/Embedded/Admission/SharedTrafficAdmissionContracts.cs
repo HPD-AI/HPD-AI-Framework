@@ -45,6 +45,27 @@ public interface IGatewaySharedAdmissionProvider
         CancellationToken cancellationToken);
 }
 
+public sealed record GatewaySharedAdmissionSegmentState(long Epoch, long Count);
+
+public sealed record GatewaySharedAdmissionRetainedState(
+    ushort ContractVersion,
+    TrafficAdmissionRateAlgorithm Algorithm,
+    long LastObservedMilliseconds,
+    long? WindowStartMilliseconds,
+    long? Used,
+    long? Tokens,
+    long? LastRefillMilliseconds,
+    long? Remainder,
+    ImmutableArray<GatewaySharedAdmissionSegmentState> Segments,
+    long ExpiryAtMilliseconds);
+
+public interface IGatewaySharedAdmissionCertificationAuthority : IGatewaySharedAdmissionProvider
+{
+    ValueTask<GatewaySharedAdmissionRetainedState> ObserveStateAsync(
+        GatewaySharedAdmissionRequest request,
+        CancellationToken cancellationToken);
+}
+
 public sealed class GatewaySharedAdmissionProviderOptions
 {
     public required string AuthorityId { get; set; }
@@ -69,7 +90,8 @@ public sealed record GatewaySharedAdmissionProviderStatistics(
 
 public sealed record GatewaySharedAdmissionCertificationVector(
     GatewaySharedAdmissionRequest Request,
-    GatewaySharedAdmissionDecision ExpectedDecision);
+    GatewaySharedAdmissionDecision ExpectedDecision,
+    GatewaySharedAdmissionRetainedState ExpectedState);
 
 public sealed record GatewaySharedAdmissionCertificationReport(
     bool Passed,
@@ -81,7 +103,7 @@ public static class GatewaySharedAdmissionCertification
     public const int MaximumVectors = 4_096;
 
     public static async ValueTask<GatewaySharedAdmissionCertificationReport> VerifyAsync(
-        IGatewaySharedAdmissionProvider provider,
+        IGatewaySharedAdmissionCertificationAuthority provider,
         IEnumerable<GatewaySharedAdmissionCertificationVector> vectors,
         CancellationToken cancellationToken = default)
     {
@@ -92,7 +114,8 @@ public static class GatewaySharedAdmissionCertification
         while (bounded.Count <= MaximumVectors && enumerator.MoveNext()) bounded.Add(enumerator.Current);
         if (bounded.Count > MaximumVectors || bounded.Any(static vector => vector is null ||
                 !GatewaySharedAdmissionContract.IsValidRequest(vector.Request) ||
-                !GatewaySharedAdmissionContract.IsValidDecision(vector.ExpectedDecision)))
+                !GatewaySharedAdmissionContract.IsValidDecision(vector.Request, vector.ExpectedDecision) ||
+                !GatewaySharedAdmissionContract.IsValidState(vector.Request, vector.ExpectedState)))
             return new(false, 0, ["certification-input-invalid"]);
 
         var diagnostics = ImmutableArray.CreateBuilder<string>();
@@ -103,10 +126,13 @@ public static class GatewaySharedAdmissionCertification
             try
             {
                 GatewaySharedAdmissionDecision actual = await provider.AcquireAsync(vector.Request, cancellationToken).ConfigureAwait(false);
+                GatewaySharedAdmissionRetainedState state = await provider.ObserveStateAsync(vector.Request, cancellationToken).ConfigureAwait(false);
                 executed++;
-                if (!GatewaySharedAdmissionContract.IsValidDecision(actual) || actual != vector.ExpectedDecision)
+                if (!GatewaySharedAdmissionContract.IsValidDecision(vector.Request, actual) || actual != vector.ExpectedDecision ||
+                    !GatewaySharedAdmissionContract.IsValidState(vector.Request, state) || !SameState(state, vector.ExpectedState))
                     diagnostics.Add($"vector[{executed - 1}]-mismatch");
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
             catch
             {
                 executed++;
@@ -115,6 +141,9 @@ public static class GatewaySharedAdmissionCertification
         }
         return new(diagnostics.Count == 0, executed, diagnostics.ToImmutable());
     }
+
+    private static bool SameState(GatewaySharedAdmissionRetainedState left, GatewaySharedAdmissionRetainedState right) =>
+        left with { Segments = [] } == right with { Segments = [] } && left.Segments.SequenceEqual(right.Segments);
 }
 
 public static class GatewaySharedAdmissionContract
@@ -138,6 +167,45 @@ public static class GatewaySharedAdmissionContract
                 decision.ResetAfterMilliseconds >= decision.RetryAfterMilliseconds &&
                 decision.ResetAfterMilliseconds <= MaximumExactInteger,
             _ => decision.Remaining is null && decision.RetryAfterMilliseconds is null && decision.ResetAfterMilliseconds is null,
+        };
+    }
+
+    public static bool IsValidDecision(GatewaySharedAdmissionRequest request, GatewaySharedAdmissionDecision? decision)
+    {
+        if (!IsValidRequest(request) || !IsValidDecision(decision)) return false;
+        if (decision!.Kind is not (GatewaySharedAdmissionDecisionKind.Acquired or GatewaySharedAdmissionDecisionKind.Rejected)) return true;
+        if (decision.Remaining > request.PermitLimit ||
+            decision.Kind == GatewaySharedAdmissionDecisionKind.Acquired && decision.Remaining > request.PermitLimit - request.PermitCount ||
+            decision.Kind == GatewaySharedAdmissionDecisionKind.Rejected && decision.Remaining >= request.PermitCount)
+            return false;
+        var maximumReset = request.Algorithm == TrafficAdmissionRateAlgorithm.TokenBucket
+            ? CeilingDivide(checked((UInt128)(ulong)request.PermitLimit * (ulong)request.WindowMilliseconds), (ulong)request.TokensPerPeriod)
+            : (UInt128)(ulong)request.WindowMilliseconds;
+        return maximumReset <= MaximumExactInteger && decision.ResetAfterMilliseconds <= (long)maximumReset &&
+            (decision.RetryAfterMilliseconds is null || decision.RetryAfterMilliseconds <= decision.ResetAfterMilliseconds) &&
+            (request.Algorithm != TrafficAdmissionRateAlgorithm.FixedWindow ||
+             decision.Kind != GatewaySharedAdmissionDecisionKind.Rejected || decision.RetryAfterMilliseconds == decision.ResetAfterMilliseconds);
+    }
+
+    public static bool IsValidState(GatewaySharedAdmissionRequest request, GatewaySharedAdmissionRetainedState? state)
+    {
+        if (!IsValidRequest(request) || state is null || state.ContractVersion != Version || state.Algorithm != request.Algorithm ||
+            state.LastObservedMilliseconds < 0 || state.ExpiryAtMilliseconds <= state.LastObservedMilliseconds || state.Segments.IsDefault ||
+            state.Segments.Length > 64 || state.Segments.Any(static value => value is null || value.Epoch < 0 || value.Count < 0) ||
+            state.Segments.Select(static value => value.Epoch).Distinct().Count() != state.Segments.Length ||
+            !state.Segments.Select(static value => value.Epoch).SequenceEqual(state.Segments.Select(static value => value.Epoch).Order()))
+            return false;
+        return request.Algorithm switch
+        {
+            TrafficAdmissionRateAlgorithm.FixedWindow => state.WindowStartMilliseconds is >= 0 && state.Used is >= 0 && state.Used <= request.PermitLimit &&
+                state.Tokens is null && state.LastRefillMilliseconds is null && state.Remainder is null && state.Segments.IsEmpty,
+            TrafficAdmissionRateAlgorithm.SlidingWindow => state.WindowStartMilliseconds is null && state.Used is null && state.Tokens is null &&
+                state.LastRefillMilliseconds is null && state.Remainder is null && state.Segments.Length <= request.SegmentsPerWindow &&
+                state.Segments.Sum(static value => value.Count) <= request.PermitLimit,
+            TrafficAdmissionRateAlgorithm.TokenBucket => state.WindowStartMilliseconds is null && state.Used is null &&
+                state.Tokens is >= 0 && state.Tokens <= request.PermitLimit && state.LastRefillMilliseconds is >= 0 &&
+                state.Remainder is >= 0 && state.Remainder < request.WindowMilliseconds && state.Segments.IsEmpty,
+            _ => false,
         };
     }
 
@@ -172,4 +240,6 @@ public static class GatewaySharedAdmissionContract
 
     private static bool Bounded(string? value, int maximum) => value is null ||
         value.Length <= maximum && !value.Any(char.IsControl);
+
+    private static UInt128 CeilingDivide(UInt128 value, ulong divisor) => (value + divisor - 1) / divisor;
 }

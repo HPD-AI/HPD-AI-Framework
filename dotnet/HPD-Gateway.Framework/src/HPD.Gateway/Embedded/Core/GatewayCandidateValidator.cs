@@ -316,9 +316,24 @@ internal static class GatewayCandidateValidator
                 ConcurrencyAdmissionEntry value => capability is { Kind: TrafficAdmissionKind.Concurrency, RateAlgorithm: null, Scope: TrafficAdmissionScope.ProcessLocal } && value.PermitLimit >= capability.Limits.MinimumLimit && value.PermitLimit <= capability.Limits.MaximumLimit && value.QueueLimit >= capability.Limits.MinimumQueue && value.QueueLimit <= capability.Limits.MaximumQueue,
                 _ => false
             };
+            if (valid && capability.Scope == TrafficAdmissionScope.Deployment &&
+                capability.FailureDisposition == TrafficAdmissionFailureDisposition.LocalFallback)
+            {
+                valid = capability.LocalFallbackProfile is { } fallbackName &&
+                    available.TryGetValue(fallbackName, out TrafficAdmissionCapability? fallback) &&
+                    EntryFits(entry, fallback);
+            }
             if (!valid) Add(errors, GatewayValidationErrorCode.InvalidValue, $"{path}.entries[{i}]", "Traffic-admission entry is incompatible with the installed typed capability.");
         }
     }
+
+    private static bool EntryFits(TrafficAdmissionEntry entry, TrafficAdmissionCapability capability) => entry switch
+    {
+        FixedWindowAdmissionEntry value => capability is { Kind: TrafficAdmissionKind.RequestRate, RateAlgorithm: TrafficAdmissionRateAlgorithm.FixedWindow } && Within(value.PermitLimit, value.Window, capability.Limits),
+        SlidingWindowAdmissionEntry value => capability is { Kind: TrafficAdmissionKind.RequestRate, RateAlgorithm: TrafficAdmissionRateAlgorithm.SlidingWindow } && Within(value.PermitLimit, value.Window, capability.Limits) && value.SegmentsPerWindow >= capability.Limits.MinimumSegments && value.SegmentsPerWindow <= capability.Limits.MaximumSegments,
+        TokenBucketAdmissionEntry value => capability is { Kind: TrafficAdmissionKind.RequestRate, RateAlgorithm: TrafficAdmissionRateAlgorithm.TokenBucket } && Within(value.TokenLimit, value.ReplenishmentPeriod, capability.Limits) && value.TokensPerPeriod >= capability.Limits.MinimumLimit && value.TokensPerPeriod <= capability.Limits.MaximumLimit,
+        _ => false,
+    };
 
     private static bool Within(long limit, TimeSpan period, TrafficAdmissionLimits bounds) =>
         limit >= bounds.MinimumLimit && limit <= bounds.MaximumLimit &&

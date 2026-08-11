@@ -13,8 +13,8 @@ public sealed class GatewaySharedAdmissionTests
     public async Task Every_shared_request_dispatches_once_and_preserves_authoritative_facts()
     {
         var provider = new SequenceProvider(
-            Acquired(9, 1_000),
-            Rejected(9, 500, 1_000));
+            Acquired(0, 1_000),
+            Rejected(0, 500, 500));
         using GatewayTrafficAdmissionRegistry registry = Registry(provider);
         var limiter = new GatewayTrafficAdmissionLimiter(registry);
         TrafficAdmissionPlan plan = Plan();
@@ -82,7 +82,7 @@ public sealed class GatewaySharedAdmissionTests
         saturated.IsAcquired.Should().BeFalse();
         provider.Calls.Should().Be(2, "saturation must reject before dispatch");
 
-        provider.Complete(Acquired(9, 1_000));
+        provider.Complete(Acquired(0, 1_000));
         await SpinWaitAsync(() => provider.Completed == 2);
         using RateLimitLease recovered = await limiter.AcquireAsync(Context(plan));
         recovered.IsAcquired.Should().BeTrue();
@@ -109,6 +109,70 @@ public sealed class GatewaySharedAdmissionTests
             lease.TryGetMetadata(GatewayAdmissionMetadata.Outcome, out object? outcome).Should().BeTrue();
             outcome.Should().Be(GatewayAdmissionOutcome.Infrastructure);
         }
+    }
+
+    [Fact]
+    public async Task Provider_results_are_correlated_to_the_exact_request_and_impossible_facts_fail_closed()
+    {
+        GatewaySharedAdmissionDecision[] impossible =
+        [
+            Acquired(1, 1_000),
+            Rejected(1, 1_000, 1_000),
+            Acquired(0, 1_001),
+            Rejected(0, 500, 1_000),
+        ];
+        foreach (GatewaySharedAdmissionDecision decision in impossible)
+        {
+            using GatewayTrafficAdmissionRegistry registry = Registry(new SequenceProvider(decision));
+            using RateLimitLease lease = await new GatewayTrafficAdmissionLimiter(registry).AcquireAsync(Context(Plan()));
+            lease.IsAcquired.Should().BeFalse();
+            lease.TryGetMetadata(GatewayAdmissionMetadata.Outcome, out object? outcome).Should().BeTrue();
+            outcome.Should().Be(GatewayAdmissionOutcome.Infrastructure);
+        }
+    }
+
+    [Fact]
+    public async Task Disposal_prevents_waiting_work_from_crossing_the_provider_dispatch_boundary()
+    {
+        var provider = new HangingProvider();
+        using GatewayTrafficAdmissionRegistry registry = Registry(provider, maximumInvocations: 1, timeout: TimeSpan.FromSeconds(5));
+        var limiter = new GatewayTrafficAdmissionLimiter(registry);
+        Task<RateLimitLease> first = limiter.AcquireAsync(Context(Plan())).AsTask();
+        await provider.WaitForCalls(1);
+        Task<RateLimitLease> waiting = limiter.AcquireAsync(Context(Plan())).AsTask();
+        registry.Dispose();
+        using RateLimitLease rejected = await waiting;
+        rejected.IsAcquired.Should().BeFalse();
+        provider.Calls.Should().Be(1);
+        provider.Complete(Acquired(0, 1_000));
+        using RateLimitLease initial = await first;
+        initial.IsAcquired.Should().BeTrue("work dispatched before the atomic disposal boundary may still resolve");
+    }
+
+    [Fact]
+    public void Local_fallback_must_authorize_the_same_partition_projector_and_every_shared_bound()
+    {
+        FluentActions.Invoking(() =>
+        {
+            var builder = new GatewayTrafficAdmissionRegistryBuilder();
+            builder.AddLocalFixedWindow("fallback", options =>
+            {
+                options.Partition = TrafficAdmissionPartitionKind.SourceIp;
+                options.MaximumLimit = 5;
+            });
+            builder.AddSharedProvider("provider", new SequenceProvider(Infrastructure(GatewaySharedAdmissionDecisionKind.UnavailableBeforePossibleCommit)), options =>
+            {
+                options.AuthorityId = "deployment-a";
+                options.BehaviorIdentity = Hash('b');
+            });
+            builder.AddSharedFixedWindow("shared", "provider", options =>
+            {
+                options.MaximumLimit = 10;
+                options.FailureDisposition = TrafficAdmissionFailureDisposition.LocalFallback;
+                options.LocalFallbackProfile = "fallback";
+            });
+            _ = builder.Build();
+        }).Should().Throw<InvalidOperationException>();
     }
 
     [Fact]
@@ -148,11 +212,12 @@ public sealed class GatewaySharedAdmissionTests
     [Fact]
     public async Task Public_certification_executes_exact_bounded_vectors_and_fails_closed()
     {
-        var provider = new SequenceProvider(Acquired(9, 1_000), Rejected(9, 500, 1_000));
+        var state = FixedState(100, 0, 1, 1_000);
+        var provider = new SequenceProvider([Acquired(9, 1_000), Rejected(0, 1_000, 1_000)], [state, state]);
         GatewaySharedAdmissionCertificationVector[] vectors =
         [
-            new(Request(), Acquired(9, 1_000)),
-            new(Request() with { AttemptId = new string('b', 32) }, Rejected(9, 500, 1_000)),
+            new(Request(), Acquired(9, 1_000), state),
+            new(Request() with { AttemptId = new string('b', 32) }, Rejected(0, 1_000, 1_000), state),
         ];
 
         GatewaySharedAdmissionCertificationReport passed =
@@ -163,7 +228,7 @@ public sealed class GatewaySharedAdmissionTests
 
         GatewaySharedAdmissionCertificationReport malformed =
             await GatewaySharedAdmissionCertification.VerifyAsync(provider,
-                [new(Request() with { PermitCount = 0 }, Acquired(0, 1))]);
+                [new(Request() with { PermitCount = 0 }, Acquired(0, 1), state)]);
         malformed.Passed.Should().BeFalse();
         malformed.Executed.Should().Be(0);
 
@@ -172,6 +237,16 @@ public sealed class GatewaySharedAdmissionTests
                 Enumerable.Repeat(vectors[0], GatewaySharedAdmissionCertification.MaximumVectors + 1));
         oversized.Passed.Should().BeFalse();
         oversized.Executed.Should().Be(0);
+
+        GatewaySharedAdmissionContract.IsValidState(Request(), state with
+        {
+            Segments = [new GatewaySharedAdmissionSegmentState(1, 1)]
+        }).Should().BeFalse();
+
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        await FluentActions.Awaiting(async () => await GatewaySharedAdmissionCertification.VerifyAsync(
+            provider, vectors, cancellation.Token)).Should().ThrowAsync<OperationCanceledException>();
     }
 
     [Theory]
@@ -197,8 +272,8 @@ public sealed class GatewaySharedAdmissionTests
 
         GatewaySharedAdmissionCertificationReport report = await GatewaySharedAdmissionCertification.VerifyAsync(authority,
         [
-            new(first, Acquired(0, acquiredReset)),
-            new(second, Rejected(0, rejectedDelay, rejectedDelay)),
+            new(first, Acquired(0, acquiredReset), ExpectedState(algorithm, 100, acquiredReset)),
+            new(second, Rejected(0, rejectedDelay, rejectedDelay), ExpectedState(algorithm, 100, rejectedDelay)),
         ]);
 
         report.Passed.Should().BeTrue();
@@ -252,6 +327,17 @@ public sealed class GatewaySharedAdmissionTests
         new(GatewaySharedAdmissionDecisionKind.Rejected, remaining, retry, reset, "observation", null);
     private static GatewaySharedAdmissionDecision Infrastructure(GatewaySharedAdmissionDecisionKind kind) =>
         new(kind, null, null, null, null, "safe");
+    private static GatewaySharedAdmissionRetainedState FixedState(long observed, long start, long used, long expiry) =>
+        new(1, TrafficAdmissionRateAlgorithm.FixedWindow, observed, start, used, null, null, null, [], expiry);
+
+    private static GatewaySharedAdmissionRetainedState ExpectedState(TrafficAdmissionRateAlgorithm algorithm, long observed, long reset) => algorithm switch
+    {
+        TrafficAdmissionRateAlgorithm.FixedWindow => FixedState(observed, 0, 1, observed + reset),
+        TrafficAdmissionRateAlgorithm.SlidingWindow => new(1, algorithm, observed, null, null, null, null, null,
+            [new GatewaySharedAdmissionSegmentState(0, 1)], observed + reset),
+        TrafficAdmissionRateAlgorithm.TokenBucket => new(1, algorithm, observed, null, null, 0, observed, 0, [], observed + reset),
+        _ => throw new InvalidOperationException(),
+    };
     private static ContentHash Hash(char value) => new("sha-256", new string(value, 64));
     private static long Fact(RateLimitLease lease, string name)
     {
@@ -265,9 +351,14 @@ public sealed class GatewaySharedAdmissionTests
         predicate().Should().BeTrue();
     }
 
-    private sealed class SequenceProvider(params GatewaySharedAdmissionDecision[] decisions) : IGatewaySharedAdmissionProvider
+    private sealed class SequenceProvider(
+        IEnumerable<GatewaySharedAdmissionDecision> decisions,
+        IEnumerable<GatewaySharedAdmissionRetainedState> states) : IGatewaySharedAdmissionCertificationAuthority
     {
+        internal SequenceProvider(params GatewaySharedAdmissionDecision[] decisions)
+            : this(decisions, Enumerable.Repeat(FixedState(100, 0, 1, 1_000), Math.Max(1, decisions.Length))) { }
         private readonly ConcurrentQueue<GatewaySharedAdmissionDecision> _decisions = new(decisions);
+        private readonly ConcurrentQueue<GatewaySharedAdmissionRetainedState> _states = new(states);
         internal ConcurrentQueue<GatewaySharedAdmissionRequest> Requests { get; } = new();
         public ValueTask<GatewaySharedAdmissionDecision> AcquireAsync(GatewaySharedAdmissionRequest request, CancellationToken cancellationToken)
         {
@@ -275,6 +366,8 @@ public sealed class GatewaySharedAdmissionTests
             return ValueTask.FromResult(_decisions.TryDequeue(out GatewaySharedAdmissionDecision? decision)
                 ? decision : Acquired(0, 1));
         }
+        public ValueTask<GatewaySharedAdmissionRetainedState> ObserveStateAsync(GatewaySharedAdmissionRequest request, CancellationToken cancellationToken) =>
+            ValueTask.FromResult(_states.TryDequeue(out GatewaySharedAdmissionRetainedState? state) ? state : FixedState(100, 0, 1, 1_000));
     }
 
     private sealed class HangingProvider : IGatewaySharedAdmissionProvider
@@ -304,7 +397,7 @@ public sealed class GatewaySharedAdmissionTests
         }
     }
 
-    private sealed class InProcessAtomicAuthority : IGatewaySharedAdmissionProvider
+    private sealed class InProcessAtomicAuthority : IGatewaySharedAdmissionCertificationAuthority
     {
         private readonly ConcurrentDictionary<string, GatewayLocalRateState> _states = new(StringComparer.Ordinal);
         internal long Now { get; set; }
@@ -347,6 +440,19 @@ public sealed class GatewaySharedAdmissionTests
                 return ValueTask.FromResult(Acquired((long)remaining!, (long)reset!));
             lease.TryGetMetadata(GatewayAdmissionMetadata.RetryAfterMilliseconds, out object? retry);
             return ValueTask.FromResult(Rejected((long)remaining!, (long)retry!, (long)reset!));
+        }
+
+        public ValueTask<GatewaySharedAdmissionRetainedState> ObserveStateAsync(
+            GatewaySharedAdmissionRequest request,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var key = string.Join('|', request.Profile, request.PartitionKey, request.BehaviorIdentity.Value);
+            if (!_states.TryGetValue(key, out GatewayLocalRateState? state)) throw new InvalidOperationException("State is absent.");
+            GatewayLocalRateStateSnapshot snapshot = state.Snapshot(request.Algorithm);
+            return ValueTask.FromResult(new GatewaySharedAdmissionRetainedState(1, snapshot.Algorithm,
+                snapshot.LastObservedMilliseconds, snapshot.WindowStartMilliseconds, snapshot.Used, snapshot.Tokens,
+                snapshot.LastRefillMilliseconds, snapshot.Remainder, snapshot.Segments, snapshot.ExpiryAtMilliseconds));
         }
     }
 }

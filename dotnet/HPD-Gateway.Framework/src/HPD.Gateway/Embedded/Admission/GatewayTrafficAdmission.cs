@@ -147,7 +147,10 @@ public sealed class GatewayTrafficAdmissionRegistryBuilder
                 throw new InvalidOperationException($"Traffic-admission profile '{profile.Name}' requires an installed shared provider.");
             if (profile.LocalFallbackProfile is { } fallback && !_profiles.Any(value =>
                     value.Name == fallback && value.Scope == TrafficAdmissionScope.ProcessLocal &&
-                    value.Kind == TrafficAdmissionKind.RequestRate && value.Algorithm == profile.Algorithm))
+                    value.Kind == TrafficAdmissionKind.RequestRate && value.Algorithm == profile.Algorithm &&
+                    value.Options.Partition == profile.Options.Partition &&
+                    StringComparer.Ordinal.Equals(value.Options.PartitionProjector, profile.Options.PartitionProjector) &&
+                    Contains(value.Options, profile.Options)))
                 throw new InvalidOperationException($"Traffic-admission profile '{profile.Name}' has an invalid local fallback.");
         }
         if (_providers.Keys.Any(provider => !_profiles.Any(profile => profile.ProviderId == provider)))
@@ -180,7 +183,9 @@ public sealed class GatewayTrafficAdmissionRegistryBuilder
                 {
                     if (!runtimes.TryGetValue(profile.LocalFallbackProfile, out localFallback) ||
                         localFallback.Capability.Scope != TrafficAdmissionScope.ProcessLocal ||
-                        localFallback.Capability.RateAlgorithm != profile.Algorithm)
+                        localFallback.Capability.RateAlgorithm != profile.Algorithm ||
+                        localFallback.Capability.Partition != profile.Options.Partition ||
+                        !StringComparer.Ordinal.Equals(localFallback.Capability.PartitionProjectorId, profile.Options.PartitionProjector))
                         throw new InvalidOperationException($"Traffic-admission profile '{profile.Name}' has an invalid local fallback.");
                 }
             }
@@ -215,6 +220,11 @@ public sealed class GatewayTrafficAdmissionRegistryBuilder
             capabilities.ToImmutable().OrderBy(static value => value.Name, StringComparer.Ordinal).ToImmutableArray(),
             runtimes.ToImmutable());
     }
+
+    private static bool Contains(GatewayLocalAdmissionOptions fallback, GatewayLocalAdmissionOptions shared) =>
+        fallback.MinimumLimit <= shared.MinimumLimit && fallback.MaximumLimit >= shared.MaximumLimit &&
+        fallback.MinimumPeriod <= shared.MinimumPeriod && fallback.MaximumPeriod >= shared.MaximumPeriod &&
+        fallback.MinimumSegments <= shared.MinimumSegments && fallback.MaximumSegments >= shared.MaximumSegments;
 
     private static GatewayLocalAdmissionOptions Snapshot(GatewayLocalAdmissionOptions value) => new()
     {
@@ -702,6 +712,7 @@ internal sealed class GatewaySharedAdmissionProviderRuntime : IDisposable
     private readonly TimeProvider _timeProvider;
     private readonly SemaphoreSlim _capacity;
     private readonly CancellationTokenSource _disposeCancellation = new();
+    private readonly object _dispatchGate = new();
     private int _active;
     private long _saturated;
     private long _detached;
@@ -757,20 +768,30 @@ internal sealed class GatewaySharedAdmissionProviderRuntime : IDisposable
             return Infrastructure(GatewaySharedAdmissionDecisionKind.UnavailableBeforePossibleCommit, "capacity-unavailable");
         }
 
-        Interlocked.Increment(ref _active);
         Task<GatewaySharedAdmissionDecision> operation;
-        try
+        lock (_dispatchGate)
         {
-            operation = _registration.Provider.AcquireAsync(request, admission.Token).AsTask();
-        }
-        catch
-        {
-            ReleaseCapacity();
-            return Infrastructure(GatewaySharedAdmissionDecisionKind.UnavailableBeforePossibleCommit, "provider-invocation-failed");
+            if (Volatile.Read(ref _disposed) != 0 || admission.IsCancellationRequested)
+            {
+                _capacity.Release();
+                return callerCancellation.IsCancellationRequested
+                    ? Infrastructure(GatewaySharedAdmissionDecisionKind.CanceledBeforeDispatch, "canceled-before-dispatch")
+                    : Infrastructure(GatewaySharedAdmissionDecisionKind.UnavailableBeforePossibleCommit, "provider-disposed");
+            }
+            Interlocked.Increment(ref _active);
+            try
+            {
+                operation = _registration.Provider.AcquireAsync(request, admission.Token).AsTask();
+            }
+            catch
+            {
+                ReleaseCapacity();
+                return Infrastructure(GatewaySharedAdmissionDecisionKind.UnavailableBeforePossibleCommit, "provider-invocation-failed");
+            }
         }
 
         if (operation.IsCompleted)
-            return CompleteSynchronously(operation);
+            return CompleteSynchronously(request, operation);
 
         TimeSpan remaining = _registration.OperationTimeout - _timeProvider.GetElapsedTime(startedAt);
         if (remaining <= TimeSpan.Zero)
@@ -782,19 +803,19 @@ internal sealed class GatewaySharedAdmissionProviderRuntime : IDisposable
         Task completed = await Task.WhenAny(operation,
             Task.Delay(remaining, _timeProvider, callerCancellation)).ConfigureAwait(false);
         if (ReferenceEquals(completed, operation))
-            return CompleteSynchronously(operation);
+            return CompleteSynchronously(request, operation);
 
         Interlocked.Increment(ref _detached);
         _ = ObserveDetachedAsync(operation);
         return Infrastructure(GatewaySharedAdmissionDecisionKind.IndeterminateAfterPossibleCommit, "provider-outcome-indeterminate");
     }
 
-    private GatewaySharedAdmissionDecision CompleteSynchronously(Task<GatewaySharedAdmissionDecision> operation)
+    private GatewaySharedAdmissionDecision CompleteSynchronously(GatewaySharedAdmissionRequest request, Task<GatewaySharedAdmissionDecision> operation)
     {
         try
         {
             GatewaySharedAdmissionDecision result = operation.GetAwaiter().GetResult();
-            return GatewaySharedAdmissionContract.IsValidDecision(result)
+            return GatewaySharedAdmissionContract.IsValidDecision(request, result)
                 ? result
                 : Infrastructure(GatewaySharedAdmissionDecisionKind.IndeterminateAfterPossibleCommit, "provider-result-invalid");
         }
@@ -832,8 +853,10 @@ internal sealed class GatewaySharedAdmissionProviderRuntime : IDisposable
 
     public void Dispose()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) == 0)
-            _disposeCancellation.Cancel();
+        var cancel = false;
+        lock (_dispatchGate)
+            cancel = Interlocked.Exchange(ref _disposed, 1) == 0;
+        if (cancel) _disposeCancellation.Cancel();
     }
 
     private static GatewaySharedAdmissionDecision Infrastructure(
@@ -856,6 +879,7 @@ internal sealed class GatewayLocalRateState
     private long _tokens;
     private long _lastRefill;
     private long _remainder;
+    private long _expiryAt;
     private bool _tokenInitialized;
     private long[]? _segments;
     private long[]? _segmentIndexes;
@@ -881,6 +905,7 @@ internal sealed class GatewayLocalRateState
         var width = (long)value.Window.TotalMilliseconds;
         var start = now / width * width;
         if (_windowStart != start) { _windowStart = start; _used = 0; }
+        _expiryAt = start + width;
         if (_used >= value.PermitLimit)
             return GatewayAdmissionLease.Exhausted(value.PermitLimit - _used, start + width - now, start + width - now);
         _used++;
@@ -911,13 +936,15 @@ internal sealed class GatewayLocalRateState
             _segmentIndexes[currentSlot] = epoch;
         }
         var used = _segments.Sum();
+        _expiryAt = checked(now + SlidingReset(now, segmentWidth));
         if (used >= value.PermitLimit)
         {
             var retry = SlidingRetry(value, now, segmentWidth, used);
-            return GatewayAdmissionLease.Exhausted(value.PermitLimit - used, retry, SlidingReset(now, segmentWidth));
+            return GatewayAdmissionLease.Exhausted(value.PermitLimit - used, retry, _expiryAt - now);
         }
         _segments[currentSlot]++;
-        return GatewayAdmissionLease.Acquired(value.PermitLimit - used - 1, SlidingReset(now, segmentWidth));
+        _expiryAt = checked(now + SlidingReset(now, segmentWidth));
+        return GatewayAdmissionLease.Acquired(value.PermitLimit - used - 1, _expiryAt - now);
     }
 
     private long SlidingRetry(SlidingWindowAdmissionEntry value, long now, long segmentWidth, long used)
@@ -966,10 +993,14 @@ internal sealed class GatewayLocalRateState
         if (_tokens == 0)
         {
             var retry = TokenDelay(1, period, value.TokensPerPeriod);
-            return GatewayAdmissionLease.Exhausted(0, retry, TokenDelay(value.TokenLimit, period, value.TokensPerPeriod));
+            var reset = TokenDelay(value.TokenLimit, period, value.TokensPerPeriod);
+            _expiryAt = checked(now + reset);
+            return GatewayAdmissionLease.Exhausted(0, retry, reset);
         }
         _tokens--;
-        return GatewayAdmissionLease.Acquired(_tokens, TokenDelay(value.TokenLimit - _tokens, period, value.TokensPerPeriod));
+        var acquiredReset = TokenDelay(value.TokenLimit - _tokens, period, value.TokensPerPeriod);
+        _expiryAt = checked(now + acquiredReset);
+        return GatewayAdmissionLease.Acquired(_tokens, acquiredReset);
     }
 
     private long TokenDelay(long missing, long period, long tokensPerPeriod)
@@ -977,6 +1008,24 @@ internal sealed class GatewayLocalRateState
         if (missing <= 0) return 1;
         var numerator = checked(missing * period - _remainder);
         return Math.Max(1, CeilingDivide(Math.Max(0, numerator), tokensPerPeriod));
+    }
+
+    internal GatewayLocalRateStateSnapshot Snapshot(TrafficAdmissionRateAlgorithm algorithm)
+    {
+        lock (_gate)
+        {
+            var segments = _segmentIndexes is null ? ImmutableArray<GatewaySharedAdmissionSegmentState>.Empty :
+                _segmentIndexes.Select((epoch, slot) => new GatewaySharedAdmissionSegmentState(epoch, _segments![slot]))
+                    .Where(static value => value.Epoch != long.MinValue && value.Count > 0)
+                    .OrderBy(static value => value.Epoch).ToImmutableArray();
+            return new(algorithm, Math.Max(0, _lastObserved),
+                algorithm == TrafficAdmissionRateAlgorithm.FixedWindow ? _windowStart : null,
+                algorithm == TrafficAdmissionRateAlgorithm.FixedWindow ? _used : null,
+                algorithm == TrafficAdmissionRateAlgorithm.TokenBucket ? _tokens : null,
+                algorithm == TrafficAdmissionRateAlgorithm.TokenBucket ? _lastRefill : null,
+                algorithm == TrafficAdmissionRateAlgorithm.TokenBucket ? _remainder : null,
+                segments, _expiryAt);
+        }
     }
 
     private static long CeilingDivide(long value, long divisor) => value == 0 ? 0 : checked((value - 1) / divisor + 1);
@@ -1060,4 +1109,10 @@ internal sealed class GatewayAdmissionLease(bool acquired, string? reason, IEnum
             facts["RetryAfter"] = TimeSpan.FromMilliseconds(retry);
         return facts;
     }
+
 }
+
+internal sealed record GatewayLocalRateStateSnapshot(
+    TrafficAdmissionRateAlgorithm Algorithm, long LastObservedMilliseconds, long? WindowStartMilliseconds,
+    long? Used, long? Tokens, long? LastRefillMilliseconds, long? Remainder,
+    ImmutableArray<GatewaySharedAdmissionSegmentState> Segments, long ExpiryAtMilliseconds);
