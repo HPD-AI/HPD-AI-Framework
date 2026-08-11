@@ -34,10 +34,10 @@ public sealed class AuthoritySchemaLedgerTests
         Assert.Equal(11, AuthoritySchemaLedgerV1.Axes.Length);
         Assert.Equal(14, AuthoritySchemaLedgerV1.Dimensions.Length);
         Assert.Equal(39, AuthoritySchemaLedgerV1.LinearizationPoints.Length);
-        Assert.Equal(32, AuthoritySchemaLedgerV1.WireTypes.Length);
-        Assert.Equal(127, AuthoritySchemaLedgerV1.WireTypeMembers.Length);
+        Assert.Equal(34, AuthoritySchemaLedgerV1.WireTypes.Length);
+        Assert.Equal(134, AuthoritySchemaLedgerV1.WireTypeMembers.Length);
         Assert.Equal(113, AuthoritySchemaLedgerV1.Schemas.Length);
-        Assert.Equal(440, AuthoritySchemaLedgerV1.SchemaFields.Length);
+        Assert.Equal(442, AuthoritySchemaLedgerV1.SchemaFields.Length);
         Assert.Equal(11, AuthoritySchemaLedgerV1.AxisValueBindings.Length);
         Assert.Equal(11, AuthoritySchemaLedgerV1.CapacitySubjectBindings.Length);
         Assert.Equal(9, AuthoritySchemaLedgerV1.UnionDiscriminators.Length);
@@ -50,6 +50,10 @@ public sealed class AuthoritySchemaLedgerTests
         Assert.Contains("CapacitySubjectValueV1|union-discriminator|1|CapacitySubjectValueKindV1", AuthoritySchemaLedgerV1.WireTypeMembers);
         Assert.Contains("CapacitySubjectValueV1|union-variant|1|StableId|2|value|StableId128", AuthoritySchemaLedgerV1.WireTypeMembers);
         Assert.Contains("CapacitySubjectValueV1|union-variant|2|OwnerSlice|2|value|OwnerSliceId", AuthoritySchemaLedgerV1.WireTypeMembers);
+        Assert.Contains("CapacitySettlementKindV1|enum|8|WindowAgedOut", AuthoritySchemaLedgerV1.WireTypeMembers);
+        Assert.Contains("CapacityChargeWindowV1|union-variant|2|EndsAt|2|value|MonotonicStampV1", AuthoritySchemaLedgerV1.WireTypeMembers);
+        Assert.Contains("hpd.capacity-charge.v1|5|window|CapacityChargeWindowV1|required=true|registered-type:CapacityChargeWindowV1|union=None", AuthoritySchemaLedgerV1.SchemaFields);
+        Assert.Contains("hpd.capacity-settlement-fact-body.v1|6|evidenceAt|MonotonicStampV1|required=true|registered-type:MonotonicStampV1|union=None", AuthoritySchemaLedgerV1.SchemaFields);
         Assert.Contains("10|Owner|OwnerSliceId|None|OwnerSlice", AuthoritySchemaLedgerV1.CapacitySubjectBindings);
     }
 

@@ -33,21 +33,23 @@ internal static class CapacityLedgerCodecsV1
     {
         ArgumentNullException.ThrowIfNull(value);
         var writer = Writer();
-        writer.WriteStartMap(5);
+        writer.WriteStartMap(6);
         writer.WriteUInt64(1); WriteId(writer, value.GrantId.TryWriteBytes);
         writer.WriteUInt64(2); WriteId(writer, value.OperationId.TryWriteBytes);
         writer.WriteUInt64(3); writer.WriteEncodedValue(AuthorityPositionCodecsV1.Encode(value.ExpectedFact));
         writer.WriteUInt64(4); writer.WriteUInt64((ushort)value.Kind);
         writer.WriteUInt64(5); writer.WriteStartArray(value.Charges.Count);
         foreach (var charge in value.Charges) WriteSettlementCharge(writer, charge);
-        writer.WriteEndArray(); writer.WriteEndMap();
+        writer.WriteEndArray();
+        writer.WriteUInt64(6); writer.WriteEncodedValue(MonotonicStampV1Codec.Encode(value.EvidenceAt));
+        writer.WriteEndMap();
         return writer.Encode();
     }
 
     internal static bool TryDecodeSettlement(ReadOnlyMemory<byte> encoded, out CapacitySettlementFactBodyV1? value) =>
         TryDecode(encoded, reader =>
         {
-            RequireMap(reader, 5, 1);
+            RequireMap(reader, 6, 1);
             var grant = CapacityGrantId.FromValue(ReadStableId(reader));
             RequireTag(reader, 2);
             var operation = OperationId.FromValue(ReadStableId(reader));
@@ -60,11 +62,15 @@ internal static class CapacityLedgerCodecsV1
             var count = reader.ReadStartArray();
             if (count is null or < 1 or > CapacityRequestV1.MaximumCharges)
                 throw new CborContentException("Settlement charges must be a definite array of 1..256 items.");
-        var charges = new CapacitySettlementChargeV1[count.Value];
-        for (var index = 0; index < charges.Length; index++) charges[index] = ReadSettlementCharge(reader);
-        EnsureStrictlySorted(charges, CapacitySettlementChargeComparerV1.Instance);
-            reader.ReadEndArray(); reader.ReadEndMap();
-            return new CapacitySettlementFactBodyV1(grant, operation, expected, kind, charges);
+            var charges = new CapacitySettlementChargeV1[count.Value];
+            for (var index = 0; index < charges.Length; index++) charges[index] = ReadSettlementCharge(reader);
+            EnsureStrictlySorted(charges, CapacitySettlementChargeComparerV1.Instance);
+            reader.ReadEndArray();
+            RequireTag(reader, 6);
+            if (!MonotonicStampV1Codec.TryDecode(reader.ReadEncodedValue(), out var evidenceAt))
+                throw new CborContentException("Invalid capacity settlement evidence instant.");
+            reader.ReadEndMap();
+            return new CapacitySettlementFactBodyV1(grant, operation, expected, kind, charges, evidenceAt);
         }, out value);
 
     private static void WriteRequest(CborWriter writer, CapacityRequestV1 value)
@@ -106,25 +112,27 @@ internal static class CapacityLedgerCodecsV1
 
     private static void WriteCharge(CborWriter writer, CapacityChargeV1 value)
     {
-        writer.WriteStartMap(4);
+        writer.WriteStartMap(5);
         writer.WriteUInt64(1); writer.WriteUInt64(value.DimensionId.Value);
         writer.WriteUInt64(2); writer.WriteEncodedValue(CapacityScopeCanonicalCodecV1.Encode(value.Scope));
         writer.WriteUInt64(3); writer.WriteInt64(value.Amount);
         writer.WriteUInt64(4); WriteId(writer, value.Purpose.TryWriteBytes);
+        writer.WriteUInt64(5); WriteWindow(writer, value.Window);
         writer.WriteEndMap();
     }
 
     private static CapacityChargeV1 ReadCharge(CborReader reader)
     {
-        RequireMap(reader, 4, 1);
+        RequireMap(reader, 5, 1);
         var dimension = new CapacityDimensionId(checked((ushort)reader.ReadUInt64()));
         RequireTag(reader, 2);
         if (!CapacityScopeCanonicalCodecV1.TryDecode(reader.ReadEncodedValue(), out var scope))
             throw new CborContentException("Invalid capacity scope.");
         RequireTag(reader, 3); var amount = reader.ReadInt64();
         RequireTag(reader, 4); var purpose = CapacityPurposeId.FromValue(ReadStableId(reader));
+        RequireTag(reader, 5); var window = ReadWindow(reader);
         reader.ReadEndMap();
-        return new CapacityChargeV1(dimension, scope!, amount, purpose);
+        return new CapacityChargeV1(dimension, scope!, amount, purpose, window);
     }
 
     private static void WriteSettlementCharge(CborWriter writer, CapacitySettlementChargeV1 value)
@@ -172,6 +180,33 @@ internal static class CapacityLedgerCodecsV1
             CapacityGrantExpiryKindV1.At when count == 2 && reader.ReadUInt64() == 2 &&
                 MonotonicStampV1Codec.TryDecode(reader.ReadEncodedValue(), out var at) => new CapacityGrantExpiryV1.At(at),
             _ => throw new CborContentException("Invalid grant expiry arm."),
+        };
+        reader.ReadEndMap();
+        return result;
+    }
+
+    private static void WriteWindow(CborWriter writer, CapacityChargeWindowV1 value)
+    {
+        writer.WriteStartMap(value is CapacityChargeWindowV1.NoWindow ? 1 : 2);
+        writer.WriteUInt64(1); writer.WriteUInt64((ushort)value.Kind);
+        if (value is CapacityChargeWindowV1.EndsAt endsAt)
+        {
+            writer.WriteUInt64(2); writer.WriteEncodedValue(MonotonicStampV1Codec.Encode(endsAt.Value));
+        }
+        writer.WriteEndMap();
+    }
+
+    private static CapacityChargeWindowV1 ReadWindow(CborReader reader)
+    {
+        var count = reader.ReadStartMap();
+        if (count is not (1 or 2) || reader.ReadUInt64() != 1) throw new CborContentException("Invalid capacity charge window union.");
+        var kind = checked((CapacityChargeWindowKindV1)reader.ReadUInt64());
+        CapacityChargeWindowV1 result = kind switch
+        {
+            CapacityChargeWindowKindV1.NoWindow when count == 1 => new CapacityChargeWindowV1.NoWindow(),
+            CapacityChargeWindowKindV1.EndsAt when count == 2 && reader.ReadUInt64() == 2 &&
+                MonotonicStampV1Codec.TryDecode(reader.ReadEncodedValue(), out var at) => new CapacityChargeWindowV1.EndsAt(at),
+            _ => throw new CborContentException("Invalid capacity charge window arm."),
         };
         reader.ReadEndMap();
         return result;

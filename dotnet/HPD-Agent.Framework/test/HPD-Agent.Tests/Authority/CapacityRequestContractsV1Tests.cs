@@ -86,22 +86,46 @@ public sealed class CapacityRequestContractsV1Tests
         var purpose = CapacityPurposeId.Create();
         var descriptor = CapacityDimensionRegistryV1.Get(CapacityDimensionsV1.MediaBytes);
 
-        var charge = new CapacityChargeV1(descriptor.Id, scope, descriptor.MaximumPerCharge, purpose);
+        var charge = new CapacityChargeV1(descriptor.Id, scope, descriptor.MaximumPerCharge, purpose, WindowFor(descriptor));
 
         Assert.Equal(descriptor.Id, charge.DimensionId);
-        Assert.Throws<ArgumentOutOfRangeException>(() => new CapacityChargeV1(descriptor.Id, scope, 0, purpose));
-        Assert.Throws<ArgumentOutOfRangeException>(() => new CapacityChargeV1(descriptor.Id, scope, descriptor.MaximumPerCharge + 1, purpose));
-        Assert.Throws<ArgumentException>(() => new CapacityChargeV1(descriptor.Id, scope, 1, default));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new CapacityChargeV1(descriptor.Id, scope, 0, purpose, WindowFor(descriptor)));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new CapacityChargeV1(descriptor.Id, scope, descriptor.MaximumPerCharge + 1, purpose, WindowFor(descriptor)));
+        Assert.Throws<ArgumentException>(() => new CapacityChargeV1(descriptor.Id, scope, 1, default, WindowFor(descriptor)));
         var exporterScope = new CapacityScopeV1(TenantId.Create(), subject: new CapacitySubjectV1.Exporter(ExportId.Create()));
-        Assert.Throws<ArgumentException>(() => new CapacityChargeV1(descriptor.Id, exporterScope, 1, purpose));
+        Assert.Throws<ArgumentException>(() => new CapacityChargeV1(descriptor.Id, exporterScope, 1, purpose, WindowFor(descriptor)));
 
         foreach (var dimension in CapacityDimensionRegistryV1.All)
         {
             var dimensionScope = ScopeFor(dimension.ScopeKinds[0]);
-            Assert.Equal(dimension.MaximumPerCharge - 1, new CapacityChargeV1(dimension.Id, dimensionScope, dimension.MaximumPerCharge - 1, purpose).Amount);
-            Assert.Equal(dimension.MaximumPerCharge, new CapacityChargeV1(dimension.Id, dimensionScope, dimension.MaximumPerCharge, purpose).Amount);
-            Assert.Throws<ArgumentOutOfRangeException>(() => new CapacityChargeV1(dimension.Id, dimensionScope, checked(dimension.MaximumPerCharge + 1), purpose));
+            Assert.Equal(dimension.MaximumPerCharge - 1, new CapacityChargeV1(dimension.Id, dimensionScope, dimension.MaximumPerCharge - 1, purpose, WindowFor(dimension)).Amount);
+            Assert.Equal(dimension.MaximumPerCharge, new CapacityChargeV1(dimension.Id, dimensionScope, dimension.MaximumPerCharge, purpose, WindowFor(dimension)).Amount);
+            Assert.Throws<ArgumentOutOfRangeException>(() => new CapacityChargeV1(dimension.Id, dimensionScope, checked(dimension.MaximumPerCharge + 1), purpose, WindowFor(dimension)));
         }
+    }
+
+    [Fact]
+    public void Charge_window_arm_and_request_boundary_match_the_conservation_contract()
+    {
+        var purpose = CapacityPurposeId.Create();
+        var mediaScope = ScopeFor(CapacityScopeKindV1.Participant);
+        var exporterScope = ScopeFor(CapacityScopeKindV1.Exporter);
+        var clock = ClockDomainId.Create(); var boot = BootId.Create();
+
+        Assert.Throws<ArgumentException>(() => new CapacityChargeV1(CapacityDimensionsV1.MediaBytes, mediaScope, 1, purpose,
+            new CapacityChargeWindowV1.EndsAt(new(clock, boot, 20))));
+        Assert.Throws<ArgumentException>(() => new CapacityChargeV1(CapacityDimensionsV1.DiagnosticCardinality, exporterScope, 1, purpose,
+            new CapacityChargeWindowV1.NoWindow()));
+
+        var rate = new CapacityChargeV1(CapacityDimensionsV1.DiagnosticCardinality, exporterScope, 1, purpose,
+            new CapacityChargeWindowV1.EndsAt(new(clock, boot, 9)));
+        var authority = ExpectedAuthorityVectorV1.Create(new(RuntimeGenerationId.Create(), LiveSessionId.Create()), []);
+        Assert.Throws<ArgumentException>(() => new CapacityRequestV1(OperationId.Create(), authority, [rate],
+            new(clock, boot, 10), CapacityPriorityV1.Normal));
+        Assert.Throws<ArgumentException>(() => new CapacityRequestV1(OperationId.Create(), authority,
+            [new CapacityChargeV1(CapacityDimensionsV1.DiagnosticCardinality, exporterScope, 1, purpose,
+                new CapacityChargeWindowV1.EndsAt(new(ClockDomainId.Create(), boot, 20)))],
+            new(clock, boot, 10), CapacityPriorityV1.Normal));
     }
 
     [Fact]
@@ -114,12 +138,14 @@ public sealed class CapacityRequestContractsV1Tests
             CapacityDimensionsV1.MediaBytes,
             new CapacityScopeV1(tenant, session, new CapacitySubjectV1.Participant(ParticipantId.Create())),
             20,
-            purpose);
+            purpose,
+            new CapacityChargeWindowV1.NoWindow());
         var queue = new CapacityChargeV1(
             CapacityDimensionsV1.QueueItems,
             new CapacityScopeV1(tenant, session, new CapacitySubjectV1.Operation(OperationId.Create())),
             1,
-            purpose);
+            purpose,
+            new CapacityChargeWindowV1.NoWindow());
         var source = new[] { queue, media };
         var request = new CapacityRequestV1(
             OperationId.Create(),
@@ -142,7 +168,7 @@ public sealed class CapacityRequestContractsV1Tests
     [Fact]
     public void Request_stops_enumeration_at_the_first_out_of_bound_item()
     {
-        var charge = new CapacityChargeV1(CapacityDimensionsV1.MediaBytes, ScopeFor(CapacityScopeKindV1.Tenant), 1, CapacityPurposeId.Create());
+        var charge = new CapacityChargeV1(CapacityDimensionsV1.MediaBytes, ScopeFor(CapacityScopeKindV1.Tenant), 1, CapacityPurposeId.Create(), new CapacityChargeWindowV1.NoWindow());
         var authority = ExpectedAuthorityVectorV1.Create(new SessionAuthorityStampV1(RuntimeGenerationId.Create(), LiveSessionId.Create()), []);
         var deadline = new MonotonicStampV1(ClockDomainId.Create(), BootId.Create(), 1);
 
@@ -165,9 +191,9 @@ public sealed class CapacityRequestContractsV1Tests
         var purposeLow = CapacityPurposeId.FromValue(StableId128.FromBytes(Convert.FromHexString("00000000000000000000000000000004")));
         var scopeA = new CapacityScopeV1(tenantA, subject: new CapacitySubjectV1.Participant(participant));
         var scopeB = new CapacityScopeV1(tenantB, subject: new CapacitySubjectV1.Participant(participant));
-        var low = new CapacityChargeV1(CapacityDimensionsV1.MediaBytes, scopeA, 1, purposeLow);
-        var high = new CapacityChargeV1(CapacityDimensionsV1.MediaBytes, scopeA, 1, purposeHigh);
-        var otherContext = new CapacityChargeV1(CapacityDimensionsV1.MediaBytes, scopeB, 1, purposeLow);
+        var low = new CapacityChargeV1(CapacityDimensionsV1.MediaBytes, scopeA, 1, purposeLow, new CapacityChargeWindowV1.NoWindow());
+        var high = new CapacityChargeV1(CapacityDimensionsV1.MediaBytes, scopeA, 1, purposeHigh, new CapacityChargeWindowV1.NoWindow());
+        var otherContext = new CapacityChargeV1(CapacityDimensionsV1.MediaBytes, scopeB, 1, purposeLow, new CapacityChargeWindowV1.NoWindow());
         var request = new CapacityRequestV1(
             OperationId.Create(),
             ExpectedAuthorityVectorV1.Create(new SessionAuthorityStampV1(RuntimeGenerationId.Create(), LiveSessionId.Create()), []),
@@ -200,4 +226,9 @@ public sealed class CapacityRequestContractsV1Tests
             _ => throw new ArgumentOutOfRangeException(nameof(kind)),
         };
     }
+
+    private static CapacityChargeWindowV1 WindowFor(CapacityDimensionDescriptorV1 descriptor) =>
+        descriptor.Conservation == CapacityConservationV1.RateWindow
+            ? new CapacityChargeWindowV1.EndsAt(new(ClockDomainId.Create(), BootId.Create(), 100))
+            : new CapacityChargeWindowV1.NoWindow();
 }

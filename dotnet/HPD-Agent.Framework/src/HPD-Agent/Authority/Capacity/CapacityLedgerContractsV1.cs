@@ -57,6 +57,12 @@ public enum CapacitySettlementKindV1 : ushort
     MarkedUnknown = 4,
     /// <summary>Revokes listed remaining quantities without claiming use or release.</summary>
     Revoked = 5,
+    /// <summary>Repairs explicitly unknown or revoked quantities with proof that they were released.</summary>
+    RecoveredReleased = 6,
+    /// <summary>Repairs explicitly unknown or revoked consumable quantities with proof that they were consumed.</summary>
+    RecoveredConsumed = 7,
+    /// <summary>Releases expired rate-window consumption after comparable monotonic evidence.</summary>
+    WindowAgedOut = 8,
 }
 
 /// <summary>Names one positive quantity in a capacity settlement fact.</summary>
@@ -67,15 +73,20 @@ public sealed record CapacitySettlementChargeV1
     /// <param name="scope">The exact granted scope.</param>
     /// <param name="purpose">The exact granted purpose.</param>
     /// <param name="amount">The positive settled amount.</param>
+    /// <exception cref="ArgumentNullException">The scope is missing.</exception>
     /// <exception cref="ArgumentException">A scope, purpose, or dimension/scope pairing is invalid.</exception>
     /// <exception cref="ArgumentOutOfRangeException">The amount is outside the dimension's per-charge bound.</exception>
     public CapacitySettlementChargeV1(CapacityDimensionId dimensionId, CapacityScopeV1 scope, CapacityPurposeId purpose, long amount)
     {
-        var validated = new CapacityChargeV1(dimensionId, scope, amount, purpose);
-        DimensionId = validated.DimensionId;
-        Scope = validated.Scope;
-        Purpose = validated.Purpose;
-        Amount = validated.Amount;
+        ArgumentNullException.ThrowIfNull(scope);
+        if (!purpose.IsValid) throw new ArgumentException("A capacity purpose is required.", nameof(purpose));
+        var descriptor = CapacityDimensionRegistryV1.Get(dimensionId);
+        if (!descriptor.ScopeKinds.Contains(scope.Kind)) throw new ArgumentException("The scope kind is not registered for the dimension.", nameof(scope));
+        if (amount <= 0 || amount > descriptor.MaximumPerCharge) throw new ArgumentOutOfRangeException(nameof(amount));
+        DimensionId = dimensionId;
+        Scope = scope;
+        Purpose = purpose;
+        Amount = amount;
     }
 
     /// <summary>Gets the registered dimension.</summary>
@@ -129,16 +140,18 @@ public sealed record CapacitySettlementFactBodyV1
     /// <param name="expectedFact">The exact prior grant transition fact.</param>
     /// <param name="kind">The closed settlement kind.</param>
     /// <param name="charges">One to 256 distinct settlement quantities.</param>
+    /// <param name="evidenceAt">The comparable monotonic instant at which the evidence was observed.</param>
     /// <exception cref="ArgumentNullException">The charge collection is missing.</exception>
     /// <exception cref="ArgumentException">An identity, predecessor, kind, or charge is invalid or duplicated.</exception>
     /// <exception cref="ArgumentOutOfRangeException">The charge count is outside 1..256.</exception>
     public CapacitySettlementFactBodyV1(CapacityGrantId grantId, OperationId operationId, JournalPositionV1 expectedFact,
-        CapacitySettlementKindV1 kind, IEnumerable<CapacitySettlementChargeV1> charges)
+        CapacitySettlementKindV1 kind, IEnumerable<CapacitySettlementChargeV1> charges, MonotonicStampV1 evidenceAt)
     {
         if (!grantId.IsValid) throw new ArgumentException("A grant identity is required.", nameof(grantId));
         if (!operationId.IsValid) throw new ArgumentException("A settlement operation identity is required.", nameof(operationId));
         if (!expectedFact.IsValid) throw new ArgumentException("A predecessor fact is required.", nameof(expectedFact));
         if (!Enum.IsDefined(kind)) throw new ArgumentException("A registered settlement kind is required.", nameof(kind));
+        if (!evidenceAt.IsValid) throw new ArgumentException("A monotonic evidence instant is required.", nameof(evidenceAt));
         ArgumentNullException.ThrowIfNull(charges);
         var owned = new List<CapacitySettlementChargeV1>(CapacityRequestV1.MaximumCharges);
         foreach (var charge in charges)
@@ -156,6 +169,7 @@ public sealed record CapacitySettlementFactBodyV1
         ExpectedFact = expectedFact;
         Kind = kind;
         Charges = Array.AsReadOnly(owned.ToArray());
+        EvidenceAt = evidenceAt;
     }
 
     /// <summary>Gets the settled grant.</summary>
@@ -168,6 +182,8 @@ public sealed record CapacitySettlementFactBodyV1
     public CapacitySettlementKindV1 Kind { get; }
     /// <summary>Gets the canonical sorted, deeply owned settlement quantities.</summary>
     public IReadOnlyList<CapacitySettlementChargeV1> Charges { get; }
+    /// <summary>Gets the monotonic instant at which the settlement evidence was observed.</summary>
+    public MonotonicStampV1 EvidenceAt { get; }
 }
 
 internal sealed class CapacitySettlementChargeComparerV1 : IComparer<CapacitySettlementChargeV1>
@@ -179,8 +195,13 @@ internal sealed class CapacitySettlementChargeComparerV1 : IComparer<CapacitySet
         if (ReferenceEquals(left, right)) return 0;
         if (left is null) return -1;
         if (right is null) return 1;
-        return CapacityChargeComparerV1.Instance.Compare(
-            new CapacityChargeV1(left.DimensionId, left.Scope, left.Amount, left.Purpose),
-            new CapacityChargeV1(right.DimensionId, right.Scope, right.Amount, right.Purpose));
+        var compared = left.DimensionId.Value.CompareTo(right.DimensionId.Value);
+        if (compared != 0) return compared;
+        compared = CapacityScopeCanonicalCodecV1.Encode(left.Scope).AsSpan().SequenceCompareTo(CapacityScopeCanonicalCodecV1.Encode(right.Scope));
+        if (compared != 0) return compared;
+        Span<byte> leftPurpose = stackalloc byte[16]; Span<byte> rightPurpose = stackalloc byte[16];
+        if (!left.Purpose.TryWriteBytes(leftPurpose) || !right.Purpose.TryWriteBytes(rightPurpose))
+            throw new InvalidOperationException("A validated capacity purpose lost its canonical identity.");
+        return leftPurpose.SequenceCompareTo(rightPurpose);
     }
 }

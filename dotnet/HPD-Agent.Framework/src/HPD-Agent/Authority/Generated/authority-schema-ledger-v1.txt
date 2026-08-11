@@ -1,5 +1,5 @@
-# source-contract-sha256=b99aba4671cf00675a596906656d88c268bb4ba4599d391b832d0f6753027e9f
-# source-registry-sha256=3c159a04fdf5920bd376fc405409eccbe93b0c7fe0bb9b365390adf000632f10
+# source-contract-sha256=c190bce0eb5f8a3604bccb353b9213ec5abeeedf6be251f0ec22b1cdb757500d
+# source-registry-sha256=200996608fa28a72c82ff83dd36f17a2bdefeaa7274ebc787bae3be44d72ee09
 # generated input; section rows are canonical and ordered
 @IdFamilies
 ten|TenantId|owner=S1|allocator=S1|correlation
@@ -243,6 +243,8 @@ CapacitySubjectValueV1|union
 CapacitySubjectValueKindV1|enum
 BoundedAscii|scalar
 CapacitySettlementKindV1|enum
+CapacityChargeWindowKindV1|enum
+CapacityChargeWindowV1|union
 CapacityGrantExpiryKindV1|enum
 CapacityGrantExpiryV1|union
 @WireTypeMembers
@@ -369,6 +371,13 @@ CapacitySettlementKindV1|enum|2|Released
 CapacitySettlementKindV1|enum|3|Consumed
 CapacitySettlementKindV1|enum|4|MarkedUnknown
 CapacitySettlementKindV1|enum|5|Revoked
+CapacitySettlementKindV1|enum|6|RecoveredReleased
+CapacitySettlementKindV1|enum|7|RecoveredConsumed
+CapacitySettlementKindV1|enum|8|WindowAgedOut
+CapacityChargeWindowKindV1|enum|1|NoWindow
+CapacityChargeWindowKindV1|enum|2|EndsAt
+CapacityChargeWindowV1|union-discriminator|1|CapacityChargeWindowKindV1
+CapacityChargeWindowV1|union-variant|2|EndsAt|2|value|MonotonicStampV1
 CapacityGrantExpiryKindV1|enum|1|NoExpiry
 CapacityGrantExpiryKindV1|enum|2|At
 CapacityGrantExpiryV1|union-discriminator|1|CapacityGrantExpiryKindV1
@@ -534,6 +543,7 @@ hpd.capacity-charge.v1|1|dimensionId|UInt16|required=true|scalar:UInt16|union=No
 hpd.capacity-charge.v1|2|scope|CapacityScopeV1|required=true|registered-type:CapacityScopeV1|union=None
 hpd.capacity-charge.v1|3|amount|Int64Positive|required=true|scalar:Int64Positive|union=None
 hpd.capacity-charge.v1|4|purpose|CapacityPurposeId|required=true|stable-id-family-ledger:16-bytes/nonzero|union=None
+hpd.capacity-charge.v1|5|window|CapacityChargeWindowV1|required=true|registered-type:CapacityChargeWindowV1|union=None
 hpd.capacity-request.v1|1|operationId|OperationId|required=true|stable-id-family-ledger:16-bytes/nonzero|union=None
 hpd.capacity-request.v1|2|authority|ExpectedAuthorityVectorV1|required=true|registered-type:ExpectedAuthorityVectorV1|union=None
 hpd.capacity-request.v1|3|charges|SortedNonemptyArray<CapacityChargeV1>|required=true|items:1..256|union=None
@@ -597,6 +607,7 @@ hpd.capacity-settlement-fact-body.v1|2|operationId|OperationId|required=true|sta
 hpd.capacity-settlement-fact-body.v1|3|expectedFact|JournalPositionV1|required=true|registered-type:JournalPositionV1|union=None
 hpd.capacity-settlement-fact-body.v1|4|kind|CapacitySettlementKindV1|required=true|registered-type:CapacitySettlementKindV1|union=None
 hpd.capacity-settlement-fact-body.v1|5|charges|SortedNonemptyArray<CapacitySettlementChargeV1>|required=true|items:1..256|union=None
+hpd.capacity-settlement-fact-body.v1|6|evidenceAt|MonotonicStampV1|required=true|registered-type:MonotonicStampV1|union=None
 hpd.authority-owner-payload.v1|1|discriminator|UInt16Positive|required=true|scalar:UInt16Positive|union=None
 hpd.authority-owner-payload.v1|2|payload|BoundedBstr65536|required=true|bytes:0..65536|union=None
 hpd.authority-payload-session-lifecycle-command.v1|1|session|SessionAuthorityStampV1|required=true|registered-type:SessionAuthorityStampV1|union=None

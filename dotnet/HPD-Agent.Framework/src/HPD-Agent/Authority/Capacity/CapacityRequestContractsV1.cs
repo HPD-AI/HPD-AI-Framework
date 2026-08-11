@@ -271,6 +271,50 @@ public enum CapacityPriorityV1 : ushort
     Recovery = 5,
 }
 
+/// <summary>Identifies the closed accounting-window policy of one capacity charge.</summary>
+public enum CapacityChargeWindowKindV1 : ushort
+{
+    /// <summary>The charge is not governed by a rate window.</summary>
+    NoWindow = 1,
+    /// <summary>The charge remains accounted until an admitted monotonic boundary.</summary>
+    EndsAt = 2,
+}
+
+/// <summary>Represents the closed accounting-window policy carried by every capacity charge.</summary>
+public abstract record CapacityChargeWindowV1
+{
+    private CapacityChargeWindowV1() { }
+
+    /// <summary>Gets the closed wire arm.</summary>
+    public abstract CapacityChargeWindowKindV1 Kind { get; }
+
+    /// <summary>Represents a charge with no rate-accounting window.</summary>
+    public sealed record NoWindow : CapacityChargeWindowV1
+    {
+        /// <inheritdoc />
+        public override CapacityChargeWindowKindV1 Kind => CapacityChargeWindowKindV1.NoWindow;
+    }
+
+    /// <summary>Represents a charge with one exact monotonic rate-window boundary.</summary>
+    public sealed record EndsAt : CapacityChargeWindowV1
+    {
+        /// <summary>Initializes one validated accounting-window boundary.</summary>
+        /// <param name="value">The required monotonic boundary.</param>
+        /// <exception cref="ArgumentException">The boundary is invalid.</exception>
+        public EndsAt(MonotonicStampV1 value)
+        {
+            if (!value.IsValid) throw new ArgumentException("A monotonic window boundary is required.", nameof(value));
+            Value = value;
+        }
+
+        /// <summary>Gets the monotonic accounting-window boundary.</summary>
+        public MonotonicStampV1 Value { get; }
+
+        /// <inheritdoc />
+        public override CapacityChargeWindowKindV1 Kind => CapacityChargeWindowKindV1.EndsAt;
+    }
+}
+
 /// <summary>Contains one positive, dimension-bounded capacity charge.</summary>
 public sealed record CapacityChargeV1
 {
@@ -279,19 +323,27 @@ public sealed record CapacityChargeV1
     /// <param name="scope">The canonical typed scope.</param>
     /// <param name="amount">The positive amount in the descriptor's unit.</param>
     /// <param name="purpose">The registered S2 purpose identity.</param>
+    /// <param name="window">The exact accounting-window policy.</param>
+    /// <exception cref="ArgumentNullException">The scope or accounting-window policy is missing.</exception>
     /// <exception cref="ArgumentException">A scope or purpose is invalid, or the dimension does not permit the scope kind.</exception>
     /// <exception cref="ArgumentOutOfRangeException">The amount is outside the registered per-charge bound.</exception>
-    public CapacityChargeV1(CapacityDimensionId dimensionId, CapacityScopeV1 scope, long amount, CapacityPurposeId purpose)
+    public CapacityChargeV1(CapacityDimensionId dimensionId, CapacityScopeV1 scope, long amount, CapacityPurposeId purpose,
+        CapacityChargeWindowV1 window)
     {
         ArgumentNullException.ThrowIfNull(scope);
+        ArgumentNullException.ThrowIfNull(window);
         if (!purpose.IsValid) throw new ArgumentException("A capacity purpose is required.", nameof(purpose));
         var descriptor = CapacityDimensionRegistryV1.Get(dimensionId);
         if (!descriptor.ScopeKinds.Contains(scope.Kind)) throw new ArgumentException("The scope kind is not registered for the dimension.", nameof(scope));
         if (amount <= 0 || amount > descriptor.MaximumPerCharge) throw new ArgumentOutOfRangeException(nameof(amount));
+        if (descriptor.Conservation == CapacityConservationV1.RateWindow && window is not CapacityChargeWindowV1.EndsAt ||
+            descriptor.Conservation != CapacityConservationV1.RateWindow && window is not CapacityChargeWindowV1.NoWindow)
+            throw new ArgumentException("The accounting-window arm does not match the dimension conservation class.", nameof(window));
         DimensionId = dimensionId;
         Scope = scope;
         Amount = amount;
         Purpose = purpose;
+        Window = window;
     }
 
     /// <summary>Gets the registered dimension.</summary>
@@ -302,6 +354,8 @@ public sealed record CapacityChargeV1
     public long Amount { get; }
     /// <summary>Gets the registered purpose.</summary>
     public CapacityPurposeId Purpose { get; }
+    /// <summary>Gets the exact accounting-window policy.</summary>
+    public CapacityChargeWindowV1 Window { get; }
 }
 
 /// <summary>Contains one deeply owned, atomic S2 capacity reservation request.</summary>
@@ -316,6 +370,7 @@ public sealed record CapacityRequestV1
     /// <param name="charges">One to 256 distinct charges.</param>
     /// <param name="deadline">The absolute monotonic deadline.</param>
     /// <param name="priority">The closed admission class.</param>
+    /// <exception cref="ArgumentNullException">The authority vector or charge collection is missing.</exception>
     /// <exception cref="ArgumentException">An identity, vector, deadline, priority or charge is invalid or duplicated.</exception>
     /// <exception cref="ArgumentOutOfRangeException">The charge count is outside 1..256.</exception>
     public CapacityRequestV1(OperationId operationId, ExpectedAuthorityVectorV1 authority, IEnumerable<CapacityChargeV1> charges, MonotonicStampV1 deadline, CapacityPriorityV1 priority)
@@ -333,6 +388,9 @@ public sealed record CapacityRequestV1
         }
         if (collected.Count == 0) throw new ArgumentOutOfRangeException(nameof(charges));
         var owned = collected.ToArray();
+        foreach (var charge in owned)
+            if (charge.Window is CapacityChargeWindowV1.EndsAt at && at.Value.CompareTo(deadline) is ClockComparison.Earlier or ClockComparison.Incomparable)
+                throw new ArgumentException("A rate window must end at or after the request deadline on the same clock and boot.", nameof(charges));
         Array.Sort(owned, CapacityChargeComparerV1.Instance);
         for (var index = 1; index < owned.Length; index++)
             if (CapacityChargeComparerV1.Instance.Compare(owned[index - 1], owned[index]) == 0)
