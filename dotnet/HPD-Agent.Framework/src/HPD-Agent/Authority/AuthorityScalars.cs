@@ -110,9 +110,26 @@ public readonly struct Hash256 : IEquatable<Hash256>
             throw new ArgumentException("An authority hash is exactly 32 bytes.", nameof(bytes));
         return new(bytes.ToArray());
     }
+    /// <summary>Creates a digest container from exactly 32 bytes without computing or asserting authority integrity.</summary>
+    /// <param name="bytes">The exact digest bytes.</param>
+    /// <param name="value">The created digest, or the invalid default when the length is not 32.</param>
+    /// <returns><see langword="true"/> only when exactly 32 bytes were supplied.</returns>
+    public static bool TryCreate(ReadOnlySpan<byte> bytes, out Hash256 value)
+    {
+        if (bytes.Length != 32)
+        {
+            value = default;
+            return false;
+        }
+        value = new(bytes.ToArray());
+        return true;
+    }
     /// <summary>Computes SHA-256 over the supplied bytes.</summary>
     internal static Hash256 Compute(ReadOnlySpan<byte> bytes) => new(SHA256.HashData(bytes));
-    internal bool TryWriteBytes(Span<byte> destination)
+    /// <summary>Writes the canonical 32-byte digest without changing its integrity meaning.</summary>
+    /// <param name="destination">A destination containing at least 32 bytes.</param>
+    /// <returns><see langword="true"/> when this value is valid and was written; otherwise <see langword="false"/>.</returns>
+    public bool TryWriteBytes(Span<byte> destination)
     {
         if (_bytes is null || destination.Length < 32)
             return false;

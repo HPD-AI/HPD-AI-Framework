@@ -56,6 +56,10 @@ public sealed class ExpectedAuthorityVectorV1 : IEquatable<ExpectedAuthorityVect
         return new(session, entries);
     }
 
+    /// <summary>Returns the strict deterministic CBOR representation used by authority protocols.</summary>
+    /// <returns>A newly owned canonical byte array.</returns>
+    public byte[] GetCanonicalBytes() => AuthorityVectorCodecsV1.Encode(this);
+
     /// <inheritdoc />
     public bool Equals(ExpectedAuthorityVectorV1? other) =>
         other is not null && Session == other.Session && Axes.AsSpan().SequenceEqual(other.Axes.AsSpan());

@@ -80,7 +80,10 @@ public sealed class AuthorityIdSourceGenerator : IIncrementalGenerator
             source.Append("    private ").Append(row.Type).AppendLine("(StableId128 value) => _value = value;");
             source.Append("    internal static ").Append(row.Type).AppendLine(" Create() => new(StableId128.CreateRandom());");
             source.Append("    internal static ").Append(row.Type).AppendLine(" FromValue(StableId128 value) => new(value);");
-            source.AppendLine("    internal bool TryWriteBytes(global::System.Span<byte> destination) => _value.TryWriteBytes(destination);");
+            source.AppendLine("    /// <summary>Writes the canonical 16-byte network-order value without exposing allocation authority.</summary>");
+            source.AppendLine("    /// <param name=\"destination\">A destination containing at least 16 bytes.</param>");
+            source.AppendLine("    /// <returns><see langword=\"true\"/> when this value is valid and was written; otherwise <see langword=\"false\"/>.</returns>");
+            source.AppendLine("    public bool TryWriteBytes(global::System.Span<byte> destination) => _value.TryWriteBytes(destination);");
             source.AppendLine("    /// <summary>Gets whether this value is non-default and valid for an authority boundary.</summary>");
             source.AppendLine("    public bool IsValid => !_value.Equals(default);");
             source.Append("    /// <summary>Parses canonical <c>").Append(row.Token).AppendLine(":</c> text without aliases.</summary>");
