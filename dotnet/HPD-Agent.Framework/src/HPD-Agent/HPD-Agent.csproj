@@ -73,6 +73,7 @@
   <!-- Expose internals to test projects -->
   <ItemGroup>
     <InternalsVisibleTo Include="HPD-Agent.Tests" />
+    <InternalsVisibleTo Include="HPD-Agent.Authority.Tests" />
     <InternalsVisibleTo Include="HPD-Agent.Hosting.Tests" />
     <InternalsVisibleTo Include="HPD-Agent.Evaluations.Tests" />
     <InternalsVisibleTo Include="HPD-Agent.Harness.Coding.Tests" />
