@@ -33,13 +33,13 @@ public sealed class AuthoritySchemaLedgerTests
         Assert.Equal(14, AuthoritySchemaLedgerV1.Dimensions.Length);
         Assert.Equal(39, AuthoritySchemaLedgerV1.LinearizationPoints.Length);
         Assert.Equal(27, AuthoritySchemaLedgerV1.WireTypes.Length);
-        Assert.Equal(99, AuthoritySchemaLedgerV1.Schemas.Length);
-        Assert.Equal(397, AuthoritySchemaLedgerV1.SchemaFields.Length);
+        Assert.Equal(100, AuthoritySchemaLedgerV1.Schemas.Length);
+        Assert.Equal(398, AuthoritySchemaLedgerV1.SchemaFields.Length);
         Assert.Equal(11, AuthoritySchemaLedgerV1.AxisValueBindings.Length);
         Assert.Equal(11, AuthoritySchemaLedgerV1.CapacitySubjectBindings.Length);
         Assert.Equal(9, AuthoritySchemaLedgerV1.UnionDiscriminators.Length);
-        Assert.Equal(99, AuthoritySchemaLedgerV1.JsonProjectionContexts.Length);
-        Assert.Equal(99, AuthoritySchemaLedgerV1.CborCodecHashInventory.Length);
+        Assert.Equal(100, AuthoritySchemaLedgerV1.JsonProjectionContexts.Length);
+        Assert.Equal(100, AuthoritySchemaLedgerV1.CborCodecHashInventory.Length);
         Assert.Equal(33, AuthoritySchemaLedgerV1.AuthorityPayloadDiscriminators.Length);
         Assert.Equal(11, AuthoritySchemaLedgerV1.GenerationTransitionSchemas.Length);
         Assert.Empty(AuthoritySchemaLedgerV1.NativeSchemaInventory);
@@ -99,6 +99,6 @@ public sealed class AuthoritySchemaLedgerTests
 
         Assert.Equal(schemas, codecs);
         Assert.Subset(schemas, fields);
-        Assert.Equal(93, AuthoritySchemaLedgerV1.JsonProjectionContexts.Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(94, AuthoritySchemaLedgerV1.JsonProjectionContexts.Distinct(StringComparer.Ordinal).Count());
     }
 }

@@ -1,5 +1,5 @@
 # source-contract-sha256=4913e656007f7c7e81339365ff041df1d2ea1d80d562940961c8a8a0dd96838d
-# source-registry-sha256=c6bb08fe5ba3f9b33fb5a12116160f7ef788bfb34015790667730fe734b76fab
+# source-registry-sha256=8a2aad81b02629b4ffb46c105457f65af89342fb17bbac4222fcbcaf2f55aa71
 # generated input; section rows are canonical and ordered
 @IdFamilies
 ten|TenantId|owner=S1|allocator=S1|correlation
@@ -238,6 +238,7 @@ hpd.append-authority-batch.v1|1.0|S1|HPD-Agent|HPD.Agent.Generated.AuthorityJson
 hpd.capacity-charge.v1|1.0|S2|HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|DeterministicCborV1:hpd.capacity-charge.v1|hpd-authority-sha256-v1
 hpd.capacity-request.v1|1.0|S2|HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|DeterministicCborV1:hpd.capacity-request.v1|hpd-authority-sha256-v1
 hpd.provider-contribution.v1|1.0|AgentCore|HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|DeterministicCborV1:hpd.provider-contribution.v1|hpd-authority-sha256-v1
+hpd.provider-catalog.v1|1.0|AgentCore|HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|DeterministicCborV1:hpd.provider-catalog.v1|hpd-authority-sha256-v1
 hpd.live-audio-runtime-plan.v1|1.0|S1|HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|DeterministicCborV1:hpd.live-audio-runtime-plan.v1|hpd-authority-sha256-v1
 hpd.copy-reservation.v1|1.0|S9|HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|DeterministicCborV1:hpd.copy-reservation.v1|hpd-authority-sha256-v1
 hpd.qualification-cell.v1|1.0|S1|HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|DeterministicCborV1:hpd.qualification-cell.v1|hpd-authority-sha256-v1
@@ -387,6 +388,7 @@ hpd.provider-contribution.v1|7|factoryId|ProviderFactoryId|required=true|stable-
 hpd.provider-contribution.v1|8|lifetime|ProviderLifetimeV1|required=true|registered-type:ProviderLifetimeV1|union=None
 hpd.provider-contribution.v1|9|credentialAliases|SortedArray<BoundedAscii>|required=true|items:0..256|union=None
 hpd.provider-contribution.v1|10|supportManifest|Hash256|required=true|scalar:Hash256|union=None
+hpd.provider-catalog.v1|1|contributions|SortedNonemptyArray<ProviderContributionV1>|required=true|items:1..256|union=None
 hpd.live-audio-runtime-plan.v1|1|planId|LiveAudioPlanId|required=true|stable-id-family-ledger:16-bytes/nonzero|union=None
 hpd.live-audio-runtime-plan.v1|2|planHash|Hash256|required=true|scalar:Hash256|union=None
 hpd.live-audio-runtime-plan.v1|3|compilerVersion|UInt32|required=true|scalar:UInt32|union=None
@@ -771,6 +773,7 @@ HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|ExpectedAuthorityVectorV1
 HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|JournalPositionV1
 HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|ProposedAuthorityFactV1
 HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|ProviderContributionV1
+HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|ProviderCatalogV1
 HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|QualificationCellV1
 HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|RuntimeGenerationChangedV1
 HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|SemanticAcceptanceBoundV1
@@ -870,6 +873,7 @@ hpd.append-authority-batch.v1|1.0|DeterministicCborV1:hpd.append-authority-batch
 hpd.capacity-charge.v1|1.0|DeterministicCborV1:hpd.capacity-charge.v1|hpd-authority-sha256-v1
 hpd.capacity-request.v1|1.0|DeterministicCborV1:hpd.capacity-request.v1|hpd-authority-sha256-v1
 hpd.provider-contribution.v1|1.0|DeterministicCborV1:hpd.provider-contribution.v1|hpd-authority-sha256-v1
+hpd.provider-catalog.v1|1.0|DeterministicCborV1:hpd.provider-catalog.v1|hpd-authority-sha256-v1
 hpd.live-audio-runtime-plan.v1|1.0|DeterministicCborV1:hpd.live-audio-runtime-plan.v1|hpd-authority-sha256-v1
 hpd.copy-reservation.v1|1.0|DeterministicCborV1:hpd.copy-reservation.v1|hpd-authority-sha256-v1
 hpd.qualification-cell.v1|1.0|DeterministicCborV1:hpd.qualification-cell.v1|hpd-authority-sha256-v1

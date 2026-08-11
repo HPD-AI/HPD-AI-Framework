@@ -13,7 +13,7 @@ namespace HPD.Agent.SourceGenerator.SourceGeneration;
 [Generator]
 public sealed class AuthoritySchemaLedgerSourceGenerator : IIncrementalGenerator
 {
-    private const string ExpectedCanonicalSha256 = "4f3167ba83daa0ca9d8911691bafd7fcb4a97c8c478b700026634609d1c089f7";
+    private const string ExpectedCanonicalSha256 = "06568f0324a5939d804c50ce19e2dd273e5f5d2edca401e5be7c5bff422ae16d";
     private static readonly DiagnosticDescriptor InvalidLedger = new(
         "HPDA002", "Invalid authority schema ledger", "Authority schema ledger is invalid: {0}",
         "HPD.Authority", DiagnosticSeverity.Error, true);
@@ -21,9 +21,9 @@ public sealed class AuthoritySchemaLedgerSourceGenerator : IIncrementalGenerator
     private static readonly (string Name, int Count)[] ExpectedSections =
     [
         ("IdFamilies", 46), ("IdFamilyCborUsages", 81), ("Axes", 11), ("Dimensions", 14),
-        ("LinearizationPoints", 39), ("WireTypes", 27), ("Schemas", 99), ("SchemaFields", 397),
+        ("LinearizationPoints", 39), ("WireTypes", 27), ("Schemas", 100), ("SchemaFields", 398),
         ("AxisValueBindings", 11), ("CapacitySubjectBindings", 11), ("UnionDiscriminators", 9),
-        ("JsonProjectionContexts", 99), ("CborCodecHashInventory", 99),
+        ("JsonProjectionContexts", 100), ("CborCodecHashInventory", 100),
         ("AuthorityPayloadDiscriminators", 33), ("GenerationTransitionSchemas", 11),
         ("NativeSchemaInventory", 0),
     ];
@@ -112,10 +112,10 @@ public sealed class AuthoritySchemaLedgerSourceGenerator : IIncrementalGenerator
         }
 
         var schemas = new HashSet<string>(sections["Schemas"].Select(static row => row.Split('|')[0]), StringComparer.Ordinal);
-        if (schemas.Count != 99 || sections["SchemaFields"].Any(row => !schemas.Contains(row.Split('|')[0])) ||
+        if (schemas.Count != 100 || sections["SchemaFields"].Any(row => !schemas.Contains(row.Split('|')[0])) ||
             sections["CborCodecHashInventory"].Any(row => !schemas.Contains(row.Split('|')[0])))
         {
-            Fail(context, "schema fields or codecs do not join the 99-schema registry");
+            Fail(context, "schema fields or codecs do not join the 100-schema registry");
             return;
         }
 
