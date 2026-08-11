@@ -403,6 +403,32 @@ internal static class CapacityScopeCanonicalCodecV1
         return writer.Encode();
     }
 
+    internal static bool TryDecode(ReadOnlyMemory<byte> encoded, out CapacityScopeV1? scope)
+    {
+        scope = null;
+        try
+        {
+            var reader = new CborReader(encoded, CborConformanceMode.Ctap2Canonical, false);
+            if (reader.ReadStartMap() != 4 || reader.ReadUInt64() != 1) return false;
+            var kind = checked((CapacityScopeKindV1)reader.ReadUInt64());
+            if (reader.ReadUInt64() != 2) return false;
+            var tenant = TenantId.FromValue(ReadStableId(reader));
+            if (reader.ReadUInt64() != 3) return false;
+            var session = ReadOptionalSession(reader);
+            if (reader.ReadUInt64() != 4) return false;
+            var subject = ReadOptionalSubject(reader);
+            reader.ReadEndMap();
+            if (reader.BytesRemaining != 0) return false;
+            scope = new CapacityScopeV1(tenant, session, subject);
+            return scope.Kind == kind;
+        }
+        catch (Exception exception) when (exception is CborContentException or InvalidOperationException or ArgumentException or OverflowException)
+        {
+            scope = null;
+            return false;
+        }
+    }
+
     private static void WriteOptionalSession(CborWriter writer, SessionId? session)
     {
         writer.WriteStartMap(session is null ? 1 : 2);
@@ -452,6 +478,63 @@ internal static class CapacityScopeCanonicalCodecV1
         Span<byte> bytes = stackalloc byte[16];
         if (!write(bytes)) throw new InvalidOperationException("A validated scope lost its canonical identity.");
         writer.WriteByteString(bytes);
+    }
+
+    private static StableId128 ReadStableId(CborReader reader)
+    {
+        Span<byte> bytes = stackalloc byte[16];
+        if (!reader.TryReadByteString(bytes, out var written) || written != 16)
+            throw new CborContentException("A capacity identity is exactly 16 bytes.");
+        return StableId128.FromBytes(bytes);
+    }
+
+    private static SessionId? ReadOptionalSession(CborReader reader)
+    {
+        var count = reader.ReadStartMap();
+        if (count is not (1 or 2) || reader.ReadUInt64() != 1) throw new CborContentException("Invalid optional session.");
+        var present = reader.ReadUInt64();
+        SessionId? value = present switch
+        {
+            0 when count == 1 => null,
+            1 when count == 2 && reader.ReadUInt64() == 2 => SessionId.FromValue(ReadStableId(reader)),
+            _ => throw new CborContentException("Invalid optional session arm."),
+        };
+        reader.ReadEndMap();
+        return value;
+    }
+
+    private static CapacitySubjectV1? ReadOptionalSubject(CborReader reader)
+    {
+        var count = reader.ReadStartMap();
+        if (count is not (1 or 2) || reader.ReadUInt64() != 1) throw new CborContentException("Invalid optional subject.");
+        var present = reader.ReadUInt64();
+        if (present == 0 && count == 1) { reader.ReadEndMap(); return null; }
+        if (present != 1 || count != 2 || reader.ReadUInt64() != 2 || reader.ReadStartMap() != 2 || reader.ReadUInt64() != 1)
+            throw new CborContentException("Invalid optional subject arm.");
+        var kind = checked((CapacitySubjectKindV1)reader.ReadUInt64());
+        if (reader.ReadUInt64() != 2 || reader.ReadStartMap() != 2 || reader.ReadUInt64() != 1)
+            throw new CborContentException("Invalid subject value union.");
+        var valueKind = checked((CapacitySubjectValueKindV1)reader.ReadUInt64());
+        if (reader.ReadUInt64() != 2) throw new CborContentException("Invalid subject value tag.");
+        CapacitySubjectV1 subject = (kind, valueKind) switch
+        {
+            (CapacitySubjectKindV1.Tenant, CapacitySubjectValueKindV1.StableId) => new CapacitySubjectV1.Tenant(TenantId.FromValue(ReadStableId(reader))),
+            (CapacitySubjectKindV1.Session, CapacitySubjectValueKindV1.StableId) => new CapacitySubjectV1.Session(SessionId.FromValue(ReadStableId(reader))),
+            (CapacitySubjectKindV1.Participant, CapacitySubjectValueKindV1.StableId) => new CapacitySubjectV1.Participant(ParticipantId.FromValue(ReadStableId(reader))),
+            (CapacitySubjectKindV1.Operation, CapacitySubjectValueKindV1.StableId) => new CapacitySubjectV1.Operation(OperationId.FromValue(ReadStableId(reader))),
+            (CapacitySubjectKindV1.Provider, CapacitySubjectValueKindV1.StableId) => new CapacitySubjectV1.Provider(ProviderId.FromValue(ReadStableId(reader))),
+            (CapacitySubjectKindV1.Custodian, CapacitySubjectValueKindV1.StableId) => new CapacitySubjectV1.Custodian(CustodianDescriptorId.FromValue(ReadStableId(reader))),
+            (CapacitySubjectKindV1.Exporter, CapacitySubjectValueKindV1.StableId) => new CapacitySubjectV1.Exporter(ExportId.FromValue(ReadStableId(reader))),
+            (CapacitySubjectKindV1.Subscriber, CapacitySubjectValueKindV1.StableId) => new CapacitySubjectV1.Subscriber(SubscriberId.FromValue(ReadStableId(reader))),
+            (CapacitySubjectKindV1.Schema, CapacitySubjectValueKindV1.StableId) => new CapacitySubjectV1.Schema(SchemaId.FromValue(ReadStableId(reader))),
+            (CapacitySubjectKindV1.Sink, CapacitySubjectValueKindV1.StableId) => new CapacitySubjectV1.Sink(SinkGenerationId.FromValue(ReadStableId(reader))),
+            (CapacitySubjectKindV1.Owner, CapacitySubjectValueKindV1.OwnerSlice) => new CapacitySubjectV1.Owner(checked((OwnerSliceId)reader.ReadUInt64())),
+            _ => throw new CborContentException("The subject kind/value arm is not registered."),
+        };
+        reader.ReadEndMap();
+        reader.ReadEndMap();
+        reader.ReadEndMap();
+        return subject;
     }
 
     private delegate bool TryWriteStableId(Span<byte> destination);
