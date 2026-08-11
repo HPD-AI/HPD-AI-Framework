@@ -81,6 +81,12 @@ public abstract record AppendAuthorityResultV1
     public sealed record Committed : AppendAuthorityResultV1
     {
         /// <summary>Initializes a committed result.</summary>
+        /// <param name="previousHead">The nonnegative head before the append.</param>
+        /// <param name="currentHead">The head after the contiguous append.</param>
+        /// <param name="envelopes">One to 256 envelopes from one contiguous session range.</param>
+        /// <exception cref="ArgumentNullException"><paramref name="envelopes"/> is null.</exception>
+        /// <exception cref="ArgumentException">An envelope is null or positions are not one contiguous session range.</exception>
+        /// <exception cref="ArgumentOutOfRangeException">A head or envelope count is invalid.</exception>
         public Committed(long previousHead, long currentHead, IEnumerable<AuthorityFactEnvelopeV1> envelopes)
         {
             Envelopes = OwnEnvelopes(envelopes);
@@ -106,6 +112,10 @@ public abstract record AppendAuthorityResultV1
     public sealed record AlreadyCommitted : AppendAuthorityResultV1
     {
         /// <summary>Initializes an idempotent committed result.</summary>
+        /// <param name="envelopes">One to 256 original committed envelopes.</param>
+        /// <exception cref="ArgumentNullException"><paramref name="envelopes"/> is null.</exception>
+        /// <exception cref="ArgumentException">An envelope is null.</exception>
+        /// <exception cref="ArgumentOutOfRangeException">The envelope count is outside one to 256.</exception>
         public AlreadyCommitted(IEnumerable<AuthorityFactEnvelopeV1> envelopes) => Envelopes = OwnEnvelopes(envelopes);
         /// <summary>Gets the original committed envelopes in journal order.</summary>
         public IReadOnlyList<AuthorityFactEnvelopeV1> Envelopes { get; }
@@ -114,6 +124,9 @@ public abstract record AppendAuthorityResultV1
     public sealed record SessionConflict : AppendAuthorityResultV1
     {
         /// <summary>Initializes a session-head conflict.</summary>
+        /// <param name="expected">The nonnegative expected head.</param>
+        /// <param name="actual">The nonnegative observed head.</param>
+        /// <exception cref="ArgumentOutOfRangeException">A head is negative.</exception>
         public SessionConflict(long expected, long actual)
         { if (expected < 0 || actual < 0) throw new ArgumentOutOfRangeException(nameof(expected)); Expected = expected; Actual = actual; }
         /// <summary>Gets the requested expected head.</summary>
@@ -125,6 +138,11 @@ public abstract record AppendAuthorityResultV1
     public sealed record ThreadConflict : AppendAuthorityResultV1
     {
         /// <summary>Initializes a thread-head conflict.</summary>
+        /// <param name="threadId">The valid conflicting thread identity.</param>
+        /// <param name="expected">The nonnegative expected head.</param>
+        /// <param name="actual">The nonnegative observed head.</param>
+        /// <exception cref="ArgumentException"><paramref name="threadId"/> is invalid.</exception>
+        /// <exception cref="ArgumentOutOfRangeException">A head is negative.</exception>
         public ThreadConflict(ThreadId threadId, long expected, long actual)
         {
             if (!threadId.IsValid) throw new ArgumentException("A thread identity is required.", nameof(threadId));
@@ -142,6 +160,10 @@ public abstract record AppendAuthorityResultV1
     public sealed record ContradictoryDuplicate : AppendAuthorityResultV1
     {
         /// <summary>Initializes a contradictory duplicate result.</summary>
+        /// <param name="factId">The valid reused fact identity.</param>
+        /// <param name="originalHash">The valid original hash.</param>
+        /// <param name="proposedHash">The valid proposed hash.</param>
+        /// <exception cref="ArgumentException">An identity or hash is invalid.</exception>
         public ContradictoryDuplicate(JournalFactId factId, Hash256 originalHash, Hash256 proposedHash)
         {
             Span<byte> bytes = stackalloc byte[32];
@@ -159,6 +181,8 @@ public abstract record AppendAuthorityResultV1
     public sealed record UnknownSchema : AppendAuthorityResultV1
     {
         /// <summary>Initializes an unknown-schema result.</summary>
+        /// <param name="schema">The valid unregistered schema reference.</param>
+        /// <exception cref="ArgumentException"><paramref name="schema"/> is invalid.</exception>
         public UnknownSchema(SchemaReferenceV1 schema) => Schema = schema.IsValid ? schema : throw new ArgumentException("A schema reference is required.", nameof(schema));
         /// <summary>Gets the unregistered schema reference.</summary>
         public SchemaReferenceV1 Schema { get; }
@@ -167,6 +191,8 @@ public abstract record AppendAuthorityResultV1
     public sealed record InvalidPayload : AppendAuthorityResultV1
     {
         /// <summary>Initializes an invalid-payload result.</summary>
+        /// <param name="safeCode">A bounded nonsecret validation code.</param>
+        /// <exception cref="ArgumentException"><paramref name="safeCode"/> is invalid.</exception>
         public InvalidPayload(BoundedAscii safeCode) => SafeCode = safeCode.IsValid ? safeCode : throw new ArgumentException("A safe code is required.", nameof(safeCode));
         /// <summary>Gets the bounded nonsecret failure code.</summary>
         public BoundedAscii SafeCode { get; }
@@ -175,6 +201,11 @@ public abstract record AppendAuthorityResultV1
     public sealed record CapacityRefused : AppendAuthorityResultV1
     {
         /// <summary>Initializes a capacity refusal.</summary>
+        /// <param name="dimension">The registered exhausted dimension.</param>
+        /// <param name="required">The positive required units.</param>
+        /// <param name="available">The smaller available units.</param>
+        /// <exception cref="ArgumentException"><paramref name="dimension"/> is outside the closed registry.</exception>
+        /// <exception cref="ArgumentOutOfRangeException"><paramref name="required"/> is zero or does not exceed <paramref name="available"/>.</exception>
         public CapacityRefused(CapacityDimensionId dimension, ulong required, ulong available)
         {
             if (!Enum.IsDefined(dimension)) throw new ArgumentException("A registered capacity dimension is required.", nameof(dimension));
@@ -192,6 +223,8 @@ public abstract record AppendAuthorityResultV1
     public sealed record StoreUnavailable : AppendAuthorityResultV1
     {
         /// <summary>Initializes a store-unavailable result.</summary>
+        /// <param name="safeCode">A bounded nonsecret store code.</param>
+        /// <exception cref="ArgumentException"><paramref name="safeCode"/> is invalid.</exception>
         public StoreUnavailable(BoundedAscii safeCode) => SafeCode = safeCode.IsValid ? safeCode : throw new ArgumentException("A safe code is required.", nameof(safeCode));
         /// <summary>Gets the bounded nonsecret failure code.</summary>
         public BoundedAscii SafeCode { get; }
@@ -200,6 +233,8 @@ public abstract record AppendAuthorityResultV1
     public sealed record OutcomeUnknown : AppendAuthorityResultV1
     {
         /// <summary>Initializes an ambiguous outcome.</summary>
+        /// <param name="operationId">The valid operation identity used for reconciliation.</param>
+        /// <exception cref="ArgumentException"><paramref name="operationId"/> is invalid.</exception>
         public OutcomeUnknown(OperationId operationId) => OperationId = operationId.IsValid ? operationId : throw new ArgumentException("An operation identity is required.", nameof(operationId));
         /// <summary>Gets the operation identity used for reconciliation.</summary>
         public OperationId OperationId { get; }
