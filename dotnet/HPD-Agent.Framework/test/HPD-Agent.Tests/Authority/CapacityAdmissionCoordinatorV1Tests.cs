@@ -77,6 +77,24 @@ public sealed class CapacityAdmissionCoordinatorV1Tests
         Assert.Empty(read.Facts);
     }
 
+    [Fact]
+    public async Task Current_reader_reconstructs_only_nonterminal_grant()
+    {
+        var fixture = new Fixture(); var granted = Assert.IsType<CapacityAdmissionResultV1.Granted>(await fixture.ReserveAsync(fixture.Request(4)));
+        var current = Assert.IsType<CapacityGrantReadResultV1.Current>(await CapacityAdmissionCoordinatorV1.ReadCurrentAsync(
+            fixture.Journal, fixture.Session, granted.Grant.GrantId, fixture.Evidence(90)));
+        Assert.Equal(granted.Grant.GrantId, current.Grant.GrantId);
+        Assert.Equal(granted.Grant.OperationId, current.Grant.OperationId);
+        Assert.Equal(granted.Grant.Authority, current.Grant.Authority);
+        Assert.Equal(granted.Grant.GrantedAt, current.Grant.GrantedAt);
+        Assert.Equal(granted.Grant.CurrentFact, current.Grant.CurrentFact);
+        Assert.Equal(granted.Grant.ExpiresAt, current.Grant.ExpiresAt);
+        Assert.Equal(granted.Grant.State, current.Grant.State);
+        Assert.Equal(granted.Grant.Balances, current.Grant.Balances);
+        Assert.IsType<CapacityGrantReadResultV1.NotObserved>(await CapacityAdmissionCoordinatorV1.ReadCurrentAsync(
+            fixture.Journal, fixture.Session, CapacityGrantId.Create(), fixture.Evidence(90)));
+    }
+
     private sealed class Fixture
     {
         private readonly TenantId _tenant = TenantId.Create();

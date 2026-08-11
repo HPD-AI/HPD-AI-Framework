@@ -14,6 +14,16 @@ internal abstract record CapacityAdmissionResultV1
     internal sealed record OutcomeUnknown(JournalFactId FactId, BoundedAscii SafeCode) : CapacityAdmissionResultV1;
 }
 
+internal abstract record CapacityGrantReadResultV1
+{
+    private CapacityGrantReadResultV1() { }
+    internal sealed record Current(CapacityGrantSnapshotV1 Grant) : CapacityGrantReadResultV1;
+    internal sealed record NotObserved(long SnapshotThrough) : CapacityGrantReadResultV1;
+    internal sealed record Inactive(CapacityGrantSnapshotV1 Grant) : CapacityGrantReadResultV1;
+    internal sealed record StaleAuthority(long SnapshotThrough) : CapacityGrantReadResultV1;
+    internal sealed record OutcomeUnknown(BoundedAscii SafeCode) : CapacityGrantReadResultV1;
+}
+
 internal static class CapacityAdmissionCoordinatorV1
 {
     private const ushort ReadItems = AppendAuthorityBatchV1.MaximumItems;
@@ -94,6 +104,34 @@ internal static class CapacityAdmissionCoordinatorV1
         return await AppendAsync(journal, session, verified.Head, proposal, body.GrantId, cancellationToken).ConfigureAwait(false);
     }
 
+    internal static async ValueTask<CapacityGrantReadResultV1> ReadCurrentAsync(IAuthorityJournalV1 journal,
+        SessionAuthorityStampV1 session, CapacityGrantId grantId, MonotonicStampV1 observedAt,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(journal);
+        if (!session.IsValid || !grantId.IsValid || !observedAt.IsValid)
+            throw new ArgumentException("A valid session, grant, and monotonic observation are required.");
+        var snapshot = await ReadSnapshotAsync(journal, session, cancellationToken).ConfigureAwait(false);
+        if (snapshot is not SnapshotResult.Verified verified)
+            return new CapacityGrantReadResultV1.OutcomeUnknown(new BoundedAscii("capacity-snapshot-unknown"));
+        var matches = verified.Grants.Where(value => value.GrantId == grantId).ToArray();
+        if (matches.Length == 0) return new CapacityGrantReadResultV1.NotObserved(verified.Head);
+        if (matches.Length != 1) return new CapacityGrantReadResultV1.OutcomeUnknown(new BoundedAscii("capacity-grant-duplicate"));
+        var grant = matches[0];
+        if (!MatchesCurrent(grant.Authority, verified.Authority)) return new CapacityGrantReadResultV1.StaleAuthority(verified.Head);
+        if (grant.ExpiresAt is CapacityGrantExpiryV1.At at)
+        {
+            var comparison = observedAt.CompareTo(at.Value);
+            if (comparison == ClockComparison.Incomparable)
+                return new CapacityGrantReadResultV1.OutcomeUnknown(new BoundedAscii("capacity-expiry-incomparable"));
+            if (comparison is ClockComparison.Equal or ClockComparison.Later)
+                return new CapacityGrantReadResultV1.Inactive(grant);
+        }
+        return grant.State is CapacityGrantStateV1.Reserved or CapacityGrantStateV1.Active
+            ? new CapacityGrantReadResultV1.Current(grant)
+            : new CapacityGrantReadResultV1.Inactive(grant);
+    }
+
     private static async ValueTask<CapacityAdmissionResultV1> AppendAsync(IAuthorityJournalV1 journal,
         SessionAuthorityStampV1 session, long expectedHead, ProposedAuthorityFactV1 proposal, CapacityGrantId grantId,
         CancellationToken cancellationToken)
@@ -128,7 +166,7 @@ internal static class CapacityAdmissionCoordinatorV1
     private static bool Matches(AuthorityFactEnvelopeV1 envelope, ProposedAuthorityFactV1 proposal, SessionAuthorityStampV1 session) =>
         envelope.Position.Session == session && envelope.FactId == proposal.FactId && envelope.ThreadScope is null &&
         envelope.Owner == proposal.Owner && envelope.PayloadSchema == proposal.PayloadSchema && envelope.PayloadHash == proposal.PayloadHash &&
-        envelope.Payload.SequenceEqual(proposal.Payload) && envelope.Correlation == proposal.Correlation && envelope.ObservedAt == proposal.ObservedAt;
+        envelope.Payload.SequenceEqual(proposal.Payload);
 
     private static CapacityAdmissionResultV1.OutcomeUnknown Unknown(JournalFactId factId, string code) => new(factId, new BoundedAscii(code));
 

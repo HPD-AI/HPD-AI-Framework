@@ -242,8 +242,7 @@ internal static class SessionLifecycleAdmissionCoordinatorV1
     private static bool Matches(AuthorityFactEnvelopeV1 envelope, ProposedAuthorityFactV1 proposal, SessionAuthorityStampV1 session) =>
         envelope.Position.Session == session && envelope.FactId == proposal.FactId && envelope.ThreadScope is null &&
         envelope.Owner == proposal.Owner && envelope.PayloadSchema == proposal.PayloadSchema &&
-        envelope.PayloadHash == proposal.PayloadHash && envelope.Payload.SequenceEqual(proposal.Payload) &&
-        envelope.Correlation == proposal.Correlation && envelope.ObservedAt == proposal.ObservedAt;
+        envelope.PayloadHash == proposal.PayloadHash && envelope.Payload.SequenceEqual(proposal.Payload);
 
     private static SessionLifecycleAdmissionResultV1 MapAppend(AppendAuthorityResultV1 result, JournalFactId factId) => result switch
     {

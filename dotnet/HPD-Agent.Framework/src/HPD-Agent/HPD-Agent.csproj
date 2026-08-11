@@ -72,6 +72,7 @@
 
   <!-- Expose internals to test projects -->
   <ItemGroup>
+    <InternalsVisibleTo Include="HPD.Agent.Audio" />
     <InternalsVisibleTo Include="HPD-Agent.Tests" />
     <InternalsVisibleTo Include="HPD-Agent.Authority.Tests" />
     <InternalsVisibleTo Include="HPD-Agent.LiveAudio.Contracts.Tests" />
