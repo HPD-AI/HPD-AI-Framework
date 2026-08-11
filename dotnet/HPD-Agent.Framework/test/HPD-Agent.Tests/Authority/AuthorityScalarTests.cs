@@ -40,4 +40,11 @@ public sealed class AuthorityScalarTests
         Assert.Equal(hash, parsed);
         Assert.False(Hash256.TryParse(hash.ToString().ToUpperInvariant(), out _));
     }
+
+    [Fact]
+    public void DefaultHash_RemainsValueEqualButHasNoBoundaryText()
+    {
+        Assert.Equal(default(Hash256), default(Hash256));
+        Assert.Equal(string.Empty, default(Hash256).ToString());
+    }
 }

@@ -175,7 +175,8 @@ public readonly struct Hash256 : IEquatable<Hash256>
     }
     /// <summary>Returns canonical lowercase hexadecimal, or an empty string for the invalid default value.</summary>
     public override string ToString() => _bytes is null ? string.Empty : Convert.ToHexString(_bytes).ToLowerInvariant();
-    public bool Equals(Hash256 other) => _bytes is not null && other._bytes is not null && _bytes.AsSpan().SequenceEqual(other._bytes);
+    public bool Equals(Hash256 other) =>
+        _bytes is null ? other._bytes is null : other._bytes is not null && _bytes.AsSpan().SequenceEqual(other._bytes);
     public override bool Equals(object? obj) => obj is Hash256 other && Equals(other);
     public override int GetHashCode() => _bytes is null ? 0 : HashCode.Combine(BinaryPrimitives.ReadUInt64BigEndian(_bytes), BinaryPrimitives.ReadUInt64BigEndian(_bytes.AsSpan(24)));
     public static bool operator ==(Hash256 left, Hash256 right) => left.Equals(right);
