@@ -26,7 +26,7 @@ public static class GatewayServiceCollectionExtensions
         staged.AddHpdGatewayYarpMaterialization();
         staged.AddHpdGatewayStatus();
 
-        var builder = new GatewayBuilder(staged);
+        var builder = new GatewayBuilder(staged, services);
         configure(builder);
         var state = builder.Seal();
         staged.AddSingleton(state);

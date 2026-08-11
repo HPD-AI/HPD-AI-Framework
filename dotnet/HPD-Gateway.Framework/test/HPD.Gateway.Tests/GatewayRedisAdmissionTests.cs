@@ -1,5 +1,6 @@
 using FluentAssertions;
 using System.Net;
+using System.Threading.RateLimiting;
 using HPD.Gateway;
 using HPD.Gateway.Admission.Redis;
 using Microsoft.Extensions.DependencyInjection;
@@ -170,5 +171,75 @@ public sealed class GatewayRedisAdmissionTests
         var invalid = request with { PartitionKey = "partition-invalid", SegmentsPerWindow = 65, AttemptId = new string('c', 32) };
         (await provider.AcquireAsync(invalid, default)).Kind.Should().Be(GatewaySharedAdmissionDecisionKind.UnavailableBeforePossibleCommit);
         (await connection.GetDatabase(snapshot.Database).KeyExistsAsync(provider.BuildKey(invalid))).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Full_host_lifecycle_disposes_only_the_HPD_owned_connection()
+    {
+        string? endpoint = Environment.GetEnvironmentVariable("HPD_GATEWAY_REDIS");
+        if (endpoint is null) return;
+
+        var ownedServices = new ServiceCollection();
+        ownedServices.AddLogging();
+        ownedServices.AddHpdGateway(gateway => gateway.EnableCoreDeclarations().AddTrafficAdmission(admission =>
+        {
+            admission.UseRedis("redis", options =>
+            {
+                options.AuthorityId = "deployment-a";
+                options.Configuration = endpoint;
+            });
+            admission.AddSharedFixedWindow("shared", "redis");
+        }));
+        ServiceProvider ownedHost = ownedServices.BuildServiceProvider();
+        GatewayTrafficAdmissionRegistry ownedRegistry = ownedHost.GetRequiredService<GatewayTrafficAdmissionRegistry>();
+        ownedRegistry.TryGet("shared", out GatewayAdmissionProfileRuntime ownedRuntime).Should().BeTrue();
+        using (RateLimitLease lease = await ownedRuntime.AcquireAsync(
+            new FixedWindowAdmissionEntry { Profile = "shared", PermitLimit = 10, Window = TimeSpan.FromSeconds(1) },
+            $"owned-{Guid.NewGuid():N}", default))
+            lease.IsAcquired.Should().BeTrue();
+        IGatewayRedisAdmissionHealth ownedHealth = ownedHost.GetRequiredService<IGatewayRedisAdmissionHealth>();
+        ownedHealth.GetSnapshot().IsConnected.Should().BeTrue();
+        ownedHost.Dispose();
+        ownedHealth.GetSnapshot().IsConnected.Should().BeFalse();
+
+        using IConnectionMultiplexer connection = await ConnectionMultiplexer.ConnectAsync(endpoint);
+        var hostServices = new ServiceCollection();
+        hostServices.AddLogging();
+        hostServices.AddKeyedSingleton<IConnectionMultiplexer>("authority", connection);
+        hostServices.AddHpdGateway(gateway => gateway.EnableCoreDeclarations().AddTrafficAdmission(admission =>
+        {
+            admission.UseRedis("redis", options =>
+            {
+                options.AuthorityId = "deployment-a";
+                options.ConnectionKey = "authority";
+            });
+            admission.AddSharedFixedWindow("shared", "redis");
+        }));
+        ServiceProvider host = hostServices.BuildServiceProvider();
+        _ = host.GetRequiredService<GatewayTrafficAdmissionRegistry>();
+        host.Dispose();
+        connection.IsConnected.Should().BeTrue("HPD never owns a keyed host multiplexer");
+    }
+
+    [Fact]
+    public async Task Failed_registry_build_disposes_the_staged_official_provider()
+    {
+        var services = new ServiceCollection();
+        var builder = new GatewayTrafficAdmissionRegistryBuilder(services);
+        builder.UseRedis("redis", options =>
+        {
+            options.AuthorityId = "deployment-a";
+            options.Configuration = "127.0.0.1:1,abortConnect=false,connectTimeout=10";
+        });
+        GatewayRedisAdmissionProvider provider = services
+            .Single(descriptor => descriptor.ServiceType == typeof(IGatewayRedisAdmissionHealth))
+            .ImplementationInstance.Should().BeOfType<GatewayRedisAdmissionProvider>().Subject;
+
+        FluentActions.Invoking(() => builder.Build()).Should().Throw<InvalidOperationException>();
+        GatewaySharedAdmissionDecision result = await provider.AcquireAsync(new GatewaySharedAdmissionRequest(
+            1, "redis", "deployment-a", "shared", new ContentHash("sha-256", new string('a', 64)), "partition",
+            TrafficAdmissionRateAlgorithm.FixedWindow, 1, 0, 1_000, 0, 1, new string('b', 32)), default);
+        result.Kind.Should().Be(GatewaySharedAdmissionDecisionKind.UnavailableBeforePossibleCommit);
+        result.DiagnosticCode.Should().Be("redis-provider-disposed");
     }
 }

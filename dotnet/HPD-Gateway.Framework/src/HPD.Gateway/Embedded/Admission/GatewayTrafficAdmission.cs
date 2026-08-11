@@ -33,11 +33,16 @@ public sealed class GatewayTrafficAdmissionRegistryBuilder
     private readonly Dictionary<string, GatewaySharedAdmissionProviderRegistration> _providers = new(StringComparer.Ordinal);
     private TimeProvider _timeProvider = TimeProvider.System;
 
-    public GatewayTrafficAdmissionRegistryBuilder() : this(new ServiceCollection()) { }
+    public GatewayTrafficAdmissionRegistryBuilder() : this(new ServiceCollection(), null) { }
 
-    internal GatewayTrafficAdmissionRegistryBuilder(IServiceCollection services) => Services = services;
+    internal GatewayTrafficAdmissionRegistryBuilder(IServiceCollection services, IServiceCollection? hostServices = null)
+    {
+        Services = services;
+        HostServices = hostServices ?? services;
+    }
 
     internal IServiceCollection Services { get; }
+    internal IServiceCollection HostServices { get; }
 
     public GatewayTrafficAdmissionRegistryBuilder UseTimeProvider(TimeProvider timeProvider)
     {
@@ -71,7 +76,20 @@ public sealed class GatewayTrafficAdmissionRegistryBuilder
     public GatewayTrafficAdmissionRegistryBuilder AddSharedProvider(
         string providerId,
         IGatewaySharedAdmissionProvider provider,
-        Action<GatewaySharedAdmissionProviderOptions> configure)
+        Action<GatewaySharedAdmissionProviderOptions> configure) =>
+        AddSharedProviderCore(providerId, provider, configure, ownsProvider: false);
+
+    internal GatewayTrafficAdmissionRegistryBuilder AddOwnedSharedProvider(
+        string providerId,
+        IGatewaySharedAdmissionProvider provider,
+        Action<GatewaySharedAdmissionProviderOptions> configure) =>
+        AddSharedProviderCore(providerId, provider, configure, ownsProvider: true);
+
+    private GatewayTrafficAdmissionRegistryBuilder AddSharedProviderCore(
+        string providerId,
+        IGatewaySharedAdmissionProvider provider,
+        Action<GatewaySharedAdmissionProviderOptions> configure,
+        bool ownsProvider)
     {
         ArgumentNullException.ThrowIfNull(provider);
         ArgumentNullException.ThrowIfNull(configure);
@@ -88,7 +106,7 @@ public sealed class GatewayTrafficAdmissionRegistryBuilder
         ValidateProvider(options);
         _providers.Add(providerId, new GatewaySharedAdmissionProviderRegistration(
             providerId, options.AuthorityId, options.BehaviorIdentity, options.OperationTimeout,
-            options.MaximumConcurrentInvocations, provider));
+            options.MaximumConcurrentInvocations, provider, ownsProvider));
         return this;
     }
 
@@ -143,6 +161,17 @@ public sealed class GatewayTrafficAdmissionRegistryBuilder
     }
 
     internal GatewayTrafficAdmissionRegistry Build()
+    {
+        try { return BuildCore(); }
+        catch
+        {
+            foreach (GatewaySharedAdmissionProviderRegistration provider in _providers.Values)
+                provider.DisposeIfOwned();
+            throw;
+        }
+    }
+
+    private GatewayTrafficAdmissionRegistry BuildCore()
     {
         foreach (GatewayAdmissionProfileRegistration profile in _profiles)
         {
@@ -306,7 +335,8 @@ internal sealed class GatewaySharedAdmissionProviderRegistration(
     ContentHash behaviorIdentity,
     TimeSpan operationTimeout,
     int maximumConcurrentInvocations,
-    IGatewaySharedAdmissionProvider provider)
+    IGatewaySharedAdmissionProvider provider,
+    bool ownsProvider)
 {
     internal string ProviderId { get; } = providerId;
     internal string AuthorityId { get; } = authorityId;
@@ -314,6 +344,15 @@ internal sealed class GatewaySharedAdmissionProviderRegistration(
     internal TimeSpan OperationTimeout { get; } = operationTimeout;
     internal int MaximumConcurrentInvocations { get; } = maximumConcurrentInvocations;
     internal IGatewaySharedAdmissionProvider Provider { get; } = provider;
+    internal bool OwnsProvider { get; } = ownsProvider;
+    private int _disposed;
+
+    internal void DisposeIfOwned()
+    {
+        if (!OwnsProvider || Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        try { (Provider as IDisposable)?.Dispose(); }
+        catch { }
+    }
 }
 
 internal sealed class GatewayTrafficAdmissionRegistry(
@@ -862,6 +901,7 @@ internal sealed class GatewaySharedAdmissionProviderRuntime : IDisposable
     {
         Interlocked.Decrement(ref _active);
         _capacity.Release();
+        TryDisposeProvider();
     }
 
     internal GatewaySharedAdmissionProviderStatistics GetStatistics() => new(
@@ -874,7 +914,17 @@ internal sealed class GatewaySharedAdmissionProviderRuntime : IDisposable
         var cancel = false;
         lock (_dispatchGate)
             cancel = Interlocked.Exchange(ref _disposed, 1) == 0;
-        if (cancel) SignalCancellation(_disposeCancellation);
+        if (cancel)
+        {
+            SignalCancellation(_disposeCancellation);
+            TryDisposeProvider();
+        }
+    }
+
+    private void TryDisposeProvider()
+    {
+        if (Volatile.Read(ref _disposed) != 0 && Volatile.Read(ref _active) == 0)
+            _registration.DisposeIfOwned();
     }
 
     private static void SignalCancellation(CancellationTokenSource source)

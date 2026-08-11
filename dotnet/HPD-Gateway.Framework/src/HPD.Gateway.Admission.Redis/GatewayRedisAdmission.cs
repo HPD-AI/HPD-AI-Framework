@@ -48,11 +48,11 @@ public static class GatewayRedisAdmissionExtensions
         GatewayRedisAdmissionSnapshot snapshot = GatewayRedisAdmissionSnapshot.Create(providerId, mutable);
         IConnectionMultiplexer? hostConnection = snapshot.ConnectionKey is null
             ? null
-            : ResolveKeyedConnection(admission.Services, snapshot.ConnectionKey);
+            : ResolveKeyedConnection(admission.HostServices, snapshot.ConnectionKey);
         var provider = new GatewayRedisAdmissionProvider(snapshot, hostConnection);
         try
         {
-            admission.AddSharedProvider(providerId, provider, options =>
+            admission.AddOwnedSharedProvider(providerId, provider, options =>
             {
                 options.AuthorityId = snapshot.AuthorityId;
                 options.BehaviorIdentity = snapshot.BehaviorIdentity;

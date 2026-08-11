@@ -477,6 +477,71 @@ public sealed class GatewayTrafficAdmissionTests
     }
 
     [Fact]
+    public void One_deployment_profile_has_one_exact_behavior_across_definitions_root_and_routes()
+    {
+        var registryBuilder = new GatewayTrafficAdmissionRegistryBuilder();
+        registryBuilder.AddSharedProvider("provider", new AlwaysAcquiredProvider(), options =>
+        {
+            options.AuthorityId = "deployment-a";
+            options.BehaviorIdentity = Hash('b');
+        });
+        registryBuilder.AddSharedFixedWindow("shared", "provider");
+        using GatewayTrafficAdmissionRegistry registry = registryBuilder.Build();
+        HostCapabilitySnapshot capabilities = HostCapabilitySnapshot.Create(new HostCapabilityRegistration
+        {
+            InstalledFamilies = GatewayDeclarationFamilies.TrafficAdmission,
+            TrafficAdmissionProfiles = registry.Capabilities,
+        });
+        GatewayConfiguration baseline = GatewayConfigurationTests.CreateValidConfiguration();
+        var shared = new TrafficAdmissionPlan
+        {
+            Entries = [new FixedWindowAdmissionEntry { Profile = "shared", PermitLimit = 100, Window = TimeSpan.FromMinutes(1) }]
+        };
+        var definitionId = new DefinitionId("shared-definition");
+        var definitionReference = new DeclarationReference<TrafficAdmissionPlan> { Definition = definitionId };
+        RouteDeclaration first = baseline.Routes[0] with
+        {
+            Declarations = new RouteDeclarations { TrafficAdmission = definitionReference }
+        };
+        RouteDeclaration second = baseline.Routes[0] with
+        {
+            Id = new RouteId("orders-secondary"),
+            Match = new HttpRouteMatch { Path = "/secondary/{**catch-all}" },
+            Declarations = new RouteDeclarations { TrafficAdmission = new DeclarationReference<TrafficAdmissionPlan> { Inline = shared } }
+        };
+        var configuration = baseline with
+        {
+            Definitions = new GatewayDefinitions
+            {
+                TrafficAdmission = [new DeclarationDefinition<TrafficAdmissionPlan> { Id = definitionId, Specification = shared }]
+            },
+            RootDefaults = new GatewayRootDeclarations { TrafficAdmission = definitionReference },
+            Routes = [first, second],
+        };
+
+        GatewayCandidateValidator.Validate(configuration, capabilities).IsValid.Should().BeTrue();
+
+        TrafficAdmissionPlan conflicting = shared with
+        {
+            Entries = [new FixedWindowAdmissionEntry { Profile = "shared", PermitLimit = 101, Window = TimeSpan.FromMinutes(1) }]
+        };
+        GatewayConfiguration invalid = configuration with
+        {
+            Routes = [first, second with
+            {
+                Declarations = new RouteDeclarations
+                {
+                    TrafficAdmission = new DeclarationReference<TrafficAdmissionPlan> { Inline = conflicting }
+                }
+            }]
+        };
+        GatewayValidationResult result = GatewayCandidateValidator.Validate(invalid, capabilities);
+        result.IsValid.Should().BeFalse();
+        result.Errors.Should().Contain(error => error.Path == "routes[1].declarations.trafficAdmission.entries[0]" &&
+            error.Message.Contains("conflicting candidate behavior", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task Aspnet_two_phase_flow_executes_gateway_plan_once_and_leaves_unselected_endpoints_alone()
     {
         var registryBuilder = new GatewayTrafficAdmissionRegistryBuilder();
@@ -605,6 +670,20 @@ public sealed class GatewayTrafficAdmissionTests
             await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
             throw new UnreachableException();
         }
+    }
+
+    private sealed class AlwaysAcquiredProvider : IGatewaySharedAdmissionProvider
+    {
+        public ValueTask<GatewaySharedAdmissionDecision> AcquireAsync(
+            GatewaySharedAdmissionRequest request,
+            CancellationToken cancellationToken) =>
+            ValueTask.FromResult(new GatewaySharedAdmissionDecision(
+                GatewaySharedAdmissionDecisionKind.Acquired,
+                request.PermitLimit - request.PermitCount,
+                null,
+                request.WindowMilliseconds,
+                "accepted",
+                null));
     }
 
     private sealed class ManualTimeProvider(long unixMilliseconds) : TimeProvider

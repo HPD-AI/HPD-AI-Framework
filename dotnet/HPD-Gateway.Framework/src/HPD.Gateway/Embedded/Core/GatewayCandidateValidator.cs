@@ -34,7 +34,57 @@ internal static class GatewayCandidateValidator
         ValidateCredentialDisposition(configuration, capabilities, errors);
         ValidateOutputCache(configuration, capabilities, errors);
         ValidateUpstreamCapabilities(configuration, capabilities, errors);
+        ValidateSharedAdmissionBehavior(configuration, capabilities, errors);
         return new GatewayValidationResult { Errors = errors.ToImmutable() };
+    }
+
+    private static void ValidateSharedAdmissionBehavior(
+        GatewayConfiguration configuration,
+        HostCapabilitySnapshot capabilities,
+        ImmutableArray<GatewayValidationError>.Builder errors)
+    {
+        var observed = new Dictionary<string, (string Behavior, string Path)>(StringComparer.Ordinal);
+        if (configuration.Definitions?.TrafficAdmission is { IsDefault: false } definitions)
+            for (var index = 0; index < definitions.Length; index++)
+                Observe(definitions[index]?.Specification, $"definitions.trafficAdmission[{index}].specification");
+
+        Observe(ResolveValue(configuration.RootDefaults?.TrafficAdmission, configuration.Definitions?.TrafficAdmission ?? []),
+            "rootDefaults.trafficAdmission");
+        for (var index = 0; index < configuration.Routes.Length; index++)
+        {
+            DeclarationReference<TrafficAdmissionPlan>? selected = configuration.Routes[index]?.Declarations?.TrafficAdmission ??
+                configuration.RootDefaults?.TrafficAdmission;
+            Observe(ResolveValue(selected, configuration.Definitions?.TrafficAdmission ?? []),
+                $"routes[{index}].declarations.trafficAdmission");
+        }
+
+        void Observe(TrafficAdmissionPlan? plan, string path)
+        {
+            if (plan?.Entries.IsDefault != false) return;
+            for (var index = 0; index < plan.Entries.Length; index++)
+            {
+                TrafficAdmissionEntry? entry = plan.Entries[index];
+                if (entry is null || !capabilities.TrafficAdmissionProfiles.TryGetValue(entry.ProfileName, out var capability) ||
+                    capability.Scope != TrafficAdmissionScope.Deployment)
+                    continue;
+                string behavior = Normalize(entry);
+                string entryPath = $"{path}.entries[{index}]";
+                if (observed.TryGetValue(entry.ProfileName, out var prior) && !StringComparer.Ordinal.Equals(prior.Behavior, behavior))
+                    Add(errors, GatewayValidationErrorCode.InvalidValue, entryPath,
+                        $"Deployment traffic-admission profile '{entry.ProfileName}' has conflicting candidate behavior; first observed at {prior.Path}.");
+                else
+                    observed.TryAdd(entry.ProfileName, (behavior, entryPath));
+            }
+        }
+
+        static string Normalize(TrafficAdmissionEntry entry) => entry switch
+        {
+            FixedWindowAdmissionEntry value => string.Join('|', "fixed", value.PermitLimit, value.Window.Ticks),
+            SlidingWindowAdmissionEntry value => string.Join('|', "sliding", value.PermitLimit, value.Window.Ticks, value.SegmentsPerWindow),
+            TokenBucketAdmissionEntry value => string.Join('|', "token", value.TokenLimit, value.TokensPerPeriod, value.ReplenishmentPeriod.Ticks),
+            ConcurrencyAdmissionEntry value => string.Join('|', "concurrency", value.PermitLimit, value.QueueLimit),
+            _ => $"unknown|{entry.GetType().FullName}",
+        };
     }
 
     private static void ValidateUpstreamCapabilities(GatewayConfiguration configuration, HostCapabilitySnapshot capabilities, ImmutableArray<GatewayValidationError>.Builder errors)

@@ -23,9 +23,14 @@ public sealed class GatewayBuilder
     private readonly HashSet<string> _requestTimeoutPolicies = new(StringComparer.Ordinal);
     private bool _allowInspectionFileSpill;
 
-    internal GatewayBuilder(IServiceCollection services) => Services = services;
+    internal GatewayBuilder(IServiceCollection services, IServiceCollection? hostServices = null)
+    {
+        Services = services;
+        HostServices = hostServices ?? services;
+    }
 
     internal IServiceCollection Services { get; }
+    internal IServiceCollection HostServices { get; }
 
     public GatewayBuilder EnableCoreDeclarations()
     {
@@ -106,13 +111,13 @@ public sealed class GatewayBuilder
         ArgumentNullException.ThrowIfNull(configure);
         if (_trafficAdmission is not null)
             throw new InvalidOperationException("Traffic admission is already registered.");
-        var builder = new GatewayTrafficAdmissionRegistryBuilder(Services);
+        var builder = new GatewayTrafficAdmissionRegistryBuilder(Services, HostServices);
         configure(builder);
         var registry = builder.Build();
         if (registry.Capabilities.IsEmpty)
             throw new InvalidOperationException("At least one traffic-admission profile must be registered.");
         _trafficAdmission = registry;
-        Services.AddSingleton(registry);
+        Services.AddSingleton<GatewayTrafficAdmissionRegistry>(_ => registry);
         _installedFamilies |= GatewayDeclarationFamilies.TrafficAdmission;
         return this;
     }
