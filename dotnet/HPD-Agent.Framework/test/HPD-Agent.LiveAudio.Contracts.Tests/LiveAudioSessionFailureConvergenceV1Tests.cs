@@ -96,6 +96,32 @@ public sealed class LiveAudioSessionFailureConvergenceV1Tests
         Assert.IsType<LiveAudioSessionFailureConvergenceResultV1.OutcomeUnknown>(
             await LiveAudioSessionFailureConvergenceV1.ConvergeAsync(
                 faulting, abandoned.Abandonment, new UtcInstant(200)));
+        var recovered = await LiveAudioSessionFailureConvergenceV1.ConvergeAsync(
+            fixture.Journal, abandoned.Abandonment, new UtcInstant(201));
+        Assert.True(recovered is LiveAudioSessionFailureConvergenceResultV1.Completed
+            or LiveAudioSessionFailureConvergenceResultV1.AlreadyCompleted);
+        Assert.Equal(before + 6, (await fixture.FactsAsync()).Count);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    [InlineData(5)]
+    [InlineData(6)]
+    public async Task Failure_before_each_command_or_result_append_recovers_without_a_phantom_fact(int failBeforeAppend)
+    {
+        var fixture = await LiveAudioSessionPreparationSupervisorV1Tests.Fixture.CreateAsync();
+        var abandoned = Assert.IsType<LiveAudioSessionPreparationResultV1.ReservedNeedsConvergence>(
+            await fixture.PrepareAsync(new LiveAudioParticipantFactoryCatalogV1([new RefusingFactory([])])));
+        var before = (await fixture.FactsAsync()).Count;
+        var faulting = new ThrowBeforeAppendJournal(fixture.Journal, failBeforeAppend);
+
+        Assert.IsType<LiveAudioSessionFailureConvergenceResultV1.OutcomeUnknown>(
+            await LiveAudioSessionFailureConvergenceV1.ConvergeAsync(
+                faulting, abandoned.Abandonment, new UtcInstant(200)));
+        Assert.Equal(before + failBeforeAppend - 1, (await fixture.FactsAsync()).Count);
 
         var recovered = await LiveAudioSessionFailureConvergenceV1.ConvergeAsync(
             fixture.Journal, abandoned.Abandonment, new UtcInstant(201));
@@ -129,6 +155,23 @@ public sealed class LiveAudioSessionFailureConvergenceV1Tests
                 throw new IOException("fixture crash after durable append");
             }
             return result;
+        }
+
+        public ValueTask<ReadAuthorityRangeResultV1> ReadAsync(
+            ReadAuthorityRangeV1 request, CancellationToken cancellationToken = default) =>
+            inner.ReadAsync(request, cancellationToken);
+    }
+
+    private sealed class ThrowBeforeAppendJournal(IAuthorityJournalV1 inner, int throwBeforeAppend) : IAuthorityJournalV1
+    {
+        private int _appendCount;
+
+        public ValueTask<AppendAuthorityResultV1> AppendAsync(
+            AppendAuthorityBatchV1 request, CancellationToken cancellationToken = default)
+        {
+            if (Interlocked.Increment(ref _appendCount) == throwBeforeAppend)
+                throw new IOException("fixture failure before append");
+            return inner.AppendAsync(request, cancellationToken);
         }
 
         public ValueTask<ReadAuthorityRangeResultV1> ReadAsync(
