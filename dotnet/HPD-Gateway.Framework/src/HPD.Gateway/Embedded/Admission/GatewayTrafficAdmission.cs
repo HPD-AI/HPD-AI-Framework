@@ -87,7 +87,10 @@ public sealed class GatewayTrafficAdmissionRegistryBuilder
             var limits = new TrafficAdmissionLimits(profile.Options.MinimumLimit, profile.Options.MaximumLimit,
                 profile.Kind == TrafficAdmissionKind.RequestRate ? profile.Options.MinimumPeriod : null,
                 profile.Kind == TrafficAdmissionKind.RequestRate ? profile.Options.MaximumPeriod : null,
-                profile.Options.MinimumSegments, profile.Options.MaximumSegments, profile.Options.MinimumQueue, profile.Options.MaximumQueue);
+                profile.Algorithm == TrafficAdmissionRateAlgorithm.SlidingWindow ? profile.Options.MinimumSegments : 0,
+                profile.Algorithm == TrafficAdmissionRateAlgorithm.SlidingWindow ? profile.Options.MaximumSegments : 0,
+                profile.Kind == TrafficAdmissionKind.Concurrency ? profile.Options.MinimumQueue : 0,
+                profile.Kind == TrafficAdmissionKind.Concurrency ? profile.Options.MaximumQueue : 0);
             var identityText = string.Join('|', profile.Name, profile.Kind, profile.Algorithm, profile.Options.Partition,
                 limits.MinimumLimit, limits.MaximumLimit, limits.MinimumPeriod?.Ticks, limits.MaximumPeriod?.Ticks,
                 limits.MinimumSegments, limits.MaximumSegments, limits.MinimumQueue, limits.MaximumQueue,
@@ -329,7 +332,8 @@ internal sealed class GatewayAdmissionProfileRuntime : IDisposable
             case TrafficAdmissionPartitionKind.Tenant:
             case TrafficAdmissionPartitionKind.Consumer:
             case TrafficAdmissionPartitionKind.Custom:
-                if (context.User.Identity?.IsAuthenticated != true || _projector is null)
+                if (_projector is null ||
+                    (Capability.Partition != TrafficAdmissionPartitionKind.Custom && context.User.Identity?.IsAuthenticated != true))
                     return GatewayProjectedPartition.Failed("PartitionUnavailable");
                 try
                 {

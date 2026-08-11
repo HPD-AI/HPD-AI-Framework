@@ -269,7 +269,7 @@ public sealed class HostCapabilitySnapshot
         var profiles = ImmutableDictionary.CreateBuilder<string, TrafficAdmissionCapability>(StringComparer.Ordinal);
         foreach (var profile in values)
         {
-            if (profile is null || !GatewayIdentifier.IsCanonical(profile.Name) || profile.ContractVersion == 0 ||
+            if (profile is null || !GatewayIdentifier.IsCanonical(profile.Name) || profile.ContractVersion != 1 ||
                 !Enum.IsDefined(profile.Scope) || !Enum.IsDefined(profile.Kind) || !Enum.IsDefined(profile.Partition) ||
                 !Enum.IsDefined(profile.FailureDisposition) || string.IsNullOrWhiteSpace(profile.AuthorityId) ||
                 profile.AuthorityId.Length > 256 || profile.BehaviorIdentity.Algorithm != "sha-256" ||
@@ -283,7 +283,7 @@ public sealed class HostCapabilitySnapshot
                   !projectorHash.Value.All(static c => c is >= '0' and <= '9' or >= 'a' and <= 'f'))) ||
                 (!RequiresAdmissionProjector(profile.Partition) &&
                  (profile.PartitionProjectorId is not null || profile.PartitionProjectorIdentity is not null)) ||
-                (profile.Kind == TrafficAdmissionKind.RequestRate) != profile.RateAlgorithm.HasValue ||
+                !IsValidAdmissionShape(profile) ||
                 (profile.AcquisitionOrdinal.HasValue != (profile.Kind == TrafficAdmissionKind.Concurrency)) ||
                 !profiles.TryAdd(profile.Name, profile))
                 throw new ArgumentException("Traffic-admission capabilities are invalid, unsupported, or duplicated.", nameof(values));
@@ -297,6 +297,41 @@ public sealed class HostCapabilitySnapshot
     private static bool RequiresAdmissionProjector(TrafficAdmissionPartitionKind partition) => partition is
         TrafficAdmissionPartitionKind.AuthenticatedSubject or TrafficAdmissionPartitionKind.Tenant or
         TrafficAdmissionPartitionKind.Consumer or TrafficAdmissionPartitionKind.Custom;
+
+    private static bool IsValidAdmissionShape(TrafficAdmissionCapability profile)
+    {
+        if (profile.Limits is not { } limits ||
+            limits.MinimumLimit is < 1 or > 100_000_000 ||
+            limits.MaximumLimit < limits.MinimumLimit || limits.MaximumLimit > 100_000_000)
+            return false;
+
+        if (profile.Kind == TrafficAdmissionKind.Concurrency)
+        {
+            return profile.RateAlgorithm is null && limits.MinimumPeriod is null && limits.MaximumPeriod is null &&
+                limits.MinimumSegments == 0 && limits.MaximumSegments == 0 &&
+                limits.MinimumQueue is >= 0 and <= 100_000 &&
+                limits.MaximumQueue >= limits.MinimumQueue && limits.MaximumQueue <= 100_000;
+        }
+
+        if (profile.Kind != TrafficAdmissionKind.RequestRate || profile.RateAlgorithm is not { } algorithm ||
+            !Enum.IsDefined(algorithm) || limits.MinimumPeriod is not { } minimumPeriod ||
+            limits.MaximumPeriod is not { } maximumPeriod || minimumPeriod > maximumPeriod ||
+            maximumPeriod > TimeSpan.FromDays(1) || minimumPeriod.Ticks % TimeSpan.TicksPerMillisecond != 0 ||
+            maximumPeriod.Ticks % TimeSpan.TicksPerMillisecond != 0 ||
+            limits.MinimumQueue != 0 || limits.MaximumQueue != 0)
+            return false;
+
+        var minimumAllowed = algorithm == TrafficAdmissionRateAlgorithm.TokenBucket
+            ? TimeSpan.FromMilliseconds(100)
+            : TimeSpan.FromSeconds(1);
+        if (minimumPeriod < minimumAllowed)
+            return false;
+
+        return algorithm == TrafficAdmissionRateAlgorithm.SlidingWindow
+            ? limits.MinimumSegments is >= 2 and <= 64 &&
+              limits.MaximumSegments >= limits.MinimumSegments && limits.MaximumSegments <= 64
+            : limits.MinimumSegments == 0 && limits.MaximumSegments == 0;
+    }
 
     private static ImmutableDictionary<string, UpstreamResilienceCapability> ResilienceProfiles(IEnumerable<UpstreamResilienceCapability> values)
     {

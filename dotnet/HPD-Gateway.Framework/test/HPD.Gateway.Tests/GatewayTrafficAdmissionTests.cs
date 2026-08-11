@@ -193,18 +193,18 @@ public sealed class GatewayTrafficAdmissionTests
             builder => builder.AddLocalFixedWindow("source", options => options.Partition = TrafficAdmissionPartitionKind.SourceIp),
             new FixedWindowAdmissionEntry { Profile = "source", PermitLimit = 1, Window = TimeSpan.FromMinutes(1) });
         var capacityPlan = new TrafficAdmissionPlan { Entries = [new FixedWindowAdmissionEntry { Profile = "source", PermitLimit = 1, Window = TimeSpan.FromMinutes(1) }] };
-        for (var index = 0; index < 4_096; index++)
+        var acquisitions = Enumerable.Range(1, 4_097).Select(index =>
         {
             var context = Context(capacityPlan);
-            context.Connection.RemoteIpAddress = IPAddress.Parse($"2001:db8::{index + 1:x}");
-            (await capacityLimiter.AcquireAsync(context)).IsAcquired.Should().BeTrue();
-        }
-        var overflow = Context(capacityPlan);
-        overflow.Connection.RemoteIpAddress = IPAddress.Parse("2001:db8::1001");
-        using var overflowLease = await capacityLimiter.AcquireAsync(overflow);
-        overflowLease.IsAcquired.Should().BeFalse();
+            context.Connection.RemoteIpAddress = IPAddress.Parse($"2001:db8::{index:x}");
+            return capacityLimiter.AcquireAsync(context).AsTask();
+        }).ToArray();
+        RateLimitLease[] results = await Task.WhenAll(acquisitions);
+        results.Count(static lease => lease.IsAcquired).Should().Be(4_096);
+        var overflowLease = results.Single(static lease => !lease.IsAcquired);
         overflowLease.TryGetMetadata(GatewayAdmissionMetadata.Outcome, out var overflowOutcome).Should().BeTrue();
         overflowOutcome.Should().Be(GatewayAdmissionOutcome.Infrastructure);
+        foreach (var lease in results) lease.Dispose();
     }
 
     [Fact]
@@ -212,16 +212,41 @@ public sealed class GatewayTrafficAdmissionTests
     {
         var projector = new CountingProjector(GatewayAdmissionPartitionResult.Success("tenant-a"));
         var (limiter, context) = CreateProjected(projector);
-        context.User = new ClaimsPrincipal(new ClaimsIdentity([], "test"));
         using (var acquired = await limiter.AcquireAsync(context))
             acquired.IsAcquired.Should().BeTrue();
         projector.Calls.Should().Be(1);
+        var authenticatedContext = Context(context.GetEndpoint()!.Metadata.GetMetadata<GatewayTrafficAdmissionMetadata>()!.Plan);
+        authenticatedContext.User = new ClaimsPrincipal(new ClaimsIdentity([], "test"));
+        using (var acquired = await limiter.AcquireAsync(authenticatedContext))
+            acquired.IsAcquired.Should().BeTrue();
+        projector.Calls.Should().Be(2);
 
-        var malformed = new CountingProjector(GatewayAdmissionPartitionResult.Success(new string('x', 257)));
+        var exact = new CountingProjector(GatewayAdmissionPartitionResult.Success(new string('x', 254) + "é"));
+        var (exactLimiter, exactContext) = CreateProjected(exact);
+        using (var acquired = await exactLimiter.AcquireAsync(exactContext))
+            acquired.IsAcquired.Should().BeTrue();
+
+        var malformed = new CountingProjector(GatewayAdmissionPartitionResult.Success(new string('x', 255) + "é"));
         var (malformedLimiter, malformedContext) = CreateProjected(malformed);
-        malformedContext.User = context.User;
         using (var rejected = await malformedLimiter.AcquireAsync(malformedContext))
         {
+            rejected.IsAcquired.Should().BeFalse();
+            rejected.TryGetMetadata(GatewayAdmissionMetadata.Outcome, out var outcome).Should().BeTrue();
+            outcome.Should().Be(GatewayAdmissionOutcome.Infrastructure);
+        }
+
+        foreach (var invalid in new GatewayAdmissionPartitionResult[]
+        {
+            GatewayAdmissionPartitionResult.Success(""),
+            GatewayAdmissionPartitionResult.Success("e\u0301"),
+            new("dual", GatewayAdmissionPartitionFailure.Invalid),
+            GatewayAdmissionPartitionResult.Failed(GatewayAdmissionPartitionFailure.Unavailable),
+            GatewayAdmissionPartitionResult.Failed(GatewayAdmissionPartitionFailure.Invalid),
+            GatewayAdmissionPartitionResult.Failed(GatewayAdmissionPartitionFailure.Canceled)
+        })
+        {
+            var (invalidLimiter, invalidContext) = CreateProjected(new CountingProjector(invalid));
+            using var rejected = await invalidLimiter.AcquireAsync(invalidContext);
             rejected.IsAcquired.Should().BeFalse();
             rejected.TryGetMetadata(GatewayAdmissionMetadata.Outcome, out var outcome).Should().BeTrue();
             outcome.Should().Be(GatewayAdmissionOutcome.Infrastructure);
@@ -303,6 +328,58 @@ public sealed class GatewayTrafficAdmissionTests
         (await limiter.AcquireAsync(Context(newPlan))).IsAcquired.Should().BeTrue();
         (await limiter.AcquireAsync(Context(newPlan))).IsAcquired.Should().BeTrue();
         (await limiter.AcquireAsync(Context(newPlan))).IsAcquired.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Host_capability_admission_rejects_every_malformed_typed_limits_shape()
+    {
+        var baseline = TrafficAdmissionTestData.Capability("rate");
+        TrafficAdmissionCapability[] malformed =
+        [
+            baseline with { ContractVersion = 2 },
+            baseline with { RateAlgorithm = (TrafficAdmissionRateAlgorithm)255 },
+            baseline with { Limits = null! },
+            baseline with { Limits = baseline.Limits with { MinimumLimit = 0 } },
+            baseline with { Limits = baseline.Limits with { MaximumLimit = 100_000_001 } },
+            baseline with { Limits = baseline.Limits with { MinimumPeriod = TimeSpan.FromTicks(TimeSpan.TicksPerMillisecond + 1) } },
+            baseline with { Limits = baseline.Limits with { MaximumPeriod = TimeSpan.FromDays(2) } },
+            baseline with { Limits = baseline.Limits with { MinimumSegments = 2, MaximumSegments = 64 } },
+            baseline with { Limits = baseline.Limits with { MaximumQueue = 1 } },
+            baseline with { Kind = TrafficAdmissionKind.Concurrency, RateAlgorithm = null, AcquisitionOrdinal = 0 }
+        ];
+
+        foreach (var capability in malformed)
+        {
+            FluentActions.Invoking(() => HostCapabilitySnapshot.Create(new HostCapabilityRegistration
+            {
+                InstalledFamilies = GatewayDeclarationFamilies.TrafficAdmission,
+                TrafficAdmissionProfiles = [capability]
+            })).Should().Throw<ArgumentException>();
+        }
+
+        var sliding = baseline with
+        {
+            RateAlgorithm = TrafficAdmissionRateAlgorithm.SlidingWindow,
+            Limits = baseline.Limits with { MinimumSegments = 2, MaximumSegments = 64 }
+        };
+        HostCapabilitySnapshot.Create(new HostCapabilityRegistration
+        {
+            InstalledFamilies = GatewayDeclarationFamilies.TrafficAdmission,
+            TrafficAdmissionProfiles = [sliding]
+        }).TrafficAdmissionProfiles.Should().ContainKey("rate");
+
+        var concurrency = baseline with
+        {
+            Kind = TrafficAdmissionKind.Concurrency,
+            RateAlgorithm = null,
+            AcquisitionOrdinal = 0,
+            Limits = new TrafficAdmissionLimits(1, 100_000_000, null, null, 0, 0, 0, 100_000)
+        };
+        HostCapabilitySnapshot.Create(new HostCapabilityRegistration
+        {
+            InstalledFamilies = GatewayDeclarationFamilies.TrafficAdmission,
+            TrafficAdmissionProfiles = [concurrency]
+        }).TrafficAdmissionProfiles.Should().ContainKey("rate");
     }
 
     [Fact]
@@ -404,7 +481,7 @@ public sealed class GatewayTrafficAdmissionTests
             });
         var plan = new TrafficAdmissionPlan
         {
-            Entries = [new FixedWindowAdmissionEntry { Profile = "custom", PermitLimit = 1, Window = TimeSpan.FromMinutes(1) }]
+            Entries = [new FixedWindowAdmissionEntry { Profile = "custom", PermitLimit = 2, Window = TimeSpan.FromMinutes(1) }]
         };
         return (new GatewayTrafficAdmissionLimiter(builder.Build()), Context(plan));
     }
