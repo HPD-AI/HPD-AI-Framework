@@ -84,9 +84,59 @@ public sealed class RuntimeParticipantCoordinatorV1Tests
     }
 
     [Fact]
+    public async Task Admission_RejectsDuplicateParticipantIdentity()
+    {
+        var events = new List<string>();
+        var session = Participant("session", events);
+        var output = Participant("output", events, dependencies: ["session"]);
+        var plan = RuntimeParticipantPlanV1.Compile([output.Descriptor, session.Descriptor]);
+        await using var coordinator = new RuntimeParticipantCoordinatorV1(plan, [session, output]);
+        var stamp = new SessionAuthorityStampV1(RuntimeGenerationId.Create(), LiveSessionId.Create());
+        var authority = ExpectedAuthorityVectorV1.Create(stamp, []);
+        var duplicateId = ParticipantId.Create();
+
+        await Assert.ThrowsAsync<ArgumentException>(async () => await coordinator.PrepareAsync([
+            new RuntimeParticipantAdmissionV1(session.Descriptor.Id, new RuntimeParticipantContextV1(duplicateId, authority)),
+            new RuntimeParticipantAdmissionV1(output.Descriptor.Id, new RuntimeParticipantContextV1(duplicateId, authority))]));
+    }
+
+    [Fact]
+    public async Task InvalidParticipantResult_IsNormalizedAndUnwound()
+    {
+        var events = new List<string>();
+        var session = Participant("session", events, invalidPrepareResult: true);
+        var plan = RuntimeParticipantPlanV1.Compile([session.Descriptor]);
+        await using var coordinator = new RuntimeParticipantCoordinatorV1(plan, [session]);
+
+        var result = await coordinator.PrepareAsync(Admissions(plan));
+
+        Assert.Equal(RuntimeParticipantDispositionV1.Failed, result.Disposition);
+        Assert.Equal("InvalidPrepareResult", result.Code.ToString());
+        Assert.Equal(RuntimeParticipantCoordinatorStateV1.Completed, coordinator.State);
+    }
+
+    [Fact]
+    public async Task IgnoredCancellation_IsQuarantinedUntilLateOperationConverges()
+    {
+        var events = new List<string>();
+        var participant = new BlockingParticipant(Descriptor("session", [], 1_000_000), events);
+        var plan = RuntimeParticipantPlanV1.Compile([participant.Descriptor]);
+        await using var coordinator = new RuntimeParticipantCoordinatorV1(plan, [participant]);
+
+        var result = await coordinator.PrepareAsync(Admissions(plan));
+
+        Assert.Equal(RuntimeParticipantDispositionV1.TimedOut, result.Disposition);
+        Assert.Equal(RuntimeParticipantCoordinatorStateV1.Quarantined, coordinator.State);
+        Assert.DoesNotContain("session:terminate:TimedOut", events);
+        participant.Release();
+        await WaitUntilAsync(() => coordinator.State == RuntimeParticipantCoordinatorStateV1.Completed);
+        Assert.Contains("session:terminate:TimedOut", events);
+    }
+
+    [Fact]
     public void CoordinatorEnums_HaveExactClosedValues()
     {
-        Assert.Equal(new ushort[] { 1, 2, 3, 4, 5, 6 },
+        Assert.Equal(new ushort[] { 1, 2, 3, 4, 5, 6, 7 },
             Enum.GetValues<RuntimeParticipantCoordinatorStateV1>().Select(static value => (ushort)value));
     }
 
@@ -105,20 +155,28 @@ public sealed class RuntimeParticipantCoordinatorV1Tests
         List<string> events,
         RuntimeParticipantDispositionV1 prepareDisposition = RuntimeParticipantDispositionV1.Succeeded,
         string[]? dependencies = null,
-        RuntimeParticipantDispositionV1 startDisposition = RuntimeParticipantDispositionV1.Succeeded) =>
-        new(Descriptor(id, dependencies ?? []), events, prepareDisposition, startDisposition);
+        RuntimeParticipantDispositionV1 startDisposition = RuntimeParticipantDispositionV1.Succeeded,
+        bool invalidPrepareResult = false) =>
+        new(Descriptor(id, dependencies ?? []), events, prepareDisposition, startDisposition, invalidPrepareResult);
 
-    private static RuntimeParticipantDescriptorV1 Descriptor(string id, string[] dependencies) =>
+    private static RuntimeParticipantDescriptorV1 Descriptor(string id, string[] dependencies, long bound = 5_000_000_000) =>
         new(new(id), new("S1"), new("RuntimeParticipant"),
             dependencies.Select(static dependency => new BoundedAscii(dependency)), AuthorityAxisId.Runtime,
-            new DurationNs(5_000_000_000), new DurationNs(5_000_000_000),
-            new DurationNs(5_000_000_000), new DurationNs(5_000_000_000), [new("journal-bytes")]);
+            new DurationNs(bound), new DurationNs(bound), new DurationNs(bound), new DurationNs(bound), [new("journal-bytes")]);
+
+    private static async Task WaitUntilAsync(Func<bool> predicate)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        while (!predicate())
+            await Task.Delay(1, timeout.Token);
+    }
 
     private sealed class FakeParticipant(
         RuntimeParticipantDescriptorV1 descriptor,
         List<string> events,
         RuntimeParticipantDispositionV1 prepareDisposition,
-        RuntimeParticipantDispositionV1 startDisposition) : IRuntimeParticipantV1
+        RuntimeParticipantDispositionV1 startDisposition,
+        bool invalidPrepareResult) : IRuntimeParticipantV1
     {
         public RuntimeParticipantDescriptorV1 Descriptor { get; } = descriptor;
 
@@ -127,6 +185,8 @@ public sealed class RuntimeParticipantCoordinatorV1Tests
             CancellationToken cancellationToken)
         {
             events.Add($"{Descriptor.Id}:prepare");
+            if (invalidPrepareResult)
+                return ValueTask.FromResult(default(RuntimeParticipantPrepareResultV1));
             var handle = prepareDisposition == RuntimeParticipantDispositionV1.Succeeded
                 ? new RuntimePreparedHandleV1(Descriptor.Id, context)
                 : null;
@@ -144,6 +204,47 @@ public sealed class RuntimeParticipantCoordinatorV1Tests
             events.Add($"{Descriptor.Id}:drain");
             return ValueTask.FromResult(new RuntimeParticipantResultV1(RuntimeParticipantDispositionV1.Succeeded, new("drain")));
         }
+
+        public ValueTask<RuntimeParticipantResultV1> TerminateAsync(RuntimeTerminationCauseV1 cause, CancellationToken cancellationToken)
+        {
+            events.Add($"{Descriptor.Id}:terminate:{cause}");
+            return ValueTask.FromResult(new RuntimeParticipantResultV1(RuntimeParticipantDispositionV1.Succeeded, new("terminate")));
+        }
+
+        public ValueTask DisposeAsync()
+        {
+            events.Add($"{Descriptor.Id}:dispose");
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class BlockingParticipant(RuntimeParticipantDescriptorV1 descriptor, List<string> events) : IRuntimeParticipantV1
+    {
+        private readonly TaskCompletionSource<RuntimeParticipantPrepareResultV1> _release =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public RuntimeParticipantDescriptorV1 Descriptor { get; } = descriptor;
+
+        public ValueTask<RuntimeParticipantPrepareResultV1> PrepareAsync(RuntimeParticipantContextV1 context, CancellationToken cancellationToken)
+        {
+            events.Add($"{Descriptor.Id}:prepare");
+            return new(_release.Task);
+        }
+
+        public void Release()
+        {
+            var context = new RuntimeParticipantContextV1(
+                ParticipantId.Create(),
+                ExpectedAuthorityVectorV1.Create(new SessionAuthorityStampV1(RuntimeGenerationId.Create(), LiveSessionId.Create()), []));
+            _release.TrySetResult(new RuntimeParticipantPrepareResultV1(
+                RuntimeParticipantDispositionV1.Succeeded, new("late"), new RuntimePreparedHandleV1(Descriptor.Id, context)));
+        }
+
+        public ValueTask<RuntimeParticipantResultV1> StartAsync(RuntimePreparedHandleV1 handle, CancellationToken cancellationToken) =>
+            ValueTask.FromResult(new RuntimeParticipantResultV1(RuntimeParticipantDispositionV1.Succeeded, new("start")));
+
+        public ValueTask<RuntimeParticipantResultV1> DrainAsync(RuntimeDrainIntentV1 intent, CancellationToken cancellationToken) =>
+            ValueTask.FromResult(new RuntimeParticipantResultV1(RuntimeParticipantDispositionV1.Succeeded, new("drain")));
 
         public ValueTask<RuntimeParticipantResultV1> TerminateAsync(RuntimeTerminationCauseV1 cause, CancellationToken cancellationToken)
         {

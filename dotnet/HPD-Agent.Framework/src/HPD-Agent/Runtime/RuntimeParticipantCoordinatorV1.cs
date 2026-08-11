@@ -17,6 +17,8 @@ public enum RuntimeParticipantCoordinatorStateV1 : ushort
     Terminating = 5,
     /// <summary>All participants have been terminated and disposed.</summary>
     Completed = 6,
+    /// <summary>A cancelled or timed-out operation is still converging and cannot safely overlap cleanup.</summary>
+    Quarantined = 7,
 }
 
 /// <summary>Binds one plan descriptor to its S1-allocated participant context.</summary>
@@ -61,6 +63,7 @@ public sealed class RuntimeParticipantCoordinatorV1 : IAsyncDisposable
     private readonly Dictionary<string, RuntimePreparedHandleV1> _handles = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _gate = new(1, 1);
     private RuntimeParticipantCoordinatorStateV1 _state = RuntimeParticipantCoordinatorStateV1.Created;
+    private int _disposeRequested;
 
     /// <summary>Initializes a coordinator whose participants exactly match a compiled plan.</summary>
     /// <param name="plan">The immutable dependency plan.</param>
@@ -75,6 +78,8 @@ public sealed class RuntimeParticipantCoordinatorV1 : IAsyncDisposable
         foreach (var participant in participants)
         {
             ArgumentNullException.ThrowIfNull(participant);
+            if (byId.Count == plan.OrderedDescriptors.Count)
+                throw new ArgumentException("Participants exceed the compiled plan bound.", nameof(participants));
             if (!byId.TryAdd(participant.Descriptor.Id.ToString(), participant))
                 throw new ArgumentException("A runtime participant identifier is duplicated.", nameof(participants));
         }
@@ -107,14 +112,22 @@ public sealed class RuntimeParticipantCoordinatorV1 : IAsyncDisposable
             {
                 var participant = _participants[descriptor.Id.ToString()];
                 attempted.Add(participant);
-                var result = await InvokePrepareAsync(participant, contexts[descriptor.Id.ToString()], descriptor.MaxPrepare, cancellationToken).ConfigureAwait(false);
+                var invocation = await InvokePrepareAsync(participant, contexts[descriptor.Id.ToString()], descriptor.MaxPrepare, cancellationToken).ConfigureAwait(false);
+                var result = invocation.Result;
+                if (invocation.Outstanding is not null)
+                {
+                    EnterQuarantine(invocation.Outstanding, CauseFor(result.Disposition, RuntimeTerminationCauseV1.PrepareFailed));
+                    return new RuntimeParticipantResultV1(result.Disposition, result.Code);
+                }
+                if (!result.IsValid)
+                    result = new RuntimeParticipantPrepareResultV1(RuntimeParticipantDispositionV1.Failed, new BoundedAscii("InvalidPrepareResult"), null);
                 if (!result.IsSuccess)
                 {
                     await UnwindAsync(attempted, CauseFor(result.Disposition, RuntimeTerminationCauseV1.PrepareFailed)).ConfigureAwait(false);
                     return new RuntimeParticipantResultV1(result.Disposition, result.Code);
                 }
                 var handle = result.Handle!;
-                if (handle.DescriptorId != descriptor.Id || handle.Context.ParticipantId != contexts[descriptor.Id.ToString()].ParticipantId)
+                if (handle.DescriptorId != descriptor.Id || handle.Context != contexts[descriptor.Id.ToString()])
                 {
                     await UnwindAsync(attempted, RuntimeTerminationCauseV1.PrepareFailed).ConfigureAwait(false);
                     return new RuntimeParticipantResultV1(RuntimeParticipantDispositionV1.Failed, new BoundedAscii("PreparedHandleMismatch"));
@@ -142,8 +155,16 @@ public sealed class RuntimeParticipantCoordinatorV1 : IAsyncDisposable
             foreach (var descriptor in _plan.OrderedDescriptors)
             {
                 var participant = _participants[descriptor.Id.ToString()];
-                var result = await InvokeAsync(
+                var invocation = await InvokeAsync(
                     token => participant.StartAsync(_handles[descriptor.Id.ToString()], token), descriptor.MaxStart, cancellationToken).ConfigureAwait(false);
+                var result = invocation.Result;
+                if (invocation.Outstanding is not null)
+                {
+                    EnterQuarantine(invocation.Outstanding, CauseFor(result.Disposition, RuntimeTerminationCauseV1.StartFailed));
+                    return result;
+                }
+                if (!result.IsValid)
+                    result = new RuntimeParticipantResultV1(RuntimeParticipantDispositionV1.Failed, new BoundedAscii("InvalidStartResult"));
                 if (!result.IsSuccess)
                 {
                     await UnwindAsync(ParticipantsInPlanOrder(), CauseFor(result.Disposition, RuntimeTerminationCauseV1.StartFailed)).ConfigureAwait(false);
@@ -176,7 +197,15 @@ public sealed class RuntimeParticipantCoordinatorV1 : IAsyncDisposable
             foreach (var descriptor in _plan.OrderedDescriptors.Reverse())
             {
                 var participant = _participants[descriptor.Id.ToString()];
-                var result = await InvokeAsync(token => participant.DrainAsync(intent, token), descriptor.MaxDrain, cancellationToken).ConfigureAwait(false);
+                var invocation = await InvokeAsync(token => participant.DrainAsync(intent, token), descriptor.MaxDrain, cancellationToken).ConfigureAwait(false);
+                var result = invocation.Result;
+                if (invocation.Outstanding is not null)
+                {
+                    EnterQuarantine(invocation.Outstanding, CauseFor(result.Disposition, RuntimeTerminationCauseV1.DrainFailed));
+                    return result;
+                }
+                if (!result.IsValid)
+                    result = new RuntimeParticipantResultV1(RuntimeParticipantDispositionV1.Failed, new BoundedAscii("InvalidDrainResult"));
                 if (!result.IsSuccess)
                 {
                     await UnwindAsync(ParticipantsInPlanOrder(), CauseFor(result.Disposition, RuntimeTerminationCauseV1.DrainFailed)).ConfigureAwait(false);
@@ -215,9 +244,13 @@ public sealed class RuntimeParticipantCoordinatorV1 : IAsyncDisposable
         }
     }
 
-    /// <summary>Terminates admitted resources, if any, and disposes the coordinator gate.</summary>
+    /// <summary>Terminates admitted resources, if any; quarantined work completes cleanup after it converges.</summary>
     public async ValueTask DisposeAsync()
     {
+        if (Interlocked.Exchange(ref _disposeRequested, 1) != 0)
+            return;
+        if (_state == RuntimeParticipantCoordinatorStateV1.Quarantined)
+            return;
         if (_state is not RuntimeParticipantCoordinatorStateV1.Created and not RuntimeParticipantCoordinatorStateV1.Completed)
             await TerminateAsync(RuntimeTerminationCauseV1.HostFault).ConfigureAwait(false);
         if (_state == RuntimeParticipantCoordinatorStateV1.Created)
@@ -232,9 +265,13 @@ public sealed class RuntimeParticipantCoordinatorV1 : IAsyncDisposable
     private Dictionary<string, RuntimeParticipantContextV1> ValidateAdmissions(IEnumerable<RuntimeParticipantAdmissionV1> admissions)
     {
         var contexts = new Dictionary<string, RuntimeParticipantContextV1>(StringComparer.Ordinal);
+        var participantIds = new HashSet<ParticipantId>();
         foreach (var admission in admissions)
         {
-            if (!admission.IsValid || !contexts.TryAdd(admission.DescriptorId.ToString(), admission.Context))
+            if (contexts.Count == _participants.Count)
+                throw new ArgumentException("Participant admissions exceed the compiled plan bound.", nameof(admissions));
+            if (!admission.IsValid || !contexts.TryAdd(admission.DescriptorId.ToString(), admission.Context) ||
+                !participantIds.Add(admission.Context.ParticipantId))
                 throw new ArgumentException("Participant admissions must be valid and unique.", nameof(admissions));
         }
         if (contexts.Count != _participants.Count || _plan.OrderedDescriptors.Any(descriptor => !contexts.ContainsKey(descriptor.Id.ToString())))
@@ -253,8 +290,16 @@ public sealed class RuntimeParticipantCoordinatorV1 : IAsyncDisposable
         RuntimeParticipantResultV1? firstFailure = null;
         foreach (var participant in participants.Reverse())
         {
-            var result = await InvokeAsync(
+            var invocation = await InvokeAsync(
                 token => participant.TerminateAsync(cause, token), participant.Descriptor.MaxTerminate, CancellationToken.None).ConfigureAwait(false);
+            var result = invocation.Result;
+            if (invocation.Outstanding is not null)
+            {
+                EnterQuarantine(invocation.Outstanding, RuntimeTerminationCauseV1.TimedOut);
+                return result;
+            }
+            if (!result.IsValid)
+                result = new RuntimeParticipantResultV1(RuntimeParticipantDispositionV1.Failed, new BoundedAscii("InvalidTerminateResult"));
             if (!result.IsSuccess && firstFailure is null) firstFailure = result;
         }
         foreach (var participant in ParticipantsInPlanOrder().Reverse())
@@ -273,7 +318,7 @@ public sealed class RuntimeParticipantCoordinatorV1 : IAsyncDisposable
         return firstFailure ?? CompletedResult;
     }
 
-    private static async ValueTask<RuntimeParticipantPrepareResultV1> InvokePrepareAsync(
+    private static async ValueTask<BoundedInvocation<RuntimeParticipantPrepareResultV1>> InvokePrepareAsync(
         IRuntimeParticipantV1 participant,
         RuntimeParticipantContextV1 context,
         DurationNs duration,
@@ -281,56 +326,68 @@ public sealed class RuntimeParticipantCoordinatorV1 : IAsyncDisposable
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(ToTimeSpan(duration));
+        Task<RuntimeParticipantPrepareResultV1>? task = null;
         try
         {
-            return await participant.PrepareAsync(context, timeout.Token).AsTask()
-                .WaitAsync(ToTimeSpan(duration), cancellationToken).ConfigureAwait(false);
-        }
-        catch (TimeoutException)
-        {
-            return new RuntimeParticipantPrepareResultV1(RuntimeParticipantDispositionV1.TimedOut, new BoundedAscii("PrepareTimedOut"), null);
+            task = participant.PrepareAsync(context, timeout.Token).AsTask();
+            try
+            {
+                return new(await task.WaitAsync(ToTimeSpan(duration), cancellationToken).ConfigureAwait(false), null);
+            }
+            catch (TimeoutException)
+            {
+                timeout.Cancel();
+                return new(new RuntimeParticipantPrepareResultV1(RuntimeParticipantDispositionV1.TimedOut, new BoundedAscii("PrepareTimedOut"), null), task.IsCompleted ? null : task);
+            }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            return new RuntimeParticipantPrepareResultV1(RuntimeParticipantDispositionV1.Cancelled, new BoundedAscii("PrepareCancelled"), null);
+            timeout.Cancel();
+            return new(new RuntimeParticipantPrepareResultV1(RuntimeParticipantDispositionV1.Cancelled, new BoundedAscii("PrepareCancelled"), null), task is { IsCompleted: false } ? task : null);
         }
         catch (OperationCanceledException)
         {
-            return new RuntimeParticipantPrepareResultV1(RuntimeParticipantDispositionV1.TimedOut, new BoundedAscii("PrepareTimedOut"), null);
+            return new(new RuntimeParticipantPrepareResultV1(RuntimeParticipantDispositionV1.TimedOut, new BoundedAscii("PrepareTimedOut"), null), null);
         }
         catch (Exception)
         {
-            return new RuntimeParticipantPrepareResultV1(RuntimeParticipantDispositionV1.Failed, new BoundedAscii("PrepareFault"), null);
+            return new(new RuntimeParticipantPrepareResultV1(RuntimeParticipantDispositionV1.Failed, new BoundedAscii("PrepareFault"), null), null);
         }
     }
 
-    private static async ValueTask<RuntimeParticipantResultV1> InvokeAsync(
+    private static async ValueTask<BoundedInvocation<RuntimeParticipantResultV1>> InvokeAsync(
         Func<CancellationToken, ValueTask<RuntimeParticipantResultV1>> operation,
         DurationNs duration,
         CancellationToken cancellationToken)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(ToTimeSpan(duration));
+        Task<RuntimeParticipantResultV1>? task = null;
         try
         {
-            return await operation(timeout.Token).AsTask()
-                .WaitAsync(ToTimeSpan(duration), cancellationToken).ConfigureAwait(false);
-        }
-        catch (TimeoutException)
-        {
-            return new RuntimeParticipantResultV1(RuntimeParticipantDispositionV1.TimedOut, new BoundedAscii("ParticipantTimedOut"));
+            task = operation(timeout.Token).AsTask();
+            try
+            {
+                return new(await task.WaitAsync(ToTimeSpan(duration), cancellationToken).ConfigureAwait(false), null);
+            }
+            catch (TimeoutException)
+            {
+                timeout.Cancel();
+                return new(new RuntimeParticipantResultV1(RuntimeParticipantDispositionV1.TimedOut, new BoundedAscii("ParticipantTimedOut")), task.IsCompleted ? null : task);
+            }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            return new RuntimeParticipantResultV1(RuntimeParticipantDispositionV1.Cancelled, new BoundedAscii("ParticipantCancelled"));
+            timeout.Cancel();
+            return new(new RuntimeParticipantResultV1(RuntimeParticipantDispositionV1.Cancelled, new BoundedAscii("ParticipantCancelled")), task is { IsCompleted: false } ? task : null);
         }
         catch (OperationCanceledException)
         {
-            return new RuntimeParticipantResultV1(RuntimeParticipantDispositionV1.TimedOut, new BoundedAscii("ParticipantTimedOut"));
+            return new(new RuntimeParticipantResultV1(RuntimeParticipantDispositionV1.TimedOut, new BoundedAscii("ParticipantTimedOut")), null);
         }
         catch (Exception)
         {
-            return new RuntimeParticipantResultV1(RuntimeParticipantDispositionV1.Failed, new BoundedAscii("ParticipantFault"));
+            return new(new RuntimeParticipantResultV1(RuntimeParticipantDispositionV1.Failed, new BoundedAscii("ParticipantFault")), null);
         }
     }
 
@@ -355,4 +412,30 @@ public sealed class RuntimeParticipantCoordinatorV1 : IAsyncDisposable
         if (_state != expected)
             throw new InvalidOperationException($"The coordinator is {_state} and requires {expected}.");
     }
+
+    private void EnterQuarantine(Task outstanding, RuntimeTerminationCauseV1 cause)
+    {
+        _state = RuntimeParticipantCoordinatorStateV1.Quarantined;
+        _ = CompleteQuarantineAsync(outstanding, cause);
+    }
+
+    private async Task CompleteQuarantineAsync(Task outstanding, RuntimeTerminationCauseV1 cause)
+    {
+        try { await outstanding.ConfigureAwait(false); }
+        catch (Exception) { }
+        await _gate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (_state == RuntimeParticipantCoordinatorStateV1.Quarantined)
+                await UnwindAsync(ParticipantsInPlanOrder(), cause).ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+            if (Volatile.Read(ref _disposeRequested) != 0 && _state == RuntimeParticipantCoordinatorStateV1.Completed)
+                _gate.Dispose();
+        }
+    }
+
+    private readonly record struct BoundedInvocation<T>(T Result, Task? Outstanding);
 }
