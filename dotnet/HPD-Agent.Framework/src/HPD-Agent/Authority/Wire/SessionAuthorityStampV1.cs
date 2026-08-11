@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Formats.Cbor;
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -107,8 +108,10 @@ internal static class AuthorityIntegrityHashV1
     {
         if (string.IsNullOrEmpty(schemaId) || schemaId.Any(static character =>
                 character > 0x7f || character is not (>= 'a' and <= 'z') and not (>= '0' and <= '9') and not '.' and not '-') ||
-            !AuthoritySchemaLedgerV1.Schemas.Any(row => row.StartsWith(schemaId + "|", StringComparison.Ordinal)))
-            throw new ArgumentException("The schema ID must be an exact registered lowercase ASCII authority schema.", nameof(schemaId));
+            !AuthoritySchemaLedgerV1.Schemas.Any(row => row.StartsWith(
+                schemaId + "|" + major.ToString(CultureInfo.InvariantCulture) + "." + minor.ToString(CultureInfo.InvariantCulture) + "|",
+                StringComparison.Ordinal)))
+            throw new ArgumentException("The schema ID and version must be an exact registered lowercase ASCII authority schema tuple.", nameof(schemaId));
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         hash.AppendData("hpd-authority\0"u8);
         hash.AppendData(Encoding.UTF8.GetBytes(schemaId));

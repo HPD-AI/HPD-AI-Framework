@@ -60,6 +60,14 @@ public sealed class SessionAuthorityStampV1Tests
     public void IntegrityHash_RejectsInvalidUtf16SchemaId() =>
         Assert.Throws<ArgumentException>(() => AuthorityIntegrityHashV1.Compute("hpd.\ud800.v1", 1, 0, []));
 
+    [Theory]
+    [InlineData(0, 0)]
+    [InlineData(2, 0)]
+    [InlineData(1, 1)]
+    [InlineData(ushort.MaxValue, ushort.MaxValue)]
+    public void IntegrityHash_RejectsUnregisteredSchemaVersions(ushort major, ushort minor) =>
+        Assert.Throws<ArgumentException>(() => AuthorityIntegrityHashV1.Compute(SessionAuthorityStampV1Codec.SchemaId, major, minor, []));
+
     private static SessionAuthorityStampV1 CreateStamp() => new(
         RuntimeGenerationId.FromValue(StableId128.FromBytes(RuntimeBytes)),
         LiveSessionId.FromValue(StableId128.FromBytes(SessionBytes)));
