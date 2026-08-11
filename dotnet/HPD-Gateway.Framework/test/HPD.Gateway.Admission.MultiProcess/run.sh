@@ -46,6 +46,7 @@ run_case 0 quota round-robin fixed 400 4
 run_case 100 quota sticky fixed 400 4
 run_case 200 quota uneven fixed 400
 run_case 300 scale round-robin fixed 400
+run_case 350 scale-in uneven fixed 400 4
 run_case 400 restart uneven fixed 400
 run_case 500 concurrency round-robin fixed 1000
 run_case 600 quota round-robin sliding 50

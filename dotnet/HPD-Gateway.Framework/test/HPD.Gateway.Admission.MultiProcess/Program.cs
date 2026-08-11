@@ -263,6 +263,15 @@ static async Task<int> RunControllerAsync(ControllerOptions options)
                     await added.WaitUntilReadyAsync();
                 }
             }
+            if (options.Scenario == "scale-in" && index == options.Limit / 2)
+            {
+                int retained = Math.Max(1, workers.Count / 2);
+                for (int remove = workers.Count - 1; remove >= retained; remove--)
+                {
+                    await workers[remove].DisposeAsync();
+                    workers.RemoveAt(remove);
+                }
+            }
             if (options.Scenario == "restart" && index == options.Limit / 2)
             {
                 await workers[0].DisposeAsync();
