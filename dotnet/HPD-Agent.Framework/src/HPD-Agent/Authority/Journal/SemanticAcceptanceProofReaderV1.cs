@@ -6,24 +6,57 @@ internal abstract record SemanticAcceptanceProofResultV1
 
     internal sealed record Proven : SemanticAcceptanceProofResultV1
     {
-        internal Proven(SubmissionDispositionChosenV1 claim, JournalPositionV1 dispositionPosition,
+        internal Proven(SubmissionDispositionChosenV1 claim, AuthorityFactEnvelopeV1 dispositionEnvelope,
             CurrentAuthorityVectorSnapshotV1 current, long snapshotThrough)
         {
             Claim = claim ?? throw new ArgumentNullException(nameof(claim));
+            DispositionEnvelope = dispositionEnvelope ?? throw new ArgumentNullException(nameof(dispositionEnvelope));
             Current = current ?? throw new ArgumentNullException(nameof(current));
+            var dispositionPosition = dispositionEnvelope.Position;
             if (!dispositionPosition.IsValid || dispositionPosition.Session != current.Session ||
                 claim.Authority.Session != current.Session || dispositionPosition.Sequence > snapshotThrough ||
                 claim.SourcePosition.Sequence >= dispositionPosition.Sequence || current.ThroughPosition != snapshotThrough ||
-                claim.Disposition != SubmissionDispositionV1.SubmissionClaimed)
+                claim.Disposition != SubmissionDispositionV1.SubmissionClaimed || dispositionEnvelope.Owner != OwnerSliceId.S1 ||
+                dispositionEnvelope.PayloadSchema != SubmissionDispositionChosenV1Codec.Schema ||
+                !SubmissionDispositionChosenV1Codec.TryDecode(dispositionEnvelope.PayloadMemory, out var decoded) || decoded != claim ||
+                dispositionEnvelope.PayloadHash != SubmissionDispositionChosenV1Codec.ComputeIntegrityHash(claim))
                 throw new ArgumentException("A proof must bind one eligible disposition to its complete current snapshot.");
-            DispositionPosition = dispositionPosition;
             SnapshotThrough = snapshotThrough;
         }
 
         internal SubmissionDispositionChosenV1 Claim { get; }
-        internal JournalPositionV1 DispositionPosition { get; }
+        internal AuthorityFactEnvelopeV1 DispositionEnvelope { get; }
+        internal JournalPositionV1 DispositionPosition => DispositionEnvelope.Position;
         internal CurrentAuthorityVectorSnapshotV1 Current { get; }
         internal long SnapshotThrough { get; }
+    }
+
+    internal sealed record AlreadyAccepted : SemanticAcceptanceProofResultV1
+    {
+        internal AlreadyAccepted(AuthorityFactEnvelopeV1 envelope, SemanticInputAcceptedV1 fact,
+            AuthorityFactEnvelopeV1 dispositionEnvelope, SubmissionDispositionChosenV1 claim)
+        {
+            Envelope = envelope ?? throw new ArgumentNullException(nameof(envelope));
+            Fact = fact ?? throw new ArgumentNullException(nameof(fact));
+            ArgumentNullException.ThrowIfNull(dispositionEnvelope);
+            ArgumentNullException.ThrowIfNull(claim);
+            var source = dispositionEnvelope.Correlation;
+            var expectedCorrelation = new CorrelationEnvelopeV1(
+                source.TenantId, source.PrincipalId, source.SessionId, source.ThreadId,
+                source.ParticipantId, claim.OperationId);
+            if (envelope.Owner != OwnerSliceId.AgentCore || envelope.PayloadSchema != SemanticInputAcceptedV1Codec.Schema ||
+                !SemanticInputAcceptedV1Codec.TryDecode(envelope.PayloadMemory, out var decoded) || decoded != fact ||
+                envelope.PayloadHash != SemanticInputAcceptedV1Codec.ComputeIntegrityHash(fact) ||
+                envelope.FactId != SemanticInputAcceptedFactIdV1.Derive(envelope.PayloadHash) ||
+                envelope.ThreadScope is not null || envelope.Position.Session != dispositionEnvelope.Position.Session ||
+                envelope.Position.Sequence <= dispositionEnvelope.Position.Sequence ||
+                envelope.Correlation != expectedCorrelation || envelope.ObservedAt != dispositionEnvelope.AdmittedAt ||
+                fact.SourcePosition != dispositionEnvelope.Position || fact.OperationId != claim.OperationId ||
+                fact.Authority != claim.Authority)
+                throw new ArgumentException("An existing acceptance must exactly match its admitted envelope.");
+        }
+        internal AuthorityFactEnvelopeV1 Envelope { get; }
+        internal SemanticInputAcceptedV1 Fact { get; }
     }
 
     internal sealed record Ineligible(SubmissionDispositionV1 Disposition, long SnapshotThrough) : SemanticAcceptanceProofResultV1;
@@ -36,10 +69,7 @@ internal abstract record SemanticAcceptanceProofResultV1
 
 internal static class SemanticAcceptanceProofReaderV1
 {
-    private static readonly SchemaReferenceV1 DispositionSchema = new(
-        AuthoritySchemaIdentityV1.Derive(new BoundedAscii(SubmissionDispositionChosenV1Codec.SchemaId)),
-        SubmissionDispositionChosenV1Codec.Major,
-        SubmissionDispositionChosenV1Codec.Minor);
+    private static readonly SchemaReferenceV1 DispositionSchema = SubmissionDispositionChosenV1Codec.Schema;
 
     internal static async ValueTask<SemanticAcceptanceProofResultV1> ReadAsync(
         IAuthorityJournalV1 journal,
@@ -55,6 +85,7 @@ internal static class SemanticAcceptanceProofReaderV1
         var session = dispositionPosition.Session;
         var accumulator = AuthorityVectorReplayFoldV1.CreateAccumulator(session);
         SubmissionDispositionChosenV1? claim = null;
+        AuthorityFactEnvelopeV1? dispositionEnvelope = null;
         var cursor = 0L;
         long? snapshotThrough = null;
         while (true)
@@ -90,6 +121,44 @@ internal static class SemanticAcceptanceProofReaderV1
                                 !SubmissionDispositionChosenV1Codec.TryDecode(fact.PayloadMemory, out claim) || claim is null ||
                                 claim.SourcePosition.Sequence >= fact.Position.Sequence)
                                 return new SemanticAcceptanceProofResultV1.InvalidHistory(accumulator.LastVerifiedPosition, snapshotThrough.Value);
+                            dispositionEnvelope = fact;
+                        }
+                        if (fact.PayloadSchema == SemanticInputAcceptedV1Codec.Schema)
+                        {
+                            if (fact.Owner != OwnerSliceId.AgentCore || !SemanticInputAcceptedV1Codec.TryDecode(fact.PayloadMemory, out var accepted) || accepted is null)
+                                return new SemanticAcceptanceProofResultV1.InvalidHistory(accumulator.LastVerifiedPosition, snapshotThrough.Value);
+                            if (accepted.SourcePosition == dispositionPosition)
+                            {
+                                if (claim is null || dispositionEnvelope is null ||
+                                    accepted.OperationId != claim.OperationId || accepted.Authority != claim.Authority ||
+                                    fact.PayloadHash != SemanticInputAcceptedV1Codec.ComputeIntegrityHash(accepted) ||
+                                    fact.FactId != SemanticInputAcceptedFactIdV1.Derive(fact.PayloadHash))
+                                    return new SemanticAcceptanceProofResultV1.InvalidHistory(accumulator.LastVerifiedPosition, snapshotThrough.Value);
+                                var prefix = accumulator.Complete();
+                                if (prefix is AuthorityVectorReplayResultV1.InvalidHistory invalidPrefix)
+                                    return new SemanticAcceptanceProofResultV1.InvalidHistory(
+                                        invalidPrefix.LastPosition, snapshotThrough.Value);
+                                if (prefix is AuthorityVectorReplayResultV1.GenerationReplaced replacedPrefix)
+                                    return new SemanticAcceptanceProofResultV1.GenerationReplaced(
+                                        replacedPrefix.ReplacedBy, snapshotThrough.Value);
+                                var currentPrefix = ((AuthorityVectorReplayResultV1.Current)prefix).Snapshot;
+                                var currentByAxis = currentPrefix.Axes.ToDictionary(static entry => entry.AxisId);
+                                foreach (var expected in claim.Authority.Axes)
+                                {
+                                    if (!currentByAxis.TryGetValue(expected.AxisId, out var actual) || actual != expected)
+                                        return new SemanticAcceptanceProofResultV1.StaleAuthority(snapshotThrough.Value);
+                                }
+                                try
+                                {
+                                    return new SemanticAcceptanceProofResultV1.AlreadyAccepted(
+                                        fact, accepted, dispositionEnvelope, claim);
+                                }
+                                catch (ArgumentException)
+                                {
+                                    return new SemanticAcceptanceProofResultV1.InvalidHistory(
+                                        accumulator.LastVerifiedPosition, snapshotThrough.Value);
+                                }
+                            }
                         }
                         accumulator.Apply(fact);
                         cursor = fact.Position.Sequence;
@@ -100,7 +169,7 @@ internal static class SemanticAcceptanceProofReaderV1
                         break;
                     }
                     if (cursor != snapshotThrough.Value) return Unknown("incomplete-snapshot", accumulator.LastVerifiedPosition);
-                    return Evaluate(accumulator.Complete(), claim, dispositionPosition, snapshotThrough.Value);
+                    return Evaluate(accumulator.Complete(), claim, dispositionEnvelope, dispositionPosition, snapshotThrough.Value);
                 default:
                     return Unknown("unknown-read-result", accumulator.LastVerifiedPosition);
             }
@@ -110,6 +179,7 @@ internal static class SemanticAcceptanceProofReaderV1
     private static SemanticAcceptanceProofResultV1 Evaluate(
         AuthorityVectorReplayResultV1 replay,
         SubmissionDispositionChosenV1? claim,
+        AuthorityFactEnvelopeV1? dispositionEnvelope,
         JournalPositionV1 dispositionPosition,
         long snapshotThrough)
     {
@@ -128,7 +198,7 @@ internal static class SemanticAcceptanceProofReaderV1
             if (!currentByAxis.TryGetValue(expected.AxisId, out var actual) || actual != expected)
                 return new SemanticAcceptanceProofResultV1.StaleAuthority(snapshotThrough);
         }
-        return new SemanticAcceptanceProofResultV1.Proven(claim, dispositionPosition, current, snapshotThrough);
+        return new SemanticAcceptanceProofResultV1.Proven(claim, dispositionEnvelope!, current, snapshotThrough);
     }
 
     private static SemanticAcceptanceProofResultV1.OutcomeUnknown Unknown(string code, long last) =>

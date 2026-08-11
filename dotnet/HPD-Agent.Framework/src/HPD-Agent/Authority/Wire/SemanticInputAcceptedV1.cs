@@ -67,6 +67,8 @@ internal static class SemanticInputAcceptedV1Codec
     internal const string SchemaId = "hpd.semantic-input-accepted.v1";
     internal const ushort Major = 1;
     internal const ushort Minor = 0;
+    internal static SchemaReferenceV1 Schema { get; } = new(
+        AuthoritySchemaIdentityV1.Derive(new BoundedAscii(SchemaId)), Major, Minor);
 
     internal static byte[] Encode(SemanticInputAcceptedV1 value)
     {

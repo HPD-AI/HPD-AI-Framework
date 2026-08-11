@@ -154,6 +154,113 @@ public sealed class SemanticAcceptanceProofReaderV1Tests
         Assert.IsType<SemanticAcceptanceProofResultV1.InvalidHistory>(result);
     }
 
+    [Theory]
+    [InlineData("scope")]
+    [InlineData("correlation")]
+    [InlineData("observed")]
+    [InlineData("session")]
+    [InlineData("ordering")]
+    public async Task Reader_NeverTrustsAContradictoryPreexistingAcceptance(string mutation)
+    {
+        var session = Session();
+        var tenant = TenantId.Create();
+        var operation = OperationId.Create();
+        var claim = new SubmissionDispositionChosenV1(operation, new JournalPositionV1(session, 1),
+            ExpectedAuthorityVectorV1.Create(session, []), SubmissionDispositionV1.SubmissionClaimed);
+        var disposition = Envelope(2, session, OwnerSliceId.S1, SubmissionDispositionChosenV1Codec.Schema,
+            SubmissionDispositionChosenV1Codec.Encode(claim), new CorrelationEnvelopeV1(tenant), new UtcInstant(20));
+        var acceptedValue = new SemanticInputAcceptedV1(operation, disposition.Position, claim.Authority,
+            SemanticInputAcceptanceDispositionV1.Accepted);
+        var acceptedPayload = SemanticInputAcceptedV1Codec.Encode(acceptedValue);
+        var acceptedHash = SemanticInputAcceptedV1Codec.ComputeIntegrityHash(acceptedValue);
+        var acceptedSession = mutation == "session"
+            ? new SessionAuthorityStampV1(RuntimeGenerationId.Create(), LiveSessionId.Create())
+            : session;
+        var accepted = new AuthorityFactEnvelopeV1(
+            SemanticInputAcceptedFactIdV1.Derive(acceptedHash),
+            new JournalPositionV1(acceptedSession, mutation == "ordering" ? 2 : 3),
+            mutation == "scope" ? new ThreadPositionV1(ThreadId.Create(), 1, 1) : null,
+            OwnerSliceId.AgentCore, SemanticInputAcceptedV1Codec.Schema, acceptedPayload, acceptedHash,
+            mutation == "correlation"
+                ? new CorrelationEnvelopeV1(TenantId.Create(), operationId: operation)
+                : new CorrelationEnvelopeV1(tenant, operationId: operation),
+            mutation == "observed" ? new UtcInstant(21) : disposition.AdmittedAt,
+            new UtcInstant(30), new IntegrityEnvelopeV1(1, 1, Hash256.Compute([1]), []));
+        var facts = new[]
+        {
+            Fact(1, session, OwnerSliceId.S4, new SchemaReferenceV1(SchemaId.Create(), 1, 0), [0x80]),
+            disposition,
+            accepted,
+        };
+
+        if (mutation is "session" or "ordering")
+        {
+            Assert.Throws<ArgumentException>(() =>
+                new ReadAuthorityRangeResultV1.Batch(session, 3, 0, 3, facts, false));
+            return;
+        }
+
+        var result = await SemanticAcceptanceProofReaderV1.ReadAsync(
+            new OneBatchJournal(new ReadAuthorityRangeResultV1.Batch(session, 3, 0, 3, facts, false)),
+            disposition.Position);
+
+        Assert.IsType<SemanticAcceptanceProofResultV1.InvalidHistory>(result);
+    }
+
+    [Theory]
+    [InlineData("malformed")]
+    [InlineData("stale")]
+    [InlineData("replaced")]
+    public async Task Reader_ExistingAcceptanceCannotOverrideItsAuthorityPrefix(string condition)
+    {
+        var session = Session();
+        var tenant = TenantId.Create();
+        var operation = OperationId.Create();
+        var expected = condition == "stale"
+            ? ExpectedAuthorityVectorV1.Create(session,
+                [new AuthorityAxisValueV1.Graph(GraphGenerationId.FromValue(Second))])
+            : ExpectedAuthorityVectorV1.Create(session, []);
+        var claim = new SubmissionDispositionChosenV1(operation, new JournalPositionV1(session, 1),
+            expected, SubmissionDispositionV1.SubmissionClaimed);
+        var disposition = Envelope(2, session, OwnerSliceId.S1, SubmissionDispositionChosenV1Codec.Schema,
+            SubmissionDispositionChosenV1Codec.Encode(claim), new CorrelationEnvelopeV1(tenant), new UtcInstant(20));
+        AuthorityFactEnvelopeV1 first = condition switch
+        {
+            "malformed" => Fact(1, session, OwnerSliceId.S2,
+                AuthorityGenerationInitializationCodecV1.SchemaFor(AuthorityAxisId.Graph), [0xff]),
+            "stale" => Fact(1, session, OwnerSliceId.S2,
+                AuthorityGenerationInitializationCodecV1.SchemaFor(AuthorityAxisId.Graph),
+                EncodeInitialization(session, First, OwnerSliceId.S2)),
+            _ => Fact(1, session, OwnerSliceId.S4, new SchemaReferenceV1(SchemaId.Create(), 1, 0), [0x80]),
+        };
+        var prefix = new List<AuthorityFactEnvelopeV1> { first, disposition };
+        if (condition == "replaced")
+        {
+            var replacement = StableId128.FromBytes(Convert.FromHexString("303132333435363738393a3b3c3d3e3f"));
+            prefix.Add(Fact(3, session, OwnerSliceId.S1,
+                AuthorityGenerationTransitionCodecV1.SchemaFor(AuthorityAxisId.Runtime),
+                EncodeTransition(session, Stable(session.RuntimeGenerationId), replacement, OwnerSliceId.S1)));
+        }
+        var acceptedValue = new SemanticInputAcceptedV1(operation, disposition.Position, claim.Authority,
+            SemanticInputAcceptanceDispositionV1.Accepted);
+        var acceptedPayload = SemanticInputAcceptedV1Codec.Encode(acceptedValue);
+        var acceptedHash = SemanticInputAcceptedV1Codec.ComputeIntegrityHash(acceptedValue);
+        var acceptedSequence = prefix.Count + 1;
+        prefix.Add(new AuthorityFactEnvelopeV1(
+            SemanticInputAcceptedFactIdV1.Derive(acceptedHash), new JournalPositionV1(session, acceptedSequence), null,
+            OwnerSliceId.AgentCore, SemanticInputAcceptedV1Codec.Schema, acceptedPayload, acceptedHash,
+            new CorrelationEnvelopeV1(tenant, operationId: operation), disposition.AdmittedAt,
+            new UtcInstant(30), new IntegrityEnvelopeV1(1, 1, Hash256.Compute([1]), [])));
+
+        var result = await SemanticAcceptanceProofReaderV1.ReadAsync(
+            new OneBatchJournal(new ReadAuthorityRangeResultV1.Batch(
+                session, acceptedSequence, 0, acceptedSequence, prefix, false)), disposition.Position);
+
+        if (condition == "malformed") Assert.IsType<SemanticAcceptanceProofResultV1.InvalidHistory>(result);
+        else if (condition == "stale") Assert.IsType<SemanticAcceptanceProofResultV1.StaleAuthority>(result);
+        else Assert.IsType<SemanticAcceptanceProofResultV1.GenerationReplaced>(result);
+    }
+
     private static async Task<SemanticAcceptanceProofResultV1> ReadWithClaim(
         SessionAuthorityStampV1 session,
         SubmissionDispositionChosenV1 claim)
@@ -181,8 +288,17 @@ public sealed class SemanticAcceptanceProofReaderV1Tests
     private static AuthorityFactEnvelopeV1 Fact(long sequence, SessionAuthorityStampV1 session, OwnerSliceId owner,
         SchemaReferenceV1 schema, byte[] payload) => new(
             JournalFactId.Create(), new JournalPositionV1(session, sequence), null, owner, schema, payload,
-            Hash256.Compute(payload), new CorrelationEnvelopeV1(TenantId.Create()), new UtcInstant(sequence),
+            schema == SubmissionDispositionChosenV1Codec.Schema
+                ? AuthorityPayloadHashV1.Compute(new BoundedAscii(SubmissionDispositionChosenV1Codec.SchemaId), schema, payload)
+                : Hash256.Compute(payload),
+            new CorrelationEnvelopeV1(TenantId.Create()), new UtcInstant(sequence),
             new UtcInstant(sequence), new IntegrityEnvelopeV1(1, 1, Hash256.Compute([1]), []));
+
+    private static AuthorityFactEnvelopeV1 Envelope(long sequence, SessionAuthorityStampV1 session, OwnerSliceId owner,
+        SchemaReferenceV1 schema, byte[] payload, CorrelationEnvelopeV1 correlation, UtcInstant admittedAt) => new(
+            JournalFactId.Create(), new JournalPositionV1(session, sequence), null, owner, schema, payload,
+            AuthorityPayloadHashV1.Compute(new BoundedAscii(SubmissionDispositionChosenV1Codec.SchemaId), schema, payload),
+            correlation, new UtcInstant(10), admittedAt, new IntegrityEnvelopeV1(1, 1, Hash256.Compute([1]), []));
 
     private static byte[] EncodeInitialization(SessionAuthorityStampV1 session, StableId128 initial, OwnerSliceId owner)
     {
