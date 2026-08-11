@@ -52,6 +52,42 @@ internal sealed class InMemoryAuthorityJournalV1 : IAuthorityJournalV1
         }
     }
 
+    public ValueTask<ReadAuthorityRangeResultV1> ReadAsync(ReadAuthorityRangeV1 request, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        lock (_gate)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!_sessions.TryGetValue(request.Session, out var state))
+                return ValueTask.FromResult<ReadAuthorityRangeResultV1>(
+                    new ReadAuthorityRangeResultV1.Batch(request.Session, 0, request.AfterExclusive, 0, [], false));
+
+            var through = Math.Min(request.ThroughInclusive, state.Head);
+            if (request.AfterExclusive >= through)
+                return ValueTask.FromResult<ReadAuthorityRangeResultV1>(
+                    new ReadAuthorityRangeResultV1.Batch(request.Session, state.Head, request.AfterExclusive, through, [], false));
+
+            var selected = new List<AuthorityFactEnvelopeV1>(request.MaximumFacts);
+            ulong bytes = 0;
+            var index = checked((int)request.AfterExclusive);
+            while (index < state.Facts.Count && state.Facts[index].Envelope.Position.Sequence <= through &&
+                   selected.Count < request.MaximumFacts)
+            {
+                var stored = state.Facts[index];
+                if (selected.Count == 0 && stored.EncodedBytes > request.MaximumEncodedBytes)
+                    return ValueTask.FromResult<ReadAuthorityRangeResultV1>(new ReadAuthorityRangeResultV1.ItemTooLarge(
+                        stored.Envelope.Position, stored.EncodedBytes, request.MaximumEncodedBytes));
+                if (checked(bytes + stored.EncodedBytes) > request.MaximumEncodedBytes) break;
+                selected.Add(stored.Envelope);
+                bytes += stored.EncodedBytes;
+                index++;
+            }
+            var hasMore = index < state.Facts.Count && state.Facts[index].Envelope.Position.Sequence <= through;
+            return ValueTask.FromResult<ReadAuthorityRangeResultV1>(
+                new ReadAuthorityRangeResultV1.Batch(request.Session, state.Head, request.AfterExclusive, through, selected, hasMore));
+        }
+    }
+
     private AppendAuthorityResultV1? Validate(AppendAuthorityBatchV1 request)
     {
         foreach (var fact in request.Facts)
@@ -112,6 +148,7 @@ internal sealed class InMemoryAuthorityJournalV1 : IAuthorityJournalV1
         var nextHead = state.Head;
         var nextThreads = state.Threads.ToDictionary(static pair => pair.Key, static pair => pair.Value);
         var envelopes = new List<AuthorityFactEnvelopeV1>(request.Facts.Count);
+        var envelopeBytes = new List<ulong>(request.Facts.Count);
         ulong batchResidentBytes = 0;
         var admittedAt = _clock();
         foreach (var proposal in request.Facts)
@@ -129,7 +166,9 @@ internal sealed class InMemoryAuthorityJournalV1 : IAuthorityJournalV1
             var preimage = AuthorityCanonicalCborV1.EncodeEnvelopeWithoutIntegrity(proposal, position, threadPosition, admittedAt);
             var integrity = new IntegrityEnvelopeV1(1, 1,
                 AuthorityIntegrityHashV1.Compute("hpd.authority-fact-envelope.v1", 1, 0, preimage), []);
-            batchResidentBytes = checked(batchResidentBytes + AuthorityCanonicalCborV1.GetEnvelopeEncodedLength(preimage, integrity));
+            var encodedBytes = AuthorityCanonicalCborV1.GetEnvelopeEncodedLength(preimage, integrity);
+            batchResidentBytes = checked(batchResidentBytes + encodedBytes);
+            envelopeBytes.Add(encodedBytes);
             envelopes.Add(new AuthorityFactEnvelopeV1(
                 proposal.FactId, position, threadPosition, proposal.Owner, proposal.PayloadSchema, proposal.PayloadBytes,
                 proposal.PayloadHash, proposal.Correlation, proposal.ObservedAt, admittedAt, integrity));
@@ -151,7 +190,12 @@ internal sealed class InMemoryAuthorityJournalV1 : IAuthorityJournalV1
         state.Threads.Clear();
         foreach (var pair in nextThreads) state.Threads.Add(pair.Key, pair.Value);
         if (isNewSession) _sessions.Add(request.Session, state);
-        foreach (var envelope in envelopes) _facts.Add(envelope.FactId, new StoredFact(request.Session, envelope));
+        for (var index = 0; index < envelopes.Count; index++)
+        {
+            var stored = new StoredFact(request.Session, envelopes[index], envelopeBytes[index]);
+            _facts.Add(stored.Envelope.FactId, stored);
+            state.Facts.Add(stored);
+        }
         _residentBytes = checked(_residentBytes + batchResidentBytes);
         return new AppendAuthorityResultV1.Committed(previousHead, nextHead, envelopes);
     }
@@ -160,9 +204,10 @@ internal sealed class InMemoryAuthorityJournalV1 : IAuthorityJournalV1
     {
         internal long Head { get; set; }
         internal Dictionary<ThreadId, ThreadHead> Threads { get; } = [];
+        internal List<StoredFact> Facts { get; } = [];
     }
 
-    private sealed record StoredFact(SessionAuthorityStampV1 Session, AuthorityFactEnvelopeV1 Envelope)
+    private sealed record StoredFact(SessionAuthorityStampV1 Session, AuthorityFactEnvelopeV1 Envelope, ulong EncodedBytes)
     {
         internal bool Matches(SessionAuthorityStampV1 session, ProposedAuthorityFactV1 proposal) =>
             Session == session && Envelope.PayloadHash == proposal.PayloadHash && Envelope.ThreadScope?.ThreadId == proposal.ThreadId &&

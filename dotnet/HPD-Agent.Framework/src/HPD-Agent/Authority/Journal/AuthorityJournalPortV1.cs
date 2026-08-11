@@ -298,4 +298,11 @@ public interface IAuthorityJournalV1
     /// <returns>One closed append disposition.</returns>
     /// <remarks>The trusted implementation revalidates schema, version, owner, canonical payload, schema-bound hash, exact canonical size, fact identity, session head, and thread heads before mutation. Cancellation and exceptions prove neither commit nor noncommit. Callers must reconcile ambiguous outcomes before retrying a different payload under a fact identity.</remarks>
     ValueTask<AppendAuthorityResultV1> AppendAsync(AppendAuthorityBatchV1 request, CancellationToken cancellationToken = default);
+
+    /// <summary>Reads a bounded contiguous prefix from one atomically observed session snapshot.</summary>
+    /// <param name="request">The validated range and count/byte bounds.</param>
+    /// <param name="cancellationToken">Requests cancellation without proving presence or absence.</param>
+    /// <returns>A bounded batch or one closed failure.</returns>
+    /// <remarks>An empty batch proves only that no fact was observed in the requested range through <see cref="ReadAuthorityRangeResultV1.Batch.SnapshotThrough"/>. It never proves that a fact identity or session never existed.</remarks>
+    ValueTask<ReadAuthorityRangeResultV1> ReadAsync(ReadAuthorityRangeV1 request, CancellationToken cancellationToken = default);
 }

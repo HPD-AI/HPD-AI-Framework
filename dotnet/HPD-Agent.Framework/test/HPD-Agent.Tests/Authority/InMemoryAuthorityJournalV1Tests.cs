@@ -125,6 +125,83 @@ public sealed class InMemoryAuthorityJournalV1Tests
     }
 
     [Fact]
+    public async Task Read_MissingSessionReturnsEmptyObservedThroughZeroWithoutNonexistenceClaim()
+    {
+        var fixture = new Fixture();
+
+        var result = Assert.IsType<ReadAuthorityRangeResultV1.Batch>(await fixture.Journal.ReadAsync(
+            new ReadAuthorityRangeV1(fixture.Session, 0, 10, 10, 4096)));
+
+        Assert.Equal((0L, 0L, false), (result.SnapshotHead, result.SnapshotThrough, result.HasMore));
+        Assert.Empty(result.Facts);
+    }
+
+    [Fact]
+    public async Task Read_PinsSnapshotAndPaginatesContiguousFactsByCount()
+    {
+        var fixture = new Fixture();
+        var committed = Assert.IsType<AppendAuthorityResultV1.Committed>(await fixture.Journal.AppendAsync(
+            fixture.Batch(0, [], [fixture.Fact(), fixture.Fact(), fixture.Fact()])));
+
+        var first = Assert.IsType<ReadAuthorityRangeResultV1.Batch>(await fixture.Journal.ReadAsync(
+            new ReadAuthorityRangeV1(fixture.Session, 0, long.MaxValue, 2, 4096)));
+        var second = Assert.IsType<ReadAuthorityRangeResultV1.Batch>(await fixture.Journal.ReadAsync(
+            new ReadAuthorityRangeV1(fixture.Session, 2, first.SnapshotThrough, 2, 4096)));
+
+        Assert.Equal((3L, 3L, true), (first.SnapshotHead, first.SnapshotThrough, first.HasMore));
+        Assert.Equal([1L, 2L], first.Facts.Select(static fact => fact.Position.Sequence));
+        Assert.Equal((3L, 3L, false), (second.SnapshotHead, second.SnapshotThrough, second.HasMore));
+        Assert.Equal(committed.Envelopes[2].FactId, Assert.Single(second.Facts).FactId);
+    }
+
+    [Fact]
+    public async Task Read_RespectsPinnedThroughAndReturnsTypedOversizeItem()
+    {
+        var fixture = new Fixture();
+        Assert.IsType<AppendAuthorityResultV1.Committed>(await fixture.Journal.AppendAsync(
+            fixture.Batch(0, [], [fixture.Fact(), fixture.Fact(), fixture.Fact()])));
+
+        var pinned = Assert.IsType<ReadAuthorityRangeResultV1.Batch>(await fixture.Journal.ReadAsync(
+            new ReadAuthorityRangeV1(fixture.Session, 0, 2, 3, 4096)));
+        var oversized = Assert.IsType<ReadAuthorityRangeResultV1.ItemTooLarge>(await fixture.Journal.ReadAsync(
+            new ReadAuthorityRangeV1(fixture.Session, 0, 3, 3, 1)));
+
+        Assert.Equal((3L, 2L, false), (pinned.SnapshotHead, pinned.SnapshotThrough, pinned.HasMore));
+        Assert.Equal([1L, 2L], pinned.Facts.Select(static fact => fact.Position.Sequence));
+        Assert.Equal(1, oversized.Position.Sequence);
+        Assert.True(oversized.RequiredBytes > oversized.MaximumBytes);
+    }
+
+    [Fact]
+    public async Task Read_PreCanceledRequestDoesNotClaimPresenceOrAbsence()
+    {
+        var fixture = new Fixture();
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await fixture.Journal.ReadAsync(
+            new ReadAuthorityRangeV1(fixture.Session, 0, 1, 1, 4096), cancellation.Token));
+    }
+
+    [Fact]
+    public void ReadContracts_RejectInvalidRangesBoundsAndContinuationClaims()
+    {
+        var fixture = new Fixture();
+        Assert.Throws<ArgumentException>(() => new ReadAuthorityRangeV1(default, 0, 1, 1, 1));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new ReadAuthorityRangeV1(fixture.Session, 1, 1, 1, 1));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new ReadAuthorityRangeV1(fixture.Session, 0, 1, 0, 1));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new ReadAuthorityRangeV1(fixture.Session, 0, 1, 1, 0));
+        Assert.Throws<ArgumentNullException>(() => new ReadAuthorityRangeResultV1.Batch(fixture.Session, 0, 0, 0, null!, false));
+        Assert.Throws<ArgumentException>(() => new ReadAuthorityRangeResultV1.Batch(fixture.Session, 1, 0, 1, [], true));
+        var envelope = Assert.IsType<AppendAuthorityResultV1.Committed>(fixture.Journal.AppendAsync(
+            fixture.Batch(0, [], [fixture.Fact()])).AsTask().GetAwaiter().GetResult()).Envelopes[0];
+        Assert.Throws<ArgumentOutOfRangeException>(() => new ReadAuthorityRangeResultV1.Batch(
+            fixture.Session, 257, 0, 257, Enumerable.Repeat(envelope, 257), false));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new ReadAuthorityRangeResultV1.Batch(
+            fixture.Session, long.MaxValue, long.MaxValue, long.MaxValue, [envelope], false));
+    }
+
+    [Fact]
     public void Registry_RejectsOwnerAndTokenAliasContradictions()
     {
         var first = new SessionAuthorityStampPayloadRegistrationV1();
