@@ -9,6 +9,8 @@ public readonly record struct SchemaReferenceV1
     /// <param name="schemaId">The stable registered schema identity.</param>
     /// <param name="major">The positive compatibility-major version.</param>
     /// <param name="minor">The compatibility-minor version.</param>
+    /// <exception cref="ArgumentException"><paramref name="schemaId"/> is the invalid default value.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="major"/> is zero.</exception>
     public SchemaReferenceV1(SchemaId schemaId, ushort major, ushort minor)
     {
         if (!schemaId.IsValid)
@@ -43,6 +45,8 @@ public sealed class IntegrityEnvelopeV1
     /// <param name="keyVersion">The positive integrity-key version.</param>
     /// <param name="digest">The canonical 256-bit digest.</param>
     /// <param name="signature">An optional owned signature of at most 4096 bytes.</param>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="profile"/> or <paramref name="keyVersion"/> is zero, or <paramref name="signature"/> exceeds 4096 bytes.</exception>
+    /// <exception cref="ArgumentException"><paramref name="digest"/> is the invalid default value.</exception>
     public IntegrityEnvelopeV1(ushort profile, uint keyVersion, Hash256 digest, ReadOnlySpan<byte> signature)
     {
         if (profile == 0)
@@ -105,8 +109,8 @@ internal static class AuthorityEnvelopePrimitiveCodecsV1
             var reader = new CborReader(encoded, CborConformanceMode.Ctap2Canonical, false);
             if (reader.ReadStartMap() != 3 || reader.ReadUInt64() != 1)
                 return false;
-            var schema = reader.ReadByteString();
-            if (schema.Length != 16 || reader.ReadUInt64() != 2)
+            Span<byte> schema = stackalloc byte[16];
+            if (!reader.TryReadByteString(schema, out var schemaLength) || schemaLength != 16 || reader.ReadUInt64() != 2)
                 return false;
             var major = reader.ReadUInt64();
             if (major is 0 or > ushort.MaxValue || reader.ReadUInt64() != 3)
@@ -161,16 +165,16 @@ internal static class AuthorityEnvelopePrimitiveCodecsV1
             var keyVersion = reader.ReadUInt64();
             if (keyVersion is 0 or > uint.MaxValue || reader.ReadUInt64() != 3)
                 return false;
-            var digest = reader.ReadByteString();
-            if (digest.Length != 32 || reader.ReadUInt64() != 4)
+            Span<byte> digest = stackalloc byte[32];
+            if (!reader.TryReadByteString(digest, out var digestLength) || digestLength != 32 || reader.ReadUInt64() != 4)
                 return false;
-            var signature = reader.ReadByteString();
-            if (signature.Length > 4096)
+            Span<byte> signature = stackalloc byte[4096];
+            if (!reader.TryReadByteString(signature, out var signatureLength))
                 return false;
             reader.ReadEndMap();
             if (reader.BytesRemaining != 0)
                 return false;
-            value = new IntegrityEnvelopeV1((ushort)profile, (uint)keyVersion, Hash256.FromBytes(digest), signature);
+            value = new IntegrityEnvelopeV1((ushort)profile, (uint)keyVersion, Hash256.FromBytes(digest), signature[..signatureLength]);
             return true;
         }
         catch (Exception exception) when (exception is CborContentException or InvalidOperationException or ArgumentException)
