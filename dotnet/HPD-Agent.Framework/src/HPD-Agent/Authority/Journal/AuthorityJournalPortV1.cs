@@ -72,6 +72,7 @@ public sealed class AuthorityFactEnvelopeV1
 }
 
 /// <summary>Represents every closed outcome of one authority append attempt.</summary>
+/// <remarks>Constructing a result is structural only. Durable truth is named only when a result is returned by the bound trusted journal.</remarks>
 public abstract record AppendAuthorityResultV1
 {
     private AppendAuthorityResultV1() { }
@@ -84,6 +85,13 @@ public abstract record AppendAuthorityResultV1
         {
             Envelopes = OwnEnvelopes(envelopes);
             if (previousHead < 0 || currentHead != checked(previousHead + Envelopes.Count)) throw new ArgumentOutOfRangeException(nameof(currentHead));
+            var session = Envelopes[0].Position.Session;
+            for (var index = 0; index < Envelopes.Count; index++)
+            {
+                var position = Envelopes[index].Position;
+                if (position.Session != session || position.Sequence != previousHead + index + 1)
+                    throw new ArgumentException("Committed envelopes must occupy one contiguous session range.", nameof(envelopes));
+            }
             PreviousHead = previousHead;
             CurrentHead = currentHead;
         }
@@ -167,14 +175,14 @@ public abstract record AppendAuthorityResultV1
     public sealed record CapacityRefused : AppendAuthorityResultV1
     {
         /// <summary>Initializes a capacity refusal.</summary>
-        public CapacityRefused(BoundedAscii dimension, ulong required, ulong available)
+        public CapacityRefused(CapacityDimensionId dimension, ulong required, ulong available)
         {
-            if (!dimension.IsValid) throw new ArgumentException("A capacity dimension is required.", nameof(dimension));
+            if (!Enum.IsDefined(dimension)) throw new ArgumentException("A registered capacity dimension is required.", nameof(dimension));
             if (required == 0 || required <= available) throw new ArgumentOutOfRangeException(nameof(required));
             Dimension = dimension; Required = required; Available = available;
         }
         /// <summary>Gets the registered capacity dimension token.</summary>
-        public BoundedAscii Dimension { get; }
+        public CapacityDimensionId Dimension { get; }
         /// <summary>Gets the required units.</summary>
         public ulong Required { get; }
         /// <summary>Gets the available units.</summary>
@@ -200,17 +208,58 @@ public abstract record AppendAuthorityResultV1
     private static IReadOnlyList<AuthorityFactEnvelopeV1> OwnEnvelopes(IEnumerable<AuthorityFactEnvelopeV1> envelopes)
     {
         ArgumentNullException.ThrowIfNull(envelopes);
-        var owned = envelopes.ToArray();
-        if (owned.Length is 0 or > AppendAuthorityBatchV1.MaximumItems || owned.Any(static envelope => envelope is null))
-            throw new ArgumentOutOfRangeException(nameof(envelopes));
-        return Array.AsReadOnly(owned);
+        var owned = new List<AuthorityFactEnvelopeV1>();
+        foreach (var envelope in envelopes)
+        {
+            if (owned.Count == AppendAuthorityBatchV1.MaximumItems) throw new ArgumentOutOfRangeException(nameof(envelopes));
+            if (envelope is null) throw new ArgumentException("An envelope cannot be null.", nameof(envelopes));
+            owned.Add(envelope);
+        }
+        if (owned.Count == 0) throw new ArgumentOutOfRangeException(nameof(envelopes));
+        return Array.AsReadOnly(owned.ToArray());
     }
+}
+
+/// <summary>Identifies one registered S2 capacity dimension.</summary>
+public enum CapacityDimensionId : ushort
+{
+    /// <summary>Resident raw media bytes.</summary>
+    MediaBytes = 1,
+    /// <summary>Resident encoded bytes.</summary>
+    EncodedBytes = 2,
+    /// <summary>Resident queue items.</summary>
+    QueueItems = 3,
+    /// <summary>Resident audio samples.</summary>
+    AudioSamples = 4,
+    /// <summary>Resident buffered nanoseconds.</summary>
+    BufferNanoseconds = 5,
+    /// <summary>Exclusive provider operations.</summary>
+    ProviderInflight = 6,
+    /// <summary>Exclusive output operations.</summary>
+    OutputInflight = 7,
+    /// <summary>Resident subscriber items.</summary>
+    SubscriberItems = 8,
+    /// <summary>Resident subscriber bytes.</summary>
+    SubscriberBytes = 9,
+    /// <summary>Resident journal bytes.</summary>
+    JournalBytes = 10,
+    /// <summary>Resident copy obligations.</summary>
+    CopyObligations = 11,
+    /// <summary>Resident quarantine bytes.</summary>
+    QuarantineBytes = 12,
+    /// <summary>Diagnostic cardinality inside a rate window.</summary>
+    DiagnosticCardinality = 13,
+    /// <summary>Resident recovery work items.</summary>
+    RecoveryWork = 14,
 }
 
 /// <summary>Defines the sole neutral append/CAS admission port for authority facts.</summary>
 public interface IAuthorityJournalV1
 {
     /// <summary>Validates and atomically admits a complete batch or returns one closed noncommitting outcome.</summary>
-    /// <remarks>Cancellation and exceptions prove neither commit nor noncommit. Callers must reconcile ambiguous outcomes before retrying a different payload under a fact identity.</remarks>
+    /// <param name="request">The structurally bounded proposal batch.</param>
+    /// <param name="cancellationToken">Requests cancellation without proving whether P0 occurred.</param>
+    /// <returns>One closed append disposition.</returns>
+    /// <remarks>The trusted implementation revalidates schema, version, owner, canonical payload, schema-bound hash, exact canonical size, fact identity, session head, and thread heads before mutation. Cancellation and exceptions prove neither commit nor noncommit. Callers must reconcile ambiguous outcomes before retrying a different payload under a fact identity.</remarks>
     ValueTask<AppendAuthorityResultV1> AppendAsync(AppendAuthorityBatchV1 request, CancellationToken cancellationToken = default);
 }

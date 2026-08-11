@@ -34,4 +34,33 @@ public sealed class AuthorityJournalPortV1Tests
         Assert.IsType<AppendAuthorityResultV1.OutcomeUnknown>(
             new AppendAuthorityResultV1.OutcomeUnknown(OperationId.Create()));
     }
+
+    [Fact]
+    public void Committed_RejectsNoncontiguousOrCrossSessionEnvelopes()
+    {
+        var firstSession = new SessionAuthorityStampV1(RuntimeGenerationId.Create(), LiveSessionId.Create());
+        var otherSession = new SessionAuthorityStampV1(RuntimeGenerationId.Create(), LiveSessionId.Create());
+        Assert.Throws<ArgumentException>(() => new AppendAuthorityResultV1.Committed(0, 2,
+            [Envelope(firstSession, 1), Envelope(otherSession, 2)]));
+        Assert.Throws<ArgumentException>(() => new AppendAuthorityResultV1.Committed(0, 2,
+            [Envelope(firstSession, 1), Envelope(firstSession, 3)]));
+    }
+
+    [Fact]
+    public void AlreadyCommitted_StopsBeforeItem257()
+    {
+        var session = new SessionAuthorityStampV1(RuntimeGenerationId.Create(), LiveSessionId.Create());
+        Assert.Throws<ArgumentOutOfRangeException>(() => new AppendAuthorityResultV1.AlreadyCommitted(
+            Enumerable.Range(1, 257).Select(sequence => Envelope(session, sequence))));
+    }
+
+    private static AuthorityFactEnvelopeV1 Envelope(SessionAuthorityStampV1 session, int sequence)
+    {
+        var payload = new byte[] { 1 };
+        return new AuthorityFactEnvelopeV1(
+            JournalFactId.Create(), new JournalPositionV1(session, sequence), null, OwnerSliceId.S1,
+            new SchemaReferenceV1(SchemaId.Create(), 1, 0), payload, Hash256.Compute(payload),
+            new CorrelationEnvelopeV1(TenantId.Create()), new UtcInstant(1), new UtcInstant(2),
+            new IntegrityEnvelopeV1(1, 1, Hash256.Compute([2]), []));
+    }
 }
