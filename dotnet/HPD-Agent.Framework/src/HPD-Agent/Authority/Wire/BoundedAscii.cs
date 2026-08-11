@@ -2,7 +2,7 @@ using System.Formats.Cbor;
 
 namespace HPD.Agent.Authority;
 
-/// <summary>Contains one to 256 printable or control-free ASCII characters for canonical authority fields.</summary>
+/// <summary>Contains one to 256 seven-bit ASCII characters for canonical authority fields.</summary>
 /// <remarks>The default value is invalid and canonical authority boundaries reject it.</remarks>
 public readonly struct BoundedAscii : IEquatable<BoundedAscii>, IComparable<BoundedAscii>
 {
@@ -13,7 +13,8 @@ public readonly struct BoundedAscii : IEquatable<BoundedAscii>, IComparable<Boun
 
     /// <summary>Initializes a validated bounded ASCII value.</summary>
     /// <param name="value">A nonempty ASCII string of at most 256 characters.</param>
-    /// <exception cref="ArgumentException"><paramref name="value"/> is empty, contains a non-ASCII character, or contains an ASCII control character.</exception>
+    /// <exception cref="ArgumentNullException"><paramref name="value"/> is null.</exception>
+    /// <exception cref="ArgumentException"><paramref name="value"/> is empty or contains a non-ASCII character.</exception>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="value"/> exceeds 256 characters.</exception>
     public BoundedAscii(string value)
     {
@@ -24,8 +25,8 @@ public readonly struct BoundedAscii : IEquatable<BoundedAscii>, IComparable<Boun
             throw new ArgumentOutOfRangeException(nameof(value), "A bounded ASCII value cannot exceed 256 characters.");
         foreach (var character in value)
         {
-            if (character is < (char)0x20 or > (char)0x7e)
-                throw new ArgumentException("A bounded ASCII value must contain only printable ASCII characters.", nameof(value));
+            if (character > (char)0x7f)
+                throw new ArgumentException("A bounded ASCII value must contain only seven-bit ASCII characters.", nameof(value));
         }
         _value = value;
     }
@@ -75,8 +76,8 @@ internal static class BoundedAsciiCodec
             throw new CborContentException("A bounded ASCII value must contain one to 256 ASCII bytes.");
         for (var index = 0; index < written; index++)
         {
-            if (characters[index] is < (char)0x20 or > (char)0x7e)
-                throw new CborContentException("A bounded ASCII value contains a non-printable or non-ASCII character.");
+            if (characters[index] > (char)0x7f)
+                throw new CborContentException("A bounded ASCII value contains a non-ASCII character.");
         }
         return new BoundedAscii(new string(characters[..written]));
     }

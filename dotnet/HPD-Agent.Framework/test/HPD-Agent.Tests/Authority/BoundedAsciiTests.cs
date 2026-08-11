@@ -12,7 +12,7 @@ public sealed class BoundedAsciiTests
         Assert.Equal(string.Empty, default(BoundedAscii).ToString());
         Assert.Throws<ArgumentNullException>(() => new BoundedAscii(null!));
         Assert.Throws<ArgumentException>(() => new BoundedAscii(string.Empty));
-        Assert.Throws<ArgumentException>(() => new BoundedAscii("line\nbreak"));
+        Assert.True(new BoundedAscii("line\nbreak\0").IsValid);
         Assert.Throws<ArgumentException>(() => new BoundedAscii("café"));
         Assert.Throws<ArgumentOutOfRangeException>(() => new BoundedAscii(new string('a', 257)));
         Assert.True(new BoundedAscii(new string('~', 256)).IsValid);
@@ -30,11 +30,12 @@ public sealed class BoundedAsciiTests
     }
 
     [Fact]
-    public void Codec_RejectsEmptyUnicodeControlTrailingAndOversizedBeforeAllocation()
+    public void Codec_RejectsEmptyUnicodeTrailingAndOversizedBeforeAllocation()
     {
         Assert.False(BoundedAsciiCodec.TryDecode(Convert.FromHexString("60"), out _));
         Assert.False(BoundedAsciiCodec.TryDecode(Convert.FromHexString("62c3a9"), out _));
-        Assert.False(BoundedAsciiCodec.TryDecode(Convert.FromHexString("610a"), out _));
+        Assert.True(BoundedAsciiCodec.TryDecode(Convert.FromHexString("610a"), out var control));
+        Assert.Equal("\n", control.ToString());
         Assert.False(BoundedAsciiCodec.TryDecode(Convert.FromHexString("616100"), out _));
 
         var writer = new CborWriter(CborConformanceMode.Ctap2Canonical);
