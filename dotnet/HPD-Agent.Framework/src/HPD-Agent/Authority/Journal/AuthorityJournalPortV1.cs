@@ -90,7 +90,8 @@ public abstract record AppendAuthorityResultV1
         public Committed(long previousHead, long currentHead, IEnumerable<AuthorityFactEnvelopeV1> envelopes)
         {
             Envelopes = OwnEnvelopes(envelopes);
-            if (previousHead < 0 || currentHead != checked(previousHead + Envelopes.Count)) throw new ArgumentOutOfRangeException(nameof(currentHead));
+            if (previousHead < 0 || previousHead > long.MaxValue - Envelopes.Count || currentHead != previousHead + Envelopes.Count)
+                throw new ArgumentOutOfRangeException(nameof(currentHead));
             var session = Envelopes[0].Position.Session;
             for (var index = 0; index < Envelopes.Count; index++)
             {
