@@ -10,8 +10,9 @@ public sealed class LiveAudioSessionPreparationSupervisorV1Tests
     {
         var fixture = await Fixture.CreateAsync(); var calls = new List<string>();
         var before = (await fixture.FactsAsync()).Count;
-        var catalog = new LiveAudioParticipantFactoryCatalogV1([
-            new Factory("media", OwnerSliceId.S2, calls, dependencies: [new BoundedAscii("missing")])]);
+        var catalog = LiveAudioParticipantFactoryCatalogV1.CreateExplicit([
+            new Factory("media", OwnerSliceId.S2, calls, dependencies: [new BoundedAscii("provider")]),
+            new Factory("provider", OwnerSliceId.S2, calls)]);
         var result = await fixture.PrepareAsync(catalog);
         Assert.IsType<LiveAudioSessionPreparationResultV1.Rejected>(result);
         Assert.Equal(before, (await fixture.FactsAsync()).Count);
@@ -22,7 +23,7 @@ public sealed class LiveAudioSessionPreparationSupervisorV1Tests
     public async Task Reservation_rejection_invokes_no_factory()
     {
         var fixture = await Fixture.CreateAsync(); var calls = new List<string>();
-        var result = await fixture.PrepareAsync(new LiveAudioParticipantFactoryCatalogV1([
+        var result = await fixture.PrepareAsync(LiveAudioParticipantFactoryCatalogV1.CreateExplicit([
             new Factory("media", OwnerSliceId.S2, calls)]), reservationUtc: 900, acquisitionUtc: 900);
         var rejected = Assert.IsType<LiveAudioSessionPreparationResultV1.Rejected>(result);
         Assert.Equal(LiveAudioSessionStartRejectionV1.CaptureUnauthorized, rejected.Reason);
@@ -33,7 +34,7 @@ public sealed class LiveAudioSessionPreparationSupervisorV1Tests
     public async Task Acquisition_cut_rereads_deadline_and_requires_convergence_without_preparation()
     {
         var fixture = await Fixture.CreateAsync(); var calls = new List<string>();
-        var result = await fixture.PrepareAsync(new LiveAudioParticipantFactoryCatalogV1([
+        var result = await fixture.PrepareAsync(LiveAudioParticipantFactoryCatalogV1.CreateExplicit([
             new Factory("media", OwnerSliceId.S2, calls)]), acquisitionMonotonic: 1_000);
         var convergence = Assert.IsType<LiveAudioSessionPreparationResultV1.ReservedNeedsConvergence>(result);
         Assert.Equal("acquisition-proof-stale", convergence.SafeCode.ToString());
@@ -45,7 +46,7 @@ public sealed class LiveAudioSessionPreparationSupervisorV1Tests
     public async Task Prepared_session_owns_handles_and_unwinds_once_in_reverse()
     {
         var fixture = await Fixture.CreateAsync(); var calls = new List<string>();
-        var catalog = new LiveAudioParticipantFactoryCatalogV1([
+        var catalog = LiveAudioParticipantFactoryCatalogV1.CreateExplicit([
             new Factory("media", OwnerSliceId.S2, calls),
             new Factory("activity", OwnerSliceId.S3, calls, dependencies: [new BoundedAscii("media")])]);
         var prepared = Assert.IsType<LiveAudioSessionPreparationResultV1.Prepared>(await fixture.PrepareAsync(catalog, includeActivity: true));
@@ -66,7 +67,7 @@ public sealed class LiveAudioSessionPreparationSupervisorV1Tests
     public async Task Required_refusal_after_reservation_is_not_reported_as_rejection()
     {
         var fixture = await Fixture.CreateAsync(); var calls = new List<string>();
-        var result = await fixture.PrepareAsync(new LiveAudioParticipantFactoryCatalogV1([
+        var result = await fixture.PrepareAsync(LiveAudioParticipantFactoryCatalogV1.CreateExplicit([
             new Factory("media", OwnerSliceId.S2, calls, refuse: true)]));
         var convergence = Assert.IsType<LiveAudioSessionPreparationResultV1.ReservedNeedsConvergence>(result);
         Assert.Equal("fixture-refused", convergence.SafeCode.ToString());
@@ -78,7 +79,7 @@ public sealed class LiveAudioSessionPreparationSupervisorV1Tests
     public async Task Joined_retry_never_prepares_a_second_owner()
     {
         var fixture = await Fixture.CreateAsync(); var calls = new List<string>();
-        var catalog = new LiveAudioParticipantFactoryCatalogV1([new Factory("media", OwnerSliceId.S2, calls)]);
+        var catalog = LiveAudioParticipantFactoryCatalogV1.CreateExplicit([new Factory("media", OwnerSliceId.S2, calls)]);
         var first = Assert.IsType<LiveAudioSessionPreparationResultV1.Prepared>(await fixture.PrepareAsync(catalog));
         var retry = Assert.IsType<LiveAudioSessionPreparationResultV1.JoinedExisting>(await fixture.PrepareAsync(catalog));
         Assert.Equal(first.Session.ReservationPosition, retry.ReservationPosition);
@@ -91,7 +92,7 @@ public sealed class LiveAudioSessionPreparationSupervisorV1Tests
     public async Task Rejects_reversed_or_incomparable_acquisition_observations_before_mutation()
     {
         var fixture = await Fixture.CreateAsync(); var calls = new List<string>();
-        var catalog = new LiveAudioParticipantFactoryCatalogV1([new Factory("media", OwnerSliceId.S2, calls)]);
+        var catalog = LiveAudioParticipantFactoryCatalogV1.CreateExplicit([new Factory("media", OwnerSliceId.S2, calls)]);
         var before = (await fixture.FactsAsync()).Count;
         await Assert.ThrowsAsync<ArgumentException>(() => fixture.PrepareAsync(catalog,
             reservationMonotonic: 100, acquisitionMonotonic: 99).AsTask());
@@ -109,7 +110,7 @@ public sealed class LiveAudioSessionPreparationSupervisorV1Tests
     {
         var reservationFixture = await Fixture.CreateAsync(); var reservationCalls = new List<string>();
         var reservationFault = new FaultingJournal(reservationFixture.Journal, throwAppendAt: 1);
-        var reservation = await reservationFixture.PrepareAsync(new LiveAudioParticipantFactoryCatalogV1([
+        var reservation = await reservationFixture.PrepareAsync(LiveAudioParticipantFactoryCatalogV1.CreateExplicit([
             new Factory("media", OwnerSliceId.S2, reservationCalls)]), journal: reservationFault);
         var reservationUnknown = Assert.IsType<LiveAudioSessionPreparationResultV1.OutcomeUnknown>(reservation);
         Assert.Null(reservationUnknown.ReservationPosition);
@@ -118,7 +119,7 @@ public sealed class LiveAudioSessionPreparationSupervisorV1Tests
 
         var acquisitionFixture = await Fixture.CreateAsync(); var acquisitionCalls = new List<string>();
         var acquisitionFault = new FaultingJournal(acquisitionFixture.Journal, throwReadsAfterAppendCount: 2);
-        var acquisition = await acquisitionFixture.PrepareAsync(new LiveAudioParticipantFactoryCatalogV1([
+        var acquisition = await acquisitionFixture.PrepareAsync(LiveAudioParticipantFactoryCatalogV1.CreateExplicit([
             new Factory("media", OwnerSliceId.S2, acquisitionCalls)]), journal: acquisitionFault);
         var acquisitionUnknown = Assert.IsType<LiveAudioSessionPreparationResultV1.OutcomeUnknown>(acquisition);
         Assert.True(acquisitionUnknown.ReservationPosition?.IsValid);
@@ -131,7 +132,7 @@ public sealed class LiveAudioSessionPreparationSupervisorV1Tests
     {
         var fixture = await Fixture.CreateAsync(); var calls = new List<string>();
         using var cancellation = new CancellationTokenSource(); cancellation.Cancel();
-        var result = await fixture.PrepareAsync(new LiveAudioParticipantFactoryCatalogV1([
+        var result = await fixture.PrepareAsync(LiveAudioParticipantFactoryCatalogV1.CreateExplicit([
             new Factory("media", OwnerSliceId.S2, calls)]), cancellationToken: cancellation.Token);
         Assert.IsType<LiveAudioSessionPreparationResultV1.OutcomeUnknown>(result);
         Assert.Empty(calls);
@@ -142,7 +143,7 @@ public sealed class LiveAudioSessionPreparationSupervisorV1Tests
     {
         var fixture = await Fixture.CreateAsync(); var calls = new List<string>();
         var prepared = Assert.IsType<LiveAudioSessionPreparationResultV1.Prepared>(await fixture.PrepareAsync(
-            new LiveAudioParticipantFactoryCatalogV1([new Factory("media", OwnerSliceId.S2, calls, hangDispose: true)])));
+            LiveAudioParticipantFactoryCatalogV1.CreateExplicit([new Factory("media", OwnerSliceId.S2, calls, hangDispose: true)])));
         var result = await prepared.Session.UnwindAsync();
         Assert.IsType<LiveAudioPreparedSessionUnwindResultV1.OutcomeUnknown>(result);
         Assert.Equal(["prepare:media", "dispose:media"], calls);

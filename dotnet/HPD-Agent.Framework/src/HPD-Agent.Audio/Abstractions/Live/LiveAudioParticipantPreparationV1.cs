@@ -93,7 +93,7 @@ public interface ILiveAudioPreparedParticipantV1 : IAsyncDisposable
 
 /// <summary>Contains an explicit immutable application-scoped participant factory catalog.</summary>
 /// <remarks>The catalog uses no reflection, module initializer, process-global registry or fallback discovery.</remarks>
-public sealed class LiveAudioParticipantFactoryCatalogV1
+public abstract class LiveAudioParticipantFactoryCatalogV1
 {
     /// <summary>The maximum number of factories in one application catalog.</summary>
     public const int MaximumFactories = 64;
@@ -105,25 +105,30 @@ public sealed class LiveAudioParticipantFactoryCatalogV1
     /// <exception cref="ArgumentNullException">The collection or a factory is null.</exception>
     /// <exception cref="ArgumentException">A key is duplicated or a descriptor is invalid.</exception>
     /// <exception cref="ArgumentOutOfRangeException">The catalog is empty or contains more than 64 factories.</exception>
-    public LiveAudioParticipantFactoryCatalogV1(IEnumerable<ILiveAudioParticipantFactoryV1> factories)
+    internal static LiveAudioParticipantFactoryCatalogV1 CreateExplicit(
+        IEnumerable<ILiveAudioParticipantFactoryV1> factories) => new ExplicitCatalog(BuildExplicit(factories));
+
+    /// <summary>Initializes a catalog from the exact registrations emitted into a generated application subclass.</summary>
+    /// <param name="registrations">The generated exact factory-type and descriptor registrations.</param>
+    /// <param name="factories">The explicitly constructed factory instances.</param>
+    /// <exception cref="ArgumentNullException">A collection or value is null.</exception>
+    /// <exception cref="ArgumentException">The instances do not exactly match the generated registrations.</exception>
+    protected LiveAudioParticipantFactoryCatalogV1(
+        IEnumerable<LiveAudioParticipantFactoryRegistrationV1> registrations,
+        IEnumerable<ILiveAudioParticipantFactoryV1> factories)
+        : this(BuildGenerated(registrations, factories))
+    { }
+
+    private LiveAudioParticipantFactoryCatalogV1(CatalogBuild build)
     {
-        ArgumentNullException.ThrowIfNull(factories);
-        var values = new Dictionary<string, FactoryEntry>(StringComparer.Ordinal);
-        foreach (var factory in factories)
-        {
-            ArgumentNullException.ThrowIfNull(factory);
-            if (values.Count == MaximumFactories)
-                throw new ArgumentOutOfRangeException(nameof(factories));
-            var descriptor = factory.Descriptor ?? throw new ArgumentException("Each factory needs a descriptor.", nameof(factories));
-            if (!values.TryAdd(descriptor.FactoryKey.ToString(), new FactoryEntry(factory, descriptor)))
-                throw new ArgumentException("Factory keys must be unique within an application catalog.", nameof(factories));
-        }
-        if (values.Count == 0) throw new ArgumentOutOfRangeException(nameof(factories));
-        _factories = values;
+        _factories = build.Factories; Manifest = build.Manifest;
     }
 
     /// <summary>Gets the number of explicitly registered factories.</summary>
     public int Count => _factories.Count;
+
+    /// <summary>Gets the generated exact-set manifest bound to this catalog.</summary>
+    public LiveAudioParticipantCatalogManifestV1 Manifest { get; }
 
     internal bool TryResolve(LiveAudioParticipantSpecV1 specification, out ILiveAudioParticipantFactoryV1 factory)
     {
@@ -143,6 +148,55 @@ public sealed class LiveAudioParticipantFactoryCatalogV1
     }
 
     private sealed record FactoryEntry(ILiveAudioParticipantFactoryV1 Factory, LiveAudioParticipantDescriptorV1 Descriptor);
+    private sealed record CatalogBuild(IReadOnlyDictionary<string, FactoryEntry> Factories,
+        LiveAudioParticipantCatalogManifestV1 Manifest);
+    private sealed class ExplicitCatalog(CatalogBuild build) : LiveAudioParticipantFactoryCatalogV1(build);
+
+    private static CatalogBuild BuildExplicit(IEnumerable<ILiveAudioParticipantFactoryV1> factories)
+    {
+        var values = OwnFactories(factories);
+        var registrations = values.Values.Select(static value => new LiveAudioParticipantFactoryRegistrationV1(
+            value.Factory.GetType(), "explicit-test:" + value.Descriptor.FactoryKey, value.Descriptor));
+        return new CatalogBuild(values, LiveAudioParticipantCatalogManifestV1.Create(registrations));
+    }
+
+    private static CatalogBuild BuildGenerated(IEnumerable<LiveAudioParticipantFactoryRegistrationV1> registrations,
+        IEnumerable<ILiveAudioParticipantFactoryV1> factories)
+    {
+        var manifest = LiveAudioParticipantCatalogManifestV1.Create(registrations);
+        var values = OwnFactories(factories);
+        foreach (var entry in values.Values)
+        {
+            if (!manifest.TryGet(entry.Descriptor.FactoryKey, out var expected) ||
+                expected.FactoryType != entry.Factory.GetType() || !DescriptorEquals(expected.Descriptor, entry.Descriptor))
+                throw new ArgumentException("Every instance and descriptor must exactly match the generated application registration.", nameof(factories));
+        }
+        if (values.Count != manifest.Descriptors.Count)
+            throw new ArgumentException("Every generated participant factory must be supplied exactly once.", nameof(factories));
+        return new CatalogBuild(values, manifest);
+    }
+
+    private static Dictionary<string, FactoryEntry> OwnFactories(IEnumerable<ILiveAudioParticipantFactoryV1> factories)
+    {
+        ArgumentNullException.ThrowIfNull(factories);
+        var values = new Dictionary<string, FactoryEntry>(StringComparer.Ordinal);
+        foreach (var factory in factories)
+        {
+            ArgumentNullException.ThrowIfNull(factory);
+            if (values.Count == MaximumFactories) throw new ArgumentOutOfRangeException(nameof(factories));
+            var descriptor = factory.Descriptor ?? throw new ArgumentException("Each factory needs a descriptor.", nameof(factories));
+            if (!values.TryAdd(descriptor.FactoryKey.ToString(), new FactoryEntry(factory, descriptor)))
+                throw new ArgumentException("Factory keys must be unique within an application catalog.", nameof(factories));
+        }
+        if (values.Count == 0) throw new ArgumentOutOfRangeException(nameof(factories));
+        return values;
+    }
+
+    private static bool DescriptorEquals(LiveAudioParticipantDescriptorV1 left, LiveAudioParticipantDescriptorV1 right) =>
+        left.FactoryKey == right.FactoryKey && left.Owner == right.Owner && left.GenerationFence == right.GenerationFence &&
+        left.Dependencies.SequenceEqual(right.Dependencies) && left.CapacityDimensions.SequenceEqual(right.CapacityDimensions) &&
+        left.MaximumPrepareDuration == right.MaximumPrepareDuration && left.MaximumDrainDuration == right.MaximumDrainDuration &&
+        left.MaximumTerminateDuration == right.MaximumTerminateDuration;
 }
 
 internal abstract record LiveAudioParticipantPreparationResultV1

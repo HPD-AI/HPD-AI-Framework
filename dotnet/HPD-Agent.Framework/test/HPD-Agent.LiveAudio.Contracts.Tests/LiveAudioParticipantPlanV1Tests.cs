@@ -38,7 +38,7 @@ public sealed class LiveAudioParticipantPlanV1Tests
         var fixture = new Fixture();
         var source = fixture.Factory("resources", OwnerSliceId.S2).Descriptor;
         var factory = new CountingFactory(source);
-        var catalog = new LiveAudioParticipantFactoryCatalogV1([factory]);
+        var catalog = LiveAudioParticipantFactoryCatalogV1.CreateExplicit([factory]);
         var plan = LiveAudioParticipantPlanCompilerV1.Compile(
             fixture.Request(fixture.Spec("resources", OwnerSliceId.S2)), catalog);
         Assert.Single(plan.Descriptors);
@@ -160,7 +160,8 @@ public sealed class LiveAudioParticipantPlanV1Tests
                 Hash(1), Hash(2), CaptureGrantStateV1.Active, new UtcInstant(1000));
         }
 
-        internal LiveAudioParticipantFactoryCatalogV1 Catalog(params Factory[] values) => new(values);
+        internal LiveAudioParticipantFactoryCatalogV1 Catalog(params Factory[] values) =>
+            LiveAudioParticipantFactoryCatalogV1.CreateExplicit(values);
         internal Factory Factory(string key, OwnerSliceId owner, params string[] dependencies) => new(new LiveAudioParticipantDescriptorV1(
             new BoundedAscii(key), owner, Axis(owner), dependencies.Select(value => new BoundedAscii(value)),
             [new CapacityDimensionId(1)], Duration(5), Duration(30), Duration(5)));

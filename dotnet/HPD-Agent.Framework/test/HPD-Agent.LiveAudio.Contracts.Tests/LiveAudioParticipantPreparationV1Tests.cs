@@ -8,7 +8,7 @@ public sealed class LiveAudioParticipantPreparationV1Tests
     public async Task Prepares_in_canonical_request_order_without_start_surface()
     {
         var fixture = new Fixture(); var calls = new List<string>();
-        var catalog = new LiveAudioParticipantFactoryCatalogV1([
+        var catalog = LiveAudioParticipantFactoryCatalogV1.CreateExplicit([
             new Factory("zeta", OwnerSliceId.S11, calls), new Factory("alpha", OwnerSliceId.S2, calls)]);
         var result = Assert.IsType<LiveAudioParticipantPreparationResultV1.Prepared>(
             await LiveAudioParticipantPreparationCoordinatorV1.PrepareAsync(fixture.Request(
@@ -30,7 +30,7 @@ public sealed class LiveAudioParticipantPreparationV1Tests
         var result = Assert.IsType<LiveAudioParticipantPreparationResultV1.Prepared>(
             await LiveAudioParticipantPreparationCoordinatorV1.PrepareAsync(fixture.Request(
                 fixture.Spec("alpha", OwnerSliceId.S5), fixture.Spec("zeta", OwnerSliceId.S2)),
-                new LiveAudioParticipantFactoryCatalogV1([provider, resources])));
+                LiveAudioParticipantFactoryCatalogV1.CreateExplicit([provider, resources])));
         Assert.Equal(["prepare:zeta", "prepare:alpha"], calls);
         foreach (var participant in result.Participants) await participant.DisposeAsync();
     }
@@ -39,7 +39,7 @@ public sealed class LiveAudioParticipantPreparationV1Tests
     public async Task Missing_required_factory_fails_before_any_preparation()
     {
         var fixture = new Fixture(); var calls = new List<string>();
-        var catalog = new LiveAudioParticipantFactoryCatalogV1([
+        var catalog = LiveAudioParticipantFactoryCatalogV1.CreateExplicit([
             new Factory("alpha", OwnerSliceId.S2, calls), new Factory("beta", OwnerSliceId.S3, calls)]);
         var result = Assert.IsType<LiveAudioParticipantPreparationResultV1.Unavailable>(
             await LiveAudioParticipantPreparationCoordinatorV1.PrepareAsync(fixture.Request(
@@ -53,7 +53,7 @@ public sealed class LiveAudioParticipantPreparationV1Tests
     public async Task Failure_and_cancellation_unwind_without_claiming_readiness()
     {
         var fixture = new Fixture(); var failedCalls = new List<string>();
-        var failedCatalog = new LiveAudioParticipantFactoryCatalogV1([
+        var failedCatalog = LiveAudioParticipantFactoryCatalogV1.CreateExplicit([
             new Factory("alpha", OwnerSliceId.S2, failedCalls), new Factory("beta", OwnerSliceId.S3, failedCalls),
             new Factory("gamma", OwnerSliceId.S4, failedCalls, fail: true)]);
         Assert.IsType<LiveAudioParticipantPreparationResultV1.Failed>(
@@ -63,7 +63,7 @@ public sealed class LiveAudioParticipantPreparationV1Tests
         Assert.Equal(["prepare:alpha", "prepare:beta", "prepare:gamma", "dispose:beta", "dispose:alpha"], failedCalls);
 
         var cancelledCalls = new List<string>(); using var cancellation = new CancellationTokenSource();
-        var cancelledCatalog = new LiveAudioParticipantFactoryCatalogV1([
+        var cancelledCatalog = LiveAudioParticipantFactoryCatalogV1.CreateExplicit([
             new Factory("alpha", OwnerSliceId.S2, cancelledCalls),
             new Factory("beta", OwnerSliceId.S3, cancelledCalls, cancel: cancellation)]);
         Assert.IsType<LiveAudioParticipantPreparationResultV1.Cancelled>(
@@ -76,7 +76,7 @@ public sealed class LiveAudioParticipantPreparationV1Tests
     public async Task Optional_refusal_or_absence_is_explicitly_skipped()
     {
         var fixture = new Fixture(); var calls = new List<string>();
-        var catalog = new LiveAudioParticipantFactoryCatalogV1([
+        var catalog = LiveAudioParticipantFactoryCatalogV1.CreateExplicit([
             new Factory("alpha", OwnerSliceId.S2, calls), new Factory("beta", OwnerSliceId.S3, calls, refuse: true)]);
         var result = Assert.IsType<LiveAudioParticipantPreparationResultV1.Prepared>(
             await LiveAudioParticipantPreparationCoordinatorV1.PrepareAsync(fixture.Request(
@@ -91,7 +91,7 @@ public sealed class LiveAudioParticipantPreparationV1Tests
     public async Task Optional_refusal_closes_dependent_subgraph()
     {
         var fixture = new Fixture(); var calls = new List<string>();
-        var catalog = new LiveAudioParticipantFactoryCatalogV1([
+        var catalog = LiveAudioParticipantFactoryCatalogV1.CreateExplicit([
             new Factory("alpha", OwnerSliceId.S2, calls, refuse: true),
             new Factory("beta", OwnerSliceId.S3, calls, dependencies: [new BoundedAscii("alpha")])]);
         var failed = Assert.IsType<LiveAudioParticipantPreparationResultV1.Failed>(
@@ -107,7 +107,7 @@ public sealed class LiveAudioParticipantPreparationV1Tests
         var fixture = new Fixture(); var calls = new List<string>();
         var result = await LiveAudioParticipantPreparationCoordinatorV1.PrepareAsync(
             fixture.Request(fixture.Spec("alpha", OwnerSliceId.S2)),
-            new LiveAudioParticipantFactoryCatalogV1([new HangingPrepareFactory("alpha", OwnerSliceId.S2, calls)]));
+            LiveAudioParticipantFactoryCatalogV1.CreateExplicit([new HangingPrepareFactory("alpha", OwnerSliceId.S2, calls)]));
         Assert.IsType<LiveAudioParticipantPreparationResultV1.OutcomeUnknown>(result);
         Assert.Equal(["prepare:alpha"], calls);
     }
@@ -116,7 +116,7 @@ public sealed class LiveAudioParticipantPreparationV1Tests
     public async Task Hanging_unwind_is_bounded_and_later_handles_still_cleanup()
     {
         var fixture = new Fixture(); var calls = new List<string>();
-        var catalog = new LiveAudioParticipantFactoryCatalogV1([
+        var catalog = LiveAudioParticipantFactoryCatalogV1.CreateExplicit([
             new Factory("alpha", OwnerSliceId.S2, calls), new HangingDisposeFactory("beta", OwnerSliceId.S3, calls),
             new Factory("gamma", OwnerSliceId.S4, calls, fail: true)]);
         var result = await LiveAudioParticipantPreparationCoordinatorV1.PrepareAsync(fixture.Request(
@@ -129,7 +129,7 @@ public sealed class LiveAudioParticipantPreparationV1Tests
     public async Task Duplicate_participant_identity_unwinds_all_handles()
     {
         var fixture = new Fixture(); var calls = new List<string>(); var id = ParticipantId.Create();
-        var catalog = new LiveAudioParticipantFactoryCatalogV1([
+        var catalog = LiveAudioParticipantFactoryCatalogV1.CreateExplicit([
             new FixedIdFactory("alpha", OwnerSliceId.S2, calls, id), new FixedIdFactory("beta", OwnerSliceId.S3, calls, id)]);
         var failed = Assert.IsType<LiveAudioParticipantPreparationResultV1.Failed>(
             await LiveAudioParticipantPreparationCoordinatorV1.PrepareAsync(fixture.Request(
@@ -142,7 +142,7 @@ public sealed class LiveAudioParticipantPreparationV1Tests
     public async Task Unwind_failure_is_outcome_unknown()
     {
         var fixture = new Fixture(); var calls = new List<string>();
-        var catalog = new LiveAudioParticipantFactoryCatalogV1([
+        var catalog = LiveAudioParticipantFactoryCatalogV1.CreateExplicit([
             new Factory("alpha", OwnerSliceId.S2, calls, disposeFails: true),
             new Factory("beta", OwnerSliceId.S3, calls, fail: true)]);
         var result = await LiveAudioParticipantPreparationCoordinatorV1.PrepareAsync(fixture.Request(
@@ -153,10 +153,10 @@ public sealed class LiveAudioParticipantPreparationV1Tests
     [Fact]
     public void Catalog_rejects_empty_duplicate_invalid_and_too_many_factories()
     {
-        Assert.Throws<ArgumentOutOfRangeException>(() => new LiveAudioParticipantFactoryCatalogV1([]));
-        Assert.Throws<ArgumentException>(() => new LiveAudioParticipantFactoryCatalogV1([
+        Assert.Throws<ArgumentOutOfRangeException>(() => LiveAudioParticipantFactoryCatalogV1.CreateExplicit([]));
+        Assert.Throws<ArgumentException>(() => LiveAudioParticipantFactoryCatalogV1.CreateExplicit([
             new Factory("alpha", OwnerSliceId.S2, []), new Factory("alpha", OwnerSliceId.S3, [])]));
-        Assert.Throws<ArgumentOutOfRangeException>(() => new LiveAudioParticipantFactoryCatalogV1(
+        Assert.Throws<ArgumentOutOfRangeException>(() => LiveAudioParticipantFactoryCatalogV1.CreateExplicit(
             Enumerable.Range(0, 65).Select(index => new Factory($"factory-{index:D2}", OwnerSliceId.S2, []))));
     }
 

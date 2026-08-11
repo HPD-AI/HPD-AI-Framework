@@ -23,7 +23,7 @@ public sealed class LiveAudioSessionFailureConvergenceV1Tests
     {
         var fixture = await LiveAudioSessionPreparationSupervisorV1Tests.Fixture.CreateAsync();
         var calls = new List<string>();
-        var catalog = new LiveAudioParticipantFactoryCatalogV1([new RefusingFactory(calls)]);
+        var catalog = LiveAudioParticipantFactoryCatalogV1.CreateExplicit([new RefusingFactory(calls)]);
         var abandoned = Assert.IsType<LiveAudioSessionPreparationResultV1.ReservedNeedsConvergence>(
             await fixture.PrepareAsync(catalog));
         var before = (await fixture.FactsAsync()).Count;
@@ -54,7 +54,7 @@ public sealed class LiveAudioSessionFailureConvergenceV1Tests
     {
         var fixture = await LiveAudioSessionPreparationSupervisorV1Tests.Fixture.CreateAsync();
         var abandoned = Assert.IsType<LiveAudioSessionPreparationResultV1.ReservedNeedsConvergence>(
-            await fixture.PrepareAsync(new LiveAudioParticipantFactoryCatalogV1([new RefusingFactory([])])));
+            await fixture.PrepareAsync(LiveAudioParticipantFactoryCatalogV1.CreateExplicit([new RefusingFactory([])])));
         var before = (await fixture.FactsAsync()).Count;
         var first = LiveAudioSessionFailureConvergenceV1.ConvergeAsync(
             fixture.Journal, abandoned.Abandonment, new UtcInstant(200)).AsTask();
@@ -71,7 +71,7 @@ public sealed class LiveAudioSessionFailureConvergenceV1Tests
     {
         var fixture = await LiveAudioSessionPreparationSupervisorV1Tests.Fixture.CreateAsync();
         var abandoned = Assert.IsType<LiveAudioSessionPreparationResultV1.ReservedNeedsConvergence>(
-            await fixture.PrepareAsync(new LiveAudioParticipantFactoryCatalogV1([new RefusingFactory([])])));
+            await fixture.PrepareAsync(LiveAudioParticipantFactoryCatalogV1.CreateExplicit([new RefusingFactory([])])));
         await fixture.AdvanceGraphAsync();
         Assert.IsType<LiveAudioSessionFailureConvergenceResultV1.Completed>(
             await LiveAudioSessionFailureConvergenceV1.ConvergeAsync(
@@ -89,7 +89,7 @@ public sealed class LiveAudioSessionFailureConvergenceV1Tests
     {
         var fixture = await LiveAudioSessionPreparationSupervisorV1Tests.Fixture.CreateAsync();
         var abandoned = Assert.IsType<LiveAudioSessionPreparationResultV1.ReservedNeedsConvergence>(
-            await fixture.PrepareAsync(new LiveAudioParticipantFactoryCatalogV1([new RefusingFactory([])])));
+            await fixture.PrepareAsync(LiveAudioParticipantFactoryCatalogV1.CreateExplicit([new RefusingFactory([])])));
         var before = (await fixture.FactsAsync()).Count;
         var faulting = new CommitThenThrowJournal(fixture.Journal, crashAfterAppend);
 
@@ -114,7 +114,7 @@ public sealed class LiveAudioSessionFailureConvergenceV1Tests
     {
         var fixture = await LiveAudioSessionPreparationSupervisorV1Tests.Fixture.CreateAsync();
         var abandoned = Assert.IsType<LiveAudioSessionPreparationResultV1.ReservedNeedsConvergence>(
-            await fixture.PrepareAsync(new LiveAudioParticipantFactoryCatalogV1([new RefusingFactory([])])));
+            await fixture.PrepareAsync(LiveAudioParticipantFactoryCatalogV1.CreateExplicit([new RefusingFactory([])])));
         var before = (await fixture.FactsAsync()).Count;
         var faulting = new ThrowBeforeAppendJournal(fixture.Journal, failBeforeAppend);
 
