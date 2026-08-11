@@ -1,10 +1,9 @@
 using System.Buffers.Binary;
+using System.Collections.Immutable;
 using System.Security.Cryptography;
 using System.Text.Json;
 using FluentAssertions;
-using HPD.Gateway.Abstractions;
-using HPD.Gateway.Abstractions.Serialization;
-using HPD.Gateway.Core;
+using HPD.Gateway;
 using Xunit;
 
 namespace HPD.Gateway.Tests;
@@ -18,7 +17,7 @@ public sealed class NativeSemanticValidationTests
         typeof(GatewayPortableDocumentResult).GetProperty(nameof(GatewayPortableDocumentResult.IsStructurallyValid)).Should().NotBeNull();
         typeof(GatewayCandidateReadResult).GetProperty(nameof(GatewayCandidateReadResult.IsAccepted)).Should().NotBeNull();
         typeof(GatewayCandidateReadResult).GetConstructors().Should().BeEmpty();
-        typeof(GatewayConfiguration).Assembly.GetType("HPD.Gateway.Abstractions.Serialization.GatewayConfigurationReader").Should().BeNull();
+        typeof(GatewayConfiguration).Assembly.GetType("HPD.Gateway.GatewayConfigurationReader").Should().BeNull();
     }
 
     [Fact]
@@ -32,28 +31,28 @@ public sealed class NativeSemanticValidationTests
     }
 
     [Fact]
-    public void AuthoritativeReaderReturnsErrorsForNullDiscoveryParametersWithoutThrowing()
+    public void AuthoritativeReaderReturnsErrorsForNullDiscoverySchemesWithoutThrowing()
     {
         var valid = GatewayConfigurationTests.CreateValidConfiguration();
         var discovered = valid.Upstreams[0] with
         {
-            Endpoints = new DiscoveredEndpointSource
+            Endpoints = new ServiceDiscoveryEndpointSource
             {
-                Provider = new ProviderId("dns"),
-                Service = new ProviderObjectId("orders"),
-                Parameters = [],
+                Profile = new DiscoveryProfileId("dns"),
+                Service = new ServiceDiscoveryName("orders"),
+                Schemes = [],
                 StaleBehavior = DiscoveryStaleBehavior.RejectActivationUntilFresh
             }
         };
         var json = JsonSerializer.Serialize(
             valid with { Upstreams = [discovered] },
             GatewayJsonSerializerContext.Default.GatewayConfiguration)
-            .Replace("\"parameters\":[]", "\"parameters\":null", StringComparison.Ordinal);
+            .Replace("\"schemes\":[]", "\"schemes\":null", StringComparison.Ordinal);
         var capabilities = HostCapabilitySnapshot.Create(new HostCapabilityRegistration
         {
             InstalledFamilies = GatewayDeclarationFamilies.Authorization,
             AuthorizationPolicies = ["orders.read"],
-            DiscoveryProviders = [new DiscoveryProviderCapability(new ProviderId("dns"), [], [], false, false)]
+            DiscoveryProfiles = [DiscoveryProfile()]
         });
 
         var action = () => GatewayCandidateReader.Read(System.Text.Encoding.UTF8.GetBytes(json), capabilities);
@@ -61,6 +60,169 @@ public sealed class NativeSemanticValidationTests
         action.Should().NotThrow();
         action().IsAccepted.Should().BeFalse();
         action().Errors.Should().NotBeEmpty().And.HaveCountLessThanOrEqualTo(256);
+    }
+
+    [Fact]
+    public void LegacyDiscoveryWireShapeIsRejectedRatherThanAdapted()
+    {
+        const string legacy = """
+            {"schemaVersion":{"major":1,"minor":0},"canonicalizationVersion":1,"routes":[],"upstreams":[{"id":{"value":"orders"},"endpoints":{"kind":"discovery","provider":{"value":"dns"},"service":{"value":"orders"},"staleBehavior":"rejectActivationUntilFresh"}}]}
+            """;
+
+        GatewayPortableDocumentReader.Read(System.Text.Encoding.UTF8.GetBytes(legacy)).IsStructurallyValid.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("Orders", null)]
+    [InlineData("xn--orders", null)]
+    [InlineData("orders.", null)]
+    [InlineData("orders_api", null)]
+    [InlineData("orders%2eapi", null)]
+    [InlineData("orders", "read.v1")]
+    [InlineData("orders", "Read")]
+    [InlineData("orders", "_grpc")]
+    public void ServiceDiscoveryNamesUseTheClosedInjectiveGrammar(string service, string? endpoint)
+    {
+        GatewayConfiguration valid = GatewayConfigurationTests.CreateValidConfiguration();
+        GatewayConfiguration configuration = valid with
+        {
+            Upstreams =
+            [
+                valid.Upstreams[0] with
+                {
+                    Endpoints = new ServiceDiscoveryEndpointSource
+                    {
+                        Profile = new DiscoveryProfileId("dns"),
+                        Service = new ServiceDiscoveryName(service),
+                        Endpoint = endpoint is null ? null : new ServiceDiscoveryEndpointName(endpoint),
+                        Schemes = [ServiceDiscoveryScheme.Http],
+                        StaleBehavior = DiscoveryStaleBehavior.RejectActivationUntilFresh,
+                    },
+                },
+            ],
+        };
+
+        GatewayConfigurationValidator.Validate(configuration).IsValid.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ServiceDiscoverySchemeOrderParticipatesInCanonicalIdentity()
+    {
+        GatewayConfiguration valid = GatewayConfigurationTests.CreateValidConfiguration();
+        ServiceDiscoveryEndpointSource endpoints = new()
+        {
+            Profile = new DiscoveryProfileId("dns"),
+            Service = new ServiceDiscoveryName("orders.api"),
+            Schemes = [ServiceDiscoveryScheme.Https, ServiceDiscoveryScheme.Http],
+            StaleBehavior = DiscoveryStaleBehavior.RejectActivationUntilFresh,
+        };
+        GatewayConfiguration first = valid with { Upstreams = [valid.Upstreams[0] with { Endpoints = endpoints }] };
+        GatewayConfiguration second = valid with
+        {
+            Upstreams = [valid.Upstreams[0] with { Endpoints = endpoints with { Schemes = [ServiceDiscoveryScheme.Http, ServiceDiscoveryScheme.Https] } }],
+        };
+
+        GatewayConfigurationCanonicalizer.TryCanonicalize(first).Document!.ContentHash.Should()
+            .NotBe(GatewayConfigurationCanonicalizer.TryCanonicalize(second).Document!.ContentHash);
+    }
+
+    [Fact]
+    public void TypedServiceDiscoveryGraphRoundTripsThroughTheAuthoritativeReader()
+    {
+        GatewayConfiguration valid = GatewayConfigurationTests.CreateValidConfiguration();
+        GatewayConfiguration configuration = valid with
+        {
+            Upstreams =
+            [
+                valid.Upstreams[0] with
+                {
+                    Endpoints = new ServiceDiscoveryEndpointSource
+                    {
+                        Profile = new DiscoveryProfileId("dns"),
+                        Service = new ServiceDiscoveryName("orders.api"),
+                        Endpoint = new ServiceDiscoveryEndpointName("grpc"),
+                        Schemes = [ServiceDiscoveryScheme.Https, ServiceDiscoveryScheme.Http],
+                        StaleBehavior = DiscoveryStaleBehavior.PermitLastKnownMembership,
+                    },
+                    Transport = valid.Upstreams[0].Transport with
+                    {
+                        Tls = new UpstreamTlsDeclaration { ServerName = "orders.api" },
+                    },
+                },
+            ],
+        };
+        HostCapabilitySnapshot capabilities = HostCapabilitySnapshot.Create(new HostCapabilityRegistration
+        {
+            InstalledFamilies = GatewayDeclarationFamilies.Authorization,
+            AuthorizationPolicies = ["orders.read"],
+            DiscoveryProfiles =
+            [
+                DiscoveryProfile([ServiceDiscoveryScheme.Https, ServiceDiscoveryScheme.Http]) with
+                {
+                    StaleBehaviors = [DiscoveryStaleBehavior.PermitLastKnownMembership],
+                },
+            ],
+        });
+
+        byte[] json = JsonSerializer.SerializeToUtf8Bytes(configuration, GatewayJsonSerializerContext.Default.GatewayConfiguration);
+        GatewayCandidateReadResult result = GatewayCandidateReader.Read(json, capabilities);
+
+        result.IsAccepted.Should().BeTrue();
+        ServiceDiscoveryEndpointSource roundTripped = result.Configuration!.Upstreams[0].Endpoints
+            .Should().BeOfType<ServiceDiscoveryEndpointSource>().Subject;
+        roundTripped.Profile.Should().Be(new DiscoveryProfileId("dns"));
+        roundTripped.Service.Should().Be(new ServiceDiscoveryName("orders.api"));
+        roundTripped.Endpoint.Should().Be(new ServiceDiscoveryEndpointName("grpc"));
+        roundTripped.Schemes.Should().Equal(ServiceDiscoveryScheme.Https, ServiceDiscoveryScheme.Http);
+        roundTripped.StaleBehavior.Should().Be(DiscoveryStaleBehavior.PermitLastKnownMembership);
+    }
+
+    [Theory]
+    [InlineData("Orders.API")]
+    [InlineData("orders_api")]
+    [InlineData("https://orders.api")]
+    [InlineData("127.0.0.1")]
+    [InlineData("orders%2eapi")]
+    [InlineData("xn--orders.api")]
+    public void HttpsServiceDiscoveryRejectsNoncanonicalTlsServerNames(string serverName)
+    {
+        GatewayConfiguration valid = GatewayConfigurationTests.CreateValidConfiguration();
+        GatewayConfiguration configuration = valid with
+        {
+            Upstreams =
+            [
+                valid.Upstreams[0] with
+                {
+                    Endpoints = new ServiceDiscoveryEndpointSource
+                    {
+                        Profile = new DiscoveryProfileId("dns"),
+                        Service = new ServiceDiscoveryName("orders.api"),
+                        Schemes = [ServiceDiscoveryScheme.Https],
+                        StaleBehavior = DiscoveryStaleBehavior.RejectActivationUntilFresh,
+                    },
+                    Transport = valid.Upstreams[0].Transport with
+                    {
+                        Tls = new UpstreamTlsDeclaration { ServerName = serverName },
+                    },
+                },
+            ],
+        };
+        HostCapabilitySnapshot capabilities = HostCapabilitySnapshot.Create(new HostCapabilityRegistration
+        {
+            InstalledFamilies = GatewayDeclarationFamilies.Authorization,
+            AuthorizationPolicies = ["orders.read"],
+            DiscoveryProfiles = [DiscoveryProfile([ServiceDiscoveryScheme.Https])],
+        });
+
+        GatewayCandidateValidator.Validate(configuration, capabilities).Errors.Should()
+            .Contain(error => error.Path == "upstreams[0].transport.tls.serverName");
+    }
+
+    [Fact]
+    public void HttpsServiceDiscoveryRejectsOversizedTlsServerName()
+    {
+        string serverName = string.Join('.', Enumerable.Repeat(new string('a', 63), 4));
+        HttpsServiceDiscoveryRejectsNoncanonicalTlsServerNames(serverName);
     }
 
     [Fact]
@@ -206,16 +368,16 @@ public sealed class NativeSemanticValidationTests
     }
 
     [Fact]
-    public void DiscoveryProviderAndParameterSchemaAlwaysResolveWithoutTls()
+    public void DiscoveryProfileAndSchemeSelectionResolveWithoutTls()
     {
         var valid = GatewayConfigurationTests.CreateValidConfiguration();
         var discovered = valid.Upstreams[0] with
         {
-            Endpoints = new DiscoveredEndpointSource
+            Endpoints = new ServiceDiscoveryEndpointSource
             {
-                Provider = new ProviderId("dns"),
-                Service = new ProviderObjectId("orders"),
-                Parameters = [new ProviderParameter("unsupported", "x")],
+                Profile = new DiscoveryProfileId("dns"),
+                Service = new ServiceDiscoveryName("orders"),
+                Schemes = [ServiceDiscoveryScheme.Https],
                 StaleBehavior = DiscoveryStaleBehavior.RejectActivationUntilFresh
             }
         };
@@ -223,12 +385,12 @@ public sealed class NativeSemanticValidationTests
         {
             InstalledFamilies = GatewayDeclarationFamilies.Authorization,
             AuthorizationPolicies = ["orders.read"],
-            DiscoveryProviders = [new DiscoveryProviderCapability(new ProviderId("dns"), ["region"], ["region"], false, false)]
+            DiscoveryProfiles = [DiscoveryProfile(schemes: [ServiceDiscoveryScheme.Http])]
         });
 
         var errors = GatewayCandidateValidator.Validate(valid with { Upstreams = [discovered] }, capabilities).Errors;
-        errors.Should().Contain(error => error.Message.Contains("not supported", StringComparison.Ordinal));
-        errors.Should().Contain(error => error.Message.Contains("missing", StringComparison.Ordinal));
+        errors.Should().Contain(error => error.Message.Contains("scheme", StringComparison.OrdinalIgnoreCase));
+        errors.Should().Contain(error => error.Message.Contains("TLS", StringComparison.Ordinal));
 
         var absent = HostCapabilitySnapshot.Create(new HostCapabilityRegistration
         {
@@ -378,4 +540,19 @@ public sealed class NativeSemanticValidationTests
         InstalledFamilies = GatewayDeclarationFamilies.Authorization,
         AuthorizationPolicies = ["orders.read"]
     });
+
+    private static DiscoveryProfileCapability DiscoveryProfile(
+        ImmutableArray<ServiceDiscoveryScheme> schemes = default) => new(
+        new DiscoveryProfileId("dns"),
+        1,
+        DiscoveryRuntimeKind.Microsoft,
+        [DiscoveryProviderKind.Configuration],
+        schemes.IsDefault ? [ServiceDiscoveryScheme.Http] : schemes,
+        [DiscoveryStaleBehavior.RejectActivationUntilFresh],
+        256,
+        true,
+        true,
+        true,
+        !schemes.IsDefault && schemes.Contains(ServiceDiscoveryScheme.Https),
+        new ContentHash("sha-256", new string('a', 64)));
 }

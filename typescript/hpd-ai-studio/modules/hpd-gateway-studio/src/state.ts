@@ -2,7 +2,7 @@ import type {
   GatewayCapabilityCatalog,
   GatewayClient,
   GatewayDesiredProjection,
-  GatewayEffectiveSnapshot,
+  GatewayAppliedRuntimeSnapshot,
   GatewayHostCapabilitySnapshotResponse,
   GatewayTargetStatusResponse,
   GatewayNamespaceId,
@@ -40,11 +40,10 @@ interface Observation<T> {
 }
 
 interface GatewayObservationBundle {
-  readonly catalog: Observation<GatewayCapabilityCatalog>;
   readonly hostCapabilities: Observation<GatewayHostCapabilitySnapshotResponse>;
   readonly status: GatewayTargetStatusResponse;
   readonly desired: Observation<GatewayDesiredProjection>;
-  readonly effective: Observation<GatewayEffectiveSnapshot>;
+  readonly effective: Observation<GatewayAppliedRuntimeSnapshot>;
   readonly observedAt: string;
 }
 
@@ -56,6 +55,8 @@ export interface GatewayStudioSnapshot {
   readonly verdict: GatewayStudioVerdict;
   readonly lifecycle: readonly GatewayLifecycleStage[];
   readonly observation: GatewayObservationBundle | null;
+  readonly capabilities: Observation<GatewayCapabilityCatalog>;
+  readonly capabilitiesObservedAt: string | null;
   readonly refreshing: boolean;
   readonly stale: boolean;
   readonly lastSuccessfulAt: string | null;
@@ -68,7 +69,7 @@ export interface GatewayStudioController {
   setDraft(context: GatewayStudioContext): void;
   selectDraft(): boolean;
   clearContext(): void;
-  refresh(): Promise<void>;
+  refresh(signal?: AbortSignal): Promise<void>;
   dispose(): void;
 }
 
@@ -89,6 +90,8 @@ export function createGatewayStudioController(options: ControllerOptions): Gatew
   let context: GatewayStudioContext | null = null;
   let phase: GatewayStudioSnapshot['phase'] = authentication.isAuthenticated ? 'context-required' : 'signed-out';
   let observation: GatewayObservationBundle | null = null;
+  let capabilities: Observation<GatewayCapabilityCatalog> = Object.freeze({ state: 'not-observed' });
+  let capabilitiesObservedAt: string | null = null;
   let refreshing = false;
   let stale = false;
   let lastSuccessfulAt: string | null = null;
@@ -136,6 +139,8 @@ export function createGatewayStudioController(options: ControllerOptions): Gatew
       verdict: deriveVerdict(phase, observation, stale),
       lifecycle: Object.freeze(deriveLifecycle(observation)),
       observation,
+      capabilities,
+      capabilitiesObservedAt,
       refreshing,
       stale,
       lastSuccessfulAt,
@@ -154,17 +159,21 @@ export function createGatewayStudioController(options: ControllerOptions): Gatew
     draft = Object.freeze({ namespaceId: '', targetId: '' });
     context = null;
     observation = null;
+    capabilities = Object.freeze({ state: 'not-observed' });
+    capabilitiesObservedAt = null;
     stale = false;
     lastSuccessfulAt = null;
     failureCode = null;
   }
 
-  function refresh(): Promise<void> {
-    if (disposed || !authentication.isAuthenticated || context === null) return Promise.resolve();
-    if (activeRefresh !== null) return activeRefresh;
+  function refresh(signal?: AbortSignal): Promise<void> {
+    if (disposed || signal?.aborted || !authentication.isAuthenticated || context === null) return Promise.resolve();
+    if (activeRefresh !== null) return settleOnAbort(activeRefresh, signal);
     const selected = context;
     const currentGeneration = ++generation;
     const controller = new AbortController();
+    const cancel = () => controller.abort();
+    signal?.addEventListener('abort', cancel, { once: true });
     activeController = controller;
     refreshing = true;
     if (observation === null) phase = 'loading';
@@ -179,7 +188,13 @@ export function createGatewayStudioController(options: ControllerOptions): Gatew
         options.client.effective({ path }, { signal: controller.signal })
       ]);
       if (disposed || controller.signal.aborted || currentGeneration !== generation) return;
+      capabilities = observe(catalogResult);
+      capabilitiesObservedAt = catalogResult.ok ? now().toISOString() : null;
       if (!statusResult.ok) {
+        if (statusResult.kind === 'http' && statusResult.status === 401) {
+          await options.authentication.beginSignOut?.();
+          return;
+        }
         const failure = classifyFailure(statusResult);
         phase = failure.phase;
         failureCode = failure.code;
@@ -188,7 +203,6 @@ export function createGatewayStudioController(options: ControllerOptions): Gatew
       }
       const observedAt = now().toISOString();
       observation = cloneAndFreeze({
-        catalog: observe(catalogResult),
         hostCapabilities: observe(hostResult),
         status: statusResult.value,
         desired: observe(desiredResult),
@@ -205,6 +219,7 @@ export function createGatewayStudioController(options: ControllerOptions): Gatew
       failureCode = 'gateway.studio.refreshFailed';
       stale = observation !== null;
     }).finally(() => {
+      signal?.removeEventListener('abort', cancel);
       if (currentGeneration !== generation) return;
       activeController = null;
       activeRefresh = null;
@@ -213,7 +228,7 @@ export function createGatewayStudioController(options: ControllerOptions): Gatew
     });
     activeRefresh = work;
     emit();
-    return work;
+    return settleOnAbort(work, signal);
   }
 
   const controller: GatewayStudioController = Object.freeze({
@@ -265,6 +280,19 @@ export function createGatewayStudioController(options: ControllerOptions): Gatew
   return controller;
 }
 
+function settleOnAbort(work: Promise<void>, signal?: AbortSignal): Promise<void> {
+  if (signal === undefined) return work;
+  if (signal.aborted) return Promise.resolve();
+  return new Promise(resolve => {
+    const canceled = () => resolve();
+    signal.addEventListener('abort', canceled, { once: true });
+    void work.finally(() => {
+      signal.removeEventListener('abort', canceled);
+      resolve();
+    });
+  });
+}
+
 function observe<T>(result: { readonly ok: boolean; readonly value?: T; readonly kind?: string; readonly status?: number }): Observation<T> {
   if (result.ok) return Object.freeze({ state: 'value', value: cloneAndFreeze(result.value!) });
   if (result.kind === 'http' && result.status === 404) return Object.freeze({ state: 'not-observed' });
@@ -280,7 +308,7 @@ function classifyFailure(result: { readonly kind?: string; readonly status?: num
 
 function deriveVerdict(phase: GatewayStudioSnapshot['phase'], bundle: GatewayObservationBundle | null, stale: boolean): GatewayStudioVerdict {
   if (phase !== 'ready' || bundle === null || stale) return 'Serving Truth Unknown';
-  if (bundle.status.nodeObservation !== 'Observed') return 'Serving Truth Unknown';
+  if (bundle.status.nodeObservation !== 'Observed' || bundle.status.node === null) return 'Serving Truth Unknown';
   if (bundle.status.node.readiness.serving === 'NotReady') return 'Not Ready';
   return bundle.status.node.publication.state === 'PublicationIndeterminate' ? 'Serving Truth Unknown' : 'Serving Ready';
 }
@@ -289,14 +317,14 @@ function deriveLifecycle(bundle: GatewayObservationBundle | null): GatewayLifecy
   const desired = bundle?.desired.state === 'value' ? bundle.desired.value : undefined;
   const status = bundle?.status;
   const effective = bundle?.effective.state === 'value' ? bundle.effective.value : undefined;
-  const publication = status?.node.publication;
+  const publication = status?.node?.publication;
   const delivered = status === undefined ? 'Not observed' : status.nodeObservation === 'Observed' ? status.management.latestNodeOutcome : status.nodeObservation;
   return [
     { id: 'authored', label: 'Authored', state: 'Not started', source: 'Local' },
     { id: 'validated', label: 'Validated', state: 'Not validated', source: 'Local' },
     { id: 'desired', label: 'Desired', state: desired ? 'Observed' : 'Not observed', identity: desired?.revisionId, source: 'Management' },
     { id: 'delivered', label: 'Delivered', state: delivered ?? 'Not observed', identity: status?.management.latestNodeActivationIntentId ?? undefined, source: 'Management' },
-    { id: 'active', label: 'Active', state: publication?.state ?? 'Not observed', identity: publication?.state === 'ActiveAcknowledged' ? publication.active.candidateId : undefined, source: 'Node' },
+    { id: 'active', label: 'Active', state: publication?.state ?? 'Not observed', identity: publication?.state === 'ActiveAcknowledged' ? publication.active?.candidateId : undefined, source: 'Node' },
     { id: 'effective', label: 'Effective', state: effective ? 'Observed' : 'Not observed', identity: effective?.candidateId, source: 'Effective' }
   ].map((stage) => Object.freeze(stage)) as GatewayLifecycleStage[];
 }

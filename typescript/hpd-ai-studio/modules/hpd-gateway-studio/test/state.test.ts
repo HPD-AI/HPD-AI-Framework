@@ -10,17 +10,18 @@ const transport = () => ({ ok: false, kind: 'transport', reason: 'network-failur
 function status(serving: 'Ready' | 'NotReady' = 'Ready', publication = 'ActiveAcknowledged'): GatewayTargetStatusResponse {
   return {
     observedAt: '2026-08-08T00:00:00Z', isTruncated: false, nodeObservation: 'Observed',
-    management: { authorityReady: true, code: 'Ready', durability: 'RestartDurable', indeterminateDeliveryCount: 0, latestNodeActivationIntentId: 'intent', latestNodeOutcome: 'ActiveAcknowledged', nodeAttemptStarted: true, pendingDeliveryCount: 0, servingReadinessAffected: false },
+    management: { authorityReady: true, code: 'Ready', durability: 'RestartDurable', indeterminateDeliveryCount: 0, latestNodeActivationIntentId: 'intent' as never, latestNodeOutcome: 'ActiveAcknowledged', nodeAttemptStarted: true, pendingDeliveryCount: 0, servingReadinessAffected: false },
     node: {
       conditions: [], detailsTruncated: false, generatedAt: '2026-08-08T00:00:00Z', processInstanceId: 'process', snapshotSequence: '1', upstreams: [],
       host: { desiredConfigurationHash: null, runningConfigurationHash: null, reasons: [], state: 'Ready', stamp: stamp() },
-      intent: { state: 'NotManaged', stamp: stamp() }, preparation: { candidateId: 'candidate', state: 'Materialized', stamp: stamp() },
-      publication: { active: { acknowledgedAt: '2026-08-08T00:00:00Z', candidateId: 'candidate', contentHash: 'hash', nativeRevisionId: 'native' }, attemptedCandidateId: 'candidate', lastKnownGood: { acknowledgedAt: '2026-08-08T00:00:00Z', candidateId: 'candidate', contentHash: 'hash', nativeRevisionId: 'native' }, reasons: [], state: publication as never, stamp: stamp() },
+      intent: { state: 'NotManaged', stamp: stamp() }, preparation: { candidateId: 'candidate' as never, state: 'Prepared', stamp: stamp() },
+      publication: { active: active(), attemptedCandidateId: 'candidate' as never, lastKnownGood: active(), reasons: [], state: publication as never, stamp: stamp() },
       readiness: { configuration: 'Ready', serving, reasons: [], stamp: stamp() }
     }
   };
 }
 function stamp() { return { authorityId: 'a', authorityKind: 'node', observationSequence: '1', observedAt: '2026-08-08T00:00:00Z', observedIdentity: null, processInstanceId: 'p' }; }
+function active() { return { acknowledgedAt: '2026-08-08T00:00:00Z', applicationId: '0123456789abcdef0123456789abcdef', candidateId: 'candidate' as never, contentHash: 'hash', nativeRevisionId: 'native', symbolicPlanIdentity: { algorithm: 'sha-256', value: 'a'.repeat(64) } }; }
 
 function client(overrides: Partial<Record<'status' | 'desired' | 'effective' | 'capabilities' | 'host-capabilities', unknown>> = {}) {
   const defaults = {
@@ -37,7 +38,7 @@ function authentication(initial: boolean, initialSubject?: string) {
   let value: { isAuthenticated: boolean; subjectHint?: string } = { isAuthenticated: initial, ...(initialSubject === undefined ? {} : { subjectHint: initialSubject }) };
   const listeners = new Set<(snapshot: { isAuthenticated: boolean; subjectHint?: string }) => void>();
   return {
-    service: { snapshot: () => value, subscribe(listener) { listeners.add(listener); listener(value); return () => listeners.delete(listener); } } satisfies StudioAuthenticationService,
+    service: { snapshot: () => value, subscribe(listener) { listeners.add(listener); listener(value); return () => listeners.delete(listener); }, beginSignOut() { value = { isAuthenticated: false }; for (const listener of listeners) listener(value); } } satisfies StudioAuthenticationService,
     set(next: boolean, subjectHint?: string) { value = { isAuthenticated: next, ...(subjectHint === undefined ? {} : { subjectHint }) }; for (const listener of listeners) listener(value); }
   };
 }
@@ -78,9 +79,23 @@ describe('Gateway Studio state', () => {
   });
 
   it('preserves protected 404 language and never infers target absence', async () => {
-    const controller = createGatewayStudioController({ client: client({ status: vi.fn(async () => http(404)) }), authentication: authentication(true).service, lifecycle: lifecycle() });
+    const controller = createGatewayStudioController({ client: client({ capabilities: vi.fn(async()=>ok({apiVersion:'v1',capabilities:['gateway.management.target.provision']})), status: vi.fn(async () => http(404)) }), authentication: authentication(true).service, lifecycle: lifecycle() });
     controller.setDraft({ namespaceId: 'namespace', targetId: 'node' }); controller.selectDraft(); await controller.refresh();
     expect(controller.snapshot()).toMatchObject({ phase: 'unavailable', verdict: 'Serving Truth Unknown', failureCode: 'gateway.studio.targetUnavailable' });
+    expect(controller.snapshot().capabilities).toMatchObject({state:'value',value:{capabilities:['gateway.management.target.provision']}});
+    expect(controller.snapshot().observation).toBeNull();
+  });
+
+  it('projects authorization denial and invalidates the authentication session on 401', async () => {
+    const deniedAuth = authentication(true, 'principal');
+    const denied = createGatewayStudioController({ client: client({ status: vi.fn(async () => http(403)) }), authentication: deniedAuth.service, lifecycle: lifecycle() });
+    denied.setDraft({ namespaceId: 'namespace', targetId: 'node' }); denied.selectDraft(); await denied.refresh();
+    expect(denied.snapshot()).toMatchObject({ phase: 'denied', authentication: { isAuthenticated: true }, context: { namespaceId: 'namespace', targetId: 'node' } });
+
+    const expiredAuth = authentication(true, 'principal');
+    const expired = createGatewayStudioController({ client: client({ status: vi.fn(async () => http(401)) }), authentication: expiredAuth.service, lifecycle: lifecycle() });
+    expired.setDraft({ namespaceId: 'namespace', targetId: 'node' }); expired.selectDraft(); await expired.refresh();
+    expect(expired.snapshot()).toMatchObject({ phase: 'signed-out', authentication: { isAuthenticated: false }, context: null, observation: null });
   });
 
   it('distinguishes not-ready and indeterminate serving truth', async () => {
@@ -107,7 +122,7 @@ describe('Gateway Studio state', () => {
     controller.setDraft({ namespaceId: 'namespace', targetId: 'node' }); controller.selectDraft(); await controller.refresh();
     await controller.refresh();
     expect(controller.snapshot()).toMatchObject({ phase: 'failed', stale: true, verdict: 'Serving Truth Unknown' });
-    expect(controller.snapshot().observation?.status.node.readiness.serving).toBe('Ready');
+    expect(controller.snapshot().observation?.status.node?.readiness.serving).toBe('Ready');
     await controller.refresh();
     expect(controller.snapshot()).toMatchObject({ phase: 'ready', stale: false, verdict: 'Not Ready' });
   });

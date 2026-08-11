@@ -36,6 +36,14 @@ function sampleReference(reference: string): unknown {
   return sampleSchema(runtimeSchemas[reference.slice(schemaPrefix.length)]!, reference, new Set());
 }
 
+function operationSuccess(operation: RuntimeOperation): unknown {
+  if (operation.mutationResponse === "revision-only")
+    return { operationId: "operation", revisionId: "revision", activationIntentId: null, desiredStateToken: null, duplicate: false };
+  if (operation.mutationResponse === "revision-and-activation")
+    return { operationId: "operation", revisionId: "revision", activationIntentId: "intent", desiredStateToken: "desired", duplicate: false };
+  return sampleReference(operation.success.schemaRef);
+}
+
 function sampleSchema(schema: RuntimeSchema, reference: string, seen: Set<string>): unknown {
   if (typeof schema.$ref === "string") {
     if (seen.has(schema.$ref)) return null;
@@ -107,7 +115,7 @@ describe("Gateway client", () => {
         if (operation.requestBody.presence === "none") expect(init?.body, operation.operation).toBeUndefined();
         if (operation.requestBody.presence === "required") expect(init?.body, operation.operation).toBeDefined();
         if (init?.body !== undefined) expect(headers.get("content-type"), operation.operation).toBe(operation.requestBody.mediaTypes[0]);
-        return json(sampleReference(operation.success.schemaRef), operation.success.status);
+        return json(operationSuccess(operation), operation.success.status);
       });
       const client = createGatewayClient({ baseUrl: "https://gateway.example", authentication: auth, fetch }) as unknown as Record<string, (input: Record<string, unknown>) => Promise<{ ok: boolean }>>;
       const result = await client[operation.operation]!(operationInput(operation));
@@ -150,6 +158,27 @@ describe("Gateway client", () => {
     await client.revisions({ path: { ns: "a/b" as never, target: "node one" as never }, query: { maximum: 64, cursor: "next" as never } });
   });
 
+  it("replaces the contract API base with the configured runtime base", async () => {
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      expect(new URL(input.toString()).pathname).toBe("/host-prefix/custom/admin/capabilities");
+      return json({ apiVersion: "1.0.0", capabilities: [] });
+    });
+    const client = createGatewayClient({
+      baseUrl: "https://gateway.example/host-prefix",
+      apiBasePath: "/custom/admin",
+      authentication: auth,
+      fetch,
+    });
+    expect((await client.capabilities({ path: {} })).ok).toBe(true);
+  });
+
+  it("rejects malformed configured API bases before authentication or Fetch", () => {
+    for (const apiBasePath of ["relative", "/", "/bad/", "/bad//path", "/bad\\path", "/bad?query", "/bad#fragment", "/bad%2fpath", "/bad%5Cpath"]) {
+      expect(() => createGatewayClient({ baseUrl: "https://gateway.example", apiBasePath, authentication: auth, fetch: vi.fn() }))
+        .toThrow(TypeError);
+    }
+  });
+
   it("maps documented errors and rejects unknown statuses", async () => {
     const documented = createGatewayClient({ baseUrl: "https://gateway.example", authentication: auth,
       fetch: async () => json({ code: "denied", title: "Denied" }, 403) });
@@ -173,7 +202,7 @@ describe("Gateway client", () => {
 
   it("enforces generated response semantic constraints on instance properties", async () => {
     const client = createGatewayClient({ baseUrl: "https://gateway.example", authentication: auth,
-      fetch: async () => json({ desiredStateToken: "next-token", duplicate: false, revisionId: "e\u0301" }, 202) });
+      fetch: async () => json({ operationId: "operation", revisionId: "e\u0301", activationIntentId: "intent", desiredStateToken: "next-token", duplicate: false }, 202) });
     expect(await client.activate({
       path: { ns: "namespace", target: "node", revision: "revision" } as never,
       headers: { idempotencyKey: "attempt", desiredPrecondition: { kind: "create-only" } } as never,
@@ -228,7 +257,7 @@ describe("Gateway client", () => {
     const body = Object.defineProperty({}, "description", { enumerable: true, get: () => { getterCalls++; return "safe"; } });
     const acceptedFetch = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       expect(init?.body).toBe('{"description":"safe"}');
-      return json({ desiredStateToken: "next-token", duplicate: false, revisionId: "revision" }, 202);
+      return json({ operationId: "operation", revisionId: "revision", activationIntentId: "intent", desiredStateToken: "next-token", duplicate: false }, 202);
     });
     const accepted = createGatewayClient({ baseUrl: "https://gateway.example", authentication: auth, fetch: acceptedFetch });
     expect((await accepted.activate({
@@ -354,7 +383,7 @@ describe("Gateway client", () => {
       expect(headers.get("idempotency-key")).toBe("attempt-one");
       expect(headers.get("if-match")).toBe('"desired-token"');
       expect(init?.method).toBe("POST");
-      return json({ desiredStateToken: "next-token", duplicate: false, revisionId: "revision-two" }, 202);
+      return json({ operationId: "operation", revisionId: "revision-two", activationIntentId: "intent", desiredStateToken: "next-token", duplicate: false }, 202);
     });
     const client = createGatewayClient({ baseUrl: "https://gateway.example", authentication: auth, fetch });
     const result = await client.activate({
@@ -362,6 +391,34 @@ describe("Gateway client", () => {
       headers: { idempotencyKey: "attempt-one" as never, desiredPrecondition: { kind: "replace", token: "desired-token" as never } },
     });
     expect(result).toMatchObject({ ok: true, status: 202 });
+  });
+
+  it("enforces the exact serialized request envelope before authentication and Fetch", async () => {
+    const authentication = { getAccessToken: vi.fn(async () => ({ value: "token" })) };
+    const fetch = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      expect(new TextEncoder().encode(init?.body as string).byteLength).toBe(4_194_304);
+      return json({ operationId: "operation", revisionId: "revision", activationIntentId: null, desiredStateToken: null, duplicate: false }, 201);
+    });
+    const client = createGatewayClient({ baseUrl: "https://gateway.example", authentication, fetch });
+    const base = { configurationJson: "", sourceKind: "studio", sourceId: "candidate", description: null };
+    const overhead = new TextEncoder().encode(JSON.stringify(base)).byteLength;
+    const exactBody = { ...base, configurationJson: "a".repeat(4_194_304 - overhead) };
+    const exact = await client.submit({
+      path: { ns: "namespace" as never, target: "node" as never },
+      headers: { idempotencyKey: "attempt" as never }, body: exactBody,
+    });
+    expect(exact).toMatchObject({ ok: true, status: 201 });
+    expect(authentication.getAccessToken).toHaveBeenCalledOnce();
+    expect(fetch).toHaveBeenCalledOnce();
+
+    const oversized = await client.submit({
+      path: { ns: "namespace" as never, target: "node" as never },
+      headers: { idempotencyKey: "attempt-two" as never },
+      body: { ...exactBody, configurationJson: exactBody.configurationJson + "a" },
+    });
+    expect(oversized).toMatchObject({ ok: false, kind: "protocol", reason: "request-too-large" });
+    expect(authentication.getAccessToken).toHaveBeenCalledOnce();
+    expect(fetch).toHaveBeenCalledOnce();
   });
 
   it("rejects duplicate JSON members and oversized streamed chunks", async () => {

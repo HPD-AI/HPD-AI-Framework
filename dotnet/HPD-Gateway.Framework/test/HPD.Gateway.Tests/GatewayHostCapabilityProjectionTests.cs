@@ -1,8 +1,7 @@
 using System.Collections.Immutable;
 using FluentAssertions;
-using HPD.Gateway.Admin;
-using HPD.Gateway.Abstractions;
-using HPD.Gateway.Core;
+using HPD.Gateway.ControlPlane;
+using HPD.Gateway;
 using Xunit;
 
 namespace HPD.Gateway.Tests;
@@ -87,6 +86,65 @@ public sealed class GatewayHostCapabilityProjectionTests
     }
 
     [Fact]
+    public void Discovery_profile_and_provider_catalogs_are_hard_bounded()
+    {
+        DiscoveryProfileCapability template = Registration(reverse: false).DiscoveryProfiles
+            .Cast<DiscoveryProfileCapability>().First();
+        Action tooManyProfiles = () => HostCapabilitySnapshot.Create(new HostCapabilityRegistration
+        {
+            DiscoveryProfiles = Enumerable.Range(0, 33)
+                .Select(index => template with { Id = new DiscoveryProfileId($"profile-{index}") }),
+        });
+        Action tooManyProviders = () => HostCapabilitySnapshot.Create(new HostCapabilityRegistration
+        {
+            DiscoveryProfiles =
+            [
+                template with
+                {
+                    Providers = Enumerable.Repeat(DiscoveryProviderKind.Configuration, 65).ToImmutableArray(),
+                },
+            ],
+        });
+
+        tooManyProfiles.Should().Throw<ArgumentException>().WithMessage("*maximum of 32*");
+        tooManyProviders.Should().Throw<ArgumentException>().WithMessage("*Discovery profile*");
+    }
+
+    [Theory]
+    [InlineData("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")]
+    [InlineData("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaAaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")]
+    [InlineData("gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg")]
+    [InlineData("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")]
+    [InlineData("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")]
+    public void Discovery_behavior_identity_rejects_noncanonical_hash_text(string hash)
+    {
+        DiscoveryProfileCapability profile = Registration(reverse: false).DiscoveryProfiles
+            .Cast<DiscoveryProfileCapability>().First();
+        Action action = () => HostCapabilitySnapshot.Create(new HostCapabilityRegistration
+        {
+            DiscoveryProfiles = [profile with { BehaviorIdentity = new ContentHash("sha-256", hash) }],
+        });
+
+        action.Should().Throw<ArgumentException>().WithMessage("*Discovery profile*");
+    }
+
+    [Fact]
+    public void Discovery_behavior_identity_preserves_one_exact_lowercase_projection()
+    {
+        DiscoveryProfileCapability profile = Registration(reverse: false).DiscoveryProfiles
+            .Cast<DiscoveryProfileCapability>().First() with
+        {
+            BehaviorIdentity = new ContentHash("sha-256", new string('a', 64)),
+        };
+
+        GatewayHostCapabilitySnapshotResponse projection = GatewayHostCapabilityProjector.Project(
+            HostCapabilitySnapshot.Create(new HostCapabilityRegistration { DiscoveryProfiles = [profile] }));
+
+        projection.Capabilities.DiscoveryProfiles.Should().ContainSingle()
+            .Which.BehaviorIdentityValue.Should().Be(new string('a', 64));
+    }
+
+    [Fact]
     public void Registration_materialization_is_single_pass_and_stops_at_maximum_plus_one()
     {
         var infinite = new CountingInfiniteEnumerable<string>("policy");
@@ -140,7 +198,7 @@ public sealed class GatewayHostCapabilityProjectionTests
         HostCapabilityRegistration normalized = baseline with
         {
             Listeners = listeners,
-            DiscoveryProviders = baseline.DiscoveryProviders.Reverse(),
+            DiscoveryProfiles = baseline.DiscoveryProfiles.Reverse(),
             SecretProviders = baseline.SecretProviders.Reverse(),
             AuthorizationPolicies = baseline.AuthorizationPolicies.Reverse(),
             OutputCacheProfiles = [cache with { HeaderNames = ["accept"] }],
@@ -154,7 +212,7 @@ public sealed class GatewayHostCapabilityProjectionTests
     {
         HostCapabilityRegistration baseline = Registration(reverse: false);
         ListenerCapability[] listeners = baseline.Listeners.Cast<ListenerCapability>().ToArray();
-        DiscoveryProviderCapability[] discoveries = baseline.DiscoveryProviders.Cast<DiscoveryProviderCapability>().ToArray();
+        DiscoveryProfileCapability[] discoveries = baseline.DiscoveryProfiles.Cast<DiscoveryProfileCapability>().ToArray();
         OutputCacheCapability cache = baseline.OutputCacheProfiles.Single();
         UpstreamResilienceCapability resilience = baseline.UpstreamResilienceProfiles.Single();
 
@@ -164,11 +222,17 @@ public sealed class GatewayHostCapabilityProjectionTests
         yield return Case("listener protocols", baseline with { Listeners = [listeners[0] with { Protocols = ListenerProtocols.Http1 }, listeners[1]] });
         yield return Case("listener hostname", baseline with { Listeners = [listeners[0] with { Hostnames = ["changed.example.com"] }, listeners[1]] });
         yield return Case("listener tls", baseline with { Listeners = [listeners[0] with { Tls = false }, listeners[1]] });
-        yield return Case("discovery id", baseline with { DiscoveryProviders = [discoveries[0] with { Id = new("changed") }, discoveries[1]] });
-        yield return Case("discovery supported parameters", baseline with { DiscoveryProviders = [discoveries[0] with { SupportedParameters = ["region", "zone", "rack"] }, discoveries[1]] });
-        yield return Case("discovery required parameters", baseline with { DiscoveryProviders = [discoveries[0] with { RequiredParameters = ["region", "zone"] }, discoveries[1]] });
-        yield return Case("discovery unknown parameters", baseline with { DiscoveryProviders = [discoveries[0] with { AllowUnknownParameters = true }, discoveries[1]] });
-        yield return Case("discovery https", baseline with { DiscoveryProviders = [discoveries[0] with { ProducesHttpsEndpoints = false }, discoveries[1]] });
+        yield return Case("discovery id", baseline with { DiscoveryProfiles = [discoveries[0] with { Id = new("changed") }, discoveries[1]] });
+        yield return Case("discovery version", baseline with { DiscoveryProfiles = [discoveries[0] with { ContractVersion = 2 }, discoveries[1]] });
+        yield return Case("discovery runtime", baseline with { DiscoveryProfiles = [discoveries[0] with { RuntimeKind = DiscoveryRuntimeKind.Governed }, discoveries[1]] });
+        yield return Case("discovery providers", baseline with { DiscoveryProfiles = [discoveries[0] with { Providers = [DiscoveryProviderKind.Dns, DiscoveryProviderKind.Configuration] }, discoveries[1]] });
+        yield return Case("discovery schemes", baseline with { DiscoveryProfiles = [discoveries[0] with { Schemes = [ServiceDiscoveryScheme.Http], RequiresExplicitTlsServerName = false }, discoveries[1]] });
+        yield return Case("discovery stale", baseline with { DiscoveryProfiles = [discoveries[0] with { StaleBehaviors = [DiscoveryStaleBehavior.PermitLastKnownMembership] }, discoveries[1]] });
+        yield return Case("discovery endpoint bound", baseline with { DiscoveryProfiles = [discoveries[0] with { MaximumEndpoints = 128 }, discoveries[1]] });
+        yield return Case("discovery named", baseline with { DiscoveryProfiles = [discoveries[0] with { SupportsNamedEndpoints = false }, discoveries[1]] });
+        yield return Case("discovery refresh", baseline with { DiscoveryProfiles = [discoveries[0] with { SupportsDynamicRefresh = false }, discoveries[1]] });
+        yield return Case("discovery authority", baseline with { DiscoveryProfiles = [discoveries[0] with { SupportsHttpAuthorityProjection = false }, discoveries[1]] });
+        yield return Case("discovery identity", baseline with { DiscoveryProfiles = [discoveries[0] with { BehaviorIdentity = new("sha-256", new string('c', 64)) }, discoveries[1]] });
         yield return Case("secret provider", baseline with { SecretProviders = [new ProviderId("other")] });
         yield return Case("authorization policy", baseline with { AuthorizationPolicies = ["other"] });
         yield return Case("cors policy", baseline with { CorsPolicies = ["other"] });
@@ -209,10 +273,17 @@ public sealed class GatewayHostCapabilityProjectionTests
                 ListenerProtocols.Http1 | ListenerProtocols.Http2, ["API.EXAMPLE.COM", "*.example.com"], true),
             new(new ListenerId("admin"), ListenerRole.Management, ListenerProtocols.Http1, ["admin.example.com"], true),
         ];
-        DiscoveryProviderCapability[] discoveries =
+        DiscoveryProfileCapability[] discoveries =
         [
-            new(new ProviderId("z-discovery"), ["zone", "region"], ["region"], false, true),
-            new(new ProviderId("a-discovery"), [], [], false, false),
+            new(new DiscoveryProfileId("z-discovery"), 1, DiscoveryRuntimeKind.Microsoft,
+                [DiscoveryProviderKind.Configuration, DiscoveryProviderKind.Dns],
+                [ServiceDiscoveryScheme.Https, ServiceDiscoveryScheme.Http],
+                [DiscoveryStaleBehavior.RejectActivationUntilFresh, DiscoveryStaleBehavior.PermitLastKnownMembership],
+                256, true, true, true, true, new("sha-256", new string('a', 64))),
+            new(new DiscoveryProfileId("a-discovery"), 1, DiscoveryRuntimeKind.Governed,
+                [DiscoveryProviderKind.Configuration], [ServiceDiscoveryScheme.Http],
+                [DiscoveryStaleBehavior.ServeUnavailableWhenStale],
+                64, false, true, false, false, new("sha-256", new string('b', 64))),
         ];
         string[] authorization = ["orders.write", "orders.read"];
 
@@ -220,7 +291,7 @@ public sealed class GatewayHostCapabilityProjectionTests
         {
             InstalledFamilies = GatewayDeclarationFamilies.All,
             Listeners = reverse ? listeners.Reverse() : listeners,
-            DiscoveryProviders = reverse ? discoveries.Reverse() : discoveries,
+            DiscoveryProfiles = reverse ? discoveries.Reverse() : discoveries,
             SecretProviders = reverse
                 ? [new ProviderId("vault"), new ProviderId("files")]
                 : [new ProviderId("files"), new ProviderId("vault")],

@@ -1,79 +1,100 @@
-# HPD.Gateway
+# HPD Gateway
 
-HPD.Gateway is a library-first .NET gateway framework. It provides stable,
-typed declarations and lifecycle contracts over ASP.NET Core and YARP while
-leaving HTTP execution to their native runtimes.
+HPD Gateway is an embeddable, ASP.NET Core-native gateway product. Applications
+author one typed `GatewayConfiguration`; HPD validates and governs candidate
+lifecycles while YARP and ASP.NET Core retain HTTP execution.
 
-The implemented foundation contains the public declaration model, a
-strict bounded source-generated JSON boundary, portable structural validation,
-ASP.NET-native candidate validation in `HPD.Gateway.Core`, immutable
-domain-framed content identity, and one serialized HPD-owned YARP publication
-stream in `HPD.Gateway.Yarp`. Candidate acceptance requires both validation
-layers. Native publication provides exact-snapshot YARP acknowledgement,
-historical LKG evidence, and explicit indeterminate recovery semantics. It does
-include deterministic baseline Route/Cluster materialization, native named
-policy selection, ordered non-body transforms, static destinations, balancing,
-affinity, health, and supported transport/request projection. Discovery
-observations, TLS material, and telemetry instrumentation currently fail closed
-before bundle creation.
+## Products
 
-`HPD.Gateway.Inspection` adds opt-in bounded pre-forward request inspection.
-Inspectors are explicitly registered by canonical name and selected through
-immutable materialized Route metadata. Prefix mode requires a known accepted
-length, retains only its bounded prefix, and then resumes transparent
-forwarding. Complete mode uses ASP.NET Core's bounded request-owned buffering
-with an explicit memory threshold and host-approved spill policy. Hosts using
-inspection must call `AddHpdGatewayYarpInspection` and
-`MapHpdGatewayReverseProxy`; ordinary Routes without inspection do not enter
-the body path. Inspection does not provide replay, retries, mirroring, body
-transforms, or response capture.
+The release contains five library packages and one executable distribution:
 
-`HPD.Gateway.Resilience` adds optional, statically registered, exact-version
-Upstream profiles for selected-response retry, circuit breaking, outbound
-concurrency limiting, and per-attempt timeout. Retry is restricted to bodyless
-safe HTTP/1.1/2 requests and selected status responses. The package emits only
-closed profile/strategy/outcome telemetry tags and does not expose dynamic
-Polly configuration or a general handler/plugin chain.
+| Product | Purpose |
+|---|---|
+| `HPD.Gateway` | Embedded runtime, declarations, validation, publication, readiness, inspection, resilience, caching, hosting, and applied truth |
+| `HPD.Gateway.ControlPlane` | Optional management authority, Admin API, OpenAPI contracts, and Gateway Studio hosting |
+| `HPD.Gateway.ControlPlane.Sqlite` | Optional restart-durable SQLite authority |
+| `HPD.Gateway.ControlPlane.HPDAuth` | Optional HPD.Auth translation for the Admin API |
+| `HPD.Gateway.Discovery.Microsoft` | Optional governed Microsoft Service Discovery adapter |
+| `HPD.Gateway.Standalone` | Native AOT-compatible executable distribution |
 
-Routes may opt into closed protected-credential stripping. HPD removes
-`Authorization`, `Proxy-Authorization`, `Cookie`, and a bounded set of
-host-registered credential header names through deterministic YARP request
-transforms immediately before forwarding. The candidate cannot provide header
-names, and protected headers cannot be restored by candidate request
-transforms. No disposition preserves ordinary YARP behavior.
+The packages are intentionally one-directional. Installing `HPD.Gateway` does
+not install a control plane, database provider, authentication system, Studio,
+or service-discovery provider.
 
-`HPD.Gateway.OutputCaching` adds optional bounded startup-registered ASP.NET
-Core Output Cache profiles over the framework's process-local memory store.
-Profiles retain the native default safety policy, explicit bounded query and
-header dimensions, host variation, locking, expiration, body/store limits,
-and a profile-version key namespace. Cached Routes must be explicit GET/HEAD,
-must strip protected credentials, and cannot also select request inspection.
-ASP.NET Core continues to own lookup, capture, entries, storage, and serving;
-HPD does not provide a cache engine or purge authority.
+## Embedded runtime
 
-`HPD.Gateway.Hosting` begins the separate restart-bound standalone host
-surface. Its first closed mode materializes exact and wildcard SNI entries
-through Kestrel configuration without a `*` or default-certificate fallback,
-so missing and unmatched SNI fail during the native TLS handshake. Certificate
-material is supplied through a startup-only PFX source catalog and remains
-outside host declarations, identity, YARP publication, and diagnostics.
+```csharp
+builder.Services.AddHpdGateway(gateway =>
+{
+    gateway.EnableCoreDeclarations();
+});
 
-`HPD.Gateway.Status` adds one bounded immutable process-local snapshot over
-the HPD publication observation, optional Hosting state, and YARP's public
-native Cluster/destination-health view. It derives configuration and serving
-readiness without treating generic health aggregation or telemetry as an
-authority, and maps redacted `/health/live` and `/health/ready` endpoints.
-Change notification is snapshot invalidation through `IChangeToken`, not an
-event stream or durable history.
+var app = builder.Build();
+app.MapHpdGateway();
+```
 
-`HPD.Gateway.Effective` adds a source-generated, immutable preparation-time
-projection explaining which root default, Route-local inline declaration,
-reusable definition, and correlated host profile produced each emitted Route
-policy. The projection contains bounded identities and hashes rather than
-declaration values or runtime objects. It is produced beside native
-materialization and is never consulted during request forwarding; no Admin
-endpoint or process-wide current-effective authority is added.
+`EnableCoreDeclarations()` enables the four built-in declaration families for
+request timeouts, request transforms, response transforms, and protected
+credential disposition. Authorization, CORS, admission, inspection,
+resilience, caching, discovery, and control-plane products remain explicit. A code-authored
+configuration can cross the source-generated canonical wire boundary with
+`configuration.ToCanonicalDocument()`; host-aware acceptance still occurs
+when the candidate is read against the installed capability snapshot.
 
-Management, downstream credential replacement/delegation, shared cache-store
-providers, dynamic listener reload, mTLS, HTTP/3 hosting, and L4 proxying are
-not implemented.
+## Optional control plane
+
+```csharp
+builder.Services.AddHpdGatewayControlPlane(controlPlane =>
+{
+    controlPlane.UseProcessLocalAuthority();
+    controlPlane.AddAdminApi();
+    controlPlane.AddStudio();
+});
+
+app.MapHpdGatewayControlPlane();
+```
+
+Process-local authority is deliberately ephemeral. For restart-durable state,
+install `HPD.Gateway.ControlPlane.Sqlite` and select `UseSqlite(...)` with the
+required stable authority and protection keys.
+
+HPD.Auth is composed only through the selected Admin product:
+
+```csharp
+builder.Services.AddHpdGatewayControlPlane(controlPlane =>
+{
+    controlPlane.UseSqlite(sqlite => { /* file-backed provider and keys */ });
+    controlPlane.AddAdminApi().AddHpdAuth("gateway-admin");
+    controlPlane.AddStudio();
+});
+```
+
+## Optional Microsoft discovery
+
+```csharp
+builder.Services.AddHpdGateway(gateway =>
+{
+    gateway.EnableCoreDeclarations();
+    gateway.AddMicrosoftDiscovery("aspire", profile =>
+        profile.AddConfiguration());
+});
+```
+
+The adapter preserves Microsoft provider composition and watching while HPD
+owns immutable profile identity, bounds, stale policy, TLS admissibility,
+readiness correlation, and redacted applied truth.
+
+## Contract boundary
+
+There are no compatibility packages, namespace aliases, type forwarders, or
+legacy extension methods. Public Gateway library namespaces are exactly:
+
+- `HPD.Gateway`
+- `HPD.Gateway.ControlPlane`
+- `HPD.Gateway.ControlPlane.Sqlite`
+- `HPD.Gateway.ControlPlane.HPDAuth`
+- `HPD.Gateway.Discovery.Microsoft`
+
+See the official HPD Gateway documentation for runnable tutorials, complete
+declaration reference, Admin operations, Studio workflows, deployment, and
+troubleshooting guidance.

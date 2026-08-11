@@ -15,6 +15,10 @@ on:
         description: 'Already-published HPD-Auth version.'
         required: true
         type: string
+      hpd_platform_version:
+        description: 'Already-published HPD-AI.Platform version.'
+        required: true
+        type: string
 
 jobs:
   determine-version:
@@ -72,23 +76,16 @@ jobs:
         env:
           HPD_BASE_VERSION: ${{ inputs.hpd_base_version }}
           HPD_AUTH_VERSION: ${{ inputs.hpd_auth_version }}
+          HPD_PLATFORM_VERSION: ${{ inputs.hpd_platform_version }}
         run: |
           set -euo pipefail
           mkdir -p ./nupkg-gateway
           PROJECTS=(
-            "dotnet/HPD-Gateway.Framework/src/HPD.Gateway.Abstractions/HPD.Gateway.Abstractions.csproj"
-            "dotnet/HPD-Gateway.Framework/src/HPD.Gateway.Core/HPD.Gateway.Core.csproj"
-            "dotnet/HPD-Gateway.Framework/src/HPD.Gateway.Effective/HPD.Gateway.Effective.csproj"
-            "dotnet/HPD-Gateway.Framework/src/HPD.Gateway.Hosting/HPD.Gateway.Hosting.csproj"
-            "dotnet/HPD-Gateway.Framework/src/HPD.Gateway.Inspection/HPD.Gateway.Inspection.csproj"
-            "dotnet/HPD-Gateway.Framework/src/HPD.Gateway.Yarp/HPD.Gateway.Yarp.csproj"
-            "dotnet/HPD-Gateway.Framework/src/HPD.Gateway.Status/HPD.Gateway.Status.csproj"
             "dotnet/HPD-Gateway.Framework/src/HPD.Gateway/HPD.Gateway.csproj"
-            "dotnet/HPD-Gateway.Framework/src/HPD.Gateway.Resilience/HPD.Gateway.Resilience.csproj"
-            "dotnet/HPD-Gateway.Framework/src/HPD.Gateway.OutputCaching/HPD.Gateway.OutputCaching.csproj"
-            "dotnet/HPD-Gateway.Framework/src/HPD.Gateway.Management/HPD.Gateway.Management.csproj"
-            "dotnet/HPD-Gateway.Framework/src/HPD.Gateway.Admin/HPD.Gateway.Admin.csproj"
-            "dotnet/HPD-Gateway.Framework/src/HPD.Gateway.HPDAuth/HPD.Gateway.HPDAuth.csproj"
+            "dotnet/HPD-Gateway.Framework/src/HPD.Gateway.ControlPlane/HPD.Gateway.ControlPlane.csproj"
+            "dotnet/HPD-Gateway.Framework/src/HPD.Gateway.ControlPlane.Sqlite/HPD.Gateway.ControlPlane.Sqlite.csproj"
+            "dotnet/HPD-Gateway.Framework/src/HPD.Gateway.ControlPlane.HPDAuth/HPD.Gateway.ControlPlane.HPDAuth.csproj"
+            "dotnet/HPD-Gateway.Framework/src/HPD.Gateway.Discovery.Microsoft/HPD.Gateway.Discovery.Microsoft.csproj"
           )
           dotnet/eng/nuget/validate-package-identities.sh "${PROJECTS[@]}"
 
@@ -103,8 +100,10 @@ jobs:
             }
           }
           require_nuget_version "HPD.Base" "$HPD_BASE_VERSION"
+          require_nuget_version "HPD.Base.Sqlite" "$HPD_BASE_VERSION"
           require_nuget_version "HPD-Auth-Core" "$HPD_AUTH_VERSION"
           require_nuget_version "HPD-Auth-ControlPlane-AspNetCore" "$HPD_AUTH_VERSION"
+          require_nuget_version "HPD-AI.Platform" "$HPD_PLATFORM_VERSION"
 
           VERSION_ARGS=("-p:VersionPrefix=${{ needs.determine-version.outputs.version_prefix }}")
           if [ -n "${{ needs.determine-version.outputs.version_suffix }}" ]; then
@@ -114,13 +113,19 @@ jobs:
             "-p:UsePublishedHpdDependencies=true"
             "-p:HPDBaseVersion=$HPD_BASE_VERSION"
             "-p:HPDAuthVersion=$HPD_AUTH_VERSION"
+            "-p:HPDPlatformVersion=$HPD_PLATFORM_VERSION"
           )
 
           for PROJECT in "${PROJECTS[@]}"; do
             dotnet pack "$PROJECT" --configuration Release --output ./nupkg-gateway \
               --nologo "${RELEASE_ARGS[@]}" "${VERSION_ARGS[@]}"
           done
-          test "$(find ./nupkg-gateway -maxdepth 1 -name '*.nupkg' | wc -l | tr -d ' ')" = "13"
+          test "$(find ./nupkg-gateway -maxdepth 1 -name '*.nupkg' | wc -l | tr -d ' ')" = "5"
+          node dotnet/HPD-Gateway.Framework/tools/validate-slice6-release.mjs ./nupkg-gateway \
+            --gateway-version "${{ needs.determine-version.outputs.version }}" \
+            --base-version "$HPD_BASE_VERSION" \
+            --auth-version "$HPD_AUTH_VERSION" \
+            --platform-version "$HPD_PLATFORM_VERSION"
 
       - name: Upload HPD Gateway packages
         uses: actions/upload-artifact@v4

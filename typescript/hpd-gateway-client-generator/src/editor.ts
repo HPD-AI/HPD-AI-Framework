@@ -17,7 +17,7 @@ const scopes = ["document", "root-defaults", "route", "route-match", "upstream",
 const omittedKinds = ["absent", "canonical-json"] as const;
 const inheritances = ["none", "root-inherited-and-route-replaced"] as const;
 const families = ["none", "routing", "authorization", "cors", "traffic-admission", "request-timeout", "output-cache", "telemetry", "inspection", "credential-disposition", "request-transform", "response-transform", "discovery", "secret", "tls", "resilience", "active-health", "passive-health", "session-affinity", "listener", "transport", "metadata"] as const;
-const capabilityKinds = ["none", "installed-family", "listener", "discovery-provider", "secret-provider", "authorization-policy", "cors-policy", "traffic-admission-policy", "request-timeout-policy", "output-cache-profile", "resilience-profile", "request-inspector", "inspection-spill", "active-health-policy", "passive-health-policy", "session-affinity-policy", "session-affinity-failure-policy"] as const;
+const capabilityKinds = ["none", "installed-family", "listener", "discovery-profile", "secret-provider", "authorization-policy", "cors-policy", "traffic-admission-policy", "request-timeout-policy", "output-cache-profile", "resilience-profile", "request-inspector", "inspection-spill", "active-health-policy", "passive-health-policy", "session-affinity-policy", "session-affinity-failure-policy"] as const;
 const groups = ["document", "identity", "match", "endpoint", "policies", "reliability", "security", "transport", "metadata", "advanced"] as const;
 const quickSteps = ["none", "request-match", "upstream", "destination", "optional-policy"] as const;
 const structuralReasons = ["none", "container", "collection", "collection-item", "identity-wrapper", "union-boundary"] as const;
@@ -80,7 +80,7 @@ function validateEnvelope(input: unknown): Readonly<Record<string, JsonValue>> {
   exact(value, envelopeKeys);
   if (value.schemaVersion !== 1 || value.declarationSchemaRef !== rootRef) fail("Unsupported editor envelope identity.");
   const records = array(value.records, "editor records", 50_000).map(validateRecord);
-  if (records.length !== 365) fail("Editor occurrence catalog must contain exactly 365 records.");
+  if (records.length !== 366) fail("Editor occurrence catalog must contain exactly 366 records.");
   let prior: readonly unknown[] | null = null;
   const seen = new Set<string>();
   for (const record of records) {

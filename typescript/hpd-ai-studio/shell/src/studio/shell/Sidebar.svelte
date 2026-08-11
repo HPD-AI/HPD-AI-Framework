@@ -1,8 +1,12 @@
 <script lang="ts">
-  import type { StudioRouteObservation, StudioRuntime } from '@hpd-research/hpd-studio-core';
+  import { onMount } from 'svelte';
+  import type { StudioAuthenticationSnapshot, StudioRouteObservation, StudioRuntime } from '@hpd-research/hpd-studio-core';
 
   let { studio, observation }: { studio: StudioRuntime; observation: StudioRouteObservation } = $props();
   let activeModule = $derived(studio.modules.find((module) => module.id === observation.route?.moduleId));
+  let authentication: StudioAuthenticationSnapshot = $state({ isAuthenticated: false });
+
+  onMount(() => studio.authentication.subscribe(value => authentication = value));
 
   function selectModule(moduleId: string) {
     const route = studio.modules.find((module) => module.id === moduleId)?.routes[0];
@@ -40,4 +44,14 @@
       {/each}
     </nav>
   {/if}
+
+  <section class="studio-nav-divider mt-auto grid gap-2 pt-4" aria-label="Authentication session">
+    <span class="studio-label-on-nav">Session</span>
+    <span class="studio-text-safe text-xs text-studio-nav-muted">
+      {authentication.isAuthenticated ? `Signed in${authentication.subjectHint ? ` as ${authentication.subjectHint}` : ''}` : 'Signed out'}
+    </span>
+    {#if authentication.isAuthenticated && studio.authentication.beginSignOut}
+      <button class="studio-nav-control text-left" type="button" onclick={() => studio.authentication.beginSignOut?.()}>Sign out</button>
+    {/if}
+  </section>
 </aside>

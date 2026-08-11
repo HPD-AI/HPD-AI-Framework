@@ -5,11 +5,9 @@ using System.Reflection;
 using System.Text;
 using System.Text.Json.Serialization;
 using FluentAssertions;
-using HPD.Gateway.Admin;
 using HPD.Gateway;
-using HPD.Gateway.Management;
-using HPD.Gateway.Hosting;
-using HPD.Gateway.HPDAuth;
+using HPD.Gateway.ControlPlane;
+using HPD.Gateway.ControlPlane.HPDAuth;
 using HPD.Auth.ControlPlane;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
@@ -28,6 +26,26 @@ namespace HPD.Gateway.Tests;
 
 public sealed class GatewayAdminContractTests
 {
+    [Fact]
+    public void Activation_history_authority_versions_use_the_exact_string_wire_contract()
+    {
+        var value = new GatewayActivationHistoryResponse(
+            new GatewayAdminPage<GatewayActivationProjection>(
+                [new("intent", "revision", "candidate", "hash", ulong.MaxValue, null)], null, false),
+            new GatewayAdminPage<GatewayOutcomeProjection>(
+                [new("outcome", "intent", ulong.MaxValue, GatewayNodeOutcomeKind.ActiveAcknowledged,
+                    "accepted", "0123456789abcdef0123456789abcdef",
+                    new ContentHash("sha-256", new string('b', 64)), null)], null, false));
+
+        string json = System.Text.Json.JsonSerializer.Serialize(
+            value, GatewayAdminJsonContext.Default.GatewayActivationHistoryResponse);
+        using var document = System.Text.Json.JsonDocument.Parse(json);
+        document.RootElement.GetProperty("intents").GetProperty("items")[0]
+            .GetProperty("authorityVersion").GetString().Should().Be(ulong.MaxValue.ToString());
+        document.RootElement.GetProperty("outcomes").GetProperty("items")[0]
+            .GetProperty("authorityVersion").GetString().Should().Be(ulong.MaxValue.ToString());
+    }
+
     [Fact]
     public void Admin_64_bit_wire_values_are_exact_decimal_strings()
     {
@@ -230,43 +248,72 @@ public sealed class GatewayAdminContractTests
                 .And.Contain(specification.MaximumMaximum!.Value.ToString());
 
             var omitted = new DefaultHttpContext();
-            GatewayAdminEndpointRouteBuilderExtensions.TryPage(omitted, paged with { Pagination = specification },
+            GatewayAdminEndpointMapper.TryPage(omitted, paged with { Pagination = specification },
                 out int defaulted, out _, out _).Should().BeTrue();
             defaulted.Should().Be(specification.DefaultMaximum);
 
             var minimum = new DefaultHttpContext();
             minimum.Request.QueryString = new QueryString("?maximum=" + specification.MinimumMaximum.Value);
-            GatewayAdminEndpointRouteBuilderExtensions.TryPage(minimum, paged with { Pagination = specification },
+            GatewayAdminEndpointMapper.TryPage(minimum, paged with { Pagination = specification },
                 out int parsedMinimum, out _, out _).Should().BeTrue();
             parsedMinimum.Should().Be(specification.MinimumMaximum);
 
             var maximum = new DefaultHttpContext();
             maximum.Request.QueryString = new QueryString("?maximum=" + specification.MaximumMaximum.Value);
-            GatewayAdminEndpointRouteBuilderExtensions.TryPage(maximum, paged with { Pagination = specification },
+            GatewayAdminEndpointMapper.TryPage(maximum, paged with { Pagination = specification },
                 out int parsedMaximum, out _, out _).Should().BeTrue();
             parsedMaximum.Should().Be(specification.MaximumMaximum);
 
             var below = new DefaultHttpContext();
             below.Request.QueryString = new QueryString("?maximum=" + (specification.MinimumMaximum.Value - 1));
-            GatewayAdminEndpointRouteBuilderExtensions.TryPage(below, paged with { Pagination = specification },
+            GatewayAdminEndpointMapper.TryPage(below, paged with { Pagination = specification },
                 out _, out _, out _).Should().BeFalse();
 
             var above = new DefaultHttpContext();
             above.Request.QueryString = new QueryString("?maximum=" + (specification.MaximumMaximum.Value + 1));
-            GatewayAdminEndpointRouteBuilderExtensions.TryPage(above, paged with { Pagination = specification },
+            GatewayAdminEndpointMapper.TryPage(above, paged with { Pagination = specification },
                 out _, out _, out _).Should().BeFalse();
         }
 
         var utf8Boundary = new DefaultHttpContext();
         utf8Boundary.Request.QueryString = new QueryString("?cursor=" + new string('é', 2048));
-        GatewayAdminEndpointRouteBuilderExtensions.TryPage(utf8Boundary, paged,
+        GatewayAdminEndpointMapper.TryPage(utf8Boundary, paged,
             out _, out string? acceptedCursor, out _).Should().BeTrue();
         System.Text.Encoding.UTF8.GetByteCount(acceptedCursor!).Should().Be(4096);
 
         var utf8Oversize = new DefaultHttpContext();
         utf8Oversize.Request.QueryString = new QueryString("?cursor=" + new string('é', 2049));
-        GatewayAdminEndpointRouteBuilderExtensions.TryPage(utf8Oversize, paged,
+        GatewayAdminEndpointMapper.TryPage(utf8Oversize, paged,
             out _, out _, out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public void Slice7_prerequisite_semantics_are_closed_and_activation_cursors_are_independent()
+    {
+        foreach (GatewayAdminClientOperationSemantics operation in GatewayAdminClientSemanticLedger.V1)
+            operation.MaximumRequestBodyUtf8Bytes.Should().Be(
+                operation.RequestBodyPresence == GatewayAdminClientRequestBodyPresence.None ? null : 4_194_304);
+
+        GatewayAdminClientSemanticLedger.For("submit").MutationResponse.Should().Be(GatewayAdminClientMutationResponseKind.RevisionOnly);
+        GatewayAdminClientSemanticLedger.For("import").MutationResponse.Should().Be(GatewayAdminClientMutationResponseKind.RevisionOnly);
+        foreach (string operation in new[] { "submit-and-activate", "import-and-activate", "activate", "rollback" })
+            GatewayAdminClientSemanticLedger.For(operation).MutationResponse.Should().Be(GatewayAdminClientMutationResponseKind.RevisionAndActivation);
+
+        GatewayAdminClientOperationSemantics activations = GatewayAdminClientSemanticLedger.For("activations");
+        activations.ParameterConstraints.Where(static value => value.Brand == GatewayAdminClientStringBrand.ContinuationToken)
+            .Select(static value => value.Name).Should().Equal("intentCursor", "outcomeCursor");
+        var context = new DefaultHttpContext();
+        context.Request.QueryString = new QueryString("?maximum=17&intentCursor=intent-page&outcomeCursor=outcome-page");
+        GatewayAdminEndpointMapper.TryActivationPage(context, activations,
+            out int maximum, out string? intentCursor, out string? outcomeCursor, out _).Should().BeTrue();
+        maximum.Should().Be(17);
+        intentCursor.Should().Be("intent-page");
+        outcomeCursor.Should().Be("outcome-page");
+
+        var legacy = new DefaultHttpContext();
+        legacy.Request.QueryString = new QueryString("?cursor=ambiguous");
+        GatewayAdminEndpointMapper.TryActivationPage(legacy, activations,
+            out _, out _, out _, out _).Should().BeFalse();
     }
 
     [Fact]
@@ -436,8 +483,8 @@ public sealed class GatewayAdminContractTests
     {
         WebApplicationBuilder builder = WebApplication.CreateBuilder();
         builder.Services.AddLogging();
-        builder.Services.AddHpdGateway(static gateway => gateway.AddCoreFamilies());
-        builder.Services.AddHpdGatewayManagement();
+        builder.Services.AddHpdGateway(static gateway => gateway.EnableCoreDeclarations());
+        builder.Services.AddManagementCore();
         builder.Services.AddAuthentication("test").AddScheme<AuthenticationSchemeOptions, TestAuthenticationHandler>("test", null);
         builder.Services.AddAuthorization(options =>
         {
@@ -455,12 +502,12 @@ public sealed class GatewayAdminContractTests
         }));
         builder.Services.AddRequestTimeouts(options => options.AddPolicy("gateway-management", TimeSpan.FromSeconds(5)));
         builder.Services.AddSingleton<IGatewayAdminActorProjector, TestActorProjector>();
-        builder.Services.AddHpdGatewayAdmin();
+        builder.Services.AddAdminCore();
         WebApplication application = builder.Build();
         ImmutableDictionary<string, string> policies = GatewayAdminCapabilities.All
             .ToImmutableDictionary(static value => value, static value => value, StringComparer.Ordinal);
 
-        application.MapHpdGatewayAdmin(new GatewayAdminEndpointOptions
+        application.MapGatewayAdminCore(new GatewayAdminApiOptions
         {
             AuthenticationScheme = "test",
             OpenApiSecurityScheme = "test",
@@ -518,8 +565,13 @@ public sealed class GatewayAdminContractTests
             .Should().NotContain(property => property.PropertyType == typeof(object) ||
                 property.PropertyType == typeof(System.Text.Json.JsonElement) ||
                 property.PropertyType == typeof(Type) || typeof(Delegate).IsAssignableFrom(property.PropertyType));
-        typeof(GatewayAdminEndpointRouteBuilderExtensions).GetMethods()
-            .Should().ContainSingle(method => method.Name == nameof(GatewayAdminEndpointRouteBuilderExtensions.MapHpdGatewayAdmin));
+        typeof(GatewayControlPlaneEndpointRouteBuilderExtensions).GetMethods()
+            .Should().ContainSingle(method => method.Name == nameof(
+                GatewayControlPlaneEndpointRouteBuilderExtensions.MapHpdGatewayControlPlane));
+        typeof(GatewayAdminEndpointMapper).GetMethods(
+            System.Reflection.BindingFlags.Public |
+            System.Reflection.BindingFlags.Static |
+            System.Reflection.BindingFlags.DeclaredOnly).Should().BeEmpty();
     }
 
     [Fact]
@@ -527,12 +579,12 @@ public sealed class GatewayAdminContractTests
     {
         WebApplicationBuilder builder = WebApplication.CreateBuilder();
         builder.Services.AddLogging();
-        builder.Services.AddHpdGateway(static gateway => gateway.AddCoreFamilies());
-        builder.Services.AddHpdGatewayManagement();
-        builder.Services.AddHpdGatewayAdmin();
+        builder.Services.AddHpdGateway(static gateway => gateway.EnableCoreDeclarations());
+        builder.Services.AddManagementCore();
+        builder.Services.AddAdminCore();
         builder.Services.AddSingleton<IGatewayAdminActorProjector, TestActorProjector>();
         WebApplication application = builder.Build();
-        Action map = () => application.MapHpdGatewayAdmin(new GatewayAdminEndpointOptions
+        Action map = () => application.MapGatewayAdminCore(new GatewayAdminApiOptions
         {
             OpenApiSecurityScheme = "test",
             CapabilityPolicies = ImmutableDictionary<string, string>.Empty,
@@ -545,9 +597,7 @@ public sealed class GatewayAdminContractTests
     {
         WebApplicationBuilder builder = WebApplication.CreateBuilder();
         builder.Services.AddLogging();
-        builder.Services.AddHpdGateway(static gateway => gateway.AddCoreFamilies());
-        builder.Services.AddHpdGatewayManagement();
-        builder.Services.AddHpdGatewayAdmin();
+        builder.Services.AddHpdGateway(static gateway => gateway.EnableCoreDeclarations());
         builder.Services.AddHPDControlPlane(options =>
         {
             options.AddProfile("gateway", profile =>
@@ -562,21 +612,24 @@ public sealed class GatewayAdminContractTests
             foreach (string capability in GatewayAdminCapabilities.All)
                 options.MapCapability(capability, "hpd-policy");
         });
-        builder.Services.AddHpdGatewayAdminHpdAuth("gateway");
+        builder.Services.AddHpdGatewayControlPlane(controlPlane => controlPlane
+            .UseProcessLocalAuthority()
+            .AddAdminApi(options =>
+            {
+                options.AuthenticationScheme = "different";
+                options.OpenApiSecurityScheme = "Bearer";
+                options.RateLimitPolicy = "hpd-rate";
+                options.RequestTimeoutPolicy = "hpd-timeout";
+                options.CapabilityPolicies = GatewayAdminCapabilities.All.ToImmutableDictionary(
+                    static capability => capability, static _ => "hpd-policy", StringComparer.Ordinal);
+            })
+            .AddHpdAuth("gateway"));
         builder.Services.Last(descriptor => descriptor.ServiceType == typeof(IGatewayAdminActorProjector))
             .Lifetime.Should().Be(ServiceLifetime.Scoped);
         builder.Services.Last(descriptor => descriptor.ServiceType == typeof(IGatewayAdminSecurityMetadataProvider))
             .Lifetime.Should().Be(ServiceLifetime.Singleton);
         WebApplication application = builder.Build();
-        Action map = () => application.MapHpdGatewayAdmin(new GatewayAdminEndpointOptions
-        {
-            AuthenticationScheme = "different",
-            OpenApiSecurityScheme = "Bearer",
-            RateLimitPolicy = "hpd-rate",
-            RequestTimeoutPolicy = "hpd-timeout",
-            CapabilityPolicies = GatewayAdminCapabilities.All.ToImmutableDictionary(
-                static capability => capability, static _ => "hpd-policy", StringComparer.Ordinal),
-        });
+        Action map = () => application.MapHpdGatewayControlPlane();
         map.Should().Throw<InvalidOperationException>().WithMessage("*do not match*");
     }
 

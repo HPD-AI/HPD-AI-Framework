@@ -1,0 +1,47 @@
+[
+  {
+    "method": "AddHpdGatewayAdmin",
+    "csharp": "HPD.Gateway.Admin.GatewayAdminServiceCollectionExtensions.AddHpdGatewayAdmin(services);",
+    "markdown": "Call `AddHpdGatewayAdmin` to install the API."
+  },
+  {
+    "method": "AddHpdGatewayAdminHpdAuth",
+    "csharp": "HPD.Gateway.HPDAuth.GatewayHpdAuthAdminServiceCollectionExtensions.AddHpdGatewayAdminHpdAuth(services, profile);",
+    "markdown": "Authentication uses AddHpdGatewayAdminHpdAuth."
+  },
+  {
+    "method": "AddHpdGatewayManagement",
+    "csharp": "HPD.Gateway.Management.GatewayManagementServiceCollectionExtensions.AddHpdGatewayManagement(services, configure);",
+    "markdown": "Begin by invoking `AddHpdGatewayManagement(...)`."
+  },
+  {
+    "method": "AddHpdGatewayStudio",
+    "csharp": "HPD.Gateway.Studio.GatewayStudioServiceCollectionExtensions.AddHpdGatewayStudio(services);",
+    "markdown": "The former Studio setup called AddHpdGatewayStudio."
+  },
+  {
+    "method": "AddCoreFamilies",
+    "csharp": "HPD.Gateway.GatewayBuilder.AddCoreFamilies(builder);",
+    "markdown": "The former declaration setup called `AddCoreFamilies()`."
+  },
+  {
+    "method": "AddStandardFeatures",
+    "csharp": "HPD.Gateway.GatewayBuilder.AddStandardFeatures(builder);",
+    "markdown": "The former declaration setup called `AddStandardFeatures()`."
+  },
+  {
+    "method": "AddMicrosoftServiceDiscovery",
+    "csharp": "HPD.Gateway.Discovery.Microsoft.GatewayMicrosoftDiscoveryExtensions.AddMicrosoftServiceDiscovery(builder, profile, configure);",
+    "markdown": "Register the adapter with `AddMicrosoftServiceDiscovery`."
+  },
+  {
+    "method": "MapHpdGatewayAdmin",
+    "csharp": "HPD.Gateway.Admin.GatewayAdminEndpointRouteBuilderExtensions.MapHpdGatewayAdmin(endpoints, options);",
+    "markdown": "Map the old endpoint group with MapHpdGatewayAdmin."
+  },
+  {
+    "method": "MapHpdGatewayStudio",
+    "csharp": "HPD.Gateway.Studio.GatewayStudioExtensions.MapHpdGatewayStudio(endpoints);",
+    "markdown": "Then call `MapHpdGatewayStudio()` during startup."
+  }
+]

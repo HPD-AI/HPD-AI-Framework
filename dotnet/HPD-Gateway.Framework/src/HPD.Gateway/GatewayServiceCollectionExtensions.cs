@@ -1,8 +1,4 @@
 using System.Collections.Immutable;
-using HPD.Gateway.Core;
-using HPD.Gateway.Hosting;
-using HPD.Gateway.Status;
-using HPD.Gateway.Yarp;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.AspNetCore.Hosting;
@@ -42,8 +38,6 @@ public static class GatewayServiceCollectionExtensions
         staged.AddSingleton<GatewayNodeActivator>();
         staged.AddSingleton<IGatewayNodeActivator>(static provider =>
             provider.GetRequiredService<GatewayNodeActivator>());
-        staged.AddSingleton<IGatewayNodeEffectiveReader>(static provider =>
-            provider.GetRequiredService<GatewayNodeActivator>());
         staged.AddSingleton<IHostedService, GatewayInitialActivationService>();
         staged.TryAddEnumerable(ServiceDescriptor.Singleton<IStartupFilter, GatewayEndpointRoleStartupFilter>());
 
@@ -76,6 +70,7 @@ public static class GatewayServiceCollectionExtensions
             RequestInspectors = state.RequestInspectors,
             UpstreamResilienceProfiles = state.ResilienceProfiles,
             OutputCacheProfiles = state.OutputCacheProfiles,
+            DiscoveryProfiles = state.DiscoveryProfiles,
             ProtectedCredentialHeaders = state.ProtectedCredentialHeaders,
             AuthorizationPolicies = state.AuthorizationPolicies,
             CorsPolicies = state.CorsPolicies,

@@ -9,17 +9,23 @@ import { createGatewayClient } from '@hpd/gateway-client';
 import { mlStudioModule } from '@hpd-research/hpd-ml-studio';
 import { ragStudioModule } from '@hpd-research/hpd-rag-studio';
 import App from './App.svelte';
-import { readRuntimeConfig } from './studio/config/runtimeConfig';
-import { createAnonymousAuthentication } from './studio/services/authentication';
+import { readRuntimeConfig, readRuntimeModuleIds } from './studio/config/runtimeConfig';
+import { createMemoryBearerAuthentication } from './studio/services/authentication';
 import './styles.css';
 
 const target = document.getElementById('app');
 if (!target) throw new Error('HPD Studio mount target was not found.');
 
 const configuration = readRuntimeConfig();
+const installedModuleIds = readRuntimeModuleIds();
+const authentication = createMemoryBearerAuthentication();
 const gatewayClient = createGatewayClient({
   baseUrl: globalThis.location.origin,
-  authentication: { getAccessToken: () => null }
+  apiBasePath: configuration.apiBasePath,
+  authentication: { getAccessToken: () => {
+    const value = authentication.getAccessToken();
+    return value === null ? null : { value };
+  } }
 });
 
 const modules: StudioModuleRegistration[] = [
@@ -30,11 +36,12 @@ const modules: StudioModuleRegistration[] = [
   createGatewayStudioModule({ client: gatewayClient }),
   mlStudioModule,
   ragStudioModule
-].map((module) => ({ module, requirement: 'optional' }));
+].filter((module) => installedModuleIds === null || installedModuleIds.has(module.id))
+  .map((module) => ({ module, requirement: 'optional' }));
 
 const studio = await composeStudio({
   configuration,
-  authentication: createAnonymousAuthentication(),
+  authentication,
   modules
 });
 

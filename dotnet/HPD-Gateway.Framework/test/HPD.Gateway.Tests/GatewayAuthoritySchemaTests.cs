@@ -1,6 +1,6 @@
 using FluentAssertions;
 using HPD.Base;
-using HPD.Gateway.Management;
+using HPD.Gateway.ControlPlane;
 using Xunit;
 
 namespace HPD.Gateway.Tests;
@@ -23,6 +23,8 @@ public sealed class GatewayAuthoritySchemaTests
             GatewayNodeActivationOutcome.Collection.Definition,
             GatewayCommandReceipt.Collection.Definition,
             GatewayAdministrativeOperationIntent.Collection.Definition,
+            GatewayAdministrativeArtifactObservation.Collection.Definition,
+            GatewayAdministrativeExecutionState.Collection.Definition,
             GatewayAdministrativeOperationObservation.Collection.Definition,
             GatewayAdministrativeOperationCompletion.Collection.Definition,
             GatewayPurgeAuthorityState.Collection.Definition,
@@ -38,6 +40,7 @@ public sealed class GatewayAuthoritySchemaTests
         GatewayDesiredState.Collection.Definition.MutationMode.Should().Be(BaseCollectionMutationMode.Mutable);
         GatewayNodeDeliveryAuthorityState.Collection.Definition.MutationMode.Should().Be(BaseCollectionMutationMode.Mutable);
         GatewayDeliveryOutboxItem.Collection.Definition.MutationMode.Should().Be(BaseCollectionMutationMode.Mutable);
+        GatewayAdministrativeExecutionState.Collection.Definition.MutationMode.Should().Be(BaseCollectionMutationMode.Mutable);
         GatewayPurgeAuthorityState.Collection.Definition.MutationMode.Should().Be(BaseCollectionMutationMode.Mutable);
         GatewayCommandReceipt.Collection.Definition.MutationMode.Should().Be(BaseCollectionMutationMode.AppendOnly);
         GatewayAcceptedRevision.Collection.Definition.MutationMode.Should().Be(BaseCollectionMutationMode.AppendOnlyWithAdministrativePurge);

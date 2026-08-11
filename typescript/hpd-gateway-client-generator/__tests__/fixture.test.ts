@@ -97,6 +97,13 @@ describe("real Gateway snapshot", () => {
     }
     expect(operations).toContain("readonly maximum?: number");
     expect(operations).not.toContain("readonly maximum?: string");
+    const schemas = originalFiles["schemas.ts"]!;
+    expect(schemas).toContain('export type GatewayActivationIntentId = GatewayBrand<"activation-intent-id">;');
+    expect(schemas).toContain("readonly activationIntentId: GatewayActivationIntentId | null");
+    expect(schemas).toContain("readonly desiredStateToken: GatewayDesiredStateToken | null");
+    expect(schemas).toContain("readonly revisionId: GatewayRevisionId | null");
+    expect(schemas).toContain("readonly items: readonly (GatewayOutcomeProjection)[]");
+    expect(originalFiles["result.ts"]!).toContain('"request-too-large"');
   });
 
   it("enforces the exact schema and aggregate-property bounds", () => {
@@ -122,7 +129,7 @@ describe("real Gateway snapshot", () => {
     rehash(presentation);
     const parsed = parse(presentation);
     expect((parsed.openApi.info as Record<string, unknown>).title).toBe(decomposed);
-    expect(parsed.sourceSha256).toBe("e78576aee5b8c0ae1c2fa52e3260cb54cce81e54fdb7ba296ec1781ee00344f4");
+    expect(parsed.sourceSha256).toBe("6fb638e55b59310327f55cf6e9ab0f589c7d7636ef7e4a61886b9c0ff263d65f");
 
     const semantic = clone();
     semantic.manifest.operations[0].capability = "gate\u0301way.capability";

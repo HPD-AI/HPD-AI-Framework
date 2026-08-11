@@ -1,7 +1,3 @@
-using HPD.Gateway.Core;
-using HPD.Gateway.Status;
-using HPD.Gateway.Yarp;
-using HPD.Gateway.Hosting;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 

@@ -1,5 +1,1 @@
-window.HPD_STUDIO_CONFIG = {
-  apiBasePath: "/api/hpd",
-  productTitle: "HPD AI Platform",
-  mode: "development"
-};
+globalThis.HPD_STUDIO_CONFIG = {"apiBasePath":"/api/hpd","routePrefix":"/studio","productTitle":"HPD AI Platform","mode":"development","assetContractVersion":"1","assetIdentity":"0000000000000000000000000000000000000000000000000000000000000000","shellContractIdentity":"0add2043c681b308d773f1827398f7b7aefb61818b3b056bfbd00131cbc802ce","capabilities":[],"studioModules":[]};

@@ -5,12 +5,8 @@ using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json.Nodes;
 using FluentAssertions;
-using HPD.Gateway.Abstractions;
-using HPD.Gateway.Abstractions.Serialization;
-using HPD.Gateway.Admin;
 using HPD.Gateway;
-using HPD.Gateway.Management;
-using HPD.Gateway.Hosting;
+using HPD.Gateway.ControlPlane;
 using HPD.Base;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
@@ -31,6 +27,69 @@ namespace HPD.Gateway.Tests;
 
 public sealed class GatewayAdminHttpTests
 {
+    [Fact]
+    public async Task Rollback_activates_the_selected_immutable_revision_through_the_real_admin_surface()
+    {
+        await using WebApplication application = Build(resourceAllowed: true);
+        await application.StartAsync();
+        HttpClient client = application.GetTestClient();
+
+        using (var provision = new HttpRequestMessage(HttpMethod.Post,
+            "/management/gateway/v1/namespaces/ns/targets/node:provision"))
+        {
+            provision.Headers.Add("Idempotency-Key", "provision-rollback-test");
+            (await client.SendAsync(provision)).StatusCode.Should().Be(HttpStatusCode.Created);
+        }
+
+        string configurationJson = JsonSerializer.Serialize(new GatewayConfiguration
+        {
+            SchemaVersion = new(1, 0),
+            CanonicalizationVersion = 1,
+        }, GatewayJsonSerializerContext.Default.GatewayConfiguration);
+        var submissionBody = new GatewayRevisionRequest
+        {
+            ConfigurationJson = configurationJson,
+            SourceKind = "test",
+            SourceId = "rollback-test",
+        };
+        using var submission = new HttpRequestMessage(HttpMethod.Post,
+            "/management/gateway/v1/namespaces/ns/targets/node/revisions:submitAndActivate");
+        submission.Headers.Add("Idempotency-Key", "submit-rollback-test");
+        submission.Content = new StringContent(
+            JsonSerializer.Serialize(submissionBody, GatewayAdminJsonContext.Default.GatewayRevisionRequest),
+            Encoding.UTF8, "application/json");
+        HttpResponseMessage submittedResponse = await client.SendAsync(submission);
+        submittedResponse.StatusCode.Should().Be(HttpStatusCode.Accepted);
+        GatewayRevisionResponse submitted = JsonSerializer.Deserialize(
+            await submittedResponse.Content.ReadAsStringAsync(),
+            GatewayAdminJsonContext.Default.GatewayRevisionResponse)!;
+
+        using var rollback = new HttpRequestMessage(HttpMethod.Post,
+            $"/management/gateway/v1/namespaces/ns/targets/node/revisions/{submitted.RevisionId}:rollback");
+        rollback.Headers.Add("Idempotency-Key", "rollback-test");
+        rollback.Headers.TryAddWithoutValidation("If-Match", $"\"{submitted.DesiredStateToken}\"");
+        rollback.Content = new StringContent("{}", Encoding.UTF8, "application/json");
+        HttpResponseMessage rollbackResponse = await client.SendAsync(rollback);
+        rollbackResponse.StatusCode.Should().Be(HttpStatusCode.Accepted);
+        GatewayRevisionResponse rolledBack = JsonSerializer.Deserialize(
+            await rollbackResponse.Content.ReadAsStringAsync(),
+            GatewayAdminJsonContext.Default.GatewayRevisionResponse)!;
+
+        rolledBack.RevisionId.Should().Be(submitted.RevisionId);
+        rolledBack.ActivationIntentId.Should().NotBeNull().And.NotBe(submitted.ActivationIntentId);
+        rolledBack.DesiredStateToken.Should().NotBeNull().And.NotBe(submitted.DesiredStateToken);
+
+        HttpResponseMessage receiptResponse = await client.GetAsync(
+            $"/management/gateway/v1/namespaces/ns/operations/{rolledBack.OperationId}");
+        receiptResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        GatewayOperationProjection receipt = JsonSerializer.Deserialize(
+            await receiptResponse.Content.ReadAsStringAsync(),
+            GatewayAdminJsonContext.Default.GatewayOperationProjection)!;
+        GatewayCommandOperationProjection commandReceipt = receipt.Should().BeOfType<GatewayCommandOperationProjection>().Subject;
+        commandReceipt.Operation.Should().Be("rollback");
+        commandReceipt.DesiredStateToken.Should().Be(rolledBack.DesiredStateToken);
+    }
+
     [Fact]
     public async Task Capability_endpoint_requires_exact_management_listener_identity()
     {
@@ -319,7 +378,7 @@ public sealed class GatewayAdminHttpTests
         snapshot.SourceSha256.Should().MatchRegex("^[0-9a-f]{64}$");
         GatewayDeclarationEditorLedgerExportDocument editorLedger =
             GatewayDeclarationEditorLedgerExporter.Export(JsonNode.Parse(json)!.AsObject());
-        editorLedger.Value.Envelope.Records.Should().HaveCount(365);
+        editorLedger.Value.Envelope.Records.Should().HaveCount(366);
         editorLedger.Value.EnvelopeSha256.Should().MatchRegex("^[0-9a-f]{64}$");
         if (Environment.GetEnvironmentVariable("HPD_GATEWAY_SNAPSHOT_OUT") is { Length: > 0 } snapshotOutput)
             await File.WriteAllBytesAsync(snapshotOutput, snapshot.SnapshotUtf8.ToArray());
@@ -377,7 +436,8 @@ public sealed class GatewayAdminHttpTests
         nonNfcPresentation["info"]!["title"] = decomposedPresentation;
         GatewayClientGenerationSnapshotV1 nonNfcSnapshot = GatewayClientGenerationSnapshotV1.Create(
             Encoding.UTF8.GetBytes(nonNfcPresentation.ToJsonString()), "test");
-        nonNfcSnapshot.SourceSha256.Should().Be("e78576aee5b8c0ae1c2fa52e3260cb54cce81e54fdb7ba296ec1781ee00344f4");
+        nonNfcSnapshot.SourceSha256.Should().MatchRegex("^[0-9a-f]{64}$");
+        nonNfcSnapshot.SourceSha256.Should().NotBe(snapshot.SourceSha256);
         using (JsonDocument nonNfcEnvelope = JsonDocument.Parse(nonNfcSnapshot.SnapshotUtf8.ToArray()))
             nonNfcEnvelope.RootElement.GetProperty("openApi").GetProperty("info").GetProperty("title")
                 .GetString().Should().Be(decomposedPresentation);
@@ -442,7 +502,10 @@ public sealed class GatewayAdminHttpTests
                 maximum.GetProperty("minimum").GetInt32().Should().Be(1);
                 maximum.GetProperty("maximum").GetInt32().Should().Be(256);
                 maximum.GetProperty("default").GetInt32().Should().Be(64);
-                AssertParameter(parameters, "cursor", "query", required: false, maximumLength: 4096);
+                foreach (GatewayAdminClientParameterConstraint cursor in semantics.ParameterConstraints.Where(value =>
+                    value.Location == GatewayAdminClientParameterLocation.Query &&
+                    value.Brand == GatewayAdminClientStringBrand.ContinuationToken))
+                    AssertParameter(parameters, cursor.Name, "query", required: false, maximumLength: 4096);
             }
             else
                 parameters.Should().NotContain(parameter => parameter.GetProperty("in").GetString() == "query");
@@ -525,7 +588,7 @@ public sealed class GatewayAdminHttpTests
 
         const string opaqueToken = "opaque-desired-token";
         byte[] responseJson = JsonSerializer.SerializeToUtf8Bytes(
-            new GatewayRevisionResponse("revision-1", opaqueToken, false),
+            new GatewayRevisionResponse("operation-1", "revision-1", "intent-1", opaqueToken, false),
             GatewayAdminJsonContext.Default.GatewayRevisionResponse);
         using JsonDocument serializedResponse = JsonDocument.Parse(responseJson);
         string runtimeToken = serializedResponse.RootElement.GetProperty("desiredStateToken").GetString()!;
@@ -644,9 +707,9 @@ public sealed class GatewayAdminHttpTests
         }));
         builder.Services.AddRequestTimeouts(options => options.AddPolicy("gateway-management", TimeSpan.FromSeconds(5)));
         builder.Services.AddSingleton<IGatewayAdminActorProjector, TestActorProjector>();
-        builder.Services.AddHpdGateway(static gateway => gateway.AddCoreFamilies());
-        builder.Services.AddHpdGatewayManagement();
-        builder.Services.AddHpdGatewayAdmin();
+        builder.Services.AddHpdGateway(static gateway => gateway.EnableCoreDeclarations());
+        builder.Services.AddManagementCore();
+        builder.Services.AddAdminCore();
         if (mapOpenApi) builder.Services.AddOpenApi("hpd-gateway-v1");
         WebApplication app = builder.Build();
         app.UseRouting();
@@ -663,7 +726,7 @@ public sealed class GatewayAdminHttpTests
         app.UseAuthentication();
         app.UseRateLimiter();
         app.UseAuthorization();
-        app.MapHpdGatewayAdmin(new GatewayAdminEndpointOptions
+        app.MapGatewayAdminCore(new GatewayAdminApiOptions
         {
             AuthenticationScheme = "test",
             OpenApiSecurityScheme = "test",

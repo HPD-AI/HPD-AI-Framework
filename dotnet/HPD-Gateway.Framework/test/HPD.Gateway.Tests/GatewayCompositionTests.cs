@@ -5,15 +5,8 @@ using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
 using System.Threading.RateLimiting;
 using FluentAssertions;
-using HPD.Gateway.Abstractions;
-using HPD.Gateway.Abstractions.Serialization;
-using HPD.Gateway.Core;
-using HPD.Gateway.Hosting;
-using HPD.Gateway.Inspection;
-using HPD.Gateway.OutputCaching;
-using HPD.Gateway.Resilience;
-using HPD.Gateway.Status;
-using HPD.Gateway.Yarp;
+using HPD.Gateway;
+using HPD.Gateway.ControlPlane;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Hosting.Server;
@@ -35,7 +28,7 @@ public sealed class GatewayCompositionTests
         services.AddHpdGateway(builder =>
         {
             captured = builder;
-            builder.AddCoreFamilies();
+            builder.EnableCoreDeclarations();
         });
 
         using var provider = services.BuildServiceProvider();
@@ -46,10 +39,30 @@ public sealed class GatewayCompositionTests
             GatewayDeclarationFamilies.ResponseTransforms |
             GatewayDeclarationFamilies.CredentialDisposition);
         capabilities.Listeners.Should().BeEmpty();
-        FluentActions.Invoking(() => captured!.AddCoreFamilies())
+        FluentActions.Invoking(() => captured!.EnableCoreDeclarations())
             .Should().Throw<InvalidOperationException>();
         FluentActions.Invoking(() => services.AddHpdGateway(static _ => { }))
             .Should().Throw<InvalidOperationException>();
+    }
+
+    [Fact]
+    public void CoreDeclarationsEnableTheExactClosedCapabilitySet()
+    {
+        var services = new ServiceCollection();
+        services.AddHpdGateway(static gateway => gateway.EnableCoreDeclarations());
+
+        using var provider = services.BuildServiceProvider();
+        var capabilities = provider.GetRequiredService<HostCapabilitySnapshot>();
+
+        capabilities.InstalledFamilies.Should().Be(
+            GatewayDeclarationFamilies.RequestTimeout |
+            GatewayDeclarationFamilies.RequestTransforms |
+            GatewayDeclarationFamilies.ResponseTransforms |
+            GatewayDeclarationFamilies.CredentialDisposition);
+        capabilities.RequestInspectors.Should().BeEmpty();
+        capabilities.UpstreamResilienceProfiles.Should().BeEmpty();
+        capabilities.OutputCacheProfiles.Should().BeEmpty();
+        capabilities.DiscoveryProfiles.Should().BeEmpty();
     }
 
     [Fact]
@@ -60,13 +73,13 @@ public sealed class GatewayCompositionTests
 
         FluentActions.Invoking(() => services.AddHpdGateway(builder =>
             {
-                builder.AddCoreFamilies();
+                builder.EnableCoreDeclarations();
                 throw new InvalidOperationException("configuration failed");
             }))
             .Should().Throw<InvalidOperationException>();
 
         services.Should().HaveCount(before);
-        services.AddHpdGateway(static builder => builder.AddCoreFamilies());
+        services.AddHpdGateway(static builder => builder.EnableCoreDeclarations());
     }
 
     [Fact]
@@ -86,7 +99,7 @@ public sealed class GatewayCompositionTests
                 new(new("test"), new("wildcard"), "v1"),
                 new GatewayPfxCertificateSource { Path = wildcardCertificate.Path, Password = wildcardCertificate.Password });
         });
-        application.Services.AddHpdGateway(static builder => builder.AddCoreFamilies());
+        application.Services.AddHpdGateway(static builder => builder.EnableCoreDeclarations());
 
         using var provider = application.Services.BuildServiceProvider();
         var capabilities = provider.GetRequiredService<HostCapabilitySnapshot>();
@@ -107,7 +120,7 @@ public sealed class GatewayCompositionTests
         var services = applicationBuilder.Services;
         services.AddHpdGateway(builder =>
         {
-            builder.AddCoreFamilies();
+            builder.EnableCoreDeclarations();
             builder.AddRequestInspection(registry => registry.Add("inspector", new AllowInspector()), allowFileSpill: true);
             builder.ProtectCredentialHeaders("X-Api-Key");
             builder.AddAuthorizationPolicy("auth", policy => policy.RequireAssertion(_ => true));
@@ -160,7 +173,7 @@ public sealed class GatewayCompositionTests
     public void EmbeddedCompositionRejectsListenerReferencesBecauseItAdvertisesNone()
     {
         var services = new ServiceCollection();
-        services.AddHpdGateway(static builder => builder.AddCoreFamilies());
+        services.AddHpdGateway(static builder => builder.EnableCoreDeclarations());
         using var provider = services.BuildServiceProvider();
         var result = GatewayCandidateValidator.Validate(
             GatewayConfigurationWithListener(),
@@ -212,10 +225,10 @@ public sealed class GatewayCompositionTests
             [123, 125]));
         var malformed = await activator.ActivateAsync(Request("candidate", 1, [123, 125]));
 
-        invalidIdentity.State.Should().Be(GatewayNodeActivationState.RejectedBeforeMaterialization);
+        invalidIdentity.State.Should().Be(GatewayNodeActivationState.RejectedBeforePlanning);
         invalidIdentity.Diagnostics.Should().Contain(error => error.Code == "activation.candidate-id-invalid");
         invalidIdentity.Diagnostics.Should().Contain(error => error.Code == "activation.authority-version-invalid");
-        malformed.State.Should().Be(GatewayNodeActivationState.RejectedBeforeMaterialization);
+        malformed.State.Should().Be(GatewayNodeActivationState.RejectedBeforePlanning);
         malformed.Diagnostics.Should().Contain(error => error.Code.StartsWith("candidate.", StringComparison.Ordinal));
         proxy.Services.GetRequiredService<IGatewayStatusReader>()
             .GetCurrent().Publication.State.Should().Be(GatewayStatusPublicationState.NotAttempted);
@@ -232,14 +245,14 @@ public sealed class GatewayCompositionTests
         var canceled = await activator.ActivateAsync(
             Request("candidate", 1, Bytes(EmptyGatewayConfiguration())),
             cancellation.Token);
-        canceled.State.Should().Be(GatewayNodeActivationState.RejectedBeforeMaterialization);
+        canceled.State.Should().Be(GatewayNodeActivationState.RejectedBeforePlanning);
         canceled.Diagnostics.Should().ContainSingle(error =>
             error.Code == "activation.canceled-before-admission");
 
         proxy.Services.GetRequiredService<GatewayNodeActivator>().Dispose();
         var stopping = await activator.ActivateAsync(
             Request("candidate", 1, Bytes(EmptyGatewayConfiguration())));
-        stopping.State.Should().Be(GatewayNodeActivationState.RejectedBeforeMaterialization);
+        stopping.State.Should().Be(GatewayNodeActivationState.RejectedBeforePlanning);
         stopping.Diagnostics.Should().ContainSingle(error => error.Code == "activation.stopping");
     }
 
@@ -255,7 +268,7 @@ public sealed class GatewayCompositionTests
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Services.AddHpdGateway(gateway =>
         {
-            gateway.AddCoreFamilies();
+            gateway.EnableCoreDeclarations();
             gateway.UseInitialCandidate(request);
         });
         await using var application = builder.Build();
@@ -454,7 +467,7 @@ public sealed class GatewayCompositionTests
     {
         var builder = WebApplication.CreateSlimBuilder();
         builder.WebHost.UseUrls("http://127.0.0.1:0");
-        builder.Services.AddHpdGateway(static gateway => gateway.AddCoreFamilies());
+        builder.Services.AddHpdGateway(static gateway => gateway.EnableCoreDeclarations());
         var app = builder.Build();
         app.MapHpdGateway();
         await app.StartAsync();

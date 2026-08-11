@@ -10,6 +10,11 @@ export { createGatewayQuickRouteCoordinator } from './quick-route.ts';
 export type { GatewayQuickRouteCoordinator, GatewayQuickRouteProposalV1 } from './quick-route.ts';
 export {projectGatewayEditorCapabilities} from './capability-projection.ts';
 export type {GatewayEditorCapabilityProjection} from './capability-projection.ts';
+export { createGatewayManagedWorkflowController } from './managed-workflows.ts';
+export { createGatewayOperationsController } from './operations.ts';
+export type { GatewayOperationsController, GatewayOperationsSnapshot, GatewayAdministrativeReview, GatewayDiagnosticBundle } from './operations.ts';
+export type { GatewayObservabilityLink } from './module.ts';
+export type { GatewayManagedWorkflowController, GatewayManagedWorkflowSnapshot, GatewayMutationKind, GatewayWorkflowPhase, GatewayWorkflowResult } from './managed-workflows.ts';
 export type {
   GatewayLifecycleStage,
   GatewayStudioContext,

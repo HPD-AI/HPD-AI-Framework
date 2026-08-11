@@ -80,6 +80,9 @@ export interface StudioModuleRegistration {
 export interface StudioShellConfiguration {
   readonly productTitle: string;
   readonly apiBasePath?: string;
+  readonly routePrefix?: string;
+  readonly assetContractVersion?: '1';
+  readonly assetIdentity?: string;
   readonly mode: StudioMode;
 }
 

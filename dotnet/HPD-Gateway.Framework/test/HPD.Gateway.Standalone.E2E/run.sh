@@ -87,7 +87,7 @@ cat > "$work/bootstrap.json" <<JSON
 {
   "schemaVersion":"hpd.gateway.standalone/v2","hostConfigurationPath":"$work/host.json",
   "gatewayConfigurationPath":"$work/gateway.json","namespaceId":"namespace-a","targetNodeId":"node-a",
-  "candidateId":{"value":"standalone-initial"},"authorityId":"standalone-authority",
+  "candidateId":"standalone-initial","authorityId":"standalone-authority",
   "authorityEpoch":"standalone-epoch","authorityVersion":1,
   "management":{"databasePath":"$work/management.db","managementAuthorityId":"management-authority",
     "planProtectionKeyHex":"1111111111111111111111111111111111111111111111111111111111111111",
@@ -154,6 +154,19 @@ HPD_GATEWAY_CLIENT_E2E_TOKEN="$jwt" node "$script_dir/gateway-client.mjs" || { c
 expect_status 404 "${auth[@]}" "http://127.0.0.1:$management_port/management/gateway/v1/namespaces/foreign/targets/node-a/status"
 expect_status 404 "${auth[@]}" "https://localhost:$data_port/management/gateway/v1/capabilities"
 expect_status 200 "${auth[@]}" "http://127.0.0.1:$management_port/openapi/hpd-gateway-v1.json"
+expect_status 200 "http://127.0.0.1:$management_port/studio/"
+grep -q '<div id="app"></div>' "$work/response"
+expect_status 200 "http://127.0.0.1:$management_port/studio/studio-config.js"
+grep -q 'globalThis.HPD_STUDIO_CONFIG' "$work/response"
+grep -q 'assetContractVersion: "1"' "$work/response"
+grep -q 'shellContractIdentity: "[0-9a-f]\{64\}"' "$work/response"
+expect_status 200 "http://127.0.0.1:$management_port/studio/gateway/diagnose"
+expect_status 404 "http://127.0.0.1:$management_port/studio/unknown-route"
+expect_status 404 "https://localhost:$data_port/studio/"
+curl -fsS -D "$work/studio-headers" -o /dev/null "http://127.0.0.1:$management_port/studio/"
+grep -qi '^content-security-policy:.*default-src.*none' "$work/studio-headers"
+grep -qi '^cache-control: no-store' "$work/studio-headers"
+grep -qi '^hpd-studio-asset-identity: [0-9a-f]\{64\}' "$work/studio-headers"
 expect_status 200 "https://localhost:$data_port/"
 grep -q 'native-standalone-forwarding-ok' "$work/response"
 
@@ -176,7 +189,23 @@ for _ in $(seq 1 150); do
   jq -e '.outcomes.items[] | select(.kind == "ActiveAcknowledged")' "$work/activations.json" >/dev/null && break
   sleep 0.1
 done
-jq -e '.outcomes.items[] | select(.kind == "ActiveAcknowledged")' "$work/activations.json" >/dev/null
+if ! jq -e '.outcomes.items[] | select(.kind == "ActiveAcknowledged")' "$work/activations.json" >/dev/null; then
+  echo "activation did not reach ActiveAcknowledged" >&2
+  cat "$work/activations.json" >&2
+  cat "$work/gateway.log" >&2
+  exit 1
+fi
+
+HPD_GATEWAY_CLIENT_E2E_URL="http://127.0.0.1:$management_port" \
+HPD_GATEWAY_CLIENT_E2E_TOKEN="$jwt" node "$script_dir/gateway-observation.mjs"
+
+if [[ "${HPD_GATEWAY_E2E_BROWSER:-0}" == "1" ]]; then
+  HPD_GATEWAY_STUDIO_E2E_URL="http://127.0.0.1:$management_port" \
+  HPD_GATEWAY_STUDIO_E2E_TOKEN="$jwt" \
+  HPD_GATEWAY_STUDIO_E2E_TARGET="node-a" \
+  HPD_GATEWAY_STUDIO_E2E_CONFIGURATION="$work/gateway.json" \
+    node "$dotnet_root/../typescript/hpd-ai-studio/shell/browser-evidence.mjs"
+fi
 
 expect_status 202 "${auth[@]}" -H 'Content-Type: application/json' -H 'Idempotency-Key: native-activation' \
   -H 'X-Correlation-ID: native-correlation' --data-binary "@$work/submit.json" \

@@ -4,10 +4,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using FluentAssertions;
-using HPD.Gateway.Abstractions;
-using HPD.Gateway.Abstractions.Serialization;
-using HPD.Gateway.Core;
-using HPD.Gateway.Yarp;
+using HPD.Gateway;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Hosting.Server;
@@ -188,7 +185,7 @@ public sealed class CredentialStrippingTests
     }
 
     [Fact]
-    public async Task MaterializerPlacesTheSortedProtectedRemovalSetAfterOrdinaryTransforms()
+    public async Task PlannerPlacesTheSortedProtectedRemovalSetAfterOrdinaryTransforms()
     {
         var configuration = Configuration("http://127.0.0.1:5001") with
         {
@@ -206,13 +203,13 @@ public sealed class CredentialStrippingTests
         };
         var accepted = Read(configuration, Capabilities("X-Api-Key"));
 
-        var materialized = await new GatewayNativeMaterializer(new AcceptingConfigValidator()).MaterializeAsync(
+        var planned = await new GatewayRuntimePlanner(new AcceptingConfigValidator()).PlanAsync(
             accepted,
             Identity(accepted, 1),
             "credential-native-1");
 
-        materialized.IsMaterialized.Should().BeTrue();
-        var transforms = materialized.Bundle!.Routes.Single().Transforms!;
+        planned.IsPlanned.Should().BeTrue();
+        var transforms = planned.PreparedApplication!.Routes.Single().Transforms!;
         transforms.Should().HaveCount(5);
         transforms[0].Values.Should().Contain("X-Safe");
         transforms.Skip(1).Select(transform => transform.Values.Last()).Should().Equal(
@@ -223,7 +220,7 @@ public sealed class CredentialStrippingTests
     }
 
     [Fact]
-    public async Task MaterializerRejectsAnAcceptedStripCandidateWithoutItsHostCatalog()
+    public async Task PlannerRejectsAnAcceptedStripCandidateWithoutItsHostCatalog()
     {
         var configuration = Configuration("http://127.0.0.1:5001", routeDisposition: StripReference());
         var accepted = Read(configuration, Capabilities());
@@ -233,16 +230,18 @@ public sealed class CredentialStrippingTests
             accepted.CanonicalDocument,
             ImmutableArray<GatewayValidationError>.Empty,
             default(ImmutableArray<string>),
-            accepted.OutputCacheProfiles
+            accepted.OutputCacheProfiles,
+            accepted.DiscoveryProfiles,
+            accepted.UpstreamResilienceProfiles
         ]);
 
-        var materialized = await new GatewayNativeMaterializer(new AcceptingConfigValidator()).MaterializeAsync(
+        var planned = await new GatewayRuntimePlanner(new AcceptingConfigValidator()).PlanAsync(
             strippedResult,
             Identity(accepted, 1),
             "credential-native-missing");
 
-        materialized.IsMaterialized.Should().BeFalse();
-        materialized.Diagnostics.Should().Contain(error => error.Code == "materialization.credential-catalog-unavailable");
+        planned.IsPlanned.Should().BeFalse();
+        planned.Diagnostics.Should().Contain(error => error.Code == "planning.credential-catalog-unavailable");
     }
 
     [Fact]
@@ -304,14 +303,14 @@ public sealed class CredentialStrippingTests
     public async Task ConnectPathStripsBeforeUpstreamSend()
     {
         var accepted = Read(Configuration("http://127.0.0.1:5001", routeDisposition: StripReference()), Capabilities("X-Api-Key"));
-        var materialized = await new GatewayNativeMaterializer(new AcceptingConfigValidator()).MaterializeAsync(
+        var planned = await new GatewayRuntimePlanner(new AcceptingConfigValidator()).PlanAsync(
             accepted,
             Identity(accepted, 1),
             "credential-connect");
         await using var services = new ServiceCollection().AddLogging().AddReverseProxy().Services.BuildServiceProvider();
         var transformer = services.GetRequiredService<ITransformBuilder>().Build(
-            materialized.Bundle!.Routes.Single(),
-            materialized.Bundle.Clusters.Single());
+            planned.PreparedApplication!.Routes.Single(),
+            planned.PreparedApplication.Clusters.Single());
         var context = new DefaultHttpContext();
         context.Request.Method = HttpMethods.Connect;
         context.Request.Headers.Authorization = "Bearer inbound";
@@ -332,7 +331,7 @@ public sealed class CredentialStrippingTests
     public async Task MaterializedStrippingIsDifferentiallyEquivalentToDirectYarpTransforms()
     {
         var accepted = Read(Configuration("http://127.0.0.1:5001", routeDisposition: StripReference()), Capabilities("X-Api-Key"));
-        var materialized = await new GatewayNativeMaterializer(new AcceptingConfigValidator()).MaterializeAsync(
+        var planned = await new GatewayRuntimePlanner(new AcceptingConfigValidator()).PlanAsync(
             accepted,
             Identity(accepted, 1),
             "credential-differential");
@@ -345,12 +344,12 @@ public sealed class CredentialStrippingTests
         foreach (var header in accepted.ProtectedCredentialHeaders)
             direct = global::Yarp.ReverseProxy.Transforms.RequestHeadersTransformExtensions.WithTransformRequestHeaderRemove(direct, header);
 
-        materialized.Bundle!.Routes.Single().Transforms.Should().BeEquivalentTo(direct.Transforms, options => options.WithStrictOrdering());
+        planned.PreparedApplication!.Routes.Single().Transforms.Should().BeEquivalentTo(direct.Transforms, options => options.WithStrictOrdering());
 
         await using var services = new ServiceCollection().AddLogging().AddReverseProxy().Services.BuildServiceProvider();
         var builder = services.GetRequiredService<ITransformBuilder>();
-        var hpdHeaders = await Execute(builder.Build(materialized.Bundle.Routes.Single(), materialized.Bundle.Clusters.Single()));
-        var directHeaders = await Execute(builder.Build(direct, materialized.Bundle.Clusters.Single()));
+        var hpdHeaders = await Execute(builder.Build(planned.PreparedApplication.Routes.Single(), planned.PreparedApplication.Clusters.Single()));
+        var directHeaders = await Execute(builder.Build(direct, planned.PreparedApplication.Clusters.Single()));
         hpdHeaders.Should().Equal(directHeaders).And.BeEmpty();
     }
 
@@ -508,12 +507,12 @@ public sealed class CredentialStrippingTests
                 ]
             };
             var accepted = Read(configuration, capabilities);
-            var materialized = await _proxy.Services.GetRequiredService<GatewayNativeMaterializer>().MaterializeAsync(
+            var planned = await _proxy.Services.GetRequiredService<GatewayRuntimePlanner>().PlanAsync(
                 accepted,
                 Identity(accepted, version),
                 $"credential-native-{version}");
-            materialized.IsMaterialized.Should().BeTrue(string.Join(", ", materialized.Diagnostics.Select(error => error.Code)));
-            var outcome = await _proxy.Services.GetRequiredService<GatewayYarpPublisher>().PublishAsync(materialized.Bundle!, TimeSpan.FromSeconds(5));
+            planned.IsPlanned.Should().BeTrue(string.Join(", ", planned.Diagnostics.Select(error => error.Code)));
+            var outcome = await _proxy.Services.GetRequiredService<GatewayRuntimePublisher>().PublishAsync(planned.PreparedApplication!, TimeSpan.FromSeconds(5));
             outcome.State.Should().Be(GatewayPublicationState.ActiveAcknowledged);
         }
 

@@ -47,7 +47,7 @@ describe('lossless authored Gateway document', () => {
     const controller=createGatewayDeclarationController();
     const prefix='{"schemaVersion":{"major":1,"minor":0},"canonicalizationVersion":1,"upstreams":[{"id":{"value":"up"},"endpoints":';
     expect(controller.replaceRaw(prefix+'{"kind":"static","destinations":[]}}]}').state).toBe('LocallyValidNotServerValidated');
-    expect(controller.replaceRaw(prefix+'{"kind":"discovery","provider":{"value":"dns"},"service":{"value":"svc"},"staleBehavior":"RejectActivationUntilFresh"}}]}').state).toBe('LocallyValidNotServerValidated');
+    expect(controller.replaceRaw(prefix+'{"kind":"serviceDiscovery","profile":{"value":"dns"},"service":{"value":"svc"},"schemes":["http"],"staleBehavior":"rejectActivationUntilFresh"}}]}').state).toBe('LocallyValidNotServerValidated');
     const mixed=controller.replaceRaw(prefix+'{"kind":"static","destinations":[],"provider":{"value":"dns"}}}]}');
     expect(mixed.state).toBe('RawOnlyIncompatible');
     expect(mixed.diagnostics.some(value=>value.code==='unknown-property'&&value.path.endsWith('/provider'))).toBe(true);

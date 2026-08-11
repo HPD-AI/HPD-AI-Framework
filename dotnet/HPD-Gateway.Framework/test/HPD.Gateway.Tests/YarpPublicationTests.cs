@@ -1,8 +1,6 @@
 using System.Collections.Immutable;
 using FluentAssertions;
-using HPD.Gateway.Abstractions;
-using HPD.Gateway.Effective;
-using HPD.Gateway.Yarp;
+using HPD.Gateway;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
@@ -28,8 +26,8 @@ public sealed class YarpPublicationTests
         await application.StartAsync();
         try
         {
-            var publisher = application.Services.GetRequiredService<GatewayYarpPublisher>();
-            var outcome = await publisher.PublishAsync(Bundle(1), TimeSpan.FromSeconds(5));
+            var publisher = application.Services.GetRequiredService<GatewayRuntimePublisher>();
+            var outcome = await publisher.PublishAsync(PreparedApplication(1), TimeSpan.FromSeconds(5));
 
             outcome.State.Should().Be(GatewayPublicationState.ActiveAcknowledged);
         }
@@ -43,7 +41,7 @@ public sealed class YarpPublicationTests
     public async Task ExactSnapshotAcknowledgementActivatesCandidate()
     {
         using var fixture = new PublisherFixture();
-        var bundle = Bundle(1);
+        var bundle = PreparedApplication(1);
 
         var publication = fixture.Publisher.PublishAsync(bundle, TimeSpan.FromSeconds(2));
         var snapshot = await fixture.WaitForRevision(bundle.NativeRevisionId);
@@ -56,11 +54,82 @@ public sealed class YarpPublicationTests
     }
 
     [Fact]
+    public async Task EquivalentWrappedGraphAcknowledgesWithoutSourceReferenceIdentity()
+    {
+        using var fixture = new PublisherFixture();
+        GatewayPreparedApplication prepared = PreparedApplicationWithGraph(1);
+        Task<GatewayPublicationOutcome> publication = fixture.Publisher.PublishAsync(prepared, TimeSpan.FromSeconds(2));
+        IProxyConfig installed = await fixture.WaitForRevision(prepared.NativeRevisionId);
+        var wrapped = new TestProxyConfig(
+            "yarp-wrapped",
+            installed.Routes.Select(static route => route with { }).ToArray(),
+            installed.Clusters.Select(static cluster => cluster with { }).ToArray());
+
+        fixture.Listener.ConfigurationApplied([wrapped]);
+
+        (await publication).State.Should().Be(GatewayPublicationState.ActiveAcknowledged);
+    }
+
+    [Fact]
+    public async Task EmptyLogicalGenerationsUseThePortableRevisionCarrierNotReferenceIdentity()
+    {
+        using var fixture = new PublisherFixture();
+        GatewayPreparedApplication first = PreparedApplication(1);
+        Task<GatewayPublicationOutcome> firstPublication = fixture.Publisher.PublishAsync(first, TimeSpan.FromSeconds(2));
+        IProxyConfig firstInstalled = await fixture.WaitForRevision(first.NativeRevisionId);
+        var firstWrapped = new TestProxyConfig(firstInstalled.RevisionId, [], []);
+        fixture.Listener.ConfigurationApplied([firstWrapped]);
+        (await firstPublication).State.Should().Be(GatewayPublicationState.ActiveAcknowledged);
+
+        GatewayPreparedApplication second = PreparedApplication(2);
+        Task<GatewayPublicationOutcome> secondPublication = fixture.Publisher.PublishAsync(second, TimeSpan.FromSeconds(2));
+        IProxyConfig secondInstalled = await fixture.WaitForRevision(second.NativeRevisionId);
+        var secondWrapped = new TestProxyConfig(secondInstalled.RevisionId, [], []);
+        fixture.Listener.ConfigurationApplied([firstWrapped]);
+        fixture.Listener.ConfigurationApplied([new TestProxyConfig("wrong-empty", [], [])]);
+        fixture.Listener.ConfigurationApplied([secondWrapped, secondWrapped]);
+        secondPublication.IsCompleted.Should().BeFalse();
+
+        fixture.Listener.ConfigurationApplied([secondWrapped]);
+        (await secondPublication).State.Should().Be(GatewayPublicationState.ActiveAcknowledged);
+    }
+
+    [Fact]
+    public async Task WrongMixedMissingDuplicateOrChangedLogicalGenerationsCannotAcknowledge()
+    {
+        using var fixture = new PublisherFixture();
+        GatewayPreparedApplication prepared = PreparedApplicationWithGraph(1);
+        Task<GatewayPublicationOutcome> publication = fixture.Publisher.PublishAsync(prepared, TimeSpan.FromSeconds(2));
+        IProxyConfig installed = await fixture.WaitForRevision(prepared.NativeRevisionId);
+        RouteConfig route = installed.Routes.Single();
+        ClusterConfig cluster = installed.Clusters.Single();
+        var wrongRoute = route with
+        {
+            Metadata = route.Metadata!.ToImmutableDictionary(StringComparer.Ordinal)
+                .SetItem(GatewayRuntimePlanner.ApplicationIdMetadata, "wrong-application"),
+        };
+        var changedCluster = cluster with { LoadBalancingPolicy = "RoundRobin" };
+
+        fixture.Listener.ConfigurationApplied([new TestProxyConfig("wrong", [wrongRoute], [cluster])]);
+        fixture.Listener.ConfigurationApplied([new TestProxyConfig("mixed", [route], [changedCluster])]);
+        fixture.Listener.ConfigurationApplied([new TestProxyConfig("missing", [], [cluster])]);
+        fixture.Listener.ConfigurationApplied([new TestProxyConfig("duplicate", [route, route], [cluster])]);
+        fixture.Listener.ConfigurationApplied([
+            new TestProxyConfig("first", [route], [cluster]),
+            new TestProxyConfig("second", [route], [cluster]),
+        ]);
+        publication.IsCompleted.Should().BeFalse();
+
+        fixture.Listener.ConfigurationApplied([new TestProxyConfig("exact", [route], [cluster])]);
+        (await publication).State.Should().Be(GatewayPublicationState.ActiveAcknowledged);
+    }
+
+    [Fact]
     public async Task WrongSnapshotCannotAcknowledgeAttempt()
     {
         using var fixture = new PublisherFixture();
         var bootstrap = fixture.Provider.GetConfig();
-        var bundle = Bundle(1);
+        var bundle = PreparedApplication(1);
         var publication = fixture.Publisher.PublishAsync(bundle, TimeSpan.FromSeconds(2));
         var snapshot = await fixture.WaitForRevision(bundle.NativeRevisionId);
 
@@ -75,14 +144,14 @@ public sealed class YarpPublicationTests
     public async Task ApplyingFailureAndTimeoutAreIndeterminate()
     {
         using var failed = new PublisherFixture();
-        var failedBundle = Bundle(1);
+        var failedBundle = PreparedApplication(1);
         var failedPublication = failed.Publisher.PublishAsync(failedBundle, TimeSpan.FromSeconds(2));
         var failedSnapshot = await failed.WaitForRevision(failedBundle.NativeRevisionId);
         failed.Listener.ConfigurationApplyingFailed([failedSnapshot], new InvalidOperationException());
         (await failedPublication).State.Should().Be(GatewayPublicationState.PublicationIndeterminate);
 
         using var timedOut = new PublisherFixture();
-        var timeoutBundle = Bundle(1);
+        var timeoutBundle = PreparedApplication(1);
         var timeout = await timedOut.Publisher.PublishAsync(timeoutBundle, TimeSpan.FromMilliseconds(20));
         timeout.State.Should().Be(GatewayPublicationState.PublicationIndeterminate);
         timeout.Diagnostics.Should().ContainSingle(item => item.Code == "publication.timeout");
@@ -94,12 +163,12 @@ public sealed class YarpPublicationTests
         using var fixture = new PublisherFixture();
         using var registration = fixture.Provider.GetConfig().ChangeToken.RegisterChangeCallback(
             static _ => throw new InvalidOperationException("observer failure"), null);
-        var bundle = Bundle(1);
+        var bundle = PreparedApplication(1);
 
         var outcome = await fixture.Publisher.PublishAsync(bundle, TimeSpan.FromSeconds(2));
 
         outcome.State.Should().Be(GatewayPublicationState.PublicationIndeterminate);
-        fixture.Provider.GetConfig().RevisionId.Should().Be(bundle.NativeRevisionId);
+        ((OwnedProxyConfig)fixture.Provider.GetConfig()).NativeRevisionId.Should().Be(bundle.NativeRevisionId);
     }
 
     [Fact]
@@ -109,7 +178,7 @@ public sealed class YarpPublicationTests
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
 
-        var outcome = await fixture.Publisher.PublishAsync(Bundle(1), TimeSpan.FromSeconds(2), cancellation.Token);
+        var outcome = await fixture.Publisher.PublishAsync(PreparedApplication(1), TimeSpan.FromSeconds(2), cancellation.Token);
 
         outcome.State.Should().Be(GatewayPublicationState.CanceledBeforePublish);
         fixture.Provider.GetConfig().RevisionId.Should().StartWith("hpd-bootstrap-");
@@ -120,7 +189,7 @@ public sealed class YarpPublicationTests
     {
         using var fixture = new PublisherFixture();
         fixture.Listener.Dispose();
-        var outcome = await fixture.Publisher.PublishAsync(Bundle(1), TimeSpan.FromSeconds(2));
+        var outcome = await fixture.Publisher.PublishAsync(PreparedApplication(1), TimeSpan.FromSeconds(2));
 
         outcome.State.Should().Be(GatewayPublicationState.RejectedBeforePublish);
         outcome.Diagnostics.Should().ContainSingle(item => item.Code == "publication.preparation-failed");
@@ -132,7 +201,7 @@ public sealed class YarpPublicationTests
     {
         using var fixture = new PublisherFixture();
         using var cancellation = new CancellationTokenSource();
-        var bundle = Bundle(1);
+        var bundle = PreparedApplication(1);
         var publication = fixture.Publisher.PublishAsync(bundle, TimeSpan.FromSeconds(2), cancellation.Token);
         var snapshot = await fixture.WaitForRevision(bundle.NativeRevisionId);
 
@@ -146,11 +215,11 @@ public sealed class YarpPublicationTests
     public async Task CancellationWhileWaitingForLeaseDoesNotMutateSecondCandidate()
     {
         using var fixture = new PublisherFixture();
-        var first = Bundle(1);
+        var first = PreparedApplication(1);
         var firstTask = fixture.Publisher.PublishAsync(first, TimeSpan.FromSeconds(2));
         var firstSnapshot = await fixture.WaitForRevision(first.NativeRevisionId);
         using var cancellation = new CancellationTokenSource();
-        var second = Bundle(2);
+        var second = PreparedApplication(2);
         var secondTask = fixture.Publisher.PublishAsync(second, TimeSpan.FromSeconds(2), cancellation.Token);
         cancellation.Cancel();
 
@@ -158,19 +227,19 @@ public sealed class YarpPublicationTests
 
         (await firstTask).State.Should().Be(GatewayPublicationState.ActiveAcknowledged);
         (await secondTask).State.Should().Be(GatewayPublicationState.CanceledBeforePublish);
-        fixture.Provider.GetConfig().RevisionId.Should().Be(first.NativeRevisionId);
+        ((OwnedProxyConfig)fixture.Provider.GetConfig()).NativeRevisionId.Should().Be(first.NativeRevisionId);
     }
 
     [Fact]
     public async Task LkgIsHistoricalDuringIndeterminateAndRecoveryRequiresRepublish()
     {
         using var fixture = new PublisherFixture();
-        var first = Bundle(1);
+        var first = PreparedApplication(1);
         var firstTask = fixture.Publisher.PublishAsync(first, TimeSpan.FromSeconds(2));
         fixture.Listener.ConfigurationApplied([await fixture.WaitForRevision(first.NativeRevisionId)]);
         var acknowledged = await firstTask;
 
-        var second = Bundle(2);
+        var second = PreparedApplication(2);
         var secondTask = fixture.Publisher.PublishAsync(second, TimeSpan.FromSeconds(2));
         var secondSnapshot = await fixture.WaitForRevision(second.NativeRevisionId);
         fixture.Listener.ConfigurationApplyingFailed([secondSnapshot], new InvalidOperationException());
@@ -179,7 +248,7 @@ public sealed class YarpPublicationTests
         indeterminate.Active.Should().BeNull();
         indeterminate.LastKnownGood.Should().Be(acknowledged.Active);
 
-        var recovery = Bundle(3);
+        var recovery = PreparedApplication(3);
         var recoveryTask = fixture.Publisher.PublishAsync(recovery, TimeSpan.FromSeconds(2));
         fixture.Listener.ConfigurationApplied([await fixture.WaitForRevision(recovery.NativeRevisionId)]);
         (await recoveryTask).State.Should().Be(GatewayPublicationState.ActiveAcknowledged);
@@ -189,31 +258,33 @@ public sealed class YarpPublicationTests
     public async Task DuplicateStaleAndIdentityConflictDoNotRepublish()
     {
         using var fixture = new PublisherFixture();
-        var original = Bundle(2);
+        var original = PreparedApplication(2);
         var originalTask = fixture.Publisher.PublishAsync(original, TimeSpan.FromSeconds(2));
         fixture.Listener.ConfigurationApplied([await fixture.WaitForRevision(original.NativeRevisionId)]);
         await originalTask;
 
-        (await fixture.Publisher.PublishAsync(Bundle(2, hash: Hash('a')), TimeSpan.FromSeconds(2))).State
+        (await fixture.Publisher.PublishAsync(PreparedApplication(2, hash: Hash('a')), TimeSpan.FromSeconds(2))).State
             .Should().Be(GatewayPublicationState.Duplicate);
-        (await fixture.Publisher.PublishAsync(Bundle(2, hash: Hash('b')), TimeSpan.FromSeconds(2))).State
+        (await fixture.Publisher.PublishAsync(PreparedApplication(2, hash: Hash('b')), TimeSpan.FromSeconds(2))).State
             .Should().Be(GatewayPublicationState.IdentityConflict);
-        (await fixture.Publisher.PublishAsync(Bundle(1), TimeSpan.FromSeconds(2))).State
+        (await fixture.Publisher.PublishAsync(PreparedApplicationWithGraph(2), TimeSpan.FromSeconds(2))).State
+            .Should().Be(GatewayPublicationState.IdentityConflict);
+        (await fixture.Publisher.PublishAsync(PreparedApplication(1), TimeSpan.FromSeconds(2))).State
             .Should().Be(GatewayPublicationState.Stale);
-        fixture.Provider.GetConfig().RevisionId.Should().Be(original.NativeRevisionId);
+        ((OwnedProxyConfig)fixture.Provider.GetConfig()).NativeRevisionId.Should().Be(original.NativeRevisionId);
     }
 
     [Fact]
     public async Task NewerWaitingCandidateSupersedesOlderWaitingCandidate()
     {
         using var fixture = new PublisherFixture();
-        var first = Bundle(1);
+        var first = PreparedApplication(1);
         var firstTask = fixture.Publisher.PublishAsync(first, TimeSpan.FromSeconds(2));
         var firstSnapshot = await fixture.WaitForRevision(first.NativeRevisionId);
 
-        var second = Bundle(2);
+        var second = PreparedApplication(2);
         var secondTask = fixture.Publisher.PublishAsync(second, TimeSpan.FromSeconds(2));
-        var third = Bundle(3);
+        var third = PreparedApplication(3);
         var thirdTask = fixture.Publisher.PublishAsync(third, TimeSpan.FromSeconds(2));
         fixture.Listener.ConfigurationApplied([firstSnapshot]);
 
@@ -231,7 +302,7 @@ public sealed class YarpPublicationTests
         using var listener = new HpdConfigChangeListener(provider);
         var other = new StubProvider();
 
-        var action = () => new GatewayYarpPublisher(provider, listener, [provider, other]);
+        var action = () => new GatewayRuntimePublisher(provider, listener, [provider, other]);
 
         action.Should().Throw<InvalidOperationException>();
     }
@@ -273,7 +344,7 @@ public sealed class YarpPublicationTests
     public async Task DisposalWithPendingAcknowledgementIsIndeterminate()
     {
         var fixture = new PublisherFixture();
-        var bundle = Bundle(1);
+        var bundle = PreparedApplication(1);
         var publication = fixture.Publisher.PublishAsync(bundle, TimeSpan.FromSeconds(2));
         await fixture.WaitForRevision(bundle.NativeRevisionId);
 
@@ -287,17 +358,17 @@ public sealed class YarpPublicationTests
     public async Task DisposalMakesQueuedAttemptSafeWithoutMutatingNativeState()
     {
         var fixture = new PublisherFixture();
-        var first = Bundle(1);
+        var first = PreparedApplication(1);
         var firstTask = fixture.Publisher.PublishAsync(first, TimeSpan.FromSeconds(2));
         await fixture.WaitForRevision(first.NativeRevisionId);
-        var second = Bundle(2);
+        var second = PreparedApplication(2);
         var secondTask = fixture.Publisher.PublishAsync(second, TimeSpan.FromSeconds(2));
 
         fixture.Publisher.Dispose();
 
         (await firstTask).State.Should().Be(GatewayPublicationState.PublicationIndeterminate);
         (await secondTask).State.Should().Be(GatewayPublicationState.CanceledBeforePublish);
-        fixture.Provider.GetConfig().RevisionId.Should().Be(first.NativeRevisionId);
+        ((OwnedProxyConfig)fixture.Provider.GetConfig()).NativeRevisionId.Should().Be(first.NativeRevisionId);
         fixture.Dispose();
     }
 
@@ -326,7 +397,7 @@ public sealed class YarpPublicationTests
     public void NativeRevisionIdentityMustBeBoundedAndSafe(string revision)
     {
         var identity = new PublicationCandidateIdentity(new CandidateId("candidate"), "authority", "epoch", 1, Hash('a'));
-        var action = () => NativeBundleTestFactory.Create(identity, [], [], revision, Effective(identity));
+        var action = () => PreparedApplicationTestFactory.Create(identity, [], [], revision, Effective(identity));
 
         action.Should().Throw<ArgumentException>();
     }
@@ -335,8 +406,8 @@ public sealed class YarpPublicationTests
     public void NativeRevisionIdentityRejectsOversizedValue()
     {
         var identity = new PublicationCandidateIdentity(new CandidateId("candidate"), "authority", "epoch", 1, Hash('a'));
-        var action = () => NativeBundleTestFactory.Create(identity, [], [],
-            new string('r', NativePublicationBundle.MaximumNativeRevisionIdLength + 1), Effective(identity));
+        var action = () => PreparedApplicationTestFactory.Create(identity, [], [],
+            new string('r', GatewayPreparedApplication.MaximumNativeRevisionIdLength + 1), Effective(identity));
 
         action.Should().Throw<ArgumentException>();
     }
@@ -346,13 +417,13 @@ public sealed class YarpPublicationTests
     {
         var identity = new PublicationCandidateIdentity(new CandidateId("replay"), "authority", "epoch-1", 7, Hash('a'));
         using var first = new PublisherFixture();
-        var firstBundle = NativeBundleTestFactory.Create(identity, [], [], "native-before-restart", Effective(identity));
+        var firstBundle = PreparedApplicationTestFactory.Create(identity, [], [], "native-before-restart", Effective(identity));
         var firstTask = first.Publisher.PublishAsync(firstBundle, TimeSpan.FromSeconds(2));
         first.Listener.ConfigurationApplied([await first.WaitForRevision(firstBundle.NativeRevisionId)]);
         (await firstTask).State.Should().Be(GatewayPublicationState.ActiveAcknowledged);
 
         using var restarted = new PublisherFixture();
-        var replay = NativeBundleTestFactory.Create(identity, [], [], "native-after-restart", Effective(identity));
+        var replay = PreparedApplicationTestFactory.Create(identity, [], [], "native-after-restart", Effective(identity));
         var replayTask = restarted.Publisher.PublishAsync(replay, TimeSpan.FromSeconds(2));
         restarted.Listener.ConfigurationApplied([await restarted.WaitForRevision(replay.NativeRevisionId)]);
 
@@ -361,19 +432,34 @@ public sealed class YarpPublicationTests
         outcome.Active!.NativeRevisionId.Should().Be("native-after-restart");
     }
 
-    private static NativePublicationBundle Bundle(ulong version, ContentHash? hash = null)
+    private static GatewayPreparedApplication PreparedApplication(ulong version, ContentHash? hash = null)
     {
         var identity = new PublicationCandidateIdentity(new CandidateId($"candidate-{version}"), "authority", "epoch-1", version, hash ?? Hash('a'));
-        return NativeBundleTestFactory.Create(identity, [], [], $"native-{version}-{Guid.NewGuid():N}", Effective(identity));
+        return PreparedApplicationTestFactory.Create(identity, [], [], $"native-{version}-{Guid.NewGuid():N}", Effective(identity));
     }
 
-    private static NativePublicationBundle AuthorityBundle(int authority)
+    private static GatewayPreparedApplication PreparedApplicationWithGraph(ulong version)
+    {
+        var identity = new PublicationCandidateIdentity(new CandidateId($"candidate-{version}"), "authority", "epoch-1", version, Hash('a'));
+        ImmutableArray<RouteConfig> routes = [new RouteConfig { RouteId = "route", ClusterId = "upstream", Match = new RouteMatch { Path = "/{**catch-all}" } }];
+        ImmutableArray<ClusterConfig> clusters = [new ClusterConfig
+        {
+            ClusterId = "upstream",
+            LoadBalancingPolicy = "PowerOfTwoChoices",
+            Destinations = ImmutableDictionary<string, DestinationConfig>.Empty.Add(
+                "destination", new DestinationConfig { Address = "http://127.0.0.1:8080/" }),
+        }];
+        return PreparedApplicationTestFactory.Create(
+            identity, routes, clusters, $"native-graph-{version}-{Guid.NewGuid():N}", Effective(identity));
+    }
+
+    private static GatewayPreparedApplication AuthorityBundle(int authority)
     {
         var identity = new PublicationCandidateIdentity(new CandidateId($"candidate-{authority}"), $"authority-{authority}", "epoch-1", 1, Hash('a'));
-        return NativeBundleTestFactory.Create(identity, [], [], $"native-authority-{authority}", Effective(identity));
+        return PreparedApplicationTestFactory.Create(identity, [], [], $"native-authority-{authority}", Effective(identity));
     }
 
-    private static GatewayEffectiveSnapshot Effective(PublicationCandidateIdentity identity) =>
+    private static GatewayPreparedProjectionSnapshot Effective(PublicationCandidateIdentity identity) =>
         new(1, identity.CandidateId, identity.ContentHash, [], false);
 
     private static ContentHash Hash(char value) => new("sha-256", new string(value, 64));
@@ -382,12 +468,12 @@ public sealed class YarpPublicationTests
     {
         internal HpdProxyConfigProvider Provider { get; } = new();
         internal HpdConfigChangeListener Listener { get; }
-        internal GatewayYarpPublisher Publisher { get; }
+        internal GatewayRuntimePublisher Publisher { get; }
 
         internal PublisherFixture()
         {
             Listener = new HpdConfigChangeListener(Provider);
-            Publisher = new GatewayYarpPublisher(Provider, Listener, [Provider]);
+            Publisher = new GatewayRuntimePublisher(Provider, Listener, [Provider]);
         }
 
         internal async Task<IProxyConfig> WaitForRevision(string revision)
@@ -396,7 +482,7 @@ public sealed class YarpPublicationTests
             while (!timeout.IsCancellationRequested)
             {
                 var current = Provider.GetConfig();
-                if (current.RevisionId == revision) return current;
+                if (current is OwnedProxyConfig owned && owned.NativeRevisionId == revision) return current;
                 await Task.Delay(1, timeout.Token).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
             }
             throw new TimeoutException($"Revision '{revision}' was not installed.");
@@ -421,6 +507,17 @@ public sealed class YarpPublicationTests
         public string RevisionId => "stub";
         public IReadOnlyList<RouteConfig> Routes => [];
         public IReadOnlyList<ClusterConfig> Clusters => [];
+        public IChangeToken ChangeToken { get; } = new CancellationChangeToken(CancellationToken.None);
+    }
+
+    private sealed class TestProxyConfig(
+        string revisionId,
+        IReadOnlyList<RouteConfig> routes,
+        IReadOnlyList<ClusterConfig> clusters) : IProxyConfig
+    {
+        public string RevisionId { get; } = revisionId;
+        public IReadOnlyList<RouteConfig> Routes { get; } = routes;
+        public IReadOnlyList<ClusterConfig> Clusters { get; } = clusters;
         public IChangeToken ChangeToken { get; } = new CancellationChangeToken(CancellationToken.None);
     }
 

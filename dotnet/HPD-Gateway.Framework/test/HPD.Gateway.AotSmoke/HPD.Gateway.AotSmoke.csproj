@@ -10,17 +10,9 @@
   <ItemGroup>
     <ProjectReference Include="../../src/HPD.Gateway/HPD.Gateway.csproj" />
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
-    <ProjectReference Include="../../src/HPD.Gateway.Abstractions/HPD.Gateway.Abstractions.csproj" />
-    <ProjectReference Include="../../src/HPD.Gateway.Core/HPD.Gateway.Core.csproj" />
-    <ProjectReference Include="../../src/HPD.Gateway.Effective/HPD.Gateway.Effective.csproj" />
-    <ProjectReference Include="../../src/HPD.Gateway.Inspection/HPD.Gateway.Inspection.csproj" />
-    <ProjectReference Include="../../src/HPD.Gateway.Management/HPD.Gateway.Management.csproj" />
-    <ProjectReference Include="../../src/HPD.Gateway.HPDAuth/HPD.Gateway.HPDAuth.csproj" />
-    <ProjectReference Include="../../src/HPD.Gateway.Hosting/HPD.Gateway.Hosting.csproj" />
-    <ProjectReference Include="../../src/HPD.Gateway.OutputCaching/HPD.Gateway.OutputCaching.csproj" />
-    <ProjectReference Include="../../src/HPD.Gateway.Resilience/HPD.Gateway.Resilience.csproj" />
-    <ProjectReference Include="../../src/HPD.Gateway.Status/HPD.Gateway.Status.csproj" />
-    <ProjectReference Include="../../src/HPD.Gateway.Yarp/HPD.Gateway.Yarp.csproj" />
-    <ProjectReference Include="../../../HPD-Base.Framework/src/HPD.Base.Sqlite/HPD.Base.Sqlite.csproj" />
+    <ProjectReference Include="../../src/HPD.Gateway.Discovery.Microsoft/HPD.Gateway.Discovery.Microsoft.csproj" />
+    <ProjectReference Include="../../src/HPD.Gateway.ControlPlane/HPD.Gateway.ControlPlane.csproj" />
+    <ProjectReference Include="../../src/HPD.Gateway.ControlPlane.Sqlite/HPD.Gateway.ControlPlane.Sqlite.csproj" />
+    <ProjectReference Include="../../src/HPD.Gateway.ControlPlane.HPDAuth/HPD.Gateway.ControlPlane.HPDAuth.csproj" />
   </ItemGroup>
 </Project>

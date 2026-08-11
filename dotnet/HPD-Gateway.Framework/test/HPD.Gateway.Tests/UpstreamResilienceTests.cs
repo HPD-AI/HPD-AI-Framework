@@ -5,11 +5,7 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using FluentAssertions;
-using HPD.Gateway.Abstractions;
-using HPD.Gateway.Abstractions.Serialization;
-using HPD.Gateway.Core;
-using HPD.Gateway.Resilience;
-using HPD.Gateway.Yarp;
+using HPD.Gateway;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Hosting.Server;
@@ -606,7 +602,7 @@ public sealed class UpstreamResilienceTests
         private readonly WebApplication _backend;
         private readonly Dictionary<string, int> _hits;
         private readonly object _gate = new();
-        private NativePublicationBundle? _lastBundle;
+        private GatewayPreparedApplication? _lastBundle;
 
         private ResilienceFixture(WebApplication proxy, WebApplication backend, Dictionary<string, int> hits)
         {
@@ -687,10 +683,10 @@ public sealed class UpstreamResilienceTests
             var accepted = GatewayCandidateReader.Read(json, capabilities);
             accepted.IsAccepted.Should().BeTrue(string.Join(", ", accepted.Errors.Select(error => error.Message)));
             var identity = new PublicationCandidateIdentity(new CandidateId($"resilience-{version}"), "authority", "epoch", version, accepted.CanonicalDocument!.ContentHash);
-            var materialized = await _proxy.Services.GetRequiredService<GatewayNativeMaterializer>().MaterializeAsync(accepted, identity, $"resilience-native-{version}");
-            materialized.IsMaterialized.Should().BeTrue(string.Join(", ", materialized.Diagnostics.Select(error => error.Code)));
-            _lastBundle = materialized.Bundle!;
-            var outcome = await _proxy.Services.GetRequiredService<GatewayYarpPublisher>().PublishAsync(materialized.Bundle!, TimeSpan.FromSeconds(5));
+            var materialized = await _proxy.Services.GetRequiredService<GatewayRuntimePlanner>().PlanAsync(accepted, identity, $"resilience-native-{version}");
+            materialized.IsPlanned.Should().BeTrue(string.Join(", ", materialized.Diagnostics.Select(error => error.Code)));
+            _lastBundle = materialized.PreparedApplication!;
+            var outcome = await _proxy.Services.GetRequiredService<GatewayRuntimePublisher>().PublishAsync(materialized.PreparedApplication!, TimeSpan.FromSeconds(5));
             outcome.State.Should().Be(GatewayPublicationState.ActiveAcknowledged);
         }
 

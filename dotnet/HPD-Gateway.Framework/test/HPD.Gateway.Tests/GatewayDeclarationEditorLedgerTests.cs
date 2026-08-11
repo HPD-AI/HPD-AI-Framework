@@ -3,7 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Nodes;
 using FluentAssertions;
-using HPD.Gateway.Admin;
+using HPD.Gateway.ControlPlane;
 using Xunit;
 
 namespace HPD.Gateway.Tests;
@@ -80,7 +80,7 @@ public sealed class GatewayDeclarationEditorLedgerTests
             GatewayDeclarationEditorLedgerExporter.Export(ReverseObjects(openApi).AsObject());
 
         first.Utf8.Should().Equal(second.Utf8);
-        first.Value.Envelope.Records.Should().HaveCount(365);
+        first.Value.Envelope.Records.Should().HaveCount(366);
         first.Value.Envelope.Records.Select(static record => record.Target.OccurrencePath)
             .Distinct(OccurrencePathComparer.Instance).Should().HaveSameCount(first.Value.Envelope.Records);
         first.Value.Envelope.Records.Where(static record =>
@@ -92,7 +92,8 @@ public sealed class GatewayDeclarationEditorLedgerTests
             .Should().Contain(Enum.GetValues<GatewayEditorCapabilityKind>());
 
         string[] expectedConstraints = GatewayAdminClientSchemaConstraintLedger.V1
-            .Where(static item => item.SchemaType.Namespace == "HPD.Gateway.Abstractions")
+            .Where(static item => GatewayAdminSchemaReferenceIds.Create(item.SchemaType)!
+                .StartsWith("HPD_Gateway_Abstractions_", StringComparison.Ordinal))
             .Select(static item => "#/components/schemas/" +
                 GatewayAdminSchemaReferenceIds.Create(item.SchemaType) + "/properties/" + item.PropertyName + ":" +
                 item.AppliesTo.ToString().ToLowerInvariant())

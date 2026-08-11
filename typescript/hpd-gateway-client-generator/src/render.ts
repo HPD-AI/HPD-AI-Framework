@@ -36,7 +36,7 @@ function renderContract(plan: GenerationPlan): string {
 }
 
 function renderSchemas(plan: GenerationPlan, names: ReadonlyMap<string, string>): string {
-  const brands = ["NamespaceId", "TargetNodeId", "RevisionId", "ValidationId", "OperationId", "CandidateId", "ContinuationToken", "DesiredStateToken", "IdempotencyKey", "CorrelationId"];
+  const brands = ["NamespaceId", "TargetNodeId", "RevisionId", "ValidationId", "OperationId", "CandidateId", "ActivationIntentId", "ContinuationToken", "DesiredStateToken", "IdempotencyKey", "CorrelationId"];
   let output = `declare const gatewayBrand: unique symbol;\nexport type GatewayBrand<T extends string> = string & { readonly [gatewayBrand]: T };\n`;
   for (const brand of brands) output += `export type Gateway${brand} = GatewayBrand<"${kebabBrand(brand)}">;\n`;
   output += `export type GatewayDesiredPrecondition = { readonly kind: "create-only" } | { readonly kind: "replace"; readonly token: GatewayDesiredStateToken };\n`;
@@ -78,6 +78,8 @@ function schemaType(value: JsonValue, plan: GenerationPlan, names: ReadonlyMap<s
     if (visiting.has(schema.$ref)) throw new Error(`Cyclic schema reference '${schema.$ref}'.`);
     return refName(schema.$ref, names);
   }
+  const structuralReference = matchingSchemaReference(value, plan, schemaRef);
+  if (structuralReference !== undefined) return refName(structuralReference, names);
   const nullable = Array.isArray(schema.type) && schema.type.includes("null");
   const wireTypes = Array.isArray(schema.type) ? schema.type.filter(value => value !== "null") : [schema.type];
   const type = wireTypes[0];
@@ -94,13 +96,26 @@ function schemaType(value: JsonValue, plan: GenerationPlan, names: ReadonlyMap<s
   return nullable ? `${result} | null` : result;
 }
 
+function matchingSchemaReference(value: JsonValue, plan: GenerationPlan, currentSchemaRef: string): string | undefined {
+  const canonical = new TextDecoder().decode(canonicalJson(value));
+  const matches = Object.entries(plan.schemas)
+    .map(([name, schema]) => [`${referencePrefix}${name}`, schema] as const)
+    .filter(([, schema]) => new TextDecoder().decode(canonicalJson(schema)) === canonical)
+    .map(([reference]) => reference);
+  return matches.length === 1 && matches[0] !== currentSchemaRef ? matches[0] : undefined;
+}
+
 function objectType(schema: Readonly<Record<string, JsonValue>>, plan: GenerationPlan, names: ReadonlyMap<string, string>, schemaRef: string, visiting: Set<string>): string {
   const properties = schema.properties === undefined ? {} : asRecord(schema.properties);
   const required = new Set(Array.isArray(schema.required) ? schema.required as readonly string[] : []);
   const members = Object.entries(properties).sort(([a], [b]) => ordinal(a, b)).map(([key, child]) => {
     const pointer = `/properties/${key.replaceAll("~", "~0").replaceAll("/", "~1")}`;
     const brand = plan.schemaConstraints.find(value => value.schemaRef === schemaRef && value.propertyPointer === pointer && value.appliesTo === "value")?.brand;
-    const type = brand && brand !== "none" ? schemaBrandType(brand) : schemaType(child, plan, names, schemaRef, visiting);
+    const childSchema = asRecord(child);
+    const nullable = Array.isArray(childSchema.type) && childSchema.type.includes("null");
+    const type = brand && brand !== "none"
+      ? `${schemaBrandType(brand)}${nullable ? " | null" : ""}`
+      : schemaType(child, plan, names, schemaRef, visiting);
     return `readonly ${propertyName(key)}${required.has(key) ? "" : "?"}: ${type}`;
   });
   return `{ ${members.join("; ")} }`;
@@ -136,4 +151,4 @@ function propertyName(value: string): string { const name = value === "X-Correla
 function asRecord(value: JsonValue): Readonly<Record<string, JsonValue>> { if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error("Schema must be an object."); return value as Readonly<Record<string, JsonValue>>; }
 function ordinal(a: string, b: string): number { return a < b ? -1 : a > b ? 1 : 0; }
 
-const resultContract = `export type GatewayResponseHeaders = Readonly<Record<string, string>>;\nexport type GatewayProtocolReason = "unexpected-status" | "unexpected-media-type" | "malformed-json" | "response-too-large" | "schema-mismatch" | "error-envelope-invalid";\nexport type GatewaySuccess<T, S extends 200 | 201 | 202> = { readonly ok: true; readonly status: S; readonly value: T; readonly correlationId?: import("./schemas.js").GatewayCorrelationId; readonly headers: GatewayResponseHeaders };\nexport type GatewayHttpFailure<S extends number> = { readonly ok: false; readonly kind: "http"; readonly status: S; readonly error: import("./schemas.js").GatewayAdminError; readonly correlationId?: import("./schemas.js").GatewayCorrelationId; readonly headers: GatewayResponseHeaders };\nexport type GatewayProtocolFailure = { readonly ok: false; readonly kind: "protocol"; readonly reason: GatewayProtocolReason; readonly actualStatus: number | null; readonly mediaType: string | null; readonly correlationId?: import("./schemas.js").GatewayCorrelationId; readonly headers: GatewayResponseHeaders };\nexport type GatewayTransportFailure = { readonly ok: false; readonly kind: "transport"; readonly reason: "network-failure"; readonly correlationId?: import("./schemas.js").GatewayCorrelationId };\nexport type GatewayCanceledFailure = { readonly ok: false; readonly kind: "canceled"; readonly reason: "caller-canceled"; readonly correlationId?: import("./schemas.js").GatewayCorrelationId };\nexport type GatewayFailure<S extends number> = GatewayHttpFailure<S> | GatewayProtocolFailure | GatewayTransportFailure | GatewayCanceledFailure;\nexport type GatewayOperationResult<T, S extends 200 | 201 | 202, E extends number> = GatewaySuccess<T, S> | GatewayFailure<E>;\n`;
+const resultContract = `export type GatewayResponseHeaders = Readonly<Record<string, string>>;\nexport type GatewayProtocolReason = "unexpected-status" | "unexpected-media-type" | "malformed-json" | "request-too-large" | "response-too-large" | "schema-mismatch" | "error-envelope-invalid";\nexport type GatewaySuccess<T, S extends 200 | 201 | 202> = { readonly ok: true; readonly status: S; readonly value: T; readonly correlationId?: import("./schemas.js").GatewayCorrelationId; readonly headers: GatewayResponseHeaders };\nexport type GatewayHttpFailure<S extends number> = { readonly ok: false; readonly kind: "http"; readonly status: S; readonly error: import("./schemas.js").GatewayAdminError; readonly correlationId?: import("./schemas.js").GatewayCorrelationId; readonly headers: GatewayResponseHeaders };\nexport type GatewayProtocolFailure = { readonly ok: false; readonly kind: "protocol"; readonly reason: GatewayProtocolReason; readonly actualStatus: number | null; readonly mediaType: string | null; readonly correlationId?: import("./schemas.js").GatewayCorrelationId; readonly headers: GatewayResponseHeaders };\nexport type GatewayTransportFailure = { readonly ok: false; readonly kind: "transport"; readonly reason: "network-failure"; readonly correlationId?: import("./schemas.js").GatewayCorrelationId };\nexport type GatewayCanceledFailure = { readonly ok: false; readonly kind: "canceled"; readonly reason: "caller-canceled"; readonly correlationId?: import("./schemas.js").GatewayCorrelationId };\nexport type GatewayFailure<S extends number> = GatewayHttpFailure<S> | GatewayProtocolFailure | GatewayTransportFailure | GatewayCanceledFailure;\nexport type GatewayOperationResult<T, S extends 200 | 201 | 202, E extends number> = GatewaySuccess<T, S> | GatewayFailure<E>;\n`;

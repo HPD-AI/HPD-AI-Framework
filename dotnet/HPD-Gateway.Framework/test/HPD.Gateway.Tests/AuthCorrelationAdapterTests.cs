@@ -2,7 +2,7 @@ using FluentAssertions;
 using HPD.Auth.Audit.Services;
 using HPD.Auth.Core.Audit;
 using HPD.Auth.Core.Events;
-using HPD.Gateway.HPDAuth;
+using HPD.Gateway.ControlPlane.HPDAuth;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;

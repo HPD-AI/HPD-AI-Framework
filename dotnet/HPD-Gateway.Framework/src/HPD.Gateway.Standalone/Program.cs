@@ -3,15 +3,10 @@ using System.Collections.Immutable;
 using System.Security.Claims;
 using HPD.Auth.ControlPlane;
 using HPD.Base;
-using HPD.Base.Sqlite;
 using HPD.Gateway;
-using HPD.Gateway.Admin;
-using HPD.Gateway.HPDAuth;
-using HPD.Gateway.Hosting;
-using HPD.Gateway.Inspection;
-using HPD.Gateway.Management;
-using HPD.Gateway.OutputCaching;
-using HPD.Gateway.Resilience;
+using HPD.Gateway.ControlPlane;
+using HPD.Gateway.ControlPlane.HPDAuth;
+using HPD.Gateway.ControlPlane.Sqlite;
 using HPD.Gateway.Standalone;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
@@ -30,7 +25,7 @@ builder.UseHpdGatewayHost(inputs.Host, certificates =>
 });
 builder.Services.AddHpdGateway(gateway =>
 {
-    gateway.AddCoreFamilies();
+    gateway.EnableCoreDeclarations();
     gateway.AddRequestInspection(
         inspectors => inspectors.Add("standalone-unencoded", new StandaloneUnencodedInspector()));
     gateway.ProtectCredentialHeaders("x-api-key");
@@ -105,34 +100,37 @@ builder.Services.AddHPDControlPlane(options =>
         options.MapCapability(capability, adminPolicy);
 });
 builder.Services.AddHPDControlPlaneOpenApi("hpd-gateway-v1");
-builder.Services.AddHpdGatewayAdmin();
-builder.Services.AddHpdGatewayAdminHpdAuth(adminProfile);
+builder.Services.AddHpdGatewayControlPlane(controlPlane => controlPlane
+    .UseSqlite(sqlite =>
+    {
+        sqlite.DataSource = inputs.Management.DatabasePath;
+        sqlite.PlanProtectionKey = Convert.FromHexString(inputs.Management.PlanProtectionKeyHex);
+        sqlite.TokenProtectionKey = Convert.FromHexString(inputs.Management.TokenProtectionKeyHex);
+        sqlite.DesiredStateTokenKey = Convert.FromHexString(inputs.Management.DesiredStateTokenKeyHex);
+        sqlite.EpochReservationKey = Convert.FromHexString(inputs.Management.EpochReservationKeyHex);
+    })
+    .AddAdminApi(options =>
+    {
+        options.AuthenticationScheme = JwtBearerDefaults.AuthenticationScheme;
+        options.AuthorizationPolicy = adminPolicy;
+        options.RateLimitPolicy = adminProfile;
+        options.RequestTimeoutPolicy = adminProfile;
+        options.OpenApiSecurityScheme = "Bearer";
+        options.EndpointSurfaceId = "gateway-admin-v1";
+        options.RequireManagementListener = true;
+        options.CapabilityPolicies = GatewayAdminCapabilities.All.ToImmutableDictionary(
+            static capability => capability, static _ => adminPolicy, StringComparer.Ordinal);
+    })
+    .AddStudio(options =>
+    {
+        options.RoutePrefix = "/studio";
+        options.ApiBasePath = "/management/gateway/v1";
+        options.EndpointSurfaceId = "gateway-admin-v1";
+        options.RequireManagementListener = true;
+    })
+    .AddHpdAuth(adminProfile));
 builder.Services.AddSingleton(new StandaloneManagedTarget(inputs.InitialCandidate.NamespaceId, inputs.InitialCandidate.TargetNodeId));
 builder.Services.AddHostedService<StandaloneManagementInitializer>();
-builder.Services.AddHpdGatewayManagement(options =>
-{
-    options.ManagementAuthorityId = inputs.Management.ManagementAuthorityId;
-    options.RequiredDurability = GatewayAuthorityDurability.RestartDurable;
-    options.DesiredStateTokenKey = Convert.FromHexString(inputs.Management.DesiredStateTokenKeyHex);
-    options.EpochReservationKey = Convert.FromHexString(inputs.Management.EpochReservationKeyHex);
-}, hpdBase =>
-{
-    hpdBase.ConfigureSchema(schema =>
-        schema.PlanProtectionKey = Convert.FromHexString(inputs.Management.PlanProtectionKeyHex));
-    hpdBase.ConfigureTokenProtection(tokens => tokens.ActiveKey = new BaseOpaqueTokenKey
-    {
-        Id = 1,
-        Key = Convert.FromHexString(inputs.Management.TokenProtectionKeyHex),
-        IssueNotBefore = inputs.Management.TokenProtectionIssueNotBeforeUtc,
-    });
-    hpdBase.UseSqlite(sqlite =>
-    {
-        sqlite.StoreId = "gateway-management";
-        sqlite.DataSource = inputs.Management.DatabasePath;
-        sqlite.AdministrationEnabled = true;
-        sqlite.AllowClientRequestedIds = true;
-    });
-});
 
 await using var application = builder.Build();
 application.UseRouting();
@@ -143,20 +141,7 @@ application.UseAuthentication();
 application.UseRateLimiter();
 application.UseAuthorization();
 application.MapHpdGateway();
-application.MapHpdGatewayAdmin(new GatewayAdminEndpointOptions
-{
-    AuthenticationScheme = JwtBearerDefaults.AuthenticationScheme,
-    RateLimitPolicy = adminProfile,
-    RequestTimeoutPolicy = adminProfile,
-    OpenApiSecurityScheme = "Bearer",
-    EndpointSurfaceId = "gateway-admin-v1",
-    RequireManagementListener = true,
-    CapabilityPolicies = GatewayAdminCapabilities.All.ToImmutableDictionary(
-        static capability => capability, static _ => adminPolicy, StringComparer.Ordinal),
-});
-application.MapOpenApi()
-    .WithHpdGatewayEndpointRole(GatewayListenerRole.Management, "gateway-admin-v1", requireListenerFeature: true)
-    .RequireAuthorization(adminPolicy);
+application.MapHpdGatewayControlPlane();
 application.ValidateHpdGatewayEndpointRoles();
 await application.RunAsync();
 
@@ -166,25 +151,11 @@ static bool OwnsNamespace(Microsoft.AspNetCore.Authorization.AuthorizationHandle
         .Contains(resource.NamespaceId, StringComparer.Ordinal);
 
 internal sealed class StandaloneManagementInitializer(
-    IBaseSchemaManager schemas,
-    IGatewayAuthorityRuntime authority,
     IGatewayManagementCommandCoordinator commands,
     StandaloneManagedTarget target) : IHostedService
 {
     public async Task StartAsync(CancellationToken cancellationToken)
     {
-        BaseSchemaPlan plan = (await schemas.PlanAsync(new BaseSchemaPlanRequest
-        {
-            StoreId = "gateway-management",
-        }, cancellationToken).ConfigureAwait(false)).Value
-            ?? throw new InvalidOperationException("The Gateway management schema plan is unavailable.");
-        OperationResult<BaseSchemaApplyResult> applied = await schemas.ApplyAsync(new BaseSchemaApplyRequest
-        {
-            ProtectedArtifact = plan.ProtectedArtifact,
-        }, cancellationToken).ConfigureAwait(false);
-        if (!applied.IsSuccess())
-            throw new InvalidOperationException("The Gateway management schema could not be applied.");
-        await authority.InitializeAsync(cancellationToken).ConfigureAwait(false);
         GatewayManagementCommandResult provisioned = await commands.ProvisionLocalTargetAsync(new(
             target.NamespaceId, target.TargetNodeId, "standalone-initial-provision",
             new GatewayManagementActor("hpd.gateway.standalone", "system", GatewayAdminCapabilities.TargetProvision),

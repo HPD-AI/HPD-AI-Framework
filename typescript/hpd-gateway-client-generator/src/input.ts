@@ -67,7 +67,7 @@ function validateManifest(input: unknown): GatewayClientGenerationManifest {
 
 function validateOperation(input: unknown): GatewayClientOperation {
   const value = object(input, "manifest operation");
-  exact(value, ["operation", "openApiOperationId", "method", "path", "capability", "resourcePolicy", "resourceKind", "mutation", "idempotency", "desiredPrecondition", "protectedNotFound", "success", "documentedErrors", "requestBody", "pagination", "parameterConstraints"]);
+  exact(value, ["operation", "openApiOperationId", "method", "path", "capability", "resourcePolicy", "resourceKind", "mutation", "idempotency", "desiredPrecondition", "protectedNotFound", "mutationResponse", "success", "documentedErrors", "requestBody", "pagination", "parameterConstraints"]);
   const operation = boundedString(value.operation, "operation", 128);
   const openApiOperationId = boundedString(value.openApiOperationId, "openApiOperationId", 256);
   const method = one(value.method, ["GET", "POST"] as const, "method");
@@ -78,6 +78,7 @@ function validateOperation(input: unknown): GatewayClientOperation {
   if (typeof value.mutation !== "boolean" || typeof value.protectedNotFound !== "boolean") fail("Invalid operation booleans.");
   const idempotency = one(value.idempotency, ["required", "forbidden"] as const, "idempotency");
   const desiredPrecondition = one(value.desiredPrecondition, ["create-or-replace", "forbidden"] as const, "desiredPrecondition");
+  const mutationResponse = one(value.mutationResponse, ["none", "revision-only", "revision-and-activation"] as const, "mutation response");
   const successValue = object(value.success, "success");
   exact(successValue, ["status", "schemaRef", "meaning"]);
   const successStatus = one(successValue.status, [200, 201, 202] as const, "success status");
@@ -85,12 +86,14 @@ function validateOperation(input: unknown): GatewayClientOperation {
   const documentedErrors = integerArray(value.documentedErrors, "documentedErrors", 32, 400, 599);
   requireAscending(documentedErrors, "documentedErrors");
   const bodyValue = object(value.requestBody, "requestBody");
-  exact(bodyValue, ["presence", "schemaRef", "mediaTypes"]);
+  exact(bodyValue, ["presence", "schemaRef", "maximumUtf8Bytes", "mediaTypes"]);
   const presence = one(bodyValue.presence, ["none", "required", "optional"] as const, "body presence");
   const schemaRef = bodyValue.schemaRef === null ? null : localRef(bodyValue.schemaRef);
+  const maximumUtf8Bytes = nullableInteger(bodyValue.maximumUtf8Bytes);
   const mediaTypes = stringArray(bodyValue.mediaTypes, "mediaTypes", 2);
   requireAscending(mediaTypes, "mediaTypes");
   if ((presence === "none") !== (schemaRef === null) || (presence === "none") !== (mediaTypes.length === 0)) fail("Request-body identity is inconsistent.");
+  if (presence === "none" ? maximumUtf8Bytes !== null : maximumUtf8Bytes !== 4_194_304) fail("Invalid request-body maximum.");
   const pageValue = object(value.pagination, "pagination");
   exact(pageValue, ["kind", "defaultMaximum", "minimumMaximum", "maximumMaximum"]);
   const kind = one(pageValue.kind, ["none", "opaque-cursor"] as const, "pagination kind");
@@ -101,7 +104,7 @@ function validateOperation(input: unknown): GatewayClientOperation {
   requireAscending(parameterConstraints.map(parameterKey), "parameterConstraints");
   if (value.mutation !== (idempotency === "required")) fail("Mutation/idempotency semantics disagree.");
   if (success.status === 202 !== (success.meaning === "accepted-not-active")) fail("202 meaning is inconsistent.");
-  return { operation, openApiOperationId, method, path, capability, resourcePolicy, resourceKind, mutation: value.mutation, idempotency, desiredPrecondition, protectedNotFound: value.protectedNotFound, success, documentedErrors, requestBody: { presence, schemaRef, mediaTypes }, pagination, parameterConstraints };
+  return { operation, openApiOperationId, method, path, capability, resourcePolicy, resourceKind, mutation: value.mutation, idempotency, desiredPrecondition, protectedNotFound: value.protectedNotFound, mutationResponse, success, documentedErrors, requestBody: { presence, schemaRef, maximumUtf8Bytes, mediaTypes }, pagination, parameterConstraints };
 }
 
 function validateParameterConstraint(input: unknown): GatewayParameterConstraint {
@@ -281,7 +284,8 @@ function validateOpenApi(openApi: Readonly<Record<string, JsonValue>>, manifest:
 }
 
 function correlateConstraintSchema(schema: Record<string, unknown>, rules: GatewayConstraintRules, framedEntityTag: boolean): void {
-  if (schema.type !== "string") fail("Constrained parameter must be a string.");
+  if (!(schema.type === "string" || Array.isArray(schema.type) && schema.type.length === 2 &&
+    schema.type.includes("string") && schema.type.includes("null"))) fail("Constrained parameter must be a string.");
   const minimum = framedEntityTag && rules.minimumUtf8Bytes !== null ? rules.minimumUtf8Bytes + 2 :
     rules.characterSet === "unicode" && (rules.minimumUtf8Bytes ?? 0) > 0 ? 1 : rules.minimumUtf8Bytes;
   const maximum = framedEntityTag && rules.maximumUtf8Bytes !== null ? rules.maximumUtf8Bytes + 2 : rules.maximumUtf8Bytes;
@@ -444,7 +448,7 @@ function resolvePointer(root: Record<string, unknown>, pointerValue: string): un
 }
 function pointer(value: unknown): string { const text = boundedString(value, "propertyPointer", 1024); if (!text.startsWith("/properties/")) fail("Invalid property pointer."); return text; }
 function localRef(value: unknown): string { const text = boundedString(value, "schemaRef", 512); if (!text.startsWith("#/components/schemas/") || text.length === 21) fail("Invalid local schema reference."); return text; }
-function brand(value: unknown): GatewayParameterConstraint["brand"] { return one(value, ["none", "namespace-id", "target-node-id", "revision-id", "validation-id", "operation-id", "candidate-id", "continuation-token", "desired-state-token", "idempotency-key", "correlation-id"] as const, "brand"); }
+function brand(value: unknown): GatewayParameterConstraint["brand"] { return one(value, ["none", "namespace-id", "target-node-id", "revision-id", "validation-id", "operation-id", "candidate-id", "activation-intent-id", "continuation-token", "desired-state-token", "idempotency-key", "correlation-id"] as const, "brand"); }
 function parameterKey(value: GatewayParameterConstraint): string { const order = value.location === "path" ? "0" : value.location === "query" ? "1" : "2"; return `${order}\0${value.name}`; }
 function boundedString(value: unknown, name: string, maximum: number): string { if (typeof value !== "string" || utf8(value) < 1 || utf8(value) > maximum || value !== value.normalize("NFC")) fail(`Invalid ${name}.`); return value; }
 function one<const T extends readonly (string | number)[]>(value: unknown, values: T, name: string): T[number] { if (!values.includes(value as never)) fail(`Invalid ${name}.`); return value as T[number]; }

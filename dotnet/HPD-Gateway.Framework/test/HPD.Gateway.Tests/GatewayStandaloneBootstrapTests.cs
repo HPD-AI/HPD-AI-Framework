@@ -1,9 +1,7 @@
 using System.Collections.Immutable;
 using System.Text.Json;
 using FluentAssertions;
-using HPD.Gateway.Abstractions;
-using HPD.Gateway.Abstractions.Serialization;
-using HPD.Gateway.Hosting;
+using HPD.Gateway;
 using HPD.Gateway.Standalone;
 using Xunit;
 

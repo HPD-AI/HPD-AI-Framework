@@ -2,9 +2,7 @@ using System.Collections.Immutable;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using HPD.Gateway.Abstractions;
-using HPD.Gateway.Abstractions.Serialization;
-using HPD.Gateway.Hosting;
+using HPD.Gateway;
 
 namespace HPD.Gateway.Standalone;
 

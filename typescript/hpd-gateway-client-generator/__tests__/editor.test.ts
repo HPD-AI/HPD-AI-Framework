@@ -9,10 +9,10 @@ const snapshotBytes = readFileSync(new URL("../fixtures/gateway-client-snapshot.
 const ledgerBytes = readFileSync(new URL("../fixtures/gateway-editor-ledger.json", import.meta.url));
 
 describe("Gateway declaration editor contract", () => {
-  it("correlates all 365 fields and pins deterministic source identity", () => {
+  it("correlates all 366 fields and pins deterministic source identity", () => {
     const contract = createEditorContract(parseSnapshot(snapshotBytes), parseEditorLedger(ledgerBytes));
-    expect(contract.fields).toHaveLength(365);
-    expect(contract.sourceSha256).toBe("20337124f7ec5bfcba1677cd9d7cc93d677c3d872e81def279c9c601ffa12c81");
+    expect(contract.fields).toHaveLength(366);
+    expect(contract.sourceSha256).toBe("f73f0ebc0c696042b239b172a46cae17796e09c5d6966b3b8d06dcaeaeca0294");
     expect(Object.keys(renderEditorContract(contract)).sort()).toEqual(["editor-contract.json", "editor-contract.ts"]);
   });
 
@@ -28,7 +28,7 @@ describe("Gateway declaration editor contract", () => {
   it("rejects missing, duplicate, reordered, and moved occurrences", () => {
     const missing = cloneLedger(); missing.envelope.records.pop(); rehashLedger(missing);
     const snapshot = parseSnapshot(snapshotBytes);
-    expect(() => createEditorContract(snapshot, parseLedger(missing))).toThrow(/365 records/u);
+    expect(() => createEditorContract(snapshot, parseLedger(missing))).toThrow(/366 records/u);
     const duplicate = cloneLedger(); duplicate.envelope.records[1] = duplicate.envelope.records[0]; rehashLedger(duplicate);
     expect(() => parseLedger(duplicate)).toThrow(/Duplicate editor occurrence/u);
     const reordered = cloneLedger(); [reordered.envelope.records[0], reordered.envelope.records[1]] = [reordered.envelope.records[1], reordered.envelope.records[0]]; rehashLedger(reordered);

@@ -1,4 +1,3 @@
-using HPD.Gateway.Hosting;
 using Microsoft.AspNetCore.Builder;
 
 namespace HPD.Gateway;

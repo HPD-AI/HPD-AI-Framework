@@ -9,6 +9,7 @@ export interface GatewayAuthenticationProvider {
 }
 export interface GatewayClientOptions {
   readonly baseUrl: string | URL;
+  readonly apiBasePath?: string;
   readonly authentication: GatewayAuthenticationProvider;
   readonly fetch?: typeof globalThis.fetch;
   readonly defaultSignal?: AbortSignal;
@@ -21,9 +22,11 @@ type PreparedInput = { readonly body: string | undefined; readonly parameters: R
 const encoder = new TextEncoder();
 const maximumBodyBytes = 8 * 1024 * 1024;
 class JsonBoundExceeded extends Error {}
+class RequestBodyBoundExceeded extends Error {}
 
 export function createGatewayClient(options: GatewayClientOptions): GatewayClient {
   const baseUrl = normalizeBaseUrl(options.baseUrl);
+  const apiBasePath = normalizeApiBasePath(options.apiBasePath ?? "/management/gateway/v1");
   const authentication = options.authentication;
   if (!authentication || typeof authentication.getAccessToken !== "function") throw new TypeError("Gateway authentication provider is required.");
   const getAccessToken = authentication.getAccessToken.bind(authentication);
@@ -31,10 +34,10 @@ export function createGatewayClient(options: GatewayClientOptions): GatewayClien
   if (typeof fetchImplementation !== "function") throw new TypeError("A Fetch implementation is required.");
   const defaultSignal = options.defaultSignal;
   return Object.freeze(Object.fromEntries(gatewayOperations.map(operation => [operation.operation,
-    (input: unknown, call?: GatewayCallOptions) => execute(baseUrl, getAccessToken, fetchImplementation, defaultSignal, operation, input, call?.signal)]))) as GatewayClient;
+    (input: unknown, call?: GatewayCallOptions) => execute(baseUrl, apiBasePath, getAccessToken, fetchImplementation, defaultSignal, operation, input, call?.signal)]))) as GatewayClient;
 }
 
-async function execute(baseUrl: URL, getAccessToken: GatewayAuthenticationProvider["getAccessToken"], fetchImplementation: typeof fetch,
+async function execute(baseUrl: URL, apiBasePath: string, getAccessToken: GatewayAuthenticationProvider["getAccessToken"], fetchImplementation: typeof fetch,
   defaultSignal: AbortSignal | undefined, operation: Operation, inputValue: unknown, callSignal?: AbortSignal): Promise<GatewayOperationResult<unknown, 200 | 201 | 202, number>> {
   const signal = callSignal ?? defaultSignal ?? new AbortController().signal;
   if (signal.aborted) return canceled();
@@ -42,7 +45,7 @@ async function execute(baseUrl: URL, getAccessToken: GatewayAuthenticationProvid
   const input = inputValue;
   let prepared: PreparedInput;
   try { prepared = validateInput(operation, input); }
-  catch { return protocol("schema-mismatch", null, null, {}); }
+  catch (error) { return protocol(error instanceof RequestBodyBoundExceeded ? "request-too-large" : "schema-mismatch", null, null, {}); }
   let token: string | undefined;
   try {
     const authenticationResult: unknown = await getAccessToken(signal);
@@ -56,7 +59,7 @@ async function execute(baseUrl: URL, getAccessToken: GatewayAuthenticationProvid
   } catch { return signal.aborted ? canceled() : transport(); }
   if (signal.aborted) return canceled();
   let request: { url: URL; init: RequestInit };
-  try { request = buildRequest(baseUrl, operation, prepared, token, signal); }
+  try { request = buildRequest(baseUrl, apiBasePath, operation, prepared, token, signal); }
   catch { return protocol("schema-mismatch", null, null, {}); }
   let response: Response;
   try { response = await fetchImplementation(request.url, request.init); }
@@ -79,6 +82,7 @@ async function execute(baseUrl: URL, getAccessToken: GatewayAuthenticationProvid
     return protocol("schema-mismatch", response.status, mediaType, headers, correlationId);
   if (response.status === operation.success.status) {
     if (!validateWireValue(operation.success.schemaRef, value)) return protocol("schema-mismatch", response.status, mediaType, headers, correlationId);
+    if (!validMutationResponse(operation.mutationResponse, value)) return protocol("schema-mismatch", response.status, mediaType, headers, correlationId);
     return { ok: true, status: operation.success.status, value, correlationId, headers } as GatewayOperationResult<unknown, 200 | 201 | 202, number>;
   }
   if (!operation.documentedErrors.includes(response.status as never)) return protocol("unexpected-status", response.status, mediaType, headers, correlationId);
@@ -87,8 +91,18 @@ async function execute(baseUrl: URL, getAccessToken: GatewayAuthenticationProvid
   return { ok: false, kind: "http", status: response.status, error: value as GatewayAdminError, correlationId, headers };
 }
 
-function buildRequest(base: URL, operation: Operation, input: PreparedInput, token: string | undefined, signal: AbortSignal): { url: URL; init: RequestInit } {
-  const path = operation.path.replace(/\{([^}]+)\}/gu, (_, key: string) => {
+function validMutationResponse(kind: Operation["mutationResponse"], value: unknown): boolean {
+  if (kind === "none") return true;
+  if (!isRecord(value) || typeof value.operationId !== "string" || typeof value.revisionId !== "string") return false;
+  return kind === "revision-only"
+    ? value.activationIntentId === null && value.desiredStateToken === null
+    : typeof value.activationIntentId === "string" && typeof value.desiredStateToken === "string";
+}
+
+function buildRequest(base: URL, apiBasePath: string, operation: Operation, input: PreparedInput, token: string | undefined, signal: AbortSignal): { url: URL; init: RequestInit } {
+  const contractBasePath = "/management/gateway/v1";
+  if (!operation.path.startsWith(`${contractBasePath}/`)) throw new TypeError("Operation path is outside the Gateway Admin contract.");
+  const path = `${apiBasePath}${operation.path.slice(contractBasePath.length)}`.replace(/\{([^}]+)\}/gu, (_, key: string) => {
     const value = input.parameters.get(parameterKey("path", key)); if (typeof value !== "string") throw new TypeError("Missing path parameter."); return encodeURIComponent(value);
   });
   const prefix = base.pathname === "/" ? "" : base.pathname;
@@ -111,6 +125,16 @@ function buildRequest(base: URL, operation: Operation, input: PreparedInput, tok
     headers.set("Content-Type", operation.requestBody.mediaTypes[0] ?? "application/json");
   }
   return { url, init: { method: operation.method, headers, body: input.body, signal, credentials: "omit", redirect: "error" } };
+}
+
+function normalizeApiBasePath(value: string): string {
+  if (typeof value !== "string" || !value.startsWith("/") || value === "/" || value.endsWith("/") ||
+      value.length > 256 || !/^[\x21-\x7e]+$/.test(value) || value.includes("\\") ||
+      value.includes("//") || value.includes("..") || value.includes("?") || value.includes("#") ||
+      /%(?:2f|5c)/iu.test(value)) {
+    throw new TypeError("Gateway API base path is invalid.");
+  }
+  return value;
 }
 
 function validateInput(operation: Operation, input: Record<string, unknown>): PreparedInput {
@@ -167,6 +191,8 @@ function validateInput(operation: Operation, input: Record<string, unknown>): Pr
   if (operation.requestBody.schemaRef === null) throw new TypeError("Unexpected body.");
   const serialized = JSON.stringify(bodyValue);
   if (serialized === undefined) throw new TypeError("Invalid body.");
+  if (operation.requestBody.maximumUtf8Bytes === null || encoder.encode(serialized).byteLength > operation.requestBody.maximumUtf8Bytes)
+    throw new RequestBodyBoundExceeded("Request body exceeds the operation limit.");
   const materialized: unknown = JSON.parse(serialized);
   if (!validateWireValue(operation.requestBody.schemaRef, materialized)) throw new TypeError("Invalid body.");
   return { body: serialized, parameters: parameterValues };

@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>HPD.Gateway.ControlPlane.Sqlite</RootNamespace>
+    <AssemblyName>HPD.Gateway.ControlPlane.Sqlite</AssemblyName>
+    <PackageId>HPD.Gateway.ControlPlane.Sqlite</PackageId>
+    <IsPackable>true</IsPackable>
+    <Description>Restart-durable SQLite authority provider for HPD Gateway Control Plane.</Description>
+    <PackageTags>hpd;gateway;control-plane;sqlite;durable;aot</PackageTags>
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../HPD.Gateway.ControlPlane/HPD.Gateway.ControlPlane.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UsePublishedHpdDependencies)' != 'true'">
+    <ProjectReference Include="../../../HPD-Base.Framework/src/HPD.Base.Sqlite/HPD.Base.Sqlite.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UsePublishedHpdDependencies)' == 'true'">
+    <PackageReference Include="HPD.Base.Sqlite" Version="$(HPDBaseVersion)" />
+  </ItemGroup>
+</Project>

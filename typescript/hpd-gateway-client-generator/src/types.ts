@@ -32,9 +32,10 @@ export interface GatewayClientOperation {
   readonly idempotency: "required" | "forbidden";
   readonly desiredPrecondition: "create-or-replace" | "forbidden";
   readonly protectedNotFound: boolean;
+  readonly mutationResponse: "none" | "revision-only" | "revision-and-activation";
   readonly success: Readonly<{ status: 200 | 201 | 202; schemaRef: string; meaning: "completed-read" | "created" | "accepted-not-active" }>;
   readonly documentedErrors: readonly number[];
-  readonly requestBody: Readonly<{ presence: "none" | "required" | "optional"; schemaRef: string | null; mediaTypes: readonly string[] }>;
+  readonly requestBody: Readonly<{ presence: "none" | "required" | "optional"; schemaRef: string | null; maximumUtf8Bytes: number | null; mediaTypes: readonly string[] }>;
   readonly pagination: Readonly<{ kind: "none" | "opaque-cursor"; defaultMaximum: number | null; minimumMaximum: number | null; maximumMaximum: number | null }>;
   readonly parameterConstraints: readonly GatewayParameterConstraint[];
 }
@@ -53,7 +54,7 @@ export interface GatewayConstraintRules {
 }
 
 export type GatewayStringBrand = "none" | "namespace-id" | "target-node-id" | "revision-id" |
-  "validation-id" | "operation-id" | "candidate-id" | "continuation-token" | "desired-state-token" |
+  "validation-id" | "operation-id" | "candidate-id" | "activation-intent-id" | "continuation-token" | "desired-state-token" |
   "idempotency-key" | "correlation-id";
 
 export interface GatewayParameterConstraint {

@@ -22,9 +22,9 @@ describe("contract rendering", () => {
       operations: [{
         operation: "activate", openApiOperationId: "HpdGatewayAdmin.activate", method: "POST", path: "/management/gateway/v1/activate",
         capability: "activate", resourcePolicy: "target", resourceKind: "target", mutation: true,
-        idempotency: "required", desiredPrecondition: "create-or-replace", protectedNotFound: true,
+        idempotency: "required", desiredPrecondition: "create-or-replace", protectedNotFound: true, mutationResponse: "none",
         success: { status: 202, schemaRef: "#/components/schemas/HPD_Gateway_Admin_Response", meaning: "accepted-not-active" },
-        documentedErrors: [400, 409], requestBody: { presence: "required", schemaRef: "#/components/schemas/HPD_Gateway_Admin_Request", mediaTypes: ["application/json"] },
+        documentedErrors: [400, 409], requestBody: { presence: "required", schemaRef: "#/components/schemas/HPD_Gateway_Admin_Request", maximumUtf8Bytes: 4_194_304, mediaTypes: ["application/json"] },
         pagination: { kind: "none", defaultMaximum: null, minimumMaximum: null, maximumMaximum: null },
         parameterConstraints: [
           { location: "header", name: "Idempotency-Key", required: true, brand: "idempotency-key", rules },
