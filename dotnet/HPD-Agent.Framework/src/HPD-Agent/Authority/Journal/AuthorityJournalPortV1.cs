@@ -210,7 +210,7 @@ public abstract record AppendAuthorityResultV1
         /// <exception cref="ArgumentOutOfRangeException"><paramref name="required"/> is zero or does not exceed <paramref name="available"/>.</exception>
         public CapacityRefused(CapacityDimensionId dimension, ulong required, ulong available)
         {
-            if (!Enum.IsDefined(dimension)) throw new ArgumentException("A registered capacity dimension is required.", nameof(dimension));
+            if (!dimension.IsValid) throw new ArgumentException("A registered capacity dimension is required.", nameof(dimension));
             if (required == 0 || required <= available) throw new ArgumentOutOfRangeException(nameof(required));
             Dimension = dimension; Required = required; Available = available;
         }
@@ -255,39 +255,6 @@ public abstract record AppendAuthorityResultV1
         if (owned.Count == 0) throw new ArgumentOutOfRangeException(nameof(envelopes));
         return Array.AsReadOnly(owned.ToArray());
     }
-}
-
-/// <summary>Identifies one registered S2 capacity dimension.</summary>
-public enum CapacityDimensionId : ushort
-{
-    /// <summary>Resident raw media bytes.</summary>
-    MediaBytes = 1,
-    /// <summary>Resident encoded bytes.</summary>
-    EncodedBytes = 2,
-    /// <summary>Resident queue items.</summary>
-    QueueItems = 3,
-    /// <summary>Resident audio samples.</summary>
-    AudioSamples = 4,
-    /// <summary>Resident buffered nanoseconds.</summary>
-    BufferNanoseconds = 5,
-    /// <summary>Exclusive provider operations.</summary>
-    ProviderInflight = 6,
-    /// <summary>Exclusive output operations.</summary>
-    OutputInflight = 7,
-    /// <summary>Resident subscriber items.</summary>
-    SubscriberItems = 8,
-    /// <summary>Resident subscriber bytes.</summary>
-    SubscriberBytes = 9,
-    /// <summary>Resident journal bytes.</summary>
-    JournalBytes = 10,
-    /// <summary>Resident copy obligations.</summary>
-    CopyObligations = 11,
-    /// <summary>Resident quarantine bytes.</summary>
-    QuarantineBytes = 12,
-    /// <summary>Diagnostic cardinality inside a rate window.</summary>
-    DiagnosticCardinality = 13,
-    /// <summary>Resident recovery work items.</summary>
-    RecoveryWork = 14,
 }
 
 /// <summary>Defines the sole neutral append/CAS admission port for authority facts.</summary>

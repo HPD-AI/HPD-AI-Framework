@@ -105,7 +105,7 @@ internal sealed class InMemoryAuthorityJournalV1 : IAuthorityJournalV1
         }
         var encodedLength = AuthorityCanonicalCborV1.GetAppendBatchEncodedLength(request);
         if (encodedLength > request.MaximumEncodedBytes)
-            return new AppendAuthorityResultV1.CapacityRefused(CapacityDimensionId.JournalBytes, encodedLength, request.MaximumEncodedBytes);
+            return new AppendAuthorityResultV1.CapacityRefused(CapacityDimensionsV1.JournalBytes, encodedLength, request.MaximumEncodedBytes);
         var encoded = AuthorityCanonicalCborV1.EncodeAppendBatch(request);
         if ((ulong)encoded.Length != encodedLength)
             throw new InvalidOperationException("The canonical batch length calculation diverged from the registered encoder.");
@@ -182,14 +182,14 @@ internal sealed class InMemoryAuthorityJournalV1 : IAuthorityJournalV1
         }
 
         if (isNewSession && _sessions.Count >= _capacity.MaximumSessions)
-            return new AppendAuthorityResultV1.CapacityRefused(CapacityDimensionId.QueueItems, 1, 0);
+            return new AppendAuthorityResultV1.CapacityRefused(CapacityDimensionsV1.QueueItems, 1, 0);
         var availableFacts = _capacity.MaximumFacts - _facts.Count;
         if (request.Facts.Count > availableFacts)
             return new AppendAuthorityResultV1.CapacityRefused(
-                CapacityDimensionId.QueueItems, (ulong)request.Facts.Count, (ulong)Math.Max(availableFacts, 0));
+                CapacityDimensionsV1.QueueItems, (ulong)request.Facts.Count, (ulong)Math.Max(availableFacts, 0));
         var availableBytes = _capacity.MaximumResidentBytes - Math.Min(_capacity.MaximumResidentBytes, _residentBytes);
         if (batchResidentBytes > availableBytes)
-            return new AppendAuthorityResultV1.CapacityRefused(CapacityDimensionId.JournalBytes, batchResidentBytes, availableBytes);
+            return new AppendAuthorityResultV1.CapacityRefused(CapacityDimensionsV1.JournalBytes, batchResidentBytes, availableBytes);
 
         var previousHead = state.Head;
         state.Head = nextHead;
