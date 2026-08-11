@@ -76,6 +76,8 @@ public sealed class ProviderCompositionSourceGenerator : IIncrementalGenerator
             source.AppendLine("    public static global::HPD.Agent.Providers.IProviderDescriptorRegistry Descriptors => Composition.Descriptors;");
             source.AppendLine("    public static global::HPD.Agent.Providers.IProviderRuntimeRegistry Runtime => Composition.Runtime;");
             source.AppendLine("    public static global::HPD.Agent.Providers.IProviderSerializationRegistry Serialization => Composition.Serialization;");
+            source.AppendLine("    /// <summary>Gets the canonical authority catalog for the exact referenced manifest set.</summary>");
+            source.AppendLine("    public static global::HPD.Agent.Authority.ProviderCatalogV1 AuthorityCatalog => Composition.AuthorityCatalog ?? throw new global::System.InvalidOperationException(\"Every application provider manifest must be source-generated.\");");
             source.AppendLine("}");
             context.AddSource("GeneratedProviderComposition.g.cs", source.ToString());
 

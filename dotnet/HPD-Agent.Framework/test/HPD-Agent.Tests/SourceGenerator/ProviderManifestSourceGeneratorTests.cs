@@ -50,6 +50,7 @@ public sealed class ProviderManifestSourceGeneratorTests
         Assert.Contains("HPDJsonContext.Default.GetTypeInfo", generated);
         Assert.Contains("ProviderSecretAliasRegistration", generated);
         Assert.Contains("SAMPLE_API_KEY", generated);
+        Assert.Contains("GeneratedProviders", generated);
         Assert.DoesNotContain("ModuleInitializer", generated);
         Assert.DoesNotContain("ProviderDiscovery", generated);
     }
@@ -120,6 +121,7 @@ public sealed class ProviderManifestSourceGeneratorTests
         Assert.Contains("internal static class GeneratedProviderComposition", generated);
         Assert.Contains("global::SampleManifest.Fragment", generated);
         Assert.Contains("ProviderComposition.Create", generated);
+        Assert.Contains("ProviderCatalogV1 AuthorityCatalog", generated);
         Assert.Contains("AddHpdGeneratedProviders", generated);
         Assert.Contains("internal static class HpdGeneratedProviderServiceCollectionExtensions", generated);
         Assert.DoesNotContain("ModuleInitializer", generated);

@@ -119,6 +119,7 @@
   <Folder Name="/Tests/">
     <Project Path="test/HPD-Agent.Tests/HPD-Agent.Tests.csproj" />
     <Project Path="test/HPD-Agent.Authority.Tests/HPD-Agent.Authority.Tests.csproj" />
+    <Project Path="test/HPD-Agent.ProviderCatalog.Tests/HPD-Agent.ProviderCatalog.Tests.csproj" />
     <Project Path="../HPD-Extract.Framework/test/HPD-Extract.Tests/HPD-Extract.Tests.csproj" />
     <Project Path="../HPD-Extract.Framework/test/HPD-Extract.Pdf.Tests/HPD-Extract.Pdf.Tests.csproj" />
     <Project Path="test/HPD-Agent.MultiAgent.Tests/HPD-Agent.MultiAgent.Tests.csproj" />

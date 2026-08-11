@@ -77,6 +77,43 @@ public sealed class ProviderManifestContractsTests
     }
 
     [Fact]
+    public void Composition_BuildsDeterministicAuthorityCatalogFromGeneratedFragments()
+    {
+        var descriptor = new TestDescriptor("test", ProviderClientFamily.Chat, []);
+        var contract = new ProviderPayloadJsonContract(
+            "test", ProviderClientFamily.Chat, ProviderPayloadKind.Configuration,
+            typeof(ProviderClientConfig), HPDJsonContext.Default.ProviderClientConfig);
+        ProviderManifestFragment CreateFragment() => new(
+            [descriptor],
+            [new("test", [ProviderClientFamily.Chat], static () => throw new NotSupportedException())],
+            [contract],
+            [new("test:ApiKey", ["TEST_API_KEY"])],
+            "HPD.Agent.Providers.Test");
+
+        var first = ProviderComposition.Create([CreateFragment()]);
+        var second = ProviderComposition.Create([CreateFragment()]);
+
+        Assert.NotNull(first.AuthorityCatalog);
+        Assert.Equal(first.AuthorityCatalog, second.AuthorityCatalog);
+        Assert.Equal(first.AuthorityCatalog!.Fingerprint, second.AuthorityCatalog!.Fingerprint);
+        var contribution = Assert.Single(first.AuthorityCatalog.Contributions);
+        Assert.Equal("HPD.Agent.Providers.Test", contribution.OwnerAssembly.ToString());
+        Assert.Equal([HPD.Agent.Authority.ProviderRoleV1.Chat], contribution.Roles);
+        Assert.Equal(HPD.Agent.Authority.ProviderLifetimeV1.AgentScoped, contribution.Lifetime);
+        Assert.Single(contribution.CodecIds);
+        Assert.Equal([new HPD.Agent.Authority.BoundedAscii("test:ApiKey")], contribution.CredentialAliases);
+    }
+
+    [Fact]
+    public void Composition_DoesNotPromoteLegacyFragmentsToAuthorityMembership()
+    {
+        var composition = ProviderComposition.Create([
+            new([new TestDescriptor()], [], [], [])]);
+
+        Assert.Null(composition.AuthorityCatalog);
+    }
+
+    [Fact]
     public void Composition_RejectsConflictingSecretAliases()
     {
         var exception = Assert.Throws<ProviderCompositionException>(() => ProviderComposition.Create([

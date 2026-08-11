@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using HPD.Agent.Authority;
 
 namespace HPD.Agent.Providers;
 
@@ -54,13 +55,15 @@ public sealed class ProviderComposition
         IProviderDescriptorRegistry descriptors,
         IProviderRuntimeRegistry runtime,
         IProviderSerializationRegistry serialization,
-        IProviderSecretAliasRegistry secretAliases)
+        IProviderSecretAliasRegistry secretAliases,
+        ProviderCatalogV1? authorityCatalog)
     {
         Fragments = fragments;
         Descriptors = descriptors;
         Runtime = runtime;
         Serialization = serialization;
         SecretAliases = secretAliases;
+        AuthorityCatalog = authorityCatalog;
     }
 
     /// <summary>Gets the manifest fragments used to construct this composition.</summary>
@@ -77,6 +80,10 @@ public sealed class ProviderComposition
 
     /// <summary>Gets provider-owned environment-variable aliases.</summary>
     public IProviderSecretAliasRegistry SecretAliases { get; }
+
+    /// <summary>Gets the canonical application provider catalog when every fragment is source-generated.</summary>
+    /// <remarks>Legacy hand-authored fragments remain supported for finite tests but cannot create authority catalog membership.</remarks>
+    public ProviderCatalogV1? AuthorityCatalog { get; }
 
     /// <summary>Validates an explicitly supplied provider-bound payload without resolving credentials.</summary>
     public void ValidatePayload(
@@ -122,7 +129,8 @@ public sealed class ProviderComposition
             registry,
             RuntimeRegistry.Create(fragmentCopy, registry),
             SerializationRegistry.Create(fragmentCopy, registry),
-            SecretAliasRegistry.Create(fragmentCopy));
+            SecretAliasRegistry.Create(fragmentCopy),
+            ProviderAuthorityCatalogFactoryV1.TryCreate(fragmentCopy));
     }
 
     private sealed class DescriptorRegistry : IProviderDescriptorRegistry
