@@ -63,7 +63,8 @@ public sealed class RuntimeParticipantCoordinatorV1 : IAsyncDisposable
     private readonly Dictionary<string, RuntimePreparedHandleV1> _handles = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _gate = new(1, 1);
     private RuntimeParticipantCoordinatorStateV1 _state = RuntimeParticipantCoordinatorStateV1.Created;
-    private int _disposeRequested;
+    private Task? _quarantineCompletion;
+    private bool _disposeRequested;
 
     /// <summary>Initializes a coordinator whose participants exactly match a compiled plan.</summary>
     /// <param name="plan">The immutable dependency plan.</param>
@@ -116,7 +117,10 @@ public sealed class RuntimeParticipantCoordinatorV1 : IAsyncDisposable
                 var result = invocation.Result;
                 if (invocation.Outstanding is not null)
                 {
-                    EnterQuarantine(invocation.Outstanding, CauseFor(result.Disposition, RuntimeTerminationCauseV1.PrepareFailed));
+                    EnterQuarantine(
+                        invocation.Outstanding,
+                        CauseFor(result.Disposition, RuntimeTerminationCauseV1.PrepareFailed),
+                        attempted.AsEnumerable().Reverse().ToArray());
                     return new RuntimeParticipantResultV1(result.Disposition, result.Code);
                 }
                 if (!result.IsValid)
@@ -160,7 +164,10 @@ public sealed class RuntimeParticipantCoordinatorV1 : IAsyncDisposable
                 var result = invocation.Result;
                 if (invocation.Outstanding is not null)
                 {
-                    EnterQuarantine(invocation.Outstanding, CauseFor(result.Disposition, RuntimeTerminationCauseV1.StartFailed));
+                    EnterQuarantine(
+                        invocation.Outstanding,
+                        CauseFor(result.Disposition, RuntimeTerminationCauseV1.StartFailed),
+                        ParticipantsInPlanOrder().Reverse().ToArray());
                     return result;
                 }
                 if (!result.IsValid)
@@ -201,7 +208,10 @@ public sealed class RuntimeParticipantCoordinatorV1 : IAsyncDisposable
                 var result = invocation.Result;
                 if (invocation.Outstanding is not null)
                 {
-                    EnterQuarantine(invocation.Outstanding, CauseFor(result.Disposition, RuntimeTerminationCauseV1.DrainFailed));
+                    EnterQuarantine(
+                        invocation.Outstanding,
+                        CauseFor(result.Disposition, RuntimeTerminationCauseV1.DrainFailed),
+                        ParticipantsInPlanOrder().Reverse().ToArray());
                     return result;
                 }
                 if (!result.IsValid)
@@ -230,36 +240,56 @@ public sealed class RuntimeParticipantCoordinatorV1 : IAsyncDisposable
     {
         if (!Enum.IsDefined(cause)) throw new ArgumentException("The termination cause is outside the closed registry.", nameof(cause));
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        Task? quarantine = null;
         try
         {
-            if (_state == RuntimeParticipantCoordinatorStateV1.Completed)
-                return CompletedResult;
-            if (_state == RuntimeParticipantCoordinatorStateV1.Created)
-                throw new InvalidOperationException("An unprepared coordinator has no admitted participant resources to terminate.");
-            return await UnwindAsync(ParticipantsInPlanOrder(), cause).ConfigureAwait(false);
+            if (_state == RuntimeParticipantCoordinatorStateV1.Quarantined)
+            {
+                quarantine = _quarantineCompletion ?? throw new InvalidOperationException("Quarantine completion is unavailable.");
+            }
+            else
+            {
+                if (_state == RuntimeParticipantCoordinatorStateV1.Completed)
+                    return CompletedResult;
+                if (_state == RuntimeParticipantCoordinatorStateV1.Created)
+                    throw new InvalidOperationException("An unprepared coordinator has no admitted participant resources to terminate.");
+                return await UnwindAsync(ParticipantsInPlanOrder(), cause).ConfigureAwait(false);
+            }
         }
         finally
         {
             _gate.Release();
         }
+        await quarantine.WaitAsync(cancellationToken).ConfigureAwait(false);
+        return CompletedResult;
     }
 
     /// <summary>Terminates admitted resources, if any; quarantined work completes cleanup after it converges.</summary>
     public async ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref _disposeRequested, 1) != 0)
-            return;
-        if (_state == RuntimeParticipantCoordinatorStateV1.Quarantined)
-            return;
-        if (_state is not RuntimeParticipantCoordinatorStateV1.Created and not RuntimeParticipantCoordinatorStateV1.Completed)
-            await TerminateAsync(RuntimeTerminationCauseV1.HostFault).ConfigureAwait(false);
-        if (_state == RuntimeParticipantCoordinatorStateV1.Created)
+        await _gate.WaitAsync().ConfigureAwait(false);
+        Task? quarantine = null;
+        try
         {
-            foreach (var participant in ParticipantsInPlanOrder().Reverse())
-                await participant.DisposeAsync().ConfigureAwait(false);
-            _state = RuntimeParticipantCoordinatorStateV1.Completed;
+            if (_disposeRequested)
+                return;
+            _disposeRequested = true;
+            if (_state == RuntimeParticipantCoordinatorStateV1.Quarantined)
+                quarantine = _quarantineCompletion ?? throw new InvalidOperationException("Quarantine completion is unavailable.");
+            else if (_state is not RuntimeParticipantCoordinatorStateV1.Created and not RuntimeParticipantCoordinatorStateV1.Completed)
+                await UnwindAsync(ParticipantsInPlanOrder(), RuntimeTerminationCauseV1.HostFault).ConfigureAwait(false);
+            else if (_state == RuntimeParticipantCoordinatorStateV1.Created)
+            {
+                await DisposeParticipantsAsync().ConfigureAwait(false);
+                _state = RuntimeParticipantCoordinatorStateV1.Completed;
+            }
         }
-        _gate.Dispose();
+        finally
+        {
+            _gate.Release();
+        }
+        if (quarantine is not null)
+            await quarantine.ConfigureAwait(false);
     }
 
     private Dictionary<string, RuntimeParticipantContextV1> ValidateAdmissions(IEnumerable<RuntimeParticipantAdmissionV1> admissions)
@@ -287,35 +317,48 @@ public sealed class RuntimeParticipantCoordinatorV1 : IAsyncDisposable
         RuntimeTerminationCauseV1 cause)
     {
         _state = RuntimeParticipantCoordinatorStateV1.Terminating;
+        return await ContinueUnwindAsync(participants.Reverse().ToArray(), cause).ConfigureAwait(false);
+    }
+
+    private async ValueTask<RuntimeParticipantResultV1> ContinueUnwindAsync(
+        IReadOnlyList<IRuntimeParticipantV1> terminationOrder,
+        RuntimeTerminationCauseV1 cause)
+    {
         RuntimeParticipantResultV1? firstFailure = null;
-        foreach (var participant in participants.Reverse())
+        for (var index = 0; index < terminationOrder.Count; index++)
         {
+            var participant = terminationOrder[index];
             var invocation = await InvokeAsync(
                 token => participant.TerminateAsync(cause, token), participant.Descriptor.MaxTerminate, CancellationToken.None).ConfigureAwait(false);
             var result = invocation.Result;
             if (invocation.Outstanding is not null)
             {
-                EnterQuarantine(invocation.Outstanding, RuntimeTerminationCauseV1.TimedOut);
+                EnterQuarantine(
+                    invocation.Outstanding,
+                    RuntimeTerminationCauseV1.TimedOut,
+                    terminationOrder.Skip(index + 1).ToArray());
                 return result;
             }
             if (!result.IsValid)
                 result = new RuntimeParticipantResultV1(RuntimeParticipantDispositionV1.Failed, new BoundedAscii("InvalidTerminateResult"));
             if (!result.IsSuccess && firstFailure is null) firstFailure = result;
         }
+        await DisposeParticipantsAsync().ConfigureAwait(false);
+        _handles.Clear();
+        _state = RuntimeParticipantCoordinatorStateV1.Completed;
+        return firstFailure ?? CompletedResult;
+    }
+
+    private async ValueTask DisposeParticipantsAsync()
+    {
         foreach (var participant in ParticipantsInPlanOrder().Reverse())
         {
             try
             {
                 await participant.DisposeAsync().ConfigureAwait(false);
             }
-            catch (Exception)
-            {
-                firstFailure ??= new RuntimeParticipantResultV1(RuntimeParticipantDispositionV1.Failed, new BoundedAscii("DisposeFault"));
-            }
+            catch (Exception) { }
         }
-        _handles.Clear();
-        _state = RuntimeParticipantCoordinatorStateV1.Completed;
-        return firstFailure ?? CompletedResult;
     }
 
     private static async ValueTask<BoundedInvocation<RuntimeParticipantPrepareResultV1>> InvokePrepareAsync(
@@ -413,13 +456,19 @@ public sealed class RuntimeParticipantCoordinatorV1 : IAsyncDisposable
             throw new InvalidOperationException($"The coordinator is {_state} and requires {expected}.");
     }
 
-    private void EnterQuarantine(Task outstanding, RuntimeTerminationCauseV1 cause)
+    private void EnterQuarantine(
+        Task outstanding,
+        RuntimeTerminationCauseV1 cause,
+        IReadOnlyList<IRuntimeParticipantV1> remainingTerminationOrder)
     {
         _state = RuntimeParticipantCoordinatorStateV1.Quarantined;
-        _ = CompleteQuarantineAsync(outstanding, cause);
+        _quarantineCompletion = CompleteQuarantineAsync(outstanding, cause, remainingTerminationOrder);
     }
 
-    private async Task CompleteQuarantineAsync(Task outstanding, RuntimeTerminationCauseV1 cause)
+    private async Task CompleteQuarantineAsync(
+        Task outstanding,
+        RuntimeTerminationCauseV1 cause,
+        IReadOnlyList<IRuntimeParticipantV1> remainingTerminationOrder)
     {
         try { await outstanding.ConfigureAwait(false); }
         catch (Exception) { }
@@ -427,13 +476,14 @@ public sealed class RuntimeParticipantCoordinatorV1 : IAsyncDisposable
         try
         {
             if (_state == RuntimeParticipantCoordinatorStateV1.Quarantined)
-                await UnwindAsync(ParticipantsInPlanOrder(), cause).ConfigureAwait(false);
+            {
+                _state = RuntimeParticipantCoordinatorStateV1.Terminating;
+                await ContinueUnwindAsync(remainingTerminationOrder, cause).ConfigureAwait(false);
+            }
         }
         finally
         {
             _gate.Release();
-            if (Volatile.Read(ref _disposeRequested) != 0 && _state == RuntimeParticipantCoordinatorStateV1.Completed)
-                _gate.Dispose();
         }
     }
 
