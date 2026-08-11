@@ -81,8 +81,8 @@ if [[ "${HPD_GATEWAY_ADMISSION_AOT:-1}" == "1" ]]; then
   dotnet publish "$project" -c "$configuration" -r osx-arm64 -p:PublishAot=true -o "$publish"
   "$publish/HPD.Gateway.Admission.MultiProcess" controller \
     --assembly "$publish/HPD.Gateway.Admission.MultiProcess" --redis "$redis" \
-    --base-port "$((base_port + 1000))" --replicas 2 --distribution uneven \
-    --scenario quota --authority fleet-native --key-prefix hpd:evidence:native \
+    --base-port "$((base_port + 1000))" --replicas 4 --distribution uneven \
+    --scenario scale-in --authority fleet-native --key-prefix hpd:evidence:native \
     --algorithm fixed --limit 100
 fi
 
