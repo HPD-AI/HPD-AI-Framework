@@ -17,7 +17,12 @@ public sealed class ProviderContributionV1Tests
         Assert.Equal(["a-key", "z-key"], expected.CredentialAliases.Select(static value => value.ToString()));
         Assert.True(ProviderContributionV1Codec.TryDecode(ProviderContributionV1Codec.Encode(expected), out var actual));
         Assert.Equal(expected, actual);
+        Assert.True(expected == actual);
+        Assert.False(expected != actual);
         Assert.Equal(expected.GetHashCode(), actual!.GetHashCode());
+        Assert.True((ProviderContributionV1?)null == null);
+        Assert.False(expected == null);
+        Assert.True(expected != null);
     }
 
     [Fact]
@@ -39,6 +44,10 @@ public sealed class ProviderContributionV1Tests
 
         Assert.Equal(ProviderContributionV1Codec.Encode(left), ProviderContributionV1Codec.Encode(right));
         Assert.Equal(ProviderContributionV1Codec.ComputeIntegrityHash(left), ProviderContributionV1Codec.ComputeIntegrityHash(right));
+        Assert.True(left == right);
+
+        var unequal = Create([], [], [], left.ProviderId, left.FamilyId, left.FactoryId);
+        Assert.True(left != unequal);
     }
 
     [Fact]

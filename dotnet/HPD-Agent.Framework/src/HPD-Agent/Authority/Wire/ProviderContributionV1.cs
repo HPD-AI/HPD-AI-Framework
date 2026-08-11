@@ -175,6 +175,13 @@ public sealed class ProviderContributionV1 : IEquatable<ProviderContributionV1>
     /// <inheritdoc />
     public override bool Equals(object? obj) => obj is ProviderContributionV1 other && Equals(other);
 
+    /// <summary>Returns whether two provider contributions contain the same canonical value.</summary>
+    public static bool operator ==(ProviderContributionV1? left, ProviderContributionV1? right) =>
+        ReferenceEquals(left, right) || left is not null && left.Equals(right);
+
+    /// <summary>Returns whether two provider contributions contain different canonical values.</summary>
+    public static bool operator !=(ProviderContributionV1? left, ProviderContributionV1? right) => !(left == right);
+
     /// <inheritdoc />
     public override int GetHashCode()
     {
