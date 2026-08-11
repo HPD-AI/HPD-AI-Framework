@@ -6,6 +6,32 @@ namespace HPD.Agent.LiveAudio.Contracts.Tests;
 public sealed class GraphReplacementReducerV1Tests
 {
     [Fact]
+    public void ResultMayFollowInterleavedJournalFactsButNeverMoveBackward()
+    {
+        var fixture = new Fixture();
+        var prepared = Assert.IsType<GraphReplacementReductionResultV1.Applied>(
+            GraphReplacementReducerV1.Apply(fixture.State, fixture.Prepare(), fixture.Position(15)));
+        Assert.Equal(15, prepared.State.LastFact.Sequence);
+
+        var committed = Assert.IsType<GraphReplacementReductionResultV1.Applied>(
+            GraphReplacementReducerV1.Apply(prepared.State,
+                new GraphReplacementCommandV1.Commit(fixture.Operation, fixture.Position(15)), fixture.Position(21)));
+        Assert.Equal(21, committed.State.LastFact.Sequence);
+        Assert.IsType<GraphReplacementReductionResultV1.Rejected>(GraphReplacementReducerV1.Apply(
+            committed.State, new GraphReplacementCommandV1.SettleSource(fixture.Operation,
+                fixture.Position(21), fixture.Settlement()), fixture.Position(20)));
+        Assert.IsType<GraphReplacementReductionResultV1.Rejected>(GraphReplacementReducerV1.Apply(
+            committed.State, new GraphReplacementCommandV1.SettleSource(fixture.Operation,
+                fixture.Position(21), fixture.Settlement()), fixture.Position(21)));
+
+        var terminal = GraphReplacementStateV1.Create(fixture.Source,
+            fixture.Grant(fixture.SourceGrantId, CapacityGrantStateV1.Active), fixture.Authority,
+            fixture.Position(long.MaxValue));
+        Assert.IsType<GraphReplacementReductionResultV1.Rejected>(GraphReplacementReducerV1.Apply(
+            terminal, fixture.Prepare(expected: fixture.Position(long.MaxValue)), fixture.Position(long.MaxValue)));
+    }
+
+    [Fact]
     public void Prepare_commit_and_settle_change_only_the_intended_state()
     {
         var fixture = new Fixture();

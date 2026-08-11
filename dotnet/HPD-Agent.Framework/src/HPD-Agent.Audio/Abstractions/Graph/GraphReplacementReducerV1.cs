@@ -99,7 +99,7 @@ internal static class GraphReplacementReducerV1
         ArgumentNullException.ThrowIfNull(state);
         if (command is null) return Reject(state, "replacement-command-missing");
         if (!admittedAt.IsValid || admittedAt.Session != state.SourcePlan.Session ||
-            state.LastFact.Sequence == long.MaxValue || admittedAt.Sequence != state.LastFact.Sequence + 1)
+            admittedAt.Sequence <= state.LastFact.Sequence)
             return Reject(state, "replacement-position-invalid");
         return command switch
         {
