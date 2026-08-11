@@ -262,8 +262,14 @@ internal static class ProviderContributionV1Codec
 
     internal static byte[] Encode(ProviderContributionV1 value)
     {
-        ArgumentNullException.ThrowIfNull(value);
         var writer = new CborWriter(CborConformanceMode.Ctap2Canonical);
+        Write(writer, value);
+        return writer.Encode();
+    }
+
+    internal static void Write(CborWriter writer, ProviderContributionV1 value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
         Span<byte> providerId = stackalloc byte[16];
         Span<byte> familyId = stackalloc byte[16];
         Span<byte> factoryId = stackalloc byte[16];
@@ -306,7 +312,6 @@ internal static class ProviderContributionV1Codec
         writer.WriteUInt64(10);
         writer.WriteByteString(supportManifest);
         writer.WriteEndMap();
-        return writer.Encode();
     }
 
     internal static Hash256 ComputeIntegrityHash(ProviderContributionV1 value) =>
@@ -318,52 +323,9 @@ internal static class ProviderContributionV1Codec
         try
         {
             var reader = new CborReader(encoded, CborConformanceMode.Ctap2Canonical, false);
-            if (reader.ReadStartMap() != 10 || reader.ReadUInt64() != 1)
-                return false;
-            var providerId = ReadStableId(reader);
-            if (reader.ReadUInt64() != 2)
-                return false;
-            var familyId = ReadStableId(reader);
-            if (reader.ReadUInt64() != 3)
-                return false;
-            var ownerAssembly = BoundedAsciiCodec.Read(reader);
-            if (reader.ReadUInt64() != 4)
-                return false;
-            var roles = ReadRoles(reader);
-            if (reader.ReadUInt64() != 5)
-                return false;
-            var capabilities = ProviderCapabilitySetV1Codec.Read(reader);
-            if (reader.ReadUInt64() != 6)
-                return false;
-            var codecIds = ReadSchemaIds(reader);
-            if (reader.ReadUInt64() != 7)
-                return false;
-            var factoryId = ReadStableId(reader);
-            if (reader.ReadUInt64() != 8)
-                return false;
-            var lifetime = reader.ReadUInt64();
-            if (lifetime is < 1 or > 4 || reader.ReadUInt64() != 9)
-                return false;
-            var aliases = ReadAliases(reader);
-            if (reader.ReadUInt64() != 10)
-                return false;
-            Span<byte> supportManifest = stackalloc byte[32];
-            if (!reader.TryReadByteString(supportManifest, out var supportLength) || supportLength != 32)
-                return false;
-            reader.ReadEndMap();
+            value = Read(reader);
             if (reader.BytesRemaining != 0)
                 return false;
-            value = new ProviderContributionV1(
-                ProviderId.FromValue(providerId),
-                ProviderFamilyId.FromValue(familyId),
-                ownerAssembly,
-                roles,
-                capabilities,
-                codecIds,
-                ProviderFactoryId.FromValue(factoryId),
-                (ProviderLifetimeV1)lifetime,
-                aliases,
-                Hash256.FromBytes(supportManifest));
             return true;
         }
         catch (Exception exception) when (exception is CborContentException or InvalidOperationException or ArgumentException)
@@ -371,6 +333,54 @@ internal static class ProviderContributionV1Codec
             value = null;
             return false;
         }
+    }
+
+    internal static ProviderContributionV1 Read(CborReader reader)
+    {
+        if (reader.ReadStartMap() != 10 || reader.ReadUInt64() != 1)
+            throw new CborContentException("A provider contribution must contain exactly tags 1 through 10.");
+        var providerId = ReadStableId(reader);
+        if (reader.ReadUInt64() != 2)
+            throw new CborContentException("Provider contribution tag 2 is missing.");
+        var familyId = ReadStableId(reader);
+        if (reader.ReadUInt64() != 3)
+            throw new CborContentException("Provider contribution tag 3 is missing.");
+        var ownerAssembly = BoundedAsciiCodec.Read(reader);
+        if (reader.ReadUInt64() != 4)
+            throw new CborContentException("Provider contribution tag 4 is missing.");
+        var roles = ReadRoles(reader);
+        if (reader.ReadUInt64() != 5)
+            throw new CborContentException("Provider contribution tag 5 is missing.");
+        var capabilities = ProviderCapabilitySetV1Codec.Read(reader);
+        if (reader.ReadUInt64() != 6)
+            throw new CborContentException("Provider contribution tag 6 is missing.");
+        var codecIds = ReadSchemaIds(reader);
+        if (reader.ReadUInt64() != 7)
+            throw new CborContentException("Provider contribution tag 7 is missing.");
+        var factoryId = ReadStableId(reader);
+        if (reader.ReadUInt64() != 8)
+            throw new CborContentException("Provider contribution tag 8 is missing.");
+        var lifetime = reader.ReadUInt64();
+        if (lifetime is < 1 or > 4 || reader.ReadUInt64() != 9)
+            throw new CborContentException("The provider lifetime is invalid or tag 9 is missing.");
+        var aliases = ReadAliases(reader);
+        if (reader.ReadUInt64() != 10)
+            throw new CborContentException("Provider contribution tag 10 is missing.");
+        Span<byte> supportManifest = stackalloc byte[32];
+        if (!reader.TryReadByteString(supportManifest, out var supportLength) || supportLength != 32)
+            throw new CborContentException("The provider support manifest must be exactly 32 bytes.");
+        reader.ReadEndMap();
+        return new ProviderContributionV1(
+            ProviderId.FromValue(providerId),
+            ProviderFamilyId.FromValue(familyId),
+            ownerAssembly,
+            roles,
+            capabilities,
+            codecIds,
+            ProviderFactoryId.FromValue(factoryId),
+            (ProviderLifetimeV1)lifetime,
+            aliases,
+            Hash256.FromBytes(supportManifest));
     }
 
     private static StableId128 ReadStableId(CborReader reader)
