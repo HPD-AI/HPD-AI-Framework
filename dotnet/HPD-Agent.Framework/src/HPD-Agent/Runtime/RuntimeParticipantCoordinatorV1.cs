@@ -337,12 +337,13 @@ public sealed class RuntimeParticipantCoordinatorV1 : IAsyncDisposable
             var result = invocation.Result;
             if (invocation.Outstanding is not null)
             {
+                var preservedFailure = firstFailure ?? result;
                 EnterQuarantine(
                     invocation.Outstanding,
                     RuntimeTerminationCauseV1.TimedOut,
                     terminationOrder.Skip(index + 1).ToArray(),
-                    result);
-                return result;
+                    preservedFailure);
+                return preservedFailure;
             }
             if (!result.IsValid)
                 result = new RuntimeParticipantResultV1(RuntimeParticipantDispositionV1.Failed, new BoundedAscii("InvalidTerminateResult"));
