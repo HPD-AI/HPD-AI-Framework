@@ -15,7 +15,8 @@ internal abstract record GraphReplacementJournalFoldResultV1
     internal sealed record Current(long SnapshotThrough, CurrentAuthorityVectorSnapshotV1 Authority,
         GraphReplacementStateV1? State, IReadOnlyList<PendingGraphReplacementCommandV1> PendingCommands,
         AuthorityFactEnvelopeV1? TargetCommandFact = null,
-        AuthorityFactEnvelopeV1? TargetResultFact = null) : GraphReplacementJournalFoldResultV1;
+        AuthorityFactEnvelopeV1? TargetResultFact = null,
+        AuthorityFactEnvelopeV1? InstallationFact = null) : GraphReplacementJournalFoldResultV1;
 
     internal sealed record RuntimeReplaced(RuntimeGenerationId Replacement, long LastPosition)
         : GraphReplacementJournalFoldResultV1;
@@ -85,6 +86,7 @@ internal static class GraphReplacementJournalFoldV1
         private GraphReplacementSnapshotWireV1? _wire;
         private GraphReplacementJournalFoldResultV1.InvalidHistory? _invalid;
         private GraphReplacementJournalFoldResultV1.RuntimeReplaced? _runtimeReplaced;
+        private AuthorityFactEnvelopeV1? _installationFact;
         private BufferedCommit? _bufferedCommit;
         private AuthorityFactEnvelopeV1? _targetCommand;
         private AuthorityFactEnvelopeV1? _targetResult;
@@ -184,7 +186,7 @@ internal static class GraphReplacementJournalFoldV1
                 return Invalid("invalid-authority-history", _vector.LastVerifiedPosition);
             return new GraphReplacementJournalFoldResultV1.Current(_expectedPosition - 1, current.Snapshot, _state,
                 Array.AsReadOnly(_commands.OrderBy(static x => x.Key).Select(static x => x.Value).ToArray()),
-                _targetCommand, _targetResult);
+                _targetCommand, _targetResult, _installationFact);
         }
 
         internal long LastVerifiedPosition => _expectedPosition - 1;
@@ -212,6 +214,7 @@ internal static class GraphReplacementJournalFoldV1
                 !GraphReplacementReducerV1.GrantMatches(proof, item.Body.Topology, item.Body.CurrentAuthority))
             { Fail("invalid-graph-installation"); return; }
             _state = GraphReplacementStateV1.Create(item.Body.Topology, proof, item.Body.CurrentAuthority, item.Envelope.Position);
+            _installationFact = item.Envelope;
             _wire = new(GraphReplacementPhaseV1.None, item.Body.Topology, item.Body.ActiveSourceGrantFact,
                 null, item.Body.CurrentAuthority, item.Envelope.Position, null, null, null);
         }
