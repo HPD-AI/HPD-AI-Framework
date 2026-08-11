@@ -58,7 +58,8 @@ internal static class GatewayHostCapabilityProjector
                     value.Limits.MinimumPeriod?.Ticks.ToString(System.Globalization.CultureInfo.InvariantCulture),
                     value.Limits.MaximumPeriod?.Ticks.ToString(System.Globalization.CultureInfo.InvariantCulture),
                     value.Limits.MinimumSegments, value.Limits.MaximumSegments, value.Limits.MinimumQueue, value.Limits.MaximumQueue,
-                    value.AuthorityId, value.BehaviorIdentity.Algorithm, value.BehaviorIdentity.Value, value.AcquisitionOrdinal))
+                    value.AuthorityId, value.BehaviorIdentity.Algorithm, value.BehaviorIdentity.Value, value.AcquisitionOrdinal,
+                    value.PartitionProjectorId, value.PartitionProjectorIdentity?.Algorithm, value.PartitionProjectorIdentity?.Value))
                 .ToImmutableArray(),
             Sort(snapshot.RequestTimeoutPolicies),
             snapshot.OutputCacheProfiles.Values

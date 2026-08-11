@@ -277,6 +277,12 @@ public sealed class HostCapabilitySnapshot
                 !hash.All(static c => c is >= '0' and <= '9' or >= 'a' and <= 'f') ||
                 profile.Scope != TrafficAdmissionScope.ProcessLocal ||
                 profile.FailureDisposition != TrafficAdmissionFailureDisposition.Reject ||
+                (RequiresAdmissionProjector(profile.Partition) &&
+                 (!GatewayIdentifier.IsCanonical(profile.PartitionProjectorId) ||
+                  profile.PartitionProjectorIdentity is not { Algorithm: "sha-256", Value.Length: 64 } projectorHash ||
+                  !projectorHash.Value.All(static c => c is >= '0' and <= '9' or >= 'a' and <= 'f'))) ||
+                (!RequiresAdmissionProjector(profile.Partition) &&
+                 (profile.PartitionProjectorId is not null || profile.PartitionProjectorIdentity is not null)) ||
                 (profile.Kind == TrafficAdmissionKind.RequestRate) != profile.RateAlgorithm.HasValue ||
                 (profile.AcquisitionOrdinal.HasValue != (profile.Kind == TrafficAdmissionKind.Concurrency)) ||
                 !profiles.TryAdd(profile.Name, profile))
@@ -287,6 +293,10 @@ public sealed class HostCapabilitySnapshot
             throw new ArgumentException("Concurrency acquisition ordinals must form one closed sequence.", nameof(values));
         return profiles.ToImmutable();
     }
+
+    private static bool RequiresAdmissionProjector(TrafficAdmissionPartitionKind partition) => partition is
+        TrafficAdmissionPartitionKind.AuthenticatedSubject or TrafficAdmissionPartitionKind.Tenant or
+        TrafficAdmissionPartitionKind.Consumer or TrafficAdmissionPartitionKind.Custom;
 
     private static ImmutableDictionary<string, UpstreamResilienceCapability> ResilienceProfiles(IEnumerable<UpstreamResilienceCapability> values)
     {

@@ -1,5 +1,4 @@
 using System.Collections.Immutable;
-using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -21,13 +20,39 @@ public sealed class GatewayLocalAdmissionOptions
     public int MaximumSegments { get; set; } = 64;
     public int MinimumQueue { get; set; }
     public int MaximumQueue { get; set; } = 100_000;
-    public string? ClaimType { get; set; }
+    public string? PartitionProjector { get; set; }
 }
 
 public sealed class GatewayTrafficAdmissionRegistryBuilder
 {
     private const int MaximumProfiles = 128;
     private readonly List<(string Name, TrafficAdmissionKind Kind, TrafficAdmissionRateAlgorithm? Algorithm, GatewayLocalAdmissionOptions Options)> _profiles = [];
+    private readonly Dictionary<string, GatewayAdmissionProjectorRegistration> _projectors = new(StringComparer.Ordinal);
+    private TimeProvider _timeProvider = TimeProvider.System;
+
+    public GatewayTrafficAdmissionRegistryBuilder UseTimeProvider(TimeProvider timeProvider)
+    {
+        ArgumentNullException.ThrowIfNull(timeProvider);
+        _timeProvider = timeProvider;
+        return this;
+    }
+
+    public GatewayTrafficAdmissionRegistryBuilder AddPartitionProjector(
+        string name,
+        ContentHash behaviorIdentity,
+        IGatewayAdmissionPartitionProjector projector)
+    {
+        ArgumentNullException.ThrowIfNull(projector);
+        if (_projectors.Count >= MaximumProfiles)
+            throw new InvalidOperationException("Traffic-admission projector capacity was exceeded.");
+        if (!GatewayIdentifier.IsCanonical(name) || _projectors.ContainsKey(name))
+            throw new ArgumentException("Traffic-admission projector names must be canonical and unique.", nameof(name));
+        if (behaviorIdentity.Algorithm != "sha-256" || behaviorIdentity.Value.Length != 64 ||
+            behaviorIdentity.Value.Any(static character => character is not (>= '0' and <= '9') and not (>= 'a' and <= 'f')))
+            throw new ArgumentException("Projector behavior identity must be canonical SHA-256.", nameof(behaviorIdentity));
+        _projectors.Add(name, new GatewayAdmissionProjectorRegistration(name, behaviorIdentity, projector));
+        return this;
+    }
 
     public GatewayTrafficAdmissionRegistryBuilder AddLocalFixedWindow(string name, Action<GatewayLocalAdmissionOptions>? configure = null) => Add(name, TrafficAdmissionKind.RequestRate, TrafficAdmissionRateAlgorithm.FixedWindow, configure);
     public GatewayTrafficAdmissionRegistryBuilder AddLocalSlidingWindow(string name, Action<GatewayLocalAdmissionOptions>? configure = null) => Add(name, TrafficAdmissionKind.RequestRate, TrafficAdmissionRateAlgorithm.SlidingWindow, configure);
@@ -54,6 +79,10 @@ public sealed class GatewayTrafficAdmissionRegistryBuilder
         var runtimes = ImmutableDictionary.CreateBuilder<string, GatewayAdmissionProfileRuntime>(StringComparer.Ordinal);
         foreach (var profile in _profiles.OrderBy(static value => value.Name, StringComparer.Ordinal))
         {
+            GatewayAdmissionProjectorRegistration? projector = null;
+            if (RequiresProjector(profile.Options.Partition) &&
+                (profile.Options.PartitionProjector is null || !_projectors.TryGetValue(profile.Options.PartitionProjector, out projector)))
+                throw new InvalidOperationException($"Traffic-admission profile '{profile.Name}' requires an installed partition projector.");
             var ordinal = profile.Kind == TrafficAdmissionKind.Concurrency ? Array.IndexOf(concurrencyNames, profile.Name) : (int?)null;
             var limits = new TrafficAdmissionLimits(profile.Options.MinimumLimit, profile.Options.MaximumLimit,
                 profile.Kind == TrafficAdmissionKind.RequestRate ? profile.Options.MinimumPeriod : null,
@@ -61,13 +90,14 @@ public sealed class GatewayTrafficAdmissionRegistryBuilder
                 profile.Options.MinimumSegments, profile.Options.MaximumSegments, profile.Options.MinimumQueue, profile.Options.MaximumQueue);
             var identityText = string.Join('|', profile.Name, profile.Kind, profile.Algorithm, profile.Options.Partition,
                 limits.MinimumLimit, limits.MaximumLimit, limits.MinimumPeriod?.Ticks, limits.MaximumPeriod?.Ticks,
-                limits.MinimumSegments, limits.MaximumSegments, limits.MinimumQueue, limits.MaximumQueue, profile.Options.ClaimType, ordinal);
+                limits.MinimumSegments, limits.MaximumSegments, limits.MinimumQueue, limits.MaximumQueue,
+                projector?.Name, projector?.BehaviorIdentity.Value, ordinal);
             var identity = new ContentHash("sha-256", Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(identityText))));
             var capability = new TrafficAdmissionCapability(profile.Name, 1, TrafficAdmissionScope.ProcessLocal, profile.Kind,
                 profile.Algorithm, profile.Options.Partition, TrafficAdmissionFailureDisposition.Reject, limits,
-                "hpd.gateway/process-local", identity, ordinal);
+                "hpd.gateway/process-local", identity, ordinal, projector?.Name, projector?.BehaviorIdentity);
             capabilities.Add(capability);
-            runtimes.Add(profile.Name, new GatewayAdmissionProfileRuntime(capability, profile.Options.ClaimType));
+            runtimes.Add(profile.Name, new GatewayAdmissionProfileRuntime(capability, projector, _timeProvider));
         }
         return new GatewayTrafficAdmissionRegistry(capabilities.MoveToImmutable(), runtimes.ToImmutable());
     }
@@ -77,7 +107,7 @@ public sealed class GatewayTrafficAdmissionRegistryBuilder
         Partition = value.Partition, MinimumLimit = value.MinimumLimit, MaximumLimit = value.MaximumLimit,
         MinimumPeriod = value.MinimumPeriod, MaximumPeriod = value.MaximumPeriod,
         MinimumSegments = value.MinimumSegments, MaximumSegments = value.MaximumSegments,
-        MinimumQueue = value.MinimumQueue, MaximumQueue = value.MaximumQueue, ClaimType = value.ClaimType
+        MinimumQueue = value.MinimumQueue, MaximumQueue = value.MaximumQueue, PartitionProjector = value.PartitionProjector
     };
 
     private static void Validate(GatewayLocalAdmissionOptions value)
@@ -86,11 +116,21 @@ public sealed class GatewayTrafficAdmissionRegistryBuilder
             value.MinimumPeriod < TimeSpan.FromMilliseconds(100) || value.MaximumPeriod < value.MinimumPeriod || value.MaximumPeriod > TimeSpan.FromDays(1) ||
             value.MinimumSegments < 2 || value.MaximumSegments < value.MinimumSegments || value.MaximumSegments > 64 ||
             value.MinimumQueue < 0 || value.MaximumQueue < value.MinimumQueue || value.MaximumQueue > 100_000 ||
-            (value.Partition is TrafficAdmissionPartitionKind.Tenant or TrafficAdmissionPartitionKind.Consumer or TrafficAdmissionPartitionKind.Custom &&
-             (string.IsNullOrWhiteSpace(value.ClaimType) || value.ClaimType.Length > 256)))
+            (RequiresProjector(value.Partition) &&
+             (value.PartitionProjector is null || !GatewayIdentifier.IsCanonical(value.PartitionProjector))) ||
+            (!RequiresProjector(value.Partition) && value.PartitionProjector is not null))
             throw new ArgumentException("Traffic-admission options are invalid or unbounded.", nameof(value));
     }
+
+    private static bool RequiresProjector(TrafficAdmissionPartitionKind partition) => partition is
+        TrafficAdmissionPartitionKind.AuthenticatedSubject or TrafficAdmissionPartitionKind.Tenant or
+        TrafficAdmissionPartitionKind.Consumer or TrafficAdmissionPartitionKind.Custom;
 }
+
+internal sealed record GatewayAdmissionProjectorRegistration(
+    string Name,
+    ContentHash BehaviorIdentity,
+    IGatewayAdmissionPartitionProjector Projector);
 
 internal sealed class GatewayTrafficAdmissionRegistry(
     ImmutableArray<TrafficAdmissionCapability> capabilities,
@@ -134,11 +174,44 @@ internal static class GatewayTrafficAdmissionMetadataCodec
 
 internal static class GatewayTrafficAdmissionMiddleware
 {
-    internal static RateLimiterOptions CreateOptions(GatewayTrafficAdmissionRegistry registry) => new()
+    internal static RateLimiterOptions CreateOptions(GatewayTrafficAdmissionRegistry registry)
     {
-        GlobalLimiter = new GatewayTrafficAdmissionLimiter(registry),
-        RejectionStatusCode = StatusCodes.Status429TooManyRequests
-    };
+        var options = new RateLimiterOptions
+        {
+            GlobalLimiter = new GatewayTrafficAdmissionLimiter(registry),
+            RejectionStatusCode = StatusCodes.Status503ServiceUnavailable
+        };
+        options.OnRejected = static (context, _) =>
+        {
+            if (context.Lease.TryGetMetadata(GatewayAdmissionMetadata.Outcome, out var raw) &&
+                raw is GatewayAdmissionOutcome.Exhausted)
+            {
+                context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+                if (context.Lease.TryGetMetadata(GatewayAdmissionMetadata.RetryAfterMilliseconds, out var retry) &&
+                    retry is long milliseconds && milliseconds > 0)
+                {
+                    var seconds = Math.Max(1, checked((milliseconds + 999) / 1000));
+                    context.HttpContext.Response.Headers.RetryAfter = seconds.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                }
+            }
+            else
+            {
+                context.HttpContext.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+            }
+            return ValueTask.CompletedTask;
+        };
+        return options;
+    }
+}
+
+internal enum GatewayAdmissionOutcome : byte { Acquired, Exhausted, Infrastructure }
+
+internal static class GatewayAdmissionMetadata
+{
+    internal const string Outcome = "HPD.Gateway.Admission.Outcome";
+    internal const string Remaining = "HPD.Gateway.Admission.Remaining";
+    internal const string RetryAfterMilliseconds = "HPD.Gateway.Admission.RetryAfterMilliseconds";
+    internal const string ResetAfterMilliseconds = "HPD.Gateway.Admission.ResetAfterMilliseconds";
 }
 
 internal sealed class GatewayTrafficAdmissionLimiter(GatewayTrafficAdmissionRegistry registry) : PartitionedRateLimiter<HttpContext>
@@ -154,13 +227,14 @@ internal sealed class GatewayTrafficAdmissionLimiter(GatewayTrafficAdmissionRegi
     {
         var metadata = context.GetEndpoint()?.Metadata.GetMetadata<GatewayTrafficAdmissionMetadata>();
         if (metadata is null) return Noop;
-        if (permitCount != 1) return new GatewayAdmissionLease(false, "UnsupportedPermitCount");
+        if (permitCount != 1) return GatewayAdmissionLease.Infrastructure("UnsupportedPermitCount");
         var projected = new List<(TrafficAdmissionEntry Entry, GatewayAdmissionProfileRuntime Runtime, string Key)>();
         foreach (var entry in metadata.Plan.Entries)
         {
-            if (!registry.TryGet(entry.ProfileName, out var runtime)) return new GatewayAdmissionLease(false, "ProfileUnavailable");
-            var key = runtime.Project(context, metadata.RouteId);
-            if (key is null || Encoding.UTF8.GetByteCount(key) > 256) return new GatewayAdmissionLease(false, "PartitionUnavailable");
+            if (!registry.TryGet(entry.ProfileName, out var runtime)) return GatewayAdmissionLease.Infrastructure("ProfileUnavailable");
+            var projectedPartition = await runtime.ProjectAsync(context, metadata.RouteId, cancellationToken).ConfigureAwait(false);
+            if (!projectedPartition.IsSuccess) return GatewayAdmissionLease.Infrastructure(projectedPartition.Code);
+            var key = projectedPartition.Value!;
             projected.Add((entry, runtime, key + "\0" + GatewayRuntimePlanner.HashTrafficAdmission(new TrafficAdmissionPlan { Entries = [entry] }).Value));
         }
         var leases = new List<RateLimitLease>();
@@ -170,22 +244,41 @@ internal sealed class GatewayTrafficAdmissionLimiter(GatewayTrafficAdmissionRegi
                 .OrderBy(static value => value.Runtime.Capability.AcquisitionOrdinal))
             {
                 var lease = await item.Runtime.AcquireAsync(item.Entry, item.Key, cancellationToken).ConfigureAwait(false);
-                if (!lease.IsAcquired) { lease.Dispose(); return lease; }
+                if (!lease.IsAcquired)
+                {
+                    var rejected = GatewayAdmissionLease.FromRejectedEntry(lease, concurrency: true);
+                    lease.Dispose();
+                    DisposeAll(leases);
+                    return rejected;
+                }
                 leases.Add(lease);
             }
             foreach (var item in projected.Where(static value => value.Entry is RequestRateAdmissionEntry))
             {
                 var lease = await item.Runtime.AcquireAsync(item.Entry, item.Key, cancellationToken).ConfigureAwait(false);
-                if (!lease.IsAcquired) { lease.Dispose(); return lease; }
+                if (!lease.IsAcquired)
+                {
+                    var rejected = GatewayAdmissionLease.FromRejectedEntry(lease, concurrency: false);
+                    lease.Dispose();
+                    DisposeAll(leases);
+                    return rejected;
+                }
                 lease.Dispose();
             }
             return new GatewayAdmissionLease(true, null, leases);
         }
         catch
         {
-            foreach (var lease in leases) lease.Dispose();
+            DisposeAll(leases);
             throw;
         }
+    }
+
+    private static void DisposeAll(List<RateLimitLease> leases)
+    {
+        foreach (var lease in leases)
+            lease.Dispose();
+        leases.Clear();
     }
 
     protected override void Dispose(bool disposing)
@@ -201,21 +294,68 @@ internal sealed class GatewayAdmissionProfileRuntime : IDisposable
     private const int MaximumPartitions = 4096;
     private readonly object _statesGate = new();
     private readonly Dictionary<string, object> _states = new(StringComparer.Ordinal);
-    private readonly string? _claimType;
+    private readonly GatewayAdmissionProjectorRegistration? _projector;
+    private readonly TimeProvider _timeProvider;
     private int _disposed;
-    internal GatewayAdmissionProfileRuntime(TrafficAdmissionCapability capability, string? claimType) { Capability = capability; _claimType = claimType; }
+    internal GatewayAdmissionProfileRuntime(
+        TrafficAdmissionCapability capability,
+        GatewayAdmissionProjectorRegistration? projector,
+        TimeProvider timeProvider)
+    {
+        Capability = capability;
+        _projector = projector;
+        _timeProvider = timeProvider;
+    }
     internal TrafficAdmissionCapability Capability { get; }
 
-    internal string? Project(HttpContext context, RouteId route) => Capability.Partition switch
+    internal async ValueTask<GatewayProjectedPartition> ProjectAsync(
+        HttpContext context,
+        RouteId route,
+        CancellationToken cancellationToken)
     {
-        TrafficAdmissionPartitionKind.Global => "global",
-        TrafficAdmissionPartitionKind.Route => route.Value,
-        TrafficAdmissionPartitionKind.SourceIp => context.Connection.RemoteIpAddress?.ToString(),
-        TrafficAdmissionPartitionKind.AuthenticatedSubject => context.User.Identity?.IsAuthenticated == true ? context.User.FindFirstValue(ClaimTypes.NameIdentifier) : null,
-        TrafficAdmissionPartitionKind.Tenant or TrafficAdmissionPartitionKind.Consumer or TrafficAdmissionPartitionKind.Custom =>
-            context.User.Identity?.IsAuthenticated == true ? context.User.FindFirstValue(_claimType!) : null,
-        _ => null
-    };
+        string? value;
+        switch (Capability.Partition)
+        {
+            case TrafficAdmissionPartitionKind.Global:
+                value = "global";
+                break;
+            case TrafficAdmissionPartitionKind.Route:
+                value = route.Value;
+                break;
+            case TrafficAdmissionPartitionKind.SourceIp:
+                value = context.Connection.RemoteIpAddress?.ToString();
+                break;
+            case TrafficAdmissionPartitionKind.AuthenticatedSubject:
+            case TrafficAdmissionPartitionKind.Tenant:
+            case TrafficAdmissionPartitionKind.Consumer:
+            case TrafficAdmissionPartitionKind.Custom:
+                if (context.User.Identity?.IsAuthenticated != true || _projector is null)
+                    return GatewayProjectedPartition.Failed("PartitionUnavailable");
+                try
+                {
+                    GatewayAdmissionPartitionResult? result = await _projector.Projector.ProjectAsync(
+                        new GatewayAdmissionPartitionContext(context.User, route), cancellationToken).ConfigureAwait(false);
+                    if (result is null || result.Failure is not null || result.Value is not { } projected)
+                        return GatewayProjectedPartition.Failed("PartitionProjectionFailed");
+                    value = projected;
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch
+                {
+                    return GatewayProjectedPartition.Failed("PartitionProjectionFailed");
+                }
+                break;
+            default:
+                return GatewayProjectedPartition.Failed("PartitionUnavailable");
+        }
+
+        if (string.IsNullOrEmpty(value) || Encoding.UTF8.GetByteCount(value) > 256 || !value.IsNormalized(NormalizationForm.FormC))
+            return GatewayProjectedPartition.Failed("PartitionProjectionInvalid");
+        return GatewayProjectedPartition.Success(value);
+    }
 
     internal ValueTask<RateLimitLease> AcquireAsync(TrafficAdmissionEntry entry, string key, CancellationToken cancellationToken)
     {
@@ -223,11 +363,11 @@ internal sealed class GatewayAdmissionProfileRuntime : IDisposable
         lock (_statesGate)
         {
             if (_disposed != 0)
-                return ValueTask.FromResult<RateLimitLease>(new GatewayAdmissionLease(false, "Disposed"));
+                return ValueTask.FromResult<RateLimitLease>(GatewayAdmissionLease.Infrastructure("Disposed"));
             if (!_states.TryGetValue(key, out state!))
             {
                 if (_states.Count >= MaximumPartitions)
-                    return ValueTask.FromResult<RateLimitLease>(new GatewayAdmissionLease(false, "PartitionCapacity"));
+                    return ValueTask.FromResult<RateLimitLease>(GatewayAdmissionLease.Infrastructure("PartitionCapacity"));
                 state = Create(entry);
                 _states.Add(key, state);
             }
@@ -235,7 +375,7 @@ internal sealed class GatewayAdmissionProfileRuntime : IDisposable
         return entry switch
         {
             ConcurrencyAdmissionEntry => ((ConcurrencyLimiter)state).AcquireAsync(1, cancellationToken),
-            _ => ValueTask.FromResult(((GatewayLocalRateState)state).Acquire(entry, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()))
+            _ => ValueTask.FromResult(((GatewayLocalRateState)state).Acquire(entry, _timeProvider.GetUtcNow().ToUnixTimeMilliseconds()))
         };
     }
 
@@ -261,27 +401,37 @@ internal sealed class GatewayAdmissionProfileRuntime : IDisposable
     }
 }
 
+internal readonly record struct GatewayProjectedPartition(bool IsSuccess, string? Value, string Code)
+{
+    internal static GatewayProjectedPartition Success(string value) => new(true, value, "ok");
+    internal static GatewayProjectedPartition Failed(string code) => new(false, null, code);
+}
+
 internal sealed class GatewayLocalRateState
 {
     private readonly object _gate = new();
+    private long _lastObserved = long.MinValue;
     private long _windowStart = long.MinValue;
     private long _used;
     private long _tokens;
     private long _lastRefill;
     private long _remainder;
+    private bool _tokenInitialized;
     private long[]? _segments;
-    private long _segmentEpoch = long.MinValue;
+    private long[]? _segmentIndexes;
 
     internal RateLimitLease Acquire(TrafficAdmissionEntry entry, long now)
     {
         lock (_gate)
         {
+            now = _lastObserved == long.MinValue ? Math.Max(0, now) : Math.Max(_lastObserved, now);
+            _lastObserved = now;
             return entry switch
             {
                 FixedWindowAdmissionEntry value => Fixed(value, now),
                 SlidingWindowAdmissionEntry value => Sliding(value, now),
                 TokenBucketAdmissionEntry value => Token(value, now),
-                _ => new GatewayAdmissionLease(false, "ProfileMismatch")
+                _ => GatewayAdmissionLease.Infrastructure("ProfileMismatch")
             };
         }
     }
@@ -291,9 +441,10 @@ internal sealed class GatewayLocalRateState
         var width = (long)value.Window.TotalMilliseconds;
         var start = now / width * width;
         if (_windowStart != start) { _windowStart = start; _used = 0; }
-        if (_used >= value.PermitLimit) return Reject(start + width - now);
+        if (_used >= value.PermitLimit)
+            return GatewayAdmissionLease.Exhausted(value.PermitLimit - _used, start + width - now, start + width - now);
         _used++;
-        return Accept(value.PermitLimit - _used, start + width - now);
+        return GatewayAdmissionLease.Acquired(value.PermitLimit - _used, start + width - now);
     }
 
     private RateLimitLease Sliding(SlidingWindowAdmissionEntry value, long now)
@@ -301,32 +452,94 @@ internal sealed class GatewayLocalRateState
         var segmentWidth = (long)value.Window.TotalMilliseconds / value.SegmentsPerWindow;
         var epoch = now / segmentWidth;
         _segments ??= new long[value.SegmentsPerWindow];
-        if (_segments.Length != value.SegmentsPerWindow) return new GatewayAdmissionLease(false, "ProfileChanged");
-        if (_segmentEpoch == long.MinValue || epoch - _segmentEpoch >= value.SegmentsPerWindow) Array.Clear(_segments);
-        else for (var e = _segmentEpoch + 1; e <= epoch; e++) _segments[e % value.SegmentsPerWindow] = 0;
-        _segmentEpoch = Math.Max(_segmentEpoch, epoch);
+        _segmentIndexes ??= Enumerable.Repeat(long.MinValue, value.SegmentsPerWindow).ToArray();
+        if (_segments.Length != value.SegmentsPerWindow)
+            return GatewayAdmissionLease.Infrastructure("ProfileChanged");
+        var oldestRetained = epoch - value.SegmentsPerWindow + 1;
+        for (var index = 0; index < _segments.Length; index++)
+        {
+            if (_segmentIndexes[index] < oldestRetained || _segmentIndexes[index] > epoch)
+            {
+                _segments[index] = 0;
+                _segmentIndexes[index] = long.MinValue;
+            }
+        }
+        var currentSlot = (int)(epoch % value.SegmentsPerWindow);
+        if (_segmentIndexes[currentSlot] != epoch)
+        {
+            _segments[currentSlot] = 0;
+            _segmentIndexes[currentSlot] = epoch;
+        }
         var used = _segments.Sum();
-        if (used >= value.PermitLimit) return Reject(segmentWidth - now % segmentWidth);
-        _segments[epoch % value.SegmentsPerWindow]++;
-        return Accept(value.PermitLimit - used - 1, segmentWidth - now % segmentWidth);
+        if (used >= value.PermitLimit)
+        {
+            var retry = SlidingRetry(value, now, segmentWidth, used);
+            return GatewayAdmissionLease.Exhausted(value.PermitLimit - used, retry, SlidingReset(now, segmentWidth));
+        }
+        _segments[currentSlot]++;
+        return GatewayAdmissionLease.Acquired(value.PermitLimit - used - 1, SlidingReset(now, segmentWidth));
+    }
+
+    private long SlidingRetry(SlidingWindowAdmissionEntry value, long now, long segmentWidth, long used)
+    {
+        var remainingUsed = used;
+        foreach (var item in _segmentIndexes!.Select((index, slot) => (Index: index, Count: _segments![slot]))
+            .Where(static item => item.Index != long.MinValue && item.Count > 0)
+            .OrderBy(static item => item.Index))
+        {
+            remainingUsed -= item.Count;
+            if (remainingUsed + 1 <= value.PermitLimit)
+                return Math.Max(1, checked((item.Index + value.SegmentsPerWindow) * segmentWidth - now));
+        }
+        return Math.Max(1, segmentWidth);
+    }
+
+    private long SlidingReset(long now, long segmentWidth)
+    {
+        var newest = _segmentIndexes!.Where((index, slot) => index != long.MinValue && _segments![slot] > 0)
+            .DefaultIfEmpty(now / segmentWidth).Max();
+        return Math.Max(1, checked((newest + _segments!.Length) * segmentWidth - now));
     }
 
     private RateLimitLease Token(TokenBucketAdmissionEntry value, long now)
     {
         var period = (long)value.ReplenishmentPeriod.TotalMilliseconds;
-        if (_lastRefill == 0) { _lastRefill = now; _tokens = value.TokenLimit; }
+        if (!_tokenInitialized)
+        {
+            _tokenInitialized = true;
+            _lastRefill = now;
+            _tokens = value.TokenLimit;
+        }
         var elapsed = Math.Max(0, now - _lastRefill);
-        UInt128 numerator = (UInt128)(ulong)elapsed * (ulong)value.TokensPerPeriod + (ulong)_remainder;
-        var added = (long)UInt128.Min(numerator / (ulong)period, (UInt128)(ulong)value.TokenLimit);
-        _remainder = (long)(numerator % (ulong)period);
-        if (added > 0) { _tokens = Math.Min(value.TokenLimit, _tokens + added); _lastRefill = now; if (_tokens == value.TokenLimit) _remainder = 0; }
-        if (_tokens == 0) return Reject(Math.Max(1, (period - _remainder + value.TokensPerPeriod - 1) / value.TokensPerPeriod));
+        var wholePeriods = elapsed / period;
+        var residual = elapsed % period;
+        var missing = value.TokenLimit - _tokens;
+        var wholeAdded = wholePeriods >= CeilingDivide(missing, value.TokensPerPeriod)
+            ? missing
+            : checked(wholePeriods * value.TokensPerPeriod);
+        UInt128 fractionalNumerator = (UInt128)(ulong)residual * (ulong)value.TokensPerPeriod + (ulong)_remainder;
+        var fractionalAdded = (long)(fractionalNumerator / (ulong)period);
+        var added = Math.Min(missing, checked(wholeAdded + fractionalAdded));
+        _tokens += added;
+        _remainder = _tokens == value.TokenLimit ? 0 : (long)(fractionalNumerator % (ulong)period);
+        _lastRefill = now;
+        if (_tokens == 0)
+        {
+            var retry = TokenDelay(1, period, value.TokensPerPeriod);
+            return GatewayAdmissionLease.Exhausted(0, retry, TokenDelay(value.TokenLimit, period, value.TokensPerPeriod));
+        }
         _tokens--;
-        return Accept(_tokens, _tokens == value.TokenLimit ? 0 : period);
+        return GatewayAdmissionLease.Acquired(_tokens, TokenDelay(value.TokenLimit - _tokens, period, value.TokensPerPeriod));
     }
 
-    private static RateLimitLease Accept(long remaining, long resetMs) => new GatewayAdmissionLease(true, null, metadata: new Dictionary<string, object?> { ["Remaining"] = remaining, ["ResetAfterMilliseconds"] = Math.Max(0, resetMs) });
-    private static RateLimitLease Reject(long retryMs) => new GatewayAdmissionLease(false, "LimitExceeded", metadata: new Dictionary<string, object?> { ["RetryAfter"] = TimeSpan.FromMilliseconds(Math.Max(1, retryMs)), ["RetryAfterMilliseconds"] = Math.Max(1, retryMs), ["ResetAfterMilliseconds"] = Math.Max(1, retryMs) });
+    private long TokenDelay(long missing, long period, long tokensPerPeriod)
+    {
+        if (missing <= 0) return 1;
+        var numerator = checked(missing * period - _remainder);
+        return Math.Max(1, CeilingDivide(Math.Max(0, numerator), tokensPerPeriod));
+    }
+
+    private static long CeilingDivide(long value, long divisor) => value == 0 ? 0 : checked((value - 1) / divisor + 1);
 }
 
 internal sealed class GatewayAdmissionLease(bool acquired, string? reason, IEnumerable<RateLimitLease>? owned = null, IReadOnlyDictionary<string, object?>? metadata = null) : RateLimitLease
@@ -343,5 +556,55 @@ internal sealed class GatewayAdmissionLease(bool acquired, string? reason, IEnum
             return;
         foreach (var lease in _owned)
             lease.Dispose();
+    }
+
+    internal static GatewayAdmissionLease Acquired(long remaining, long resetMilliseconds) => new(true, null, metadata: Facts(
+        GatewayAdmissionOutcome.Acquired, remaining, null, Math.Max(1, resetMilliseconds)));
+
+    internal static GatewayAdmissionLease Exhausted(long remaining, long retryMilliseconds, long resetMilliseconds) => new(false, "LimitExceeded", metadata: Facts(
+        GatewayAdmissionOutcome.Exhausted, remaining, Math.Max(1, retryMilliseconds), Math.Max(Math.Max(1, retryMilliseconds), resetMilliseconds)));
+
+    internal static GatewayAdmissionLease Infrastructure(string reason) => new(false, reason, metadata: new Dictionary<string, object?>
+    {
+        [GatewayAdmissionMetadata.Outcome] = GatewayAdmissionOutcome.Infrastructure,
+        ["Reason"] = reason
+    });
+
+    internal static GatewayAdmissionLease FromRejectedEntry(RateLimitLease lease, bool concurrency)
+    {
+        if (lease.TryGetMetadata(GatewayAdmissionMetadata.Outcome, out var outcome) && outcome is GatewayAdmissionOutcome typed)
+        {
+            var copied = lease.MetadataNames.ToDictionary(name => name, name =>
+            {
+                lease.TryGetMetadata(name, out var value);
+                return value;
+            }, StringComparer.Ordinal);
+            return new GatewayAdmissionLease(false, null, metadata: copied);
+        }
+        return concurrency
+            ? new GatewayAdmissionLease(false, "ConcurrencyExhausted", metadata: new Dictionary<string, object?>
+            {
+                [GatewayAdmissionMetadata.Outcome] = GatewayAdmissionOutcome.Exhausted,
+                ["Reason"] = "ConcurrencyExhausted"
+            })
+            : Infrastructure("MalformedRateLease");
+    }
+
+    private static IReadOnlyDictionary<string, object?> Facts(
+        GatewayAdmissionOutcome outcome,
+        long remaining,
+        long? retryMilliseconds,
+        long resetMilliseconds)
+    {
+        var facts = new Dictionary<string, object?>
+        {
+            [GatewayAdmissionMetadata.Outcome] = outcome,
+            [GatewayAdmissionMetadata.Remaining] = remaining,
+            [GatewayAdmissionMetadata.RetryAfterMilliseconds] = retryMilliseconds,
+            [GatewayAdmissionMetadata.ResetAfterMilliseconds] = resetMilliseconds
+        };
+        if (retryMilliseconds is { } retry)
+            facts["RetryAfter"] = TimeSpan.FromMilliseconds(retry);
+        return facts;
     }
 }

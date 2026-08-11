@@ -972,7 +972,12 @@ static async Task SmokeManagementRuntimeAsync()
     {
         gateway.EnableCoreDeclarations();
         gateway.AddTrafficAdmission(admission => admission
-            .AddLocalFixedWindow("aot-rate")
+            .AddPartitionProjector("aot-subject", new ContentHash("sha-256", new string('b', 64)), new AotAdmissionProjector())
+            .AddLocalFixedWindow("aot-rate", options =>
+            {
+                options.Partition = TrafficAdmissionPartitionKind.AuthenticatedSubject;
+                options.PartitionProjector = "aot-subject";
+            })
             .AddLocalSlidingWindow("aot-sliding")
             .AddLocalTokenBucket("aot-token")
             .AddLocalConcurrency("aot-concurrency"));
@@ -1130,6 +1135,14 @@ file sealed class SmokeInspector : IGatewayRequestInspector
         }
         return ValueTask.FromResult(GatewayInspectionDecision.Allow());
     }
+}
+
+file sealed class AotAdmissionProjector : IGatewayAdmissionPartitionProjector
+{
+    public ValueTask<GatewayAdmissionPartitionResult> ProjectAsync(
+        GatewayAdmissionPartitionContext context,
+        CancellationToken cancellationToken) =>
+        ValueTask.FromResult(GatewayAdmissionPartitionResult.Success("aot-subject"));
 }
 
 file sealed class NonSeekableReadStream(byte[] bytes) : MemoryStream(bytes)

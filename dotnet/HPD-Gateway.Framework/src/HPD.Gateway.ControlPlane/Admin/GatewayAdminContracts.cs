@@ -287,7 +287,10 @@ internal sealed record GatewayTrafficAdmissionCapabilityProjection(
     string AuthorityId,
     string BehaviorHashAlgorithm,
     string BehaviorHashValue,
-    int? AcquisitionOrdinal);
+    int? AcquisitionOrdinal,
+    string? PartitionProjectorId,
+    string? PartitionProjectorHashAlgorithm,
+    string? PartitionProjectorHashValue);
 
 internal sealed record GatewayDiscoveryProfileCapabilityProjection(
     string Id,

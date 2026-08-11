@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Security.Claims;
 using System.Text.Json.Serialization;
 
 namespace HPD.Gateway;
@@ -43,6 +44,33 @@ public enum TrafficAdmissionFailureDisposition : byte
     Reject = 0,
     Bypass = 1,
     LocalFallback = 2
+}
+
+[JsonConverter(typeof(StrictStringEnumJsonConverter<GatewayAdmissionPartitionFailure>))]
+public enum GatewayAdmissionPartitionFailure : byte
+{
+    Unavailable = 0,
+    Invalid = 1,
+    Canceled = 2
+}
+
+public sealed record GatewayAdmissionPartitionContext(
+    ClaimsPrincipal Principal,
+    RouteId Route);
+
+public sealed record GatewayAdmissionPartitionResult(
+    string? Value,
+    GatewayAdmissionPartitionFailure? Failure)
+{
+    public static GatewayAdmissionPartitionResult Success(string value) => new(value, null);
+    public static GatewayAdmissionPartitionResult Failed(GatewayAdmissionPartitionFailure failure) => new(null, failure);
+}
+
+public interface IGatewayAdmissionPartitionProjector
+{
+    ValueTask<GatewayAdmissionPartitionResult> ProjectAsync(
+        GatewayAdmissionPartitionContext context,
+        CancellationToken cancellationToken);
 }
 
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
@@ -117,4 +145,6 @@ public sealed record TrafficAdmissionCapability(
     TrafficAdmissionLimits Limits,
     string AuthorityId,
     ContentHash BehaviorIdentity,
-    int? AcquisitionOrdinal);
+    int? AcquisitionOrdinal,
+    string? PartitionProjectorId = null,
+    ContentHash? PartitionProjectorIdentity = null);
