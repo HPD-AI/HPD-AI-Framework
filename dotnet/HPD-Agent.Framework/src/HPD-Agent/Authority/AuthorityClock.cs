@@ -13,6 +13,17 @@ public enum ClockComparison
     Incomparable = 2,
 }
 
+/// <summary>Describes whether subtraction produced a signed duration.</summary>
+public enum ClockSubtractionStatus
+{
+    /// <summary>The stamps were comparable and the signed duration was representable.</summary>
+    Success = 0,
+    /// <summary>The stamps belong to different clock domains or boots.</summary>
+    Incomparable = 1,
+    /// <summary>The stamps were comparable but their difference exceeded the signed duration range.</summary>
+    OutOfRange = 2,
+}
+
 /// <summary>Identifies a monotonic instant within one clock domain and process boot.</summary>
 /// <remarks>This value never establishes journal order and cannot be compared across a domain or boot boundary.</remarks>
 public readonly record struct MonotonicStampV1
@@ -20,17 +31,14 @@ public readonly record struct MonotonicStampV1
     /// <summary>Initializes a validated monotonic stamp.</summary>
     /// <param name="clockDomainId">The owner-defined monotonic clock domain.</param>
     /// <param name="bootId">The process or host boot that anchors the counter.</param>
-    /// <param name="nanoseconds">A nonnegative nanosecond count within the clock and boot.</param>
+    /// <param name="nanoseconds">An unsigned nanosecond count within the clock and boot.</param>
     /// <exception cref="ArgumentException">A clock-domain or boot identifier is invalid.</exception>
-    /// <exception cref="ArgumentOutOfRangeException">The nanosecond count is negative.</exception>
-    public MonotonicStampV1(ClockDomainId clockDomainId, BootId bootId, long nanoseconds)
+    public MonotonicStampV1(ClockDomainId clockDomainId, BootId bootId, ulong nanoseconds)
     {
         if (!clockDomainId.IsValid)
             throw new ArgumentException("A clock domain is required.", nameof(clockDomainId));
         if (!bootId.IsValid)
             throw new ArgumentException("A boot identifier is required.", nameof(bootId));
-        if (nanoseconds < 0)
-            throw new ArgumentOutOfRangeException(nameof(nanoseconds), "A monotonic counter cannot be negative.");
         ClockDomainId = clockDomainId;
         BootId = bootId;
         Nanoseconds = nanoseconds;
@@ -42,11 +50,11 @@ public readonly record struct MonotonicStampV1
     /// <summary>Gets the boot that anchors the counter.</summary>
     public BootId BootId { get; }
 
-    /// <summary>Gets the nonnegative monotonic nanosecond count.</summary>
-    public long Nanoseconds { get; }
+    /// <summary>Gets the unsigned monotonic nanosecond count.</summary>
+    public ulong Nanoseconds { get; }
 
     /// <summary>Gets whether the stamp contains valid IDs and a nonnegative counter.</summary>
-    public bool IsValid => ClockDomainId.IsValid && BootId.IsValid && Nanoseconds >= 0;
+    public bool IsValid => ClockDomainId.IsValid && BootId.IsValid;
 
     /// <summary>Compares two stamps without inventing order across clock or boot boundaries.</summary>
     public ClockComparison CompareTo(MonotonicStampV1 other)
@@ -58,18 +66,37 @@ public readonly record struct MonotonicStampV1
             : Nanoseconds > other.Nanoseconds ? ClockComparison.Later : ClockComparison.Equal;
     }
 
-    /// <summary>Subtracts another stamp only when both values share a clock domain and boot.</summary>
+    /// <summary>Subtracts another stamp without conflating clock mismatch with signed-duration overflow.</summary>
     /// <param name="other">The stamp to subtract.</param>
     /// <param name="duration">The signed difference when the clocks are comparable.</param>
-    /// <returns><see langword="true"/> when the stamps are comparable; otherwise <see langword="false"/>.</returns>
-    public bool TrySubtract(MonotonicStampV1 other, out DurationNs duration)
+    /// <returns>The exact subtraction disposition.</returns>
+    public ClockSubtractionStatus Subtract(MonotonicStampV1 other, out DurationNs duration)
     {
         if (CompareTo(other) == ClockComparison.Incomparable)
         {
             duration = default;
-            return false;
+            return ClockSubtractionStatus.Incomparable;
         }
-        duration = new DurationNs(Nanoseconds - other.Nanoseconds);
-        return true;
+
+        if (Nanoseconds >= other.Nanoseconds)
+        {
+            var magnitude = Nanoseconds - other.Nanoseconds;
+            if (magnitude > long.MaxValue)
+            {
+                duration = default;
+                return ClockSubtractionStatus.OutOfRange;
+            }
+            duration = new DurationNs((long)magnitude);
+            return ClockSubtractionStatus.Success;
+        }
+
+        var negativeMagnitude = other.Nanoseconds - Nanoseconds;
+        if (negativeMagnitude > 1UL << 63)
+        {
+            duration = default;
+            return ClockSubtractionStatus.OutOfRange;
+        }
+        duration = new DurationNs(negativeMagnitude == 1UL << 63 ? long.MinValue : -(long)negativeMagnitude);
+        return ClockSubtractionStatus.Success;
     }
 }
