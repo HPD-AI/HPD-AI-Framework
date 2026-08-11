@@ -70,16 +70,33 @@ internal static class AuthorityPositionCodecsV1
 {
     internal static byte[] Encode(JournalPositionV1 value)
     {
+        var writer = new CborWriter(CborConformanceMode.Ctap2Canonical);
+        Write(writer, value);
+        return writer.Encode();
+    }
+
+    internal static void Write(CborWriter writer, JournalPositionV1 value)
+    {
         if (!value.IsValid)
             throw new ArgumentException("The journal position is invalid.", nameof(value));
-        var writer = new CborWriter(CborConformanceMode.Ctap2Canonical);
         writer.WriteStartMap(2);
         writer.WriteUInt64(1);
         SessionAuthorityStampV1Codec.Write(writer, value.Session);
         writer.WriteUInt64(2);
         writer.WriteInt64(value.Sequence);
         writer.WriteEndMap();
-        return writer.Encode();
+    }
+
+    internal static JournalPositionV1 ReadJournal(CborReader reader)
+    {
+        if (reader.ReadStartMap() != 2 || reader.ReadUInt64() != 1)
+            throw new CborContentException("A journal position must contain exactly tags 1 and 2.");
+        var session = SessionAuthorityStampV1Codec.Read(reader);
+        if (reader.ReadUInt64() != 2)
+            throw new CborContentException("A journal sequence must use tag 2.");
+        var sequence = reader.ReadInt64();
+        reader.ReadEndMap();
+        return new JournalPositionV1(session, sequence);
     }
 
     internal static bool TryDecodeJournal(ReadOnlyMemory<byte> encoded, out JournalPositionV1 value)
@@ -88,16 +105,9 @@ internal static class AuthorityPositionCodecsV1
         try
         {
             var reader = new CborReader(encoded, CborConformanceMode.Ctap2Canonical, false);
-            if (reader.ReadStartMap() != 2 || reader.ReadUInt64() != 1)
+            value = ReadJournal(reader);
+            if (reader.BytesRemaining != 0)
                 return false;
-            var session = SessionAuthorityStampV1Codec.Read(reader);
-            if (reader.ReadUInt64() != 2)
-                return false;
-            var sequence = reader.ReadInt64();
-            reader.ReadEndMap();
-            if (reader.BytesRemaining != 0 || sequence <= 0)
-                return false;
-            value = new(session, sequence);
             return true;
         }
         catch (Exception exception) when (exception is CborContentException or InvalidOperationException or ArgumentException or OverflowException)

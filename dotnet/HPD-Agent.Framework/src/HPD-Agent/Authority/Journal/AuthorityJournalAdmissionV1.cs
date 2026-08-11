@@ -55,6 +55,16 @@ internal sealed class SessionAuthorityStampPayloadRegistrationV1 : AuthorityPayl
         SessionAuthorityStampV1Codec.TryDecode(payload, out _);
 }
 
+internal sealed class SemanticInputAcceptedPayloadRegistrationV1 : AuthorityPayloadRegistrationV1
+{
+    internal SemanticInputAcceptedPayloadRegistrationV1() :
+        base(new BoundedAscii(SemanticInputAcceptedV1Codec.SchemaId), SemanticInputAcceptedV1Codec.Major,
+            SemanticInputAcceptedV1Codec.Minor, OwnerSliceId.AgentCore, 4096) { }
+
+    private protected override bool ValidateCanonicalPayload(ReadOnlyMemory<byte> payload) =>
+        SemanticInputAcceptedV1Codec.TryDecode(payload, out _);
+}
+
 internal static class AuthoritySchemaIdentityV1
 {
     private static ReadOnlySpan<byte> Domain => "hpd-schema-id-v1\0"u8;

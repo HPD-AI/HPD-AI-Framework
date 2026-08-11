@@ -136,8 +136,14 @@ internal static class AuthorityVectorCodecsV1
 
     internal static byte[] Encode(ExpectedAuthorityVectorV1 value)
     {
-        ArgumentNullException.ThrowIfNull(value);
         var writer = new CborWriter(CborConformanceMode.Ctap2Canonical);
+        WriteVector(writer, value);
+        return writer.Encode();
+    }
+
+    internal static void WriteVector(CborWriter writer, ExpectedAuthorityVectorV1 value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
         writer.WriteStartMap(2);
         writer.WriteUInt64(1);
         SessionAuthorityStampV1Codec.Write(writer, value.Session);
@@ -147,7 +153,31 @@ internal static class AuthorityVectorCodecsV1
             Write(writer, entry);
         writer.WriteEndArray();
         writer.WriteEndMap();
-        return writer.Encode();
+    }
+
+    internal static ExpectedAuthorityVectorV1 ReadVector(CborReader reader)
+    {
+        if (reader.ReadStartMap() != 2 || reader.ReadUInt64() != 1)
+            throw new CborContentException("An authority vector must contain exactly tags 1 and 2.");
+        var session = SessionAuthorityStampV1Codec.Read(reader);
+        if (reader.ReadUInt64() != 2)
+            throw new CborContentException("Authority axes must use tag 2.");
+        var count = reader.ReadStartArray();
+        if (count is null or > 256)
+            throw new CborContentException("Authority axes must be a definite array of at most 256 items.");
+        var axes = new List<AuthorityAxisValueV1>(count.Value);
+        AuthorityAxisId previous = 0;
+        for (var index = 0; index < count; index++)
+        {
+            var entry = Read(reader);
+            if (entry.AxisId <= previous)
+                throw new CborContentException("Authority axes must be strictly ordered and unique.");
+            previous = entry.AxisId;
+            axes.Add(entry.Value);
+        }
+        reader.ReadEndArray();
+        reader.ReadEndMap();
+        return ExpectedAuthorityVectorV1.Create(session, axes);
     }
 
     internal static bool TryDecodeVector(ReadOnlyMemory<byte> encoded, out ExpectedAuthorityVectorV1? value)
@@ -156,29 +186,9 @@ internal static class AuthorityVectorCodecsV1
         try
         {
             var reader = new CborReader(encoded, CborConformanceMode.Ctap2Canonical, false);
-            if (reader.ReadStartMap() != 2 || reader.ReadUInt64() != 1)
-                return false;
-            var session = SessionAuthorityStampV1Codec.Read(reader);
-            if (reader.ReadUInt64() != 2)
-                return false;
-            var count = reader.ReadStartArray();
-            if (count is null or > 256)
-                return false;
-            var axes = new List<AuthorityAxisValueV1>(count.Value);
-            AuthorityAxisId previous = 0;
-            for (var index = 0; index < count; index++)
-            {
-                var entry = Read(reader);
-                if (entry.AxisId <= previous)
-                    return false;
-                previous = entry.AxisId;
-                axes.Add(entry.Value);
-            }
-            reader.ReadEndArray();
-            reader.ReadEndMap();
+            value = ReadVector(reader);
             if (reader.BytesRemaining != 0)
                 return false;
-            value = ExpectedAuthorityVectorV1.Create(session, axes);
             return true;
         }
         catch (Exception exception) when (exception is CborContentException or InvalidOperationException or ArgumentException or OverflowException)
