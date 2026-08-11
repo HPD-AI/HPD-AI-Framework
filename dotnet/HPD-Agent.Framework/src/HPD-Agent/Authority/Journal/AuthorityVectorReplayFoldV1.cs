@@ -71,60 +71,13 @@ internal static class AuthorityVectorReplayFoldV1
     {
         if (!session.IsValid) throw new ArgumentException("A valid session authority stamp is required.", nameof(session));
         ArgumentNullException.ThrowIfNull(facts);
-        var axes = new Dictionary<AuthorityAxisId, StableId128>();
-        var expectedPosition = 1L;
-        RuntimeGenerationId? replacement = null;
+        var accumulator = new AuthorityVectorReplayAccumulatorV1(session);
         foreach (var fact in facts)
-        {
-            if (fact is null || fact.Position.Session != session || fact.Position.Sequence != expectedPosition || replacement is not null)
-                return Invalid(expectedPosition - 1);
-
-            var initializationResult = AuthorityGenerationInitializationCodecV1.Decode(
-                fact.PayloadSchema, fact.Owner, session, fact.PayloadMemory, out var initialization);
-            if (initializationResult == AuthorityGenerationInitializationDecodeV1.Invalid)
-                return Invalid(expectedPosition - 1);
-            if (initializationResult == AuthorityGenerationInitializationDecodeV1.Valid)
-            {
-                if (!axes.TryAdd(initialization.Axis, initialization.Initial))
-                    return Invalid(expectedPosition - 1);
-                expectedPosition++;
-                continue;
-            }
-
-            var transitionResult = AuthorityGenerationTransitionCodecV1.Decode(
-                fact.PayloadSchema, fact.Owner, session, fact.PayloadMemory, out var transition);
-            if (transitionResult == AuthorityGenerationTransitionDecodeV1.Invalid)
-                return Invalid(expectedPosition - 1);
-            if (transitionResult == AuthorityGenerationTransitionDecodeV1.Valid)
-            {
-                if (transition.Axis == AuthorityAxisId.Runtime)
-                {
-                    if (RuntimeGenerationId.FromValue(transition.ExpectedPrevious) != session.RuntimeGenerationId)
-                        return Invalid(expectedPosition - 1);
-                    replacement = RuntimeGenerationId.FromValue(transition.ProposedNext);
-                }
-                else if (!axes.TryGetValue(transition.Axis, out var current) || !current.Equals(transition.ExpectedPrevious))
-                {
-                    return Invalid(expectedPosition - 1);
-                }
-                else
-                {
-                    axes[transition.Axis] = transition.ProposedNext;
-                }
-            }
-            expectedPosition++;
-        }
-
-        var last = expectedPosition - 1;
-        if (replacement is { } next)
-            return new AuthorityVectorReplayResultV1.GenerationReplaced(next, last);
-        var values = axes.OrderBy(static pair => pair.Key)
-            .Select(static pair => ToValue(pair.Key, pair.Value));
-        return new AuthorityVectorReplayResultV1.Current(new CurrentAuthorityVectorSnapshotV1(session, values, last));
+            accumulator.Apply(fact);
+        return accumulator.Complete();
     }
 
-    private static AuthorityVectorReplayResultV1 Invalid(long last) =>
-        new AuthorityVectorReplayResultV1.InvalidHistory(last);
+    internal static AuthorityVectorReplayAccumulatorV1 CreateAccumulator(SessionAuthorityStampV1 session) => new(session);
 
     private static AuthorityAxisValueV1 ToValue(AuthorityAxisId axis, StableId128 value) => axis switch
     {
@@ -140,4 +93,87 @@ internal static class AuthorityVectorReplayFoldV1
         AuthorityAxisId.Transport => new AuthorityAxisValueV1.Transport(TransportGenerationId.FromValue(value)),
         _ => throw new ArgumentOutOfRangeException(nameof(axis)),
     };
+
+    internal sealed class AuthorityVectorReplayAccumulatorV1
+    {
+        private readonly SessionAuthorityStampV1 _session;
+        private readonly Dictionary<AuthorityAxisId, StableId128> _axes = [];
+        private long _expectedPosition = 1;
+        private RuntimeGenerationId? _replacement;
+        private bool _invalid;
+
+        internal AuthorityVectorReplayAccumulatorV1(SessionAuthorityStampV1 session)
+        {
+            if (!session.IsValid) throw new ArgumentException("A valid session authority stamp is required.", nameof(session));
+            _session = session;
+        }
+
+        internal void Apply(AuthorityFactEnvelopeV1? fact)
+        {
+            if (_invalid) return;
+            if (fact is null || fact.Position.Session != _session || fact.Position.Sequence != _expectedPosition || _replacement is not null)
+            {
+                _invalid = true;
+                return;
+            }
+            var initializationResult = AuthorityGenerationInitializationCodecV1.Decode(
+                fact.PayloadSchema, fact.Owner, _session, fact.PayloadMemory, out var initialization);
+            if (initializationResult == AuthorityGenerationInitializationDecodeV1.Invalid)
+            {
+                _invalid = true;
+                return;
+            }
+            if (initializationResult == AuthorityGenerationInitializationDecodeV1.Valid)
+            {
+                if (!_axes.TryAdd(initialization.Axis, initialization.Initial))
+                {
+                    _invalid = true;
+                    return;
+                }
+                _expectedPosition++;
+                return;
+            }
+            var transitionResult = AuthorityGenerationTransitionCodecV1.Decode(
+                fact.PayloadSchema, fact.Owner, _session, fact.PayloadMemory, out var transition);
+            if (transitionResult == AuthorityGenerationTransitionDecodeV1.Invalid)
+            {
+                _invalid = true;
+                return;
+            }
+            if (transitionResult == AuthorityGenerationTransitionDecodeV1.Valid)
+            {
+                if (transition.Axis == AuthorityAxisId.Runtime)
+                {
+                    if (RuntimeGenerationId.FromValue(transition.ExpectedPrevious) != _session.RuntimeGenerationId)
+                    {
+                        _invalid = true;
+                        return;
+                    }
+                    else
+                        _replacement = RuntimeGenerationId.FromValue(transition.ProposedNext);
+                }
+                else if (!_axes.TryGetValue(transition.Axis, out var current) || !current.Equals(transition.ExpectedPrevious))
+                {
+                    _invalid = true;
+                    return;
+                }
+                else
+                {
+                    _axes[transition.Axis] = transition.ProposedNext;
+                }
+            }
+            _expectedPosition++;
+        }
+
+        internal AuthorityVectorReplayResultV1 Complete()
+        {
+            var last = _expectedPosition - 1;
+            if (_invalid) return new AuthorityVectorReplayResultV1.InvalidHistory(last);
+            if (_replacement is { } next) return new AuthorityVectorReplayResultV1.GenerationReplaced(next, last);
+            var values = _axes.OrderBy(static pair => pair.Key).Select(static pair => ToValue(pair.Key, pair.Value));
+            return new AuthorityVectorReplayResultV1.Current(new CurrentAuthorityVectorSnapshotV1(_session, values, last));
+        }
+
+        internal long LastVerifiedPosition => _expectedPosition - 1;
+    }
 }
