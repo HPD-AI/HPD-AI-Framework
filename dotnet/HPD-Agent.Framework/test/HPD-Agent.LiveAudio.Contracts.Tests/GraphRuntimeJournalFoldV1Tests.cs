@@ -7,6 +7,69 @@ namespace HPD.Agent.LiveAudio.Contracts.Tests;
 public sealed class GraphRuntimeJournalFoldV1Tests
 {
     [Fact]
+    public async Task PureRenderer_MapsCompletedAndRejectsWrongPositionOrMissingEffect()
+    {
+        var f=await GraphRuntimeReducerV1Tests.Fixture.CreateAsync();var operation=OperationId.Create();
+        var command=Activate(f,operation);var admitted=await f.AppendCommandAsync(command);
+        var current=Assert.IsType<GraphRuntimeJournalFoldResultV1.Current>(GraphRuntimeJournalFoldV1.Fold(
+            f.Session,await Inputs(f,admitted,null,true)));var pending=Assert.IsType<PendingGraphRuntimeCommandV1>(current.Pending);
+        var resultPosition=new JournalPositionV1(f.Session,current.SnapshotThrough+1);
+        var rendered=Assert.IsType<GraphRuntimeRenderedFactV1>(GraphRuntimeJournalFoldV1.RenderFact(current,pending,
+            resultPosition,new GraphRuntimeEffectResolutionV1.Completed(Hash(41))));
+        Assert.Equal(GraphRuntimeOutcomeV1.Activated,rendered.Body.Outcome);Assert.Equal(resultPosition,rendered.Body.ResultingSnapshot!.LastRuntimeFact);
+        Assert.Null(GraphRuntimeJournalFoldV1.RenderFact(current,pending,resultPosition));
+        Assert.Null(GraphRuntimeJournalFoldV1.RenderFact(current,pending,new JournalPositionV1(f.Session,resultPosition.Sequence+1),new GraphRuntimeEffectResolutionV1.Completed(Hash(41))));
+    }
+
+    [Fact]
+    public async Task PureRenderer_RuntimeTerminalForbidsF_AndAuthorityTerminalAllowsOnlyResolutionOrNotObserved()
+    {
+        var f=await GraphRuntimeReducerV1Tests.Fixture.CreateAsync();var operation=OperationId.Create();var command=Activate(f,operation);
+        var admitted=await f.AppendCommandAsync(command);var current=Assert.IsType<GraphRuntimeJournalFoldResultV1.Current>(
+            GraphRuntimeJournalFoldV1.Fold(f.Session,await Inputs(f,admitted,null,true)));var pending=current.Pending!;
+        var nextPosition=new JournalPositionV1(f.Session,current.SnapshotThrough+1);Span<byte>nextBytes=stackalloc byte[16];RuntimeGenerationId.Create().TryWriteBytes(nextBytes);
+        var runtime=new GraphRuntimeJournalFoldResultV1.RuntimeReplaced(RuntimeGenerationId.FromValue(StableId128.FromBytes(nextBytes)),current.SnapshotThrough,current.SnapshotThrough,current.Snapshot,pending,null);
+        Assert.Null(GraphRuntimeJournalFoldV1.RenderFact(runtime,pending,nextPosition,new GraphRuntimeEffectResolutionV1.Completed(Hash(42))));
+        Span<byte>axisBytes=stackalloc byte[16];ActivityGenerationId.Create().TryWriteBytes(axisBytes);
+        var terminal=new GraphRuntimeJournalFoldResultV1.AuthorityGenerationReplaced(AuthorityAxisId.Activity,StableId128.FromBytes(axisBytes),current.SnapshotThrough,current.SnapshotThrough,current.Snapshot,pending,null);
+        var replaced=Assert.IsType<GraphRuntimeRenderedFactV1>(GraphRuntimeJournalFoldV1.RenderFact(terminal,pending,nextPosition,null,true));
+        Assert.Equal(GraphRuntimeOutcomeV1.GenerationReplaced,replaced.Body.Outcome);
+        Assert.NotNull(GraphRuntimeJournalFoldV1.RenderFact(terminal,pending,nextPosition,new GraphRuntimeEffectResolutionV1.Refused(new BoundedAscii("refused"))));
+    }
+
+    [Fact]
+    public async Task PureRenderer_RejectsCopiedResolvedMissingAndAlreadyTerminalPending()
+    {
+        var f=await GraphRuntimeReducerV1Tests.Fixture.CreateAsync();var command=Activate(f,OperationId.Create());
+        var admitted=await f.AppendCommandAsync(command);var current=Assert.IsType<GraphRuntimeJournalFoldResultV1.Current>(
+            GraphRuntimeJournalFoldV1.Fold(f.Session,await Inputs(f,admitted,null,true)));var pending=current.Pending!;
+        var position=new JournalPositionV1(f.Session,current.SnapshotThrough+1);var effect=new GraphRuntimeEffectResolutionV1.Completed(Hash(51));
+        var copied=pending with{};Assert.Null(GraphRuntimeJournalFoldV1.RenderFact(current,copied,position,effect));
+        var missing=current with{Pending=null};Assert.Null(GraphRuntimeJournalFoldV1.RenderFact(missing,pending,position,effect));
+        var resultBearing=pending with{Operation=pending.Operation with{ResultEnvelope=admitted}};
+        var bearingFold=current with{Pending=resultBearing};Assert.Null(GraphRuntimeJournalFoldV1.RenderFact(bearingFold,resultBearing,position,effect));
+        Span<byte>b=stackalloc byte[16];ActivityGenerationId.Create().TryWriteBytes(b);
+        var terminal=new GraphRuntimeJournalFoldResultV1.AuthorityGenerationReplaced(AuthorityAxisId.Activity,
+            StableId128.FromBytes(b),current.SnapshotThrough,current.SnapshotThrough,current.Snapshot,pending,admitted);
+        Assert.Null(GraphRuntimeJournalFoldV1.RenderFact(terminal,pending,position,effect));
+        Assert.Null(GraphRuntimeJournalFoldV1.RenderFact(current,pending,position,effect,true));
+        Assert.Null(GraphRuntimeJournalFoldV1.RenderFact(current,pending,position,null,true));
+    }
+
+    [Fact]
+    public async Task PureRenderer_PreEffectClosedArmsMapExactly()
+    {
+        var f=await GraphRuntimeReducerV1Tests.Fixture.CreateAsync();var template=Activate(f,OperationId.Create());
+        var admitted=await f.AppendCommandAsync(template);var current=Assert.IsType<GraphRuntimeJournalFoldResultV1.Current>(
+            GraphRuntimeJournalFoldV1.Fold(f.Session,await Inputs(f,admitted,null,true)));var basis=current.Pending!;
+        var position=new JournalPositionV1(f.Session,current.SnapshotThrough+1);
+        GraphRuntimeRenderedFactV1 Render(GraphRuntimeEvaluationV1 evaluation)
+        {var p=basis with{Evaluation=evaluation};var fold=current with{Pending=p};return Assert.IsType<GraphRuntimeRenderedFactV1>(GraphRuntimeJournalFoldV1.RenderFact(fold,p,position));}
+        Assert.Equal(GraphRuntimeOutcomeV1.Rejected,Render(new GraphRuntimeEvaluationV1.Rejected(null,new BoundedAscii("no"))).Body.Outcome);
+        Assert.Equal(GraphRuntimeOutcomeV1.Conflict,Render(new GraphRuntimeEvaluationV1.Conflict(null,f.Installation.Position)).Body.Outcome);
+        Assert.Equal(GraphRuntimeOutcomeV1.GenerationReplaced,Render(new GraphRuntimeEvaluationV1.GenerationReplaced(null)).Body.Outcome);
+    }
+    [Fact]
     public async Task CompletedEffectAfterClaimedTransition_RetainsExactReceiptSnapshotAndRejectsMutation()
     {
         var f = await ClaimedFixture.CreateAsync();

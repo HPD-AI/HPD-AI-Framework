@@ -20,6 +20,8 @@ internal sealed record GraphRuntimeJournalProofV1(
     CapacityGrantSnapshotV1? GraphProof,
     CapacityGrantSnapshotV1? RuntimeActivationProof);
 
+internal sealed record GraphRuntimeRenderedFactV1(GraphRuntimeFactV1 Body);
+
 internal abstract record GraphRuntimeJournalFoldResultV1
 {
     private GraphRuntimeJournalFoldResultV1() { }
@@ -60,6 +62,71 @@ internal static class GraphRuntimeJournalFoldV1
     private static readonly AuthorityPayloadRegistrationV1 FactRegistration = GraphRuntimePayloadRegistrationsV1.Fact;
 
     internal static Accumulator CreateAccumulator(SessionAuthorityStampV1 session) => new(session);
+
+    internal static GraphRuntimeRenderedFactV1? RenderFact(GraphRuntimeJournalFoldResultV1 fold,
+        PendingGraphRuntimeCommandV1 pending, JournalPositionV1 proposedResult,
+        GraphRuntimeEffectResolutionV1? effect = null, bool linearizableNotObserved = false)
+    {
+        ArgumentNullException.ThrowIfNull(fold); ArgumentNullException.ThrowIfNull(pending);
+        if (!proposedResult.IsValid || effect is not null && linearizableNotObserved) return null;
+        var context = fold switch
+        {
+            GraphRuntimeJournalFoldResultV1.Current current =>
+                (current.SnapshotThrough, current.Snapshot, current.Pending, false, false),
+            GraphRuntimeJournalFoldResultV1.AuthorityGenerationReplaced terminal when terminal.TerminalResultFact is null =>
+                (terminal.SnapshotThrough, terminal.Snapshot, terminal.Pending, true, false),
+            GraphRuntimeJournalFoldResultV1.RuntimeReplaced terminal =>
+                (terminal.SnapshotThrough, terminal.Snapshot, terminal.Pending, true, true),
+            _ => (-1L, null, null, false, false),
+        };
+        if (context.Item1 < 0 || context.Item5 || context.Item3 is null ||
+            !ReferenceEquals(context.Item3, pending) || pending.Operation.ResultEnvelope is not null ||
+            proposedResult.Session != pending.Operation.CommandEnvelope.Position.Session ||
+            proposedResult.Sequence != context.Item1 + 1)
+            return null;
+
+        var actual = ActualForRender(pending);
+        GraphRuntimeOutcomeV1 outcome; GraphRuntimeSnapshotV1? snapshot; Hash256? receipt = null; BoundedAscii? code = null;
+        if (pending.Evaluation is GraphRuntimeReducerV1.EffectRequired capability)
+        {
+            if (linearizableNotObserved)
+            {
+                if (!context.Item4) return null;
+                outcome = GraphRuntimeOutcomeV1.GenerationReplaced; snapshot = context.Item2; code = Code("generation-replaced");
+            }
+            else if (effect is not null)
+            {
+                var resolved = GraphRuntimeReducerV1.Resolve(capability, effect, proposedResult);
+                if (resolved is GraphRuntimeResolutionV1.Applied applied)
+                { outcome=applied.Outcome;snapshot=applied.Snapshot;receipt=applied.ReceiptHash; }
+                else if (resolved is GraphRuntimeResolutionV1.Rejected rejected)
+                { outcome=GraphRuntimeOutcomeV1.Rejected;snapshot=rejected.Snapshot;code=rejected.SafeCode; }
+                else return null;
+            }
+            else return null;
+        }
+        else
+        {
+            if (effect is not null || linearizableNotObserved) return null;
+            switch (pending.Evaluation)
+            {
+                case GraphRuntimeEvaluationV1.Rejected rejected:
+                    outcome=GraphRuntimeOutcomeV1.Rejected;snapshot=rejected.Snapshot;code=rejected.SafeCode;break;
+                case GraphRuntimeEvaluationV1.Conflict conflict:
+                    outcome=GraphRuntimeOutcomeV1.Conflict;snapshot=conflict.Snapshot;actual=conflict.ActualPredecessor;
+                    code=Code("runtime-predecessor-conflict");break;
+                case GraphRuntimeEvaluationV1.GenerationReplaced replaced:
+                    outcome=GraphRuntimeOutcomeV1.GenerationReplaced;snapshot=replaced.Snapshot;code=Code("generation-replaced");break;
+                default:return null;
+            }
+        }
+        try
+        {
+            return new(new GraphRuntimeFactV1(pending.Operation.CommandEnvelope.Position,
+                pending.Operation.Command.ExpectedPredecessor, actual, outcome, snapshot, receipt, code));
+        }
+        catch (ArgumentException) { return null; }
+    }
 
     internal static GraphRuntimeJournalFoldResultV1 Fold(SessionAuthorityStampV1 session,
         IEnumerable<(AuthorityFactEnvelopeV1 Envelope, GraphRuntimeJournalProofV1? Proof)> facts)
@@ -356,6 +423,14 @@ internal static class GraphRuntimeJournalFoldV1
 
     private sealed record Terminal(AuthorityAxisId Axis, StableId128 Next, long At, bool Runtime,
         AuthorityFactEnvelopeV1? Result);
+    private static JournalPositionV1 ActualForRender(PendingGraphRuntimeCommandV1 pending) => pending.Evaluation switch
+    {
+        GraphRuntimeReducerV1.EffectRequired required => required.ActualPredecessor,
+        GraphRuntimeEvaluationV1.Conflict conflict => conflict.ActualPredecessor,
+        _ when pending.Operation.Command is GraphRuntimeCommandV1.Activate activate => activate.GraphAuthorityFact,
+        _ when pending.Operation.Command is GraphRuntimeCommandV1.Retire && pending.Evaluation is GraphRuntimeEvaluationV1.Rejected rejected && rejected.Snapshot is { } prior => prior.LastRuntimeFact,
+        _ => pending.Operation.Command.ExpectedPredecessor,
+    };
     private static BoundedAscii Code(string value) => new(value);
     private static GraphRuntimeJournalFoldResultV1.InvalidHistory Invalid(string code, long lastVerified) =>
         new(Code(code), lastVerified);
