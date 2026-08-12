@@ -30,6 +30,10 @@ public sealed record BaseClientGenerationSnapshotV2
 /// <summary>Describes one generated transaction-bound selection mutation.</summary>
 public sealed record BaseClientSelectionMutationDescriptor
 {
+    /// <summary>Gets the request graph type identifier.</summary>
+    public required string RequestTypeId { get; init; }
+    /// <summary>Gets the result graph type identifier.</summary>
+    public required string ResultTypeId { get; init; }
     /// <summary>Gets the stable profile identifier.</summary>
     public required string Id { get; init; }
     /// <summary>Gets the semantic profile version.</summary>
@@ -195,6 +199,18 @@ public sealed record BaseClientTypeNode
     public int? MinLength { get; init; }
     /// <summary>Gets the optional maximum length or item count.</summary>
     public int? MaxLength { get; init; }
+    /// <summary>Gets the maximum selection-query node count.</summary>
+    public int? MaximumNodes { get; init; }
+    /// <summary>Gets the maximum selection-query depth.</summary>
+    public int? MaximumDepth { get; init; }
+    /// <summary>Gets the maximum selection-query literal count.</summary>
+    public int? MaximumLiterals { get; init; }
+    /// <summary>Gets the maximum selection-query take.</summary>
+    public int? MaximumTake { get; init; }
+    /// <summary>Gets the maximum previous-state field requirement count.</summary>
+    public int? MaximumFields { get; init; }
+    /// <summary>Gets the application patch graph type wrapped by a selection patch node.</summary>
+    public string? PatchTypeId { get; init; }
     /// <summary>Gets object properties.</summary>
     public BaseClientPropertyDescriptor[]? Properties { get; init; }
     /// <summary>Gets whether unknown properties are accepted.</summary>

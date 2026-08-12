@@ -244,6 +244,18 @@ public interface IRecordMutationStore : IRecordStore
 /// <summary>Provides a real grouped atomic mutation guarantee over one store instance.</summary>
 public interface IAtomicRecordStore : IRecordMutationStore
 {
+    /// <summary>Captures the provider's current authoritative generation requirement before execution.</summary>
+    ValueTask<OperationResult<BaseAuthoritySnapshotRequirement>> CaptureSelectionAuthorityAsync(
+        string applicationId,
+        CollectionDefinition collection,
+        CancellationToken cancellationToken = default) =>
+        ValueTask.FromResult(OperationResults.Unsupported<BaseAuthoritySnapshotRequirement>(new BaseError
+        {
+            Code = "base.provider.selection.queryUnsupported",
+            Message = "This provider does not expose transaction-bound selection authority.",
+            Category = ErrorCategory.Unsupported,
+        }));
+
     /// <summary>Executes the supplied processor in one provider-owned atomic transaction.</summary>
     /// <param name="processor">The fixed framework-owned processor to invoke.</param>
     /// <param name="request">The bounded execution lifetimes.</param>
@@ -261,6 +273,18 @@ public interface IAtomicRecordStore : IRecordMutationStore
 /// </summary>
 public interface IAtomicRecordSession
 {
+    /// <summary>Measures exact canonical and durable artifacts produced by the current transaction.</summary>
+    ValueTask<OperationResult<BaseSelectionMutationCommitAccounting>> MeasureSelectionMutationAsync(
+        BaseAtomicReceiptResult receipt,
+        BaseSelectionMutationResult result,
+        CancellationToken cancellationToken = default) =>
+        ValueTask.FromResult(OperationResults.Unsupported<BaseSelectionMutationCommitAccounting>(new BaseError
+        {
+            Code = "base.provider.selection.accountingUnavailable",
+            Message = "This provider cannot certify selection mutation accounting.",
+            Category = ErrorCategory.Unsupported,
+        }));
+
     /// <summary>Selects one bounded, policy-constrained record set from this transaction's authority snapshot.</summary>
     /// <param name="request">The immutable selection request and authority requirement.</param>
     /// <param name="cancellationToken">Cancellation requested before confirmed commit.</param>

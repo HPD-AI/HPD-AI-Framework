@@ -101,7 +101,8 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
         BaseDependencyTemplate[] templates = (services.GetService<IBaseDependencyTemplateProvider>()?.Templates ?? [])
             .Where(template => template.Visibility == BaseDependencyVisibility.Public || current.Audience == HPDBaseEndpointAudience.ControlPlane && template.Visibility == BaseDependencyVisibility.Admin)
             .OrderBy(template => template.Id, StringComparer.Ordinal).ToArray();
-        BaseClientNamedTypeDescriptor[] types = BuildTypes(collections.Collections.Values, installedReads, templates.Length != 0);
+        BaseSelectionOperationProfile[] graphSelections = (selectionProfiles?.All ?? []).Where(static profile => profile.HttpProjection?.GenerateL41Client == true).ToArray();
+        BaseClientNamedTypeDescriptor[] types = BuildTypes(collections.Collections.Values, installedReads, templates.Length != 0, graphSelections);
         if (types.Length > 512)
             return ValueTask.FromResult(Failure("base.clientGeneration.snapshotTooLarge"));
 
@@ -130,6 +131,7 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
                 Route = $"{basePath}/selection-mutations/{profile.HttpProjection!.RouteName}/execute",
                 MaximumSelectedRecords = profile.Limits.MaximumSelectedRecords,
                 MaximumRequestBodyBytes = profile.HttpProjection.MaximumRequestBodyBytes,
+                RequestTypeId = $"selection.{profile.Id}.request", ResultTypeId = "base.selection.result",
             }).ToArray();
         if (capabilities.Length > 256 || installedReads.Length > 256 || templates.Length > 512 || vectors.Length > 256 || selectionMutations.Length > 256)
             return ValueTask.FromResult(Failure("base.clientGeneration.snapshotTooLarge"));
@@ -292,7 +294,7 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
         };
     }
 
-    private static BaseClientNamedTypeDescriptor[] BuildTypes(IEnumerable<CollectionDefinition> definitions, IEnumerable<IBaseReadRegistration> reads, bool includeDependencyParameter) => definitions
+    private static BaseClientNamedTypeDescriptor[] BuildTypes(IEnumerable<CollectionDefinition> definitions, IEnumerable<IBaseReadRegistration> reads, bool includeDependencyParameter, IEnumerable<BaseSelectionOperationProfile> selections) => definitions
         .Where(collection => collection.Enabled && collection.Exposed)
         .SelectMany(CollectionTypes)
         .Concat(reads.SelectMany(ReadTypes))
@@ -302,8 +304,39 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
             Node = new BaseClientTypeNode { Kind = "redacted" }
         }])
         .Concat(includeDependencyParameter ? [new BaseClientNamedTypeDescriptor { Id = "base.dependency.parameter", Node = new BaseClientTypeNode { Kind = "string", Format = "plain", MinLength = 0, MaxLength = 4096 } }] : [])
+        .Concat(SelectionTypes(selections))
         .OrderBy(type => type.Id, StringComparer.Ordinal)
         .ToArray();
+
+    private static IEnumerable<BaseClientNamedTypeDescriptor> SelectionTypes(IEnumerable<BaseSelectionOperationProfile> profiles)
+    {
+        BaseSelectionOperationProfile[] values = profiles.ToArray();
+        if (values.Length == 0) yield break;
+        yield return new() { Id = "base.selection.identity", Node = new() { Kind = "selection-identity" } };
+        yield return new() { Id = "base.selection.outcome", Node = new() { Kind = "enum", Values = ["committed", "rolledBack", "partiallyCommitted"] } };
+        yield return new() { Id = "base.selection.disposition", Node = new() { Kind = "enum", Values = ["committed", "duplicate"] } };
+        yield return new() { Id = "base.selection.count", Node = new() { Kind = "integer", Minimum = "0", Maximum = "2147483647", Wire = "number" } };
+        yield return new() { Id = "base.selection.wait", Node = new() { Kind = "integer", Minimum = "1", Maximum = "9007199254740991", Wire = "number" } };
+        yield return new() { Id = "base.selection.result", Node = Object([
+            Property("selectedCount", "base.selection.count", true), Property("mutatedCount", "base.selection.count", true),
+            Property("outcome", "base.selection.outcome", true), Property("requestDisposition", "base.selection.disposition", true)]) };
+        foreach (BaseSelectionOperationProfile profile in values)
+        {
+            string query = $"selection.{profile.Id}.query", previous = $"selection.{profile.Id}.previous";
+            yield return new() { Id = query, Node = new() { Kind = "selection-query", MaximumNodes = profile.Limits.MaximumQueryNodes, MaximumDepth = profile.Limits.MaximumQueryDepth, MaximumLiterals = profile.Limits.MaximumLiteralValues, MaximumTake = profile.Limits.MaximumSelectedRecords } };
+            yield return new() { Id = previous, Node = new() { Kind = "selection-previous-state", MaximumFields = profile.Limits.MaximumPreviousStateRequirements } };
+            var properties = new List<BaseClientPropertyDescriptor> { Property("query", query, true), Property("previousState", previous, true), Property("requestIdentity", "base.selection.identity", false), Property("callerWaitTimeoutTicks", "base.selection.wait", false) };
+            if (profile.MutationKind == BaseSelectionMutationKind.MergePatch)
+            {
+                string patch = $"selection.{profile.Id}.patch";
+                yield return new() { Id = patch, Node = new() { Kind = "selection-patch", PatchTypeId = $"collection.{profile.CollectionId}.patch" } };
+                properties.Insert(1, Property("patch", patch, true));
+            }
+            yield return new() { Id = $"selection.{profile.Id}.request", Node = Object(properties) };
+        }
+        static BaseClientTypeNode Object(IEnumerable<BaseClientPropertyDescriptor> properties) => new() { Kind = "object", AdditionalProperties = false, Properties = properties.ToArray() };
+        static BaseClientPropertyDescriptor Property(string name, string type, bool required) => new() { Name = name, WireName = name, TypeId = type, Required = required, Nullable = false, DisclosureShape = "none" };
+    }
 
     private static IEnumerable<BaseClientNamedTypeDescriptor> ReadTypes(IBaseReadRegistration read)
     {

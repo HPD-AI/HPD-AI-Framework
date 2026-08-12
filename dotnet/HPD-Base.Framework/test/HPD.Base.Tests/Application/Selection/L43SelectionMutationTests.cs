@@ -56,6 +56,27 @@ public sealed class L43SelectionMutationTests
     }
 
     [Fact]
+    public async Task ReceiptReplayIsBoundToTheOriginalTenantScope()
+    {
+        await using ServiceProvider provider = Build();
+        (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
+        IBaseSessionFactory sessions = provider.GetRequiredService<IBaseSessionFactory>();
+        BaseCollectionSession<GeneratedProject> owner = sessions.For(Admin("tenant-a")).Collection(GeneratedProject.Collection);
+        BaseDeleteSelectionProfile<GeneratedProject> profile = owner.GetDeleteSelectionProfile(DeleteIdentity());
+        BaseMutationRequestIdentity identity = Identity("tenant-bound");
+        BaseQuery<GeneratedProject> query = owner.Query().Where(GeneratedProject.Fields.OrganizationId.Equal("none"))
+            .OrderBy(GeneratedProject.Fields.Name).ThenByRecordId().Take(1);
+        (await query.DeleteSelectedAsync(profile, BasePreviousStateRequirement.None, identity)).RequireValue();
+
+        BaseCollectionSession<GeneratedProject> other = sessions.For(Admin("tenant-b")).Collection(GeneratedProject.Collection);
+        BaseResult<BaseSelectionMutationResult> replay = await other.Query().Where(GeneratedProject.Fields.OrganizationId.Equal("none"))
+            .OrderBy(GeneratedProject.Fields.Name).ThenByRecordId().Take(1)
+            .DeleteSelectedAsync(other.GetDeleteSelectionProfile(DeleteIdentity()), BasePreviousStateRequirement.None, identity);
+
+        replay.Should().BeOfType<BaseFailure<BaseSelectionMutationResult>>();
+    }
+
+    [Fact]
     public void OwnedSelectedRecordDefensivelyCopiesNestedPayload()
     {
         var fields = new Dictionary<string, JsonElement> { ["name"] = JsonSerializer.SerializeToElement(new[] { "a", "b" }) };
@@ -175,9 +196,15 @@ public sealed class L43SelectionMutationTests
         Scope = "tests", Operation = "selection", IdempotencyKey = key,
         Fingerprint = BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(key))),
     };
-    private static PrincipalContext Admin() => new() { AuthenticationState = PrincipalAuthenticationState.Admin, SubjectKind = AccessSubjectKind.User, SubjectId = "admin" };
+    private static PrincipalContext Admin(string? tenant = null) => new() { AuthenticationState = PrincipalAuthenticationState.Admin, SubjectKind = AccessSubjectKind.User, SubjectId = "admin", CurrentTenantId = tenant };
     private sealed class AllowAll : IPolicyEvaluator
     {
-        public ValueTask<PolicyDecision> EvaluateAsync(PolicyEvaluationRequest request, CancellationToken cancellationToken = default) => ValueTask.FromResult(PolicyDecision.Allow());
+        public ValueTask<PolicyDecision> EvaluateAsync(PolicyEvaluationRequest request, CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(new PolicyDecision
+            {
+                Effect = PolicyEffect.Allow,
+                Outcome = PolicyOutcome.Allowed,
+                Audit = new PolicyAuditInfo { MatchedGrantIds = ["projects.selection"] },
+            });
     }
 }

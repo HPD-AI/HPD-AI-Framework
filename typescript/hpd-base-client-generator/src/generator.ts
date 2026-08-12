@@ -46,7 +46,7 @@ export function validate(snapshot: GenerationSnapshot, expectedAudience?: "appli
   for (const endpoint of snapshot.endpoints) exactKeys(endpoint as unknown as Record<string, unknown>, ["id", "method", "route", "audience", "operation", "capability", "requestTypeId", "responseTypeId", "successStatuses", "errorCodes", "maximumRequestBodyBytes", "responseMode", "replay", "resume", "cache"]);
   for (const capability of snapshot.capabilities) exactKeys(capability as unknown as Record<string, unknown>, ["id", "available"]);
   for (const read of snapshot.registeredReads) exactKeys(read as unknown as Record<string, unknown>, ["id", "generatedName", "endpointId", "parameterTypeId", "rowTypeId", "maxPageSize", "watchable"]);
-  for (const selection of snapshot.selectionMutations) exactKeys(selection as unknown as Record<string, unknown>, ["id", "version", "checksum", "collectionId", "generatedName", "mutationKind", "endpointId", "route", "maximumSelectedRecords", "maximumRequestBodyBytes"]);
+  for (const selection of snapshot.selectionMutations) exactKeys(selection as unknown as Record<string, unknown>, ["id", "version", "checksum", "collectionId", "generatedName", "mutationKind", "endpointId", "route", "maximumSelectedRecords", "maximumRequestBodyBytes", "requestTypeId", "resultTypeId"]);
   for (const dependency of snapshot.dependencyTemplates) exactKeys(dependency as unknown as Record<string, unknown>, ["id", "kind", "visibility", "parameterTypeIds"]);
   for (const vector of snapshot.vectorIndexes) exactKeys(vector as unknown as Record<string, unknown>, ["collectionId", "id", "generatedName", "dimensions", "measure", "filterFieldIds"]);
   for (const error of snapshot.errors) exactKeys(error as unknown as Record<string, unknown>, ["code", "category", "retryable"]);
@@ -102,10 +102,13 @@ function validateTypeGraph(types: readonly NamedTypeDescriptor[], ids: ReadonlyS
     if (!stableId(type.id)) invalidType();
     const node = type.node;
     const keys: Record<TypeNode["kind"], readonly string[]> = {
-      boolean: ["kind"], string: ["kind", "minLength", "maxLength", "format"], integer: ["kind", "minimum", "maximum", "wire"], decimal: ["kind", "wire"], floating: ["kind", "precision", "finiteOnly"], bytes: ["kind", "wire", "maxBytes"], redacted: ["kind"], literal: ["kind", "value"], enum: ["kind", "values"], array: ["kind", "elementTypeId", "minItems", "maxItems"], object: ["kind", "properties", "additionalProperties"], union: ["kind", "discriminator", "variants"]
+      "selection-query": ["kind", "maximumNodes", "maximumDepth", "maximumLiterals", "maximumTake"], "selection-previous-state": ["kind", "maximumFields"], "selection-identity": ["kind"], "selection-patch": ["kind", "patchTypeId"], boolean: ["kind"], string: ["kind", "minLength", "maxLength", "format"], integer: ["kind", "minimum", "maximum", "wire"], decimal: ["kind", "wire"], floating: ["kind", "precision", "finiteOnly"], bytes: ["kind", "wire", "maxBytes"], redacted: ["kind"], literal: ["kind", "value"], enum: ["kind", "values"], array: ["kind", "elementTypeId", "minItems", "maxItems"], object: ["kind", "properties", "additionalProperties"], union: ["kind", "discriminator", "variants"]
     };
     if (!Object.hasOwn(keys, node.kind)) invalidType();
     exactKeys(node as unknown as Record<string, unknown>, keys[node.kind]);
+    if (node.kind === "selection-query" && (!safeBound(node.maximumNodes, 1, 4096) || !safeBound(node.maximumDepth, 1, 64) || !safeBound(node.maximumLiterals, 0, 16_384) || !safeBound(node.maximumTake, 1, 100_000))) invalidType();
+    if (node.kind === "selection-previous-state" && !safeBound(node.maximumFields, 0, 4096)) invalidType();
+    if (node.kind === "selection-patch" && !ids.has(node.patchTypeId)) throw new Error("base.clientGeneration.typeMissing");
     if (node.kind === "string" && (!safeBound(node.minLength, 0, 1_048_576) || !safeBound(node.maxLength, node.minLength, 1_048_576) || !["plain", "record-id", "collection-id", "field-id", "utc-instant", "revision", "cursor", "consistency-token", "mutation-id", "dependency-reference"].includes(node.format))) invalidType();
     if (node.kind === "integer" && (!integerText(node.minimum) || !integerText(node.maximum) || !["number", "decimal-string"].includes(node.wire) || BigInt(node.minimum) > BigInt(node.maximum) || node.wire === "number" && (BigInt(node.minimum) < BigInt(Number.MIN_SAFE_INTEGER) || BigInt(node.maximum) > BigInt(Number.MAX_SAFE_INTEGER)))) invalidType();
     if (node.kind === "decimal" && node.wire !== "decimal-string") invalidType();
@@ -158,14 +161,15 @@ function render(snapshot: GenerationSnapshot): Record<string, string> {
   const vectors = snapshot.vectorIndexes.map(item => `export const ${safe(item.generatedName)} = ${JSON.stringify({ id: item.id, dimensions: item.dimensions, measure: item.measure, direction: item.measure === "euclideanDistance" ? "lowerIsNearer" : "higherIsNearer" })} as const;`).join("\n");
   const readTypes = snapshot.registeredReads.map(item => `export type ${pascal(item.generatedName)}Parameters = GeneratedTypes.${typeNames.get(item.parameterTypeId)!};\nexport type ${pascal(item.generatedName)}Row = GeneratedTypes.${typeNames.get(item.rowTypeId)!};`).join("\n");
   const reads = snapshot.registeredReads.map(item => `${safe(item.generatedName)}: read<${pascal(item.generatedName)}Parameters, ${pascal(item.generatedName)}Row, ${item.watchable}>(${JSON.stringify({ id: item.id, parameterTypeId: item.parameterTypeId, rowTypeId: item.rowTypeId, maxPageSize: item.maxPageSize, watchable: item.watchable })})`).join(",\n");
-  const selections = snapshot.selectionMutations.map(item => `  ${safe(item.generatedName)}: ${JSON.stringify(item)}`).join(",\n");
+  const selections = snapshot.selectionMutations.map(item => `  ${safe(item.generatedName)}: selectionMutation<${pascal(item.generatedName)}Request>({ ...${JSON.stringify({ route: item.route, mutationKind: item.mutationKind, maximumRequestBodyBytes: item.maximumRequestBodyBytes, requestTypeId: item.requestTypeId, resultTypeId: item.resultTypeId })}, typeGraph })`).join(",\n");
+  const selectionTypes = snapshot.selectionMutations.map(item => `export interface ${pascal(item.generatedName)}Request { readonly query: BaseSelectionHttpQuery; ${item.mutationKind === "mergePatch" ? "readonly patch: GeneratedTypes." + typeNames.get(snapshot.schema.collections.find(collection => collection.id === item.collectionId)!.patchTypeId) + "; " : ""}readonly previousState: BaseSelectionPreviousState; readonly requestIdentity?: BaseSelectionRequestIdentity; readonly callerWaitTimeoutTicks?: number; }`).join("\n");
   const features = { files: snapshot.endpoints.some(endpoint => endpoint.operation.startsWith("File")), realtime: snapshot.endpoints.some(endpoint => endpoint.operation === "RealtimeSubscribe"), batch: snapshot.schema.collections.some(collection => collection.operations.includes("batch")), controlOperations: snapshot.application.audience === "controlPlane" ? snapshot.endpoints.map(endpoint => endpoint.id).filter(id => id.startsWith("base.admin.") || id.startsWith("hpd.base.vector.")).sort() : [] };
   return {
     "collections.ts": `import { collection, field } from "@hpd/base-client";\nimport type { BaseFieldDefinition } from "@hpd/base-client";\nimport type * as GeneratedTypes from "./types.js";\n${records}\nexport const collections = {\n${collectionValues}\n} as const;\n`,
     "protocol.ts": `export const protocol = ${JSON.stringify({ protocolMajor: 2, schemaGeneration: snapshot.schema.generation, digest: snapshot.digest, audience: snapshot.application.audience, features })} as const;\n`,
     "fields.ts": `export { collections } from "./collections.js";\n`,
     "reads.ts": `import { read } from "@hpd/base-client";\nimport type * as GeneratedTypes from "./types.js";\n${readTypes}\nexport const reads = {\n${reads}\n} as const;\n`,
-    "selection-mutations.ts": `export const selectionMutations = {\n${selections}\n} as const;\n`,
+    "selection-mutations.ts": `import { selectionMutation } from "@hpd/base-client";\nimport type { BaseSelectionHttpQuery, BaseSelectionPreviousState, BaseSelectionRequestIdentity } from "@hpd/base-client";\nimport { typeGraph } from "./types.js";\nimport type * as GeneratedTypes from "./types.js";\n${selectionTypes}\nexport const selectionMutations = {\n${selections}\n} as const;\n`,
     "types.ts": `${snapshot.schema.types.map((type, index) => `export type Type${index} = ${renderType(type.node, typeNames)};`).join("\n")}\nexport const typeGraph = ${JSON.stringify(Object.fromEntries(snapshot.schema.types.map(type => [type.id, type.node])))} as const;\n`,
     "vectors.ts": `${vectors}\nexport const vectorIndexes = ${JSON.stringify(snapshot.vectorIndexes)} as const;\n`,
     "dependencies.ts": `export const dependencyTemplates = ${JSON.stringify(snapshot.dependencyTemplates)} as const;\n`,
@@ -192,6 +196,10 @@ function renderCollectionValue(collection: CollectionDescriptor, typeNames: Read
 function renderType(node: TypeNode, names: ReadonlyMap<string, string>): string {
   switch (node.kind) {
     case "boolean": return "boolean";
+    case "selection-query": return "import(\"@hpd/base-client\").BaseSelectionHttpQuery";
+    case "selection-previous-state": return "import(\"@hpd/base-client\").BaseSelectionPreviousState";
+    case "selection-identity": return "import(\"@hpd/base-client\").BaseSelectionRequestIdentity";
+    case "selection-patch": return names.get(node.patchTypeId)!;
     case "string": case "decimal": return "string";
     case "bytes": return "Uint8Array";
     case "redacted": return "import(\"@hpd/base-client\").BaseRedacted";

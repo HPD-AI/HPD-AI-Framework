@@ -711,6 +711,45 @@ public sealed partial class SqliteRecordStore
 
     private sealed class SqliteAtomicRecordSession : IAtomicRecordSession
     {
+        private int _relationChecks;
+        private int _uniqueChecks;
+        public async ValueTask<OperationResult<BaseSelectionMutationCommitAccounting>> MeasureSelectionMutationAsync(
+            BaseAtomicReceiptResult receipt, BaseSelectionMutationResult result, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            long written = 0, facts = 0, journal = 0;
+            foreach (BaseOwnedMutationFact owned in receipt.Mutations)
+            {
+                BaseRecordMutationFact fact = owned.MaterializeOwned();
+                facts = checked(facts + owned.EncodedLength);
+                if (fact.After is { } after)
+                {
+                    SqlitePhysicalModel.CollectionModel physical = _owner._physical.Collection(fact.Collection.Id);
+                    await using SqliteCommand stored = _connection.CreateCommand();
+                    stored.Transaction = _transaction;
+                    string payloadBytes = string.Join(string.Empty, physical.PayloadColumns.Split(", ", StringSplitOptions.RemoveEmptyEntries).Select(static column => $"+COALESCE(length(CAST({column} AS BLOB)),0)"));
+                    stored.CommandText = $"SELECT length(CAST(record_id AS BLOB))+8+length(CAST(created_at AS BLOB))+length(CAST(updated_at AS BLOB)){payloadBytes} FROM {physical.Table} WHERE record_id=$id;";
+                    stored.Parameters.AddWithValue("$id", after.Id.Value);
+                    written = checked(written + Convert.ToInt64(await stored.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture));
+                }
+                else written = checked(written + System.Text.Encoding.UTF8.GetByteCount(fact.Before!.Id.Value) + sizeof(long));
+
+                await using SqliteCommand persistedJournal = _connection.CreateCommand();
+                persistedJournal.Transaction = _transaction;
+                persistedJournal.CommandText = $"SELECT length(CAST(event_id AS BLOB))+length(CAST(event_type AS BLOB))+length(CAST(schema_version AS BLOB))+length(CAST(occurred_at AS BLOB))+COALESCE(length(CAST(tenant_id AS BLOB)),0)+8+8+length(CAST(collection_id AS BLOB))+length(CAST(record_id AS BLOB))+COALESCE(length(CAST(before_json AS BLOB)),0)+COALESCE(length(CAST(after_json AS BLOB)),0) FROM {_owner._names.MutationJournal} WHERE position=$position;";
+                persistedJournal.Parameters.AddWithValue("$position", fact.JournalPosition.Value);
+                journal = checked(journal + Convert.ToInt64(await persistedJournal.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture));
+            }
+            long receiptBytes = JsonSerializer.SerializeToUtf8Bytes(BaseAtomicReceiptWire.From(receipt), HPDBaseJsonSerializerContext.Default.BaseAtomicReceiptWire).LongLength;
+            long resultBytes = JsonSerializer.SerializeToUtf8Bytes(result, HPDBaseJsonSerializerContext.Default.BaseSelectionMutationResult).LongLength;
+            return OperationResults.Ok(new BaseSelectionMutationCommitAccounting
+            {
+                WrittenBytes = written, FactBytes = facts, JournalBytes = journal, ReceiptBytes = receiptBytes,
+                RelationChecks = _relationChecks, UniqueConstraintChecks = _uniqueChecks, ResultBytes = resultBytes,
+                TransientBytes = checked(written + facts + journal + receiptBytes + resultBytes),
+            });
+        }
+
         private const int Active = 0;
         private const int Closing = 1;
         private const int Closed = 2;
@@ -762,6 +801,20 @@ public sealed partial class SqliteRecordStore
                     "base.provider.selection.authorityInvalid", ErrorCategory.Validation);
             }
 
+            await using (SqliteCommand authority = _connection.CreateCommand())
+            {
+                authority.Transaction = _transaction;
+                authority.CommandText = $"SELECT i.store_instance_id, COALESCE((SELECT CAST(value AS INTEGER) FROM {_owner._names.ProviderState} WHERE key='restore_epoch'),0), COALESCE((SELECT MAX(generation) FROM {_owner._names.SchemaBaseline}),0), c.purge_generation FROM {_owner._names.SchemaIdentity} i JOIN {_owner._names.Collections} c ON c.collection_id=$collection LIMIT 1;";
+                authority.Parameters.AddWithValue("$collection", request.Collection.Id);
+                await using SqliteDataReader authorityReader = await authority.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+                if (!await authorityReader.ReadAsync(cancellationToken).ConfigureAwait(false)
+                    || !string.Equals(authorityReader.GetString(0), request.Authority.StoreInstanceId, StringComparison.Ordinal)
+                    || authorityReader.GetInt64(1) != request.Authority.RestoreEpoch
+                    || authorityReader.GetInt64(2) != request.Authority.SchemaGeneration
+                    || authorityReader.GetInt64(3) != request.Authority.CollectionGeneration)
+                    return SelectionFailure(OperationStatus.Conflict, "base.provider.selection.authorityChanged", ErrorCategory.Conflict);
+            }
+
             SqlitePhysicalModel.CollectionModel physical = _owner._physical.Collection(request.Collection.Id);
             SqliteQueryPlan plan = new SqliteQueryPlanner(_owner._options, physical).Plan(request.Query);
             if (!plan.Supported)
@@ -801,7 +854,7 @@ public sealed partial class SqliteRecordStore
                     ApplicationId = request.Authority.ApplicationId,
                     StoreInstanceId = request.Authority.StoreInstanceId,
                     RestoreEpoch = request.Authority.RestoreEpoch,
-                    SchemaGeneration = request.Authority.SchemaGeneration,
+                    SchemaGeneration = Volatile.Read(ref _owner._schemaGeneration),
                     CollectionGeneration = request.Authority.CollectionGeneration,
                     Isolation = BaseAtomicSelectionIsolationClass.WriteOwningSerializable,
                     TransactionEvidenceToken = BitConverter.GetBytes(_transactionStarted).ToImmutableArray(),
@@ -1014,7 +1067,7 @@ public sealed partial class SqliteRecordStore
             }
             catch (SqliteException ex) when (
                 operation == BaseOperationKind.Create
-                && ex.SqliteErrorCode == 19)
+                && ex.SqliteExtendedErrorCode == 1555)
             {
                 return SqliteResultFactory.DuplicateId<T>("record");
             }
@@ -1040,13 +1093,13 @@ public sealed partial class SqliteRecordStore
             }
         }
 
-        private static OperationResult<T> ConstraintFailure<T>(SqliteException exception)
+        private OperationResult<T> ConstraintFailure<T>(SqliteException exception)
         {
             string code = exception.SqliteExtendedErrorCode switch
             {
                 1555 => "base.constraint.recordIdentity",
-                2067 => "base.constraint.attributionUnavailable",
-                787 => "base.constraint.attributionUnavailable",
+                2067 => AttributeUnique(exception),
+                787 => AttributeRelation(),
                 275 => "base.constraint.attributionUnavailable",
                 1299 => "base.constraint.attributionUnavailable",
                 _ => "base.constraint.attributionUnavailable",
@@ -1057,6 +1110,33 @@ public sealed partial class SqliteRecordStore
                 Message = "The mutation violated an authoritative logical constraint.",
                 Category = ErrorCategory.Conflict,
             });
+        }
+
+        private string AttributeUnique(SqliteException exception)
+        {
+            const string marker = "UNIQUE constraint failed: ";
+            int start = exception.Message.IndexOf(marker, StringComparison.Ordinal);
+            if (start < 0) return "base.constraint.attributionUnavailable";
+            string[] physicalColumns = exception.Message[(start + marker.Length)..]
+                .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+                .Select(static value => value[(value.LastIndexOf('.') + 1)..])
+                .ToArray();
+            if (physicalColumns.Length == 0) return "base.constraint.attributionUnavailable";
+            int matches = 0;
+            foreach (SqlitePhysicalModel.CollectionModel collection in _owner._physical.Collections)
+            foreach (SqlitePhysicalModel.IndexModel index in collection.Indexes.Where(static candidate => candidate.Definition.Unique || candidate.Definition.Kind == IndexKind.Unique))
+            {
+                _uniqueChecks = checked(_uniqueChecks + 1);
+                if (index.Parts.Select(static part => part.Column).SequenceEqual(physicalColumns, StringComparer.Ordinal)) matches++;
+            }
+            return matches == 1 ? "base.constraint.unique" : "base.constraint.attributionUnavailable";
+        }
+
+        private string AttributeRelation()
+        {
+            SqlitePhysicalModel.RelationModel[] relations = _owner._physical.Relations.ToArray();
+            _relationChecks = checked(_relationChecks + relations.Length);
+            return relations.Length == 1 ? "base.constraint.relation" : "base.constraint.attributionUnavailable";
         }
 
         private async ValueTask<OperationResult<RecordMutationSessionResult>> CreateCoreAsync(
@@ -1100,6 +1180,7 @@ public sealed partial class SqliteRecordStore
             command.Parameters.AddWithValue("$appendPosition", appendPosition);
             physical.AddPayloadParameters(command, normalizedPayload, includeExtensions: true);
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            _uniqueChecks = checked(_uniqueChecks + physical.Indexes.Count(index => index.Definition.Unique));
             await SyncRelationsAsync(collection.Id, id.Value, normalizedPayload, cancellationToken).ConfigureAwait(false);
 
             var metadata = SqliteRecordMapper.Metadata(1, now, now, _owner._options.StoreId);
@@ -1282,6 +1363,7 @@ public sealed partial class SqliteRecordStore
             physical.AddPayloadParameters(command, nextPayload, includeExtensions: true);
             command.Parameters.AddWithValue("$id", id.Value);
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            _uniqueChecks = checked(_uniqueChecks + physical.Indexes.Count(index => index.Definition.Unique));
             await SyncRelationsAsync(collection.Id, id.Value, nextPayload, cancellationToken).ConfigureAwait(false);
 
             var metadata = SqliteRecordMapper.Metadata(
@@ -1433,6 +1515,7 @@ public sealed partial class SqliteRecordStore
                 var ordinal = 0;
                 foreach (var target in value.EnumerateArray())
                 {
+                    _relationChecks = checked(_relationChecks + 1);
                     if (target.ValueKind != System.Text.Json.JsonValueKind.String || string.IsNullOrWhiteSpace(target.GetString()))
                         throw new InvalidOperationException("SQLite relation payload shape is invalid.");
                     await using var insert = _connection.CreateCommand();
@@ -1468,6 +1551,7 @@ public sealed partial class SqliteRecordStore
             foreach (SqlitePhysicalModel.RelationModel relation in _owner._physical.RelationsTo(collectionId)
                 .Where(static relation => relation.Definition.DeleteBehavior == BaseRelationDeleteBehavior.Restrict))
             {
+                _relationChecks = checked(_relationChecks + 1);
                 await using var command = _connection.CreateCommand();
                 command.Transaction = _transaction;
                 command.CommandTimeout = CommandTimeoutSeconds();

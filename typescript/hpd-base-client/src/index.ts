@@ -7,4 +7,5 @@ export * from "./transport.js";
 export * from "./codec.js";
 export * from "./files.js";
 export * from "./vector.js";
+export * from "./selection.js";
 export type { BaseBackupCreateRequest, BaseBackupManifest, BaseBackupValidationRequest, BaseControlPlaneClient, BasePurgeRequest, BasePurgeResult, BaseRestoreRequest, BaseRestoreResult } from "./control.js";

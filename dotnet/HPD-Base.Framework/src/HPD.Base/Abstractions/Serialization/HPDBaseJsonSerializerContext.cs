@@ -308,6 +308,7 @@ using AtomicMutationProcessingOutcomeConverter = LowerCamelJsonStringEnumConvert
 [JsonSerializable(typeof(AtomicMutationProcessingResult))]
 [JsonSerializable(typeof(BaseSelectionOperationProfile))]
 [JsonSerializable(typeof(BaseAtomicReceiptResult))]
+[JsonSerializable(typeof(BaseSelectionMutationResult))]
 [JsonSerializable(typeof(BaseAtomicReceiptWire))]
 [JsonSerializable(typeof(BaseRecordMutationFact))]
 [JsonSerializable(typeof(BaseRecordMutationFact[]))]

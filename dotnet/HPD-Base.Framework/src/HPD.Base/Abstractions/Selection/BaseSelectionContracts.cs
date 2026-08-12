@@ -325,6 +325,27 @@ public sealed record BaseAtomicSelectionAccounting
     public required long EvidenceBytes { get; init; }
 }
 
+/// <summary>Reports exact provider-certified aggregate accounting before selection commit.</summary>
+public sealed record BaseSelectionMutationCommitAccounting
+{
+    /// <summary>Gets canonical authoritative bytes written.</summary>
+    public required long WrittenBytes { get; init; }
+    /// <summary>Gets canonical mutation-fact bytes.</summary>
+    public required long FactBytes { get; init; }
+    /// <summary>Gets exact durable journal framing and payload bytes.</summary>
+    public required long JournalBytes { get; init; }
+    /// <summary>Gets the complete durable receipt bytes.</summary>
+    public required long ReceiptBytes { get; init; }
+    /// <summary>Gets logical relation checks performed.</summary>
+    public required int RelationChecks { get; init; }
+    /// <summary>Gets logical unique checks performed.</summary>
+    public required int UniqueConstraintChecks { get; init; }
+    /// <summary>Gets canonical projected result bytes.</summary>
+    public required long ResultBytes { get; init; }
+    /// <summary>Gets aggregate retained transient canonical bytes.</summary>
+    public required long TransientBytes { get; init; }
+}
+
 /// <summary>Returns one validated provider selection.</summary>
 public sealed record BaseAtomicSelectionResult
 {

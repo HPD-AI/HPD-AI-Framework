@@ -14,6 +14,24 @@ namespace HPD.Base;
 /// </summary>
 internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreamingRecordStore, IRelationalReadStore, IConsistentRecordIncludeStore, IInMemoryProjectionAuthority
 {
+    /// <inheritdoc />
+    public ValueTask<OperationResult<BaseAuthoritySnapshotRequirement>> CaptureSelectionAuthorityAsync(
+        string applicationId,
+        CollectionDefinition collection,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ArgumentNullException.ThrowIfNull(collection);
+        return ValueTask.FromResult(OperationResults.Ok(new BaseAuthoritySnapshotRequirement
+        {
+            ApplicationId = new string(applicationId.AsSpan()),
+            StoreInstanceId = new string(_options.StoreId.AsSpan()),
+            RestoreEpoch = 0,
+            SchemaGeneration = 1,
+            CollectionGeneration = Volatile.Read(ref _generation),
+        }));
+    }
+
     public async ValueTask<OperationResult<IInMemoryProjectionReadSession>> CaptureAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -688,7 +706,8 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         RecordId id,
         RecordDeleteRequest request,
         OperationContext context,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Action? relationCheck = null)
     {
         ArgumentNullException.ThrowIfNull(collection);
         ArgumentNullException.ThrowIfNull(request);
@@ -716,7 +735,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             return ValueTask.FromResult(InMemoryResultFactory.RevisionConflict<DeleteResult>(expected, current.Metadata.Revision, id.Value));
         }
 
-        if (HasRestrictedIncomingReference(working, collection.Id, id.Value))
+        if (HasRestrictedIncomingReference(working, collection.Id, id.Value, relationCheck))
         {
             return ValueTask.FromResult(OperationResults.Conflict<DeleteResult>(new BaseError
             {
@@ -992,7 +1011,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
     private static InMemoryCollectionState? GetCollectionOrNull(InMemoryStoreState state, string collectionId) =>
         state.Collections.GetValueOrDefault(collectionId);
 
-    private bool HasRestrictedIncomingReference(InMemoryStoreState state, string targetCollectionId, string targetRecordId)
+    private bool HasRestrictedIncomingReference(InMemoryStoreState state, string targetCollectionId, string targetRecordId, Action? checkedRelation = null)
     {
         foreach (CollectionDefinition source in _options.Collections ?? [])
         {
@@ -1003,7 +1022,10 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 if (field.Relation is not { OwningSide: BaseRelationOwningSide.Source, DeleteBehavior: BaseRelationDeleteBehavior.Restrict } relation ||
                     !string.Equals(relation.TargetCollectionId, targetCollectionId, StringComparison.Ordinal)) continue;
                 foreach (StoredRecord record in sourceState.RecordsById.Values)
+                {
+                    checkedRelation?.Invoke();
                     if (RelationContains(record.Payload, field.Name, targetRecordId)) return true;
+                }
             }
         }
         return false;
@@ -1999,6 +2021,40 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
 
     private sealed class AtomicSession : IAtomicRecordSession
     {
+        private int _relationChecks;
+        private int _uniqueChecks;
+        public ValueTask<OperationResult<BaseSelectionMutationCommitAccounting>> MeasureSelectionMutationAsync(
+            BaseAtomicReceiptResult receipt, BaseSelectionMutationResult result, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            long written = 0, facts = 0, journal = 0;
+            foreach (BaseOwnedMutationFact owned in receipt.Mutations)
+            {
+                BaseRecordMutationFact fact = owned.MaterializeOwned();
+                facts = checked(facts + owned.EncodedLength);
+                if (fact.After is { } after)
+                {
+                    InMemoryCollectionState state = _owner.GetOrCreateCollection(_working, fact.Collection.Id);
+                    StoredRecord persisted = state.RecordsById[fact.After.Id.Value];
+                    written = checked(written + JsonSerializer.SerializeToUtf8Bytes(
+                        RecordCloneHelpers.CloneEnvelope(persisted), HPDBaseJsonSerializerContext.Default.RecordEnvelope).LongLength);
+                }
+                else
+                {
+                    written = checked(written + System.Text.Encoding.UTF8.GetByteCount(fact.Before!.Id.Value) + sizeof(long));
+                }
+                journal = checked(journal + owned.EncodedLength + System.Text.Encoding.UTF8.GetByteCount(fact.Event.EventId) + sizeof(long));
+            }
+            long receiptBytes = JsonSerializer.SerializeToUtf8Bytes(BaseAtomicReceiptWire.From(receipt), HPDBaseJsonSerializerContext.Default.BaseAtomicReceiptWire).LongLength;
+            long resultBytes = JsonSerializer.SerializeToUtf8Bytes(result, HPDBaseJsonSerializerContext.Default.BaseSelectionMutationResult).LongLength;
+            return ValueTask.FromResult(OperationResults.Ok(new BaseSelectionMutationCommitAccounting
+            {
+                WrittenBytes = written, FactBytes = facts, JournalBytes = journal, ReceiptBytes = receiptBytes,
+                RelationChecks = _relationChecks, UniqueConstraintChecks = _uniqueChecks, ResultBytes = resultBytes,
+                TransientBytes = checked(written + facts + journal + receiptBytes + resultBytes),
+            }));
+        }
+
         private const int Active = 0;
         private const int Closing = 1;
         private const int Closed = 2;
@@ -2013,6 +2069,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         {
             _owner = owner;
             _working = working;
+            _uniqueChecks = 0;
         }
 
         /// <inheritdoc />
@@ -2028,8 +2085,8 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             ArgumentNullException.ThrowIfNull(request);
             if (!string.Equals(request.Authority.StoreInstanceId, _owner._options.StoreId, StringComparison.Ordinal)
                 || request.Authority.RestoreEpoch != 0
-                || request.Authority.SchemaGeneration < 0
-                || request.Authority.CollectionGeneration < 0)
+                || request.Authority.SchemaGeneration != 1
+                || request.Authority.CollectionGeneration != _owner._generation)
             {
                 return SelectionFailure(
                     OperationStatus.ValidationFailed,
@@ -2115,9 +2172,9 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 {
                     ApplicationId = request.Authority.ApplicationId,
                     StoreInstanceId = request.Authority.StoreInstanceId,
-                    RestoreEpoch = request.Authority.RestoreEpoch,
-                    SchemaGeneration = request.Authority.SchemaGeneration,
-                    CollectionGeneration = request.Authority.CollectionGeneration,
+                    RestoreEpoch = 0,
+                    SchemaGeneration = 1,
+                    CollectionGeneration = _owner._generation,
                     Isolation = BaseAtomicSelectionIsolationClass.OptimisticRangeValidatedSerializable,
                     TransactionEvidenceToken = BitConverter.GetBytes(_working.GlobalMutationPosition).ToImmutableArray(),
                 },
@@ -2292,7 +2349,8 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                             id,
                             request,
                             context.Operation,
-                            token)).ConfigureAwait(false);
+                            token,
+                            () => _relationChecks = checked(_relationChecks + 1))).ConfigureAwait(false);
                     return ProjectMutation(
                         result,
                         collection,

@@ -19,6 +19,10 @@ export interface FieldDescriptor { readonly id: string; readonly wireName: strin
 export interface NamedTypeDescriptor { readonly id: string; readonly node: TypeNode; }
 export type StringFormat = "plain" | "record-id" | "collection-id" | "field-id" | "utc-instant" | "revision" | "cursor" | "consistency-token" | "mutation-id" | "dependency-reference";
 export type TypeNode =
+  | { readonly kind: "selection-query"; readonly maximumNodes: number; readonly maximumDepth: number; readonly maximumLiterals: number; readonly maximumTake: number }
+  | { readonly kind: "selection-previous-state"; readonly maximumFields: number }
+  | { readonly kind: "selection-identity" }
+  | { readonly kind: "selection-patch"; readonly patchTypeId: string }
   | { readonly kind: "boolean" }
   | { readonly kind: "string"; readonly minLength: number; readonly maxLength: number; readonly format: StringFormat }
   | { readonly kind: "integer"; readonly minimum: string; readonly maximum: string; readonly wire: "number" | "decimal-string" }
@@ -38,4 +42,4 @@ export interface ReadDescriptor { readonly id: string; readonly generatedName: s
 export interface DependencyDescriptor { readonly id: string; readonly kind: string; readonly visibility: string; readonly parameterTypeIds: readonly string[]; }
 export interface ErrorDescriptor { readonly code: string; readonly category: string; readonly retryable: boolean; }
 export interface VectorDescriptor { readonly collectionId: string; readonly id: string; readonly generatedName: string; readonly dimensions: number; readonly measure: "cosineSimilarity" | "dotProductSimilarity" | "euclideanDistance"; readonly filterFieldIds: readonly string[]; }
-export interface SelectionMutationDescriptor { readonly id: string; readonly version: number; readonly checksum: string; readonly collectionId: string; readonly generatedName: string; readonly mutationKind: "mergePatch" | "delete"; readonly endpointId: string; readonly route: string; readonly maximumSelectedRecords: number; readonly maximumRequestBodyBytes: number; }
+export interface SelectionMutationDescriptor { readonly id: string; readonly version: number; readonly checksum: string; readonly collectionId: string; readonly generatedName: string; readonly mutationKind: "mergePatch" | "delete"; readonly endpointId: string; readonly route: string; readonly maximumSelectedRecords: number; readonly maximumRequestBodyBytes: number; readonly requestTypeId: string; readonly resultTypeId: string; }

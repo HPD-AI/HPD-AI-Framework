@@ -21,6 +21,30 @@ public sealed partial class SqliteRecordStore :
     IRecordStoreAdministration,
     IAsyncDisposable
 {
+    /// <inheritdoc />
+    public async ValueTask<OperationResult<BaseAuthoritySnapshotRequirement>> CaptureSelectionAuthorityAsync(
+        string applicationId,
+        CollectionDefinition collection,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(collection);
+        await using SqliteConnection connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = $"SELECT i.store_instance_id, COALESCE((SELECT CAST(value AS INTEGER) FROM {_names.ProviderState} WHERE key='restore_epoch'),0), COALESCE((SELECT MAX(generation) FROM {_names.SchemaBaseline}),0), c.purge_generation FROM {_names.SchemaIdentity} i JOIN {_names.Collections} c ON c.collection_id=$collection LIMIT 1;";
+        command.Parameters.AddWithValue("$collection", collection.Id);
+        await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            return OperationResults.NotFound<BaseAuthoritySnapshotRequirement>(new BaseError { Code = "base.runtime.collection.notFound", Message = "Collection was not found.", Category = ErrorCategory.NotFound });
+        return OperationResults.Ok(new BaseAuthoritySnapshotRequirement
+        {
+            ApplicationId = new string(applicationId.AsSpan()),
+            StoreInstanceId = reader.GetString(0),
+            RestoreEpoch = reader.GetInt64(1),
+            SchemaGeneration = reader.GetInt64(2),
+            CollectionGeneration = reader.GetInt64(3),
+        });
+    }
+
     internal SqliteConnectionFactory VectorConnections => _connections;
     internal SqliteNames VectorNames => _names;
     internal SqlitePhysicalModel VectorPhysicalModel => _physical;

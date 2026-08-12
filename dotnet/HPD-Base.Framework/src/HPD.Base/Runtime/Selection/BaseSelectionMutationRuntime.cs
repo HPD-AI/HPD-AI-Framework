@@ -60,9 +60,12 @@ internal sealed class DefaultBaseSelectionMutationRuntime(
             Query = query,
             ProposedPayload = patch?.Patch,
         }, cancellationToken).ConfigureAwait(false);
-        if (!authorization.IsSuccess() || authorization.Value is null)
+        if (!authorization.IsSuccess() || authorization.Value is null
+            || !BaseSystemCollectionGate.HasExactGrant(authorization, profile.RequiredGrantId))
             return Failure(OperationStatus.PolicyDenied, BaseSelectionErrorCodes.PolicyUnsupported, ErrorCategory.Authorization);
         RecordQuery constrained = BasePolicyRuntimeSimulation.ComposePolicyFilter(query, authorization.Value.EffectiveRecordFilter);
+        if (!WithinQueryLimits(constrained.Filter, profile.Limits))
+            return Failure(OperationStatus.ValidationFailed, BaseSelectionErrorCodes.LimitExceeded, ErrorCategory.Validation);
         BaseRecordMutationKind mutationKind = profile.MutationKind == BaseSelectionMutationKind.MergePatch
             ? BaseRecordMutationKind.Patch : BaseRecordMutationKind.Delete;
         OperationResult<BaseResolvedMutationStore> resolved = stores.Resolve(collection, mutationKind, operation);
@@ -71,10 +74,16 @@ internal sealed class DefaultBaseSelectionMutationRuntime(
             || !CapabilitySupports(profile, capability))
             return Failure(OperationStatus.Unsupported, BaseSelectionErrorCodes.CapabilityMissing, ErrorCategory.Unsupported);
 
+        OperationResult<BaseAuthoritySnapshotRequirement> authority = await resolved.Value.AtomicStore
+            .CaptureSelectionAuthorityAsync(profile.ApplicationId, collection, cancellationToken).ConfigureAwait(false);
+        if (!authority.IsSuccess() || authority.Value is null
+            || !string.Equals(authority.Value.StoreInstanceId, resolved.Value.Registration.StoreId, StringComparison.Ordinal))
+            return Failure(OperationStatus.Conflict, BaseSelectionErrorCodes.SchemaGenerationChanged, ErrorCategory.Conflict);
+
         RecordQuery providerQuery = BaseQueryFieldResolver.ToStoredNames(collection, constrained);
         var processor = new BaseSelectionMutationProcessor(
             session.Principal, operation, collection, profile, providerQuery, patch, normalizedPreviousState, policy,
-            resolved.Value);
+            resolved.Value, authority.Value);
         var executionRequest = new RecordMutationExecutionRequest
         {
             AcquisitionTimeout = profile.Limits.AcquisitionTimeout,
@@ -144,10 +153,26 @@ internal sealed class DefaultBaseSelectionMutationRuntime(
             && capability.SupportsReadYourWrites
             && capability.SupportsBoundedCancellation
             && capability.SupportsBoundedCommitObservation
+            && required.MaximumQueryNodes <= maximum.MaximumQueryNodes
+            && required.MaximumQueryDepth <= maximum.MaximumQueryDepth
+            && required.MaximumLiteralValues <= maximum.MaximumLiteralValues
             && required.MaximumSelectedRecords <= maximum.MaximumSelectedRecords
             && required.MaximumSelectedBytes <= maximum.MaximumSelectedBytes
+            && required.MaximumProducedMutations <= maximum.MaximumProducedMutations
+            && required.MaximumQueryExecutions <= maximum.MaximumQueryExecutions
             && required.MaximumReadIntervals <= maximum.MaximumReadIntervals
-            && required.MaximumTransientBytes <= maximum.MaximumTransientBytes;
+            && required.MaximumWrittenBytes <= maximum.MaximumWrittenBytes
+            && required.MaximumFactBytes <= maximum.MaximumFactBytes
+            && required.MaximumJournalBytes <= maximum.MaximumJournalBytes
+            && required.MaximumReceiptBytes <= maximum.MaximumReceiptBytes
+            && required.MaximumRelationChecks <= maximum.MaximumRelationChecks
+            && required.MaximumUniqueConstraintChecks <= maximum.MaximumUniqueConstraintChecks
+            && required.MaximumPreviousStateRequirements <= maximum.MaximumPreviousStateRequirements
+            && required.MaximumTransientBytes <= maximum.MaximumTransientBytes
+            && required.MaximumResultBytes <= maximum.MaximumResultBytes
+            && required.AcquisitionTimeout <= maximum.AcquisitionTimeout
+            && required.ExecutionTimeout <= maximum.ExecutionTimeout
+            && required.CallerCommitObservationTimeout <= maximum.CallerCommitObservationTimeout;
     }
 
     private static byte[] StructuralDigest(BaseSelectionOperationProfile profile, RecordQuery query,
@@ -209,6 +234,24 @@ internal sealed class DefaultBaseSelectionMutationRuntime(
         Id = value.Id is null ? null : new string(value.Id.AsSpan()),
         Array = value.Array?.Select(CloneQueryValue).ToArray(),
     };
+
+    private static bool WithinQueryLimits(FilterExpression? filter, BaseSelectionOperationLimits limits)
+    {
+        int nodes = 0, literals = 0;
+        bool Visit(FilterExpression node, int depth)
+        {
+            if (depth > limits.MaximumQueryDepth || ++nodes > limits.MaximumQueryNodes) return false;
+            try
+            {
+                literals = checked(literals + (node.Value is null ? 0 : 1) + (node.Values?.Length ?? 0) + (node.Arguments?.Length ?? 0));
+            }
+            catch (OverflowException) { return false; }
+            if (literals > limits.MaximumLiteralValues) return false;
+            foreach (FilterExpression child in node.Children ?? []) if (!Visit(child, depth + 1)) return false;
+            return true;
+        }
+        return filter is null || Visit(filter, 1);
+    }
 }
 
 internal sealed record BaseSelectionDigestInput
@@ -237,7 +280,8 @@ internal sealed class BaseSelectionMutationProcessor(
     RecordPatchRequest? patch,
     BasePreviousStateRequirement previousState,
     IBasePolicyOrchestrator policy,
-    BaseResolvedMutationStore store) : IAtomicMutationProcessor
+    BaseResolvedMutationStore store,
+    BaseAuthoritySnapshotRequirement authority) : IAtomicMutationProcessor
 {
     internal BaseSelectionMutationResult? Result { get; private set; }
     internal IReadOnlyList<BaseMutationAttempt> Attempts => _attempts;
@@ -253,7 +297,8 @@ internal sealed class BaseSelectionMutationProcessor(
             || !string.Equals(stored.ApplicationId, profile.ApplicationId, StringComparison.Ordinal)
             || !string.Equals(stored.CollectionId, collection.Id, StringComparison.Ordinal)
             || !string.Equals(stored.OperationProfileId, profile.Id, StringComparison.Ordinal)
-            || stored.OperationProfileVersion != profile.Version)
+            || stored.OperationProfileVersion != profile.Version
+            || !string.Equals(stored.ReceiptScope, principal.CurrentTenantId ?? string.Empty, StringComparison.Ordinal))
             return Failed(BaseMutationRequestErrorCodes.ReceiptUnavailable, ErrorCategory.Authorization);
         OperationResult<BasePolicyEvaluation> disclosure = await policy.EvaluateWriteAsync(new BasePolicyRequest
         {
@@ -262,8 +307,29 @@ internal sealed class BaseSelectionMutationProcessor(
             Collection = collection,
             ResourceKind = PolicyResourceKind.SelectionMutation,
         }, cancellationToken).ConfigureAwait(false);
-        if (!disclosure.IsSuccess() || disclosure.Value is null)
+        if (!disclosure.IsSuccess() || disclosure.Value is null
+            || !BaseSystemCollectionGate.HasExactGrant(disclosure, profile.RequiredGrantId))
             return Failed(BaseMutationRequestErrorCodes.ReceiptUnavailable, ErrorCategory.Authorization);
+        foreach (BaseOwnedMutationFact owned in committedResult.Mutations)
+        {
+            BaseRecordMutationFact fact;
+            try { fact = owned.MaterializeOwned(); }
+            catch { return Failed(BaseMutationRequestErrorCodes.ReceiptUnavailable, ErrorCategory.Authorization); }
+            RecordEnvelope? resource = fact.After ?? fact.Before;
+            if (!string.Equals(fact.Collection.Id, collection.Id, StringComparison.Ordinal) || resource is null)
+                return Failed(BaseMutationRequestErrorCodes.ReceiptUnavailable, ErrorCategory.Authorization);
+            OperationResult<BasePolicyEvaluation> item = await policy.EvaluateWriteAsync(new BasePolicyRequest
+            {
+                Principal = principal,
+                Operation = operation with { RecordId = resource.Id.Value },
+                Collection = collection,
+                ResourceKind = PolicyResourceKind.SelectionMutation,
+                ExistingRecord = resource,
+                RecordId = resource.Id,
+            }, cancellationToken).ConfigureAwait(false);
+            if (!item.IsSuccess() || item.Value is null || !BaseSystemCollectionGate.HasExactGrant(item, profile.RequiredGrantId))
+                return Failed(BaseMutationRequestErrorCodes.ReceiptUnavailable, ErrorCategory.Authorization);
+        }
         Result = new BaseSelectionMutationResult
         {
             SelectedCount = stored.SelectedCount,
@@ -289,14 +355,7 @@ internal sealed class BaseSelectionMutationProcessor(
                 MaximumReadIntervals = profile.Limits.MaximumReadIntervals,
                 MaximumTransientBytes = profile.Limits.MaximumTransientBytes,
             },
-            Authority = new BaseAuthoritySnapshotRequirement
-            {
-                ApplicationId = profile.ApplicationId,
-                StoreInstanceId = store.Registration.StoreId,
-                RestoreEpoch = 0,
-                SchemaGeneration = 0,
-                CollectionGeneration = 0,
-            },
+            Authority = authority,
             CanonicalRecordCodecVersion = 1,
         }, cancellationToken).ConfigureAwait(false);
         if (!selected.IsSuccess() || selected.Value is null)
@@ -368,8 +427,7 @@ internal sealed class BaseSelectionMutationProcessor(
             BaseAtomicMutationProjectionFactory.Create([.. facts]), cancellationToken).ConfigureAwait(false);
         if (!projections.IsSuccess())
             return Failed(projections.Error ?? Error("base.runtime.mutationProjectionFailed", ErrorCategory.Store));
-        return new AtomicMutationProcessingResult(AtomicMutationProcessingOutcome.ReadyToCommit,
-            new BaseAtomicReceiptResult
+        var receipt = new BaseAtomicReceiptResult
             {
                 Kind = BaseAtomicReceiptResultKind.SelectionMutation,
                 Mutations = facts.Select(static fact => BaseOwnedMutationFact.Freeze(fact, 1)).ToImmutableArray(),
@@ -384,7 +442,11 @@ internal sealed class BaseSelectionMutationProcessor(
                     MutatedCount = facts.Count,
                     Outcome = BaseRecordBatchOutcome.Committed,
                 },
-            });
+            };
+        OperationResult<BaseSelectionMutationCommitAccounting> measured = await session.MeasureSelectionMutationAsync(receipt, Result, cancellationToken).ConfigureAwait(false);
+        if (!measured.IsSuccess() || measured.Value is null || !WithinAccounting(measured.Value, profile.Limits, facts.Count))
+            return Failed(BaseSelectionErrorCodes.LimitExceeded, ErrorCategory.Validation);
+        return new AtomicMutationProcessingResult(AtomicMutationProcessingOutcome.ReadyToCommit, receipt);
     }
 
     private static bool PreviousStateMatches(RecordEnvelope record, BasePreviousStateRequirement requirement)
@@ -404,10 +466,24 @@ internal sealed class BaseSelectionMutationProcessor(
         return true;
     }
 
+    private static bool WithinAccounting(BaseSelectionMutationCommitAccounting value, BaseSelectionOperationLimits limits, int mutations) =>
+        mutations <= limits.MaximumProducedMutations
+        && value.WrittenBytes is >= 0 && value.WrittenBytes <= limits.MaximumWrittenBytes
+        && value.FactBytes is >= 0 && value.FactBytes <= limits.MaximumFactBytes
+        && value.JournalBytes is >= 0 && value.JournalBytes <= limits.MaximumJournalBytes
+        && value.ReceiptBytes is >= 0 && value.ReceiptBytes <= limits.MaximumReceiptBytes
+        && value.RelationChecks is >= 0 && value.RelationChecks <= limits.MaximumRelationChecks
+        && value.UniqueConstraintChecks is >= 0 && value.UniqueConstraintChecks <= limits.MaximumUniqueConstraintChecks
+        && value.ResultBytes is >= 0 && value.ResultBytes <= limits.MaximumResultBytes
+        && value.TransientBytes is >= 0 && value.TransientBytes <= limits.MaximumTransientBytes;
+
     private bool ValidateSelection(BaseAtomicSelectionResult selected)
     {
         if (!string.Equals(selected.Authority.ApplicationId, profile.ApplicationId, StringComparison.Ordinal)
             || !string.Equals(selected.Authority.StoreInstanceId, store.Registration.StoreId, StringComparison.Ordinal)
+            || selected.Authority.RestoreEpoch != authority.RestoreEpoch
+            || selected.Authority.SchemaGeneration != authority.SchemaGeneration
+            || selected.Authority.CollectionGeneration != authority.CollectionGeneration
             || selected.Records.Length > profile.Limits.MaximumSelectedRecords
             || selected.Accounting.SelectedRecords != selected.Records.Length
             || selected.Accounting.SelectedBytes < 0

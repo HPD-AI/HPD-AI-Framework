@@ -1,5 +1,9 @@
 /** Closed language-neutral type nodes emitted by the BASE client generator. */
 export type BaseTypeNode =
+  | { readonly kind: "selection-query"; readonly maximumNodes: number; readonly maximumDepth: number; readonly maximumLiterals: number; readonly maximumTake: number }
+  | { readonly kind: "selection-previous-state"; readonly maximumFields: number }
+  | { readonly kind: "selection-identity" }
+  | { readonly kind: "selection-patch"; readonly patchTypeId: string }
   | { readonly kind: "boolean" }
   | { readonly kind: "string"; readonly minLength: number; readonly maxLength: number; readonly format: string }
   | { readonly kind: "integer"; readonly minimum: string; readonly maximum: string; readonly wire: "number" | "decimal-string" }
@@ -65,6 +69,10 @@ export function materializeBaseJsonValue(value: unknown): unknown { return mater
 function decodeNode(value: unknown, typeId: string, graph: BaseTypeGraph, shape: "application" | "wire"): unknown {
   const node = graph[typeId]; if (node === undefined) throw new TypeError("base.client.responseInvalid");
   switch (node.kind) {
+    case "selection-query": return selectionQuery(value, node);
+    case "selection-previous-state": return selectionPreviousState(value, node.maximumFields);
+    case "selection-identity": return selectionIdentity(value);
+    case "selection-patch": return shape === "application" ? decodeNode(value, node.patchTypeId, graph, shape) : selectionPatchWire(value, node.patchTypeId, graph);
     case "boolean": if (typeof value !== "boolean") invalid(); return value;
     case "string": if (typeof value !== "string" || scalarLength(value) < node.minLength || scalarLength(value) > node.maxLength || !format(value, node.format)) invalid(); return value;
     case "integer": return integer(value, node);
@@ -90,6 +98,10 @@ function encodeNode(value: unknown, typeId: string, graph: BaseTypeGraph, path: 
   if (object(value) || Array.isArray(value)) { if (path.has(value as object)) invalid(); path.add(value as object); }
   try {
     switch (node.kind) {
+      case "selection-query": return canonicalClosed(selectionQuery(value, node));
+      case "selection-previous-state": return canonicalClosed(selectionPreviousState(value, node.maximumFields));
+      case "selection-identity": return canonicalClosed(selectionIdentity(value));
+      case "selection-patch": path.delete(value as object); return `{"patch":{"kind":"fieldMap","fields":${encodeNode(value, node.patchTypeId, graph, path)}}}`;
       case "boolean": case "string": case "decimal": case "literal": case "enum": return JSON.stringify(decodeNode(value, typeId, graph, "application"));
       case "bytes": return JSON.stringify(encodeBytes(value, node.maxBytes));
       case "redacted": invalid();
@@ -102,6 +114,39 @@ function encodeNode(value: unknown, typeId: string, graph: BaseTypeGraph, path: 
   } finally { if (object(value) || Array.isArray(value)) path.delete(value as object); }
   return invalid();
 }
+
+function selectionQuery(value: unknown, limits: Extract<BaseTypeNode, { kind: "selection-query" }>): unknown {
+  if (!object(value) || Object.keys(value).some(key => !["filter", "sort", "take"].includes(key)) || !Array.isArray(value.sort)
+    || value.sort.length < 1 || value.sort.length > limits.maximumNodes || !Number.isSafeInteger(value.take)
+    || (value.take as number) < 1 || (value.take as number) > limits.maximumTake) invalid();
+  const sort = value.sort.map(item => { if (!object(item) || Object.keys(item).some(key => !["field", "direction", "nulls"].includes(key)) || !boundedText(item.field, 128) || !["asc", "desc"].includes(item.direction as string) || item.nulls !== undefined && !["unspecified", "first", "last"].includes(item.nulls as string)) invalid(); return Object.freeze({ field: item.field, direction: item.direction, ...(item.nulls === undefined ? {} : { nulls: item.nulls }) }); });
+  let nodes = 0, literals = 0;
+  const filter = (node: unknown, depth: number): unknown => {
+    if (!object(node) || depth > limits.maximumDepth || ++nodes > limits.maximumNodes || typeof node.kind !== "string") invalid();
+    const kind = node.kind; let result: Record<string, unknown>;
+    if (kind === "true" || kind === "false") { exact(node, ["kind"]); result = { kind }; }
+    else if (kind === "compare") { exact(node, ["kind", "field", "operator", "value"]); if (!boundedText(node.field, 128) || !["equal", "notEqual", "lessThan", "lessThanOrEqual", "greaterThan", "greaterThanOrEqual", "contains", "notContains", "startsWith", "endsWith", "like", "notLike"].includes(node.operator as string)) invalid(); literals++; result = { kind, field: node.field, operator: node.operator, value: queryValue(node.value, 1) }; }
+    else if (kind === "in" || kind === "between") { exact(node, ["kind", "field", "values"]); if (!boundedText(node.field, 128) || !Array.isArray(node.values) || node.values.length < (kind === "between" ? 2 : 1) || kind === "between" && node.values.length !== 2) invalid(); literals += node.values.length; result = { kind, field: node.field, values: Object.freeze(node.values.map(item => queryValue(item, 1))) }; }
+    else if (kind === "isNull" || kind === "isDefined") { exact(node, ["kind", "field"]); if (!boundedText(node.field, 128)) invalid(); result = { kind, field: node.field }; }
+    else if (kind === "not" || kind === "and" || kind === "or") { exact(node, ["kind", "children"]); if (!Array.isArray(node.children) || node.children.length < 1 || kind === "not" && node.children.length !== 1) invalid(); result = { kind, children: Object.freeze(node.children.map(child => filter(child, depth + 1))) }; }
+    else invalid();
+    if (literals > limits.maximumLiterals) invalid(); return Object.freeze(result);
+  };
+  return Object.freeze({ ...(value.filter === undefined ? {} : { filter: filter(value.filter, 1) }), sort: Object.freeze(sort), take: value.take });
+}
+function selectionPreviousState(value: unknown, maximum: number): unknown {
+  if (!object(value)) invalid(); exact(value, ["revision", "fields"]); if (!object(value.revision) || !Array.isArray(value.fields) || value.fields.length > maximum) invalid();
+  const revision = value.revision; if (revision.kind === "exact") { exact(revision, ["kind", "exactRevision"]); if (!boundedText(revision.exactRevision, 512)) invalid(); } else { exact(revision, ["kind"]); if (revision.kind !== "none" && revision.kind !== "exists") invalid(); }
+  const seen = new Set<string>(); const fields = value.fields.map(item => { if (!object(item) || !boundedText(item.fieldId, 128) || seen.has(item.fieldId)) invalid(); seen.add(item.fieldId); if (item.kind === "equal") { exact(item, ["fieldId", "kind", "value"]); return Object.freeze({ fieldId: item.fieldId, kind: item.kind, value: queryValue(item.value, 1) }); } exact(item, ["fieldId", "kind"]); if (!["isNull", "isMissing", "isDefined"].includes(item.kind as string)) invalid(); return Object.freeze({ fieldId: item.fieldId, kind: item.kind }); });
+  return Object.freeze({ revision: Object.freeze({ ...revision }), fields: Object.freeze(fields) });
+}
+function selectionIdentity(value: unknown): unknown { if (!object(value)) invalid(); exact(value, ["scope", "operation", "idempotencyKey", "fingerprint"]); if (!boundedText(value.scope, 128) || !boundedText(value.operation, 128) || !boundedText(value.idempotencyKey, 256) || typeof value.fingerprint !== "string" || !/^[A-Za-z0-9+/]{43}=$/u.test(value.fingerprint)) invalid(); return Object.freeze({ scope: value.scope, operation: value.operation, idempotencyKey: value.idempotencyKey, fingerprint: value.fingerprint }); }
+function selectionPatchWire(value: unknown, patchTypeId: string, graph: BaseTypeGraph): unknown { if (!object(value)) invalid(); exact(value, ["patch"]); if (!object(value.patch)) invalid(); exact(value.patch, ["kind", "fields"]); if (value.patch.kind !== "fieldMap") invalid(); return decodeNode(value.patch.fields, patchTypeId, graph, "wire"); }
+function queryValue(value: unknown, depth: number): unknown { if (!object(value) || depth > 16 || typeof value.kind !== "string") invalid(); const kind = value.kind; if (kind === "null") { exact(value, ["kind"]); return Object.freeze({ kind }); } const member = kind === "string" ? "string" : kind === "boolean" ? "boolean" : kind === "integer" ? "integer" : kind === "number" ? "number" : kind === "decimal" ? "decimal" : kind === "dateTime" ? "dateTime" : kind === "id" ? "id" : kind === "array" ? "array" : invalid(); exact(value, ["kind", member]); const item = value[member]; if (kind === "boolean" ? typeof item !== "boolean" : kind === "integer" ? !Number.isSafeInteger(item) : kind === "number" ? typeof item !== "number" || !Number.isFinite(item) : kind === "array" ? !Array.isArray(item) || item.length > 256 : !boundedText(item, 4096)) invalid(); return Object.freeze({ kind, [member]: kind === "array" ? Object.freeze((item as unknown[]).map(child => queryValue(child, depth + 1))) : item }); }
+function exact(value: Record<string, unknown>, keys: readonly string[]): void { if (Object.keys(value).length !== keys.length || Object.keys(value).some(key => !keys.includes(key))) invalid(); }
+function boundedText(value: unknown, maximum: number): value is string { return typeof value === "string" && value.length > 0 && new TextEncoder().encode(value).length <= maximum && !/[\u0000-\u001f\u007f]/u.test(value); }
+function closed(value: unknown): Readonly<Record<string, unknown>> { if (!object(value)) invalid(); return Object.freeze(Object.fromEntries(Object.keys(value).sort().map(key => [key, Array.isArray(value[key]) ? Object.freeze((value[key] as unknown[]).map(item => object(item) ? closed(item) : item)) : object(value[key]) ? closed(value[key]) : value[key]]))); }
+function canonicalClosed(value: unknown): string { if (value === null || typeof value === "boolean" || typeof value === "string") return JSON.stringify(value); if (typeof value === "number") { if (!Number.isFinite(value)) invalid(); return Object.is(value, -0) ? "0" : value.toString(); } if (Array.isArray(value)) return `[${value.map(canonicalClosed).join(",")}]`; if (!object(value)) invalid(); return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonicalClosed(value[key])}`).join(",")}}`; }
 
 function materialize(value: unknown): unknown { if (isRawNumber(value)) { validateGeneralNumber(value.token); return Number(value.token); } if (Array.isArray(value)) return value.map(materialize); if (object(value)) return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, materialize(item)])); return value; }
 function integer(value: unknown, node: Extract<BaseTypeNode, { kind: "integer" }>): number | string { const text = isRawNumber(value) ? value.token : node.wire === "decimal-string" && typeof value === "string" ? value : typeof value === "number" && Number.isSafeInteger(value) ? String(value) : ""; if (!/^-?(?:0|[1-9][0-9]*)$/u.test(text) || text === "-0") invalid(); const parsed = BigInt(text); if (parsed < BigInt(node.minimum) || parsed > BigInt(node.maximum)) invalid(); if (node.wire === "number") { const numeric = Number(text); if (!Number.isSafeInteger(numeric)) invalid(); return numeric; } return text; }

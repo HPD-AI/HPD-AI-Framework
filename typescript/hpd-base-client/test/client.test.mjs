@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { baseRedacted, collection, createBaseClient, decodeBaseJson, decodeBaseValue, encodeBaseJson, field, isBaseRedacted, parseBaseJson, read } from "../dist/index.js";
+import { baseRedacted, collection, createBaseClient, decodeBaseJson, decodeBaseValue, encodeBaseJson, field, isBaseRedacted, parseBaseJson, read, selectionMutation } from "../dist/index.js";
 import { BaseRealtimeManager } from "../dist/realtime.js";
 
 const basicGraph = Object.freeze({
@@ -34,6 +34,23 @@ test("identified mutation retries byte-identically with one logical correlation"
   assert.equal(result.ok, true); assert.equal(result.value.payload.json.title, "new"); assert.equal(attempts.length, 2);
   assert.deepEqual(attempts[0].body, attempts[1].body); assert.equal(attempts[0].correlation, attempts[1].correlation); assert.equal(attempts[0].mutation, attempts[1].mutation);
   assert.equal(new TextDecoder().decode(attempts[0].body), '{"mode":"atomic","operations":[{"itemId":"mutation","collectionId":"documents","kind":"patch","recordId":"d1","patch":{"patch":{"kind":"json","json":{"stored_title":"new"}}}}]}');
+});
+
+test("selection mutation uses the closed graph and collection patch wire codec", async () => {
+  const graph = Object.freeze({ ...basicGraph,
+    selectionPatch: { kind: "selection-patch", patchTypeId: "patch" },
+    selectionQuery: { kind: "selection-query", maximumNodes: 8, maximumDepth: 4, maximumLiterals: 8, maximumTake: 10 },
+    selectionPrevious: { kind: "selection-previous-state", maximumFields: 4 },
+    count: { kind: "integer", minimum: "0", maximum: "10", wire: "number" },
+    outcome: { kind: "enum", values: ["committed"] }, disposition: { kind: "enum", values: ["committed", "duplicate"] },
+    selectionResult: { kind: "object", additionalProperties: false, properties: [{ name: "selectedCount", wireName: "selectedCount", typeId: "count", required: true, nullable: false, disclosureShape: "none" }, { name: "mutatedCount", wireName: "mutatedCount", typeId: "count", required: true, nullable: false, disclosureShape: "none" }, { name: "outcome", wireName: "outcome", typeId: "outcome", required: true, nullable: false, disclosureShape: "none" }, { name: "requestDisposition", wireName: "requestDisposition", typeId: "disposition", required: true, nullable: false, disclosureShape: "none" }] },
+    selectionRequest: { kind: "object", additionalProperties: false, properties: [{ name: "query", wireName: "query", typeId: "selectionQuery", required: true, nullable: false, disclosureShape: "none" }, { name: "patch", wireName: "patch", typeId: "selectionPatch", required: true, nullable: false, disclosureShape: "none" }, { name: "previousState", wireName: "previousState", typeId: "selectionPrevious", required: true, nullable: false, disclosureShape: "none" }] }
+  });
+  let body; const operation = selectionMutation({ route: "/selection", mutationKind: "mergePatch", maximumRequestBodyBytes: 4096, requestTypeId: "selectionRequest", resultTypeId: "selectionResult", typeGraph: graph });
+  const transport = { jsonDocument: async (_method, _route, bytes) => { body = new TextDecoder().decode(bytes); return { ok: true, value: { selectedCount: 1, mutatedCount: 1, outcome: "committed", requestDisposition: "committed" }, correlationId: "c" }; } };
+  const result = await operation(transport, { query: { filter: { kind: "compare", field: "stable-title", operator: "equal", value: { kind: "string", string: "old" } }, sort: [{ field: "stable-title", direction: "asc" }], take: 1 }, patch: { title: "new" }, previousState: { revision: { kind: "none" }, fields: [] } });
+  assert.equal(result.ok, true); assert.equal(body, '{"query":{"filter":{"field":"stable-title","kind":"compare","operator":"equal","value":{"kind":"string","string":"old"}},"sort":[{"direction":"asc","field":"stable-title"}],"take":1},"patch":{"patch":{"kind":"fieldMap","fields":{"stored_title":"new"}}},"previousState":{"fields":[],"revision":{"kind":"none"}}}');
+  await assert.rejects(() => operation(transport, { query: { filter: { kind: "extension" }, sort: [{ field: "x", direction: "asc" }], take: 1 }, patch: { title: "new" }, previousState: { revision: { kind: "none" }, fields: [] } }), /responseInvalid/);
 });
 
 test("realtime v2 joins after welcome and resumes from the last delivered durable cursor", async () => {
