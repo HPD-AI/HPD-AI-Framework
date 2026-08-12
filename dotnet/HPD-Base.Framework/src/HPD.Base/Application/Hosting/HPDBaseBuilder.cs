@@ -37,6 +37,8 @@ public sealed class HPDBaseBuilder
     private readonly Dictionary<string, BaseStorageProtectionRequirement> _applicationStorageRequirements = new(StringComparer.Ordinal);
     private readonly Dictionary<(string Feature, string Module), BaseStorageProtectionRequirement> _featureStorageRequirements = [];
     private readonly Dictionary<string, BaseStorageProtectionCapability> _extensionStorageCapabilities = new(StringComparer.Ordinal);
+    private readonly List<BaseSelectionOperationProfile> _selectionProfiles = [];
+    private HPDBaseSelectionMutationOptions? _selectionOptions;
     private HPDBaseStoreProvider? _storeProvider;
     /// <summary>Provides _runtime.</summary>
     private Action<HPDBaseRuntimeOptions>? _runtime;
@@ -194,6 +196,36 @@ public sealed class HPDBaseBuilder
         return this;
     }
 
+    /// <summary>Registers one immutable transaction-bound selection operation profile.</summary>
+    public HPDBaseBuilder AddSelectionOperationProfile(BaseSelectionOperationProfile profile)
+    {
+        EnsureMutable();
+        ArgumentNullException.ThrowIfNull(profile);
+        ValidateSelectionProfile(profile);
+        if (_selectionProfiles.Any(item => string.Equals(item.ApplicationId, profile.ApplicationId, StringComparison.Ordinal)
+            && string.Equals(item.Id, profile.Id, StringComparison.Ordinal)
+            && item.Version == profile.Version))
+            throw new InvalidOperationException(BaseSelectionErrorCodes.ProfileDuplicate);
+        _selectionProfiles.Add(CloneSelectionProfile(profile));
+        return this;
+    }
+
+    /// <summary>Configures the single immutable host safety envelope for selection mutations.</summary>
+    public HPDBaseBuilder ConfigureSelectionMutations(HPDBaseSelectionMutationOptions options)
+    {
+        EnsureMutable();
+        ArgumentNullException.ThrowIfNull(options);
+        if (_selectionOptions is not null) throw new InvalidOperationException(BaseSelectionErrorCodes.ProfileDuplicate);
+        ValidateSelectionLimits(options.HostMaxima);
+        if (options.MaximumReceiptIdentityBytes is < 1 or > 4096
+            || options.MaximumEvidenceTokenBytes is < 1 or > 4096
+            || options.MaximumRouteNameBytes is < 1 or > 128
+            || options.MaximumRequestBodyBytes is < 1 or > 1_048_576)
+            throw new InvalidOperationException(BaseSelectionErrorCodes.ProfileInvalid);
+        _selectionOptions = options with { HostMaxima = options.HostMaxima with { } };
+        return this;
+    }
+
     /// <summary>Performs add Files.</summary>
     public HPDBaseBuilder AddFiles(Action<HPDBaseFilesOptions>? configure = null)
     {
@@ -273,6 +305,8 @@ public sealed class HPDBaseBuilder
         _built = true;
         if (_storeProvider is not null && _inMemoryStore is not null)
             throw new InvalidOperationException("ConfigureInMemoryStore cannot be combined with an explicit HPD.BASE record provider.");
+        if (_selectionProfiles.Count != 0 && _selectionOptions is null)
+            throw new InvalidOperationException(BaseSelectionErrorCodes.ProfileInvalid);
         HPDBaseStoreProvider provider = _storeProvider ?? InMemoryProviderInstaller.Create(_inMemoryStore);
         CollectionDefinition[] collections = _collections.Values.ToArray();
         var relationalOptions = new HPDBaseRelationalOptions();
@@ -298,6 +332,15 @@ public sealed class HPDBaseBuilder
         _services.AddSingleton(new BaseCollectionRegistry(collections.ToDictionary(static collection => collection.Id, StringComparer.Ordinal)));
         _services.AddSingleton(logicalSchema);
         _services.AddSingleton(storageProtection);
+        foreach (BaseSelectionOperationProfile profile in _selectionProfiles)
+        {
+            if (_selectionOptions is null || !Fits(profile, _selectionOptions))
+                throw new InvalidOperationException(BaseSelectionErrorCodes.ProfileInvalid);
+            if (!collections.Any(collection => string.Equals(collection.Id, profile.CollectionId, StringComparison.Ordinal)))
+                throw new InvalidOperationException(BaseSelectionErrorCodes.ProfileInvalid);
+        }
+        _services.AddSingleton(new BaseSelectionProfileRegistry(_selectionProfiles));
+        if (_selectionOptions is not null) _services.AddSingleton(_selectionOptions);
         _services.AddHPDBaseRuntime(_runtime).UseFailClosedPolicy();
         _services.AddSingleton(Microsoft.Extensions.Options.Options.Create(relationalOptions));
         _services.AddSingleton(Microsoft.Extensions.Options.Options.Create(schemaOptions));
@@ -437,6 +480,71 @@ public sealed class HPDBaseBuilder
     {
         if (_built) throw new InvalidOperationException(BaseConfidentialityErrorCodes.StorageRequirementLate);
     }
+
+    private static void ValidateSelectionProfile(BaseSelectionOperationProfile profile)
+    {
+        BaseApplicationId.Validate(profile.Id, nameof(profile));
+        BaseApplicationId.Validate(profile.ApplicationId, nameof(profile));
+        BaseApplicationId.Validate(profile.CollectionId, nameof(profile));
+        BaseApplicationId.Validate(profile.RequiredGrantId, nameof(profile));
+        if (profile.Version < 1 || !Enum.IsDefined(profile.MutationKind) || profile.Limits is null)
+            throw new InvalidOperationException(BaseSelectionErrorCodes.ProfileInvalid);
+        BaseSelectionOperationLimits limits = profile.Limits;
+        ValidateSelectionLimits(limits);
+        if (profile.HttpProjection is { } http
+            && (!Enum.IsDefined(http.Audience)
+                || string.IsNullOrWhiteSpace(http.RouteName)
+                || http.MaximumRequestBodyBytes is < 1 or > 1_048_576))
+            throw new InvalidOperationException(BaseSelectionErrorCodes.ProfileInvalid);
+    }
+
+    private static void ValidateSelectionLimits(BaseSelectionOperationLimits limits)
+    {
+        long[] byteLimits = [limits.MaximumSelectedBytes, limits.MaximumWrittenBytes, limits.MaximumFactBytes,
+            limits.MaximumJournalBytes, limits.MaximumReceiptBytes, limits.MaximumTransientBytes, limits.MaximumResultBytes];
+        int[] countLimits = [limits.MaximumQueryNodes, limits.MaximumQueryDepth, limits.MaximumLiteralValues,
+            limits.MaximumSelectedRecords, limits.MaximumProducedMutations, limits.MaximumQueryExecutions,
+            limits.MaximumReadIntervals, limits.MaximumRelationChecks, limits.MaximumUniqueConstraintChecks,
+            limits.MaximumPreviousStateRequirements];
+        if (countLimits.Any(static value => value < 1) || byteLimits.Any(static value => value < 1)
+            || limits.MaximumProducedMutations != limits.MaximumSelectedRecords
+            || limits.MaximumQueryExecutions != 1
+            || limits.AcquisitionTimeout <= TimeSpan.Zero
+            || limits.ExecutionTimeout <= TimeSpan.Zero
+            || limits.CallerCommitObservationTimeout <= TimeSpan.Zero)
+            throw new InvalidOperationException(BaseSelectionErrorCodes.ProfileInvalid);
+    }
+
+    private static bool Fits(BaseSelectionOperationProfile profile, HPDBaseSelectionMutationOptions options)
+    {
+        BaseSelectionOperationLimits p = profile.Limits, h = options.HostMaxima;
+        return p.MaximumQueryNodes <= h.MaximumQueryNodes && p.MaximumQueryDepth <= h.MaximumQueryDepth
+            && p.MaximumLiteralValues <= h.MaximumLiteralValues && p.MaximumSelectedRecords <= h.MaximumSelectedRecords
+            && p.MaximumSelectedBytes <= h.MaximumSelectedBytes && p.MaximumProducedMutations <= h.MaximumProducedMutations
+            && p.MaximumReadIntervals <= h.MaximumReadIntervals && p.MaximumWrittenBytes <= h.MaximumWrittenBytes
+            && p.MaximumFactBytes <= h.MaximumFactBytes && p.MaximumJournalBytes <= h.MaximumJournalBytes
+            && p.MaximumReceiptBytes <= h.MaximumReceiptBytes && p.MaximumRelationChecks <= h.MaximumRelationChecks
+            && p.MaximumUniqueConstraintChecks <= h.MaximumUniqueConstraintChecks
+            && p.MaximumPreviousStateRequirements <= h.MaximumPreviousStateRequirements
+            && p.MaximumTransientBytes <= h.MaximumTransientBytes && p.MaximumResultBytes <= h.MaximumResultBytes
+            && p.AcquisitionTimeout <= h.AcquisitionTimeout && p.ExecutionTimeout <= h.ExecutionTimeout
+            && p.CallerCommitObservationTimeout <= h.CallerCommitObservationTimeout
+            && (profile.HttpProjection is null || profile.HttpProjection.MaximumRequestBodyBytes <= options.MaximumRequestBodyBytes
+                && System.Text.Encoding.UTF8.GetByteCount(profile.HttpProjection.RouteName) <= options.MaximumRouteNameBytes);
+    }
+
+    private static BaseSelectionOperationProfile CloneSelectionProfile(BaseSelectionOperationProfile profile) => profile with
+    {
+        Id = new string(profile.Id.AsSpan()),
+        ApplicationId = new string(profile.ApplicationId.AsSpan()),
+        CollectionId = new string(profile.CollectionId.AsSpan()),
+        RequiredGrantId = new string(profile.RequiredGrantId.AsSpan()),
+        HttpProjection = profile.HttpProjection is null ? null : profile.HttpProjection with
+        {
+            RouteName = new string(profile.HttpProjection.RouteName.AsSpan()),
+        },
+        Limits = profile.Limits with { },
+    };
 
     private static void ValidateIndexCapabilities(CollectionDefinition[] collections, HPDBaseStoreProvider provider)
     {

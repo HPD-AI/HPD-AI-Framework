@@ -25,6 +25,36 @@ public sealed class BaseCollectionSession<T>
     /// <summary>Begins a typed bounded query.</summary>
     public BaseQuery<T> Query() => new(_session, _collection);
 
+    /// <summary>Resolves one generated merge-patch profile from this principal-bound collection session.</summary>
+    public BaseMergePatchSelectionProfile<T> GetMergePatchSelectionProfile(
+        BaseGeneratedSelectionProfileIdentity identity) =>
+        new(ResolveSelectionProfile(identity, BaseSelectionMutationKind.MergePatch));
+
+    /// <summary>Resolves one generated delete profile from this principal-bound collection session.</summary>
+    public BaseDeleteSelectionProfile<T> GetDeleteSelectionProfile(
+        BaseGeneratedSelectionProfileIdentity identity) =>
+        new(ResolveSelectionProfile(identity, BaseSelectionMutationKind.Delete));
+
+    private BaseSelectionOperationProfile ResolveSelectionProfile(
+        BaseGeneratedSelectionProfileIdentity identity,
+        BaseSelectionMutationKind kind)
+    {
+        ArgumentNullException.ThrowIfNull(identity);
+        if (identity.Kind != kind
+            || !identity.Module.CollectionIds.Contains(_collection.Id)
+            || !string.Equals(identity.ApplicationId, _session.ApplicationId, StringComparison.Ordinal)
+            || !string.Equals(identity.CollectionId, _collection.Id, StringComparison.Ordinal))
+            throw new InvalidOperationException(BaseSelectionErrorCodes.ProfileNotFound);
+        BaseSelectionOperationProfile? profile = _session.Services
+            .GetService(typeof(BaseSelectionProfileRegistry)) is BaseSelectionProfileRegistry registry
+                ? registry.Find(identity.ApplicationId, identity.CollectionId, identity.ProfileId, identity.Version)
+                : null;
+        if (profile is null || profile.MutationKind != kind
+            || !string.Equals(identity.Checksum, BaseSelectionProfileChecksum.Compute(profile), StringComparison.Ordinal))
+            throw new InvalidOperationException(BaseSelectionErrorCodes.ProfileNotFound);
+        return profile;
+    }
+
     /// <summary>Gets one policy-projected typed record.</summary>
     public async ValueTask<BaseResult<BaseRecord<T>>> GetAsync(
         RecordId id,

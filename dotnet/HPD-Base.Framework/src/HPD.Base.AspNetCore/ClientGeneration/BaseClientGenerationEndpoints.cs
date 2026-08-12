@@ -59,7 +59,8 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
     BaseLogicalSchema logicalSchema,
     IHPDBaseApplication application,
     TimeProvider timeProvider,
-    IServiceProvider services)
+    IServiceProvider services,
+    BaseSelectionProfileRegistry? selectionProfiles = null)
 {
     private const int MaximumSnapshotBytes = 4 * 1024 * 1024;
 
@@ -116,7 +117,21 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
             .Select(id => new BaseClientCapabilityDescriptor { Id = id, Available = true })
             .ToArray();
         BaseClientVectorIndexDescriptor[] vectors = BuildVectors(collections.Collections.Values);
-        if (capabilities.Length > 256 || installedReads.Length > 256 || templates.Length > 512 || vectors.Length > 256)
+        BaseClientSelectionMutationDescriptor[] selectionMutations = (selectionProfiles?.All ?? [])
+            .Where(profile => profile.HttpProjection is { GenerateL41Client: true } projection
+                && (projection.Audience == BaseSelectionEndpointAudience.Application ? "application" : "controlPlane") == audience)
+            .OrderBy(static profile => profile.Id, StringComparer.Ordinal)
+            .Select(profile => new BaseClientSelectionMutationDescriptor
+            {
+                Id = profile.Id, Version = profile.Version,
+                Checksum = BaseSelectionProfileChecksum.Compute(profile), CollectionId = profile.CollectionId,
+                GeneratedName = GeneratedName(profile.Id), MutationKind = profile.MutationKind == BaseSelectionMutationKind.MergePatch ? "mergePatch" : "delete",
+                EndpointId = $"base.selection-mutations.{profile.Id}.execute",
+                Route = $"{basePath}/selection-mutations/{profile.HttpProjection!.RouteName}/execute",
+                MaximumSelectedRecords = profile.Limits.MaximumSelectedRecords,
+                MaximumRequestBodyBytes = profile.HttpProjection.MaximumRequestBodyBytes,
+            }).ToArray();
+        if (capabilities.Length > 256 || installedReads.Length > 256 || templates.Length > 512 || vectors.Length > 256 || selectionMutations.Length > 256)
             return ValueTask.FromResult(Failure("base.clientGeneration.snapshotTooLarge"));
         var generatedNames = new HashSet<string>(["reads", "files", "close", "collection", "connectivity", "$control", "$dynamic"], StringComparer.Ordinal);
         if (generatedCollections.Any(collection => !generatedNames.Add(collection.GeneratedName))
@@ -155,6 +170,7 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
                 ParameterTypeIds = template.ParameterNames.Select(_ => "base.dependency.parameter").ToArray()
             }).ToArray(),
             VectorIndexes = vectors,
+            SelectionMutations = selectionMutations,
             Errors = ErrorTaxonomy(endpoints),
             Digest = string.Empty
         };

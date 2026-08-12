@@ -66,15 +66,25 @@ public sealed record AtomicMutationProcessingResult
         AtomicMutationProcessingOutcome outcome,
         BaseRecordMutationFact[] mutations,
         BaseError? error = null)
+        : this(outcome, BaseAtomicReceiptResult.FromFacts(mutations), error)
     {
-        ArgumentNullException.ThrowIfNull(mutations);
+    }
+
+    /// <summary>Initializes a processor decision with one closed deeply owned receipt envelope.</summary>
+    public AtomicMutationProcessingResult(
+        AtomicMutationProcessingOutcome outcome,
+        BaseAtomicReceiptResult receipt,
+        BaseError? error = null)
+    {
+        ArgumentNullException.ThrowIfNull(receipt);
         if (outcome == AtomicMutationProcessingOutcome.ReadyToCommit && error is not null)
             throw new ArgumentException("A ready-to-commit result cannot carry an error.", nameof(error));
         if (outcome == AtomicMutationProcessingOutcome.Failed && error is null)
             throw new ArgumentException("A failed processing result requires a bounded error.", nameof(error));
 
         Outcome = outcome;
-        Mutations = mutations;
+        Receipt = receipt;
+        Mutations = receipt.MaterializeFacts();
         Error = error;
     }
 
@@ -90,6 +100,9 @@ public sealed record AtomicMutationProcessingResult
     /// controls commit classification and later result/event processing.
     /// </summary>
     public BaseRecordMutationFact[] Mutations { get; }
+
+    /// <summary>Gets the closed deeply owned result persisted for identified requests.</summary>
+    public BaseAtomicReceiptResult Receipt { get; }
 }
 
 /// <summary>
@@ -248,6 +261,20 @@ public interface IAtomicRecordStore : IRecordMutationStore
 /// </summary>
 public interface IAtomicRecordSession
 {
+    /// <summary>Selects one bounded, policy-constrained record set from this transaction's authority snapshot.</summary>
+    /// <param name="request">The immutable selection request and authority requirement.</param>
+    /// <param name="cancellationToken">Cancellation requested before confirmed commit.</param>
+    /// <returns>A deeply owned selection or a bounded provider failure.</returns>
+    ValueTask<OperationResult<BaseAtomicSelectionResult>> SelectAsync(
+        BaseAtomicSelectionRequest request,
+        CancellationToken cancellationToken = default) =>
+        ValueTask.FromResult(OperationResults.Unsupported<BaseAtomicSelectionResult>(new BaseError
+        {
+            Code = "base.provider.selection.queryUnsupported",
+            Message = "This provider session does not support transaction-bound selection.",
+            Category = ErrorCategory.Unsupported,
+        }));
+
     /// <summary>Reads one record from the transaction-bound view.</summary>
     ValueTask<OperationResult<RecordEnvelope>> GetAsync(
         CollectionDefinition collection,
@@ -325,4 +352,10 @@ public interface IAtomicMutationProcessor
                 Message = "The stored mutation receipt cannot be resolved.",
                 Category = ErrorCategory.Authorization,
             }));
+
+    /// <summary>Authorizes and projects one closed stored receipt result.</summary>
+    ValueTask<AtomicMutationProcessingResult> ResolveReceiptAsync(
+        BaseAtomicReceiptResult committedResult,
+        CancellationToken cancellationToken = default) =>
+        ResolveReceiptAsync(committedResult.MaterializeFacts(), cancellationToken);
 }

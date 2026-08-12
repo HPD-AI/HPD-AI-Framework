@@ -69,6 +69,7 @@ public static class HPDBaseEndpointRouteBuilderExtensions
                 .SelectGeneration(HPDBaseEndpointAudience.ControlPlane);
             BaseClientGenerationEndpoints.Map(group, HPDBaseEndpointAudience.ControlPlane, convention);
         }
+        SelectionMutationEndpoints.Map(group, HPDBaseEndpointAudience.ControlPlane, convention);
         return group;
     }
 
@@ -139,6 +140,7 @@ public static class HPDBaseEndpointRouteBuilderExtensions
                 .SelectGeneration(HPDBaseEndpointAudience.Application);
             BaseClientGenerationEndpoints.Map(group, HPDBaseEndpointAudience.Application);
         }
+        SelectionMutationEndpoints.Map(group, HPDBaseEndpointAudience.Application);
         return group;
     }
 

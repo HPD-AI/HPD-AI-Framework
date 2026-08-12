@@ -31,11 +31,11 @@ test("generation validates its digest, emits the complete surface, and typecheck
     },
     endpoints: [], capabilities: [],
     registeredReads: [{ id: "by-title", generatedName: "byTitle", endpointId: "base.reads.public.by-title", parameterTypeId: "read.by-title.parameters", rowTypeId: "read.by-title.row", maxPageSize: 100, watchable: false }],
-    dependencyTemplates: [], vectorIndexes: [{ collectionId: "documents", id: "semantic", generatedName: "semantic", dimensions: 2, measure: "cosineSimilarity", filterFieldIds: [] }], errors: []
+    dependencyTemplates: [], vectorIndexes: [{ collectionId: "documents", id: "semantic", generatedName: "semantic", dimensions: 2, measure: "cosineSimilarity", filterFieldIds: [] }], selectionMutations: [], errors: []
   };
   const snapshot = { ...base, protocol: { ...base.protocol, generatedAt: "2026-01-01T00:00:00Z" }, digest: structuralDigest(base) };
   await generate({ snapshot, out: output, expectedAudience: "application" });
-  for (const name of ["index.ts", "protocol.ts", "schema.ts", "collections.ts", "fields.ts", "reads.ts", "vectors.ts", "dependencies.ts", "errors.ts", "types.ts"]) await access(`${output}/${name}`);
+  for (const name of ["index.ts", "protocol.ts", "schema.ts", "collections.ts", "fields.ts", "reads.ts", "selection-mutations.ts", "vectors.ts", "dependencies.ts", "errors.ts", "types.ts"]) await access(`${output}/${name}`);
   assert.match(await readFile(`${output}/reads.ts`, "utf8"), /byTitle/);
   const generatedTypes = await readFile(`${output}/types.ts`, "utf8"); assert.match(generatedTypes, /number/); assert.match(generatedTypes, /"one" \| "two"/); assert.match(generatedTypes, /readonly Type\d+\[\]/); assert.match(generatedTypes, /Type\d+ \| Type\d+/); assert.match(generatedTypes, /"storedTitle"/); assert.match(generatedTypes, /"wireName":"stored_title"/);
   const generatedCollections = await readFile(`${output}/collections.ts`, "utf8");
@@ -49,13 +49,13 @@ test("generation validates its digest, emits the complete surface, and typecheck
   const typeScriptRoot = new URL("../node_modules/typescript/", import.meta.url).pathname;
   await promisify(execFile)(process.execPath, [`${typeScriptRoot}bin/tsc`, "--project", `${output}/tsconfig.json`, "--noEmit", "--pretty", "false"]);
   const second = new URL("../test-output-second", import.meta.url).pathname; await rm(second, { recursive: true, force: true }); await generate({ snapshot, out: second, expectedAudience: "application" });
-  for (const name of ["index.ts", "protocol.ts", "schema.ts", "collections.ts", "fields.ts", "reads.ts", "vectors.ts", "dependencies.ts", "errors.ts", "types.ts"]) assert.equal(await readFile(`${output}/${name}`, "utf8"), await readFile(`${second}/${name}`, "utf8"));
+  for (const name of ["index.ts", "protocol.ts", "schema.ts", "collections.ts", "fields.ts", "reads.ts", "selection-mutations.ts", "vectors.ts", "dependencies.ts", "errors.ts", "types.ts"]) assert.equal(await readFile(`${output}/${name}`, "utf8"), await readFile(`${second}/${name}`, "utf8"));
   await rm(second, { recursive: true, force: true });
   await rm(output, { recursive: true, force: true });
 });
 
 test("type graph validation fails closed on malformed kinds, bounds, uniqueness, and union discriminators", () => {
-  const snapshot = types => { const base = { protocol: { protocolMajor: 2, protocolMinor: 1, minimumClientMinor: 0, snapshotSchemaVersion: 3, applicationId: "test", schemaGeneration: "1", endpointInventoryDigest: `sha256:${"1".repeat(64)}`, errorTaxonomyVersion: 1, realtimeProtocolVersion: 2, liveQueryProtocolVersion: 1, serializationProfile: "base-json-v1", generatedAt: "" }, application: { audience: "application", applicationId: "test", basePath: "/base" }, schema: { generation: "1", collections: [], types }, endpoints: [], capabilities: [], registeredReads: [], dependencyTemplates: [], vectorIndexes: [], errors: [] }; return { ...base, digest: structuralDigest(base) }; };
+  const snapshot = types => { const base = { protocol: { protocolMajor: 2, protocolMinor: 1, minimumClientMinor: 0, snapshotSchemaVersion: 3, applicationId: "test", schemaGeneration: "1", endpointInventoryDigest: `sha256:${"1".repeat(64)}`, errorTaxonomyVersion: 1, realtimeProtocolVersion: 2, liveQueryProtocolVersion: 1, serializationProfile: "base-json-v1", generatedAt: "" }, application: { audience: "application", applicationId: "test", basePath: "/base" }, schema: { generation: "1", collections: [], types }, endpoints: [], capabilities: [], registeredReads: [], dependencyTemplates: [], vectorIndexes: [], selectionMutations: [], errors: [] }; return { ...base, digest: structuralDigest(base) }; };
   assert.throws(() => validate(snapshot([{ id: "x", node: { kind: "unknown" } }])), /typeInvalid/);
   assert.throws(() => validate(snapshot([{ id: "x", node: { kind: "string", format: "plain", minLength: 2, maxLength: 1 } }])), /typeInvalid/);
   assert.throws(() => validate(snapshot([{ id: "x", node: { kind: "enum", values: ["a", "a"] } }])), /typeInvalid/);

@@ -6,6 +6,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Collections.Concurrent;
+using System.Collections.Immutable;
 
 namespace HPD.Base.Sqlite;
 
@@ -1067,8 +1068,37 @@ FROM {_names.MutationJournal};
             MinReceiptLifetime = TimeSpan.FromHours(1),
             MaxReceiptLifetime = TimeSpan.FromDays(90),
         },
+        SelectionMutation = CreateSelectionCapability(options),
         Administration = administration,
         Streaming = new StreamingCapability { Supported = false }
+    };
+
+    private static BaseSelectionMutationCapability CreateSelectionCapability(HPDBaseSqliteOptions options) => new()
+    {
+        IsSupported = true,
+        CertifiedMaxima = new BaseSelectionOperationLimits
+        {
+            MaximumQueryNodes = options.MaxFilterNodes, MaximumQueryDepth = options.MaxFilterDepth,
+            MaximumLiteralValues = 1024, MaximumSelectedRecords = options.MaxPageSize,
+            MaximumSelectedBytes = 16_777_216, MaximumProducedMutations = options.MaxPageSize,
+            MaximumQueryExecutions = 1, MaximumReadIntervals = options.MaxFilterNodes,
+            MaximumWrittenBytes = 16_777_216, MaximumFactBytes = 16_777_216,
+            MaximumJournalBytes = 16_777_216, MaximumReceiptBytes = 16_777_216,
+            MaximumRelationChecks = 4096, MaximumUniqueConstraintChecks = 4096,
+            MaximumPreviousStateRequirements = 256, MaximumTransientBytes = 33_554_432,
+            MaximumResultBytes = 1_048_576, AcquisitionTimeout = TimeSpan.FromMinutes(10),
+            ExecutionTimeout = TimeSpan.FromHours(1), CallerCommitObservationTimeout = TimeSpan.FromHours(1),
+        },
+        Isolation = BaseAtomicSelectionIsolationClass.WriteOwningSerializable,
+        ReceiptEnvelopeFormatVersions = [2], CanonicalCodecVersions = [1],
+        SupportedFilterOperators = [FilterOperator.Equal, FilterOperator.NotEqual, FilterOperator.LessThan,
+            FilterOperator.LessThanOrEqual, FilterOperator.GreaterThan, FilterOperator.GreaterThanOrEqual],
+        SupportedFilterNodeKinds = Enum.GetValues<FilterNodeKind>().ToImmutableArray(),
+        SupportedIndexShapes = [BaseIndexAccessShape.CollectionGenerationScan],
+        ConstraintAttribution = BaseConstraintAttributionClass.RecordIdentity | BaseConstraintAttributionClass.UniqueIndex | BaseConstraintAttributionClass.Relation,
+        SupportsReceiptOnlyCommit = true, SuppliesReadIntervalEvidence = true,
+        SupportsRelationParticipation = true, SupportsReadYourWrites = true,
+        SupportsBoundedCancellation = true, SupportsBoundedCommitObservation = true,
     };
 
     private OperationResult<T> MapSqlite<T>(BaseOperationKind operation, SqliteException ex)

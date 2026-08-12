@@ -14,6 +14,31 @@ public sealed class BaseQuery<T>
     private readonly int? _limit;
     private readonly string? _cursor;
 
+    /// <summary>Atomically patches the bounded selected set through one installed merge-patch profile.</summary>
+    public ValueTask<BaseResult<BaseSelectionMutationResult>> PatchSelectedAsync(
+        BaseMergePatchSelectionProfile<T> profile,
+        RecordPatchRequest patch,
+        BasePreviousStateRequirement previousState,
+        BaseMutationRequestIdentity? requestIdentity = null,
+        BaseSelectionMutationExecutionOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        return ExecuteSelectionAsync(profile.Profile, patch, previousState, requestIdentity, options, cancellationToken);
+    }
+
+    /// <summary>Atomically deletes the bounded selected set through one installed delete profile.</summary>
+    public ValueTask<BaseResult<BaseSelectionMutationResult>> DeleteSelectedAsync(
+        BaseDeleteSelectionProfile<T> profile,
+        BasePreviousStateRequirement previousState,
+        BaseMutationRequestIdentity? requestIdentity = null,
+        BaseSelectionMutationExecutionOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        return ExecuteSelectionAsync(profile.Profile, null, previousState, requestIdentity, options, cancellationToken);
+    }
+
     internal BaseQuery(
         BaseSession session,
         BaseCollection<T> collection,
@@ -51,6 +76,13 @@ public sealed class BaseQuery<T>
         });
     }
 
+    /// <summary>Adds one immutable typed predicate.</summary>
+    public BaseQuery<T> Where(BasePredicate<T> predicate)
+    {
+        ArgumentNullException.ThrowIfNull(predicate);
+        return WithFilter(predicate.Expression);
+    }
+
     /// <summary>Adds a typed less-than-or-equal predicate.</summary>
     public BaseQuery<T> WhereLessThanOrEqual<TValue>(
         BaseField<T, TValue> field,
@@ -79,6 +111,12 @@ public sealed class BaseQuery<T>
     /// <summary>Adds a descending typed sort.</summary>
     public BaseQuery<T> OrderByDescending<TValue>(BaseField<T, TValue> field) =>
         AddSort(field, QuerySortDirection.Desc);
+
+    /// <summary>Adds a subsequent ascending typed sort.</summary>
+    public BaseQuery<T> ThenBy<TValue>(BaseField<T, TValue> field) => AddSort(field, QuerySortDirection.Asc);
+
+    /// <summary>Adds a subsequent descending typed sort.</summary>
+    public BaseQuery<T> ThenByDescending<TValue>(BaseField<T, TValue> field) => AddSort(field, QuerySortDirection.Desc);
 
     /// <summary>Adds the stable record identifier as an explicit final ordering key.</summary>
     public BaseQuery<T> ThenByRecordId() => new(
@@ -340,6 +378,24 @@ public sealed class BaseQuery<T>
             },
             Count = QueryCountMode.None,
         };
+
+    private ValueTask<BaseResult<BaseSelectionMutationResult>> ExecuteSelectionAsync(
+        BaseSelectionOperationProfile profile,
+        RecordPatchRequest? patch,
+        BasePreviousStateRequirement previousState,
+        BaseMutationRequestIdentity? requestIdentity,
+        BaseSelectionMutationExecutionOptions? options,
+        CancellationToken cancellationToken)
+    {
+        int limit = _limit ?? throw new InvalidOperationException("A selection mutation requires Take(maximum).");
+        if (_cursor is not null) throw new InvalidOperationException("Selection mutations do not accept cursors.");
+        if (_sort.Length == 0 || !string.Equals(_sort[^1].Field, "id", StringComparison.Ordinal))
+            throw new InvalidOperationException("A selection mutation requires a total order ending in record ID.");
+        var runtime = (IBaseSelectionMutationRuntime?)_session.Services.GetService(typeof(IBaseSelectionMutationRuntime))
+            ?? throw new InvalidOperationException(BaseSelectionErrorCodes.CapabilityMissing);
+        return runtime.ExecuteAsync(_session, _collection.Definition, profile, Build(limit), patch,
+            previousState, requestIdentity, options, cancellationToken);
+    }
 
     private BaseQuery<T> WithFilter(FilterExpression filter) =>
         new(

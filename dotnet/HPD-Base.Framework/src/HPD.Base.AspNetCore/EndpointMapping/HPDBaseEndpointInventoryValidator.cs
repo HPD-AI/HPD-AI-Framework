@@ -18,7 +18,8 @@ internal sealed class HPDBaseEndpointInventoryValidator(
     EndpointDataSource dataSource,
     IEnumerable<IHPDBaseEndpointSecurityMetadataValidator> securityValidators,
     HPDBaseEndpointFamilySelectionState? selections = null,
-    BaseReadRegistry? reads = null)
+    BaseReadRegistry? reads = null,
+    BaseSelectionProfileRegistry? selectionsProfiles = null)
 {
     private sealed record Expected(string Method, string RouteSuffix, HPDBaseEndpointOperation Operation, string? Capability, HPDBaseEndpointAudience[] Audiences);
 
@@ -100,6 +101,22 @@ internal sealed class HPDBaseEndpointInventoryValidator(
     private Expected ResolveExpected(HPDBaseEndpointDescriptor descriptor)
     {
         if (Static.TryGetValue(descriptor.EndpointId, out Expected? expected)) return expected;
+        const string selectionPrefix = "base.selection-mutations.";
+        const string selectionSuffix = ".execute";
+        if (descriptor.EndpointId.StartsWith(selectionPrefix, StringComparison.Ordinal)
+            && descriptor.EndpointId.EndsWith(selectionSuffix, StringComparison.Ordinal))
+        {
+            string profileId = descriptor.EndpointId[selectionPrefix.Length..^selectionSuffix.Length];
+            BaseSelectionOperationProfile? profile = selectionsProfiles?.All.SingleOrDefault(profile =>
+                string.Equals(profile.Id, profileId, StringComparison.Ordinal)
+                && profile.HttpProjection is not null
+                && (profile.HttpProjection.Audience == BaseSelectionEndpointAudience.Application
+                    ? HPDBaseEndpointAudience.Application : HPDBaseEndpointAudience.ControlPlane) == descriptor.Audience);
+            BaseSelectionHttpProjection projection = profile?.HttpProjection
+                ?? throw new InvalidOperationException("base.http.endpoint.descriptorMissing");
+            return new Expected("POST", "/selection-mutations/" + projection.RouteName + "/execute",
+                HPDBaseEndpointOperation.SelectionMutation, profile.RequiredGrantId, [descriptor.Audience]);
+        }
         const string publicPrefix = "base.reads.public.";
         const string adminPrefix = "base.reads.admin.";
         string? id = descriptor.EndpointId.StartsWith(publicPrefix, StringComparison.Ordinal) ? descriptor.EndpointId[publicPrefix.Length..] :
@@ -138,7 +155,9 @@ internal sealed class HPDBaseEndpointInventoryValidator(
             Fail("base.http.endpoint.audienceConflict");
     }
 
-    private static bool IsGeneratedId(string id) => id.StartsWith("base.reads.public.", StringComparison.Ordinal) || id.StartsWith("base.reads.admin.", StringComparison.Ordinal);
+    private static bool IsGeneratedId(string id) => id.StartsWith("base.reads.public.", StringComparison.Ordinal)
+        || id.StartsWith("base.reads.admin.", StringComparison.Ordinal)
+        || id.StartsWith("base.selection-mutations.", StringComparison.Ordinal);
 
     private void ValidateRegisteredReadInventory(Endpoint[] endpoints)
     {

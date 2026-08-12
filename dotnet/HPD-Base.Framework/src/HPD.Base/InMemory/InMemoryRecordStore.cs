@@ -1,6 +1,7 @@
 using HPD.Events;
 using Microsoft.Extensions.Options;
 using System.Buffers;
+using System.Collections.Immutable;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
@@ -399,7 +400,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             else
             {
                 AtomicMutationProcessingResult resolved = await processor.ResolveReceiptAsync(
-                    receipt.Mutations.Select(RecordCloneHelpers.CloneMutationFact).ToArray(),
+                    receipt.Result,
                     cancellationToken).ConfigureAwait(false);
                 if (resolved.Outcome != AtomicMutationProcessingOutcome.ReadyToCommit)
                     return new RecordMutationExecutionResult(RecordMutationExecutionOutcome.RollbackConfirmed, resolved, resolved.Error);
@@ -478,14 +479,14 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         if (request.AtomicRequest is { } identified)
         {
             int receiptBytes = JsonSerializer.SerializeToUtf8Bytes(
-                processing.Mutations,
-                HPDBaseJsonSerializerContext.Default.BaseRecordMutationFactArray).Length;
+                BaseAtomicReceiptWire.From(processing.Receipt),
+                HPDBaseJsonSerializerContext.Default.BaseAtomicReceiptWire).Length;
             if (receiptBytes > identified.MaxReceiptBytes)
                 return Rollback(BaseMutationRequestErrorCodes.ReceiptTooLarge, "The mutation receipt exceeds its configured bound.", processing);
             working.Receipts[receiptKey!] = new InMemoryMutationReceipt(
                 identified.Identity.Fingerprint.ToArray(),
                 [.. identified.StructuralDigest],
-                processing.Mutations.Select(RecordCloneHelpers.CloneMutationFact).ToArray(),
+                processing.Receipt,
                 identified.ExpiresAt);
         }
 
@@ -1949,6 +1950,9 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             MinReceiptLifetime = TimeSpan.FromHours(1),
             MaxReceiptLifetime = TimeSpan.FromDays(90),
         },
+        SelectionMutation = CreateSelectionCapability(
+            options.MaxFilterNodes, options.MaxFilterDepth, options.MaxPageSize,
+            BaseAtomicSelectionIsolationClass.OptimisticRangeValidatedSerializable),
         Administration = new BaseAdministrationCapability
         {
             Backup = false, Validate = false, Restore = false, AdministrativePurge = true,
@@ -1962,6 +1966,33 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             MaxItems = options.MaxStreamItems,
             RequiresStableSort = true
         }
+    };
+
+    private static BaseSelectionMutationCapability CreateSelectionCapability(
+        int maxNodes, int maxDepth, int maxRecords, BaseAtomicSelectionIsolationClass isolation) => new()
+    {
+        IsSupported = true,
+        CertifiedMaxima = new BaseSelectionOperationLimits
+        {
+            MaximumQueryNodes = maxNodes, MaximumQueryDepth = maxDepth, MaximumLiteralValues = 1024,
+            MaximumSelectedRecords = maxRecords, MaximumSelectedBytes = 16_777_216,
+            MaximumProducedMutations = maxRecords, MaximumQueryExecutions = 1,
+            MaximumReadIntervals = maxNodes, MaximumWrittenBytes = 16_777_216,
+            MaximumFactBytes = 16_777_216, MaximumJournalBytes = 16_777_216,
+            MaximumReceiptBytes = 16_777_216, MaximumRelationChecks = 4096,
+            MaximumUniqueConstraintChecks = 4096, MaximumPreviousStateRequirements = 256,
+            MaximumTransientBytes = 33_554_432, MaximumResultBytes = 1_048_576,
+            AcquisitionTimeout = TimeSpan.FromMinutes(1), ExecutionTimeout = TimeSpan.FromMinutes(5),
+            CallerCommitObservationTimeout = TimeSpan.FromMinutes(5),
+        },
+        Isolation = isolation, ReceiptEnvelopeFormatVersions = [2], CanonicalCodecVersions = [1],
+        SupportedFilterOperators = Enum.GetValues<FilterOperator>().ToImmutableArray(),
+        SupportedFilterNodeKinds = Enum.GetValues<FilterNodeKind>().ToImmutableArray(),
+        SupportedIndexShapes = [BaseIndexAccessShape.CollectionGenerationScan],
+        ConstraintAttribution = BaseConstraintAttributionClass.RecordIdentity,
+        SupportsReceiptOnlyCommit = true, SuppliesReadIntervalEvidence = true,
+        SupportsRelationParticipation = true, SupportsReadYourWrites = true,
+        SupportsBoundedCancellation = true, SupportsBoundedCommitObservation = true,
     };
 
     private static string CollectionIdForTelemetry(CollectionDefinition? collection) => collection?.Id ?? string.Empty;
@@ -1983,6 +2014,134 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             _owner = owner;
             _working = working;
         }
+
+        /// <inheritdoc />
+        public ValueTask<OperationResult<BaseAtomicSelectionResult>> SelectAsync(
+            BaseAtomicSelectionRequest request,
+            CancellationToken cancellationToken = default) =>
+            ExecuteAsync(cancellationToken, token => ValueTask.FromResult(SelectCore(request, token)));
+
+        private OperationResult<BaseAtomicSelectionResult> SelectCore(
+            BaseAtomicSelectionRequest request,
+            CancellationToken cancellationToken)
+        {
+            ArgumentNullException.ThrowIfNull(request);
+            if (!string.Equals(request.Authority.StoreInstanceId, _owner._options.StoreId, StringComparison.Ordinal)
+                || request.Authority.RestoreEpoch != 0
+                || request.Authority.SchemaGeneration < 0
+                || request.Authority.CollectionGeneration < 0)
+            {
+                return SelectionFailure(
+                    OperationStatus.ValidationFailed,
+                    "base.provider.selection.authorityInvalid",
+                    ErrorCategory.Validation);
+            }
+
+            if (request.Limits.MaximumRecords < 1
+                || request.Limits.MaximumSelectedBytes < 1
+                || request.Limits.MaximumReadIntervals < 1
+                || request.Limits.MaximumTransientBytes < 1
+                || request.CanonicalRecordCodecVersion < 1)
+            {
+                return SelectionFailure(
+                    OperationStatus.ValidationFailed,
+                    "base.provider.selection.limitExceeded",
+                    ErrorCategory.Validation);
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            InMemoryCollectionState? collection = GetCollectionOrNull(_working, request.Collection.Id);
+            IEnumerable<StoredRecord> source = collection is null
+                ? Enumerable.Empty<StoredRecord>()
+                : collection.RecordsById.Values;
+            var records = source
+                .Where(record => BaseRecordFilterMatcher.Matches(
+                    RecordCloneHelpers.CloneEnvelope(record), request.Query.Filter))
+                .ToList();
+            QueryResult<List<StoredRecord>, BaseAtomicSelectionResult> sorted =
+                ApplySort<BaseAtomicSelectionResult>(records, request.Query.Sort);
+            if (sorted.Result is { } sortFailure)
+            {
+                return SelectionFailure(
+                    OperationStatus.Unsupported,
+                    "base.provider.selection.queryUnsupported",
+                    ErrorCategory.Unsupported);
+            }
+
+            int requested = request.Query.Page?.Limit ?? request.Limits.MaximumRecords;
+            if (requested < 1 || requested > request.Limits.MaximumRecords)
+            {
+                return SelectionFailure(
+                    OperationStatus.ValidationFailed,
+                    "base.provider.selection.limitExceeded",
+                    ErrorCategory.Validation);
+            }
+
+            var owned = ImmutableArray.CreateBuilder<BaseOwnedSelectedRecord>(Math.Min(requested, records.Count));
+            long selectedBytes = 0;
+            foreach (StoredRecord record in records.Take(requested))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                BaseOwnedSelectedRecord frozen = BaseOwnedSelectedRecord.Freeze(
+                    RecordCloneHelpers.CloneEnvelope(record), owned.Count, request.CanonicalRecordCodecVersion);
+                selectedBytes = checked(selectedBytes + frozen.CanonicalBytes);
+                if (selectedBytes > request.Limits.MaximumSelectedBytes
+                    || selectedBytes > request.Limits.MaximumTransientBytes)
+                {
+                    return SelectionFailure(
+                        OperationStatus.ValidationFailed,
+                        "base.provider.selection.limitExceeded",
+                        ErrorCategory.Validation);
+                }
+                owned.Add(frozen);
+            }
+
+            byte[] boundary = owned.Count == 0
+                ? []
+                : System.Text.Encoding.UTF8.GetBytes(owned[^1].RecordId);
+            var interval = new BaseAtomicReadIntervalEvidence
+            {
+                LogicalAccessPathId = $"collection:{request.Collection.Id}",
+                CanonicalLowerBound = ImmutableArray<byte>.Empty,
+                LowerInclusive = true,
+                CanonicalUpperBound = boundary.ToImmutableArray(),
+                UpperInclusive = true,
+            };
+            int selectedCount = owned.Count;
+            ImmutableArray<BaseOwnedSelectedRecord> selectedRecords = owned.MoveToImmutable();
+            return OperationResults.Ok(new BaseAtomicSelectionResult
+            {
+                Authority = new BaseAuthoritySnapshotEvidence
+                {
+                    ApplicationId = request.Authority.ApplicationId,
+                    StoreInstanceId = request.Authority.StoreInstanceId,
+                    RestoreEpoch = request.Authority.RestoreEpoch,
+                    SchemaGeneration = request.Authority.SchemaGeneration,
+                    CollectionGeneration = request.Authority.CollectionGeneration,
+                    Isolation = BaseAtomicSelectionIsolationClass.OptimisticRangeValidatedSerializable,
+                    TransactionEvidenceToken = BitConverter.GetBytes(_working.GlobalMutationPosition).ToImmutableArray(),
+                },
+                Records = selectedRecords,
+                ReadIntervals = [interval],
+                CanonicalOrderBoundary = boundary.ToImmutableArray(),
+                Accounting = new BaseAtomicSelectionAccounting
+                {
+                    SelectedRecords = selectedCount,
+                    SelectedBytes = selectedBytes,
+                    ReadIntervals = 1,
+                    EvidenceBytes = boundary.LongLength,
+                },
+            });
+        }
+
+        private static OperationResult<BaseAtomicSelectionResult> SelectionFailure(
+            OperationStatus status,
+            string code,
+            ErrorCategory category) => new()
+        {
+            Status = status,
+            Error = new BaseError { Code = code, Message = "The provider selection failed.", Category = category },
+        };
 
         /// <summary>Executes the get async operation.</summary>
         public ValueTask<OperationResult<RecordEnvelope>> GetAsync(

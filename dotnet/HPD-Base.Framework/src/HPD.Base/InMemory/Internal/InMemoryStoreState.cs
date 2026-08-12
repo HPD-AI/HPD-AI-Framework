@@ -61,14 +61,21 @@ internal sealed record InMemoryVectorCarrier(RecordId RecordId, RevisionToken Re
 internal sealed record InMemoryMutationReceipt(
     byte[] Fingerprint,
     byte[] StructuralDigest,
-    BaseRecordMutationFact[] Mutations,
+    BaseAtomicReceiptResult Result,
     DateTimeOffset ExpiresAt)
 {
     public InMemoryMutationReceipt DeepClone() => new(
         [.. Fingerprint],
         [.. StructuralDigest],
-        Mutations.Select(RecordCloneHelpers.CloneMutationFact).ToArray(),
+        CloneReceipt(Result),
         ExpiresAt);
+
+    private static BaseAtomicReceiptResult CloneReceipt(BaseAtomicReceiptResult result) => new()
+    {
+        Kind = result.Kind,
+        Mutations = result.Mutations.Select(static fact => BaseOwnedMutationFact.Freeze(fact.MaterializeOwned(), fact.CodecVersion)).ToImmutableArray(),
+        SelectionMutation = result.SelectionMutation is null ? null : result.SelectionMutation with { },
+    };
 }
 
 internal sealed class InMemoryCollectionState

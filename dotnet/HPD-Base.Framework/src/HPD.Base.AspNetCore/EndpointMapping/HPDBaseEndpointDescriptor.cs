@@ -46,6 +46,9 @@ public enum HPDBaseEndpointOperation
     BackupValidate,
     /// <summary>Restores one authenticated backup artifact.</summary>
     BackupRestore
+    ,
+    /// <summary>Executes one installed transaction-bound selection mutation.</summary>
+    SelectionMutation
 }
 
 /// <summary>Describes one exact BASE HTTP endpoint.</summary>

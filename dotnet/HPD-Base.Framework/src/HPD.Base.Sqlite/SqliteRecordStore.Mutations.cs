@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Diagnostics;
+using System.Collections.Immutable;
 using HPD.Base;
 using HPD.Base.Sqlite;
 using Microsoft.Data.Sqlite;
@@ -148,7 +149,7 @@ public sealed partial class SqliteRecordStore
                     : await ReadReceiptAsync(connection, transaction, request.AtomicRequest, processingLifetime.Token).ConfigureAwait(false);
                 var processingTask = receipt is null
                     ? processor.ProcessAsync(session, processingLifetime.Token).AsTask()
-                    : processor.ResolveReceiptAsync(receipt.Mutations, processingLifetime.Token).AsTask();
+                    : processor.ResolveReceiptAsync(receipt.Result, processingLifetime.Token).AsTask();
                 try
                 {
                     processing = await processingTask
@@ -429,10 +430,10 @@ public sealed partial class SqliteRecordStore
             await remove.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
             return null;
         }
-        BaseRecordMutationFact[]? mutations = JsonSerializer.Deserialize(result, HPDBaseJsonSerializerContext.Default.BaseRecordMutationFactArray);
-        if (fingerprint.Length != 32 || structuralDigest.Length != 32 || mutations is null)
+        BaseAtomicReceiptWire? receiptWire = JsonSerializer.Deserialize(result, HPDBaseJsonSerializerContext.Default.BaseAtomicReceiptWire);
+        if (fingerprint.Length != 32 || structuralDigest.Length != 32 || receiptWire is null)
             throw new InvalidOperationException("SQLite receipt state is malformed.");
-        return new SqliteMutationReceipt(fingerprint, structuralDigest, mutations);
+        return new SqliteMutationReceipt(fingerprint, structuralDigest, receiptWire.Materialize());
     }
 
     private async ValueTask InsertReceiptAsync(
@@ -442,13 +443,13 @@ public sealed partial class SqliteRecordStore
         AtomicMutationProcessingResult processing,
         CancellationToken cancellationToken)
     {
-        byte[] result = JsonSerializer.SerializeToUtf8Bytes(processing.Mutations, HPDBaseJsonSerializerContext.Default.BaseRecordMutationFactArray);
+        byte[] result = JsonSerializer.SerializeToUtf8Bytes(BaseAtomicReceiptWire.From(processing.Receipt), HPDBaseJsonSerializerContext.Default.BaseAtomicReceiptWire);
         if (result.Length > request.MaxReceiptBytes)
             throw new BaseReceiptTooLargeException();
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandTimeout = TimeoutSeconds();
-        command.CommandText = $"INSERT INTO {_names.OperationReceipts}(scope,operation,idempotency_key,fingerprint,structural_digest,result_json,result_format_version,schema_generation,store_instance_id,committed_at,expires_at) VALUES($scope,$operation,$key,$fingerprint,$structure,$result,1,$generation,$store,$committed,$expires);";
+        command.CommandText = $"INSERT INTO {_names.OperationReceipts}(scope,operation,idempotency_key,fingerprint,structural_digest,result_json,result_format_version,schema_generation,store_instance_id,committed_at,expires_at) VALUES($scope,$operation,$key,$fingerprint,$structure,$result,2,$generation,$store,$committed,$expires);";
         command.Parameters.AddWithValue("$scope", request.Identity.Scope);
         command.Parameters.AddWithValue("$operation", request.Identity.Operation);
         command.Parameters.AddWithValue("$key", request.Identity.IdempotencyKey);
@@ -462,7 +463,7 @@ public sealed partial class SqliteRecordStore
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    private sealed record SqliteMutationReceipt(byte[] Fingerprint, byte[] StructuralDigest, BaseRecordMutationFact[] Mutations);
+    private sealed record SqliteMutationReceipt(byte[] Fingerprint, byte[] StructuralDigest, BaseAtomicReceiptResult Result);
     private sealed class BaseReceiptTooLargeException : Exception;
 
     private static void ValidateExecutionTimeout(TimeSpan timeout, string name)
@@ -737,6 +738,101 @@ public sealed partial class SqliteRecordStore
             _transactionTimeout = transactionTimeout;
         }
 
+        /// <inheritdoc />
+        public ValueTask<OperationResult<BaseAtomicSelectionResult>> SelectAsync(
+            BaseAtomicSelectionRequest request,
+            CancellationToken cancellationToken = default) =>
+            ExecuteAsync(BaseOperationKind.Query, cancellationToken, token => SelectCoreAsync(request, token));
+
+        private async ValueTask<OperationResult<BaseAtomicSelectionResult>> SelectCoreAsync(
+            BaseAtomicSelectionRequest request,
+            CancellationToken cancellationToken)
+        {
+            ArgumentNullException.ThrowIfNull(request);
+            if (!string.Equals(request.Authority.StoreInstanceId, _owner._options.StoreId, StringComparison.Ordinal)
+                || request.Authority.RestoreEpoch < 0
+                || request.Authority.SchemaGeneration != Volatile.Read(ref _owner._schemaGeneration)
+                || request.Limits.MaximumRecords < 1
+                || request.Limits.MaximumSelectedBytes < 1
+                || request.Limits.MaximumReadIntervals < 1
+                || request.Limits.MaximumTransientBytes < 1
+                || request.CanonicalRecordCodecVersion < 1)
+            {
+                return SelectionFailure(OperationStatus.ValidationFailed,
+                    "base.provider.selection.authorityInvalid", ErrorCategory.Validation);
+            }
+
+            SqlitePhysicalModel.CollectionModel physical = _owner._physical.Collection(request.Collection.Id);
+            SqliteQueryPlan plan = new SqliteQueryPlanner(_owner._options, physical).Plan(request.Query);
+            if (!plan.Supported)
+                return SelectionFailure(OperationStatus.Unsupported,
+                    "base.provider.selection.queryUnsupported", ErrorCategory.Unsupported);
+            int requested = request.Query.Page?.Limit ?? request.Limits.MaximumRecords;
+            if (requested < 1 || requested > request.Limits.MaximumRecords)
+                return SelectionFailure(OperationStatus.ValidationFailed,
+                    "base.provider.selection.limitExceeded", ErrorCategory.Validation);
+
+            await using SqliteCommand command = _connection.CreateCommand();
+            command.Transaction = _transaction;
+            command.CommandText = plan.SelectSql;
+            command.CommandTimeout = CommandTimeoutSeconds();
+            plan.Bind(command);
+            var records = System.Collections.Immutable.ImmutableArray.CreateBuilder<BaseOwnedSelectedRecord>(requested);
+            long bytes = 0;
+            await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (records.Count < requested && await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                RecordEnvelope envelope = physical.ReadEnvelope(reader, _owner._options.StoreId, out _);
+                BaseOwnedSelectedRecord owned = BaseOwnedSelectedRecord.Freeze(
+                    envelope, records.Count, request.CanonicalRecordCodecVersion);
+                bytes = checked(bytes + owned.CanonicalBytes);
+                if (bytes > request.Limits.MaximumSelectedBytes || bytes > request.Limits.MaximumTransientBytes)
+                    return SelectionFailure(OperationStatus.ValidationFailed,
+                        "base.provider.selection.limitExceeded", ErrorCategory.Validation);
+                records.Add(owned);
+            }
+            byte[] boundary = records.Count == 0 ? [] : System.Text.Encoding.UTF8.GetBytes(records[^1].RecordId);
+            int selectedCount = records.Count;
+            ImmutableArray<BaseOwnedSelectedRecord> selectedRecords = records.MoveToImmutable();
+            return OperationResults.Ok(new BaseAtomicSelectionResult
+            {
+                Authority = new BaseAuthoritySnapshotEvidence
+                {
+                    ApplicationId = request.Authority.ApplicationId,
+                    StoreInstanceId = request.Authority.StoreInstanceId,
+                    RestoreEpoch = request.Authority.RestoreEpoch,
+                    SchemaGeneration = request.Authority.SchemaGeneration,
+                    CollectionGeneration = request.Authority.CollectionGeneration,
+                    Isolation = BaseAtomicSelectionIsolationClass.WriteOwningSerializable,
+                    TransactionEvidenceToken = BitConverter.GetBytes(_transactionStarted).ToImmutableArray(),
+                },
+                Records = selectedRecords,
+                ReadIntervals = [new BaseAtomicReadIntervalEvidence
+                {
+                    LogicalAccessPathId = $"collection:{request.Collection.Id}",
+                    CanonicalLowerBound = ImmutableArray<byte>.Empty,
+                    LowerInclusive = true,
+                    CanonicalUpperBound = boundary.ToImmutableArray(),
+                    UpperInclusive = true,
+                }],
+                CanonicalOrderBoundary = boundary.ToImmutableArray(),
+                Accounting = new BaseAtomicSelectionAccounting
+                {
+                    SelectedRecords = selectedCount,
+                    SelectedBytes = bytes,
+                    ReadIntervals = 1,
+                    EvidenceBytes = boundary.LongLength,
+                },
+            });
+        }
+
+        private static OperationResult<BaseAtomicSelectionResult> SelectionFailure(
+            OperationStatus status, string code, ErrorCategory category) => new()
+        {
+            Status = status,
+            Error = new BaseError { Code = code, Message = "The provider selection failed.", Category = category },
+        };
+
         /// <summary>Executes the get async operation.</summary>
         public ValueTask<OperationResult<RecordEnvelope>> GetAsync(
             CollectionDefinition collection,
@@ -922,6 +1018,10 @@ public sealed partial class SqliteRecordStore
             {
                 return SqliteResultFactory.DuplicateId<T>("record");
             }
+            catch (SqliteException ex) when (ex.SqliteErrorCode == 19)
+            {
+                return ConstraintFailure<T>(ex);
+            }
             catch (SqliteException ex) when (IsTransactionConflict(ex))
             {
                 return OperationResults.Conflict<T>(TransactionConflict());
@@ -938,6 +1038,25 @@ public sealed partial class SqliteRecordStore
             {
                 _operationGate.Release();
             }
+        }
+
+        private static OperationResult<T> ConstraintFailure<T>(SqliteException exception)
+        {
+            string code = exception.SqliteExtendedErrorCode switch
+            {
+                1555 => "base.constraint.recordIdentity",
+                2067 => "base.constraint.attributionUnavailable",
+                787 => "base.constraint.attributionUnavailable",
+                275 => "base.constraint.attributionUnavailable",
+                1299 => "base.constraint.attributionUnavailable",
+                _ => "base.constraint.attributionUnavailable",
+            };
+            return OperationResults.Conflict<T>(new BaseError
+            {
+                Code = code,
+                Message = "The mutation violated an authoritative logical constraint.",
+                Category = ErrorCategory.Conflict,
+            });
         }
 
         private async ValueTask<OperationResult<RecordMutationSessionResult>> CreateCoreAsync(

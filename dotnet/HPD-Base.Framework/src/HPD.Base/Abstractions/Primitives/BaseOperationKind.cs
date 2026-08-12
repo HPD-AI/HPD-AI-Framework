@@ -25,6 +25,8 @@ Delete,
     Purge,
     /// <summary>Identifies batch.</summary>
     Batch,
+    /// <summary>Identifies one bounded transaction-bound selection mutation.</summary>
+    SelectionMutation,
     /// <summary>Identifies schema read.</summary>
 SchemaRead,
     /// <summary>Identifies schema write.</summary>

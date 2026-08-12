@@ -104,6 +104,7 @@ public sealed class BaseSession
 
     internal PrincipalContext Principal => _principal;
     internal IServiceProvider Services => _services;
+    internal string ApplicationId => _applicationId;
 
     internal FileOperationContext FileContext() => new()
     {

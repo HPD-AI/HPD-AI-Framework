@@ -19,10 +19,37 @@ public sealed record BaseClientGenerationSnapshotV2
     public required BaseClientDependencyTemplateDescriptor[] DependencyTemplates { get; init; }
     /// <summary>Gets installed vector indexes.</summary>
     public required BaseClientVectorIndexDescriptor[] VectorIndexes { get; init; }
+    /// <summary>Gets projected transaction-bound selection mutations.</summary>
+    public required BaseClientSelectionMutationDescriptor[] SelectionMutations { get; init; }
     /// <summary>Gets the stable error taxonomy.</summary>
     public required BaseClientErrorDescriptor[] Errors { get; init; }
     /// <summary>Gets the canonical structural SHA-256 digest.</summary>
     public required string Digest { get; init; }
+}
+
+/// <summary>Describes one generated transaction-bound selection mutation.</summary>
+public sealed record BaseClientSelectionMutationDescriptor
+{
+    /// <summary>Gets the stable profile identifier.</summary>
+    public required string Id { get; init; }
+    /// <summary>Gets the semantic profile version.</summary>
+    public required int Version { get; init; }
+    /// <summary>Gets the finalized semantic checksum.</summary>
+    public required string Checksum { get; init; }
+    /// <summary>Gets the owning collection identifier.</summary>
+    public required string CollectionId { get; init; }
+    /// <summary>Gets the deterministic generated method name.</summary>
+    public required string GeneratedName { get; init; }
+    /// <summary>Gets mergePatch or delete.</summary>
+    public required string MutationKind { get; init; }
+    /// <summary>Gets the materialized endpoint identifier.</summary>
+    public required string EndpointId { get; init; }
+    /// <summary>Gets the concrete route.</summary>
+    public required string Route { get; init; }
+    /// <summary>Gets the maximum selected record count.</summary>
+    public required int MaximumSelectedRecords { get; init; }
+    /// <summary>Gets the maximum request body bytes.</summary>
+    public required int MaximumRequestBodyBytes { get; init; }
 }
 
 /// <summary>Describes protocol compatibility for one snapshot.</summary>

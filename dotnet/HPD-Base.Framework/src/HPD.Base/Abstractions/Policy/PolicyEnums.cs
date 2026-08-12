@@ -5,7 +5,9 @@ public enum PolicyResourceKind
     /// <summary>Identifies collection.</summary>
 Collection,
     /// <summary>Identifies query.</summary>
-Query,
+    Query,
+    /// <summary>Identifies one installed transaction-bound selection operation.</summary>
+    SelectionMutation,
     /// <summary>Identifies record.</summary>
 Record,
     /// <summary>Identifies create Payload.</summary>

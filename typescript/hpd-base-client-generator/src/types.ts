@@ -7,6 +7,7 @@ export interface GenerationSnapshot {
   readonly registeredReads: readonly ReadDescriptor[];
   readonly dependencyTemplates: readonly DependencyDescriptor[];
   readonly vectorIndexes: readonly VectorDescriptor[];
+  readonly selectionMutations: readonly SelectionMutationDescriptor[];
   readonly errors: readonly ErrorDescriptor[];
   readonly digest: string;
 }
@@ -37,3 +38,4 @@ export interface ReadDescriptor { readonly id: string; readonly generatedName: s
 export interface DependencyDescriptor { readonly id: string; readonly kind: string; readonly visibility: string; readonly parameterTypeIds: readonly string[]; }
 export interface ErrorDescriptor { readonly code: string; readonly category: string; readonly retryable: boolean; }
 export interface VectorDescriptor { readonly collectionId: string; readonly id: string; readonly generatedName: string; readonly dimensions: number; readonly measure: "cosineSimilarity" | "dotProductSimilarity" | "euclideanDistance"; readonly filterFieldIds: readonly string[]; }
+export interface SelectionMutationDescriptor { readonly id: string; readonly version: number; readonly checksum: string; readonly collectionId: string; readonly generatedName: string; readonly mutationKind: "mergePatch" | "delete"; readonly endpointId: string; readonly route: string; readonly maximumSelectedRecords: number; readonly maximumRequestBodyBytes: number; }
