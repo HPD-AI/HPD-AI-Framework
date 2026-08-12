@@ -32,6 +32,66 @@ public sealed class L43SelectionMutationTests
     }
 
     [Fact]
+    public async Task SqliteSelectionPatchExecutesInsideOneAuthoritativeTransaction()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"hpd-l43-{Guid.NewGuid():N}.db");
+        try
+        {
+            await using ServiceProvider provider = Build(path);
+            IBaseSchemaManager schemas = provider.GetRequiredService<IBaseSchemaManager>();
+            OperationResult<BaseSchemaPlan> planned = await schemas.PlanAsync(new BaseSchemaPlanRequest { StoreId = "sqlite-l43" });
+            planned.IsSuccess().Should().BeTrue();
+            BaseSchemaPlan plan = planned.Value!;
+            (await schemas.ApplyAsync(new BaseSchemaApplyRequest { ProtectedArtifact = plan.ProtectedArtifact })).IsSuccess().Should().BeTrue();
+            (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
+            BaseCollectionSession<GeneratedProject> collection = provider.GetRequiredService<IBaseSessionFactory>().For(Admin()).Collection(GeneratedProject.Collection);
+            await collection.CreateAsync(new RecordId("sqlite-one"), new GeneratedProject { OrganizationId = "org", Name = "ready" });
+            BaseResult<BaseSelectionMutationResult> selected = await collection.Query().Where(GeneratedProject.Fields.OrganizationId.Equal("org"))
+                .OrderBy(GeneratedProject.Fields.Name).ThenByRecordId().Take(1)
+                .PatchSelectedAsync(collection.GetMergePatchSelectionProfile(PatchIdentity()), Patch("sqlite-claimed"), BasePreviousStateRequirement.None);
+            selected.Should().BeOfType<BaseSuccess<BaseSelectionMutationResult>>(
+                selected is BaseFailure<BaseSelectionMutationResult> failure ? failure.Error.Code : string.Empty);
+            BaseSelectionMutationResult result = selected.RequireValue();
+            result.MutatedCount.Should().Be(1);
+            (await collection.GetAsync(new RecordId("sqlite-one"))).RequireValue().Value.Name.Should().Be("sqlite-claimed");
+        }
+        finally { if (File.Exists(path)) File.Delete(path); }
+    }
+
+    [Fact]
+    public async Task ConcurrentSqliteSelectionsRemainSerializable()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"hpd-l43-concurrent-{Guid.NewGuid():N}.db");
+        try
+        {
+            await using ServiceProvider provider = Build(path);
+            IBaseSchemaManager schemas = provider.GetRequiredService<IBaseSchemaManager>();
+            OperationResult<BaseSchemaPlan> planned = await schemas.PlanAsync(new BaseSchemaPlanRequest { StoreId = "sqlite-l43" });
+            planned.IsSuccess().Should().BeTrue();
+            (await schemas.ApplyAsync(new BaseSchemaApplyRequest { ProtectedArtifact = planned.Value!.ProtectedArtifact })).IsSuccess().Should().BeTrue();
+            (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
+            BaseCollectionSession<GeneratedProject> collection = provider.GetRequiredService<IBaseSessionFactory>().For(Admin()).Collection(GeneratedProject.Collection);
+            await collection.CreateAsync(new RecordId("contended"), new GeneratedProject { OrganizationId = "org", Name = "ready" });
+            BaseMergePatchSelectionProfile<GeneratedProject> profile = collection.GetMergePatchSelectionProfile(PatchIdentity());
+            BasePreviousStateRequirement previous = new()
+            {
+                Revision = new BaseRevisionRequirement { Kind = BaseRevisionRequirementKind.None },
+                Fields = [new BasePreviousFieldRequirement { FieldId = "name", Kind = BasePreviousFieldRequirementKind.Equal, Value = new QueryValue { Kind = QueryValueKind.String, String = "ready" } }],
+            };
+            Task<BaseResult<BaseSelectionMutationResult>> First() => collection.Query().Where(GeneratedProject.Fields.OrganizationId.Equal("org"))
+                .OrderBy(GeneratedProject.Fields.Name).ThenByRecordId().Take(1).PatchSelectedAsync(profile, Patch("first"), previous).AsTask();
+            Task<BaseResult<BaseSelectionMutationResult>> Second() => collection.Query().Where(GeneratedProject.Fields.OrganizationId.Equal("org"))
+                .OrderBy(GeneratedProject.Fields.Name).ThenByRecordId().Take(1).PatchSelectedAsync(profile, Patch("second"), previous).AsTask();
+
+            BaseResult<BaseSelectionMutationResult>[] results = await Task.WhenAll(First(), Second());
+            results.Count(result => result is BaseSuccess<BaseSelectionMutationResult>).Should().Be(1);
+            results.Count(result => result is BaseFailure<BaseSelectionMutationResult>).Should().Be(1);
+            (await collection.GetAsync(new RecordId("contended"))).RequireValue().Value.Name.Should().BeOneOf("first", "second");
+        }
+        finally { if (File.Exists(path)) File.Delete(path); }
+    }
+
+    [Fact]
     public async Task IdentifiedZeroSelectionReplaysWithoutSelectingLaterInsert()
     {
         await using ServiceProvider provider = Build();
@@ -149,11 +209,17 @@ public sealed class L43SelectionMutationTests
         action.Should().Throw<InvalidOperationException>().WithMessage(BaseSelectionErrorCodes.ProfileInvalid);
     }
 
-    private static ServiceProvider Build()
+    private static ServiceProvider Build(string? sqlitePath = null)
     {
         var services = new ServiceCollection().AddLogging();
-        services.AddHPDBase(builder => builder
-            .ConfigureSchema(options => options.ApplicationId = "hpd.base.application")
+        services.AddHPDBase(builder =>
+        {
+            builder
+            .ConfigureSchema(options =>
+            {
+                options.ApplicationId = "hpd.base.application";
+                if (sqlitePath is not null) options.PlanProtectionKey = Enumerable.Repeat((byte)0x43, 32).ToArray();
+            })
             .ConfigureSelectionMutations(new HPDBaseSelectionMutationOptions
             {
                 HostMaxima = Limits(), MaximumReceiptIdentityBytes = 512,
@@ -163,7 +229,9 @@ public sealed class L43SelectionMutationTests
             .ReplacePolicyEvaluator<AllowAll>()
             .AddCollection(GeneratedProject.Collection)
             .AddSelectionOperationProfile(Profile("claim", BaseSelectionMutationKind.MergePatch))
-            .AddSelectionOperationProfile(Profile("remove", BaseSelectionMutationKind.Delete)));
+            .AddSelectionOperationProfile(Profile("remove", BaseSelectionMutationKind.Delete));
+            if (sqlitePath is not null) builder.UseStore(HPD.Base.Sqlite.SqliteStore.Configure(options => { options.DataSource = sqlitePath; options.StoreId = "sqlite-l43"; }));
+        });
         return services.BuildServiceProvider();
     }
 

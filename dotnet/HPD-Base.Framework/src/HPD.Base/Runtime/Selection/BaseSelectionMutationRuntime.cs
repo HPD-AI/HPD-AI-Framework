@@ -78,7 +78,7 @@ internal sealed class DefaultBaseSelectionMutationRuntime(
         OperationResult<BaseAuthoritySnapshotRequirement> authority = await resolved.Value.AtomicStore
             .CaptureSelectionAuthorityAsync(profile.ApplicationId, collection, cancellationToken).ConfigureAwait(false);
         if (!authority.IsSuccess() || authority.Value is null
-            || !string.Equals(authority.Value.StoreInstanceId, resolved.Value.Registration.StoreId, StringComparison.Ordinal))
+            || string.IsNullOrWhiteSpace(authority.Value.StoreInstanceId))
             return Failure(OperationStatus.Conflict, BaseSelectionErrorCodes.SchemaGenerationChanged, ErrorCategory.Conflict);
 
         RecordQuery providerQuery = BaseQueryFieldResolver.ToStoredNames(collection, constrained);
@@ -487,7 +487,7 @@ internal sealed class BaseSelectionMutationProcessor(
     private bool ValidateSelection(BaseAtomicSelectionResult selected)
     {
         if (!string.Equals(selected.Authority.ApplicationId, profile.ApplicationId, StringComparison.Ordinal)
-            || !string.Equals(selected.Authority.StoreInstanceId, store.Registration.StoreId, StringComparison.Ordinal)
+            || !string.Equals(selected.Authority.StoreInstanceId, authority.StoreInstanceId, StringComparison.Ordinal)
             || selected.Authority.RestoreEpoch != authority.RestoreEpoch
             || selected.Authority.SchemaGeneration != authority.SchemaGeneration
             || selected.Authority.CollectionGeneration != authority.CollectionGeneration

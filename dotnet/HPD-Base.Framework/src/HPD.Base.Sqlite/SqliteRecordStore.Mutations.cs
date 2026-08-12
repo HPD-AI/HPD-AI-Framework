@@ -795,9 +795,8 @@ public sealed partial class SqliteRecordStore
             CancellationToken cancellationToken)
         {
             ArgumentNullException.ThrowIfNull(request);
-            if (!string.Equals(request.Authority.StoreInstanceId, _owner._options.StoreId, StringComparison.Ordinal)
+            if (string.IsNullOrWhiteSpace(request.Authority.StoreInstanceId)
                 || request.Authority.RestoreEpoch < 0
-                || request.Authority.SchemaGeneration != Volatile.Read(ref _owner._schemaGeneration)
                 || request.Limits.MaximumRecords < 1
                 || request.Limits.MaximumSelectedBytes < 1
                 || request.Limits.MaximumReadIntervals < 1
@@ -813,17 +812,26 @@ public sealed partial class SqliteRecordStore
             _attributionTransientBytes = 0;
             _selectionRetainedBytes = 0;
 
+            string actualStoreInstanceId;
+            long actualRestoreEpoch;
+            long actualSchemaGeneration;
+            long actualCollectionGeneration;
             await using (SqliteCommand authority = _connection.CreateCommand())
             {
                 authority.Transaction = _transaction;
                 authority.CommandText = $"SELECT i.store_instance_id, COALESCE((SELECT CAST(value AS INTEGER) FROM {_owner._names.ProviderState} WHERE key='restore_epoch'),0), COALESCE((SELECT MAX(generation) FROM {_owner._names.SchemaBaseline}),0), c.purge_generation FROM {_owner._names.SchemaIdentity} i JOIN {_owner._names.Collections} c ON c.collection_id=$collection LIMIT 1;";
                 authority.Parameters.AddWithValue("$collection", request.Collection.Id);
                 await using SqliteDataReader authorityReader = await authority.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-                if (!await authorityReader.ReadAsync(cancellationToken).ConfigureAwait(false)
-                    || !string.Equals(authorityReader.GetString(0), request.Authority.StoreInstanceId, StringComparison.Ordinal)
-                    || authorityReader.GetInt64(1) != request.Authority.RestoreEpoch
-                    || authorityReader.GetInt64(2) != request.Authority.SchemaGeneration
-                    || authorityReader.GetInt64(3) != request.Authority.CollectionGeneration)
+                if (!await authorityReader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                    return SelectionFailure(OperationStatus.Conflict, "base.provider.selection.authorityChanged", ErrorCategory.Conflict);
+                actualStoreInstanceId = authorityReader.GetString(0);
+                actualRestoreEpoch = authorityReader.GetInt64(1);
+                actualSchemaGeneration = authorityReader.GetInt64(2);
+                actualCollectionGeneration = authorityReader.GetInt64(3);
+                if (!string.Equals(actualStoreInstanceId, request.Authority.StoreInstanceId, StringComparison.Ordinal)
+                    || actualRestoreEpoch != request.Authority.RestoreEpoch
+                    || actualSchemaGeneration != request.Authority.SchemaGeneration
+                    || actualCollectionGeneration != request.Authority.CollectionGeneration)
                     return SelectionFailure(OperationStatus.Conflict, "base.provider.selection.authorityChanged", ErrorCategory.Conflict);
             }
 
@@ -868,10 +876,10 @@ public sealed partial class SqliteRecordStore
                 Authority = new BaseAuthoritySnapshotEvidence
                 {
                     ApplicationId = request.Authority.ApplicationId,
-                    StoreInstanceId = request.Authority.StoreInstanceId,
-                    RestoreEpoch = request.Authority.RestoreEpoch,
-                    SchemaGeneration = Volatile.Read(ref _owner._schemaGeneration),
-                    CollectionGeneration = request.Authority.CollectionGeneration,
+                    StoreInstanceId = actualStoreInstanceId,
+                    RestoreEpoch = actualRestoreEpoch,
+                    SchemaGeneration = actualSchemaGeneration,
+                    CollectionGeneration = actualCollectionGeneration,
                     Isolation = BaseAtomicSelectionIsolationClass.WriteOwningSerializable,
                     TransactionEvidenceToken = BitConverter.GetBytes(_transactionStarted).ToImmutableArray(),
                 },
