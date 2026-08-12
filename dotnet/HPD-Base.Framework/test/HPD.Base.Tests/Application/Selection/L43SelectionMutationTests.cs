@@ -120,6 +120,21 @@ public sealed class L43SelectionMutationTests
     }
 
     [Fact]
+    public async Task SelectionRejectsOrderWithoutFinalRecordIdentityBeforeProviderInfluence()
+    {
+        await using ServiceProvider provider = Build();
+        (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
+        BaseCollectionSession<GeneratedProject> collection = provider.GetRequiredService<IBaseSessionFactory>().For(Admin()).Collection(GeneratedProject.Collection);
+        Func<Task> action = async () => await collection.Query()
+            .Where(GeneratedProject.Fields.OrganizationId.Equal("org"))
+            .OrderBy(GeneratedProject.Fields.Name).Take(1)
+            .DeleteSelectedAsync(collection.GetDeleteSelectionProfile(DeleteIdentity()), BasePreviousStateRequirement.None);
+
+        await action.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*total order ending in record ID*");
+    }
+
+    [Fact]
     public void GeneratedProfileIdentityRejectsAnotherModuleCollection()
     {
         BaseSelectionOperationProfile profile = Profile("claim", BaseSelectionMutationKind.MergePatch);

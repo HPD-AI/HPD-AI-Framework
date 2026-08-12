@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { baseRedacted, collection, createBaseClient, decodeBaseJson, decodeBaseValue, encodeBaseJson, field, isBaseRedacted, parseBaseJson, read, selectionMutation } from "../dist/index.js";
+import { baseRedacted, collection, createBaseClient, decodeBaseJson, decodeBaseValue, encodeBaseJson, executeSelectionMutation, field, isBaseRedacted, parseBaseJson, read, selectionMutation } from "../dist/index.js";
 import { BaseRealtimeManager } from "../dist/realtime.js";
 
 const basicGraph = Object.freeze({
@@ -48,9 +48,10 @@ test("selection mutation uses the closed graph and collection patch wire codec",
   });
   let body; const operation = selectionMutation({ route: "/selection", mutationKind: "mergePatch", maximumRequestBodyBytes: 4096, requestTypeId: "selectionRequest", resultTypeId: "selectionResult", typeGraph: graph });
   const transport = { jsonDocument: async (_method, _route, bytes) => { body = new TextDecoder().decode(bytes); return { ok: true, value: { selectedCount: 1, mutatedCount: 1, outcome: "committed", requestDisposition: "committed" }, correlationId: "c" }; } };
-  const result = await operation(transport, { query: { filter: { kind: "compare", field: "stable-title", operator: "equal", value: { kind: "string", string: "old" } }, sort: [{ field: "stable-title", direction: "asc" }], take: 1 }, patch: { title: "new" }, previousState: { revision: { kind: "none" }, fields: [] } });
-  assert.equal(result.ok, true); assert.equal(body, '{"query":{"filter":{"field":"stable-title","kind":"compare","operator":"equal","value":{"kind":"string","string":"old"}},"sort":[{"direction":"asc","field":"stable-title"}],"take":1},"patch":{"patch":{"kind":"fieldMap","fields":{"stored_title":"new"}}},"previousState":{"fields":[],"revision":{"kind":"none"}}}');
-  await assert.rejects(() => operation(transport, { query: { filter: { kind: "extension" }, sort: [{ field: "x", direction: "asc" }], take: 1 }, patch: { title: "new" }, previousState: { revision: { kind: "none" }, fields: [] } }), /responseInvalid/);
+  const request = { query: { filter: { kind: "compare", field: "stable-title", operator: "equal", value: { kind: "string", string: "old" } }, sort: [{ field: "stable-title", direction: "asc" }, { field: "id", direction: "asc" }], take: 1 }, patch: { title: "new" }, previousState: { revision: { kind: "none" }, fields: [] } };
+  const result = await executeSelectionMutation(transport, operation, request);
+  assert.equal(result.ok, true); assert.equal(body, '{"query":{"filter":{"field":"stable-title","kind":"compare","operator":"equal","value":{"kind":"string","string":"old"}},"sort":[{"direction":"asc","field":"stable-title"},{"direction":"asc","field":"id"}],"take":1},"patch":{"patch":{"kind":"fieldMap","fields":{"stored_title":"new"}}},"previousState":{"fields":[],"revision":{"kind":"none"}}}');
+  await assert.rejects(() => executeSelectionMutation(transport, operation, { query: { filter: { kind: "extension" }, sort: [{ field: "id", direction: "asc" }], take: 1 }, patch: { title: "new" }, previousState: { revision: { kind: "none" }, fields: [] } }), /responseInvalid/);
 });
 
 test("realtime v2 joins after welcome and resumes from the last delivered durable cursor", async () => {

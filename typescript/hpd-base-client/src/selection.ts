@@ -28,15 +28,23 @@ export interface BaseSelectionMutationOptions {
 }
 
 /** Creates one generated, executable transaction-bound selection mutation. */
-export function selectionMutation<TRequest>(definition: {
+export interface BaseSelectionMutationDefinition<TRequest = unknown> {
   readonly route: string;
   readonly mutationKind: "mergePatch" | "delete";
   readonly maximumRequestBodyBytes: number;
   readonly requestTypeId: string;
   readonly resultTypeId: string;
   readonly typeGraph: BaseTypeGraph;
-}) {
-  return async (transport: BaseHttpTransport, request: TRequest, options: BaseSelectionMutationOptions = {}): Promise<BaseResult<BaseSelectionMutationResult>> => {
+  readonly __request?: TRequest;
+}
+
+/** Creates one immutable generated selection-mutation descriptor. */
+export function selectionMutation<TRequest>(definition: BaseSelectionMutationDefinition<TRequest>): BaseSelectionMutationDefinition<TRequest> {
+  return Object.freeze(definition);
+}
+
+/** Executes one generated descriptor through its owning configured client transport. */
+export async function executeSelectionMutation<TRequest>(transport: BaseHttpTransport, definition: BaseSelectionMutationDefinition<TRequest>, request: TRequest, options: BaseSelectionMutationOptions = {}): Promise<BaseResult<BaseSelectionMutationResult>> {
     if (request === null || typeof request !== "object" || Array.isArray(request)) throw new TypeError("base.selection.contractInvalid");
     const bytes = new TextEncoder().encode(encodeBaseJson(request, definition.requestTypeId, definition.typeGraph));
     if (bytes.byteLength > definition.maximumRequestBodyBytes) throw new RangeError("base.selection.limitExceeded");
@@ -51,5 +59,4 @@ export function selectionMutation<TRequest>(definition: {
       || !["committed", "duplicate"].includes(item.requestDisposition as string))
       throw new TypeError("base.client.responseInvalid");
     return { ...result, value: { selectedCount: item.selectedCount as number, mutatedCount: item.mutatedCount as number, outcome: item.outcome as BaseSelectionMutationResult["outcome"], requestDisposition: item.requestDisposition as BaseSelectionMutationResult["requestDisposition"] } };
-  };
 }

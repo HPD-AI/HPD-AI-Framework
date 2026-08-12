@@ -120,6 +120,7 @@ function selectionQuery(value: unknown, limits: Extract<BaseTypeNode, { kind: "s
     || value.sort.length < 1 || value.sort.length > limits.maximumNodes || !Number.isSafeInteger(value.take)
     || (value.take as number) < 1 || (value.take as number) > limits.maximumTake) invalid();
   const sort = value.sort.map(item => { if (!object(item) || Object.keys(item).some(key => !["field", "direction", "nulls"].includes(key)) || !boundedText(item.field, 128) || !["asc", "desc"].includes(item.direction as string) || item.nulls !== undefined && !["unspecified", "first", "last"].includes(item.nulls as string)) invalid(); return Object.freeze({ field: item.field, direction: item.direction, ...(item.nulls === undefined ? {} : { nulls: item.nulls }) }); });
+  if (sort.at(-1)?.field !== "id" || sort.filter(item => item.field === "id").length !== 1 || sort.at(-1)?.nulls !== undefined && sort.at(-1)?.nulls !== "unspecified") invalid();
   let nodes = 0, literals = 0;
   const filter = (node: unknown, depth: number): unknown => {
     if (!object(node) || depth > limits.maximumDepth || ++nodes > limits.maximumNodes || typeof node.kind !== "string") invalid();

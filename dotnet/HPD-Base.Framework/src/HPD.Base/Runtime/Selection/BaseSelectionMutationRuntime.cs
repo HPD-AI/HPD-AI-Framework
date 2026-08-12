@@ -43,6 +43,7 @@ internal sealed class DefaultBaseSelectionMutationRuntime(
         if (query.Page?.Mode != QueryPaginationMode.Offset || query.Page.Offset is not (null or 0)
             || query.Page.Limit is not { } take || take < 1 || take > profile.Limits.MaximumSelectedRecords
             || query.Sort is not { Length: > 0 }
+            || !IsTotalOrder(query.Sort)
             || query.Page.Cursor is not null
             || options?.CallerWaitTimeout is { } wait && (wait <= TimeSpan.Zero || wait > profile.Limits.CallerCommitObservationTimeout)
             || profile.MutationKind == BaseSelectionMutationKind.MergePatch && patch is null
@@ -252,6 +253,11 @@ internal sealed class DefaultBaseSelectionMutationRuntime(
         }
         return filter is null || Visit(filter, 1);
     }
+
+    private static bool IsTotalOrder(QuerySort[] sort) =>
+        string.Equals(sort[^1].Field, "id", StringComparison.Ordinal)
+        && sort.Count(static item => string.Equals(item.Field, "id", StringComparison.Ordinal)) == 1
+        && sort[^1].Nulls == QueryNullOrder.Unspecified;
 }
 
 internal sealed record BaseSelectionDigestInput
@@ -491,6 +497,9 @@ internal sealed class BaseSelectionMutationProcessor(
             || selected.Accounting.ReadIntervals != selected.ReadIntervals.Length
             || selected.ReadIntervals.Length > profile.Limits.MaximumReadIntervals)
             return false;
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        long canonicalBytes = 0;
+        RecordEnvelope? previous = null;
         for (int index = 0; index < selected.Records.Length; index++)
         {
             BaseOwnedSelectedRecord record = selected.Records[index];
@@ -500,13 +509,70 @@ internal sealed class BaseSelectionMutationProcessor(
             {
                 RecordEnvelope materialized = record.MaterializeOwned();
                 if (!string.Equals(materialized.Id.Value, record.RecordId, StringComparison.Ordinal)
-                    || materialized.Metadata.Revision != record.Revision)
+                    || materialized.Metadata.Revision != record.Revision
+                    || !ids.Add(materialized.Id.Value)
+                    || !BaseRecordFilterMatcher.Matches(materialized, query.Filter)
+                    || previous is not null && CompareSelected(previous, materialized, query.Sort!) >= 0)
                     return false;
+                canonicalBytes = checked(canonicalBytes + record.CopyCanonicalBytes().LongLength);
+                previous = materialized;
             }
             catch { return false; }
         }
+        byte[] boundary = selected.Records.Length == 0 ? [] : System.Text.Encoding.UTF8.GetBytes(selected.Records[^1].RecordId);
+        if (canonicalBytes != selected.Accounting.SelectedBytes
+            || !selected.CanonicalOrderBoundary.AsSpan().SequenceEqual(boundary)
+            || selected.Accounting.EvidenceBytes != selected.ReadIntervals.Sum(static interval =>
+                checked((long)interval.CanonicalLowerBound.Length + interval.CanonicalUpperBound.Length))) return false;
+        string path = $"collection:{collection.Id}";
+        ReadOnlySpan<byte> priorUpper = default;
+        for (int index = 0; index < selected.ReadIntervals.Length; index++)
+        {
+            BaseAtomicReadIntervalEvidence interval = selected.ReadIntervals[index];
+            if (!string.Equals(interval.LogicalAccessPathId, path, StringComparison.Ordinal)
+                || interval.CanonicalLowerBound.IsDefault || interval.CanonicalUpperBound.IsDefault
+                || CompareBytes(interval.CanonicalLowerBound.AsSpan(), interval.CanonicalUpperBound.AsSpan()) > 0
+                || index > 0 && CompareBytes(priorUpper, interval.CanonicalLowerBound.AsSpan()) >= 0) return false;
+            priorUpper = interval.CanonicalUpperBound.AsSpan();
+        }
         return true;
     }
+
+    private static int CompareSelected(RecordEnvelope left, RecordEnvelope right, QuerySort[] sort)
+    {
+        foreach (QuerySort item in sort)
+        {
+            if (string.Equals(item.Field, "id", StringComparison.Ordinal))
+            {
+                int id = string.Compare(left.Id.Value, right.Id.Value, StringComparison.Ordinal);
+                if (id != 0) return item.Direction == QuerySortDirection.Desc ? -id : id;
+                continue;
+            }
+            System.Text.Json.JsonElement leftValue = default, rightValue = default;
+            bool leftPresent = left.Payload.Fields?.TryGetValue(item.Field, out leftValue) == true;
+            bool rightPresent = right.Payload.Fields?.TryGetValue(item.Field, out rightValue) == true;
+            int comparison = CompareSortValue(leftPresent, leftValue, rightPresent, rightValue, item.Nulls);
+            if (comparison != 0) return item.Direction == QuerySortDirection.Desc ? -comparison : comparison;
+        }
+        return 0;
+    }
+
+    private static int CompareSortValue(bool leftPresent, System.Text.Json.JsonElement left, bool rightPresent, System.Text.Json.JsonElement right, QueryNullOrder nulls)
+    {
+        bool leftNull = !leftPresent || left.ValueKind == System.Text.Json.JsonValueKind.Null;
+        bool rightNull = !rightPresent || right.ValueKind == System.Text.Json.JsonValueKind.Null;
+        if (leftNull || rightNull)
+        {
+            if (leftNull == rightNull) return 0;
+            bool first = nulls != QueryNullOrder.Last;
+            return leftNull == first ? -1 : 1;
+        }
+        if (left.ValueKind == System.Text.Json.JsonValueKind.Number && right.ValueKind == System.Text.Json.JsonValueKind.Number
+            && left.TryGetDecimal(out decimal a) && right.TryGetDecimal(out decimal b)) return a.CompareTo(b);
+        return string.Compare(left.ToString(), right.ToString(), StringComparison.Ordinal);
+    }
+
+    private static int CompareBytes(ReadOnlySpan<byte> left, ReadOnlySpan<byte> right) => left.SequenceCompareTo(right);
 
     private static bool QueryValueEquals(System.Text.Json.JsonElement value, QueryValue expected) => expected.Kind switch
     {

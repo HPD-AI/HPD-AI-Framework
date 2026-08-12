@@ -47,7 +47,8 @@ export type BaseCollectionOperation = "list" | "query" | "get" | "create" | "pat
 
 export interface BaseGeneratedSchema<
   TCollections extends Readonly<Record<string, BaseCollectionDefinition>> = Readonly<Record<string, BaseCollectionDefinition>>,
-  TReads extends Readonly<Record<string, BaseReadDefinition>> = Readonly<Record<string, BaseReadDefinition>>
+  TReads extends Readonly<Record<string, BaseReadDefinition>> = Readonly<Record<string, BaseReadDefinition>>,
+  TSelections extends Readonly<Record<string, import("./selection.js").BaseSelectionMutationDefinition>> = Readonly<Record<string, import("./selection.js").BaseSelectionMutationDefinition>>
 > {
   readonly protocolMajor: 2;
   readonly schemaGeneration: string;
@@ -57,6 +58,7 @@ export interface BaseGeneratedSchema<
   readonly typeGraph?: import("./codec.js").BaseTypeGraph;
   readonly collections: TCollections;
   readonly reads: TReads;
+  readonly selectionMutations?: TSelections;
 }
 
 export interface BaseReadDefinition<TParameters = unknown, TRow = unknown, TWatchable extends boolean = boolean> {

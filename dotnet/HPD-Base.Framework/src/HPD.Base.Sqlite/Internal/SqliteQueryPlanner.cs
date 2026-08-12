@@ -216,7 +216,8 @@ internal sealed class SqliteQueryPlanner
             parts.Add(expression + (item.Direction == QuerySortDirection.Desc ? " DESC" : " ASC"));
         }
 
-        parts.Add("record_id ASC");
+        if (!string.Equals(sort[^1].Field, "id", StringComparison.Ordinal))
+            parts.Add("record_id ASC");
         return " ORDER BY " + string.Join(", ", parts);
     }
 

@@ -713,6 +713,9 @@ public sealed partial class SqliteRecordStore
     {
         private int _relationChecks;
         private int _uniqueChecks;
+        private SqlitePhysicalModel.CollectionModel? _constraintCollection;
+        private RecordPayload? _constraintPayload;
+        private string? _constraintRecordId;
         public async ValueTask<OperationResult<BaseSelectionMutationCommitAccounting>> MeasureSelectionMutationAsync(
             BaseAtomicReceiptResult receipt, BaseSelectionMutationResult result, CancellationToken cancellationToken = default)
         {
@@ -1098,8 +1101,8 @@ public sealed partial class SqliteRecordStore
             string code = exception.SqliteExtendedErrorCode switch
             {
                 1555 => "base.constraint.recordIdentity",
-                2067 => AttributeUnique(exception),
-                787 => AttributeRelation(),
+                2067 => AttributeUnique(),
+                787 => "base.constraint.attributionUnavailable",
                 275 => "base.constraint.attributionUnavailable",
                 1299 => "base.constraint.attributionUnavailable",
                 _ => "base.constraint.attributionUnavailable",
@@ -1112,31 +1115,37 @@ public sealed partial class SqliteRecordStore
             });
         }
 
-        private string AttributeUnique(SqliteException exception)
+        private string AttributeUnique()
         {
-            const string marker = "UNIQUE constraint failed: ";
-            int start = exception.Message.IndexOf(marker, StringComparison.Ordinal);
-            if (start < 0) return "base.constraint.attributionUnavailable";
-            string[] physicalColumns = exception.Message[(start + marker.Length)..]
-                .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
-                .Select(static value => value[(value.LastIndexOf('.') + 1)..])
-                .ToArray();
-            if (physicalColumns.Length == 0) return "base.constraint.attributionUnavailable";
+            if (_constraintCollection is null || _constraintPayload is null || _constraintRecordId is null)
+                return "base.constraint.attributionUnavailable";
+            Dictionary<string, System.Text.Json.JsonElement> values = SqliteRecordSerializer.NormalizeObjectPayload(_constraintPayload).Fields ?? [];
             int matches = 0;
-            foreach (SqlitePhysicalModel.CollectionModel collection in _owner._physical.Collections)
-            foreach (SqlitePhysicalModel.IndexModel index in collection.Indexes.Where(static candidate => candidate.Definition.Unique || candidate.Definition.Kind == IndexKind.Unique))
+            foreach (SqlitePhysicalModel.IndexModel index in _constraintCollection.Indexes
+                .Where(static candidate => candidate.Definition.Unique || candidate.Definition.Kind == IndexKind.Unique))
             {
                 _uniqueChecks = checked(_uniqueChecks + 1);
-                if (index.Parts.Select(static part => part.Column).SequenceEqual(physicalColumns, StringComparer.Ordinal)) matches++;
+                if (index.Definition.Predicate is not null || index.Definition.NativePredicate is not null
+                    || index.Parts.Length == 0 || index.Definition.Parts!.Any(static part => part.Kind != IndexPartKind.Field || part.Collation is not null || part.Expression is not null))
+                    continue;
+                using SqliteCommand probe = _connection.CreateCommand();
+                probe.Transaction = _transaction;
+                var predicates = new List<string>(index.Parts.Length);
+                bool complete = true;
+                for (int part = 0; part < index.Parts.Length; part++)
+                {
+                    SqlitePhysicalModel.FieldModel field = index.Parts[part];
+                    if (!values.TryGetValue(field.Definition.Name, out System.Text.Json.JsonElement value)) { complete = false; break; }
+                    string parameter = "$u" + part.ToString(CultureInfo.InvariantCulture);
+                    predicates.Add(field.Column + " IS " + parameter);
+                    probe.Parameters.AddWithValue(parameter, field.Encode(value));
+                }
+                if (!complete) continue;
+                probe.CommandText = $"SELECT 1 FROM {_constraintCollection.Table} WHERE {string.Join(" AND ", predicates)} AND record_id <> $record LIMIT 1;";
+                probe.Parameters.AddWithValue("$record", _constraintRecordId);
+                if (probe.ExecuteScalar() is not null) matches++;
             }
             return matches == 1 ? "base.constraint.unique" : "base.constraint.attributionUnavailable";
-        }
-
-        private string AttributeRelation()
-        {
-            SqlitePhysicalModel.RelationModel[] relations = _owner._physical.Relations.ToArray();
-            _relationChecks = checked(_relationChecks + relations.Length);
-            return relations.Length == 1 ? "base.constraint.relation" : "base.constraint.attributionUnavailable";
         }
 
         private async ValueTask<OperationResult<RecordMutationSessionResult>> CreateCoreAsync(
@@ -1179,7 +1188,9 @@ public sealed partial class SqliteRecordStore
             command.Parameters.AddWithValue("$updated", now.ToString("O"));
             command.Parameters.AddWithValue("$appendPosition", appendPosition);
             physical.AddPayloadParameters(command, normalizedPayload, includeExtensions: true);
+            SetConstraintProbe(physical, normalizedPayload, id.Value);
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            ClearConstraintProbe();
             _uniqueChecks = checked(_uniqueChecks + physical.Indexes.Count(index => index.Definition.Unique));
             await SyncRelationsAsync(collection.Id, id.Value, normalizedPayload, cancellationToken).ConfigureAwait(false);
 
@@ -1362,7 +1373,9 @@ public sealed partial class SqliteRecordStore
             command.Parameters.AddWithValue("$updated", now.ToString("O"));
             physical.AddPayloadParameters(command, nextPayload, includeExtensions: true);
             command.Parameters.AddWithValue("$id", id.Value);
+            SetConstraintProbe(physical, nextPayload, id.Value);
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            ClearConstraintProbe();
             _uniqueChecks = checked(_uniqueChecks + physical.Indexes.Count(index => index.Definition.Unique));
             await SyncRelationsAsync(collection.Id, id.Value, nextPayload, cancellationToken).ConfigureAwait(false);
 
@@ -1528,6 +1541,20 @@ public sealed partial class SqliteRecordStore
                     await insert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
                 }
             }
+        }
+
+        private void SetConstraintProbe(SqlitePhysicalModel.CollectionModel collection, RecordPayload payload, string recordId)
+        {
+            _constraintCollection = collection;
+            _constraintPayload = SqliteRecordSerializer.Clone(payload);
+            _constraintRecordId = recordId;
+        }
+
+        private void ClearConstraintProbe()
+        {
+            _constraintCollection = null;
+            _constraintPayload = null;
+            _constraintRecordId = null;
         }
 
         private async ValueTask SetLatestMutationPositionAsync(

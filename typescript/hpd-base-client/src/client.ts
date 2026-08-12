@@ -7,6 +7,7 @@ import { BaseFilesClient } from "./files.js";
 import { BaseVectorIndexQuery } from "./vector.js";
 import { createControlPlaneClient, type BaseControlPlaneClient } from "./control.js";
 import { decodeBaseValue, decodeBaseWireValue, encodeBaseJson, materializeBaseJsonValue } from "./codec.js";
+import { executeSelectionMutation, type BaseSelectionMutationDefinition, type BaseSelectionMutationOptions, type BaseSelectionMutationResult } from "./selection.js";
 
 type RecordOf<T> = T extends BaseCollectionDefinition<infer TRecord, unknown, unknown, unknown> ? TRecord : never;
 type CreateOf<T> = T extends BaseCollectionDefinition<unknown, infer TCreate, unknown, unknown> ? TCreate : never;
@@ -89,6 +90,7 @@ export interface BaseClientCommon {
 export type BaseClient<TSchema extends BaseGeneratedSchema> = BaseClientCommon & {
   readonly [K in keyof TSchema["collections"]]: BaseCollectionClient<TSchema["collections"][K]>
 } & { readonly reads: { readonly [K in keyof TSchema["reads"]]: BaseReadClient<TSchema["reads"][K]> } }
+  & { readonly selectionMutations: { readonly [K in keyof NonNullable<TSchema["selectionMutations"]>]: NonNullable<TSchema["selectionMutations"]>[K] extends BaseSelectionMutationDefinition<infer TRequest> ? (request: TRequest, options?: BaseSelectionMutationOptions) => Promise<BaseResult<BaseSelectionMutationResult>> : never } }
   & (TSchema["features"]["files"] extends true ? { readonly files: BaseFilesClient } : {})
   & (TSchema["features"]["batch"] extends true ? { readonly batch: BaseBatchClient<TSchema> } : {})
   & (TSchema["audience"] extends "controlPlane" ? { readonly $control: BaseControlPlaneClient<TSchema["features"]["controlOperations"]> } : {});
@@ -164,6 +166,7 @@ class BaseClientRuntime implements BaseQueryExecutor<unknown> {
   }
 
   public close(): void { this.#closed = true; this.#realtime?.close(); this.#collections.clear(); this.#indeterminate.clear(); }
+  public selectionTransport(): BaseHttpTransport { this.ensureOpen(); return this.#transport; }
   public controlClient<const TOperations extends readonly string[]>(operations: TOperations): BaseControlPlaneClient<TOperations> { this.ensureOpen(); return createControlPlaneClient(this.#transport, operations); }
   public async resolveMutation(mutationId: MutationId, signal?: AbortSignal): Promise<BaseResult<unknown>> { this.ensureOpen(); const pending = this.#indeterminate.get(mutationId); if (pending === undefined) throw new TypeError("base.client.mutationNotIndeterminate"); const result = normalizeIdentifiedFailure(await this.#transport.jsonDocument("POST", "records/batch", pending.bytes, signal, mutationId, pending.correlationId)); const projected = projectMutation<unknown>(result, pending.kind); if (projected.ok) { this.#indeterminate.delete(mutationId); const authoritative = pending.kind === "delete" ? undefined : pending.kind === "upsert" && isObject(projected.value) && "record" in projected.value ? this.fromWireRecord(pending.collectionId, projected.value.record) : this.fromWireRecord(pending.collectionId, projected.value); const value = pending.kind === "upsert" && isObject(projected.value) ? { ...projected.value, record: authoritative } : authoritative; if (pending.optimisticId !== undefined) this.#realtime?.reconcile(mutationId, pending.collectionId, authoritative); return { ...projected, value }; } if (projected.error.code !== "base.runtime.batch.indeterminate") { this.#indeterminate.delete(mutationId); if (pending.optimisticId !== undefined) this.#realtime?.reject(mutationId, pending.collectionId); } return projected; }
   public filesClient(): BaseFilesClient { this.ensureOpen(); return this.#files; }
@@ -332,6 +335,8 @@ export function createBaseClient<TSchema extends BaseGeneratedSchema>(options: B
   }
   if (schema.features.files) Object.defineProperty(target, "files", { value: runtime.filesClient(), enumerable: true, configurable: false, writable: false });
   if (schema.features.batch) Object.defineProperty(target, "batch", { value: Object.freeze({ execute: runtime.executeBatch.bind(runtime) }), enumerable: true, configurable: false, writable: false });
+  const selections = Object.fromEntries(Object.entries(schema.selectionMutations ?? {}).map(([name, definition]) => [name, (request: unknown, selectionOptions?: BaseSelectionMutationOptions) => executeSelectionMutation(runtime.selectionTransport(), definition, request, selectionOptions)]));
+  Object.defineProperty(target, "selectionMutations", { value: Object.freeze(selections), enumerable: true, configurable: false, writable: false });
   if (schema.audience === "controlPlane") Object.defineProperty(target, "$control", { value: runtime.controlClient(schema.features.controlOperations), enumerable: true, configurable: false, writable: false });
   return target;
 }
