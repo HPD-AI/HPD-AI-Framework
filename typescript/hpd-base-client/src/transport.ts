@@ -1,5 +1,5 @@
 import type { BaseClientError, BaseResult, BaseRetryClassification, BaseSuccessStatus } from "./result.js";
-import { parseBaseJson } from "./codec.js";
+import { parseBaseJson, parseBaseJsonDocument } from "./codec.js";
 export { parseBaseJson } from "./codec.js";
 
 export interface BaseTransportOptions {
@@ -35,6 +35,18 @@ export class BaseHttpTransport {
       return { ok: true, value, status: successStatus(status), correlationId: responseCorrelationId, warnings: [] };
     } catch {
       return failure("base.client.responseInvalid", "unexpected", "The BASE response was invalid.", "never", responseCorrelationId);
+    }
+  }
+
+  /** Returns a strict parsed document while preserving raw numeric tokens for a graph decoder. */
+  public async jsonDocument(method: string, route: string, body: Uint8Array | undefined, signal?: AbortSignal, idempotencyKey?: string, requestedCorrelationId?: string): Promise<BaseResult<unknown>> {
+    const response = await this.request(method, route, body === undefined ? undefined : new Uint8Array(body).buffer as ArrayBuffer, body === undefined ? undefined : "application/json", signal, idempotencyKey, undefined, requestedCorrelationId);
+    if (!response.ok) return response.result;
+    try {
+      const value = parseBaseJsonDocument(new TextDecoder("utf-8", { fatal: true }).decode(response.bytes));
+      return { ok: true, value, status: successStatus(response.status), correlationId: response.correlationId, warnings: [] };
+    } catch {
+      return failure("base.client.responseInvalid", "unexpected", "The BASE response was invalid.", "never", response.correlationId);
     }
   }
 

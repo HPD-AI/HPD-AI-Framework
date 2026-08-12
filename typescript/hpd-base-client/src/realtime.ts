@@ -1,5 +1,5 @@
 import { toWireLiveQuery, type BaseQueryInput, type BaseQuerySnapshot, type BaseSubscription } from "./query.js";
-import { parseBaseJson } from "./transport.js";
+import { materializeBaseJsonValue, parseBaseJsonDocument } from "./codec.js";
 
 export interface BaseWebSocketLike {
   readonly readyState: number;
@@ -166,7 +166,7 @@ export class BaseRealtimeManager {
   private message(payload: unknown): void {
     if (typeof payload !== "string" || new TextEncoder().encode(payload).length > this.#maxInboundBytes) { this.#socket?.close(1009, "base.realtime.payloadTooLarge"); return; }
     let value: unknown;
-    try { value = parseBaseJson(payload); } catch { this.#socket?.close(1008, "base.realtime.protocol.invalid"); return; }
+    try { value = materializeRealtimeEnvelope(parseBaseJsonDocument(payload)); } catch { this.#socket?.close(1008, "base.realtime.protocol.invalid"); return; }
     if (!validServerMessage(value)) { this.#socket?.close(1008, "base.realtime.protocol.invalid"); return; }
     const message = value as ServerMessage;
     if (message.kind === "welcome") { if (this.#connectionEpoch !== undefined) this.#socket?.close(1008, "base.realtime.protocol.invalid"); else this.welcome(message); return; }
@@ -342,6 +342,13 @@ function validServerMessage(value: unknown): value is ServerMessage {
   if (value.kind === "error") return exact(value, ["protocol", "kind", "connectionId", "connectionEpoch", "terminal", "error", ...(value.ref === undefined ? [] : ["ref"]), ...(value.channelEpoch === undefined ? [] : ["channelEpoch"])]) && opaque(value.connectionId) && opaque(value.connectionEpoch) && typeof value.terminal === "boolean" && isRecord(value.error) && exact(value.error, ["code"]) && boundedString(value.error.code, 128) && (value.ref === undefined || opaque(value.ref)) && (value.channelEpoch === undefined || opaque(value.channelEpoch));
   if (value.kind === "closed") return envelope(["code", "retryable"]) && boundedString(value.code, 128) && typeof value.retryable === "boolean";
   return false;
+}
+function materializeRealtimeEnvelope(value: unknown): unknown {
+  if (!isRecord(value)) return value;
+  const result: Record<string, unknown> = { ...value, protocol: materializeBaseJsonValue(value.protocol) };
+  if (value.kind === "welcome") for (const key of ["heartbeatIntervalMs", "maxInboundBytes", "maxChannels"]) result[key] = materializeBaseJsonValue(value[key]);
+  if (value.kind === "liveQuerySnapshot" && isRecord(value.value)) result.value = { ...value.value, ...(isRecord(value.value.page) ? { page: materializeBaseJsonValue(value.value.page) } : {}), ...(value.value.count === undefined ? {} : { count: materializeBaseJsonValue(value.value.count) }) };
+  return result;
 }
 function exact(value: Record<string, unknown>, keys: readonly string[]): boolean { return Object.keys(value).length === keys.length && Object.keys(value).every(key => keys.includes(key)); }
 function integerIn(value: unknown, minimum: number, maximum: number): boolean { return Number.isInteger(value) && (value as number) >= minimum && (value as number) <= maximum; }

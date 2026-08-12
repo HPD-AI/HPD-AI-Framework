@@ -36,6 +36,12 @@ test("generation validates its digest, emits the complete surface, and typecheck
   for (const name of ["index.ts", "protocol.ts", "schema.ts", "collections.ts", "fields.ts", "reads.ts", "vectors.ts", "dependencies.ts", "errors.ts", "types.ts"]) await access(`${output}/${name}`);
   assert.match(await readFile(`${output}/reads.ts`, "utf8"), /byTitle/);
   const generatedTypes = await readFile(`${output}/types.ts`, "utf8"); assert.match(generatedTypes, /number/); assert.match(generatedTypes, /"one" \| "two"/); assert.match(generatedTypes, /readonly Type\d+\[\]/); assert.match(generatedTypes, /Type\d+ \| Type\d+/);
+  const generatedCollections = await readFile(`${output}/collections.ts`, "utf8");
+  assert.match(generatedCollections, /export type Documents = GeneratedTypes\.Type\d+;/u);
+  assert.match(generatedCollections, /export type DocumentsCreate = GeneratedTypes\.Type\d+;/u);
+  assert.match(generatedCollections, /export type DocumentsReplace = GeneratedTypes\.Type\d+;/u);
+  assert.match(generatedCollections, /export type DocumentsPatch = GeneratedTypes\.Type\d+;/u);
+  assert.doesNotMatch(generatedCollections, /interface Documents/u);
   await writeFile(`${output}/consumer.ts`, 'import { createBaseClient } from "@hpd/base-client"; import { schema } from "./schema.js"; const base = createBaseClient({ url: "https://example.test/base", schema }); base.documents.get("id"); base.$dynamic.collection(schema.collections.documents); // @ts-expect-error unsupported mutation\nbase.documents.create({ title: "x" }); // @ts-expect-error application artifacts have no control plane\nbase.$control;\n');
   await writeFile(`${output}/tsconfig.json`, JSON.stringify({ compilerOptions: { target: "ES2024", module: "NodeNext", moduleResolution: "NodeNext", strict: true, noUncheckedIndexedAccess: true, exactOptionalPropertyTypes: true, noEmit: true }, include: ["./*.ts"] }));
   const typeScriptRoot = new URL("../node_modules/typescript/", import.meta.url).pathname;

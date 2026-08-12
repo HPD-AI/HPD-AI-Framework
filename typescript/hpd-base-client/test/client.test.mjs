@@ -3,7 +3,14 @@ import test from "node:test";
 import { collection, createBaseClient, decodeBaseJson, encodeBaseJson, field, parseBaseJson, read } from "../dist/index.js";
 import { BaseRealtimeManager } from "../dist/realtime.js";
 
-const schema = Object.freeze({ protocolMajor: 2, schemaGeneration: "1", digest: `sha256:${"0".repeat(64)}`, audience: "application", features: { files: false, realtime: true, batch: true, controlOperations: [] }, reads: {}, collections: { documents: collection({ id: "documents", fields: { title: field("stable-title", "stored_title", ["equal", "notEqual"]) }, operations: ["get", "query", "patch", "batch", "watch", "realtime"], pagination: "seek", maxPageSize: 100, vectorIndexes: {} }) } });
+const basicGraph = Object.freeze({
+  title: { kind: "string", minLength: 1, maxLength: 100, format: "plain" },
+  record: { kind: "object", additionalProperties: false, properties: [{ name: "stored_title", typeId: "title", required: true, nullable: false, redactionOptional: false }] },
+  create: { kind: "object", additionalProperties: false, properties: [{ name: "title", typeId: "title", required: true, nullable: false, redactionOptional: false }] },
+  replace: { kind: "object", additionalProperties: false, properties: [{ name: "title", typeId: "title", required: true, nullable: false, redactionOptional: false }] },
+  patch: { kind: "object", additionalProperties: false, properties: [{ name: "title", typeId: "title", required: false, nullable: false, redactionOptional: false }] }
+});
+const schema = Object.freeze({ protocolMajor: 2, schemaGeneration: "1", digest: `sha256:${"0".repeat(64)}`, audience: "application", features: { files: false, realtime: true, batch: true, controlOperations: [] }, typeGraph: basicGraph, reads: {}, collections: { documents: collection({ id: "documents", recordTypeId: "record", createTypeId: "create", replaceTypeId: "replace", patchTypeId: "patch", fields: { title: field("stable-title", "stored_title", ["equal", "notEqual"], "title") }, operations: ["get", "query", "create", "patch", "replace", "batch", "watch", "realtime"], pagination: "seek", maxPageSize: 100, vectorIndexes: {} }) } });
 
 test("query uses the canonical RecordQuery wire shape", async () => {
   let wire;
@@ -130,12 +137,31 @@ test("indeterminate mutations retain immutable bytes for explicit receipt resolu
 });
 
 test("generated graph codecs guard records and registered-read rows at runtime", async () => {
-  const graph = { title: { kind: "string", minLength: 1, maxLength: 8, format: "plain" }, score: { kind: "floating", precision: "binary32", finiteOnly: true }, row: { kind: "object", additionalProperties: false, properties: [{ name: "title", typeId: "title", required: true, nullable: false, redactionOptional: false }] }, parameters: { kind: "object", additionalProperties: false, properties: [] } };
+  const graph = { title: { kind: "string", minLength: 1, maxLength: 8, format: "plain" }, score: { kind: "floating", precision: "binary32", finiteOnly: true }, record: { kind: "object", additionalProperties: false, properties: [{ name: "stored_title", typeId: "title", required: true, nullable: false, redactionOptional: false }, { name: "score", typeId: "score", required: false, nullable: false, redactionOptional: false }] }, create: { kind: "object", additionalProperties: false, properties: [{ name: "title", typeId: "title", required: true, nullable: false, redactionOptional: false }, { name: "score", typeId: "score", required: false, nullable: false, redactionOptional: false }] }, replace: { kind: "object", additionalProperties: false, properties: [{ name: "title", typeId: "title", required: true, nullable: false, redactionOptional: false }, { name: "score", typeId: "score", required: true, nullable: false, redactionOptional: false }] }, patch: { kind: "object", additionalProperties: false, properties: [{ name: "title", typeId: "title", required: false, nullable: false, redactionOptional: false }, { name: "score", typeId: "score", required: false, nullable: false, redactionOptional: false }] }, row: { kind: "object", additionalProperties: false, properties: [{ name: "title", typeId: "title", required: true, nullable: false, redactionOptional: false }] }, parameters: { kind: "object", additionalProperties: false, properties: [] } };
   const typedSchema = { ...schema, typeGraph: graph, reads: { titles: read({ id: "titles", parameterTypeId: "parameters", rowTypeId: "row", maxPageSize: 10, watchable: false }) }, collections: { documents: collection({ ...schema.collections.documents, fields: { title: field("stable-title", "stored_title", ["equal"], "title"), score: field("score", "score", ["equal"], "score") }, operations: ["get", "patch", "batch"] }) } };
   let mode = "record"; let mutationBody = ""; const base = createBaseClient({ schema: typedSchema, url: "https://base.test/base/", fetch: async (_url, init) => { if (mode === "record") return Response.json({ collectionId: "documents", id: "d1", payload: { kind: "json", json: { stored_title: "valid", score: 0.1, extra: true } }, metadata: {} }, { headers: { "X-Correlation-ID": "c" } }); if (mode === "read") return Response.json({ items: [{ title: "too-long-value" }], page: { hasMore: false } }, { headers: { "X-Correlation-ID": "c" } }); mutationBody = new TextDecoder().decode(init.body); return Response.json({ outcome: "committed", items: [{ itemId: "mutation", index: 0, kind: "patch", disposition: "committed", record: { collectionId: "documents", id: "d1", payload: { kind: "json", json: { stored_title: "valid", score: 0.1 } }, metadata: {} } }] }, { headers: { "X-Correlation-ID": "c" } }); } });
   const malformedRecord = await base.documents.get("d1"); assert.equal(malformedRecord.ok, false); assert.equal(malformedRecord.error.code, "base.client.responseInvalid");
   mode = "read"; const malformedRow = await base.reads.titles.execute({}); assert.equal(malformedRow.ok, false); assert.equal(malformedRow.error.code, "base.client.responseInvalid");
   mode = "mutation"; const patched = await base.documents.patch("d1", { score: Math.fround(0.1) }); assert.equal(patched.ok, true); assert.match(mutationBody, /\"score\":0\.1/); assert.doesNotMatch(mutationBody, /0\.10000000149011612/);
+});
+
+test("mutation DTOs enforce authoritative required, nullable, and extra-member rules", async () => {
+  let calls = 0; let body = "";
+  const nullableGraph = { ...basicGraph, patch: { kind: "object", additionalProperties: false, properties: [{ name: "title", typeId: "title", required: false, nullable: true, redactionOptional: false }] } };
+  const nullableSchema = { ...schema, typeGraph: nullableGraph };
+  const base = createBaseClient({ schema: nullableSchema, url: "https://base.test/base/", fetch: async (_url, init) => { calls++; body = new TextDecoder().decode(init.body); return Response.json({ outcome: "committed", items: [{ itemId: "mutation", index: 0, kind: "patch", disposition: "committed", record: { collectionId: "documents", id: "d1", payload: { kind: "json", json: { stored_title: "after" } }, metadata: {} } }] }, { headers: { "X-Correlation-ID": "dto" } }); } });
+  await assert.rejects(() => base.documents.create({}), /base\.client\.requestInvalid/u);
+  await assert.rejects(() => base.documents.replace("d1", {}), /base\.client\.requestInvalid/u);
+  await assert.rejects(() => base.documents.patch("d1", { unexpected: true }), /base\.client\.requestInvalid/u);
+  assert.equal(calls, 0);
+  const nullable = await base.documents.patch("d1", { title: null }); assert.equal(nullable.ok, true); assert.match(body, /"stored_title":null/u); assert.equal(calls, 1);
+});
+
+test("HTTP graph decoding preserves raw negative-zero tokens until binary32 normalization", async () => {
+  const graph = { ...basicGraph, score: { kind: "floating", precision: "binary32", finiteOnly: true }, record: { kind: "object", additionalProperties: false, properties: [{ name: "stored_title", typeId: "title", required: true, nullable: false, redactionOptional: false }, { name: "score", typeId: "score", required: true, nullable: false, redactionOptional: false }] } };
+  const floatingSchema = { ...schema, typeGraph: graph, collections: { documents: collection({ ...schema.collections.documents, fields: { ...schema.collections.documents.fields, score: field("score", "score", ["equal"], "score") } }) } };
+  const base = createBaseClient({ schema: floatingSchema, url: "https://base.test/base/", fetch: async () => new Response('{"collectionId":"documents","id":"d1","payload":{"kind":"json","json":{"stored_title":"value","score":-0}},"metadata":{}}', { headers: { "Content-Type": "application/json", "X-Correlation-ID": "raw" } }) });
+  const result = await base.documents.get("d1"); assert.equal(result.ok, true); assert.equal(result.value.payload.json.score, 0); assert.equal(Object.is(result.value.payload.json.score, -0), false);
 });
 
 test("file DTOs are decoded against the complete closed HTTP contract", async () => {

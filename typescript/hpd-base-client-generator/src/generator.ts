@@ -161,11 +161,8 @@ function render(snapshot: GenerationSnapshot): Record<string, string> {
 }
 
 function renderCollectionTypes(collection: CollectionDescriptor, typeNames: ReadonlyMap<string, string>): string {
-  const output = collection.fields.map(field => `  readonly ${safe(field.generatedName)}${field.redactionOptional ? "?" : ""}: GeneratedTypes.${typeNames.get(field.valueTypeId)!};`).join("\n");
-  const create = collection.fields.filter(field => field.mutable && !field.serverGenerated).map(field => `  readonly ${safe(field.generatedName)}: GeneratedTypes.${typeNames.get(field.valueTypeId)!};`).join("\n");
-  const patch = collection.fields.filter(field => field.mutable && !field.serverGenerated).map(field => `  readonly ${safe(field.generatedName)}?: GeneratedTypes.${typeNames.get(field.valueTypeId)!};`).join("\n");
   const name = pascal(collection.generatedName);
-  return `export interface ${name} {\n${output}\n}\nexport interface ${name}Create {\n${create}\n}\nexport type ${name}Replace = ${name}Create;\nexport interface ${name}Patch {\n${patch}\n}\n`;
+  return `export type ${name} = GeneratedTypes.${typeNames.get(collection.recordTypeId)!};\nexport type ${name}Create = GeneratedTypes.${typeNames.get(collection.createTypeId)!};\nexport type ${name}Replace = GeneratedTypes.${typeNames.get(collection.replaceTypeId)!};\nexport type ${name}Patch = GeneratedTypes.${typeNames.get(collection.patchTypeId)!};\n`;
 }
 
 function renderCollectionValue(collection: CollectionDescriptor, typeNames: ReadonlyMap<string, string>, vectors: readonly VectorDescriptor[]): string {

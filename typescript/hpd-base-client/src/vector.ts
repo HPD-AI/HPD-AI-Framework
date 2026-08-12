@@ -1,7 +1,7 @@
 import type { BaseResult } from "./result.js";
 import type { BaseVectorIndexDefinition } from "./schema.js";
 import { BaseHttpTransport } from "./transport.js";
-import { encodeBaseJson, type BaseTypeGraph } from "./codec.js";
+import { decodeBaseValue, encodeBaseJson, materializeBaseJsonValue, type BaseTypeGraph } from "./codec.js";
 
 export type BaseVectorConsistency = { readonly kind: "current" } | { readonly kind: "available" } | { readonly kind: "atLeast"; readonly token: string } | { readonly kind: "boundedStaleness"; readonly maximumAgeMs: number };
 export type BaseVectorMeasureDisclosure = "omit" | "include";
@@ -41,22 +41,29 @@ export class BaseVectorQuery<T> {
     const vectorGraph: BaseTypeGraph = { element: { kind: "floating", precision: "binary32", finiteOnly: true }, vector: { kind: "array", elementTypeId: "element", maxItems: this.index.dimensions } };
     const bodyJson = JSON.stringify({ ...body, vector: undefined }).replace(/,"vector"(?::undefined)?|"vector":undefined,?/u, "");
     const encoded = `{\"vector\":${encodeBaseJson(this.#vector, "vector", vectorGraph)}${bodyJson === "{}" ? "" : `,${bodyJson.slice(1, -1)}`}}`;
-    const result = await this.transport.json("POST", `vector/${encodeURIComponent(this.collectionId)}/${encodeURIComponent(this.index.id)}/query`, new TextEncoder().encode(encoded), signal);
+    const result = await this.transport.jsonDocument("POST", `vector/${encodeURIComponent(this.collectionId)}/${encodeURIComponent(this.index.id)}/query`, new TextEncoder().encode(encoded), signal);
     if (!result.ok) return result;
-    if (!validVectorResult(result.value, this.index, this.#disclosure, this.#take)) return { ok: false, error: { code: "base.client.responseInvalid", category: "unexpected", message: "The BASE response was invalid." }, correlationId: result.correlationId, retry: "never" };
-    try { return { ...result, value: { ...result.value, matches: result.value.matches.map(match => ({ ...match, record: this.#project(match.record) })) } }; }
+    const decoded = decodeVectorResult(result.value, this.index, this.#disclosure, this.#take);
+    if (decoded === undefined) return { ok: false, error: { code: "base.client.responseInvalid", category: "unexpected", message: "The BASE response was invalid." }, correlationId: result.correlationId, retry: "never" };
+    try { return { ...result, value: { ...decoded, matches: decoded.matches.map(match => ({ ...match, record: this.#project(match.record) })) } }; }
     catch { return { ok: false, error: { code: "base.client.responseInvalid", category: "unexpected", message: "The BASE response was invalid." }, correlationId: result.correlationId, retry: "never" }; }
   }
 }
 
-function validVectorResult<T>(value: unknown, index: BaseVectorIndexDefinition, disclosure: BaseVectorMeasureDisclosure, take: number): value is BaseVectorResult<T> {
-  if (!record(value) || !only(value, ["matches", "vectorIndexId", "vectorIndexGeneration", "providerId", "consistencyToken"]) || value.vectorIndexId !== index.id || typeof value.vectorIndexGeneration !== "string" || !/^(?:0|[1-9][0-9]*)$/u.test(value.vectorIndexGeneration) || !text(value.providerId) || !text(value.consistencyToken) || !Array.isArray(value.matches) || value.matches.length > take) return false;
-  return value.matches.every((match, offset) => {
-    if (!record(match) || !only(match, ["record", "rank", "measure"]) || match.rank !== offset + 1 || !record(match.record)) return false;
-    if (disclosure === "omit") return match.measure === undefined;
-    const measure = match.measure;
-    return record(measure) && only(measure, ["function", "value", "direction", "normalizedRelevance"]) && measure.function === index.measure && measure.direction === index.direction && typeof measure.value === "number" && Number.isFinite(measure.value) && (measure.normalizedRelevance === undefined || typeof measure.normalizedRelevance === "number" && Number.isFinite(measure.normalizedRelevance) && measure.normalizedRelevance >= 0 && measure.normalizedRelevance <= 1);
-  });
+function decodeVectorResult(value: unknown, index: BaseVectorIndexDefinition, disclosure: BaseVectorMeasureDisclosure, take: number): BaseVectorResult<unknown> | undefined {
+  if (!record(value) || !only(value, ["matches", "vectorIndexId", "vectorIndexGeneration", "providerId", "consistencyToken"]) || value.vectorIndexId !== index.id || typeof value.vectorIndexGeneration !== "string" || !/^(?:0|[1-9][0-9]*)$/u.test(value.vectorIndexGeneration) || !text(value.providerId) || !text(value.consistencyToken) || !Array.isArray(value.matches) || value.matches.length > take) return undefined;
+  const floatGraph: BaseTypeGraph = { f64: { kind: "floating", precision: "binary64", finiteOnly: true } }; const matches: BaseVectorMatch<unknown>[] = [];
+  try {
+    for (const [offset, match] of value.matches.entries()) {
+      if (!record(match) || !only(match, ["record", "rank", "measure"]) || materializeBaseJsonValue(match.rank) !== offset + 1 || !record(match.record)) return undefined;
+      if (disclosure === "omit") { if (match.measure !== undefined) return undefined; matches.push({ record: match.record, rank: offset + 1 }); continue; }
+      const measure = match.measure; if (!record(measure) || !only(measure, ["function", "value", "direction", "normalizedRelevance"]) || measure.function !== index.measure || measure.direction !== index.direction) return undefined;
+      const numeric = decodeBaseValue<number>(measure.value, "f64", floatGraph); const normalized = measure.normalizedRelevance === undefined ? undefined : decodeBaseValue<number>(measure.normalizedRelevance, "f64", floatGraph);
+      if (normalized !== undefined && (normalized < 0 || normalized > 1)) return undefined;
+      matches.push({ record: match.record, rank: offset + 1, measure: { function: index.measure, value: numeric, direction: index.direction, ...(normalized === undefined ? {} : { normalizedRelevance: normalized }) } });
+    }
+  } catch { return undefined; }
+  return { matches, vectorIndexId: index.id, vectorIndexGeneration: value.vectorIndexGeneration, providerId: value.providerId, consistencyToken: value.consistencyToken };
 }
 
 function record(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }

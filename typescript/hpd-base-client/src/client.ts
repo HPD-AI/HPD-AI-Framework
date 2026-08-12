@@ -6,7 +6,7 @@ import { BaseRealtimeManager, type BaseConnectivityState, type BaseRecordFeedDel
 import { BaseFilesClient } from "./files.js";
 import { BaseVectorIndexQuery } from "./vector.js";
 import { createControlPlaneClient, type BaseControlPlaneClient } from "./control.js";
-import { decodeBaseValue, encodeBaseJson } from "./codec.js";
+import { decodeBaseValue, encodeBaseJson, materializeBaseJsonValue } from "./codec.js";
 
 type RecordOf<T> = T extends BaseCollectionDefinition<infer TRecord, unknown, unknown, unknown> ? TRecord : never;
 type CreateOf<T> = T extends BaseCollectionDefinition<unknown, infer TCreate, unknown, unknown> ? TCreate : never;
@@ -165,14 +165,14 @@ class BaseClientRuntime implements BaseQueryExecutor<unknown> {
 
   public close(): void { this.#closed = true; this.#realtime?.close(); this.#collections.clear(); this.#indeterminate.clear(); }
   public controlClient<const TOperations extends readonly string[]>(operations: TOperations): BaseControlPlaneClient<TOperations> { this.ensureOpen(); return createControlPlaneClient(this.#transport, operations); }
-  public async resolveMutation(mutationId: MutationId, signal?: AbortSignal): Promise<BaseResult<unknown>> { this.ensureOpen(); const pending = this.#indeterminate.get(mutationId); if (pending === undefined) throw new TypeError("base.client.mutationNotIndeterminate"); const result = normalizeIdentifiedFailure(await this.#transport.json("POST", "records/batch", pending.bytes, signal, mutationId, pending.correlationId)); const projected = projectMutation<unknown>(result, pending.kind); if (projected.ok) { this.#indeterminate.delete(mutationId); const authoritative = pending.kind === "delete" ? undefined : pending.kind === "upsert" && isObject(projected.value) && "record" in projected.value ? this.fromWireRecord(pending.collectionId, projected.value.record) : this.fromWireRecord(pending.collectionId, projected.value); const value = pending.kind === "upsert" && isObject(projected.value) ? { ...projected.value, record: authoritative } : authoritative; if (pending.optimisticId !== undefined) this.#realtime?.reconcile(mutationId, pending.collectionId, authoritative); return { ...projected, value }; } if (projected.error.code !== "base.runtime.batch.indeterminate") { this.#indeterminate.delete(mutationId); if (pending.optimisticId !== undefined) this.#realtime?.reject(mutationId, pending.collectionId); } return projected; }
+  public async resolveMutation(mutationId: MutationId, signal?: AbortSignal): Promise<BaseResult<unknown>> { this.ensureOpen(); const pending = this.#indeterminate.get(mutationId); if (pending === undefined) throw new TypeError("base.client.mutationNotIndeterminate"); const result = normalizeIdentifiedFailure(await this.#transport.jsonDocument("POST", "records/batch", pending.bytes, signal, mutationId, pending.correlationId)); const projected = projectMutation<unknown>(result, pending.kind); if (projected.ok) { this.#indeterminate.delete(mutationId); const authoritative = pending.kind === "delete" ? undefined : pending.kind === "upsert" && isObject(projected.value) && "record" in projected.value ? this.fromWireRecord(pending.collectionId, projected.value.record) : this.fromWireRecord(pending.collectionId, projected.value); const value = pending.kind === "upsert" && isObject(projected.value) ? { ...projected.value, record: authoritative } : authoritative; if (pending.optimisticId !== undefined) this.#realtime?.reconcile(mutationId, pending.collectionId, authoritative); return { ...projected, value }; } if (projected.error.code !== "base.runtime.batch.indeterminate") { this.#indeterminate.delete(mutationId); if (pending.optimisticId !== undefined) this.#realtime?.reject(mutationId, pending.collectionId); } return projected; }
   public filesClient(): BaseFilesClient { this.ensureOpen(); return this.#files; }
   public async executeBatch(mode: "orderedIndependent" | "orderedStopOnFailure" | "atomic", operations: readonly BaseBatchOperation<BaseGeneratedSchema>[], options: { readonly mutationId?: MutationId; readonly signal?: AbortSignal } = {}): Promise<BaseResult<BaseBatchResult>> {
     this.ensureOpen(); if (operations.length === 0) throw new TypeError("base.client.batchInvalid");
     const wire = operations.map(operation => toBatchItem(this.#schema, operation));
     const bytes = encodeSchemaJson({ mode, operations: wire }, this.#schema); const identity = mode === "atomic" ? options.mutationId ?? crypto.randomUUID() as MutationId : undefined; const correlation = crypto.randomUUID();
-    let result = await this.#transport.json("POST", "records/batch", bytes, options.signal, identity, correlation);
-    if (mode === "atomic" && !result.ok && identifiedRetry(result.error.code)) result = await this.#transport.json("POST", "records/batch", bytes, options.signal, identity, correlation);
+    let result = await this.#transport.jsonDocument("POST", "records/batch", bytes, options.signal, identity, correlation);
+    if (mode === "atomic" && !result.ok && identifiedRetry(result.error.code)) result = await this.#transport.jsonDocument("POST", "records/batch", bytes, options.signal, identity, correlation);
     const normalized = mode === "atomic" ? normalizeIdentifiedFailure(result) : result;
     if (!normalized.ok) return normalized;
     return isBatchResult(normalized.value) ? { ...normalized, value: normalized.value } : invalid(normalized.correlationId);
@@ -180,10 +180,11 @@ class BaseClientRuntime implements BaseQueryExecutor<unknown> {
 
   public async executeQuery<T>(collectionId: string, query: BaseQueryInput, signal?: AbortSignal): Promise<BaseResult<BaseRecordPage<T>>> {
     this.ensureOpen();
-    const result = await this.#transport.json("POST", `collections/${encodeURIComponent(collectionId)}/records:query`, encodeJson(toWireQuery(query)), signal);
+    const result = await this.#transport.jsonDocument("POST", `collections/${encodeURIComponent(collectionId)}/records:query`, encodeJson(toWireQuery(query)), signal);
     if (!result.ok) return result;
-    if (!isRecordPage(result.value)) return invalid(result.correlationId);
-    try { return { ...result, value: { ...result.value, items: result.value.items.map(item => this.fromWireRecord(collectionId, item)) as T[] } }; } catch { return invalid(result.correlationId); }
+    const page = materializePageEnvelope(result.value);
+    if (!isRecordPage(page)) return invalid(result.correlationId);
+    try { return { ...result, value: { ...page, items: page.items.map(item => this.fromWireRecord(collectionId, item)) as T[] } }; } catch { return invalid(result.correlationId); }
   }
 
   public watchQuery<T>(collectionId: string, query: BaseQueryInput, observer: (snapshot: BaseQuerySnapshot<T>) => void): BaseSubscription {
@@ -193,7 +194,7 @@ class BaseClientRuntime implements BaseQueryExecutor<unknown> {
   }
 
   public async get<T>(collectionId: string, id: string, signal?: AbortSignal): Promise<BaseResult<T>> {
-    const result = await this.#transport.json("GET", `collections/${encodeURIComponent(collectionId)}/records/${encodeURIComponent(id)}`, undefined, signal);
+    const result = await this.#transport.jsonDocument("GET", `collections/${encodeURIComponent(collectionId)}/records/${encodeURIComponent(id)}`, undefined, signal);
     if (!result.ok) return result; try { return isRecord(result.value) ? { ...result, value: this.fromWireRecord(collectionId, result.value) as T } : invalid(result.correlationId); } catch { return invalid(result.correlationId); }
   }
 
@@ -206,9 +207,10 @@ class BaseClientRuntime implements BaseQueryExecutor<unknown> {
     if (parameterTypeId === undefined || rowTypeId === undefined || this.#schema.typeGraph === undefined) throw new TypeError("base.client.configurationInvalid");
     const query = new URLSearchParams(); if (page.page !== undefined) query.set("page", String(page.page)); if (page.perPage !== undefined) query.set("perPage", String(page.perPage));
     let body: Uint8Array; try { body = new TextEncoder().encode(encodeBaseJson(parameters, parameterTypeId, this.#schema.typeGraph)); } catch { throw new TypeError("base.client.requestInvalid"); }
-    const result = await this.#transport.json("POST", `reads/${encodeURIComponent(id)}${query.size === 0 ? "" : `?${query}`}`, body, page.signal);
-    if (!result.ok || !isRecordPage(result.value, false)) return result.ok ? invalid(result.correlationId) : result;
-    try { return { ...result, value: { ...result.value, items: result.value.items.map(item => decodeBaseValue<T>(item, rowTypeId, this.#schema.typeGraph!)) } }; } catch { return invalid(result.correlationId); }
+    const result = await this.#transport.jsonDocument("POST", `reads/${encodeURIComponent(id)}${query.size === 0 ? "" : `?${query}`}`, body, page.signal);
+    if (!result.ok) return result; const decodedPage = materializePageEnvelope(result.value);
+    if (!isRecordPage(decodedPage, false)) return invalid(result.correlationId);
+    try { return { ...result, value: { ...decodedPage, items: decodedPage.items.map(item => decodeBaseValue<T>(item, rowTypeId, this.#schema.typeGraph!)) } }; } catch { return invalid(result.correlationId); }
   }
   public watchRead<T>(id: string, parameters: unknown, parameterTypeId: string | undefined, rowTypeId: string | undefined, observer: (snapshot: BaseQuerySnapshot<T>) => void): BaseSubscription { if (this.#realtime === undefined) throw new Error("base.client.capabilityUnavailable"); if (parameterTypeId === undefined || rowTypeId === undefined || this.#schema.typeGraph === undefined) throw new TypeError("base.client.configurationInvalid"); const encoded = encodeBaseJson(parameters, parameterTypeId, this.#schema.typeGraph); return this.#realtime.subscribeRead(id, parameters, observer, value => decodeBaseValue<T>(value, rowTypeId, this.#schema.typeGraph!), encoded); }
   public watchEvents(collectionId: string, request: import("./realtime.js").BaseRecordFeedRequest, observer: (delivery: BaseRecordFeedDelivery) => void | Promise<void>): BaseSubscription { if (this.#realtime === undefined) throw new Error("base.client.capabilityUnavailable"); return this.#realtime.subscribeFeed(collectionId, request, observer, value => this.fromWireRecord(collectionId, value)); }
@@ -217,12 +219,13 @@ class BaseClientRuntime implements BaseQueryExecutor<unknown> {
     const mutationId = options.mutationId ?? crypto.randomUUID() as MutationId;
     const payload = (input: unknown): object => ({ kind: "json", json: input });
     if (kind === "create" && options.optimistic === true && options.recordId === undefined) throw new TypeError("base.client.optimisticIdRequired");
-    const wireValue = this.toWirePayload(collectionId, value);
+    const validatedValue = this.validateMutationInput(collectionId, kind, value);
+    const wireValue = this.toWirePayload(collectionId, validatedValue);
     const request = kind === "create" ? { payload: payload(wireValue), ...(options.recordId === undefined ? {} : { requestedId: options.recordId }) }
       : kind === "patch" ? { patch: payload(wireValue), ...(options.expectedRevision === undefined ? {} : { expectedRevision: options.expectedRevision }) }
       : kind === "replace" ? { payload: payload(wireValue), ...(options.expectedRevision === undefined ? {} : { expectedRevision: options.expectedRevision }) }
       : kind === "delete" ? { ...(options.expectedRevision === undefined ? {} : { expectedRevision: options.expectedRevision }), returnPrevious: false }
-      : upsertRequest(id!, this.toWireUpsert(collectionId, value as BaseUpsertRequest<unknown, unknown>), options.expectedRevision);
+      : upsertRequest(id!, this.toWireUpsert(collectionId, validatedValue as BaseUpsertRequest<unknown, unknown>), options.expectedRevision);
     const operation = {
       itemId: "mutation",
       collectionId,
@@ -234,10 +237,10 @@ class BaseClientRuntime implements BaseQueryExecutor<unknown> {
     const correlationId = crypto.randomUUID();
     const optimisticId = id ?? options.recordId;
     if (options.optimistic === true && optimisticId !== undefined && this.#realtime !== undefined)
-      this.#realtime.applyOptimistic(mutationId, collectionId, optimisticId, kind, this.safeOptimistic(collectionId, value), options.expectedRevision, bytes);
-    let result = await this.#transport.json("POST", "records/batch", bytes, options.signal, mutationId, correlationId);
+      this.#realtime.applyOptimistic(mutationId, collectionId, optimisticId, kind, this.safeOptimistic(collectionId, validatedValue), options.expectedRevision, bytes);
+    let result = await this.#transport.jsonDocument("POST", "records/batch", bytes, options.signal, mutationId, correlationId);
     if (!result.ok && identifiedRetry(result.error.code) && options.retry !== "never")
-      result = await this.#transport.json("POST", "records/batch", bytes, options.signal, mutationId, correlationId);
+      result = await this.#transport.jsonDocument("POST", "records/batch", bytes, options.signal, mutationId, correlationId);
     let projected = projectMutation<T>(normalizeIdentifiedFailure(result), kind);
     if (projected.ok && kind !== "delete") projected = { ...projected, value: (kind === "upsert" && isObject(projected.value) && "record" in projected.value ? { ...projected.value, record: this.fromWireRecord(collectionId, projected.value.record) } : this.fromWireRecord(collectionId, projected.value)) as T };
     if (!projected.ok && projected.retry === "identifiedMutationOnly") this.#indeterminate.set(mutationId, { bytes: bytes.slice(), correlationId, kind, collectionId, ...(options.optimistic === true && optimisticId !== undefined ? { optimisticId } : {}) });
@@ -251,14 +254,21 @@ class BaseClientRuntime implements BaseQueryExecutor<unknown> {
   }
 
   private ensureOpen(): void { if (this.#closed) throw new Error("base.client.closed"); }
+  private validateMutationInput(collectionId: string, kind: "create" | "patch" | "replace" | "delete" | "upsert", value: unknown): unknown {
+    if (kind === "delete") return value;
+    const definition = Object.values(this.#schema.collections).find(item => item.id === collectionId); const graph = this.#schema.typeGraph;
+    if (definition === undefined || graph === undefined) throw new TypeError("base.client.configurationInvalid");
+    return validateMutationDto(definition, graph, kind, value);
+  }
   private toWirePayload(collectionId: string, value: unknown): unknown { const definition = Object.values(this.#schema.collections).find(item => item.id === collectionId); if (definition === undefined || !isObject(value)) return value; return Object.fromEntries(Object.entries(value).map(([name, item]) => [definition.fields[name]?.wireName ?? name, item])); }
   private toWireUpsert(collectionId: string, value: BaseUpsertRequest<unknown, unknown>): BaseUpsertRequest<unknown, unknown> { return { ...value, create: this.toWirePayload(collectionId, value.create), update: this.toWirePayload(collectionId, value.update) }; }
   private safeOptimistic(collectionId: string, value: unknown): unknown { const definition = Object.values(this.#schema.collections).find(item => item.id === collectionId); if (definition === undefined || !isObject(value)) return value; const allowed = new Set(Object.entries(definition.fields).filter(([, field]) => !field.redactionOptional).map(([name]) => name)); if ("create" in value && "update" in value) return { ...value, create: isObject(value.create) ? Object.fromEntries(Object.entries(value.create).filter(([key]) => allowed.has(key))) : value.create, update: isObject(value.update) ? Object.fromEntries(Object.entries(value.update).filter(([key]) => allowed.has(key))) : value.update }; return Object.fromEntries(Object.entries(value).filter(([key]) => allowed.has(key))); }
   private fromWireRecord(collectionId: string, value: unknown): unknown {
     if (!isRecord(value) || value.collectionId !== collectionId || value.id.length === 0) throw new TypeError("base.client.responseInvalid");
     const definition = Object.values(this.#schema.collections).find(item => item.id === collectionId); if (definition === undefined) throw new TypeError("base.client.responseInvalid");
-    const reverse = new Map(Object.entries(definition.fields).map(([name, field]) => [field.wireName, { name, field }])); const source = value.payload.kind === "json" ? value.payload.json : value.payload.fields; if (!isObject(source)) throw new TypeError("base.client.responseInvalid");
-    const mapped: Record<string, unknown> = {}; for (const [wireName, item] of Object.entries(source)) { const target = reverse.get(wireName); if (target === undefined) throw new TypeError("base.client.responseInvalid"); mapped[target.name] = target.field.valueTypeId === undefined || this.#schema.typeGraph === undefined ? structuredClone(item) : decodeBaseValue(item, target.field.valueTypeId, this.#schema.typeGraph); }
+    const reverse = new Map(Object.entries(definition.fields).map(([name, field]) => [field.wireName, { name, field }])); const source = value.payload.kind === "json" ? value.payload.json : value.payload.fields; if (!isObject(source) || definition.recordTypeId === undefined || this.#schema.typeGraph === undefined) throw new TypeError("base.client.responseInvalid");
+    const decoded = decodeBaseValue<Record<string, unknown>>(source, definition.recordTypeId, this.#schema.typeGraph);
+    const mapped: Record<string, unknown> = {}; for (const [wireName, item] of Object.entries(decoded)) { const target = reverse.get(wireName); if (target === undefined) throw new TypeError("base.client.responseInvalid"); mapped[target.name] = item; }
     return { ...value, payload: value.payload.kind === "json" ? { ...value.payload, json: Object.freeze(mapped) } : { ...value.payload, fields: Object.freeze(mapped) } };
   }
 }
@@ -341,7 +351,7 @@ function encodeSchemaJson(value: unknown, schema: BaseGeneratedSchema): Uint8Arr
     if (!isObject(item)) throw new TypeError("base.client.requestInvalid");
     const nextCollection = typeof item.collectionId === "string" ? item.collectionId : collectionId; const definition = nextCollection === undefined ? undefined : Object.values(schema.collections).find(candidate => candidate.id === nextCollection); const byWire = definition === undefined ? undefined : new Map(Object.values(definition.fields).map(field => [field.wireName, field]));
     return `{${Object.entries(item).map(([key, child]) => {
-      if (payload && byWire !== undefined) { const field = byWire.get(key); if (field === undefined) throw new TypeError("base.client.requestInvalid"); if (field.valueTypeId !== undefined && schema.typeGraph !== undefined) return `${JSON.stringify(key)}:${encodeBaseJson(child, field.valueTypeId, schema.typeGraph)}`; }
+      if (payload && byWire !== undefined) { const field = byWire.get(key); if (field === undefined) throw new TypeError("base.client.requestInvalid"); if (child === null) return `${JSON.stringify(key)}:null`; if (field.valueTypeId !== undefined && schema.typeGraph !== undefined) return `${JSON.stringify(key)}:${encodeBaseJson(child, field.valueTypeId, schema.typeGraph)}`; }
       return `${JSON.stringify(key)}:${encode(child, nextCollection, key === "json" || key === "fields")}`;
     }).join(",")}}`;
   };
@@ -365,7 +375,7 @@ function projectMutation<T>(result: BaseResult<unknown>, kind: string): BaseResu
   const aggregate = result.value as { outcome?: unknown; items?: unknown };
   if (aggregate.outcome !== "committed" || !Array.isArray(aggregate.items) || aggregate.items.length !== 1) return invalid<T>(result.correlationId);
   const item = aggregate.items[0] as { itemId?: unknown; index?: unknown; kind?: unknown; disposition?: unknown; record?: unknown; delete?: unknown; upsert?: unknown };
-  if (item.itemId !== "mutation" || item.index !== 0 || item.kind !== kind || item.disposition !== "committed") return invalid<T>(result.correlationId);
+  if (item.itemId !== "mutation" || materializeBaseJsonValue(item.index) !== 0 || item.kind !== kind || item.disposition !== "committed") return invalid<T>(result.correlationId);
   const value = kind === "delete" ? item.delete : kind === "upsert" ? item.upsert : item.record;
   if (value === undefined) return invalid<T>(result.correlationId);
   return { ...result, value: value as T };
@@ -376,12 +386,32 @@ function invalid<T>(correlationId: string): BaseResult<T> {
 }
 function toBatchItem(schema: BaseGeneratedSchema, operation: BaseBatchOperation<BaseGeneratedSchema>): object {
   const collectionId = schema.collections[operation.collection]?.id ?? operation.collection;
-  const definition = schema.collections[operation.collection]; const map = (value: unknown): unknown => definition === undefined || !isObject(value) ? value : Object.fromEntries(Object.entries(value).map(([name, item]) => [definition.fields[name]?.wireName ?? name, item]));
-  if (operation.kind === "create") return { itemId: operation.itemId, collectionId, kind: operation.kind, create: { payload: { kind: "json", json: map(operation.value) }, ...(operation.recordId === undefined ? {} : { requestedId: operation.recordId }) } };
-  if (operation.kind === "patch") return { itemId: operation.itemId, collectionId, kind: operation.kind, recordId: operation.id, patch: { patch: { kind: "json", json: map(operation.value) }, ...(operation.expectedRevision === undefined ? {} : { expectedRevision: operation.expectedRevision }) } };
-  if (operation.kind === "replace") return { itemId: operation.itemId, collectionId, kind: operation.kind, recordId: operation.id, replace: { payload: { kind: "json", json: map(operation.value) }, ...(operation.expectedRevision === undefined ? {} : { expectedRevision: operation.expectedRevision }) } };
-  if (operation.kind === "upsert") return { itemId: operation.itemId, collectionId, kind: operation.kind, recordId: operation.id, upsert: upsertRequest(operation.id, { ...operation.value, create: map(operation.value.create), update: map(operation.value.update) }, operation.expectedRevision) };
+  const definition = schema.collections[operation.collection]; if (definition === undefined || schema.typeGraph === undefined) throw new TypeError("base.client.configurationInvalid");
+  const map = (value: unknown): unknown => !isObject(value) ? value : Object.fromEntries(Object.entries(value).map(([name, item]) => [definition.fields[name]?.wireName ?? name, item]));
+  if (operation.kind === "create") { const value = validateMutationDto(definition, schema.typeGraph, "create", operation.value); return { itemId: operation.itemId, collectionId, kind: operation.kind, create: { payload: { kind: "json", json: map(value) }, ...(operation.recordId === undefined ? {} : { requestedId: operation.recordId }) } }; }
+  if (operation.kind === "patch") { const value = validateMutationDto(definition, schema.typeGraph, "patch", operation.value); return { itemId: operation.itemId, collectionId, kind: operation.kind, recordId: operation.id, patch: { patch: { kind: "json", json: map(value) }, ...(operation.expectedRevision === undefined ? {} : { expectedRevision: operation.expectedRevision }) } }; }
+  if (operation.kind === "replace") { const value = validateMutationDto(definition, schema.typeGraph, "replace", operation.value); return { itemId: operation.itemId, collectionId, kind: operation.kind, recordId: operation.id, replace: { payload: { kind: "json", json: map(value) }, ...(operation.expectedRevision === undefined ? {} : { expectedRevision: operation.expectedRevision }) } }; }
+  if (operation.kind === "upsert") { const value = validateMutationDto(definition, schema.typeGraph, "upsert", operation.value) as BaseUpsertRequest<unknown, unknown>; return { itemId: operation.itemId, collectionId, kind: operation.kind, recordId: operation.id, upsert: upsertRequest(operation.id, { ...value, create: map(value.create), update: map(value.update) }, operation.expectedRevision) }; }
   return { itemId: operation.itemId, collectionId, kind: operation.kind, recordId: operation.id, delete: { ...(operation.expectedRevision === undefined ? {} : { expectedRevision: operation.expectedRevision }), returnPrevious: false } };
+}
+
+function validateMutationDto(definition: BaseCollectionDefinition, graph: import("./codec.js").BaseTypeGraph, kind: "create" | "patch" | "replace" | "upsert", value: unknown): unknown {
+  try {
+    if (kind === "upsert") {
+      if (!isObject(value) || !hasOnly(value, ["create", "update", "updateMode", "condition"]) || (value.updateMode !== "patch" && value.updateMode !== "replace") || (value.condition !== undefined && !["any", "createOnly", "updateOnly"].includes(value.condition as string))) throw new TypeError();
+      const updateTypeId = value.updateMode === "patch" ? definition.patchTypeId : definition.replaceTypeId;
+      if (definition.createTypeId === undefined || updateTypeId === undefined) throw new TypeError("base.client.configurationInvalid");
+      return Object.freeze({ ...value, create: decodeBaseValue(value.create, definition.createTypeId, graph), update: decodeBaseValue(value.update, updateTypeId, graph) });
+    }
+    const typeId = kind === "create" ? definition.createTypeId : kind === "patch" ? definition.patchTypeId : definition.replaceTypeId;
+    if (typeId === undefined) throw new TypeError("base.client.configurationInvalid");
+    return decodeBaseValue(value, typeId, graph);
+  } catch (error: unknown) { if (error instanceof TypeError && error.message === "base.client.configurationInvalid") throw error; throw new TypeError("base.client.requestInvalid"); }
+}
+
+function materializePageEnvelope(value: unknown): unknown {
+  if (!isObject(value)) return value;
+  return { ...value, ...(isObject(value.page) ? { page: materializeBaseJsonValue(value.page) } : {}), ...(value.count === undefined ? {} : { count: materializeBaseJsonValue(value.count) }) };
 }
 function identifiedRetry(code: string): boolean { return code === "base.client.transportFailed" || code === "base.runtime.batch.indeterminate" || code === "base.runtime.request.outcomeUnknown"; }
 function normalizeIdentifiedFailure<T>(result: BaseResult<T>): BaseResult<T> { return !result.ok && identifiedRetry(result.error.code) ? { ...result, retry: "identifiedMutationOnly" } : result; }

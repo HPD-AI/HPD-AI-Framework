@@ -46,6 +46,9 @@ export function parseBaseJsonDocument(json: string): unknown {
   const result = value(); whitespace(); if (index !== json.length) throw new SyntaxError(); return result;
 }
 
+/** Materializes a strict parsed document after no graph-specific numeric nodes remain. */
+export function materializeBaseJsonValue(value: unknown): unknown { return materialize(value); }
+
 function decodeNode(value: unknown, typeId: string, graph: BaseTypeGraph, path: Set<string>): unknown {
   const node = graph[typeId]; if (node === undefined) throw new TypeError("base.client.responseInvalid");
   switch (node.kind) {
