@@ -3,7 +3,7 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
-import type { CollectionDescriptor, GenerationSnapshot, NamedTypeDescriptor, VectorDescriptor } from "./types.js";
+import type { CollectionDescriptor, GenerationSnapshot, NamedTypeDescriptor, TypeNode, VectorDescriptor } from "./types.js";
 
 export interface GenerateOptions { readonly snapshot: GenerationSnapshot; readonly out: string; readonly expectedAudience?: "application" | "controlPlane"; }
 
@@ -92,72 +92,103 @@ function hasDuplicateProperties(json: string): boolean {
   value(); whitespace(); if (index !== json.length) throw new SyntaxError(); return duplicate;
 }
 
-function unique(values: readonly string[], code: string): Set<string> { const result = new Set<string>(); for (const value of values) { if (value.length === 0 || !result.add(value)) throw new Error(code); } return result; }
+function unique(values: readonly string[], code: string): Set<string> { const result = new Set<string>(); for (const value of values) { if (value.length === 0 || result.has(value)) throw new Error(code); result.add(value); } return result; }
 function validateTypeGraph(types: readonly NamedTypeDescriptor[], ids: ReadonlySet<string>): void {
+  const byId = new Map(types.map(type => [type.id, type]));
   for (const type of types) {
     exactKeys(type as unknown as Record<string, unknown>, ["id", "node"]);
+    if (!stableId(type.id)) invalidType();
     const node = type.node;
-    exactKeys(node as unknown as Record<string, unknown>, ["kind", "format", "precision", "finiteOnly", "minimum", "maximum", "wire", "value", "values", "elementTypeId", "maxBytes", "maxItems", "discriminator", "variants", "minLength", "maxLength", "properties", "additionalProperties"]);
-    if (node.kind === "floating" && (node.finiteOnly !== true || (node.precision !== "binary32" && node.precision !== "binary64"))) throw new Error("base.clientGeneration.typeInvalid");
-    if (node.kind === "array" && (node.elementTypeId === undefined || !ids.has(node.elementTypeId))) throw new Error("base.clientGeneration.typeMissing");
-    for (const property of node.properties ?? []) { exactKeys(property as unknown as Record<string, unknown>, ["name", "typeId", "required", "nullable", "redactionOptional"]); if (!ids.has(property.typeId)) throw new Error("base.clientGeneration.typeMissing"); }
-    for (const variant of node.variants ?? []) { exactKeys(variant as unknown as Record<string, unknown>, ["tag", "typeId"]); if (!ids.has(variant.typeId)) throw new Error("base.clientGeneration.typeMissing"); }
+    const keys: Record<TypeNode["kind"], readonly string[]> = {
+      boolean: ["kind"], string: ["kind", "minLength", "maxLength", "format"], integer: ["kind", "minimum", "maximum", "wire"], decimal: ["kind", "wire"], floating: ["kind", "precision", "finiteOnly"], bytes: ["kind", "wire", "maxBytes"], literal: ["kind", "value"], enum: ["kind", "values"], array: ["kind", "elementTypeId", "maxItems"], object: ["kind", "properties", "additionalProperties"], union: ["kind", "discriminator", "variants"]
+    };
+    if (!Object.hasOwn(keys, node.kind)) invalidType();
+    exactKeys(node as unknown as Record<string, unknown>, keys[node.kind]);
+    if (node.kind === "string" && (!safeBound(node.minLength, 0, 1_048_576) || !safeBound(node.maxLength, node.minLength, 1_048_576) || !["plain", "record-id", "collection-id", "field-id", "utc-instant", "revision", "cursor", "consistency-token", "mutation-id", "dependency-reference"].includes(node.format))) invalidType();
+    if (node.kind === "integer" && (!integerText(node.minimum) || !integerText(node.maximum) || !["number", "decimal-string"].includes(node.wire) || BigInt(node.minimum) > BigInt(node.maximum) || node.wire === "number" && (BigInt(node.minimum) < BigInt(Number.MIN_SAFE_INTEGER) || BigInt(node.maximum) > BigInt(Number.MAX_SAFE_INTEGER)))) invalidType();
+    if (node.kind === "decimal" && node.wire !== "decimal-string") invalidType();
+    if (node.kind === "floating" && (node.finiteOnly !== true || !["binary32", "binary64"].includes(node.precision))) invalidType();
+    if (node.kind === "bytes" && (node.wire !== "base64" || !safeBound(node.maxBytes, 0, 16 * 1024 * 1024))) invalidType();
+    if (node.kind === "literal" && node.value !== null && typeof node.value !== "string" && typeof node.value !== "boolean") invalidType();
+    if (node.kind === "enum" && (node.values.length === 0 || node.values.length > 256 || node.values.some(value => typeof value !== "string" || value.length === 0 || value.length > 256) || unique(node.values, "base.clientGeneration.typeInvalid").size !== node.values.length)) invalidType();
+    if (node.kind === "array" && (!ids.has(node.elementTypeId) || !safeBound(node.maxItems, 0, 1_048_576))) throw new Error(!ids.has(node.elementTypeId) ? "base.clientGeneration.typeMissing" : "base.clientGeneration.typeInvalid");
+    if (node.kind === "object") {
+      if (node.additionalProperties !== false || node.properties.length > 256) invalidType();
+      unique(node.properties.map(property => property.name), "base.clientGeneration.typeInvalid");
+      for (const property of node.properties) { exactKeys(property as unknown as Record<string, unknown>, ["name", "typeId", "required", "nullable", "redactionOptional"]); if (!stableProperty(property.name) || typeof property.required !== "boolean" || typeof property.nullable !== "boolean" || typeof property.redactionOptional !== "boolean") invalidType(); if (!ids.has(property.typeId)) throw new Error("base.clientGeneration.typeMissing"); }
+    }
+    if (node.kind === "union") {
+      if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/u.test(node.discriminator) || node.variants.length < 2 || node.variants.length > 64) invalidType();
+      unique(node.variants.map(variant => variant.tag), "base.clientGeneration.typeInvalid"); unique(node.variants.map(variant => variant.typeId), "base.clientGeneration.typeInvalid");
+      for (const variant of node.variants) {
+        if (typeof variant.tag !== "string" || variant.tag.length === 0 || variant.tag.length > 128) invalidType();
+        exactKeys(variant as unknown as Record<string, unknown>, ["tag", "typeId"]); const target = byId.get(variant.typeId); if (target === undefined) throw new Error("base.clientGeneration.typeMissing");
+        if (target.node.kind !== "object") invalidType(); const discriminator = target.node.properties.find(property => property.name === node.discriminator); const literal = discriminator === undefined ? undefined : byId.get(discriminator.typeId)?.node;
+        if (discriminator?.required !== true || discriminator.nullable || literal?.kind !== "literal" || literal.value !== variant.tag) invalidType();
+      }
+    }
   }
+  const direct = (id: string): readonly string[] => { const node = byId.get(id)!.node; return node.kind === "union" ? node.variants.map(variant => variant.typeId) : []; };
+  const visiting = new Set<string>(); const visited = new Set<string>(); const visit = (id: string): void => { if (visiting.has(id)) invalidType(); if (visited.has(id)) return; visiting.add(id); for (const child of direct(id)) visit(child); visiting.delete(id); visited.add(id); }; for (const id of ids) visit(id);
 }
 
+function invalidType(): never { throw new Error("base.clientGeneration.typeInvalid"); }
+function safeBound(value: number, minimum: number, maximum: number): boolean { return Number.isSafeInteger(value) && value >= minimum && value <= maximum; }
+function integerText(value: string): boolean { return /^-?(?:0|[1-9][0-9]*)$/u.test(value) && value !== "-0"; }
+function stableId(value: string): boolean { return typeof value === "string" && value.length >= 1 && value.length <= 128 && /^[A-Za-z0-9][A-Za-z0-9._:-]*$/u.test(value); }
+function stableProperty(value: string): boolean { return typeof value === "string" && value.length >= 1 && value.length <= 128 && !/[\u0000-\u001f\u007f]/u.test(value); }
+
 function render(snapshot: GenerationSnapshot): Record<string, string> {
-  const types = new Map(snapshot.schema.types.map(type => [type.id, type]));
-  const records = snapshot.schema.collections.map(collection => renderCollectionTypes(collection, types)).join("\n");
-  const collectionValues = snapshot.schema.collections.map(collection => renderCollectionValue(collection, types, snapshot.vectorIndexes.filter(index => index.collectionId === collection.id))).join(",\n");
+  const typeNames = new Map(snapshot.schema.types.map((type, index) => [type.id, `Type${index}`]));
+  const records = snapshot.schema.collections.map(collection => renderCollectionTypes(collection, typeNames)).join("\n");
+  const collectionValues = snapshot.schema.collections.map(collection => renderCollectionValue(collection, typeNames, snapshot.vectorIndexes.filter(index => index.collectionId === collection.id))).join(",\n");
   const vectors = snapshot.vectorIndexes.map(item => `export const ${safe(item.generatedName)} = ${JSON.stringify({ id: item.id, dimensions: item.dimensions, measure: item.measure, direction: item.measure === "euclideanDistance" ? "lowerIsNearer" : "higherIsNearer" })} as const;`).join("\n");
-  const readTypes = snapshot.registeredReads.map(item => `${renderNamedObject(`${pascal(item.generatedName)}Parameters`, types.get(item.parameterTypeId), types)}\n${renderNamedObject(`${pascal(item.generatedName)}Row`, types.get(item.rowTypeId), types)}`).join("\n");
-  const reads = snapshot.registeredReads.map(item => `${safe(item.generatedName)}: read<${pascal(item.generatedName)}Parameters, ${pascal(item.generatedName)}Row, ${item.watchable}>(${JSON.stringify({ id: item.id, maxPageSize: item.maxPageSize, watchable: item.watchable })})`).join(",\n");
+  const readTypes = snapshot.registeredReads.map(item => `export type ${pascal(item.generatedName)}Parameters = GeneratedTypes.${typeNames.get(item.parameterTypeId)!};\nexport type ${pascal(item.generatedName)}Row = GeneratedTypes.${typeNames.get(item.rowTypeId)!};`).join("\n");
+  const reads = snapshot.registeredReads.map(item => `${safe(item.generatedName)}: read<${pascal(item.generatedName)}Parameters, ${pascal(item.generatedName)}Row, ${item.watchable}>(${JSON.stringify({ id: item.id, parameterTypeId: item.parameterTypeId, rowTypeId: item.rowTypeId, maxPageSize: item.maxPageSize, watchable: item.watchable })})`).join(",\n");
   const features = { files: snapshot.endpoints.some(endpoint => endpoint.operation.startsWith("File")), realtime: snapshot.endpoints.some(endpoint => endpoint.operation === "RealtimeSubscribe"), batch: snapshot.schema.collections.some(collection => collection.operations.includes("batch")), controlOperations: snapshot.application.audience === "controlPlane" ? snapshot.endpoints.map(endpoint => endpoint.id).filter(id => id.startsWith("base.admin.") || id.startsWith("hpd.base.vector.")).sort() : [] };
   return {
-    "collections.ts": `import { collection, field } from "@hpd/base-client";\nimport type { BaseFieldDefinition } from "@hpd/base-client";\n${records}\nexport const collections = {\n${collectionValues}\n} as const;\n`,
+    "collections.ts": `import { collection, field } from "@hpd/base-client";\nimport type { BaseFieldDefinition } from "@hpd/base-client";\nimport type * as GeneratedTypes from "./types.js";\n${records}\nexport const collections = {\n${collectionValues}\n} as const;\n`,
     "protocol.ts": `export const protocol = ${JSON.stringify({ protocolMajor: 2, schemaGeneration: snapshot.schema.generation, digest: snapshot.digest, audience: snapshot.application.audience, features })} as const;\n`,
     "fields.ts": `export { collections } from "./collections.js";\n`,
-    "reads.ts": `import { read } from "@hpd/base-client";\n${readTypes}\nexport const reads = {\n${reads}\n} as const;\n`,
+    "reads.ts": `import { read } from "@hpd/base-client";\nimport type * as GeneratedTypes from "./types.js";\n${readTypes}\nexport const reads = {\n${reads}\n} as const;\n`,
+    "types.ts": `${snapshot.schema.types.map((type, index) => `export type Type${index} = ${renderType(type.node, typeNames)};`).join("\n")}\nexport const typeGraph = ${JSON.stringify(Object.fromEntries(snapshot.schema.types.map(type => [type.id, type.node])))} as const;\n`,
     "vectors.ts": `${vectors}\nexport const vectorIndexes = ${JSON.stringify(snapshot.vectorIndexes)} as const;\n`,
     "dependencies.ts": `export const dependencyTemplates = ${JSON.stringify(snapshot.dependencyTemplates)} as const;\n`,
     "errors.ts": `export const errors = ${JSON.stringify(snapshot.errors)} as const;\n`,
-    "schema.ts": `import { collections } from "./collections.js";\nimport { reads } from "./reads.js";\nimport { protocol } from "./protocol.js";\nexport const schema = Object.freeze({ ...protocol, collections, reads });\n`,
-    "index.ts": `export { schema } from "./schema.js";\nexport { collections } from "./collections.js";\nexport * from "./protocol.js";\nexport * from "./reads.js";\nexport * from "./vectors.js";\nexport * from "./dependencies.js";\nexport * from "./errors.js";\n`
+    "schema.ts": `import { collections } from "./collections.js";\nimport { reads } from "./reads.js";\nimport { protocol } from "./protocol.js";\nimport { typeGraph } from "./types.js";\nexport const schema = Object.freeze({ ...protocol, collections, reads, typeGraph });\n`,
+    "index.ts": `export { schema } from "./schema.js";\nexport { collections } from "./collections.js";\nexport * from "./protocol.js";\nexport * from "./reads.js";\nexport * from "./vectors.js";\nexport * from "./dependencies.js";\nexport * from "./errors.js";\nexport type * from "./types.js";\n`
   };
 }
 
-function renderCollectionTypes(collection: CollectionDescriptor, types: Map<string, NamedTypeDescriptor>): string {
-  const output = collection.fields.map(field => `  readonly ${safe(field.generatedName)}${field.redactionOptional ? "?" : ""}: ${tsTypeWithGraph(types.get(field.valueTypeId), types)};`).join("\n");
-  const create = collection.fields.filter(field => field.mutable && !field.serverGenerated).map(field => `  readonly ${safe(field.generatedName)}: ${tsTypeWithGraph(types.get(field.valueTypeId), types)};`).join("\n");
-  const patch = collection.fields.filter(field => field.mutable && !field.serverGenerated).map(field => `  readonly ${safe(field.generatedName)}?: ${tsTypeWithGraph(types.get(field.valueTypeId), types)};`).join("\n");
+function renderCollectionTypes(collection: CollectionDescriptor, typeNames: ReadonlyMap<string, string>): string {
+  const output = collection.fields.map(field => `  readonly ${safe(field.generatedName)}${field.redactionOptional ? "?" : ""}: GeneratedTypes.${typeNames.get(field.valueTypeId)!};`).join("\n");
+  const create = collection.fields.filter(field => field.mutable && !field.serverGenerated).map(field => `  readonly ${safe(field.generatedName)}: GeneratedTypes.${typeNames.get(field.valueTypeId)!};`).join("\n");
+  const patch = collection.fields.filter(field => field.mutable && !field.serverGenerated).map(field => `  readonly ${safe(field.generatedName)}?: GeneratedTypes.${typeNames.get(field.valueTypeId)!};`).join("\n");
   const name = pascal(collection.generatedName);
   return `export interface ${name} {\n${output}\n}\nexport interface ${name}Create {\n${create}\n}\nexport type ${name}Replace = ${name}Create;\nexport interface ${name}Patch {\n${patch}\n}\n`;
 }
 
-function renderCollectionValue(collection: CollectionDescriptor, types: Map<string, NamedTypeDescriptor>, vectors: readonly VectorDescriptor[]): string {
+function renderCollectionValue(collection: CollectionDescriptor, typeNames: ReadonlyMap<string, string>, vectors: readonly VectorDescriptor[]): string {
   const name = pascal(collection.generatedName);
-  const fieldShape = collection.fields.map(item => `    readonly ${safe(item.generatedName)}: BaseFieldDefinition<${tsTypeWithGraph(types.get(item.valueTypeId), types)}, readonly [${item.operators.map(value => JSON.stringify(value)).join(", ")}]>;`).join("\n");
-  const fields = collection.fields.map(item => `      ${safe(item.generatedName)}: field<${tsTypeWithGraph(types.get(item.valueTypeId), types)}, readonly [${item.operators.map(value => JSON.stringify(value)).join(", ")}]>(${JSON.stringify(item.id)}, ${JSON.stringify(item.wireName)}, ${JSON.stringify(item.operators)})`).join(",\n");
+  const fieldShape = collection.fields.map(item => `    readonly ${safe(item.generatedName)}: BaseFieldDefinition<GeneratedTypes.${typeNames.get(item.valueTypeId)!}, readonly [${item.operators.map(value => JSON.stringify(value)).join(", ")}]>;`).join("\n");
+  const fields = collection.fields.map(item => `      ${safe(item.generatedName)}: field<GeneratedTypes.${typeNames.get(item.valueTypeId)!}, readonly [${item.operators.map(value => JSON.stringify(value)).join(", ")}]>(${JSON.stringify(item.id)}, ${JSON.stringify(item.wireName)}, ${JSON.stringify(item.operators)}, ${JSON.stringify(item.valueTypeId)}, ${item.redactionOptional})`).join(",\n");
   const operationType = `readonly [${collection.operations.map(value => JSON.stringify(value)).join(", ")}]`;
   const vectorValues = vectors.map(item => `${safe(item.generatedName)}: ${JSON.stringify({ id: item.id, dimensions: item.dimensions, measure: item.measure, direction: item.measure === "euclideanDistance" ? "lowerIsNearer" : "higherIsNearer" })}`).join(", ");
-  return `  ${safe(collection.generatedName)}: collection<${name}, ${name}Create, ${name}Replace, ${name}Patch, {\n${fieldShape}\n  }, ${operationType}>({ id: ${JSON.stringify(collection.id)}, fields: {\n${fields}\n  }, operations: ${JSON.stringify(collection.operations)}, pagination: ${JSON.stringify(collection.pagination)}, maxPageSize: ${collection.maxPageSize}, vectorIndexes: { ${vectorValues} } })`;
+  return `  ${safe(collection.generatedName)}: collection<${name}, ${name}Create, ${name}Replace, ${name}Patch, {\n${fieldShape}\n  }, ${operationType}>({ id: ${JSON.stringify(collection.id)}, recordTypeId: ${JSON.stringify(collection.recordTypeId)}, createTypeId: ${JSON.stringify(collection.createTypeId)}, replaceTypeId: ${JSON.stringify(collection.replaceTypeId)}, patchTypeId: ${JSON.stringify(collection.patchTypeId)}, fields: {\n${fields}\n  }, operations: ${JSON.stringify(collection.operations)}, pagination: ${JSON.stringify(collection.pagination)}, maxPageSize: ${collection.maxPageSize}, vectorIndexes: { ${vectorValues} } })`;
 }
 
-function tsType(type: NamedTypeDescriptor | undefined): string {
-  if (type === undefined) throw new Error("base.clientGeneration.typeMissing");
-  return type.node.kind === "boolean" ? "boolean"
-    : type.node.kind === "integer" ? (type.node.wire === "number" ? "number" : "string")
-    : type.node.kind === "decimal" ? "string"
-    : type.node.kind === "floating" ? "number" : "string";
-}
-function tsTypeWithGraph(type: NamedTypeDescriptor | undefined, types: Map<string, NamedTypeDescriptor>): string {
-  if (type?.node.kind === "array" && type.node.elementTypeId !== undefined) return `readonly ${tsTypeWithGraph(types.get(type.node.elementTypeId), types)}[]`;
-  return tsType(type);
-}
-function renderNamedObject(name: string, type: NamedTypeDescriptor | undefined, types: Map<string, NamedTypeDescriptor>): string {
-  if (type?.node.kind !== "object" || type.node.properties === undefined || type.node.additionalProperties !== false) throw new Error("base.clientGeneration.typeMissing");
-  const properties = type.node.properties.map(property => `  readonly ${safe(property.name)}${property.required ? "" : "?"}: ${tsTypeWithGraph(types.get(property.typeId), types)}${property.nullable ? " | null" : ""};`).join("\n");
-  return `export interface ${name} {\n${properties}\n}`;
+function renderType(node: TypeNode, names: ReadonlyMap<string, string>): string {
+  switch (node.kind) {
+    case "boolean": return "boolean";
+    case "string": case "decimal": case "bytes": return "string";
+    case "integer": return node.wire === "number" ? "number" : "string";
+    case "floating": return "number";
+    case "literal": return JSON.stringify(node.value);
+    case "enum": return node.values.map(value => JSON.stringify(value)).join(" | ");
+    case "array": return `readonly ${names.get(node.elementTypeId)!}[]`;
+    case "object": return `{ ${node.properties.map(property => `readonly ${JSON.stringify(property.name)}${property.required ? "" : "?"}: ${names.get(property.typeId)!}${property.nullable ? " | null" : ""}`).join("; ")} }`;
+    case "union": return node.variants.map(variant => names.get(variant.typeId)!).join(" | ");
+  }
 }
 function safe(value: string): string { if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/u.test(value)) throw new Error("base.clientGeneration.nameInvalid"); return value; }
 function pascal(value: string): string { return safe(value[0]!.toUpperCase() + value.slice(1)); }

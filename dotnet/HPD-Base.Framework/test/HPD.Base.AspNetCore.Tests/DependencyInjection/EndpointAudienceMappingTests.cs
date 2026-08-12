@@ -22,6 +22,17 @@ public sealed class EndpointAudienceMappingTests
     }
 
     [Fact]
+    public void UnifiedAspNetCoreRegistrationIncludesRealtimeProjectionServices()
+    {
+        var builder = WebApplication.CreateBuilder();
+        builder.Services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
+        builder.Services.AddHPDBase(hpd => hpd.AddRealtime().AddAspNetCore());
+        using var app = builder.Build();
+
+        app.Services.GetService<BaseRealtimeWebSocketEndpoint>().Should().NotBeNull();
+    }
+
+    [Fact]
     public async Task PublicAndApplicationInventoriesAreDistinctAndExact()
     {
         await using WebApplication app = await TestBaseApp.CreateAsync();

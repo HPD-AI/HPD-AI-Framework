@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { collection, createBaseClient, field, parseBaseJson } from "../dist/index.js";
+import { collection, createBaseClient, decodeBaseJson, encodeBaseJson, field, parseBaseJson, read } from "../dist/index.js";
 import { BaseRealtimeManager } from "../dist/realtime.js";
 
 const schema = Object.freeze({ protocolMajor: 2, schemaGeneration: "1", digest: `sha256:${"0".repeat(64)}`, audience: "application", features: { files: false, realtime: true, batch: true, controlOperations: [] }, reads: {}, collections: { documents: collection({ id: "documents", fields: { title: field("stable-title", "stored_title", ["equal", "notEqual"]) }, operations: ["get", "query", "patch", "batch", "watch", "realtime"], pagination: "seek", maxPageSize: 100, vectorIndexes: {} }) } });
@@ -33,7 +33,7 @@ test("realtime v2 joins after welcome and resumes from the last delivered durabl
   const sockets = [];
   const manager = new BaseRealtimeManager("https://example.test/base", () => { const socket = new FakeSocket(); sockets.push(socket); return socket; });
   const delivered = [];
-  manager.subscribeFeed("documents", { kind: "durable", filter: {} }, async item => { delivered.push(item.cursor); });
+  manager.subscribeFeed("documents", { kind: "durable", filter: {} }, async item => { delivered.push(item.cursor); }, value => value);
   await waitUntil(() => sockets.length === 1 && sockets[0].onmessage !== null); const first = sockets[0]; assert.equal(first.sent.length, 0);
   first.receive(JSON.stringify({ protocol: 2, kind: "welcome", connectionId: "connection", connectionEpoch: "epoch-1", heartbeatIntervalMs: 1000, maxInboundBytes: 1024, maxChannels: 8 }));
   const firstJoin = JSON.parse(first.sent[0]); assert.equal(firstJoin.channel.kind, "durable");
@@ -47,18 +47,18 @@ test("realtime v2 joins after welcome and resumes from the last delivered durabl
 
 test("realtime rejects duplicate JSON properties before dispatch", async () => {
   const socket = new FakeSocket(); const manager = new BaseRealtimeManager("https://example.test/base", () => socket);
-  manager.subscribeFeed("documents", { kind: "live", filter: {} }, () => undefined); await waitUntil(() => socket.onmessage !== null);
+  manager.subscribeFeed("documents", { kind: "live", filter: {} }, () => undefined, value => value); await waitUntil(() => socket.onmessage !== null);
   socket.receive('{"protocol":2,"kind":"welcome","kind":"welcome","connectionId":"c","connectionEpoch":"e","heartbeatIntervalMs":1000,"maxInboundBytes":1024,"maxChannels":8}');
   assert.equal(socket.closedCode, 1008); manager.close();
 });
 
 test("realtime rejects frames before welcome and unknown channel references", async () => {
   const socket = new FakeSocket(); const manager = new BaseRealtimeManager("https://example.test/base", () => socket);
-  manager.subscribeFeed("documents", { kind: "live", filter: {} }, () => undefined); await waitUntil(() => socket.onmessage !== null);
+  manager.subscribeFeed("documents", { kind: "live", filter: {} }, () => undefined, value => value); await waitUntil(() => socket.onmessage !== null);
   socket.receive(JSON.stringify({ protocol: 2, kind: "heartbeatAck", connectionId: "c", connectionEpoch: "e", heartbeatId: "h" }));
   assert.equal(socket.closedCode, 1008); manager.close();
   const second = new FakeSocket(); const other = new BaseRealtimeManager("https://example.test/base", () => second);
-  other.subscribeFeed("documents", { kind: "live", filter: {} }, () => undefined); await waitUntil(() => second.onmessage !== null);
+  other.subscribeFeed("documents", { kind: "live", filter: {} }, () => undefined, value => value); await waitUntil(() => second.onmessage !== null);
   second.receive(JSON.stringify({ protocol: 2, kind: "welcome", connectionId: "c", connectionEpoch: "e", heartbeatIntervalMs: 1000, maxInboundBytes: 1024, maxChannels: 8 }));
   second.receive(JSON.stringify({ protocol: 2, kind: "joined", connectionId: "c", connectionEpoch: "e", ref: "unknown", channelEpoch: "channel", delivery: "live-at-most-once" }));
   assert.equal(second.closedCode, 1008); other.close();
@@ -85,7 +85,7 @@ test("vector search preserves binary32 inputs and validates disclosed dot-produc
   const base = createBaseClient({ schema: vectorSchema, url: "https://base.test/base/", fetch: async (_url, init) => { wire = JSON.parse(new TextDecoder().decode(init.body)); return Response.json({ matches: [{ record: { collectionId: "documents", id: "d1", payload: { kind: "json", json: { stored_title: "match" } }, metadata: {} }, rank: 1, measure: { function: "dotProductSimilarity", value: 0.75, direction: "higherIsNearer", normalizedRelevance: 0.875 } }], vectorIndexId: "semantic", vectorIndexGeneration: "42", providerId: "inMemory", consistencyToken: "opaque" }, { headers: { "X-Correlation-ID": "v" } }); } });
   const result = await base.documents.vector(base.documents.vectorIndexes.semantic).nearest([0.1, -0]).measures("include").execute();
   assert.equal(result.ok, true); assert.equal(result.value.matches[0].record.payload.json.title, "match");
-  assert.deepEqual(wire.vector, [Math.fround(0.1), 0]); assert.equal(wire.measureDisclosure, "include"); assert.equal(wire.consistency, "current");
+  assert.deepEqual(wire.vector, [0.1, 0]); assert.equal(wire.measureDisclosure, "include"); assert.equal(wire.consistency, "current");
 });
 
 test("the bounded JSON codec rejects duplicate and lossy numeric tokens before materialization", () => {
@@ -94,6 +94,62 @@ test("the bounded JSON codec rejects duplicate and lossy numeric tokens before m
   assert.throws(() => parseBaseJson('{"value":1e-400}'));
   assert.throws(() => parseBaseJson('{"value":-0}'));
   assert.deepEqual(parseBaseJson('{"value":1.25}'), { value: 1.25 });
+});
+
+test("the closed graph codec validates every node and canonicalizes binary32", () => {
+  const graph = {
+    boolean: { kind: "boolean" }, plain: { kind: "string", minLength: 1, maxLength: 8, format: "plain" }, integer: { kind: "integer", minimum: "-10", maximum: "10", wire: "number" }, large: { kind: "integer", minimum: "0", maximum: "99999999999999999999", wire: "decimal-string" }, decimal: { kind: "decimal", wire: "decimal-string" }, f32: { kind: "floating", precision: "binary32", finiteOnly: true }, f64: { kind: "floating", precision: "binary64", finiteOnly: true }, bytes: { kind: "bytes", wire: "base64", maxBytes: 3 }, tagA: { kind: "literal", value: "a" }, tagB: { kind: "literal", value: "b" }, enumeration: { kind: "enum", values: ["x", "y"] }, array: { kind: "array", elementTypeId: "f32", maxItems: 2 }, a: { kind: "object", additionalProperties: false, properties: [{ name: "kind", typeId: "tagA", required: true, nullable: false, redactionOptional: false }, { name: "value", typeId: "array", required: true, nullable: false, redactionOptional: false }] }, b: { kind: "object", additionalProperties: false, properties: [{ name: "kind", typeId: "tagB", required: true, nullable: false, redactionOptional: false }, { name: "value", typeId: "plain", required: false, nullable: true, redactionOptional: false }] }, union: { kind: "union", discriminator: "kind", variants: [{ tag: "a", typeId: "a" }, { tag: "b", typeId: "b" }] }
+  };
+  assert.deepEqual(decodeBaseJson('{"kind":"a","value":[0.1,-0]}', "union", graph), { kind: "a", value: [Math.fround(0.1), 0] });
+  assert.equal(encodeBaseJson([Math.fround(0.1), -0], "array", graph), "[0.1,0]");
+  assert.equal(decodeBaseJson("3.4028235e38", "f32", graph), Math.fround(3.4028235e38)); assert.equal(decodeBaseJson("1.17549435e-38", "f32", graph), Math.fround(1.17549435e-38)); assert.equal(decodeBaseJson("1e-45", "f32", graph), Math.fround(1e-45));
+  assert.throws(() => decodeBaseJson("3.5e38", "f32", graph)); assert.throws(() => decodeBaseJson("1e-46", "f32", graph)); assert.equal(decodeBaseJson("1.0000000596046448", "f32", graph), 1);
+  assert.equal(decodeBaseJson('"AQID"', "bytes", graph), "AQID"); assert.equal(decodeBaseJson('"99999999999999999999"', "large", graph), "99999999999999999999");
+  assert.throws(() => decodeBaseJson('{"kind":"a","value":[],"extra":true}', "union", graph));
+  assert.throws(() => decodeBaseJson('{"kind":"c"}', "union", graph)); assert.throws(() => decodeBaseJson('[1e-50]', "array", graph));
+});
+
+test("optimistic create materializes and malformed live snapshots close safely", async () => {
+  const socket = new FakeSocket(); const manager = new BaseRealtimeManager("https://example.test/base", () => socket); const snapshots = [];
+  manager.subscribe("documents", { take: 10 }, snapshot => snapshots.push(snapshot), value => value); await waitUntil(() => socket.onmessage !== null);
+  socket.receive(JSON.stringify({ protocol: 2, kind: "welcome", connectionId: "c", connectionEpoch: "e", heartbeatIntervalMs: 1000, maxInboundBytes: 1024, maxChannels: 8 }));
+  const join = JSON.parse(socket.sent[0]); socket.receive(JSON.stringify({ protocol: 2, kind: "joined", connectionId: "c", connectionEpoch: "e", ref: join.ref, channelEpoch: "ch", delivery: "live-query-snapshots" }));
+  socket.receive(JSON.stringify({ protocol: 2, kind: "liveQuerySnapshot", connectionId: "c", connectionEpoch: "e", ref: join.ref, channelEpoch: "ch", version: "1", source: "initial", value: { items: [], page: { hasMore: false } } }));
+  manager.applyOptimistic("m1", "documents", "d1", "create", { title: "draft" }, undefined, new Uint8Array([1]));
+  assert.equal(snapshots.at(-1).records[0].id, "d1"); assert.equal(snapshots.at(-1).records[0].payload.json.title, "draft");
+  socket.receive(JSON.stringify({ protocol: 2, kind: "liveQuerySnapshot", connectionId: "c", connectionEpoch: "e", ref: join.ref, channelEpoch: "ch", version: "2", source: "initial", value: { items: "invalid" } }));
+  assert.equal(socket.closedCode, 1008); manager.close();
+});
+
+test("indeterminate mutations retain immutable bytes for explicit receipt resolution", async () => {
+  const bodies = []; let calls = 0; const mutationId = "mutation-1";
+  const base = createBaseClient({ schema, url: "https://base.test/base/", fetch: async (_url, init) => { bodies.push(new Uint8Array(await new Response(init.body).arrayBuffer())); calls++; if (calls <= 2) return Response.json({ code: "base.runtime.batch.indeterminate" }, { status: 500, headers: { "X-Correlation-ID": "c" } }); return Response.json({ outcome: "committed", items: [{ itemId: "mutation", index: 0, kind: "patch", disposition: "committed", record: { collectionId: "documents", id: "d1", payload: { kind: "json", json: { stored_title: "resolved" } }, metadata: {} } }] }, { headers: { "X-Correlation-ID": "c" } }); } });
+  const first = await base.documents.patch("d1", { title: "resolved" }, { mutationId }); assert.equal(first.ok, false); assert.equal(first.error.code, "base.runtime.batch.indeterminate");
+  const resolved = await base.resolveMutation(mutationId); assert.equal(resolved.ok, true); assert.deepEqual(bodies[0], bodies[1]); assert.deepEqual(bodies[1], bodies[2]);
+  await assert.rejects(() => base.resolveMutation(mutationId), /mutationNotIndeterminate/);
+});
+
+test("generated graph codecs guard records and registered-read rows at runtime", async () => {
+  const graph = { title: { kind: "string", minLength: 1, maxLength: 8, format: "plain" }, score: { kind: "floating", precision: "binary32", finiteOnly: true }, row: { kind: "object", additionalProperties: false, properties: [{ name: "title", typeId: "title", required: true, nullable: false, redactionOptional: false }] }, parameters: { kind: "object", additionalProperties: false, properties: [] } };
+  const typedSchema = { ...schema, typeGraph: graph, reads: { titles: read({ id: "titles", parameterTypeId: "parameters", rowTypeId: "row", maxPageSize: 10, watchable: false }) }, collections: { documents: collection({ ...schema.collections.documents, fields: { title: field("stable-title", "stored_title", ["equal"], "title"), score: field("score", "score", ["equal"], "score") }, operations: ["get", "patch", "batch"] }) } };
+  let mode = "record"; let mutationBody = ""; const base = createBaseClient({ schema: typedSchema, url: "https://base.test/base/", fetch: async (_url, init) => { if (mode === "record") return Response.json({ collectionId: "documents", id: "d1", payload: { kind: "json", json: { stored_title: "valid", score: 0.1, extra: true } }, metadata: {} }, { headers: { "X-Correlation-ID": "c" } }); if (mode === "read") return Response.json({ items: [{ title: "too-long-value" }], page: { hasMore: false } }, { headers: { "X-Correlation-ID": "c" } }); mutationBody = new TextDecoder().decode(init.body); return Response.json({ outcome: "committed", items: [{ itemId: "mutation", index: 0, kind: "patch", disposition: "committed", record: { collectionId: "documents", id: "d1", payload: { kind: "json", json: { stored_title: "valid", score: 0.1 } }, metadata: {} } }] }, { headers: { "X-Correlation-ID": "c" } }); } });
+  const malformedRecord = await base.documents.get("d1"); assert.equal(malformedRecord.ok, false); assert.equal(malformedRecord.error.code, "base.client.responseInvalid");
+  mode = "read"; const malformedRow = await base.reads.titles.execute({}); assert.equal(malformedRow.ok, false); assert.equal(malformedRow.error.code, "base.client.responseInvalid");
+  mode = "mutation"; const patched = await base.documents.patch("d1", { score: Math.fround(0.1) }); assert.equal(patched.ok, true); assert.match(mutationBody, /\"score\":0\.1/); assert.doesNotMatch(mutationBody, /0\.10000000149011612/);
+});
+
+test("file DTOs are decoded against the complete closed HTTP contract", async () => {
+  const fileSchema = { ...schema, features: { ...schema.features, files: true } };
+  let mode = "upload";
+  const metadata = { bucketId: "assets", objectId: "o1", sizeBytes: 3, createdAt: "2026-01-01T00:00:00Z", publicMetadata: { visibility: "public" } };
+  const base = createBaseClient({ schema: fileSchema, url: "https://base.test/base/", fetch: async () => {
+    const value = mode === "upload" ? { metadata, created: true } : mode === "list" ? { items: [metadata], nextCursor: "next" } : { ...metadata, unexpected: true };
+    return new Response(JSON.stringify(value), { headers: { "Content-Type": "application/json", "X-Correlation-ID": "files" } });
+  } });
+  const upload = await base.files.bucket("assets").upload(new Uint8Array([1, 2, 3]));
+  assert.equal(upload.ok, true); assert.equal(upload.value.metadata.objectId, "o1"); assert.equal(upload.value.created, true);
+  mode = "list"; const page = await base.files.bucket("assets").list(); assert.equal(page.ok, true); assert.equal(page.value.nextCursor, "next");
+  mode = "invalid"; const invalid = await base.files.bucket("assets").metadata("o1"); assert.equal(invalid.ok, false); assert.equal(invalid.error.code, "base.client.responseInvalid");
 });
 
 class FakeSocket {

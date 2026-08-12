@@ -16,7 +16,19 @@ export interface CollectionDescriptor {
 }
 export interface FieldDescriptor { readonly id: string; readonly wireName: string; readonly generatedName: string; readonly valueTypeId: string; readonly serverGenerated: boolean; readonly mutable: boolean; readonly redactionOptional: boolean; readonly operators: readonly string[]; }
 export interface NamedTypeDescriptor { readonly id: string; readonly node: TypeNode; }
-export interface TypeNode { readonly kind: string; readonly format?: string; readonly precision?: string; readonly finiteOnly?: boolean; readonly wire?: string; readonly minimum?: string; readonly maximum?: string; readonly minLength?: number; readonly maxLength?: number; readonly elementTypeId?: string; readonly maxItems?: number; readonly maxBytes?: number; readonly value?: unknown; readonly properties?: readonly PropertyDescriptor[]; readonly additionalProperties?: false; readonly values?: readonly string[]; readonly discriminator?: string; readonly variants?: readonly { readonly tag: string; readonly typeId: string }[]; }
+export type StringFormat = "plain" | "record-id" | "collection-id" | "field-id" | "utc-instant" | "revision" | "cursor" | "consistency-token" | "mutation-id" | "dependency-reference";
+export type TypeNode =
+  | { readonly kind: "boolean" }
+  | { readonly kind: "string"; readonly minLength: number; readonly maxLength: number; readonly format: StringFormat }
+  | { readonly kind: "integer"; readonly minimum: string; readonly maximum: string; readonly wire: "number" | "decimal-string" }
+  | { readonly kind: "decimal"; readonly wire: "decimal-string" }
+  | { readonly kind: "floating"; readonly precision: "binary32" | "binary64"; readonly finiteOnly: true }
+  | { readonly kind: "bytes"; readonly wire: "base64"; readonly maxBytes: number }
+  | { readonly kind: "literal"; readonly value: string | boolean | null }
+  | { readonly kind: "enum"; readonly values: readonly string[] }
+  | { readonly kind: "array"; readonly elementTypeId: string; readonly maxItems: number }
+  | { readonly kind: "object"; readonly properties: readonly PropertyDescriptor[]; readonly additionalProperties: false }
+  | { readonly kind: "union"; readonly discriminator: string; readonly variants: readonly { readonly tag: string; readonly typeId: string }[] };
 export interface PropertyDescriptor { readonly name: string; readonly typeId: string; readonly required: boolean; readonly nullable: boolean; readonly redactionOptional: boolean; }
 export interface EndpointDescriptor { readonly id: string; readonly audience: "application" | "controlPlane"; readonly operation: string; readonly method: string; readonly route: string; readonly capability?: string; readonly requestTypeId?: string; readonly responseTypeId?: string; readonly successStatuses: readonly number[]; readonly errorCodes: readonly string[]; readonly maximumRequestBodyBytes: number; readonly responseMode: "json" | "bytes" | "stream" | "webSocket" | "empty"; readonly replay: "none" | "channelDependent"; readonly resume: "none" | "durableCursor"; readonly cache: "none" | "structuralDigest"; }
 export interface CapabilityDescriptor { readonly id: string; readonly available: boolean; }

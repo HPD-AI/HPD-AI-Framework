@@ -1,0 +1,98 @@
+/** Closed language-neutral type nodes emitted by the BASE client generator. */
+export type BaseTypeNode =
+  | { readonly kind: "boolean" }
+  | { readonly kind: "string"; readonly minLength: number; readonly maxLength: number; readonly format: string }
+  | { readonly kind: "integer"; readonly minimum: string; readonly maximum: string; readonly wire: "number" | "decimal-string" }
+  | { readonly kind: "decimal"; readonly wire: "decimal-string" }
+  | { readonly kind: "floating"; readonly precision: "binary32" | "binary64"; readonly finiteOnly: true }
+  | { readonly kind: "bytes"; readonly wire: "base64"; readonly maxBytes: number }
+  | { readonly kind: "literal"; readonly value: string | boolean | null }
+  | { readonly kind: "enum"; readonly values: readonly string[] }
+  | { readonly kind: "array"; readonly elementTypeId: string; readonly maxItems: number }
+  | { readonly kind: "object"; readonly properties: readonly { readonly name: string; readonly typeId: string; readonly required: boolean; readonly nullable: boolean; readonly redactionOptional: boolean }[]; readonly additionalProperties: false }
+  | { readonly kind: "union"; readonly discriminator: string; readonly variants: readonly { readonly tag: string; readonly typeId: string }[] };
+
+/** Maps stable DTO type IDs to closed graph nodes. */
+export type BaseTypeGraph = Readonly<Record<string, BaseTypeNode>>;
+
+interface RawNumber { readonly rawNumber: true; readonly token: string; }
+const rawNumber = (token: string): RawNumber => Object.freeze({ rawNumber: true, token });
+const isRawNumber = (value: unknown): value is RawNumber => typeof value === "object" && value !== null && !Array.isArray(value) && (value as Partial<RawNumber>).rawNumber === true && typeof (value as Partial<RawNumber>).token === "string";
+
+/** Parses strict BASE JSON and materializes only lossless general-purpose JSON numbers. */
+export function parseBaseJson(json: string): unknown { return materialize(parseBaseJsonDocument(json)); }
+
+/** Decodes one complete JSON document against a generated graph node. */
+export function decodeBaseJson<T>(json: string, typeId: string, graph: BaseTypeGraph): T { return decodeNode(parseBaseJsonDocument(json), typeId, graph, new Set()) as T; }
+
+/** Validates and deeply copies a materialized value against a generated graph node. */
+export function decodeBaseValue<T>(value: unknown, typeId: string, graph: BaseTypeGraph): T { return decodeNode(value, typeId, graph, new Set()) as T; }
+
+/** Produces canonical base-json-v1 for one generated graph value. */
+export function encodeBaseJson(value: unknown, typeId: string, graph: BaseTypeGraph): string { return encodeNode(value, typeId, graph, new Set()); }
+
+export function parseBaseJsonDocument(json: string): unknown {
+  let index = 0;
+  const whitespace = (): void => { while (index < json.length && /[\t\n\r ]/u.test(json[index]!)) index++; };
+  const string = (): string => { const start = index++; while (index < json.length) { const character = json[index++]!; if (character === "\\") { if (index >= json.length) throw new SyntaxError(); index++; } else if (character === '"') { const result = JSON.parse(json.slice(start, index)) as string; validUnicode(result); return result; } } throw new SyntaxError(); };
+  const value = (): unknown => {
+    whitespace(); const character = json[index];
+    if (character === "{") { index++; whitespace(); const result: Record<string, unknown> = {}; const keys = new Set<string>(); if (json[index] === "}") { index++; return result; } while (true) { whitespace(); if (json[index] !== '"') throw new SyntaxError(); const key = string(); if (keys.has(key)) throw new SyntaxError(); keys.add(key); whitespace(); if (json[index++] !== ":") throw new SyntaxError(); result[key] = value(); whitespace(); const separator = json[index++]; if (separator === "}") return result; if (separator !== ",") throw new SyntaxError(); } }
+    if (character === "[") { index++; whitespace(); const result: unknown[] = []; if (json[index] === "]") { index++; return result; } while (true) { result.push(value()); whitespace(); const separator = json[index++]; if (separator === "]") return result; if (separator !== ",") throw new SyntaxError(); } }
+    if (character === '"') return string();
+    const match = /^(?:true|false|null|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)/u.exec(json.slice(index)); if (match === null) throw new SyntaxError(); const token = match[0]; index += token.length;
+    if (token === "true") return true; if (token === "false") return false; if (token === "null") return null; return rawNumber(token);
+  };
+  const result = value(); whitespace(); if (index !== json.length) throw new SyntaxError(); return result;
+}
+
+function decodeNode(value: unknown, typeId: string, graph: BaseTypeGraph, path: Set<string>): unknown {
+  const node = graph[typeId]; if (node === undefined) throw new TypeError("base.client.responseInvalid");
+  switch (node.kind) {
+    case "boolean": if (typeof value !== "boolean") invalid(); return value;
+    case "string": if (typeof value !== "string" || scalarLength(value) < node.minLength || scalarLength(value) > node.maxLength || !format(value, node.format)) invalid(); return value;
+    case "integer": return integer(value, node);
+    case "decimal": if (typeof value !== "string" || !/^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/u.test(value) || value === "-0") invalid(); return value;
+    case "floating": return floating(value, node.precision);
+    case "bytes": if (typeof value !== "string" || !base64(value) || Math.floor(value.length * 3 / 4) - (value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0) > node.maxBytes) invalid(); return value;
+    case "literal": if (value !== node.value) invalid(); return value;
+    case "enum": if (typeof value !== "string" || !node.values.includes(value)) invalid(); return value;
+    case "array": if (!Array.isArray(value) || value.length > node.maxItems) invalid(); return Object.freeze(value.map(item => decodeNode(item, node.elementTypeId, graph, path)));
+    case "object": {
+      if (!object(value)) invalid(); const accepted = new Set(node.properties.map(property => property.name)); if (Object.keys(value).some(key => !accepted.has(key))) invalid(); const result: Record<string, unknown> = {};
+      for (const property of node.properties) { if (!Object.hasOwn(value, property.name)) { if (property.required && !property.redactionOptional) invalid(); continue; } const item = value[property.name]; if (item === null) { if (!property.nullable) invalid(); result[property.name] = null; } else result[property.name] = decodeNode(item, property.typeId, graph, path); }
+      return Object.freeze(result);
+    }
+    case "union": { if (!object(value) || typeof value[node.discriminator] !== "string") invalid(); const variant = node.variants.find(item => item.tag === value[node.discriminator]); if (variant === undefined) invalid(); return decodeNode(value, variant.typeId, graph, path); }
+  }
+  return invalid();
+}
+
+function encodeNode(value: unknown, typeId: string, graph: BaseTypeGraph, path: Set<object>): string {
+  const node = graph[typeId]; if (node === undefined) invalid();
+  if (object(value) || Array.isArray(value)) { if (path.has(value as object)) invalid(); path.add(value as object); }
+  try {
+    switch (node.kind) {
+      case "boolean": case "string": case "decimal": case "bytes": case "literal": case "enum": return JSON.stringify(decodeNode(value, typeId, graph, new Set()));
+      case "integer": { const decoded = integer(value, node); return node.wire === "number" ? String(decoded) : JSON.stringify(decoded); }
+      case "floating": return canonicalFloat(floating(value, node.precision), node.precision);
+      case "array": { if (!Array.isArray(value) || value.length > node.maxItems) invalid(); return `[${value.map(item => encodeNode(item, node.elementTypeId, graph, path)).join(",")}]`; }
+      case "object": { if (!object(value)) invalid(); const accepted = new Set(node.properties.map(property => property.name)); if (Object.keys(value).some(key => !accepted.has(key))) invalid(); const fields: string[] = []; for (const property of node.properties) { if (!Object.hasOwn(value, property.name)) { if (property.required) invalid(); continue; } const item = value[property.name]; if (item === null) { if (!property.nullable) invalid(); fields.push(`${JSON.stringify(property.name)}:null`); } else fields.push(`${JSON.stringify(property.name)}:${encodeNode(item, property.typeId, graph, path)}`); } return `{${fields.join(",")}}`; }
+      case "union": { if (!object(value) || typeof value[node.discriminator] !== "string") invalid(); const variant = node.variants.find(item => item.tag === value[node.discriminator]); if (variant === undefined) invalid(); return encodeNode(value, variant.typeId, graph, path); }
+    }
+  } finally { if (object(value) || Array.isArray(value)) path.delete(value as object); }
+  return invalid();
+}
+
+function materialize(value: unknown): unknown { if (isRawNumber(value)) { validateGeneralNumber(value.token); return Number(value.token); } if (Array.isArray(value)) return value.map(materialize); if (object(value)) return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, materialize(item)])); return value; }
+function integer(value: unknown, node: Extract<BaseTypeNode, { kind: "integer" }>): number | string { const text = isRawNumber(value) ? value.token : node.wire === "decimal-string" && typeof value === "string" ? value : typeof value === "number" && Number.isSafeInteger(value) ? String(value) : ""; if (!/^-?(?:0|[1-9][0-9]*)$/u.test(text) || text === "-0") invalid(); const parsed = BigInt(text); if (parsed < BigInt(node.minimum) || parsed > BigInt(node.maximum)) invalid(); if (node.wire === "number") { const numeric = Number(text); if (!Number.isSafeInteger(numeric)) invalid(); return numeric; } return text; }
+function floating(value: unknown, precision: "binary32" | "binary64"): number { const token = isRawNumber(value) ? value.token : typeof value === "number" ? canonicalFloat(value, "binary64") : ""; if (!numberGrammar(token)) invalid(); const binary64 = Number(token); if (!Number.isFinite(binary64)) invalid(); const negativeZero = /^-0(?:\.0*)?(?:[eE][+-]?\d+)?$/u.test(token); const lexicalNonzero = /[1-9]/u.test(token.split(/[eE]/u)[0]!); if (precision === "binary32") { const result = Math.fround(binary64); if (!Number.isFinite(result) || result === 0 && lexicalNonzero) invalid(); return Object.is(result, -0) || negativeZero ? 0 : result; } if (binary64 === 0 && lexicalNonzero) invalid(); return Object.is(binary64, -0) || negativeZero ? 0 : binary64; }
+function canonicalFloat(value: number, precision: "binary32" | "binary64"): string { if (!Number.isFinite(value)) invalid(); if (Object.is(value, -0) || value === 0) return "0"; if (precision === "binary64") return value.toString(); const target = Math.fround(value); for (let digits = 1; digits <= 9; digits++) { const candidate = target.toPrecision(digits); if (Math.fround(Number(candidate)) === target) return Number(candidate).toString(); } invalid(); }
+function validateGeneralNumber(token: string): void { if (!numberGrammar(token)) invalid(); const numeric = Number(token); if (!Number.isFinite(numeric) || Object.is(numeric, -0)) invalid(); if (!token.includes(".") && !/[eE]/u.test(token) && !Number.isSafeInteger(numeric)) invalid(); if (numeric === 0 && /[1-9]/u.test(token.split(/[eE]/u)[0]!)) invalid(); }
+function numberGrammar(value: string): boolean { return /^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$/u.test(value); }
+function format(value: string, kind: string): boolean { if (/^(?:record-id|collection-id|field-id|revision|cursor|consistency-token|mutation-id|dependency-reference)$/u.test(kind)) return value.length > 0 && !/[\u0000-\u001f\u007f]/u.test(value); if (kind === "utc-instant") return !Number.isNaN(Date.parse(value)) && /(?:Z|[+-]\d\d:\d\d)$/u.test(value); return kind === "plain"; }
+function base64(value: string): boolean { return value.length % 4 === 0 && /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u.test(value); }
+function scalarLength(value: string): number { return [...value].length; }
+function validUnicode(value: string): void { for (let index = 0; index < value.length; index++) { const unit = value.charCodeAt(index); if (unit >= 0xd800 && unit <= 0xdbff) { const next = value.charCodeAt(++index); if (!(next >= 0xdc00 && next <= 0xdfff)) invalid(); } else if (unit >= 0xdc00 && unit <= 0xdfff) invalid(); } }
+function object(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value) && !isRawNumber(value); }
+function invalid(): never { throw new TypeError("base.client.responseInvalid"); }

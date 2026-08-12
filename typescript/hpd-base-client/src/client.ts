@@ -6,6 +6,7 @@ import { BaseRealtimeManager, type BaseConnectivityState, type BaseRecordFeedDel
 import { BaseFilesClient } from "./files.js";
 import { BaseVectorIndexQuery } from "./vector.js";
 import { createControlPlaneClient, type BaseControlPlaneClient } from "./control.js";
+import { decodeBaseValue, encodeBaseJson } from "./codec.js";
 
 type RecordOf<T> = T extends BaseCollectionDefinition<infer TRecord, unknown, unknown, unknown> ? TRecord : never;
 type CreateOf<T> = T extends BaseCollectionDefinition<unknown, infer TCreate, unknown, unknown> ? TCreate : never;
@@ -81,6 +82,7 @@ export interface BaseDynamicClient {
 export interface BaseClientCommon {
   readonly connectivity: { readonly getSnapshot: () => BaseConnectivityState; readonly subscribe: (observer: () => void) => () => void };
   readonly $dynamic: BaseDynamicClient;
+  resolveMutation(mutationId: MutationId, signal?: AbortSignal): Promise<BaseResult<unknown>>;
   close(): void;
 }
 
@@ -139,6 +141,7 @@ class BaseClientRuntime implements BaseQueryExecutor<unknown> {
   public readonly reads: Readonly<Record<string, BaseReadClient<BaseReadDefinition>>>;
   public readonly connectivity: { readonly getSnapshot: () => BaseConnectivityState; readonly subscribe: (observer: () => void) => () => void };
   #closed = false;
+  readonly #indeterminate = new Map<MutationId, { readonly bytes: Uint8Array; readonly correlationId: string; readonly kind: "create" | "patch" | "replace" | "delete" | "upsert"; readonly collectionId: string; readonly optimisticId?: string }>();
 
   public constructor(options: BaseClientOptions<BaseGeneratedSchema>) {
     if (options.schema.protocolMajor !== 2) throw new TypeError("base.client.protocolMismatch");
@@ -146,7 +149,7 @@ class BaseClientRuntime implements BaseQueryExecutor<unknown> {
     this.#transport = new BaseHttpTransport(options);
     this.#files = new BaseFilesClient(this.#transport);
     const webSocketFactory = options.webSocketFactory ?? (options.accessToken === undefined && typeof globalThis.WebSocket === "function" ? ((url: URL) => new globalThis.WebSocket(url)) : undefined);
-    this.#realtime = webSocketFactory === undefined ? undefined : new BaseRealtimeManager(options.url, webSocketFactory, options.accessToken);
+    this.#realtime = webSocketFactory === undefined ? undefined : new BaseRealtimeManager(options.url, webSocketFactory, options.accessToken, () => this.#indeterminate.clear());
     this.connectivity = this.#realtime?.connectivity ?? { getSnapshot: () => ({ kind: "offline" }), subscribe: () => () => undefined };
     this.reads = Object.freeze(Object.fromEntries(Object.entries(options.schema.reads).map(([name, definition]) => [name, new ReadClient(this, definition)])));
   }
@@ -160,36 +163,38 @@ class BaseClientRuntime implements BaseQueryExecutor<unknown> {
     return created as BaseCollectionClient<T>;
   }
 
-  public close(): void { this.#closed = true; this.#realtime?.close(); this.#collections.clear(); }
+  public close(): void { this.#closed = true; this.#realtime?.close(); this.#collections.clear(); this.#indeterminate.clear(); }
   public controlClient<const TOperations extends readonly string[]>(operations: TOperations): BaseControlPlaneClient<TOperations> { this.ensureOpen(); return createControlPlaneClient(this.#transport, operations); }
+  public async resolveMutation(mutationId: MutationId, signal?: AbortSignal): Promise<BaseResult<unknown>> { this.ensureOpen(); const pending = this.#indeterminate.get(mutationId); if (pending === undefined) throw new TypeError("base.client.mutationNotIndeterminate"); const result = normalizeIdentifiedFailure(await this.#transport.json("POST", "records/batch", pending.bytes, signal, mutationId, pending.correlationId)); const projected = projectMutation<unknown>(result, pending.kind); if (projected.ok) { this.#indeterminate.delete(mutationId); const authoritative = pending.kind === "delete" ? undefined : pending.kind === "upsert" && isObject(projected.value) && "record" in projected.value ? this.fromWireRecord(pending.collectionId, projected.value.record) : this.fromWireRecord(pending.collectionId, projected.value); const value = pending.kind === "upsert" && isObject(projected.value) ? { ...projected.value, record: authoritative } : authoritative; if (pending.optimisticId !== undefined) this.#realtime?.reconcile(mutationId, pending.collectionId, authoritative); return { ...projected, value }; } if (projected.error.code !== "base.runtime.batch.indeterminate") { this.#indeterminate.delete(mutationId); if (pending.optimisticId !== undefined) this.#realtime?.reject(mutationId, pending.collectionId); } return projected; }
   public filesClient(): BaseFilesClient { this.ensureOpen(); return this.#files; }
   public async executeBatch(mode: "orderedIndependent" | "orderedStopOnFailure" | "atomic", operations: readonly BaseBatchOperation<BaseGeneratedSchema>[], options: { readonly mutationId?: MutationId; readonly signal?: AbortSignal } = {}): Promise<BaseResult<BaseBatchResult>> {
     this.ensureOpen(); if (operations.length === 0) throw new TypeError("base.client.batchInvalid");
     const wire = operations.map(operation => toBatchItem(this.#schema, operation));
-    const bytes = encodeJson({ mode, operations: wire }); const identity = mode === "atomic" ? options.mutationId ?? crypto.randomUUID() as MutationId : undefined; const correlation = crypto.randomUUID();
-    let result = await this.#transport.json<BaseBatchResult>("POST", "records/batch", bytes, options.signal, identity, correlation);
-    if (mode === "atomic" && !result.ok && identifiedRetry(result.error.code)) result = await this.#transport.json<BaseBatchResult>("POST", "records/batch", bytes, options.signal, identity, correlation);
+    const bytes = encodeSchemaJson({ mode, operations: wire }, this.#schema); const identity = mode === "atomic" ? options.mutationId ?? crypto.randomUUID() as MutationId : undefined; const correlation = crypto.randomUUID();
+    let result = await this.#transport.json("POST", "records/batch", bytes, options.signal, identity, correlation);
+    if (mode === "atomic" && !result.ok && identifiedRetry(result.error.code)) result = await this.#transport.json("POST", "records/batch", bytes, options.signal, identity, correlation);
     const normalized = mode === "atomic" ? normalizeIdentifiedFailure(result) : result;
-    return normalized.ok && !isBatchResult(normalized.value) ? invalid(normalized.correlationId) : normalized;
+    if (!normalized.ok) return normalized;
+    return isBatchResult(normalized.value) ? { ...normalized, value: normalized.value } : invalid(normalized.correlationId);
   }
 
   public async executeQuery<T>(collectionId: string, query: BaseQueryInput, signal?: AbortSignal): Promise<BaseResult<BaseRecordPage<T>>> {
     this.ensureOpen();
-    const result = await this.#transport.json<BaseRecordPage<unknown>>("POST", `collections/${encodeURIComponent(collectionId)}/records:query`, encodeJson(toWireQuery(query)), signal);
+    const result = await this.#transport.json("POST", `collections/${encodeURIComponent(collectionId)}/records:query`, encodeJson(toWireQuery(query)), signal);
     if (!result.ok) return result;
     if (!isRecordPage(result.value)) return invalid(result.correlationId);
-    return { ...result, value: { ...result.value, items: result.value.items.map(item => this.fromWireRecord(collectionId, item)) as T[] } };
+    try { return { ...result, value: { ...result.value, items: result.value.items.map(item => this.fromWireRecord(collectionId, item)) as T[] } }; } catch { return invalid(result.correlationId); }
   }
 
   public watchQuery<T>(collectionId: string, query: BaseQueryInput, observer: (snapshot: BaseQuerySnapshot<T>) => void): BaseSubscription {
     this.ensureOpen();
     if (this.#realtime === undefined) throw new Error("base.client.capabilityUnavailable");
-    return this.#realtime.subscribe(collectionId, query, snapshot => observer({ ...snapshot, records: snapshot.records.map(record => this.fromWireRecord(collectionId, record)) as T[] }));
+    return this.#realtime.subscribe(collectionId, query, observer, value => this.fromWireRecord(collectionId, value) as T);
   }
 
   public async get<T>(collectionId: string, id: string, signal?: AbortSignal): Promise<BaseResult<T>> {
-    const result = await this.#transport.json<unknown>("GET", `collections/${encodeURIComponent(collectionId)}/records/${encodeURIComponent(id)}`, undefined, signal);
-    return result.ok ? (isRecord(result.value) ? { ...result, value: this.fromWireRecord(collectionId, result.value) as T } : invalid(result.correlationId)) : result;
+    const result = await this.#transport.json("GET", `collections/${encodeURIComponent(collectionId)}/records/${encodeURIComponent(id)}`, undefined, signal);
+    if (!result.ok) return result; try { return isRecord(result.value) ? { ...result, value: this.fromWireRecord(collectionId, result.value) as T } : invalid(result.correlationId); } catch { return invalid(result.correlationId); }
   }
 
   public vectorQuery<T>(collectionId: string, index: import("./schema.js").BaseVectorIndexDefinition): BaseVectorIndexQuery<T> {
@@ -197,13 +202,16 @@ class BaseClientRuntime implements BaseQueryExecutor<unknown> {
     return new BaseVectorIndexQuery<T>(this.#transport, collectionId, index, value => this.fromWireRecord(collectionId, value) as T);
   }
 
-  public async executeRead<T>(id: string, parameters: unknown, page: { readonly page?: number; readonly perPage?: number; readonly signal?: AbortSignal } = {}): Promise<BaseResult<BaseRecordPage<T>>> {
+  public async executeRead<T>(id: string, parameters: unknown, parameterTypeId: string | undefined, rowTypeId: string | undefined, page: { readonly page?: number; readonly perPage?: number; readonly signal?: AbortSignal } = {}): Promise<BaseResult<BaseRecordPage<T>>> {
+    if (parameterTypeId === undefined || rowTypeId === undefined || this.#schema.typeGraph === undefined) throw new TypeError("base.client.configurationInvalid");
     const query = new URLSearchParams(); if (page.page !== undefined) query.set("page", String(page.page)); if (page.perPage !== undefined) query.set("perPage", String(page.perPage));
-    const result = await this.#transport.json<BaseRecordPage<T>>("POST", `reads/${encodeURIComponent(id)}${query.size === 0 ? "" : `?${query}`}`, encodeJson(parameters), page.signal);
-    return result.ok && !isRecordPage(result.value, false) ? invalid(result.correlationId) : result;
+    let body: Uint8Array; try { body = new TextEncoder().encode(encodeBaseJson(parameters, parameterTypeId, this.#schema.typeGraph)); } catch { throw new TypeError("base.client.requestInvalid"); }
+    const result = await this.#transport.json("POST", `reads/${encodeURIComponent(id)}${query.size === 0 ? "" : `?${query}`}`, body, page.signal);
+    if (!result.ok || !isRecordPage(result.value, false)) return result.ok ? invalid(result.correlationId) : result;
+    try { return { ...result, value: { ...result.value, items: result.value.items.map(item => decodeBaseValue<T>(item, rowTypeId, this.#schema.typeGraph!)) } }; } catch { return invalid(result.correlationId); }
   }
-  public watchRead<T>(id: string, parameters: unknown, observer: (snapshot: BaseQuerySnapshot<T>) => void): BaseSubscription { if (this.#realtime === undefined) throw new Error("base.client.capabilityUnavailable"); return this.#realtime.subscribeRead(id, parameters, observer); }
-  public watchEvents(collectionId: string, request: import("./realtime.js").BaseRecordFeedRequest, observer: (delivery: BaseRecordFeedDelivery) => void | Promise<void>): BaseSubscription { if (this.#realtime === undefined) throw new Error("base.client.capabilityUnavailable"); return this.#realtime.subscribeFeed(collectionId, request, observer); }
+  public watchRead<T>(id: string, parameters: unknown, parameterTypeId: string | undefined, rowTypeId: string | undefined, observer: (snapshot: BaseQuerySnapshot<T>) => void): BaseSubscription { if (this.#realtime === undefined) throw new Error("base.client.capabilityUnavailable"); if (parameterTypeId === undefined || rowTypeId === undefined || this.#schema.typeGraph === undefined) throw new TypeError("base.client.configurationInvalid"); const encoded = encodeBaseJson(parameters, parameterTypeId, this.#schema.typeGraph); return this.#realtime.subscribeRead(id, parameters, observer, value => decodeBaseValue<T>(value, rowTypeId, this.#schema.typeGraph!), encoded); }
+  public watchEvents(collectionId: string, request: import("./realtime.js").BaseRecordFeedRequest, observer: (delivery: BaseRecordFeedDelivery) => void | Promise<void>): BaseSubscription { if (this.#realtime === undefined) throw new Error("base.client.capabilityUnavailable"); return this.#realtime.subscribeFeed(collectionId, request, observer, value => this.fromWireRecord(collectionId, value)); }
 
   public async mutate<T>(collectionId: string, kind: "create" | "patch" | "replace" | "delete" | "upsert", id: string | undefined, value: unknown, options: BaseMutationOptions = {}): Promise<BaseResult<T>> {
     const mutationId = options.mutationId ?? crypto.randomUUID() as MutationId;
@@ -222,21 +230,22 @@ class BaseClientRuntime implements BaseQueryExecutor<unknown> {
       ...(id === undefined ? {} : { recordId: id }),
       [kind]: request
     };
-    const bytes = encodeJson({ mode: "atomic", operations: [operation] });
+    const bytes = encodeSchemaJson({ mode: "atomic", operations: [operation] }, this.#schema);
     const correlationId = crypto.randomUUID();
     const optimisticId = id ?? options.recordId;
     if (options.optimistic === true && optimisticId !== undefined && this.#realtime !== undefined)
-      this.#realtime.applyOptimistic(mutationId, collectionId, optimisticId, kind, value);
-    let result = await this.#transport.json<unknown>("POST", "records/batch", bytes, options.signal, mutationId, correlationId);
+      this.#realtime.applyOptimistic(mutationId, collectionId, optimisticId, kind, this.safeOptimistic(collectionId, value), options.expectedRevision, bytes);
+    let result = await this.#transport.json("POST", "records/batch", bytes, options.signal, mutationId, correlationId);
     if (!result.ok && identifiedRetry(result.error.code) && options.retry !== "never")
-      result = await this.#transport.json<unknown>("POST", "records/batch", bytes, options.signal, mutationId, correlationId);
+      result = await this.#transport.json("POST", "records/batch", bytes, options.signal, mutationId, correlationId);
     let projected = projectMutation<T>(normalizeIdentifiedFailure(result), kind);
     if (projected.ok && kind !== "delete") projected = { ...projected, value: (kind === "upsert" && isObject(projected.value) && "record" in projected.value ? { ...projected.value, record: this.fromWireRecord(collectionId, projected.value.record) } : this.fromWireRecord(collectionId, projected.value)) as T };
+    if (!projected.ok && projected.retry === "identifiedMutationOnly") this.#indeterminate.set(mutationId, { bytes: bytes.slice(), correlationId, kind, collectionId, ...(options.optimistic === true && optimisticId !== undefined ? { optimisticId } : {}) });
     if (options.optimistic === true && optimisticId !== undefined && this.#realtime !== undefined) {
       if (projected.ok) {
         const authoritative = kind === "delete" ? undefined : kind === "upsert" && typeof projected.value === "object" && projected.value !== null && "record" in projected.value ? projected.value.record : projected.value;
         this.#realtime.reconcile(mutationId, collectionId, authoritative);
-      } else if (projected.error.code !== "base.runtime.batch.indeterminate") this.#realtime.reject(mutationId, collectionId);
+      } else if (projected.retry === "identifiedMutationOnly") this.#realtime.markIndeterminate(mutationId); else this.#realtime.reject(mutationId, collectionId);
     }
     return projected;
   }
@@ -244,15 +253,24 @@ class BaseClientRuntime implements BaseQueryExecutor<unknown> {
   private ensureOpen(): void { if (this.#closed) throw new Error("base.client.closed"); }
   private toWirePayload(collectionId: string, value: unknown): unknown { const definition = Object.values(this.#schema.collections).find(item => item.id === collectionId); if (definition === undefined || !isObject(value)) return value; return Object.fromEntries(Object.entries(value).map(([name, item]) => [definition.fields[name]?.wireName ?? name, item])); }
   private toWireUpsert(collectionId: string, value: BaseUpsertRequest<unknown, unknown>): BaseUpsertRequest<unknown, unknown> { return { ...value, create: this.toWirePayload(collectionId, value.create), update: this.toWirePayload(collectionId, value.update) }; }
-  private fromWireRecord(collectionId: string, value: unknown): unknown { if (!isObject(value) || !isObject(value.payload)) return value; const definition = Object.values(this.#schema.collections).find(item => item.id === collectionId); if (definition === undefined) return value; const reverse = new Map(Object.entries(definition.fields).map(([name, field]) => [field.wireName, name])); const source = isObject(value.payload.json) ? value.payload.json : isObject(value.payload.fields) ? value.payload.fields : undefined; if (source === undefined) return value; const mapped = Object.fromEntries(Object.entries(source).map(([name, item]) => [reverse.get(name) ?? name, item])); return { ...value, payload: "json" in value.payload ? { ...value.payload, json: mapped } : { ...value.payload, fields: mapped } }; }
+  private safeOptimistic(collectionId: string, value: unknown): unknown { const definition = Object.values(this.#schema.collections).find(item => item.id === collectionId); if (definition === undefined || !isObject(value)) return value; const allowed = new Set(Object.entries(definition.fields).filter(([, field]) => !field.redactionOptional).map(([name]) => name)); if ("create" in value && "update" in value) return { ...value, create: isObject(value.create) ? Object.fromEntries(Object.entries(value.create).filter(([key]) => allowed.has(key))) : value.create, update: isObject(value.update) ? Object.fromEntries(Object.entries(value.update).filter(([key]) => allowed.has(key))) : value.update }; return Object.fromEntries(Object.entries(value).filter(([key]) => allowed.has(key))); }
+  private fromWireRecord(collectionId: string, value: unknown): unknown {
+    if (!isRecord(value) || value.collectionId !== collectionId || value.id.length === 0) throw new TypeError("base.client.responseInvalid");
+    const definition = Object.values(this.#schema.collections).find(item => item.id === collectionId); if (definition === undefined) throw new TypeError("base.client.responseInvalid");
+    const reverse = new Map(Object.entries(definition.fields).map(([name, field]) => [field.wireName, { name, field }])); const source = value.payload.kind === "json" ? value.payload.json : value.payload.fields; if (!isObject(source)) throw new TypeError("base.client.responseInvalid");
+    const mapped: Record<string, unknown> = {}; for (const [wireName, item] of Object.entries(source)) { const target = reverse.get(wireName); if (target === undefined) throw new TypeError("base.client.responseInvalid"); mapped[target.name] = target.field.valueTypeId === undefined || this.#schema.typeGraph === undefined ? structuredClone(item) : decodeBaseValue(item, target.field.valueTypeId, this.#schema.typeGraph); }
+    return { ...value, payload: value.payload.kind === "json" ? { ...value.payload, json: Object.freeze(mapped) } : { ...value.payload, fields: Object.freeze(mapped) } };
+  }
 }
 
 class ReadClient<T extends BaseReadDefinition> implements BaseReadClientSurface<T> {
   public readonly id: string;
   private readonly maximum: number;
-  public constructor(private readonly owner: BaseClientRuntime, definition: T) { this.id = definition.id; this.maximum = definition.maxPageSize; }
-  public execute(parameters: ReadParameters<T>, page?: { readonly page?: number; readonly perPage?: number; readonly signal?: AbortSignal }): Promise<BaseResult<BaseRecordPage<ReadRow<T>>>> { if (page?.perPage !== undefined && (!Number.isInteger(page.perPage) || page.perPage < 1 || page.perPage > this.maximum)) throw new RangeError("base.query.limitInvalid"); return this.owner.executeRead(this.id, parameters, page); }
-  public watch(parameters: ReadParameters<T>, observer: (snapshot: BaseQuerySnapshot<ReadRow<T>>) => void): BaseSubscription { return this.owner.watchRead(this.id, parameters, observer); }
+  private readonly rowTypeId: string | undefined;
+  private readonly parameterTypeId: string | undefined;
+  public constructor(private readonly owner: BaseClientRuntime, definition: T) { this.id = definition.id; this.maximum = definition.maxPageSize; this.rowTypeId = definition.rowTypeId; this.parameterTypeId = definition.parameterTypeId; }
+  public execute(parameters: ReadParameters<T>, page?: { readonly page?: number; readonly perPage?: number; readonly signal?: AbortSignal }): Promise<BaseResult<BaseRecordPage<ReadRow<T>>>> { if (page?.perPage !== undefined && (!Number.isInteger(page.perPage) || page.perPage < 1 || page.perPage > this.maximum)) throw new RangeError("base.query.limitInvalid"); return this.owner.executeRead(this.id, parameters, this.parameterTypeId, this.rowTypeId, page); }
+  public watch(parameters: ReadParameters<T>, observer: (snapshot: BaseQuerySnapshot<ReadRow<T>>) => void): BaseSubscription { return this.owner.watchRead(this.id, parameters, this.parameterTypeId, this.rowTypeId, observer); }
 }
 
 class CollectionClient<T extends BaseCollectionDefinition> implements BaseCollectionClientSurface<T> {
@@ -297,6 +315,7 @@ export function createBaseClient<TSchema extends BaseGeneratedSchema>(options: B
   const runtime = new BaseClientRuntime({ ...options, schema });
   const target = runtime as unknown as BaseClient<TSchema>;
   Object.defineProperty(target, "$dynamic", { value: Object.freeze({ collection: runtime.collection.bind(runtime) }), enumerable: true, configurable: false, writable: false });
+  Object.defineProperty(target, "resolveMutation", { value: runtime.resolveMutation.bind(runtime), enumerable: true, configurable: false, writable: false });
   for (const [name, definition] of Object.entries(schema.collections)) {
     if (name in runtime) throw new TypeError("base.client.configurationInvalid");
     Object.defineProperty(target, name, { value: runtime.collection(definition), enumerable: true, configurable: false, writable: false });
@@ -314,6 +333,20 @@ function deepFrozenClone<T>(value: T): T {
 }
 
 function encodeJson(value: unknown): Uint8Array { return new TextEncoder().encode(JSON.stringify(value)); }
+function encodeSchemaJson(value: unknown, schema: BaseGeneratedSchema): Uint8Array {
+  const encode = (item: unknown, collectionId?: string, payload = false): string => {
+    if (item === null || typeof item === "boolean" || typeof item === "string") return JSON.stringify(item);
+    if (typeof item === "number") { if (!Number.isFinite(item)) throw new TypeError("base.client.requestInvalid"); return Object.is(item, -0) ? "0" : item.toString(); }
+    if (Array.isArray(item)) return `[${item.map(child => encode(child, collectionId)).join(",")}]`;
+    if (!isObject(item)) throw new TypeError("base.client.requestInvalid");
+    const nextCollection = typeof item.collectionId === "string" ? item.collectionId : collectionId; const definition = nextCollection === undefined ? undefined : Object.values(schema.collections).find(candidate => candidate.id === nextCollection); const byWire = definition === undefined ? undefined : new Map(Object.values(definition.fields).map(field => [field.wireName, field]));
+    return `{${Object.entries(item).map(([key, child]) => {
+      if (payload && byWire !== undefined) { const field = byWire.get(key); if (field === undefined) throw new TypeError("base.client.requestInvalid"); if (field.valueTypeId !== undefined && schema.typeGraph !== undefined) return `${JSON.stringify(key)}:${encodeBaseJson(child, field.valueTypeId, schema.typeGraph)}`; }
+      return `${JSON.stringify(key)}:${encode(child, nextCollection, key === "json" || key === "fields")}`;
+    }).join(",")}}`;
+  };
+  return new TextEncoder().encode(encode(value));
+}
 
 function upsertRequest(id: string, request: BaseUpsertRequest<unknown, unknown>, expectedRevision: string | undefined): object {
   return {
@@ -359,10 +392,11 @@ function isRecord(value: unknown): value is BaseRecord<unknown> {
   if (value.payload.kind === "json") { if (!hasOnly(value.payload, ["kind", "json"]) || !isObject(value.payload.json)) return false; }
   else if (value.payload.kind === "fieldMap") { if (!hasOnly(value.payload, ["kind", "fields"]) || !isObject(value.payload.fields)) return false; }
   else return false;
-  return value.policy === undefined || isObject(value.policy);
+  if (!hasOnly(value.metadata, ["createdAt", "updatedAt", "revision", "eTag", "storeId"])) return false; for (const item of Object.values(value.metadata)) if (typeof item !== "string") return false;
+  return value.policy === undefined || isObject(value.policy) && hasOnly(value.policy, ["redacted", "omittedFields", "readOnlyFields"]) && (value.policy.redacted === undefined || typeof value.policy.redacted === "boolean") && (value.policy.omittedFields === undefined || Array.isArray(value.policy.omittedFields) && value.policy.omittedFields.every(item => typeof item === "string")) && (value.policy.readOnlyFields === undefined || Array.isArray(value.policy.readOnlyFields) && value.policy.readOnlyFields.every(item => typeof item === "string"));
 }
 function isRecordPage(value: unknown, records = true): value is BaseRecordPage<unknown> {
-  if (!isObject(value) || !hasOnly(value, ["items", "page", "count"]) || !Array.isArray(value.items) || !isObject(value.page) || typeof value.page.hasMore !== "boolean") return false;
+  if (!isObject(value) || !hasOnly(value, ["items", "page", "count"]) || !Array.isArray(value.items) || !isObject(value.page) || !hasOnly(value.page, ["page", "perPage", "offset", "limit", "cursor", "nextCursor", "hasMore"]) || typeof value.page.hasMore !== "boolean") return false;
   if (records && !value.items.every(isRecord)) return false;
   return value.count === undefined || (isObject(value.count) && typeof value.count.mode === "string" && typeof value.count.isExact === "boolean" && (value.count.total === undefined || Number.isSafeInteger(value.count.total)));
 }

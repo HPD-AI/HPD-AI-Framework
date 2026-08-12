@@ -6,6 +6,8 @@ export type BaseFieldOperator =
 export interface BaseFieldDefinition<T = unknown, TOperators extends readonly BaseFieldOperator[] = readonly BaseFieldOperator[]> {
   readonly id: string;
   readonly wireName: string;
+  readonly valueTypeId?: string;
+  readonly redactionOptional: boolean;
   readonly operators: TOperators;
   readonly __value?: T;
 }
@@ -31,6 +33,10 @@ export interface BaseCollectionDefinition<
   readonly pagination: "none" | "seek" | "stableHistory";
   readonly maxPageSize: number;
   readonly vectorIndexes: Readonly<Record<string, BaseVectorIndexDefinition>>;
+  readonly recordTypeId?: string;
+  readonly createTypeId?: string;
+  readonly replaceTypeId?: string;
+  readonly patchTypeId?: string;
   readonly __record?: TRecord;
   readonly __create?: TCreate;
   readonly __replace?: TReplace;
@@ -48,12 +54,15 @@ export interface BaseGeneratedSchema<
   readonly digest: string;
   readonly audience: "application" | "controlPlane";
   readonly features: { readonly files: boolean; readonly realtime: boolean; readonly batch: boolean; readonly controlOperations: readonly string[] };
+  readonly typeGraph?: import("./codec.js").BaseTypeGraph;
   readonly collections: TCollections;
   readonly reads: TReads;
 }
 
 export interface BaseReadDefinition<TParameters = unknown, TRow = unknown, TWatchable extends boolean = boolean> {
   readonly id: string;
+  readonly parameterTypeId?: string;
+  readonly rowTypeId?: string;
   readonly maxPageSize: number;
   readonly watchable: TWatchable;
   readonly __parameters?: TParameters;
@@ -68,8 +77,8 @@ export function collection<TRecord, TCreate, TReplace, TPatch, TFields extends R
   return deepFreeze(definition);
 }
 
-export function field<T, const TOperators extends readonly BaseFieldOperator[]>(id: string, wireName: string, operators: TOperators): BaseFieldDefinition<T, TOperators> {
-  return Object.freeze({ id, wireName, operators: Object.freeze([...operators]) as unknown as TOperators });
+export function field<T, const TOperators extends readonly BaseFieldOperator[]>(id: string, wireName: string, operators: TOperators, valueTypeId?: string, redactionOptional = false): BaseFieldDefinition<T, TOperators> {
+  return Object.freeze({ id, wireName, operators: Object.freeze([...operators]) as unknown as TOperators, ...(valueTypeId === undefined ? {} : { valueTypeId }), redactionOptional });
 }
 
 function deepFreeze<T>(value: T): T {

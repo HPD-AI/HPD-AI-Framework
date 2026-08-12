@@ -15,6 +15,7 @@ var items = BaseCollection.Define(
     HPDBaseJsonSerializerContext.Default.JsonElement,
     static schema => schema.String("item.title", "title"));
 builder.Services.AddHPDBase(hpd => hpd
+    .AddRealtime()
     .AddAspNetCore()
     .ConfigureTokenProtection(options => options.ActiveKey = new BaseOpaqueTokenKey
     {
@@ -25,11 +26,13 @@ builder.Services.AddHPDBase(hpd => hpd
     .AddCollection(items));
 
 var app = builder.Build();
+app.UseWebSockets();
 app.MapHPDBasePublicApi();
 app.MapHPDBaseApplicationApi(new HPDBaseApplicationEndpointOptions
 {
     AuthorizationPolicy = "application",
-    MapClientGeneration = true
+    MapClientGeneration = true,
+    MapRealtime = true
 });
 
 app.MapGet("/", () => "HPD.Base.AspNetCore AOT smoke");

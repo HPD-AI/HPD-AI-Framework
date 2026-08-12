@@ -1,4 +1,6 @@
 import type { BaseClientError, BaseResult, BaseRetryClassification, BaseSuccessStatus } from "./result.js";
+import { parseBaseJson } from "./codec.js";
+export { parseBaseJson } from "./codec.js";
 
 export interface BaseTransportOptions {
   readonly url: string;
@@ -24,13 +26,13 @@ export class BaseHttpTransport {
     if (this.#token !== undefined && this.#credentials !== undefined) throw new TypeError("Conflicting authentication mechanisms.");
   }
 
-  public async json<T>(method: string, route: string, body: Uint8Array | undefined, signal?: AbortSignal, idempotencyKey?: string, requestedCorrelationId?: string): Promise<BaseResult<T>> {
+  public async json(method: string, route: string, body: Uint8Array | undefined, signal?: AbortSignal, idempotencyKey?: string, requestedCorrelationId?: string): Promise<BaseResult<unknown>> {
     const response = await this.request(method, route, body === undefined ? undefined : new Uint8Array(body).buffer as ArrayBuffer, body === undefined ? undefined : "application/json", signal, idempotencyKey, undefined, requestedCorrelationId);
     if (!response.ok) return response.result;
     const { bytes, correlationId: responseCorrelationId, status } = response;
     try {
       const value = parseBaseJson(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
-      return { ok: true, value: value as T, status: successStatus(status), correlationId: responseCorrelationId, warnings: [] };
+      return { ok: true, value, status: successStatus(status), correlationId: responseCorrelationId, warnings: [] };
     } catch {
       return failure("base.client.responseInvalid", "unexpected", "The BASE response was invalid.", "never", responseCorrelationId);
     }
@@ -143,12 +145,3 @@ function failure<T>(code: string, category: BaseClientError["category"], message
 
 function successStatus(status: number): BaseSuccessStatus { return status === 201 ? "created" : status === 202 ? "accepted" : status === 204 ? "noContent" : "ok"; }
 function ensureSlash(url: URL): URL { const value = new URL(url); if (!value.pathname.endsWith("/")) value.pathname += "/"; return value; }
-
-/** Parses bounded BASE JSON while retaining the numeric lexemes needed to reject lossy JavaScript materialization. */
-export function parseBaseJson(json: string): unknown {
-  let index = 0; const whitespace = (): void => { while (index < json.length && /[\t\n\r ]/u.test(json[index]!)) index++; };
-  const string = (): string => { const start = index++; while (index < json.length) { const character = json[index++]!; if (character === "\\") index++; else if (character === '"') return JSON.parse(json.slice(start, index)) as string; } throw new SyntaxError(); };
-  const value = (): unknown => { whitespace(); const character = json[index]; if (character === "{") { index++; whitespace(); const result: Record<string, unknown> = {}; const keys = new Set<string>(); if (json[index] === "}") { index++; return result; } while (true) { whitespace(); if (json[index] !== '"') throw new SyntaxError(); const key = string(); if (keys.has(key)) throw new SyntaxError(); keys.add(key); whitespace(); if (json[index++] !== ":") throw new SyntaxError(); result[key] = value(); whitespace(); const separator = json[index++]; if (separator === "}") return result; if (separator !== ",") throw new SyntaxError(); } } if (character === "[") { index++; whitespace(); const result: unknown[] = []; if (json[index] === "]") { index++; return result; } while (true) { result.push(value()); whitespace(); const separator = json[index++]; if (separator === "]") return result; if (separator !== ",") throw new SyntaxError(); } } if (character === '"') return string(); const match = /^(?:true|false|null|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)/u.exec(json.slice(index)); if (match === null) throw new SyntaxError(); const token = match[0]; index += token.length; if (token === "true") return true; if (token === "false") return false; if (token === "null") return null; validateNumberToken(token); return Number(token); };
-  const result = value(); whitespace(); if (index !== json.length) throw new SyntaxError(); return result;
-}
-function validateNumberToken(token: string): void { const numeric = Number(token); if (!Number.isFinite(numeric) || Object.is(numeric, -0)) throw new SyntaxError(); if (!token.includes(".") && !/[eE]/u.test(token) && !Number.isSafeInteger(numeric)) throw new SyntaxError(); if (numeric === 0 && /[1-9]/u.test(token.replace(/^[+-]?0*(?:\.0*)?/u, "").split(/[eE]/u)[0] ?? "")) throw new SyntaxError(); }
