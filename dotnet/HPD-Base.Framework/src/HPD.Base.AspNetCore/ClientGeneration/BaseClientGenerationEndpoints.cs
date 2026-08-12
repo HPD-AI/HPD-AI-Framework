@@ -1,0 +1,511 @@
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using HPD.Base;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace HPD.Base.AspNetCore;
+
+internal static class BaseClientGenerationEndpoints
+{
+    internal static void Map(
+        IEndpointRouteBuilder endpoints,
+        HPDBaseEndpointAudience audience,
+        Action<IEndpointConventionBuilder, HPDBaseEndpointDescriptor>? convention = null)
+    {
+        string id = audience == HPDBaseEndpointAudience.Application
+            ? "base.clientGeneration.application"
+            : "base.clientGeneration.controlPlane";
+        string capability = audience == HPDBaseEndpointAudience.Application
+            ? HPDBaseCapabilities.ClientGenerate
+            : HPDBaseCapabilities.AdministrationClientGenerate;
+        endpoints.MapGet("/client-generation", (RequestDelegate)HandleAsync)
+            .WithHPDBaseEndpoint(id, audience, HPDBaseEndpointOperation.ClientGenerationRead, capability, convention)
+            .WithName(id);
+    }
+
+    private static async Task HandleAsync(HttpContext context)
+    {
+        BaseClientGenerationSnapshotBuilder builder = context.RequestServices.GetRequiredService<BaseClientGenerationSnapshotBuilder>();
+        CancellationToken cancellationToken = context.RequestAborted;
+        OperationResult<BaseClientGenerationSnapshotV2> result = await builder.BuildAsync(context, cancellationToken).ConfigureAwait(false);
+        if (result.IsSuccess())
+        {
+            byte[] serialized = JsonSerializer.SerializeToUtf8Bytes(result.Value, HPDBaseClientGenerationJsonContext.Default.BaseClientGenerationSnapshotV2);
+            byte[] canonical = BaseClientGenerationSnapshotBuilder.Canonicalize(serialized);
+            context.Response.ContentType = "application/json; charset=utf-8";
+            context.Response.ContentLength = canonical.Length;
+            await context.Response.Body.WriteAsync(canonical, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+        await Results.Problem(
+            statusCode: StatusCodes.Status503ServiceUnavailable,
+            title: "The client generation snapshot is unavailable.",
+            extensions: new Dictionary<string, object?> { ["code"] = result.Error?.Code ?? "base.clientGeneration.inventoryUnavailable" }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+}
+
+internal sealed class BaseClientGenerationSnapshotBuilder(
+    EndpointDataSource endpointDataSource,
+    BaseCollectionRegistry collections,
+    BaseReadRegistry reads,
+    IRecordStoreRegistry stores,
+    IBaseDescriptorRegistry descriptors,
+    HPDBaseInstalledFeatures installedFeatures,
+    HPDBaseAspNetCoreSnapshot aspNetCore,
+    BaseLogicalSchema logicalSchema,
+    IHPDBaseApplication application,
+    TimeProvider timeProvider,
+    IServiceProvider services)
+{
+    private const int MaximumSnapshotBytes = 4 * 1024 * 1024;
+
+    internal ValueTask<OperationResult<BaseClientGenerationSnapshotV2>> BuildAsync(HttpContext context, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        HPDBaseEndpointDescriptor? current = context.GetEndpoint()?.Metadata.GetMetadata<HPDBaseEndpointDescriptor>();
+        if (current is null || current.Operation != HPDBaseEndpointOperation.ClientGenerationRead)
+            return ValueTask.FromResult(Failure("base.clientGeneration.inventoryUnavailable"));
+
+        RouteEndpoint[] materialized = endpointDataSource.Endpoints.OfType<RouteEndpoint>()
+            .Where(endpoint => endpoint.Metadata.GetMetadata<HPDBaseEndpointDescriptor>()?.Audience == current.Audience)
+            .OrderBy(endpoint => endpoint.Metadata.GetMetadata<HPDBaseEndpointDescriptor>()!.EndpointId, StringComparer.Ordinal)
+            .ToArray();
+        if (materialized.Length is 0 or > 256)
+            return ValueTask.FromResult(Failure("base.clientGeneration.inventoryUnavailable"));
+
+        IReadOnlyDictionary<string, RouteDescriptor> routeContracts = descriptors.Current.Manifest.Projections?
+            .SelectMany(projection => projection.Routes ?? [])
+            .GroupBy(route => route.OperationId, StringComparer.Ordinal)
+            .Where(group => group.Count() == 1)
+            .ToDictionary(group => group.Key, group => group.Single(), StringComparer.Ordinal)
+            ?? new Dictionary<string, RouteDescriptor>(StringComparer.Ordinal);
+        BaseClientEndpointDescriptor[] endpoints;
+        try { endpoints = materialized.Select(endpoint => ToEndpoint(endpoint, routeContracts, reads, aspNetCore.Limits.MaxRequestBodyLength, aspNetCore.Administration.MaxArtifactBytes)).ToArray(); }
+        catch (InvalidOperationException) { return ValueTask.FromResult(Failure("base.clientGeneration.contractMissing")); }
+        BaseClientCollectionDescriptor[] generatedCollections = collections.Collections.Values
+            .Where(collection => collection.Enabled && collection.Exposed)
+            .OrderBy(collection => collection.Id, StringComparer.Ordinal)
+            .Select(collection => ToCollection(collection, stores, endpoints, installedFeatures))
+            .ToArray();
+        if (generatedCollections.Length > 256)
+            return ValueTask.FromResult(Failure("base.clientGeneration.snapshotTooLarge"));
+
+        IBaseReadRegistration[] installedReads = reads.Registrations.Values
+            .Where(read => endpoints.Any(endpoint => endpoint.Id.EndsWith("." + read.Id, StringComparison.Ordinal) && endpoint.Operation == "RegisteredRead"))
+            .OrderBy(read => read.Id, StringComparer.Ordinal).ToArray();
+        BaseDependencyTemplate[] templates = (services.GetService<IBaseDependencyTemplateProvider>()?.Templates ?? [])
+            .Where(template => template.Visibility == BaseDependencyVisibility.Public || current.Audience == HPDBaseEndpointAudience.ControlPlane && template.Visibility == BaseDependencyVisibility.Admin)
+            .OrderBy(template => template.Id, StringComparer.Ordinal).ToArray();
+        BaseClientNamedTypeDescriptor[] types = BuildTypes(collections.Collections.Values, installedReads, templates.Length != 0);
+        if (types.Length > 512)
+            return ValueTask.FromResult(Failure("base.clientGeneration.snapshotTooLarge"));
+
+        string schemaGeneration = (application.CurrentReadiness.SchemaGeneration ?? 0).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        string endpointDigest = Hash(Canonicalize(JsonSerializer.SerializeToUtf8Bytes(endpoints, HPDBaseClientGenerationJsonContext.Default.BaseClientEndpointDescriptorArray)));
+        string basePath = BasePath(context.Request.Path.Value ?? "/base/client-generation");
+        string audience = current.Audience == HPDBaseEndpointAudience.Application ? "application" : "controlPlane";
+        BaseClientCapabilityDescriptor[] capabilities = endpoints
+            .Where(endpoint => endpoint.Capability is not null)
+            .Select(endpoint => endpoint.Capability!)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(id => id, StringComparer.Ordinal)
+            .Select(id => new BaseClientCapabilityDescriptor { Id = id, Available = true })
+            .ToArray();
+        BaseClientVectorIndexDescriptor[] vectors = BuildVectors(collections.Collections.Values);
+        if (capabilities.Length > 256 || installedReads.Length > 256 || templates.Length > 512 || vectors.Length > 256)
+            return ValueTask.FromResult(Failure("base.clientGeneration.snapshotTooLarge"));
+        var generatedNames = new HashSet<string>(["reads", "files", "close", "collection", "connectivity", "$control", "$dynamic"], StringComparer.Ordinal);
+        if (generatedCollections.Any(collection => !generatedNames.Add(collection.GeneratedName))
+            || installedReads.Any(read => !generatedNames.Add("read:" + GeneratedName(read.Id)))
+            || vectors.GroupBy(vector => vector.CollectionId, StringComparer.Ordinal).Any(group => group.Select(vector => vector.GeneratedName).Distinct(StringComparer.Ordinal).Count() != group.Count()))
+            return ValueTask.FromResult(Failure("base.clientGeneration.nameCollision"));
+
+        var snapshot = new BaseClientGenerationSnapshotV2
+        {
+            Protocol = new BaseClientProtocolDescriptor
+            {
+                ApplicationId = logicalSchema.ApplicationId,
+                SchemaGeneration = schemaGeneration,
+                EndpointInventoryDigest = endpointDigest,
+                GeneratedAt = string.Empty
+            },
+            Application = new BaseClientApplicationDescriptor { ApplicationId = logicalSchema.ApplicationId, Audience = audience, BasePath = basePath },
+            Schema = new BaseClientSchemaDescriptor { Generation = schemaGeneration, Collections = generatedCollections, Types = types },
+            Endpoints = endpoints,
+            Capabilities = capabilities,
+            RegisteredReads = installedReads.Select(read => new BaseClientReadDescriptor
+            {
+                Id = read.Id,
+                GeneratedName = GeneratedName(read.Id),
+                EndpointId = endpoints.Single(endpoint => endpoint.Id.EndsWith("." + read.Id, StringComparison.Ordinal)).Id,
+                ParameterTypeId = read.ClientContract.ParameterTypeId,
+                RowTypeId = read.ClientContract.RowTypeId,
+                MaxPageSize = 500,
+                Watchable = installedFeatures.LiveQueries && installedFeatures.Dependencies && endpoints.Any(endpoint => endpoint.Operation == "RealtimeSubscribe")
+            }).ToArray(),
+            DependencyTemplates = templates.Select(template => new BaseClientDependencyTemplateDescriptor
+            {
+                Id = template.Id,
+                Kind = LowerCamel(template.Kind.ToString()),
+                Visibility = template.Visibility == BaseDependencyVisibility.Public ? "public" : "controlPlane",
+                ParameterTypeIds = template.ParameterNames.Select(_ => "base.dependency.parameter").ToArray()
+            }).ToArray(),
+            VectorIndexes = vectors,
+            Errors = ErrorTaxonomy(endpoints),
+            Digest = string.Empty
+        };
+        byte[] serialized = JsonSerializer.SerializeToUtf8Bytes(snapshot, HPDBaseClientGenerationJsonContext.Default.BaseClientGenerationSnapshotV2);
+        byte[] canonical = Canonicalize(serialized, snapshotDigestInput: true);
+        if (canonical.Length > MaximumSnapshotBytes)
+            return ValueTask.FromResult(Failure("base.clientGeneration.snapshotTooLarge"));
+        snapshot = snapshot with
+        {
+            Digest = Hash(canonical),
+            Protocol = snapshot.Protocol with { GeneratedAt = timeProvider.GetUtcNow().ToString("O", System.Globalization.CultureInfo.InvariantCulture) }
+        };
+        if (JsonSerializer.SerializeToUtf8Bytes(snapshot, HPDBaseClientGenerationJsonContext.Default.BaseClientGenerationSnapshotV2).Length > MaximumSnapshotBytes)
+            return ValueTask.FromResult(Failure("base.clientGeneration.snapshotTooLarge"));
+        return ValueTask.FromResult(new OperationResult<BaseClientGenerationSnapshotV2> { Status = OperationStatus.Ok, Value = snapshot });
+    }
+
+    private static BaseClientEndpointDescriptor ToEndpoint(RouteEndpoint endpoint, IReadOnlyDictionary<string, RouteDescriptor> routes, BaseReadRegistry reads, long maximumRequestBodyBytes, long maximumArtifactBytes)
+    {
+        HPDBaseEndpointDescriptor descriptor = endpoint.Metadata.GetMetadata<HPDBaseEndpointDescriptor>()!;
+        RouteDescriptor route;
+        if (!routes.TryGetValue(descriptor.EndpointId, out route!))
+        {
+            route = descriptor.EndpointId switch
+            {
+                "hpd.base.vector.query" => new RouteDescriptor { OperationId = descriptor.EndpointId, Method = HttpMethodKind.Post, Path = endpoint.RoutePattern.RawText ?? "", RequestDtoId = "base.vector.query.request", ResponseDtoId = "base.vector.query.result" },
+                "hpd.base.vector.metadata.list" => new RouteDescriptor { OperationId = descriptor.EndpointId, Method = HttpMethodKind.Get, Path = endpoint.RoutePattern.RawText ?? "", ResponseDtoId = "base.vector.indexStatus.array" },
+                "hpd.base.vector.diagnostics.read" => new RouteDescriptor { OperationId = descriptor.EndpointId, Method = HttpMethodKind.Get, Path = endpoint.RoutePattern.RawText ?? "", ResponseDtoId = "base.vector.indexStatus" },
+                "hpd.base.vector.rebuild" => new RouteDescriptor { OperationId = descriptor.EndpointId, Method = HttpMethodKind.Post, Path = endpoint.RoutePattern.RawText ?? "", RequestDtoId = "base.vector.rebuild.request", ResponseDtoId = "base.vector.rebuild.result" },
+                _ => null!
+            };
+            if (route is not null) goto ContractResolved;
+            string? readId = descriptor.EndpointId.StartsWith("base.reads.public.", StringComparison.Ordinal) ? descriptor.EndpointId["base.reads.public.".Length..]
+                : descriptor.EndpointId.StartsWith("base.reads.admin.", StringComparison.Ordinal) ? descriptor.EndpointId["base.reads.admin.".Length..] : null;
+            if (readId is null || !reads.Registrations.TryGetValue(readId, out IBaseReadRegistration? read)) throw new InvalidOperationException();
+            route = new RouteDescriptor { OperationId = descriptor.EndpointId, Method = HttpMethodKind.Post, Path = endpoint.RoutePattern.RawText ?? "", RequestDtoId = read.ClientContract.ParameterTypeId, ResponseDtoId = read.ClientContract.RowTypeId };
+        }
+    ContractResolved:
+        string method = endpoint.Metadata.GetMetadata<IHttpMethodMetadata>()?.HttpMethods.SingleOrDefault() ?? "GET";
+        return new BaseClientEndpointDescriptor
+        {
+            Id = descriptor.EndpointId,
+            Method = method.ToUpperInvariant(),
+            Route = endpoint.RoutePattern.RawText ?? throw new InvalidOperationException("base.clientGeneration.inventoryUnavailable"),
+            Audience = descriptor.Audience == HPDBaseEndpointAudience.Application ? "application" : "controlPlane",
+            Operation = descriptor.Operation.ToString(),
+            Capability = descriptor.Capability,
+            RequestTypeId = route.RequestDtoId,
+            ResponseTypeId = route.ResponseDtoId,
+            SuccessStatuses = SuccessStatuses(method, descriptor.Operation),
+            ErrorCodes = EndpointErrors(descriptor.Operation),
+            MaximumRequestBodyBytes = MaximumRequestBody(descriptor.Operation, method, maximumRequestBodyBytes, maximumArtifactBytes),
+            ResponseMode = descriptor.Operation switch
+            {
+                HPDBaseEndpointOperation.RealtimeSubscribe => "webSocket",
+                HPDBaseEndpointOperation.BackupCreate => "stream",
+                HPDBaseEndpointOperation.FileRead when method.Equals("HEAD", StringComparison.OrdinalIgnoreCase) => "empty",
+                HPDBaseEndpointOperation.FileRead when route.ResponseDtoId == "application/octet-stream" => "bytes",
+                HPDBaseEndpointOperation.FileDelete => "empty",
+                _ => "json"
+            },
+            Replay = descriptor.Operation == HPDBaseEndpointOperation.RealtimeSubscribe ? "channelDependent" : "none",
+            Resume = descriptor.Operation == HPDBaseEndpointOperation.RealtimeSubscribe ? "durableCursor" : "none",
+            Cache = descriptor.Operation is HPDBaseEndpointOperation.ClientGenerationRead or HPDBaseEndpointOperation.MetadataRead ? "structuralDigest" : "none"
+        };
+    }
+
+    private static BaseClientCollectionDescriptor ToCollection(
+        CollectionDefinition collection,
+        IRecordStoreRegistry stores,
+        BaseClientEndpointDescriptor[] endpoints,
+        HPDBaseInstalledFeatures installedFeatures)
+    {
+        StoreCapabilityDescriptor? store = stores.GetStoreForCollection(collection.Id)?.Capabilities;
+        bool identifiedAtomic = store?.Batch?.Modes.Contains(BaseRecordBatchExecutionMode.Atomic) == true
+            && store.Batch.MaxOperations >= 1
+            && store.AtomicRequest is { Supported: true, Durability: not BaseAtomicRequestDurability.None, DuplicateResultReplay: true, FingerprintConflictDetection: true, IndeterminateResolution: true }
+            && (!store.Batch.Durable || store.AtomicRequest.Durability == BaseAtomicRequestDurability.Durable)
+            && endpoints.Any(endpoint => endpoint.Id == "base.records.batch" && endpoint.Capability == HPDBaseCapabilities.RecordsBatchWrite);
+        var operations = new List<string>();
+        if (collection.Operations.List && store?.Read.List == true) { operations.Add("list"); operations.Add("query"); }
+        if (collection.Operations.Get && store?.Read.Get == true) operations.Add("get");
+        if (identifiedAtomic)
+        {
+            if (collection.Operations.Create && store!.Mutation.Create) operations.Add("create");
+            if (collection.Operations.Patch && store!.Mutation.Patch) operations.Add("patch");
+            if (collection.Operations.Replace && store!.Mutation.Replace) operations.Add("replace");
+            if (collection.Operations.Delete && store!.Mutation.Delete) operations.Add("delete");
+            if (collection.Operations.Upsert && store!.Upsert is { Atomic: true, ExpectedRevision: true, ExistenceConditions: true } upsert
+                && upsert.UpdateModes.Contains(RecordUpsertUpdateMode.Patch) && upsert.UpdateModes.Contains(RecordUpsertUpdateMode.Replace)) operations.Add("upsert");
+            operations.Add("batch");
+        }
+        bool realtime = installedFeatures.Realtime && endpoints.Any(endpoint => endpoint.Operation == nameof(HPDBaseEndpointOperation.RealtimeSubscribe));
+        if (realtime) operations.Add("realtime");
+        if (realtime && installedFeatures.LiveQueries && installedFeatures.Dependencies && collection.Operations.List && store?.Read.List == true) operations.Add("watch");
+        if ((collection.VectorIndexes?.Length ?? 0) != 0 && endpoints.Any(endpoint => endpoint.Operation == nameof(HPDBaseEndpointOperation.VectorQuery))) operations.Add("vector");
+        return new BaseClientCollectionDescriptor
+        {
+            Id = collection.Id,
+            GeneratedName = GeneratedName(collection.Name),
+            RecordTypeId = $"collection.{collection.Id}.record",
+            CreateTypeId = $"collection.{collection.Id}.create",
+            ReplaceTypeId = $"collection.{collection.Id}.replace",
+            PatchTypeId = $"collection.{collection.Id}.patch",
+            Fields = (collection.Fields ?? []).Where(field => !field.Hidden).OrderBy(field => field.Id, StringComparer.Ordinal).Select(field => new BaseClientFieldDescriptor
+            {
+                Id = field.Id,
+                WireName = field.Name,
+                GeneratedName = GeneratedName(field.Name),
+                ValueTypeId = $"field.{collection.Id}.{field.Id}",
+                ServerGenerated = field.Generated is not null || field.ReadOnly,
+                Mutable = !field.ReadOnly && field.Generated is null,
+                RedactionOptional = field.Visibility is not null,
+                Operators = Operators(field.Type)
+            }).ToArray(),
+            Operations = [.. operations],
+            Pagination = collection.MutationMode is BaseCollectionMutationMode.AppendOnly or BaseCollectionMutationMode.AppendOnlyWithAdministrativePurge ? "stableHistory" : "seek",
+            MaxPageSize = Math.Min(store?.Read.MaxPageSize ?? 500, 500)
+        };
+    }
+
+    private static BaseClientNamedTypeDescriptor[] BuildTypes(IEnumerable<CollectionDefinition> definitions, IEnumerable<IBaseReadRegistration> reads, bool includeDependencyParameter) => definitions
+        .Where(collection => collection.Enabled && collection.Exposed)
+        .SelectMany(CollectionTypes)
+        .Concat(reads.SelectMany(ReadTypes))
+        .Concat(includeDependencyParameter ? [new BaseClientNamedTypeDescriptor { Id = "base.dependency.parameter", Node = new BaseClientTypeNode { Kind = "string", Format = "plain", MinLength = 0, MaxLength = 4096 } }] : [])
+        .OrderBy(type => type.Id, StringComparer.Ordinal)
+        .ToArray();
+
+    private static IEnumerable<BaseClientNamedTypeDescriptor> ReadTypes(IBaseReadRegistration read)
+    {
+        BaseReadClientContract contract = read.ClientContract;
+        foreach (BaseClientNamedTypeDescriptor type in MemberTypes(contract.Parameters, contract.ParameterTypeId)) yield return type;
+        foreach (BaseClientNamedTypeDescriptor type in MemberTypes(contract.Row, contract.RowTypeId)) yield return type;
+        yield return ReadObject(contract.ParameterTypeId, contract.Parameters, contract.ParameterTypeId);
+        yield return ReadObject(contract.RowTypeId, contract.Row, contract.RowTypeId);
+
+        static IEnumerable<BaseClientNamedTypeDescriptor> MemberTypes(IReadOnlyList<BaseReadClientProperty> properties, string owner)
+        {
+            foreach (BaseReadClientProperty property in properties)
+            {
+                string valueId = owner + "." + property.Id;
+                string scalarId = property.Array ? valueId + ".item" : valueId;
+                yield return new BaseClientNamedTypeDescriptor { Id = scalarId, Node = ReadScalar(property.Kind) };
+                if (property.Array) yield return new BaseClientNamedTypeDescriptor { Id = valueId, Node = new BaseClientTypeNode { Kind = "array", ElementTypeId = scalarId, MaxItems = 256 } };
+            }
+        }
+
+        static BaseClientNamedTypeDescriptor ReadObject(string id, IReadOnlyList<BaseReadClientProperty> properties, string owner) => new()
+        {
+            Id = id,
+            Node = new BaseClientTypeNode
+            {
+                Kind = "object", AdditionalProperties = false,
+                Properties = properties.Select(property => new BaseClientPropertyDescriptor
+                {
+                    Name = property.GeneratedName, TypeId = owner + "." + property.Id,
+                    Required = !property.Nullable, Nullable = property.Nullable, RedactionOptional = false
+                }).ToArray()
+            }
+        };
+    }
+
+    private static BaseClientTypeNode ReadScalar(QueryValueKind kind) => kind switch
+    {
+        QueryValueKind.Boolean => new() { Kind = "boolean" },
+        QueryValueKind.Integer => new() { Kind = "integer", Minimum = "-9223372036854775808", Maximum = "9223372036854775807", Wire = "decimal-string" },
+        QueryValueKind.Decimal => new() { Kind = "decimal", Wire = "decimal-string" },
+        QueryValueKind.Number => new() { Kind = "floating", Precision = "binary64", FiniteOnly = true },
+        QueryValueKind.Id => new() { Kind = "string", Format = "record-id", MinLength = 1, MaxLength = 256 },
+        QueryValueKind.DateTime => new() { Kind = "string", Format = "utc-instant", MinLength = 1, MaxLength = 64 },
+        _ => new() { Kind = "string", Format = "plain", MinLength = 0, MaxLength = 4096 }
+    };
+
+    private static IEnumerable<BaseClientNamedTypeDescriptor> CollectionTypes(CollectionDefinition collection)
+    {
+        FieldDefinition[] fields = (collection.Fields ?? []).Where(field => !field.Hidden).OrderBy(field => field.Id, StringComparer.Ordinal).ToArray();
+        foreach (FieldDefinition field in fields)
+        {
+            if (field.Type == "vector")
+            {
+                int dimensions = (collection.VectorIndexes ?? []).Where(index => index.VectorFieldId == field.Id).Select(index => index.Dimensions).Distinct().Single();
+                yield return new BaseClientNamedTypeDescriptor { Id = $"field.{collection.Id}.{field.Id}.item", Node = new BaseClientTypeNode { Kind = "floating", Precision = "binary32", FiniteOnly = true } };
+                yield return new BaseClientNamedTypeDescriptor { Id = $"field.{collection.Id}.{field.Id}", Node = new BaseClientTypeNode { Kind = "array", ElementTypeId = $"field.{collection.Id}.{field.Id}.item", MinLength = dimensions, MaxItems = dimensions } };
+            }
+            else yield return new BaseClientNamedTypeDescriptor { Id = $"field.{collection.Id}.{field.Id}", Node = FieldNode(field) };
+        }
+        yield return ObjectType($"collection.{collection.Id}.record", fields, static _ => true, output: true, requiredMutable: false);
+        yield return ObjectType($"collection.{collection.Id}.create", fields, static field => !field.ReadOnly && field.Generated is null, output: false, requiredMutable: true);
+        yield return ObjectType($"collection.{collection.Id}.replace", fields, static field => !field.ReadOnly && field.Generated is null, output: false, requiredMutable: true);
+        yield return ObjectType($"collection.{collection.Id}.patch", fields, static field => !field.ReadOnly && field.Generated is null, output: false, requiredMutable: false);
+
+        BaseClientNamedTypeDescriptor ObjectType(string id, FieldDefinition[] source, Func<FieldDefinition, bool> include, bool output, bool requiredMutable) => new()
+        {
+            Id = id,
+            Node = new BaseClientTypeNode
+            {
+                Kind = "object",
+                AdditionalProperties = false,
+                Properties = source.Where(include).Select(field => new BaseClientPropertyDescriptor
+                {
+                    Name = field.Name,
+                    TypeId = $"field.{collection.Id}.{field.Id}",
+                    Required = output || requiredMutable,
+                    Nullable = field.Nullable,
+                    RedactionOptional = output && field.Visibility is not null
+                }).ToArray()
+            }
+        };
+    }
+
+    private static BaseClientTypeNode FieldNode(FieldDefinition field) => field.Type switch
+    {
+        "bool" or "boolean" => new() { Kind = "boolean" },
+        "int" or "integer" => new() { Kind = "integer", Minimum = "-2147483648", Maximum = "2147483647", Wire = "number" },
+        "long" => new() { Kind = "integer", Minimum = "-9223372036854775808", Maximum = "9223372036854775807", Wire = "decimal-string" },
+        "decimal" => new() { Kind = "decimal", Wire = "decimal-string" },
+        "id" => new() { Kind = "string", Format = "record-id", MinLength = 1, MaxLength = 256 },
+        "datetime" or "instant" => new() { Kind = "string", Format = "utc-instant", MinLength = 1, MaxLength = 64 },
+        _ => new() { Kind = "string", Format = "plain", MinLength = 0, MaxLength = 65536 }
+    };
+
+    private static BaseClientVectorIndexDescriptor[] BuildVectors(IEnumerable<CollectionDefinition> definitions) => definitions
+        .SelectMany(collection => (collection.VectorIndexes ?? []).Select(index => new BaseClientVectorIndexDescriptor
+        {
+            CollectionId = collection.Id,
+            Id = index.Id,
+            GeneratedName = GeneratedName(index.Id),
+            Dimensions = index.Dimensions,
+            Measure = index.Function switch
+            {
+                BaseVectorFunction.CosineSimilarity => "cosineSimilarity",
+                BaseVectorFunction.DotProductSimilarity => "dotProductSimilarity",
+                _ => "euclideanDistance"
+            },
+            FilterFieldIds = [.. index.FilterFieldIds]
+        }))
+        .OrderBy(index => index.CollectionId, StringComparer.Ordinal).ThenBy(index => index.Id, StringComparer.Ordinal)
+        .ToArray();
+
+    private static string[] Operators(string type) => type switch
+    {
+        "bool" or "boolean" => ["equal", "notEqual", "isNull", "isDefined"],
+        "int" or "integer" or "long" or "decimal" or "datetime" or "instant" => ["equal", "notEqual", "lessThan", "lessThanOrEqual", "greaterThan", "greaterThanOrEqual", "in", "isNull", "isDefined", "between"],
+        _ => ["equal", "notEqual", "in", "isNull", "isDefined", "contains", "notContains", "startsWith", "endsWith", "like", "notLike"]
+    };
+
+    private static int[] SuccessStatuses(string method, HPDBaseEndpointOperation operation) => operation switch
+    {
+        HPDBaseEndpointOperation.RealtimeSubscribe => [101],
+        HPDBaseEndpointOperation.FileDelete => [204],
+        HPDBaseEndpointOperation.FileWrite => [201],
+        HPDBaseEndpointOperation.RecordDelete => [200],
+        HPDBaseEndpointOperation.RecordWrite when method.Equals("POST", StringComparison.OrdinalIgnoreCase) => [201],
+        _ => [200]
+    };
+
+    private static string[] EndpointErrors(HPDBaseEndpointOperation operation) => operation switch
+    {
+        HPDBaseEndpointOperation.RealtimeSubscribe => [BaseRealtimeErrorCodes.CursorExpired, "base.realtime.protocolInvalid", "base.realtime.payloadTooLarge"],
+        HPDBaseEndpointOperation.BackupCreate or HPDBaseEndpointOperation.BackupValidate or HPDBaseEndpointOperation.BackupRestore => ["base.admin.backup.busy", "base.admin.backup.artifactInvalid", "base.admin.backup.multipartInvalid"],
+        _ => ["base.runtime.validation", "base.http.authenticationRequired", "base.http.authorizationDenied"]
+    };
+
+    private static long MaximumRequestBody(HPDBaseEndpointOperation operation, string method, long maximumRequestBodyBytes, long maximumArtifactBytes) => method.Equals("GET", StringComparison.OrdinalIgnoreCase) || method.Equals("HEAD", StringComparison.OrdinalIgnoreCase) ? 0
+        : operation is HPDBaseEndpointOperation.BackupValidate or HPDBaseEndpointOperation.BackupRestore ? checked(maximumArtifactBytes + 96 * 1024)
+        : operation is HPDBaseEndpointOperation.BackupCreate or HPDBaseEndpointOperation.AdministrativePurge ? 64 * 1024
+        : operation == HPDBaseEndpointOperation.RealtimeSubscribe ? 0
+        : maximumRequestBodyBytes;
+
+    private static BaseClientErrorDescriptor[] ErrorTaxonomy(BaseClientEndpointDescriptor[] endpoints) => endpoints
+        .SelectMany(static endpoint => endpoint.ErrorCodes)
+        .Append(BaseMutationRequestErrorCodes.FingerprintConflict)
+        .Append(BaseMutationErrorCodes.BatchIndeterminate)
+        .Distinct(StringComparer.Ordinal)
+        .Order(StringComparer.Ordinal)
+        .Select(static code => new BaseClientErrorDescriptor
+        {
+            Code = code,
+            Category = code.Contains("authentic", StringComparison.OrdinalIgnoreCase) ? "authentication"
+                : code.Contains("authoriz", StringComparison.OrdinalIgnoreCase) ? "authorization"
+                : code.Contains("conflict", StringComparison.OrdinalIgnoreCase) || code.Contains("expired", StringComparison.OrdinalIgnoreCase) ? "conflict"
+                : code.Contains("indeterminate", StringComparison.OrdinalIgnoreCase) || code.Contains("busy", StringComparison.OrdinalIgnoreCase) ? "store"
+                : "validation",
+            Retryable = code.Contains("busy", StringComparison.OrdinalIgnoreCase)
+        })
+        .ToArray();
+
+    private static string BasePath(string requestPath)
+    {
+        const string suffix = "/client-generation";
+        return requestPath.EndsWith(suffix, StringComparison.Ordinal) ? requestPath[..^suffix.Length] : "/base";
+    }
+
+    private static string GeneratedName(string value)
+    {
+        var builder = new StringBuilder(value.Length);
+        bool upper = false;
+        foreach (char character in value)
+        {
+            if (!char.IsAsciiLetterOrDigit(character)) { upper = builder.Length > 0; continue; }
+            builder.Append(upper ? char.ToUpperInvariant(character) : builder.Length == 0 ? char.ToLowerInvariant(character) : character);
+            upper = false;
+        }
+        return builder.Length == 0 ? throw new InvalidOperationException("base.clientGeneration.nameInvalid") : builder.ToString();
+    }
+
+    private static string LowerCamel(string value) => value.Length == 0 ? value : char.ToLowerInvariant(value[0]) + value[1..];
+
+    private static string Hash(byte[] bytes) => "sha256:" + Convert.ToHexStringLower(SHA256.HashData(bytes));
+    internal static byte[] Canonicalize(byte[] json, bool snapshotDigestInput = false)
+    {
+        using JsonDocument document = JsonDocument.Parse(json, new JsonDocumentOptions { AllowTrailingCommas = false, CommentHandling = JsonCommentHandling.Disallow, MaxDepth = 64 });
+        using var output = new MemoryStream(json.Length);
+        using (var writer = new Utf8JsonWriter(output, new JsonWriterOptions { Indented = false, SkipValidation = false }))
+            WriteCanonical(writer, document.RootElement, snapshotDigestInput, depth: 0, propertyName: null);
+        return output.ToArray();
+    }
+
+    private static void WriteCanonical(Utf8JsonWriter writer, JsonElement element, bool snapshotDigestInput, int depth, string? propertyName)
+    {
+        switch (element.ValueKind)
+        {
+            case JsonValueKind.Object:
+                writer.WriteStartObject();
+                foreach (JsonProperty property in element.EnumerateObject().Where(property => !(snapshotDigestInput && depth == 0 && property.NameEquals("digest"))).OrderBy(property => property.Name, StringComparer.Ordinal))
+                {
+                    writer.WritePropertyName(property.Name);
+                    if (snapshotDigestInput && depth == 1 && propertyName == "protocol" && property.NameEquals("generatedAt")) writer.WriteStringValue(string.Empty);
+                    else WriteCanonical(writer, property.Value, snapshotDigestInput, depth + 1, property.Name);
+                }
+                writer.WriteEndObject();
+                break;
+            case JsonValueKind.Array:
+                writer.WriteStartArray(); foreach (JsonElement item in element.EnumerateArray()) WriteCanonical(writer, item, snapshotDigestInput, depth + 1, propertyName); writer.WriteEndArray();
+                break;
+            case JsonValueKind.String: writer.WriteStringValue(element.GetString()); break;
+            case JsonValueKind.Number: writer.WriteRawValue(element.GetRawText(), skipInputValidation: false); break;
+            case JsonValueKind.True: writer.WriteBooleanValue(true); break;
+            case JsonValueKind.False: writer.WriteBooleanValue(false); break;
+            case JsonValueKind.Null: writer.WriteNullValue(); break;
+            default: throw new InvalidOperationException("base.clientGeneration.snapshotInvalid");
+        }
+    }
+    private static OperationResult<BaseClientGenerationSnapshotV2> Failure(string code) => new() { Status = OperationStatus.CapabilityUnavailable, Error = new BaseError { Code = code, Message = "The client generation snapshot is unavailable." } };
+}
+
+[System.Text.Json.Serialization.JsonSourceGenerationOptions(
+    PropertyNamingPolicy = System.Text.Json.Serialization.JsonKnownNamingPolicy.CamelCase,
+    DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
+    UnmappedMemberHandling = System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
+[System.Text.Json.Serialization.JsonSerializable(typeof(BaseClientGenerationSnapshotV2))]
+[System.Text.Json.Serialization.JsonSerializable(typeof(BaseClientEndpointDescriptor[]))]
+internal partial class HPDBaseClientGenerationJsonContext : System.Text.Json.Serialization.JsonSerializerContext;

@@ -1,52 +1,20 @@
 {
   "name": "@hpd/base-client-generator",
-  "version": "0.1.0",
-  "description": "Generator for schema-specific HPD.BASE TypeScript clients built on @hpd/base-client.",
+  "version": "0.2.0",
+  "description": "Deterministic HPD Base generation-snapshot v2 TypeScript emitter.",
   "type": "module",
-  "main": "./dist/index.js",
-  "module": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "bin": {
-    "hpd-base-client-generator": "./dist/cli.js"
-  },
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
-    }
-  },
-  "files": [
-    "dist",
-    "README.md"
-  ],
+  "bin": { "hpd-base-client": "./dist/cli.js" },
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "files": ["dist", "README.md"],
   "scripts": {
-    "clean": "rm -rf dist fixtures/generated",
-    "build": "npm run clean && tsc",
-    "generate:fixture": "node dist/cli.js generate --snapshot fixtures/base-client-snapshot.json --out fixtures/generated/base --clean",
-    "test": "vitest run",
-    "test:watch": "vitest watch",
-    "test:types": "npm run generate:fixture && tsc -p tsconfig.type-tests.json --noEmit",
-    "check": "npm run build && npm run test && npm run test:types",
-    "prepublishOnly": "npm run check"
+    "clean": "node -e \"import('node:fs').then(fs=>fs.rmSync('dist',{recursive:true,force:true}))\"",
+    "build": "npm run clean && tsc -p tsconfig.json",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "check": "npm run test"
   },
   "sideEffects": false,
-  "engines": {
-    "node": ">=18.0.0"
-  },
-  "dependencies": {},
-  "devDependencies": {
-    "@hpd/base-client": "file:../hpd-base-client",
-    "@types/node": "^20.0.0",
-    "typescript": "^5.0.0",
-    "vitest": "^1.0.0"
-  },
-  "keywords": [
-    "hpd",
-    "base",
-    "codegen",
-    "typescript",
-    "sdk"
-  ],
-  "author": "HPD-AI",
+  "engines": { "node": ">=24" },
+  "dependencies": { "typescript": "7.0.2" },
+  "devDependencies": { "@types/node": "^24.0.0", "@hpd/base-client": "file:../hpd-base-client" },
   "license": "FSL-1.1-ALv2"
 }

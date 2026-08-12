@@ -28,7 +28,8 @@ var app = builder.Build();
 app.MapHPDBasePublicApi();
 app.MapHPDBaseApplicationApi(new HPDBaseApplicationEndpointOptions
 {
-    AuthorizationPolicy = "application"
+    AuthorizationPolicy = "application",
+    MapClientGeneration = true
 });
 
 app.MapGet("/", () => "HPD.Base.AspNetCore AOT smoke");
@@ -59,6 +60,15 @@ static async Task VerifyProjectionAsync(WebApplication app)
         var address = addresses?.SingleOrDefault()
             ?? throw new InvalidOperationException("The AOT smoke server did not publish one loopback address.");
         using var client = new HttpClient { BaseAddress = new Uri(address) };
+
+        using HttpResponseMessage generationResponse = await client.GetAsync("/base/client-generation");
+        Require(generationResponse.StatusCode == System.Net.HttpStatusCode.OK, "Client generation snapshot failed.");
+        using JsonDocument generation = JsonDocument.Parse(await generationResponse.Content.ReadAsByteArrayAsync());
+        Require(
+            generation.RootElement.GetProperty("protocol").GetProperty("protocolMajor").GetInt32() == 2
+            && generation.RootElement.GetProperty("application").GetProperty("audience").GetString() == "application"
+            && generation.RootElement.GetProperty("digest").GetString()?.StartsWith("sha256:", StringComparison.Ordinal) == true,
+            "Client generation snapshot was invalid.");
 
         var upsertId = new RecordId("aot-upsert");
         var upsertResponse = await client.PutAsync(

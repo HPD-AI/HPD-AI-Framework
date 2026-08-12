@@ -53,9 +53,11 @@ public static class HPDBaseControlPlaneEndpointRouteBuilderExtensions
                 MapRecords = options.MapRecords,
                 MapRegisteredReads = options.MapRegisteredReads,
                 MapAdministration = options.MapAdministration,
+                MapArtifactAdministration = options.MapArtifactAdministration,
                 MapPolicyExplain = options.MapPolicyExplain,
                 MapFiles = options.MapFiles,
-                MapRealtime = options.MapRealtime
+                MapRealtime = options.MapRealtime,
+                MapClientGeneration = options.MapClientGeneration
             },
             (endpoint, descriptor) => endpoint.RequireHPDControlPlaneCapability(endpoints, descriptor.Capability!));
         return group;

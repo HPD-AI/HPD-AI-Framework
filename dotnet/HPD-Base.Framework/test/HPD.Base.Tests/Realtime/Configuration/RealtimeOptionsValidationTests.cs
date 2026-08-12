@@ -79,7 +79,7 @@ public sealed class RealtimeOptionsValidationTests
     {
         var limits = new BaseRealtimeLimits();
 
-        limits.OutboundCapacity.Should().Be(256);
+        limits.OutboundCapacity.Should().Be(32);
         limits.ReceiveIdleTimeoutSeconds.Should().Be(90);
         limits.SendTimeoutSeconds.Should().Be(10);
         new BaseRealtimeOptions().Backpressure.Should()

@@ -21,6 +21,8 @@ namespace HPD.Base;
 [JsonSerializable(typeof(BaseRealtimeLimits))]
 [JsonSerializable(typeof(BaseRealtimeClientMessage))]
 [JsonSerializable(typeof(BaseRealtimeServerMessage))]
+[JsonSerializable(typeof(BaseRealtimeChannelRequest))]
+[JsonSerializable(typeof(BaseRealtimeLiveQueryOperation))]
 [JsonSerializable(typeof(BaseRealtimeEvent[]))]
 [JsonSerializable(typeof(BaseRealtimeServerMessage[]))]
 [JsonSerializable(typeof(BaseDependencyInvalidation))]

@@ -10,9 +10,9 @@ namespace HPD.Base.AspNetCore;
 internal static class HPDBaseRealtimeEndpointRouteBuilderExtensions
 {
     internal static void MapCore(IEndpointRouteBuilder endpoints, HPDBaseEndpointAudience audience, Action<IEndpointConventionBuilder, HPDBaseEndpointDescriptor>? convention = null) =>
-        endpoints.MapGet("/realtime/v1/socket", (RequestDelegate)HandleWebSocketAsync)
-            .WithHPDBaseEndpoint(BaseRealtimeRouteIds.WebSocket, audience, HPDBaseEndpointOperation.RealtimeSubscribe, HPDBaseCapabilities.RealtimeSubscribe, convention)
-            .WithName(BaseRealtimeRouteIds.WebSocket)
+        endpoints.MapGet("/realtime/v2/socket", (RequestDelegate)HandleWebSocketAsync)
+            .WithHPDBaseEndpoint(BaseRealtimeRouteIds.WebSocketV2, audience, HPDBaseEndpointOperation.RealtimeSubscribe, HPDBaseCapabilities.RealtimeSubscribe, convention)
+            .WithName(BaseRealtimeRouteIds.WebSocketV2)
             .WithDisplayName("HPD.BASE realtime WebSocket")
             .WithMetadata(new BaseRealtimeWebSocketOpenApiMetadata());
 

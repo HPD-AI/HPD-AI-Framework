@@ -32,6 +32,11 @@ internal static class AspNetCoreDtoContractDescriptorFactory
     public const string BasePolicyExplainResponse = "base.policyExplainResponse";
     /// <summary>Provides the problem details value.</summary>
     public const string ProblemDetails = "hpd.base.aspnet.problemDetails";
+    public const string ClientGenerationSnapshotV2 = "base.clientGeneration.snapshot.v2";
+    public const string PurgeRequest = "base.admin.purge.request";
+    public const string BackupCreateRequest = "base.admin.backup.create.request";
+    public const string BackupValidationRequest = "base.admin.backup.validate.request";
+    public const string RestoreRequest = "base.admin.backup.restore.request";
 
     /// <summary>Executes the create operation.</summary>
     public static DtoContractDescriptor[] Create() =>
@@ -62,6 +67,9 @@ internal static class AspNetCoreDtoContractDescriptorFactory
         Dto(BasePolicyExplainResponse, VisibilityLevel.Admin),
         Dto(BaseDtoIds.BaseError),
         Dto(ProblemDetails)
+        ,Dto(ClientGenerationSnapshotV2), Dto(PurgeRequest, VisibilityLevel.Admin), Dto(BackupCreateRequest, VisibilityLevel.Admin),
+        Dto(BackupValidationRequest, VisibilityLevel.Admin), Dto(RestoreRequest, VisibilityLevel.Admin),
+        Dto("base.admin.purge.result", VisibilityLevel.Admin), Dto("base.admin.backup.manifest", VisibilityLevel.Admin), Dto("base.admin.backup.restore.result", VisibilityLevel.Admin)
     ];
 
     private static DtoContractDescriptor Dto(string id, VisibilityLevel visibility = VisibilityLevel.Public) => new()

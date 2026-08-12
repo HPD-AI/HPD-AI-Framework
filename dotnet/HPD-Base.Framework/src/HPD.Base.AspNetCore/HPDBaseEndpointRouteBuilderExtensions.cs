@@ -21,7 +21,7 @@ public static class HPDBaseEndpointRouteBuilderExtensions
         ArgumentNullException.ThrowIfNull(selection);
         ArgumentNullException.ThrowIfNull(convention);
         if (!selection.MapRecords && !selection.MapRegisteredReads && !selection.MapAdministration &&
-            !selection.MapPolicyExplain && !selection.MapFiles && !selection.MapRealtime)
+            !selection.MapArtifactAdministration && !selection.MapPolicyExplain && !selection.MapFiles && !selection.MapRealtime && !selection.MapClientGeneration)
             throw new ArgumentException("At least one ControlPlane endpoint family must be selected.", nameof(selection));
 
         AddReadinessFilter(group);
@@ -49,7 +49,9 @@ public static class HPDBaseEndpointRouteBuilderExtensions
                 RegisteredReadEndpoints.Map(admin, BaseReadExposure.Admin, HPDBaseEndpointAudience.ControlPlane, convention);
             }
         }
-        else if (selection.MapPolicyExplain)
+        if (selection.MapArtifactAdministration)
+            BaseAdministrationEndpoints.Map(group, endpoints.ServiceProvider, convention);
+        else if (!selection.MapAdministration && selection.MapPolicyExplain)
         {
             var admin = group.MapGroup("/admin");
             PolicyAdminExplainEndpoints.Map(admin, convention);
@@ -61,6 +63,12 @@ public static class HPDBaseEndpointRouteBuilderExtensions
         }
         if (selection.MapRealtime)
             HPDBaseRealtimeEndpointRouteBuilderExtensions.MapCore(group, HPDBaseEndpointAudience.ControlPlane, convention);
+        if (selection.MapClientGeneration)
+        {
+            endpoints.ServiceProvider.GetRequiredService<HPDBaseEndpointFamilySelectionState>()
+                .SelectGeneration(HPDBaseEndpointAudience.ControlPlane);
+            BaseClientGenerationEndpoints.Map(group, HPDBaseEndpointAudience.ControlPlane, convention);
+        }
         return group;
     }
 
@@ -100,7 +108,7 @@ public static class HPDBaseEndpointRouteBuilderExtensions
         ArgumentNullException.ThrowIfNull(endpoints);
         ArgumentNullException.ThrowIfNull(options);
         ArgumentException.ThrowIfNullOrWhiteSpace(options.AuthorizationPolicy);
-        if (!options.MapRecords && !options.MapRegisteredReads && !options.MapFiles && !options.MapRealtime)
+        if (!options.MapRecords && !options.MapRegisteredReads && !options.MapFiles && !options.MapRealtime && !options.MapClientGeneration)
             throw new ArgumentException("At least one Application endpoint family must be selected.", nameof(options));
 
         string prefix = EndpointRouteBuilderValidation.RoutePrefix(options.RoutePrefix);
@@ -125,6 +133,12 @@ public static class HPDBaseEndpointRouteBuilderExtensions
         }
         if (options.MapRealtime)
             HPDBaseRealtimeEndpointRouteBuilderExtensions.MapCore(group, HPDBaseEndpointAudience.Application);
+        if (options.MapClientGeneration)
+        {
+            endpoints.ServiceProvider.GetRequiredService<HPDBaseEndpointFamilySelectionState>()
+                .SelectGeneration(HPDBaseEndpointAudience.Application);
+            BaseClientGenerationEndpoints.Map(group, HPDBaseEndpointAudience.Application);
+        }
         return group;
     }
 

@@ -166,6 +166,12 @@ public sealed class RegisteredReadEndpointTests
         public JsonTypeInfo ParameterJsonTypeInfo => TestReadJsonContext.Default.TestReadParameters;
         public JsonTypeInfo RowJsonTypeInfo => TestReadJsonContext.Default.TestReadRow;
         public Type ResponseType => typeof(BasePage<TestReadRow>);
+        public BaseReadClientContract ClientContract { get; } = new()
+        {
+            ParameterTypeId = "read.test-read.parameters", RowTypeId = "read.test-read.row",
+            Parameters = [new BaseReadClientProperty { Id = "search", GeneratedName = "search", Kind = QueryValueKind.String, Array = false, Nullable = false }],
+            Row = [new BaseReadClientProperty { Id = "value", GeneratedName = "value", Kind = QueryValueKind.String, Array = false, Nullable = false }]
+        };
         public BaseReadPageRequest? RequestedPage { get; private set; }
 
         public ValueTask<BaseUntypedRegisteredReadResult> ExecuteAsync(IBaseRegisteredReadRuntime runtime, object parameters, BaseReadPageRequest page, PrincipalContext principal, OperationContext operation, CancellationToken cancellationToken)

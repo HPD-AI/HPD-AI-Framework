@@ -6,8 +6,10 @@ namespace HPD.Base;
 public enum BaseVectorHttpMeasureDisclosure
 {
     /// <summary>Omits measures while preserving rank and authoritative records.</summary>
+    [JsonStringEnumMemberName("omit")]
     Omit,
     /// <summary>Includes the finite function-labeled measure for each match.</summary>
+    [JsonStringEnumMemberName("include")]
     Include,
 }
 
@@ -26,6 +28,8 @@ public sealed record BaseVectorHttpQueryRequest
     public string? Consistency { get; init; }
     /// <summary>Gets the opaque token required by atLeast.</summary>
     public string? ConsistencyToken { get; init; }
+    /// <summary>Gets the required positive staleness bound for boundedStaleness.</summary>
+    public int? MaximumAgeMilliseconds { get; init; }
 }
 
 /// <summary>Contains one typed equality filter.</summary>
@@ -59,7 +63,20 @@ public sealed record BaseVectorHttpMatch
     public required int Rank { get; init; }
     /// <summary>Gets the labeled finite measure when explicitly requested.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public BaseVectorMeasure? Measure { get; init; }
+    public BaseVectorHttpMeasure? Measure { get; init; }
+}
+
+/// <summary>Contains one finite, function-labeled vector measure on the language-neutral wire.</summary>
+public sealed record BaseVectorHttpMeasure
+{
+    /// <summary>Gets the stable lower-camel comparison function.</summary>
+    public required string Function { get; init; }
+    /// <summary>Gets the finite binary64 measure.</summary>
+    public required double Value { get; init; }
+    /// <summary>Gets whether higher or lower values are nearer.</summary>
+    public required string Direction { get; init; }
+    /// <summary>Gets optional finite normalized relevance.</summary>
+    public double? NormalizedRelevance { get; init; }
 }
 
 /// <summary>Contains one complete bounded HTTP vector result.</summary>
@@ -70,7 +87,7 @@ public sealed record BaseVectorHttpQueryResponse
     /// <summary>Gets the vector-index identifier.</summary>
     public required string VectorIndexId { get; init; }
     /// <summary>Gets the vector-index generation.</summary>
-    public required long VectorIndexGeneration { get; init; }
+    public required string VectorIndexGeneration { get; init; }
     /// <summary>Gets the provider identifier.</summary>
     public required string ProviderId { get; init; }
     /// <summary>Gets the accuracy classification.</summary>

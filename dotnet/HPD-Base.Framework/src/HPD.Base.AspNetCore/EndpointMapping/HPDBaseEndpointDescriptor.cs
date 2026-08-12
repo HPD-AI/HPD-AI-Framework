@@ -46,6 +46,17 @@ public enum HPDBaseEndpointOperation
     VectorMetadataRead,
     /// <summary>Rebuilds one vector index.</summary>
     VectorRebuild
+    ,
+    /// <summary>Reads the immutable cross-language generation snapshot.</summary>
+    ClientGenerationRead,
+    /// <summary>Administratively purges durable collection history.</summary>
+    AdministrativePurge,
+    /// <summary>Creates one confirmed backup artifact.</summary>
+    BackupCreate,
+    /// <summary>Validates one authenticated backup artifact.</summary>
+    BackupValidate,
+    /// <summary>Restores one authenticated backup artifact.</summary>
+    BackupRestore
 }
 
 /// <summary>Describes one exact BASE HTTP endpoint.</summary>
@@ -98,4 +109,16 @@ public static class HPDBaseCapabilities
     public const string VectorDiagnosticsRead = "base.vector.diagnostics.read";
     /// <summary>Rebuilds one vector index.</summary>
     public const string VectorRebuild = "base.vector.rebuild";
+    /// <summary>Generates an Application client contract.</summary>
+    public const string ClientGenerate = "base.client.generate";
+    /// <summary>Generates a ControlPlane client contract.</summary>
+    public const string AdministrationClientGenerate = "base.admin.client.generate";
+    /// <summary>Administratively purges records and durable history.</summary>
+    public const string AdministrationRecordsPurge = "base.admin.records.purge";
+    /// <summary>Creates authenticated backup artifacts.</summary>
+    public const string AdministrationBackupCreate = "base.admin.backup.create";
+    /// <summary>Validates authenticated backup artifacts.</summary>
+    public const string AdministrationBackupValidate = "base.admin.backup.validate";
+    /// <summary>Restores authenticated backup artifacts.</summary>
+    public const string AdministrationBackupRestore = "base.admin.backup.restore";
 }

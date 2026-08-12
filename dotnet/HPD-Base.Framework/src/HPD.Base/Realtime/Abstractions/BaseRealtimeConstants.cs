@@ -50,15 +50,15 @@ public static class BaseRealtimeDtoIds
 /// <summary>Represents a base realtime route IDs.</summary>
 public static class BaseRealtimeRouteIds
 {
-    /// <summary>Provides the web socket value.</summary>
-    public const string WebSocket = "base.realtime.websocket";
+    /// <summary>Identifies the version 2 WebSocket transport.</summary>
+    public const string WebSocketV2 = "base.realtime.v2.websocket";
 }
 
 /// <summary>Represents a base realtime routes.</summary>
 public static class BaseRealtimeRoutes
 {
-    /// <summary>Provides the web socket value.</summary>
-    public const string WebSocket = "/base/realtime/v1/socket";
+    /// <summary>Gets the canonical version 2 WebSocket route.</summary>
+    public const string WebSocketV2 = "/base/realtime/v2/socket";
 }
 
 /// <summary>Represents a base realtime channel kinds.</summary>
@@ -66,10 +66,12 @@ public static class BaseRealtimeChannelKinds
 {
     /// <summary>Provides the record changes value.</summary>
     public const string RecordChanges = "base.record_changes";
+    /// <summary>Identifies a dependency-driven live-query channel.</summary>
+    public const string LiveQuery = "base.live_query";
 }
 
-/// <summary>Represents a base realtime protocol types.</summary>
-public static class BaseRealtimeProtocolTypes
+/// <summary>Names the closed version 2 realtime message kinds.</summary>
+public static class BaseRealtimeProtocolKinds
 {
     /// <summary>Provides the join value.</summary>
     public const string Join = "join";
@@ -77,16 +79,22 @@ public static class BaseRealtimeProtocolTypes
     public const string Leave = "leave";
     /// <summary>Provides the heartbeat value.</summary>
     public const string Heartbeat = "heartbeat";
-    /// <summary>Provides the connected value.</summary>
-    public const string Connected = "connected";
+    /// <summary>Provides the welcome value.</summary>
+    public const string Welcome = "welcome";
     /// <summary>Provides the joined value.</summary>
     public const string Joined = "joined";
-    /// <summary>Provides the left value.</summary>
-    public const string Left = "left";
-    /// <summary>Provides the event value.</summary>
-    public const string Event = "event";
+    /// <summary>Provides the live record event value.</summary>
+    public const string LiveRecordEvent = "liveRecordEvent";
+    /// <summary>Provides the durable record event value.</summary>
+    public const string DurableRecordEvent = "durableRecordEvent";
+    /// <summary>Provides the live-query snapshot value.</summary>
+    public const string LiveQuerySnapshot = "liveQuerySnapshot";
+    /// <summary>Provides the heartbeat acknowledgement value.</summary>
+    public const string HeartbeatAck = "heartbeatAck";
     /// <summary>Provides the error value.</summary>
     public const string Error = "error";
+    /// <summary>Provides the closed value.</summary>
+    public const string Closed = "closed";
 }
 
 /// <summary>Represents a base realtime error codes.</summary>

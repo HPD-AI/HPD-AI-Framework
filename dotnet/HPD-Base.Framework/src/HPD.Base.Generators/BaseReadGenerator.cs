@@ -248,7 +248,20 @@ public sealed class BaseReadGenerator : IIncrementalGenerator
             .Append(new[] { "None", "Public", "Admin" }[model.Exposure])
             .Append(", global::HPD.Base.BaseReadAuthorization.")
             .Append(new[] { "Authenticated", "Admin", "System" }[model.Authorization])
-            .AppendLine(", Configure);\n    }");
+            .AppendLine(",");
+        source.AppendLine("            new global::HPD.Base.BaseReadClientContract");
+        source.AppendLine("            {");
+        source.Append("                ParameterTypeId = ").Append(Literal("read." + model.Id + ".parameters")).AppendLine(",");
+        source.Append("                RowTypeId = ").Append(Literal("read." + model.Id + ".row")).AppendLine(",");
+        source.AppendLine("                Parameters = new global::HPD.Base.BaseReadClientProperty[]");
+        source.AppendLine("                {");
+        foreach (MemberModel member in model.Parameters) AppendClientProperty(source, member, "                    ");
+        source.AppendLine("                },");
+        source.AppendLine("                Row = new global::HPD.Base.BaseReadClientProperty[]");
+        source.AppendLine("                {");
+        foreach (MemberModel member in model.Fields) AppendClientProperty(source, member, "                    ");
+        source.AppendLine("                },");
+        source.AppendLine("            }, Configure);\n    }");
         source.AppendLine("}");
         return source.ToString();
     }
@@ -293,6 +306,13 @@ public sealed class BaseReadGenerator : IIncrementalGenerator
             ? "global::HPD.Base.BaseReadGeneratedContract.Value(" + expression + ")"
             : "global::HPD.Base.BaseReadGeneratedContract.Value(" + expression + ".Value)";
     }
+
+    private static void AppendClientProperty(StringBuilder source, MemberModel member, string indent) => source
+        .Append(indent).Append("new global::HPD.Base.BaseReadClientProperty { Id = ").Append(Literal(member.Id))
+        .Append(", GeneratedName = ").Append(Literal(member.Name))
+        .Append(", Kind = global::HPD.Base.QueryValueKind.").Append(member.Kind)
+        .Append(", Array = ").Append(member.IsArray ? "true" : "false")
+        .Append(", Nullable = ").Append(member.ContainerNullable ? "true" : "false").AppendLine(" },");
 
     private static string Decode(MemberModel member)
     {

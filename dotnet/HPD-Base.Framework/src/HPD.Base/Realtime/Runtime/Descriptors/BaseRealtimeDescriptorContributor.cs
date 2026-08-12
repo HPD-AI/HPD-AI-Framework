@@ -40,7 +40,7 @@ internal sealed class BaseRealtimeDescriptorContributor : IBaseDescriptorContrib
             Compatibility = new ModuleCompatibility { RequiresBaseContract = "1.0" },
             ContributedCapabilities = FeatureIds,
             ContributedDtoIds = DtoIds,
-            ContributedRouteIds = [BaseRealtimeRouteIds.WebSocket],
+            ContributedRouteIds = [BaseRealtimeRouteIds.WebSocketV2],
             ContributedEventTypes = ["record.created", "record.patched", "record.updated", "record.deleted"],
             ContributedHealthRefIds = [HealthIds.Registration, HealthIds.EventStream],
             ContributedDiagnosticIds = [DiagnosticIds.Options, DiagnosticIds.StreamOpenFailures, DiagnosticIds.HPDEventsCoordinatorStats, DiagnosticIds.ConnectionStats],
@@ -153,7 +153,7 @@ internal sealed class BaseRealtimeDescriptorContributor : IBaseDescriptorContrib
         },
         HealthRef = HealthIds.Registration,
         DiagnosticRefs = [DiagnosticIds.Options, DiagnosticIds.StreamOpenFailures],
-        RouteRefs = [BaseRealtimeRouteIds.WebSocket],
+        RouteRefs = [BaseRealtimeRouteIds.WebSocketV2],
         Visibility = VisibilityLevel.Public
     };
 
@@ -167,7 +167,7 @@ internal sealed class BaseRealtimeDescriptorContributor : IBaseDescriptorContrib
     private Dictionary<string, JsonElement> PublicConfig() => new()
     {
         ["transport"] = JsonString("websocket"),
-        ["route"] = JsonString(BaseRealtimeRoutes.WebSocket),
+        ["route"] = JsonString(BaseRealtimeRoutes.WebSocketV2),
         ["replayable"] = JsonBoolean(DurableConfigured),
         ["resumable"] = JsonBoolean(DurableConfigured),
         ["durable"] = JsonBoolean(DurableConfigured),

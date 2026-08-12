@@ -20,7 +20,7 @@ public sealed class RealtimeDescriptorTests
         feature.Constraints.Realtime.Extensions!["replayable"].GetBoolean().Should().BeTrue();
         feature.Constraints.Realtime.Extensions!["resumable"].GetBoolean().Should().BeTrue();
         feature.Constraints.Realtime.Extensions!["liveQuery"].GetBoolean().Should().BeFalse();
-        feature.RouteRefs.Should().Contain(BaseRealtimeRouteIds.WebSocket);
+        feature.RouteRefs.Should().Contain(BaseRealtimeRouteIds.WebSocketV2);
 
         var limits = snapshot.Capabilities.Families
             .Single(family => family.FamilyId == "base.realtime")

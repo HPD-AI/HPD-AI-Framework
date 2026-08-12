@@ -54,7 +54,13 @@ internal sealed class HPDBaseEndpointInventoryValidator(
         ["base.files.objects.head"] = Protected("HEAD", "/files/{bucketId}/objects/{objectId}", HPDBaseEndpointOperation.FileRead, HPDBaseCapabilities.FilesRead),
         ["base.files.objects.metadata.get"] = Protected("GET", "/files/{bucketId}/objects/{objectId}/metadata", HPDBaseEndpointOperation.FileRead, HPDBaseCapabilities.FilesRead),
         ["base.files.objects.delete"] = Protected("DELETE", "/files/{bucketId}/objects/{objectId}", HPDBaseEndpointOperation.FileDelete, HPDBaseCapabilities.FilesDelete),
-        ["base.realtime.websocket"] = Protected("GET", "/realtime/v1/socket", HPDBaseEndpointOperation.RealtimeSubscribe, HPDBaseCapabilities.RealtimeSubscribe),
+        ["base.realtime.v2.websocket"] = Protected("GET", "/realtime/v2/socket", HPDBaseEndpointOperation.RealtimeSubscribe, HPDBaseCapabilities.RealtimeSubscribe),
+        ["base.clientGeneration.application"] = Application("GET", "/client-generation", HPDBaseEndpointOperation.ClientGenerationRead, HPDBaseCapabilities.ClientGenerate),
+        ["base.clientGeneration.controlPlane"] = Control("GET", "/client-generation", HPDBaseEndpointOperation.ClientGenerationRead, HPDBaseCapabilities.AdministrationClientGenerate),
+        ["base.admin.purge"] = Control("POST", "/administration/purge", HPDBaseEndpointOperation.AdministrativePurge, HPDBaseCapabilities.AdministrationRecordsPurge),
+        ["base.admin.backup.create"] = Control("POST", "/administration/backups:create", HPDBaseEndpointOperation.BackupCreate, HPDBaseCapabilities.AdministrationBackupCreate),
+        ["base.admin.backup.validate"] = Control("POST", "/administration/backups:validate", HPDBaseEndpointOperation.BackupValidate, HPDBaseCapabilities.AdministrationBackupValidate),
+        ["base.admin.backup.restore"] = Control("POST", "/administration/backups:restore", HPDBaseEndpointOperation.BackupRestore, HPDBaseCapabilities.AdministrationBackupRestore),
         ["hpd.base.vector.query"] = Protected("POST", "/base/vector/{collectionId}/{vectorIndexId}/query", HPDBaseEndpointOperation.VectorQuery, HPDBaseCapabilities.VectorQuery),
         ["hpd.base.vector.metadata.list"] = Control("GET", "/base/vector/indexes", HPDBaseEndpointOperation.VectorMetadataRead, HPDBaseCapabilities.VectorMetadataRead),
         ["hpd.base.vector.diagnostics.read"] = Control("GET", "/base/vector/indexes/{collectionId}/{vectorIndexId}/diagnostics", HPDBaseEndpointOperation.DiagnosticsRead, HPDBaseCapabilities.VectorDiagnosticsRead),
@@ -148,6 +154,7 @@ internal sealed class HPDBaseEndpointInventoryValidator(
     }
     private static Expected Public(string method, string route, HPDBaseEndpointOperation operation) => new(method, route, operation, null, [HPDBaseEndpointAudience.Public]);
     private static Expected Protected(string method, string route, HPDBaseEndpointOperation operation, string capability) => new(method, route, operation, capability, [HPDBaseEndpointAudience.Application, HPDBaseEndpointAudience.ControlPlane]);
+    private static Expected Application(string method, string route, HPDBaseEndpointOperation operation, string capability) => new(method, route, operation, capability, [HPDBaseEndpointAudience.Application]);
     private static Expected Control(string method, string route, HPDBaseEndpointOperation operation, string capability) => new(method, route, operation, capability, [HPDBaseEndpointAudience.ControlPlane]);
     private static void Fail(string code) => throw new InvalidOperationException(code);
 }

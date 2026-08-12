@@ -13,10 +13,14 @@ public sealed class HPDBaseControlPlaneEndpointOptions
     public bool MapRegisteredReads { get; init; } = true;
     /// <summary>Gets whether administrative inspection is mapped.</summary>
     public bool MapAdministration { get; init; } = true;
+    /// <summary>Gets whether destructive purge and staged backup administration endpoints are mapped.</summary>
+    public bool MapArtifactAdministration { get; init; }
     /// <summary>Gets whether policy explanation is mapped.</summary>
     public bool MapPolicyExplain { get; init; } = true;
     /// <summary>Gets whether files are mapped.</summary>
     public bool MapFiles { get; init; }
     /// <summary>Gets whether realtime is mapped.</summary>
     public bool MapRealtime { get; init; }
+    /// <summary>Gets whether the authenticated ControlPlane generation snapshot is mapped.</summary>
+    public bool MapClientGeneration { get; init; }
 }

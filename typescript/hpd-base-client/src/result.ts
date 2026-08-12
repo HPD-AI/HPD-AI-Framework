@@ -1,70 +1,36 @@
-import { HpdBaseError } from "./errors.js";
-import type { BaseResult, BaseResponseHeaders, HpdBaseErrorData, OperationStatus, SuccessOperationStatus } from "./types/results.js";
-import type { HpdProblemDetails } from "./types/problem-details.js";
+export type BaseSuccessStatus = "ok" | "created" | "accepted" | "noContent";
 
-export type OperationContextKind = "read" | "create" | "patch" | "replace" | "delete";
-
-export function unwrapResult<T>(result: BaseResult<T>): T {
-  if (result.ok) return result.value;
-  throw new HpdBaseError(result.error, {
-    httpStatus: result.httpStatus,
-    headers: result.headers,
-    problem: result.problem
-  });
+export interface BaseWarning {
+  readonly code: string;
+  readonly message: string;
 }
 
-export function successStatus(kind: OperationContextKind, httpStatus: number): SuccessOperationStatus {
-  if (httpStatus === 201) return "created";
-  if (httpStatus === 204) return "noContent";
-  if (kind === "patch" || kind === "replace") return "updated";
-  if (kind === "delete") return "deleted";
-  return "ok";
+export interface BaseClientError {
+  readonly code: string;
+  readonly category:
+    | "validation" | "authentication" | "authorization" | "notFound"
+    | "conflict" | "unsupported" | "capability" | "store"
+    | "unexpected" | "unknownServerError";
+  readonly message: string;
 }
 
-export function fallbackFailureStatus(httpStatus?: number): Exclude<OperationStatus, SuccessOperationStatus> {
-  switch (httpStatus) {
-    case 400:
-      return "validationFailed";
-    case 401:
-      return "unauthorized";
-    case 403:
-      return "policyDenied";
-    case 404:
-      return "notFound";
-    case 409:
-      return "conflict";
-    case 424:
-      return "capabilityUnavailable";
-    case 500:
-    case 503:
-    case 504:
-      return "storeError";
-    default:
-      return "transportError";
+export type BaseRetryClassification = "never" | "safe" | "identifiedMutationOnly";
+
+export type BaseResult<T> =
+  | { readonly ok: true; readonly value: T; readonly status: BaseSuccessStatus; readonly correlationId: string; readonly revision?: RevisionToken; readonly warnings: readonly BaseWarning[] }
+  | { readonly ok: false; readonly error: BaseClientError; readonly correlationId?: string; readonly retry: BaseRetryClassification };
+
+declare const revisionBrand: unique symbol;
+export type RevisionToken = string & { readonly [revisionBrand]: true };
+
+export class BaseClientException extends Error {
+  public constructor(public readonly error: BaseClientError) {
+    super(error.message);
+    this.name = "BaseClientException";
   }
 }
 
-export function makeTransportError(message: string, cause?: unknown, code = "base.client.transport"): HpdBaseErrorData {
-  return {
-    status: "transportError",
-    code,
-    message,
-    category: "transport",
-    ...(cause instanceof DOMException && cause.name === "AbortError" ? { code: "base.client.abort" } : null)
-  };
-}
-
-export function failureResult<T>(
-  error: HpdBaseErrorData,
-  options: { httpStatus?: number; headers?: BaseResponseHeaders; problem?: HpdProblemDetails; warnings?: HpdBaseErrorData["warnings"] } = {}
-): BaseResult<T> {
-  return {
-    ok: false,
-    status: error.status as Exclude<OperationStatus, SuccessOperationStatus>,
-    error,
-    httpStatus: options.httpStatus,
-    headers: options.headers,
-    problem: options.problem,
-    warnings: options.warnings
-  };
+export function unwrap<T>(result: BaseResult<T>): T {
+  if (!result.ok) throw new BaseClientException(result.error);
+  return result.value;
 }

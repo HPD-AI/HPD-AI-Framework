@@ -50,6 +50,11 @@ public static class HPDBaseAspNetCoreServiceCollectionExtensions
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseDescriptorContributor, AspNetCoreProjectionDescriptorContributor>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<Microsoft.Extensions.Hosting.IHostedService, HPDBaseApplicationHostedService>());
         services.TryAddSingleton<HPDBaseEndpointInventoryValidator>();
+        services.TryAddSingleton<BaseClientGenerationSnapshotBuilder>();
+        services.TryAddSingleton<BaseAdministrationStagingCoordinator>();
+        services.AddSingleton<IBaseHealthContributor>(provider => provider.GetRequiredService<BaseAdministrationStagingCoordinator>());
+        services.AddSingleton<IBaseDiagnosticContributor>(provider => provider.GetRequiredService<BaseAdministrationStagingCoordinator>());
+        services.TryAddScoped<BaseRealtimeLiveQueryTransport>();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<Microsoft.AspNetCore.Hosting.IStartupFilter, HPDBaseEndpointInventoryStartupFilter>());
 
         return services;

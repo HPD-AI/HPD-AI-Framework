@@ -29,13 +29,15 @@ public sealed class BaseReadDefinition<TParameters, TRow> : IBaseReadRegistratio
         JsonTypeInfo<TParameters> parameterJsonTypeInfo,
         JsonTypeInfo<TRow> rowJsonTypeInfo,
         IBaseReadParameterCodec<TParameters> parameterCodec,
-        IBaseReadRowCodec<TRow> rowCodec)
+        IBaseReadRowCodec<TRow> rowCodec,
+        BaseReadClientContract clientContract)
     {
         Plan = plan;
         ParameterJsonTypeInfo = parameterJsonTypeInfo;
         RowJsonTypeInfo = rowJsonTypeInfo;
         ParameterCodec = parameterCodec;
         RowCodec = rowCodec;
+        ClientContract = clientContract;
         Handle = new BaseReadHandle<TParameters, TRow>(this);
     }
 
@@ -61,6 +63,8 @@ public sealed class BaseReadDefinition<TParameters, TRow> : IBaseReadRegistratio
 
     internal IBaseReadParameterCodec<TParameters> ParameterCodec { get; }
     internal IBaseReadRowCodec<TRow> RowCodec { get; }
+    /// <summary>Gets the exact language-neutral client-generation contract.</summary>
+    public BaseReadClientContract ClientContract { get; }
 
     JsonTypeInfo IBaseReadRegistration.ParameterJsonTypeInfo => ParameterJsonTypeInfo;
     JsonTypeInfo IBaseReadRegistration.RowJsonTypeInfo => RowJsonTypeInfo;
@@ -68,6 +72,7 @@ public sealed class BaseReadDefinition<TParameters, TRow> : IBaseReadRegistratio
     Type IBaseReadRegistration.ResponseType => typeof(BasePage<TRow>);
     BaseReadExposure IBaseReadRegistration.Exposure => Exposure;
     BaseReadAuthorization IBaseReadRegistration.Authorization => Authorization;
+    BaseReadClientContract IBaseReadRegistration.ClientContract => ClientContract;
 
     async ValueTask<BaseUntypedRegisteredReadResult> IBaseReadRegistration.ExecuteAsync(
         IBaseRegisteredReadRuntime runtime,
@@ -82,7 +87,7 @@ public sealed class BaseReadDefinition<TParameters, TRow> : IBaseReadRegistratio
         OperationResult<BaseRegisteredReadEvaluation<TRow>> result = await runtime.ExecuteAsync(this, typed, page, principal, operation, cancellationToken).ConfigureAwait(false);
         return result.Value is null
             ? new BaseUntypedRegisteredReadResult { Status = result.Status, Error = result.Error }
-            : new BaseUntypedRegisteredReadResult { Status = result.Status, Items = result.Value.Page.Items.Cast<object>().ToArray(), Page = result.Value.Page.Page, Count = result.Value.Page.Count };
+            : new BaseUntypedRegisteredReadResult { Status = result.Status, Items = result.Value.Page.Items.Cast<object>().ToArray(), Page = result.Value.Page.Page, Count = result.Value.Page.Count, Dependencies = result.Value.Dependencies };
     }
 }
 
@@ -116,8 +121,40 @@ internal interface IBaseReadRegistration
     BaseReadExposure Exposure { get; }
     /// <summary>Gets the minimum invocation authorization.</summary>
     BaseReadAuthorization Authorization { get; }
+    /// <summary>Gets the exact language-neutral client contract.</summary>
+    BaseReadClientContract ClientContract { get; }
     /// <summary>Executes the execute async operation.</summary>
     ValueTask<BaseUntypedRegisteredReadResult> ExecuteAsync(IBaseRegisteredReadRuntime runtime, object parameters, BaseReadPageRequest page, PrincipalContext principal, OperationContext operation, CancellationToken cancellationToken);
+}
+
+/// <summary>Describes one source-generated registered-read client contract without reflection.</summary>
+public sealed record BaseReadClientContract
+{
+    private BaseReadClientProperty[] _parameters = [];
+    private BaseReadClientProperty[] _row = [];
+    /// <summary>Gets the stable parameter DTO identifier.</summary>
+    public required string ParameterTypeId { get; init; }
+    /// <summary>Gets the stable result-row DTO identifier.</summary>
+    public required string RowTypeId { get; init; }
+    /// <summary>Gets the closed parameter properties.</summary>
+    public required IReadOnlyList<BaseReadClientProperty> Parameters { get => Array.AsReadOnly(_parameters); init => _parameters = value?.ToArray() ?? throw new ArgumentNullException(nameof(value)); }
+    /// <summary>Gets the closed result-row properties.</summary>
+    public required IReadOnlyList<BaseReadClientProperty> Row { get => Array.AsReadOnly(_row); init => _row = value?.ToArray() ?? throw new ArgumentNullException(nameof(value)); }
+}
+
+/// <summary>Describes one bounded registered-read DTO property.</summary>
+public sealed record BaseReadClientProperty
+{
+    /// <summary>Gets the stable wire identifier.</summary>
+    public required string Id { get; init; }
+    /// <summary>Gets the deterministic generated property name.</summary>
+    public required string GeneratedName { get; init; }
+    /// <summary>Gets the closed query-value kind.</summary>
+    public required QueryValueKind Kind { get; init; }
+    /// <summary>Gets whether the value is a bounded array.</summary>
+    public required bool Array { get; init; }
+    /// <summary>Gets whether the property may contain null.</summary>
+    public required bool Nullable { get; init; }
 }
 
 internal sealed record BaseUntypedRegisteredReadResult
@@ -127,6 +164,7 @@ internal sealed record BaseUntypedRegisteredReadResult
     internal object[]? Items { get; init; }
     internal PageInfo? Page { get; init; }
     internal CountInfo? Count { get; init; }
+    internal BaseDependencySet? Dependencies { get; init; }
 }
 
 internal sealed class BaseReadRegistry(IReadOnlyDictionary<string, IBaseReadRegistration> registrations)
@@ -183,9 +221,11 @@ public static class BaseReadGeneratedContract
         IBaseReadRowCodec<TRow> rowCodec,
         BaseReadExposure exposure,
         BaseReadAuthorization authorization,
+        BaseReadClientContract clientContract,
         Action<BaseReadDefinitionBuilder<TParameters, TRow>> configure)
     {
         ArgumentNullException.ThrowIfNull(configure);
+        ArgumentNullException.ThrowIfNull(clientContract);
         var builder = new BaseReadDefinitionBuilder<TParameters, TRow>(
             id, parameters);
         configure(builder);
@@ -198,7 +238,8 @@ public static class BaseReadGeneratedContract
             parameterJson,
             rowJson,
             parameterCodec,
-            rowCodec)
+            rowCodec,
+            clientContract)
         {
             Exposure = exposure,
             Authorization = authorization,

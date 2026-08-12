@@ -5,6 +5,7 @@ namespace HPD.Base;
 [JsonSourceGenerationOptions(GenerationMode = JsonSourceGenerationMode.Metadata, PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase, UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow, UseStringEnumConverter = true)]
 [JsonSerializable(typeof(BaseVectorHttpQueryRequest))]
 [JsonSerializable(typeof(BaseVectorHttpQueryResponse))]
+[JsonSerializable(typeof(BaseVectorHttpMeasure))]
 [JsonSerializable(typeof(BaseVectorHttpError))]
 [JsonSerializable(typeof(BaseVectorHttpRebuildRequest))]
 [JsonSerializable(typeof(BaseVectorIndexStatus))]
