@@ -451,7 +451,7 @@ internal sealed partial record GroupedPageRecord
     public required int Amount { get; init; }
 }
 
-[BaseRead("grouped-page", typeof(GroupedPageJsonContext))]
+[BaseRead("grouped-page", typeof(GroupedPageJsonContext), RequiredGrantId = "grouped-page.execute")]
 internal sealed partial record GroupedPageRead
 {
     [BaseReadParameter("grouped-page.amounts")]
@@ -510,7 +510,7 @@ internal sealed partial record DateTimeParityRecord
 [JsonSerializable(typeof(DateTimeParityRead.Row), TypeInfoPropertyName = "DateTimeParityReadRow")]
 internal sealed partial class DateTimeParityJsonContext : JsonSerializerContext;
 
-[BaseRead("datetime-parity", typeof(DateTimeParityJsonContext))]
+[BaseRead("datetime-parity", typeof(DateTimeParityJsonContext), RequiredGrantId = "datetime-parity.execute")]
 internal sealed partial record DateTimeParityRead
 {
     [BaseReadParameter("datetime.after")]

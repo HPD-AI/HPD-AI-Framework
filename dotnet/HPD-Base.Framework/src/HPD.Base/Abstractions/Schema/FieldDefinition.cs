@@ -26,6 +26,12 @@ public sealed record FieldDefinition
     public bool Hidden { get; init; }
     /// <summary>Gets or sets read Only.</summary>
     public bool ReadOnly { get; init; }
+    /// <summary>Gets the maximum disclosure classification.</summary>
+    public BaseFieldConfidentiality Confidentiality { get; init; } = BaseFieldConfidentiality.Public;
+    /// <summary>Gets the normalized complete disclosure policy.</summary>
+    public BaseFieldDisclosurePolicy? Disclosure { get; init; }
+    /// <summary>Gets the decoded byte limit for a binary field.</summary>
+    public int? MaximumBytes { get; init; }
     /// <summary>Gets or sets default.</summary>
     public DefaultValueDescriptor? Default { get; init; }
     /// <summary>Gets or sets generated.</summary>

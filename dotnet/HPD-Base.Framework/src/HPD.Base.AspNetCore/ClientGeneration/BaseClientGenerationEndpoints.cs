@@ -267,7 +267,7 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
                 ValueTypeId = $"field.{collection.Id}.{field.Id}",
                 ServerGenerated = field.Generated is not null || field.ReadOnly,
                 Mutable = !field.ReadOnly && field.Generated is null,
-                RedactionOptional = field.Visibility is not null,
+                RedactionOptional = (field.Disclosure?.RecordRead ?? BaseFieldDisclosurePolicies.For(field.Confidentiality).RecordRead) != BaseRecordDisclosure.Include,
                 Operators = Operators(field.Type)
             }).ToArray(),
             Operations = [.. operations],
@@ -280,6 +280,19 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
         .Where(collection => collection.Enabled && collection.Exposed)
         .SelectMany(CollectionTypes)
         .Concat(reads.SelectMany(ReadTypes))
+        .Concat([new BaseClientNamedTypeDescriptor
+        {
+            Id = "base.redacted.tag",
+            Node = new BaseClientTypeNode { Kind = "literal", Value = "redacted" }
+        }, new BaseClientNamedTypeDescriptor
+        {
+            Id = "base.redacted",
+            Node = new BaseClientTypeNode
+            {
+                Kind = "object", AdditionalProperties = false,
+                Properties = [new BaseClientPropertyDescriptor { Name = "$base", WireName = "$base", TypeId = "base.redacted.tag", Required = true, Nullable = false, RedactionOptional = false }]
+            }
+        }])
         .Concat(includeDependencyParameter ? [new BaseClientNamedTypeDescriptor { Id = "base.dependency.parameter", Node = new BaseClientTypeNode { Kind = "string", Format = "plain", MinLength = 0, MaxLength = 4096 } }] : [])
         .OrderBy(type => type.Id, StringComparer.Ordinal)
         .ToArray();
@@ -342,7 +355,9 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
             }
             else yield return new BaseClientNamedTypeDescriptor { Id = $"field.{collection.Id}.{field.Id}", Node = FieldNode(field) };
         }
-        yield return ObjectType($"collection.{collection.Id}.record", fields, static _ => true, output: true, requiredMutable: false);
+        yield return ObjectType($"collection.{collection.Id}.record", fields, static field =>
+            (field.Disclosure?.RecordRead ?? BaseFieldDisclosurePolicies.For(field.Confidentiality).RecordRead) != BaseRecordDisclosure.Omit,
+            output: true, requiredMutable: false);
         yield return ObjectType($"collection.{collection.Id}.create", fields, static field => !field.ReadOnly && field.Generated is null, output: false, requiredMutable: true);
         yield return ObjectType($"collection.{collection.Id}.replace", fields, static field => !field.ReadOnly && field.Generated is null, output: false, requiredMutable: true);
         yield return ObjectType($"collection.{collection.Id}.patch", fields, static field => !field.ReadOnly && field.Generated is null, output: false, requiredMutable: false);
@@ -357,10 +372,12 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
                 Properties = source.Where(include).Select(field => new BaseClientPropertyDescriptor
                 {
                     Name = GeneratedName(field.Name), WireName = field.Name,
-                    TypeId = $"field.{collection.Id}.{field.Id}",
+                    TypeId = output && (field.Disclosure?.RecordRead ?? BaseFieldDisclosurePolicies.For(field.Confidentiality).RecordRead) == BaseRecordDisclosure.FixedMarker
+                        ? "base.redacted" : $"field.{collection.Id}.{field.Id}",
                     Required = output || requiredMutable,
                     Nullable = field.Nullable,
-                    RedactionOptional = output && field.Visibility is not null
+                    RedactionOptional = output && (field.Visibility is not null ||
+                        (field.Disclosure?.RecordRead ?? BaseFieldDisclosurePolicies.For(field.Confidentiality).RecordRead) != BaseRecordDisclosure.Include)
                 }).ToArray()
             }
         };
@@ -374,6 +391,7 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
         "decimal" => new() { Kind = "decimal", Wire = "decimal-string" },
         "id" => new() { Kind = "string", Format = "record-id", MinLength = 1, MaxLength = 256 },
         "datetime" or "instant" => new() { Kind = "string", Format = "utc-instant", MinLength = 1, MaxLength = 64 },
+        _ when string.Equals(field.Format, "base64", StringComparison.Ordinal) => new() { Kind = "bytes", Wire = "base64", MaxBytes = field.MaximumBytes },
         _ => new() { Kind = "string", Format = "plain", MinLength = 0, MaxLength = 65536 }
     };
 

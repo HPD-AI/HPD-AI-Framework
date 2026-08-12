@@ -20,16 +20,14 @@ internal static class RegisteredReadEndpoints
         BaseReadRegistry? registry = endpoints.ServiceProvider.GetService<BaseReadRegistry>();
         if (registry is null) return;
         foreach (IBaseReadRegistration registration in registry.Registrations.Values
-            .Where(value => value.Exposure == exposure)
+            .Where(value => value.Exposure == exposure && value.Audience == audience)
             .OrderBy(static value => value.Id, StringComparer.Ordinal))
         {
             IBaseReadRegistration captured = registration;
             if (!IsValidHttpReadId(captured.Id))
                 throw new InvalidOperationException("base.http.endpoint.idInvalid");
             string operationId = "base.reads." + (exposure == BaseReadExposure.Admin ? "admin." : "public.") + captured.Id;
-            string capability = exposure == BaseReadExposure.Admin
-                ? HPDBaseCapabilities.AdministrationRecordsRead
-                : HPDBaseCapabilities.RecordsRead;
+            string capability = captured.RequiredGrantId;
             var route = endpoints.MapPost("/reads/" + captured.Id, (RequestDelegate)(context => Execute(context, captured)))
                 .WithHPDBaseEndpoint(operationId, audience, HPDBaseEndpointOperation.RegisteredRead, capability, convention)
                 .WithHPDBaseRegisteredReadOpenApi(

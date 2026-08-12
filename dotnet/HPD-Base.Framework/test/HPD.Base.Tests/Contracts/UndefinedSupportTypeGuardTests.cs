@@ -15,6 +15,7 @@ public sealed class UndefinedSupportTypeGuardTests
                 signature.EndsWith(":System.Object", StringComparison.Ordinal) ||
                 signature.EndsWith(":System.Type", StringComparison.Ordinal) &&
                     signature != "HPD.Base.BaseCollectionAttribute.JsonContextType:System.Type" &&
+                    signature != "HPD.Base.BaseCollectionStorageProtectionAttribute.DeclaringType:System.Type" &&
                     signature != "HPD.Base.BaseRelationAttribute.TargetRecordType:System.Type" &&
                     signature != "HPD.Base.BaseReadAttribute.JsonContextType:System.Type" ||
                 signature.Contains("System.Reflection.", StringComparison.Ordinal))

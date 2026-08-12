@@ -156,6 +156,8 @@ internal sealed class DefaultBaseSchemaValidator : IBaseSchemaValidator
 
         foreach (var (name, value) in fieldValues)
         {
+            if (ContainsRedactedMarker(value))
+                return ValidationError(BaseConfidentialityErrorCodes.RedactedMarkerForbidden, "Redacted output markers cannot be submitted as record data.", name);
             if (!fields.TryGetValue(name, out var field))
             {
                 continue;
@@ -171,6 +173,25 @@ internal sealed class DefaultBaseSchemaValidator : IBaseSchemaValidator
                 VectorIndexDefinition[] vectorIndexes = (collection.VectorIndexes ?? []).Where(index => string.Equals(index.VectorFieldId, field.Id, StringComparison.Ordinal)).ToArray();
                 BaseError? vectorError = ValidateVector(value, vectorIndexes, name);
                 if (vectorError is not null) return vectorError;
+            }
+            if (string.Equals(field.Format, "base64", StringComparison.Ordinal) && value.ValueKind != JsonValueKind.Null)
+            {
+                if (value.ValueKind != JsonValueKind.String || field.MaximumBytes is not { } maximum)
+                    return ValidationError(BaseBinaryErrorCodes.EncodingInvalid, "The binary value is invalid.", name);
+                try
+                {
+                    BaseBinary binary = BaseBinary.FromBase64(value.GetString()!);
+                    if (binary.Length > maximum)
+                        return ValidationError(BaseBinaryErrorCodes.ValueTooLarge, "The binary value exceeds its declared bound.", name);
+                }
+                catch (ArgumentOutOfRangeException)
+                {
+                    return ValidationError(BaseBinaryErrorCodes.ValueTooLarge, "The binary value exceeds its declared bound.", name);
+                }
+                catch (FormatException)
+                {
+                    return ValidationError(BaseBinaryErrorCodes.EncodingInvalid, "The binary value is invalid.", name);
+                }
             }
 
             var updateOperation = operation is SchemaValidationOperation.Patch or SchemaValidationOperation.Replace;
@@ -192,6 +213,19 @@ internal sealed class DefaultBaseSchemaValidator : IBaseSchemaValidator
         }
 
         return null;
+    }
+
+    private static bool ContainsRedactedMarker(JsonElement value)
+    {
+        if (value.ValueKind == JsonValueKind.Object)
+        {
+            JsonProperty[] properties = value.EnumerateObject().ToArray();
+            if (properties.Length == 1 && properties[0].NameEquals("$base") &&
+                properties[0].Value.ValueKind == JsonValueKind.String && properties[0].Value.GetString() == "redacted")
+                return true;
+            return properties.Any(static property => ContainsRedactedMarker(property.Value));
+        }
+        return value.ValueKind == JsonValueKind.Array && value.EnumerateArray().Any(ContainsRedactedMarker);
     }
 
     private static BaseError? ValidateVector(JsonElement value, VectorIndexDefinition[] indexes, string fieldName)

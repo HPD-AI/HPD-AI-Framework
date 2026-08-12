@@ -57,8 +57,16 @@ public sealed class BaseReadGenerator : IIncrementalGenerator
             INamedTypeSymbol jsonContext = ConstructorType(attribute, 1);
             int exposure = NamedEnum(attribute, "Exposure", 0);
             int authorization = NamedEnum(attribute, "Authorization", 0);
+            int disclosure = NamedEnum(attribute, "Disclosure", 0);
+            int sourceAuthority = NamedEnum(attribute, "SourceAuthority", 0);
+            int audience = NamedEnum(attribute, "Audience", 1);
+            string requiredGrantId = NamedString(attribute, "RequiredGrantId");
+            string[] confidentialOutputFieldIds = NamedStrings(attribute, "ConfidentialOutputFieldIds");
+            string[] secretOutputFieldIds = NamedStrings(attribute, "SecretOutputFieldIds");
+            string[] systemSourceIds = NamedStrings(attribute, "SystemSourceIds");
             if (exposure is < 0 or > 2 || authorization is < 0 or > 2 ||
-                exposure == 2 && authorization == 0)
+                disclosure is < 0 or > 2 || sourceAuthority is < 0 or > 1 || audience is < 0 or > 2 ||
+                exposure == 2 && authorization == 0 || !ValidId(requiredGrantId))
             {
                 Report(context, symbol, id ?? symbol.Name,
                     "exposure and authorization metadata must be valid, and admin exposure requires admin or system authorization");
@@ -99,6 +107,13 @@ public sealed class BaseReadGenerator : IIncrementalGenerator
                 Id = id,
                 Exposure = exposure,
                 Authorization = authorization,
+                Disclosure = disclosure,
+                SourceAuthority = sourceAuthority,
+                Audience = audience,
+                RequiredGrantId = requiredGrantId,
+                ConfidentialOutputFieldIds = confidentialOutputFieldIds,
+                SecretOutputFieldIds = secretOutputFieldIds,
+                SystemSourceIds = systemSourceIds,
                 Parameters = parameters,
                 Fields = fields,
             };
@@ -248,6 +263,13 @@ public sealed class BaseReadGenerator : IIncrementalGenerator
             .Append(new[] { "None", "Public", "Admin" }[model.Exposure])
             .Append(", global::HPD.Base.BaseReadAuthorization.")
             .Append(new[] { "Authenticated", "Admin", "System" }[model.Authorization])
+            .Append(", global::HPD.Base.BaseRegisteredReadDisclosure.").Append(new[] { "Ordinary", "ConfidentialProjection", "SecretProjection" }[model.Disclosure])
+            .Append(", global::HPD.Base.BaseRegisteredReadSourceAuthority.").Append(new[] { "Ordinary", "System" }[model.SourceAuthority])
+            .Append(", global::HPD.Base.HPDBaseEndpointAudience.").Append(new[] { "Public", "Application", "ControlPlane" }[model.Audience])
+            .Append(", ").Append(Literal(model.RequiredGrantId))
+            .Append(", ").Append(StringArray(model.ConfidentialOutputFieldIds))
+            .Append(", ").Append(StringArray(model.SecretOutputFieldIds))
+            .Append(", ").Append(StringArray(model.SystemSourceIds))
             .AppendLine(",");
         source.AppendLine("            new global::HPD.Base.BaseReadClientContract");
         source.AppendLine("            {");
@@ -281,6 +303,16 @@ public sealed class BaseReadGenerator : IIncrementalGenerator
     private static string ConstructorString(AttributeData attribute, int index) => attribute?.ConstructorArguments.Length > index ? attribute.ConstructorArguments[index].Value as string : null;
     private static int NamedEnum(AttributeData attribute, string name, int fallback) =>
         attribute.NamedArguments.FirstOrDefault(pair => pair.Key == name).Value.Value is int value ? value : fallback;
+    private static string NamedString(AttributeData attribute, string name) =>
+        attribute.NamedArguments.FirstOrDefault(pair => pair.Key == name).Value.Value as string;
+    private static string[] NamedStrings(AttributeData attribute, string name)
+    {
+        TypedConstant constant = attribute.NamedArguments.FirstOrDefault(pair => pair.Key == name).Value;
+        if (constant.Kind != TypedConstantKind.Array) return Array.Empty<string>();
+        ImmutableArray<TypedConstant> values = constant.Values;
+        return values.IsDefault ? Array.Empty<string>() : values
+            .Select(static value => value.Value as string).Where(static value => value != null).ToArray();
+    }
     private static INamedTypeSymbol ConstructorType(AttributeData attribute, int index) => attribute?.ConstructorArguments.Length > index ? attribute.ConstructorArguments[index].Value as INamedTypeSymbol : null;
     private static Location Location(ISymbol symbol) => symbol.Locations.FirstOrDefault(static location => location.IsInSource) ?? Microsoft.CodeAnalysis.Location.None;
     private static void Report(SourceProductionContext context, ISymbol symbol, string id, string reason) => context.ReportDiagnostic(Diagnostic.Create(InvalidRead, Location(symbol), id, reason));
@@ -366,6 +398,8 @@ public sealed class BaseReadGenerator : IIncrementalGenerator
     private static string Escape(string value) => SyntaxFacts.GetKeywordKind(value) != SyntaxKind.None ? "@" + value : value;
     private static string Sanitize(string value) => new(value.Select(static character => char.IsLetterOrDigit(character) || character == '_' ? character : '_').ToArray());
     private static string Literal(string value) => SymbolDisplay.FormatLiteral(value ?? string.Empty, true);
+    private static string StringArray(IEnumerable<string> values) =>
+        "new string[] { " + string.Join(", ", values.Select(Literal)) + " }";
 
     private sealed class ReadModel { /// <summary>Provides the namespace value.</summary>
         public string Namespace; /// <summary>Provides the type name value.</summary>
@@ -376,6 +410,13 @@ public sealed class BaseReadGenerator : IIncrementalGenerator
         public string Id; /// <summary>Provides the exposure value.</summary>
         public int Exposure; /// <summary>Provides the authorization value.</summary>
         public int Authorization; /// <summary>Provides the parameters value.</summary>
+        public int Disclosure;
+        public int SourceAuthority;
+        public int Audience;
+        public string RequiredGrantId;
+        public string[] ConfidentialOutputFieldIds;
+        public string[] SecretOutputFieldIds;
+        public string[] SystemSourceIds;
         public List<MemberModel> Parameters; /// <summary>Provides the fields value.</summary>
         public List<MemberModel> Fields; }
     private sealed class MemberModel { /// <summary>Provides the name value.</summary>

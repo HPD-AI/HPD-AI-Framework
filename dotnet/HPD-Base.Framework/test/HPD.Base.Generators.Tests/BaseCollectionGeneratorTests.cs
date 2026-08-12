@@ -11,6 +11,30 @@ namespace HPD.Base.Generators.Tests;
 public sealed class BaseCollectionGeneratorTests
 {
     [Fact]
+    public void BinaryAndConfidentialityLowerToTheCanonicalSchemaContract()
+    {
+        const string source = """
+            using HPD.Base;
+            using System.Text.Json.Serialization;
+            [BaseCollection("secrets", typeof(AppJsonContext))]
+            public sealed partial record SecretRecord
+            {
+                [BaseField("secret.payload", MaximumBytes = 16384)]
+                [BaseFieldConfidentiality(BaseFieldConfidentiality.Secret)]
+                public required BaseBinary Payload { get; init; }
+            }
+            [JsonSerializable(typeof(SecretRecord))]
+            public sealed partial class AppJsonContext : JsonSerializerContext;
+            """;
+
+        GeneratorResult result = Run(source);
+
+        result.Diagnostics.Should().BeEmpty();
+        result.GeneratedSource.Should().Contain("Format = \"base64\"");
+        result.GeneratedSource.Should().Contain("MaximumBytes = 16384");
+        result.GeneratedSource.Should().Contain("BaseFieldConfidentiality)3");
+    }
+    [Fact]
     public void GenerationIsDeterministic()
     {
         const string source = """

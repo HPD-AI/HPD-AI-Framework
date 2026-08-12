@@ -652,7 +652,7 @@ internal sealed partial record ReadUnrelated
     public required string Value { get; init; }
 }
 
-[BaseRead("project-name", typeof(GeneratedReadJsonContext), Exposure = BaseReadExposure.Public)]
+[BaseRead("project-name", typeof(GeneratedReadJsonContext), Exposure = BaseReadExposure.Public, RequiredGrantId = "project-name.execute")]
 internal sealed partial record ProjectNameRead
 {
     [BaseReadParameter("project-name.name")]
@@ -673,7 +673,7 @@ internal sealed partial record ProjectNameRead
     }
 }
 
-[BaseRead("project-summary", typeof(GeneratedReadJsonContext))]
+[BaseRead("project-summary", typeof(GeneratedReadJsonContext), RequiredGrantId = "project-summary.execute")]
 internal sealed partial record ProjectSummaryRead
 {
     [BaseReadParameter("project-summary.owner-id")]

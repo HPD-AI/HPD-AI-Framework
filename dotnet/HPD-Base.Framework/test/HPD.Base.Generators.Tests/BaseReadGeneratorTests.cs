@@ -17,7 +17,7 @@ public sealed class BaseReadGeneratorTests
             using HPD.Base;
             using System.Text.Json.Serialization;
 
-            [BaseRead("project-name", typeof(AppJsonContext), Exposure = BaseReadExposure.Admin, Authorization = BaseReadAuthorization.Admin)]
+            [BaseRead("project-name", typeof(AppJsonContext), Exposure = BaseReadExposure.Admin, Authorization = BaseReadAuthorization.Admin, RequiredGrantId = "project-name.execute")]
             public partial record ProjectName
             {
                 [BaseReadParameter("project-name.id")]
@@ -54,7 +54,7 @@ public sealed class BaseReadGeneratorTests
         const string source = """
             using HPD.Base;
             using System.Text.Json.Serialization;
-            [BaseRead("read", typeof(AppJsonContext), Exposure = BaseReadExposure.Admin)]
+            [BaseRead("read", typeof(AppJsonContext), Exposure = BaseReadExposure.Admin, RequiredGrantId = "read.execute")]
             public partial record Read
             {
                 [BaseReadParameter("read.value")]
@@ -83,7 +83,7 @@ public sealed class BaseReadGeneratorTests
         const string source = """
             using HPD.Base;
             using System.Text.Json.Serialization;
-            [BaseRead("read", typeof(AppJsonContext))]
+            [BaseRead("read", typeof(AppJsonContext), RequiredGrantId = "read.execute")]
             public partial record Read
             {
                 public string Value { get; init; } = "";
@@ -111,7 +111,7 @@ public sealed class BaseReadGeneratorTests
         const string source = """
             using HPD.Base;
             using System.Text.Json.Serialization;
-            [BaseRead("read", typeof(AppJsonContext))]
+            [BaseRead("read", typeof(AppJsonContext), RequiredGrantId = "read.execute")]
             public partial record Read
             {
                 [BaseReadParameter("read.value")]
@@ -141,7 +141,7 @@ public sealed class BaseReadGeneratorTests
             using HPD.Base;
             using System.Text.Json.Serialization;
             public sealed record Project;
-            [BaseRead("read", typeof(AppJsonContext))]
+            [BaseRead("read", typeof(AppJsonContext), RequiredGrantId = "read.execute")]
             public partial record Read
             {
                 [BaseReadParameter("read.project")]
@@ -172,7 +172,7 @@ public sealed class BaseReadGeneratorTests
             using HPD.Base;
             using System;
             using System.Text.Json.Serialization;
-            [BaseRead("read", typeof(AppJsonContext))]
+            [BaseRead("read", typeof(AppJsonContext), RequiredGrantId = "read.execute")]
             public partial record Read
             {
                 [BaseReadParameter("read.after")]

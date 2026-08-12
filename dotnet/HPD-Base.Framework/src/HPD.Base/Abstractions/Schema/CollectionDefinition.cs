@@ -53,6 +53,8 @@ public sealed record CollectionDefinition
     public DateTimeOffset? RefreshedAt { get; init; }
     /// <summary>Gets or sets the extensions.</summary>
     public Dictionary<string, JsonElement>? Extensions { get; init; }
+    /// <summary>Gets frozen collection-scope storage-protection requirements.</summary>
+    public BaseStorageProtectionRequirement[]? StorageProtectionRequirements { get; init; }
 }
 
 /// <summary>Represents a collection operation matrix.</summary>

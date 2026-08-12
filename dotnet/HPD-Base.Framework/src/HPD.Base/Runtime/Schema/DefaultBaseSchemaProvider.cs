@@ -51,11 +51,17 @@ internal sealed class DefaultBaseSchemaProvider : IBaseSchemaProvider
             countAsDiagnosticRead: false,
             () =>
             {
-                var schema = DescriptorViewFilter.Schema(_registry.Current, view);
-
-                var collection = schema.Collections?.FirstOrDefault(
+                CollectionDefinition? authoritative = _registry.Current.Schema.Collections?.FirstOrDefault(
                     item => string.Equals(item.Id, collectionId, StringComparison.Ordinal));
+                if (authoritative?.System == true && !BaseSystemCollectionGate.Allows(principal))
+                    return ValueTask.FromResult(OperationResults.NotFound<CollectionDefinition>(new BaseError
+                    {
+                        Code = "base.systemCollection.accessForbidden",
+                        Message = "Collection was not found.",
+                        Category = ErrorCategory.NotFound
+                    }));
 
+                CollectionDefinition? collection = authoritative is null ? null : DescriptorViewFilter.Collection(authoritative, view);
                 return ValueTask.FromResult(collection is null
                     ? OperationResults.NotFound<CollectionDefinition>(new BaseError
                     {
@@ -67,4 +73,11 @@ internal sealed class DefaultBaseSchemaProvider : IBaseSchemaProvider
                     : OperationResults.Ok(collection));
             });
     }
+}
+
+internal static class BaseSystemCollectionGate
+{
+    internal static bool Allows(PrincipalContext principal) =>
+        principal.AuthenticationState is PrincipalAuthenticationState.Service or PrincipalAuthenticationState.System
+        && principal.SubjectKind is AccessSubjectKind.ServicePrincipal or AccessSubjectKind.System;
 }

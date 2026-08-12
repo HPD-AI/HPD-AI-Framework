@@ -50,6 +50,27 @@ public sealed class BaseReadDefinition<TParameters, TRow> : IBaseReadRegistratio
     /// <summary>Gets the minimum principal authorization required to invoke the read.</summary>
     public BaseReadAuthorization Authorization { get; internal init; } = BaseReadAuthorization.Authenticated;
 
+    /// <summary>Gets the result disclosure authority.</summary>
+    public BaseRegisteredReadDisclosure Disclosure { get; internal init; }
+
+    /// <summary>Gets the source authority.</summary>
+    public BaseRegisteredReadSourceAuthority SourceAuthority { get; internal init; }
+
+    /// <summary>Gets the sole endpoint audience.</summary>
+    public HPDBaseEndpointAudience Audience { get; internal init; } = HPDBaseEndpointAudience.Application;
+
+    /// <summary>Gets the exact invocation grant identifier.</summary>
+    public string RequiredGrantId { get; internal init; } = string.Empty;
+
+    /// <summary>Gets the declared Confidential result-field identifiers.</summary>
+    public IReadOnlyList<string> ConfidentialOutputFieldIds { get; internal init; } = Array.Empty<string>();
+
+    /// <summary>Gets the declared Secret result-field identifiers.</summary>
+    public IReadOnlyList<string> SecretOutputFieldIds { get; internal init; } = Array.Empty<string>();
+
+    /// <summary>Gets the exact declared system source collection identifiers.</summary>
+    public IReadOnlyList<string> SystemSourceIds { get; internal init; } = Array.Empty<string>();
+
     internal BaseRelationalReadPlan Plan { get; }
 
     /// <summary>Gets source-generated request metadata.</summary>
@@ -72,6 +93,13 @@ public sealed class BaseReadDefinition<TParameters, TRow> : IBaseReadRegistratio
     Type IBaseReadRegistration.ResponseType => typeof(BasePage<TRow>);
     BaseReadExposure IBaseReadRegistration.Exposure => Exposure;
     BaseReadAuthorization IBaseReadRegistration.Authorization => Authorization;
+    BaseRegisteredReadDisclosure IBaseReadRegistration.Disclosure => Disclosure;
+    BaseRegisteredReadSourceAuthority IBaseReadRegistration.SourceAuthority => SourceAuthority;
+    HPDBaseEndpointAudience IBaseReadRegistration.Audience => Audience;
+    string IBaseReadRegistration.RequiredGrantId => RequiredGrantId;
+    IReadOnlyList<string> IBaseReadRegistration.ConfidentialOutputFieldIds => ConfidentialOutputFieldIds;
+    IReadOnlyList<string> IBaseReadRegistration.SecretOutputFieldIds => SecretOutputFieldIds;
+    IReadOnlyList<string> IBaseReadRegistration.SystemSourceIds => SystemSourceIds;
     BaseReadClientContract IBaseReadRegistration.ClientContract => ClientContract;
 
     async ValueTask<BaseUntypedRegisteredReadResult> IBaseReadRegistration.ExecuteAsync(
@@ -121,6 +149,20 @@ internal interface IBaseReadRegistration
     BaseReadExposure Exposure { get; }
     /// <summary>Gets the minimum invocation authorization.</summary>
     BaseReadAuthorization Authorization { get; }
+    /// <summary>Gets the disclosure authority.</summary>
+    BaseRegisteredReadDisclosure Disclosure { get; }
+    /// <summary>Gets the source authority.</summary>
+    BaseRegisteredReadSourceAuthority SourceAuthority { get; }
+    /// <summary>Gets the endpoint audience.</summary>
+    HPDBaseEndpointAudience Audience { get; }
+    /// <summary>Gets the required grant identifier.</summary>
+    string RequiredGrantId { get; }
+    /// <summary>Gets the confidential output IDs.</summary>
+    IReadOnlyList<string> ConfidentialOutputFieldIds { get; }
+    /// <summary>Gets the secret output IDs.</summary>
+    IReadOnlyList<string> SecretOutputFieldIds { get; }
+    /// <summary>Gets the declared system source IDs.</summary>
+    IReadOnlyList<string> SystemSourceIds { get; }
     /// <summary>Gets the exact language-neutral client contract.</summary>
     BaseReadClientContract ClientContract { get; }
     /// <summary>Executes the execute async operation.</summary>
@@ -221,6 +263,13 @@ public static class BaseReadGeneratedContract
         IBaseReadRowCodec<TRow> rowCodec,
         BaseReadExposure exposure,
         BaseReadAuthorization authorization,
+        BaseRegisteredReadDisclosure disclosure,
+        BaseRegisteredReadSourceAuthority sourceAuthority,
+        HPDBaseEndpointAudience audience,
+        string requiredGrantId,
+        string[] confidentialOutputFieldIds,
+        string[] secretOutputFieldIds,
+        string[] systemSourceIds,
         BaseReadClientContract clientContract,
         Action<BaseReadDefinitionBuilder<TParameters, TRow>> configure)
     {
@@ -229,10 +278,22 @@ public static class BaseReadGeneratedContract
         var builder = new BaseReadDefinitionBuilder<TParameters, TRow>(
             id, parameters);
         configure(builder);
-        if (!Enum.IsDefined(exposure) || !Enum.IsDefined(authorization))
+        if (!Enum.IsDefined(exposure) || !Enum.IsDefined(authorization) || !Enum.IsDefined(disclosure) ||
+            !Enum.IsDefined(sourceAuthority) || !Enum.IsDefined(audience))
             throw new ArgumentOutOfRangeException(nameof(exposure));
         if (exposure == BaseReadExposure.Admin && authorization == BaseReadAuthorization.Authenticated)
             throw new InvalidOperationException("An admin-exposed registered read must require admin or system authorization.");
+        string[] confidential = NormalizeIds(confidentialOutputFieldIds, nameof(confidentialOutputFieldIds));
+        string[] secret = NormalizeIds(secretOutputFieldIds, nameof(secretOutputFieldIds));
+        string[] systemSources = NormalizeIds(systemSourceIds, nameof(systemSourceIds));
+        if (string.IsNullOrWhiteSpace(requiredGrantId))
+            throw new InvalidOperationException("A registered read must declare one exact operation grant.");
+        BaseApplicationId.Validate(requiredGrantId, nameof(requiredGrantId));
+        if (disclosure == BaseRegisteredReadDisclosure.Ordinary && (confidential.Length != 0 || secret.Length != 0) ||
+            disclosure == BaseRegisteredReadDisclosure.ConfidentialProjection && secret.Length != 0 ||
+            sourceAuthority == BaseRegisteredReadSourceAuthority.Ordinary && systemSources.Length != 0 ||
+            sourceAuthority == BaseRegisteredReadSourceAuthority.System && systemSources.Length == 0)
+            throw new InvalidOperationException("The registered read confidentiality declaration is inconsistent.");
         return new BaseReadDefinition<TParameters, TRow>(
             builder.Build(),
             parameterJson,
@@ -243,7 +304,24 @@ public static class BaseReadGeneratedContract
         {
             Exposure = exposure,
             Authorization = authorization,
+            Disclosure = disclosure,
+            SourceAuthority = sourceAuthority,
+            Audience = audience,
+            RequiredGrantId = new string(requiredGrantId.AsSpan()),
+            ConfidentialOutputFieldIds = Array.AsReadOnly(confidential),
+            SecretOutputFieldIds = Array.AsReadOnly(secret),
+            SystemSourceIds = Array.AsReadOnly(systemSources),
         };
+    }
+
+    private static string[] NormalizeIds(string[]? ids, string parameter)
+    {
+        ArgumentNullException.ThrowIfNull(ids, parameter);
+        string[] result = ids.Select(static id => new string(id.AsSpan())).OrderBy(static id => id, StringComparer.Ordinal).ToArray();
+        foreach (string id in result) BaseApplicationId.Validate(id, parameter);
+        if (result.Distinct(StringComparer.Ordinal).Count() != result.Length)
+            throw new InvalidOperationException("Registered read identifiers must be unique.");
+        return result;
     }
 
     /// <summary>Encodes one generated supported scalar parameter.</summary>

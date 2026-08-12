@@ -12,7 +12,7 @@ internal sealed class DefaultBaseRecordRedactor : IBaseRecordRedactor
         VisibilityLevel view)
     {
         var allowed = AllowedFields(collection, policy.EffectiveReadMask, view);
-        var payload = RedactPayload(record.Payload, allowed, out var omitted);
+        var payload = RedactPayload(record.Payload, collection, allowed, out var omitted);
         return record with
         {
             Payload = payload,
@@ -87,32 +87,31 @@ internal sealed class DefaultBaseRecordRedactor : IBaseRecordRedactor
 
     private static RecordPayload RedactPayload(
         RecordPayload payload,
+        CollectionDefinition collection,
         HashSet<string> allowed,
         out string[] omitted)
     {
+        Dictionary<string, FieldDefinition> declared = (collection.Fields ?? []).ToDictionary(static field => field.Name, StringComparer.Ordinal);
         if (payload.Kind == RecordPayloadKind.FieldMap)
         {
             var fields = payload.Fields ?? [];
-            if (allowed.Contains("*"))
+            var kept = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+            var omittedList = new List<string>();
+            foreach (FieldDefinition field in collection.Fields ?? [])
             {
-                omitted = [];
-                return payload;
+                BaseRecordDisclosure disclosure = field.Disclosure?.RecordRead ?? BaseConfidentialityPolicy.Default(field.Confidentiality).RecordRead;
+                bool policyAllowed = allowed.Contains("*") || allowed.Contains(field.Name);
+                if (!policyAllowed || disclosure == BaseRecordDisclosure.Omit) { if (fields.ContainsKey(field.Name)) omittedList.Add(field.Name); continue; }
+                if (disclosure == BaseRecordDisclosure.FixedMarker) { kept[field.Name] = RedactedElement(); continue; }
+                if (fields.TryGetValue(field.Name, out JsonElement value)) kept[field.Name] = value.Clone();
             }
-
-            var kept = fields
-                .Where(pair => allowed.Contains(pair.Key))
-                .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
-            omitted = fields.Keys.Where(key => !allowed.Contains(key)).ToArray();
+            foreach ((string key, JsonElement value) in fields)
+                if (!declared.ContainsKey(key) && allowed.Contains("*")) kept[key] = value.Clone();
+            omitted = omittedList.ToArray();
             return payload with { Fields = kept };
         }
 
         if (payload.Json.ValueKind != JsonValueKind.Object)
-        {
-            omitted = [];
-            return payload;
-        }
-
-        if (allowed.Contains("*"))
         {
             omitted = [];
             return payload;
@@ -123,17 +122,23 @@ internal sealed class DefaultBaseRecordRedactor : IBaseRecordRedactor
         {
             writer.WriteStartObject();
             var omittedList = new List<string>();
-            foreach (var property in payload.Json.EnumerateObject())
+            Dictionary<string, JsonElement> source = payload.Json.EnumerateObject().ToDictionary(static property => property.Name, static property => property.Value.Clone(), StringComparer.Ordinal);
+            foreach (FieldDefinition field in collection.Fields ?? [])
             {
-                if (allowed.Contains(property.Name))
+                BaseRecordDisclosure disclosure = field.Disclosure?.RecordRead ?? BaseConfidentialityPolicy.Default(field.Confidentiality).RecordRead;
+                bool policyAllowed = allowed.Contains("*") || allowed.Contains(field.Name);
+                if (!policyAllowed || disclosure == BaseRecordDisclosure.Omit) { if (source.ContainsKey(field.Name)) omittedList.Add(field.Name); continue; }
+                if (disclosure == BaseRecordDisclosure.FixedMarker)
                 {
-                    property.WriteTo(writer);
+                    writer.WritePropertyName(field.Name); RedactedElement().WriteTo(writer);
                 }
-                else
+                else if (source.TryGetValue(field.Name, out JsonElement value))
                 {
-                    omittedList.Add(property.Name);
+                    writer.WritePropertyName(field.Name); value.WriteTo(writer);
                 }
             }
+            foreach ((string key, JsonElement value) in source)
+                if (!declared.ContainsKey(key) && allowed.Contains("*")) { writer.WritePropertyName(key); value.WriteTo(writer); }
 
             writer.WriteEndObject();
             omitted = omittedList.ToArray();
@@ -141,5 +146,11 @@ internal sealed class DefaultBaseRecordRedactor : IBaseRecordRedactor
 
         var document = JsonDocument.Parse(stream.ToArray());
         return payload with { Json = document.RootElement.Clone() };
+    }
+
+    private static JsonElement RedactedElement()
+    {
+        using JsonDocument document = JsonDocument.Parse("{\"$base\":\"redacted\"}");
+        return document.RootElement.Clone();
     }
 }

@@ -97,7 +97,7 @@ internal sealed class HPDBaseEndpointInventoryValidator(
         ValidateRegisteredReadInventory(endpoints);
     }
 
-    private static Expected ResolveExpected(HPDBaseEndpointDescriptor descriptor)
+    private Expected ResolveExpected(HPDBaseEndpointDescriptor descriptor)
     {
         if (Static.TryGetValue(descriptor.EndpointId, out Expected? expected)) return expected;
         const string publicPrefix = "base.reads.public.";
@@ -106,10 +106,12 @@ internal sealed class HPDBaseEndpointInventoryValidator(
             descriptor.EndpointId.StartsWith(adminPrefix, StringComparison.Ordinal) ? descriptor.EndpointId[adminPrefix.Length..] : null;
         if (id is null || !RegisteredReadEndpoints.IsValidHttpReadId(id)) Fail("base.http.endpoint.idInvalid");
         bool admin = descriptor.EndpointId.StartsWith(adminPrefix, StringComparison.Ordinal);
+        IBaseReadRegistration? registration = reads?.Registrations.Values.SingleOrDefault(read => string.Equals(read.Id, id, StringComparison.Ordinal));
+        if (registration is null) Fail("base.http.endpoint.descriptorMissing");
         return new Expected("POST", (admin ? "/admin/reads/" : "/reads/") + id,
             HPDBaseEndpointOperation.RegisteredRead,
-            admin ? HPDBaseCapabilities.AdministrationRecordsRead : HPDBaseCapabilities.RecordsRead,
-            admin ? [HPDBaseEndpointAudience.ControlPlane] : [HPDBaseEndpointAudience.Application, HPDBaseEndpointAudience.ControlPlane]);
+            registration!.RequiredGrantId,
+            [registration.Audience]);
     }
 
     private static void ValidateRoute(Endpoint endpoint, Expected expected)
@@ -143,7 +145,7 @@ internal sealed class HPDBaseEndpointInventoryValidator(
         if (selections is null || reads is null) return;
         foreach ((BaseReadExposure exposure, HPDBaseEndpointAudience audience) in selections.RegisteredReads())
         {
-            foreach (IBaseReadRegistration read in reads.Registrations.Values.Where(read => read.Exposure == exposure))
+            foreach (IBaseReadRegistration read in reads.Registrations.Values.Where(read => read.Exposure == exposure && read.Audience == audience))
             {
                 string id = "base.reads." + (exposure == BaseReadExposure.Admin ? "admin." : "public.") + read.Id;
                 int count = endpoints.Count(endpoint => endpoint.Metadata.GetMetadata<HPDBaseEndpointDescriptor>() is { } descriptor &&

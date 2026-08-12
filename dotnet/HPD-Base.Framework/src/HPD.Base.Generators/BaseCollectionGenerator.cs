@@ -19,6 +19,9 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         "HPD.Base.BaseCollectionAttribute";
     private const string FieldAttribute =
         "HPD.Base.BaseFieldAttribute";
+    private const string ConfidentialityAttribute = "HPD.Base.BaseFieldConfidentialityAttribute";
+    private const string DisclosureAttribute = "HPD.Base.BaseFieldDisclosureAttribute";
+    private const string StorageProtectionAttribute = "HPD.Base.BaseCollectionStorageProtectionAttribute";
     private const string IndexAttribute =
         "HPD.Base.BaseIndexAttribute";
     private const string RelationAttribute =
@@ -362,6 +365,31 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
                 Required = property.IsRequired || !IsNullable(property),
                 Operators = operators,
             };
+            AttributeData confidentialityAttribute = FindAttribute(property, ConfidentialityAttribute);
+            field.Confidentiality = confidentialityAttribute is null ? 0 : (int)(confidentialityAttribute.ConstructorArguments[0].Value ?? -1);
+            if (field.Confidentiality is < 0 or > 3)
+            {
+                context.ReportDiagnostic(Diagnostic.Create(InvalidField, GetLocation(property), collectionId, property.Name, "the confidentiality class is invalid"));
+                return null;
+            }
+            AttributeData disclosureAttribute = FindAttribute(property, DisclosureAttribute);
+            if (disclosureAttribute is not null)
+            {
+                string[] requiredDisclosureNames = new[] { "RecordRead", "Event", "Realtime", "Diagnostic", "AdministrativeDataExport", "OrdinaryDataExport", "Indexing" };
+                if (requiredDisclosureNames.Any(name => disclosureAttribute.NamedArguments.All(pair => pair.Key != name)))
+                {
+                    context.ReportDiagnostic(Diagnostic.Create(InvalidField, GetLocation(property), collectionId, property.Name, "all disclosure channels must be assigned"));
+                    return null;
+                }
+                field.Disclosure = requiredDisclosureNames.Select(name => (int)disclosureAttribute.NamedArguments.Single(pair => pair.Key == name).Value.Value!).ToArray();
+            }
+            field.MaximumBytes = (int)GetNamedInt64(fieldAttribute, "MaximumBytes", 0);
+            bool binary = property.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) == "global::HPD.Base.BaseBinary";
+            if (binary != (field.MaximumBytes > 0) || binary && field.MaximumBytes > 1_048_576)
+            {
+                context.ReportDiagnostic(Diagnostic.Create(InvalidField, GetLocation(property), collectionId, property.Name, "binary fields require MaximumBytes from 1 through 1048576 and other fields forbid it"));
+                return null;
+            }
 
             AttributeData relationAttribute = FindAttribute(property, RelationAttribute);
             if (relationAttribute != null)
@@ -627,6 +655,22 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         indexes.Sort(static (left, right) => StringComparer.Ordinal.Compare(left.Id, right.Id));
         vectorIndexes.Sort(static (left, right) => StringComparer.Ordinal.Compare(left.Id, right.Id));
 
+        var storageRequirements = new List<string>();
+        foreach (AttributeData requirementAttribute in symbol.GetAttributes().Where(static attribute => attribute.AttributeClass?.ToDisplayString() == StorageProtectionAttribute))
+        {
+            INamedTypeSymbol declaringType = requirementAttribute.ConstructorArguments[0].Value as INamedTypeSymbol;
+            string propertyName = requirementAttribute.ConstructorArguments[1].Value as string;
+            IPropertySymbol property = declaringType?.GetMembers(propertyName ?? string.Empty).OfType<IPropertySymbol>().SingleOrDefault();
+            if (property is null || !property.IsStatic || property.DeclaredAccessibility != Accessibility.Public ||
+                property.Type.ToDisplayString() != "HPD.Base.BaseStorageProtectionRequirement")
+            {
+                context.ReportDiagnostic(Diagnostic.Create(InvalidField, GetLocation(symbol), collectionId, "<collection>",
+                    "storage-protection declarations must name a public static BaseStorageProtectionRequirement property"));
+                return null;
+            }
+            storageRequirements.Add(declaringType!.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) + "." + EscapeIdentifier(property.Name));
+        }
+
         return new CollectionModel
         {
             Namespace = symbol.ContainingNamespace.IsGlobalNamespace
@@ -643,6 +687,7 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
             Fields = fields,
             Indexes = indexes,
             VectorIndexes = vectorIndexes,
+            StorageRequirements = storageRequirements,
             ContextTypeName =
                 jsonContext.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
             HintName = "HPDBaseCollection_" + Sanitize(metadataName),
@@ -775,6 +820,11 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         RenderFieldDefinitions(source, model);
         RenderIndexes(source, model);
         RenderVectorIndexes(source, model);
+        if (model.StorageRequirements.Count != 0)
+        {
+            source.Append("                StorageProtectionRequirements = new global::HPD.Base.BaseStorageProtectionRequirement[] { ")
+                .Append(string.Join(", ", model.StorageRequirements)).AppendLine(" },");
+        }
         source.AppendLine("            },");
         source.AppendLine("            jsonTypeInfo,");
         source.AppendLine("            fields =>");
@@ -822,6 +872,25 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
                 .Append(field.Required ? "true" : "false").AppendLine(",");
             source.Append("                        Nullable = ")
                 .Append(field.Nullable ? "true" : "false").AppendLine(",");
+            source.Append("                        Confidentiality = (global::HPD.Base.BaseFieldConfidentiality)").Append(field.Confidentiality).AppendLine(",");
+            if (field.Disclosure is not null)
+            {
+                source.AppendLine("                        Disclosure = new global::HPD.Base.BaseFieldDisclosurePolicy");
+                source.AppendLine("                        {");
+                source.Append("                            RecordRead = (global::HPD.Base.BaseRecordDisclosure)").Append(field.Disclosure[0]).AppendLine(",");
+                source.AppendLine("                            AuthoritativeHistory = global::HPD.Base.BaseHistoryProtection.AuthoritativeRequired,");
+                source.Append("                            Event = (global::HPD.Base.BaseProjectionDisclosure)").Append(field.Disclosure[1]).AppendLine(",");
+                source.Append("                            Realtime = (global::HPD.Base.BaseProjectionDisclosure)").Append(field.Disclosure[2]).AppendLine(",");
+                source.Append("                            Diagnostic = (global::HPD.Base.BaseProjectionDisclosure)").Append(field.Disclosure[3]).AppendLine(",");
+                source.AppendLine("                            AuthoritativeBackup = global::HPD.Base.BaseAuthoritativeBackupProtection.PreserveAuthoritativeValue,");
+                source.Append("                            AdministrativeDataExport = (global::HPD.Base.BaseProjectionDisclosure)").Append(field.Disclosure[4]).AppendLine(",");
+                source.Append("                            OrdinaryDataExport = (global::HPD.Base.BaseProjectionDisclosure)").Append(field.Disclosure[5]).AppendLine(",");
+                source.Append("                            Indexing = (global::HPD.Base.BaseIndexDisclosure)").Append(field.Disclosure[6]).AppendLine(",");
+                source.AppendLine("                        },");
+            }
+            else
+                source.Append("                        Disclosure = global::HPD.Base.BaseFieldDisclosurePolicies.For((global::HPD.Base.BaseFieldConfidentiality)").Append(field.Confidentiality).AppendLine("),");
+            if (field.MaximumBytes > 0) source.Append("                        MaximumBytes = ").Append(field.MaximumBytes).AppendLine(",");
             if (field.Relation != null)
             {
                 source.AppendLine("                        Relation = new global::HPD.Base.RelationDefinition");
@@ -1182,6 +1251,7 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
 
     private static string GetSchemaType(ITypeSymbol type)
     {
+        if (type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) == "global::HPD.Base.BaseBinary") return "string";
         if (IsBaseVector(type))
         {
             return "vector";
@@ -1241,6 +1311,7 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
     private static string GetSchemaFormat(ITypeSymbol type)
     {
         string name = type.ToDisplayString();
+        if (type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) == "global::HPD.Base.BaseBinary") return "base64";
         if (IsBaseVector(type))
         {
             return "float32";
@@ -1377,6 +1448,8 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         public List<IndexModel> Indexes;
         /// <summary>Provides the vector indexes value.</summary>
         public List<VectorIndexModel> VectorIndexes;
+        /// <summary>Provides the closed generated storage requirement references.</summary>
+        public List<string> StorageRequirements;
         /// <summary>Provides the context type name value.</summary>
         public string ContextTypeName;
         /// <summary>Provides the hint name value.</summary>
@@ -1405,6 +1478,12 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         public bool Required;
         /// <summary>Provides the operators value.</summary>
         public long Operators;
+        /// <summary>Provides confidentiality.</summary>
+        public int Confidentiality;
+        /// <summary>Provides the seven optional disclosure values.</summary>
+        public int[] Disclosure;
+        /// <summary>Provides the binary maximum.</summary>
+        public int MaximumBytes;
         /// <summary>Provides the relation value.</summary>
         public RelationModel Relation;
     }

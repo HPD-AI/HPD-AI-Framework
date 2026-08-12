@@ -14,6 +14,7 @@ public sealed class BaseCollectionSchemaBuilder<T>
     private UnknownFieldPolicy _unknownFields = UnknownFieldPolicy.Reject;
     private BaseCollectionMutationMode _mutationMode = BaseCollectionMutationMode.Mutable;
     private bool _system;
+    private readonly Dictionary<string, BaseStorageProtectionRequirement> _storageRequirements = new(StringComparer.Ordinal);
     internal BaseCollectionSchemaBuilder(string id, JsonTypeInfo<T> jsonTypeInfo)
     {
         BaseApplicationId.Validate(id, nameof(id));
@@ -89,6 +90,17 @@ public sealed class BaseCollectionSchemaBuilder<T>
     public BaseSchemaFieldBuilder<T, TValue> Object<TValue>(string fieldId, string storedName) => Field<TValue>(fieldId, storedName, "object");
     /// <summary>Performs file Reference.</summary>
     public BaseSchemaFieldBuilder<T, string> FileReference(string fieldId, string storedName) => Field<string>(fieldId, storedName, "string", "file-reference");
+    /// <summary>Declares a bounded immutable binary field.</summary>
+    public BaseSchemaFieldBuilder<T, BaseBinary> Binary(string fieldId, string storedName) => Field<BaseBinary>(fieldId, storedName, "string", "base64");
+
+    /// <summary>Requires storage protection for this collection from one owning module.</summary>
+    public BaseCollectionSchemaBuilder<T> RequireStorageProtection(BaseStorageProtectionRequirement requirement)
+    {
+        BaseStorageProtectionContract.NormalizeRequirement(requirement);
+        if (!_storageRequirements.TryAdd(requirement.OwningModuleId, BaseStorageProtectionContract.Clone(requirement)))
+            throw new InvalidOperationException(BaseConfidentialityErrorCodes.StorageRequirementDuplicate);
+        return this;
+    }
     /// <summary>Declares a typed record-id relation using stable schema identities.</summary>
     public BaseRelationSchemaBuilder<T, TTarget> Relation<TTarget>(string relationId, string fieldId, string storedName, BaseCollection<TTarget> target)
     {
@@ -194,6 +206,7 @@ public sealed class BaseCollectionSchemaBuilder<T>
                 Id = "hpd.base.application.generated",
                 Kind = SchemaSourceKind.Generated,
             },
+            StorageProtectionRequirements = _storageRequirements.Count == 0 ? null : _storageRequirements.Values.Select(BaseStorageProtectionContract.Clone).ToArray(),
         };
         return BaseCollection<T>.Create(definition, _jsonTypeInfo, declarations =>
         {
@@ -250,6 +263,11 @@ internal abstract class FieldEntry
         internal bool IsRequired { get; set; }
         internal bool IsNullable { get; set; } = true;
         internal RelationDefinition? Relation { get; set; }
+        internal BaseFieldConfidentiality Confidentiality { get; set; } = BaseFieldConfidentiality.Public;
+        internal BaseFieldDisclosurePolicy? Disclosure { get; set; }
+        internal int? MaximumBytes { get; set; }
+        internal bool ConfidentialityAssigned { get; set; }
+        internal bool DisclosureAssigned { get; set; }
 
         /// <summary>Performs definition.</summary>
         internal abstract FieldDefinition Definition();
@@ -272,6 +290,9 @@ internal sealed class FieldEntry<TValue>(string id, string storedName, string ty
             {
                 Required = IsRequired
             },
+            Confidentiality = Confidentiality,
+            Disclosure = BaseConfidentialityPolicy.Normalize(Confidentiality, Disclosure),
+            MaximumBytes = MaximumBytes,
         };
         /// <summary>Performs add To.</summary>
         internal override void AddTo(BaseCollectionFields<T> declarations) => declarations.Add<TValue>(Id, StoredName, IsNullable);
@@ -414,6 +435,36 @@ public sealed class BaseSchemaFieldBuilder<TRecord, TValue>
     {
         _entry.IsRequired = false;
         _entry.IsNullable = true;
+        return this;
+    }
+
+    /// <summary>Assigns the field confidentiality class exactly once.</summary>
+    public BaseSchemaFieldBuilder<TRecord, TValue> Confidentiality(BaseFieldConfidentiality confidentiality)
+    {
+        if (_entry.ConfidentialityAssigned || !Enum.IsDefined(confidentiality))
+            throw new InvalidOperationException(BaseConfidentialityErrorCodes.ContractInvalid);
+        _entry.ConfidentialityAssigned = true;
+        _entry.Confidentiality = confidentiality;
+        return this;
+    }
+
+    /// <summary>Assigns a narrowing disclosure policy exactly once.</summary>
+    public BaseSchemaFieldBuilder<TRecord, TValue> Disclosure(BaseFieldDisclosurePolicy disclosure)
+    {
+        ArgumentNullException.ThrowIfNull(disclosure);
+        if (_entry.DisclosureAssigned)
+            throw new InvalidOperationException(BaseConfidentialityErrorCodes.ContractInvalid);
+        _entry.DisclosureAssigned = true;
+        _entry.Disclosure = BaseConfidentialityPolicy.Clone(disclosure);
+        return this;
+    }
+
+    /// <summary>Sets the mandatory decoded byte limit for a binary field.</summary>
+    public BaseSchemaFieldBuilder<TRecord, TValue> MaximumBytes(int maximumBytes)
+    {
+        if (typeof(TValue) != typeof(BaseBinary) || maximumBytes is < 1 or > 1_048_576 || _entry.MaximumBytes is not null)
+            throw new InvalidOperationException(BaseConfidentialityErrorCodes.ContractInvalid);
+        _entry.MaximumBytes = maximumBytes;
         return this;
     }
 }

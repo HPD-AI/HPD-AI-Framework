@@ -745,7 +745,7 @@ internal sealed class DefaultBaseRecordRuntime(
             cancellationToken).ConfigureAwait(false);
         if (!result.IsSuccess() || result.Value is null)
             return result;
-        if (!result.Value.Enabled || !result.Value.Exposed)
+        if (!result.Value.Enabled || !result.Value.Exposed && !result.Value.System)
         {
             return OperationResults.Unsupported<CollectionDefinition>(new BaseError
             {

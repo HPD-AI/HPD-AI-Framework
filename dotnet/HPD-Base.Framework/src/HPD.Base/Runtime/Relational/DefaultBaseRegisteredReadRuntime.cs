@@ -35,6 +35,8 @@ internal sealed class DefaultBaseRegisteredReadRuntime(
             return Failure<TRow>(OperationStatus.NotFound, "base.relational.read.notFound", "The registered read handle is not installed.");
         if (!Authorized(definition.Authorization, principal.AuthenticationState))
             return Failure<TRow>(OperationStatus.PolicyDenied, "base.relational.read.denied", "Policy denied the registered read.");
+        if (definition.SourceAuthority == BaseRegisteredReadSourceAuthority.System && !BaseSystemCollectionGate.Allows(principal))
+            return Failure<TRow>(OperationStatus.NotFound, "base.systemCollection.accessForbidden", "The registered read was not found.");
         if (page is { } requested && (requested.Page < 1 || requested.PerPage < 1 || requested.PerPage > _options.MaxPageSize))
             return Failure<TRow>(OperationStatus.ValidationFailed, "base.relational.read.invalid", "The registered read page is invalid.");
 

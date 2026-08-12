@@ -626,7 +626,7 @@ internal sealed class DefaultBaseMutationCoordinator(
                 return Failure<BaseMutationCommand[], CollectionDefinition>(collectionResult);
 
             var collection = collectionResult.Value;
-            if (!collection.Enabled || !collection.Exposed)
+            if (!collection.Enabled || !collection.Exposed && !collection.System)
             {
                 return OperationResults.Unsupported<BaseMutationCommand[]>(Error(
                     "base.runtime.collection.operationDisabled",

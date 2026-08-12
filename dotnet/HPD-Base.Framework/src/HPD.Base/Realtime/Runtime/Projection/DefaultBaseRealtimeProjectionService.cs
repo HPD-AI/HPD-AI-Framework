@@ -90,9 +90,14 @@ internal sealed class DefaultBaseRealtimeProjectionService : IBaseRealtimeProjec
             Metadata = snapshot.Metadata
         }, decision.Collection, decision.Policy, decision.View);
 
+        RecordPayload realtimePayload = BaseConfidentialityProjection.Project(
+            redacted.Payload,
+            decision.Collection,
+            static disclosure => disclosure.Realtime);
+
         return new BaseRealtimeRecordSnapshot
         {
-            Payload = redacted.Payload
+            Payload = realtimePayload
         };
     }
 }

@@ -63,12 +63,13 @@ public sealed class BaseCollection<T>
     /// <summary>Performs snapshot.</summary>
     private static CollectionDefinition Snapshot(CollectionDefinition definition) => definition with
     {
-        Fields = definition.Fields?.Select(static field => field with { RequiredCapabilities = field.RequiredCapabilities?.ToArray(), Extensions = field.Extensions is null ? null : new Dictionary<string, System.Text.Json.JsonElement>(field.Extensions, StringComparer.Ordinal), }).ToArray(),
+        Fields = definition.Fields?.Select(static field => field with { Disclosure = field.Disclosure is null ? null : BaseConfidentialityPolicy.Clone(field.Disclosure), RequiredCapabilities = field.RequiredCapabilities?.ToArray(), Extensions = field.Extensions is null ? null : new Dictionary<string, System.Text.Json.JsonElement>(field.Extensions, StringComparer.Ordinal), }).ToArray(),
         Indexes = definition.Indexes?.Select(static index => index with { Parts = index.Parts?.Select(static part => part with { Extensions = part.Extensions is null ? null : new Dictionary<string, System.Text.Json.JsonElement>(part.Extensions, StringComparer.Ordinal), }).ToArray(), Extensions = index.Extensions is null ? null : new Dictionary<string, System.Text.Json.JsonElement>(index.Extensions, StringComparer.Ordinal), }).ToArray(),
         VectorIndexes = definition.VectorIndexes?.Select(static index => index with { FilterFieldIds = index.FilterFieldIds.ToArray() }).ToArray(),
         PolicyRefs = definition.PolicyRefs?.ToArray(),
         RequiredCapabilities = definition.RequiredCapabilities?.ToArray(),
         Diagnostics = definition.Diagnostics?.ToArray(),
         Extensions = definition.Extensions is null ? null : new Dictionary<string, System.Text.Json.JsonElement>(definition.Extensions, StringComparer.Ordinal),
+        StorageProtectionRequirements = definition.StorageProtectionRequirements?.Select(BaseStorageProtectionContract.Clone).ToArray(),
     };
 }

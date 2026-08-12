@@ -25,4 +25,7 @@ public sealed class BaseFieldAttribute(string id) : Attribute
     /// Gets or sets the supported query operations.
     /// </summary>
     public BaseFieldOperator Operators { get; set; } = BaseFieldOperator.Equal;
+
+    /// <summary>Gets or sets the mandatory decoded-byte maximum for a binary field.</summary>
+    public int MaximumBytes { get; set; }
 }

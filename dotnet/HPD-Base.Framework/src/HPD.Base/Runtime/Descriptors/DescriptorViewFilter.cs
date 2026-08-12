@@ -50,6 +50,7 @@ internal static class DescriptorViewFilter
         {
             Visibility = view,
             Collections = FilterByVisibility(snapshot.Schema.Collections, item => item.Visibility?.Visibility ?? VisibilityLevel.Public, view)?
+                .Where(collection => !collection.System || view == VisibilityLevel.Internal)
                 .Select(collection => Collection(collection, view))
                 .Where(collection => view != VisibilityLevel.Public || collection.Visibility?.PublicSchema != false)
                 .ToArray(),

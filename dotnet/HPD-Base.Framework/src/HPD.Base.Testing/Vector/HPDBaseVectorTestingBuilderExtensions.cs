@@ -12,6 +12,8 @@ public static class HPDBaseVectorTestingBuilderExtensions
     private sealed class Installer(Action<BaseTestVectorProviderOptions>? configure) : IHPDBaseBuilderExtension
     {
         public string Id => "vector.testing";
+        public System.Collections.Immutable.ImmutableArray<BaseStorageProtectionRequirement> StorageProtectionRequirements => [];
+        public System.Collections.Immutable.ImmutableArray<BaseStorageProtectionCapability> StorageProtectionCapabilities => [];
         public void Configure(IServiceCollection services, IReadOnlyList<CollectionDefinition> collections)
         {
             var options = new BaseTestVectorProviderOptions();

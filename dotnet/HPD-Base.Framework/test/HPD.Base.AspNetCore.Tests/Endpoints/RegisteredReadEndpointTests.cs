@@ -158,6 +158,13 @@ public sealed class RegisteredReadEndpointTests
         public string Id => id;
         public BaseReadExposure Exposure => exposure;
         public BaseReadAuthorization Authorization => authorization;
+        public BaseRegisteredReadDisclosure Disclosure => BaseRegisteredReadDisclosure.Ordinary;
+        public BaseRegisteredReadSourceAuthority SourceAuthority => BaseRegisteredReadSourceAuthority.Ordinary;
+        public HPDBaseEndpointAudience Audience => HPDBaseEndpointAudience.ControlPlane;
+        public string RequiredGrantId => "test-read.execute";
+        public IReadOnlyList<string> ConfidentialOutputFieldIds => [];
+        public IReadOnlyList<string> SecretOutputFieldIds => [];
+        public IReadOnlyList<string> SystemSourceIds => [];
         public BaseRelationalReadPlan Plan { get; } = new()
         {
             Id = id, Sources = [], Projection = [], Parameters = [],

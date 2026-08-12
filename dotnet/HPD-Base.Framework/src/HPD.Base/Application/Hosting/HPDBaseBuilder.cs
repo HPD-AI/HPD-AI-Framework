@@ -9,6 +9,12 @@ public interface IHPDBaseBuilderExtension
     /// <summary>Gets id.</summary>
     string Id { get; }
 
+    /// <summary>Gets immutable feature-scoped storage requirements captured by <c>Use</c>.</summary>
+    System.Collections.Immutable.ImmutableArray<BaseStorageProtectionRequirement> StorageProtectionRequirements => [];
+
+    /// <summary>Gets immutable module capabilities captured by <c>Use</c>.</summary>
+    System.Collections.Immutable.ImmutableArray<BaseStorageProtectionCapability> StorageProtectionCapabilities => [];
+
     /// <summary>Performs configure.</summary>
     void Configure(IServiceCollection services, IReadOnlyList<CollectionDefinition> collections);
     /// <summary>Performs initialize Async.</summary>
@@ -28,6 +34,9 @@ public sealed class HPDBaseBuilder
     private readonly List<BaseDependencyTemplate> _dependencyTemplates = [];
     /// <summary>Provides _extensions.</summary>
     private readonly List<IHPDBaseBuilderExtension> _extensions = [];
+    private readonly Dictionary<string, BaseStorageProtectionRequirement> _applicationStorageRequirements = new(StringComparer.Ordinal);
+    private readonly Dictionary<(string Feature, string Module), BaseStorageProtectionRequirement> _featureStorageRequirements = [];
+    private readonly Dictionary<string, BaseStorageProtectionCapability> _extensionStorageCapabilities = new(StringComparer.Ordinal);
     private HPDBaseStoreProvider? _storeProvider;
     /// <summary>Provides _runtime.</summary>
     private Action<HPDBaseRuntimeOptions>? _runtime;
@@ -53,6 +62,7 @@ public sealed class HPDBaseBuilder
     /// <summary>Performs configure Runtime.</summary>
     public HPDBaseBuilder ConfigureRuntime(Action<HPDBaseRuntimeOptions> configure)
     {
+        EnsureMutable();
         ArgumentNullException.ThrowIfNull(configure);
         _runtime += configure;
         return this;
@@ -61,6 +71,7 @@ public sealed class HPDBaseBuilder
     /// <summary>Configures bounded relational-read and include execution.</summary>
     public HPDBaseBuilder ConfigureRelational(Action<HPDBaseRelationalOptions> configure)
     {
+        EnsureMutable();
         ArgumentNullException.ThrowIfNull(configure);
         _relational += configure;
         return this;
@@ -69,6 +80,7 @@ public sealed class HPDBaseBuilder
     /// <summary>Configures bounded schema planning and application.</summary>
     public HPDBaseBuilder ConfigureSchema(Action<HPDBaseSchemaOptions> configure)
     {
+        EnsureMutable();
         ArgumentNullException.ThrowIfNull(configure);
         _schema += configure;
         return this;
@@ -77,6 +89,7 @@ public sealed class HPDBaseBuilder
     /// <summary>Configures the shared key ring for durable purpose-bound BASE tokens and artifacts.</summary>
     public HPDBaseBuilder ConfigureTokenProtection(Action<HPDBaseTokenProtectionOptions> configure)
     {
+        EnsureMutable();
         ArgumentNullException.ThrowIfNull(configure);
         _tokenProtection += configure;
         return this;
@@ -86,6 +99,7 @@ public sealed class HPDBaseBuilder
     /// <remarks>An explicit record provider cannot be combined with InMemory-provider configuration.</remarks>
     public HPDBaseBuilder ConfigureInMemoryStore(Action<HPDBaseInMemoryStoreOptions> configure)
     {
+        EnsureMutable();
         ArgumentNullException.ThrowIfNull(configure);
         _inMemoryStore += configure;
         return this;
@@ -96,6 +110,7 @@ public sealed class HPDBaseBuilder
     /// <returns>This builder.</returns>
     public HPDBaseBuilder UseStore(HPDBaseStoreProvider provider)
     {
+        EnsureMutable();
         ArgumentNullException.ThrowIfNull(provider);
         if (_storeProvider is not null)
             throw new InvalidOperationException("base.store.selection.duplicate");
@@ -108,6 +123,7 @@ public sealed class HPDBaseBuilder
     /// <returns>This builder.</returns>
     public HPDBaseBuilder ConfigureVector(Action<HPDBaseVectorOptions> configure)
     {
+        EnsureMutable();
         ArgumentNullException.ThrowIfNull(configure);
         _vector += configure;
         return this;
@@ -116,16 +132,52 @@ public sealed class HPDBaseBuilder
     /// <summary>Installs an advanced provider or hosting extension.</summary>
     public HPDBaseBuilder Use(IHPDBaseBuilderExtension extension)
     {
+        EnsureMutable();
         ArgumentNullException.ThrowIfNull(extension);
         if (_extensions.Any(item => string.Equals(item.Id, extension.Id, StringComparison.Ordinal)))
             throw new InvalidOperationException($"HPD.BASE extension '{extension.Id}' is already installed.");
+        foreach (BaseStorageProtectionRequirement requirement in extension.StorageProtectionRequirements)
+            AddFeatureRequirement(extension.Id, requirement);
+        foreach (BaseStorageProtectionCapability capability in extension.StorageProtectionCapabilities)
+        {
+            BaseStorageProtectionContract.ValidateCapability(capability);
+            if (!_extensionStorageCapabilities.TryAdd(capability.OwningModuleId, BaseStorageProtectionContract.Clone(capability)))
+                throw new InvalidOperationException(BaseConfidentialityErrorCodes.StorageDescriptorInvalid);
+        }
         _extensions.Add(extension);
         return this;
+    }
+
+    /// <summary>Requires storage protection at application scope.</summary>
+    public HPDBaseBuilder RequireStorageProtection(BaseStorageProtectionRequirement requirement)
+    {
+        EnsureMutable();
+        BaseStorageProtectionContract.NormalizeRequirement(requirement);
+        if (!_applicationStorageRequirements.TryAdd(requirement.OwningModuleId, BaseStorageProtectionContract.Clone(requirement)))
+            throw new InvalidOperationException(BaseConfidentialityErrorCodes.StorageRequirementDuplicate);
+        return this;
+    }
+
+    /// <summary>Requires storage protection for one installed feature.</summary>
+    public HPDBaseBuilder RequireFeatureStorageProtection(string featureId, BaseStorageProtectionRequirement requirement)
+    {
+        EnsureMutable();
+        BaseApplicationId.Validate(featureId, nameof(featureId));
+        AddFeatureRequirement(featureId, requirement);
+        return this;
+    }
+
+    private void AddFeatureRequirement(string featureId, BaseStorageProtectionRequirement requirement)
+    {
+        BaseStorageProtectionContract.NormalizeRequirement(requirement);
+        if (!_featureStorageRequirements.TryAdd((new string(featureId.AsSpan()), requirement.OwningModuleId), BaseStorageProtectionContract.Clone(requirement)))
+            throw new InvalidOperationException(BaseConfidentialityErrorCodes.StorageRequirementDuplicate);
     }
 
     /// <summary>Performs add Collection.</summary>
     public HPDBaseBuilder AddCollection<T>(BaseCollection<T> collection)
     {
+        EnsureMutable();
         ArgumentNullException.ThrowIfNull(collection);
         if (!_collections.TryAdd(collection.Id, collection.Definition))
             throw new InvalidOperationException($"Collection '{collection.Id}' is already registered.");
@@ -135,6 +187,7 @@ public sealed class HPDBaseBuilder
     /// <summary>Registers one generated typed relational read definition.</summary>
     public HPDBaseBuilder AddRead<TParameters, TRow>(BaseReadDefinition<TParameters, TRow> definition)
     {
+        EnsureMutable();
         ArgumentNullException.ThrowIfNull(definition);
         if (!_reads.TryAdd(definition.Id, definition))
             throw new InvalidOperationException($"Read '{definition.Id}' is already registered.");
@@ -144,6 +197,7 @@ public sealed class HPDBaseBuilder
     /// <summary>Performs add Files.</summary>
     public HPDBaseBuilder AddFiles(Action<HPDBaseFilesOptions>? configure = null)
     {
+        EnsureMutable();
         if (_files is not null)
             throw new InvalidOperationException("Files are already registered.");
         _files = configure ?? (_ =>
@@ -155,6 +209,7 @@ public sealed class HPDBaseBuilder
     /// <summary>Performs add Dependencies.</summary>
     public HPDBaseBuilder AddDependencies(Action<BaseDependencyOptions>? configure = null, Action<BaseDependencyCatalog>? define = null)
     {
+        EnsureMutable();
         if (_dependencies is not null)
             throw new InvalidOperationException("Dependencies are already registered.");
         _dependencies = configure ?? (_ =>
@@ -167,6 +222,7 @@ public sealed class HPDBaseBuilder
     /// <summary>Performs add Realtime.</summary>
     public HPDBaseBuilder AddRealtime(Action<BaseRealtimeOptions>? configure = null)
     {
+        EnsureMutable();
         if (_realtime is not null)
             throw new InvalidOperationException("Realtime is already registered.");
         _realtime = configure ?? (_ =>
@@ -178,6 +234,7 @@ public sealed class HPDBaseBuilder
     /// <summary>Performs add Live Queries.</summary>
     public HPDBaseBuilder AddLiveQueries(Action<BaseLiveQueryOptions>? configure = null)
     {
+        EnsureMutable();
         if (_liveQueries is not null)
             throw new InvalidOperationException("Live queries are already registered.");
         _liveQueries = configure ?? (_ =>
@@ -192,6 +249,7 @@ public sealed class HPDBaseBuilder
     T>()
         where T : class, IPolicyEvaluator
     {
+        EnsureMutable();
         _services.Replace(ServiceDescriptor.Singleton<IPolicyEvaluator, T>());
         return this;
     }
@@ -202,6 +260,7 @@ public sealed class HPDBaseBuilder
     T>()
         where T : class, IBaseDescriptorContributor
     {
+        EnsureMutable();
         _services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseDescriptorContributor, T>());
         return this;
     }
@@ -223,11 +282,22 @@ public sealed class HPDBaseBuilder
         _schema?.Invoke(schemaOptions);
         schemaOptions.Validate();
         BaseApplicationGraphValidator.Validate(collections, _reads.Values, relationalOptions, schemaOptions);
+        BaseStorageProtectionGraph storageProtection = BaseStorageProtectionContract.FinalizeGraph(
+            _applicationStorageRequirements.Values,
+            collections,
+            _featureStorageRequirements,
+            provider.StorageProtectionCapabilities.Concat(_extensionStorageCapabilities.Values));
+        int requiredBinaryMaximum = _collections.Values.SelectMany(static collection => collection.Fields ?? [])
+            .Where(static field => string.Equals(field.Format, "base64", StringComparison.Ordinal))
+            .Select(static field => field.MaximumBytes ?? 0).DefaultIfEmpty().Max();
+        if (requiredBinaryMaximum > provider.MaximumBinaryFieldBytes)
+            throw new InvalidOperationException(BaseConfidentialityErrorCodes.ProviderCapabilityMissing);
         BaseLogicalSchema logicalSchema = BaseLogicalSchemaFactory.Create(schemaOptions, collections, _reads.Values);
         ValidateIndexCapabilities(collections, provider);
         _services.AddSingleton(new BaseReadRegistry(new Dictionary<string, IBaseReadRegistration>(_reads, StringComparer.Ordinal)));
         _services.AddSingleton(new BaseCollectionRegistry(collections.ToDictionary(static collection => collection.Id, StringComparer.Ordinal)));
         _services.AddSingleton(logicalSchema);
+        _services.AddSingleton(storageProtection);
         _services.AddHPDBaseRuntime(_runtime).UseFailClosedPolicy();
         _services.AddSingleton(Microsoft.Extensions.Options.Options.Create(relationalOptions));
         _services.AddSingleton(Microsoft.Extensions.Options.Options.Create(schemaOptions));
@@ -361,6 +431,11 @@ public sealed class HPDBaseBuilder
         _services.AddSingleton<IBaseDescriptorContributor, BaseVectorDescriptorContributor>();
         _services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseHealthContributor, BaseVectorHealthContributor>());
         _services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseDiagnosticContributor, BaseVectorHealthContributor>());
+    }
+
+    private void EnsureMutable()
+    {
+        if (_built) throw new InvalidOperationException(BaseConfidentialityErrorCodes.StorageRequirementLate);
     }
 
     private static void ValidateIndexCapabilities(CollectionDefinition[] collections, HPDBaseStoreProvider provider)

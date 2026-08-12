@@ -40,18 +40,25 @@ public sealed class BaseStoreProviderDescriptor
     public BaseStoreProviderCapabilities Capabilities { get; init; }
     /// <summary>Gets or initializes the stable registration identifiers.</summary>
     public required string[] RegistrationIds { get; init; }
+    /// <summary>Gets immutable storage-protection capabilities owned by this bundle.</summary>
+    public BaseStorageProtectionCapability[] StorageProtectionCapabilities { get; init; } = [];
+    /// <summary>Gets or initializes the maximum decoded binary field size supported by the provider.</summary>
+    public int MaximumBinaryFieldBytes { get; init; } = 1_048_576;
 }
 
 /// <summary>Represents one validated immutable authoritative store selection.</summary>
 public sealed class HPDBaseStoreProvider
 {
     private readonly string[] _registrationIds;
+    private readonly BaseStorageProtectionCapability[] _storageProtectionCapabilities;
     internal HPDBaseStoreProvider(BaseStoreProviderDescriptor descriptor, IHPDBaseStoreInstaller installer)
     {
         Kind = descriptor.Kind;
         ProtocolVersion = descriptor.ProtocolVersion;
         Capabilities = descriptor.Capabilities;
         _registrationIds = descriptor.RegistrationIds.ToArray();
+        _storageProtectionCapabilities = descriptor.StorageProtectionCapabilities.Select(BaseStorageProtectionContract.Clone).ToArray();
+        MaximumBinaryFieldBytes = descriptor.MaximumBinaryFieldBytes;
         Installer = installer;
     }
 
@@ -62,6 +69,9 @@ public sealed class HPDBaseStoreProvider
     /// <summary>Gets immutable build-time capability facts.</summary>
     public BaseStoreProviderCapabilities Capabilities { get; }
     internal IReadOnlyList<string> RegistrationIds => _registrationIds;
+    internal IReadOnlyList<BaseStorageProtectionCapability> StorageProtectionCapabilities => _storageProtectionCapabilities;
+    /// <summary>Gets the provider's certified maximum decoded binary-field size.</summary>
+    public int MaximumBinaryFieldBytes { get; }
     internal IHPDBaseStoreInstaller Installer { get; }
 }
 
@@ -76,7 +86,7 @@ public static class HPDBaseStoreProviderFactory
     {
         ArgumentNullException.ThrowIfNull(descriptor);
         ArgumentNullException.ThrowIfNull(installer);
-        if (descriptor.ProtocolVersion != ProtocolVersion || !ValidIdentifier(descriptor.Kind))
+        if (descriptor.ProtocolVersion != ProtocolVersion || !ValidIdentifier(descriptor.Kind) || descriptor.MaximumBinaryFieldBytes is < 1 or > 1_048_576)
             throw new InvalidOperationException("base.store.providerInvalid");
         const BaseStoreProviderCapabilities known = BaseStoreProviderCapabilities.Records | BaseStoreProviderCapabilities.AtomicMutations |
             BaseStoreProviderCapabilities.RequiredIndexes | BaseStoreProviderCapabilities.RelationalExecution |
@@ -90,10 +100,15 @@ public static class HPDBaseStoreProviderFactory
         string[] ids = descriptor.RegistrationIds?.Select(static id => new string(id.AsSpan())).ToArray() ?? [];
         if (ids.Length == 0 || ids.Length > 32 || ids.Any(static id => !ValidIdentifier(id)) || ids.Distinct(StringComparer.Ordinal).Count() != ids.Length)
             throw new InvalidOperationException("base.store.providerInvalid");
+        BaseStorageProtectionCapability[] protection = descriptor.StorageProtectionCapabilities?.Select(BaseStorageProtectionContract.Clone).ToArray() ?? [];
+        foreach (BaseStorageProtectionCapability capability in protection) BaseStorageProtectionContract.ValidateCapability(capability);
+        if (protection.Select(static item => item.OwningModuleId).Distinct(StringComparer.Ordinal).Count() != protection.Length)
+            throw new InvalidOperationException(BaseConfidentialityErrorCodes.StorageDescriptorInvalid);
         return new HPDBaseStoreProvider(new BaseStoreProviderDescriptor
         {
             Kind = new string(descriptor.Kind.AsSpan()), ProtocolVersion = descriptor.ProtocolVersion,
-            Capabilities = descriptor.Capabilities, RegistrationIds = ids,
+            Capabilities = descriptor.Capabilities, RegistrationIds = ids, StorageProtectionCapabilities = protection,
+            MaximumBinaryFieldBytes = descriptor.MaximumBinaryFieldBytes,
         }, installer);
     }
 
