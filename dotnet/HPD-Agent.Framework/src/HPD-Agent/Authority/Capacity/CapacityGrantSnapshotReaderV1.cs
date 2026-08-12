@@ -5,8 +5,16 @@ internal abstract record CapacityGrantSnapshotAtResultV1
     private CapacityGrantSnapshotAtResultV1() { }
     internal sealed record Exact : CapacityGrantSnapshotAtResultV1
     {
-        internal Exact(CapacityGrantSnapshotV1 grant) => Grant = grant ?? throw new ArgumentNullException(nameof(grant));
+        internal Exact(CapacityGrantSnapshotV1 grant, int factsExamined, ulong canonicalEnvelopeBytesExamined)
+        {
+            Grant = grant ?? throw new ArgumentNullException(nameof(grant));
+            if (factsExamined <= 0) throw new ArgumentOutOfRangeException(nameof(factsExamined));
+            if (canonicalEnvelopeBytesExamined == 0) throw new ArgumentOutOfRangeException(nameof(canonicalEnvelopeBytesExamined));
+            FactsExamined = factsExamined; CanonicalEnvelopeBytesExamined = canonicalEnvelopeBytesExamined;
+        }
         internal CapacityGrantSnapshotV1 Grant { get; }
+        internal int FactsExamined { get; }
+        internal ulong CanonicalEnvelopeBytesExamined { get; }
     }
     internal sealed record OutcomeUnknown : CapacityGrantSnapshotAtResultV1
     {
@@ -37,7 +45,7 @@ internal static class CapacityGrantSnapshotReaderV1
 
         var entries = new List<CapacityLedgerEntryV1>();
         var authorities = new Dictionary<CapacityGrantId, ExpectedAuthorityVectorV1>();
-        long cursor = 0; long? pinned = null; var folded = 0;
+        long cursor = 0; long? pinned = null; var folded = 0; ulong encodedBytes = 0;
         while (cursor < throughPosition.Sequence)
         {
             ReadAuthorityRangeResultV1 result;
@@ -62,6 +70,7 @@ internal static class CapacityGrantSnapshotReaderV1
                     fact.Position.Sequence > throughPosition.Sequence)
                     return Unknown("capacity-history-gap-or-bound");
                 cursor = fact.Position.Sequence;
+                encodedBytes = checked(encodedBytes + AuthorityCanonicalCborV1.GetEnvelopeEncodedLength(fact));
                 if (fact.PayloadSchema == Reservation.Schema)
                 {
                     if (!TryReservation(fact, session, out var body)) return Unknown("capacity-reservation-invalid");
@@ -87,7 +96,7 @@ internal static class CapacityGrantSnapshotReaderV1
         if (matches.Length == 0) return Unknown("capacity-history-grant-not-observed");
         if (matches.Length != 1 || matches[0].CurrentFact != throughPosition)
             return Unknown("capacity-history-position-mismatch");
-        return new CapacityGrantSnapshotAtResultV1.Exact(matches[0]);
+        return new CapacityGrantSnapshotAtResultV1.Exact(matches[0], folded, encodedBytes);
     }
 
     private static bool TryReservation(AuthorityFactEnvelopeV1 fact, SessionAuthorityStampV1 session,
@@ -114,4 +123,5 @@ internal static class CapacityGrantSnapshotReaderV1
     }
 
     private static CapacityGrantSnapshotAtResultV1.OutcomeUnknown Unknown(string code) => new(new BoundedAscii(code));
+
 }

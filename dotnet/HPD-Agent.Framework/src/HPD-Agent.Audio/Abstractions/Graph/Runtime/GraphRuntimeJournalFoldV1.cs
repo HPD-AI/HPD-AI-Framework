@@ -185,6 +185,18 @@ internal static class GraphRuntimeJournalFoldV1
 
         internal long LastVerifiedPosition => _expectedPosition - 1;
 
+        internal (CapacityGrantId GrantId, JournalPositionV1 Through)? GraphCapacityReference(
+            GraphRuntimeJournalInspectionV1 inspected)
+        {
+            var graph = _graph.Inspect(EnvelopeOf(inspected));
+            return graph.CapacityReference is { } through && _graph.CapacityGrantFor(graph) is { } grant
+                ? (grant, through) : null;
+        }
+
+        internal CapacityGrantId? InstalledCapacityGrantId => _graph.Complete() is
+            GraphReplacementJournalFoldResultV1.Current { State: { } state }
+                ? state.SourcePlan.CapacityGrantId : null;
+
         private void ApplyCommand(GraphRuntimeJournalInspectionV1.Command item, CapacityGrantSnapshotV1? proof)
         {
             if (_terminal is not null) { Fail("runtime-command-after-generation-replacement"); return; }

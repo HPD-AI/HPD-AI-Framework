@@ -384,7 +384,7 @@ public sealed class GraphRuntimeJournalFoldV1Tests
     private static AuthorityFactEnvelopeV1 Envelope(GraphRuntimeReducerV1Tests.Fixture f,JournalFactId id,JournalPositionV1 position,OwnerSliceId owner,SchemaReferenceV1 schema,byte[] payload,Hash256 hash)=>new(id,position,null,owner,schema,payload,hash,new CorrelationEnvelopeV1(TenantId.Create()),new UtcInstant(1),new UtcInstant(2),new IntegrityEnvelopeV1(1,1,Hash(30),[]));
     private static StableId128 Stable(ActivityGenerationId value){Span<byte>b=stackalloc byte[16];value.TryWriteBytes(b);return StableId128.FromBytes(b);}
 
-    private sealed class ClaimedFixture
+    internal sealed class ClaimedFixture
     {
         internal SessionAuthorityStampV1 Session = new(RuntimeGenerationId.Create(), LiveSessionId.Create());
         internal GraphGenerationId Graph = GraphGenerationId.Create(); internal ActivityGenerationId Activity = ActivityGenerationId.Create();
