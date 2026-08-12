@@ -2,6 +2,7 @@ using System.Text.Json;
 using FluentAssertions;
 using HPD.Base.Tests.Application.Generation;
 using Microsoft.Extensions.DependencyInjection;
+using System.Text.Json.Serialization;
 using Xunit;
 
 namespace HPD.Base.Tests.Application.Selection;
@@ -87,6 +88,39 @@ public sealed class L43SelectionMutationTests
             results.Count(result => result is BaseSuccess<BaseSelectionMutationResult>).Should().Be(1);
             results.Count(result => result is BaseFailure<BaseSelectionMutationResult>).Should().Be(1);
             (await collection.GetAsync(new RecordId("contended"))).RequireValue().Value.Name.Should().BeOneOf("first", "second");
+        }
+        finally { if (File.Exists(path)) File.Delete(path); }
+    }
+
+    [Theory]
+    [InlineData(false, "base.constraint.unique")]
+    [InlineData(true, "base.constraint.attributionUnavailable")]
+    public async Task SqliteConstraintAttributionIsLogicalAndAmbiguitySafe(bool ambiguous, string expectedCode)
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"hpd-l43-constraint-{Guid.NewGuid():N}.db");
+        try
+        {
+            await using ServiceProvider provider = Build(path);
+            IBaseSchemaManager schemas = provider.GetRequiredService<IBaseSchemaManager>();
+            OperationResult<BaseSchemaPlan> planned = await schemas.PlanAsync(new BaseSchemaPlanRequest { StoreId = "sqlite-l43" });
+            (await schemas.ApplyAsync(new BaseSchemaApplyRequest { ProtectedArtifact = planned.Value!.ProtectedArtifact })).IsSuccess().Should().BeTrue();
+            (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
+            BaseCollectionSession<L43UniqueItem> collection = provider.GetRequiredService<IBaseSessionFactory>().For(Admin()).Collection(L43UniqueItem.Collection);
+            await collection.CreateAsync(new RecordId("existing"), new L43UniqueItem { Group = "keep", Name = "taken", Code = "used" });
+            await collection.CreateAsync(new RecordId("selected"), new L43UniqueItem { Group = "change", Name = "free", Code = "unused" });
+            BaseSelectionOperationProfile installed = Profile("unique-patch", BaseSelectionMutationKind.MergePatch) with { CollectionId = "l43-unique" };
+            BaseMergePatchSelectionProfile<L43UniqueItem> profile = collection.GetMergePatchSelectionProfile(Identity(installed));
+            string nameWire = L43UniqueItem.Collection.Definition.Fields!.Single(field => field.Id == "unique-name").Name;
+            string codeWire = L43UniqueItem.Collection.Definition.Fields!.Single(field => field.Id == "unique-code").Name;
+            Dictionary<string, JsonElement> fields = new(StringComparer.Ordinal) { [nameWire] = JsonSerializer.SerializeToElement("taken") };
+            if (ambiguous) fields[codeWire] = JsonSerializer.SerializeToElement("used");
+            BaseResult<BaseSelectionMutationResult> result = await collection.Query().Where(L43UniqueItem.Fields.Group.Equal("change"))
+                .OrderBy(L43UniqueItem.Fields.Name).ThenByRecordId().Take(1)
+                .PatchSelectedAsync(profile, new RecordPatchRequest { Patch = new RecordPayload { Kind = RecordPayloadKind.FieldMap, Fields = fields } }, BasePreviousStateRequirement.None);
+
+            BaseFailure<BaseSelectionMutationResult> failure = result.Should().BeOfType<BaseFailure<BaseSelectionMutationResult>>().Subject;
+            failure.Error.Code.Should().Be(expectedCode);
+            (await collection.GetAsync(new RecordId("selected"))).RequireValue().Value.Name.Should().Be("free");
         }
         finally { if (File.Exists(path)) File.Delete(path); }
     }
@@ -230,6 +264,11 @@ public sealed class L43SelectionMutationTests
             .AddCollection(GeneratedProject.Collection)
             .AddSelectionOperationProfile(Profile("claim", BaseSelectionMutationKind.MergePatch))
             .AddSelectionOperationProfile(Profile("remove", BaseSelectionMutationKind.Delete));
+            if (sqlitePath?.Contains("constraint", StringComparison.Ordinal) == true)
+            {
+                builder.AddCollection(L43UniqueItem.Collection)
+                    .AddSelectionOperationProfile(Profile("unique-patch", BaseSelectionMutationKind.MergePatch) with { CollectionId = "l43-unique" });
+            }
             if (sqlitePath is not null) builder.UseStore(HPD.Base.Sqlite.SqliteStore.Configure(options => { options.DataSource = sqlitePath; options.StoreId = "sqlite-l43"; }));
         });
         return services.BuildServiceProvider();
@@ -291,3 +330,16 @@ public sealed class L43SelectionMutationTests
             });
     }
 }
+
+[BaseCollection("l43-unique", typeof(L43SelectionJsonContext))]
+[BaseIndex("unique-name", nameof(L43UniqueItem.Name), Unique = true)]
+[BaseIndex("unique-code", nameof(L43UniqueItem.Code), Unique = true)]
+internal sealed partial record L43UniqueItem
+{
+    [BaseField("unique-group", Operators = BaseFieldOperator.Equal)] public required string Group { get; init; }
+    [BaseField("unique-name", Operators = BaseFieldOperator.Equal | BaseFieldOperator.Order)] public required string Name { get; init; }
+    [BaseField("unique-code", Operators = BaseFieldOperator.Equal)] public required string Code { get; init; }
+}
+
+[JsonSerializable(typeof(L43UniqueItem))]
+internal sealed partial class L43SelectionJsonContext : JsonSerializerContext;
