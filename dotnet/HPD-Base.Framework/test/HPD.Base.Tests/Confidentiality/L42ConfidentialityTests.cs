@@ -72,6 +72,20 @@ public sealed class L42ConfidentialityTests
     }
 
     [Fact]
+    public void EverySystemReadSourceRequiresItsExactGrant()
+    {
+        CollectionDefinition first = Collection() with { Id = "system-first", System = true };
+        CollectionDefinition second = Collection() with { Id = "system-second", System = true };
+        OperationResult<BasePolicyEvaluation> granted = OperationResults.Ok(Evaluation("system.read.execute"));
+        OperationResult<BasePolicyEvaluation> denied = OperationResults.Ok(Evaluation("different.execute"));
+
+        Assert.True(BaseSystemCollectionGate.AllowsSource(first, granted, "system.read.execute"));
+        Assert.False(BaseSystemCollectionGate.AllowsSource(second, denied, "system.read.execute"));
+        Assert.False(new[] { (first, granted), (second, denied) }.All(source =>
+            BaseSystemCollectionGate.AllowsSource(source.Item1, source.Item2, "system.read.execute")));
+    }
+
+    [Fact]
     public void VerifiedProviderSatisfiesDeclaredRequirementButUnprotectedCoverageNeverDoes()
     {
         BaseStorageProtectionRequirement requirement = Requirement();
@@ -82,6 +96,58 @@ public sealed class L42ConfidentialityTests
         Assert.Throws<InvalidOperationException>(() => BaseStorageProtectionContract.FinalizeGraph(
             [requirement], [], new Dictionary<(string, string), BaseStorageProtectionRequirement>(),
             [Capability(BaseStorageProtectionState.Unprotected)]));
+    }
+
+    [Fact]
+    public void CapabilityMayDeclareNonOwnedSurfacesNotApplicable()
+    {
+        BaseStorageProtectionCapability capability = Capability(BaseStorageProtectionState.NotApplicable) with
+        {
+            Coverage = Capability(BaseStorageProtectionState.NotApplicable).Coverage with
+            {
+                ExternalFilesAndBlobs = BaseStorageProtectionState.Protected,
+            },
+        };
+        BaseStorageProtectionRequirement requirement = Requirement() with
+        {
+            Coverage = Requirement().Coverage with
+            {
+                AuthoritativeRecords = [BaseStorageProtectionState.NotApplicable],
+                Journal = [BaseStorageProtectionState.NotApplicable],
+                Receipts = [BaseStorageProtectionState.NotApplicable],
+                ProviderState = [BaseStorageProtectionState.NotApplicable],
+                Indexes = [BaseStorageProtectionState.NotApplicable],
+                TemporaryFiles = [BaseStorageProtectionState.NotApplicable],
+                AuthoritativeBackups = [BaseStorageProtectionState.NotApplicable],
+                ExternalFilesAndBlobs = [BaseStorageProtectionState.Protected],
+            },
+        };
+
+        BaseStorageProtectionGraph graph = BaseStorageProtectionContract.FinalizeGraph(
+            [requirement], [], new Dictionary<(string, string), BaseStorageProtectionRequirement>(), [capability]);
+
+        Assert.Single(graph.Requirements);
+    }
+
+    [Fact]
+    public void NoneGuaranteeCannotClaimProtectedCoverage()
+    {
+        BaseStorageProtectionCapability capability = Capability(BaseStorageProtectionState.NotApplicable) with
+        {
+            Guarantee = BaseStorageEncryptionGuarantee.None,
+            KeyOwner = BaseStorageKeyOwner.None,
+            Rotation = BaseStorageRotationSupport.None,
+            Verification = BaseStorageVerificationStatus.Unverified,
+            Coverage = Capability(BaseStorageProtectionState.NotApplicable).Coverage with
+            {
+                ExternalFilesAndBlobs = BaseStorageProtectionState.Protected,
+            },
+        };
+
+        InvalidOperationException failure = Assert.Throws<InvalidOperationException>(
+            () => BaseStorageProtectionContract.ValidateCapability(capability));
+
+        Assert.Equal(BaseConfidentialityErrorCodes.StorageDescriptorInvalid, failure.Message);
     }
 
     private static BasePolicyEvaluation Evaluation(params string[] grantIds) => new()

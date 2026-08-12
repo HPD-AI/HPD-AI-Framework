@@ -40,28 +40,8 @@ internal sealed class DefaultBaseRegisteredReadRuntime(
         if (page is { } requested && (requested.Page < 1 || requested.PerPage < 1 || requested.PerPage > _options.MaxPageSize))
             return Failure<TRow>(OperationStatus.ValidationFailed, "base.relational.read.invalid", "The registered read page is invalid.");
 
-        IRecordStore? selected = null;
-        foreach (BaseRelationalReadSource source in definition.Plan.Sources)
-        {
-            IRecordStore? store = stores.GetStoreForCollection(source.CollectionId);
-            if (store is null)
-                return Failure<TRow>(OperationStatus.NotFound, "base.relational.read.notFound", "A registered read source is unavailable.");
-            if (selected is not null && !ReferenceEquals(selected, store))
-                return Failure<TRow>(OperationStatus.CapabilityUnavailable, "base.relational.read.multipleStores", "Registered reads require one store instance.");
-            selected = store;
-        }
-
-        if (selected is not IRelationalReadStore relational || !relational.RelationalReads.Supported)
-            return Failure<TRow>(OperationStatus.CapabilityUnavailable, "base.relational.read.unsupported", "The selected store cannot execute this registered read.");
-        if (!relational.RelationalReads.SnapshotConsistency)
-            return Failure<TRow>(OperationStatus.CapabilityUnavailable, "base.relational.read.snapshotUnavailable", "The selected store cannot provide the required snapshot.");
-        if (!relational.RelationalReads.CompleteDependencyEvidence)
-            return Failure<TRow>(OperationStatus.CapabilityUnavailable, "base.relational.read.unsupported", "The selected store cannot provide complete dependency evidence.");
-        if (!Supports(definition.Plan, relational.RelationalReads, _options))
-            return Failure<TRow>(OperationStatus.CapabilityUnavailable, "base.relational.read.unsupported", "The selected store cannot execute this registered read.");
-
         var sourcePolicies = new List<BaseRelationalReadSourcePolicy>(definition.Plan.Sources.Length);
-        bool exactGrantMatched = false;
+        bool projectionGrantMatched = false;
         foreach (BaseRelationalReadSource source in definition.Plan.Sources)
         {
             OperationContext sourceOperation = operation with { CollectionId = source.CollectionId };
@@ -84,7 +64,10 @@ internal sealed class DefaultBaseRegisteredReadRuntime(
             }
             if (!policyResult.IsSuccess() || policyResult.Value is null)
                 return Failure<TRow>(OperationStatus.PolicyDenied, "base.relational.read.policyUnsupported", "Registered read policy evaluation failed.");
-            exactGrantMatched |= BaseSystemCollectionGate.HasExactGrant(policyResult, definition.RequiredGrantId);
+            bool exactGrantMatched = BaseSystemCollectionGate.HasExactGrant(policyResult, definition.RequiredGrantId);
+            if (!BaseSystemCollectionGate.AllowsSource(collection, policyResult, definition.RequiredGrantId))
+                return Failure<TRow>(OperationStatus.NotFound, "base.systemCollection.accessForbidden", "The registered read was not found.");
+            projectionGrantMatched |= exactGrantMatched;
             sourcePolicies.Add(new BaseRelationalReadSourcePolicy
             {
                 SourceId = source.Id,
@@ -95,11 +78,33 @@ internal sealed class DefaultBaseRegisteredReadRuntime(
         }
         if (definition.Disclosure is not BaseRegisteredReadDisclosure.Ordinary || definition.SourceAuthority == BaseRegisteredReadSourceAuthority.System)
         {
-            if (!exactGrantMatched)
+            if (!projectionGrantMatched)
                 return Failure<TRow>(OperationStatus.NotFound, "base.systemCollection.accessForbidden", "The registered read was not found.");
         }
         if (!InfluenceAllowed(definition.Plan, sourcePolicies))
             return Failure<TRow>(OperationStatus.PolicyDenied, "base.relational.read.policyUnsupported", "Policy denied the registered read.");
+
+        // Resolve provider authority only after every source has passed policy and, for
+        // system collections, its exact grant. Provider discovery is itself influence.
+        IRecordStore? selected = null;
+        foreach (BaseRelationalReadSource source in definition.Plan.Sources)
+        {
+            IRecordStore? store = stores.GetStoreForCollection(source.CollectionId);
+            if (store is null)
+                return Failure<TRow>(OperationStatus.NotFound, "base.relational.read.notFound", "A registered read source is unavailable.");
+            if (selected is not null && !ReferenceEquals(selected, store))
+                return Failure<TRow>(OperationStatus.CapabilityUnavailable, "base.relational.read.multipleStores", "Registered reads require one store instance.");
+            selected = store;
+        }
+
+        if (selected is not IRelationalReadStore relational || !relational.RelationalReads.Supported)
+            return Failure<TRow>(OperationStatus.CapabilityUnavailable, "base.relational.read.unsupported", "The selected store cannot execute this registered read.");
+        if (!relational.RelationalReads.SnapshotConsistency)
+            return Failure<TRow>(OperationStatus.CapabilityUnavailable, "base.relational.read.snapshotUnavailable", "The selected store cannot provide the required snapshot.");
+        if (!relational.RelationalReads.CompleteDependencyEvidence)
+            return Failure<TRow>(OperationStatus.CapabilityUnavailable, "base.relational.read.unsupported", "The selected store cannot provide complete dependency evidence.");
+        if (!Supports(definition.Plan, relational.RelationalReads, _options))
+            return Failure<TRow>(OperationStatus.CapabilityUnavailable, "base.relational.read.unsupported", "The selected store cannot execute this registered read.");
 
         BaseRelationalParameterValue[] encoded;
         try { encoded = definition.ParameterCodec.Encode(parameters); }

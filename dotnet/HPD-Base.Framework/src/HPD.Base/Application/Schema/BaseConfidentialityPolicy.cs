@@ -69,7 +69,9 @@ internal static class BaseStorageProtectionContract
             || !CoverageValues(value.Coverage).All(Enum.IsDefined)
             || value.Guarantee == BaseStorageEncryptionGuarantee.ProviderVerified && value.Verification != BaseStorageVerificationStatus.OperationallyVerified
             || value.Guarantee is BaseStorageEncryptionGuarantee.HostDeclared or BaseStorageEncryptionGuarantee.ProviderDeclared && value.Verification == BaseStorageVerificationStatus.Unverified
-            || value.Guarantee == BaseStorageEncryptionGuarantee.None && (value.KeyOwner != BaseStorageKeyOwner.None || value.Rotation != BaseStorageRotationSupport.None))
+            || value.Guarantee == BaseStorageEncryptionGuarantee.None && (value.KeyOwner != BaseStorageKeyOwner.None
+                || value.Rotation != BaseStorageRotationSupport.None
+                || CoverageValues(value.Coverage).Any(static state => state == BaseStorageProtectionState.Protected)))
             throw new InvalidOperationException(BaseConfidentialityErrorCodes.StorageDescriptorInvalid);
 
         BaseStorageProtectionState[] durable =
@@ -82,7 +84,7 @@ internal static class BaseStorageProtectionContract
             value.Coverage.TemporaryFiles,
             value.Coverage.AuthoritativeBackups,
         ];
-        if (durable.Any(static state => state is BaseStorageProtectionState.NotRetained or BaseStorageProtectionState.NotApplicable))
+        if (durable.Any(static state => state == BaseStorageProtectionState.NotRetained))
             throw new InvalidOperationException(BaseConfidentialityErrorCodes.StorageDescriptorInvalid);
     }
 

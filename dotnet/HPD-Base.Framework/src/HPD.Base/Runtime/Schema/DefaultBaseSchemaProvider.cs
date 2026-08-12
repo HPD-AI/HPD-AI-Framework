@@ -107,4 +107,10 @@ internal static class BaseSystemCollectionGate
             return false;
         return requiredGrantId is null || grants.Contains(requiredGrantId, StringComparer.Ordinal);
     }
+
+    internal static bool AllowsSource(
+        CollectionDefinition collection,
+        OperationResult<BasePolicyEvaluation> result,
+        string requiredGrantId) =>
+        !collection.System || HasExactGrant(result, requiredGrantId);
 }
