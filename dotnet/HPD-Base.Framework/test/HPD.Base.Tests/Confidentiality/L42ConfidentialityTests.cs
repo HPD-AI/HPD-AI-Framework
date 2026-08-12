@@ -60,12 +60,72 @@ public sealed class L42ConfidentialityTests
     }
 
     [Fact]
-    public void SystemGateRejectsAdministratorsAndAcceptsBoundServiceSubjects()
+    public void SystemGateRequiresServiceKindAndOneExactNonBypassGrant()
     {
         Assert.False(BaseSystemCollectionGate.Allows(new PrincipalContext
         { AuthenticationState = PrincipalAuthenticationState.Admin, SubjectKind = AccessSubjectKind.User }));
         Assert.True(BaseSystemCollectionGate.Allows(new PrincipalContext
         { AuthenticationState = PrincipalAuthenticationState.Service, SubjectKind = AccessSubjectKind.ServicePrincipal }));
+        Assert.False(BaseSystemCollectionGate.HasExactGrant(OperationResults.Ok(Evaluation())));
+        Assert.False(BaseSystemCollectionGate.HasExactGrant(OperationResults.Ok(Evaluation("other.execute")), "system.read.execute"));
+        Assert.True(BaseSystemCollectionGate.HasExactGrant(OperationResults.Ok(Evaluation("system.read.execute")), "system.read.execute"));
+    }
+
+    [Fact]
+    public void VerifiedProviderSatisfiesDeclaredRequirementButUnprotectedCoverageNeverDoes()
+    {
+        BaseStorageProtectionRequirement requirement = Requirement();
+        BaseStorageProtectionCapability capability = Capability(BaseStorageProtectionState.Protected);
+        BaseStorageProtectionGraph graph = BaseStorageProtectionContract.FinalizeGraph([requirement], [], new Dictionary<(string, string), BaseStorageProtectionRequirement>(), [capability]);
+        Assert.Single(graph.Requirements);
+
+        Assert.Throws<InvalidOperationException>(() => BaseStorageProtectionContract.FinalizeGraph(
+            [requirement], [], new Dictionary<(string, string), BaseStorageProtectionRequirement>(),
+            [Capability(BaseStorageProtectionState.Unprotected)]));
+    }
+
+    private static BasePolicyEvaluation Evaluation(params string[] grantIds) => new()
+    {
+        Decision = new PolicyDecision
+        {
+            Effect = PolicyEffect.Allow,
+            Outcome = PolicyOutcome.Allowed,
+            Audit = new PolicyAuditInfo { MatchedGrantIds = grantIds }
+        }
+    };
+
+    private static BaseStorageProtectionCapability Capability(BaseStorageProtectionState state) => new()
+    {
+        OwningModuleId = "test.storage", Guarantee = BaseStorageEncryptionGuarantee.ProviderVerified,
+        KeyOwner = BaseStorageKeyOwner.Provider, Rotation = BaseStorageRotationSupport.Online,
+        Verification = BaseStorageVerificationStatus.OperationallyVerified,
+        Coverage = new BaseStorageProtectionCoverage
+        {
+            AuthoritativeRecords = state, Journal = state, Receipts = state, ProviderState = state,
+            Indexes = state, TemporaryFiles = state, AuthoritativeBackups = state,
+            AdministrativeExports = BaseStorageProtectionState.NotRetained,
+            OrdinaryExports = BaseStorageProtectionState.NotRetained,
+            ExternalFilesAndBlobs = BaseStorageProtectionState.NotApplicable,
+        }
+    };
+
+    private static BaseStorageProtectionRequirement Requirement()
+    {
+        System.Collections.Immutable.ImmutableArray<BaseStorageProtectionState> protectedOnly = [BaseStorageProtectionState.Protected];
+        System.Collections.Immutable.ImmutableArray<BaseStorageProtectionState> notRetained = [BaseStorageProtectionState.NotRetained];
+        return new BaseStorageProtectionRequirement
+        {
+            OwningModuleId = "test.storage", PermittedGuarantees = [BaseStorageEncryptionGuarantee.ProviderDeclared],
+            PermittedKeyOwners = [BaseStorageKeyOwner.Provider], RequiredRotation = BaseStorageRotationSupport.Offline,
+            MinimumVerification = BaseStorageVerificationStatus.ConfigurationValidated,
+            Coverage = new BaseStorageProtectionCoverageRequirement
+            {
+                AuthoritativeRecords = protectedOnly, Journal = protectedOnly, Receipts = protectedOnly,
+                ProviderState = protectedOnly, Indexes = protectedOnly, TemporaryFiles = protectedOnly,
+                AuthoritativeBackups = protectedOnly, AdministrativeExports = notRetained,
+                OrdinaryExports = notRetained, ExternalFilesAndBlobs = [BaseStorageProtectionState.NotApplicable],
+            }
+        };
     }
 
     private static BasePayloadValidationRequest Request(CollectionDefinition collection, string json) => new()

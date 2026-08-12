@@ -161,6 +161,10 @@ public sealed record BaseLogicalCollection
     public required string Id { get; init; }
     /// <summary>Gets or sets name.</summary>
     public required string Name { get; init; }
+    /// <summary>Gets whether the collection is an internal system collection.</summary>
+    public bool System { get; init; }
+    /// <summary>Gets the installed module identity owning a system collection.</summary>
+    public string? SystemOwnerModuleId { get; init; }
 }
 
 /// <summary>Represents base Logical Field.</summary>
@@ -178,6 +182,12 @@ public sealed record BaseLogicalField
     public bool Required { get; init; }
     /// <summary>Gets or sets nullable.</summary>
     public bool Nullable { get; init; }
+    /// <summary>Gets the normalized confidentiality class.</summary>
+    public BaseFieldConfidentiality Confidentiality { get; init; }
+    /// <summary>Gets the normalized complete disclosure policy.</summary>
+    public required BaseFieldDisclosurePolicy Disclosure { get; init; }
+    /// <summary>Gets the decoded binary limit when this is a binary field.</summary>
+    public int? MaximumBytes { get; init; }
 }
 
 /// <summary>Represents base Logical Index.</summary>

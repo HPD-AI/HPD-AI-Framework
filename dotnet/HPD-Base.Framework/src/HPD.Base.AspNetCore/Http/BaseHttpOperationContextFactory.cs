@@ -2,6 +2,7 @@ using HPD.Base;
 using HPD.Base.AspNetCore;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.Options;
 
 namespace HPD.Base.AspNetCore;
 
@@ -10,16 +11,19 @@ internal sealed class BaseHttpOperationContextFactory : IBaseHttpOperationContex
     private readonly HPDBaseAspNetCoreSnapshot _options;
     private readonly TimeProvider _timeProvider;
     private readonly IBaseHttpCorrelationProvider _correlation;
+    private readonly string _applicationId;
 
     /// <summary>Initializes a new instance.</summary>
     public BaseHttpOperationContextFactory(
         HPDBaseAspNetCoreSnapshot options,
         TimeProvider timeProvider,
-        IBaseHttpCorrelationProvider correlation)
+        IBaseHttpCorrelationProvider correlation,
+        IOptions<HPDBaseSchemaOptions> schemaOptions)
     {
         _options = options;
         _timeProvider = timeProvider;
         _correlation = correlation;
+        _applicationId = schemaOptions.Value.ApplicationId;
     }
 
     /// <summary>Executes the create operation.</summary>
@@ -39,6 +43,9 @@ internal sealed class BaseHttpOperationContextFactory : IBaseHttpOperationContex
 
         return new OperationContext
         {
+            ApplicationId = _applicationId,
+            Audience = httpContext.GetEndpoint()?.Metadata.GetMetadata<HPDBaseEndpointDescriptor>()?.Audience
+                ?? HPDBaseEndpointAudience.Application,
             Operation = operation,
             CollectionId = collectionId,
             RecordId = recordId,

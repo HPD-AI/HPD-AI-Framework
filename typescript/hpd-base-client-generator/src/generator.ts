@@ -35,7 +35,7 @@ export function validate(snapshot: GenerationSnapshot, expectedAudience?: "appli
   exactKeys(snapshot as unknown as Record<string, unknown>, ["protocol", "application", "schema", "endpoints", "capabilities", "registeredReads", "dependencyTemplates", "vectorIndexes", "errors", "digest"]);
   exactKeys(snapshot.protocol as unknown as Record<string, unknown>, ["protocolMajor", "protocolMinor", "minimumClientMinor", "snapshotSchemaVersion", "applicationId", "schemaGeneration", "endpointInventoryDigest", "errorTaxonomyVersion", "realtimeProtocolVersion", "liveQueryProtocolVersion", "serializationProfile", "generatedAt"]);
   exactKeys(snapshot.application as unknown as Record<string, unknown>, ["applicationId", "audience", "basePath"]);
-  if (snapshot.protocol.protocolMajor !== 2 || snapshot.protocol.snapshotSchemaVersion !== 2 || snapshot.protocol.realtimeProtocolVersion !== 2 || snapshot.protocol.liveQueryProtocolVersion !== 1 || snapshot.protocol.serializationProfile !== "base-json-v1" || snapshot.protocol.applicationId !== snapshot.application.applicationId || snapshot.protocol.schemaGeneration !== snapshot.schema.generation) throw new Error("base.client.protocolMismatch");
+  if (snapshot.protocol.protocolMajor !== 2 || snapshot.protocol.snapshotSchemaVersion !== 3 || snapshot.protocol.realtimeProtocolVersion !== 2 || snapshot.protocol.liveQueryProtocolVersion !== 1 || snapshot.protocol.serializationProfile !== "base-json-v1" || snapshot.protocol.applicationId !== snapshot.application.applicationId || snapshot.protocol.schemaGeneration !== snapshot.schema.generation) throw new Error("base.client.protocolMismatch");
   if (expectedAudience !== undefined && snapshot.application.audience !== expectedAudience) throw new Error("base.client.endpointMismatch");
   if (!/^sha256:[0-9a-f]{64}$/u.test(snapshot.digest) || structuralDigest(digestInput(snapshot)) !== snapshot.digest) throw new Error("base.client.snapshotInvalid");
   const names = new Set<string>(["reads", "files", "close", "collection", "connectivity", "$control", "$dynamic"]);
@@ -52,7 +52,7 @@ export function validate(snapshot: GenerationSnapshot, expectedAudience?: "appli
   for (const collection of snapshot.schema.collections) {
     exactKeys(collection as unknown as Record<string, unknown>, ["id", "generatedName", "recordTypeId", "createTypeId", "replaceTypeId", "patchTypeId", "fields", "operations", "pagination", "maxPageSize"]);
     if (!names.add(collection.generatedName) || collection.generatedName.startsWith("$")) throw new Error("base.clientGeneration.nameCollision");
-    for (const field of collection.fields) exactKeys(field as unknown as Record<string, unknown>, ["id", "wireName", "generatedName", "valueTypeId", "serverGenerated", "mutable", "redactionOptional", "operators"]);
+    for (const field of collection.fields) exactKeys(field as unknown as Record<string, unknown>, ["id", "wireName", "generatedName", "valueTypeId", "serverGenerated", "mutable", "disclosureShape", "operators"]);
     for (const id of [collection.recordTypeId, collection.createTypeId, collection.replaceTypeId, collection.patchTypeId, ...collection.fields.map(field => field.valueTypeId)]) if (!typeIds.has(id)) throw new Error("base.clientGeneration.typeMissing");
   }
   for (const read of snapshot.registeredReads) for (const id of [read.parameterTypeId, read.rowTypeId]) if (!typeIds.has(id)) throw new Error("base.clientGeneration.typeMissing");
@@ -101,7 +101,7 @@ function validateTypeGraph(types: readonly NamedTypeDescriptor[], ids: ReadonlyS
     if (!stableId(type.id)) invalidType();
     const node = type.node;
     const keys: Record<TypeNode["kind"], readonly string[]> = {
-      boolean: ["kind"], string: ["kind", "minLength", "maxLength", "format"], integer: ["kind", "minimum", "maximum", "wire"], decimal: ["kind", "wire"], floating: ["kind", "precision", "finiteOnly"], bytes: ["kind", "wire", "maxBytes"], literal: ["kind", "value"], enum: ["kind", "values"], array: ["kind", "elementTypeId", "minItems", "maxItems"], object: ["kind", "properties", "additionalProperties"], union: ["kind", "discriminator", "variants"]
+      boolean: ["kind"], string: ["kind", "minLength", "maxLength", "format"], integer: ["kind", "minimum", "maximum", "wire"], decimal: ["kind", "wire"], floating: ["kind", "precision", "finiteOnly"], bytes: ["kind", "wire", "maxBytes"], redacted: ["kind"], literal: ["kind", "value"], enum: ["kind", "values"], array: ["kind", "elementTypeId", "minItems", "maxItems"], object: ["kind", "properties", "additionalProperties"], union: ["kind", "discriminator", "variants"]
     };
     if (!Object.hasOwn(keys, node.kind)) invalidType();
     exactKeys(node as unknown as Record<string, unknown>, keys[node.kind]);
@@ -116,7 +116,7 @@ function validateTypeGraph(types: readonly NamedTypeDescriptor[], ids: ReadonlyS
     if (node.kind === "object") {
       if (node.additionalProperties !== false || node.properties.length > 256) invalidType();
       unique(node.properties.map(property => property.name), "base.clientGeneration.typeInvalid"); unique(node.properties.map(property => property.wireName), "base.clientGeneration.typeInvalid");
-      for (const property of node.properties) { exactKeys(property as unknown as Record<string, unknown>, ["name", "wireName", "typeId", "required", "nullable", "redactionOptional"]); if (!stableProperty(property.name) || !stableProperty(property.wireName) || typeof property.required !== "boolean" || typeof property.nullable !== "boolean" || typeof property.redactionOptional !== "boolean") invalidType(); if (!ids.has(property.typeId)) throw new Error("base.clientGeneration.typeMissing"); }
+      for (const property of node.properties) { exactKeys(property as unknown as Record<string, unknown>, ["name", "wireName", "typeId", "required", "nullable", "disclosureShape"]); if (!stableProperty(property.name) || !stableProperty(property.wireName) || typeof property.required !== "boolean" || typeof property.nullable !== "boolean" || !["none", "omission", "fixed-marker"].includes(property.disclosureShape)) invalidType(); if (!ids.has(property.typeId)) throw new Error("base.clientGeneration.typeMissing"); }
     }
     if (node.kind === "union") {
       if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/u.test(node.discriminator) || node.variants.length < 2 || node.variants.length > 64) invalidType();
@@ -180,7 +180,7 @@ function renderCollectionTypes(collection: CollectionDescriptor, typeNames: Read
 function renderCollectionValue(collection: CollectionDescriptor, typeNames: ReadonlyMap<string, string>, vectors: readonly VectorDescriptor[]): string {
   const name = pascal(collection.generatedName);
   const fieldShape = collection.fields.map(item => `    readonly ${safe(item.generatedName)}: BaseFieldDefinition<GeneratedTypes.${typeNames.get(item.valueTypeId)!}, readonly [${item.operators.map(value => JSON.stringify(value)).join(", ")}]>;`).join("\n");
-  const fields = collection.fields.map(item => `      ${safe(item.generatedName)}: field<GeneratedTypes.${typeNames.get(item.valueTypeId)!}, readonly [${item.operators.map(value => JSON.stringify(value)).join(", ")}]>(${JSON.stringify(item.id)}, ${JSON.stringify(item.wireName)}, ${JSON.stringify(item.operators)}, ${JSON.stringify(item.valueTypeId)}, ${item.redactionOptional})`).join(",\n");
+  const fields = collection.fields.map(item => `      ${safe(item.generatedName)}: field<GeneratedTypes.${typeNames.get(item.valueTypeId)!}, readonly [${item.operators.map(value => JSON.stringify(value)).join(", ")}]>(${JSON.stringify(item.id)}, ${JSON.stringify(item.wireName)}, ${JSON.stringify(item.operators)}, ${JSON.stringify(item.valueTypeId)}, ${JSON.stringify(item.disclosureShape)})`).join(",\n");
   const operationType = `readonly [${collection.operations.map(value => JSON.stringify(value)).join(", ")}]`;
   const vectorValues = vectors.map(item => `${safe(item.generatedName)}: ${JSON.stringify({ id: item.id, dimensions: item.dimensions, measure: item.measure, direction: item.measure === "euclideanDistance" ? "lowerIsNearer" : "higherIsNearer" })}`).join(", ");
   return `  ${safe(collection.generatedName)}: collection<${name}, ${name}Create, ${name}Replace, ${name}Patch, {\n${fieldShape}\n  }, ${operationType}>({ id: ${JSON.stringify(collection.id)}, recordTypeId: ${JSON.stringify(collection.recordTypeId)}, createTypeId: ${JSON.stringify(collection.createTypeId)}, replaceTypeId: ${JSON.stringify(collection.replaceTypeId)}, patchTypeId: ${JSON.stringify(collection.patchTypeId)}, fields: {\n${fields}\n  }, operations: ${JSON.stringify(collection.operations)}, pagination: ${JSON.stringify(collection.pagination)}, maxPageSize: ${collection.maxPageSize}, vectorIndexes: { ${vectorValues} } })`;
@@ -189,13 +189,15 @@ function renderCollectionValue(collection: CollectionDescriptor, typeNames: Read
 function renderType(node: TypeNode, names: ReadonlyMap<string, string>): string {
   switch (node.kind) {
     case "boolean": return "boolean";
-    case "string": case "decimal": case "bytes": return "string";
+    case "string": case "decimal": return "string";
+    case "bytes": return "Uint8Array";
+    case "redacted": return "import(\"@hpd/base-client\").BaseRedacted";
     case "integer": return node.wire === "number" ? "number" : "string";
     case "floating": return "number";
     case "literal": return JSON.stringify(node.value);
     case "enum": return node.values.map(value => JSON.stringify(value)).join(" | ");
     case "array": return `readonly ${names.get(node.elementTypeId)!}[]`;
-    case "object": return `{ ${node.properties.map(property => `readonly ${JSON.stringify(property.name)}${property.required ? "" : "?"}: ${names.get(property.typeId)!}${property.nullable ? " | null" : ""}`).join("; ")} }`;
+    case "object": return `{ ${node.properties.map(property => `readonly ${JSON.stringify(property.name)}${property.required && property.disclosureShape !== "omission" ? "" : "?"}: ${names.get(property.typeId)!}${property.nullable ? " | null" : ""}${property.disclosureShape === "fixed-marker" ? " | import(\"@hpd/base-client\").BaseRedacted" : ""}`).join("; ")} }`;
     case "union": return node.variants.map(variant => names.get(variant.typeId)!).join(" | ");
   }
 }

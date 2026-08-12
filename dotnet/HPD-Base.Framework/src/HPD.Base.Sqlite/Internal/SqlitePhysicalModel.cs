@@ -198,7 +198,7 @@ internal sealed class FieldModel
         internal FieldDefinition Definition { get; }
         internal string Column { get; }
         internal string? PresenceColumn { get; }
-        internal string SqlType => Definition.Type switch
+        internal string SqlType => Definition.Format == "base64" ? "BLOB" : Definition.Type switch
         { "boolean" or "integer" => "INTEGER", "number" => "REAL", _ => "TEXT" };
 
         internal object Encode(JsonElement value)
@@ -206,6 +206,13 @@ internal sealed class FieldModel
             if (value.ValueKind == JsonValueKind.Null) return DBNull.Value;
             if (Definition.Format == "date-time")
                 return value.GetDateTimeOffset().ToUniversalTime().ToString("O", CultureInfo.InvariantCulture);
+            if (Definition.Format == "base64")
+            {
+                BaseBinary binary = BaseBinary.FromBase64(value.GetString()!);
+                if (Definition.MaximumBytes is not int maximum || binary.Length > maximum)
+                    throw new InvalidOperationException(BaseBinaryErrorCodes.ValueTooLarge);
+                return binary.ToArray();
+            }
             return Definition.Type switch
             {
                 "boolean" => value.GetBoolean() ? 1L : 0L,
@@ -220,6 +227,7 @@ internal sealed class FieldModel
         internal JsonElement Decode(object value) => Definition.Type switch
         {
             _ when Definition.Format == "date-time" => Parse("\"" + JsonEncodedText.Encode(Convert.ToString(value, CultureInfo.InvariantCulture)!).ToString() + "\""),
+            _ when Definition.Format == "base64" => Parse("\"" + Convert.ToBase64String((byte[])value) + "\""),
             "boolean" => Parse(Convert.ToInt64(value, CultureInfo.InvariantCulture) == 0 ? "false" : "true"),
             "integer" => Parse(Convert.ToInt64(value, CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture)),
             "number" => Parse(Convert.ToDouble(value, CultureInfo.InvariantCulture).ToString("R", CultureInfo.InvariantCulture)),

@@ -292,7 +292,7 @@ public sealed class HPDBaseBuilder
             .Select(static field => field.MaximumBytes ?? 0).DefaultIfEmpty().Max();
         if (requiredBinaryMaximum > provider.MaximumBinaryFieldBytes)
             throw new InvalidOperationException(BaseConfidentialityErrorCodes.ProviderCapabilityMissing);
-        BaseLogicalSchema logicalSchema = BaseLogicalSchemaFactory.Create(schemaOptions, collections, _reads.Values);
+        BaseLogicalSchema logicalSchema = BaseLogicalSchemaFactory.Create(schemaOptions, collections, _reads.Values, storageProtection);
         ValidateIndexCapabilities(collections, provider);
         _services.AddSingleton(new BaseReadRegistry(new Dictionary<string, IBaseReadRegistration>(_reads, StringComparer.Ordinal)));
         _services.AddSingleton(new BaseCollectionRegistry(collections.ToDictionary(static collection => collection.Id, StringComparer.Ordinal)));

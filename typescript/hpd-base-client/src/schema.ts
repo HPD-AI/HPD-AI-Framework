@@ -7,7 +7,7 @@ export interface BaseFieldDefinition<T = unknown, TOperators extends readonly Ba
   readonly id: string;
   readonly wireName: string;
   readonly valueTypeId?: string;
-  readonly redactionOptional: boolean;
+  readonly disclosureShape: "none" | "omission" | "fixed-marker";
   readonly operators: TOperators;
   readonly __value?: T;
 }
@@ -77,8 +77,8 @@ export function collection<TRecord, TCreate, TReplace, TPatch, TFields extends R
   return deepFreeze(definition);
 }
 
-export function field<T, const TOperators extends readonly BaseFieldOperator[]>(id: string, wireName: string, operators: TOperators, valueTypeId?: string, redactionOptional = false): BaseFieldDefinition<T, TOperators> {
-  return Object.freeze({ id, wireName, operators: Object.freeze([...operators]) as unknown as TOperators, ...(valueTypeId === undefined ? {} : { valueTypeId }), redactionOptional });
+export function field<T, const TOperators extends readonly BaseFieldOperator[]>(id: string, wireName: string, operators: TOperators, valueTypeId?: string, disclosureShape: "none" | "omission" | "fixed-marker" = "none"): BaseFieldDefinition<T, TOperators> {
+  return Object.freeze({ id, wireName, operators: Object.freeze([...operators]) as unknown as TOperators, ...(valueTypeId === undefined ? {} : { valueTypeId }), disclosureShape });
 }
 
 function deepFreeze<T>(value: T): T {

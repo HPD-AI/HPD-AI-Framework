@@ -14,6 +14,7 @@ public sealed class BaseCollectionSchemaBuilder<T>
     private UnknownFieldPolicy _unknownFields = UnknownFieldPolicy.Reject;
     private BaseCollectionMutationMode _mutationMode = BaseCollectionMutationMode.Mutable;
     private bool _system;
+    private string? _systemOwnerModuleId;
     private readonly Dictionary<string, BaseStorageProtectionRequirement> _storageRequirements = new(StringComparer.Ordinal);
     internal BaseCollectionSchemaBuilder(string id, JsonTypeInfo<T> jsonTypeInfo)
     {
@@ -61,9 +62,11 @@ public sealed class BaseCollectionSchemaBuilder<T>
     }
 
     /// <summary>Marks the collection as internal system data.</summary>
-    public BaseCollectionSchemaBuilder<T> SystemCollection()
+    public BaseCollectionSchemaBuilder<T> SystemCollection(string owningModuleId)
     {
+        BaseApplicationId.Validate(owningModuleId, nameof(owningModuleId));
         _system = true;
+        _systemOwnerModuleId = new string(owningModuleId.AsSpan());
         return this;
     }
 
@@ -195,6 +198,7 @@ public sealed class BaseCollectionSchemaBuilder<T>
             Name = _id,
             Kind = "record",
             System = _system,
+            SystemOwnerModuleId = _systemOwnerModuleId,
             Exposed = !_system,
             MutationMode = _mutationMode,
             SchemaMode = _schemaMode,

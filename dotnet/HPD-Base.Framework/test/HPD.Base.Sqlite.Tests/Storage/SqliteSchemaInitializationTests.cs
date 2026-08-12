@@ -21,7 +21,8 @@ public sealed class SqliteSchemaInitializationTests
             Fields =
             [
                 new FieldDefinition { Id = "item.title", Name = "title", Type = BaseFieldTypes.String, Required = true, Nullable = false },
-                new FieldDefinition { Id = "item.rank", Name = "rank", Type = BaseFieldTypes.Integer }
+                new FieldDefinition { Id = "item.rank", Name = "rank", Type = BaseFieldTypes.Integer },
+                new FieldDefinition { Id = "item.blob", Name = "blob", Type = BaseFieldTypes.String, Format = "base64", MaximumBytes = 16, Required = true, Nullable = false }
             ],
             Indexes =
             [
@@ -36,6 +37,13 @@ public sealed class SqliteSchemaInitializationTests
         {
             await using var store = SqliteTestFactory.Create(new HPDBaseSqliteOptions { DataSource = path, Collections = [collection] });
             (await store.ListAsync(collection, new RecordQuery(), Operation(BaseOperationKind.List))).Status.Should().Be(OperationStatus.Ok);
+            OperationResult<RecordEnvelope> created = await store.CreateAsync(collection, new RecordCreateRequest
+            {
+                RequestedId = new RecordId("binary"),
+                Payload = Payload("{\"title\":\"schema\",\"blob\":\"AQID\"}")
+            }, Operation(BaseOperationKind.Create));
+            created.Status.Should().Be(OperationStatus.Created);
+            created.Value!.Payload.Fields!["blob"].GetString().Should().Be("AQID");
 
             await using var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path }.ToString());
             await connection.OpenAsync();
@@ -47,6 +55,7 @@ public sealed class SqliteSchemaInitializationTests
 
             physicalColumns.Should().Contain(new KeyValuePair<string, string>(PhysicalField("item.title"), "TEXT"));
             physicalColumns.Should().Contain(new KeyValuePair<string, string>(PhysicalField("item.rank"), "INTEGER"));
+            physicalColumns.Should().Contain(new KeyValuePair<string, string>(PhysicalField("item.blob"), "BLOB"));
             physicalColumns.Keys.Should().Contain(PhysicalPresence("item.rank"));
             physicalColumns.Keys.Should().NotContain(["payload_json", "extension_json"]);
 
@@ -248,9 +257,9 @@ public sealed class SqliteSchemaInitializationTests
     private static string Digest(string id) => Convert.ToHexStringLower(
         System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(id)))[..32];
     private static OperationContext Operation(BaseOperationKind kind) => new() { Operation = kind, CollectionId = "items", Now = DateTimeOffset.UnixEpoch };
-    private static RecordPayload Payload()
+    private static RecordPayload Payload(string json = "{\"title\":\"schema\"}")
     {
-        using var document = JsonDocument.Parse("""{"title":"schema"}""");
+        using var document = JsonDocument.Parse(json);
         return new RecordPayload { Kind = RecordPayloadKind.Json, Json = document.RootElement.Clone() };
     }
 }

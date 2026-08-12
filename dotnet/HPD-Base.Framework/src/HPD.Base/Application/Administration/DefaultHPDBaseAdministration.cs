@@ -78,7 +78,6 @@ internal sealed class DefaultHPDBaseAdministration(
                 Id = "base-administration",
                 Name = "BASE administration",
                 Kind = "system",
-                System = true,
                 Exposed = false,
                 SchemaMode = SchemaMode.Strict,
                 UnknownFields = UnknownFieldPolicy.Reject,

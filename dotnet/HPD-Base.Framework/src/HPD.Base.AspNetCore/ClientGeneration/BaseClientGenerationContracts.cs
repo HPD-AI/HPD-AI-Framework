@@ -31,11 +31,11 @@ public sealed record BaseClientProtocolDescriptor
     /// <summary>Gets the protocol major version.</summary>
     public int ProtocolMajor { get; init; } = 2;
     /// <summary>Gets the protocol minor version.</summary>
-    public int ProtocolMinor { get; init; }
+    public int ProtocolMinor { get; init; } = 1;
     /// <summary>Gets the minimum compatible client minor.</summary>
     public int MinimumClientMinor { get; init; }
     /// <summary>Gets the snapshot schema version.</summary>
-    public int SnapshotSchemaVersion { get; init; } = 2;
+    public int SnapshotSchemaVersion { get; init; } = 3;
     /// <summary>Gets the application identifier.</summary>
     public required string ApplicationId { get; init; }
     /// <summary>Gets the logical schema generation.</summary>
@@ -116,8 +116,8 @@ public sealed record BaseClientFieldDescriptor
     public bool ServerGenerated { get; init; }
     /// <summary>Gets whether mutation input may change the field.</summary>
     public bool Mutable { get; init; }
-    /// <summary>Gets whether output redaction may omit the field.</summary>
-    public bool RedactionOptional { get; init; }
+    /// <summary>Gets the closed outward disclosure shape: none, omission, or fixed-marker.</summary>
+    public required string DisclosureShape { get; init; }
     /// <summary>Gets the accepted query operators.</summary>
     public required string[] Operators { get; init; }
 }
@@ -196,8 +196,8 @@ public sealed record BaseClientPropertyDescriptor
     public bool Required { get; init; }
     /// <summary>Gets whether a present property may be null.</summary>
     public bool Nullable { get; init; }
-    /// <summary>Gets whether policy redaction may omit output.</summary>
-    public bool RedactionOptional { get; init; }
+    /// <summary>Gets the closed outward disclosure shape: none, omission, or fixed-marker.</summary>
+    public required string DisclosureShape { get; init; }
 }
 
 /// <summary>Describes one materialized endpoint and its DTO contracts.</summary>

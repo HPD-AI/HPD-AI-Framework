@@ -4,6 +4,12 @@ namespace HPD.Base;
 /// <summary>Represents a access grant.</summary>
 public sealed record AccessGrant
 {
+    /// <summary>Gets the exact application identity for a system-access grant.</summary>
+    public string? ApplicationId { get; init; }
+    /// <summary>Gets the exact installed module or service identity for a system-access grant.</summary>
+    public string? ModuleId { get; init; }
+    /// <summary>Gets the exact audience for a system-access grant.</summary>
+    public HPDBaseEndpointAudience? Audience { get; init; }
     /// <summary>Gets or sets the ID.</summary>
     public required string Id { get; init; }
     /// <summary>Gets or sets the subject.</summary>

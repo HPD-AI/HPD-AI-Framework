@@ -1,6 +1,6 @@
 namespace HPD.Base;
 
-/// <summary>Identifies the audience of one BASE HTTP endpoint or generated read.</summary>
+/// <summary>Identifies the audience of one BASE endpoint, session, or generated read.</summary>
 public enum HPDBaseEndpointAudience
 {
     /// <summary>Unauthenticated host-selected operational discovery.</summary>

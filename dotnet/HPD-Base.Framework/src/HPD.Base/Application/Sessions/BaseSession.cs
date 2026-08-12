@@ -16,6 +16,7 @@ public sealed class BaseSession
     private readonly IBaseLiveQueryCoordinator? _liveQueries;
     private readonly IBaseRegisteredReadRuntime? _reads;
     private readonly IServiceProvider _services;
+    private readonly string _applicationId;
 
     internal BaseSession(
         IBaseRecordRuntime runtime,
@@ -28,7 +29,8 @@ public sealed class BaseSession
         IBaseLiveQueryCoordinator? liveQueries = null,
         IBaseRegisteredReadRuntime? reads = null,
         int maxQueryPageSize = 500,
-        IServiceProvider? services = null)
+        IServiceProvider? services = null,
+        string applicationId = "hpd.base.application")
     {
         _runtime = runtime;
         _timeProvider = timeProvider;
@@ -40,6 +42,7 @@ public sealed class BaseSession
         _liveQueries = liveQueries;
         _reads = reads;
         _services = services ?? EmptyServiceProvider.Instance;
+        _applicationId = new string(applicationId.AsSpan());
         MaxQueryPageSize = maxQueryPageSize;
     }
 
@@ -117,6 +120,8 @@ public sealed class BaseSession
         RecordId? recordId = null) =>
         new()
         {
+            ApplicationId = _applicationId,
+            Audience = _options.Audience,
             Operation = kind,
             CollectionId = collectionId,
             RecordId = recordId?.Value,

@@ -20,6 +20,11 @@ internal static class BaseApplicationGraphValidator
         foreach (CollectionDefinition collection in collections)
         {
             BaseApplicationId.Validate(collection.Id, nameof(collection.Id));
+            if (collection.System && string.IsNullOrWhiteSpace(collection.SystemOwnerModuleId)
+                || !collection.System && collection.SystemOwnerModuleId is not null)
+                throw new InvalidOperationException(BaseConfidentialityErrorCodes.ContractInvalid);
+            if (collection.SystemOwnerModuleId is not null)
+                BaseApplicationId.Validate(collection.SystemOwnerModuleId, nameof(collection.SystemOwnerModuleId));
             FieldDefinition[] fields = collection.Fields ?? [];
             if (fields.Length > schema.MaxFieldsPerCollection)
                 throw Invalid($"Collection '{collection.Id}' exceeds the configured field limit.");

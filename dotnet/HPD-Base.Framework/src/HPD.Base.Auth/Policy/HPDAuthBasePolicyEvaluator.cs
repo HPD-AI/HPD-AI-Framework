@@ -520,6 +520,8 @@ internal sealed class HPDBaseAuthPolicyEvaluator : IPolicyEvaluator
         AccessSubject[] subjects,
         string action)
     {
+        if (request.Collection.System && (!ExactSystemDimensions(grant, request)))
+            return false;
         if (!string.Equals(grant.Action, action, StringComparison.Ordinal))
             return false;
         if (grant.ExpiresAt is { } expiresAt && expiresAt <= request.Operation.Now)
@@ -540,6 +542,18 @@ internal sealed class HPDBaseAuthPolicyEvaluator : IPolicyEvaluator
             _ => false
         };
     }
+
+    private static bool ExactSystemDimensions(AccessGrant grant, PolicyEvaluationRequest request) =>
+        !string.IsNullOrWhiteSpace(request.Operation.ApplicationId)
+        && string.Equals(grant.ApplicationId, request.Operation.ApplicationId, StringComparison.Ordinal)
+        && !string.IsNullOrWhiteSpace(request.Collection.SystemOwnerModuleId)
+        && string.Equals(grant.ModuleId, request.Collection.SystemOwnerModuleId, StringComparison.Ordinal)
+        && grant.Audience == request.Operation.Audience
+        && grant.Scope.Kind is ResourceScopeKind.Collection or ResourceScopeKind.Record
+        && string.Equals(grant.Scope.CollectionId, request.Collection.Id, StringComparison.Ordinal)
+        && (string.IsNullOrWhiteSpace(request.Operation.TenantId)
+            ? string.IsNullOrWhiteSpace(grant.Scope.TenantId)
+            : string.Equals(grant.Scope.TenantId, request.Operation.TenantId, StringComparison.Ordinal));
 
     private static bool SubjectMatches(AccessSubject grantSubject, AccessSubject[] subjects) =>
         subjects.Any(subject =>

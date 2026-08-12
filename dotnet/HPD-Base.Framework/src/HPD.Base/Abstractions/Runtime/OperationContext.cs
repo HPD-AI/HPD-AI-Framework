@@ -4,6 +4,10 @@ namespace HPD.Base;
 /// <summary>Represents a operation context.</summary>
 public sealed record OperationContext
 {
+    /// <summary>Gets the stable application identity owning the operation.</summary>
+    public string? ApplicationId { get; init; }
+    /// <summary>Gets the exact endpoint or in-process session audience.</summary>
+    public HPDBaseEndpointAudience Audience { get; init; } = HPDBaseEndpointAudience.Application;
     /// <summary>Gets or sets the operation.</summary>
     public required BaseOperationKind Operation { get; init; }
     /// <summary>Gets or sets the collection ID.</summary>

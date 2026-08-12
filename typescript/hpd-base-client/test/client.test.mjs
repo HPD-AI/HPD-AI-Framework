@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { collection, createBaseClient, decodeBaseJson, encodeBaseJson, field, parseBaseJson, read } from "../dist/index.js";
+import { baseRedacted, collection, createBaseClient, decodeBaseJson, decodeBaseValue, encodeBaseJson, field, isBaseRedacted, parseBaseJson, read } from "../dist/index.js";
 import { BaseRealtimeManager } from "../dist/realtime.js";
 
 const basicGraph = Object.freeze({
   title: { kind: "string", minLength: 1, maxLength: 100, format: "plain" },
-  record: { kind: "object", additionalProperties: false, properties: [{ name: "title", wireName: "stored_title", typeId: "title", required: true, nullable: false, redactionOptional: false }] },
-  create: { kind: "object", additionalProperties: false, properties: [{ name: "title", wireName: "stored_title", typeId: "title", required: true, nullable: false, redactionOptional: false }] },
-  replace: { kind: "object", additionalProperties: false, properties: [{ name: "title", wireName: "stored_title", typeId: "title", required: true, nullable: false, redactionOptional: false }] },
-  patch: { kind: "object", additionalProperties: false, properties: [{ name: "title", wireName: "stored_title", typeId: "title", required: false, nullable: false, redactionOptional: false }] }
+  record: { kind: "object", additionalProperties: false, properties: [{ name: "title", wireName: "stored_title", typeId: "title", required: true, nullable: false, disclosureShape: "none" }] },
+  create: { kind: "object", additionalProperties: false, properties: [{ name: "title", wireName: "stored_title", typeId: "title", required: true, nullable: false, disclosureShape: "none" }] },
+  replace: { kind: "object", additionalProperties: false, properties: [{ name: "title", wireName: "stored_title", typeId: "title", required: true, nullable: false, disclosureShape: "none" }] },
+  patch: { kind: "object", additionalProperties: false, properties: [{ name: "title", wireName: "stored_title", typeId: "title", required: false, nullable: false, disclosureShape: "none" }] }
 });
 const schema = Object.freeze({ protocolMajor: 2, schemaGeneration: "1", digest: `sha256:${"0".repeat(64)}`, audience: "application", features: { files: false, realtime: true, batch: true, controlOperations: [] }, typeGraph: basicGraph, reads: {}, collections: { documents: collection({ id: "documents", recordTypeId: "record", createTypeId: "create", replaceTypeId: "replace", patchTypeId: "patch", fields: { title: field("stable-title", "stored_title", ["equal", "notEqual"], "title") }, operations: ["get", "query", "create", "patch", "replace", "batch", "watch", "realtime"], pagination: "seek", maxPageSize: 100, vectorIndexes: {} }) } });
 
@@ -105,14 +105,16 @@ test("the bounded JSON codec rejects duplicate and lossy numeric tokens before m
 
 test("the closed graph codec validates every node and canonicalizes binary32", () => {
   const graph = {
-    boolean: { kind: "boolean" }, plain: { kind: "string", minLength: 1, maxLength: 8, format: "plain" }, integer: { kind: "integer", minimum: "-10", maximum: "10", wire: "number" }, large: { kind: "integer", minimum: "0", maximum: "99999999999999999999", wire: "decimal-string" }, decimal: { kind: "decimal", wire: "decimal-string" }, f32: { kind: "floating", precision: "binary32", finiteOnly: true }, f64: { kind: "floating", precision: "binary64", finiteOnly: true }, bytes: { kind: "bytes", wire: "base64", maxBytes: 3 }, tagA: { kind: "literal", value: "a" }, tagB: { kind: "literal", value: "b" }, enumeration: { kind: "enum", values: ["x", "y"] }, array: { kind: "array", elementTypeId: "f32", minItems: 2, maxItems: 2 }, a: { kind: "object", additionalProperties: false, properties: [{ name: "kind", wireName: "kind", typeId: "tagA", required: true, nullable: false, redactionOptional: false }, { name: "value", wireName: "payload", typeId: "array", required: true, nullable: false, redactionOptional: false }] }, b: { kind: "object", additionalProperties: false, properties: [{ name: "kind", wireName: "kind", typeId: "tagB", required: true, nullable: false, redactionOptional: false }, { name: "value", wireName: "payload", typeId: "plain", required: false, nullable: true, redactionOptional: false }] }, union: { kind: "union", discriminator: "kind", variants: [{ tag: "a", typeId: "a" }, { tag: "b", typeId: "b" }] }
+    boolean: { kind: "boolean" }, plain: { kind: "string", minLength: 1, maxLength: 8, format: "plain" }, integer: { kind: "integer", minimum: "-10", maximum: "10", wire: "number" }, large: { kind: "integer", minimum: "0", maximum: "99999999999999999999", wire: "decimal-string" }, decimal: { kind: "decimal", wire: "decimal-string" }, f32: { kind: "floating", precision: "binary32", finiteOnly: true }, f64: { kind: "floating", precision: "binary64", finiteOnly: true }, bytes: { kind: "bytes", wire: "base64", maxBytes: 3 }, tagA: { kind: "literal", value: "a" }, tagB: { kind: "literal", value: "b" }, enumeration: { kind: "enum", values: ["x", "y"] }, array: { kind: "array", elementTypeId: "f32", minItems: 2, maxItems: 2 }, a: { kind: "object", additionalProperties: false, properties: [{ name: "kind", wireName: "kind", typeId: "tagA", required: true, nullable: false, disclosureShape: "none" }, { name: "value", wireName: "payload", typeId: "array", required: true, nullable: false, disclosureShape: "none" }] }, b: { kind: "object", additionalProperties: false, properties: [{ name: "kind", wireName: "kind", typeId: "tagB", required: true, nullable: false, disclosureShape: "none" }, { name: "value", wireName: "payload", typeId: "plain", required: false, nullable: true, disclosureShape: "none" }] }, union: { kind: "union", discriminator: "kind", variants: [{ tag: "a", typeId: "a" }, { tag: "b", typeId: "b" }] }
   };
   assert.deepEqual(decodeBaseJson('{"kind":"a","payload":[0.1,-0]}', "union", graph), { kind: "a", value: [Math.fround(0.1), 0] });
   assert.equal(encodeBaseJson({ kind: "a", value: [Math.fround(0.1), 0] }, "union", graph), '{"kind":"a","payload":[0.1,0]}');
   assert.equal(encodeBaseJson([Math.fround(0.1), -0], "array", graph), "[0.1,0]");
   assert.equal(decodeBaseJson("3.4028235e38", "f32", graph), Math.fround(3.4028235e38)); assert.equal(decodeBaseJson("1.17549435e-38", "f32", graph), Math.fround(1.17549435e-38)); assert.equal(decodeBaseJson("1e-45", "f32", graph), Math.fround(1e-45));
   assert.throws(() => decodeBaseJson("3.5e38", "f32", graph)); assert.throws(() => decodeBaseJson("1e-46", "f32", graph)); assert.equal(decodeBaseJson("1.0000000596046448", "f32", graph), 1);
-  assert.equal(decodeBaseJson('"AQID"', "bytes", graph), "AQID"); assert.equal(decodeBaseJson('"99999999999999999999"', "large", graph), "99999999999999999999");
+  assert.deepEqual(decodeBaseJson('"AQID"', "bytes", graph), new Uint8Array([1, 2, 3])); assert.equal(decodeBaseJson('"99999999999999999999"', "large", graph), "99999999999999999999");
+  const source = new Uint8Array([1, 2, 3]); const copied = decodeBaseValue(source, "bytes", graph); source[0] = 9;
+  assert.deepEqual(copied, new Uint8Array([1, 2, 3])); assert.equal(encodeBaseJson(copied, "bytes", graph), '"AQID"');
   assert.throws(() => decodeBaseJson('{"kind":"a","payload":[],"extra":true}', "union", graph)); assert.throws(() => decodeBaseJson("[0.1]", "array", graph));
   assert.throws(() => decodeBaseJson('{"kind":"c"}', "union", graph)); assert.throws(() => decodeBaseJson('[1e-50]', "array", graph));
 });
@@ -138,7 +140,7 @@ test("indeterminate mutations retain immutable bytes for explicit receipt resolu
 });
 
 test("generated graph codecs guard records and registered-read rows at runtime", async () => {
-  const graph = { title: { kind: "string", minLength: 1, maxLength: 8, format: "plain" }, score: { kind: "floating", precision: "binary32", finiteOnly: true }, record: { kind: "object", additionalProperties: false, properties: [{ name: "title", wireName: "stored_title", typeId: "title", required: true, nullable: false, redactionOptional: false }, { name: "score", wireName: "score", typeId: "score", required: false, nullable: false, redactionOptional: false }] }, create: { kind: "object", additionalProperties: false, properties: [{ name: "title", wireName: "title", typeId: "title", required: true, nullable: false, redactionOptional: false }, { name: "score", wireName: "score", typeId: "score", required: false, nullable: false, redactionOptional: false }] }, replace: { kind: "object", additionalProperties: false, properties: [{ name: "title", wireName: "title", typeId: "title", required: true, nullable: false, redactionOptional: false }, { name: "score", wireName: "score", typeId: "score", required: true, nullable: false, redactionOptional: false }] }, patch: { kind: "object", additionalProperties: false, properties: [{ name: "title", wireName: "title", typeId: "title", required: false, nullable: false, redactionOptional: false }, { name: "score", wireName: "score", typeId: "score", required: false, nullable: false, redactionOptional: false }] }, row: { kind: "object", additionalProperties: false, properties: [{ name: "title", wireName: "title", typeId: "title", required: true, nullable: false, redactionOptional: false }] }, parameters: { kind: "object", additionalProperties: false, properties: [] } };
+  const graph = { title: { kind: "string", minLength: 1, maxLength: 8, format: "plain" }, score: { kind: "floating", precision: "binary32", finiteOnly: true }, record: { kind: "object", additionalProperties: false, properties: [{ name: "title", wireName: "stored_title", typeId: "title", required: true, nullable: false, disclosureShape: "none" }, { name: "score", wireName: "score", typeId: "score", required: false, nullable: false, disclosureShape: "none" }] }, create: { kind: "object", additionalProperties: false, properties: [{ name: "title", wireName: "title", typeId: "title", required: true, nullable: false, disclosureShape: "none" }, { name: "score", wireName: "score", typeId: "score", required: false, nullable: false, disclosureShape: "none" }] }, replace: { kind: "object", additionalProperties: false, properties: [{ name: "title", wireName: "title", typeId: "title", required: true, nullable: false, disclosureShape: "none" }, { name: "score", wireName: "score", typeId: "score", required: true, nullable: false, disclosureShape: "none" }] }, patch: { kind: "object", additionalProperties: false, properties: [{ name: "title", wireName: "title", typeId: "title", required: false, nullable: false, disclosureShape: "none" }, { name: "score", wireName: "score", typeId: "score", required: false, nullable: false, disclosureShape: "none" }] }, row: { kind: "object", additionalProperties: false, properties: [{ name: "title", wireName: "title", typeId: "title", required: true, nullable: false, disclosureShape: "none" }] }, parameters: { kind: "object", additionalProperties: false, properties: [] } };
   const typedSchema = { ...schema, typeGraph: graph, reads: { titles: read({ id: "titles", parameterTypeId: "parameters", rowTypeId: "row", maxPageSize: 10, watchable: false }) }, collections: { documents: collection({ ...schema.collections.documents, fields: { title: field("stable-title", "stored_title", ["equal"], "title"), score: field("score", "score", ["equal"], "score") }, operations: ["get", "patch", "batch"] }) } };
   let mode = "record"; let mutationBody = ""; const base = createBaseClient({ schema: typedSchema, url: "https://base.test/base/", fetch: async (_url, init) => { if (mode === "record") return Response.json({ collectionId: "documents", id: "d1", payload: { kind: "json", json: { stored_title: "valid", score: 0.1, extra: true } }, metadata: {} }, { headers: { "X-Correlation-ID": "c" } }); if (mode === "read") return Response.json({ items: [{ title: "too-long-value" }], page: { hasMore: false } }, { headers: { "X-Correlation-ID": "c" } }); mutationBody = new TextDecoder().decode(init.body); return Response.json({ outcome: "committed", items: [{ itemId: "mutation", index: 0, kind: "patch", disposition: "committed", record: { collectionId: "documents", id: "d1", payload: { kind: "json", json: { stored_title: "valid", score: 0.1 } }, metadata: {} } }] }, { headers: { "X-Correlation-ID": "c" } }); } });
   const malformedRecord = await base.documents.get("d1"); assert.equal(malformedRecord.ok, false); assert.equal(malformedRecord.error.code, "base.client.responseInvalid");
@@ -148,7 +150,7 @@ test("generated graph codecs guard records and registered-read rows at runtime",
 
 test("mutation DTOs enforce authoritative required, nullable, and extra-member rules", async () => {
   let calls = 0; let body = "";
-  const nullableGraph = { ...basicGraph, patch: { kind: "object", additionalProperties: false, properties: [{ name: "title", wireName: "stored_title", typeId: "title", required: false, nullable: true, redactionOptional: false }] } };
+  const nullableGraph = { ...basicGraph, patch: { kind: "object", additionalProperties: false, properties: [{ name: "title", wireName: "stored_title", typeId: "title", required: false, nullable: true, disclosureShape: "none" }] } };
   const nullableSchema = { ...schema, typeGraph: nullableGraph };
   const base = createBaseClient({ schema: nullableSchema, url: "https://base.test/base/", fetch: async (_url, init) => { calls++; body = new TextDecoder().decode(init.body); return Response.json({ outcome: "committed", items: [{ itemId: "mutation", index: 0, kind: "patch", disposition: "committed", record: { collectionId: "documents", id: "d1", payload: { kind: "json", json: { stored_title: "after" } }, metadata: {} } }] }, { headers: { "X-Correlation-ID": "dto" } }); } });
   await assert.rejects(() => base.documents.create({}), /base\.client\.requestInvalid/u);
@@ -159,7 +161,7 @@ test("mutation DTOs enforce authoritative required, nullable, and extra-member r
 });
 
 test("HTTP graph decoding preserves raw negative-zero tokens until binary32 normalization", async () => {
-  const graph = { ...basicGraph, score: { kind: "floating", precision: "binary32", finiteOnly: true }, record: { kind: "object", additionalProperties: false, properties: [{ name: "title", wireName: "stored_title", typeId: "title", required: true, nullable: false, redactionOptional: false }, { name: "score", wireName: "score", typeId: "score", required: true, nullable: false, redactionOptional: false }] } };
+  const graph = { ...basicGraph, score: { kind: "floating", precision: "binary32", finiteOnly: true }, record: { kind: "object", additionalProperties: false, properties: [{ name: "title", wireName: "stored_title", typeId: "title", required: true, nullable: false, disclosureShape: "none" }, { name: "score", wireName: "score", typeId: "score", required: true, nullable: false, disclosureShape: "none" }] } };
   const floatingSchema = { ...schema, typeGraph: graph, collections: { documents: collection({ ...schema.collections.documents, fields: { ...schema.collections.documents.fields, score: field("score", "score", ["equal"], "score") } }) } };
   const base = createBaseClient({ schema: floatingSchema, url: "https://base.test/base/", fetch: async () => new Response('{"collectionId":"documents","id":"d1","payload":{"kind":"json","json":{"stored_title":"value","score":-0}},"metadata":{}}', { headers: { "Content-Type": "application/json", "X-Correlation-ID": "raw" } }) });
   const result = await base.documents.get("d1"); assert.equal(result.ok, true); assert.equal(result.value.payload.json.score, 0); assert.equal(Object.is(result.value.payload.json.score, -0), false);
@@ -177,6 +179,20 @@ test("file DTOs are decoded against the complete closed HTTP contract", async ()
   assert.equal(upload.ok, true); assert.equal(upload.value.metadata.objectId, "o1"); assert.equal(upload.value.created, true);
   mode = "list"; const page = await base.files.bucket("assets").list(); assert.equal(page.ok, true); assert.equal(page.value.nextCursor, "next");
   mode = "invalid"; const invalid = await base.files.bucket("assets").metadata("o1"); assert.equal(invalid.ok, false); assert.equal(invalid.error.code, "base.client.responseInvalid");
+});
+
+test("fixed-marker and omission are distinct closed disclosure shapes", () => {
+  const graph = {
+    value: { kind: "string", minLength: 0, maxLength: 16, format: "plain" },
+    record: { kind: "object", additionalProperties: false, properties: [
+      { name: "omitted", wireName: "omitted", typeId: "value", required: true, nullable: false, disclosureShape: "omission" },
+      { name: "marked", wireName: "marked", typeId: "value", required: true, nullable: false, disclosureShape: "fixed-marker" }
+    ] }
+  };
+  const decoded = decodeBaseJson('{"marked":{"$base":"redacted"}}', "record", graph);
+  assert.equal(Object.hasOwn(decoded, "omitted"), false); assert.equal(decoded.marked, baseRedacted); assert.equal(isBaseRedacted(decoded.marked), true);
+  assert.throws(() => decodeBaseJson('{"marked":{"$base":"redacted","extra":true}}', "record", graph), /responseInvalid/u);
+  assert.throws(() => encodeBaseJson({ omitted: "x", marked: baseRedacted }, "record", graph), /responseInvalid/u);
 });
 
 class FakeSocket {

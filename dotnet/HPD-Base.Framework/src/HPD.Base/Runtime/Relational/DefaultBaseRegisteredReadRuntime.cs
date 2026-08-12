@@ -61,6 +61,7 @@ internal sealed class DefaultBaseRegisteredReadRuntime(
             return Failure<TRow>(OperationStatus.CapabilityUnavailable, "base.relational.read.unsupported", "The selected store cannot execute this registered read.");
 
         var sourcePolicies = new List<BaseRelationalReadSourcePolicy>(definition.Plan.Sources.Length);
+        bool exactGrantMatched = false;
         foreach (BaseRelationalReadSource source in definition.Plan.Sources)
         {
             OperationContext sourceOperation = operation with { CollectionId = source.CollectionId };
@@ -83,6 +84,7 @@ internal sealed class DefaultBaseRegisteredReadRuntime(
             }
             if (!policyResult.IsSuccess() || policyResult.Value is null)
                 return Failure<TRow>(OperationStatus.PolicyDenied, "base.relational.read.policyUnsupported", "Registered read policy evaluation failed.");
+            exactGrantMatched |= BaseSystemCollectionGate.HasExactGrant(policyResult, definition.RequiredGrantId);
             sourcePolicies.Add(new BaseRelationalReadSourcePolicy
             {
                 SourceId = source.Id,
@@ -90,6 +92,11 @@ internal sealed class DefaultBaseRegisteredReadRuntime(
                 Filter = policyResult.Value.EffectiveRecordFilter,
                 ReadMask = policyResult.Value.EffectiveReadMask,
             });
+        }
+        if (definition.Disclosure is not BaseRegisteredReadDisclosure.Ordinary || definition.SourceAuthority == BaseRegisteredReadSourceAuthority.System)
+        {
+            if (!exactGrantMatched)
+                return Failure<TRow>(OperationStatus.NotFound, "base.systemCollection.accessForbidden", "The registered read was not found.");
         }
         if (!InfluenceAllowed(definition.Plan, sourcePolicies))
             return Failure<TRow>(OperationStatus.PolicyDenied, "base.relational.read.policyUnsupported", "Policy denied the registered read.");

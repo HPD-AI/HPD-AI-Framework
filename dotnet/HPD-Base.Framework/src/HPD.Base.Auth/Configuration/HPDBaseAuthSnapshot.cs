@@ -60,6 +60,7 @@ internal sealed class HPDBaseAuthSnapshot
     private static AccessGrant CloneGrant(AccessGrant grant) => grant with
     {
         Id = Copy(grant.Id), Action = Copy(grant.Action), Source = CopyNullable(grant.Source),
+        ApplicationId = CopyNullable(grant.ApplicationId), ModuleId = CopyNullable(grant.ModuleId),
         Subject = grant.Subject with { Id = CopyNullable(grant.Subject.Id), Qualifier = CopyNullable(grant.Subject.Qualifier), TenantId = CopyNullable(grant.Subject.TenantId), Source = CopyNullable(grant.Subject.Source) },
         Scope = grant.Scope with { CollectionId = CopyNullable(grant.Scope.CollectionId), RecordId = CopyNullable(grant.Scope.RecordId), FieldPath = CopyNullable(grant.Scope.FieldPath), TenantId = CopyNullable(grant.Scope.TenantId) },
         Condition = CloneFilter(grant.Condition), WriteCondition = CloneFilter(grant.WriteCondition)

@@ -71,6 +71,19 @@ internal static class BaseStorageProtectionContract
             || value.Guarantee is BaseStorageEncryptionGuarantee.HostDeclared or BaseStorageEncryptionGuarantee.ProviderDeclared && value.Verification == BaseStorageVerificationStatus.Unverified
             || value.Guarantee == BaseStorageEncryptionGuarantee.None && (value.KeyOwner != BaseStorageKeyOwner.None || value.Rotation != BaseStorageRotationSupport.None))
             throw new InvalidOperationException(BaseConfidentialityErrorCodes.StorageDescriptorInvalid);
+
+        BaseStorageProtectionState[] durable =
+        [
+            value.Coverage.AuthoritativeRecords,
+            value.Coverage.Journal,
+            value.Coverage.Receipts,
+            value.Coverage.ProviderState,
+            value.Coverage.Indexes,
+            value.Coverage.TemporaryFiles,
+            value.Coverage.AuthoritativeBackups,
+        ];
+        if (durable.Any(static state => state is BaseStorageProtectionState.NotRetained or BaseStorageProtectionState.NotApplicable))
+            throw new InvalidOperationException(BaseConfidentialityErrorCodes.StorageDescriptorInvalid);
     }
 
     internal static BaseStorageProtectionRequirement Clone(BaseStorageProtectionRequirement value) => value with
@@ -166,11 +179,20 @@ internal static class BaseStorageProtectionContract
     }
 
     private static bool Satisfies(BaseStorageProtectionCapability capability, BaseStorageProtectionRequirement requirement) =>
-        requirement.PermittedGuarantees.Contains(capability.Guarantee)
+        GuaranteeSatisfies(capability.Guarantee, requirement.PermittedGuarantees)
         && requirement.PermittedKeyOwners.Contains(capability.KeyOwner)
         && (int)capability.Verification >= (int)requirement.MinimumVerification
         && RotationSatisfies(capability.Rotation, requirement.RequiredRotation)
-        && CoveragePairs(capability.Coverage, requirement.Coverage).All(static pair => pair.Required.Contains(pair.Actual));
+        && CoveragePairs(capability.Coverage, requirement.Coverage).All(static pair =>
+            pair.Actual != BaseStorageProtectionState.Unprotected
+            && pair.Required.Contains(pair.Actual));
+
+    private static bool GuaranteeSatisfies(
+        BaseStorageEncryptionGuarantee actual,
+        ImmutableArray<BaseStorageEncryptionGuarantee> permitted) =>
+        permitted.Contains(actual)
+        || actual == BaseStorageEncryptionGuarantee.ProviderVerified
+            && permitted.Contains(BaseStorageEncryptionGuarantee.ProviderDeclared);
 
     private static bool RotationSatisfies(BaseStorageRotationSupport actual, BaseStorageRotationSupport required) =>
         actual == required || actual == BaseStorageRotationSupport.Online && required == BaseStorageRotationSupport.Offline;

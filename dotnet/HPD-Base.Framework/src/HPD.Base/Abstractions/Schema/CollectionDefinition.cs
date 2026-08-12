@@ -19,6 +19,8 @@ public sealed record CollectionDefinition
     public bool Exposed { get; init; } = true;
     /// <summary>Gets or sets the system.</summary>
     public bool System { get; init; }
+    /// <summary>Gets the installed module or service identity owning a system collection.</summary>
+    public string? SystemOwnerModuleId { get; init; }
     /// <summary>Gets or sets the single authoritative collection mutation mode.</summary>
     public BaseCollectionMutationMode MutationMode { get; init; } = BaseCollectionMutationMode.Mutable;
     /// <summary>Gets the operation projection derived from <see cref="MutationMode"/>.</summary>
