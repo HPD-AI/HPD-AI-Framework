@@ -248,6 +248,8 @@ internal static class GraphRuntimeAdmissionCoordinatorV1
         GraphRuntimeEffectResolutionV1? knownEffect = null;
         var mustQuery = false;
         var executed = false; var queried = false;
+        PendingGraphRuntimeCommandV1? lastMatchedPending = null;
+        long lastVerifiedPin = 0;
 
         if (cancellationToken.IsCancellationRequested)
             return NotAdmitted("runtime-cancelled-before-command", 0);
@@ -259,7 +261,8 @@ internal static class GraphRuntimeAdmissionCoordinatorV1
             if (!appendInvoked && cancellationToken.IsCancellationRequested)
                 return NotAdmitted("runtime-cancelled-before-command", LastVerified(read));
             if (read is not GraphRuntimeSnapshotReadResultV1.Verified verified)
-                return MapRead(read, appendInvoked ? request : null);
+                return MapRead(read,request,lastMatchedPending,lastVerifiedPin);
+            lastVerifiedPin = verified.SnapshotThrough;
             if (verified.Fold is GraphRuntimeJournalFoldResultV1.RuntimeReplaced runtime)
                 return Runtime(runtime);
             if (verified.Fold is GraphRuntimeJournalFoldResultV1.AuthorityGenerationReplaced terminal)
@@ -315,6 +318,7 @@ internal static class GraphRuntimeAdmissionCoordinatorV1
                     : Unknown("runtime-command-pending", verified.SnapshotThrough, pending);
             if (!SameIdentity(pending, request))
                 return Contradictory("runtime-operation-identity-reuse", verified.SnapshotThrough);
+            lastMatchedPending = pending;
             if (pending.Operation.ResultEnvelope is not null)
                 return new GraphRuntimeAdmissionResultV1.AlreadyAdmitted(pending.Operation.CommandEnvelope,
                     pending.Operation.ResultEnvelope);
@@ -401,7 +405,8 @@ internal static class GraphRuntimeAdmissionCoordinatorV1
         }
 
         var finalRead = await SafeRead(reader, journal, session, CancellationToken.None, recoveryReads).ConfigureAwait(false);
-        if (finalRead is not GraphRuntimeSnapshotReadResultV1.Verified finalVerifiedRead) return MapRead(finalRead, request);
+        if (finalRead is not GraphRuntimeSnapshotReadResultV1.Verified finalVerifiedRead)
+            return MapRead(finalRead,request,lastMatchedPending,lastVerifiedPin);
         if (Reconcile(finalVerifiedRead, request, freshResult) is { } finalReconciled) return finalReconciled;
         return finalVerifiedRead.Fold switch
         {
@@ -520,6 +525,16 @@ internal static class GraphRuntimeAdmissionCoordinatorV1
           identity?.Command.OperationId,identity?.Command.Kind,identity?.Command.EffectRequestHash),
       _=>identity is null?Unknown("runtime-read-result-unknown",0,null):new GraphRuntimeAdmissionResultV1.OutcomeUnknown(
           Code("runtime-read-result-unknown"),0,null,identity.Command.OperationId,identity.Command.Kind,identity.Command.EffectRequestHash) };
+    private static GraphRuntimeAdmissionResultV1 MapRead(GraphRuntimeSnapshotReadResultV1 read,
+        GraphRuntimeAdmissionRequestV1 identity,PendingGraphRuntimeCommandV1? lastMatchedPending,long lastVerifiedPin) =>
+        read is GraphRuntimeSnapshotReadResultV1.OutcomeUnknown unknown
+            ? new GraphRuntimeAdmissionResultV1.OutcomeUnknown(unknown.Code,
+                Math.Max(unknown.LastVerified,lastVerifiedPin),
+                unknown.Pending is { } reported && SameIdentity(reported,identity)
+                    ? reported
+                    : unknown.LastVerified <= lastVerifiedPin ? lastMatchedPending : null,
+                identity.Command.OperationId,identity.Command.Kind,identity.Command.EffectRequestHash)
+            : MapRead(read,identity);
     private static long LastVerified(GraphRuntimeSnapshotReadResultV1 read) => read switch
     { GraphRuntimeSnapshotReadResultV1.Verified x=>x.SnapshotThrough,
       GraphRuntimeSnapshotReadResultV1.InvalidHistory x=>x.LastVerified,

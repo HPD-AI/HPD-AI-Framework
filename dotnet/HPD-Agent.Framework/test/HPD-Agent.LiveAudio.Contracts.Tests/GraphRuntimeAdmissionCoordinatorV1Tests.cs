@@ -69,6 +69,106 @@ public sealed partial class GraphRuntimeAdmissionCoordinatorV1Tests
     }
 
     [Fact]
+    public async Task PostCommandRecoveryTimeout_PreservesExactPendingAndOccupiedRetryDoesNotStartAnotherRead()
+    {
+        var fixture=await GraphRuntimeReducerV1Tests.Fixture.CreateAsync();var request=Request(fixture);
+        var expected=await fixture.AppendCommandAsync(request.Command);var time=new ManualTimeProvider();
+        var supervisor=new GraphRuntimeRecoveryReadSupervisorV1(time);
+        var blocked=new TaskCompletionSource<GraphRuntimeSnapshotReadResultV1>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var reads=0;
+        async ValueTask<GraphRuntimeSnapshotReadResultV1> Reader(
+            IAuthorityJournalV1 journal,SessionAuthorityStampV1 session,CancellationToken cancellationToken)
+        {
+            if(Interlocked.Increment(ref reads)==1)
+                return await GraphRuntimeSnapshotReaderV1.ReadAsync(journal,session,cancellationToken);
+            return await blocked.Task;
+        }
+        var effects=new RecordingEffectPort().ThenQuery(new GraphRuntimeEffectQueryResultV1.NotObserved());
+        var firstTask=GraphRuntimeAdmissionCoordinatorV1.AdmitAsync(fixture.Journal,effects,request,Reader,
+            static(_,_,_,_,_)=>ValueTask.FromResult<BoundedAscii?>(null),supervisor).AsTask();
+        while(Volatile.Read(ref reads)<2)await Task.Yield();
+        time.Advance(GraphRuntimeAdmissionCoordinatorV1.RecoveryReadTimeout);
+        var first=Assert.IsType<GraphRuntimeAdmissionResultV1.OutcomeUnknown>(await firstTask);
+        Assert.Equal("runtime-recovery-read-timeout",first.Code.ToString());Assert.NotNull(first.Pending);
+        Assert.Equal(expected.Position,first.Pending!.Operation.CommandEnvelope.Position);AssertExactIdentity(first,request);
+
+        var second=Assert.IsType<GraphRuntimeAdmissionResultV1.OutcomeUnknown>(
+            await GraphRuntimeAdmissionCoordinatorV1.AdmitAsync(fixture.Journal,new RecordingEffectPort(),request,Reader,
+                static(_,_,_,_,_)=>ValueTask.FromResult<BoundedAscii?>(null),supervisor));
+        Assert.Equal("runtime-recovery-read-occupied",second.Code.ToString());AssertExactIdentity(second,request);
+        Assert.Equal(2,reads);blocked.SetResult(await GraphRuntimeSnapshotReaderV1.ReadAsync(fixture.Journal,fixture.Session));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AdvancedUnknownWithoutMatchingPending_DoesNotReuseStaleVerifiedPending(bool reportsOtherPending)
+    {
+        var fixture=await GraphRuntimeReducerV1Tests.Fixture.CreateAsync();var request=Request(fixture);
+        _=await fixture.AppendCommandAsync(request.Command);
+        PendingGraphRuntimeCommandV1? otherPending=null;
+        if(reportsOtherPending)
+        {
+            var otherFixture=await GraphRuntimeReducerV1Tests.Fixture.CreateAsync();var otherRequest=Request(otherFixture);
+            _=await otherFixture.AppendCommandAsync(otherRequest.Command);
+            var otherVerified=Assert.IsType<GraphRuntimeSnapshotReadResultV1.Verified>(
+                await GraphRuntimeSnapshotReaderV1.ReadAsync(otherFixture.Journal,otherFixture.Session));
+            otherPending=Assert.IsType<GraphRuntimeJournalFoldResultV1.Current>(otherVerified.Fold).Pending;
+            Assert.NotNull(otherPending);
+        }
+        var reads=0;
+        async ValueTask<GraphRuntimeSnapshotReadResultV1> Reader(
+            IAuthorityJournalV1 journal,SessionAuthorityStampV1 session,CancellationToken cancellationToken)
+        {
+            if(Interlocked.Increment(ref reads)==1)
+                return await GraphRuntimeSnapshotReaderV1.ReadAsync(journal,session,cancellationToken);
+            return new GraphRuntimeSnapshotReadResultV1.OutcomeUnknown(new BoundedAscii("advanced-read-unknown"),
+                fixture.Installation.Position.Sequence+2,otherPending);
+        }
+        var result=Assert.IsType<GraphRuntimeAdmissionResultV1.OutcomeUnknown>(
+            await GraphRuntimeAdmissionCoordinatorV1.AdmitAsync(fixture.Journal,
+                new RecordingEffectPort().ThenQuery(new GraphRuntimeEffectQueryResultV1.NotObserved()),request,Reader,
+                static(_,_,_,_,_)=>ValueTask.FromResult<BoundedAscii?>(null)));
+
+        Assert.Equal("advanced-read-unknown",result.Code.ToString());
+        Assert.Equal(fixture.Installation.Position.Sequence+2,result.LastVerified);
+        Assert.Null(result.Pending);AssertExactIdentity(result,request);Assert.Equal(2,reads);
+    }
+
+    [Fact]
+    public async Task AttemptEightFinalReadTimeout_PreservesVerifiedPendingAndOccupiedRetryStartsNoRead()
+    {
+        var fixture=await GraphRuntimeReducerV1Tests.Fixture.CreateAsync();var request=Request(fixture);
+        var journal=new ConflictRangeJournal(fixture.Journal,2,8);var time=new ManualTimeProvider();
+        var supervisor=new GraphRuntimeRecoveryReadSupervisorV1(time);
+        var blocked=new TaskCompletionSource<GraphRuntimeSnapshotReadResultV1>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var reads=0;
+        async ValueTask<GraphRuntimeSnapshotReadResultV1> Reader(
+            IAuthorityJournalV1 source,SessionAuthorityStampV1 session,CancellationToken cancellationToken)
+        {
+            if(Interlocked.Increment(ref reads)<9)
+                return await GraphRuntimeSnapshotReaderV1.ReadAsync(source,session,cancellationToken);
+            return await blocked.Task;
+        }
+        var effects=new RecordingEffectPort().ThenExecute(new GraphRuntimeEffectExecutionResultV1.Completed([49]));
+        var firstTask=GraphRuntimeAdmissionCoordinatorV1.AdmitAsync(journal,effects,request,Reader,
+            static(_,_,_,_,_)=>ValueTask.FromResult<BoundedAscii?>(null),supervisor).AsTask();
+        while(Volatile.Read(ref reads)<9)await Task.Yield();
+        time.Advance(GraphRuntimeAdmissionCoordinatorV1.RecoveryReadTimeout);
+        var first=Assert.IsType<GraphRuntimeAdmissionResultV1.OutcomeUnknown>(await firstTask);
+        Assert.Equal("runtime-recovery-read-timeout",first.Code.ToString());
+        Assert.Equal(fixture.Installation.Position.Sequence+1,first.LastVerified);Assert.NotNull(first.Pending);
+        Assert.Equal(request.Command.OperationId,first.Pending!.Operation.OperationId);AssertExactIdentity(first,request);
+        Assert.Equal(8,journal.AppendCalls);Assert.Single(effects.Executions);
+
+        var second=Assert.IsType<GraphRuntimeAdmissionResultV1.OutcomeUnknown>(
+            await GraphRuntimeAdmissionCoordinatorV1.AdmitAsync(journal,new RecordingEffectPort(),request,Reader,
+                static(_,_,_,_,_)=>ValueTask.FromResult<BoundedAscii?>(null),supervisor));
+        Assert.Equal("runtime-recovery-read-occupied",second.Code.ToString());AssertExactIdentity(second,request);
+        Assert.Equal(9,reads);blocked.SetResult(await GraphRuntimeSnapshotReaderV1.ReadAsync(fixture.Journal,fixture.Session));
+    }
+
+    [Fact]
     public void OutcomeUnknown_RequiresCompleteExplicitEffectIdentity()
     {
         var operation=OperationId.Create();var hash=Hash256.FromBytes(Enumerable.Repeat((byte)7,32).ToArray());
@@ -662,6 +762,19 @@ public sealed partial class GraphRuntimeAdmissionCoordinatorV1Tests
     }
 
     [Fact]
+    public async Task ResultCommitThenCancellationException_IsReconciledWithoutReexecution()
+    {
+        var fixture=await GraphRuntimeReducerV1Tests.Fixture.CreateAsync();var request=Request(fixture);
+        var journal=new CommitThenCancelOnAppendJournal(fixture.Journal,2);var effects=new RecordingEffectPort()
+            .ThenExecute(new GraphRuntimeEffectExecutionResultV1.Completed([47]));
+
+        var result=await Admit(journal,effects,request);
+
+        Assert.True(result is GraphRuntimeAdmissionResultV1.Applied or GraphRuntimeAdmissionResultV1.AlreadyAdmitted,result.ToString());
+        Assert.Equal(["E"],effects.Calls);Assert.Single(effects.Executions);Assert.Equal(2,journal.AppendCalls);
+    }
+
+    [Fact]
     public async Task RealGraphCommitBetweenCommandAndEffect_FencesRuntimeWithoutEffectOrWrongResult()
     {
         var fixture=await GraphReplacementAdmissionCoordinatorV1Tests.Fixture.CreateAsync();var request=Request(fixture);
@@ -732,6 +845,10 @@ public sealed partial class GraphRuntimeAdmissionCoordinatorV1Tests
     { Assert.True(GraphRuntimeCodecsV1.TryDecodeOuter(envelope.PayloadMemory,out var outer));Assert.True(GraphRuntimeCodecsV1.TryDecodeFact(outer!.Body,out var fact));return fact!; }
     private static Hash256? Receipt(AuthorityFactEnvelopeV1 envelope)=>TerminalFact(envelope).EffectReceiptHash;
     private static string? SafeCode(AuthorityFactEnvelopeV1 envelope)=>TerminalFact(envelope).SafeCode?.ToString();
+    private static void AssertExactIdentity(GraphRuntimeAdmissionResultV1.OutcomeUnknown result,
+        GraphRuntimeAdmissionRequestV1 request)
+    {Assert.Equal(request.Command.OperationId,result.OperationId);Assert.Equal(request.Command.Kind,result.Kind);
+     Assert.Equal(request.Command.EffectRequestHash,result.RequestHash);}
 
     private sealed class RecordingEffectPort : IGraphRuntimeEffectPortV1
     {
@@ -821,6 +938,17 @@ public sealed partial class GraphRuntimeAdmissionCoordinatorV1Tests
             var result=await Inner.AppendAsync(request,CancellationToken.None);
             if(AppendCalls==1&&result is AppendAuthorityResultV1.Committed)
                 throw new OperationCanceledException("lost-command-ack-after-commit");
+            return result;
+        }
+    }
+    private sealed class CommitThenCancelOnAppendJournal(IAuthorityJournalV1 inner,int targetAppend):ForwardingJournal(inner)
+    {
+        protected override async ValueTask<AppendAuthorityResultV1> AppendCoreAsync(
+            AppendAuthorityBatchV1 request,CancellationToken cancellationToken)
+        {
+            var result=await Inner.AppendAsync(request,CancellationToken.None);
+            if(AppendCalls==targetAppend&&result is AppendAuthorityResultV1.Committed)
+                throw new OperationCanceledException("lost-result-ack-after-commit");
             return result;
         }
     }
