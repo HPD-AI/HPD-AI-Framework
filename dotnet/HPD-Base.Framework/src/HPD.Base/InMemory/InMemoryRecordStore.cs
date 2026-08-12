@@ -2023,6 +2023,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
     {
         private int _relationChecks;
         private int _uniqueChecks;
+        private long _selectionRetainedBytes;
         public ValueTask<OperationResult<BaseSelectionMutationCommitAccounting>> MeasureSelectionMutationAsync(
             BaseAtomicReceiptResult receipt, BaseSelectionMutationResult result, CancellationToken cancellationToken = default)
         {
@@ -2051,7 +2052,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             {
                 WrittenBytes = written, FactBytes = facts, JournalBytes = journal, ReceiptBytes = receiptBytes,
                 RelationChecks = _relationChecks, UniqueConstraintChecks = _uniqueChecks, ResultBytes = resultBytes,
-                TransientBytes = checked(written + facts + journal + receiptBytes + resultBytes),
+                TransientBytes = checked(_selectionRetainedBytes + written + facts + journal + receiptBytes + resultBytes),
             }));
         }
 
@@ -2154,6 +2155,10 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             }
 
             byte[] boundary = owned.Count == 0 ? [] : BaseSelectionOrderTuple.Encode(owned[^1].MaterializeOwned(), request.Query.Sort!);
+            _selectionRetainedBytes = checked(selectedBytes + boundary.LongLength);
+            if (_selectionRetainedBytes > request.Limits.MaximumTransientBytes)
+                return SelectionFailure(OperationStatus.ValidationFailed,
+                    "base.provider.selection.limitExceeded", ErrorCategory.Validation);
             var interval = new BaseAtomicReadIntervalEvidence
             {
                 LogicalAccessPathId = $"collection:{request.Collection.Id}",

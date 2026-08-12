@@ -718,6 +718,7 @@ public sealed partial class SqliteRecordStore
         private string? _constraintRecordId;
         private int _selectionUniqueCheckLimit;
         private long _selectionTransientLimit;
+        private long _selectionRetainedBytes;
         private long _attributionTransientBytes;
         public async ValueTask<OperationResult<BaseSelectionMutationCommitAccounting>> MeasureSelectionMutationAsync(
             BaseAtomicReceiptResult receipt, BaseSelectionMutationResult result, CancellationToken cancellationToken = default)
@@ -752,7 +753,7 @@ public sealed partial class SqliteRecordStore
             {
                 WrittenBytes = written, FactBytes = facts, JournalBytes = journal, ReceiptBytes = receiptBytes,
                 RelationChecks = _relationChecks, UniqueConstraintChecks = _uniqueChecks, ResultBytes = resultBytes,
-                TransientBytes = checked(written + facts + journal + receiptBytes + resultBytes),
+                TransientBytes = checked(_selectionRetainedBytes + _attributionTransientBytes + written + facts + journal + receiptBytes + resultBytes),
             });
         }
 
@@ -810,6 +811,7 @@ public sealed partial class SqliteRecordStore
             _selectionUniqueCheckLimit = request.Limits.MaximumUniqueConstraintChecks;
             _selectionTransientLimit = request.Limits.MaximumTransientBytes;
             _attributionTransientBytes = 0;
+            _selectionRetainedBytes = 0;
 
             await using (SqliteCommand authority = _connection.CreateCommand())
             {
@@ -855,6 +857,10 @@ public sealed partial class SqliteRecordStore
                 records.Add(owned);
             }
             byte[] boundary = records.Count == 0 ? [] : BaseSelectionOrderTuple.Encode(records[^1].MaterializeOwned(), request.Query.Sort!);
+            _selectionRetainedBytes = checked(bytes + boundary.LongLength);
+            if (_selectionRetainedBytes > _selectionTransientLimit)
+                return SelectionFailure(OperationStatus.ValidationFailed,
+                    "base.provider.selection.limitExceeded", ErrorCategory.Validation);
             int selectedCount = records.Count;
             ImmutableArray<BaseOwnedSelectedRecord> selectedRecords = records.MoveToImmutable();
             return OperationResults.Ok(new BaseAtomicSelectionResult
@@ -1151,14 +1157,14 @@ public sealed partial class SqliteRecordStore
                     predicates.Add(field.Column + " IS " + parameter);
                     object encoded = field.Encode(value);
                     _attributionTransientBytes = checked(_attributionTransientBytes + System.Text.Encoding.UTF8.GetByteCount(parameter) + EncodedSize(encoded));
-                    if (_attributionTransientBytes > _selectionTransientLimit) return "base.constraint.attributionUnavailable";
+                    if (checked(_selectionRetainedBytes + _attributionTransientBytes) > _selectionTransientLimit) return "base.constraint.attributionUnavailable";
                     probe.Parameters.AddWithValue(parameter, encoded);
                 }
                 if (!complete) continue;
                 probe.CommandText = $"SELECT 1 FROM {_constraintCollection.Table} WHERE {string.Join(" AND ", predicates)} AND record_id <> $record LIMIT 1;";
                 probe.Parameters.AddWithValue("$record", _constraintRecordId);
                 _attributionTransientBytes = checked(_attributionTransientBytes + System.Text.Encoding.UTF8.GetByteCount(probe.CommandText) + System.Text.Encoding.UTF8.GetByteCount(_constraintRecordId));
-                if (_attributionTransientBytes > _selectionTransientLimit) return "base.constraint.attributionUnavailable";
+                if (checked(_selectionRetainedBytes + _attributionTransientBytes) > _selectionTransientLimit) return "base.constraint.attributionUnavailable";
                 if (await probe.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is not null) matches++;
             }
             return matches == 1 ? "base.constraint.unique" : "base.constraint.attributionUnavailable";
