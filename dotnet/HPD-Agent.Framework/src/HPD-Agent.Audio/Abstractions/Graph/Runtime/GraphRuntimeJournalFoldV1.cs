@@ -28,15 +28,18 @@ internal abstract record GraphRuntimeJournalFoldResultV1
 
     internal sealed record Current(long SnapshotThrough, CurrentAuthorityVectorSnapshotV1 Authority,
         GraphRuntimeSnapshotV1? Snapshot, PendingGraphRuntimeCommandV1? Pending,
-        IReadOnlyList<GraphRuntimeJournalOperationV1> Operations) : GraphRuntimeJournalFoldResultV1;
+        IReadOnlyList<GraphRuntimeJournalOperationV1> Operations,
+        GraphReplacementJournalFoldResultV1.Current? Graph = null) : GraphRuntimeJournalFoldResultV1;
 
     internal sealed record RuntimeReplaced(RuntimeGenerationId Next, long TerminatedAt, long SnapshotThrough,
         GraphRuntimeSnapshotV1? Snapshot, PendingGraphRuntimeCommandV1? Pending,
-        AuthorityFactEnvelopeV1? TerminalResultFact) : GraphRuntimeJournalFoldResultV1;
+        AuthorityFactEnvelopeV1? TerminalResultFact,
+        AuthorityFactEnvelopeV1? TerminalCommandFact = null) : GraphRuntimeJournalFoldResultV1;
 
     internal sealed record AuthorityGenerationReplaced(AuthorityAxisId Axis, StableId128 Next, long TerminatedAt,
         long SnapshotThrough, GraphRuntimeSnapshotV1? Snapshot, PendingGraphRuntimeCommandV1? Pending,
-        AuthorityFactEnvelopeV1? TerminalResultFact) : GraphRuntimeJournalFoldResultV1;
+        AuthorityFactEnvelopeV1? TerminalResultFact,
+        AuthorityFactEnvelopeV1? TerminalCommandFact = null) : GraphRuntimeJournalFoldResultV1;
 
     internal sealed record InvalidHistory(BoundedAscii Code, long LastVerified) : GraphRuntimeJournalFoldResultV1;
 }
@@ -188,16 +191,26 @@ internal static class GraphRuntimeJournalFoldV1
             if (_terminal is not null && inspected is GraphRuntimeJournalInspectionV1.Command)
             { Fail("runtime-command-after-generation-replacement"); return; }
 
+            // A claimed-axis replacement terminates ordinary traversal, but Decision 0023
+            // permits the one exact result that resolves the retained runtime command.
+            // Do not feed that result into the replacement accumulator: its own protocol
+            // correctly rejects every fact after replacement, whereas this composite owns
+            // the narrower cross-protocol receipt exception.
             var transitionDecode = AuthorityGenerationTransitionCodecV1.Decode(envelope.PayloadSchema, envelope.Owner,
                 _session, envelope.PayloadMemory, out var transition);
 
-            var graphInspection = _graph.Inspect(envelope);
-            var graphProofRequired = graphInspection.CapacityReference is not null;
-            if (graphProofRequired != (proof?.GraphProof is not null))
-            { Fail(graphProofRequired ? "graph-proof-missing" : "unexpected-graph-proof"); return; }
-            _graph.Apply(graphInspection, proof?.GraphProof);
-            if (_graph.Failure is { } graphFailure)
-            { _invalid = new(Code("invalid-graph-history"), graphFailure.LastVerifiedPosition); return; }
+            if (_terminal is null)
+            {
+                var graphInspection = _graph.Inspect(envelope);
+                var graphProofRequired = graphInspection.CapacityReference is not null;
+                if (graphProofRequired != (proof?.GraphProof is not null))
+                { Fail(graphProofRequired ? "graph-proof-missing" : "unexpected-graph-proof"); return; }
+                _graph.Apply(graphInspection, proof?.GraphProof);
+                if (_graph.Failure is { } graphFailure)
+                { _invalid = new(Code("invalid-graph-history"), graphFailure.LastVerifiedPosition); return; }
+            }
+            else if (proof?.GraphProof is not null)
+            { Fail("unexpected-graph-proof"); return; }
 
             try
             {
@@ -238,19 +251,28 @@ internal static class GraphRuntimeJournalFoldV1
             if (_terminal is { } terminal)
                 return terminal.Runtime
                     ? new GraphRuntimeJournalFoldResultV1.RuntimeReplaced(RuntimeGenerationId.FromValue(terminal.Next), terminal.At,
-                        _expectedPosition - 1, _snapshot, _pending, terminal.Result)
+                        _expectedPosition - 1, _snapshot, _pending, terminal.Result, TerminalCommand(terminal))
                     : new GraphRuntimeJournalFoldResultV1.AuthorityGenerationReplaced(terminal.Axis, terminal.Next, terminal.At,
-                        _expectedPosition - 1, _snapshot, _pending, terminal.Result);
+                        _expectedPosition - 1, _snapshot, _pending, terminal.Result, TerminalCommand(terminal));
             if (graph is GraphReplacementJournalFoldResultV1.RuntimeReplaced replaced)
                 return new GraphRuntimeJournalFoldResultV1.RuntimeReplaced(replaced.Replacement, replaced.LastPosition,
                     _expectedPosition - 1, _snapshot, _pending, null);
             if (graph is not GraphReplacementJournalFoldResultV1.Current current)
                 return Invalid("invalid-graph-history", _expectedPosition - 1);
             return new GraphRuntimeJournalFoldResultV1.Current(_expectedPosition - 1, current.Authority, _snapshot, _pending,
-                Array.AsReadOnly(_operations.Values.OrderBy(static x => x.CommandEnvelope.Position.Sequence).ToArray()));
+                Array.AsReadOnly(_operations.Values.OrderBy(static x => x.CommandEnvelope.Position.Sequence).ToArray()), current);
         }
 
         internal long LastVerifiedPosition => _expectedPosition - 1;
+
+        /// <summary>
+        /// Gets a proven failure without requiring an in-progress atomic pair to be complete.
+        /// </summary>
+        internal GraphRuntimeJournalFoldResultV1.InvalidHistory? Failure => _invalid ??
+            (_graph.Failure is { } graphFailure
+                ? new GraphRuntimeJournalFoldResultV1.InvalidHistory(
+                    Code("invalid-graph-history"), graphFailure.LastVerifiedPosition)
+                : null);
 
         internal (CapacityGrantId GrantId, JournalPositionV1 Through)? GraphCapacityReference(
             GraphRuntimeJournalInspectionV1 inspected)
@@ -418,6 +440,9 @@ internal static class GraphRuntimeJournalFoldV1
         };
 
         private static bool SameAuthority(ExpectedAuthorityVectorV1 left, ExpectedAuthorityVectorV1 right) => left == right;
+        private AuthorityFactEnvelopeV1? TerminalCommand(Terminal terminal) => terminal.Result is null
+            ? null
+            : _operations.Values.SingleOrDefault(x => x.ResultEnvelope == terminal.Result)?.CommandEnvelope;
         private void Fail(string code) => _invalid = Invalid(code, _expectedPosition - 1);
     }
 

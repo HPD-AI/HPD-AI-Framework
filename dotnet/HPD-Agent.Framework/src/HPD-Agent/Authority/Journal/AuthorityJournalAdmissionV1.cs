@@ -352,6 +352,15 @@ internal static class AuthorityCanonicalCborV1
         return checked((ulong)envelopeWithoutIntegrity.Length + 1UL + (ulong)AuthorityEnvelopePrimitiveCodecsV1.Encode(integrity).Length);
     }
 
+    internal static ulong GetEnvelopeEncodedLength(AuthorityFactEnvelopeV1 fact)
+    {
+        ArgumentNullException.ThrowIfNull(fact);
+        var proposal = new ProposedAuthorityFactV1(fact.FactId, fact.ThreadScope?.ThreadId, fact.Owner,
+            fact.PayloadSchema, fact.PayloadBytes, fact.PayloadHash, fact.Correlation, fact.ObservedAt);
+        return GetEnvelopeEncodedLength(EncodeEnvelopeWithoutIntegrity(proposal, fact.Position,
+            fact.ThreadScope, fact.AdmittedAt), fact.Integrity);
+    }
+
     private static void WriteProposal(CborWriter writer, ProposedAuthorityFactV1 fact)
     {
         writer.WriteStartMap(8);

@@ -121,6 +121,7 @@ public sealed class GraphReplacementAdmissionCoordinatorV1Tests
         internal ExpectedAuthorityVectorV1 Authority { get; private set; } = null!;
         internal InMemoryAuthorityJournalV1 Journal { get; private set; } = null!;
         internal GraphTopologyPlanV1 Source { get; private set; } = null!;
+        internal JournalPositionV1 SourceGrantFact { get; private set; }
         internal GraphTopologyPlanV1 Target { get; private set; } = null!;
         internal CapacityGrantSnapshotV1 TargetGrant { get; private set; } = null!;
         internal JournalPositionV1 Installation { get; private set; }
@@ -142,6 +143,7 @@ public sealed class GraphReplacementAdmissionCoordinatorV1Tests
             ]), () => new UtcInstant(100), new AuthorityJournalCapacityV1(2, 64, 8 * 1024 * 1024));
             await f.AppendGraphInitializationAsync();
             var source = await f.ActiveGrantAsync();
+            f.SourceGrantFact = source.CurrentFact;
             f.Source = f.Plan(f.GraphGeneration, source.GrantId, "source");
             var installRequest = new GraphTopologyInstallationRequestV1(f.Session, f.Source, source.CurrentFact,
                 f.Authority, new CorrelationEnvelopeV1(f._tenant), new UtcInstant(4));

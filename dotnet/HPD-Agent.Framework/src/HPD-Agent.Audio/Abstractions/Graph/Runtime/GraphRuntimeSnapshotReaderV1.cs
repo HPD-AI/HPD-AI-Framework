@@ -122,7 +122,7 @@ internal static class GraphRuntimeSnapshotReaderV1
                 }
                 if (cancellationToken.IsCancellationRequested) return Unknown("runtime-read-cancelled", fold);
                 fold.Apply(inspected, graphProof is null && runtimeProof is null ? null : new(graphProof, runtimeProof));
-                if (fold.Complete() is GraphRuntimeJournalFoldResultV1.InvalidHistory invalid)
+                if (fold.Failure is { } invalid)
                     return new GraphRuntimeSnapshotReadResultV1.InvalidHistory(invalid.Code, invalid.LastVerified);
                 cursor = envelope.Position.Sequence;
             }

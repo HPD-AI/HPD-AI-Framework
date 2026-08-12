@@ -92,7 +92,8 @@ public sealed class GraphRuntimeJournalFoldV1Tests
         var terminal = Assert.IsType<GraphRuntimeJournalFoldResultV1.AuthorityGenerationReplaced>(
             GraphRuntimeJournalFoldV1.Fold(f.Session, inputs));
         Assert.Null(terminal.Pending); Assert.Equal(active, terminal.Snapshot);
-        Assert.Equal(result, terminal.TerminalResultFact); Assert.Equal(tail.Position.Sequence, terminal.SnapshotThrough);
+        Assert.Equal(c, terminal.TerminalCommandFact); Assert.Equal(result, terminal.TerminalResultFact);
+        Assert.Equal(tail.Position.Sequence, terminal.SnapshotThrough);
 
         var forgedSnapshot = new GraphRuntimeSnapshotV1(GraphRuntimePhaseV1.Active, f.Graph, Hash(78),
             f.Grant.CurrentFact, f.Authority, operation, resultPosition, resultPosition, null);
@@ -127,7 +128,7 @@ public sealed class GraphRuntimeJournalFoldV1Tests
         var terminal=FactEnvelope(f,terminalBody,claimed,8);facts.Add(terminal);facts.Add(Unrelated(f,9));
         var raw=GraphRuntimeJournalFoldV1.Fold(f.Session,facts.Select(e=>(e,e.Position==f.Installation.Position?new GraphRuntimeJournalProofV1(f.Grant,null):e.Position==commandEnvelope.Position?new GraphRuntimeJournalProofV1(null,f.Grant):null)));Assert.True(raw is GraphRuntimeJournalFoldResultV1.AuthorityGenerationReplaced,raw.ToString());var folded=(GraphRuntimeJournalFoldResultV1.AuthorityGenerationReplaced)raw;
         Assert.Equal(AuthorityAxisId.Activity,folded.Axis);Assert.Equal(9,folded.SnapshotThrough);Assert.Null(folded.Pending);
-        Assert.Null(folded.Snapshot);Assert.Equal(terminal,folded.TerminalResultFact);
+        Assert.Null(folded.Snapshot);Assert.Equal(commandEnvelope,folded.TerminalCommandFact);Assert.Equal(terminal,folded.TerminalResultFact);
     }
     [Fact]
     public async Task ExactActivateCommandAndResult_FoldToActiveCurrent()
@@ -451,16 +452,18 @@ public sealed class GraphRuntimeJournalFoldV1Tests
     {
         internal SessionAuthorityStampV1 Session = new(RuntimeGenerationId.Create(), LiveSessionId.Create());
         internal GraphGenerationId Graph = GraphGenerationId.Create(); internal ActivityGenerationId Activity = ActivityGenerationId.Create();
+        internal TurnGenerationId Turn = TurnGenerationId.Create();
         internal ExpectedAuthorityVectorV1 Authority = null!; internal CapacityGrantSnapshotV1 Grant = null!;
         internal GraphTopologyPlanV1 Plan = null!; internal AuthorityFactEnvelopeV1 Installation = null!;
+        internal InMemoryAuthorityJournalV1 Journal = null!;
         internal List<AuthorityFactEnvelopeV1> Facts = []; private readonly TenantId _tenant = TenantId.Create();
         private readonly ClockDomainId _clock = ClockDomainId.Create(); private readonly BootId _boot = BootId.Create();
         internal static async Task<ClaimedFixture> CreateAsync()
         {
             var f=new ClaimedFixture();f.Authority=ExpectedAuthorityVectorV1.Create(f.Session,[new AuthorityAxisValueV1.Graph(f.Graph),new AuthorityAxisValueV1.Activity(f.Activity)]);
-            var registry=new AuthorityPayloadAdmissionRegistryV1([new AuthorityGenerationInitializationPayloadRegistrationV1(AuthorityAxisId.Graph),new AuthorityGenerationInitializationPayloadRegistrationV1(AuthorityAxisId.Activity),new AuthorityGenerationTransitionPayloadRegistrationV1(AuthorityAxisId.Activity),new CapacityReservationPayloadRegistrationV1(),new CapacitySettlementPayloadRegistrationV1(),GraphReplacementPayloadRegistrationsV1.Installed,GraphRuntimePayloadRegistrationsV1.Command,GraphRuntimePayloadRegistrationsV1.Fact]);
-            var journal=new InMemoryAuthorityJournalV1(registry,()=>new UtcInstant(100),new AuthorityJournalCapacityV1(2,32,4*1024*1024));
-            await f.Init(journal,AuthorityAxisId.Graph,Stable(f.Graph));await f.Init(journal,AuthorityAxisId.Activity,Stable(f.Activity));
+            var registry=new AuthorityPayloadAdmissionRegistryV1([new AuthorityGenerationInitializationPayloadRegistrationV1(AuthorityAxisId.Graph),new AuthorityGenerationInitializationPayloadRegistrationV1(AuthorityAxisId.Activity),new AuthorityGenerationInitializationPayloadRegistrationV1(AuthorityAxisId.Turn),new AuthorityGenerationTransitionPayloadRegistrationV1(AuthorityAxisId.Graph),new AuthorityGenerationTransitionPayloadRegistrationV1(AuthorityAxisId.Activity),new AuthorityGenerationTransitionPayloadRegistrationV1(AuthorityAxisId.Turn),new CapacityReservationPayloadRegistrationV1(),new CapacitySettlementPayloadRegistrationV1(),GraphReplacementPayloadRegistrationsV1.Installed,GraphRuntimePayloadRegistrationsV1.Command,GraphRuntimePayloadRegistrationsV1.Fact]);
+            var journal=f.Journal=new InMemoryAuthorityJournalV1(registry,()=>new UtcInstant(100),new AuthorityJournalCapacityV1(2,32,4*1024*1024));
+            await f.Init(journal,AuthorityAxisId.Graph,Stable(f.Graph));await f.Init(journal,AuthorityAxisId.Activity,Stable(f.Activity));await f.Init(journal,AuthorityAxisId.Turn,Stable(f.Turn));
             var op=OperationId.Create();var charge=new CapacityChargeV1(new CapacityDimensionId(3),new CapacityScopeV1(f._tenant,null,new CapacitySubjectV1.Operation(op)),1,CapacityPurposeId.Create(),new CapacityChargeWindowV1.NoWindow());
             var request=new CapacityRequestV1(op,f.Authority,[charge],new(f._clock,f._boot,100),CapacityPriorityV1.Normal);var reserved=Assert.IsType<CapacityAdmissionResultV1.Granted>(await CapacityAdmissionCoordinatorV1.ReserveAsync(journal,request,new CapacityGrantExpiryV1.NoExpiry(),new(f._tenant,operationId:op),new(f._clock,f._boot,90),new UtcInstant(2)));
             var settleOp=OperationId.Create();var settle=new CapacitySettlementFactBodyV1(reserved.Grant.GrantId,settleOp,reserved.Envelope.Position,CapacitySettlementKindV1.Activated,[new CapacitySettlementChargeV1(charge.DimensionId,charge.Scope,charge.Purpose,1)],new(f._clock,f._boot,91));f.Grant=Assert.IsType<CapacityAdmissionResultV1.Settled>(await CapacityAdmissionCoordinatorV1.SettleAsync(journal,f.Session,settle,new(f._tenant,operationId:settleOp),new UtcInstant(3))).Grant;
@@ -472,10 +475,21 @@ public sealed class GraphRuntimeJournalFoldV1Tests
         private AuthorityFactEnvelopeV1 CommandEnvelopeLike(GraphRuntimeCommandV1 command,long n){var b=GraphRuntimeCodecsV1.EncodeCommand(command);var p=GraphRuntimeCodecsV1.EncodeOuter(new(Session,Authority,b));var r=GraphRuntimePayloadRegistrationsV1.Command;return Make(GraphRuntimeFactIdsV1.Command(Session,command.OperationId,command.Kind),n,OwnerSliceId.S2,r.Schema,p,AuthorityPayloadHashV1.Compute(r.SchemaToken,r.Schema,p));}
         internal AuthorityFactEnvelopeV1 Fact(GraphRuntimeFactV1 fact,long n){var b=GraphRuntimeCodecsV1.EncodeFact(fact);var p=GraphRuntimeCodecsV1.EncodeOuter(new(Session,Authority,b));var r=GraphRuntimePayloadRegistrationsV1.Fact;return Make(GraphRuntimeFactIdsV1.Result(fact.CommandFact),n,OwnerSliceId.S2,r.Schema,p,AuthorityPayloadHashV1.Compute(r.SchemaToken,r.Schema,p));}
         internal AuthorityFactEnvelopeV1 Transition(ActivityGenerationId next,long n){var p=AuthorityGenerationTransitionCodecV1.Encode(Session,AuthorityAxisId.Activity,Stable(Activity),Stable(next));var r=new AuthorityGenerationTransitionPayloadRegistrationV1(AuthorityAxisId.Activity);return Make(JournalFactId.Create(),n,OwnerSliceId.S3,r.Schema,p,AuthorityPayloadHashV1.Compute(r.SchemaToken,r.Schema,p));}
+        internal async Task AppendTransitionAsync(AuthorityAxisId axis,StableId128 current,StableId128 next)
+        {
+            var payload=AuthorityGenerationTransitionCodecV1.Encode(Session,axis,current,next);var registration=new AuthorityGenerationTransitionPayloadRegistrationV1(axis);
+            var proposal=new ProposedAuthorityFactV1(JournalFactId.Create(),null,AuthorityGenerationTransitionCodecV1.OwnerFor(axis),registration.Schema,payload,AuthorityPayloadHashV1.Compute(registration.SchemaToken,registration.Schema,payload),new(_tenant),new UtcInstant(5));
+            var head=Assert.IsType<ReadAuthorityRangeResultV1.Batch>(await Journal.ReadAsync(new(Session,0,long.MaxValue,256,1_048_576))).SnapshotThrough;
+            Assert.IsType<AppendAuthorityResultV1.Committed>(await Journal.AppendAsync(new(Session,head,[],[proposal],ProposedAuthorityFactV1.MaximumPayloadBytes)));
+        }
         internal AuthorityFactEnvelopeV1 Other(long n){var p=new byte[]{1};return Make(JournalFactId.Create(),n,OwnerSliceId.S4,new(SchemaId.Create(),1,0),p,Hash256.Compute(p));}
         private AuthorityFactEnvelopeV1 Make(JournalFactId id,long n,OwnerSliceId owner,SchemaReferenceV1 schema,byte[] p,Hash256 h)=>new(id,new(Session,n),null,owner,schema,p,h,new(_tenant),new UtcInstant(1),new UtcInstant(2),new IntegrityEnvelopeV1(1,1,Hash(30),[]));
         private static async Task<IReadOnlyList<AuthorityFactEnvelopeV1>> Read(InMemoryAuthorityJournalV1 j,SessionAuthorityStampV1 s)=>Assert.IsType<ReadAuthorityRangeResultV1.Batch>(await j.ReadAsync(new(s,0,long.MaxValue,256,1_048_576))).Facts;
         private static StableId128 Stable(GraphGenerationId value){Span<byte>b=stackalloc byte[16];value.TryWriteBytes(b);return StableId128.FromBytes(b);}
         private static StableId128 Stable(ActivityGenerationId value){Span<byte>b=stackalloc byte[16];value.TryWriteBytes(b);return StableId128.FromBytes(b);}
+        private static StableId128 Stable(TurnGenerationId value){Span<byte>b=stackalloc byte[16];value.TryWriteBytes(b);return StableId128.FromBytes(b);}
+        internal static StableId128 StableValue(GraphGenerationId value)=>Stable(value);
+        internal static StableId128 StableValue(ActivityGenerationId value)=>Stable(value);
+        internal static StableId128 StableValue(TurnGenerationId value)=>Stable(value);
     }
 }
