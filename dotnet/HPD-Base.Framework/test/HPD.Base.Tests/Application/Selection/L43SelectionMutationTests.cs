@@ -187,6 +187,34 @@ public sealed class L43SelectionMutationTests
     }
 
     [Fact]
+    public void HostileSelectionEvidenceIsRejectedBeforeMutation()
+    {
+        CollectionDefinition collection = GeneratedProject.Collection.Definition;
+        BaseSelectionOperationProfile profile = Profile("claim", BaseSelectionMutationKind.MergePatch);
+        BaseAuthoritySnapshotRequirement authority = new()
+        {
+            ApplicationId = profile.ApplicationId, StoreInstanceId = "authority", RestoreEpoch = 0, SchemaGeneration = 1, CollectionGeneration = 0,
+        };
+        RecordQuery query = new()
+        {
+            Filter = new FilterExpression { Kind = FilterNodeKind.Compare, Field = "organizationId", Operator = FilterOperator.Equal, Value = new QueryValue { Kind = QueryValueKind.String, String = "allowed" } },
+            Sort = [new QuerySort { Field = "name", Direction = QuerySortDirection.Asc }, new QuerySort { Field = "id", Direction = QuerySortDirection.Asc }],
+            Page = new QueryPage { Mode = QueryPaginationMode.Offset, Offset = 0, Limit = 2 },
+        };
+        RecordEnvelope excluded = Envelope("duplicate", "denied", "a");
+        BaseOwnedSelectedRecord first = BaseOwnedSelectedRecord.Freeze(excluded, 0, 1);
+        BaseOwnedSelectedRecord duplicate = BaseOwnedSelectedRecord.Freeze(excluded, 1, 1);
+        BaseAtomicSelectionResult hostile = new()
+        {
+            Authority = new BaseAuthoritySnapshotEvidence { ApplicationId = profile.ApplicationId, StoreInstanceId = "authority", RestoreEpoch = 0, SchemaGeneration = 1, CollectionGeneration = 0, Isolation = BaseAtomicSelectionIsolationClass.WriteOwningSerializable, TransactionEvidenceToken = [1] },
+            Records = [first, duplicate], ReadIntervals = [], CanonicalOrderBoundary = [],
+            Accounting = new BaseAtomicSelectionAccounting { SelectedRecords = 2, SelectedBytes = first.CanonicalBytes + duplicate.CanonicalBytes, ReadIntervals = 0, EvidenceBytes = 0 },
+        };
+
+        BaseSelectionMutationProcessor.ValidateSelectionEvidence(hostile, profile, authority, collection, query).Should().BeFalse();
+    }
+
+    [Fact]
     public async Task PreviousStateIsNormalizedAndRollsBackTheCompleteSelection()
     {
         await using ServiceProvider provider = Build();
@@ -312,6 +340,12 @@ public sealed class L43SelectionMutationTests
     private static RecordPatchRequest Patch(string name) => new()
     {
         Patch = new RecordPayload { Kind = RecordPayloadKind.FieldMap, Fields = new Dictionary<string, JsonElement> { ["name"] = JsonSerializer.SerializeToElement(name) } },
+    };
+    private static RecordEnvelope Envelope(string id, string organization, string name) => new()
+    {
+        Id = new RecordId(id), CollectionId = "projects",
+        Payload = new RecordPayload { Kind = RecordPayloadKind.FieldMap, Fields = new Dictionary<string, JsonElement> { ["organizationId"] = JsonSerializer.SerializeToElement(organization), ["name"] = JsonSerializer.SerializeToElement(name) } },
+        Metadata = new RecordMetadata { Revision = new RevisionToken("test:1"), CreatedAt = DateTimeOffset.UnixEpoch, UpdatedAt = DateTimeOffset.UnixEpoch },
     };
     private static BaseMutationRequestIdentity Identity(string key) => new()
     {

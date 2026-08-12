@@ -484,7 +484,15 @@ internal sealed class BaseSelectionMutationProcessor(
         && value.ResultBytes is >= 0 && value.ResultBytes <= limits.MaximumResultBytes
         && value.TransientBytes is >= 0 && value.TransientBytes <= limits.MaximumTransientBytes;
 
-    private bool ValidateSelection(BaseAtomicSelectionResult selected)
+    private bool ValidateSelection(BaseAtomicSelectionResult selected) =>
+        ValidateSelectionEvidence(selected, profile, authority, collection, query);
+
+    internal static bool ValidateSelectionEvidence(
+        BaseAtomicSelectionResult selected,
+        BaseSelectionOperationProfile profile,
+        BaseAuthoritySnapshotRequirement authority,
+        CollectionDefinition collection,
+        RecordQuery query)
     {
         if (!string.Equals(selected.Authority.ApplicationId, profile.ApplicationId, StringComparison.Ordinal)
             || !string.Equals(selected.Authority.StoreInstanceId, authority.StoreInstanceId, StringComparison.Ordinal)
