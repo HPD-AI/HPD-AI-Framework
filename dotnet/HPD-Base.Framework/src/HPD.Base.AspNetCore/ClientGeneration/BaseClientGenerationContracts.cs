@@ -158,11 +158,13 @@ public sealed record BaseClientTypeNode
     public int? MaxBytes { get; init; }
     /// <summary>Gets the maximum array item count.</summary>
     public int? MaxItems { get; init; }
+    /// <summary>Gets the minimum array item count.</summary>
+    public int? MinItems { get; init; }
     /// <summary>Gets the required discriminator for a union node.</summary>
     public string? Discriminator { get; init; }
     /// <summary>Gets the closed union variants.</summary>
     public BaseClientUnionVariantDescriptor[]? Variants { get; init; }
-    /// <summary>Gets the optional minimum length or item count.</summary>
+    /// <summary>Gets the optional minimum string length.</summary>
     public int? MinLength { get; init; }
     /// <summary>Gets the optional maximum length or item count.</summary>
     public int? MaxLength { get; init; }
@@ -184,8 +186,10 @@ public sealed record BaseClientUnionVariantDescriptor
 /// <summary>Describes one exact object property.</summary>
 public sealed record BaseClientPropertyDescriptor
 {
-    /// <summary>Gets the wire property name.</summary>
+    /// <summary>Gets the deterministic generated application property name.</summary>
     public required string Name { get; init; }
+    /// <summary>Gets the serialized wire property name.</summary>
+    public required string WireName { get; init; }
     /// <summary>Gets the referenced named type.</summary>
     public required string TypeId { get; init; }
     /// <summary>Gets whether the property must be present.</summary>

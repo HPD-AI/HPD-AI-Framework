@@ -26,10 +26,10 @@ export type TypeNode =
   | { readonly kind: "bytes"; readonly wire: "base64"; readonly maxBytes: number }
   | { readonly kind: "literal"; readonly value: string | boolean | null }
   | { readonly kind: "enum"; readonly values: readonly string[] }
-  | { readonly kind: "array"; readonly elementTypeId: string; readonly maxItems: number }
+  | { readonly kind: "array"; readonly elementTypeId: string; readonly minItems: number; readonly maxItems: number }
   | { readonly kind: "object"; readonly properties: readonly PropertyDescriptor[]; readonly additionalProperties: false }
   | { readonly kind: "union"; readonly discriminator: string; readonly variants: readonly { readonly tag: string; readonly typeId: string }[] };
-export interface PropertyDescriptor { readonly name: string; readonly typeId: string; readonly required: boolean; readonly nullable: boolean; readonly redactionOptional: boolean; }
+export interface PropertyDescriptor { readonly name: string; readonly wireName: string; readonly typeId: string; readonly required: boolean; readonly nullable: boolean; readonly redactionOptional: boolean; }
 export interface EndpointDescriptor { readonly id: string; readonly audience: "application" | "controlPlane"; readonly operation: string; readonly method: string; readonly route: string; readonly capability?: string; readonly requestTypeId?: string; readonly responseTypeId?: string; readonly successStatuses: readonly number[]; readonly errorCodes: readonly string[]; readonly maximumRequestBodyBytes: number; readonly responseMode: "json" | "bytes" | "stream" | "webSocket" | "empty"; readonly replay: "none" | "channelDependent"; readonly resume: "none" | "durableCursor"; readonly cache: "none" | "structuralDigest"; }
 export interface CapabilityDescriptor { readonly id: string; readonly available: boolean; }
 export interface ReadDescriptor { readonly id: string; readonly generatedName: string; readonly endpointId: string; readonly parameterTypeId: string; readonly rowTypeId: string; readonly maxPageSize: number; readonly watchable: boolean; }

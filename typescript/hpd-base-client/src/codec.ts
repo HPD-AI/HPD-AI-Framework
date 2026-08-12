@@ -8,8 +8,8 @@ export type BaseTypeNode =
   | { readonly kind: "bytes"; readonly wire: "base64"; readonly maxBytes: number }
   | { readonly kind: "literal"; readonly value: string | boolean | null }
   | { readonly kind: "enum"; readonly values: readonly string[] }
-  | { readonly kind: "array"; readonly elementTypeId: string; readonly maxItems: number }
-  | { readonly kind: "object"; readonly properties: readonly { readonly name: string; readonly typeId: string; readonly required: boolean; readonly nullable: boolean; readonly redactionOptional: boolean }[]; readonly additionalProperties: false }
+  | { readonly kind: "array"; readonly elementTypeId: string; readonly minItems: number; readonly maxItems: number }
+  | { readonly kind: "object"; readonly properties: readonly { readonly name: string; readonly wireName: string; readonly typeId: string; readonly required: boolean; readonly nullable: boolean; readonly redactionOptional: boolean }[]; readonly additionalProperties: false }
   | { readonly kind: "union"; readonly discriminator: string; readonly variants: readonly { readonly tag: string; readonly typeId: string }[] };
 
 /** Maps stable DTO type IDs to closed graph nodes. */
@@ -23,10 +23,13 @@ const isRawNumber = (value: unknown): value is RawNumber => typeof value === "ob
 export function parseBaseJson(json: string): unknown { return materialize(parseBaseJsonDocument(json)); }
 
 /** Decodes one complete JSON document against a generated graph node. */
-export function decodeBaseJson<T>(json: string, typeId: string, graph: BaseTypeGraph): T { return decodeNode(parseBaseJsonDocument(json), typeId, graph, new Set()) as T; }
+export function decodeBaseJson<T>(json: string, typeId: string, graph: BaseTypeGraph): T { return decodeNode(parseBaseJsonDocument(json), typeId, graph, "wire") as T; }
 
 /** Validates and deeply copies a materialized value against a generated graph node. */
-export function decodeBaseValue<T>(value: unknown, typeId: string, graph: BaseTypeGraph): T { return decodeNode(value, typeId, graph, new Set()) as T; }
+export function decodeBaseValue<T>(value: unknown, typeId: string, graph: BaseTypeGraph): T { return decodeNode(value, typeId, graph, "application") as T; }
+
+/** Decodes one parsed wire value and translates serialized property names to application names. */
+export function decodeBaseWireValue<T>(value: unknown, typeId: string, graph: BaseTypeGraph): T { return decodeNode(value, typeId, graph, "wire") as T; }
 
 /** Produces canonical base-json-v1 for one generated graph value. */
 export function encodeBaseJson(value: unknown, typeId: string, graph: BaseTypeGraph): string { return encodeNode(value, typeId, graph, new Set()); }
@@ -49,7 +52,7 @@ export function parseBaseJsonDocument(json: string): unknown {
 /** Materializes a strict parsed document after no graph-specific numeric nodes remain. */
 export function materializeBaseJsonValue(value: unknown): unknown { return materialize(value); }
 
-function decodeNode(value: unknown, typeId: string, graph: BaseTypeGraph, path: Set<string>): unknown {
+function decodeNode(value: unknown, typeId: string, graph: BaseTypeGraph, shape: "application" | "wire"): unknown {
   const node = graph[typeId]; if (node === undefined) throw new TypeError("base.client.responseInvalid");
   switch (node.kind) {
     case "boolean": if (typeof value !== "boolean") invalid(); return value;
@@ -60,13 +63,13 @@ function decodeNode(value: unknown, typeId: string, graph: BaseTypeGraph, path: 
     case "bytes": if (typeof value !== "string" || !base64(value) || Math.floor(value.length * 3 / 4) - (value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0) > node.maxBytes) invalid(); return value;
     case "literal": if (value !== node.value) invalid(); return value;
     case "enum": if (typeof value !== "string" || !node.values.includes(value)) invalid(); return value;
-    case "array": if (!Array.isArray(value) || value.length > node.maxItems) invalid(); return Object.freeze(value.map(item => decodeNode(item, node.elementTypeId, graph, path)));
+    case "array": if (!Array.isArray(value) || value.length < node.minItems || value.length > node.maxItems) invalid(); return Object.freeze(value.map(item => decodeNode(item, node.elementTypeId, graph, shape)));
     case "object": {
-      if (!object(value)) invalid(); const accepted = new Set(node.properties.map(property => property.name)); if (Object.keys(value).some(key => !accepted.has(key))) invalid(); const result: Record<string, unknown> = {};
-      for (const property of node.properties) { if (!Object.hasOwn(value, property.name)) { if (property.required && !property.redactionOptional) invalid(); continue; } const item = value[property.name]; if (item === null) { if (!property.nullable) invalid(); result[property.name] = null; } else result[property.name] = decodeNode(item, property.typeId, graph, path); }
+      if (!object(value)) invalid(); const key = (property: typeof node.properties[number]): string => shape === "wire" ? property.wireName : property.name; const accepted = new Set(node.properties.map(key)); if (Object.keys(value).some(item => !accepted.has(item))) invalid(); const result: Record<string, unknown> = {};
+      for (const property of node.properties) { const source = key(property); if (!Object.hasOwn(value, source)) { if (property.required && !property.redactionOptional) invalid(); continue; } const item = value[source]; if (item === null) { if (!property.nullable) invalid(); result[property.name] = null; } else result[property.name] = decodeNode(item, property.typeId, graph, shape); }
       return Object.freeze(result);
     }
-    case "union": { if (!object(value) || typeof value[node.discriminator] !== "string") invalid(); const variant = node.variants.find(item => item.tag === value[node.discriminator]); if (variant === undefined) invalid(); return decodeNode(value, variant.typeId, graph, path); }
+    case "union": { if (!object(value)) invalid(); const variant = node.variants.find(item => { const target = graph[item.typeId]; if (target?.kind !== "object") return false; const discriminator = target.properties.find(property => property.name === node.discriminator); return discriminator !== undefined && value[shape === "wire" ? discriminator.wireName : discriminator.name] === item.tag; }); if (variant === undefined) invalid(); return decodeNode(value, variant.typeId, graph, shape); }
   }
   return invalid();
 }
@@ -76,12 +79,12 @@ function encodeNode(value: unknown, typeId: string, graph: BaseTypeGraph, path: 
   if (object(value) || Array.isArray(value)) { if (path.has(value as object)) invalid(); path.add(value as object); }
   try {
     switch (node.kind) {
-      case "boolean": case "string": case "decimal": case "bytes": case "literal": case "enum": return JSON.stringify(decodeNode(value, typeId, graph, new Set()));
+      case "boolean": case "string": case "decimal": case "bytes": case "literal": case "enum": return JSON.stringify(decodeNode(value, typeId, graph, "application"));
       case "integer": { const decoded = integer(value, node); return node.wire === "number" ? String(decoded) : JSON.stringify(decoded); }
       case "floating": return canonicalFloat(floating(value, node.precision), node.precision);
-      case "array": { if (!Array.isArray(value) || value.length > node.maxItems) invalid(); return `[${value.map(item => encodeNode(item, node.elementTypeId, graph, path)).join(",")}]`; }
-      case "object": { if (!object(value)) invalid(); const accepted = new Set(node.properties.map(property => property.name)); if (Object.keys(value).some(key => !accepted.has(key))) invalid(); const fields: string[] = []; for (const property of node.properties) { if (!Object.hasOwn(value, property.name)) { if (property.required) invalid(); continue; } const item = value[property.name]; if (item === null) { if (!property.nullable) invalid(); fields.push(`${JSON.stringify(property.name)}:null`); } else fields.push(`${JSON.stringify(property.name)}:${encodeNode(item, property.typeId, graph, path)}`); } return `{${fields.join(",")}}`; }
-      case "union": { if (!object(value) || typeof value[node.discriminator] !== "string") invalid(); const variant = node.variants.find(item => item.tag === value[node.discriminator]); if (variant === undefined) invalid(); return encodeNode(value, variant.typeId, graph, path); }
+      case "array": { if (!Array.isArray(value) || value.length < node.minItems || value.length > node.maxItems) invalid(); return `[${value.map(item => encodeNode(item, node.elementTypeId, graph, path)).join(",")}]`; }
+      case "object": { if (!object(value)) invalid(); const accepted = new Set(node.properties.map(property => property.name)); if (Object.keys(value).some(key => !accepted.has(key))) invalid(); const fields: string[] = []; for (const property of node.properties) { if (!Object.hasOwn(value, property.name)) { if (property.required) invalid(); continue; } const item = value[property.name]; if (item === null) { if (!property.nullable) invalid(); fields.push(`${JSON.stringify(property.wireName)}:null`); } else fields.push(`${JSON.stringify(property.wireName)}:${encodeNode(item, property.typeId, graph, path)}`); } return `{${fields.join(",")}}`; }
+      case "union": { if (!object(value) || typeof value[node.discriminator] !== "string") invalid(); const variant = node.variants.find(item => item.tag === value[node.discriminator]); if (variant === undefined) invalid(); path.delete(value); return encodeNode(value, variant.typeId, graph, path); }
     }
   } finally { if (object(value) || Array.isArray(value)) path.delete(value as object); }
   return invalid();

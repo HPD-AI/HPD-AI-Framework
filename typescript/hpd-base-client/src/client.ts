@@ -6,7 +6,7 @@ import { BaseRealtimeManager, type BaseConnectivityState, type BaseRecordFeedDel
 import { BaseFilesClient } from "./files.js";
 import { BaseVectorIndexQuery } from "./vector.js";
 import { createControlPlaneClient, type BaseControlPlaneClient } from "./control.js";
-import { decodeBaseValue, encodeBaseJson, materializeBaseJsonValue } from "./codec.js";
+import { decodeBaseValue, decodeBaseWireValue, encodeBaseJson, materializeBaseJsonValue } from "./codec.js";
 
 type RecordOf<T> = T extends BaseCollectionDefinition<infer TRecord, unknown, unknown, unknown> ? TRecord : never;
 type CreateOf<T> = T extends BaseCollectionDefinition<unknown, infer TCreate, unknown, unknown> ? TCreate : never;
@@ -210,9 +210,9 @@ class BaseClientRuntime implements BaseQueryExecutor<unknown> {
     const result = await this.#transport.jsonDocument("POST", `reads/${encodeURIComponent(id)}${query.size === 0 ? "" : `?${query}`}`, body, page.signal);
     if (!result.ok) return result; const decodedPage = materializePageEnvelope(result.value);
     if (!isRecordPage(decodedPage, false)) return invalid(result.correlationId);
-    try { return { ...result, value: { ...decodedPage, items: decodedPage.items.map(item => decodeBaseValue<T>(item, rowTypeId, this.#schema.typeGraph!)) } }; } catch { return invalid(result.correlationId); }
+    try { return { ...result, value: { ...decodedPage, items: decodedPage.items.map(item => decodeBaseWireValue<T>(item, rowTypeId, this.#schema.typeGraph!)) } }; } catch { return invalid(result.correlationId); }
   }
-  public watchRead<T>(id: string, parameters: unknown, parameterTypeId: string | undefined, rowTypeId: string | undefined, observer: (snapshot: BaseQuerySnapshot<T>) => void): BaseSubscription { if (this.#realtime === undefined) throw new Error("base.client.capabilityUnavailable"); if (parameterTypeId === undefined || rowTypeId === undefined || this.#schema.typeGraph === undefined) throw new TypeError("base.client.configurationInvalid"); const encoded = encodeBaseJson(parameters, parameterTypeId, this.#schema.typeGraph); return this.#realtime.subscribeRead(id, parameters, observer, value => decodeBaseValue<T>(value, rowTypeId, this.#schema.typeGraph!), encoded); }
+  public watchRead<T>(id: string, parameters: unknown, parameterTypeId: string | undefined, rowTypeId: string | undefined, observer: (snapshot: BaseQuerySnapshot<T>) => void): BaseSubscription { if (this.#realtime === undefined) throw new Error("base.client.capabilityUnavailable"); if (parameterTypeId === undefined || rowTypeId === undefined || this.#schema.typeGraph === undefined) throw new TypeError("base.client.configurationInvalid"); const encoded = encodeBaseJson(parameters, parameterTypeId, this.#schema.typeGraph); return this.#realtime.subscribeRead(id, parameters, observer, value => decodeBaseWireValue<T>(value, rowTypeId, this.#schema.typeGraph!), encoded); }
   public watchEvents(collectionId: string, request: import("./realtime.js").BaseRecordFeedRequest, observer: (delivery: BaseRecordFeedDelivery) => void | Promise<void>): BaseSubscription { if (this.#realtime === undefined) throw new Error("base.client.capabilityUnavailable"); return this.#realtime.subscribeFeed(collectionId, request, observer, value => this.fromWireRecord(collectionId, value)); }
 
   public async mutate<T>(collectionId: string, kind: "create" | "patch" | "replace" | "delete" | "upsert", id: string | undefined, value: unknown, options: BaseMutationOptions = {}): Promise<BaseResult<T>> {
@@ -266,9 +266,9 @@ class BaseClientRuntime implements BaseQueryExecutor<unknown> {
   private fromWireRecord(collectionId: string, value: unknown): unknown {
     if (!isRecord(value) || value.collectionId !== collectionId || value.id.length === 0) throw new TypeError("base.client.responseInvalid");
     const definition = Object.values(this.#schema.collections).find(item => item.id === collectionId); if (definition === undefined) throw new TypeError("base.client.responseInvalid");
-    const reverse = new Map(Object.entries(definition.fields).map(([name, field]) => [field.wireName, { name, field }])); const source = value.payload.kind === "json" ? value.payload.json : value.payload.fields; if (!isObject(source) || definition.recordTypeId === undefined || this.#schema.typeGraph === undefined) throw new TypeError("base.client.responseInvalid");
-    const decoded = decodeBaseValue<Record<string, unknown>>(source, definition.recordTypeId, this.#schema.typeGraph);
-    const mapped: Record<string, unknown> = {}; for (const [wireName, item] of Object.entries(decoded)) { const target = reverse.get(wireName); if (target === undefined) throw new TypeError("base.client.responseInvalid"); mapped[target.name] = item; }
+    const source = value.payload.kind === "json" ? value.payload.json : value.payload.fields; if (!isObject(source) || definition.recordTypeId === undefined || this.#schema.typeGraph === undefined) throw new TypeError("base.client.responseInvalid");
+    const decoded = decodeBaseWireValue<Record<string, unknown>>(source, definition.recordTypeId, this.#schema.typeGraph);
+    const accepted = new Set(Object.keys(definition.fields)); if (Object.keys(decoded).some(name => !accepted.has(name))) throw new TypeError("base.client.responseInvalid"); const mapped = decoded;
     return { ...value, payload: value.payload.kind === "json" ? { ...value.payload, json: Object.freeze(mapped) } : { ...value.payload, fields: Object.freeze(mapped) } };
   }
 }

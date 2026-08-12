@@ -299,7 +299,7 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
                 string valueId = owner + "." + property.Id;
                 string scalarId = property.Array ? valueId + ".item" : valueId;
                 yield return new BaseClientNamedTypeDescriptor { Id = scalarId, Node = ReadScalar(property.Kind) };
-                if (property.Array) yield return new BaseClientNamedTypeDescriptor { Id = valueId, Node = new BaseClientTypeNode { Kind = "array", ElementTypeId = scalarId, MaxItems = 256 } };
+                if (property.Array) yield return new BaseClientNamedTypeDescriptor { Id = valueId, Node = new BaseClientTypeNode { Kind = "array", ElementTypeId = scalarId, MinItems = 0, MaxItems = 256 } };
             }
         }
 
@@ -311,7 +311,7 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
                 Kind = "object", AdditionalProperties = false,
                 Properties = properties.Select(property => new BaseClientPropertyDescriptor
                 {
-                    Name = property.GeneratedName, TypeId = owner + "." + property.Id,
+                    Name = property.GeneratedName, WireName = property.Id, TypeId = owner + "." + property.Id,
                     Required = !property.Nullable, Nullable = property.Nullable, RedactionOptional = false
                 }).ToArray()
             }
@@ -338,7 +338,7 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
             {
                 int dimensions = (collection.VectorIndexes ?? []).Where(index => index.VectorFieldId == field.Id).Select(index => index.Dimensions).Distinct().Single();
                 yield return new BaseClientNamedTypeDescriptor { Id = $"field.{collection.Id}.{field.Id}.item", Node = new BaseClientTypeNode { Kind = "floating", Precision = "binary32", FiniteOnly = true } };
-                yield return new BaseClientNamedTypeDescriptor { Id = $"field.{collection.Id}.{field.Id}", Node = new BaseClientTypeNode { Kind = "array", ElementTypeId = $"field.{collection.Id}.{field.Id}.item", MinLength = dimensions, MaxItems = dimensions } };
+                yield return new BaseClientNamedTypeDescriptor { Id = $"field.{collection.Id}.{field.Id}", Node = new BaseClientTypeNode { Kind = "array", ElementTypeId = $"field.{collection.Id}.{field.Id}.item", MinItems = dimensions, MaxItems = dimensions } };
             }
             else yield return new BaseClientNamedTypeDescriptor { Id = $"field.{collection.Id}.{field.Id}", Node = FieldNode(field) };
         }
@@ -356,7 +356,7 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
                 AdditionalProperties = false,
                 Properties = source.Where(include).Select(field => new BaseClientPropertyDescriptor
                 {
-                    Name = field.Name,
+                    Name = GeneratedName(field.Name), WireName = field.Name,
                     TypeId = $"field.{collection.Id}.{field.Id}",
                     Required = output || requiredMutable,
                     Nullable = field.Nullable,

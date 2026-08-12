@@ -38,7 +38,7 @@ export class BaseVectorQuery<T> {
   public async execute(signal?: AbortSignal): Promise<BaseResult<BaseVectorResult<T>>> {
     const consistency = this.#consistency.kind === "atLeast" ? "atLeast" : this.#consistency.kind;
     const body = { vector: this.#vector, filters: this.#filters, take: this.#take, consistency, ...(this.#consistency.kind === "atLeast" ? { consistencyToken: this.#consistency.token } : {}), ...(this.#consistency.kind === "boundedStaleness" ? { maximumAgeMilliseconds: this.#consistency.maximumAgeMs } : {}), measureDisclosure: this.#disclosure };
-    const vectorGraph: BaseTypeGraph = { element: { kind: "floating", precision: "binary32", finiteOnly: true }, vector: { kind: "array", elementTypeId: "element", maxItems: this.index.dimensions } };
+    const vectorGraph: BaseTypeGraph = { element: { kind: "floating", precision: "binary32", finiteOnly: true }, vector: { kind: "array", elementTypeId: "element", minItems: this.index.dimensions, maxItems: this.index.dimensions } };
     const bodyJson = JSON.stringify({ ...body, vector: undefined }).replace(/,"vector"(?::undefined)?|"vector":undefined,?/u, "");
     const encoded = `{\"vector\":${encodeBaseJson(this.#vector, "vector", vectorGraph)}${bodyJson === "{}" ? "" : `,${bodyJson.slice(1, -1)}`}}`;
     const result = await this.transport.jsonDocument("POST", `vector/${encodeURIComponent(this.collectionId)}/${encodeURIComponent(this.index.id)}/query`, new TextEncoder().encode(encoded), signal);

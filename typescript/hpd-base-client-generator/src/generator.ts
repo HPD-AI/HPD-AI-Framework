@@ -58,6 +58,7 @@ export function validate(snapshot: GenerationSnapshot, expectedAudience?: "appli
   for (const read of snapshot.registeredReads) for (const id of [read.parameterTypeId, read.rowTypeId]) if (!typeIds.has(id)) throw new Error("base.clientGeneration.typeMissing");
   for (const endpoint of snapshot.endpoints) for (const id of [endpoint.requestTypeId, endpoint.responseTypeId]) if (id !== undefined && !typeIds.has(id) && !wellKnownWireTypeIds.has(id)) throw new Error("base.clientGeneration.typeMissing");
   validateTypeGraph(snapshot.schema.types, typeIds);
+  validateCollectionDtoBindings(snapshot.schema.collections, snapshot.schema.types);
 }
 
 const wellKnownWireTypeIds = new Set([
@@ -100,7 +101,7 @@ function validateTypeGraph(types: readonly NamedTypeDescriptor[], ids: ReadonlyS
     if (!stableId(type.id)) invalidType();
     const node = type.node;
     const keys: Record<TypeNode["kind"], readonly string[]> = {
-      boolean: ["kind"], string: ["kind", "minLength", "maxLength", "format"], integer: ["kind", "minimum", "maximum", "wire"], decimal: ["kind", "wire"], floating: ["kind", "precision", "finiteOnly"], bytes: ["kind", "wire", "maxBytes"], literal: ["kind", "value"], enum: ["kind", "values"], array: ["kind", "elementTypeId", "maxItems"], object: ["kind", "properties", "additionalProperties"], union: ["kind", "discriminator", "variants"]
+      boolean: ["kind"], string: ["kind", "minLength", "maxLength", "format"], integer: ["kind", "minimum", "maximum", "wire"], decimal: ["kind", "wire"], floating: ["kind", "precision", "finiteOnly"], bytes: ["kind", "wire", "maxBytes"], literal: ["kind", "value"], enum: ["kind", "values"], array: ["kind", "elementTypeId", "minItems", "maxItems"], object: ["kind", "properties", "additionalProperties"], union: ["kind", "discriminator", "variants"]
     };
     if (!Object.hasOwn(keys, node.kind)) invalidType();
     exactKeys(node as unknown as Record<string, unknown>, keys[node.kind]);
@@ -111,11 +112,11 @@ function validateTypeGraph(types: readonly NamedTypeDescriptor[], ids: ReadonlyS
     if (node.kind === "bytes" && (node.wire !== "base64" || !safeBound(node.maxBytes, 0, 16 * 1024 * 1024))) invalidType();
     if (node.kind === "literal" && node.value !== null && typeof node.value !== "string" && typeof node.value !== "boolean") invalidType();
     if (node.kind === "enum" && (node.values.length === 0 || node.values.length > 256 || node.values.some(value => typeof value !== "string" || value.length === 0 || value.length > 256) || unique(node.values, "base.clientGeneration.typeInvalid").size !== node.values.length)) invalidType();
-    if (node.kind === "array" && (!ids.has(node.elementTypeId) || !safeBound(node.maxItems, 0, 1_048_576))) throw new Error(!ids.has(node.elementTypeId) ? "base.clientGeneration.typeMissing" : "base.clientGeneration.typeInvalid");
+    if (node.kind === "array" && (!ids.has(node.elementTypeId) || !safeBound(node.minItems, 0, 1_048_576) || !safeBound(node.maxItems, node.minItems, 1_048_576))) throw new Error(!ids.has(node.elementTypeId) ? "base.clientGeneration.typeMissing" : "base.clientGeneration.typeInvalid");
     if (node.kind === "object") {
       if (node.additionalProperties !== false || node.properties.length > 256) invalidType();
-      unique(node.properties.map(property => property.name), "base.clientGeneration.typeInvalid");
-      for (const property of node.properties) { exactKeys(property as unknown as Record<string, unknown>, ["name", "typeId", "required", "nullable", "redactionOptional"]); if (!stableProperty(property.name) || typeof property.required !== "boolean" || typeof property.nullable !== "boolean" || typeof property.redactionOptional !== "boolean") invalidType(); if (!ids.has(property.typeId)) throw new Error("base.clientGeneration.typeMissing"); }
+      unique(node.properties.map(property => property.name), "base.clientGeneration.typeInvalid"); unique(node.properties.map(property => property.wireName), "base.clientGeneration.typeInvalid");
+      for (const property of node.properties) { exactKeys(property as unknown as Record<string, unknown>, ["name", "wireName", "typeId", "required", "nullable", "redactionOptional"]); if (!stableProperty(property.name) || !stableProperty(property.wireName) || typeof property.required !== "boolean" || typeof property.nullable !== "boolean" || typeof property.redactionOptional !== "boolean") invalidType(); if (!ids.has(property.typeId)) throw new Error("base.clientGeneration.typeMissing"); }
     }
     if (node.kind === "union") {
       if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/u.test(node.discriminator) || node.variants.length < 2 || node.variants.length > 64) invalidType();
@@ -133,6 +134,17 @@ function validateTypeGraph(types: readonly NamedTypeDescriptor[], ids: ReadonlyS
 }
 
 function invalidType(): never { throw new Error("base.clientGeneration.typeInvalid"); }
+function validateCollectionDtoBindings(collections: readonly CollectionDescriptor[], types: readonly NamedTypeDescriptor[]): void {
+  const byId = new Map(types.map(type => [type.id, type.node]));
+  for (const collection of collections) {
+    const expected = (mutableOnly: boolean): string[] => collection.fields.filter(field => !mutableOnly || field.mutable && !field.serverGenerated).map(field => `${field.generatedName}\u0000${field.wireName}\u0000${field.valueTypeId}`).sort();
+    for (const [id, mutableOnly] of [[collection.recordTypeId, false], [collection.createTypeId, true], [collection.replaceTypeId, true], [collection.patchTypeId, true]] as const) {
+      const node = byId.get(id); if (node?.kind !== "object") invalidType();
+      const actual = node.properties.map(property => `${property.name}\u0000${property.wireName}\u0000${property.typeId}`).sort();
+      if (actual.length !== expected(mutableOnly).length || actual.some((value, index) => value !== expected(mutableOnly)[index])) invalidType();
+    }
+  }
+}
 function safeBound(value: number, minimum: number, maximum: number): boolean { return Number.isSafeInteger(value) && value >= minimum && value <= maximum; }
 function integerText(value: string): boolean { return /^-?(?:0|[1-9][0-9]*)$/u.test(value) && value !== "-0"; }
 function stableId(value: string): boolean { return typeof value === "string" && value.length >= 1 && value.length <= 128 && /^[A-Za-z0-9][A-Za-z0-9._:-]*$/u.test(value); }
