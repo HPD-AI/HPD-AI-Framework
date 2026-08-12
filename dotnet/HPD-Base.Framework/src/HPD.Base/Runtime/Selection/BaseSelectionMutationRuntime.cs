@@ -504,6 +504,7 @@ internal sealed class BaseSelectionMutationProcessor(
             || selected.Accounting.SelectedBytes < 0
             || selected.Accounting.SelectedBytes > profile.Limits.MaximumSelectedBytes
             || selected.Accounting.ReadIntervals != selected.ReadIntervals.Length
+            || selected.ReadIntervals.Length == 0
             || selected.ReadIntervals.Length > profile.Limits.MaximumReadIntervals)
             return false;
         var ids = new HashSet<string>(StringComparer.Ordinal);
@@ -518,6 +519,7 @@ internal sealed class BaseSelectionMutationProcessor(
             {
                 RecordEnvelope materialized = record.MaterializeOwned();
                 if (!string.Equals(materialized.Id.Value, record.RecordId, StringComparison.Ordinal)
+                    || !string.Equals(materialized.CollectionId, collection.Id, StringComparison.Ordinal)
                     || materialized.Metadata.Revision != record.Revision
                     || !ids.Add(materialized.Id.Value)
                     || !BaseRecordFilterMatcher.Matches(materialized, query.Filter)
@@ -535,6 +537,7 @@ internal sealed class BaseSelectionMutationProcessor(
                 checked((long)interval.CanonicalLowerBound.Length + interval.CanonicalUpperBound.Length))) return false;
         string path = $"collection:{collection.Id}";
         ReadOnlySpan<byte> priorUpper = default;
+        bool boundaryCovered = false;
         for (int index = 0; index < selected.ReadIntervals.Length; index++)
         {
             BaseAtomicReadIntervalEvidence interval = selected.ReadIntervals[index];
@@ -542,9 +545,14 @@ internal sealed class BaseSelectionMutationProcessor(
                 || interval.CanonicalLowerBound.IsDefault || interval.CanonicalUpperBound.IsDefault
                 || CompareBytes(interval.CanonicalLowerBound.AsSpan(), interval.CanonicalUpperBound.AsSpan()) > 0
                 || index > 0 && CompareBytes(priorUpper, interval.CanonicalLowerBound.AsSpan()) >= 0) return false;
+            int lowerToBoundary = CompareBytes(interval.CanonicalLowerBound.AsSpan(), boundary);
+            int boundaryToUpper = CompareBytes(boundary, interval.CanonicalUpperBound.AsSpan());
+            if ((lowerToBoundary < 0 || lowerToBoundary == 0 && interval.LowerInclusive)
+                && (boundaryToUpper < 0 || boundaryToUpper == 0 && interval.UpperInclusive))
+                boundaryCovered = true;
             priorUpper = interval.CanonicalUpperBound.AsSpan();
         }
-        return true;
+        return boundaryCovered;
     }
 
     private static int CompareSelected(RecordEnvelope left, RecordEnvelope right, QuerySort[] sort)

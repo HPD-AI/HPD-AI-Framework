@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Collections.Immutable;
 using FluentAssertions;
 using HPD.Base.Tests.Application.Generation;
 using Microsoft.Extensions.DependencyInjection;
@@ -186,8 +187,14 @@ public sealed class L43SelectionMutationTests
         owned.CopyCanonicalBytes().Should().NotBeSameAs(owned.CopyCanonicalBytes());
     }
 
-    [Fact]
-    public void HostileSelectionEvidenceIsRejectedBeforeMutation()
+    [Theory]
+    [InlineData("foreign-collection")]
+    [InlineData("policy-excluded")]
+    [InlineData("duplicate-id")]
+    [InlineData("invalid-order")]
+    [InlineData("invalid-boundary")]
+    [InlineData("missing-interval")]
+    public void EachHostileSelectionEvidenceDefectIsIndependentlyRejected(string defect)
     {
         CollectionDefinition collection = GeneratedProject.Collection.Definition;
         BaseSelectionOperationProfile profile = Profile("claim", BaseSelectionMutationKind.MergePatch);
@@ -201,17 +208,31 @@ public sealed class L43SelectionMutationTests
             Sort = [new QuerySort { Field = "name", Direction = QuerySortDirection.Asc }, new QuerySort { Field = "id", Direction = QuerySortDirection.Asc }],
             Page = new QueryPage { Mode = QueryPaginationMode.Offset, Offset = 0, Limit = 2 },
         };
-        RecordEnvelope excluded = Envelope("duplicate", "denied", "a");
-        BaseOwnedSelectedRecord first = BaseOwnedSelectedRecord.Freeze(excluded, 0, 1);
-        BaseOwnedSelectedRecord duplicate = BaseOwnedSelectedRecord.Freeze(excluded, 1, 1);
-        BaseAtomicSelectionResult hostile = new()
+        RecordEnvelope firstEnvelope = Envelope("one", "allowed", "a");
+        RecordEnvelope secondEnvelope = Envelope("two", "allowed", "b");
+        if (defect == "foreign-collection") firstEnvelope = firstEnvelope with { CollectionId = "foreign" };
+        if (defect == "policy-excluded") firstEnvelope = Envelope("one", "denied", "a");
+        if (defect == "duplicate-id") secondEnvelope = Envelope("one", "allowed", "b");
+        if (defect == "invalid-order") (firstEnvelope, secondEnvelope) = (secondEnvelope, firstEnvelope);
+        BaseOwnedSelectedRecord first = BaseOwnedSelectedRecord.Freeze(firstEnvelope, 0, 1);
+        BaseOwnedSelectedRecord second = BaseOwnedSelectedRecord.Freeze(secondEnvelope, 1, 1);
+        byte[] boundary = BaseSelectionOrderTuple.Encode(secondEnvelope, query.Sort);
+        ImmutableArray<BaseAtomicReadIntervalEvidence> intervals =
+        [new BaseAtomicReadIntervalEvidence
+        {
+            LogicalAccessPathId = "collection:projects", CanonicalLowerBound = [], LowerInclusive = true,
+            CanonicalUpperBound = boundary.ToImmutableArray(), UpperInclusive = true,
+        }];
+        if (defect == "missing-interval") intervals = [];
+        byte[] reportedBoundary = defect == "invalid-boundary" ? [0x7f] : boundary;
+        BaseAtomicSelectionResult baseline = new()
         {
             Authority = new BaseAuthoritySnapshotEvidence { ApplicationId = profile.ApplicationId, StoreInstanceId = "authority", RestoreEpoch = 0, SchemaGeneration = 1, CollectionGeneration = 0, Isolation = BaseAtomicSelectionIsolationClass.WriteOwningSerializable, TransactionEvidenceToken = [1] },
-            Records = [first, duplicate], ReadIntervals = [], CanonicalOrderBoundary = [],
-            Accounting = new BaseAtomicSelectionAccounting { SelectedRecords = 2, SelectedBytes = first.CanonicalBytes + duplicate.CanonicalBytes, ReadIntervals = 0, EvidenceBytes = 0 },
+            Records = [first, second], ReadIntervals = intervals, CanonicalOrderBoundary = reportedBoundary.ToImmutableArray(),
+            Accounting = new BaseAtomicSelectionAccounting { SelectedRecords = 2, SelectedBytes = first.CanonicalBytes + second.CanonicalBytes, ReadIntervals = intervals.Length, EvidenceBytes = intervals.Sum(interval => (long)interval.CanonicalLowerBound.Length + interval.CanonicalUpperBound.Length) },
         };
 
-        BaseSelectionMutationProcessor.ValidateSelectionEvidence(hostile, profile, authority, collection, query).Should().BeFalse();
+        BaseSelectionMutationProcessor.ValidateSelectionEvidence(baseline, profile, authority, collection, query).Should().BeFalse();
     }
 
     [Fact]
