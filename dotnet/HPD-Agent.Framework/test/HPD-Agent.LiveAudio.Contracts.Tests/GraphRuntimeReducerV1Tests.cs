@@ -91,6 +91,11 @@ public sealed class GraphRuntimeReducerV1Tests
         var verified=Assert.IsType<GraphReplacementSnapshotReadResultV1.Verified>(await GraphReplacementSnapshotReaderV1.ReadAsync(f.Journal,f.Session));
         var evidence=GraphRuntimeCurrentGraphEvidenceV1.From(verified);
         var evaluated=GraphRuntimeReducerV1.Evaluate(null,command,admitted.Position,f.Authority,evidence,f.Grant);Assert.True(evaluated is GraphRuntimeReducerV1.EffectRequired,evaluated.ToString());var required=(GraphRuntimeReducerV1.EffectRequired)evaluated;
+        var activateRequest=Assert.IsType<GraphRuntimeEffectRequestV1.Activate>(GraphRuntimeEffectRequestV1.From(required));
+        Assert.Equal(operation,activateRequest.OperationId);Assert.Equal(GraphRuntimeCommandKindV1.Activate,activateRequest.Kind);
+        Assert.Equal(hash,activateRequest.RequestHash);Assert.Equal(install,activateRequest.GraphAuthorityFact);
+        Assert.Equal(f.Plan.Fingerprint,activateRequest.TopologyFingerprint);Assert.Equal(f.GraphGeneration,activateRequest.GraphGeneration);
+        Assert.Equal(f.Grant.CurrentFact,activateRequest.CapacityGrantFact);
         var active=Assert.IsType<GraphRuntimeResolutionV1.Applied>(GraphRuntimeReducerV1.Resolve(required,new GraphRuntimeEffectResolutionV1.Completed(Hash(9)),new JournalPositionV1(f.Session,6))).Snapshot;
         Assert.Equal(GraphRuntimePhaseV1.Active,active.Phase);
         await f.AppendFactAsync(new GraphRuntimeFactV1(admitted.Position,command.ExpectedPredecessor,install,GraphRuntimeOutcomeV1.Activated,active,Hash(9),null),5);
@@ -103,6 +108,9 @@ public sealed class GraphRuntimeReducerV1Tests
         var wrongHash=new GraphRuntimeCommandV1.Retire(retireOperation,active.LastRuntimeFact,active.ActivationFact,Hash(11));
         Assert.IsType<GraphRuntimeEvaluationV1.Rejected>(GraphRuntimeReducerV1.Evaluate(active,wrongHash,retireEnvelope.Position,f.Authority,evidence));
         var retireRequired=Assert.IsType<GraphRuntimeReducerV1.EffectRequired>(GraphRuntimeReducerV1.Evaluate(active,retire,retireEnvelope.Position,f.Authority,evidence));
+        var retireRequest=Assert.IsType<GraphRuntimeEffectRequestV1.Retire>(GraphRuntimeEffectRequestV1.From(retireRequired));
+        Assert.Equal(retireOperation,retireRequest.OperationId);Assert.Equal(GraphRuntimeCommandKindV1.Retire,retireRequest.Kind);
+        Assert.Equal(retire.EffectRequestHash,retireRequest.RequestHash);Assert.Equal(active.ActivationFact,retireRequest.ActiveRuntimeFact);
         var retired=Assert.IsType<GraphRuntimeResolutionV1.Applied>(GraphRuntimeReducerV1.Resolve(retireRequired,new GraphRuntimeEffectResolutionV1.Completed(Hash(10)),new JournalPositionV1(f.Session,8))).Snapshot;
         Assert.Equal(GraphRuntimePhaseV1.Retired,retired.Phase);Assert.Equal(new JournalPositionV1(f.Session,7),retired.Retirement!.RetireCommandFact);
     }
@@ -154,6 +162,7 @@ public sealed class GraphRuntimeReducerV1Tests
     {
         var operation=OperationId.FromValue(Id(8));var active=Position(5);var command=new GraphRuntimeCommandV1.Retire(operation,active,active,GraphRuntimeEffectHashesV1.Retire(Session(),operation,active));
         var forged=new GraphRuntimeReducerV1.EffectRequired(new object(),command,null,Authority(),Position(6),active);
+        Assert.Throws<ArgumentException>(()=>GraphRuntimeEffectRequestV1.From(forged));
         var rejected=Assert.IsType<GraphRuntimeResolutionV1.Rejected>(GraphRuntimeReducerV1.Resolve(forged,new GraphRuntimeEffectResolutionV1.Completed(Hash(9)),Position(7)));
         Assert.Equal("runtime-result-position-invalid",rejected.SafeCode.ToString());
     }

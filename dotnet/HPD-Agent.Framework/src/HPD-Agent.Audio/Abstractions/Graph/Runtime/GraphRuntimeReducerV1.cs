@@ -55,6 +55,7 @@ internal static class GraphRuntimeReducerV1
         { _issuer=issuer;Command=command;Prior=prior;Authority=authority;AdmittedCommand=admittedCommand;ActualPredecessor=actualPredecessor; }
         private readonly object _issuer;
         internal bool IssuedBy(object issuer) => ReferenceEquals(_issuer,issuer);
+        internal bool IsAuthentic => IssuedBy(Issuer);
         internal GraphRuntimeCommandV1 Command{get;} internal GraphRuntimeSnapshotV1? Prior{get;} internal ExpectedAuthorityVectorV1 Authority{get;}
         internal JournalPositionV1 AdmittedCommand{get;} internal JournalPositionV1 ActualPredecessor{get;}
     }
