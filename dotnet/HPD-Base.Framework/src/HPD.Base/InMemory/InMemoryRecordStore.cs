@@ -2153,9 +2153,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 owned.Add(frozen);
             }
 
-            byte[] boundary = owned.Count == 0
-                ? []
-                : System.Text.Encoding.UTF8.GetBytes(owned[^1].RecordId);
+            byte[] boundary = owned.Count == 0 ? [] : BaseSelectionOrderTuple.Encode(owned[^1].MaterializeOwned(), request.Query.Sort!);
             var interval = new BaseAtomicReadIntervalEvidence
             {
                 LogicalAccessPathId = $"collection:{request.Collection.Id}",

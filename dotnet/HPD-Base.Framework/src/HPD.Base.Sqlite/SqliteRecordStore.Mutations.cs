@@ -716,6 +716,9 @@ public sealed partial class SqliteRecordStore
         private SqlitePhysicalModel.CollectionModel? _constraintCollection;
         private RecordPayload? _constraintPayload;
         private string? _constraintRecordId;
+        private int _selectionUniqueCheckLimit;
+        private long _selectionTransientLimit;
+        private long _attributionTransientBytes;
         public async ValueTask<OperationResult<BaseSelectionMutationCommitAccounting>> MeasureSelectionMutationAsync(
             BaseAtomicReceiptResult receipt, BaseSelectionMutationResult result, CancellationToken cancellationToken = default)
         {
@@ -798,11 +801,15 @@ public sealed partial class SqliteRecordStore
                 || request.Limits.MaximumSelectedBytes < 1
                 || request.Limits.MaximumReadIntervals < 1
                 || request.Limits.MaximumTransientBytes < 1
+                || request.Limits.MaximumUniqueConstraintChecks < 1
                 || request.CanonicalRecordCodecVersion < 1)
             {
                 return SelectionFailure(OperationStatus.ValidationFailed,
                     "base.provider.selection.authorityInvalid", ErrorCategory.Validation);
             }
+            _selectionUniqueCheckLimit = request.Limits.MaximumUniqueConstraintChecks;
+            _selectionTransientLimit = request.Limits.MaximumTransientBytes;
+            _attributionTransientBytes = 0;
 
             await using (SqliteCommand authority = _connection.CreateCommand())
             {
@@ -847,7 +854,7 @@ public sealed partial class SqliteRecordStore
                         "base.provider.selection.limitExceeded", ErrorCategory.Validation);
                 records.Add(owned);
             }
-            byte[] boundary = records.Count == 0 ? [] : System.Text.Encoding.UTF8.GetBytes(records[^1].RecordId);
+            byte[] boundary = records.Count == 0 ? [] : BaseSelectionOrderTuple.Encode(records[^1].MaterializeOwned(), request.Query.Sort!);
             int selectedCount = records.Count;
             ImmutableArray<BaseOwnedSelectedRecord> selectedRecords = records.MoveToImmutable();
             return OperationResults.Ok(new BaseAtomicSelectionResult
@@ -1076,7 +1083,7 @@ public sealed partial class SqliteRecordStore
             }
             catch (SqliteException ex) when (ex.SqliteErrorCode == 19)
             {
-                return ConstraintFailure<T>(ex);
+                return await ConstraintFailureAsync<T>(ex, cancellationToken).ConfigureAwait(false);
             }
             catch (SqliteException ex) when (IsTransactionConflict(ex))
             {
@@ -1096,12 +1103,12 @@ public sealed partial class SqliteRecordStore
             }
         }
 
-        private OperationResult<T> ConstraintFailure<T>(SqliteException exception)
+        private async ValueTask<OperationResult<T>> ConstraintFailureAsync<T>(SqliteException exception, CancellationToken cancellationToken)
         {
             string code = exception.SqliteExtendedErrorCode switch
             {
                 1555 => "base.constraint.recordIdentity",
-                2067 => AttributeUnique(),
+                2067 => await AttributeUniqueAsync(cancellationToken).ConfigureAwait(false),
                 787 => "base.constraint.attributionUnavailable",
                 275 => "base.constraint.attributionUnavailable",
                 1299 => "base.constraint.attributionUnavailable",
@@ -1115,7 +1122,7 @@ public sealed partial class SqliteRecordStore
             });
         }
 
-        private string AttributeUnique()
+        private async ValueTask<string> AttributeUniqueAsync(CancellationToken cancellationToken)
         {
             if (_constraintCollection is null || _constraintPayload is null || _constraintRecordId is null)
                 return "base.constraint.attributionUnavailable";
@@ -1124,12 +1131,16 @@ public sealed partial class SqliteRecordStore
             foreach (SqlitePhysicalModel.IndexModel index in _constraintCollection.Indexes
                 .Where(static candidate => candidate.Definition.Unique || candidate.Definition.Kind == IndexKind.Unique))
             {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (_selectionUniqueCheckLimit <= 0 || _uniqueChecks >= _selectionUniqueCheckLimit)
+                    return "base.constraint.attributionUnavailable";
                 _uniqueChecks = checked(_uniqueChecks + 1);
                 if (index.Definition.Predicate is not null || index.Definition.NativePredicate is not null
                     || index.Parts.Length == 0 || index.Definition.Parts!.Any(static part => part.Kind != IndexPartKind.Field || part.Collation is not null || part.Expression is not null))
                     continue;
-                using SqliteCommand probe = _connection.CreateCommand();
+                await using SqliteCommand probe = _connection.CreateCommand();
                 probe.Transaction = _transaction;
+                probe.CommandTimeout = CommandTimeoutSeconds();
                 var predicates = new List<string>(index.Parts.Length);
                 bool complete = true;
                 for (int part = 0; part < index.Parts.Length; part++)
@@ -1138,15 +1149,27 @@ public sealed partial class SqliteRecordStore
                     if (!values.TryGetValue(field.Definition.Name, out System.Text.Json.JsonElement value)) { complete = false; break; }
                     string parameter = "$u" + part.ToString(CultureInfo.InvariantCulture);
                     predicates.Add(field.Column + " IS " + parameter);
-                    probe.Parameters.AddWithValue(parameter, field.Encode(value));
+                    object encoded = field.Encode(value);
+                    _attributionTransientBytes = checked(_attributionTransientBytes + System.Text.Encoding.UTF8.GetByteCount(parameter) + EncodedSize(encoded));
+                    if (_attributionTransientBytes > _selectionTransientLimit) return "base.constraint.attributionUnavailable";
+                    probe.Parameters.AddWithValue(parameter, encoded);
                 }
                 if (!complete) continue;
                 probe.CommandText = $"SELECT 1 FROM {_constraintCollection.Table} WHERE {string.Join(" AND ", predicates)} AND record_id <> $record LIMIT 1;";
                 probe.Parameters.AddWithValue("$record", _constraintRecordId);
-                if (probe.ExecuteScalar() is not null) matches++;
+                _attributionTransientBytes = checked(_attributionTransientBytes + System.Text.Encoding.UTF8.GetByteCount(probe.CommandText) + System.Text.Encoding.UTF8.GetByteCount(_constraintRecordId));
+                if (_attributionTransientBytes > _selectionTransientLimit) return "base.constraint.attributionUnavailable";
+                if (await probe.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is not null) matches++;
             }
             return matches == 1 ? "base.constraint.unique" : "base.constraint.attributionUnavailable";
         }
+
+        private static long EncodedSize(object value) => value switch
+        {
+            byte[] bytes => bytes.LongLength,
+            string text => System.Text.Encoding.UTF8.GetByteCount(text),
+            _ => sizeof(long),
+        };
 
         private async ValueTask<OperationResult<RecordMutationSessionResult>> CreateCoreAsync(
             CollectionDefinition collection,

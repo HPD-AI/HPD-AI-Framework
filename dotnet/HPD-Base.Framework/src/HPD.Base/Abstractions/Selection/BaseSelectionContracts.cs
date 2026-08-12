@@ -246,6 +246,8 @@ public sealed record BaseAtomicSelectionLimits
     public required int MaximumReadIntervals { get; init; }
     /// <summary>Gets the maximum transient canonical bytes.</summary>
     public required long MaximumTransientBytes { get; init; }
+    /// <summary>Gets the maximum transaction-local unique checks, including attribution probes.</summary>
+    public required int MaximumUniqueConstraintChecks { get; init; }
 }
 
 /// <summary>Binds a provider selection to one exact authority generation.</summary>

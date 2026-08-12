@@ -360,6 +360,7 @@ internal sealed class BaseSelectionMutationProcessor(
                 MaximumSelectedBytes = profile.Limits.MaximumSelectedBytes,
                 MaximumReadIntervals = profile.Limits.MaximumReadIntervals,
                 MaximumTransientBytes = profile.Limits.MaximumTransientBytes,
+                MaximumUniqueConstraintChecks = profile.Limits.MaximumUniqueConstraintChecks,
             },
             Authority = authority,
             CanonicalRecordCodecVersion = 1,
@@ -519,7 +520,7 @@ internal sealed class BaseSelectionMutationProcessor(
             }
             catch { return false; }
         }
-        byte[] boundary = selected.Records.Length == 0 ? [] : System.Text.Encoding.UTF8.GetBytes(selected.Records[^1].RecordId);
+        byte[] boundary = selected.Records.Length == 0 ? [] : BaseSelectionOrderTuple.Encode(selected.Records[^1].MaterializeOwned(), query.Sort!);
         if (canonicalBytes != selected.Accounting.SelectedBytes
             || !selected.CanonicalOrderBoundary.AsSpan().SequenceEqual(boundary)
             || selected.Accounting.EvidenceBytes != selected.ReadIntervals.Sum(static interval =>

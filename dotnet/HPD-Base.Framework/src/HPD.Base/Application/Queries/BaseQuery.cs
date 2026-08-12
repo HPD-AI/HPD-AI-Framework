@@ -387,12 +387,14 @@ public sealed class BaseQuery<T>
         BaseSelectionMutationExecutionOptions? options,
         CancellationToken cancellationToken)
     {
-        int limit = _limit ?? throw new InvalidOperationException("A selection mutation requires Take(maximum).");
-        if (_cursor is not null) throw new InvalidOperationException("Selection mutations do not accept cursors.");
-        if (_sort.Length == 0 || !string.Equals(_sort[^1].Field, "id", StringComparison.Ordinal))
-            throw new InvalidOperationException("A selection mutation requires a total order ending in record ID.");
         var runtime = (IBaseSelectionMutationRuntime?)_session.Services.GetService(typeof(IBaseSelectionMutationRuntime))
             ?? throw new InvalidOperationException(BaseSelectionErrorCodes.CapabilityMissing);
+        if (_limit is not { } limit || _cursor is not null || _sort.Length == 0
+            || !string.Equals(_sort[^1].Field, "id", StringComparison.Ordinal))
+            return ValueTask.FromResult<BaseResult<BaseSelectionMutationResult>>(new BaseFailure<BaseSelectionMutationResult>(
+                OperationStatus.ValidationFailed,
+                new BaseError { Code = BaseSelectionErrorCodes.ContractInvalid, Message = "The selection query contract is invalid.", Category = ErrorCategory.Validation },
+                null, null));
         return runtime.ExecuteAsync(_session, _collection.Definition, profile, Build(limit), patch,
             previousState, requestIdentity, options, cancellationToken);
     }
