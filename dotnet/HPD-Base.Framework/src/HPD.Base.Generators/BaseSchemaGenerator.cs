@@ -19,6 +19,18 @@ public sealed class BaseSchemaGenerator : IIncrementalGenerator
     private const string JsonIgnoreAttribute = "System.Text.Json.Serialization.JsonIgnoreAttribute";
     private const string JsonConverterAttribute = "System.Text.Json.Serialization.JsonConverterAttribute";
     private const string JsonPropertyNameAttribute = "System.Text.Json.Serialization.JsonPropertyNameAttribute";
+    private const string JsonPropertyOrderAttribute = "System.Text.Json.Serialization.JsonPropertyOrderAttribute";
+    private const string JsonNumberHandlingAttribute = "System.Text.Json.Serialization.JsonNumberHandlingAttribute";
+    private const string JsonIncludeAttribute = "System.Text.Json.Serialization.JsonIncludeAttribute";
+    private const string JsonExtensionDataAttribute = "System.Text.Json.Serialization.JsonExtensionDataAttribute";
+    private const string JsonPolymorphicAttribute = "System.Text.Json.Serialization.JsonPolymorphicAttribute";
+    private const string JsonDerivedTypeAttribute = "System.Text.Json.Serialization.JsonDerivedTypeAttribute";
+    private const string JsonObjectCreationHandlingAttribute = "System.Text.Json.Serialization.JsonObjectCreationHandlingAttribute";
+    private const string JsonUnmappedMemberHandlingAttribute = "System.Text.Json.Serialization.JsonUnmappedMemberHandlingAttribute";
+    private const string JsonConstructorAttribute = "System.Text.Json.Serialization.JsonConstructorAttribute";
+    private const string JsonSerializableAttribute = "System.Text.Json.Serialization.JsonSerializableAttribute";
+    private const string JsonSerializerContextType = "System.Text.Json.Serialization.JsonSerializerContext";
+    private const string JsonSerializerOptionsType = "System.Text.Json.JsonSerializerOptions";
     private const string BaseSerializerConverterAttribute = "HPD.Base.BaseSerializerConverterAttribute";
 
     private static readonly DiagnosticDescriptor StringEnumOption = new(
@@ -31,6 +43,12 @@ public sealed class BaseSchemaGenerator : IIncrementalGenerator
         "HPDBASE0451",
         "Authoritative serializer-context option is unsupported",
         "Serializer context '{0}' option '{1}' has unsupported value '{2}' for authoritative BASE contracts ({3} dependent roots)",
+        "HPD.Base.Generation", DiagnosticSeverity.Error, true);
+
+    private static readonly DiagnosticDescriptor MissingContextAuthority = new(
+        "HPDBASE0445",
+        "Missing serializer context authority",
+        "Serializer context '{0}' is not a current-compilation partial non-generic JsonSerializerContext constructible by the generated BASE factory: {1}",
         "HPD.Base.Generation", DiagnosticSeverity.Error, true);
 
     /// <summary>Initializes the combined incremental schema pipeline.</summary>
@@ -47,15 +65,17 @@ public sealed class BaseSchemaGenerator : IIncrementalGenerator
                 static (node, _) => node is TypeDeclarationSyntax,
                 static (attributeContext, _) => (INamedTypeSymbol)attributeContext.TargetSymbol);
 
-        context.RegisterSourceOutput(collections.Collect().Combine(reads.Collect()),
-            static (productionContext, roots) => Generate(productionContext, roots.Left, roots.Right));
+        context.RegisterSourceOutput(collections.Collect().Combine(reads.Collect()).Combine(context.CompilationProvider),
+            static (productionContext, input) => Generate(
+                productionContext, input.Left.Left, input.Left.Right, input.Right));
         BaseCollectionGenerator.RegisterForbiddenReferences(context);
     }
 
     private static void Generate(
         SourceProductionContext context,
         ImmutableArray<INamedTypeSymbol> collections,
-        ImmutableArray<INamedTypeSymbol> reads)
+        ImmutableArray<INamedTypeSymbol> reads,
+        Compilation compilation)
     {
         var rootsByContext = new Dictionary<INamedTypeSymbol, HashSet<INamedTypeSymbol>>(SymbolEqualityComparer.Default);
         AddRoots(rootsByContext, collections, CollectionAttribute);
@@ -69,6 +89,8 @@ public sealed class BaseSchemaGenerator : IIncrementalGenerator
             int rootCount = pair.Value.Count;
             var defects = ImmutableArray.CreateBuilder<ContextValidationDefect>();
             string contextIdentity = ContextIdentity(serializerContext);
+            ValidateContextAuthority(
+                context, compilation, serializerContext, pair.Value, contextIdentity, defects);
             if (contextIdentity.Length == 0 || Encoding.UTF8.GetByteCount(contextIdentity) > 512 ||
                 contextIdentity.Any(char.IsControl))
             {
@@ -104,8 +126,9 @@ public sealed class BaseSchemaGenerator : IIncrementalGenerator
                     defects.Add(new ContextValidationDefect(diagnostic.Id, option.Key, Normalize(option.Value)));
                 }
             }
-            ContextUnionGraphResult unionGraph = ValidateUnionGraph(
-                context, serializerContext, pair.Value, contextIdentity, defects);
+            ContextUnionGraphResult unionGraph = defects.Count == 0
+                ? ValidateUnionGraph(context, serializerContext, pair.Value, contextIdentity, defects)
+                : ContextUnionGraphResult.Empty;
             results.Add(serializerContext, new ContextValidationResult(
                 serializerContext,
                 pair.Value.OrderBy(static root => root.ToDisplayString(), StringComparer.Ordinal).ToImmutableArray(),
@@ -117,6 +140,68 @@ public sealed class BaseSchemaGenerator : IIncrementalGenerator
         ImmutableDictionary<INamedTypeSymbol, ContextValidationResult> contextResults = results.ToImmutable();
         BaseCollectionGenerator.GenerateCombined(context, collections, contextResults);
         BaseReadGenerator.GenerateCombined(context, reads, contextResults);
+    }
+
+    private static void ValidateContextAuthority(
+        SourceProductionContext context,
+        Compilation compilation,
+        INamedTypeSymbol serializerContext,
+        HashSet<INamedTypeSymbol> owners,
+        string contextIdentity,
+        ImmutableArray<ContextValidationDefect>.Builder defects)
+    {
+        var reasons = new List<string>();
+        bool sourceOwned = SymbolEqualityComparer.Default.Equals(serializerContext.ContainingAssembly, compilation.Assembly) &&
+            serializerContext.DeclaringSyntaxReferences.Length != 0 &&
+            serializerContext.Locations.Any(static location => location.IsInSource);
+        if (!sourceOwned) reasons.Add("the context must be declared in the current compilation");
+        bool partial = serializerContext.DeclaringSyntaxReferences.Length != 0 &&
+            serializerContext.DeclaringSyntaxReferences.All(reference =>
+                reference.GetSyntax() is TypeDeclarationSyntax declaration &&
+                declaration.Modifiers.Any(static modifier => modifier.IsKind(Microsoft.CodeAnalysis.CSharp.SyntaxKind.PartialKeyword)));
+        if (!partial) reasons.Add("the context declaration must be partial");
+        if (serializerContext.TypeKind != TypeKind.Class || serializerContext.IsAbstract)
+            reasons.Add("the context must be a constructible class");
+        if (serializerContext.IsGenericType || ContainingTypes(serializerContext).Any(static type => type.Arity != 0))
+            reasons.Add("the context and its containing types must be non-generic");
+        if (!DerivesFrom(serializerContext, JsonSerializerContextType))
+            reasons.Add("the context must derive from JsonSerializerContext");
+        if (!owners.All(owner => compilation.IsSymbolAccessibleWithin(serializerContext, owner)))
+            reasons.Add("the context must be accessible to every generated factory");
+        if (Find(serializerContext, JsonSerializableAttribute) is null)
+            reasons.Add("the context must activate source generation with JsonSerializable");
+
+        IMethodSymbol[] optionConstructors = serializerContext.InstanceConstructors
+            .Where(static constructor => constructor.Parameters.Length == 1)
+            .Where(constructor => constructor.Parameters[0].Type.ToDisplayString() == JsonSerializerOptionsType)
+            .ToArray();
+        if (optionConstructors.Length != 0 && !optionConstructors.Any(constructor =>
+                owners.All(owner => compilation.IsSymbolAccessibleWithin(constructor, owner))))
+            reasons.Add("the JsonSerializerOptions constructor is inaccessible to the generated factory");
+
+        if (reasons.Count == 0) return;
+        string reason = string.Join("; ", reasons);
+        Diagnostic diagnostic = Diagnostic.Create(
+            MissingContextAuthority,
+            serializerContext.Locations.FirstOrDefault(static location => location.IsInSource) ??
+                owners.SelectMany(static owner => owner.Locations).FirstOrDefault(static location => location.IsInSource) ?? Location.None,
+            contextIdentity,
+            reason);
+        context.ReportDiagnostic(diagnostic);
+        defects.Add(new ContextValidationDefect(diagnostic.Id, "contextAuthority", reason));
+    }
+
+    private static IEnumerable<INamedTypeSymbol> ContainingTypes(INamedTypeSymbol type)
+    {
+        for (INamedTypeSymbol current = type; current is not null; current = current.ContainingType)
+            yield return current;
+    }
+
+    private static bool DerivesFrom(INamedTypeSymbol type, string baseType)
+    {
+        for (INamedTypeSymbol current = type; current is not null; current = current.BaseType)
+            if (current.ToDisplayString() == baseType) return true;
+        return false;
     }
 
     private static void AddRoots(
@@ -252,6 +337,7 @@ public sealed class BaseSchemaGenerator : IIncrementalGenerator
         }
 
         var nodes = new Dictionary<INamedTypeSymbol, ContextGraphNode>(SymbolEqualityComparer.Default);
+        var rejectedTypes = new HashSet<ITypeSymbol>(SymbolEqualityComparer.Default);
         var converterTypes = new Dictionary<string, INamedTypeSymbol>(StringComparer.Ordinal);
         int totalProperties = 0;
         bool limitReported = false;
@@ -277,6 +363,20 @@ public sealed class BaseSchemaGenerator : IIncrementalGenerator
                 if (wrappers >= 16) return Limit(origin);
                 return Visit(sequence.TypeArguments[0], depth, wrappers + 1, origin);
             }
+            if (type is INamedTypeSymbol attributedType &&
+                (Find(attributedType, JsonPolymorphicAttribute) is not null ||
+                 Find(attributedType, JsonDerivedTypeAttribute) is not null ||
+                 Find(attributedType, JsonNumberHandlingAttribute) is not null ||
+                 Find(attributedType, JsonObjectCreationHandlingAttribute) is not null ||
+                 Find(attributedType, JsonUnmappedMemberHandlingAttribute) is not null))
+                return rejectedTypes.Add(type)
+                    ? Unsupported(origin, "type-level serializer contract overrides are forbidden")
+                    : false;
+            if (type is INamedTypeSymbol convertedType && Find(convertedType, JsonConverterAttribute) is not null &&
+                !SerializerScalar(convertedType))
+                return rejectedTypes.Add(type)
+                    ? Unsupported(origin, "type-level serializer converters are forbidden")
+                    : false;
             if (SerializerScalar(type)) return true;
             if (depth > 32) return Limit(origin);
             if (type is not INamedTypeSymbol named || named.TypeParameters.Length != 0 ||
@@ -287,9 +387,25 @@ public sealed class BaseSchemaGenerator : IIncrementalGenerator
 
             var node = new ContextGraphNode(named);
             nodes.Add(named, node);
-            IPropertySymbol[] properties = SerializableProperties(named)
-                .Where(static property => !property.IsStatic && !property.IsIndexer &&
-                    property.DeclaredAccessibility == Accessibility.Public && property.GetMethod is not null)
+            foreach (IMethodSymbol constructor in named.InstanceConstructors)
+                if (Find(constructor, JsonConstructorAttribute) is not null)
+                    Unsupported(constructor, "explicit JsonConstructor selection is forbidden");
+            foreach (IFieldSymbol field in SerializableFields(named))
+                if (Find(field, JsonIncludeAttribute) is not null || Find(field, JsonExtensionDataAttribute) is not null)
+                    Unsupported(field, "fields cannot participate in authoritative serializer contracts");
+            var effectiveProperties = new Dictionary<string, IPropertySymbol>(StringComparer.Ordinal);
+            foreach (IPropertySymbol property in SerializableProperties(named))
+            {
+                if (!effectiveProperties.TryGetValue(property.Name, out IPropertySymbol inherited))
+                {
+                    effectiveProperties.Add(property.Name, property);
+                    continue;
+                }
+                if (Overrides(property, inherited)) effectiveProperties[property.Name] = property;
+                else Unsupported(property, "inherited or hidden serializer property identity is ambiguous");
+            }
+            IPropertySymbol[] properties = effectiveProperties.Values
+                .Where(static property => !property.IsStatic && !property.IsIndexer)
                 .OrderBy(static property => property.Name, StringComparer.Ordinal).ToArray();
             if (properties.Length > 256) return Limit(named);
             foreach (IPropertySymbol property in properties)
@@ -302,10 +418,38 @@ public sealed class BaseSchemaGenerator : IIncrementalGenerator
                     Unsupported(property, "conditional serializer omission is forbidden for authoritative members");
                     continue;
                 }
-                if (property.SetMethod is null || Find(property, "System.Text.Json.Serialization.JsonExtensionDataAttribute") is not null ||
-                    Find(property, "System.Text.Json.Serialization.JsonIncludeAttribute") is not null)
+                bool hasSerializerAttribute = HasSerializerAttribute(property);
+                if (property.DeclaredAccessibility != Accessibility.Public)
                 {
-                    Unsupported(property, "active properties require public read/write membership without extension data or JsonInclude");
+                    if (hasSerializerAttribute)
+                        Unsupported(property, "non-public serializer members are forbidden");
+                    continue;
+                }
+                if (Find(property, JsonPropertyOrderAttribute) is not null)
+                {
+                    Unsupported(property, "JsonPropertyOrder is forbidden");
+                    continue;
+                }
+                if (Find(property, JsonNumberHandlingAttribute) is not null)
+                {
+                    Unsupported(property, "property-level JsonNumberHandling is forbidden");
+                    continue;
+                }
+                if (Find(property, JsonObjectCreationHandlingAttribute) is not null)
+                {
+                    Unsupported(property, "property-level object creation handling is forbidden");
+                    continue;
+                }
+                if (Find(property, JsonPolymorphicAttribute) is not null || Find(property, JsonDerivedTypeAttribute) is not null)
+                {
+                    Unsupported(property, "property-level polymorphism metadata is forbidden");
+                    continue;
+                }
+                if (property.GetMethod is null || property.GetMethod.DeclaredAccessibility != Accessibility.Public ||
+                    property.SetMethod is null || property.SetMethod.DeclaredAccessibility != Accessibility.Public ||
+                    Find(property, JsonExtensionDataAttribute) is not null || Find(property, JsonIncludeAttribute) is not null)
+                {
+                    Unsupported(property, "active properties require public getters and setters without extension data or JsonInclude");
                     continue;
                 }
                 string converterIdentity = "stj-built-in";
@@ -421,11 +565,28 @@ public sealed class BaseSchemaGenerator : IIncrementalGenerator
         var chain = new Stack<INamedTypeSymbol>();
         for (INamedTypeSymbol current = type; current is not null && current.SpecialType != SpecialType.System_Object; current = current.BaseType)
             chain.Push(current);
-        var properties = new Dictionary<string, IPropertySymbol>(StringComparer.Ordinal);
+        var properties = new List<IPropertySymbol>();
         while (chain.Count != 0)
-            foreach (IPropertySymbol property in chain.Pop().GetMembers().OfType<IPropertySymbol>()) properties[property.Name] = property;
-        return properties.Values;
+            properties.AddRange(chain.Pop().GetMembers().OfType<IPropertySymbol>());
+        return properties;
     }
+
+    private static IEnumerable<IFieldSymbol> SerializableFields(INamedTypeSymbol type)
+    {
+        for (INamedTypeSymbol current = type; current is not null && current.SpecialType != SpecialType.System_Object; current = current.BaseType)
+            foreach (IFieldSymbol field in current.GetMembers().OfType<IFieldSymbol>())
+                if (!field.IsImplicitlyDeclared) yield return field;
+    }
+
+    private static bool Overrides(IPropertySymbol candidate, IPropertySymbol inherited)
+    {
+        for (IPropertySymbol current = candidate.OverriddenProperty; current is not null; current = current.OverriddenProperty)
+            if (SymbolEqualityComparer.Default.Equals(current, inherited)) return true;
+        return false;
+    }
+
+    private static bool HasSerializerAttribute(IPropertySymbol property) => property.GetAttributes().Any(attribute =>
+        attribute.AttributeClass?.ContainingNamespace.ToDisplayString() == "System.Text.Json.Serialization");
 
     private static AttributeData Find(ISymbol symbol, string name) => symbol?.GetAttributes()
         .FirstOrDefault(attribute => attribute.AttributeClass?.ToDisplayString() == name);
@@ -500,6 +661,10 @@ internal sealed class ContextUnionGraphResult
     }
 
     internal ImmutableArray<ContextGraphProperty> Properties { get; }
+
+    internal static ContextUnionGraphResult Empty { get; } = new(
+        ImmutableArray<ContextGraphProperty>.Empty,
+        ImmutableDictionary.Create<INamedTypeSymbol, ImmutableArray<ContextGraphProperty>>(SymbolEqualityComparer.Default));
 
     internal ImmutableArray<ContextGraphProperty> PropertiesForRoot(INamedTypeSymbol root) =>
         _propertiesByRoot.TryGetValue(root, out ImmutableArray<ContextGraphProperty> properties)

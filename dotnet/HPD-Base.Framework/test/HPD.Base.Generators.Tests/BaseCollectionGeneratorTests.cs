@@ -117,7 +117,7 @@ public sealed class BaseCollectionGeneratorTests
     }
 
     [Fact]
-    public void MissingJsonRegistrationReportsStableDiagnostic()
+    public void MissingContextSourceGenerationAuthorityReportsStableDiagnostic()
     {
         const string source = """
             using HPD.Base;
@@ -132,7 +132,7 @@ public sealed class BaseCollectionGeneratorTests
         var result = Run(source);
 
         result.Diagnostics.Should().ContainSingle(diagnostic =>
-            diagnostic.Id == "HPDBASE007");
+            diagnostic.Id == "HPDBASE0445");
         result.GeneratedSource.Should().Contain("Collection => null!").And.NotContain("CreateGenerated");
     }
 
@@ -275,6 +275,186 @@ public sealed class BaseCollectionGeneratorTests
             .ToArray();
 
         generators.Should().Equal(typeof(BaseSchemaGenerator));
+    }
+
+    [Theory]
+    [InlineData("non-partial")]
+    [InlineData("generic")]
+    [InlineData("not-context")]
+    [InlineData("inaccessible-constructor")]
+    public void InvalidContextAuthorityProducesOneRecoveryDiagnostic(string shape)
+    {
+        string context = shape switch
+        {
+            "non-partial" => "[JsonSerializable(typeof(Project))] public sealed class AppJsonContext : JsonSerializerContext { public AppJsonContext(JsonSerializerOptions options) : base(options) { } protected override JsonSerializerOptions? GeneratedSerializerOptions => null; public override JsonTypeInfo? GetTypeInfo(System.Type type) => null; }",
+            "generic" => "[JsonSerializable(typeof(Project))] public sealed partial class AppJsonContext<T> : JsonSerializerContext { public AppJsonContext(JsonSerializerOptions options) : base(options) { } protected override JsonSerializerOptions? GeneratedSerializerOptions => null; public override JsonTypeInfo? GetTypeInfo(System.Type type) => null; }",
+            "not-context" => "[JsonSerializable(typeof(Project))] public sealed partial class AppJsonContext { }",
+            "inaccessible-constructor" => "[JsonSerializable(typeof(Project))] public sealed partial class AppJsonContext : JsonSerializerContext { private AppJsonContext(JsonSerializerOptions options) : base(options) { } protected override JsonSerializerOptions? GeneratedSerializerOptions => null; public override JsonTypeInfo? GetTypeInfo(System.Type type) => null; }",
+            _ => throw new ArgumentOutOfRangeException(nameof(shape)),
+        };
+        string selected = shape == "generic" ? "AppJsonContext<int>" : "AppJsonContext";
+        string source = $$"""
+            using HPD.Base;
+            using System.Text.Json;
+            using System.Text.Json.Serialization;
+            using System.Text.Json.Serialization.Metadata;
+            [BaseCollection("projects", typeof({{selected}}))]
+            public sealed partial record Project
+            {
+                [BaseField("project.value")] public required string Value { get; init; }
+            }
+            {{context}}
+            """;
+
+        GeneratorResult result = Run(source);
+
+        result.Diagnostics.Should().ContainSingle(item => item.Id == "HPDBASE0445");
+        result.GeneratedSource.Should().Contain("BaseCollection<global::Project> Collection => null!")
+            .And.NotContain("CreateGenerated").And.NotContain("RegisterContext");
+        result.CompilationDiagnostics.Where(static item => item.Id is "CS0117" or "CS1061" or "CS1503" or "CS0411")
+            .Should().BeEmpty();
+    }
+
+    [Fact]
+    public void ReferencedContextAuthorityProducesOneRecoveryDiagnostic()
+    {
+        const string externalSource = """
+            using System;
+            using System.Text.Json;
+            using System.Text.Json.Serialization;
+            using System.Text.Json.Serialization.Metadata;
+            [JsonSerializable(typeof(string))]
+            public sealed class ExternalContext : JsonSerializerContext
+            {
+                public ExternalContext(JsonSerializerOptions options) : base(options) { }
+                protected override JsonSerializerOptions? GeneratedSerializerOptions => null;
+                public override JsonTypeInfo? GetTypeInfo(Type type) => null;
+            }
+            """;
+        CSharpCompilation external = CSharpCompilation.Create(
+            "ExternalContracts",
+            [CSharpSyntaxTree.ParseText(externalSource, new CSharpParseOptions(LanguageVersion.CSharp14))],
+            References(),
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        using var image = new MemoryStream();
+        external.Emit(image).Success.Should().BeTrue();
+        MetadataReference externalReference = MetadataReference.CreateFromImage(image.ToArray());
+        const string source = """
+            using HPD.Base;
+            [BaseCollection("projects", typeof(ExternalContext))]
+            public sealed partial record Project
+            {
+                [BaseField("project.value")] public required string Value { get; init; }
+            }
+            """;
+
+        GeneratorResult result = Run(source, [externalReference]);
+
+        result.Diagnostics.Should().ContainSingle(item => item.Id == "HPDBASE0445");
+        result.GeneratedSource.Should().Contain("Collection => null!").And.NotContain("CreateGenerated");
+    }
+
+    [Theory]
+    [InlineData("[JsonPropertyOrder(1)] public required string Value { get; init; }")]
+    [InlineData("[JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)] public required int Value { get; init; }")]
+    [InlineData("[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Value { get; init; }")]
+    [InlineData("[JsonInclude] public string Value { get; private set; } = string.Empty;")]
+    [InlineData("public string Value { get; private set; } = string.Empty;")]
+    [InlineData("public string Value { private get; init; } = string.Empty;")]
+    [InlineData("[JsonInclude] private string Value { get; set; } = string.Empty;")]
+    [InlineData("[JsonInclude] public string Value = string.Empty;")]
+    [InlineData("[JsonExtensionData] public Dictionary<string, object> Values { get; init; } = new();")]
+    [InlineData("[JsonObjectCreationHandling(JsonObjectCreationHandling.Populate)] public List<string> Values { get; init; } = new();")]
+    public void ForbiddenNestedMemberContractRecoversOneAndSharedRoots(string member)
+    {
+        foreach (bool shared in new[] { false, true })
+        {
+            string second = shared
+                ? "[BaseCollection(\"second\", typeof(AppJsonContext))] public sealed partial record Second { [BaseField(\"second.payload\")] public required Payload Payload { get; init; } }"
+                : string.Empty;
+            string secondRegistration = shared ? "[JsonSerializable(typeof(Second))]" : string.Empty;
+            string source = $$"""
+                using HPD.Base;
+                using System.Collections.Generic;
+                using System.Text.Json.Serialization;
+                [BaseCollection("first", typeof(AppJsonContext))]
+                public sealed partial record First
+                {
+                    [BaseField("first.payload")] public required Payload Payload { get; init; }
+                }
+                {{second}}
+                public sealed record Payload { {{member}} }
+                [JsonSerializable(typeof(First))]
+                {{secondRegistration}}
+                public sealed partial class AppJsonContext : JsonSerializerContext;
+                """;
+
+            GeneratorResult result = Run(source);
+
+            result.Diagnostics.Should().ContainSingle(item => item.Id == "HPDBASE0447");
+            result.GeneratedSource.Should().NotContain("CreateGenerated").And.NotContain("RegisterContext");
+            result.CompilationDiagnostics.Where(static item => item.Id is "CS0117" or "CS1061" or "CS1503" or "CS0411")
+                .Should().BeEmpty();
+        }
+    }
+
+    [Theory]
+    [InlineData("[JsonPolymorphic]")]
+    [InlineData("[JsonDerivedType(typeof(DerivedPayload))]")]
+    [InlineData("[JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]")]
+    [InlineData("[JsonObjectCreationHandling(JsonObjectCreationHandling.Populate)]")]
+    [InlineData("[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Skip)]")]
+    public void ForbiddenNestedTypeContractRecoversOneAndSharedRoots(string attribute)
+    {
+        foreach (bool shared in new[] { false, true })
+        {
+            string second = shared
+                ? "[BaseCollection(\"second\", typeof(AppJsonContext))] public sealed partial record Second { [BaseField(\"second.payload\")] public required Payload Payload { get; init; } }"
+                : string.Empty;
+            string secondRegistration = shared ? "[JsonSerializable(typeof(Second))]" : string.Empty;
+            string source = $$"""
+                using HPD.Base;
+                using System.Text.Json.Serialization;
+                [BaseCollection("first", typeof(AppJsonContext))]
+                public sealed partial record First { [BaseField("first.payload")] public required Payload Payload { get; init; } }
+                {{second}}
+                {{attribute}} public record Payload { public required string Value { get; init; } }
+                public sealed record DerivedPayload : Payload;
+                [JsonSerializable(typeof(First))] {{secondRegistration}}
+                public sealed partial class AppJsonContext : JsonSerializerContext;
+                """;
+
+            GeneratorResult result = Run(source);
+
+            result.Diagnostics.Should().ContainSingle(item => item.Id == "HPDBASE0447");
+            result.GeneratedSource.Should().NotContain("CreateGenerated").And.NotContain("RegisterContext");
+        }
+    }
+
+    [Fact]
+    public void ExplicitNestedJsonConstructorRecoversSharedRootsOnce()
+    {
+        const string source = """
+            using HPD.Base;
+            using System.Text.Json.Serialization;
+            [BaseCollection("first", typeof(AppJsonContext))]
+            public sealed partial record First { [BaseField("first.payload")] public required Payload Payload { get; init; } }
+            [BaseCollection("second", typeof(AppJsonContext))]
+            public sealed partial record Second { [BaseField("second.payload")] public required Payload Payload { get; init; } }
+            public sealed class Payload
+            {
+                [JsonConstructor] public Payload(string value) => Value = value;
+                public string Value { get; init; }
+            }
+            [JsonSerializable(typeof(First))]
+            [JsonSerializable(typeof(Second))]
+            public sealed partial class AppJsonContext : JsonSerializerContext;
+            """;
+
+        GeneratorResult result = Run(source);
+
+        result.Diagnostics.Should().ContainSingle(item => item.Id == "HPDBASE0447");
+        result.GeneratedSource.Should().NotContain("CreateGenerated").And.NotContain("RegisterContext");
     }
 
     [Fact]
@@ -870,13 +1050,13 @@ public sealed class BaseCollectionGeneratorTests
             .Should().BeEmpty();
     }
 
-    private static GeneratorResult Run(string source)
+    private static GeneratorResult Run(string source, ImmutableArray<MetadataReference> additionalReferences = default)
     {
         var parseOptions = new CSharpParseOptions(LanguageVersion.CSharp14);
         var compilation = CSharpCompilation.Create(
             "GeneratorTests",
             [CSharpSyntaxTree.ParseText(source, parseOptions)],
-            References(),
+            additionalReferences.IsDefaultOrEmpty ? References() : References().AddRange(additionalReferences),
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
 
         GeneratorDriver driver = CSharpGeneratorDriver.Create(
