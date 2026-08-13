@@ -82,8 +82,9 @@ public sealed class AuthoritySchemaLedgerTests
     {
         var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../"));
         var lines = File.ReadAllLines(Path.Combine(root, "src/HPD-Agent/Authority/Generated/authority-schema-ledger-v1.txt"));
-        Assert.Equal("# source-contract-sha256=18572cd5b12fe091ae41d174029ac9a9a42d5415352f52a1b5a46d9798485072", lines[0]);
-        Assert.Equal("# source-registry-sha256=c0dd400ecb11110a2d4858438dca91854de888ebfda0476ed9846819f201a099", lines[1]);
+        Assert.Equal("# source-contract-sha256=b45a5c7ed3ebe03e697504c4f705dd17039488c5702b670fb05c5be865d0982e", lines[0]);
+        Assert.Equal("# source-registry-sha256=99253850cebd565afe809aa557380001d46eeb9208f1c5dab64421ce85bed677", lines[1]);
+        Assert.Contains("hpd.global-participant-page.v1|7|isFinal|UInt16|required=true|range:0..1|union=None", lines);
         var expected = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         List<string>? current = null;
         foreach (var line in lines)

@@ -1,5 +1,5 @@
-# source-contract-sha256=18572cd5b12fe091ae41d174029ac9a9a42d5415352f52a1b5a46d9798485072
-# source-registry-sha256=c0dd400ecb11110a2d4858438dca91854de888ebfda0476ed9846819f201a099
+# source-contract-sha256=b45a5c7ed3ebe03e697504c4f705dd17039488c5702b670fb05c5be865d0982e
+# source-registry-sha256=99253850cebd565afe809aa557380001d46eeb9208f1c5dab64421ce85bed677
 # generated input; section rows are canonical and ordered
 @IdFamilies
 ten|TenantId|owner=S1|allocator=S1|correlation|visibility=public
@@ -939,7 +939,7 @@ hpd.capacity-grant-binding-proof.v1|4|requiredChargeCount|UInt16Positive|require
 hpd.capacity-grant-binding-proof.v1|5|requiredChargeCoverageHash|Hash256|required=true|registered-type:Hash256|union=None
 hpd.authority-payload-global-participant-claim-record.v1|1|sourceSession|SessionAuthorityStampV1|required=true|registered-type:SessionAuthorityStampV1|union=None
 hpd.authority-payload-global-participant-claim-record.v1|2|sourceExpectedAuthority|ExpectedAuthorityVectorV1|required=true|registered-type:ExpectedAuthorityVectorV1|union=None
-hpd.authority-payload-global-participant-claim-record.v1|3|body|BoundedBstr65536|required=true|bytes:0..65536|union=None
+hpd.authority-payload-global-participant-claim-record.v1|3|body|BoundedBstr65536|required=true|bytes:1..7168|union=None
 hpd.global-participant-claim-record-body.v1|1|operationId|OperationId|required=true|stable-id-family-ledger:16-bytes/nonzero|union=None
 hpd.global-participant-claim-record-body.v1|2|source|GlobalParticipantAllocationSourceV1|required=true|registered-type:GlobalParticipantAllocationSourceV1|union=None
 hpd.global-participant-claim-record-body.v1|3|participantId|ParticipantId|required=true|stable-id-family-ledger:16-bytes/nonzero|union=None
@@ -966,7 +966,7 @@ hpd.participant-id-owner-proof.v1|2|head|Optional<GlobalParticipantAuthorityHead
 hpd.participant-id-owner-proof.v1|3|state|UInt16Positive|required=true|scalar:UInt16Positive|union=None
 hpd.participant-id-owner-proof.v1|4|owner|Optional<ParticipantIdOwnerEvidenceV1>|required=true|registered-type:Optional<ParticipantIdOwnerEvidenceV1>|union={'kind': 'closed', 'none': 0, 'some': 1}
 hpd.participant-id-owner-proof.v1|5|indexRoot|Hash256|required=true|registered-type:Hash256|union=None
-hpd.participant-id-owner-proof.v1|6|proofPath|BoundedBstr65536|required=true|bytes:0..65536|union=None
+hpd.participant-id-owner-proof.v1|6|proofPath|BoundedBstr65536|required=true|bytes:4096..4096|union=None
 hpd.participant-id-owner-proof.v1|7|recordCount|UInt64|required=true|registered-type:UInt64|union=None
 hpd.participant-id-claim-outcome.v1|1|kind|UInt16Positive|required=true|scalar:UInt16Positive|union=None
 hpd.participant-id-claim-outcome.v1|2|existingOwnerPosition|Optional<GlobalParticipantAuthorityPositionV1>|required=true|registered-type:Optional<GlobalParticipantAuthorityPositionV1>|union={'kind': 'closed', 'none': 0, 'some': 1}
@@ -976,9 +976,9 @@ hpd.global-participant-page.v1|2|pinnedHead|Optional<GlobalParticipantAuthorityH
 hpd.global-participant-page.v1|3|indexRoot|Hash256|required=true|registered-type:Hash256|union=None
 hpd.global-participant-page.v1|4|pageOrdinal|UInt16Positive|required=true|scalar:UInt16Positive|union=None
 hpd.global-participant-page.v1|5|previousPageHash|Optional<Hash256>|required=true|registered-type:Optional<Hash256>|union={'kind': 'closed', 'none': 0, 'some': 1}
-hpd.global-participant-page.v1|6|records|BoundedBstr65536|required=true|bytes:0..65536|union=None
-hpd.global-participant-page.v1|7|isFinal|UInt16Positive|required=true|scalar:UInt16Positive|union=None
-hpd.global-participant-page.v1|8|totalPages|UInt16Positive|required=true|scalar:UInt16Positive|union=None
+hpd.global-participant-page.v1|6|records|BoundedBstr65536|required=true|bytes:2..65536|union=None
+hpd.global-participant-page.v1|7|isFinal|UInt16|required=true|range:0..1|union=None
+hpd.global-participant-page.v1|8|totalPages|UInt16Positive|required=true|range:1..9363|union=None
 hpd.global-participant-page.v1|9|totalRecords|UInt64|required=true|registered-type:UInt64|union=None
 hpd.global-participant-page.v1|10|totalCanonicalBytes|UInt64|required=true|registered-type:UInt64|union=None
 hpd.graph-generation-initialized.v1|1|session|SessionAuthorityStampV1|required=true|registered-type:SessionAuthorityStampV1|union=None
