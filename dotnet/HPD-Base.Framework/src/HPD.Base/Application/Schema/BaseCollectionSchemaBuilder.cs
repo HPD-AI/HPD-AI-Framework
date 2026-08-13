@@ -71,30 +71,30 @@ public sealed class BaseCollectionSchemaBuilder<T>
     }
 
     /// <summary>Performs string.</summary>
-    public BaseSchemaFieldBuilder<T, string> String(string fieldId, string storedName) => Field<string>(fieldId, storedName, "string");
+    public BaseSchemaFieldBuilder<T, string> String(string fieldId, string applicationName, BaseJsonProperty<T, string> property) => Field(fieldId, applicationName, property, "string");
     /// <summary>Performs boolean.</summary>
-    public BaseSchemaFieldBuilder<T, bool> Boolean(string fieldId, string storedName) => Field<bool>(fieldId, storedName, "boolean");
+    public BaseSchemaFieldBuilder<T, bool> Boolean(string fieldId, string applicationName, BaseJsonProperty<T, bool> property) => Field(fieldId, applicationName, property, "boolean");
     /// <summary>Performs integer.</summary>
-    public BaseSchemaFieldBuilder<T, int> Integer(string fieldId, string storedName) => Field<int>(fieldId, storedName, "integer");
+    public BaseSchemaFieldBuilder<T, int> Integer(string fieldId, string applicationName, BaseJsonProperty<T, int> property) => Field(fieldId, applicationName, property, "integer");
     /// <summary>Performs long.</summary>
-    public BaseSchemaFieldBuilder<T, long> Long(string fieldId, string storedName) => Field<long>(fieldId, storedName, "integer");
+    public BaseSchemaFieldBuilder<T, long> Long(string fieldId, string applicationName, BaseJsonProperty<T, long> property) => Field(fieldId, applicationName, property, "integer");
     /// <summary>Performs number.</summary>
-    public BaseSchemaFieldBuilder<T, double> Number(string fieldId, string storedName) => Field<double>(fieldId, storedName, "number");
+    public BaseSchemaFieldBuilder<T, double> Number(string fieldId, string applicationName, BaseJsonProperty<T, double> property) => Field(fieldId, applicationName, property, "number");
     /// <summary>Performs decimal.</summary>
-    public BaseSchemaFieldBuilder<T, decimal> Decimal(string fieldId, string storedName) => Field<decimal>(fieldId, storedName, "number", "decimal");
+    public BaseSchemaFieldBuilder<T, decimal> Decimal(string fieldId, string applicationName, BaseJsonProperty<T, decimal> property) => Field(fieldId, applicationName, property, "number", "decimal");
     /// <summary>Performs date Time.</summary>
-    public BaseSchemaFieldBuilder<T, DateTimeOffset> DateTime(string fieldId, string storedName) => Field<DateTimeOffset>(fieldId, storedName, "string", "date-time");
+    public BaseSchemaFieldBuilder<T, DateTimeOffset> DateTime(string fieldId, string applicationName, BaseJsonProperty<T, DateTimeOffset> property) => Field(fieldId, applicationName, property, "string", "date-time");
     /// <summary>Performs enum.</summary>
-    public BaseSchemaFieldBuilder<T, TEnum> Enum<TEnum>(string fieldId, string storedName)
-        where TEnum : struct, Enum => Field<TEnum>(fieldId, storedName, "string", "enum");
+    public BaseSchemaFieldBuilder<T, TEnum> Enum<TEnum>(string fieldId, string applicationName, BaseJsonProperty<T, TEnum> property)
+        where TEnum : struct, Enum => Field(fieldId, applicationName, property, "string", "enum");
     /// <summary>Performs array.</summary>
-    public BaseSchemaFieldBuilder<T, TValue[]> Array<TValue>(string fieldId, string storedName) => Field<TValue[]>(fieldId, storedName, "array");
+    public BaseSchemaFieldBuilder<T, TValue[]> Array<TValue>(string fieldId, string applicationName, BaseJsonProperty<T, TValue[]> property) => Field(fieldId, applicationName, property, "array");
     /// <summary>Performs object.</summary>
-    public BaseSchemaFieldBuilder<T, TValue> Object<TValue>(string fieldId, string storedName) => Field<TValue>(fieldId, storedName, "object");
+    public BaseSchemaFieldBuilder<T, TValue> Object<TValue>(string fieldId, string applicationName, BaseJsonProperty<T, TValue> property) => Field(fieldId, applicationName, property, "object");
     /// <summary>Performs file Reference.</summary>
-    public BaseSchemaFieldBuilder<T, string> FileReference(string fieldId, string storedName) => Field<string>(fieldId, storedName, "string", "file-reference");
+    public BaseSchemaFieldBuilder<T, string> FileReference(string fieldId, string applicationName, BaseJsonProperty<T, string> property) => Field(fieldId, applicationName, property, "string", "file-reference");
     /// <summary>Declares a bounded immutable binary field.</summary>
-    public BaseSchemaFieldBuilder<T, BaseBinary> Binary(string fieldId, string storedName) => Field<BaseBinary>(fieldId, storedName, "string", "base64");
+    public BaseSchemaFieldBuilder<T, BaseBinary> Binary(string fieldId, string applicationName, BaseJsonProperty<T, BaseBinary> property) => Field(fieldId, applicationName, property, "string", "base64");
 
     /// <summary>Requires storage protection for this collection from one owning module.</summary>
     public BaseCollectionSchemaBuilder<T> RequireStorageProtection(BaseStorageProtectionRequirement requirement)
@@ -105,7 +105,7 @@ public sealed class BaseCollectionSchemaBuilder<T>
         return this;
     }
     /// <summary>Declares a typed record-id relation using stable schema identities.</summary>
-    public BaseRelationSchemaBuilder<T, TTarget> Relation<TTarget>(string relationId, string fieldId, string storedName, BaseCollection<TTarget> target)
+    public BaseRelationSchemaBuilder<T, TTarget> Relation<TTarget>(string relationId, string fieldId, string applicationName, BaseJsonProperty<T, BaseRecordId<TTarget>> property, BaseCollection<TTarget> target)
     {
         BaseApplicationId.Validate(relationId, nameof(relationId));
         ArgumentNullException.ThrowIfNull(target);
@@ -115,7 +115,7 @@ public sealed class BaseCollectionSchemaBuilder<T>
             throw new InvalidOperationException($"Relation '{relationId}' is already declared.");
         }
 
-        Field<BaseRecordId<TTarget>>(fieldId, storedName, "string", "record-id");
+        Field(fieldId, applicationName, property, "string", "record-id");
         FieldEntry entry = _fields[fieldId];
         entry.Relation = new RelationDefinition
         {
@@ -130,14 +130,14 @@ public sealed class BaseCollectionSchemaBuilder<T>
     }
 
     /// <summary>Declares an ordered many-valued typed record-id relation using stable schema identities.</summary>
-    public BaseRelationSchemaBuilder<T, TTarget> ManyRelation<TTarget>(string relationId, string fieldId, string storedName, BaseCollection<TTarget> target)
+    public BaseRelationSchemaBuilder<T, TTarget> ManyRelation<TTarget>(string relationId, string fieldId, string applicationName, BaseJsonProperty<T, BaseRecordId<TTarget>[]> property, BaseCollection<TTarget> target)
     {
         BaseApplicationId.Validate(relationId, nameof(relationId));
         ArgumentNullException.ThrowIfNull(target);
         BaseRecordIdJsonConverterFactory.Register<TTarget>();
         if (_fields.Values.Any(field => string.Equals(field.Relation?.Id, relationId, StringComparison.Ordinal)))
             throw new InvalidOperationException($"Relation '{relationId}' is already declared.");
-        Field<BaseRecordId<TTarget>[]>(fieldId, storedName, "array", "record-id");
+        Field(fieldId, applicationName, property, "array", "record-id");
         FieldEntry entry = _fields[fieldId];
         entry.IsRequired = true;
         entry.IsNullable = false;
@@ -222,10 +222,13 @@ public sealed class BaseCollectionSchemaBuilder<T>
     }
 
     /// <summary>Performs field.</summary>
-    private BaseSchemaFieldBuilder<T, TValue> Field<TValue>(string fieldId, string storedName, string type, string? format = null)
+    private BaseSchemaFieldBuilder<T, TValue> Field<TValue>(string fieldId, string applicationName, BaseJsonProperty<T, TValue> property, string type, string? format = null)
     {
         BaseApplicationId.Validate(fieldId, nameof(fieldId));
-        ArgumentException.ThrowIfNullOrWhiteSpace(storedName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(applicationName);
+        ArgumentNullException.ThrowIfNull(property);
+        if (!ReferenceEquals(property.Owner, _jsonTypeInfo))
+            throw new InvalidOperationException("base.schema.serializer.metadataInvalid");
         if (_fields.Count >= MaximumFields)
         {
             throw new InvalidOperationException($"A collection may declare at most {MaximumFields} fields.");
@@ -236,12 +239,13 @@ public sealed class BaseCollectionSchemaBuilder<T>
             throw new InvalidOperationException($"Field '{fieldId}' is already declared.");
         }
 
-        if (_fields.Values.Any(field => string.Equals(field.StoredName, storedName, StringComparison.Ordinal)))
+        if (_fields.Values.Any(field => string.Equals(field.ApplicationName, applicationName, StringComparison.Ordinal)
+            || string.Equals(field.WireName, property.WireName, StringComparison.Ordinal)))
         {
-            throw new InvalidOperationException($"Stored field name '{storedName}' is already declared.");
+            throw new InvalidOperationException("A field application or wire name is already declared.");
         }
 
-        var entry = new FieldEntry<TValue>(fieldId, storedName, type, format);
+        var entry = new FieldEntry<TValue>(fieldId, applicationName, property.WireName, type, format);
         _fields.Add(fieldId, entry);
         return new BaseSchemaFieldBuilder<T, TValue>(entry);
     }
@@ -249,17 +253,19 @@ public sealed class BaseCollectionSchemaBuilder<T>
 internal abstract class FieldEntry
     {
         /// <summary>Initializes a new instance.</summary>
-        protected FieldEntry(string id, string storedName, string type, string? format)
+        protected FieldEntry(string id, string applicationName, string wireName, string type, string? format)
         {
             Id = id;
-            StoredName = storedName;
+            ApplicationName = applicationName;
+            WireName = wireName;
             Type = type;
             Format = format;
         }
 
         /// <summary>Gets id.</summary>
         protected string Id { get; }
-        internal string StoredName { get; }
+        internal string ApplicationName { get; }
+        internal string WireName { get; }
         /// <summary>Gets type.</summary>
         protected string Type { get; }
         /// <summary>Gets format.</summary>
@@ -279,13 +285,14 @@ internal abstract class FieldEntry
         internal abstract void AddTo(BaseCollectionFields<T> declarations);
     }
 
-internal sealed class FieldEntry<TValue>(string id, string storedName, string type, string? format) : FieldEntry(id, storedName, type, format)
+internal sealed class FieldEntry<TValue>(string id, string applicationName, string wireName, string type, string? format) : FieldEntry(id, applicationName, wireName, type, format)
     {
         /// <summary>Performs definition.</summary>
         internal override FieldDefinition Definition() => new()
         {
             Id = Id,
-            Name = StoredName,
+            ApplicationName = ApplicationName,
+            WireName = WireName,
             Type = Type,
             Format = Format,
             Required = IsRequired,
@@ -299,7 +306,7 @@ internal sealed class FieldEntry<TValue>(string id, string storedName, string ty
             MaximumBytes = MaximumBytes,
         };
         /// <summary>Performs add To.</summary>
-        internal override void AddTo(BaseCollectionFields<T> declarations) => declarations.Add<TValue>(Id, StoredName, IsNullable);
+        internal override void AddTo(BaseCollectionFields<T> declarations) => declarations.Add<TValue>(Id, ApplicationName, WireName, IsNullable);
     }
 
 internal sealed class IndexEntry(string id, string[] fields)

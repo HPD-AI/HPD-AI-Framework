@@ -13,7 +13,7 @@ try
     BaseCollection<SmokeRecord> items = BaseCollection.Define(
         "items",
         SmokeJsonContext.Default.SmokeRecord,
-        schema => schema.String("title", "Title"));
+        schema => schema.String("title", "Title", BaseJsonProperty<SmokeRecord, string>.Bind(SmokeJsonContext.Default.SmokeRecord, "Title")));
     BaseCollection<JsonElement>[] authorityCollections =
     [
         AuthorityCollection("authority.revisions", BaseCollectionMutationMode.AppendOnlyWithAdministrativePurge),

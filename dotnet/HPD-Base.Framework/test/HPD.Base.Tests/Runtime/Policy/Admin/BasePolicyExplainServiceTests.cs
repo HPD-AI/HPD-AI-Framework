@@ -243,7 +243,7 @@ public sealed class BasePolicyExplainServiceTests
                 new FieldDefinition
                 {
                     Id = "title",
-                    Name = "title",
+                    ApplicationName = "title", WireName = "title",
                     Type = "string"
                 }
             ]);

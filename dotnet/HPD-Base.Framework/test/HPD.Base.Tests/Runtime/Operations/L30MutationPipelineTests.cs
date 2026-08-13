@@ -328,8 +328,8 @@ public sealed class L30MutationPipelineTests
             }),
             fields:
             [
-                new FieldDefinition { Id = "title", Name = "title", Type = BaseFieldTypes.String },
-                new FieldDefinition { Id = "secret", Name = "secret", Type = BaseFieldTypes.String }
+                new FieldDefinition { Id = "title", ApplicationName = "title", WireName = "title", Type = BaseFieldTypes.String },
+                new FieldDefinition { Id = "secret", ApplicationName = "secret", WireName = "secret", Type = BaseFieldTypes.String }
             ],
             configureServices: services =>
             {

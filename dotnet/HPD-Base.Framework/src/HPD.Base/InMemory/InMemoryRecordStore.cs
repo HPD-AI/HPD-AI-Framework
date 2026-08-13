@@ -1024,7 +1024,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 foreach (StoredRecord record in sourceState.RecordsById.Values)
                 {
                     checkedRelation?.Invoke();
-                    if (RelationContains(record.Payload, field.Name, targetRecordId)) return true;
+                    if (RelationContains(record.Payload, field.WireName, targetRecordId)) return true;
                 }
             }
         }

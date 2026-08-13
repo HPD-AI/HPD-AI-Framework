@@ -45,7 +45,7 @@ internal sealed class SqlitePhysicalModel
                 RelationDefinition relation = field.Relation!;
                 string table = Native("b_r_", relation.Id);
                 Claim(nativeNames, table, relation.Id);
-                return new RelationModel(relation, table, field.Name);
+                return new RelationModel(relation, table, field.WireName);
             }).OrderBy(static relation => relation.Definition.Id, StringComparer.Ordinal).ToArray();
     }
 
@@ -108,11 +108,11 @@ internal sealed class CollectionModel
         internal void AddPayloadParameters(SqliteCommand command, RecordPayload payload, bool includeExtensions)
         {
             Dictionary<string, JsonElement> values = SqliteRecordSerializer.NormalizeObjectPayload(payload).Fields ?? [];
-            var known = Fields.Select(static field => field.Definition.Name).ToHashSet(StringComparer.Ordinal);
+            var known = Fields.Select(static field => field.Definition.WireName).ToHashSet(StringComparer.Ordinal);
             for (int index = 0; index < Fields.Length; index++)
             {
                 FieldModel field = Fields[index];
-                bool present = values.TryGetValue(field.Definition.Name, out JsonElement value);
+                bool present = values.TryGetValue(field.Definition.WireName, out JsonElement value);
                 if (field.PresenceColumn is not null) command.Parameters.AddWithValue("$p" + index, present ? 1 : 0);
                 command.Parameters.AddWithValue("$f" + index, present ? field.Encode(value) : DBNull.Value);
             }
@@ -138,7 +138,7 @@ internal sealed class CollectionModel
             foreach (FieldModel field in Fields)
             {
                 bool present = field.PresenceColumn is null || reader.GetInt64(ordinal++) == 1;
-                if (present) payload[field.Definition.Name] = reader.IsDBNull(ordinal) ? Json("null") : field.Decode(reader.GetValue(ordinal));
+                if (present) payload[field.Definition.WireName] = reader.IsDBNull(ordinal) ? Json("null") : field.Decode(reader.GetValue(ordinal));
                 ordinal++;
             }
             if (HasExtensionJson && !reader.IsDBNull(ordinal))

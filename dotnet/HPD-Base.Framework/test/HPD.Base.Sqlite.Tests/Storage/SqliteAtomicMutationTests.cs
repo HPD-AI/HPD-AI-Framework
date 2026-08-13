@@ -17,7 +17,7 @@ public sealed class SqliteAtomicMutationTests
     {
         CollectionDefinition collection = Collection("isolated") with
         {
-            Fields = [new FieldDefinition { Id = "isolated.value", Name = "value", Type = BaseFieldTypes.String }]
+            Fields = [new FieldDefinition { Id = "isolated.value", ApplicationName = "value", WireName = "value", Type = BaseFieldTypes.String }]
         };
         var hostile = new HostileProjection();
         var observer = new ObservingProjection();

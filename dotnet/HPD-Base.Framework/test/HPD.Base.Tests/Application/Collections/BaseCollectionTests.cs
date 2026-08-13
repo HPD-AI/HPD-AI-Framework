@@ -20,8 +20,10 @@ public sealed partial class BaseCollectionTests
                 organization = fields.Add<string>(
                     "organization-id",
                     "organizationId",
+                    "organizationId",
                     operators: BaseFieldOperator.Equal);
                 name = fields.Add<string>(
+                    "name",
                     "name",
                     "name",
                     operators: BaseFieldOperator.Equal | BaseFieldOperator.Order);
@@ -30,7 +32,7 @@ public sealed partial class BaseCollectionTests
         collection.Id.Should().Be("projects");
         collection.JsonTypeInfo.Type.Should().Be(typeof(ProjectDocument));
         organization!.Id.Should().Be("organization-id");
-        organization.StoredName.Should().Be("organizationId");
+        organization.WireName.Should().Be("organizationId");
         name!.Operators.Should().HaveFlag(BaseFieldOperator.Order);
     }
 
@@ -42,8 +44,8 @@ public sealed partial class BaseCollectionTests
             TestJsonContext.Default.ProjectDocument,
             fields =>
             {
-                fields.Add<string>("name", "name");
-                fields.Add<string>("name", "otherName");
+                fields.Add<string>("name", "name", "name") ;
+                fields.Add<string>("name", "otherName", "otherName") ;
             });
 
         action.Should()
@@ -57,13 +59,13 @@ public sealed partial class BaseCollectionTests
         var action = () => BaseCollection<ProjectDocument>.Create(
             Definition(), TestJsonContext.Default.ProjectDocument, fields =>
             {
-                fields.Add<string>("first-name", "name");
-                fields.Add<string>("second-name", "name");
+                fields.Add<string>("first-name", "name", "name") ;
+                fields.Add<string>("second-name", "name", "name") ;
             });
 
         action.Should()
             .Throw<InvalidOperationException>()
-            .WithMessage("*stored name 'name' is already declared*");
+            .WithMessage("*application name 'name' is already declared*");
     }
 
     private static CollectionDefinition Definition() =>

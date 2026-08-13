@@ -48,7 +48,8 @@ public sealed class BaseRecordIdTests
             schema => schema.Relation(
                     "typed-id-document.owner",
                     "typed-id-document.owner",
-                    "ownerId",
+                    "OwnerId",
+                    BaseJsonProperty<TypedIdDocument, BaseRecordId<TypedIdOwner>>.Bind(TypedIdJsonContext.Default.TypedIdDocument, "ownerId"),
                     TypedIdOwner.Collection)
                 .ExactlyOne()
                 .Inverse("typed-id-owner.documents")

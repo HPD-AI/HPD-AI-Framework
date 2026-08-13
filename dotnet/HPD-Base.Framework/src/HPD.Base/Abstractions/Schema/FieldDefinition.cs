@@ -6,8 +6,10 @@ public sealed record FieldDefinition
 {
     /// <summary>Gets or sets id.</summary>
     public required string Id { get; init; }
-    /// <summary>Gets or sets name.</summary>
-    public required string Name { get; init; }
+    /// <summary>Gets the exact application-facing property identity.</summary>
+    public required string ApplicationName { get; init; }
+    /// <summary>Gets the exact serializer-owned wire identity.</summary>
+    public required string WireName { get; init; }
     /// <summary>Gets or sets display Name.</summary>
     public string? DisplayName { get; init; }
     /// <summary>Gets or sets type.</summary>

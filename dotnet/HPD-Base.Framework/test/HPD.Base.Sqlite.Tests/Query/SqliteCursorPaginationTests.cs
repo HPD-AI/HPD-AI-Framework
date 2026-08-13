@@ -281,7 +281,7 @@ public sealed class SqliteCursorPaginationTests
             new FieldDefinition
             {
                 Id = "title",
-                Name = "title",
+                ApplicationName = "title", WireName = "title",
                 Type = BaseFieldTypes.String,
                 Required = true
             }

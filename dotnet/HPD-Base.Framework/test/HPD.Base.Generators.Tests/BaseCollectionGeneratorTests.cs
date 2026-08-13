@@ -223,10 +223,12 @@ public sealed class BaseCollectionGeneratorTests
             [BaseCollection("projects", typeof(AppJsonContext))]
             public partial record Project
             {
-                [BaseField("project.first", Name = "name")]
+                [BaseField("project.first")]
+                [JsonPropertyName("name")]
                 public string First { get; init; } = "";
 
-                [BaseField("project.second", Name = "name")]
+                [BaseField("project.second")]
+                [JsonPropertyName("name")]
                 public string Second { get; init; } = "";
             }
 
@@ -239,7 +241,7 @@ public sealed class BaseCollectionGeneratorTests
         Diagnostic diagnostic = result.Diagnostics.Should()
             .ContainSingle(item => item.Id == "HPDBASE004")
             .Subject;
-        diagnostic.Location.GetLineSpan().StartLinePosition.Line.Should().Be(10);
+        diagnostic.Location.GetLineSpan().StartLinePosition.Line.Should().Be(12);
         result.GeneratedSource.Should().BeEmpty();
     }
 

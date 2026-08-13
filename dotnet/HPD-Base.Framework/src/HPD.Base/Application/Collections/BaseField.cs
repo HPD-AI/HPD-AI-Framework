@@ -9,15 +9,18 @@ public sealed class BaseField<TRecord, TValue>
 {
     internal BaseField(
         string id,
-        string storedName,
+        string applicationName,
+        string wireName,
         bool nullable,
         BaseFieldOperator operators)
     {
         BaseApplicationId.Validate(id, nameof(id));
-        ArgumentException.ThrowIfNullOrWhiteSpace(storedName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(applicationName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(wireName);
 
         Id = id;
-        StoredName = storedName;
+        ApplicationName = applicationName;
+        WireName = wireName;
         Nullable = nullable;
         Operators = operators;
     }
@@ -28,9 +31,12 @@ public sealed class BaseField<TRecord, TValue>
     public string Id { get; }
 
     /// <summary>
-    /// Gets the current canonical stored field name.
+    /// Gets the exact application-facing property identity.
     /// </summary>
-    public string StoredName { get; }
+    public string ApplicationName { get; }
+
+    /// <summary>Gets the exact serializer-owned wire identity.</summary>
+    public string WireName { get; }
 
     /// <summary>
     /// Gets whether the persisted field accepts null.

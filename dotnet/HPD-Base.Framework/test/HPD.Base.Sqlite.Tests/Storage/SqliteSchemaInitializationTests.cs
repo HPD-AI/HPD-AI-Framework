@@ -20,9 +20,9 @@ public sealed class SqliteSchemaInitializationTests
             UnknownFields = UnknownFieldPolicy.Reject,
             Fields =
             [
-                new FieldDefinition { Id = "item.title", Name = "title", Type = BaseFieldTypes.String, Required = true, Nullable = false },
-                new FieldDefinition { Id = "item.rank", Name = "rank", Type = BaseFieldTypes.Integer },
-                new FieldDefinition { Id = "item.blob", Name = "blob", Type = BaseFieldTypes.String, Format = "base64", MaximumBytes = 16, Required = true, Nullable = false }
+                new FieldDefinition { Id = "item.title", ApplicationName = "title", WireName = "title", Type = BaseFieldTypes.String, Required = true, Nullable = false },
+                new FieldDefinition { Id = "item.rank", ApplicationName = "rank", WireName = "rank", Type = BaseFieldTypes.Integer },
+                new FieldDefinition { Id = "item.blob", ApplicationName = "blob", WireName = "blob", Type = BaseFieldTypes.String, Format = "base64", MaximumBytes = 16, Required = true, Nullable = false }
             ],
             Indexes =
             [
@@ -220,7 +220,7 @@ public sealed class SqliteSchemaInitializationTests
         var path = Path.Combine(Path.GetTempPath(), "hpd-base-sqlite-index-drift-" + Guid.NewGuid().ToString("N") + ".db");
         var collection = Collection() with
         {
-            Fields = [new FieldDefinition { Id = "item.rank", Name = "rank", Type = BaseFieldTypes.Integer }],
+            Fields = [new FieldDefinition { Id = "item.rank", ApplicationName = "rank", WireName = "rank", Type = BaseFieldTypes.Integer }],
             Indexes = [new IndexDefinition
             {
                 Id = "item.by-rank", Name = "by-rank", CollectionId = "items", Kind = IndexKind.Key,

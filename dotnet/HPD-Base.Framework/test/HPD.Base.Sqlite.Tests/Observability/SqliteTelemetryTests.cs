@@ -171,7 +171,7 @@ public sealed class SqliteTelemetryTests
         Kind = BaseCollectionKinds.Document,
         SchemaMode = SchemaMode.Loose,
         UnknownFields = UnknownFieldPolicy.Preserve,
-        Fields = [new FieldDefinition { Id = "title", Name = "title", Type = BaseFieldTypes.String }]
+        Fields = [new FieldDefinition { Id = "title", ApplicationName = "title", WireName = "title", Type = BaseFieldTypes.String }]
     };
 
     private static OperationContext Operation(BaseOperationKind operation, string? recordId = null) => new()

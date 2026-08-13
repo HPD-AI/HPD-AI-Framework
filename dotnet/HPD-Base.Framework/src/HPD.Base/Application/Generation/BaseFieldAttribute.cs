@@ -12,11 +12,6 @@ public sealed class BaseFieldAttribute(string id) : Attribute
     public string Id { get; } = id;
 
     /// <summary>
-    /// Gets or sets the canonical stored field name.
-    /// </summary>
-    public string? Name { get; set; }
-
-    /// <summary>
     /// Gets or sets whether the field is omitted from the generated contract.
     /// </summary>
     public bool Ignore { get; set; }

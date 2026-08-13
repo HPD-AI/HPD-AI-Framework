@@ -132,7 +132,7 @@ internal sealed class DefaultBaseSchemaValidator : IBaseSchemaValidator
         SchemaValidationOperation operation,
         HashSet<string> runtimeWrittenFields)
     {
-        var fields = (collection.Fields ?? []).ToDictionary(field => field.Name, StringComparer.Ordinal);
+        var fields = (collection.Fields ?? []).ToDictionary(field => field.WireName, StringComparer.Ordinal);
 
         if (collection.UnknownFields == UnknownFieldPolicy.Reject)
         {
@@ -147,9 +147,9 @@ internal sealed class DefaultBaseSchemaValidator : IBaseSchemaValidator
         {
             foreach (var field in fields.Values)
             {
-                if (field.Required && !fieldValues.ContainsKey(field.Name))
+                if (field.Required && !fieldValues.ContainsKey(field.WireName))
                 {
-                    return ValidationError("base.runtime.payload.requiredField", $"Required field '{field.Name}' is missing.", field.Name);
+                    return ValidationError("base.runtime.payload.requiredField", $"Required field '{field.WireName}' is missing.", field.WireName);
                 }
             }
         }
@@ -257,12 +257,12 @@ internal sealed class DefaultBaseSchemaValidator : IBaseSchemaValidator
         var runtimeWrittenFields = new HashSet<string>(StringComparer.Ordinal);
         foreach (var field in collection.Fields ?? [])
         {
-            if (!fieldValues.ContainsKey(field.Name)
+            if (!fieldValues.ContainsKey(field.WireName)
                 && operation is SchemaValidationOperation.Create or SchemaValidationOperation.Replace
                 && field.Default is { Owner: EnforcementOwner.Runtime, Kind: DefaultValueKind.Literal } defaultValue)
             {
-                fieldValues[field.Name] = defaultValue.Value.Clone();
-                runtimeWrittenFields.Add(field.Name);
+                fieldValues[field.WireName] = defaultValue.Value.Clone();
+                runtimeWrittenFields.Add(field.WireName);
             }
 
             if (field.Generated is not { Owner: EnforcementOwner.Runtime } generated)
@@ -281,8 +281,8 @@ internal sealed class DefaultBaseSchemaValidator : IBaseSchemaValidator
                 continue;
             }
 
-            fieldValues[field.Name] = generatedValue;
-            runtimeWrittenFields.Add(field.Name);
+            fieldValues[field.WireName] = generatedValue;
+            runtimeWrittenFields.Add(field.WireName);
         }
 
         return runtimeWrittenFields;

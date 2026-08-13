@@ -33,8 +33,8 @@ public sealed class ClientGenerationEndpointTests
         {
             Fields =
             [
-                new FieldDefinition { Id = "title", Name = "stored_title", Type = BaseFieldTypes.String },
-                new FieldDefinition { Id = "embedding", Name = "embedding", Type = "vector" }
+                new FieldDefinition { Id = "title", ApplicationName = "storedTitle", WireName = "stored_title", Type = BaseFieldTypes.String },
+                new FieldDefinition { Id = "embedding", ApplicationName = "embedding", WireName = "embedding", Type = "vector" }
             ],
             VectorIndexes =
             [

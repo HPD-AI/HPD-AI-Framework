@@ -86,7 +86,7 @@ internal sealed class DefaultBaseMutationProcessor(
         out BaseRecordMutationFact projected)
     {
         Dictionary<string, FieldDefinition> storedByName = (stored.Collection.Fields ?? [])
-            .ToDictionary(static field => field.Name, StringComparer.Ordinal);
+            .ToDictionary(static field => field.WireName, StringComparer.Ordinal);
         Dictionary<string, FieldDefinition> currentById = (currentCollection.Fields ?? [])
             .ToDictionary(static field => field.Id, StringComparer.Ordinal);
 
@@ -113,7 +113,7 @@ internal sealed class DefaultBaseMutationProcessor(
                     if (!currentById.TryGetValue(oldField.Id, out FieldDefinition? currentField)
                         || !string.Equals(oldField.Type, currentField.Type, StringComparison.Ordinal)
                         || !string.Equals(oldField.Format, currentField.Format, StringComparison.Ordinal)
-                        || !fields.TryAdd(currentField.Name, value.Clone()))
+                        || !fields.TryAdd(currentField.WireName, value.Clone()))
                         return false;
                 }
                 else
@@ -154,7 +154,7 @@ internal sealed class DefaultBaseMutationProcessor(
                         projected = stored;
                         return false;
                     }
-                    mapped[index] = currentField.Name;
+                    mapped[index] = currentField.WireName;
                 }
                 else if (stored.Collection.UnknownFields == UnknownFieldPolicy.Preserve
                     && currentCollection.UnknownFields == UnknownFieldPolicy.Preserve)
@@ -571,7 +571,7 @@ internal sealed class DefaultBaseMutationProcessor(
                 return RelationError("base.relation.enforcementUnsupported", "The declared relation enforcement mode is unavailable.", ErrorCategory.Unsupported);
             if (!_collections.TryGetValue(relation.TargetCollectionId, out CollectionDefinition? targetCollection))
                 return RelationError("base.relation.invalid", "The declared relation is invalid.", ErrorCategory.Validation);
-            if (!TryRelationIds(payload, field.Name, relation, out RecordId[] ids, out string? code))
+            if (!TryRelationIds(payload, field.WireName, relation, out RecordId[] ids, out string? code))
                 return RelationError(code!, "The relation value has an invalid shape or cardinality.", ErrorCategory.Validation);
 
             foreach (RecordId id in ids)

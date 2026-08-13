@@ -109,7 +109,7 @@ internal sealed class DefaultBaseEventDispatcher : IBaseEventDispatcher
             !_collections.Collections.TryGetValue(collectionId, out CollectionDefinition? collection)) return value;
         HashSet<string> visibleNames = (collection.Fields ?? []).Where(field =>
             (field.Disclosure ?? BaseFieldDisclosurePolicies.For(field.Confidentiality)).Event != BaseProjectionDisclosure.Omit)
-            .Select(static field => field.Name).ToHashSet(StringComparer.Ordinal);
+            .Select(static field => field.WireName).ToHashSet(StringComparer.Ordinal);
         return mutation with
         {
             Before = Snapshot(mutation.Before, collection),
@@ -126,7 +126,7 @@ internal sealed class DefaultBaseEventDispatcher : IBaseEventDispatcher
         {
             Payload = payload,
             IncludedFields = snapshot.IncludedFields?.Where(fieldName => (collection.Fields ?? []).Any(field =>
-                field.Name == fieldName && (field.Disclosure ?? BaseFieldDisclosurePolicies.For(field.Confidentiality)).Event != BaseProjectionDisclosure.Omit)).ToArray(),
+                field.WireName == fieldName && (field.Disclosure ?? BaseFieldDisclosurePolicies.For(field.Confidentiality)).Event != BaseProjectionDisclosure.Omit)).ToArray(),
             Redacted = true,
         };
     }

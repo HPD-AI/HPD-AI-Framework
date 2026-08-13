@@ -14,7 +14,7 @@ builder.Services.AddAuthorizationBuilder().AddPolicy("application", policy => po
 var items = BaseCollection.Define(
     "items",
     HPDBaseJsonSerializerContext.Default.JsonElement,
-    static schema => schema.String("item.title", "title"));
+    static schema => schema.String("item.title", "title", BaseJsonProperty<JsonElement, string>.Bind(HPDBaseJsonSerializerContext.Default.JsonElement, "title")));
 builder.Services.AddHPDBase(hpd =>
 {
     hpd.AddRealtime()

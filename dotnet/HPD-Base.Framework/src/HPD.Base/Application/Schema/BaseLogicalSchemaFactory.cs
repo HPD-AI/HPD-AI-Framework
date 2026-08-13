@@ -21,12 +21,14 @@ internal static class BaseLogicalSchemaFactory
             Name = collection.Name,
             System = collection.System,
             SystemOwnerModuleId = collection.SystemOwnerModuleId,
+            SerializerContractChecksum = collection.SerializerContractChecksum,
         }).ToArray();
         BaseLogicalField[] fields = sourceCollections.SelectMany(static collection => (collection.Fields ?? []).Select(field => new BaseLogicalField
         {
             CollectionId = collection.Id,
             Id = field.Id,
-            StoredName = field.Name,
+            ApplicationName = field.ApplicationName,
+            StoredName = field.WireName,
             Type = field.Type,
             Required = field.Required,
             Nullable = field.Nullable,
@@ -89,10 +91,10 @@ internal static class BaseLogicalSchemaFactory
     {
         var writer = new ArrayBufferWriter<byte>();
         Write(writer, "hpd.base.logical-schema.v1"); Write(writer, applicationId); Write(writer, contractVersion);
-        foreach (BaseLogicalCollection value in collections) { Write(writer, "collection"); Write(writer, value.Id); Write(writer, value.Name); Write(writer, value.System); Write(writer, value.SystemOwnerModuleId); }
+        foreach (BaseLogicalCollection value in collections) { Write(writer, "collection"); Write(writer, value.Id); Write(writer, value.Name); Write(writer, value.System); Write(writer, value.SystemOwnerModuleId); Write(writer, value.SerializerContractChecksum); }
         foreach (BaseLogicalField value in fields)
         {
-            Write(writer, "field"); Write(writer, value.CollectionId); Write(writer, value.Id); Write(writer, value.StoredName); Write(writer, value.Type); Write(writer, value.Required); Write(writer, value.Nullable);
+            Write(writer, "field"); Write(writer, value.CollectionId); Write(writer, value.Id); Write(writer, value.ApplicationName); Write(writer, value.StoredName); Write(writer, value.Type); Write(writer, value.Required); Write(writer, value.Nullable);
             Write(writer, (int)value.Confidentiality); Write(writer, (int)value.Disclosure.RecordRead); Write(writer, (int)value.Disclosure.AuthoritativeHistory);
             Write(writer, (int)value.Disclosure.Event); Write(writer, (int)value.Disclosure.Realtime); Write(writer, (int)value.Disclosure.Diagnostic);
             Write(writer, (int)value.Disclosure.AuthoritativeBackup); Write(writer, (int)value.Disclosure.AdministrativeDataExport);

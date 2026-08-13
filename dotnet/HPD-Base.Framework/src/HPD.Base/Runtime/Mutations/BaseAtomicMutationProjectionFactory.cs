@@ -48,7 +48,7 @@ internal static class BaseAtomicMutationProjectionFactory
     private static BaseAtomicMutationProjectionFact Project(BaseRecordMutationFact mutation)
     {
         Dictionary<string, FieldDefinition> fieldsByName = (mutation.Collection.Fields ?? [])
-            .ToDictionary(static field => field.Name, StringComparer.Ordinal);
+            .ToDictionary(static field => field.WireName, StringComparer.Ordinal);
         ImmutableArray<string> changed = (mutation.ChangedFields ?? [])
             .Select(name => fieldsByName.TryGetValue(name, out FieldDefinition? field) ? field.Id : name)
             .Distinct(StringComparer.Ordinal)

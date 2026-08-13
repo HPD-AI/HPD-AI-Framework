@@ -19,9 +19,9 @@ internal static class BaseConfidentialityProjection
         {
             BaseProjectionDisclosure disclosure = channel(field.Disclosure ?? BaseFieldDisclosurePolicies.For(field.Confidentiality));
             if (disclosure == BaseProjectionDisclosure.FixedMarker)
-                projected[field.Name] = Marker();
-            else if (disclosure == BaseProjectionDisclosure.Include && source.TryGetValue(field.Name, out JsonElement value))
-                projected[field.Name] = value.Clone();
+                projected[field.WireName] = Marker();
+            else if (disclosure == BaseProjectionDisclosure.Include && source.TryGetValue(field.WireName, out JsonElement value))
+                projected[field.WireName] = value.Clone();
         }
         if (payload.Kind == RecordPayloadKind.FieldMap) return payload with { Fields = projected };
         return payload with { Json = JsonSerializer.SerializeToElement(projected, HPDBaseJsonSerializerContext.Default.DictionaryStringJsonElement) };

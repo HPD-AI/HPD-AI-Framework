@@ -385,7 +385,7 @@ internal sealed class InMemoryProjectionReadSession : IInMemoryProjectionReadSes
     private static ProjectionVectorRead TryReadVector(StoredRecord record, BaseInMemoryProjectionIndexHandle handle, CancellationToken cancellationToken, out BaseVector vector)
     {
         vector = default;
-        string fieldName = handle.Collection.Fields?.SingleOrDefault(field => field.Id == handle.Index.VectorFieldId)?.Name ?? handle.Index.VectorFieldId;
+        string fieldName = handle.Collection.Fields?.SingleOrDefault(field => field.Id == handle.Index.VectorFieldId)?.WireName ?? handle.Index.VectorFieldId;
         if (record.Payload.Fields is null || !record.Payload.Fields.TryGetValue(handle.Index.VectorFieldId, out JsonElement json) && !record.Payload.Fields.TryGetValue(fieldName, out json) || json.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined) return ProjectionVectorRead.Absent;
         return InMemoryVectorMutationProjection.TryVector(json, handle.Index, cancellationToken, out vector)
             ? ProjectionVectorRead.Valid
@@ -395,7 +395,7 @@ internal sealed class InMemoryProjectionReadSession : IInMemoryProjectionReadSes
     private static BaseInMemoryProjectionFilterSlot[] ReadFilters(StoredRecord record, BaseInMemoryProjectionIndexHandle handle) =>
         (handle.Index.FilterFieldIds ?? []).Select(fieldId =>
         {
-            string fieldName = handle.Collection.Fields?.SingleOrDefault(field => field.Id == fieldId)?.Name ?? fieldId;
+            string fieldName = handle.Collection.Fields?.SingleOrDefault(field => field.Id == fieldId)?.WireName ?? fieldId;
             if (record.Payload.Fields is null || !record.Payload.Fields.TryGetValue(fieldId, out JsonElement json) && !record.Payload.Fields.TryGetValue(fieldName, out json)) return BaseInMemoryProjectionFilterSlot.MissingValue(fieldId);
             return BaseInMemoryProjectionFilterSlot.Present(fieldId, InMemoryVectorProvider.ReadFilterValue(json, handle.Collection.Fields?.SingleOrDefault(field => field.Id == fieldId)?.Type == BaseFieldTypes.Id));
         }).ToArray();

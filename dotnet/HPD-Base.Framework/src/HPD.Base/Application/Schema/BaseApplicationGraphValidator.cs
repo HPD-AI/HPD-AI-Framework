@@ -29,7 +29,7 @@ internal static class BaseApplicationGraphValidator
             if (fields.Length > schema.MaxFieldsPerCollection)
                 throw Invalid($"Collection '{collection.Id}' exceeds the configured field limit.");
             var fieldById = Unique(fields, static field => field.Id, "field");
-            Unique(fields, static field => field.Name, "stored field name");
+            Unique(fields, static field => field.WireName, "stored field name");
             foreach (FieldDefinition field in fields)
             {
                 BaseApplicationId.Validate(field.Id, nameof(field.Id));

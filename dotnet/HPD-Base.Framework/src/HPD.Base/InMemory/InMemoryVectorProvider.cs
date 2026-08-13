@@ -227,7 +227,7 @@ internal sealed class InMemoryVectorProvider(
     private static bool TryReadFilter(StoredRecord record, string fieldId, CollectionDefinition collection, out BaseVectorFilterValue value)
     {
         value = BaseVectorFilterValue.Null();
-        string fieldName = collection.Fields?.SingleOrDefault(field => field.Id == fieldId)?.Name ?? fieldId;
+        string fieldName = collection.Fields?.SingleOrDefault(field => field.Id == fieldId)?.WireName ?? fieldId;
         if (record.Payload.Fields is null ||
             !record.Payload.Fields.TryGetValue(fieldId, out JsonElement json) && !record.Payload.Fields.TryGetValue(fieldName, out json)) return false;
         bool identifier = collection.Fields?.SingleOrDefault(field => field.Id == fieldId)?.Type == BaseFieldTypes.Id;

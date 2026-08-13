@@ -64,7 +64,7 @@ internal sealed class DefaultBaseRecordRedactor : IBaseRecordRedactor
             FieldMaskMode.Exclude => visible.Where(field => !(readMask.Exclude ?? []).Contains(field.Id, StringComparer.Ordinal)),
             _ => [],
         };
-        return masked.Select(static field => field.Name).ToHashSet(StringComparer.Ordinal);
+        return masked.Select(static field => field.WireName).ToHashSet(StringComparer.Ordinal);
     }
 
     private static bool FieldVisible(FieldDefinition field, VisibilityLevel view)
@@ -91,7 +91,7 @@ internal sealed class DefaultBaseRecordRedactor : IBaseRecordRedactor
         HashSet<string> allowed,
         out string[] omitted)
     {
-        Dictionary<string, FieldDefinition> declared = (collection.Fields ?? []).ToDictionary(static field => field.Name, StringComparer.Ordinal);
+        Dictionary<string, FieldDefinition> declared = (collection.Fields ?? []).ToDictionary(static field => field.WireName, StringComparer.Ordinal);
         if (payload.Kind == RecordPayloadKind.FieldMap)
         {
             var fields = payload.Fields ?? [];
@@ -100,10 +100,10 @@ internal sealed class DefaultBaseRecordRedactor : IBaseRecordRedactor
             foreach (FieldDefinition field in collection.Fields ?? [])
             {
                 BaseRecordDisclosure disclosure = field.Disclosure?.RecordRead ?? BaseConfidentialityPolicy.Default(field.Confidentiality).RecordRead;
-                bool policyAllowed = allowed.Contains("*") || allowed.Contains(field.Name);
-                if (!policyAllowed || disclosure == BaseRecordDisclosure.Omit) { if (fields.ContainsKey(field.Name)) omittedList.Add(field.Name); continue; }
-                if (disclosure == BaseRecordDisclosure.FixedMarker) { kept[field.Name] = RedactedElement(); continue; }
-                if (fields.TryGetValue(field.Name, out JsonElement value)) kept[field.Name] = value.Clone();
+                bool policyAllowed = allowed.Contains("*") || allowed.Contains(field.WireName);
+                if (!policyAllowed || disclosure == BaseRecordDisclosure.Omit) { if (fields.ContainsKey(field.WireName)) omittedList.Add(field.WireName); continue; }
+                if (disclosure == BaseRecordDisclosure.FixedMarker) { kept[field.WireName] = RedactedElement(); continue; }
+                if (fields.TryGetValue(field.WireName, out JsonElement value)) kept[field.WireName] = value.Clone();
             }
             foreach ((string key, JsonElement value) in fields)
                 if (!declared.ContainsKey(key) && allowed.Contains("*")) kept[key] = value.Clone();
@@ -126,15 +126,15 @@ internal sealed class DefaultBaseRecordRedactor : IBaseRecordRedactor
             foreach (FieldDefinition field in collection.Fields ?? [])
             {
                 BaseRecordDisclosure disclosure = field.Disclosure?.RecordRead ?? BaseConfidentialityPolicy.Default(field.Confidentiality).RecordRead;
-                bool policyAllowed = allowed.Contains("*") || allowed.Contains(field.Name);
-                if (!policyAllowed || disclosure == BaseRecordDisclosure.Omit) { if (source.ContainsKey(field.Name)) omittedList.Add(field.Name); continue; }
+                bool policyAllowed = allowed.Contains("*") || allowed.Contains(field.WireName);
+                if (!policyAllowed || disclosure == BaseRecordDisclosure.Omit) { if (source.ContainsKey(field.WireName)) omittedList.Add(field.WireName); continue; }
                 if (disclosure == BaseRecordDisclosure.FixedMarker)
                 {
-                    writer.WritePropertyName(field.Name); RedactedElement().WriteTo(writer);
+                    writer.WritePropertyName(field.WireName); RedactedElement().WriteTo(writer);
                 }
-                else if (source.TryGetValue(field.Name, out JsonElement value))
+                else if (source.TryGetValue(field.WireName, out JsonElement value))
                 {
-                    writer.WritePropertyName(field.Name); value.WriteTo(writer);
+                    writer.WritePropertyName(field.WireName); value.WriteTo(writer);
                 }
             }
             foreach ((string key, JsonElement value) in source)

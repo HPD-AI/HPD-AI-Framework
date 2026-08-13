@@ -1160,7 +1160,7 @@ public sealed partial class SqliteRecordStore
                 for (int part = 0; part < index.Parts.Length; part++)
                 {
                     SqlitePhysicalModel.FieldModel field = index.Parts[part];
-                    if (!values.TryGetValue(field.Definition.Name, out System.Text.Json.JsonElement value)) { complete = false; break; }
+                    if (!values.TryGetValue(field.Definition.WireName, out System.Text.Json.JsonElement value)) { complete = false; break; }
                     string parameter = "$u" + part.ToString(CultureInfo.InvariantCulture);
                     predicates.Add(field.Column + " IS " + parameter);
                     object encoded = field.Encode(value);

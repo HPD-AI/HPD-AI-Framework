@@ -111,8 +111,8 @@ public sealed class L43SelectionMutationTests
             await collection.CreateAsync(new RecordId("selected"), new L43UniqueItem { Group = "change", Name = "free", Code = "unused" });
             BaseSelectionOperationProfile installed = Profile("unique-patch", BaseSelectionMutationKind.MergePatch) with { CollectionId = "l43-unique" };
             BaseMergePatchSelectionProfile<L43UniqueItem> profile = collection.GetMergePatchSelectionProfile(Identity(installed));
-            string nameWire = L43UniqueItem.Collection.Definition.Fields!.Single(field => field.Id == "unique-name").Name;
-            string codeWire = L43UniqueItem.Collection.Definition.Fields!.Single(field => field.Id == "unique-code").Name;
+            string nameWire = L43UniqueItem.Collection.Definition.Fields!.Single(field => field.Id == "unique-name").WireName;
+            string codeWire = L43UniqueItem.Collection.Definition.Fields!.Single(field => field.Id == "unique-code").WireName;
             Dictionary<string, JsonElement> fields = new(StringComparer.Ordinal) { [nameWire] = JsonSerializer.SerializeToElement("taken") };
             if (ambiguous) fields[codeWire] = JsonSerializer.SerializeToElement("used");
             BaseResult<BaseSelectionMutationResult> result = await collection.Query().Where(L43UniqueItem.Fields.Group.Equal("change"))

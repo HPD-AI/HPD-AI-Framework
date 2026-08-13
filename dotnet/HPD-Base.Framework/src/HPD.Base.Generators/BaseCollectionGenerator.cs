@@ -253,10 +253,10 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
 
         var fields = new List<FieldModel>();
         var fieldIds = new HashSet<string>(StringComparer.Ordinal);
-        var storedNames = new HashSet<string>(StringComparer.Ordinal);
+        var wireNames = new HashSet<string>(StringComparer.Ordinal);
         var propertyFields = new Dictionary<string, FieldModel>(StringComparer.Ordinal);
         var relationIds = new HashSet<string>(StringComparer.Ordinal);
-        bool camelCaseJson = UsesCamelCase(jsonContext);
+        string jsonNamingPolicy = GetJsonNamingPolicy(jsonContext);
 
         foreach (IPropertySymbol property in symbol.GetMembers()
             .OfType<IPropertySymbol>()
@@ -304,11 +304,8 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
                     fieldId));
                 return null;
             }
-            string storedName =
-                GetNamedString(fieldAttribute, "Name") ??
-                GetJsonPropertyName(property) ??
-                (camelCaseJson ? ToCamelCase(property.Name) : property.Name);
-            if (string.IsNullOrWhiteSpace(storedName))
+            string wireName = GetJsonPropertyName(property) ?? property.Name;
+            if (string.IsNullOrWhiteSpace(wireName))
             {
                 context.ReportDiagnostic(Diagnostic.Create(
                     InvalidField,
@@ -342,13 +339,13 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
                 return null;
             }
 
-            if (!storedNames.Add(storedName))
+            if (!wireNames.Add(wireName))
             {
                 context.ReportDiagnostic(Diagnostic.Create(
                     DuplicateField,
                     GetLocation(property),
                     collectionId,
-                    storedName));
+                    wireName));
                 return null;
             }
 
@@ -356,7 +353,9 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
             {
                 Id = fieldId,
                 PropertyName = property.Name,
-                StoredName = storedName,
+                ApplicationName = property.Name,
+                WireName = wireName,
+                ExplicitWireName = GetJsonPropertyName(property) is not null,
                 TypeName = property.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                 TypedRecordIdTarget = TypedRecordIdTarget(property.Type),
                 SchemaType = GetSchemaType(property.Type),
@@ -688,6 +687,7 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
             Indexes = indexes,
             VectorIndexes = vectorIndexes,
             StorageRequirements = storageRequirements,
+            JsonNamingPolicy = jsonNamingPolicy,
             ContextTypeName =
                 jsonContext.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
             HintName = "HPDBaseCollection_" + Sanitize(metadataName),
@@ -790,14 +790,32 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         source.Append("    private static global::HPD.Base.BaseCollection<")
             .Append(model.FullTypeName).AppendLine("> CreateHPDBaseCollection()");
         source.AppendLine("    {");
-        source.Append("        var jsonTypeInfo = ")
-            .Append(model.ContextTypeName)
-            .Append(".Default.GetTypeInfo(typeof(").Append(model.FullTypeName)
+        source.AppendLine("        var jsonOptions = new global::System.Text.Json.JsonSerializerOptions");
+        source.AppendLine("        {");
+        if (model.JsonNamingPolicy != null)
+            source.Append("            PropertyNamingPolicy = global::System.Text.Json.JsonNamingPolicy.").Append(model.JsonNamingPolicy).AppendLine(",");
+        source.AppendLine("        };");
+        source.Append("        var jsonContext = new ").Append(model.ContextTypeName).AppendLine("(jsonOptions);");
+        source.Append("        var jsonTypeInfo = jsonContext.GetTypeInfo(typeof(").Append(model.FullTypeName)
             .Append(")) as global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<")
             .Append(model.FullTypeName).AppendLine(">");
         source.Append("            ?? throw new global::System.InvalidOperationException(")
             .Append(Literal("The configured JSON context does not expose the generated record type."))
             .AppendLine(");");
+        source.AppendLine("        jsonOptions.MakeReadOnly();");
+        source.AppendLine("        jsonTypeInfo.MakeReadOnly();");
+        foreach (FieldModel field in model.Fields)
+        {
+            source.Append("        string __wire_").Append(EscapeIdentifier(field.PropertyName)).Append(" = ");
+            if (field.ExplicitWireName)
+                source.Append(Literal(field.WireName));
+            else
+                source.Append("jsonTypeInfo.Options.PropertyNamingPolicy?.ConvertName(").Append(Literal(field.ApplicationName)).Append(") ?? ").Append(Literal(field.ApplicationName));
+            source.AppendLine(";");
+            source.Append("        if (jsonTypeInfo.Properties.Count(property => global::System.String.Equals(property.Name, __wire_")
+                .Append(EscapeIdentifier(field.PropertyName)).AppendLine(", global::System.StringComparison.Ordinal)) != 1)");
+            source.Append("            throw new global::System.InvalidOperationException(").Append(Literal("The frozen serializer metadata does not contain exactly one declared BASE property.")).AppendLine(");");
+        }
         source.AppendLine();
         source.Append("        return global::HPD.Base.BaseCollection<")
             .Append(model.FullTypeName).AppendLine(">.Create(");
@@ -836,7 +854,8 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
                 .Append(EscapeIdentifier(field.PropertyName)).Append("(fields.Add<")
                 .Append(field.TypeName).Append(">(")
                 .Append(Literal(field.Id)).Append(", ")
-                .Append(Literal(field.StoredName)).Append(", nullable: ")
+                .Append(Literal(field.ApplicationName)).Append(", ")
+                .Append("__wire_").Append(EscapeIdentifier(field.PropertyName)).Append(", nullable: ")
                 .Append(field.Nullable ? "true" : "false")
                 .Append(", operators: (global::HPD.Base.BaseFieldOperator)")
                 .Append(field.Operators.ToString(CultureInfo.InvariantCulture))
@@ -861,7 +880,8 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
             source.AppendLine("                    new global::HPD.Base.FieldDefinition");
             source.AppendLine("                    {");
             source.Append("                        Id = ").Append(Literal(field.Id)).AppendLine(",");
-            source.Append("                        Name = ").Append(Literal(field.StoredName)).AppendLine(",");
+            source.Append("                        ApplicationName = ").Append(Literal(field.ApplicationName)).AppendLine(",");
+            source.Append("                        WireName = __wire_").Append(EscapeIdentifier(field.PropertyName)).AppendLine(",");
             source.Append("                        Type = ").Append(Literal(field.SchemaType)).AppendLine(",");
             if (field.SchemaFormat != null)
             {
@@ -1173,12 +1193,12 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         return GetConstructorString(attribute, 0);
     }
 
-    private static bool UsesCamelCase(INamedTypeSymbol jsonContext)
+    private static string GetJsonNamingPolicy(INamedTypeSymbol jsonContext)
     {
         AttributeData options = FindAttribute(jsonContext, JsonOptionsAttribute);
         if (options == null)
         {
-            return false;
+            return null;
         }
 
         foreach (KeyValuePair<string, TypedConstant> argument in options.NamedArguments)
@@ -1200,10 +1220,18 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
                     Convert.ToInt64(
                         field.ConstantValue,
                         CultureInfo.InvariantCulture) == selected);
-            return member != null && member.Name == "CamelCase";
+            return member?.Name switch
+            {
+                "CamelCase" => "CamelCase",
+                "SnakeCaseLower" => "SnakeCaseLower",
+                "SnakeCaseUpper" => "SnakeCaseUpper",
+                "KebabCaseLower" => "KebabCaseLower",
+                "KebabCaseUpper" => "KebabCaseUpper",
+                _ => null,
+            };
         }
 
-        return false;
+        return null;
     }
 
     private static bool IsNullable(IPropertySymbol property)
@@ -1343,21 +1371,6 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         return name is "global::HPD.Base.BaseVector" or "BaseVector";
     }
 
-    private static string ToCamelCase(string value)
-    {
-        if (string.IsNullOrEmpty(value) || char.IsLower(value[0]))
-        {
-            return value;
-        }
-
-        if (value.Length == 1)
-        {
-            return value.ToLowerInvariant();
-        }
-
-        return char.ToLowerInvariant(value[0]) + value.Substring(1);
-    }
-
     private static string EscapeIdentifier(string value) =>
         SyntaxFacts.GetKeywordKind(value) != SyntaxKind.None ? "@" + value : value;
 
@@ -1452,6 +1465,8 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         public List<string> StorageRequirements;
         /// <summary>Provides the context type name value.</summary>
         public string ContextTypeName;
+        /// <summary>Gets the serializer-owned built-in naming-policy property.</summary>
+        public string JsonNamingPolicy;
         /// <summary>Provides the hint name value.</summary>
         public string HintName;
     }
@@ -1463,7 +1478,9 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         /// <summary>Provides the property name value.</summary>
         public string PropertyName;
         /// <summary>Provides the stored name value.</summary>
-        public string StoredName;
+        public string ApplicationName;
+        public string WireName;
+        public bool ExplicitWireName;
         /// <summary>Provides the type name value.</summary>
         public string TypeName;
         /// <summary>Provides the typed record ID target value.</summary>

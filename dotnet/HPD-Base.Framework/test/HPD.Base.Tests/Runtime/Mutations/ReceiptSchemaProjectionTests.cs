@@ -47,7 +47,8 @@ public sealed class ReceiptSchemaProjectionTests
     private static FieldDefinition Field(string id, string name, string type) => new()
     {
         Id = id,
-        Name = name,
+        ApplicationName = name,
+        WireName = name,
         Type = type,
     };
 

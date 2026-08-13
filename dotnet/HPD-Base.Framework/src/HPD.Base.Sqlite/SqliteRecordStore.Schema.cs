@@ -437,7 +437,7 @@ public sealed partial class SqliteRecordStore
         foreach (CollectionDefinition collection in _options.Collections)
         {
             assets.Add(new SchemaAssetValue("c:" + collection.Id, collection.Name));
-            foreach (FieldDefinition field in collection.Fields ?? []) assets.Add(new SchemaAssetValue($"f:{collection.Id}:{field.Id}", string.Join('\u001f', field.Name, field.Type, field.Required ? "1" : "0", field.Nullable ? "1" : "0")));
+            foreach (FieldDefinition field in collection.Fields ?? []) assets.Add(new SchemaAssetValue($"f:{collection.Id}:{field.Id}", string.Join('\u001f', field.WireName, field.Type, field.Required ? "1" : "0", field.Nullable ? "1" : "0")));
             foreach (RelationDefinition relation in (collection.Fields ?? []).Select(static field => field.Relation).Where(static relation => relation is not null).Cast<RelationDefinition>())
                 assets.Add(new SchemaAssetValue("r:" + relation.Id, string.Join('\u001f', relation.SourceCollectionId, relation.SourceFieldId, relation.TargetCollectionId, relation.TargetFieldId, relation.OwningSide, relation.LocalMultiplicity, relation.InverseMultiplicity, relation.Required, relation.Ordered, relation.DeleteBehavior)));
             foreach (IndexDefinition index in collection.Indexes ?? []) assets.Add(new SchemaAssetValue($"i:{collection.Id}:{index.Id}", string.Join('\u001f', index.Unique ? "1" : "0", string.Join('\u001e', (index.Parts ?? []).Select(static part => part.FieldId)))));

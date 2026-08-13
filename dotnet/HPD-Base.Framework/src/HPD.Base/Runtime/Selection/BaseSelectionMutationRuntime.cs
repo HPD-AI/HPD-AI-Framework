@@ -216,7 +216,7 @@ internal sealed class DefaultBaseSelectionMutationRuntime(
                 return null;
             normalized.Add(new BasePreviousFieldRequirement
             {
-                FieldId = new string(field.Name.AsSpan()),
+                FieldId = new string(field.WireName.AsSpan()),
                 Kind = item.Kind,
                 Value = item.Value is null ? null : CloneQueryValue(item.Value),
             });

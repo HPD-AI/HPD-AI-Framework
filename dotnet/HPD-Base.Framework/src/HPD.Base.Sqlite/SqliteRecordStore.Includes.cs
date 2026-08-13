@@ -124,7 +124,7 @@ public sealed partial class SqliteRecordStore
         {
             SqlitePhysicalModel.FieldModel field = _physical.Collection(relation.SourceCollectionId).Fields.Single(item => item.Definition.Id == relation.SourceFieldId);
             foreach (RecordEnvelope parent in parents)
-                if (PayloadId(parent.Payload, field.Definition.Name) is { } id) result[parent.Id.Value].Add((0, id));
+                if (PayloadId(parent.Payload, field.Definition.WireName) is { } id) result[parent.Id.Value].Add((0, id));
             return result.ToDictionary(static pair => pair.Key, static pair => pair.Value.Select(static item => item.Id).ToArray(), StringComparer.Ordinal);
         }
         if (parents.Length == 0) return [];
@@ -198,7 +198,7 @@ public sealed partial class SqliteRecordStore
         Field = filter.Field is null ? null : LowerIncludeField(collection, filter.Field),
         Children = filter.Children?.Select(child => LowerIncludeFilter(collection, child)!).ToArray(),
     };
-    private static string LowerIncludeField(CollectionDefinition collection, string id) => id is "id" or "createdAt" or "updatedAt" or "revision" ? id : (collection.Fields ?? []).Single(field => field.Id == id || field.Name == id).Name;
+    private static string LowerIncludeField(CollectionDefinition collection, string id) => id is "id" or "createdAt" or "updatedAt" or "revision" ? id : (collection.Fields ?? []).Single(field => field.Id == id || field.WireName == id).WireName;
     private static string? PayloadId(RecordPayload payload, string name) => payload.Fields is { } fields && fields.TryGetValue(name, out JsonElement value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
     private static RecordEnvelope SelectIncludeFields(RecordEnvelope record, CollectionDefinition collection, RecordInclude include, RecordIncludeSourcePolicy policy)
     {
@@ -206,7 +206,7 @@ public sealed partial class SqliteRecordStore
         IEnumerable<FieldDefinition> allowed = (collection.Fields ?? []).Where(field => visible.Contains(field.Id));
         allowed = policy.ReadMask?.Mode switch { FieldMaskMode.DenyAll => [], FieldMaskMode.IncludeOnly => allowed.Where(field => (policy.ReadMask.Include ?? []).Contains(field.Id)), FieldMaskMode.Exclude => allowed.Where(field => !(policy.ReadMask.Exclude ?? []).Contains(field.Id)), _ => allowed };
         if (include.SelectFieldIds is { } requested) allowed = allowed.Where(field => requested.Contains(field.Id));
-        HashSet<string> names = allowed.Select(static field => field.Name).ToHashSet(StringComparer.Ordinal);
+        HashSet<string> names = allowed.Select(static field => field.WireName).ToHashSet(StringComparer.Ordinal);
         Dictionary<string, JsonElement> fields = (record.Payload.Fields ?? []).Where(pair => names.Contains(pair.Key)).ToDictionary(static pair => pair.Key, static pair => pair.Value, StringComparer.Ordinal);
         return record with { Payload = record.Payload with { Fields = fields } };
     }

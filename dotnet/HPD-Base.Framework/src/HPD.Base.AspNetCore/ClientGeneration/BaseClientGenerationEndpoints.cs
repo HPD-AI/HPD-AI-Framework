@@ -280,8 +280,8 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
             Fields = (collection.Fields ?? []).Where(field => !field.Hidden).OrderBy(field => field.Id, StringComparer.Ordinal).Select(field => new BaseClientFieldDescriptor
             {
                 Id = field.Id,
-                WireName = field.Name,
-                GeneratedName = GeneratedName(field.Name),
+                WireName = field.WireName,
+                GeneratedName = field.ApplicationName,
                 ValueTypeId = $"field.{collection.Id}.{field.Id}",
                 ServerGenerated = field.Generated is not null || field.ReadOnly,
                 Mutable = !field.ReadOnly && field.Generated is null,
@@ -412,7 +412,7 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
                 AdditionalProperties = false,
                 Properties = source.Where(include).Select(field => new BaseClientPropertyDescriptor
                 {
-                    Name = GeneratedName(field.Name), WireName = field.Name,
+                    Name = field.ApplicationName, WireName = field.WireName,
                     TypeId = $"field.{collection.Id}.{field.Id}",
                     Required = output || requiredMutable,
                     Nullable = field.Nullable,

@@ -165,6 +165,8 @@ public sealed record BaseLogicalCollection
     public bool System { get; init; }
     /// <summary>Gets the installed module identity owning a system collection.</summary>
     public string? SystemOwnerModuleId { get; init; }
+    /// <summary>Gets the serializer contract checksum for this collection.</summary>
+    public string? SerializerContractChecksum { get; init; }
 }
 
 /// <summary>Represents base Logical Field.</summary>
@@ -174,6 +176,8 @@ public sealed record BaseLogicalField
     public required string CollectionId { get; init; }
     /// <summary>Gets or sets id.</summary>
     public required string Id { get; init; }
+    /// <summary>Gets the exact application-facing name.</summary>
+    public required string ApplicationName { get; init; }
     /// <summary>Gets or sets stored Name.</summary>
     public required string StoredName { get; init; }
     /// <summary>Gets or sets type.</summary>

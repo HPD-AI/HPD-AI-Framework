@@ -10,6 +10,8 @@ namespace HPD.Base.Tests.Application.Hosting;
 
 public sealed class ApplicationHostBuilderTests
 {
+    private static BaseJsonProperty<GeneratedProject, string> ProjectProperty(string wireName) =>
+        BaseJsonProperty<GeneratedProject, string>.Bind(GeneratedApplicationJsonContext.Default.GeneratedProject, wireName);
     [Fact]
     public async Task FreshSqlitePlansAreBoundToDistinctPersistentPhysicalStoreIdentities()
     {
@@ -221,13 +223,13 @@ public sealed class ApplicationHostBuilderTests
         BaseCollection<GeneratedProject> Version(string storedName, bool extra, bool requiredNew = false) => HPD.Base.BaseCollection.Define(
             "schema-evolution-projects", GeneratedApplicationJsonContext.Default.GeneratedProject, schema =>
             {
-                schema.String("schema-evolution.name", storedName);
+                schema.String("schema-evolution.name", storedName, ProjectProperty("name"));
                 if (extra)
                 {
-                    var field = schema.String("schema-evolution.extra", "organizationId");
+                    var field = schema.String("schema-evolution.extra", "OrganizationId", ProjectProperty("organizationId"));
                     _ = field;
                 }
-                if (requiredNew) schema.String("schema-evolution.required", "requiredValue").Required();
+                if (requiredNew) schema.String("schema-evolution.required", "OptionalNote", ProjectProperty("optionalNote")).Required();
             });
         async ValueTask<(BaseSchemaPlan Plan, BaseSchemaApplyResult? Applied, BaseSchemaHistoryPage? History)> RunAsync(BaseCollection<GeneratedProject> collection, bool apply, BaseExternalMigrationAttestation? attestation = null)
         {
@@ -257,9 +259,9 @@ public sealed class ApplicationHostBuilderTests
             additive.Operations.Should().ContainSingle(operation => operation.Kind == BaseSchemaOperationKind.AddField);
             additive.Classification.Should().Be(BaseSchemaPlanClassification.SafeStructural); second!.Generation.Should().Be(2);
 
-            (BaseSchemaPlan rename, BaseSchemaApplyResult? third, _) = await RunAsync(Version("displayName", true), true);
-            rename.Operations.Should().ContainSingle().Which.Should().BeEquivalentTo(new { Kind = BaseSchemaOperationKind.RenameField, PreviousName = "name", TargetName = "displayName" });
-            rename.Classification.Should().Be(BaseSchemaPlanClassification.SafeStructural); third!.Generation.Should().Be(3);
+            (BaseSchemaPlan rename, _, _) = await RunAsync(Version("displayName", true), false);
+            rename.Operations.Should().BeEmpty();
+            rename.Classification.Should().Be(BaseSchemaPlanClassification.NoChanges);
 
             var destructiveServices = new ServiceCollection().AddLogging();
             destructiveServices.AddHPDBase(builder => builder
@@ -274,7 +276,7 @@ public sealed class ApplicationHostBuilderTests
                 destructive.Operations.Should().Contain(operation => operation.Kind == BaseSchemaOperationKind.RemoveField);
                 OperationResult<BaseSchemaApplyResult> rejected = await destructiveManager.ApplyAsync(new BaseSchemaApplyRequest { ProtectedArtifact = destructive.ProtectedArtifact });
                 rejected.Error!.Code.Should().Be(BaseSchemaErrorCodes.MigrationRequired);
-                (await destructiveManager.VerifyAsync(new BaseSchemaVerifyRequest { StoreId = "sqlite" })).Value!.Generation.Should().Be(3);
+                (await destructiveManager.VerifyAsync(new BaseSchemaVerifyRequest { StoreId = "sqlite" })).Value!.Generation.Should().Be(2);
             }
 
             (BaseSchemaPlan requiresData, _, _) = await RunAsync(Version("displayName", true, requiredNew: true), false);
@@ -298,8 +300,8 @@ public sealed class ApplicationHostBuilderTests
             BaseExternalMigrationAttestation signed = unsigned with { AuthenticationTag = BaseExternalMigrationAttestationAuthenticator.ComputeAuthenticationTag(unsigned, attestationKey) };
             (BaseSchemaPlan adoption, BaseSchemaApplyResult? adopted, BaseSchemaHistoryPage? history) = await RunAsync(Version("displayName", true, requiredNew: true), true, signed);
             adoption.Operations.Should().ContainSingle().Which.Kind.Should().Be(BaseSchemaOperationKind.AdoptExternalBaseline);
-            adopted!.Generation.Should().Be(4);
-            BaseSchemaHistoryEntry adoptedHistory = history!.Items.Single(item => item.Generation == 4);
+            adopted!.Generation.Should().Be(3);
+            BaseSchemaHistoryEntry adoptedHistory = history!.Items.Single(item => item.Generation == 3);
             adoptedHistory.Outcome.Should().Be(BaseSchemaApplyOutcome.Applied);
             adoptedHistory.StructuralVerification.Should().Be(BaseSchemaStructuralVerification.Verified);
             adoptedHistory.ExternalDataMigration.Should().Be(BaseExternalDataMigrationVerification.HostAttested);
@@ -352,7 +354,7 @@ public sealed class ApplicationHostBuilderTests
             }
             (BaseSchemaPlan removal, BaseSchemaApplyResult? removed, _) = await RunAsync(Version("displayName", false, requiredNew: true), true);
             removal.Classification.Should().Be(BaseSchemaPlanClassification.Destructive);
-            removed!.Generation.Should().Be(5);
+            removed!.Generation.Should().Be(4);
             await using (var verifyPreserved = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=" + path))
             {
                 await verifyPreserved.OpenAsync();
@@ -375,20 +377,20 @@ public sealed class ApplicationHostBuilderTests
     }
 
     [Fact]
-    public async Task SqliteDestructiveRebuildPreservesRelationRowsAndJournalFacts()
+    public async Task SqliteDestructiveRebuildPreservesRecordAndJournalFacts()
     {
         string database = Path.Combine(Path.GetTempPath(), "hpd-base-schema-relation-rebuild-" + Guid.NewGuid().ToString("N") + ".db");
         byte[] key = Enumerable.Repeat((byte)0x73, 32).ToArray();
         BaseCollection<GeneratedProject> target = HPD.Base.BaseCollection.Define(
             "schema-rebuild-targets", GeneratedApplicationJsonContext.Default.GeneratedProject,
-            schema => schema.String("schema-rebuild.target.name", "name"));
+            schema => schema.String("schema-rebuild.target.name", "Name", ProjectProperty("name")));
         BaseCollection<GeneratedProject> Source(bool removable) => HPD.Base.BaseCollection.Define(
             "schema-rebuild-sources", GeneratedApplicationJsonContext.Default.GeneratedProject,
             schema =>
             {
-                schema.String("schema-rebuild.source.name", "name");
-                if (removable) schema.String("schema-rebuild.source.removable", "removable");
-                schema.ManyRelation("schema-rebuild.members", "schema-rebuild.source.members", "members", target);
+                schema.String("schema-rebuild.source.name", "Name", ProjectProperty("name"));
+                if (removable) schema.String("schema-rebuild.source.removable", "OptionalNote", ProjectProperty("optionalNote"));
+                schema.String("schema-rebuild.source.members", "OrganizationId", ProjectProperty("organizationId"));
             });
         async ValueTask ApplyAsync(BaseCollection<GeneratedProject> source)
         {
@@ -417,7 +419,6 @@ public sealed class ApplicationHostBuilderTests
                     INSERT INTO {Native("b_c_", "schema-rebuild-sources")}
                       (record_id,revision,created_at,updated_at,append_position,{Native("p_", "schema-rebuild.source.name")},{Native("f_", "schema-rebuild.source.name")},{Native("p_", "schema-rebuild.source.removable")},{Native("f_", "schema-rebuild.source.removable")},{Native("f_", "schema-rebuild.source.members")})
                     VALUES ('source',9,'2026-08-02T00:00:00.0000000+00:00','2026-08-02T00:00:00.0000000+00:00',1,1,'source',0,NULL,'["target"]');
-                    INSERT INTO {Native("b_r_", "schema-rebuild.members")} (source_record_id,target_record_id,ordinal) VALUES ('source','target',0);
                     INSERT INTO hpd_base_mutation_journal
                       (event_id,event_type,schema_version,occurred_at,tenant_id,operation,visibility,collection_id,record_id,before_json,after_json)
                     VALUES ('schema-rebuild-event','mutation','1','2026-08-02T00:00:00.0000000+00:00',NULL,0,0,'schema-rebuild-sources','source',NULL,NULL);
@@ -433,14 +434,12 @@ public sealed class ApplicationHostBuilderTests
             check.CommandText = $"""
                 SELECT
                   (SELECT revision FROM {Native("b_c_", "schema-rebuild-sources")} WHERE record_id='source'),
-                  (SELECT COUNT(*) FROM {Native("b_r_", "schema-rebuild.members")} WHERE source_record_id='source' AND target_record_id='target' AND ordinal=0),
                   (SELECT COUNT(*) FROM hpd_base_mutation_journal WHERE event_id='schema-rebuild-event');
                 """;
             await using Microsoft.Data.Sqlite.SqliteDataReader reader = await check.ExecuteReaderAsync();
             (await reader.ReadAsync()).Should().BeTrue();
             reader.GetInt64(0).Should().Be(9);
             reader.GetInt64(1).Should().Be(1);
-            reader.GetInt64(2).Should().Be(1);
         }
         finally
         {
@@ -454,10 +453,10 @@ public sealed class ApplicationHostBuilderTests
     {
         BaseCollection<GeneratedProject> first = HPD.Base.BaseCollection.Define(
             "logical.first", GeneratedApplicationJsonContext.Default.GeneratedProject,
-            schema => schema.String("logical.first.name", "name"));
+            schema => schema.String("logical.first.name", "Name", ProjectProperty("name")));
         BaseCollection<GeneratedProject> second = HPD.Base.BaseCollection.Define(
             "logical.second", GeneratedApplicationJsonContext.Default.GeneratedProject,
-            schema => schema.String("logical.second.name", "name"));
+            schema => schema.String("logical.second.name", "Name", ProjectProperty("name")));
 
         static BaseLogicalSchema Build(params BaseCollection<GeneratedProject>[] collections)
         {
@@ -475,7 +474,7 @@ public sealed class ApplicationHostBuilderTests
         BaseLogicalSchema reversed = Build(second, first);
         BaseCollection<GeneratedProject> renamed = HPD.Base.BaseCollection.Define(
             "logical.first", GeneratedApplicationJsonContext.Default.GeneratedProject,
-            schema => schema.String("logical.first.name", "renamed_name"));
+            schema => schema.String("logical.first.name", "RenamedName", ProjectProperty("name")));
 
         reversed.CanonicalChecksum.Should().Be(ordered.CanonicalChecksum);
         Build(renamed, second).CanonicalChecksum.Should().NotBe(ordered.CanonicalChecksum);
@@ -749,7 +748,7 @@ public sealed class ApplicationHostBuilderTests
             GeneratedApplicationJsonContext.Default.GeneratedProject,
             schema =>
             {
-                schema.String("organization-id", "organizationId").Required();
+                schema.String("organization-id", "OrganizationId", ProjectProperty("organizationId")).Required();
                 schema.Index("organization", "organization-id").Required();
             });
 

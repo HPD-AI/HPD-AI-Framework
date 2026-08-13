@@ -65,7 +65,7 @@ internal sealed partial class InMemoryRecordStore
         Dictionary<string, QueryValueKind> fieldKinds = request.Plan.Sources.SelectMany(source =>
                 (collections[source.CollectionId].Fields ?? []).Select(field => new
                 {
-                    Key = source.Id + "\0" + field.Name,
+                    Key = source.Id + "\0" + field.WireName,
                     Kind = InMemoryFieldKind(field),
                 }))
             .ToDictionary(static item => item.Key, static item => item.Kind, StringComparer.Ordinal);
@@ -157,7 +157,7 @@ internal sealed partial class InMemoryRecordStore
     {
         string? field = filter.Field;
         if (field is not null)
-            field = (collection.Fields ?? []).Single(definition => string.Equals(definition.Id, field, StringComparison.Ordinal)).Name;
+            field = (collection.Fields ?? []).Single(definition => string.Equals(definition.Id, field, StringComparison.Ordinal)).WireName;
         return filter with { Field = field, Children = filter.Children?.Select(child => LowerFilter(child, collection)).ToArray() };
     }
 
@@ -170,7 +170,7 @@ internal sealed partial class InMemoryRecordStore
         {
             if (operand.Kind != BaseRelationalOperandKind.SourceField) return operand;
             string storedName = (sourceCollections[operand.SourceId!].Fields ?? [])
-                .Single(field => string.Equals(field.Id, operand.FieldId, StringComparison.Ordinal)).Name;
+                .Single(field => string.Equals(field.Id, operand.FieldId, StringComparison.Ordinal)).WireName;
             return operand with { FieldId = storedName };
         }
         BaseRelationalPredicate? Predicate(BaseRelationalPredicate? predicate) => predicate is null ? null : predicate with

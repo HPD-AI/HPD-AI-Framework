@@ -57,8 +57,8 @@ internal static class OperationTestServices
                 UnknownFields = UnknownFieldPolicy.Preserve,
                 Fields = _fields ??
                 [
-                    new FieldDefinition { Id = "title", Name = "title", Type = BaseFieldTypes.String },
-                    new FieldDefinition { Id = "tenantId", Name = "tenantId", Type = BaseFieldTypes.String },
+                    new FieldDefinition { Id = "title", ApplicationName = "title", WireName = "title", Type = BaseFieldTypes.String },
+                    new FieldDefinition { Id = "tenantId", ApplicationName = "tenantId", WireName = "tenantId", Type = BaseFieldTypes.String },
                 ],
                 MutationMode = BaseCollectionMutationMode.Mutable
             });

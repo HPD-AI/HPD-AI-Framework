@@ -17,7 +17,7 @@ var roundTrip = JsonSerializer.Deserialize(json, collection.JsonTypeInfo);
 if (roundTrip is null ||
     roundTrip.OrganizationId != "org_aot" ||
     AotProject.Fields.OrganizationId.Id != "organization-id" ||
-    AotProject.Fields.OrganizationId.StoredName != "organizationId" ||
+    AotProject.Fields.OrganizationId.WireName != "organizationId" ||
     !AotProject.Fields.Name.Operators.HasFlag(BaseFieldOperator.Order))
 {
     throw new InvalidOperationException(

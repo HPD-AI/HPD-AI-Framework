@@ -347,7 +347,7 @@ internal sealed class SqliteQueryPlanner
 
     private SqlitePhysicalModel.FieldModel? FieldModel(string? name) => string.IsNullOrWhiteSpace(name)
         ? null
-        : _collection.Fields.SingleOrDefault(field => string.Equals(field.Definition.Name, name, StringComparison.Ordinal));
+        : _collection.Fields.SingleOrDefault(field => string.Equals(field.Definition.WireName, name, StringComparison.Ordinal));
 
     private string AddParameter(object? value)
     {

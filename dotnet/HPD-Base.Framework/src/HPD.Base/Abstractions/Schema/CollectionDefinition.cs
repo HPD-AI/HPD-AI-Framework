@@ -51,6 +51,8 @@ public sealed record CollectionDefinition
     public DiagnosticDescriptor[]? Diagnostics { get; init; }
     /// <summary>Gets or sets the schema version.</summary>
     public string? SchemaVersion { get; init; }
+    /// <summary>Gets the lowercase SHA-256 serializer contract checksum.</summary>
+    public string? SerializerContractChecksum { get; init; }
     /// <summary>Gets or sets the refreshed at.</summary>
     public DateTimeOffset? RefreshedAt { get; init; }
     /// <summary>Gets or sets the extensions.</summary>

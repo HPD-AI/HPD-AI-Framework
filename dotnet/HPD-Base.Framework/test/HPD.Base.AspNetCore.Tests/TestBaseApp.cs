@@ -82,7 +82,7 @@ internal static class TestBaseApp
             new FieldDefinition
             {
                 Id = "title",
-                Name = "title",
+                ApplicationName = "title", WireName = "title",
                 Type = BaseFieldTypes.String,
             },
         ],

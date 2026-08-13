@@ -226,7 +226,7 @@ internal sealed class DefaultBaseDescriptorValidator : IBaseDescriptorValidator
         AddInvalidIds(snapshot.Manifest.DiagnosticRefs?.Select(item => (item.Id, "manifest.diagnosticRefs.id")), issues);
         AddInvalidIds(snapshot.Schema.Collections?.Select(item => (item.Id, "schema.collections.id")), issues);
         AddInvalidIds(snapshot.Schema.Collections?.SelectMany(collection => collection.Fields ?? []).Select(field => (field.Id, "schema.collections.fields.id")), issues);
-        AddInvalidIds(snapshot.Schema.Collections?.SelectMany(collection => collection.Fields ?? []).Select(field => (field.Name, "schema.collections.fields.name")), issues);
+        AddInvalidIds(snapshot.Schema.Collections?.SelectMany(collection => collection.Fields ?? []).Select(field => (field.WireName, "schema.collections.fields.name")), issues);
         AddInvalidIds(snapshot.Capabilities.Families.Select(item => (item.FamilyId, "capabilities.families.familyId")), issues);
         AddInvalidIds(snapshot.Capabilities.Families.SelectMany(family => family.Features ?? []).Select(feature => (feature.FeatureId, "capabilities.families.features.featureId")), issues);
         AddInvalidIds(snapshot.Health.Select(item => (item.Id, "health.id")), issues);
@@ -387,7 +387,7 @@ internal sealed class DefaultBaseDescriptorValidator : IBaseDescriptorValidator
         List<BaseRuntimeValidationIssue> issues)
     {
         AddDuplicateFieldIssue(collection, collection.Fields?.Select(field => field.Id), "field id", "id", issues);
-        AddDuplicateFieldIssue(collection, collection.Fields?.Select(field => field.Name), "field name", "name", issues);
+        AddDuplicateFieldIssue(collection, collection.Fields?.Select(field => field.WireName), "field name", "name", issues);
     }
 
     private static void AddDuplicateFieldIssue(
@@ -434,9 +434,9 @@ internal sealed class DefaultBaseDescriptorValidator : IBaseDescriptorValidator
                     Severity = BaseRuntimeValidationSeverity.Fatal,
                     Kind = BaseRuntimeValidationFailureKind.UnresolvedReference,
                     Code = "base.runtime.descriptor.unresolvedRelation",
-                    Message = $"Field '{field.Name}' on collection '{collection.Id}' references missing collection '{targetCollectionId}'.",
+                    Message = $"Field '{field.WireName}' on collection '{collection.Id}' references missing collection '{targetCollectionId}'.",
                     TargetRef = targetCollectionId,
-                    TargetPath = $"collections.{collection.Id}.fields.{field.Name}.relation.targetCollectionId"
+                    TargetPath = $"collections.{collection.Id}.fields.{field.WireName}.relation.targetCollectionId"
                 });
             }
         }
@@ -489,7 +489,7 @@ internal sealed class DefaultBaseDescriptorValidator : IBaseDescriptorValidator
         }
 
         var fieldRefs = (collection.Fields ?? [])
-            .SelectMany(field => new[] { field.Id, field.Name })
+            .SelectMany(field => new[] { field.Id, field.WireName })
             .Where(value => !string.IsNullOrWhiteSpace(value))
             .ToHashSet(StringComparer.Ordinal);
 

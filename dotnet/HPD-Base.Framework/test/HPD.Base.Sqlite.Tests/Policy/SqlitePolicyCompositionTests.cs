@@ -117,8 +117,8 @@ public sealed class SqlitePolicyCompositionTests
         MutationMode = BaseCollectionMutationMode.Mutable,
         Fields =
         [
-            new FieldDefinition { Id = "title", Name = "title", Type = BaseFieldTypes.String },
-            new FieldDefinition { Id = "tenant", Name = "tenant", Type = BaseFieldTypes.String }
+            new FieldDefinition { Id = "title", ApplicationName = "title", WireName = "title", Type = BaseFieldTypes.String },
+            new FieldDefinition { Id = "tenant", ApplicationName = "tenant", WireName = "tenant", Type = BaseFieldTypes.String }
         ]
     };
 

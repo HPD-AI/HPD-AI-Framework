@@ -66,13 +66,13 @@ public sealed class RecordRedactorTests
         UnknownFields = UnknownFieldPolicy.Preserve,
         Fields =
         [
-            new FieldDefinition { Id = "title", Name = "title", Type = BaseFieldTypes.String },
-            new FieldDefinition { Id = "secret", Name = "secret", Type = BaseFieldTypes.String, Hidden = true },
-            new FieldDefinition { Id = "systemId", Name = "systemId", Type = BaseFieldTypes.String, System = true },
+            new FieldDefinition { Id = "title", ApplicationName = "title", WireName = "title", Type = BaseFieldTypes.String },
+            new FieldDefinition { Id = "secret", ApplicationName = "secret", WireName = "secret", Type = BaseFieldTypes.String, Hidden = true },
+            new FieldDefinition { Id = "systemId", ApplicationName = "systemId", WireName = "systemId", Type = BaseFieldTypes.String, System = true },
             new FieldDefinition
             {
                 Id = "password",
-                Name = "password",
+                ApplicationName = "password", WireName = "password",
                 Type = BaseFieldTypes.String,
                 Visibility = new FieldVisibilityAnnotation { WriteOnly = true }
             }

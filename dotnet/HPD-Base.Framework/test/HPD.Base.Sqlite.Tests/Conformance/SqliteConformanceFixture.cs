@@ -36,13 +36,13 @@ public sealed class SqliteConformanceFixture : IConfigurableRuntimeStoreConforma
         UnknownFields = UnknownFieldPolicy.Preserve,
         Fields =
         [
-            new FieldDefinition { Id = "title", Name = "title", Type = BaseFieldTypes.String },
-            new FieldDefinition { Id = "status", Name = "status", Type = BaseFieldTypes.String },
-            new FieldDefinition { Id = "rank", Name = "rank", Type = BaseFieldTypes.Integer },
-            new FieldDefinition { Id = "enabled", Name = "enabled", Type = BaseFieldTypes.Boolean },
-            new FieldDefinition { Id = "tags", Name = "tags", Type = BaseFieldTypes.Array },
-            new FieldDefinition { Id = "profile", Name = "profile", Type = BaseFieldTypes.Object },
-            new FieldDefinition { Id = "nullable", Name = "nullable", Type = BaseFieldTypes.String, Nullable = true }
+            new FieldDefinition { Id = "title", ApplicationName = "title", WireName = "title", Type = BaseFieldTypes.String },
+            new FieldDefinition { Id = "status", ApplicationName = "status", WireName = "status", Type = BaseFieldTypes.String },
+            new FieldDefinition { Id = "rank", ApplicationName = "rank", WireName = "rank", Type = BaseFieldTypes.Integer },
+            new FieldDefinition { Id = "enabled", ApplicationName = "enabled", WireName = "enabled", Type = BaseFieldTypes.Boolean },
+            new FieldDefinition { Id = "tags", ApplicationName = "tags", WireName = "tags", Type = BaseFieldTypes.Array },
+            new FieldDefinition { Id = "profile", ApplicationName = "profile", WireName = "profile", Type = BaseFieldTypes.Object },
+            new FieldDefinition { Id = "nullable", ApplicationName = "nullable", WireName = "nullable", Type = BaseFieldTypes.String, Nullable = true }
         ],
         MutationMode = BaseCollectionMutationMode.Mutable
     };

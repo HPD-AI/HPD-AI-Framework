@@ -181,10 +181,10 @@ public sealed class HPDBaseAuthPolicyExplainIntegrationTests
                 UnknownFields = UnknownFieldPolicy.Preserve,
                 Fields =
                 [
-                    new FieldDefinition { Id = "tenantId", Name = "tenantId", Type = BaseFieldTypes.String },
-                    new FieldDefinition { Id = "title", Name = "title", Type = BaseFieldTypes.String },
-                    new FieldDefinition { Id = "body", Name = "body", Type = BaseFieldTypes.String },
-                    new FieldDefinition { Id = "secret", Name = "secret", Type = BaseFieldTypes.String },
+                    new FieldDefinition { Id = "tenantId", ApplicationName = "tenantId", WireName = "tenantId", Type = BaseFieldTypes.String },
+                    new FieldDefinition { Id = "title", ApplicationName = "title", WireName = "title", Type = BaseFieldTypes.String },
+                    new FieldDefinition { Id = "body", ApplicationName = "body", WireName = "body", Type = BaseFieldTypes.String },
+                    new FieldDefinition { Id = "secret", ApplicationName = "secret", WireName = "secret", Type = BaseFieldTypes.String },
                 ],
                 MutationMode = BaseCollectionMutationMode.Mutable
             });
