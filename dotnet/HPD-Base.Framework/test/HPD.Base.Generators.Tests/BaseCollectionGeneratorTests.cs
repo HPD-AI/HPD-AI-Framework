@@ -619,6 +619,55 @@ public sealed class BaseCollectionGeneratorTests
         Run(source).Diagnostics.Should().ContainSingle(item => item.Id == "HPDBASE0449");
     }
 
+    [Theory]
+    [InlineData("""
+        System.Func<System.Func<ForgedContext>, BaseSerializerContextRegistration> register =
+            BaseSerializerGeneratedContract.RegisterContext<ForgedContext>;
+        return register(__HPDBaseSerializerFactory.Create);
+        """)]
+    [InlineData("""
+        System.Func<System.Func<ForgedContext>, BaseSerializerContextRegistration> register =
+            SerializerContract.RegisterContext<ForgedContext>;
+        return register(__HPDBaseSerializerFactory.Create);
+        """)]
+    [InlineData("""
+        System.Func<System.Func<ForgedContext>, BaseSerializerContextRegistration> register =
+            choose
+                ? BaseSerializerGeneratedContract.RegisterContext<ForgedContext>
+                : BaseSerializerGeneratedContract.RegisterContext<ForgedContext>;
+        return register(__HPDBaseSerializerFactory.Create);
+        """)]
+    [InlineData("""
+        System.Func<System.Func<ForgedContext>, BaseSerializerContextRegistration>? first = null;
+        var register = first ?? BaseSerializerGeneratedContract.RegisterContext<ForgedContext>;
+        return register(__HPDBaseSerializerFactory.Create);
+        """)]
+    public void CallerAuthoredMethodGroupLaunderingFailsTheTrustedBuildDiagnostic(string body)
+    {
+        string source = $$"""
+            using HPD.Base;
+            using SerializerContract = HPD.Base.BaseSerializerGeneratedContract;
+            using System.CodeDom.Compiler;
+            using System.Text.Json.Serialization;
+            public sealed record ForgedRecord
+            {
+                private static class __HPDBaseSerializerFactory
+                {
+                    [GeneratedCode("HPD.Base.Generators", "44")]
+                    internal static ForgedContext Create() => new(BaseSerializerGeneratedContract.CreateOptions(null));
+                }
+                public static BaseSerializerContextRegistration Forge(bool choose)
+                {
+                    {{body}}
+                }
+            }
+            [JsonSerializable(typeof(ForgedRecord))]
+            public sealed partial class ForgedContext : JsonSerializerContext;
+            """;
+
+        Run(source).Diagnostics.Should().Contain(item => item.Id == "HPDBASE0449");
+    }
+
     private static GeneratorResult Run(string source)
     {
         var parseOptions = new CSharpParseOptions(LanguageVersion.CSharp14);

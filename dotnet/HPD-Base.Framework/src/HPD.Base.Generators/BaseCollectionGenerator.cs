@@ -170,24 +170,34 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
             static (productionContext, symbols) =>
                 Generate(productionContext, symbols));
 
-        IncrementalValuesProvider<(Location Location, string Method)?> forbiddenCalls =
+        IncrementalValuesProvider<(Location Location, string Method)?> forbiddenReferences =
             context.SyntaxProvider.CreateSyntaxProvider(
-                static (node, _) => node is InvocationExpressionSyntax,
-                static (syntaxContext, _) => ForbiddenGeneratedCall(syntaxContext));
-        context.RegisterSourceOutput(forbiddenCalls.Where(static item => item.HasValue),
+                static (node, _) => node is SimpleNameSyntax,
+                static (syntaxContext, _) => ForbiddenGeneratedReference(syntaxContext));
+        context.RegisterSourceOutput(forbiddenReferences.Where(static item => item.HasValue),
             static (productionContext, item) => productionContext.ReportDiagnostic(Diagnostic.Create(
                 GeneratedInfrastructureInvocation, item!.Value.Location, item.Value.Method)));
     }
 
-    private static (Location Location, string Method)? ForbiddenGeneratedCall(GeneratorSyntaxContext context)
+    private static (Location Location, string Method)? ForbiddenGeneratedReference(GeneratorSyntaxContext context)
     {
-        var invocation = (InvocationExpressionSyntax)context.Node;
-        if (context.SemanticModel.GetSymbolInfo(invocation).Symbol is not IMethodSymbol method) return null;
+        var name = (SimpleNameSyntax)context.Node;
+        SymbolInfo symbolInfo = context.SemanticModel.GetSymbolInfo(name);
+        IMethodSymbol method = symbolInfo.Symbol as IMethodSymbol;
+        if (method is null || !IsGeneratedInfrastructure(method))
+            method = symbolInfo.CandidateSymbols.OfType<IMethodSymbol>()
+                .FirstOrDefault(IsGeneratedInfrastructure);
+        if (method is null) return null;
         string owner = method.ContainingType.OriginalDefinition.ToDisplayString();
-        bool forbidden = owner == "HPD.Base.BaseSerializerGeneratedContract" && method.Name == "RegisterContext" ||
+        return (name.GetLocation(), owner + "." + method.Name);
+    }
+
+    private static bool IsGeneratedInfrastructure(IMethodSymbol method)
+    {
+        string owner = method.ContainingType.OriginalDefinition.ToDisplayString();
+        return owner == "HPD.Base.BaseSerializerGeneratedContract" && method.Name == "RegisterContext" ||
             owner == "HPD.Base.BaseCollection<T>" && method.Name == "CreateGenerated" ||
             owner == "HPD.Base.BaseReadGeneratedContract" && method.Name == "CreateGenerated";
-        return forbidden ? (invocation.GetLocation(), owner + "." + method.Name) : null;
     }
 
     private static void Generate(
