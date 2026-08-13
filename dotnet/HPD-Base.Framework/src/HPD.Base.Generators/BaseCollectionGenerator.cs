@@ -150,6 +150,11 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         "Collection '{0}' serializer graph exceeds a closed L44 bound", "HPD.Base.Generation",
         DiagnosticSeverity.Error, true);
 
+    private static readonly DiagnosticDescriptor GeneratedInfrastructureInvocation = new DiagnosticDescriptor(
+        "HPDBASE0449", "Generated serializer infrastructure is not an application API",
+        "'{0}' may only be emitted by HPD Base generated source; the compiled application/build pipeline is trusted",
+        "HPD.Base.Generation", DiagnosticSeverity.Error, true);
+
     /// <summary>Executes the initialize operation.</summary>
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
@@ -164,6 +169,25 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
             candidates.Collect(),
             static (productionContext, symbols) =>
                 Generate(productionContext, symbols));
+
+        IncrementalValuesProvider<(Location Location, string Method)?> forbiddenCalls =
+            context.SyntaxProvider.CreateSyntaxProvider(
+                static (node, _) => node is InvocationExpressionSyntax,
+                static (syntaxContext, _) => ForbiddenGeneratedCall(syntaxContext));
+        context.RegisterSourceOutput(forbiddenCalls.Where(static item => item.HasValue),
+            static (productionContext, item) => productionContext.ReportDiagnostic(Diagnostic.Create(
+                GeneratedInfrastructureInvocation, item!.Value.Location, item.Value.Method)));
+    }
+
+    private static (Location Location, string Method)? ForbiddenGeneratedCall(GeneratorSyntaxContext context)
+    {
+        var invocation = (InvocationExpressionSyntax)context.Node;
+        if (context.SemanticModel.GetSymbolInfo(invocation).Symbol is not IMethodSymbol method) return null;
+        string owner = method.ContainingType.OriginalDefinition.ToDisplayString();
+        bool forbidden = owner == "HPD.Base.BaseSerializerGeneratedContract" && method.Name == "RegisterContext" ||
+            owner == "HPD.Base.BaseCollection<T>" && method.Name == "CreateGenerated" ||
+            owner == "HPD.Base.BaseReadGeneratedContract" && method.Name == "CreateGenerated";
+        return forbidden ? (invocation.GetLocation(), owner + "." + method.Name) : null;
     }
 
     private static void Generate(

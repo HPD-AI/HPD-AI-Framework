@@ -595,6 +595,30 @@ public sealed class BaseCollectionGeneratorTests
         Run(source).Diagnostics.Should().ContainSingle(item => item.Id == "HPDBASE0447");
     }
 
+    [Fact]
+    public void CallerAuthoredNestedGeneratedReceiptShapeFailsTheTrustedBuildDiagnostic()
+    {
+        const string source = """
+            using HPD.Base;
+            using System.CodeDom.Compiler;
+            using System.Text.Json.Serialization;
+            public sealed record ForgedRecord
+            {
+                private static class __HPDBaseSerializerFactory
+                {
+                    [GeneratedCode("HPD.Base.Generators", "44")]
+                    internal static ForgedContext Create() => new(BaseSerializerGeneratedContract.CreateOptions(null));
+                }
+                public static BaseSerializerContextRegistration Forge() =>
+                    BaseSerializerGeneratedContract.RegisterContext(__HPDBaseSerializerFactory.Create);
+            }
+            [JsonSerializable(typeof(ForgedRecord))]
+            public sealed partial class ForgedContext : JsonSerializerContext;
+            """;
+
+        Run(source).Diagnostics.Should().ContainSingle(item => item.Id == "HPDBASE0449");
+    }
+
     private static GeneratorResult Run(string source)
     {
         var parseOptions = new CSharpParseOptions(LanguageVersion.CSharp14);
