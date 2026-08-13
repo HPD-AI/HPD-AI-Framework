@@ -1,5 +1,5 @@
-# source-contract-sha256=43141d127d877cdac7c47662cbec684bc64b6506649c14c92c66d09204b3e73f
-# source-registry-sha256=d139c215eab2006c506ac0758395e38aac060d9dcaec1481c31892bf7a64b1c7
+# source-contract-sha256=39f826606dac7c545931161ba62104135e4690eac32ac0d18b1b0e9fe8f230c0
+# source-registry-sha256=870cf919058f07dd60693a47b0d10d7ca6cbe77a72fbddeccaac5dc7f1cba786
 # generated input; section rows are canonical and ordered
 @IdFamilies
 ten|TenantId|owner=S1|allocator=S1|correlation
@@ -49,10 +49,13 @@ env|EnvironmentProfileId|owner=S1|allocator=S1|qualification
 srf|SurfaceId|owner=S1|allocator=S1|qualification
 clk|ClockDomainId|owner=S1|allocator=S1|clock
 boo|BootId|owner=S1|allocator=S1|clock
+gpa|GlobalParticipantAllocatorJournalId|owner=S1|allocator=S1|authority
 @IdFamilyCborUsages
 ten|hpd.correlation-envelope.v1|1|tenantId
 thr|hpd.thread-position.v1|1|threadId
 liv|hpd.session-authority-stamp.v1|2|liveSessionId
+liv|hpd.global-participant-allocation-source.v1|1|liveSessionId
+liv|hpd.participant-id-owner-evidence.v1|2|liveSessionId
 run|hpd.session-authority-stamp.v1|1|runtimeGenerationId
 run|hpd.runtime-generation-changed.v1|2|expectedPrevious
 run|hpd.runtime-generation-changed.v1|3|proposedNext
@@ -62,6 +65,9 @@ run|hpd.graph-participant-binding-command-body.v1|5|runtimeGeneration
 run|hpd.graph-participant-binding-fact-body.v1|7|runtimeGeneration
 par|hpd.graph-participant-reservation.v1|1|participantId
 par|hpd.graph-participant-binding.v1|1|participantId
+par|hpd.global-participant-claim-record-body.v1|3|participantId
+par|hpd.participant-id-owner-evidence.v1|1|participantId
+par|hpd.participant-id-owner-proof.v1|1|participantId
 fct|hpd.authority-fact-envelope.v1|2|factId
 fct|hpd.proposed-authority-fact.v1|1|factId
 aut|hpd.copy-reservation.v1|9|authorizationId
@@ -73,6 +79,8 @@ op|hpd.graph-participant-reservation-command-body.v1|1|operationId
 op|hpd.graph-participant-reservation-fact-body.v1|1|operationId
 op|hpd.graph-participant-binding-command-body.v1|1|operationId
 op|hpd.graph-participant-binding-fact-body.v1|1|operationId
+op|hpd.global-participant-claim-record-body.v1|1|operationId
+op|hpd.participant-id-owner-evidence.v1|3|operationId
 op|hpd.authority-fact-admitted.v1|1|operationId
 op|hpd.turn-decision-finalized.v1|1|operationId
 op|hpd.semantic-reservation-created.v1|1|operationId
@@ -162,6 +170,8 @@ fac|hpd.provider-contribution.v1|7|factoryId
 pln|hpd.live-audio-runtime-plan.v1|1|planId
 env|hpd.qualification-cell.v1|5|environmentProfileId
 srf|hpd.qualification-cell.v1|3|surfaceId
+gpa|hpd.global-participant-authority-position.v1|1|journalId
+gpa|hpd.global-participant-page.v1|1|journalId
 @Axes
 1|RuntimeGenerationId|S1|SessionAuthorityStamp
 2|GraphGenerationId|S2|SparseAxisEntry
@@ -487,6 +497,15 @@ hpd.graph-participant-binding-fact-body.v1|1.0|S1|HPD-Agent|HPD.Agent.Generated.
 hpd.graph-participant-reservation.v1|1.0|S1|HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|DeterministicCborV1:hpd.graph-participant-reservation.v1|hpd-authority-sha256-v1
 hpd.graph-participant-binding.v1|1.0|S1|HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|DeterministicCborV1:hpd.graph-participant-binding.v1|hpd-authority-sha256-v1
 hpd.capacity-grant-binding-proof.v1|1.0|S1|HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|DeterministicCborV1:hpd.capacity-grant-binding-proof.v1|hpd-authority-sha256-v1
+hpd.authority-payload-global-participant-claim-record.v1|1.0|S1|HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|DeterministicCborV1:hpd.authority-payload-global-participant-claim-record.v1|hpd-authority-sha256-v1
+hpd.global-participant-claim-record-body.v1|1.0|S1|HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|DeterministicCborV1:hpd.global-participant-claim-record-body.v1|hpd-authority-sha256-v1
+hpd.global-participant-authority-position.v1|1.0|S1|HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|DeterministicCborV1:hpd.global-participant-authority-position.v1|hpd-authority-sha256-v1
+hpd.global-participant-authority-head.v1|1.0|S1|HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|DeterministicCborV1:hpd.global-participant-authority-head.v1|hpd-authority-sha256-v1
+hpd.global-participant-allocation-source.v1|1.0|S1|HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|DeterministicCborV1:hpd.global-participant-allocation-source.v1|hpd-authority-sha256-v1
+hpd.participant-id-owner-evidence.v1|1.0|S1|HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|DeterministicCborV1:hpd.participant-id-owner-evidence.v1|hpd-authority-sha256-v1
+hpd.participant-id-owner-proof.v1|1.0|S1|HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|DeterministicCborV1:hpd.participant-id-owner-proof.v1|hpd-authority-sha256-v1
+hpd.participant-id-claim-outcome.v1|1.0|S1|HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|DeterministicCborV1:hpd.participant-id-claim-outcome.v1|hpd-authority-sha256-v1
+hpd.global-participant-page.v1|1.0|S9|HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|DeterministicCborV1:hpd.global-participant-page.v1|hpd-authority-sha256-v1
 hpd.graph-generation-initialized.v1|1.0|S2|HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|DeterministicCborV1:hpd.graph-generation-initialized.v1|hpd-authority-sha256-v1
 hpd.activity-generation-initialized.v1|1.0|S3|HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|DeterministicCborV1:hpd.activity-generation-initialized.v1|hpd-authority-sha256-v1
 hpd.turn-generation-initialized.v1|1.0|S4|HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|DeterministicCborV1:hpd.turn-generation-initialized.v1|hpd-authority-sha256-v1
@@ -918,6 +937,50 @@ hpd.capacity-grant-binding-proof.v1|2|grantedAt|JournalPositionV1|required=true|
 hpd.capacity-grant-binding-proof.v1|3|currentFact|JournalPositionV1|required=true|registered-type:JournalPositionV1|union=None
 hpd.capacity-grant-binding-proof.v1|4|requiredChargeCount|UInt16Positive|required=true|range:1..3|union=None
 hpd.capacity-grant-binding-proof.v1|5|requiredChargeCoverageHash|Hash256|required=true|registered-type:Hash256|union=None
+hpd.authority-payload-global-participant-claim-record.v1|1|sourceSession|SessionAuthorityStampV1|required=true|registered-type:SessionAuthorityStampV1|union=None
+hpd.authority-payload-global-participant-claim-record.v1|2|sourceExpectedAuthority|ExpectedAuthorityVectorV1|required=true|registered-type:ExpectedAuthorityVectorV1|union=None
+hpd.authority-payload-global-participant-claim-record.v1|3|body|BoundedBstr65536|required=true|bytes:0..65536|union=None
+hpd.global-participant-claim-record-body.v1|1|operationId|OperationId|required=true|stable-id-family-ledger:16-bytes/nonzero|union=None
+hpd.global-participant-claim-record-body.v1|2|source|GlobalParticipantAllocationSourceV1|required=true|registered-type:GlobalParticipantAllocationSourceV1|union=None
+hpd.global-participant-claim-record-body.v1|3|participantId|ParticipantId|required=true|stable-id-family-ledger:16-bytes/nonzero|union=None
+hpd.global-participant-claim-record-body.v1|4|priorHead|Optional<GlobalParticipantAuthorityHeadV1>|required=true|registered-type:Optional<GlobalParticipantAuthorityHeadV1>|union={'kind': 'closed', 'none': 0, 'some': 1}
+hpd.global-participant-claim-record-body.v1|5|ownerProof|ParticipantIdOwnerProofV1|required=true|registered-type:ParticipantIdOwnerProofV1|union=None
+hpd.global-participant-claim-record-body.v1|6|outcome|ParticipantIdClaimOutcomeV1|required=true|registered-type:ParticipantIdClaimOutcomeV1|union=None
+hpd.global-participant-claim-record-body.v1|7|assignedPosition|GlobalParticipantAuthorityPositionV1|required=true|registered-type:GlobalParticipantAuthorityPositionV1|union=None
+hpd.global-participant-claim-record-body.v1|8|observedAt|MonotonicStampV1|required=true|registered-type:MonotonicStampV1|union=None
+hpd.global-participant-authority-position.v1|1|journalId|GlobalParticipantAllocatorJournalId|required=true|stable-id-family-ledger:16-bytes/nonzero|union=None
+hpd.global-participant-authority-position.v1|2|sequence|UInt64|required=true|registered-type:UInt64|union=None
+hpd.global-participant-authority-head.v1|1|position|GlobalParticipantAuthorityPositionV1|required=true|registered-type:GlobalParticipantAuthorityPositionV1|union=None
+hpd.global-participant-authority-head.v1|2|recordHash|Hash256|required=true|registered-type:Hash256|union=None
+hpd.global-participant-allocation-source.v1|1|liveSessionId|LiveSessionId|required=true|stable-id-family-ledger:16-bytes/nonzero|union=None
+hpd.global-participant-allocation-source.v1|2|sourceFactPosition|JournalPositionV1|required=true|registered-type:JournalPositionV1|union=None
+hpd.global-participant-allocation-source.v1|3|sourceOuterIntegrityHash|Hash256|required=true|registered-type:Hash256|union=None
+hpd.global-participant-allocation-source.v1|4|sourceBodyHash|Hash256|required=true|registered-type:Hash256|union=None
+hpd.participant-id-owner-evidence.v1|1|participantId|ParticipantId|required=true|stable-id-family-ledger:16-bytes/nonzero|union=None
+hpd.participant-id-owner-evidence.v1|2|liveSessionId|LiveSessionId|required=true|stable-id-family-ledger:16-bytes/nonzero|union=None
+hpd.participant-id-owner-evidence.v1|3|operationId|OperationId|required=true|stable-id-family-ledger:16-bytes/nonzero|union=None
+hpd.participant-id-owner-evidence.v1|4|sourceFingerprint|Hash256|required=true|registered-type:Hash256|union=None
+hpd.participant-id-owner-evidence.v1|5|claimHead|GlobalParticipantAuthorityHeadV1|required=true|registered-type:GlobalParticipantAuthorityHeadV1|union=None
+hpd.participant-id-owner-proof.v1|1|participantId|ParticipantId|required=true|stable-id-family-ledger:16-bytes/nonzero|union=None
+hpd.participant-id-owner-proof.v1|2|head|Optional<GlobalParticipantAuthorityHeadV1>|required=true|registered-type:Optional<GlobalParticipantAuthorityHeadV1>|union={'kind': 'closed', 'none': 0, 'some': 1}
+hpd.participant-id-owner-proof.v1|3|state|UInt16Positive|required=true|scalar:UInt16Positive|union=None
+hpd.participant-id-owner-proof.v1|4|owner|Optional<ParticipantIdOwnerEvidenceV1>|required=true|registered-type:Optional<ParticipantIdOwnerEvidenceV1>|union={'kind': 'closed', 'none': 0, 'some': 1}
+hpd.participant-id-owner-proof.v1|5|indexRoot|Hash256|required=true|registered-type:Hash256|union=None
+hpd.participant-id-owner-proof.v1|6|proofPath|BoundedBstr65536|required=true|bytes:0..65536|union=None
+hpd.participant-id-owner-proof.v1|7|recordCount|UInt64|required=true|registered-type:UInt64|union=None
+hpd.participant-id-claim-outcome.v1|1|kind|UInt16Positive|required=true|scalar:UInt16Positive|union=None
+hpd.participant-id-claim-outcome.v1|2|existingOwnerPosition|Optional<GlobalParticipantAuthorityPositionV1>|required=true|registered-type:Optional<GlobalParticipantAuthorityPositionV1>|union={'kind': 'closed', 'none': 0, 'some': 1}
+hpd.participant-id-claim-outcome.v1|3|safeCode|Optional<BoundedAscii>|required=true|registered-type:Optional<BoundedAscii>|union={'kind': 'closed', 'none': 0, 'some': 1}
+hpd.global-participant-page.v1|1|journalId|GlobalParticipantAllocatorJournalId|required=true|stable-id-family-ledger:16-bytes/nonzero|union=None
+hpd.global-participant-page.v1|2|pinnedHead|Optional<GlobalParticipantAuthorityHeadV1>|required=true|registered-type:Optional<GlobalParticipantAuthorityHeadV1>|union={'kind': 'closed', 'none': 0, 'some': 1}
+hpd.global-participant-page.v1|3|indexRoot|Hash256|required=true|registered-type:Hash256|union=None
+hpd.global-participant-page.v1|4|pageOrdinal|UInt16Positive|required=true|scalar:UInt16Positive|union=None
+hpd.global-participant-page.v1|5|previousPageHash|Optional<Hash256>|required=true|registered-type:Optional<Hash256>|union={'kind': 'closed', 'none': 0, 'some': 1}
+hpd.global-participant-page.v1|6|records|BoundedBstr65536|required=true|bytes:0..65536|union=None
+hpd.global-participant-page.v1|7|isFinal|UInt16Positive|required=true|scalar:UInt16Positive|union=None
+hpd.global-participant-page.v1|8|totalPages|UInt16Positive|required=true|scalar:UInt16Positive|union=None
+hpd.global-participant-page.v1|9|totalRecords|UInt64|required=true|registered-type:UInt64|union=None
+hpd.global-participant-page.v1|10|totalCanonicalBytes|UInt64|required=true|registered-type:UInt64|union=None
 hpd.graph-generation-initialized.v1|1|session|SessionAuthorityStampV1|required=true|registered-type:SessionAuthorityStampV1|union=None
 hpd.graph-generation-initialized.v1|2|initial|GraphGenerationId|required=true|stable-id-family-ledger:16-bytes/nonzero|union=None
 hpd.graph-generation-initialized.v1|3|owner|OwnerSliceId|required=true|closed-enum:S1-S11|AgentCore|union=None
@@ -1155,6 +1218,11 @@ HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|CapacitySettlementFactV1
 HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|CopyReservationV1
 HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|CorrelationEnvelopeV1
 HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|ExpectedAuthorityVectorV1
+HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|GlobalParticipantAllocationSourceV1
+HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|GlobalParticipantAuthorityHeadV1
+HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|GlobalParticipantAuthorityPositionV1
+HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|GlobalParticipantClaimRecordBodyV1
+HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|GlobalParticipantClaimRecordV1
 HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|GraphParticipantBindingCommandBodyV1
 HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|GraphParticipantBindingCommandV1
 HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|GraphParticipantBindingFactBodyV1
@@ -1166,6 +1234,9 @@ HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|GraphParticipantReservation
 HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|GraphParticipantReservationFactV1
 HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|GraphParticipantReservationV1
 HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|JournalPositionV1
+HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|ParticipantIdClaimOutcomeV1
+HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|ParticipantIdOwnerEvidenceV1
+HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|ParticipantIdOwnerProofV1
 HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|ProposedAuthorityFactV1
 HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|ProviderCatalogV1
 HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|ProviderContributionV1
@@ -1189,6 +1260,7 @@ HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|CaptureGra
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|CopyReservationCommandV1
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|CustodianReceiptAdmittedV1
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|DeliveryOrExportAdmittedV1
+HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|GlobalParticipantPageV1
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|GraphGenerationChangedV1
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|GraphGenerationChangedV1
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|GraphGenerationInitializedV1
@@ -1363,6 +1435,15 @@ hpd.graph-participant-binding-fact-body.v1|1.0|DeterministicCborV1:hpd.graph-par
 hpd.graph-participant-reservation.v1|1.0|DeterministicCborV1:hpd.graph-participant-reservation.v1|hpd-authority-sha256-v1
 hpd.graph-participant-binding.v1|1.0|DeterministicCborV1:hpd.graph-participant-binding.v1|hpd-authority-sha256-v1
 hpd.capacity-grant-binding-proof.v1|1.0|DeterministicCborV1:hpd.capacity-grant-binding-proof.v1|hpd-authority-sha256-v1
+hpd.authority-payload-global-participant-claim-record.v1|1.0|DeterministicCborV1:hpd.authority-payload-global-participant-claim-record.v1|hpd-authority-sha256-v1
+hpd.global-participant-claim-record-body.v1|1.0|DeterministicCborV1:hpd.global-participant-claim-record-body.v1|hpd-authority-sha256-v1
+hpd.global-participant-authority-position.v1|1.0|DeterministicCborV1:hpd.global-participant-authority-position.v1|hpd-authority-sha256-v1
+hpd.global-participant-authority-head.v1|1.0|DeterministicCborV1:hpd.global-participant-authority-head.v1|hpd-authority-sha256-v1
+hpd.global-participant-allocation-source.v1|1.0|DeterministicCborV1:hpd.global-participant-allocation-source.v1|hpd-authority-sha256-v1
+hpd.participant-id-owner-evidence.v1|1.0|DeterministicCborV1:hpd.participant-id-owner-evidence.v1|hpd-authority-sha256-v1
+hpd.participant-id-owner-proof.v1|1.0|DeterministicCborV1:hpd.participant-id-owner-proof.v1|hpd-authority-sha256-v1
+hpd.participant-id-claim-outcome.v1|1.0|DeterministicCborV1:hpd.participant-id-claim-outcome.v1|hpd-authority-sha256-v1
+hpd.global-participant-page.v1|1.0|DeterministicCborV1:hpd.global-participant-page.v1|hpd-authority-sha256-v1
 hpd.graph-generation-initialized.v1|1.0|DeterministicCborV1:hpd.graph-generation-initialized.v1|hpd-authority-sha256-v1
 hpd.activity-generation-initialized.v1|1.0|DeterministicCborV1:hpd.activity-generation-initialized.v1|hpd-authority-sha256-v1
 hpd.turn-generation-initialized.v1|1.0|DeterministicCborV1:hpd.turn-generation-initialized.v1|hpd-authority-sha256-v1
@@ -1454,6 +1535,7 @@ hpd.authority-owner-payload.v1|38|GraphParticipantReservationCommand|hpd.authori
 hpd.authority-owner-payload.v1|39|GraphParticipantReservationFact|hpd.authority-payload-graph-participant-reservation-fact.v1|GraphParticipantReservationFactV1|S1
 hpd.authority-owner-payload.v1|40|GraphParticipantBindingCommand|hpd.authority-payload-graph-participant-binding-command.v1|GraphParticipantBindingCommandV1|S1
 hpd.authority-owner-payload.v1|41|GraphParticipantBindingFact|hpd.authority-payload-graph-participant-binding-fact.v1|GraphParticipantBindingFactV1|S1
+hpd.authority-owner-payload.v1|42|GlobalParticipantClaimRecord|hpd.authority-payload-global-participant-claim-record.v1|GlobalParticipantClaimRecordV1|S1
 @GenerationTransitionSchemas
 1|hpd.runtime-generation-changed.v1|RuntimeGenerationChangedV1|RuntimeGenerationId|S1
 2|hpd.graph-generation-changed.v1|GraphGenerationChangedV1|GraphGenerationId|S2

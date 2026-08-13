@@ -46,3 +46,4 @@ env|EnvironmentProfileId|S1|S1|qualification
 srf|SurfaceId|S1|S1|qualification
 clk|ClockDomainId|S1|S1|clock
 boo|BootId|S1|S1|clock
+gpa|GlobalParticipantAllocatorJournalId|S1|S1|authority

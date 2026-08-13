@@ -16,7 +16,7 @@ public sealed class AuthorityIdSourceGeneratorTests
 
         Assert.DoesNotContain(result.Diagnostics, diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
         var source = Assert.Single(result.GeneratedTrees).GetText().ToString();
-        Assert.Equal(47, source.Split("public readonly record struct ").Length - 1);
+        Assert.Equal(48, source.Split("public readonly record struct ").Length - 1);
         Assert.Contains("public readonly record struct JournalFactId", source, StringComparison.Ordinal);
         Assert.Contains("public readonly record struct TransportGenerationId", source, StringComparison.Ordinal);
         Assert.DoesNotContain(compilation.GetDiagnostics(), diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);

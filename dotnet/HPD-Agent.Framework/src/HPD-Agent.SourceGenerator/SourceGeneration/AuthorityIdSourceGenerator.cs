@@ -64,9 +64,9 @@ public sealed class AuthorityIdSourceGenerator : IIncrementalGenerator
             rows.Add(new(fields[0], fields[1], fields[2], fields[3], fields[4]));
         }
 
-        if (rows.Count != 47)
+        if (rows.Count != 48)
         {
-            context.ReportDiagnostic(Diagnostic.Create(InvalidRow, Location.None, $"expected 47 families, found {rows.Count}"));
+            context.ReportDiagnostic(Diagnostic.Create(InvalidRow, Location.None, $"expected 48 families, found {rows.Count}"));
             return;
         }
 

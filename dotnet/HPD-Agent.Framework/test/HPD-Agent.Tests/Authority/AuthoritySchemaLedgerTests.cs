@@ -29,21 +29,21 @@ public sealed class AuthoritySchemaLedgerTests
     [Fact]
     public void GeneratedLedger_HasTheAcceptedExactCardinalities()
     {
-        Assert.Equal(47, AuthoritySchemaLedgerV1.IdFamilies.Length);
-        Assert.Equal(112, AuthoritySchemaLedgerV1.IdFamilyCborUsages.Length);
+        Assert.Equal(48, AuthoritySchemaLedgerV1.IdFamilies.Length);
+        Assert.Equal(121, AuthoritySchemaLedgerV1.IdFamilyCborUsages.Length);
         Assert.Equal(11, AuthoritySchemaLedgerV1.Axes.Length);
         Assert.Equal(14, AuthoritySchemaLedgerV1.Dimensions.Length);
         Assert.Equal(39, AuthoritySchemaLedgerV1.LinearizationPoints.Length);
         Assert.Equal(34, AuthoritySchemaLedgerV1.WireTypes.Length);
         Assert.Equal(134, AuthoritySchemaLedgerV1.WireTypeMembers.Length);
-        Assert.Equal(136, AuthoritySchemaLedgerV1.Schemas.Length);
-        Assert.Equal(567, AuthoritySchemaLedgerV1.SchemaFields.Length);
+        Assert.Equal(145, AuthoritySchemaLedgerV1.Schemas.Length);
+        Assert.Equal(611, AuthoritySchemaLedgerV1.SchemaFields.Length);
         Assert.Equal(11, AuthoritySchemaLedgerV1.AxisValueBindings.Length);
         Assert.Equal(11, AuthoritySchemaLedgerV1.CapacitySubjectBindings.Length);
         Assert.Equal(9, AuthoritySchemaLedgerV1.UnionDiscriminators.Length);
-        Assert.Equal(136, AuthoritySchemaLedgerV1.JsonProjectionContexts.Length);
-        Assert.Equal(136, AuthoritySchemaLedgerV1.CborCodecHashInventory.Length);
-        Assert.Equal(41, AuthoritySchemaLedgerV1.AuthorityPayloadDiscriminators.Length);
+        Assert.Equal(145, AuthoritySchemaLedgerV1.JsonProjectionContexts.Length);
+        Assert.Equal(145, AuthoritySchemaLedgerV1.CborCodecHashInventory.Length);
+        Assert.Equal(42, AuthoritySchemaLedgerV1.AuthorityPayloadDiscriminators.Length);
         Assert.Equal(11, AuthoritySchemaLedgerV1.GenerationTransitionSchemas.Length);
         Assert.Equal(10, AuthoritySchemaLedgerV1.GenerationInitializationSchemas.Length);
         Assert.Empty(AuthoritySchemaLedgerV1.NativeSchemaInventory);
@@ -64,6 +64,8 @@ public sealed class AuthoritySchemaLedgerTests
         Assert.DoesNotContain(AuthoritySchemaLedgerV1.GenerationInitializationSchemas, row => row.Contains("GraphRuntime", StringComparison.Ordinal));
         Assert.Contains("hpd.authority-owner-payload.v1|38|GraphParticipantReservationCommand|hpd.authority-payload-graph-participant-reservation-command.v1|GraphParticipantReservationCommandV1|S1", AuthoritySchemaLedgerV1.AuthorityPayloadDiscriminators);
         Assert.Contains("hpd.authority-owner-payload.v1|41|GraphParticipantBindingFact|hpd.authority-payload-graph-participant-binding-fact.v1|GraphParticipantBindingFactV1|S1", AuthoritySchemaLedgerV1.AuthorityPayloadDiscriminators);
+        Assert.Contains("hpd.authority-owner-payload.v1|42|GlobalParticipantClaimRecord|hpd.authority-payload-global-participant-claim-record.v1|GlobalParticipantClaimRecordV1|S1", AuthoritySchemaLedgerV1.AuthorityPayloadDiscriminators);
+        Assert.Contains("gpa|GlobalParticipantAllocatorJournalId|owner=S1|allocator=S1|authority", AuthoritySchemaLedgerV1.IdFamilies);
     }
 
     [Fact]
@@ -80,8 +82,8 @@ public sealed class AuthoritySchemaLedgerTests
     {
         var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../"));
         var lines = File.ReadAllLines(Path.Combine(root, "src/HPD-Agent/Authority/Generated/authority-schema-ledger-v1.txt"));
-        Assert.Equal("# source-contract-sha256=43141d127d877cdac7c47662cbec684bc64b6506649c14c92c66d09204b3e73f", lines[0]);
-        Assert.Equal("# source-registry-sha256=d139c215eab2006c506ac0758395e38aac060d9dcaec1481c31892bf7a64b1c7", lines[1]);
+        Assert.Equal("# source-contract-sha256=39f826606dac7c545931161ba62104135e4690eac32ac0d18b1b0e9fe8f230c0", lines[0]);
+        Assert.Equal("# source-registry-sha256=870cf919058f07dd60693a47b0d10d7ca6cbe77a72fbddeccaac5dc7f1cba786", lines[1]);
         var expected = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         List<string>? current = null;
         foreach (var line in lines)
