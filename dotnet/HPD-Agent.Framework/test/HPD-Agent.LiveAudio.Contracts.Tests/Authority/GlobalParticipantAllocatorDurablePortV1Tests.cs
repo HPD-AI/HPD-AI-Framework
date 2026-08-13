@@ -62,6 +62,7 @@ public sealed class GlobalParticipantAllocatorDurablePortV1Tests
     private static StableId128 Id(byte value) => StableId128.FromBytes(Enumerable.Repeat(value, 16).ToArray());
     private static GlobalParticipantAllocatorJournalId Journal() => GlobalParticipantAllocatorJournalId.FromValue(Id(1));
     private static JournalFactId Fact() => JournalFactId.FromValue(Id(2));
-    private static GlobalParticipantAllocatorRealmLeaseV1 Lease() { var store=Hash(3);var time=new UtcInstant(0);return new(new(Journal(),1,1,store,time,GlobalParticipantAllocatorRealmManifestV1.ComputeManifestHash(Journal(),1,1,store,time)),new MemoryStream()); }
+    private static GlobalParticipantAllocatorRealmLeaseV1 Lease() { var store=Hash(3);var time=new UtcInstant(0);return new(new(Journal(),1,1,store,time,GlobalParticipantAllocatorRealmManifestV1.ComputeManifestHash(Journal(),1,1,store,time)),new TestCustody()); }
+    private sealed class TestCustody : IGlobalParticipantAllocatorDurableCustodyV1 { public ValueTask DisposeAsync()=>ValueTask.CompletedTask; }
     private static Hash256 Hash(byte value) => Hash256.FromBytes(Enumerable.Repeat(value, 32).ToArray());
 }

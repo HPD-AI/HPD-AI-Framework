@@ -7,20 +7,20 @@ public sealed class GlobalParticipantAllocatorRealmPortV1Tests
     [Fact]
     public async Task LeaseWaitsForUseAndReleasesCustodyExactlyOnce()
     {
-        var custody = new MemoryStream(); var lease = Lease(custody);
+        var stream = new MemoryStream(); var custody = new TestCustody(stream); var lease = Lease(custody);
         Assert.True(lease.TryAcquireUse(out var use));
         var first = lease.DisposeAsync().AsTask(); var second = lease.DisposeAsync().AsTask();
         Assert.Same(first, second);
         Assert.False(first.IsCompleted); Assert.False(lease.TryAcquireUse(out _));
         await use.DisposeAsync(); await Task.WhenAll(first, second);
-        Assert.Throws<ObjectDisposedException>(() => custody.ReadByte());
+        Assert.Throws<ObjectDisposedException>(() => stream.ReadByte());
         use.Dispose();
     }
 
     [Fact]
     public async Task AcquireDisposeRaceClosesWithoutLeakingUses()
     {
-        var lease=Lease(new MemoryStream());
+        var lease=Lease(new TestCustody(new MemoryStream()));
         var attempts=Enumerable.Range(0,128).Select(_=>Task.Run(async()=>{if(lease.TryAcquireUse(out var use)){await Task.Yield();await use.DisposeAsync();}})).ToArray();
         var disposal=lease.DisposeAsync().AsTask();
         await Task.WhenAll(attempts);await disposal;
@@ -31,8 +31,7 @@ public sealed class GlobalParticipantAllocatorRealmPortV1Tests
     [Fact]
     public async Task CustodyFailureIsCachedAndSharedWithoutRetry()
     {
-        var custody=Lease(new MemoryStream());
-        typeof(GlobalParticipantAllocatorRealmLeaseV1).GetField("_disposeTask",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic)!.SetValue(custody,Task.FromException(new InvalidOperationException("custody")));
+        var custody=new TestCustody(new MemoryStream(),true);
         var lease=Lease(custody);var first=lease.DisposeAsync().AsTask();var second=lease.DisposeAsync().AsTask();
         Assert.Same(first,second);
         await Assert.ThrowsAsync<InvalidOperationException>(()=>first);
@@ -102,5 +101,6 @@ public sealed class GlobalParticipantAllocatorRealmPortV1Tests
     private static StableId128 Id(byte value) => StableId128.FromBytes(Enumerable.Repeat(value, 16).ToArray());
     private static GlobalParticipantAllocatorJournalId Journal() => GlobalParticipantAllocatorJournalId.FromValue(Id(1));
     private static Hash256 Hash(byte value) => Hash256.FromBytes(Enumerable.Repeat(value, 32).ToArray());
-    private static GlobalParticipantAllocatorRealmLeaseV1 Lease(IAsyncDisposable custody) { var store=Hash(3);var time=new UtcInstant(0);return new(new(Journal(),1,1,store,time,GlobalParticipantAllocatorRealmManifestV1.ComputeManifestHash(Journal(),1,1,store,time)),custody); }
+    private static GlobalParticipantAllocatorRealmLeaseV1 Lease(IGlobalParticipantAllocatorDurableCustodyV1 custody) { var store=Hash(3);var time=new UtcInstant(0);return new(new(Journal(),1,1,store,time,GlobalParticipantAllocatorRealmManifestV1.ComputeManifestHash(Journal(),1,1,store,time)),custody); }
+    private sealed class TestCustody(MemoryStream stream,bool fail=false) : IGlobalParticipantAllocatorDurableCustodyV1 { private Task? _task;public ValueTask DisposeAsync()=>new(_task??=(fail?Task.FromException(new InvalidOperationException("custody")):stream.DisposeAsync().AsTask())); }
 }

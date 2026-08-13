@@ -35,6 +35,8 @@ internal sealed record GlobalParticipantAllocatorRealmManifestV1
     }
 }
 
+internal interface IGlobalParticipantAllocatorDurableCustodyV1 : IAsyncDisposable;
+
 internal sealed class GlobalParticipantAllocatorRealmLeaseV1 : IAsyncDisposable
 {
     private readonly object _gate = new();
@@ -44,9 +46,10 @@ internal sealed class GlobalParticipantAllocatorRealmLeaseV1 : IAsyncDisposable
     private int _activeUses;
     private bool _disposeStarted;
 
-    internal GlobalParticipantAllocatorRealmLeaseV1(GlobalParticipantAllocatorRealmManifestV1 manifest, IAsyncDisposable custody)
-    { Manifest = manifest ?? throw new ArgumentNullException(nameof(manifest)); _custody = custody ?? throw new ArgumentNullException(nameof(custody)); }
+    internal GlobalParticipantAllocatorRealmLeaseV1(GlobalParticipantAllocatorRealmManifestV1 manifest, IGlobalParticipantAllocatorDurableCustodyV1 custody)
+    { Manifest = manifest ?? throw new ArgumentNullException(nameof(manifest)); Custody = custody ?? throw new ArgumentNullException(nameof(custody)); _custody = custody; }
     internal GlobalParticipantAllocatorRealmManifestV1 Manifest { get; }
+    internal IGlobalParticipantAllocatorDurableCustodyV1 Custody { get; }
 
     internal bool TryAcquireUse(out LeaseUse use)
     {
