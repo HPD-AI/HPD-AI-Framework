@@ -147,6 +147,24 @@ public sealed record BaseRecordMutationFact
 
     /// <summary>Gets the bounded changed-field names, when available.</summary>
     public string[]? ChangedFields { get; init; }
+
+    /// <summary>Gets provider-allocated exported-subject lifecycle evidence when this mutation owns a subject lifetime.</summary>
+    public BaseSubjectLifecycleCommitEvidence? SubjectLifecycle { get; init; }
+}
+
+/// <summary>Contains immutable committed evidence for one exported-subject lifetime transition.</summary>
+public sealed record BaseSubjectLifecycleCommitEvidence
+{
+    /// <summary>Gets the exported contract identity.</summary>
+    public required string ContractId { get; init; }
+    /// <summary>Gets the exported contract version.</summary>
+    public required int ContractVersion { get; init; }
+    /// <summary>Gets the canonical logical subject identity text.</summary>
+    public required string SubjectId { get; init; }
+    /// <summary>Gets the committed lifecycle transition.</summary>
+    public required BaseSubjectLifecycleMutationKind Kind { get; init; }
+    /// <summary>Gets the canonical provider-allocated incarnation text for create/preserve, or null for retirement.</summary>
+    public string? Incarnation { get; init; }
 }
 
 /// <summary>Supplies Runtime-owned identity and context to one physical session mutation.</summary>

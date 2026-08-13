@@ -279,6 +279,7 @@ export class BaseRealtimeManager {
       const previous = query.processedSubjectControls.get(key);
       if (previous !== undefined && BigInt(previous) > generation) return;
       if (previous === message.stateGeneration) return;
+      this.markQueryStale(query);
       this.invalidateContract(key);
       query.processedSubjectControls.set(key, message.stateGeneration);
       return;
@@ -314,11 +315,14 @@ export class BaseRealtimeManager {
   private invalidateContract(contract: string): void {
     const affectedCollections = new Set([...this.#collectionContracts].filter(([, contracts]) => contracts.has(contract)).map(([collection]) => collection));
     for (const [mutationId, overlay] of this.#overlays) if (affectedCollections.has(overlay.collectionId)) this.#overlays.delete(mutationId);
-    for (const query of this.#queries.values()) if (affectedCollections.has(query.collectionId) && query.last !== undefined) {
-      query.authoritative = undefined;
-      query.last = { ...query.last, stale: true };
-      for (const observer of [...query.observers]) { try { observer(query.last); } catch { /* observer isolation */ } }
-    }
+    for (const query of this.#queries.values()) if (affectedCollections.has(query.collectionId)) this.markQueryStale(query);
+  }
+
+  private markQueryStale(query: SharedQuery): void {
+    query.authoritative = undefined;
+    if (query.last === undefined || query.last.stale) return;
+    query.last = { ...query.last, stale: true };
+    for (const observer of [...query.observers]) { try { observer(query.last); } catch { /* observer isolation */ } }
   }
 
   private snapshot(message: Snapshot): void {

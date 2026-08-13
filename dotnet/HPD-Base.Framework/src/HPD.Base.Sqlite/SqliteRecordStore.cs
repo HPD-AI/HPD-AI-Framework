@@ -855,7 +855,27 @@ FROM {_names.MutationJournal};
         {
             throw new InvalidOperationException("HPD.BASE SQLite schema is missing required parts.");
         }
+        await using SqliteCommand maintenance = connection.CreateCommand();
+        maintenance.CommandTimeout = TimeoutSeconds();
+        maintenance.CommandText = $"SELECT EXISTS(SELECT 1 FROM {_names.SubjectMaintenance} WHERE singleton=1);";
+        if (Convert.ToInt32(await maintenance.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture) != 0)
+        {
+            await connection.DisposeAsync().ConfigureAwait(false);
+            throw new InvalidOperationException("HPD.BASE subject-authority maintenance is incomplete; the store is maintenance-closed.");
+        }
+        return connection;
+    }
 
+    private async ValueTask<SqliteConnection> OpenSubjectMaintenanceAsync(CancellationToken cancellationToken)
+    {
+        await EnsureKeepAliveAsync(cancellationToken).ConfigureAwait(false);
+        SqliteConnection connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
+        RegisterPortableRelationalFunctions(connection);
+        if (!await _schema.HasRequiredSchemaAsync(connection, cancellationToken).ConfigureAwait(false))
+        {
+            await connection.DisposeAsync().ConfigureAwait(false);
+            throw new InvalidOperationException("HPD.BASE SQLite schema is missing required parts.");
+        }
         return connection;
     }
 

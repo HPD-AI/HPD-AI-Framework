@@ -2504,6 +2504,10 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             var items = ImmutableArray.CreateBuilder<BaseCapturedMutationItem>(intent.Items.Length);
             var intervals = ImmutableArray.CreateBuilder<BaseAtomicReadIntervalEvidence>(intent.Items.Length);
             long selectedBytes = 0;
+            long retainedBytes = CanonicalStringBytes(intent.IntentDigest)
+                + CanonicalStringBytes(intent.Authority.ApplicationId)
+                + CanonicalStringBytes(intent.Authority.StoreInstanceId)
+                + sizeof(long) * 4;
             var transactionRecords = new Dictionary<string, RecordEnvelope?>(StringComparer.Ordinal);
             using var digest = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
             digest.AppendData(System.Text.Encoding.UTF8.GetBytes(intent.IntentDigest));
@@ -2513,6 +2517,8 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 BaseAtomicMutationIntentItem item = intent.Items[index];
                 if (item.Ordinal != index) return ValueTask.FromResult(SubjectFailure<BaseCapturedAtomicMutationAuthority>(BaseSubjectErrorCodes.ProviderContractInvalid));
                 string itemKey = CaptureRecordKey(item.Collection.Id, item.RecordId);
+                retainedBytes = checked(retainedBytes + CanonicalStringBytes(item.Collection.Id)
+                    + CanonicalStringBytes(item.RecordId.Value) + sizeof(int) * 3);
                 if (!transactionRecords.TryGetValue(itemKey, out RecordEnvelope? current))
                 {
                     current = SnapshotRecord(item.Collection, item.RecordId);
@@ -2551,6 +2557,9 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                         digest.AppendData(targetBytes);
                     }
                     byte[] relationKey = System.Text.Encoding.UTF8.GetBytes(relation.TargetRecordId.Value);
+                    retainedBytes = checked(retainedBytes + CanonicalStringBytes(relation.SourceFieldId)
+                        + CanonicalStringBytes(relation.TargetCollection.Id)
+                        + CanonicalStringBytes(relation.TargetRecordId.Value));
                     intervals.Add(new BaseAtomicReadIntervalEvidence
                     {
                         LogicalAccessPathId = $"collection:{relation.TargetCollection.Id}:record",
@@ -2584,7 +2593,8 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 transactionRecords[itemKey] = SimulateIntentRecord(item, current);
             }
             long evidenceBytes = intervals.Sum(static interval => (long)interval.CanonicalLowerBound.Length + interval.CanonicalUpperBound.Length);
-            long transient = checked(selectedBytes + evidenceBytes);
+            retainedBytes = checked(retainedBytes + evidenceBytes + selectedBytes);
+            long transient = retainedBytes;
             if (selectedBytes > intent.Limits.MaximumSelectedBytes || evidenceBytes > intent.Limits.MaximumEvidenceBytes ||
                 transient > intent.Limits.MaximumTransientBytes || intervals.Count > intent.Limits.MaximumReadIntervals)
                 return ValueTask.FromResult(SubjectFailure<BaseCapturedAtomicMutationAuthority>(BaseSubjectErrorCodes.BudgetExceeded));
@@ -2622,12 +2632,13 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 !string.Equals(plan.CaptureDigest, captured.CaptureDigest, StringComparison.Ordinal) ||
                 plan.Items.Length != captured.Items.Length)
                 return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid));
-            var lifetimes = new Dictionary<string, InMemorySubjectLifetimeState>(_working.SubjectLifetimes, StringComparer.Ordinal);
+            var lifetimes = new Dictionary<string, InMemorySubjectLifetimeState?>(StringComparer.Ordinal);
             var overlays = new Dictionary<string, BasePreparedSubjectOverlayEvidence>(StringComparer.Ordinal);
             var lifecycleIncarnations = new Dictionary<int, BaseSubjectIncarnation>();
             var subjectAuthorities = new Dictionary<string, BaseSubjectTransactionAuthorityEvidence>(StringComparer.Ordinal);
             var intervals = captured.ReadIntervals.ToBuilder();
-            int authorityReads = captured.Items.Length;
+            int authorityReads = captured.Accounting.Records;
+            long retainedBytes = checked(captured.Accounting.TransientBytes + EstimatePlanBytes(plan));
             foreach (BaseAtomicMutationPlanItem item in plan.Items)
             {
                 if (item.SubjectLifecycle is not { } lifecycle) continue;
@@ -2635,16 +2646,24 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 if (!_working.SubjectContracts.TryGetValue(contractKey, out InMemorySubjectContractState? contract)
                     || !string.Equals(contract.ContractChecksum, lifecycle.ContractChecksum, StringComparison.Ordinal))
                     return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicMutation>(BaseSubjectErrorCodes.SchemaGenerationChanged, OperationStatus.Conflict, ErrorCategory.Conflict));
+                authorityReads = checked(authorityReads + 1);
                 subjectAuthorities[contractKey] = SubjectAuthority(contract);
                 string subjectKey = SubjectKey(lifecycle.ContractId, lifecycle.ContractVersion, lifecycle.SubjectId);
                 intervals.Add(ExactInterval($"subject:{lifecycle.ContractId}:contract", System.Text.Encoding.UTF8.GetBytes(contractKey)));
                 intervals.Add(ExactInterval($"subject:{lifecycle.ContractId}:lifetime", System.Text.Encoding.UTF8.GetBytes(subjectKey)));
                 intervals.Add(ExactInterval($"subject:{lifecycle.ContractId}:record", System.Text.Encoding.UTF8.GetBytes(lifecycle.SubjectId.Value)));
-                authorityReads = checked(authorityReads + 3);
+                if (!lifetimes.TryGetValue(subjectKey, out InMemorySubjectLifetimeState? existingLifetime))
+                {
+                    _working.SubjectLifetimes.TryGetValue(subjectKey, out existingLifetime);
+                    lifetimes[subjectKey] = existingLifetime;
+                    authorityReads = checked(authorityReads + 1);
+                    if (existingLifetime is not null)
+                        retainedBytes = checked(retainedBytes + EstimateLifetimeBytes(existingLifetime));
+                }
                 switch (lifecycle.Kind)
                 {
                     case BaseSubjectLifecycleMutationKind.Create:
-                        if (lifetimes.ContainsKey(subjectKey))
+                        if (existingLifetime is not null)
                             return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicMutation>(BaseSubjectErrorCodes.TransactionConflict, OperationStatus.Conflict, ErrorCategory.Conflict));
                         BaseSubjectIncarnation createdIncarnation = BaseSubjectIncarnation.Create();
                         lifetimes[subjectKey] = new InMemorySubjectLifetimeState(
@@ -2652,14 +2671,17 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                             createdIncarnation, item.Collection.Id, item.RecordId,
                             checked(_working.GlobalMutationPosition + item.Ordinal + 1));
                         lifecycleIncarnations[item.Ordinal] = createdIncarnation;
+                        retainedBytes = checked(retainedBytes + sizeof(int) + 16);
                         break;
                     case BaseSubjectLifecycleMutationKind.Preserve:
-                        if (!lifetimes.ContainsKey(subjectKey))
+                        if (existingLifetime is null)
                             return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid));
+                        lifecycleIncarnations[item.Ordinal] = existingLifetime.Incarnation;
                         break;
                     case BaseSubjectLifecycleMutationKind.Retire:
-                        if (!lifetimes.Remove(subjectKey))
+                        if (existingLifetime is null)
                             return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid));
+                        lifetimes[subjectKey] = null;
                         break;
                     default:
                         return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid));
@@ -2723,7 +2745,17 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 {
                     bool authorityPresent = _working.SubjectContracts.TryGetValue(
                         SubjectContractKey(definition!.Id, definition.Version), out contract);
-                    bool lifetimePresent = lifetimes.TryGetValue(subjectKey, out lifetime);
+                    authorityReads = checked(authorityReads + 1);
+                    bool lifetimeKnown = lifetimes.TryGetValue(subjectKey, out lifetime);
+                    if (!lifetimeKnown)
+                    {
+                        _working.SubjectLifetimes.TryGetValue(subjectKey, out lifetime);
+                        lifetimes[subjectKey] = lifetime;
+                        authorityReads = checked(authorityReads + 1);
+                        if (lifetime is not null)
+                            retainedBytes = checked(retainedBytes + EstimateLifetimeBytes(lifetime));
+                    }
+                    bool lifetimePresent = lifetime is not null;
                     if (contract is not null)
                         subjectAuthorities[SubjectContractKey(definition.Id, definition.Version)] = SubjectAuthority(contract);
                     if (lifetime is not null)
@@ -2731,6 +2763,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                             plan.Items,
                             definition.ValidationPlan.PrivateCollectionId,
                             lifetime.PrivateRecordId);
+                    authorityReads = checked(authorityReads + 1);
                     valid = authorityPresent
                         && lifetimePresent
                         && privateRecord is not null
@@ -2775,7 +2808,6 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     intervals.Add(ExactInterval($"subject:{definition.Id}:contract", contractBytes));
                     intervals.Add(ExactInterval($"subject:{definition.Id}:lifetime", subjectBytes));
                     intervals.Add(ExactInterval($"subject:{definition.Id}:record", recordBytes));
-                    authorityReads = checked(authorityReads + 3);
                     overlays[subjectKey] = new BasePreparedSubjectOverlayEvidence
                     {
                         ContractId = definition.Id,
@@ -2789,7 +2821,15 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 }
             }
             long evidenceBytes = intervals.Sum(static interval => (long)interval.CanonicalLowerBound.Length + interval.CanonicalUpperBound.Length);
-            long transient = checked(captured.Accounting.SelectedBytes + evidenceBytes);
+            BasePreparedSubjectOverlayEvidence[] ownedOverlays = overlays.Values.ToArray();
+            BaseSubjectTransactionAuthorityEvidence[] ownedAuthorities = subjectAuthorities.Values.ToArray();
+            BasePreparedSubjectValidationEvidence[] ownedValidations = validationEvidence.ToArray();
+            long addedEvidenceBytes = checked(evidenceBytes - captured.Accounting.EvidenceBytes);
+            retainedBytes = checked(retainedBytes + addedEvidenceBytes
+                + ownedOverlays.Sum(EstimateOverlayBytes)
+                + ownedAuthorities.Sum(EstimateAuthorityBytes)
+                + ownedValidations.Sum(static value => sizeof(int) * 3L + CanonicalStringBytes(value.SourceFieldId)));
+            long transient = retainedBytes;
             int intervalCount = intervals.Count;
             if (authorityReads > plan.Limits.MaximumAuthorityReads || intervals.Count > plan.Limits.MaximumReadIntervals
                 || evidenceBytes > plan.Limits.MaximumEvidenceBytes || transient > plan.Limits.MaximumTransientBytes)
@@ -2814,6 +2854,54 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             };
             return ValueTask.FromResult(OperationResults.Ok(_preparedMutation));
         });
+
+        private static long CanonicalStringBytes(string? value) =>
+            value is null ? sizeof(int) : checked(sizeof(int) + System.Text.Encoding.UTF8.GetByteCount(value));
+
+        private static long EstimateLifetimeBytes(InMemorySubjectLifetimeState value) => checked(
+            CanonicalStringBytes(value.ContractId)
+            + sizeof(int)
+            + CanonicalStringBytes(value.SubjectId.Value)
+            + 16
+            + CanonicalStringBytes(value.PrivateCollectionId)
+            + CanonicalStringBytes(value.PrivateRecordId.Value)
+            + sizeof(long));
+
+        private static long EstimateOverlayBytes(BasePreparedSubjectOverlayEvidence value) => checked(
+            CanonicalStringBytes(value.ContractId)
+            + sizeof(int)
+            + CanonicalStringBytes(value.SubjectId.Value)
+            + sizeof(byte) * 3L
+            + (value.Incarnation is null ? 0 : 16)
+            + CanonicalStringBytes(value.Scope));
+
+        private static long EstimateAuthorityBytes(BaseSubjectTransactionAuthorityEvidence value) => checked(
+            CanonicalStringBytes(value.ContractId)
+            + sizeof(int)
+            + CanonicalStringBytes(value.ContractChecksum)
+            + CanonicalStringBytes(value.StoreInstanceId)
+            + sizeof(long) * 3L
+            + 16);
+
+        private static long EstimatePlanBytes(BaseAtomicMutationPlan plan)
+        {
+            long bytes = CanonicalStringBytes(plan.PlanDigest) + CanonicalStringBytes(plan.IntentDigest)
+                + CanonicalStringBytes(plan.CaptureDigest) + sizeof(long) * 8L;
+            foreach (BaseAtomicMutationPlanItem item in plan.Items)
+            {
+                bytes = checked(bytes + sizeof(int) * 3L + CanonicalStringBytes(item.Collection.Id)
+                    + CanonicalStringBytes(item.RecordId.Value) + CanonicalStringBytes(item.EventId));
+                if (item.ProposedPayload is not null)
+                    bytes = checked(bytes + JsonSerializer.SerializeToUtf8Bytes(
+                        item.ProposedPayload, HPDBaseJsonSerializerContext.Default.RecordPayload).LongLength);
+            }
+            foreach (BaseSubjectReferenceValidationPlanItem validation in plan.SubjectValidations)
+                bytes = checked(bytes + sizeof(int) * 4L + CanonicalStringBytes(validation.SourceFieldId)
+                    + CanonicalStringBytes(validation.ValidationPlanId)
+                    + CanonicalStringBytes(validation.Reference.SubjectId.Value)
+                    + CanonicalStringBytes(validation.Scope.Value) + 32);
+            return bytes;
+        }
 
         private BaseSubjectTransactionAuthorityEvidence SubjectAuthority(InMemorySubjectContractState contract) => new()
         {
@@ -2984,6 +3072,16 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                         Guarantee = EventDeliveryGuarantee.Transactional,
                     },
                     JournalPosition = new BaseMutationJournalPosition(journalPosition),
+                    SubjectLifecycle = item.SubjectLifecycle is null ? null : new BaseSubjectLifecycleCommitEvidence
+                    {
+                        ContractId = item.SubjectLifecycle.ContractId,
+                        ContractVersion = item.SubjectLifecycle.ContractVersion,
+                        SubjectId = item.SubjectLifecycle.SubjectId.Value,
+                        Kind = item.SubjectLifecycle.Kind,
+                        Incarnation = item.SubjectLifecycle.Kind == BaseSubjectLifecycleMutationKind.Retire
+                            ? null
+                            : lifecycleIncarnations.GetValueOrDefault(item.Ordinal).ToBase64Url(),
+                    },
                 };
                 _working.MutationJournal.Add(journalPosition, CreateJournalEntry(journaledFact, item.Operation.TenantId));
                 BaseOwnedMutationFact owned = BaseOwnedMutationFact.Freeze(journaledFact, 1);

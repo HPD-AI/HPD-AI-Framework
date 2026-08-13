@@ -110,11 +110,14 @@ public sealed partial class SqliteRecordStore
             if (_quarantinedMutations.Count != 0 || _quarantinedAdministration.Count != 0)
                 return SubjectAdministrationFailure<BaseSubjectEpochRotationResult>(BaseSubjectErrorCodes.ValidationUnavailable);
 
-            await using SqliteConnection connection = await OpenInitializedAsync(cancellationToken).ConfigureAwait(false);
-            await using SqliteTransaction transaction = (SqliteTransaction)await connection
-                .BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-            SqliteSubjectContractRow? contract = await ReadSubjectContractAsync(
-                connection, transaction, request.ContractId, request.ContractVersion, cancellationToken).ConfigureAwait(false);
+            await using SqliteConnection connection = await OpenSubjectMaintenanceAsync(cancellationToken).ConfigureAwait(false);
+            SqliteSubjectContractRow? contract;
+            await using (SqliteTransaction readTransaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false))
+            {
+                contract = await ReadSubjectContractAsync(
+                    connection, readTransaction, request.ContractId, request.ContractVersion, cancellationToken).ConfigureAwait(false);
+                await readTransaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            }
             if (contract is null)
                 return SubjectAdministrationFailure<BaseSubjectEpochRotationResult>(
                     BaseSubjectErrorCodes.ContractInvalid,
@@ -128,8 +131,17 @@ public sealed partial class SqliteRecordStore
             if (contract.StateGeneration == long.MaxValue || !ValidSubjectPublicationReceipt(contract))
                 return SubjectAdministrationFailure<BaseSubjectEpochRotationResult>(BaseSubjectErrorCodes.ProviderContractInvalid);
 
+            SubjectRewriteCheckpoint checkpoint = await StageSubjectReferenceRewriteAsync(
+                connection, contract, cancellationToken).ConfigureAwait(false);
             long publishedGeneration = checked(contract.StateGeneration + 1);
-            BaseSubjectAuthorityEpoch replacement = BaseSubjectAuthorityEpoch.Create();
+            BaseSubjectAuthorityEpoch replacement = checkpoint.NewEpoch;
+            await using SqliteTransaction transaction = (SqliteTransaction)await connection
+                .BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+            SqliteSubjectContractRow? current = await ReadSubjectContractAsync(
+                connection, transaction, request.ContractId, request.ContractVersion, cancellationToken).ConfigureAwait(false);
+            if (current is null || current.StateGeneration != contract.StateGeneration
+                || !current.AuthorityEpoch.Equals(contract.AuthorityEpoch))
+                return SubjectAdministrationFailure<BaseSubjectEpochRotationResult>(BaseSubjectErrorCodes.SchemaGenerationChanged);
             long publicationPosition = await AppendSubjectPublicationAsync(
                 connection,
                 transaction,
@@ -141,18 +153,8 @@ public sealed partial class SqliteRecordStore
                 BaseSubjectAuthorityPublicationKind.EpochRotation,
                 cancellationToken).ConfigureAwait(false);
 
-            (long examined, long rewritten, BaseRecordMutationFact[] facts) = await RewriteCurrentSubjectReferencesAsync(
-                connection,
-                transaction,
-                request.ContractId,
-                request.ContractVersion,
-                contract.AuthorityEpoch,
-                replacement,
-                publicationPosition,
-                cancellationToken).ConfigureAwait(false);
-
-            if (!await ApplyAdministrationProjectionsAsync(connection, transaction, facts, cancellationToken).ConfigureAwait(false))
-                return SubjectAdministrationFailure<BaseSubjectEpochRotationResult>(BaseSubjectErrorCodes.ProviderContractInvalid);
+            await ApplyStagedSubjectReferenceRewriteAsync(
+                connection, transaction, publicationPosition, cancellationToken).ConfigureAwait(false);
 
             string digest = BaseSubjectPublicationIntegrity.Compute(
                 request.ContractId,
@@ -195,8 +197,8 @@ WHERE contract_id=$contract AND contract_version=$version AND state_generation=$
                 PreviousStateGeneration = contract.StateGeneration,
                 PublishedStateGeneration = publishedGeneration,
                 PublicationPosition = new BaseMutationJournalPosition(publicationPosition),
-                ExaminedRecords = examined,
-                RewrittenReferences = rewritten,
+                ExaminedRecords = checkpoint.Examined,
+                RewrittenReferences = checkpoint.Rewritten,
             });
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
@@ -252,11 +254,8 @@ WHERE contract_id=$contract AND contract_version=$version AND state_generation=$
         IReadOnlyDictionary<string, long> preRestoreGenerations,
         CancellationToken cancellationToken)
     {
-        await using SqliteTransaction transaction = (SqliteTransaction)await connection
-            .BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         await using (SqliteCommand updateRestore = connection.CreateCommand())
         {
-            updateRestore.Transaction = transaction;
             updateRestore.CommandTimeout = TimeoutSeconds();
             updateRestore.CommandText = $"INSERT INTO {_names.ProviderState}(key,value) VALUES ('restore_epoch',$epoch) ON CONFLICT(key) DO UPDATE SET value=excluded.value;";
             updateRestore.Parameters.AddWithValue("$epoch", restoreEpoch.ToString(CultureInfo.InvariantCulture));
@@ -267,12 +266,13 @@ WHERE contract_id=$contract AND contract_version=$version AND state_generation=$
             .OrderBy(static definition => definition.Id, StringComparer.Ordinal)
             .ThenBy(static definition => definition.Version))
         {
-            SqliteSubjectContractRow? artifact = await ReadSubjectContractAsync(
-                connection,
-                transaction,
-                definition.Id,
-                definition.Version,
-                cancellationToken).ConfigureAwait(false);
+            SqliteSubjectContractRow? artifact;
+            await using (SqliteTransaction readTransaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false))
+            {
+                artifact = await ReadSubjectContractAsync(
+                    connection, readTransaction, definition.Id, definition.Version, cancellationToken).ConfigureAwait(false);
+                await readTransaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            }
             if (artifact is null
                 || !string.Equals(artifact.ContractChecksum, definition.ValidationPlan.ContractChecksum, StringComparison.Ordinal)
                 || !ValidSubjectPublicationReceipt(artifact))
@@ -281,7 +281,12 @@ WHERE contract_id=$contract AND contract_version=$version AND state_generation=$
             preRestoreGenerations.TryGetValue(SubjectContractKey(definition.Id, definition.Version), out long preRestore);
             long previousGeneration = Math.Max(preRestore, artifact.StateGeneration);
             long publishedGeneration = checked(previousGeneration + 1);
-            BaseSubjectAuthorityEpoch replacement = BaseSubjectAuthorityEpoch.Create();
+            SubjectRewriteCheckpoint checkpoint = await StageSubjectReferenceRewriteAsync(
+                connection, artifact, cancellationToken,
+                revisionFactory: revision => RestoreDerivedRevision(restoreEpoch, revision)).ConfigureAwait(false);
+            BaseSubjectAuthorityEpoch replacement = checkpoint.NewEpoch;
+            await using SqliteTransaction transaction = (SqliteTransaction)await connection
+                .BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
             long publicationPosition = await AppendSubjectPublicationAsync(
                 connection,
                 transaction,
@@ -292,18 +297,8 @@ WHERE contract_id=$contract AND contract_version=$version AND state_generation=$
                 restoreEpoch,
                 BaseSubjectAuthorityPublicationKind.RestoreTransformation,
                 cancellationToken).ConfigureAwait(false);
-            (_, _, BaseRecordMutationFact[] facts) = await RewriteCurrentSubjectReferencesAsync(
-                connection,
-                transaction,
-                definition.Id,
-                definition.Version,
-                artifact.AuthorityEpoch,
-                replacement,
-                publicationPosition,
-                cancellationToken,
-                revisionFactory: revision => RestoreDerivedRevision(restoreEpoch, revision)).ConfigureAwait(false);
-            if (!await ApplyAdministrationProjectionsAsync(connection, transaction, facts, cancellationToken).ConfigureAwait(false))
-                throw new InvalidDataException(BaseSubjectErrorCodes.ProviderContractInvalid);
+            await ApplyStagedSubjectReferenceRewriteAsync(
+                connection, transaction, publicationPosition, cancellationToken).ConfigureAwait(false);
 
             string digest = BaseSubjectPublicationIntegrity.Compute(
                 definition.Id,
@@ -337,112 +332,272 @@ WHERE contract_id=$contract AND contract_version=$version AND state_generation=$
             update.Parameters.AddWithValue("$artifact", artifact.StateGeneration);
             if (await update.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
                 throw new InvalidOperationException(BaseSubjectErrorCodes.SchemaGenerationChanged);
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         }
-
-        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    private async ValueTask<(long Examined, long Rewritten, BaseRecordMutationFact[] Facts)> RewriteCurrentSubjectReferencesAsync(
+    private async ValueTask<SubjectRewriteCheckpoint> StageSubjectReferenceRewriteAsync(
         SqliteConnection connection,
-        SqliteTransaction transaction,
-        string contractId,
-        int contractVersion,
-        BaseSubjectAuthorityEpoch expected,
-        BaseSubjectAuthorityEpoch replacement,
-        long publicationPosition,
+        SqliteSubjectContractRow contract,
         CancellationToken cancellationToken,
         Func<long, long>? revisionFactory = null)
     {
-        long examined = 0;
-        long rewritten = 0;
-        var facts = new List<BaseRecordMutationFact>();
+        SubjectRewriteCheckpoint? existing = await ReadSubjectRewriteCheckpointAsync(connection, cancellationToken).ConfigureAwait(false);
+        SubjectRewriteCheckpoint checkpoint;
+        if (existing is null)
+        {
+            checkpoint = new SubjectRewriteCheckpoint(
+                contract.ContractId, contract.ContractVersion, contract.StateGeneration,
+                contract.AuthorityEpoch, BaseSubjectAuthorityEpoch.Create(), 0, string.Empty, 0, 0, 0,
+                Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData([])));
+            await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+            await using SqliteCommand clear = connection.CreateCommand();
+            clear.Transaction = transaction;
+            clear.CommandTimeout = TimeoutSeconds();
+            clear.CommandText = $"DELETE FROM {_names.SubjectRewriteStage};";
+            await clear.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            await WriteSubjectRewriteCheckpointAsync(connection, transaction, checkpoint, cancellationToken).ConfigureAwait(false);
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            checkpoint = existing;
+            if (!string.Equals(checkpoint.ContractId, contract.ContractId, StringComparison.Ordinal)
+                || checkpoint.ContractVersion != contract.ContractVersion
+                || checkpoint.ExpectedGeneration != contract.StateGeneration
+                || !checkpoint.OldEpoch.Equals(contract.AuthorityEpoch))
+                throw new InvalidDataException(BaseSubjectErrorCodes.ProviderContractInvalid);
+        }
+
+        for (int collectionOrdinal = checkpoint.CollectionOrdinal; collectionOrdinal < _physical.Collections.Length; collectionOrdinal++)
+        {
+            SqlitePhysicalModel.CollectionModel collection = _physical.Collections[collectionOrdinal];
+            FieldDefinition[] fields = collection.Fields.Where(field => field.Definition.SubjectReference is { } reference
+                    && string.Equals(reference.ContractId, contract.ContractId, StringComparison.Ordinal)
+                    && reference.ContractVersion == contract.ContractVersion)
+                .Select(static field => field.Definition).ToArray();
+            string after = collectionOrdinal == checkpoint.CollectionOrdinal ? checkpoint.LastRecordId : string.Empty;
+            while (fields.Length != 0)
+            {
+                var page = new List<RecordEnvelope>(256);
+                await using (SqliteCommand select = connection.CreateCommand())
+                {
+                    select.CommandTimeout = TimeoutSeconds();
+                    select.CommandText = $"SELECT {collection.SelectList} FROM {collection.Table} WHERE record_id COLLATE BINARY > $after COLLATE BINARY ORDER BY record_id COLLATE BINARY LIMIT 256;";
+                    select.Parameters.AddWithValue("$after", after);
+                    await using SqliteDataReader reader = await select.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+                    while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) page.Add(collection.ReadEnvelope(reader, _options.StoreId));
+                }
+                if (page.Count == 0) break;
+                await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+                foreach (RecordEnvelope before in page)
+                {
+                    after = before.Id.Value;
+                    long priorExamined = checkpoint.Examined;
+                    long priorRewritten = checkpoint.Rewritten;
+                    long priorBytes = checkpoint.CanonicalBytes;
+                    string priorChecksum = checkpoint.Checksum;
+                    Dictionary<string, JsonElement> values = SqliteRecordSerializer.NormalizeObjectPayload(before.Payload).Fields ?? [];
+                    bool changed = false;
+                    foreach (FieldDefinition field in fields)
+                    {
+                        if (!values.TryGetValue(field.WireName, out JsonElement value) || value.ValueKind == JsonValueKind.Null) continue;
+                        if (!BaseSubjectReferenceEncoding.TryRewriteAuthorityEpoch(value, contract.AuthorityEpoch, checkpoint.NewEpoch, out JsonElement next))
+                            throw new InvalidDataException(BaseSubjectErrorCodes.ProviderContractInvalid);
+                        values[field.WireName] = next;
+                        changed = true;
+                        checkpoint = checkpoint with { Rewritten = checked(checkpoint.Rewritten + 1) };
+                    }
+                    checkpoint = checkpoint with { Examined = checked(checkpoint.Examined + 1) };
+                    if (!changed) continue;
+                    long previousRevision = ParseSqliteRevision(before.Metadata.Revision);
+                    long replacementRevision = revisionFactory is null
+                        ? checked(previousRevision + 1)
+                        : revisionFactory(previousRevision);
+                    string payload = SqliteRecordSerializer.Serialize(new RecordPayload { Kind = RecordPayloadKind.FieldMap, Fields = values });
+                    byte[] payloadBytes = System.Text.Encoding.UTF8.GetBytes(payload);
+                    checkpoint = checkpoint with
+                    {
+                        CanonicalBytes = checked(checkpoint.CanonicalBytes + payloadBytes.LongLength),
+                        Checksum = ExtendSubjectRewriteChecksum(checkpoint.Checksum, collection.Definition.Id, before.Id.Value, payloadBytes),
+                    };
+                    await using SqliteCommand stage = connection.CreateCommand();
+                    stage.Transaction = transaction;
+                    stage.CommandTimeout = TimeoutSeconds();
+                    stage.CommandText = $"INSERT INTO {_names.SubjectRewriteStage}(collection_id,record_id,previous_revision,replacement_revision,payload_json) VALUES($collection,$record,$previous,$replacement,$payload) ON CONFLICT(collection_id,record_id) DO NOTHING;";
+                    stage.Parameters.AddWithValue("$collection", collection.Definition.Id);
+                    stage.Parameters.AddWithValue("$record", before.Id.Value);
+                    stage.Parameters.AddWithValue("$previous", previousRevision);
+                    stage.Parameters.AddWithValue("$replacement", replacementRevision);
+                    stage.Parameters.Add("$payload", SqliteType.Blob).Value = payloadBytes;
+                    int stagedCount = await stage.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+                    if (stagedCount == 0)
+                    {
+                        checkpoint = checkpoint with
+                        {
+                            Examined = priorExamined,
+                            Rewritten = priorRewritten,
+                            CanonicalBytes = priorBytes,
+                            Checksum = priorChecksum,
+                        };
+                    }
+                }
+                checkpoint = checkpoint with { CollectionOrdinal = collectionOrdinal, LastRecordId = after };
+                await WriteSubjectRewriteCheckpointAsync(connection, transaction, checkpoint, cancellationToken).ConfigureAwait(false);
+                await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+                await _administrationOperations.BeforePhaseAsync("subjectRewritePageCommitted", cancellationToken).ConfigureAwait(false);
+            }
+            checkpoint = checkpoint with { CollectionOrdinal = collectionOrdinal + 1, LastRecordId = string.Empty };
+            await using SqliteTransaction progress = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+            await WriteSubjectRewriteCheckpointAsync(connection, progress, checkpoint, cancellationToken).ConfigureAwait(false);
+            await progress.CommitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        return checkpoint;
+    }
+
+    private async ValueTask ApplyStagedSubjectReferenceRewriteAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        long publicationPosition,
+        CancellationToken cancellationToken)
+    {
         foreach (SqlitePhysicalModel.CollectionModel collection in _physical.Collections)
         {
-            FieldDefinition[] fields = collection.Fields
-                .Where(field => field.Definition.SubjectReference is { } reference
-                    && string.Equals(reference.ContractId, contractId, StringComparison.Ordinal)
-                    && reference.ContractVersion == contractVersion)
-                .Select(static field => field.Definition)
-                .ToArray();
-            if (fields.Length == 0)
-                continue;
-
-            var records = new List<RecordEnvelope>();
-            await using (SqliteCommand select = connection.CreateCommand())
+            string after = string.Empty;
+            while (true)
             {
-                select.Transaction = transaction;
-                select.CommandTimeout = TimeoutSeconds();
-                select.CommandText = $"SELECT {collection.SelectList} FROM {collection.Table} ORDER BY record_id COLLATE BINARY;";
-                await using SqliteDataReader reader = await select.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-                while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                var staged = new List<(string RecordId, long Previous, long Replacement, RecordPayload Payload)>(256);
+                await using (SqliteCommand select = connection.CreateCommand())
                 {
-                    examined = checked(examined + 1);
-                    records.Add(collection.ReadEnvelope(reader, _options.StoreId));
+                    select.Transaction = transaction;
+                    select.CommandTimeout = TimeoutSeconds();
+                    select.CommandText = $"SELECT record_id,previous_revision,replacement_revision,payload_json FROM {_names.SubjectRewriteStage} WHERE collection_id=$collection AND record_id COLLATE BINARY > $after COLLATE BINARY ORDER BY record_id COLLATE BINARY LIMIT 256;";
+                    select.Parameters.AddWithValue("$collection", collection.Definition.Id);
+                    select.Parameters.AddWithValue("$after", after);
+                    await using SqliteDataReader reader = await select.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+                    while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                        staged.Add((reader.GetString(0), reader.GetInt64(1), reader.GetInt64(2),
+                            SqliteRecordSerializer.Deserialize(System.Text.Encoding.UTF8.GetString((byte[])reader.GetValue(3)))));
                 }
-            }
-
-            foreach (RecordEnvelope before in records)
-            {
-                Dictionary<string, JsonElement> values = SqliteRecordSerializer.NormalizeObjectPayload(before.Payload).Fields ?? [];
-                bool changed = false;
-                foreach (FieldDefinition field in fields)
+                if (staged.Count == 0) break;
+            foreach ((string recordId, long previous, long replacement, RecordPayload payload) in staged)
                 {
-                    if (!values.TryGetValue(field.WireName, out JsonElement value) || value.ValueKind == JsonValueKind.Null)
-                        continue;
-                    if (!BaseSubjectReferenceEncoding.TryRewriteAuthorityEpoch(value, expected, replacement, out JsonElement next))
-                        throw new InvalidDataException(BaseSubjectErrorCodes.ProviderContractInvalid);
-                    values[field.WireName] = next;
-                    changed = true;
-                    rewritten = checked(rewritten + 1);
-                }
-                if (!changed)
-                    continue;
-
-                long revision = ParseSqliteRevision(before.Metadata.Revision);
-                long nextRevision = revisionFactory is null ? checked(revision + 1) : revisionFactory(revision);
-                DateTimeOffset updatedAt = _timeProvider.GetUtcNow();
-                var payload = new RecordPayload { Kind = RecordPayloadKind.FieldMap, Fields = values };
-                await using (SqliteCommand update = connection.CreateCommand())
-                {
+                    after = recordId;
+                    await using SqliteCommand update = connection.CreateCommand();
                     update.Transaction = transaction;
                     update.CommandTimeout = TimeoutSeconds();
-                    update.CommandText = $"UPDATE {collection.Table} SET revision=$revision, updated_at=$updated, latest_mutation_position=$position{collection.PayloadAssignmentClause} WHERE record_id=$id AND revision=$previous;";
-                    update.Parameters.AddWithValue("$revision", nextRevision);
-                    update.Parameters.AddWithValue("$updated", updatedAt.ToString("O", CultureInfo.InvariantCulture));
+                    update.CommandText = $"UPDATE {collection.Table} SET revision=$replacement,updated_at=$updated,latest_mutation_position=$position{collection.PayloadAssignmentClause} WHERE record_id=$record AND revision=$previous;";
+                    update.Parameters.AddWithValue("$replacement", replacement);
+                    update.Parameters.AddWithValue("$updated", _timeProvider.GetUtcNow().ToString("O", CultureInfo.InvariantCulture));
                     update.Parameters.AddWithValue("$position", publicationPosition);
-                    update.Parameters.AddWithValue("$id", before.Id.Value);
-                    update.Parameters.AddWithValue("$previous", revision);
+                    update.Parameters.AddWithValue("$record", recordId);
+                    update.Parameters.AddWithValue("$previous", previous);
                     collection.AddPayloadParameters(update, payload, includeExtensions: true);
                     if (await update.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
                         throw new InvalidOperationException(BaseSubjectErrorCodes.TransactionConflict);
                 }
-                RecordEnvelope after = before with
+                var projectionFacts = new List<BaseRecordMutationFact>(staged.Count);
+                foreach ((string recordId, long previous, long replacement, RecordPayload _) in staged)
                 {
-                    Payload = SqliteRecordSerializer.Clone(payload),
-                    Metadata = SqliteRecordMapper.Metadata(nextRevision, before.Metadata.CreatedAt!.Value, updatedAt, _options.StoreId),
-                };
-                facts.Add(new BaseRecordMutationFact
-                {
-                    RequestedOperation = BaseRecordMutationKind.Replace,
-                    CommittedOperation = BaseCommittedRecordMutationKind.Replace,
-                    Collection = collection.Definition,
-                    Event = new EventReference
+                    RecordEnvelope? afterRecord = await ReadAsync(
+                        connection, collection.Definition.Id, recordId, cancellationToken, transaction, TimeoutSeconds()).ConfigureAwait(false);
+                    if (afterRecord is null || ParseSqliteRevision(afterRecord.Metadata.Revision) != replacement)
+                        throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid);
+                    projectionFacts.Add(new BaseRecordMutationFact
                     {
-                        EventId = $"subject-rotation:{contractId}:{contractVersion}:{publicationPosition}:{before.Id.Value}",
-                        Type = "base.subject.authorityRotation",
-                        Resource = before.Id.Value,
-                        PublishedAt = updatedAt,
-                        Guarantee = EventDeliveryGuarantee.Transactional,
-                    },
-                    JournalPosition = new BaseMutationJournalPosition(publicationPosition),
-                    Before = before,
-                    After = after,
-                    ChangedFields = fields.Select(static field => field.WireName).ToArray(),
-                });
+                        RequestedOperation = BaseRecordMutationKind.Replace,
+                        CommittedOperation = BaseCommittedRecordMutationKind.Replace,
+                        Collection = collection.Definition,
+                        Event = new EventReference
+                        {
+                            EventId = $"subject-maintenance:{publicationPosition}:{collection.Definition.Id}:{recordId}",
+                            Type = "base.subject.authorityRotation",
+                            Resource = recordId,
+                            PublishedAt = _timeProvider.GetUtcNow(),
+                            Guarantee = EventDeliveryGuarantee.Transactional,
+                        },
+                        JournalPosition = new BaseMutationJournalPosition(publicationPosition),
+                        Before = new RecordEnvelope
+                        {
+                            CollectionId = collection.Definition.Id,
+                            Id = new RecordId(recordId),
+                            Payload = afterRecord.Payload,
+                            Metadata = afterRecord.Metadata with { Revision = new RevisionToken($"sqlite:{previous}") },
+                        },
+                        After = afterRecord,
+                    });
+                }
+                if (projectionFacts.Count != 0 && !await ApplyAdministrationProjectionsAsync(
+                        connection, transaction, projectionFacts.ToArray(), cancellationToken).ConfigureAwait(false))
+                    throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid);
             }
         }
-        return (examined, rewritten, facts.ToArray());
+        await using SqliteCommand cleanup = connection.CreateCommand();
+        cleanup.Transaction = transaction;
+        cleanup.CommandTimeout = TimeoutSeconds();
+        cleanup.CommandText = $"DELETE FROM {_names.SubjectRewriteStage}; DELETE FROM {_names.SubjectMaintenance} WHERE singleton=1;";
+        await cleanup.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
+
+    private async ValueTask<SubjectRewriteCheckpoint?> ReadSubjectRewriteCheckpointAsync(
+        SqliteConnection connection,
+        CancellationToken cancellationToken)
+    {
+        await using SqliteCommand command = connection.CreateCommand();
+        command.CommandTimeout = TimeoutSeconds();
+        command.CommandText = $"SELECT contract_id,contract_version,expected_generation,old_epoch,new_epoch,collection_ordinal,last_record_id,examined_count,rewritten_count,canonical_bytes,checksum FROM {_names.SubjectMaintenance} WHERE singleton=1;";
+        await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) return null;
+        return new SubjectRewriteCheckpoint(reader.GetString(0), reader.GetInt32(1), reader.GetInt64(2),
+            new BaseSubjectAuthorityEpoch((byte[])reader.GetValue(3)), new BaseSubjectAuthorityEpoch((byte[])reader.GetValue(4)),
+            reader.GetInt32(5), reader.GetString(6), reader.GetInt64(7), reader.GetInt64(8), reader.GetInt64(9), reader.GetString(10));
+    }
+
+    private async ValueTask WriteSubjectRewriteCheckpointAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        SubjectRewriteCheckpoint checkpoint,
+        CancellationToken cancellationToken)
+    {
+        await using SqliteCommand command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandTimeout = TimeoutSeconds();
+        command.CommandText = $"INSERT INTO {_names.SubjectMaintenance}(singleton,contract_id,contract_version,expected_generation,old_epoch,new_epoch,collection_ordinal,last_record_id,examined_count,rewritten_count,canonical_bytes,checksum) VALUES(1,$contract,$version,$generation,$old,$new,$collection,$record,$examined,$rewritten,$bytes,$checksum) ON CONFLICT(singleton) DO UPDATE SET collection_ordinal=excluded.collection_ordinal,last_record_id=excluded.last_record_id,examined_count=excluded.examined_count,rewritten_count=excluded.rewritten_count,canonical_bytes=excluded.canonical_bytes,checksum=excluded.checksum;";
+        command.Parameters.AddWithValue("$contract", checkpoint.ContractId);
+        command.Parameters.AddWithValue("$version", checkpoint.ContractVersion);
+        command.Parameters.AddWithValue("$generation", checkpoint.ExpectedGeneration);
+        command.Parameters.Add("$old", SqliteType.Blob).Value = checkpoint.OldEpoch.ToArray();
+        command.Parameters.Add("$new", SqliteType.Blob).Value = checkpoint.NewEpoch.ToArray();
+        command.Parameters.AddWithValue("$collection", checkpoint.CollectionOrdinal);
+        command.Parameters.AddWithValue("$record", checkpoint.LastRecordId);
+        command.Parameters.AddWithValue("$examined", checkpoint.Examined);
+        command.Parameters.AddWithValue("$rewritten", checkpoint.Rewritten);
+        command.Parameters.AddWithValue("$bytes", checkpoint.CanonicalBytes);
+        command.Parameters.AddWithValue("$checksum", checkpoint.Checksum);
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private static string ExtendSubjectRewriteChecksum(string prior, string collection, string record, byte[] payload)
+    {
+        byte[] prefix = System.Text.Encoding.UTF8.GetBytes(prior + "\n" + collection + "\n" + record + "\n");
+        byte[] input = new byte[prefix.Length + payload.Length];
+        prefix.CopyTo(input, 0);
+        payload.CopyTo(input, prefix.Length);
+        return Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(input));
+    }
+
+    private sealed record SubjectRewriteCheckpoint(
+        string ContractId,
+        int ContractVersion,
+        long ExpectedGeneration,
+        BaseSubjectAuthorityEpoch OldEpoch,
+        BaseSubjectAuthorityEpoch NewEpoch,
+        int CollectionOrdinal,
+        string LastRecordId,
+        long Examined,
+        long Rewritten,
+        long CanonicalBytes,
+        string Checksum);
 
     private async ValueTask<bool> ApplyAdministrationProjectionsAsync(
         SqliteConnection connection,

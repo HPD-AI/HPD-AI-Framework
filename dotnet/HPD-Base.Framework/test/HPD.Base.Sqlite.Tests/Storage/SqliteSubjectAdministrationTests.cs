@@ -11,6 +11,47 @@ namespace HPD.Base.Sqlite.Tests.Storage;
 public sealed class SqliteSubjectAdministrationTests
 {
     [Fact]
+    public async Task Rotation_resumes_from_a_durable_page_checkpoint_and_remains_closed_between_attempts()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"hpd-base-subject-resume-{Guid.NewGuid():N}.db");
+        const string checksum = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        CollectionDefinition collection = ConsumerCollection(checksum);
+        var interruption = new OneShotSubjectRewriteInterruption();
+        var options = new HPDBaseSqliteOptions
+        {
+            StoreId = $"subject-resume-{Guid.NewGuid():N}", DataSource = path, EnableWal = false,
+            AdministrationEnabled = true, Collections = [collection], ExportedSubjects = [SubjectDefinition(checksum)],
+        };
+        try
+        {
+            await using SqliteRecordStore store = SqliteTestFactory.Create(options, administrationOperations: interruption);
+            await store.InitializeUnacceptedSchemaForTestsAsync();
+            byte[] epoch = await ReadEpochAsync(path);
+            for (int index = 0; index < 300; index++)
+                (await store.CreateAsync(collection, Create($"consumer-{index:D4}", Reference(epoch, 7)),
+                    Operation(BaseOperationKind.Create, collection.Id))).IsSuccess().Should().BeTrue();
+
+            OperationResult<BaseSubjectEpochRotationResult> interrupted = await store.RotateEpochAsync(Rotation(1));
+            interrupted.IsSuccess().Should().BeFalse();
+            (await store.GetAsync(collection, new RecordId("consumer-0000"), Operation(BaseOperationKind.Get, collection.Id)))
+                .IsSuccess().Should().BeFalse();
+
+            OperationResult<BaseSubjectEpochRotationResult> resumed = await store.RotateEpochAsync(Rotation(1));
+            resumed.IsSuccess().Should().BeTrue(resumed.Error?.Code);
+            resumed.Value!.ExaminedRecords.Should().Be(300);
+            resumed.Value.RewrittenReferences.Should().Be(300);
+            (await store.GetAsync(collection, new RecordId("consumer-0299"), Operation(BaseOperationKind.Get, collection.Id)))
+                .IsSuccess().Should().BeTrue();
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            foreach (string candidate in new[] { path, path + "-wal", path + "-shm" })
+                if (File.Exists(candidate)) File.Delete(candidate);
+        }
+    }
+
+    [Fact]
     public async Task LoweringReceiptUsesExactInstalledPlanStoreAndSchemaAuthority()
     {
         const string checksum = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -235,6 +276,20 @@ public sealed class SqliteSubjectAdministrationTests
         await using SqliteDataReader reader = await command.ExecuteReaderAsync();
         (await reader.ReadAsync()).Should().BeTrue();
         return (reader.GetInt64(0), reader.GetInt64(1), reader.GetInt32(2));
+    }
+
+    private sealed class OneShotSubjectRewriteInterruption : ISqliteAdministrationOperationController
+    {
+        private int _remaining = 1;
+        public ValueTask BeforePhaseAsync(string phase, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (phase == "subjectRewritePageCommitted" && Interlocked.Exchange(ref _remaining, 0) == 1)
+                throw new IOException("Injected interruption after a durable subject rewrite page.");
+            return ValueTask.CompletedTask;
+        }
+
+        public void DeleteFile(string path) => File.Delete(path);
     }
 
     private static void InitializeAuthorityMetadata(string path)

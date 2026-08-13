@@ -315,6 +315,32 @@ internal sealed class DefaultBaseSelectionMutationRuntime(
         return filter is null || Visit(filter, 1);
     }
 
+    internal static bool WithinSubjectLimits(
+        ImmutableArray<BaseSubjectReferenceValidationPlanItem> validations,
+        BaseGeneratedSubjectRegistration[] participating)
+    {
+        if (participating.Length == 0)
+            return validations.Length == 0;
+        int distinctPlans = validations
+            .Select(static validation => (validation.ValidationPlanId, validation.ValidationPlanVersion))
+            .Distinct().Count();
+        if (participating.Any(registration =>
+                validations.Length > registration.Definition.ValidationPlan.Limits.MaximumReferencesPerMutation
+                || distinctPlans > registration.Definition.ValidationPlan.Limits.MaximumValidationPlansPerMutation))
+            return false;
+        foreach (IGrouping<int, BaseSubjectReferenceValidationPlanItem> record in validations.GroupBy(static validation => validation.MutationOrdinal))
+        {
+            BaseGeneratedSubjectRegistration[] targets = record.Select(validation => participating.Single(candidate =>
+                    candidate.Definition.ValidationPlan.Id == validation.ValidationPlanId
+                    && candidate.Definition.ValidationPlan.Version == validation.ValidationPlanVersion))
+                .DistinctBy(static registration => (registration.Definition.Id, registration.Definition.Version))
+                .ToArray();
+            if (targets.Any(target => record.Count() > target.Definition.ValidationPlan.Limits.MaximumReferencesPerRecord))
+                return false;
+        }
+        return true;
+    }
+
     private static bool IsTotalOrder(QuerySort[] sort) =>
         string.Equals(sort[^1].Field, "id", StringComparison.Ordinal)
         && sort.Count(static item => string.Equals(item.Field, "id", StringComparison.Ordinal)) == 1
@@ -486,16 +512,56 @@ internal sealed class BaseSelectionMutationProcessor(
         if (!subjectPlan.IsSuccess() || subjectPlan.Value == default)
             return Failed(subjectPlan.Error ?? Error(BaseSubjectErrorCodes.ContractInvalid, ErrorCategory.Validation));
         finalized = subjectPlan.Value.Items;
+        BaseGeneratedSubjectRegistration[] participatingSubjects = subjectPlan.Value.Validations
+            .Select(validation => subjects.All.SingleOrDefault(candidate =>
+                candidate.Definition.ValidationPlan.Id == validation.ValidationPlanId
+                && candidate.Definition.ValidationPlan.Version == validation.ValidationPlanVersion))
+            .Concat(finalized.Where(static item => item.SubjectLifecycle is not null).Select(item =>
+                subjects.Find(item.SubjectLifecycle!.ContractId, item.SubjectLifecycle.ContractVersion)))
+            .Where(static registration => registration is not null)
+            .Select(static registration => registration!)
+            .DistinctBy(static registration => (registration.Definition.Id, registration.Definition.Version))
+            .ToArray();
+        if (!DefaultBaseSelectionMutationRuntime.WithinSubjectLimits(subjectPlan.Value.Validations, participatingSubjects))
+            return Failed(BaseSelectionErrorCodes.LimitExceeded, ErrorCategory.Validation);
+        int subjectValidationLimit = participatingSubjects.Length == 0
+            ? profile.Limits.MaximumProducedMutations
+            : Math.Min(profile.Limits.MaximumProducedMutations,
+                participatingSubjects.Min(static registration => registration.Definition.ValidationPlan.Limits.MaximumReferencesPerMutation));
+        int authorityReadLimit = participatingSubjects.Length == 0
+            ? profile.Limits.MaximumReadIntervals
+            : Math.Min(profile.Limits.MaximumReadIntervals,
+                participatingSubjects.Min(static registration => registration.Definition.ValidationPlan.Limits.MaximumAuthorityReads));
+        int intervalLimit = participatingSubjects.Length == 0
+            ? profile.Limits.MaximumReadIntervals
+            : Math.Min(profile.Limits.MaximumReadIntervals,
+                participatingSubjects.Min(static registration => registration.Definition.ValidationPlan.Limits.MaximumReadIntervals));
+        long selectedByteLimit = participatingSubjects.Length == 0
+            ? profile.Limits.MaximumSelectedBytes
+            : Math.Min(profile.Limits.MaximumSelectedBytes,
+                participatingSubjects.Min(static registration => registration.Definition.ValidationPlan.Limits.MaximumSelectedBytes));
+        long evidenceByteLimit = participatingSubjects.Length == 0
+            ? profile.Limits.MaximumTransientBytes
+            : Math.Min(profile.Limits.MaximumTransientBytes,
+                participatingSubjects.Min(static registration => registration.Definition.ValidationPlan.Limits.MaximumEvidenceBytes));
+        long transientByteLimit = participatingSubjects.Length == 0
+            ? profile.Limits.MaximumTransientBytes
+            : Math.Min(profile.Limits.MaximumTransientBytes,
+                participatingSubjects.Min(static registration => registration.Definition.ValidationPlan.Limits.MaximumTransientBytes));
+        TimeSpan executionTimeout = participatingSubjects.Length == 0
+            ? profile.Limits.ExecutionTimeout
+            : participatingSubjects.Select(static registration => registration.Definition.ValidationPlan.Limits.ExecutionTimeout)
+                .Append(profile.Limits.ExecutionTimeout).Min();
         var limits = new BaseAtomicMutationExecutionLimits
         {
             MaximumItems = profile.Limits.MaximumProducedMutations,
-            MaximumSelectedBytes = profile.Limits.MaximumSelectedBytes,
-            MaximumEvidenceBytes = profile.Limits.MaximumTransientBytes,
-            MaximumTransientBytes = profile.Limits.MaximumTransientBytes,
-            MaximumReadIntervals = profile.Limits.MaximumReadIntervals,
-            MaximumSubjectValidations = profile.Limits.MaximumProducedMutations,
-            MaximumAuthorityReads = profile.Limits.MaximumReadIntervals,
-            ExecutionTimeout = profile.Limits.ExecutionTimeout,
+            MaximumSelectedBytes = selectedByteLimit,
+            MaximumEvidenceBytes = evidenceByteLimit,
+            MaximumTransientBytes = transientByteLimit,
+            MaximumReadIntervals = intervalLimit,
+            MaximumSubjectValidations = subjectValidationLimit,
+            MaximumAuthorityReads = authorityReadLimit,
+            ExecutionTimeout = executionTimeout,
         };
         var mutationPlan = new BaseAtomicMutationPlan
         {
@@ -519,7 +585,7 @@ internal sealed class BaseSelectionMutationProcessor(
         if (prepared.Value.SubjectValidations.Any(static validation => validation.State == BaseSubjectValidationState.Invalid))
             return Failed(BaseSubjectErrorCodes.ReferenceInvalid, ErrorCategory.Validation);
         OperationResult<BaseAppliedAtomicMutation> applied = await session.ApplyPreparedAtomicMutationAsync(prepared.Value, cancellationToken).ConfigureAwait(false);
-        if (!applied.IsSuccess() || applied.Value is null || !AppliedMatches(retainedPlan, applied.Value))
+        if (!applied.IsSuccess() || applied.Value is null || !AppliedMatches(retainedPlan, prepared.Value, applied.Value))
             return !applied.IsSuccess() || applied.Value is null
                 ? HasSubjectWork(retainedPlan)
                     ? Failed(BaseSubjectFailureContract.NormalizeProviderError(applied.Status, applied.Error))
@@ -808,10 +874,24 @@ internal sealed class BaseSelectionMutationProcessor(
             if (registration is null) return false;
             expected[(registration.Definition.Id, registration.Definition.Version)] = registration;
         }
+        var expectedOverlayKeys = plan.Items.Where(static item => item.SubjectLifecycle is not null)
+            .Select(static item => item.SubjectLifecycle!)
+            .Select(static lifecycle => (lifecycle.ContractId, lifecycle.ContractVersion, lifecycle.SubjectId.Value))
+            .Concat(plan.SubjectValidations.Select(validation =>
+            {
+                BaseGeneratedSubjectRegistration registration = expected.Values.Single(candidate =>
+                    candidate.Definition.ValidationPlan.Id == validation.ValidationPlanId
+                    && candidate.Definition.ValidationPlan.Version == validation.ValidationPlanVersion);
+                return (registration.Definition.Id, registration.Definition.Version, validation.Reference.SubjectId.Value);
+            })).ToHashSet();
+        var actualOverlayKeys = prepared.SubjectOverlay
+            .Select(static value => (value.ContractId, value.ContractVersion, value.SubjectId.Value)).ToArray();
         if (prepared.SubjectAuthorities.Length != expected.Count
             || prepared.SubjectValidations.Length != plan.SubjectValidations.Length
             || prepared.SubjectAuthorities.GroupBy(static value => (value.ContractId, value.ContractVersion)).Any(static group => group.Count() != 1)
-            || prepared.SubjectOverlay.GroupBy(static value => (value.ContractId, value.ContractVersion, value.SubjectId.Value)).Any(static group => group.Count() != 1))
+            || actualOverlayKeys.Length != expectedOverlayKeys.Count
+            || actualOverlayKeys.Distinct().Count() != actualOverlayKeys.Length
+            || actualOverlayKeys.Any(key => !expectedOverlayKeys.Contains(key)))
             return false;
         foreach (BaseSubjectTransactionAuthorityEvidence authority in prepared.SubjectAuthorities)
         {
@@ -875,7 +955,10 @@ internal sealed class BaseSelectionMutationProcessor(
             && interval.CanonicalLowerBound.AsSpan().SequenceEqual(key)
             && interval.CanonicalUpperBound.AsSpan().SequenceEqual(key));
 
-    private static bool AppliedMatches(BaseAtomicMutationPlan plan, BaseAppliedAtomicMutation applied)
+    private static bool AppliedMatches(
+        BaseAtomicMutationPlan plan,
+        BasePreparedAtomicMutation prepared,
+        BaseAppliedAtomicMutation applied)
     {
         bool strict = HasSubjectWork(plan);
         if (!string.Equals(plan.PlanDigest, applied.PlanDigest, StringComparison.Ordinal) || applied.Facts.Length != plan.Items.Length)
@@ -891,6 +974,7 @@ internal sealed class BaseSelectionMutationProcessor(
                     || fact.RequestedOperation != item.RequestedKind)
                 || fact.CommittedOperation != item.Kind
                 || (fact.After ?? fact.Before)?.Id != item.RecordId
+                || !ValidCommittedLifecycle(item.SubjectLifecycle, prepared.SubjectOverlay, fact.SubjectLifecycle)
                 || strict && item.Current is not null && !RecordEquals(fact.Before, item.Current)
                 || strict && item.ProposedPayload is not null && !PayloadEquals(fact.After?.Payload, item.ProposedPayload)
                 || item.Kind == BaseCommittedRecordMutationKind.Delete && (fact.Before is null || fact.After is not null)
@@ -899,6 +983,31 @@ internal sealed class BaseSelectionMutationProcessor(
                 return false;
         }
         return true;
+    }
+
+    private static bool ValidCommittedLifecycle(
+        BaseSubjectLifecyclePlanItem? expected,
+        ImmutableArray<BasePreparedSubjectOverlayEvidence> overlays,
+        BaseSubjectLifecycleCommitEvidence? actual) => expected is null
+        ? actual is null
+        : actual is not null
+            && string.Equals(actual.ContractId, expected.ContractId, StringComparison.Ordinal)
+            && actual.ContractVersion == expected.ContractVersion
+            && string.Equals(actual.SubjectId, expected.SubjectId.Value, StringComparison.Ordinal)
+            && actual.Kind == expected.Kind
+            && overlays.SingleOrDefault(value => value.ContractId == expected.ContractId
+                && value.ContractVersion == expected.ContractVersion
+                && value.SubjectId.Equals(expected.SubjectId)) is { } overlay
+            && (expected.Kind == BaseSubjectLifecycleMutationKind.Retire
+                ? actual.Incarnation is null && !overlay.Exists && overlay.Incarnation is null
+                : actual.Incarnation is { Length: 22 } && IsCanonicalIncarnation(actual.Incarnation)
+                    && overlay.Exists && overlay.Incarnation is { } incarnation
+                    && string.Equals(actual.Incarnation, incarnation.ToBase64Url(), StringComparison.Ordinal));
+
+    private static bool IsCanonicalIncarnation(string value)
+    {
+        try { return BaseSubjectIncarnation.Parse(value).ToBase64Url() == value; }
+        catch { return false; }
     }
 
     private static bool RecordEquals(RecordEnvelope? left, RecordEnvelope right)

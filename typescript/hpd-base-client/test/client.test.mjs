@@ -116,6 +116,25 @@ test("durable subject controls reject conflicting cursor replay and generation r
   await waitUntil(() => regression.socket.closedCode === 1008); regression.manager.close();
 });
 
+test("subject controls mark the addressed registered read stale before its rerun", async () => {
+  const subjectGraph = Object.freeze({ ...basicGraph, subject: { kind: "subjectReference", contractId: "hpd.auth.user-subject", contractVersion: 1, subjectIdKind: "guid", maximumSubjectIdUtf8Bytes: 36, authorityEpochBytes: 16, incarnationBytes: 16 } });
+  const socket = new FakeSocket();
+  const snapshots = [];
+  const manager = new BaseRealtimeManager("https://example.test/base", () => socket, undefined, undefined, subjectGraph, schema.collections);
+  manager.subscribeRead("current-user", {}, snapshot => snapshots.push(snapshot), value => value);
+  await waitUntil(() => socket.onmessage !== null);
+  socket.receive(JSON.stringify({ protocol: 2, kind: "welcome", connectionId: "c", connectionEpoch: "e", heartbeatIntervalMs: 1000, maxInboundBytes: 2048, maxChannels: 8 }));
+  const join = JSON.parse(socket.sent[0]);
+  socket.receive(JSON.stringify({ protocol: 2, kind: "joined", connectionId: "c", connectionEpoch: "e", ref: join.ref, channelEpoch: "ch", delivery: "live-query-snapshots" }));
+  socket.receive(JSON.stringify({ protocol: 2, kind: "liveQuerySnapshot", connectionId: "c", connectionEpoch: "e", ref: join.ref, channelEpoch: "ch", version: "1", source: "initial", value: { items: [{ id: "u1" }], page: { hasMore: false } } }));
+  await waitUntil(() => snapshots.length === 1);
+  assert.equal(snapshots[0].stale, false);
+  socket.receive(JSON.stringify({ protocol: 2, kind: "liveQuerySubjectAuthorityChanged", connectionId: "c", connectionEpoch: "e", ref: join.ref, channelEpoch: "ch", contractId: "hpd.auth.user-subject", contractVersion: 1, stateGeneration: "2" }));
+  await waitUntil(() => snapshots.length === 2);
+  assert.equal(snapshots[1].stale, true);
+  manager.close();
+});
+
 test("configured control client validates and canonically sends subject epoch rotation", async () => {
   let route; let wire;
   const controlSchema = Object.freeze({ ...schema, audience: "controlPlane", features: { ...schema.features, controlOperations: ["base.admin.subject.epoch.rotate"] } });

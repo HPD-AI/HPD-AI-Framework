@@ -803,12 +803,18 @@ public sealed partial class SqliteRecordStore
             using var digest = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
             digest.AppendData(System.Text.Encoding.UTF8.GetBytes(intent.IntentDigest));
             long selectedBytes = 0;
+            long retainedBytes = CanonicalStringBytes(intent.IntentDigest)
+                + CanonicalStringBytes(intent.Authority.ApplicationId)
+                + CanonicalStringBytes(intent.Authority.StoreInstanceId)
+                + sizeof(long) * 4L;
             var transactionRecords = new Dictionary<string, RecordEnvelope?>(StringComparer.Ordinal);
             for (int index = 0; index < intent.Items.Length; index++)
             {
                 BaseAtomicMutationIntentItem item = intent.Items[index];
                 if (item.Ordinal != index) return SubjectFailure<BaseCapturedAtomicMutationAuthority>(BaseSubjectErrorCodes.ProviderContractInvalid);
                 string itemKey = CaptureRecordKey(item.Collection.Id, item.RecordId);
+                retainedBytes = checked(retainedBytes + CanonicalStringBytes(item.Collection.Id)
+                    + CanonicalStringBytes(item.RecordId.Value) + sizeof(int) * 3L);
                 if (!transactionRecords.TryGetValue(itemKey, out RecordEnvelope? current))
                 {
                     current = await _owner.ReadAsync(_connection, item.Collection.Id, item.RecordId.Value, token, _transaction, CommandTimeoutSeconds()).ConfigureAwait(false);
@@ -837,6 +843,9 @@ public sealed partial class SqliteRecordStore
                         digest.AppendData(targetBytes);
                     }
                     byte[] relationKey = System.Text.Encoding.UTF8.GetBytes(relation.TargetRecordId.Value);
+                    retainedBytes = checked(retainedBytes + CanonicalStringBytes(relation.SourceFieldId)
+                        + CanonicalStringBytes(relation.TargetCollection.Id)
+                        + CanonicalStringBytes(relation.TargetRecordId.Value));
                     intervals.Add(new BaseAtomicReadIntervalEvidence
                     {
                         LogicalAccessPathId = $"collection:{relation.TargetCollection.Id}:record",
@@ -875,7 +884,7 @@ public sealed partial class SqliteRecordStore
                 transactionRecords[itemKey] = SimulateIntentRecord(item, current);
             }
             long evidenceBytes = intervals.Sum(static interval => (long)interval.CanonicalLowerBound.Length + interval.CanonicalUpperBound.Length);
-            long transient = checked(selectedBytes + evidenceBytes);
+            long transient = checked(retainedBytes + selectedBytes + evidenceBytes);
             if (selectedBytes > intent.Limits.MaximumSelectedBytes || evidenceBytes > intent.Limits.MaximumEvidenceBytes || transient > intent.Limits.MaximumTransientBytes || intervals.Count > intent.Limits.MaximumReadIntervals)
                 return SubjectFailure<BaseCapturedAtomicMutationAuthority>(BaseSubjectErrorCodes.BudgetExceeded, OperationStatus.ValidationFailed, ErrorCategory.Validation);
             _capturedMutation = new BaseCapturedAtomicMutationAuthority
@@ -913,11 +922,13 @@ public sealed partial class SqliteRecordStore
             var lifecycleIncarnations = new Dictionary<int, BaseSubjectIncarnation>();
             var subjectAuthorities = new Dictionary<string, BaseSubjectTransactionAuthorityEvidence>(StringComparer.Ordinal);
             var intervals = captured.ReadIntervals.ToBuilder();
-            int authorityReads = captured.Items.Length;
+            int authorityReads = captured.Accounting.Records;
+            long retainedBytes = checked(captured.Accounting.TransientBytes + EstimatePlanBytes(plan));
             foreach (BaseAtomicMutationPlanItem item in plan.Items)
             {
                 if (item.SubjectLifecycle is not { } lifecycle) continue;
                 SqliteSubjectContractState? contract = await ReadSubjectContractAsync(lifecycle.ContractId, lifecycle.ContractVersion, token).ConfigureAwait(false);
+                authorityReads = checked(authorityReads + 1);
                 if (contract is null || !string.Equals(contract.Checksum, lifecycle.ContractChecksum, StringComparison.Ordinal))
                     return SubjectFailure<BasePreparedAtomicMutation>(BaseSubjectErrorCodes.SchemaGenerationChanged, OperationStatus.Conflict, ErrorCategory.Conflict);
                 subjectAuthorities[$"{lifecycle.ContractId}\n{lifecycle.ContractVersion}"] = SubjectAuthority(lifecycle.ContractId, lifecycle.ContractVersion, contract);
@@ -925,11 +936,12 @@ public sealed partial class SqliteRecordStore
                 intervals.Add(ExactInterval($"subject:{lifecycle.ContractId}:contract", System.Text.Encoding.UTF8.GetBytes($"{lifecycle.ContractId}\n{lifecycle.ContractVersion}")));
                 intervals.Add(ExactInterval($"subject:{lifecycle.ContractId}:lifetime", System.Text.Encoding.UTF8.GetBytes(key)));
                 intervals.Add(ExactInterval($"subject:{lifecycle.ContractId}:record", System.Text.Encoding.UTF8.GetBytes(lifecycle.SubjectId.Value)));
-                authorityReads = checked(authorityReads + 3);
                 if (!lifetimes.TryGetValue(key, out SqlitePreparedSubjectLifetime? lifetime))
                 {
                     lifetime = await ReadSubjectLifetimeAsync(lifecycle.ContractId, lifecycle.ContractVersion, lifecycle.SubjectId, token).ConfigureAwait(false);
+                    authorityReads = checked(authorityReads + 1);
                     lifetimes[key] = lifetime;
+                    if (lifetime is not null) retainedBytes = checked(retainedBytes + EstimateLifetimeBytes(lifetime));
                 }
                 switch (lifecycle.Kind)
                 {
@@ -942,6 +954,7 @@ public sealed partial class SqliteRecordStore
                             item.Ordinal + 1L);
                         lifetimes[key] = lifetime;
                         lifecycleIncarnations[item.Ordinal] = lifetime.Incarnation;
+                        retainedBytes = checked(retainedBytes + sizeof(int) + 16);
                         break;
                     case BaseSubjectLifecycleMutationKind.Preserve:
                         if (lifetime is null) return SubjectFailure<BasePreparedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid);
@@ -985,10 +998,13 @@ public sealed partial class SqliteRecordStore
                 if (valid)
                 {
                     contract = await ReadSubjectContractAsync(definition!.Id, definition.Version, token).ConfigureAwait(false);
+                    authorityReads = checked(authorityReads + 1);
                     if (!lifetimes.TryGetValue(key, out lifetime))
                     {
                         lifetime = await ReadSubjectLifetimeAsync(definition.Id, definition.Version, validation.Reference.SubjectId, token).ConfigureAwait(false);
+                        authorityReads = checked(authorityReads + 1);
                         lifetimes[key] = lifetime;
+                        if (lifetime is not null) retainedBytes = checked(retainedBytes + EstimateLifetimeBytes(lifetime));
                     }
                     if (contract is not null)
                         subjectAuthorities[$"{definition.Id}\n{definition.Version}"] = SubjectAuthority(definition.Id, definition.Version, contract);
@@ -1002,6 +1018,7 @@ public sealed partial class SqliteRecordStore
                                 token,
                                 _transaction,
                                 CommandTimeoutSeconds()).ConfigureAwait(false);
+                        authorityReads = checked(authorityReads + 1);
                     }
                     valid = contract is not null
                         && lifetime is not null
@@ -1035,7 +1052,6 @@ public sealed partial class SqliteRecordStore
                     intervals.Add(ExactInterval($"subject:{definition.Id}:contract", contractKey));
                     intervals.Add(ExactInterval($"subject:{definition.Id}:lifetime", subjectKey));
                     intervals.Add(ExactInterval($"subject:{definition.Id}:record", recordKey));
-                    authorityReads = checked(authorityReads + 3);
                     overlays[key] = new BasePreparedSubjectOverlayEvidence
                     {
                         ContractId = definition.Id, ContractVersion = definition.Version,
@@ -1045,7 +1061,14 @@ public sealed partial class SqliteRecordStore
                 }
             }
             long evidenceBytes = intervals.Sum(static interval => (long)interval.CanonicalLowerBound.Length + interval.CanonicalUpperBound.Length);
-            long transient = checked(captured.Accounting.SelectedBytes + evidenceBytes);
+            BasePreparedSubjectOverlayEvidence[] ownedOverlays = overlays.Values.ToArray();
+            BaseSubjectTransactionAuthorityEvidence[] ownedAuthorities = subjectAuthorities.Values.ToArray();
+            BasePreparedSubjectValidationEvidence[] ownedValidations = validationEvidence.ToArray();
+            long addedEvidenceBytes = checked(evidenceBytes - captured.Accounting.EvidenceBytes);
+            long transient = checked(retainedBytes + addedEvidenceBytes
+                + ownedOverlays.Sum(EstimateOverlayBytes)
+                + ownedAuthorities.Sum(EstimateAuthorityBytes)
+                + ownedValidations.Sum(static value => sizeof(int) * 3L + CanonicalStringBytes(value.SourceFieldId)));
             int intervalCount = intervals.Count;
             if (authorityReads > plan.Limits.MaximumAuthorityReads || intervalCount > plan.Limits.MaximumReadIntervals
                 || evidenceBytes > plan.Limits.MaximumEvidenceBytes || transient > plan.Limits.MaximumTransientBytes)
@@ -1070,6 +1093,54 @@ public sealed partial class SqliteRecordStore
             };
             return OperationResults.Ok(_preparedMutation);
         });
+
+        private static long CanonicalStringBytes(string? value) =>
+            value is null ? sizeof(int) : checked(sizeof(int) + System.Text.Encoding.UTF8.GetByteCount(value));
+
+        private static long EstimateLifetimeBytes(SqlitePreparedSubjectLifetime value) => checked(
+            CanonicalStringBytes(value.ContractId)
+            + sizeof(int)
+            + CanonicalStringBytes(value.SubjectId.Value)
+            + 16
+            + CanonicalStringBytes(value.CollectionId)
+            + CanonicalStringBytes(value.RecordId.Value)
+            + sizeof(long));
+
+        private static long EstimateOverlayBytes(BasePreparedSubjectOverlayEvidence value) => checked(
+            CanonicalStringBytes(value.ContractId)
+            + sizeof(int)
+            + CanonicalStringBytes(value.SubjectId.Value)
+            + sizeof(byte) * 3L
+            + (value.Incarnation is null ? 0 : 16)
+            + CanonicalStringBytes(value.Scope));
+
+        private static long EstimateAuthorityBytes(BaseSubjectTransactionAuthorityEvidence value) => checked(
+            CanonicalStringBytes(value.ContractId)
+            + sizeof(int)
+            + CanonicalStringBytes(value.ContractChecksum)
+            + CanonicalStringBytes(value.StoreInstanceId)
+            + sizeof(long) * 3L
+            + 16);
+
+        private static long EstimatePlanBytes(BaseAtomicMutationPlan plan)
+        {
+            long bytes = CanonicalStringBytes(plan.PlanDigest) + CanonicalStringBytes(plan.IntentDigest)
+                + CanonicalStringBytes(plan.CaptureDigest) + sizeof(long) * 8L;
+            foreach (BaseAtomicMutationPlanItem item in plan.Items)
+            {
+                bytes = checked(bytes + sizeof(int) * 3L + CanonicalStringBytes(item.Collection.Id)
+                    + CanonicalStringBytes(item.RecordId.Value) + CanonicalStringBytes(item.EventId));
+                if (item.ProposedPayload is not null)
+                    bytes = checked(bytes + JsonSerializer.SerializeToUtf8Bytes(
+                        item.ProposedPayload, HPDBaseJsonSerializerContext.Default.RecordPayload).LongLength);
+            }
+            foreach (BaseSubjectReferenceValidationPlanItem validation in plan.SubjectValidations)
+                bytes = checked(bytes + sizeof(int) * 4L + CanonicalStringBytes(validation.SourceFieldId)
+                    + CanonicalStringBytes(validation.ValidationPlanId)
+                    + CanonicalStringBytes(validation.Reference.SubjectId.Value)
+                    + CanonicalStringBytes(validation.Scope.Value) + 32);
+            return bytes;
+        }
 
         private BaseSubjectTransactionAuthorityEvidence SubjectAuthority(
             string contractId,
@@ -1166,7 +1237,20 @@ public sealed partial class SqliteRecordStore
                     if (!lifecycleResult.IsSuccess())
                         return new OperationResult<BaseAppliedAtomicMutation> { Status = lifecycleResult.Status, Error = lifecycleResult.Error };
                 }
-                BaseOwnedMutationFact owned = BaseOwnedMutationFact.Freeze(mutation.Value.Mutation, 1);
+                BaseRecordMutationFact committedFact = mutation.Value.Mutation with
+                {
+                    SubjectLifecycle = item.SubjectLifecycle is null ? null : new BaseSubjectLifecycleCommitEvidence
+                    {
+                        ContractId = item.SubjectLifecycle.ContractId,
+                        ContractVersion = item.SubjectLifecycle.ContractVersion,
+                        SubjectId = item.SubjectLifecycle.SubjectId.Value,
+                        Kind = item.SubjectLifecycle.Kind,
+                        Incarnation = item.SubjectLifecycle.Kind == BaseSubjectLifecycleMutationKind.Retire
+                            ? null
+                            : lifecycleIncarnations.GetValueOrDefault(item.Ordinal).ToBase64Url(),
+                    },
+                };
+                BaseOwnedMutationFact owned = BaseOwnedMutationFact.Freeze(committedFact, 1);
                 facts.Add(owned);
                 factBytes = checked(factBytes + owned.EncodedLength);
                 writtenBytes = checked(writtenBytes + (mutation.Value.Record is null

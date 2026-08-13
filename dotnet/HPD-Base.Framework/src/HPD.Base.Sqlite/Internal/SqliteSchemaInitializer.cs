@@ -116,6 +116,19 @@ CREATE TABLE IF NOT EXISTS {_names.SubjectLifetimes} (
   PRIMARY KEY(contract_id, contract_version, subject_id),
   FOREIGN KEY(contract_id, contract_version) REFERENCES {_names.SubjectContracts}(contract_id, contract_version) ON DELETE RESTRICT
 );
+CREATE TABLE IF NOT EXISTS {_names.SubjectMaintenance} (
+  singleton INTEGER NOT NULL PRIMARY KEY CHECK(singleton=1), contract_id TEXT NOT NULL,
+  contract_version INTEGER NOT NULL, expected_generation INTEGER NOT NULL,
+  old_epoch BLOB NOT NULL CHECK(length(old_epoch)=16), new_epoch BLOB NOT NULL CHECK(length(new_epoch)=16),
+  collection_ordinal INTEGER NOT NULL, last_record_id TEXT NOT NULL,
+  examined_count INTEGER NOT NULL, rewritten_count INTEGER NOT NULL,
+  canonical_bytes INTEGER NOT NULL, checksum TEXT NOT NULL CHECK(length(checksum)=64)
+);
+CREATE TABLE IF NOT EXISTS {_names.SubjectRewriteStage} (
+  collection_id TEXT NOT NULL, record_id TEXT NOT NULL, previous_revision INTEGER NOT NULL,
+  replacement_revision INTEGER NOT NULL, payload_json BLOB NOT NULL,
+  PRIMARY KEY(collection_id,record_id)
+) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS {_names.MutationJournal} (
   position INTEGER PRIMARY KEY AUTOINCREMENT,
   entry_kind INTEGER NOT NULL DEFAULT 0,
@@ -273,6 +286,19 @@ CREATE TABLE IF NOT EXISTS {_names.SubjectLifetimes} (
   PRIMARY KEY(contract_id, contract_version, subject_id),
   FOREIGN KEY(contract_id, contract_version) REFERENCES {_names.SubjectContracts}(contract_id, contract_version) ON DELETE RESTRICT
 );
+CREATE TABLE IF NOT EXISTS {_names.SubjectMaintenance} (
+  singleton INTEGER NOT NULL PRIMARY KEY CHECK(singleton=1), contract_id TEXT NOT NULL,
+  contract_version INTEGER NOT NULL, expected_generation INTEGER NOT NULL,
+  old_epoch BLOB NOT NULL CHECK(length(old_epoch)=16), new_epoch BLOB NOT NULL CHECK(length(new_epoch)=16),
+  collection_ordinal INTEGER NOT NULL, last_record_id TEXT NOT NULL,
+  examined_count INTEGER NOT NULL, rewritten_count INTEGER NOT NULL,
+  canonical_bytes INTEGER NOT NULL, checksum TEXT NOT NULL CHECK(length(checksum)=64)
+);
+CREATE TABLE IF NOT EXISTS {_names.SubjectRewriteStage} (
+  collection_id TEXT NOT NULL, record_id TEXT NOT NULL, previous_revision INTEGER NOT NULL,
+  replacement_revision INTEGER NOT NULL, payload_json BLOB NOT NULL,
+  PRIMARY KEY(collection_id,record_id)
+) WITHOUT ROWID;
 """, cancellationToken).ConfigureAwait(false);
 
         await ExecuteAsync(connection, $"""
@@ -457,7 +483,7 @@ VALUES ($id,$version,$checksum,$epoch,$restore,1,0,0,$position,$digest);
     public async ValueTask<string[]> GetMissingSchemaPartsAsync(SqliteConnection connection, CancellationToken cancellationToken)
     {
         var missing = new List<string>();
-        foreach (var table in new[] { _names.Collections, _names.ProviderState, _names.MutationJournal, _names.OperationReceipts, _names.SchemaIdentity, _names.SchemaBaseline, _names.SchemaAssets, _names.SchemaHistory, _names.SchemaLease, _names.SubjectContracts, _names.SubjectLifetimes }
+        foreach (var table in new[] { _names.Collections, _names.ProviderState, _names.MutationJournal, _names.OperationReceipts, _names.SchemaIdentity, _names.SchemaBaseline, _names.SchemaAssets, _names.SchemaHistory, _names.SchemaLease, _names.SubjectContracts, _names.SubjectLifetimes, _names.SubjectMaintenance, _names.SubjectRewriteStage }
             .Concat(_physical.Collections.Select(static collection => collection.Table))
             .Concat(_physical.Relations.Select(static relation => relation.Table))
             .Concat(_projectionSchemaTables))

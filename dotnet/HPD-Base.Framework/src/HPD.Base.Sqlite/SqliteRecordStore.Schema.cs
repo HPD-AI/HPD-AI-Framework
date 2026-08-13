@@ -272,6 +272,39 @@ public sealed partial class SqliteRecordStore
         SqliteConnection connection,
         CancellationToken cancellationToken)
     {
+        var installed = _options.ExportedSubjects
+            .Select(static subject => (subject.Id, subject.Version))
+            .ToHashSet();
+        var stale = new List<(string Id, int Version)>();
+        await using (SqliteCommand existingContracts = connection.CreateCommand())
+        {
+            existingContracts.CommandTimeout = TimeoutSeconds();
+            existingContracts.CommandText = $"SELECT contract_id,contract_version FROM {_names.SubjectContracts} ORDER BY contract_id COLLATE BINARY,contract_version;";
+            await using SqliteDataReader reader = await existingContracts.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                var key = (reader.GetString(0), reader.GetInt32(1));
+                if (!installed.Contains(key)) stale.Add(key);
+            }
+        }
+        foreach ((string id, int version) in stale)
+        {
+            await using SqliteCommand removeLifetimes = connection.CreateCommand();
+            removeLifetimes.CommandTimeout = TimeoutSeconds();
+            removeLifetimes.CommandText = $"DELETE FROM {_names.SubjectLifetimes} WHERE contract_id=$id AND contract_version=$version;";
+            removeLifetimes.Parameters.AddWithValue("$id", id);
+            removeLifetimes.Parameters.AddWithValue("$version", version);
+            await removeLifetimes.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
+            await using SqliteCommand removeContract = connection.CreateCommand();
+            removeContract.CommandTimeout = TimeoutSeconds();
+            removeContract.CommandText = $"DELETE FROM {_names.SubjectContracts} WHERE contract_id=$id AND contract_version=$version;";
+            removeContract.Parameters.AddWithValue("$id", id);
+            removeContract.Parameters.AddWithValue("$version", version);
+            if (await removeContract.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+                throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid);
+        }
+
         foreach (BaseExportedSubjectDefinition subject in _options.ExportedSubjects
             .OrderBy(static value => value.Id, StringComparer.Ordinal)
             .ThenBy(static value => value.Version))

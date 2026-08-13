@@ -19,6 +19,8 @@ internal sealed class SqliteNames
         SchemaLease = Prefix + "schema_lease";
         SubjectContracts = Prefix + "subject_contracts";
         SubjectLifetimes = Prefix + "subject_lifetimes";
+        SubjectMaintenance = Prefix + "subject_maintenance";
+        SubjectRewriteStage = Prefix + "subject_rewrite_stage";
         MutationJournalScopeIndex = "ix_" + Prefix + "mutation_journal_scope_position";
     }
 
@@ -46,6 +48,10 @@ internal sealed class SqliteNames
     public string SubjectContracts { get; }
     /// <summary>Gets the provider-owned current subject-lifetime table.</summary>
     public string SubjectLifetimes { get; }
+    /// <summary>Gets the provider-owned subject-authority maintenance checkpoint table.</summary>
+    public string SubjectMaintenance { get; }
+    /// <summary>Gets the provider-owned subject-reference rewrite staging table.</summary>
+    public string SubjectRewriteStage { get; }
     /// <summary>Gets the mutation journal scope index.</summary>
     public string MutationJournalScopeIndex { get; }
 }
