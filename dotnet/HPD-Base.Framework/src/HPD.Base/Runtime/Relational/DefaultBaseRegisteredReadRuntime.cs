@@ -9,7 +9,8 @@ internal sealed class DefaultBaseRegisteredReadRuntime(
     IRecordStoreRegistry stores,
     IBasePolicyOrchestrator policy,
     IServiceProvider services,
-    IOptions<HPDBaseRelationalOptions> options) : IBaseRegisteredReadRuntime
+    IOptions<HPDBaseRelationalOptions> options,
+    BaseSubjectContractRegistry subjects) : IBaseRegisteredReadRuntime
 {
     private readonly HPDBaseRelationalOptions _options = options.Value;
 
@@ -39,6 +40,44 @@ internal sealed class DefaultBaseRegisteredReadRuntime(
             return Failure<TRow>(OperationStatus.NotFound, "base.systemCollection.accessForbidden", "The registered read was not found.");
         if (page is { } requested && (requested.Page < 1 || requested.PerPage < 1 || requested.PerPage > _options.MaxPageSize))
             return Failure<TRow>(OperationStatus.ValidationFailed, "base.relational.read.invalid", "The registered read page is invalid.");
+
+        BaseSubjectAcquisitionDefinition? acquisition = SubjectAcquisition(definition.Plan, definition.Id, definition.Audience, subjects);
+        if (definition.Plan.Projection.Any(static projection => projection.Operand.Kind == BaseRelationalOperandKind.SubjectReference))
+        {
+            if (acquisition is null || page?.PerPage > acquisition.MaximumResults)
+                return Failure<TRow>(OperationStatus.NotFound, "base.systemCollection.accessForbidden", "The registered read was not found.");
+            page ??= BaseReadPageRequest.Create(1, acquisition.MaximumResults);
+            BaseGeneratedSubjectRegistration target = subjects.Find(acquisition.ContractId, acquisition.ContractVersion)!;
+            OperationResult<BasePolicyEvaluation> acquisitionGrant = await policy.EvaluateReadAsync(new BasePolicyRequest
+            {
+                Principal = principal,
+                Operation = operation with
+                {
+                    Operation = BaseOperationKind.SubjectAcquire,
+                    CollectionId = target.Definition.Id,
+                    RecordId = null,
+                    Audience = acquisition.Audience,
+                    Mode = OperationMode.System,
+                },
+                Collection = new CollectionDefinition
+                {
+                    Id = target.Definition.Id,
+                    Name = "Exported logical subject contract",
+                    Kind = "system",
+                    Exposed = false,
+                    System = true,
+                    SystemOwnerModuleId = target.Definition.OwningModuleId,
+                    SchemaMode = SchemaMode.Strict,
+                    UnknownFields = UnknownFieldPolicy.Reject,
+                    Store = collections.Collections[definition.Plan.Sources[0].CollectionId].Store,
+                },
+                ResourceKind = PolicyResourceKind.SubjectContract,
+                SubjectContractId = target.Definition.Id,
+                SubjectContractVersion = target.Definition.Version,
+            }, cancellationToken).ConfigureAwait(false);
+            if (!acquisitionGrant.IsSuccess() || !BaseSystemCollectionGate.HasExactGrant(acquisitionGrant, acquisition.RequiredGrantId))
+                return Failure<TRow>(OperationStatus.NotFound, "base.systemCollection.accessForbidden", "The registered read was not found.");
+        }
 
         var sourcePolicies = new List<BaseRelationalReadSourcePolicy>(definition.Plan.Sources.Length);
         bool projectionGrantMatched = false;
@@ -176,7 +215,7 @@ internal sealed class DefaultBaseRegisteredReadRuntime(
         try { rows = execution.Result.Rows.Select(definition.RowCodec.Decode).ToArray(); }
         catch { return Failure<TRow>(OperationStatus.StoreError, "base.relational.read.resultInvalid", "The provider returned an invalid registered read result."); }
 
-        if (!ValidateEvidence(plan, execution.DependencyEvidence, request))
+        if (!ValidateEvidence(plan, execution.DependencyEvidence, request, acquisition))
             return Failure<TRow>(OperationStatus.StoreError, "base.relational.dependencies.invalid", "The provider returned invalid dependency evidence.");
 
         BaseDependencyReference[] protectedDependencies;
@@ -214,6 +253,28 @@ internal sealed class DefaultBaseRegisteredReadRuntime(
             _ => false,
         };
 
+    private static BaseSubjectAcquisitionDefinition? SubjectAcquisition(
+        BaseRelationalReadPlan plan,
+        string readId,
+        HPDBaseEndpointAudience audience,
+        BaseSubjectContractRegistry subjects)
+    {
+        BaseRelationalOperand[] operands = plan.Projection
+            .Where(static projection => projection.Operand.Kind == BaseRelationalOperandKind.SubjectReference)
+            .Select(static projection => projection.Operand).ToArray();
+        if (operands.Length == 0) return null;
+        if (plan.Projection.Length != 1 || operands.Length != 1
+            || Operands(plan).Count(static operand => operand.Kind == BaseRelationalOperandKind.SubjectReference) != 1)
+            return null;
+        BaseRelationalOperand projected = operands[0];
+        BaseSubjectAcquisitionDefinition? acquisition = subjects.Acquisitions.SingleOrDefault(value =>
+            string.Equals(value.RegisteredReadId, readId, StringComparison.Ordinal)
+            && value.Audience == audience
+            && string.Equals(value.ContractId, projected.SubjectContractId, StringComparison.Ordinal)
+            && value.ContractVersion == projected.SubjectContractVersion);
+        return acquisition is not null && subjects.Find(acquisition.ContractId, acquisition.ContractVersion) is not null ? acquisition : null;
+    }
+
     private static ResultValidation ValidateResult(
         BaseRelationalReadPlan plan,
         BaseRelationalReadResult result,
@@ -245,7 +306,8 @@ internal sealed class DefaultBaseRegisteredReadRuntime(
     private static bool ValidateEvidence(
         BaseRelationalReadPlan plan,
         BaseReadDependencyEvidence[] evidence,
-        BaseRelationalReadExecutionRequest request)
+        BaseRelationalReadExecutionRequest request,
+        BaseSubjectAcquisitionDefinition? acquisition)
     {
         if (evidence is null) return false;
         HashSet<string> allowed = plan.Sources.Select(static source => source.CollectionId).ToHashSet(StringComparer.Ordinal);
@@ -258,9 +320,16 @@ internal sealed class DefaultBaseRegisteredReadRuntime(
                 !allowed.Contains(item.CollectionId) || item.RecordId is { Length: > 512 } ||
                 !entries.Add(item.CollectionId + "\0" + item.RecordId))
                 return false;
+            bool hasSubject = item.SubjectContractId is not null || item.SubjectContractVersion is not null || item.SubjectStateGeneration is not null;
+            if (hasSubject && (acquisition is null
+                || !string.Equals(item.SubjectContractId, acquisition.ContractId, StringComparison.Ordinal)
+                || item.SubjectContractVersion != acquisition.ContractVersion
+                || item.SubjectStateGeneration is not > 0))
+                return false;
             contributing.Add(item.CollectionId);
         }
-        return contributing.SetEquals(allowed);
+        int subjectEvidence = evidence.Count(static item => item.SubjectContractId is not null);
+        return contributing.SetEquals(allowed) && (acquisition is null ? subjectEvidence == 0 : subjectEvidence == 1);
     }
 
     private static long ValueBytes(QueryValue value) => value.Kind switch
@@ -269,6 +338,7 @@ internal sealed class DefaultBaseRegisteredReadRuntime(
         QueryValueKind.Id => (value.Id?.Length ?? 0) * 2L,
         QueryValueKind.Decimal => (value.Decimal?.Length ?? 0) * 2L,
         QueryValueKind.Array => (value.Array ?? []).Sum(ValueBytes),
+        QueryValueKind.SubjectReference => System.Text.Encoding.UTF8.GetByteCount(value.SubjectId ?? string.Empty) + 32,
         _ => 16,
     };
 
@@ -280,14 +350,20 @@ internal sealed class DefaultBaseRegisteredReadRuntime(
         if (evidence is null || evidence.Any(static item => string.IsNullOrWhiteSpace(item.CollectionId) || item.CollectionId.Length > 128 || item.RecordId is { Length: > 512 }))
             throw new InvalidOperationException();
         if (factory is null) return [];
-        return evidence.Select(item => item.RecordId is null
+        return evidence.SelectMany(item => new[] { item.RecordId is null
                 ? factory.Create(BaseDependencyIds.Collection,
                     new BaseDependencyParameter("tenant", tenantId),
                     new BaseDependencyParameter("collection", item.CollectionId))
                 : factory.Create(BaseDependencyIds.Record,
                     new BaseDependencyParameter("tenant", tenantId),
                     new BaseDependencyParameter("collection", item.CollectionId),
-                    new BaseDependencyParameter("record", item.RecordId)))
+                    new BaseDependencyParameter("record", item.RecordId)),
+                item.SubjectContractId is null ? null : factory.Create(BaseDependencyIds.SubjectContract,
+                    new BaseDependencyParameter("contract", item.SubjectContractId),
+                    new BaseDependencyParameter("version", item.SubjectContractVersion!.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+                    new BaseDependencyParameter("generation", item.SubjectStateGeneration!.Value.ToString(System.Globalization.CultureInfo.InvariantCulture))) })
+            .Where(static reference => reference is not null)
+            .Select(static reference => reference!)
             .DistinctBy(static reference => (reference.TemplateId, reference.Value))
             .ToArray();
     }
@@ -484,7 +560,9 @@ internal sealed class DefaultBaseRegisteredReadRuntime(
         int branches = (value.String is null ? 0 : 1) + (value.Boolean is null ? 0 : 1) +
             (value.Integer is null ? 0 : 1) + (value.Number is null ? 0 : 1) +
             (value.Decimal is null ? 0 : 1) + (value.DateTime is null ? 0 : 1) +
-            (value.Id is null ? 0 : 1) + (value.Array is null ? 0 : 1);
+            (value.Id is null ? 0 : 1) + (value.Array is null ? 0 : 1) +
+            (value.SubjectId is null && value.SubjectAuthorityEpoch is null && value.SubjectIncarnation is null
+                && value.SubjectIdKind is null && value.SubjectIdMaximumUtf8Bytes is null ? 0 : 1);
         return value.Kind switch
         {
             QueryValueKind.Null => branches == 0,
@@ -498,8 +576,27 @@ internal sealed class DefaultBaseRegisteredReadRuntime(
             QueryValueKind.Array => branches == 1 && allowArray && value.Array is { } array &&
                 array.Length <= options.MaxParameterArrayItems &&
                 array.All(item => item.Kind != QueryValueKind.Array && ValidValue(item, options, capability, allowArray: false)),
+            QueryValueKind.SubjectReference => branches == 1 && value.SubjectId is not null
+                && value.SubjectIdKind is { } subjectKind && Enum.IsDefined(subjectKind)
+                && value.SubjectIdMaximumUtf8Bytes is >= 1 and <= 256
+                && CanonicalSubjectValue(value, subjectKind),
             _ => false,
         };
+    }
+
+    private static bool CanonicalSubjectValue(QueryValue value, BaseSubjectIdKind kind)
+    {
+        try
+        {
+            _ = BaseSubjectId.Create(value.SubjectId!, kind, value.SubjectIdMaximumUtf8Bytes!.Value);
+            _ = BaseSubjectAuthorityEpoch.Parse(value.SubjectAuthorityEpoch!);
+            _ = BaseSubjectIncarnation.Parse(value.SubjectIncarnation!);
+            return true;
+        }
+        catch (Exception exception) when (exception is ArgumentException or FormatException or InvalidOperationException)
+        {
+            return false;
+        }
     }
 
     private static OperationResult<BaseRegisteredReadEvaluation<TRow>> Failure<TRow>(OperationStatus status, string code, string message) => new()

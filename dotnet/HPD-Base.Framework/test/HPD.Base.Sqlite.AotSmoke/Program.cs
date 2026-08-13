@@ -10,10 +10,8 @@ if (OperatingSystem.IsMacOS() && temporaryDirectory.StartsWith("/var/", StringCo
 var dataSource = Path.Combine(temporaryDirectory, "hpd-base-sqlite-aot-" + Guid.NewGuid().ToString("N") + ".db");
 try
 {
-    BaseCollection<SmokeRecord> items = BaseCollection.Define(
-        "items",
-        SmokeJsonContext.Default.SmokeRecord,
-        schema => schema.String("title", "Title", BaseJsonProperty<SmokeRecord, string>.Bind(SmokeJsonContext.Default.SmokeRecord, "Title")));
+    BaseCollection<SmokeRecord> items = SmokeRecord.Collection;
+    BaseCollection<SmokePrivateSubjectRecord> privateSubjects = SmokePrivateSubjectRecord.Collection;
     BaseCollection<JsonElement>[] authorityCollections =
     [
         AuthorityCollection("authority.revisions", BaseCollectionMutationMode.AppendOnlyWithAdministrativePurge),
@@ -45,6 +43,21 @@ try
             options.AdministrationEnabled = true;
         }));
         builder.AddCollection(items);
+        builder.AddCollection(privateSubjects);
+        builder.AddCollection(SmokeSubjectConsumerRecord.Collection);
+        builder.AddExportedSubject(SmokeSubject.HPDBaseSubjectRegistration);
+        builder.AddRead(SmokeAcquireSubject.Definition);
+        builder.AddSubjectAcquisition(new BaseSubjectAcquisitionDefinition
+        {
+            Id = "hpd.base.sqlite.aot.subject.acquire.v1",
+            Version = 1,
+            ContractId = "hpd.base.sqlite.aot.subject",
+            ContractVersion = 1,
+            RegisteredReadId = "hpd.base.sqlite.aot.subject.acquire",
+            RequiredGrantId = "hpd.base.sqlite.aot.subject.acquire",
+            Audience = HPDBaseEndpointAudience.Application,
+            MaximumResults = 1,
+        });
         foreach (BaseCollection<JsonElement> collection in authorityCollections)
             builder.AddCollection(collection);
         builder.ReplacePolicyEvaluator<SmokePolicyEvaluator>();
@@ -57,7 +70,13 @@ try
     Require((await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess(), "Application initialization failed.");
 
     var runtime = provider.GetRequiredService<IBaseRecordRuntime>();
-    var principal = new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.Anonymous };
+    var principal = new PrincipalContext
+    {
+        AuthenticationState = PrincipalAuthenticationState.Service,
+        SubjectKind = AccessSubjectKind.ServicePrincipal,
+        SubjectId = "sqlite-aot-service",
+        CurrentTenantId = "tenant-a",
+    };
     var create = await runtime.CreateAsync("items", new RecordCreateRequest { Payload = Payload("hello") }, principal, Operation(BaseOperationKind.Create));
     Require(create.Status == OperationStatus.Created, "Create failed.");
     var journal = (ITransactionalMutationJournalStore)provider
@@ -65,7 +84,10 @@ try
         .GetStoreForCollection("items")!;
     var journalPage = await journal.ReadMutationJournalAsync(
         new BaseMutationJournalReadRequest { Limit = 10 });
-    Require(journalPage.Entries.Length == 1, "Mutation journal append/read failed.");
+    Require(
+        journalPage.Entries.Count(static entry => entry.Kind == BaseMutationJournalEntryKind.RecordMutation) == 1
+        && journalPage.Entries.Count(static entry => entry.Kind == BaseMutationJournalEntryKind.SubjectAuthorityPublication) == 1,
+        "Shared record/control mutation journal append/read failed.");
     _ = JsonSerializer.Serialize(
         journalPage,
         HPD.Base.HPDBaseJsonSerializerContext.Default.BaseMutationJournalPage);
@@ -91,6 +113,100 @@ try
     BaseSuccess<BaseBatchResult> duplicate = (BaseSuccess<BaseBatchResult>)duplicateResult;
     Require(committed.Value.RequestDisposition == BaseMutationRequestDisposition.Committed, "Identified request did not commit.");
     Require(duplicate.Value.RequestDisposition == BaseMutationRequestDisposition.Duplicate, "Identified request did not replay its receipt.");
+
+    OperationResult<RecordEnvelope> createdSubject = await runtime.CreateAsync(
+        privateSubjects.Id,
+        new RecordCreateRequest
+        {
+            RequestedId = new RecordId("subject-1"),
+            Payload = JsonObjectPayload(("active", "true"), ("tenant", "\"tenant-a\"")),
+        },
+        principal,
+        Operation(BaseOperationKind.Create, privateSubjects.Id));
+    Require(createdSubject.IsSuccess(), "Exported subject creation failed: " + createdSubject.Error?.Code);
+
+    BaseResult<SmokeAcquireSubject.Row[]> acquiredSubject = await session.Reads.ToArrayAsync(
+        SmokeAcquireSubject.Handle,
+        new SmokeAcquireSubject { SubjectId = BaseRecordId<SmokePrivateSubjectRecord>.Create("subject-1") });
+    BaseSubjectReference<SmokeSubject> subjectReference = acquiredSubject.RequireValue().Single().Reference;
+    OperationResult<RecordEnvelope> acceptedReference = await runtime.CreateAsync(
+        SmokeSubjectConsumerRecord.Collection.Id,
+        new RecordCreateRequest
+        {
+            RequestedId = new RecordId("consumer-1"),
+            Payload = new RecordPayload
+            {
+                Kind = RecordPayloadKind.Json,
+                Json = JsonSerializer.SerializeToElement(
+                    new SmokeSubjectConsumerRecord { Subject = subjectReference },
+                    SmokeSubjectJsonContext.Default.SmokeSubjectConsumerRecord),
+            },
+        },
+        principal,
+        Operation(BaseOperationKind.Create, SmokeSubjectConsumerRecord.Collection.Id));
+    Require(acceptedReference.IsSuccess(), "Validated subject reference mutation failed: " + acceptedReference.Error?.Code);
+
+    OperationResult<RecordEnvelope> deactivatedSubject = await runtime.PatchAsync(
+        privateSubjects.Id,
+        new RecordId("subject-1"),
+        new RecordPatchRequest { Patch = FieldPatch("active", false) },
+        principal,
+        Operation(BaseOperationKind.Patch, privateSubjects.Id));
+    Require(deactivatedSubject.IsSuccess(), "Subject deactivation failed: " + deactivatedSubject.Error?.Code);
+    OperationResult<RecordEnvelope> rejectedReference = await runtime.CreateAsync(
+        SmokeSubjectConsumerRecord.Collection.Id,
+        new RecordCreateRequest
+        {
+            RequestedId = new RecordId("consumer-2"),
+            Payload = new RecordPayload
+            {
+                Kind = RecordPayloadKind.Json,
+                Json = JsonSerializer.SerializeToElement(
+                    new SmokeSubjectConsumerRecord { Subject = subjectReference },
+                    SmokeSubjectJsonContext.Default.SmokeSubjectConsumerRecord),
+            },
+        },
+        principal,
+        Operation(BaseOperationKind.Create, SmokeSubjectConsumerRecord.Collection.Id));
+    Require(
+        rejectedReference.Error?.Code == BaseSubjectErrorCodes.ReferenceInvalid,
+        "Inactive subject reference was not rejected through the production SQLite transaction path.");
+
+    IHPDBaseAdministration subjectAdministration = provider.GetRequiredService<IHPDBaseAdministration>();
+    BaseResult<BaseSubjectEpochRotationResult> deniedRotation = await subjectAdministration
+        .RotateSubjectEpochAsync(
+            "smoke.sqlite",
+            principal with { SubjectId = "sqlite-aot-no-rotate" },
+            new BaseSubjectEpochRotationRequest
+            {
+                ContractId = "hpd.base.sqlite.aot.subject",
+                ContractVersion = 1,
+                ExpectedStateGeneration = 1,
+                DestructiveIntent = "rotate-subject-authority-epoch",
+            });
+    Require(
+        deniedRotation is BaseFailure<BaseSubjectEpochRotationResult> denied
+        && denied.Status == OperationStatus.PolicyDenied
+        && denied.Error.Code == BaseAdministrationErrorCodes.Unauthorized,
+        "Subject rotation without the exact administration grant was not denied.");
+
+    BaseResult<BaseSubjectEpochRotationResult> rotation = await subjectAdministration
+        .RotateSubjectEpochAsync(
+            "smoke.sqlite",
+            principal,
+            new BaseSubjectEpochRotationRequest
+            {
+                ContractId = "hpd.base.sqlite.aot.subject",
+                ContractVersion = 1,
+                ExpectedStateGeneration = 1,
+                DestructiveIntent = "rotate-subject-authority-epoch",
+            });
+    BaseSubjectEpochRotationResult rotated = rotation.RequireValue();
+    Require(
+        rotated.PreviousStateGeneration == 1
+        && rotated.PublishedStateGeneration == 2
+        && rotated.RewrittenReferences == 1,
+        "Exported subject authority rotation did not publish and rewrite through the exact administration grant.");
 
     OperationResult<RecordEnvelope> desired = await runtime.CreateAsync(
         "authority.desired",
@@ -120,7 +236,7 @@ try
 
     var cursorQuery = new RecordQuery
     {
-        Sort = [new QuerySort("title", QuerySortDirection.Asc)],
+        Sort = [new QuerySort("item.title", QuerySortDirection.Asc)],
         Page = new QueryPage { Mode = QueryPaginationMode.Cursor, Limit = 1 },
     };
     OperationResult<RecordPage> cursorPage = await runtime.ListAsync("items", cursorQuery, principal, Operation(BaseOperationKind.List));
@@ -253,9 +369,29 @@ static RecordPayload JsonPayload(string name, string jsonValue)
     return new RecordPayload { Kind = RecordPayloadKind.Json, Json = document.RootElement.Clone() };
 }
 
+static RecordPayload JsonObjectPayload(params (string Name, string JsonValue)[] fields)
+{
+    string body = string.Join(',', fields.Select(static field => $"\"{field.Name}\":{field.JsonValue}"));
+    using JsonDocument document = JsonDocument.Parse("{" + body + "}");
+    return new RecordPayload { Kind = RecordPayloadKind.Json, Json = document.RootElement.Clone() };
+}
+
+static RecordPayload FieldPatch(string name, bool value)
+{
+    using JsonDocument document = JsonDocument.Parse(value ? "true" : "false");
+    return new RecordPayload
+    {
+        Kind = RecordPayloadKind.FieldMap,
+        Fields = new Dictionary<string, JsonElement>(StringComparer.Ordinal)
+        {
+            [name] = document.RootElement.Clone(),
+        },
+    };
+}
+
 static RecordPayload Payload(string title)
 {
-    using var document = JsonDocument.Parse($$"""{"Title":"{{title}}"}""");
+    using var document = JsonDocument.Parse($$"""{"title":"{{title}}"}""");
     return new RecordPayload { Kind = RecordPayloadKind.Json, Json = document.RootElement.Clone() };
 }
 
@@ -274,11 +410,104 @@ internal sealed class SmokePolicyEvaluator : IPolicyEvaluator
     public ValueTask<PolicyDecision> EvaluateAsync(PolicyEvaluationRequest request, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return ValueTask.FromResult(new PolicyDecision { Effect = PolicyEffect.Allow, Outcome = PolicyOutcome.Allowed });
+        bool mayRotate = !string.Equals(request.Principal.SubjectId, "sqlite-aot-no-rotate", StringComparison.Ordinal);
+        return ValueTask.FromResult(new PolicyDecision
+        {
+            Effect = PolicyEffect.Allow,
+            Outcome = PolicyOutcome.Allowed,
+            Audit = new PolicyAuditInfo
+            {
+                MatchedGrantIds = mayRotate
+                    ?
+                    [
+                        "hpd.base.sqlite.aot.subject.private",
+                        "hpd.base.sqlite.aot.subject.acquire",
+                        "hpd.base.sqlite.aot.subject.validate",
+                        "hpd.base.sqlite.aot.subject.rotate",
+                    ]
+                    :
+                    [
+                        "hpd.base.sqlite.aot.subject.private",
+                        "hpd.base.sqlite.aot.subject.acquire",
+                        "hpd.base.sqlite.aot.subject.validate",
+                    ],
+            },
+        });
     }
 }
 
-internal sealed record SmokeRecord(string Title);
+[BaseCollection("items", typeof(SmokeJsonContext))]
+internal sealed partial record SmokeRecord
+{
+    [System.Diagnostics.CodeAnalysis.SetsRequiredMembers]
+    internal SmokeRecord(string title) => Title = title;
 
+    [BaseField("item.title")]
+    public required string Title { get; init; }
+}
+
+[BaseCollection("subject.private", typeof(SmokeSubjectJsonContext),
+    SystemOwnerModuleId = "hpd.base.sqlite.aot.subjects")]
+internal sealed partial record SmokePrivateSubjectRecord
+{
+    [BaseField("subject.active")]
+    public required bool Active { get; init; }
+
+    [BaseField("subject.tenant")]
+    public required string Tenant { get; init; }
+}
+
+[BaseExportedSubject("hpd.base.sqlite.aot.subject",
+    OwningModuleId = "hpd.base.sqlite.aot.subjects",
+    PrivateRecordType = typeof(SmokePrivateSubjectRecord),
+    AcquisitionGrantId = "hpd.base.sqlite.aot.subject.acquire",
+    ValidationGrantId = "hpd.base.sqlite.aot.subject.validate",
+    AdministrationGrantId = "hpd.base.sqlite.aot.subject.rotate",
+    ValidationPlanId = "hpd.base.sqlite.aot.subject.validate.v1",
+    Scope = BaseSubjectScopeKind.Tenant,
+    ActiveFieldId = "subject.active",
+    ScopeFieldId = "subject.tenant")]
+internal sealed partial class SmokeSubject;
+
+[BaseCollection("subject.consumers", typeof(SmokeSubjectJsonContext))]
+internal sealed partial record SmokeSubjectConsumerRecord
+{
+    [BaseField("consumer.subject")]
+    [BaseSubjectReference(typeof(SmokeSubject), Requirement = BaseSubjectReferenceRequirement.Active)]
+    public required BaseSubjectReference<SmokeSubject> Subject { get; init; }
+}
+
+[BaseRead("hpd.base.sqlite.aot.subject.acquire", typeof(SmokeSubjectJsonContext),
+    SourceAuthority = BaseRegisteredReadSourceAuthority.System,
+    Disclosure = BaseRegisteredReadDisclosure.ConfidentialProjection,
+    RequiredGrantId = "hpd.base.sqlite.aot.subject.acquire",
+    SystemSourceIds = ["subject.private"])]
+internal sealed partial record SmokeAcquireSubject
+{
+    [BaseReadParameter("hpd.base.sqlite.aot.subject.acquire.id")]
+    public required BaseRecordId<SmokePrivateSubjectRecord> SubjectId { get; init; }
+
+    public sealed partial record Row
+    {
+        [BaseReadField("hpd.base.sqlite.aot.subject.acquire.reference")]
+        public required BaseSubjectReference<SmokeSubject> Reference { get; init; }
+    }
+
+    public static void Configure(BaseReadDefinitionBuilder<SmokeAcquireSubject, Row> read)
+    {
+        read.From(SmokePrivateSubjectRecord.Collection, "subjects", out BaseReadSource<SmokePrivateSubjectRecord> subject)
+            .Where(subject.RecordId.Equal(read.Parameter(Parameters.SubjectId)))
+            .ProjectSubjectReference(Row.Fields.Reference, subject, SmokeSubject.HPDBaseSubjectRegistration);
+    }
+}
+
+[System.Text.Json.Serialization.JsonSourceGenerationOptions(PropertyNamingPolicy = System.Text.Json.Serialization.JsonKnownNamingPolicy.CamelCase)]
+[System.Text.Json.Serialization.JsonSerializable(typeof(SmokePrivateSubjectRecord))]
+[System.Text.Json.Serialization.JsonSerializable(typeof(SmokeSubjectConsumerRecord))]
+[System.Text.Json.Serialization.JsonSerializable(typeof(SmokeAcquireSubject))]
+[System.Text.Json.Serialization.JsonSerializable(typeof(SmokeAcquireSubject.Row), TypeInfoPropertyName = "SmokeAcquireSubjectRow")]
+internal sealed partial class SmokeSubjectJsonContext : System.Text.Json.Serialization.JsonSerializerContext;
+
+[System.Text.Json.Serialization.JsonSourceGenerationOptions(PropertyNamingPolicy = System.Text.Json.Serialization.JsonKnownNamingPolicy.CamelCase)]
 [System.Text.Json.Serialization.JsonSerializable(typeof(SmokeRecord))]
 internal sealed partial class SmokeJsonContext : System.Text.Json.Serialization.JsonSerializerContext;

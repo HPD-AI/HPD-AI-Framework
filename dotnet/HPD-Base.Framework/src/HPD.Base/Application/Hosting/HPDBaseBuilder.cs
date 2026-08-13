@@ -39,6 +39,8 @@ public sealed class HPDBaseBuilder
     private readonly Dictionary<(string Feature, string Module), BaseStorageProtectionRequirement> _featureStorageRequirements = [];
     private readonly Dictionary<string, BaseStorageProtectionCapability> _extensionStorageCapabilities = new(StringComparer.Ordinal);
     private readonly List<BaseSelectionOperationProfile> _selectionProfiles = [];
+    private readonly List<BaseGeneratedSubjectRegistration> _subjectContracts = [];
+    private readonly List<BaseSubjectAcquisitionDefinition> _subjectAcquisitions = [];
     private HPDBaseSelectionMutationOptions? _selectionOptions;
     private HPDBaseStoreProvider? _storeProvider;
     /// <summary>Provides _runtime.</summary>
@@ -212,6 +214,52 @@ public sealed class HPDBaseBuilder
         return this;
     }
 
+    /// <summary>Installs one source-generated exported logical-subject contract.</summary>
+    [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+    public HPDBaseBuilder AddExportedSubject(BaseGeneratedSubjectRegistration registration)
+    {
+        EnsureMutable();
+        ArgumentNullException.ThrowIfNull(registration);
+        if (_subjectContracts.Any(value => value.MarkerType == registration.MarkerType ||
+            string.Equals(value.Definition.Id, registration.Definition.Id, StringComparison.Ordinal) &&
+            value.Definition.Version == registration.Definition.Version))
+            throw new InvalidOperationException(BaseSubjectErrorCodes.RegistrationConflict);
+        _subjectContracts.Add(registration);
+        return this;
+    }
+
+    /// <summary>Registers one authorized L35 exported-subject acquisition projection.</summary>
+    public HPDBaseBuilder AddSubjectAcquisition(BaseSubjectAcquisitionDefinition definition)
+    {
+        EnsureMutable();
+        ArgumentNullException.ThrowIfNull(definition);
+        try
+        {
+            BaseApplicationId.Validate(definition.Id, nameof(definition));
+            BaseApplicationId.Validate(definition.ContractId, nameof(definition));
+            BaseApplicationId.Validate(definition.RegisteredReadId, nameof(definition));
+            BaseApplicationId.Validate(definition.RequiredGrantId, nameof(definition));
+        }
+        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
+        {
+            throw new InvalidOperationException(BaseSubjectErrorCodes.ContractInvalid, exception);
+        }
+        if (definition.Version < 1 || definition.ContractVersion < 1 || definition.MaximumResults is < 1 or > 256
+            || !Enum.IsDefined(definition.Audience)
+            || _subjectAcquisitions.Any(existing => string.Equals(existing.Id, definition.Id, StringComparison.Ordinal)
+                || existing.ContractId == definition.ContractId && existing.ContractVersion == definition.ContractVersion
+                    && existing.RegisteredReadId == definition.RegisteredReadId && existing.Audience == definition.Audience))
+            throw new InvalidOperationException(BaseSubjectErrorCodes.RegistrationConflict);
+        _subjectAcquisitions.Add(definition with
+        {
+            Id = new string(definition.Id.AsSpan()),
+            ContractId = new string(definition.ContractId.AsSpan()),
+            RegisteredReadId = new string(definition.RegisteredReadId.AsSpan()),
+            RequiredGrantId = new string(definition.RequiredGrantId.AsSpan()),
+        });
+        return this;
+    }
+
     /// <summary>Configures the single immutable host safety envelope for selection mutations.</summary>
     public HPDBaseBuilder ConfigureSelectionMutations(HPDBaseSelectionMutationOptions options)
     {
@@ -314,6 +362,10 @@ public sealed class HPDBaseBuilder
         foreach (IBaseSerializerMetadataSource source in _serializerMetadata)
             if (source.CollectionDefinition is { } bound) _collections[bound.Id] = bound;
         CollectionDefinition[] collections = _collections.Values.ToArray();
+        BaseSubjectContractRegistry subjectRegistry = FinalizeSubjectGraph(collections);
+        foreach (BaseGeneratedSubjectRegistration subject in subjectRegistry.All)
+            if (!Fits(subject.Definition, provider.SubjectReferences))
+                throw new InvalidOperationException(BaseSubjectErrorCodes.GuaranteeUnavailable);
         var relationalOptions = new HPDBaseRelationalOptions();
         _relational?.Invoke(relationalOptions);
         relationalOptions.Validate();
@@ -331,7 +383,7 @@ public sealed class HPDBaseBuilder
             .Select(static field => field.MaximumBytes ?? 0).DefaultIfEmpty().Max();
         if (requiredBinaryMaximum > provider.MaximumBinaryFieldBytes)
             throw new InvalidOperationException(BaseConfidentialityErrorCodes.ProviderCapabilityMissing);
-        BaseLogicalSchema logicalSchema = BaseLogicalSchemaFactory.Create(schemaOptions, collections, _reads.Values, storageProtection);
+        BaseLogicalSchema logicalSchema = BaseLogicalSchemaFactory.Create(schemaOptions, collections, _reads.Values, storageProtection, subjectRegistry);
         ValidateIndexCapabilities(collections, provider);
         _services.AddSingleton(new BaseReadRegistry(new Dictionary<string, IBaseReadRegistration>(_reads, StringComparer.Ordinal)));
         _services.AddSingleton(new BaseCollectionRegistry(collections.ToDictionary(static collection => collection.Id, StringComparer.Ordinal)));
@@ -346,6 +398,7 @@ public sealed class HPDBaseBuilder
                 throw new InvalidOperationException(BaseSelectionErrorCodes.ProfileInvalid);
         }
         _services.AddSingleton(new BaseSelectionProfileRegistry(_selectionProfiles));
+        _services.AddSingleton(subjectRegistry);
         if (_selectionOptions is not null) _services.AddSingleton(_selectionOptions);
         _services.AddHPDBaseRuntime(_runtime).UseFailClosedPolicy();
         _services.AddSingleton(Microsoft.Extensions.Options.Options.Create(relationalOptions));
@@ -395,21 +448,32 @@ public sealed class HPDBaseBuilder
         IHPDBaseBuilderExtension[] installedExtensions = _extensions.ToArray();
         foreach (IHPDBaseBuilderExtension extension in installedExtensions)
             extension.Configure(_services, collections);
-        var installation = new HPDBaseStoreInstallationContext(_services, provider, collections);
+        BaseExportedSubjectDefinition[] installedSubjects = subjectRegistry.All.Select(static subject => subject.Definition).ToArray();
+        var installation = new HPDBaseStoreInstallationContext(_services, provider, collections, installedSubjects);
         HPDBaseStoreRegistrationReceipt receipt;
         try { receipt = provider.Installer.Configure(installation); }
         catch (InvalidOperationException exception) when (exception.Message.StartsWith("base.store.", StringComparison.Ordinal)) { throw; }
         catch (Exception) { throw new InvalidOperationException("base.store.providerInvalid"); }
         finally { installation.Complete(); }
         if (receipt is null || receipt.Kind != provider.Kind || receipt.ProtocolVersion != provider.ProtocolVersion ||
-            !string.Equals(receipt.SchemaDigest, HPDBaseStoreInstallationContext.ComputeSchemaDigest(collections), StringComparison.Ordinal) ||
+            !string.Equals(receipt.SchemaDigest, HPDBaseStoreInstallationContext.ComputeSchemaDigest(collections, installedSubjects), StringComparison.Ordinal) ||
             !receipt.ContributorIds.SequenceEqual(provider.RegistrationIds, StringComparer.Ordinal))
             throw new InvalidOperationException("base.store.providerInvalid");
         ConfigureVectorRuntime(collections);
-        _services.AddSingleton(new HPDBaseInstalledFeatures { Provider = provider.Kind, StoreProvider = provider, StoreReceipt = receipt, CollectionIds = collections.Select(static item => item.Id).ToArray(), ReadIds = _reads.Keys.ToArray(), Files = _files is not null, Dependencies = _dependencies is not null, Realtime = _realtime is not null, LiveQueries = _liveQueries is not null, ExtensionIds = installedExtensions.Select(static item => item.Id).ToArray(), Extensions = installedExtensions, LogicalSchema = logicalSchema });
+        _services.AddSingleton(new HPDBaseInstalledFeatures { Provider = provider.Kind, StoreProvider = provider, StoreReceipt = receipt, CollectionIds = collections.Select(static item => item.Id).ToArray(), CollectionDefinitions = collections, ReadIds = _reads.Keys.ToArray(), Files = _files is not null, Dependencies = _dependencies is not null, Realtime = _realtime is not null, LiveQueries = _liveQueries is not null, ExtensionIds = installedExtensions.Select(static item => item.Id).ToArray(), Extensions = installedExtensions, LogicalSchema = logicalSchema });
         _services.TryAddSingleton<IHPDBaseApplication, DefaultHPDBaseApplication>();
         _services.TryAddSingleton<IHPDBaseAdministration, DefaultHPDBaseAdministration>();
+        _services.TryAddSingleton(_ =>
+        {
+            var state = new BaseSubjectControlOperationalState();
+            if (installedSubjects.Length == 0) state.MarkReady();
+            return state;
+        });
+        _services.TryAddSingleton<BaseSubjectLiveControlHub>();
+        _services.TryAddSingleton<BaseSubjectControlDispatcher>();
         _services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseHealthContributor, BaseApplicationHealthContributor>());
+        _services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseHealthContributor, BaseSubjectControlHealthContributor>());
+        _services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseDiagnosticContributor, BaseSubjectControlHealthContributor>());
     }
 
     private static HPDBaseTokenProtectionOptions CreateTokenOptions() => new()
@@ -558,6 +622,101 @@ public sealed class HPDBaseBuilder
         if (required is not null && !provider.Capabilities.HasFlag(BaseStoreProviderCapabilities.RequiredIndexes))
             throw new InvalidOperationException($"Required physical index '{required.CollectionId}/{required.Id}' cannot be installed by the selected provider '{provider.Kind}'. Mark it Advisory or select a capable provider.");
     }
+
+    private BaseSubjectContractRegistry FinalizeSubjectGraph(CollectionDefinition[] collections)
+    {
+        var registry = new BaseSubjectContractRegistry(_subjectContracts, _subjectAcquisitions);
+        var byCollection = collections.ToDictionary(static collection => collection.Id, StringComparer.Ordinal);
+        foreach (BaseGeneratedSubjectRegistration registration in registry.All)
+        {
+            BaseExportedSubjectDefinition contract = registration.Definition;
+            BaseSubjectValidationPlanDefinition plan = contract.ValidationPlan;
+            if (!byCollection.TryGetValue(plan.PrivateCollectionId, out CollectionDefinition? source) ||
+                !source.System || source.Exposed ||
+                !string.Equals(source.SystemOwnerModuleId, contract.OwningModuleId, StringComparison.Ordinal))
+                throw new InvalidOperationException(BaseSubjectErrorCodes.ContractInvalid);
+            var fields = (source.Fields ?? []).ToDictionary(static field => field.Id, StringComparer.Ordinal);
+            if (plan.Active.Kind == BaseSubjectActiveBindingKind.RequiredBooleanField &&
+                (!fields.TryGetValue(plan.Active.FieldId!, out FieldDefinition? active) || active.Type != "boolean" || !active.Required || active.Nullable))
+                throw new InvalidOperationException(BaseSubjectErrorCodes.ContractInvalid);
+            if (plan.Scope.Kind != BaseSubjectScopeBindingKind.Global &&
+                (!fields.TryGetValue(plan.Scope.FieldId!, out FieldDefinition? scope) || scope.Type != "string" || !scope.Required || scope.Nullable))
+                throw new InvalidOperationException(BaseSubjectErrorCodes.ContractInvalid);
+            if (contract.Scope switch
+                {
+                    BaseSubjectScopeKind.Global => plan.Scope.Kind != BaseSubjectScopeBindingKind.Global,
+                    BaseSubjectScopeKind.Tenant => plan.Scope.Kind != BaseSubjectScopeBindingKind.RequiredTenantField,
+                    BaseSubjectScopeKind.Project => plan.Scope.Kind != BaseSubjectScopeBindingKind.RequiredProjectField,
+                    _ => true,
+                })
+                throw new InvalidOperationException(BaseSubjectErrorCodes.ContractInvalid);
+        }
+        foreach (BaseSubjectAcquisitionDefinition acquisition in registry.Acquisitions)
+        {
+            try
+            {
+                BaseApplicationId.Validate(acquisition.Id, nameof(acquisition));
+                BaseApplicationId.Validate(acquisition.ContractId, nameof(acquisition));
+                BaseApplicationId.Validate(acquisition.RegisteredReadId, nameof(acquisition));
+                BaseApplicationId.Validate(acquisition.RequiredGrantId, nameof(acquisition));
+            }
+            catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
+            {
+                throw new InvalidOperationException(BaseSubjectErrorCodes.ContractInvalid, exception);
+            }
+            BaseGeneratedSubjectRegistration? contract = registry.Find(acquisition.ContractId, acquisition.ContractVersion);
+            if (acquisition.Version < 1 || acquisition.ContractVersion < 1 ||
+                acquisition.MaximumResults is < 1 or > 256 || !Enum.IsDefined(acquisition.Audience) ||
+                contract is null || !_reads.TryGetValue(acquisition.RegisteredReadId, out IBaseReadRegistration? read)
+                || read.SourceAuthority != BaseRegisteredReadSourceAuthority.System
+                || read.Disclosure == BaseRegisteredReadDisclosure.Ordinary
+                || read.Audience != acquisition.Audience
+                || !string.Equals(read.RequiredGrantId, acquisition.RequiredGrantId, StringComparison.Ordinal)
+                || !string.Equals(contract.Definition.AcquisitionGrantId, acquisition.RequiredGrantId, StringComparison.Ordinal)
+                || !contract.Definition.Audiences.Contains(acquisition.Audience)
+                || read.Plan.Budgets.MaxResultRows < acquisition.MaximumResults
+                || read.Plan.Projection.Length != 1
+                || read.Plan.Projection[0].Operand.Kind != BaseRelationalOperandKind.SubjectReference
+                || read.Plan.Projection.Any(projection => projection.Operand.Kind == BaseRelationalOperandKind.SubjectReference
+                    && (!string.Equals(projection.Operand.SubjectContractId, acquisition.ContractId, StringComparison.Ordinal)
+                        || projection.Operand.SubjectContractVersion != acquisition.ContractVersion)))
+                throw new InvalidOperationException(BaseSubjectErrorCodes.ContractInvalid);
+        }
+        for (int collectionIndex = 0; collectionIndex < collections.Length; collectionIndex++)
+        {
+            CollectionDefinition collection = collections[collectionIndex];
+            FieldDefinition[] fields = collection.Fields ?? [];
+            var normalized = new FieldDefinition[fields.Length];
+            for (int fieldIndex = 0; fieldIndex < fields.Length; fieldIndex++)
+            {
+                FieldDefinition field = fields[fieldIndex];
+                if (field.SubjectReference is not { } reference) { normalized[fieldIndex] = field; continue; }
+                BaseGeneratedSubjectRegistration? target = registry.Find(reference.ContractId, reference.ContractVersion);
+                if (target is null || !string.IsNullOrEmpty(reference.ContractChecksum) &&
+                    !string.Equals(reference.ContractChecksum, target.Checksum, StringComparison.Ordinal) ||
+                    reference.Guarantee != BaseSubjectValidationGuarantee.TransactionSnapshot ||
+                    reference.Requirement == BaseSubjectReferenceRequirement.Active &&
+                    target.Definition.ValidationPlan.Active.Kind != BaseSubjectActiveBindingKind.RequiredBooleanField)
+                    throw new InvalidOperationException(BaseSubjectErrorCodes.ContractInvalid);
+                normalized[fieldIndex] = field with { SubjectReference = reference with { ContractChecksum = target.Checksum } };
+            }
+            collections[collectionIndex] = collection with { Fields = normalized };
+            _collections[collection.Id] = collections[collectionIndex];
+        }
+        return registry;
+    }
+
+    private static bool Fits(BaseExportedSubjectDefinition definition, BaseSubjectReferenceCapability capability)
+    {
+        BaseSubjectValidationLimits limits = definition.ValidationPlan.Limits;
+        return capability.TransactionSnapshotValidationSupported && definition.MaximumSubjectIdUtf8Bytes <= capability.MaximumSubjectIdUtf8Bytes &&
+            limits.MaximumReferencesPerRecord <= capability.MaximumReferencesPerRecord &&
+            limits.MaximumReferencesPerMutation <= capability.MaximumReferencesPerMutation &&
+            limits.MaximumValidationPlansPerMutation <= capability.MaximumValidationPlansPerMutation &&
+            limits.MaximumAuthorityReads <= capability.MaximumAuthorityReads && limits.MaximumReadIntervals <= capability.MaximumReadIntervals &&
+            limits.MaximumSelectedBytes <= capability.MaximumSelectedBytes && limits.MaximumEvidenceBytes <= capability.MaximumEvidenceBytes &&
+            limits.MaximumTransientBytes <= capability.MaximumTransientBytes && limits.ExecutionTimeout <= capability.MaximumExecutionTime;
+    }
 }
 
 /// <summary>Represents hPDBase Installed Features.</summary>
@@ -567,6 +726,7 @@ public sealed record HPDBaseInstalledFeatures
     public required string Provider { get; init; }
     /// <summary>Gets or sets collection Ids.</summary>
     public required string[] CollectionIds { get; init; }
+    internal CollectionDefinition[] CollectionDefinitions { get; init; } = [];
     /// <summary>Gets or sets read Ids.</summary>
     public required string[] ReadIds { get; init; }
     /// <summary>Gets or sets extension Ids.</summary>

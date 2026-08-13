@@ -14,6 +14,7 @@ internal sealed class InMemoryProviderInstaller(Action<HPDBaseInMemoryStoreOptio
                 BaseStoreProviderCapabilities.RelationalExecution |
                 BaseStoreProviderCapabilities.CoLocatedVectors,
             RegistrationIds = ["inmemory.records"],
+            SubjectReferences = BaseSubjectProviderCapabilities.BuiltIn,
         }, new InMemoryProviderInstaller(configure));
 
     public HPDBaseStoreRegistrationReceipt Configure(HPDBaseStoreInstallationContext context)
@@ -25,6 +26,7 @@ internal sealed class InMemoryProviderInstaller(Action<HPDBaseInMemoryStoreOptio
             configure?.Invoke(options);
             options.CollectionIds = context.Collections.Select(static item => item.Id).ToArray();
             options.Collections = context.Collections.ToArray();
+            options.ExportedSubjects = context.ExportedSubjects.ToArray();
             storeId = options.StoreId;
         });
         if (hasVectors && !context.Services.Any(static descriptor => descriptor.ServiceType == typeof(BaseExplicitVectorProviderRegistration)))

@@ -66,6 +66,8 @@ internal sealed class DefaultBasePolicyOrchestrator : IBasePolicyOrchestrator
                 RecordId = request.RecordId?.Value,
                 VectorIndexId = request.VectorIndexId,
                 VectorSpaceId = request.VectorSpaceId,
+                SubjectContractId = request.SubjectContractId,
+                SubjectContractVersion = request.SubjectContractVersion,
             },
             Grants = request.Grants,
             PolicyRefs = request.PolicyRefs

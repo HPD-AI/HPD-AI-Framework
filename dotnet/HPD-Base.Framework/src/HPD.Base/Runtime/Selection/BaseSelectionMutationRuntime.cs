@@ -21,7 +21,8 @@ internal sealed class DefaultBaseSelectionMutationRuntime(
     IBaseStoreExecutionResolver stores,
     IBasePolicyOrchestrator policy,
     IBaseMutationPostCommitDispatcher postCommit,
-    TimeProvider timeProvider) : IBaseSelectionMutationRuntime
+    TimeProvider timeProvider,
+    BaseSubjectContractRegistry subjects) : IBaseSelectionMutationRuntime
 {
     public async ValueTask<BaseResult<BaseSelectionMutationResult>> ExecuteAsync(
         BaseSession session,
@@ -67,6 +68,10 @@ internal sealed class DefaultBaseSelectionMutationRuntime(
         RecordQuery constrained = BasePolicyRuntimeSimulation.ComposePolicyFilter(query, authorization.Value.EffectiveRecordFilter);
         if (!WithinQueryLimits(constrained.Filter, profile.Limits))
             return Failure(OperationStatus.ValidationFailed, BaseSelectionErrorCodes.LimitExceeded, ErrorCategory.Validation);
+        BaseResult<bool> subjectAuthorization = await AuthorizeSubjectValidationsAsync(
+            session, collection, operation, patch, cancellationToken).ConfigureAwait(false);
+        if (subjectAuthorization is BaseFailure<bool> subjectFailure)
+            return new BaseFailure<BaseSelectionMutationResult>(subjectFailure.Status, subjectFailure.Error, subjectFailure.Warnings, subjectFailure.Diagnostics);
         BaseRecordMutationKind mutationKind = profile.MutationKind == BaseSelectionMutationKind.MergePatch
             ? BaseRecordMutationKind.Patch : BaseRecordMutationKind.Delete;
         OperationResult<BaseResolvedMutationStore> resolved = stores.Resolve(collection, mutationKind, operation);
@@ -84,7 +89,7 @@ internal sealed class DefaultBaseSelectionMutationRuntime(
         RecordQuery providerQuery = BaseQueryFieldResolver.ToStoredNames(collection, constrained);
         var processor = new BaseSelectionMutationProcessor(
             session.Principal, operation, collection, profile, providerQuery, patch, normalizedPreviousState, policy,
-            resolved.Value, authority.Value);
+            resolved.Value, authority.Value, subjects);
         var executionRequest = new RecordMutationExecutionRequest
         {
             AcquisitionTimeout = profile.Limits.AcquisitionTimeout,
@@ -140,7 +145,63 @@ internal sealed class DefaultBaseSelectionMutationRuntime(
         }, OperationStatus.Ok, null, null, null, null);
     }
 
+    private async ValueTask<BaseResult<bool>> AuthorizeSubjectValidationsAsync(
+        BaseSession session,
+        CollectionDefinition collection,
+        OperationContext sourceOperation,
+        RecordPatchRequest? patch,
+        CancellationToken cancellationToken)
+    {
+        if (patch?.Patch.Fields is not { } fields)
+            return new BaseSuccess<bool>(true, OperationStatus.Ok, null, null, null, null);
+        BaseSubjectReferenceDefinition[] references = (collection.Fields ?? [])
+            .Where(field => field.SubjectReference is not null
+                && fields.TryGetValue(field.WireName, out System.Text.Json.JsonElement value)
+                && value.ValueKind != System.Text.Json.JsonValueKind.Null)
+            .Select(static field => field.SubjectReference!)
+            .DistinctBy(static reference => (reference.ContractId, reference.ContractVersion))
+            .ToArray();
+        foreach (BaseSubjectReferenceDefinition reference in references)
+        {
+            BaseGeneratedSubjectRegistration? target = subjects.Find(reference.ContractId, reference.ContractVersion);
+            if (target is null)
+                return Failure<bool>(OperationStatus.ValidationFailed, BaseSubjectErrorCodes.ContractInvalid, ErrorCategory.Validation);
+            OperationResult<BasePolicyEvaluation> result = await policy.EvaluateWriteAsync(new BasePolicyRequest
+            {
+                Principal = session.Principal,
+                Operation = sourceOperation with
+                {
+                    Operation = BaseOperationKind.SubjectValidate,
+                    CollectionId = target.Definition.Id,
+                    RecordId = null,
+                    Mode = OperationMode.System,
+                },
+                Collection = new CollectionDefinition
+                {
+                    Id = target.Definition.Id,
+                    Name = "Exported logical subject contract",
+                    Kind = "system",
+                    Exposed = false,
+                    System = true,
+                    SystemOwnerModuleId = target.Definition.OwningModuleId,
+                    SchemaMode = SchemaMode.Strict,
+                    UnknownFields = UnknownFieldPolicy.Reject,
+                    Store = collection.Store,
+                },
+                ResourceKind = PolicyResourceKind.SubjectContract,
+                SubjectContractId = target.Definition.Id,
+                SubjectContractVersion = target.Definition.Version,
+            }, cancellationToken).ConfigureAwait(false);
+            if (!result.IsSuccess() || !BaseSystemCollectionGate.HasExactGrant(result, target.Definition.ValidationGrantId))
+                return Failure<bool>(OperationStatus.PolicyDenied, BaseSubjectErrorCodes.ReferenceInvalid, ErrorCategory.Authorization);
+        }
+        return new BaseSuccess<bool>(true, OperationStatus.Ok, null, null, null, null);
+    }
+
     private static BaseFailure<BaseSelectionMutationResult> Failure(OperationStatus status, string code, ErrorCategory category) =>
+        new(status, new BaseError { Code = code, Message = "The selection mutation could not be completed.", Category = category }, null, null);
+
+    private static BaseFailure<T> Failure<T>(OperationStatus status, string code, ErrorCategory category) =>
         new(status, new BaseError { Code = code, Message = "The selection mutation could not be completed.", Category = category }, null, null);
 
     private static bool CapabilitySupports(BaseSelectionOperationProfile profile, BaseSelectionMutationCapability capability)
@@ -287,7 +348,8 @@ internal sealed class BaseSelectionMutationProcessor(
     BasePreviousStateRequirement previousState,
     IBasePolicyOrchestrator policy,
     BaseResolvedMutationStore store,
-    BaseAuthoritySnapshotRequirement authority) : IAtomicMutationProcessor
+    BaseAuthoritySnapshotRequirement authority,
+    BaseSubjectContractRegistry subjects) : IAtomicMutationProcessor
 {
     internal BaseSelectionMutationResult? Result { get; private set; }
     internal IReadOnlyList<BaseMutationAttempt> Attempts => _attempts;
@@ -369,7 +431,11 @@ internal sealed class BaseSelectionMutationProcessor(
             return Failed(MapProviderFailure(selected));
         if (!ValidateSelection(selected.Value))
             return Failed("base.runtime.store.error", ErrorCategory.Store);
-        var facts = new List<BaseRecordMutationFact>(selected.Value.Records.Length);
+        BaseCapturedAtomicMutationAuthority captured = selected.Value.MutationCapture;
+        if (!SelectionCaptureMatches(selected.Value, captured))
+            return Failed(BaseSubjectErrorCodes.ProviderContractInvalid, ErrorCategory.Store);
+        var planItems = ImmutableArray.CreateBuilder<BaseAtomicMutationPlanItem>(selected.Value.Records.Length);
+        var policies = new List<BasePolicyEvaluation>(selected.Value.Records.Length);
         foreach (BaseOwnedSelectedRecord owned in selected.Value.Records)
         {
             RecordEnvelope record = owned.MaterializeOwned();
@@ -388,56 +454,112 @@ internal sealed class BaseSelectionMutationProcessor(
             }, cancellationToken).ConfigureAwait(false);
             if (!authorized.IsSuccess() || authorized.Value is null)
                 return Failed(BaseSelectionErrorCodes.PolicyUnsupported, ErrorCategory.Authorization);
-            RecordMutationSessionContext context = new()
+            policies.Add(authorized.Value);
+            RecordPayload? proposed = profile.MutationKind == BaseSelectionMutationKind.MergePatch
+                ? BasePolicyRuntimeSimulation.MergePatchPayload(record.Payload, patch!.Patch)
+                : null;
+            planItems.Add(new BaseAtomicMutationPlanItem
             {
-                RequestedOperation = profile.MutationKind == BaseSelectionMutationKind.MergePatch
-                    ? BaseRecordMutationKind.Patch : BaseRecordMutationKind.Delete,
+                Ordinal = planItems.Count,
+                ItemId = $"selection:{planItems.Count}",
                 EventId = Guid.NewGuid().ToString("N"),
+                Collection = collection with { Fields = collection.Fields?.Select(static field => field with { }).ToArray() },
+                Kind = profile.MutationKind == BaseSelectionMutationKind.MergePatch
+                    ? BaseCommittedRecordMutationKind.Patch : BaseCommittedRecordMutationKind.Delete,
+                RequestedKind = profile.MutationKind == BaseSelectionMutationKind.MergePatch
+                    ? BaseRecordMutationKind.Patch : BaseRecordMutationKind.Delete,
+                RecordId = record.Id,
+                ProposedPayload = proposed,
+                Delete = profile.MutationKind == BaseSelectionMutationKind.Delete
+                    ? new RecordDeleteRequest { ReturnPrevious = true, ExpectedRevision = record.Metadata.Revision }
+                    : null,
+                Current = record,
+                ChangedFields = profile.MutationKind == BaseSelectionMutationKind.MergePatch
+                    ? (patch!.Patch.Fields ?? []).Keys.Order(StringComparer.Ordinal).ToImmutableArray()
+                    : [],
                 Operation = operation with { RecordId = record.Id.Value },
-            };
-            OperationResult<RecordMutationSessionResult> mutation = profile.MutationKind == BaseSelectionMutationKind.MergePatch
-                ? await session.PatchAsync(collection, record.Id, patch! with { ExpectedRevision = null }, context, cancellationToken).ConfigureAwait(false)
-                : await session.DeleteAsync(collection, record.Id, new RecordDeleteRequest { ReturnPrevious = true }, context, cancellationToken).ConfigureAwait(false);
-            if (!mutation.IsSuccess() || mutation.Value is null)
-                return new AtomicMutationProcessingResult(AtomicMutationProcessingOutcome.Failed, [], mutation.Error
-                    ?? Error(BaseSelectionErrorCodes.TransactionConflict, ErrorCategory.Conflict));
-            facts.Add(mutation.Value.Mutation);
+            });
+        }
+        ImmutableArray<BaseAtomicMutationPlanItem> finalized = planItems.MoveToImmutable();
+        OperationResult<(ImmutableArray<BaseAtomicMutationPlanItem> Items, ImmutableArray<BaseSubjectReferenceValidationPlanItem> Validations)> subjectPlan =
+            BuildSelectionSubjectPlan(finalized, policies);
+        if (!subjectPlan.IsSuccess() || subjectPlan.Value == default)
+            return Failed(subjectPlan.Error ?? Error(BaseSubjectErrorCodes.ContractInvalid, ErrorCategory.Validation));
+        finalized = subjectPlan.Value.Items;
+        var limits = new BaseAtomicMutationExecutionLimits
+        {
+            MaximumItems = profile.Limits.MaximumProducedMutations,
+            MaximumSelectedBytes = profile.Limits.MaximumSelectedBytes,
+            MaximumEvidenceBytes = profile.Limits.MaximumTransientBytes,
+            MaximumTransientBytes = profile.Limits.MaximumTransientBytes,
+            MaximumReadIntervals = profile.Limits.MaximumReadIntervals,
+            MaximumSubjectValidations = profile.Limits.MaximumProducedMutations,
+            MaximumAuthorityReads = profile.Limits.MaximumReadIntervals,
+            ExecutionTimeout = profile.Limits.ExecutionTimeout,
+        };
+        var mutationPlan = new BaseAtomicMutationPlan
+        {
+            IntentDigest = captured.IntentDigest,
+            CaptureDigest = captured.CaptureDigest,
+            Authority = authority with { },
+            Items = finalized,
+            SubjectValidations = subjectPlan.Value.Validations,
+            Limits = limits,
+            PlanDigest = SelectionPlanDigest(captured, finalized, subjectPlan.Value.Validations),
+        };
+        BaseAtomicMutationPlan retainedPlan = BaseAtomicMutationOwnership.FreezePlan(mutationPlan);
+        BaseAtomicMutationPlan providerPlan = BaseAtomicMutationOwnership.FreezePlan(retainedPlan);
+        OperationResult<BasePreparedAtomicMutation> prepared = await session.PrepareAtomicMutationAsync(captured, providerPlan, cancellationToken).ConfigureAwait(false);
+        if (!prepared.IsSuccess() || prepared.Value is null || !PreparedMatches(retainedPlan, captured, prepared.Value))
+            return !prepared.IsSuccess() || prepared.Value is null
+                ? HasSubjectWork(retainedPlan)
+                    ? Failed(BaseSubjectFailureContract.NormalizeProviderError(prepared.Status, prepared.Error))
+                    : Failed(prepared.Error ?? Error("base.runtime.store.error", ErrorCategory.Store))
+                : Failed(BaseSubjectFailureContract.Error(BaseSubjectErrorCodes.ProviderContractInvalid));
+        if (prepared.Value.SubjectValidations.Any(static validation => validation.State == BaseSubjectValidationState.Invalid))
+            return Failed(BaseSubjectErrorCodes.ReferenceInvalid, ErrorCategory.Validation);
+        OperationResult<BaseAppliedAtomicMutation> applied = await session.ApplyPreparedAtomicMutationAsync(prepared.Value, cancellationToken).ConfigureAwait(false);
+        if (!applied.IsSuccess() || applied.Value is null || !AppliedMatches(retainedPlan, applied.Value))
+            return !applied.IsSuccess() || applied.Value is null
+                ? HasSubjectWork(retainedPlan)
+                    ? Failed(BaseSubjectFailureContract.NormalizeProviderError(applied.Status, applied.Error))
+                    : Failed(applied.Error ?? Error("base.runtime.store.error", ErrorCategory.Store))
+                : Failed(BaseSubjectFailureContract.Error(BaseSubjectErrorCodes.ProviderContractInvalid));
+        BaseRecordMutationFact[] facts;
+        try { facts = applied.Value.Facts.Select(static fact => fact.MaterializeOwned()).ToArray(); }
+        catch { return Failed(BaseSubjectErrorCodes.ProviderContractInvalid, ErrorCategory.Store); }
+        for (int index = 0; index < facts.Length; index++)
+        {
+            BaseRecordMutationFact mutation = facts[index];
+            BaseAtomicMutationPlanItem item = finalized[index];
             _attempts.Add(new BaseMutationAttempt
             {
                 Command = new BaseMutationCommand
                 {
-                    Index = _attempts.Count,
-                    ItemId = $"selection:{_attempts.Count}",
-                    CollectionId = collection.Id,
-                    Kind = context.RequestedOperation,
-                    Collection = collection,
-                    Context = context.Operation,
-                    EventId = context.EventId,
-                    Store = store,
-                    RecordId = record.Id,
+                    Index = index, ItemId = item.ItemId ?? $"selection:{index}", CollectionId = collection.Id,
+                    Kind = item.RequestedKind, Collection = collection, Context = item.Operation,
+                    EventId = item.EventId, Store = store, RecordId = item.RecordId,
                     Patch = patch,
-                    Delete = profile.MutationKind == BaseSelectionMutationKind.Delete ? new RecordDeleteRequest { ReturnPrevious = false } : null,
+                    Delete = item.Delete,
                 },
-                Status = mutation.Value.Mutation.CommittedOperation == BaseCommittedRecordMutationKind.Delete ? OperationStatus.Deleted : OperationStatus.Updated,
-                Mutation = mutation.Value.Mutation,
-                Policy = authorized.Value,
-                Revision = mutation.Value.Record?.Metadata.Revision is { } revision ? new RevisionInfo { Revision = revision.Value, Guarantee = RevisionGuarantee.Store } : null,
+                Status = mutation.CommittedOperation == BaseCommittedRecordMutationKind.Delete ? OperationStatus.Deleted : OperationStatus.Updated,
+                Mutation = mutation,
+                Policy = policies[index],
+                Revision = mutation.After?.Metadata.Revision is { } revision
+                    ? new RevisionInfo { Revision = revision.Value, Guarantee = RevisionGuarantee.Store }
+                    : null,
             });
         }
         Result = new BaseSelectionMutationResult
         {
             SelectedCount = selected.Value.Records.Length,
-            MutatedCount = facts.Count,
+            MutatedCount = facts.Length,
             Outcome = BaseRecordBatchOutcome.Committed,
         };
-        OperationResult projections = await session.ApplyMutationProjectionsAsync(
-            BaseAtomicMutationProjectionFactory.Create([.. facts]), cancellationToken).ConfigureAwait(false);
-        if (!projections.IsSuccess())
-            return Failed(projections.Error ?? Error("base.runtime.mutationProjectionFailed", ErrorCategory.Store));
         var receipt = new BaseAtomicReceiptResult
             {
                 Kind = BaseAtomicReceiptResultKind.SelectionMutation,
-                Mutations = facts.Select(static fact => BaseOwnedMutationFact.Freeze(fact, 1)).ToImmutableArray(),
+                Mutations = applied.Value.Facts,
                 SelectionMutation = new BaseSelectionMutationReceiptResult
                 {
                     ApplicationId = profile.ApplicationId,
@@ -446,14 +568,359 @@ internal sealed class BaseSelectionMutationProcessor(
                     OperationProfileVersion = profile.Version,
                     ReceiptScope = principal.CurrentTenantId ?? string.Empty,
                     SelectedCount = selected.Value.Records.Length,
-                    MutatedCount = facts.Count,
+                    MutatedCount = facts.Length,
                     Outcome = BaseRecordBatchOutcome.Committed,
                 },
             };
         OperationResult<BaseSelectionMutationCommitAccounting> measured = await session.MeasureSelectionMutationAsync(receipt, Result, cancellationToken).ConfigureAwait(false);
-        if (!measured.IsSuccess() || measured.Value is null || !WithinAccounting(measured.Value, profile.Limits, facts.Count))
+        if (!measured.IsSuccess() || measured.Value is null || !WithinAccounting(measured.Value, profile.Limits, facts.Length))
             return Failed(BaseSelectionErrorCodes.LimitExceeded, ErrorCategory.Validation);
         return new AtomicMutationProcessingResult(AtomicMutationProcessingOutcome.ReadyToCommit, receipt);
+    }
+
+    private bool SelectionCaptureMatches(BaseAtomicSelectionResult selection, BaseCapturedAtomicMutationAuthority captured)
+    {
+        if (captured.Items.Length != selection.Records.Length
+            || captured.ReadIntervals.Length != selection.ReadIntervals.Length
+            || !string.Equals(captured.Authority.StoreInstanceId, selection.Authority.StoreInstanceId, StringComparison.Ordinal)
+            || captured.Authority.RestoreEpoch != selection.Authority.RestoreEpoch
+            || captured.Authority.SchemaGeneration != selection.Authority.SchemaGeneration
+            || captured.Authority.CollectionGeneration != selection.Authority.CollectionGeneration)
+            return false;
+        for (int index = 0; index < selection.Records.Length; index++)
+        {
+            BaseCapturedMutationItem item = captured.Items[index];
+            BaseOwnedSelectedRecord selected = selection.Records[index];
+            if (item.Ordinal != index || item.Current is null
+                || !string.Equals(item.CollectionId, collection.Id, StringComparison.Ordinal)
+                || !string.Equals(item.RecordId.Value, selected.RecordId, StringComparison.Ordinal)
+                || item.Current.CollectionId != collection.Id || item.Current.Id.Value != selected.RecordId
+                || item.Current.Metadata.Revision != selected.Revision
+                || item.RelationTargets.Length != 0)
+                return false;
+        }
+        return true;
+    }
+
+    private OperationResult<(ImmutableArray<BaseAtomicMutationPlanItem> Items, ImmutableArray<BaseSubjectReferenceValidationPlanItem> Validations)> BuildSelectionSubjectPlan(
+        ImmutableArray<BaseAtomicMutationPlanItem> items,
+        IReadOnlyList<BasePolicyEvaluation> policies)
+    {
+        var finalized = ImmutableArray.CreateBuilder<BaseAtomicMutationPlanItem>(items.Length);
+        var validations = ImmutableArray.CreateBuilder<BaseSubjectReferenceValidationPlanItem>();
+        foreach (BaseAtomicMutationPlanItem item in items)
+        {
+            BaseGeneratedSubjectRegistration[] lifecycleContracts = subjects.All.Where(subject =>
+                string.Equals(subject.Definition.ValidationPlan.PrivateCollectionId, item.Collection.Id, StringComparison.Ordinal)).ToArray();
+            if (lifecycleContracts.Length > 1)
+                return SubjectPlanFailure();
+            BaseSubjectLifecyclePlanItem? lifecycle = null;
+            if (lifecycleContracts.Length == 1)
+            {
+                BaseGeneratedSubjectRegistration subject = lifecycleContracts[0];
+                BaseSubjectId id;
+                try { id = BaseSubjectId.Create(item.RecordId.Value, subject.Definition.SubjectIdKind, subject.Definition.MaximumSubjectIdUtf8Bytes); }
+                catch { return SubjectPlanFailure(); }
+                lifecycle = new BaseSubjectLifecyclePlanItem
+                {
+                    ContractId = subject.Definition.Id,
+                    ContractVersion = subject.Definition.Version,
+                    ContractChecksum = subject.Checksum,
+                    SubjectId = id,
+                    Kind = item.Kind == BaseCommittedRecordMutationKind.Delete
+                        ? BaseSubjectLifecycleMutationKind.Retire
+                        : BaseSubjectLifecycleMutationKind.Preserve,
+                };
+                if (item.Kind != BaseCommittedRecordMutationKind.Delete &&
+                    !HasValidSubjectLogicalState(item, subject.Definition))
+                    return SubjectPlanFailure();
+            }
+            if (item.Kind == BaseCommittedRecordMutationKind.Patch && item.ProposedPayload?.Fields is { } fields)
+            {
+                foreach (FieldDefinition field in (item.Collection.Fields ?? []).Where(field =>
+                    field.SubjectReference is not null && item.ChangedFields.Contains(field.WireName, StringComparer.Ordinal)))
+                {
+                    if (!fields.TryGetValue(field.WireName, out System.Text.Json.JsonElement value)
+                        || value.ValueKind == System.Text.Json.JsonValueKind.Null)
+                        continue;
+                    BaseSubjectReferenceDefinition reference = field.SubjectReference!;
+                    BaseGeneratedSubjectRegistration? target = subjects.Find(reference.ContractId, reference.ContractVersion);
+                    if (target is null || !TryParseSubjectReference(value, target.Definition, out BaseOwnedSubjectReference? parsed))
+                        return SubjectPlanFailure(BaseSubjectErrorCodes.ReferenceInvalid, ErrorCategory.Authorization);
+                    string? scope = target.Definition.Scope switch
+                    {
+                        BaseSubjectScopeKind.Global => null,
+                        BaseSubjectScopeKind.Tenant => principal.CurrentTenantId,
+                        BaseSubjectScopeKind.Project => item.Operation.ProjectId,
+                        _ => null,
+                    };
+                    if (target.Definition.Scope != BaseSubjectScopeKind.Global && string.IsNullOrWhiteSpace(scope))
+                        return SubjectPlanFailure(BaseSubjectErrorCodes.ReferenceInvalid, ErrorCategory.Validation);
+                    validations.Add(new BaseSubjectReferenceValidationPlanItem
+                    {
+                        MutationOrdinal = item.Ordinal,
+                        SourceFieldId = field.Id,
+                        ValidationPlanId = target.Definition.ValidationPlan.Id,
+                        ValidationPlanVersion = target.Definition.ValidationPlan.Version,
+                        Requirement = reference.Requirement,
+                        Reference = parsed!,
+                        Scope = new BaseOwnedSubjectScopeEvidence { Kind = target.Definition.Scope, Value = scope },
+                    });
+                }
+            }
+            finalized.Add(item with { SubjectLifecycle = lifecycle });
+        }
+        return OperationResults.Ok((finalized.MoveToImmutable(), validations.ToImmutable()));
+    }
+
+    private static bool HasValidSubjectLogicalState(BaseAtomicMutationPlanItem item, BaseExportedSubjectDefinition definition)
+    {
+        if (item.ProposedPayload?.Fields is not { } fields)
+            return false;
+        BaseSubjectValidationPlanDefinition plan = definition.ValidationPlan;
+        FieldDefinition[] definitions = item.Collection.Fields ?? [];
+        if (plan.Active.Kind == BaseSubjectActiveBindingKind.RequiredBooleanField)
+        {
+            FieldDefinition? active = definitions.SingleOrDefault(field => field.Id == plan.Active.FieldId);
+            if (active is null || !fields.TryGetValue(active.WireName, out System.Text.Json.JsonElement value) ||
+                value.ValueKind is not (System.Text.Json.JsonValueKind.True or System.Text.Json.JsonValueKind.False))
+                return false;
+        }
+        if (plan.Scope.Kind != BaseSubjectScopeBindingKind.Global)
+        {
+            FieldDefinition? scope = definitions.SingleOrDefault(field => field.Id == plan.Scope.FieldId);
+            if (scope is null || !fields.TryGetValue(scope.WireName, out System.Text.Json.JsonElement value) ||
+                value.ValueKind != System.Text.Json.JsonValueKind.String || value.GetString() is not { } text)
+                return false;
+            try { _ = BaseSubjectId.Create(text, BaseSubjectIdKind.OrdinalString, 256); }
+            catch { return false; }
+        }
+        return true;
+    }
+
+    private static OperationResult<(ImmutableArray<BaseAtomicMutationPlanItem>, ImmutableArray<BaseSubjectReferenceValidationPlanItem>)> SubjectPlanFailure(
+        string code = BaseSubjectErrorCodes.ContractInvalid,
+        ErrorCategory category = ErrorCategory.Validation) => new()
+    {
+        Status = category == ErrorCategory.Authorization ? OperationStatus.PolicyDenied : OperationStatus.ValidationFailed,
+        Error = Error(code, category),
+    };
+
+    private static bool TryParseSubjectReference(
+        System.Text.Json.JsonElement value,
+        BaseExportedSubjectDefinition definition,
+        out BaseOwnedSubjectReference? reference)
+    {
+        reference = null;
+        if (value.ValueKind != System.Text.Json.JsonValueKind.Object) return false;
+        string? subjectId = null, epoch = null, incarnation = null;
+        int count = 0;
+        foreach (System.Text.Json.JsonProperty property in value.EnumerateObject())
+        {
+            count++;
+            if (property.Value.ValueKind != System.Text.Json.JsonValueKind.String) return false;
+            switch (property.Name)
+            {
+                case "subjectId" when subjectId is null: subjectId = property.Value.GetString(); break;
+                case "authorityEpoch" when epoch is null: epoch = property.Value.GetString(); break;
+                case "incarnation" when incarnation is null: incarnation = property.Value.GetString(); break;
+                default: return false;
+            }
+        }
+        if (count != 3 || subjectId is null || epoch is null || incarnation is null) return false;
+        try
+        {
+            reference = new BaseOwnedSubjectReference(
+                BaseSubjectId.Create(subjectId, definition.SubjectIdKind, definition.MaximumSubjectIdUtf8Bytes),
+                BaseSubjectAuthorityEpoch.Parse(epoch),
+                BaseSubjectIncarnation.Parse(incarnation));
+            return true;
+        }
+        catch { return false; }
+    }
+
+    private static string SelectionPlanDigest(
+        BaseCapturedAtomicMutationAuthority captured,
+        ImmutableArray<BaseAtomicMutationPlanItem> items,
+        ImmutableArray<BaseSubjectReferenceValidationPlanItem> validations)
+    {
+        using var hash = System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
+        hash.AppendData(System.Text.Encoding.UTF8.GetBytes($"hpd.base.selection-mutation-plan.v1\0{captured.IntentDigest}\0{captured.CaptureDigest}\0"));
+        foreach (BaseAtomicMutationPlanItem item in items)
+        {
+            hash.AppendData(System.Text.Encoding.UTF8.GetBytes($"{item.Ordinal}\0{item.Collection.Id}\0{item.RecordId.Value}\0{(int)item.Kind}\0{item.EventId}\0"));
+            if (item.ProposedPayload is not null)
+                hash.AppendData(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(item.ProposedPayload, HPDBaseJsonSerializerContext.Default.RecordPayload));
+            if (item.SubjectLifecycle is { } lifecycle)
+                hash.AppendData(System.Text.Encoding.UTF8.GetBytes($"\0subject-lifecycle\0{lifecycle.ContractId}\0{lifecycle.ContractVersion}\0{lifecycle.ContractChecksum}\0{(int)lifecycle.Kind}\0{lifecycle.SubjectId.Value}\0"));
+        }
+        foreach (BaseSubjectReferenceValidationPlanItem validation in validations)
+            hash.AppendData(System.Text.Encoding.UTF8.GetBytes($"\0subject-validation\0{validation.MutationOrdinal}\0{validation.SourceFieldId}\0{validation.ValidationPlanId}\0{validation.ValidationPlanVersion}\0{(int)validation.Requirement}\0{validation.Reference.SubjectId.Value}\0{validation.Reference.AuthorityEpoch.ToBase64Url()}\0{validation.Reference.Incarnation.ToBase64Url()}\0{(int)validation.Scope.Kind}\0{validation.Scope.Value}\0"));
+        return Convert.ToHexStringLower(hash.GetHashAndReset());
+    }
+
+    private bool PreparedMatches(BaseAtomicMutationPlan plan, BaseCapturedAtomicMutationAuthority captured, BasePreparedAtomicMutation prepared) =>
+        string.Equals(plan.PlanDigest, prepared.PlanDigest, StringComparison.Ordinal)
+        && prepared.Dispositions.Length == plan.Items.Length
+        && (!HasSubjectWork(plan) || prepared.Dispositions.Select((disposition, index) => Enum.IsDefined(disposition) && disposition == (plan.Items[index].Kind switch
+        {
+            BaseCommittedRecordMutationKind.Create => BaseCapturedMutationDisposition.Create,
+            BaseCommittedRecordMutationKind.Delete => BaseCapturedMutationDisposition.Delete,
+            _ => BaseCapturedMutationDisposition.Update,
+        })).All(static valid => valid))
+        && prepared.SubjectValidations.Length == plan.SubjectValidations.Length
+        && prepared.ReadIntervals.Length >= 1
+        && prepared.Accounting.ReadIntervals == prepared.ReadIntervals.Length
+        && prepared.Accounting.SelectedBytes <= plan.Limits.MaximumSelectedBytes
+        && prepared.Accounting.EvidenceBytes <= plan.Limits.MaximumEvidenceBytes
+        && prepared.Accounting.TransientBytes <= plan.Limits.MaximumTransientBytes
+        && prepared.Accounting.AuthorityReads <= plan.Limits.MaximumAuthorityReads
+        && prepared.Authority.StoreInstanceId == captured.Authority.StoreInstanceId
+        && prepared.Authority.RestoreEpoch == captured.Authority.RestoreEpoch
+        && prepared.Authority.SchemaGeneration == captured.Authority.SchemaGeneration
+        && prepared.Authority.CollectionGeneration == captured.Authority.CollectionGeneration
+        && (!HasSubjectWork(plan) || prepared.Authority.Isolation == captured.Authority.Isolation
+            && prepared.Authority.TransactionEvidenceToken.AsSpan().SequenceEqual(captured.Authority.TransactionEvidenceToken.AsSpan())
+            && captured.ReadIntervals.All(expected => prepared.ReadIntervals.Any(actual => IntervalEquals(expected, actual))))
+        && PreparedSubjectEvidenceMatches(plan, prepared);
+
+    private static bool IntervalEquals(BaseAtomicReadIntervalEvidence left, BaseAtomicReadIntervalEvidence right) =>
+        left.LogicalAccessPathId == right.LogicalAccessPathId
+        && left.LowerInclusive == right.LowerInclusive && left.UpperInclusive == right.UpperInclusive
+        && left.CanonicalLowerBound.AsSpan().SequenceEqual(right.CanonicalLowerBound.AsSpan())
+        && left.CanonicalUpperBound.AsSpan().SequenceEqual(right.CanonicalUpperBound.AsSpan());
+
+    private bool PreparedSubjectEvidenceMatches(BaseAtomicMutationPlan plan, BasePreparedAtomicMutation prepared)
+    {
+        var expected = new Dictionary<(string Id, int Version), BaseGeneratedSubjectRegistration>();
+        foreach (BaseAtomicMutationPlanItem item in plan.Items)
+            if (item.SubjectLifecycle is { } lifecycle)
+            {
+                BaseGeneratedSubjectRegistration? registration = subjects.Find(lifecycle.ContractId, lifecycle.ContractVersion);
+                if (registration is null) return false;
+                expected[(lifecycle.ContractId, lifecycle.ContractVersion)] = registration;
+            }
+        foreach (BaseSubjectReferenceValidationPlanItem validation in plan.SubjectValidations)
+        {
+            BaseGeneratedSubjectRegistration? registration = subjects.All.SingleOrDefault(candidate =>
+                candidate.Definition.ValidationPlan.Id == validation.ValidationPlanId
+                && candidate.Definition.ValidationPlan.Version == validation.ValidationPlanVersion);
+            if (registration is null) return false;
+            expected[(registration.Definition.Id, registration.Definition.Version)] = registration;
+        }
+        if (prepared.SubjectAuthorities.Length != expected.Count
+            || prepared.SubjectValidations.Length != plan.SubjectValidations.Length
+            || prepared.SubjectAuthorities.GroupBy(static value => (value.ContractId, value.ContractVersion)).Any(static group => group.Count() != 1)
+            || prepared.SubjectOverlay.GroupBy(static value => (value.ContractId, value.ContractVersion, value.SubjectId.Value)).Any(static group => group.Count() != 1))
+            return false;
+        foreach (BaseSubjectTransactionAuthorityEvidence authority in prepared.SubjectAuthorities)
+        {
+            if (!expected.TryGetValue((authority.ContractId, authority.ContractVersion), out BaseGeneratedSubjectRegistration? registration)
+                || authority.ContractChecksum != registration.Checksum
+                || authority.StoreInstanceId != prepared.Authority.StoreInstanceId
+                || authority.RestoreEpoch != prepared.Authority.RestoreEpoch
+                || authority.SchemaGeneration != prepared.Authority.SchemaGeneration
+                || authority.StateGeneration < 1)
+                return false;
+        }
+        foreach (IGrouping<(string ContractId, int ContractVersion, string SubjectId), BaseSubjectLifecyclePlanItem> group in plan.Items
+            .Where(static item => item.SubjectLifecycle is not null).Select(static item => item.SubjectLifecycle!)
+            .GroupBy(static value => (value.ContractId, value.ContractVersion, value.SubjectId.Value)))
+        {
+            BaseSubjectLifecyclePlanItem final = group.Last();
+            BasePreparedSubjectOverlayEvidence? overlay = prepared.SubjectOverlay.SingleOrDefault(value =>
+                value.ContractId == final.ContractId && value.ContractVersion == final.ContractVersion
+                && value.SubjectId.Equals(final.SubjectId));
+            if (overlay is null || (final.Kind == BaseSubjectLifecycleMutationKind.Retire
+                    ? overlay.Exists || overlay.Incarnation is not null
+                    : !overlay.Exists || overlay.Incarnation is null)
+                || !HasSubjectInterval(prepared.ReadIntervals, $"subject:{final.ContractId}:contract", System.Text.Encoding.UTF8.GetBytes($"{final.ContractId}\n{final.ContractVersion}"))
+                || !HasSubjectInterval(prepared.ReadIntervals, $"subject:{final.ContractId}:lifetime", System.Text.Encoding.UTF8.GetBytes($"{final.ContractId}\n{final.ContractVersion}\n{final.SubjectId.Value}"))
+                || !HasSubjectInterval(prepared.ReadIntervals, $"subject:{final.ContractId}:record", System.Text.Encoding.UTF8.GetBytes(final.SubjectId.Value))) return false;
+        }
+        for (int index = 0; index < plan.SubjectValidations.Length; index++)
+        {
+            BaseSubjectReferenceValidationPlanItem validation = plan.SubjectValidations[index];
+            BasePreparedSubjectValidationEvidence result = prepared.SubjectValidations[index];
+            if (result.Ordinal != index || result.MutationOrdinal != validation.MutationOrdinal
+                || result.SourceFieldId != validation.SourceFieldId || !Enum.IsDefined(result.State)) return false;
+            BaseGeneratedSubjectRegistration registration = expected.Values.Single(candidate =>
+                candidate.Definition.ValidationPlan.Id == validation.ValidationPlanId
+                && candidate.Definition.ValidationPlan.Version == validation.ValidationPlanVersion);
+            BaseSubjectTransactionAuthorityEvidence authority = prepared.SubjectAuthorities.Single(value =>
+                value.ContractId == registration.Definition.Id && value.ContractVersion == registration.Definition.Version);
+            BasePreparedSubjectOverlayEvidence? overlay = prepared.SubjectOverlay.SingleOrDefault(value =>
+                value.ContractId == registration.Definition.Id && value.ContractVersion == registration.Definition.Version
+                && value.SubjectId.Equals(validation.Reference.SubjectId));
+            if (overlay is null) return false;
+            bool valid = overlay.Exists && overlay.Incarnation is { } incarnation
+                && incarnation.Equals(validation.Reference.Incarnation)
+                && authority.AuthorityEpoch.Equals(validation.Reference.AuthorityEpoch)
+                && (registration.Definition.Scope == BaseSubjectScopeKind.Global || overlay.Scope == validation.Scope.Value)
+                && (validation.Requirement != BaseSubjectReferenceRequirement.Active
+                    || overlay.Active == registration.Definition.ValidationPlan.Active.ActiveValue);
+            if ((result.State == BaseSubjectValidationState.Valid) != valid) return false;
+            byte[] contractKey = System.Text.Encoding.UTF8.GetBytes($"{registration.Definition.Id}\n{registration.Definition.Version}");
+            byte[] subjectKey = System.Text.Encoding.UTF8.GetBytes($"{registration.Definition.Id}\n{registration.Definition.Version}\n{validation.Reference.SubjectId.Value}");
+            byte[] recordKey = System.Text.Encoding.UTF8.GetBytes(validation.Reference.SubjectId.Value);
+            if (!HasSubjectInterval(prepared.ReadIntervals, $"subject:{registration.Definition.Id}:contract", contractKey)
+                || !HasSubjectInterval(prepared.ReadIntervals, $"subject:{registration.Definition.Id}:lifetime", subjectKey)
+                || !HasSubjectInterval(prepared.ReadIntervals, $"subject:{registration.Definition.Id}:record", recordKey)) return false;
+        }
+        return true;
+    }
+
+    private static bool HasSubjectInterval(ImmutableArray<BaseAtomicReadIntervalEvidence> intervals, string path, byte[] key) =>
+        intervals.Any(interval => interval.LogicalAccessPathId == path && interval.LowerInclusive && interval.UpperInclusive
+            && interval.CanonicalLowerBound.AsSpan().SequenceEqual(key)
+            && interval.CanonicalUpperBound.AsSpan().SequenceEqual(key));
+
+    private static bool AppliedMatches(BaseAtomicMutationPlan plan, BaseAppliedAtomicMutation applied)
+    {
+        bool strict = HasSubjectWork(plan);
+        if (!string.Equals(plan.PlanDigest, applied.PlanDigest, StringComparison.Ordinal) || applied.Facts.Length != plan.Items.Length)
+            return false;
+        for (int index = 0; index < plan.Items.Length; index++)
+        {
+            BaseRecordMutationFact fact;
+            try { fact = applied.Facts[index].MaterializeOwned(); }
+            catch { return false; }
+            BaseAtomicMutationPlanItem item = plan.Items[index];
+            if (!string.Equals(fact.Collection.Id, item.Collection.Id, StringComparison.Ordinal)
+                || strict && (fact.ItemId != item.ItemId || fact.Event.EventId != item.EventId
+                    || fact.RequestedOperation != item.RequestedKind)
+                || fact.CommittedOperation != item.Kind
+                || (fact.After ?? fact.Before)?.Id != item.RecordId
+                || strict && item.Current is not null && !RecordEquals(fact.Before, item.Current)
+                || strict && item.ProposedPayload is not null && !PayloadEquals(fact.After?.Payload, item.ProposedPayload)
+                || item.Kind == BaseCommittedRecordMutationKind.Delete && (fact.Before is null || fact.After is not null)
+                || item.Kind != BaseCommittedRecordMutationKind.Delete && fact.After is null
+                || strict && !(fact.ChangedFields ?? []).SequenceEqual(item.ChangedFields, StringComparer.Ordinal))
+                return false;
+        }
+        return true;
+    }
+
+    private static bool RecordEquals(RecordEnvelope? left, RecordEnvelope right)
+    {
+        if (left is null) return false;
+        try
+        {
+            return System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(left, HPDBaseJsonSerializerContext.Default.RecordEnvelope)
+                .AsSpan().SequenceEqual(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(right, HPDBaseJsonSerializerContext.Default.RecordEnvelope));
+        }
+        catch { return false; }
+    }
+
+    private static bool PayloadEquals(RecordPayload? left, RecordPayload right)
+    {
+        if (left is null) return false;
+        try
+        {
+            return System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(left, HPDBaseJsonSerializerContext.Default.RecordPayload)
+                .AsSpan().SequenceEqual(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(right, HPDBaseJsonSerializerContext.Default.RecordPayload));
+        }
+        catch { return false; }
     }
 
     private static bool PreviousStateMatches(RecordEnvelope record, BasePreviousStateRequirement requirement)
@@ -494,7 +961,8 @@ internal sealed class BaseSelectionMutationProcessor(
         CollectionDefinition collection,
         RecordQuery query)
     {
-        if (!string.Equals(selected.Authority.ApplicationId, profile.ApplicationId, StringComparison.Ordinal)
+        if (selected.MutationCapture is null
+            || !string.Equals(selected.Authority.ApplicationId, profile.ApplicationId, StringComparison.Ordinal)
             || !string.Equals(selected.Authority.StoreInstanceId, authority.StoreInstanceId, StringComparison.Ordinal)
             || selected.Authority.RestoreEpoch != authority.RestoreEpoch
             || selected.Authority.SchemaGeneration != authority.SchemaGeneration
@@ -618,6 +1086,8 @@ internal sealed class BaseSelectionMutationProcessor(
         (OperationStatus.ValidationFailed, "base.provider.selection.authorityInvalid", ErrorCategory.Validation) => Error(BaseSelectionErrorCodes.ContractInvalid, ErrorCategory.Validation),
         _ => Error("base.runtime.store.error", ErrorCategory.Store),
     };
+    private static bool HasSubjectWork(BaseAtomicMutationPlan plan) =>
+        plan.SubjectValidations.Length != 0 || plan.Items.Any(static item => item.SubjectLifecycle is not null);
     private static AtomicMutationProcessingResult Failed(string code, ErrorCategory category) =>
         new(AtomicMutationProcessingOutcome.Failed, [], Error(code, category));
     private static AtomicMutationProcessingResult Failed(BaseError error) =>

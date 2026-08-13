@@ -222,7 +222,7 @@ public sealed class AtomicExecutionTests
         capabilities.Batch.CrossCollectionAtomic.Should().BeTrue();
         capabilities.Batch.ReadYourWrites.Should().BeTrue();
         capabilities.Batch.Durable.Should().BeFalse();
-        capabilities.Batch.TransactionalJournal.Should().BeFalse();
+        capabilities.Batch.TransactionalJournal.Should().BeTrue();
         capabilities.Batch.Isolation.Should().Be(BaseTransactionIsolation.Serializable);
         capabilities.Batch.NestedTransactions.Should().BeFalse();
         capabilities.Batch.Savepoints.Should().BeFalse();

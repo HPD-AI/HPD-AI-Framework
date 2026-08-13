@@ -97,6 +97,7 @@ internal sealed class DefaultHPDBaseApplication(IBaseProviderBootstrap bootstrap
                 if (compatibility != BaseSchemaCompatibility.Compatible || !assetsReady || !string.Equals(observed.Value.AcceptedChecksum, features.LogicalSchema.CanonicalChecksum, StringComparison.Ordinal))
                     return Fail("base.schema.notReady");
             }
+            await bootstrap.EnsureSubjectReadinessAsync(timeout.Token).ConfigureAwait(false);
 
             var ready = new BaseApplicationReadiness
             {
@@ -143,6 +144,8 @@ internal interface IBaseProviderBootstrap
 {
     /// <summary>Executes the ensure initialized async operation.</summary>
     ValueTask EnsureInitializedAsync(CancellationToken cancellationToken = default);
+    /// <summary>Validates subject-plan dynamic authority after the accepted schema exists.</summary>
+    ValueTask EnsureSubjectReadinessAsync(CancellationToken cancellationToken = default);
 }
 
 internal interface IBaseApplicationLifetime
@@ -192,6 +195,8 @@ internal sealed class DefaultBaseProviderBootstrap(
         foreach (IHPDBaseBuilderExtension extension in features.Extensions)
             await extension.InitializeAsync(services, timeout.Token).ConfigureAwait(false);
         ValidateAuthorityGraph();
+        if (features.LogicalSchema.ExportedSubjects.Length != 0)
+            await ValidateSubjectPlanReceiptsAsync(requireDynamicAuthority: false, timeout.Token).ConfigureAwait(false);
         if (services.GetService<HPDBaseVectorSnapshot>() is { } snapshot)
         {
             if (!string.Equals(features.Provider, "inmemory", StringComparison.Ordinal) &&
@@ -202,6 +207,64 @@ internal sealed class DefaultBaseProviderBootstrap(
                 throw new InvalidOperationException("base.vector.providerUnavailable: vector execution requires exactly one provider and authority.");
             if (providers[0].Descriptor.Consistency == BaseVectorProviderConsistency.DerivedJournal && snapshot.DerivedProviderDefaultConsistency is null)
                 throw new InvalidOperationException("base.vector.consistencyInvalid: a derived provider requires an explicit consistency default.");
+        }
+    }
+
+    /// <inheritdoc />
+    public async ValueTask EnsureSubjectReadinessAsync(CancellationToken cancellationToken = default)
+    {
+        if (features.LogicalSchema.ExportedSubjects.Length == 0) return;
+        await ValidateSubjectPlanReceiptsAsync(requireDynamicAuthority: true, cancellationToken).ConfigureAwait(false);
+        await services.GetRequiredService<BaseSubjectControlDispatcher>()
+            .InitializeAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private async ValueTask ValidateSubjectPlanReceiptsAsync(
+        bool requireDynamicAuthority,
+        CancellationToken cancellationToken)
+    {
+        RecordStoreRegistration registration = services.GetRequiredService<IRecordStoreRegistry>().GetRegistrations().Single();
+        if (registration.Store is not IBaseSubjectValidationPlanReceiptStore receiptStore)
+            throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid);
+        OperationResult<BaseSubjectValidationPlanReceipt[]> observed =
+            await receiptStore.ReadSubjectValidationPlanReceiptsAsync(cancellationToken).ConfigureAwait(false);
+        if (!observed.IsSuccess() || observed.Value is null)
+            throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid);
+
+        BaseGeneratedSubjectRegistration[] contracts = services.GetRequiredService<BaseSubjectContractRegistry>().All
+            .OrderBy(static value => value.Definition.ValidationPlan.Id, StringComparer.Ordinal)
+            .ThenBy(static value => value.Definition.ValidationPlan.Version)
+            .ToArray();
+        BaseSubjectValidationPlanReceipt[] receipts = observed.Value;
+        if (receipts.Length != contracts.Length)
+            throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid);
+        if (requireDynamicAuthority && registration.Store is not IAtomicRecordStore)
+            throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid);
+        IAtomicRecordStore? atomicStore = registration.Store as IAtomicRecordStore;
+        Dictionary<string, CollectionDefinition> collections = features.CollectionDefinitions
+            .ToDictionary(static value => value.Id, StringComparer.Ordinal);
+        for (int index = 0; index < contracts.Length; index++)
+        {
+            BaseSubjectValidationPlanDefinition plan = contracts[index].Definition.ValidationPlan;
+            BaseSubjectValidationPlanReceipt receipt = receipts[index];
+            if (!collections.TryGetValue(plan.PrivateCollectionId, out CollectionDefinition? privateCollection))
+                throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid);
+            OperationResult<BaseAuthoritySnapshotRequirement>? authority = requireDynamicAuthority
+                ? await atomicStore!.CaptureSelectionAuthorityAsync(
+                    features.LogicalSchema.ApplicationId,
+                    privateCollection,
+                    cancellationToken).ConfigureAwait(false)
+                : null;
+            if (!string.Equals(receipt.PlanId, plan.Id, StringComparison.Ordinal)
+                || receipt.PlanVersion != plan.Version
+                || !string.Equals(receipt.PlanChecksum, contracts[index].PlanChecksum, StringComparison.Ordinal)
+                || !string.Equals(receipt.StoreInstanceId, features.StoreReceipt.RecordStoreRegistrationId, StringComparison.Ordinal)
+                || requireDynamicAuthority && (authority is null || !authority.IsSuccess() || authority.Value is null
+                    || receipt.SchemaGeneration != authority.Value.SchemaGeneration
+                    || !string.Equals(receipt.StoreInstanceId, authority.Value.StoreInstanceId, StringComparison.Ordinal))
+                || receipt.Access != plan.Access
+                || receipt.LoweringFormatVersion != 1)
+                throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid);
         }
     }
 

@@ -27,7 +27,9 @@ Schema,
     /// <summary>Identifies admin Metadata.</summary>
 AdminMetadata,
     /// <summary>Identifies one vector index and its influence boundary.</summary>
-VectorIndex
+    VectorIndex,
+    /// <summary>Identifies one installed exported logical-subject contract.</summary>
+    SubjectContract
 }
 
 /// <summary>Defines policy Effect.</summary>
@@ -174,5 +176,7 @@ Schema,
     /// <summary>Identifies admin.</summary>
 Admin,
     /// <summary>Identifies one vector index or a collection's vector indexes.</summary>
-VectorIndex
+    VectorIndex,
+    /// <summary>Identifies one exact exported logical-subject contract.</summary>
+    SubjectContract
 }

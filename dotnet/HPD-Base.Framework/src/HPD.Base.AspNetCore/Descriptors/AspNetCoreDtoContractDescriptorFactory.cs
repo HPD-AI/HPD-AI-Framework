@@ -37,6 +37,7 @@ internal static class AspNetCoreDtoContractDescriptorFactory
     public const string BackupCreateRequest = "base.admin.backup.create.request";
     public const string BackupValidationRequest = "base.admin.backup.validate.request";
     public const string RestoreRequest = "base.admin.backup.restore.request";
+    public const string SubjectEpochRotationRequest = "base.admin.subject.epoch.rotate.request";
 
     /// <summary>Executes the create operation.</summary>
     public static DtoContractDescriptor[] Create() =>
@@ -68,8 +69,8 @@ internal static class AspNetCoreDtoContractDescriptorFactory
         Dto(BaseDtoIds.BaseError),
         Dto(ProblemDetails)
         ,Dto(ClientGenerationSnapshotV2), Dto(PurgeRequest, VisibilityLevel.Admin), Dto(BackupCreateRequest, VisibilityLevel.Admin),
-        Dto(BackupValidationRequest, VisibilityLevel.Admin), Dto(RestoreRequest, VisibilityLevel.Admin),
-        Dto("base.admin.purge.result", VisibilityLevel.Admin), Dto("base.admin.backup.manifest", VisibilityLevel.Admin), Dto("base.admin.backup.restore.result", VisibilityLevel.Admin)
+        Dto(BackupValidationRequest, VisibilityLevel.Admin), Dto(RestoreRequest, VisibilityLevel.Admin), Dto(SubjectEpochRotationRequest, VisibilityLevel.Admin),
+        Dto("base.admin.purge.result", VisibilityLevel.Admin), Dto("base.admin.backup.manifest", VisibilityLevel.Admin), Dto("base.admin.backup.restore.result", VisibilityLevel.Admin), Dto("base.admin.subject.epoch.rotate.result", VisibilityLevel.Admin)
     ];
 
     private static DtoContractDescriptor Dto(string id, VisibilityLevel visibility = VisibilityLevel.Public) => new()

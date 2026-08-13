@@ -94,7 +94,7 @@ internal static class HPDBaseInMemoryServiceCollectionExtensions
     {
         StoreId = value.StoreId, ModuleId = value.ModuleId, ModuleName = value.ModuleName,
         StoreVersion = value.StoreVersion, CollectionIds = value.CollectionIds.ToArray(),
-        Collections = value.Collections?.ToArray(), DefaultPageSize = value.DefaultPageSize,
+        Collections = value.Collections?.ToArray(), ExportedSubjects = value.ExportedSubjects.ToArray(), DefaultPageSize = value.DefaultPageSize,
         MaxPageSize = value.MaxPageSize, MaxFilterDepth = value.MaxFilterDepth,
         MaxFilterNodes = value.MaxFilterNodes, MaxSerializedQueryLength = value.MaxSerializedQueryLength,
         MaxInValues = value.MaxInValues, MaxSortFields = value.MaxSortFields,

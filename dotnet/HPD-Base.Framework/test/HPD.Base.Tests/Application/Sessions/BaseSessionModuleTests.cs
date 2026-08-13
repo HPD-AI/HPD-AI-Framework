@@ -183,7 +183,7 @@ public sealed class BaseSessionModuleTests
     }
 
     [Fact]
-    public async Task DurableBuilderRejectsProviderWithoutJournalCapability()
+    public async Task InMemoryDurableBuilderUsesTheMandatorySharedJournalCapability()
     {
         await using BaseTestHost host = await BaseTestHost.CreateAsync(
             builder => builder
@@ -192,14 +192,11 @@ public sealed class BaseSessionModuleTests
         var session = host.Session(
             BaseTestPrincipal.User("realtime-user", "tenant-a"));
 
-        Func<Task> open = async () => await session.Realtime
+        await using BaseRealtimeFeed opened = await session.Realtime
             .Durable(GeneratedProject.Collection)
             .OpenAsync();
-
-        BaseRealtimeOpenException failure =
-            (await open.Should().ThrowAsync<BaseRealtimeOpenException>())
-            .Which;
-        failure.Code.Should().Be("base.realtime.capabilityUnavailable");
+        opened.Metadata.Replayable.Should().BeTrue();
+        opened.Metadata.Resumable.Should().BeTrue();
     }
 
     private static async ValueTask<T> NextAsync<T>(

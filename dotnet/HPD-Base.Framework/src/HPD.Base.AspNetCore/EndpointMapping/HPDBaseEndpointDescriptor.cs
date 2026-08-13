@@ -48,7 +48,9 @@ public enum HPDBaseEndpointOperation
     BackupRestore
     ,
     /// <summary>Executes one installed transaction-bound selection mutation.</summary>
-    SelectionMutation
+    SelectionMutation,
+    /// <summary>Rotates one exported-subject authority epoch.</summary>
+    SubjectEpochRotate
 }
 
 /// <summary>Describes one exact BASE HTTP endpoint.</summary>
@@ -113,4 +115,6 @@ public static class HPDBaseCapabilities
     public const string AdministrationBackupValidate = "base.admin.backup.validate";
     /// <summary>Restores authenticated backup artifacts.</summary>
     public const string AdministrationBackupRestore = "base.admin.backup.restore";
+    /// <summary>Rotates one exported-subject authority epoch.</summary>
+    public const string AdministrationSubjectEpochRotate = "base.admin.subject.epoch.rotate";
 }

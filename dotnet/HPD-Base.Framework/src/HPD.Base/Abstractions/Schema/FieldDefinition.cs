@@ -44,6 +44,8 @@ public sealed record FieldDefinition
     public ValidationAnnotations? Validation { get; init; }
     /// <summary>Gets or sets relation.</summary>
     public RelationDefinition? Relation { get; init; }
+    /// <summary>Gets the scalar exported-subject reference contract, when declared.</summary>
+    public BaseSubjectReferenceDefinition? SubjectReference { get; init; }
     /// <summary>Gets or sets file.</summary>
     public FileAnnotation? File { get; init; }
     /// <summary>Gets or sets visibility.</summary>

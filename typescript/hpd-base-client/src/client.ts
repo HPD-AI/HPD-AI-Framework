@@ -151,7 +151,7 @@ class BaseClientRuntime implements BaseQueryExecutor<unknown> {
     this.#transport = new BaseHttpTransport(options);
     this.#files = new BaseFilesClient(this.#transport);
     const webSocketFactory = options.webSocketFactory ?? (options.accessToken === undefined && typeof globalThis.WebSocket === "function" ? ((url: URL) => new globalThis.WebSocket(url)) : undefined);
-    this.#realtime = webSocketFactory === undefined ? undefined : new BaseRealtimeManager(options.url, webSocketFactory, options.accessToken, () => this.#indeterminate.clear());
+    this.#realtime = webSocketFactory === undefined ? undefined : new BaseRealtimeManager(options.url, webSocketFactory, options.accessToken, () => this.#indeterminate.clear(), options.schema.typeGraph, options.schema.collections);
     this.connectivity = this.#realtime?.connectivity ?? { getSnapshot: () => ({ kind: "offline" }), subscribe: () => () => undefined };
     this.reads = Object.freeze(Object.fromEntries(Object.entries(options.schema.reads).map(([name, definition]) => [name, new ReadClient(this, definition)])));
   }

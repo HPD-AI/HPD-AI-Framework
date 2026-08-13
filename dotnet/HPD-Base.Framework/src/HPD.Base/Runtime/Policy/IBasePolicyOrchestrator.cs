@@ -44,6 +44,10 @@ public sealed record BasePolicyRequest
     public string? VectorIndexId { get; init; }
     /// <summary>Gets the optional stable vector-space identifier.</summary>
     public string? VectorSpaceId { get; init; }
+    /// <summary>Gets the optional stable exported logical-subject contract identifier.</summary>
+    public string? SubjectContractId { get; init; }
+    /// <summary>Gets the optional positive exported logical-subject contract version.</summary>
+    public int? SubjectContractVersion { get; init; }
 }
 
 /// <summary>Represents a base policy evaluation.</summary>

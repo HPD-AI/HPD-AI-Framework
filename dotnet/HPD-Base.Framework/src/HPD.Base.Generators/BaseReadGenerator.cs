@@ -201,7 +201,8 @@ internal static class BaseReadGenerator
             }
 
             bool parameterMember = attributeName == ParameterAttribute;
-            if (!SupportedMemberType(property.Type, parameterMember))
+            bool subjectReference = SubjectReferenceTarget(property.Type) is not null;
+            if (parameterMember && subjectReference || !SupportedMemberType(property.Type, parameterMember))
             {
                 context.ReportDiagnostic(Diagnostic.Create(
                     UnsupportedReadType, Location(property), readId, property.Name,
@@ -222,6 +223,7 @@ internal static class BaseReadGenerator
                 Id = id,
                 Type = property.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                 TypedRecordIdTarget = TypedRecordIdTarget(unwrapped),
+                SubjectReferenceTarget = SubjectReferenceTarget(unwrapped),
                 IsArray = property.Type is IArrayTypeSymbol,
                 IsNullable = !SymbolEqualityComparer.Default.Equals(valueType, unwrapped),
                 ValueType = unwrapped.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
@@ -468,6 +470,8 @@ internal static class BaseReadGenerator
 
     private static string Decode(MemberModel member)
     {
+        if (member.SubjectReferenceTarget != null)
+            return "global::HPD.Base.BaseReadGeneratedContract.ReadSubjectReference<" + member.SubjectReferenceTarget + ">(row, " + Literal(member.Id) + ")";
         if (member.TypedRecordIdTarget != null)
         {
             string scalar = "new global::HPD.Base.BaseRecordId<" + member.TypedRecordIdTarget + ">(global::HPD.Base.BaseReadGeneratedContract.Read<global::HPD.Base.RecordId>(row, " + Literal(member.Id) + "))";
@@ -501,7 +505,7 @@ internal static class BaseReadGenerator
         string name = type is INamedTypeSymbol named && named.IsGenericType
             ? named.ConstructedFrom.ToDisplayString()
             : type.ToDisplayString();
-        return name is "System.DateTime" or "System.DateTimeOffset" or "System.Guid" or "HPD.Base.RecordId" or "HPD.Base.BaseRecordId<TRecord>";
+        return name is "System.DateTime" or "System.DateTimeOffset" or "System.Guid" or "HPD.Base.RecordId" or "HPD.Base.BaseRecordId<TRecord>" or "HPD.Base.BaseSubjectReference<TSubject>";
     }
     private static string ValueKind(ITypeSymbol type)
     {
@@ -513,8 +517,13 @@ internal static class BaseReadGenerator
         string name = type is INamedTypeSymbol named && named.IsGenericType
             ? named.ConstructedFrom.ToDisplayString()
             : type.ToDisplayString();
-        return name is "System.DateTime" or "System.DateTimeOffset" ? "DateTime" : "Id";
+        return name is "System.DateTime" or "System.DateTimeOffset" ? "DateTime"
+            : name == "HPD.Base.BaseSubjectReference<TSubject>" ? "SubjectReference" : "Id";
     }
+    private static string SubjectReferenceTarget(ITypeSymbol type) =>
+        type is INamedTypeSymbol named && named.IsGenericType && named.ConstructedFrom.ToDisplayString() == "HPD.Base.BaseSubjectReference<TSubject>"
+            ? named.TypeArguments[0].ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)
+            : null;
     private static string Escape(string value) => SyntaxFacts.GetKeywordKind(value) != SyntaxKind.None ? "@" + value : value;
     private static string Sanitize(string value) => new(value.Select(static character => char.IsLetterOrDigit(character) || character == '_' ? character : '_').ToArray());
     private static string Literal(string value) => SymbolDisplay.FormatLiteral(value ?? string.Empty, true);
@@ -550,6 +559,7 @@ internal static class BaseReadGenerator
         public string Id; /// <summary>Provides the type value.</summary>
         public string Type; /// <summary>Provides the typed record ID target value.</summary>
         public string TypedRecordIdTarget; /// <summary>Provides the is array value.</summary>
+        public string SubjectReferenceTarget;
         public bool IsArray; /// <summary>Provides the is nullable value.</summary>
         public bool IsNullable; /// <summary>Provides the value type value.</summary>
         public string ValueType; /// <summary>Provides the kind value.</summary>

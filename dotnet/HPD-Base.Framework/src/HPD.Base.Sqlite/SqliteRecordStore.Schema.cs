@@ -231,6 +231,7 @@ public sealed partial class SqliteRecordStore
                 return SchemaCapability<BaseSchemaApplyResult>(BaseSchemaErrorCodes.MigrationBusy, "SQLite schema migration ownership is busy.");
             }
             await ApplyCollectionMappingsAsync(connection, artifact.CollectionMappings, cancellationToken).ConfigureAwait(false);
+            await InitializeSubjectContractsForSchemaApplyAsync(connection, cancellationToken).ConfigureAwait(false);
             string[] missing = await _schema.GetMissingSchemaPartsAsync(connection, cancellationToken).ConfigureAwait(false);
             if (missing.Length != 0)
                 throw new InvalidOperationException("The authenticated SQLite schema plan did not produce the required physical state.");
@@ -264,6 +265,66 @@ public sealed partial class SqliteRecordStore
                 return SchemaFailure<BaseSchemaApplyResult>(BaseSchemaErrorCodes.MigrationIndeterminate, "SQLite schema migration completion is indeterminate.");
             return SchemaFailure<BaseSchemaApplyResult>(BaseSchemaErrorCodes.MigrationRolledBack, "SQLite schema migration failed and rollback was confirmed.");
         }
+        }
+    }
+
+    private async ValueTask InitializeSubjectContractsForSchemaApplyAsync(
+        SqliteConnection connection,
+        CancellationToken cancellationToken)
+    {
+        foreach (BaseExportedSubjectDefinition subject in _options.ExportedSubjects
+            .OrderBy(static value => value.Id, StringComparer.Ordinal)
+            .ThenBy(static value => value.Version))
+        {
+            await using SqliteCommand current = connection.CreateCommand();
+            current.CommandTimeout = TimeoutSeconds();
+            current.CommandText = $"SELECT contract_checksum FROM {_names.SubjectContracts} WHERE contract_id=$id AND contract_version=$version;";
+            current.Parameters.AddWithValue("$id", subject.Id);
+            current.Parameters.AddWithValue("$version", subject.Version);
+            object? existing = await current.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+            if (existing is not null)
+            {
+                if (!string.Equals(Convert.ToString(existing, CultureInfo.InvariantCulture),
+                    subject.ValidationPlan.ContractChecksum, StringComparison.Ordinal))
+                    throw new InvalidOperationException(BaseSubjectErrorCodes.RegistrationConflict);
+                continue;
+            }
+
+            long restoreEpoch;
+            await using (SqliteCommand restore = connection.CreateCommand())
+            {
+                restore.CommandTimeout = TimeoutSeconds();
+                restore.CommandText = $"SELECT COALESCE(CAST(value AS INTEGER),0) FROM {_names.ProviderState} WHERE key='restore_epoch';";
+                restoreEpoch = Convert.ToInt64(await restore.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture);
+            }
+
+            BaseSubjectAuthorityEpoch epoch = BaseSubjectAuthorityEpoch.Create();
+            long position;
+            await using (SqliteCommand publication = connection.CreateCommand())
+            {
+                publication.CommandTimeout = TimeoutSeconds();
+                publication.CommandText = $"INSERT INTO {_names.MutationJournal}(entry_kind,subject_contract_id,subject_contract_version,subject_previous_generation,subject_published_generation,subject_restore_epoch,subject_publication_kind) VALUES(1,$id,$version,0,1,$restore,0) RETURNING position;";
+                publication.Parameters.AddWithValue("$id", subject.Id);
+                publication.Parameters.AddWithValue("$version", subject.Version);
+                publication.Parameters.AddWithValue("$restore", restoreEpoch);
+                position = Convert.ToInt64(await publication.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture);
+            }
+
+            string digest = BaseSubjectPublicationIntegrity.Compute(
+                subject.Id, subject.Version, subject.ValidationPlan.ContractChecksum,
+                0, 1, restoreEpoch, BaseSubjectAuthorityPublicationKind.InitialInstallation,
+                new BaseMutationJournalPosition(position), epoch);
+            await using SqliteCommand insert = connection.CreateCommand();
+            insert.CommandTimeout = TimeoutSeconds();
+            insert.CommandText = $"INSERT INTO {_names.SubjectContracts}(contract_id,contract_version,contract_checksum,authority_epoch,restore_epoch,state_generation,publication_previous_generation,publication_kind,publication_position,publication_digest) VALUES($id,$version,$checksum,$epoch,$restore,1,0,0,$position,$digest);";
+            insert.Parameters.AddWithValue("$id", subject.Id);
+            insert.Parameters.AddWithValue("$version", subject.Version);
+            insert.Parameters.AddWithValue("$checksum", subject.ValidationPlan.ContractChecksum);
+            insert.Parameters.Add("$epoch", SqliteType.Blob).Value = epoch.ToArray();
+            insert.Parameters.AddWithValue("$restore", restoreEpoch);
+            insert.Parameters.AddWithValue("$position", position);
+            insert.Parameters.AddWithValue("$digest", digest);
+            await insert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
     }
 

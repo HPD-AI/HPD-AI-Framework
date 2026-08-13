@@ -58,7 +58,11 @@ public sealed class PublicApiShapeTests
                 typeof(IStreamingRecordStore),
                 typeof(IRelationalReadStore),
                 typeof(IConsistentRecordIncludeStore),
-                typeof(IInMemoryProjectionAuthority)
+                typeof(IInMemoryProjectionAuthority),
+                typeof(ITransactionalMutationJournalStore),
+                typeof(IBaseSubjectAdministration),
+                typeof(IBaseSubjectPublicationStore),
+                typeof(IBaseSubjectValidationPlanReceiptStore)
             ]);
     }
 

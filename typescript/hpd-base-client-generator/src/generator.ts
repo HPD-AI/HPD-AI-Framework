@@ -102,7 +102,7 @@ function validateTypeGraph(types: readonly NamedTypeDescriptor[], ids: ReadonlyS
     if (!stableId(type.id)) invalidType();
     const node = type.node;
     const keys: Record<TypeNode["kind"], readonly string[]> = {
-      "selection-query": ["kind", "maximumNodes", "maximumDepth", "maximumLiterals", "maximumTake"], "selection-previous-state": ["kind", "maximumFields"], "selection-identity": ["kind"], "selection-patch": ["kind", "patchTypeId"], boolean: ["kind"], string: ["kind", "minLength", "maxLength", "format"], integer: ["kind", "minimum", "maximum", "wire"], decimal: ["kind", "wire"], floating: ["kind", "precision", "finiteOnly"], bytes: ["kind", "wire", "maxBytes"], redacted: ["kind"], literal: ["kind", "value"], enum: ["kind", "values"], array: ["kind", "elementTypeId", "minItems", "maxItems"], object: ["kind", "properties", "additionalProperties"], union: ["kind", "discriminator", "variants"]
+      "selection-query": ["kind", "maximumNodes", "maximumDepth", "maximumLiterals", "maximumTake"], "selection-previous-state": ["kind", "maximumFields"], "selection-identity": ["kind"], "selection-patch": ["kind", "patchTypeId"], boolean: ["kind"], string: ["kind", "minLength", "maxLength", "format"], integer: ["kind", "minimum", "maximum", "wire"], decimal: ["kind", "wire"], floating: ["kind", "precision", "finiteOnly"], bytes: ["kind", "wire", "maxBytes"], redacted: ["kind"], subjectReference: ["kind", "contractId", "contractVersion", "subjectIdKind", "maximumSubjectIdUtf8Bytes", "authorityEpochBytes", "incarnationBytes"], literal: ["kind", "value"], enum: ["kind", "values"], array: ["kind", "elementTypeId", "minItems", "maxItems"], object: ["kind", "properties", "additionalProperties"], union: ["kind", "discriminator", "variants"]
     };
     if (!Object.hasOwn(keys, node.kind)) invalidType();
     exactKeys(node as unknown as Record<string, unknown>, keys[node.kind]);
@@ -114,6 +114,9 @@ function validateTypeGraph(types: readonly NamedTypeDescriptor[], ids: ReadonlyS
     if (node.kind === "decimal" && node.wire !== "decimal-string") invalidType();
     if (node.kind === "floating" && (node.finiteOnly !== true || !["binary32", "binary64"].includes(node.precision))) invalidType();
     if (node.kind === "bytes" && (node.wire !== "base64" || !safeBound(node.maxBytes, 0, 16 * 1024 * 1024))) invalidType();
+    if (node.kind === "subjectReference" && (!stableId(node.contractId) || !safeBound(node.contractVersion, 1, 2147483647)
+      || !["ordinalString", "guid", "uint64"].includes(node.subjectIdKind)
+      || !safeBound(node.maximumSubjectIdUtf8Bytes, 1, 256) || node.authorityEpochBytes !== 16 || node.incarnationBytes !== 16)) invalidType();
     if (node.kind === "literal" && node.value !== null && typeof node.value !== "string" && typeof node.value !== "boolean") invalidType();
     if (node.kind === "enum" && (node.values.length === 0 || node.values.length > 256 || node.values.some(value => typeof value !== "string" || value.length === 0 || value.length > 256) || unique(node.values, "base.clientGeneration.typeInvalid").size !== node.values.length)) invalidType();
     if (node.kind === "array" && (!ids.has(node.elementTypeId) || !safeBound(node.minItems, 0, 1_048_576) || !safeBound(node.maxItems, node.minItems, 1_048_576))) throw new Error(!ids.has(node.elementTypeId) ? "base.clientGeneration.typeMissing" : "base.clientGeneration.typeInvalid");
@@ -203,6 +206,7 @@ function renderType(node: TypeNode, names: ReadonlyMap<string, string>): string 
     case "string": case "decimal": return "string";
     case "bytes": return "Uint8Array";
     case "redacted": return "import(\"@hpd/base-client\").BaseRedacted";
+    case "subjectReference": return `import("@hpd/base-client").BaseSubjectReference<${JSON.stringify(node.contractId)}>`;
     case "integer": return node.wire === "number" ? "number" : "string";
     case "floating": return "number";
     case "literal": return JSON.stringify(node.value);

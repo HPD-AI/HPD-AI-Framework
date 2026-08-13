@@ -17,7 +17,9 @@ public sealed class UndefinedSupportTypeGuardTests
                     signature != "HPD.Base.BaseCollectionAttribute.JsonContextType:System.Type" &&
                     signature != "HPD.Base.BaseCollectionStorageProtectionAttribute.DeclaringType:System.Type" &&
                     signature != "HPD.Base.BaseRelationAttribute.TargetRecordType:System.Type" &&
-                    signature != "HPD.Base.BaseReadAttribute.JsonContextType:System.Type" ||
+                    signature != "HPD.Base.BaseReadAttribute.JsonContextType:System.Type" &&
+                    signature != "HPD.Base.BaseExportedSubjectAttribute.PrivateRecordType:System.Type" &&
+                    signature != "HPD.Base.BaseSubjectReferenceAttribute.SubjectType:System.Type" ||
                 signature.Contains("System.Reflection.", StringComparison.Ordinal))
             .ToArray();
 

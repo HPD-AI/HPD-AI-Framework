@@ -25,6 +25,10 @@ internal static class BaseCollectionGenerator
         "HPD.Base.BaseIndexAttribute";
     private const string RelationAttribute =
         "HPD.Base.BaseRelationAttribute";
+    private const string SubjectReferenceAttribute =
+        "HPD.Base.BaseSubjectReferenceAttribute";
+    private const string ExportedSubjectAttribute =
+        "HPD.Base.BaseExportedSubjectAttribute";
     private const string VectorIndexAttribute =
         "HPD.Base.BaseVectorIndexAttribute";
     private const string JsonPropertyNameAttribute =
@@ -152,18 +156,24 @@ internal static class BaseCollectionGenerator
         "'{0}' may only be emitted by HPD Base generated source; the compiled application/build pipeline is trusted",
         "HPD.Base.Generation", DiagnosticSeverity.Error, true);
 
+    private static readonly DiagnosticDescriptor GeneratedSubjectInfrastructureInvocation = new DiagnosticDescriptor(
+        "HPDBASE0461", "Generated subject infrastructure is not an application API",
+        "'{0}' may only be emitted by HPD Base generated source; the compiled application/build pipeline is trusted",
+        "HPD.Base.Generation", DiagnosticSeverity.Error, true);
+
     internal static void RegisterForbiddenReferences(IncrementalGeneratorInitializationContext context)
     {
-        IncrementalValuesProvider<(Location Location, string Method)?> forbiddenReferences =
+        IncrementalValuesProvider<(Location Location, string Method, bool Subject)?> forbiddenReferences =
             context.SyntaxProvider.CreateSyntaxProvider(
                 static (node, _) => node is SimpleNameSyntax,
                 static (syntaxContext, _) => ForbiddenGeneratedReference(syntaxContext));
         context.RegisterSourceOutput(forbiddenReferences.Where(static item => item.HasValue),
             static (productionContext, item) => productionContext.ReportDiagnostic(Diagnostic.Create(
-                GeneratedInfrastructureInvocation, item!.Value.Location, item.Value.Method)));
+                item!.Value.Subject ? GeneratedSubjectInfrastructureInvocation : GeneratedInfrastructureInvocation,
+                item.Value.Location, item.Value.Method)));
     }
 
-    private static (Location Location, string Method)? ForbiddenGeneratedReference(GeneratorSyntaxContext context)
+    private static (Location Location, string Method, bool Subject)? ForbiddenGeneratedReference(GeneratorSyntaxContext context)
     {
         var name = (SimpleNameSyntax)context.Node;
         SymbolInfo symbolInfo = context.SemanticModel.GetSymbolInfo(name);
@@ -173,7 +183,8 @@ internal static class BaseCollectionGenerator
                 .FirstOrDefault(IsGeneratedInfrastructure);
         if (method is null) return null;
         string owner = method.ContainingType.OriginalDefinition.ToDisplayString();
-        return (name.GetLocation(), owner + "." + method.Name);
+        return (name.GetLocation(), owner + "." + method.Name,
+            owner is "HPD.Base.BaseGeneratedSubjects" or "HPD.Base.BaseSubjectReferenceJsonConverterFactory");
     }
 
     private static bool IsGeneratedInfrastructure(IMethodSymbol method)
@@ -181,7 +192,9 @@ internal static class BaseCollectionGenerator
         string owner = method.ContainingType.OriginalDefinition.ToDisplayString();
         return owner == "HPD.Base.BaseSerializerGeneratedContract" && method.Name == "RegisterContext" ||
             owner == "HPD.Base.BaseCollection<T>" && method.Name == "CreateGenerated" ||
-            owner == "HPD.Base.BaseReadGeneratedContract" && method.Name == "CreateGenerated";
+            owner == "HPD.Base.BaseReadGeneratedContract" && method.Name == "CreateGenerated" ||
+            owner == "HPD.Base.BaseGeneratedSubjects" && method.Name == "Register" ||
+            owner == "HPD.Base.BaseSubjectReferenceJsonConverterFactory" && method.Name == "Register";
     }
 
     internal static void GenerateCombined(
@@ -328,6 +341,18 @@ internal static class BaseCollectionGenerator
             return null;
         }
 
+        string systemOwnerModuleId = GetNamedString(collection, "SystemOwnerModuleId");
+        if (systemOwnerModuleId != null && !IsValidId(systemOwnerModuleId))
+        {
+            context.ReportDiagnostic(Diagnostic.Create(
+                InvalidField,
+                GetLocation(collection, symbol),
+                collectionId,
+                "<collection>",
+                "the system owner module identifier must use the stable BASE identifier grammar"));
+            return null;
+        }
+
         INamedTypeSymbol jsonContext = GetConstructorType(collection, 1);
         if (jsonContext == null || !HasJsonRegistration(jsonContext, symbol))
         {
@@ -468,6 +493,40 @@ internal static class BaseCollectionGenerator
                 Required = property.IsRequired || !IsNullable(property),
                 Operators = operators,
             };
+            AttributeData subjectReferenceAttribute = FindAttribute(property, SubjectReferenceAttribute);
+            if (subjectReferenceAttribute is not null)
+            {
+                INamedTypeSymbol marker = SubjectReferenceMarker(property.Type);
+                INamedTypeSymbol declaredMarker = GetConstructorType(subjectReferenceAttribute, 0);
+                AttributeData exported = marker is null ? null : FindAttribute(marker, ExportedSubjectAttribute);
+                string contractId = exported is null ? null : GetConstructorString(exported, 0);
+                int contractVersion = exported is null ? 0 : (int)GetNamedInt64(exported, "Version", 1);
+                int idKind = exported is null ? -1 : (int)GetNamedInt64(exported, "SubjectIdKind", 0);
+                int maximumIdBytes = exported is null ? 0 : (int)GetNamedInt64(exported, "MaximumSubjectIdUtf8Bytes", 256);
+                int requirement = (int)GetNamedInt64(subjectReferenceAttribute, "Requirement", 0);
+                int guarantee = (int)GetNamedInt64(subjectReferenceAttribute, "Guarantee", 0);
+                if (marker is null || declaredMarker is null || !SymbolEqualityComparer.Default.Equals(marker, declaredMarker) ||
+                    exported is null || !IsValidId(contractId) || contractVersion < 1 || idKind is < 0 or > 2 ||
+                    maximumIdBytes is < 1 or > 256 || requirement is < 0 or > 1 || guarantee != 0 ||
+                    property.Type.NullableAnnotation == NullableAnnotation.Annotated && property.IsRequired)
+                {
+                    context.ReportDiagnostic(Diagnostic.Create(InvalidField, GetLocation(property), collectionId, property.Name,
+                        "subject references require an exact exported marker, closed contract, and scalar BaseSubjectReference<TSubject> shape"));
+                    return null;
+                }
+                field.SchemaType = "subject-reference";
+                field.SchemaFormat = null;
+                field.SubjectReference = new SubjectReferenceModel
+                {
+                    MarkerType = marker.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+                    ContractId = contractId,
+                    ContractVersion = contractVersion,
+                    SubjectIdKind = idKind,
+                    MaximumSubjectIdBytes = maximumIdBytes,
+                    Requirement = requirement,
+                    Guarantee = guarantee,
+                };
+            }
             AttributeData confidentialityAttribute = FindAttribute(property, ConfidentialityAttribute);
             field.Confidentiality = confidentialityAttribute is null ? 0 : (int)(confidentialityAttribute.ConstructorArguments[0].Value ?? -1);
             if (field.Confidentiality is < 0 or > 3)
@@ -495,6 +554,12 @@ internal static class BaseCollectionGenerator
             }
 
             AttributeData relationAttribute = FindAttribute(property, RelationAttribute);
+            if (relationAttribute is not null && field.SubjectReference is not null)
+            {
+                context.ReportDiagnostic(Diagnostic.Create(InvalidField, GetLocation(property), collectionId, property.Name,
+                    "a subject-reference field cannot also be a relation"));
+                return null;
+            }
             if (relationAttribute != null)
             {
                 string relationId = GetConstructorString(relationAttribute, 0);
@@ -802,6 +867,7 @@ internal static class BaseCollectionGenerator
             CollectionKind = GetNamedString(collection, "Kind") ?? "record",
             Strict = GetNamedBoolean(collection, "Strict", true),
             MutationMode = mutationMode,
+            SystemOwnerModuleId = systemOwnerModuleId,
             Fields = fields,
             Indexes = indexes,
             VectorIndexes = vectorIndexes,
@@ -841,6 +907,16 @@ internal static class BaseCollectionGenerator
             source.Append("    internal static void RegisterHPDBaseRecordIdJsonConverter_")
                 .Append(Sanitize(target!)).Append("() => global::HPD.Base.BaseRecordIdJsonConverterFactory.Register<")
                 .Append(target).AppendLine(">();");
+            source.AppendLine();
+        }
+        foreach (SubjectReferenceModel reference in model.Fields.Select(static field => field.SubjectReference)
+            .Where(static value => value is not null).Distinct(SubjectReferenceModelComparer.Instance))
+        {
+            source.AppendLine("    [global::System.Runtime.CompilerServices.ModuleInitializer]");
+            source.Append("    internal static void RegisterHPDBaseSubjectReferenceJsonConverter_")
+                .Append(Sanitize(reference.MarkerType)).Append("() => global::HPD.Base.BaseSubjectReferenceJsonConverterFactory.Register<")
+                .Append(reference.MarkerType).Append(">((global::HPD.Base.BaseSubjectIdKind)").Append(reference.SubjectIdKind)
+                .Append(", ").Append(reference.MaximumSubjectIdBytes).AppendLine(");");
             source.AppendLine();
         }
         source.AppendLine("    /// <summary>Gets the generated collection contract with stable logical identities and source-generated serialization metadata.</summary>");
@@ -934,6 +1010,12 @@ internal static class BaseCollectionGenerator
             .Append(model.Strict ? "Reject" : "Preserve").AppendLine(",");
         source.Append("                MutationMode = global::HPD.Base.BaseCollectionMutationMode.")
             .Append(model.MutationMode).AppendLine(",");
+        if (model.SystemOwnerModuleId != null)
+        {
+            source.AppendLine("                System = true,");
+            source.AppendLine("                Exposed = false,");
+            source.Append("                SystemOwnerModuleId = ").Append(Literal(model.SystemOwnerModuleId)).AppendLine(",");
+        }
         source.AppendLine("                Source = new global::HPD.Base.SchemaSourceDescriptor");
         source.AppendLine("                {");
         source.AppendLine("                    Id = \"hpd.base.application.generated\",");
@@ -1064,6 +1146,17 @@ internal static class BaseCollectionGenerator
                 if (field.Relation.IncludeMaximumDepth is int includeMaximumDepth)
                     source.Append(", MaxDepth = ").Append(includeMaximumDepth);
                 source.AppendLine(" },");
+                source.AppendLine("                        },");
+            }
+            if (field.SubjectReference is not null)
+            {
+                source.AppendLine("                        SubjectReference = new global::HPD.Base.BaseSubjectReferenceDefinition");
+                source.AppendLine("                        {");
+                source.Append("                            ContractId = ").Append(Literal(field.SubjectReference.ContractId)).AppendLine(",");
+                source.Append("                            ContractVersion = ").Append(field.SubjectReference.ContractVersion).AppendLine(",");
+                source.AppendLine("                            ContractChecksum = \"\",");
+                source.Append("                            Requirement = (global::HPD.Base.BaseSubjectReferenceRequirement)").Append(field.SubjectReference.Requirement).AppendLine(",");
+                source.Append("                            Guarantee = (global::HPD.Base.BaseSubjectValidationGuarantee)").Append(field.SubjectReference.Guarantee).AppendLine(",");
                 source.AppendLine("                        },");
             }
             source.AppendLine("                    },");
@@ -1413,6 +1506,16 @@ internal static class BaseCollectionGenerator
         return null;
     }
 
+    private static INamedTypeSymbol SubjectReferenceMarker(ITypeSymbol type)
+    {
+        if (type is INamedTypeSymbol nullable && nullable.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T)
+            type = nullable.TypeArguments[0];
+        return type is INamedTypeSymbol named && named.IsGenericType &&
+            named.ConstructedFrom.ToDisplayString() == "HPD.Base.BaseSubjectReference<TSubject>"
+            ? named.TypeArguments[0] as INamedTypeSymbol
+            : null;
+    }
+
     private static bool IsManyRecordIdShape(ITypeSymbol type) =>
         type is IArrayTypeSymbol { Rank: 1 } ||
         type is INamedTypeSymbol named && IsApprovedRecordIdCollection(named);
@@ -1607,6 +1710,8 @@ internal static class BaseCollectionGenerator
         public bool Strict;
         /// <summary>Provides the collection mutation mode value.</summary>
         public string MutationMode;
+        /// <summary>Provides the owning installed module for a generated system collection.</summary>
+        public string SystemOwnerModuleId;
         /// <summary>Provides the fields value.</summary>
         public List<FieldModel> Fields;
         /// <summary>Provides the indexes value.</summary>
@@ -1670,6 +1775,28 @@ internal static class BaseCollectionGenerator
         public int MaximumBytes;
         /// <summary>Provides the relation value.</summary>
         public RelationModel Relation;
+        public SubjectReferenceModel SubjectReference;
+    }
+
+    private sealed class SubjectReferenceModel
+    {
+        public string MarkerType;
+        public string ContractId;
+        public int ContractVersion;
+        public int SubjectIdKind;
+        public int MaximumSubjectIdBytes;
+        public int Requirement;
+        public int Guarantee;
+    }
+
+    private sealed class SubjectReferenceModelComparer : IEqualityComparer<SubjectReferenceModel>
+    {
+        internal static SubjectReferenceModelComparer Instance { get; } = new();
+        public bool Equals(SubjectReferenceModel x, SubjectReferenceModel y) =>
+            x is not null && y is not null && string.Equals(x.MarkerType, y.MarkerType, StringComparison.Ordinal) &&
+            x.SubjectIdKind == y.SubjectIdKind && x.MaximumSubjectIdBytes == y.MaximumSubjectIdBytes;
+        public int GetHashCode(SubjectReferenceModel value) =>
+            StringComparer.Ordinal.GetHashCode(value.MarkerType) ^ value.SubjectIdKind ^ value.MaximumSubjectIdBytes;
     }
 
     private sealed class RelationModel

@@ -211,6 +211,18 @@ public sealed record BaseClientTypeNode
     public int? MaximumFields { get; init; }
     /// <summary>Gets the application patch graph type wrapped by a selection patch node.</summary>
     public string? PatchTypeId { get; init; }
+    /// <summary>Gets the exported logical-subject contract identifier.</summary>
+    public string? ContractId { get; init; }
+    /// <summary>Gets the exported logical-subject contract version.</summary>
+    public int? ContractVersion { get; init; }
+    /// <summary>Gets the canonical subject-identifier grammar.</summary>
+    public string? SubjectIdKind { get; init; }
+    /// <summary>Gets the maximum canonical UTF-8 subject-identifier byte count.</summary>
+    public int? MaximumSubjectIdUtf8Bytes { get; init; }
+    /// <summary>Gets the fixed authority-epoch byte count.</summary>
+    public int? AuthorityEpochBytes { get; init; }
+    /// <summary>Gets the fixed incarnation byte count.</summary>
+    public int? IncarnationBytes { get; init; }
     /// <summary>Gets object properties.</summary>
     public BaseClientPropertyDescriptor[]? Properties { get; init; }
     /// <summary>Gets whether unknown properties are accepted.</summary>

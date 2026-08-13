@@ -351,6 +351,8 @@ public sealed record BaseSelectionMutationCommitAccounting
 /// <summary>Returns one validated provider selection.</summary>
 public sealed record BaseAtomicSelectionResult
 {
+    /// <summary>Gets the single-use transaction-bound mutation capture for the selected records.</summary>
+    public required BaseCapturedAtomicMutationAuthority MutationCapture { get; init; }
     /// <summary>Gets the authority evidence.</summary>
     public required BaseAuthoritySnapshotEvidence Authority { get; init; }
     /// <summary>Gets the deeply owned selected records.</summary>

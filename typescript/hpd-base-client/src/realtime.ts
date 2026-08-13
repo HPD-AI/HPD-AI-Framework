@@ -19,7 +19,8 @@ interface Joined { readonly protocol: 2; readonly kind: "joined"; readonly conne
 interface Snapshot { readonly protocol: 2; readonly kind: "liveQuerySnapshot"; readonly connectionId: string; readonly connectionEpoch: string; readonly ref: string; readonly channelEpoch: string; readonly version: string; readonly source: "initial" | "rerun"; readonly value: unknown; }
 interface ErrorMessage { readonly protocol: 2; readonly kind: "error"; readonly connectionId: string; readonly connectionEpoch: string; readonly ref?: string; readonly channelEpoch?: string; readonly terminal: boolean; readonly error: { readonly code: string }; }
 interface RecordEventMessage { readonly protocol: 2; readonly kind: "liveRecordEvent" | "durableRecordEvent"; readonly connectionId: string; readonly connectionEpoch: string; readonly ref: string; readonly channelEpoch: string; readonly event: BaseRecordRealtimeEvent; readonly cursor?: string; }
-type ServerMessage = Welcome | Joined | Snapshot | RecordEventMessage | ErrorMessage | { readonly protocol: 2; readonly kind: "heartbeatAck"; readonly connectionId: string; readonly connectionEpoch: string; readonly heartbeatId: string } | { readonly protocol: 2; readonly kind: "closed"; readonly connectionId: string; readonly connectionEpoch: string; readonly code: string; readonly retryable: boolean };
+interface SubjectAuthorityChangedMessage { readonly protocol: 2; readonly kind: "durableSubjectAuthorityChanged" | "liveSubjectAuthorityChanged" | "liveQuerySubjectAuthorityChanged"; readonly connectionId: string; readonly connectionEpoch: string; readonly ref: string; readonly channelEpoch: string; readonly contractId: string; readonly contractVersion: number; readonly stateGeneration: string; readonly cursor?: string; }
+type ServerMessage = Welcome | Joined | Snapshot | RecordEventMessage | SubjectAuthorityChangedMessage | ErrorMessage | { readonly protocol: 2; readonly kind: "heartbeatAck"; readonly connectionId: string; readonly connectionEpoch: string; readonly heartbeatId: string } | { readonly protocol: 2; readonly kind: "closed"; readonly connectionId: string; readonly connectionEpoch: string; readonly code: string; readonly retryable: boolean };
 
 export interface BaseRecordRealtimeEvent { readonly eventId: string; readonly collectionId: string; readonly recordId: string; readonly operation: string; readonly occurredAt: string; readonly snapshot?: unknown; readonly before?: unknown; readonly invalidations?: readonly string[]; }
 export interface BaseRecordFeedFilter { readonly recordId?: string; readonly operations?: readonly string[]; readonly eventTypes?: readonly string[]; readonly tenantId?: string; readonly includeSnapshots?: boolean; readonly includeBefore?: boolean; }
@@ -37,6 +38,7 @@ interface SharedQuery {
   readonly resultTypeId: string;
   readonly decode: (value: unknown) => unknown;
   readonly observers: Set<(snapshot: BaseQuerySnapshot<unknown>) => void>;
+  readonly processedSubjectControls: Map<string, string>;
   channelEpoch: string | undefined;
   lastVersion: bigint | undefined;
   last: BaseQuerySnapshot<unknown> | undefined;
@@ -44,13 +46,15 @@ interface SharedQuery {
   releaseGeneration: number;
 }
 interface OptimisticOverlay { readonly mutationId: string; readonly collectionId: string; readonly recordId: string; readonly kind: "create" | "patch" | "replace" | "delete" | "upsert"; readonly value: unknown; readonly expectedRevision?: string; readonly requestBytes: Uint8Array; readonly affectedQueryKeys: readonly string[]; readonly order: number; status: "pending" | "indeterminate"; }
-interface SharedFeed { readonly ref: string; readonly collectionId: string; readonly request: BaseRecordFeedRequest; readonly observer: (delivery: BaseRecordFeedDelivery) => void | Promise<void>; readonly decodeRecord: (value: unknown) => unknown; channelEpoch: string | undefined; lastCursor: string | undefined; closed: boolean; }
+interface SharedFeed { readonly ref: string; readonly collectionId: string; readonly request: BaseRecordFeedRequest; readonly observer: (delivery: BaseRecordFeedDelivery) => void | Promise<void>; readonly decodeRecord: (value: unknown) => unknown; readonly processedSubjectControls: Map<string, string>; channelEpoch: string | undefined; lastCursor: string | undefined; lastSubjectControl: { readonly cursor: string; readonly key: string; readonly generation: string } | undefined; closed: boolean; }
 
 export class BaseRealtimeManager {
   readonly #url: URL;
   readonly #factory: BaseWebSocketFactory;
   readonly #token: (() => string | undefined | Promise<string | undefined>) | undefined;
   readonly #identityChanged: (() => void) | undefined;
+  readonly #contracts: ReadonlySet<string>;
+  readonly #collectionContracts: ReadonlyMap<string, ReadonlySet<string>>;
   readonly #queries = new Map<string, SharedQuery>();
   readonly #feeds = new Map<string, SharedFeed>();
   readonly #overlays = new Map<string, OptimisticOverlay>();
@@ -72,7 +76,7 @@ export class BaseRealtimeManager {
   #hasToken = false;
   readonly #connectivityObservers = new Set<() => void>();
 
-  public constructor(url: string, factory: BaseWebSocketFactory, token?: () => string | undefined | Promise<string | undefined>, identityChanged?: () => void) {
+  public constructor(url: string, factory: BaseWebSocketFactory, token?: () => string | undefined | Promise<string | undefined>, identityChanged?: () => void, typeGraph?: import("./codec.js").BaseTypeGraph, collections?: Readonly<Record<string, import("./schema.js").BaseCollectionDefinition>>) {
     const base = new URL(url, globalThis.location?.href ?? "http://localhost");
     base.protocol = base.protocol === "https:" ? "wss:" : "ws:";
     if (!base.pathname.endsWith("/")) base.pathname += "/";
@@ -80,6 +84,20 @@ export class BaseRealtimeManager {
     this.#factory = factory;
     this.#token = token;
     this.#identityChanged = identityChanged;
+    const contracts = new Set<string>();
+    for (const node of Object.values(typeGraph ?? {})) if (node.kind === "subjectReference") contracts.add(subjectKey(node.contractId, node.contractVersion));
+    this.#contracts = contracts;
+    const collectionContracts = new Map<string, ReadonlySet<string>>();
+    for (const collection of Object.values(collections ?? {})) {
+      const values = new Set<string>();
+      for (const field of Object.values(collection.fields)) {
+        if (field.valueTypeId === undefined) continue;
+        const node = typeGraph?.[field.valueTypeId];
+        if (node?.kind === "subjectReference") values.add(subjectKey(node.contractId, node.contractVersion));
+      }
+      collectionContracts.set(collection.id, values);
+    }
+    this.#collectionContracts = collectionContracts;
   }
 
   public subscribe<T>(collectionId: string, query: BaseQueryInput, observer: (snapshot: BaseQuerySnapshot<T>) => void, decode: (value: unknown) => T): BaseSubscription {
@@ -88,7 +106,7 @@ export class BaseRealtimeManager {
     let shared = this.#queries.get(key);
     if (shared === undefined) {
       if (this.#queries.size >= 128) throw new Error("base.client.subscriptionLimit");
-      shared = { key, publicKey: `q_${crypto.randomUUID().replaceAll("-", "")}`, ref: crypto.randomUUID(), collectionId, query: clone(query), operation: { kind: "collectionQuery", collectionId, query: toWireLiveQuery(query), take: query.take }, resultTypeId: `collection.${collectionId}.recordPage`, decode, observers: new Set(), channelEpoch: undefined, lastVersion: undefined, last: undefined, authoritative: undefined, releaseGeneration: 0 };
+      shared = { key, publicKey: `q_${crypto.randomUUID().replaceAll("-", "")}`, ref: crypto.randomUUID(), collectionId, query: clone(query), operation: { kind: "collectionQuery", collectionId, query: toWireLiveQuery(query), take: query.take }, resultTypeId: `collection.${collectionId}.recordPage`, decode, observers: new Set(), processedSubjectControls: new Map(), channelEpoch: undefined, lastVersion: undefined, last: undefined, authoritative: undefined, releaseGeneration: 0 };
       this.#queries.set(key, shared);
     }
     const typedObserver = (snapshot: BaseQuerySnapshot<unknown>): void => observer(snapshot as BaseQuerySnapshot<T>);
@@ -110,7 +128,7 @@ export class BaseRealtimeManager {
 
   public subscribeRead<T>(readId: string, parameters: unknown, observer: (snapshot: BaseQuerySnapshot<T>) => void, decode: (value: unknown) => T, encodedParameters?: string): BaseSubscription {
     const pseudoQuery: BaseQueryInput = { take: 500 }; const key = canonical({ readId, parameters }); let shared = this.#queries.get(key);
-    if (shared === undefined) { shared = { key, publicKey: `q_${crypto.randomUUID().replaceAll("-", "")}`, ref: crypto.randomUUID(), collectionId: `read:${readId}`, query: pseudoQuery, operation: { kind: "registeredRead", readId, parameters: clone(parameters) }, ...(encodedParameters === undefined ? {} : { operationJson: `{\"kind\":\"registeredRead\",\"readId\":${JSON.stringify(readId)},\"parameters\":${encodedParameters}}` }), resultTypeId: `read.${readId}.rowPage`, decode, observers: new Set(), channelEpoch: undefined, lastVersion: undefined, last: undefined, authoritative: undefined, releaseGeneration: 0 }; this.#queries.set(key, shared); }
+    if (shared === undefined) { shared = { key, publicKey: `q_${crypto.randomUUID().replaceAll("-", "")}`, ref: crypto.randomUUID(), collectionId: `read:${readId}`, query: pseudoQuery, operation: { kind: "registeredRead", readId, parameters: clone(parameters) }, ...(encodedParameters === undefined ? {} : { operationJson: `{\"kind\":\"registeredRead\",\"readId\":${JSON.stringify(readId)},\"parameters\":${encodedParameters}}` }), resultTypeId: `read.${readId}.rowPage`, decode, observers: new Set(), processedSubjectControls: new Map(), channelEpoch: undefined, lastVersion: undefined, last: undefined, authoritative: undefined, releaseGeneration: 0 }; this.#queries.set(key, shared); }
     const typed = (snapshot: BaseQuerySnapshot<unknown>): void => observer(snapshot as BaseQuerySnapshot<T>); shared.releaseGeneration++; shared.observers.add(typed); if (shared.last !== undefined) queueMicrotask(() => typed(shared!.last!)); void this.connect(); let closed = false;
     return { get closed() { return closed; }, close: () => { if (closed) return; closed = true; shared!.observers.delete(typed); if (shared!.observers.size === 0) { const generation = ++shared!.releaseGeneration; queueMicrotask(() => { if (shared!.observers.size !== 0 || shared!.releaseGeneration !== generation) return; this.leave(shared!); this.#queries.delete(key); if (this.#queries.size === 0) this.disconnect(); }); } } };
   }
@@ -119,7 +137,7 @@ export class BaseRealtimeManager {
     if (this.#closed) throw new Error("base.client.closed");
     if (this.#queries.size + this.#feeds.size >= 128) throw new Error("base.client.subscriptionLimit");
     if (request.kind === "resume" && request.cursor.length === 0) throw new TypeError("base.client.cursorInvalid");
-    const ref = crypto.randomUUID(); const feed: SharedFeed = { ref, collectionId, request: clone(request), observer, decodeRecord, channelEpoch: undefined, lastCursor: undefined, closed: false };
+    const ref = crypto.randomUUID(); const feed: SharedFeed = { ref, collectionId, request: clone(request), observer, decodeRecord, processedSubjectControls: new Map(), channelEpoch: undefined, lastCursor: undefined, lastSubjectControl: undefined, closed: false };
     this.#feeds.set(ref, feed); void this.connect(); let closed = false;
     return { get closed() { return closed; }, close: () => { if (closed) return; closed = true; feed.closed = true; this.leaveFeed(feed); this.#feeds.delete(ref); if (this.#queries.size === 0 && this.#feeds.size === 0) this.disconnect(); } };
   }
@@ -191,6 +209,10 @@ export class BaseRealtimeManager {
       if (++this.#pendingDispatch > 256) { this.#socket?.close(1008, "base.realtime.inboundOverflow"); return; }
       this.#dispatch = this.#dispatch.then(() => this.recordEvent(message)).finally(() => { this.#pendingDispatch--; });
     }
+    else if (message.kind === "durableSubjectAuthorityChanged" || message.kind === "liveSubjectAuthorityChanged" || message.kind === "liveQuerySubjectAuthorityChanged") {
+      if (++this.#pendingDispatch > 256) { this.#socket?.close(1008, "base.realtime.inboundOverflow"); return; }
+      this.#dispatch = this.#dispatch.then(() => this.subjectAuthorityChanged(message)).finally(() => { this.#pendingDispatch--; });
+    }
     else if (message.kind === "heartbeatAck" && message.heartbeatId === this.#heartbeatId) { this.#heartbeatId = undefined; if (this.#heartbeatDeadline !== undefined) clearTimeout(this.#heartbeatDeadline); this.#heartbeatDeadline = undefined; }
     else if (message.kind === "error" && message.terminal) {
       if (!isRecord(message.error) || typeof message.error.code !== "string" || message.error.code.length === 0 || message.error.code.length > 128) { this.#socket?.close(1008, "base.realtime.protocol.invalid"); return; }
@@ -240,6 +262,62 @@ export class BaseRealtimeManager {
     } catch {
       feed.closed = true; this.leaveFeed(feed); this.#feeds.delete(feed.ref);
       this.setConnectivity({ kind: "degraded", reason: "base.client.observerFailed" });
+    }
+  }
+
+  private async subjectAuthorityChanged(message: SubjectAuthorityChangedMessage): Promise<void> {
+    const key = subjectKey(message.contractId, message.contractVersion);
+    if (!this.#contracts.has(key)) { this.#socket?.close(1008, "base.realtime.protocol.invalid"); return; }
+    const generation = BigInt(message.stateGeneration);
+    if (generation <= 0n) { this.#socket?.close(1008, "base.realtime.protocol.invalid"); return; }
+    const query = this.byRef(message.ref);
+    const feed = this.#feeds.get(message.ref);
+    if (query === undefined && feed === undefined) return;
+    if (query !== undefined && feed !== undefined) { this.#socket?.close(1008, "base.realtime.protocol.invalid"); return; }
+    if (query !== undefined) {
+      if (message.kind !== "liveQuerySubjectAuthorityChanged" || query.channelEpoch !== message.channelEpoch) return;
+      const previous = query.processedSubjectControls.get(key);
+      if (previous !== undefined && BigInt(previous) > generation) return;
+      if (previous === message.stateGeneration) return;
+      this.invalidateContract(key);
+      query.processedSubjectControls.set(key, message.stateGeneration);
+      return;
+    }
+    if (feed!.channelEpoch !== message.channelEpoch) return;
+    const expectedKind = feed!.request.kind === "live" ? "liveSubjectAuthorityChanged" : "durableSubjectAuthorityChanged";
+    if (message.kind !== expectedKind || !this.#collectionContracts.get(feed!.collectionId)?.has(key)) { this.#socket?.close(1008, "base.realtime.protocol.invalid"); return; }
+    const previousGeneration = feed!.processedSubjectControls.get(key);
+    if (message.kind === "durableSubjectAuthorityChanged") {
+      if (message.cursor === undefined) { this.#socket?.close(1008, "base.realtime.protocol.invalid"); return; }
+      const last = feed!.lastSubjectControl;
+      if (last?.cursor === message.cursor) {
+        if (last.key !== key || last.generation !== message.stateGeneration) this.#socket?.close(1008, "base.realtime.protocol.invalid");
+        else this.invalidateContract(key);
+        return;
+      }
+      if (previousGeneration !== undefined && BigInt(previousGeneration) >= generation) {
+        this.#socket?.close(1008, "base.realtime.protocol.invalid");
+        return;
+      }
+    } else if (previousGeneration !== undefined && BigInt(previousGeneration) > generation) {
+      return;
+    }
+    if (previousGeneration === message.stateGeneration) return;
+    this.invalidateContract(key);
+    feed!.processedSubjectControls.set(key, message.stateGeneration);
+    if (message.kind === "durableSubjectAuthorityChanged") {
+      feed!.lastSubjectControl = { cursor: message.cursor!, key, generation: message.stateGeneration };
+      feed!.lastCursor = message.cursor;
+    }
+  }
+
+  private invalidateContract(contract: string): void {
+    const affectedCollections = new Set([...this.#collectionContracts].filter(([, contracts]) => contracts.has(contract)).map(([collection]) => collection));
+    for (const [mutationId, overlay] of this.#overlays) if (affectedCollections.has(overlay.collectionId)) this.#overlays.delete(mutationId);
+    for (const query of this.#queries.values()) if (affectedCollections.has(query.collectionId) && query.last !== undefined) {
+      query.authoritative = undefined;
+      query.last = { ...query.last, stale: true };
+      for (const observer of [...query.observers]) { try { observer(query.last); } catch { /* observer isolation */ } }
     }
   }
 
@@ -338,6 +416,8 @@ function validServerMessage(value: unknown): value is ServerMessage {
   if (value.kind === "liveQuerySnapshot") return envelope(["ref", "channelEpoch", "version", "source", "value"]) && opaque(value.ref) && opaque(value.channelEpoch) && typeof value.version === "string" && /^\d+$/u.test(value.version) && (value.source === "initial" || value.source === "rerun");
   if (value.kind === "liveRecordEvent") return envelope(["ref", "channelEpoch", "event"]) && opaque(value.ref) && opaque(value.channelEpoch) && validRecordEvent(value.event);
   if (value.kind === "durableRecordEvent") return envelope(["ref", "channelEpoch", "event", "cursor"]) && opaque(value.ref) && opaque(value.channelEpoch) && validRecordEvent(value.event) && opaque(value.cursor);
+  if (value.kind === "durableSubjectAuthorityChanged") return envelope(["ref", "channelEpoch", "contractId", "contractVersion", "stateGeneration", "cursor"]) && validSubjectControl(value, true);
+  if (value.kind === "liveSubjectAuthorityChanged" || value.kind === "liveQuerySubjectAuthorityChanged") return envelope(["ref", "channelEpoch", "contractId", "contractVersion", "stateGeneration"]) && validSubjectControl(value, false);
   if (value.kind === "heartbeatAck") return envelope(["heartbeatId"]) && opaque(value.heartbeatId);
   if (value.kind === "error") return exact(value, ["protocol", "kind", "connectionId", "connectionEpoch", "terminal", "error", ...(value.ref === undefined ? [] : ["ref"]), ...(value.channelEpoch === undefined ? [] : ["channelEpoch"])]) && opaque(value.connectionId) && opaque(value.connectionEpoch) && typeof value.terminal === "boolean" && isRecord(value.error) && exact(value.error, ["code"]) && boundedString(value.error.code, 128) && (value.ref === undefined || opaque(value.ref)) && (value.channelEpoch === undefined || opaque(value.channelEpoch));
   if (value.kind === "closed") return envelope(["code", "retryable"]) && boundedString(value.code, 128) && typeof value.retryable === "boolean";
@@ -347,11 +427,14 @@ function materializeRealtimeEnvelope(value: unknown): unknown {
   if (!isRecord(value)) return value;
   const result: Record<string, unknown> = { ...value, protocol: materializeBaseJsonValue(value.protocol) };
   if (value.kind === "welcome") for (const key of ["heartbeatIntervalMs", "maxInboundBytes", "maxChannels"]) result[key] = materializeBaseJsonValue(value[key]);
+  if (value.kind === "durableSubjectAuthorityChanged" || value.kind === "liveSubjectAuthorityChanged" || value.kind === "liveQuerySubjectAuthorityChanged") result.contractVersion = materializeBaseJsonValue(value.contractVersion);
   if (value.kind === "liveQuerySnapshot" && isRecord(value.value)) result.value = { ...value.value, ...(isRecord(value.value.page) ? { page: materializeBaseJsonValue(value.value.page) } : {}), ...(value.value.count === undefined ? {} : { count: materializeBaseJsonValue(value.value.count) }) };
   return result;
 }
 function exact(value: Record<string, unknown>, keys: readonly string[]): boolean { return Object.keys(value).length === keys.length && Object.keys(value).every(key => keys.includes(key)); }
 function integerIn(value: unknown, minimum: number, maximum: number): boolean { return Number.isInteger(value) && (value as number) >= minimum && (value as number) <= maximum; }
+function validSubjectControl(value: Record<string, unknown>, durable: boolean): boolean { return opaque(value.ref) && opaque(value.channelEpoch) && boundedString(value.contractId, 256) && integerIn(value.contractVersion, 1, 2_147_483_647) && typeof value.stateGeneration === "string" && /^[1-9]\d*$/u.test(value.stateGeneration) && BigInt(value.stateGeneration) <= 9_223_372_036_854_775_807n && (!durable || opaque(value.cursor)); }
+function subjectKey(contractId: string, version: number): string { return `${contractId}@${version}`; }
 function validSnapshotPage(value: unknown): value is { readonly items: readonly unknown[]; readonly page: Record<string, unknown>; readonly count?: Record<string, unknown> } { if (!isRecord(value) || !exact(value, ["items", "page", ...(value.count === undefined ? [] : ["count"])]) || !Array.isArray(value.items) || !isRecord(value.page)) return false; const page = value.page; if (!exact(page, ["hasMore", ...["page", "perPage", "offset", "limit", "cursor", "nextCursor"].filter(key => page[key] !== undefined)]) || typeof page.hasMore !== "boolean") return false; for (const key of ["page", "perPage", "offset", "limit"]) if (page[key] !== undefined && (!Number.isSafeInteger(page[key]) || (page[key] as number) < 0)) return false; for (const key of ["cursor", "nextCursor"]) if (page[key] !== undefined && !boundedString(page[key], 4096)) return false; return value.count === undefined || isRecord(value.count) && exact(value.count, ["mode", "isExact", ...(value.count.total === undefined ? [] : ["total"])]) && ["none", "ifAvailable", "exact", "estimated", "limited"].includes(value.count.mode as string) && typeof value.count.isExact === "boolean" && (value.count.total === undefined || Number.isSafeInteger(value.count.total) && (value.count.total as number) >= 0); }
 
 function matchesRecord(record: unknown, where: import("./query.js").BaseWhere): boolean {

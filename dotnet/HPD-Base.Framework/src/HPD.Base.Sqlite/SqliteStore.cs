@@ -24,6 +24,7 @@ public static class SqliteStore
                 BaseStoreProviderCapabilities.Administration |
                 BaseStoreProviderCapabilities.CoLocatedVectors,
             RegistrationIds = ["sqlite.records", "sqlite.vector"],
+            SubjectReferences = BaseSubjectProviderCapabilities.BuiltIn,
         }, new Installer(configure));
 
     private sealed class Installer(Action<HPDBaseSqliteOptions>? configure) : IHPDBaseStoreInstaller
@@ -38,6 +39,7 @@ public static class SqliteStore
             {
                 configure?.Invoke(options);
                 options.Collections = collections;
+                options.ExportedSubjects = context.ExportedSubjects.ToArray();
                 storeId = options.StoreId;
             });
             _hasVectors = collections.SelectMany(static item => item.VectorIndexes ?? []).Any();

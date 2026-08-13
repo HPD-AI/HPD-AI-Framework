@@ -11,6 +11,39 @@ namespace HPD.Base.Generators.Tests;
 public sealed class BaseCollectionGeneratorTests
 {
     [Fact]
+    public void SubjectReferenceLowersToADistinctClosedFieldContract()
+    {
+        const string source = """
+            using HPD.Base;
+            using System.Text.Json.Serialization;
+
+            [BaseExportedSubject("hpd.auth.user-subject", Version = 1, OwningModuleId = "hpd.auth", SubjectIdKind = BaseSubjectIdKind.Guid, MaximumSubjectIdUtf8Bytes = 36,
+                PrivateRecordType = typeof(Profile), AcquisitionGrantId = "hpd.auth.user.acquire", ValidationGrantId = "hpd.auth.user.validate", AdministrationGrantId = "hpd.auth.user.admin", ValidationPlanId = "hpd.auth.user.validate.v1")]
+            public sealed partial class AuthUserSubject;
+
+            [BaseCollection("profiles", typeof(AppJsonContext))]
+            public sealed partial record Profile
+            {
+                [BaseField("profile.user")]
+                [BaseSubjectReference(typeof(AuthUserSubject), Requirement = BaseSubjectReferenceRequirement.Active)]
+                public required BaseSubjectReference<AuthUserSubject> User { get; init; }
+            }
+
+            [JsonSerializable(typeof(Profile))]
+            public sealed partial class AppJsonContext : JsonSerializerContext;
+            """;
+
+        GeneratorResult result = Run(source);
+
+        result.Diagnostics.Should().BeEmpty();
+        result.GeneratedSource.Should().Contain("Type = \"subject-reference\"");
+        result.GeneratedSource.Should().Contain("ContractId = \"hpd.auth.user-subject\"");
+        result.GeneratedSource.Should().Contain("BaseSubjectReferenceRequirement)1");
+        result.GeneratedSource.Should().Contain("BaseSubjectReferenceJsonConverterFactory.Register<global::AuthUserSubject>");
+        result.GeneratedSource.Should().NotContain("Relation = new");
+    }
+
+    [Fact]
     public void BinaryAndConfidentialityLowerToTheCanonicalSchemaContract()
     {
         const string source = """
@@ -997,6 +1030,69 @@ public sealed class BaseCollectionGeneratorTests
             """;
 
         Run(source).Diagnostics.Should().Contain(item => item.Id == "HPDBASE0449");
+    }
+
+    [Theory]
+    [InlineData("return BaseGeneratedSubjects.Register<Subject>(definition);")]
+    [InlineData("System.Func<BaseExportedSubjectDefinition, BaseGeneratedSubjectRegistration> register = BaseGeneratedSubjects.Register<Subject>; return register(definition);")]
+    public void CallerAuthoredSubjectRegistrationFailsTheTrustedBuildDiagnostic(string body)
+    {
+        string source = $$"""
+            using HPD.Base;
+            public sealed class Subject;
+            public static class Forgery
+            {
+                public static BaseGeneratedSubjectRegistration Forge(BaseExportedSubjectDefinition definition)
+                {
+                    {{body}}
+                }
+            }
+            """;
+
+        Run(source).Diagnostics.Should().Contain(item => item.Id == "HPDBASE0461");
+    }
+
+    [Theory]
+    [InlineData("BaseSubjectReferenceJsonConverterFactory.Register<Subject>(BaseSubjectIdKind.Guid, 36);")]
+    [InlineData("System.Action<BaseSubjectIdKind, int> register = BaseSubjectReferenceJsonConverterFactory.Register<Subject>; register(BaseSubjectIdKind.Guid, 36);")]
+    public void CallerAuthoredSubject_converter_registration_fails_the_trusted_build_diagnostic(string body)
+    {
+        string source = $$"""
+            using HPD.Base;
+            public sealed class Subject;
+            public static class Forgery
+            {
+                public static void Forge()
+                {
+                    {{body}}
+                }
+            }
+            """;
+
+        Run(source).Diagnostics.Should().Contain(item => item.Id == "HPDBASE0461");
+    }
+
+    [Fact]
+    public void Generated_system_collection_carries_its_exact_owner_and_is_not_exposed()
+    {
+        const string source = """
+            using HPD.Base;
+            using System.Text.Json.Serialization;
+            [BaseCollection("auth.users", typeof(AppJsonContext), SystemOwnerModuleId = "hpd.auth")]
+            public sealed partial record UserRecord
+            {
+                [BaseField("user.active")] public required bool Active { get; init; }
+            }
+            [JsonSerializable(typeof(UserRecord))]
+            public sealed partial class AppJsonContext : JsonSerializerContext;
+            """;
+
+        GeneratorResult result = Run(source);
+
+        result.Diagnostics.Should().NotContain(item => item.Severity == Microsoft.CodeAnalysis.DiagnosticSeverity.Error);
+        result.GeneratedSource.Should().Contain("System = true")
+            .And.Contain("Exposed = false")
+            .And.Contain("SystemOwnerModuleId = \"hpd.auth\"");
     }
 
     [Fact]

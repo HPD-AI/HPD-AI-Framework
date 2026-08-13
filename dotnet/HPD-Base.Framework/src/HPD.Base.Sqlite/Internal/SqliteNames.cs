@@ -17,6 +17,8 @@ internal sealed class SqliteNames
         SchemaAssets = Prefix + "schema_assets";
         SchemaHistory = Prefix + "schema_history";
         SchemaLease = Prefix + "schema_lease";
+        SubjectContracts = Prefix + "subject_contracts";
+        SubjectLifetimes = Prefix + "subject_lifetimes";
         MutationJournalScopeIndex = "ix_" + Prefix + "mutation_journal_scope_position";
     }
 
@@ -40,6 +42,10 @@ internal sealed class SqliteNames
     public string SchemaHistory { get; }
     /// <summary>Gets the schema lease.</summary>
     public string SchemaLease { get; }
+    /// <summary>Gets the provider-owned exported-subject contract-state table.</summary>
+    public string SubjectContracts { get; }
+    /// <summary>Gets the provider-owned current subject-lifetime table.</summary>
+    public string SubjectLifetimes { get; }
     /// <summary>Gets the mutation journal scope index.</summary>
     public string MutationJournalScopeIndex { get; }
 }

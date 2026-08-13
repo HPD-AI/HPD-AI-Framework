@@ -30,6 +30,7 @@ export type TypeNode =
   | { readonly kind: "floating"; readonly precision: "binary32" | "binary64"; readonly finiteOnly: true }
   | { readonly kind: "bytes"; readonly wire: "base64"; readonly maxBytes: number }
   | { readonly kind: "redacted" }
+  | { readonly kind: "subjectReference"; readonly contractId: string; readonly contractVersion: number; readonly subjectIdKind: "ordinalString" | "guid" | "uint64"; readonly maximumSubjectIdUtf8Bytes: number; readonly authorityEpochBytes: 16; readonly incarnationBytes: 16 }
   | { readonly kind: "literal"; readonly value: string | boolean | null }
   | { readonly kind: "enum"; readonly values: readonly string[] }
   | { readonly kind: "array"; readonly elementTypeId: string; readonly minItems: number; readonly maxItems: number }

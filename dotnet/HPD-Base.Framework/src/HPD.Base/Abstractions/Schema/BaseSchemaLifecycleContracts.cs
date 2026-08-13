@@ -192,6 +192,8 @@ public sealed record BaseLogicalField
     public required BaseFieldDisclosurePolicy Disclosure { get; init; }
     /// <summary>Gets the decoded binary limit when this is a binary field.</summary>
     public int? MaximumBytes { get; init; }
+    /// <summary>Gets the exported-subject reference contract when this is a reference field.</summary>
+    public BaseSubjectReferenceDefinition? SubjectReference { get; init; }
 }
 
 /// <summary>Represents base Logical Index.</summary>
@@ -241,6 +243,27 @@ public sealed record BaseLogicalRead
     public required string RowSerializerContractChecksum { get; init; }
 }
 
+/// <summary>Contains the public schema identity of one exported logical-subject contract.</summary>
+public sealed record BaseLogicalExportedSubject
+{
+    /// <summary>Gets the stable contract identifier.</summary>
+    public required string Id { get; init; }
+    /// <summary>Gets the contract version.</summary>
+    public required int Version { get; init; }
+    /// <summary>Gets the owning installed module identifier.</summary>
+    public required string OwningModuleId { get; init; }
+    /// <summary>Gets the normalized contract checksum.</summary>
+    public required string Checksum { get; init; }
+    /// <summary>Gets the subject-ID grammar.</summary>
+    public required BaseSubjectIdKind SubjectIdKind { get; init; }
+    /// <summary>Gets the maximum canonical subject-ID byte length.</summary>
+    public required int MaximumSubjectIdUtf8Bytes { get; init; }
+    /// <summary>Gets the logical scope kind.</summary>
+    public required BaseSubjectScopeKind Scope { get; init; }
+    /// <summary>Gets the permitted endpoint audiences.</summary>
+    public required HPDBaseEndpointAudience[] Audiences { get; init; }
+}
+
 /// <summary>Represents base Logical Schema.</summary>
 public sealed record BaseLogicalSchema
 {
@@ -260,6 +283,8 @@ public sealed record BaseLogicalSchema
     public required BaseLogicalVectorIndex[] VectorIndexes { get; init; }
     /// <summary>Gets or sets read Definitions.</summary>
     public required BaseLogicalRead[] ReadDefinitions { get; init; }
+    /// <summary>Gets the installed exported logical-subject identities.</summary>
+    public required BaseLogicalExportedSubject[] ExportedSubjects { get; init; }
     /// <summary>Gets or sets canonical Checksum.</summary>
     public required string CanonicalChecksum { get; init; }
 }

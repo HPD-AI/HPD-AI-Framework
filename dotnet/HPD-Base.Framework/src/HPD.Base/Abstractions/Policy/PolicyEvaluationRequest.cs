@@ -39,4 +39,8 @@ public sealed record PolicyResource
     public string? VectorIndexId { get; init; }
     /// <summary>Gets the stable vector-space identifier for vector resources.</summary>
     public string? VectorSpaceId { get; init; }
+    /// <summary>Gets the stable exported logical-subject contract identifier.</summary>
+    public string? SubjectContractId { get; init; }
+    /// <summary>Gets the positive exported logical-subject contract version.</summary>
+    public int? SubjectContractVersion { get; init; }
 }

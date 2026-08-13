@@ -6,6 +6,8 @@ namespace HPD.Base.Sqlite;
 
 internal sealed class SqliteRelationalReadCompiler(
     SqlitePhysicalModel physical,
+    SqliteNames names,
+    IReadOnlyList<BaseExportedSubjectDefinition> subjects,
     BaseRelationalReadExecutionRequest request)
 {
     private readonly Dictionary<string, BaseRelationalParameterValue> _parameters =
@@ -16,6 +18,7 @@ internal sealed class SqliteRelationalReadCompiler(
         .Select((source, index) => new Source(source, physical.Collection(source.CollectionId), "s" + index.ToString(CultureInfo.InvariantCulture)))
         .ToDictionary(static source => source.Definition.Id, StringComparer.Ordinal);
     private readonly List<(string Name, QueryValue Value)> _bound = [];
+    private readonly Dictionary<BaseRelationalOperand, SubjectJoin> _subjectJoins = [];
 
     internal CompiledRead Compile()
     {
@@ -24,8 +27,6 @@ internal sealed class SqliteRelationalReadCompiler(
             throw new InvalidOperationException();
         _ = _policies.Count == plan.Sources.Length ? true : throw new InvalidOperationException();
 
-        string projection = string.Join(", ", plan.Projection.Select((item, index) =>
-            Operand(item.Operand, plan) + " AS v" + index.ToString(CultureInfo.InvariantCulture)));
         string from = " FROM " + _sources[plan.Sources[0].Id].Collection.Table + " s0";
         var where = new List<string>();
         BaseRelationalReadSource rootDefinition = plan.Sources[0];
@@ -45,6 +46,22 @@ internal sealed class SqliteRelationalReadCompiler(
             else
                 where.Add((join.Kind == BaseJoinKind.Anti ? "NOT " : "") + "EXISTS (SELECT 1 FROM " + source.Collection.Table + " " + source.Alias + " WHERE " + equality + policy + ")");
         }
+        foreach (BaseRelationalOperand operand in plan.Projection.Select(static value => value.Operand)
+                     .Where(static value => value.Kind == BaseRelationalOperandKind.SubjectReference))
+        {
+            Source source = _sources[Required(operand.SourceId)];
+            BaseExportedSubjectDefinition definition = subjects.Single(value =>
+                string.Equals(value.Id, operand.SubjectContractId, StringComparison.Ordinal)
+                && value.Version == operand.SubjectContractVersion
+                && string.Equals(value.ValidationPlan.PrivateCollectionId, source.Definition.CollectionId, StringComparison.Ordinal));
+            string suffix = _subjectJoins.Count.ToString(CultureInfo.InvariantCulture);
+            var joined = new SubjectJoin("sc" + suffix, "sl" + suffix, definition);
+            _subjectJoins.Add(operand, joined);
+            from += $" INNER JOIN {names.SubjectContracts} {joined.ContractAlias} ON {joined.ContractAlias}.contract_id={BindText(definition.Id)} AND {joined.ContractAlias}.contract_version={definition.Version.ToString(CultureInfo.InvariantCulture)}";
+            from += $" INNER JOIN {names.SubjectLifetimes} {joined.LifetimeAlias} ON {joined.LifetimeAlias}.contract_id={joined.ContractAlias}.contract_id AND {joined.LifetimeAlias}.contract_version={joined.ContractAlias}.contract_version AND {joined.LifetimeAlias}.subject_id={source.Alias}.record_id AND {joined.LifetimeAlias}.private_collection_id={BindText(source.Definition.CollectionId)} AND {joined.LifetimeAlias}.private_record_id={source.Alias}.record_id";
+        }
+        string projection = string.Join(", ", plan.Projection.Select((item, index) =>
+            Operand(item.Operand, plan) + " AS v" + index.ToString(CultureInfo.InvariantCulture)));
         if (plan.Predicate is not null) where.Add(Predicate(plan.Predicate, plan));
 
         string whereSql = where.Count == 0 ? "" : " WHERE " + string.Join(" AND ", where.Select(static value => "(" + value + ")"));
@@ -58,7 +75,9 @@ internal sealed class SqliteRelationalReadCompiler(
             : " ORDER BY " + string.Join(", ", plan.Sort.Select(item => Operand(item.Operand, plan) + (item.Direction == QuerySortDirection.Desc ? " DESC" : " ASC") + NullOrder(item.Nulls))) + ", " + projectionOrder;
         string count = "SELECT COUNT(*) FROM (" + core + ") counted";
         string page = core + order + " LIMIT $__limit OFFSET $__offset";
-        return new CompiledRead(count, page, _bound.ToArray(), plan.Projection.Select(item => Kind(item.Operand, plan)).ToArray(), plan.Projection.Select(static item => item.FieldId).ToArray());
+        return new CompiledRead(count, page, _bound.ToArray(), plan.Projection.Select(item => Kind(item.Operand, plan)).ToArray(),
+            plan.Projection.Select(item => item.Operand.Kind == BaseRelationalOperandKind.SubjectReference ? _subjectJoins[item.Operand].Definition : null).ToArray(),
+            plan.Projection.Select(static item => item.FieldId).ToArray());
     }
 
     private string Predicate(BaseRelationalPredicate node, BaseRelationalReadPlan plan) => node.Kind switch
@@ -160,6 +179,7 @@ internal sealed class SqliteRelationalReadCompiler(
         BaseRelationalOperandKind.Parameter => Bind(_parameters[Required(operand.ParameterId)].Value),
         BaseRelationalOperandKind.Literal => Bind(Required(operand.Literal)),
         BaseRelationalOperandKind.Aggregate => Aggregate(plan.Aggregates.Single(item => item.Id == operand.AggregateId), plan),
+        BaseRelationalOperandKind.SubjectReference => SubjectReference(_subjectJoins[operand], _sources[Required(operand.SourceId)]),
         _ => throw new InvalidOperationException(),
     };
 
@@ -190,6 +210,7 @@ internal sealed class SqliteRelationalReadCompiler(
         BaseRelationalOperandKind.Parameter => _parameters[Required(operand.ParameterId)].Value.Kind,
         BaseRelationalOperandKind.Literal => Required(operand.Literal).Kind,
         BaseRelationalOperandKind.Aggregate => AggregateKind(plan.Aggregates.Single(item => item.Id == operand.AggregateId), plan),
+        BaseRelationalOperandKind.SubjectReference => QueryValueKind.SubjectReference,
         _ => throw new InvalidOperationException(),
     };
 
@@ -227,6 +248,14 @@ internal sealed class SqliteRelationalReadCompiler(
         SqlitePhysicalModel.FieldModel field = source.Collection.Fields.Single(candidate => candidate.Definition.Id == fieldId);
         return source.Alias + "." + field.Column + (field.Definition.Type == "decimal" ? " COLLATE HPD_BASE_DECIMAL" : "");
     }
+    private string SubjectReference(SubjectJoin joined, Source source) =>
+        $"json_object('subjectId',{source.Alias}.record_id,'authorityEpochHex',lower(hex({joined.ContractAlias}.authority_epoch)),'incarnationHex',lower(hex({joined.LifetimeAlias}.incarnation)))";
+    private string BindText(string value)
+    {
+        string name = "$s" + _bound.Count.ToString(CultureInfo.InvariantCulture);
+        _bound.Add((name, new QueryValue { Kind = QueryValueKind.String, String = value }));
+        return name;
+    }
     private string FieldPresent(Source source, string fieldId)
     {
         SqlitePhysicalModel.FieldModel field = source.Collection.Fields.Single(candidate => candidate.Definition.Id == fieldId);
@@ -248,12 +277,14 @@ internal sealed class SqliteRelationalReadCompiler(
     private static T Only<T>(T[]? values) => values is { Length: 1 } ? values[0] : throw new InvalidOperationException();
 
     private sealed record Source(BaseRelationalReadSource Definition, SqlitePhysicalModel.CollectionModel Collection, string Alias);
+    private sealed record SubjectJoin(string ContractAlias, string LifetimeAlias, BaseExportedSubjectDefinition Definition);
 
 internal sealed record CompiledRead(
         string CountSql,
         string PageSql,
         (string Name, QueryValue Value)[] Parameters,
         QueryValueKind[] Kinds,
+        BaseExportedSubjectDefinition?[] SubjectDefinitions,
         string[] FieldIds)
     {
         internal void Bind(SqliteCommand command)
@@ -266,7 +297,7 @@ internal sealed record CompiledRead(
         {
             var fields = new BaseRelationalFieldValue[FieldIds.Length];
             for (int index = 0; index < fields.Length; index++)
-                fields[index] = new BaseRelationalFieldValue { FieldId = FieldIds[index], Value = ReadValue(reader, index, Kinds[index]) };
+                fields[index] = new BaseRelationalFieldValue { FieldId = FieldIds[index], Value = ReadValue(reader, index, Kinds[index], SubjectDefinitions[index]) };
             return new BaseRelationalRow { Fields = fields };
         }
     }
@@ -285,7 +316,7 @@ internal sealed record CompiledRead(
         _ => throw new InvalidOperationException(),
     };
     private static BaseRelationalReadExecutionResult Never() => throw new InvalidOperationException();
-    private static QueryValue ReadValue(SqliteDataReader reader, int ordinal, QueryValueKind kind)
+    private static QueryValue ReadValue(SqliteDataReader reader, int ordinal, QueryValueKind kind, BaseExportedSubjectDefinition? subject)
     {
         if (reader.IsDBNull(ordinal)) return new QueryValue { Kind = QueryValueKind.Null };
         return kind switch
@@ -296,7 +327,24 @@ internal sealed record CompiledRead(
             QueryValueKind.Decimal => new QueryValue { Kind = kind, Decimal = Convert.ToString(reader.GetValue(ordinal), CultureInfo.InvariantCulture) },
             QueryValueKind.DateTime => new QueryValue { Kind = kind, DateTime = DateTimeOffset.Parse(Convert.ToString(reader.GetValue(ordinal), CultureInfo.InvariantCulture)!, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind) },
             QueryValueKind.Id => new QueryValue { Kind = kind, Id = Convert.ToString(reader.GetValue(ordinal), CultureInfo.InvariantCulture) },
+            QueryValueKind.SubjectReference => ReadSubjectReference(Convert.ToString(reader.GetValue(ordinal), CultureInfo.InvariantCulture)!, subject!),
             _ => new QueryValue { Kind = QueryValueKind.String, String = Convert.ToString(reader.GetValue(ordinal), CultureInfo.InvariantCulture) },
+        };
+    }
+    private static QueryValue ReadSubjectReference(string json, BaseExportedSubjectDefinition definition)
+    {
+        using System.Text.Json.JsonDocument document = System.Text.Json.JsonDocument.Parse(json);
+        System.Text.Json.JsonElement root = document.RootElement;
+        byte[] epoch = Convert.FromHexString(root.GetProperty("authorityEpochHex").GetString()!);
+        byte[] incarnation = Convert.FromHexString(root.GetProperty("incarnationHex").GetString()!);
+        return new QueryValue
+        {
+            Kind = QueryValueKind.SubjectReference,
+            SubjectId = root.GetProperty("subjectId").GetString(),
+            SubjectIdKind = definition.SubjectIdKind,
+            SubjectIdMaximumUtf8Bytes = definition.MaximumSubjectIdUtf8Bytes,
+            SubjectAuthorityEpoch = BaseSubjectReferenceEncoding.Encode(epoch),
+            SubjectIncarnation = BaseSubjectReferenceEncoding.Encode(incarnation),
         };
     }
     private static string ValueText(QueryValue value) => value.Kind switch

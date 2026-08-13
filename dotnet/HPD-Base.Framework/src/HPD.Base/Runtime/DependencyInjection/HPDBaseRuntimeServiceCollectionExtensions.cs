@@ -72,6 +72,7 @@ public static class HPDBaseRuntimeServiceCollectionExtensions
         services.TryAddSingleton<IBasePolicyExplainService, DefaultBasePolicyExplainService>();
         services.TryAddSingleton<IBaseRecordRedactor, DefaultBaseRecordRedactor>();
         services.TryAddSingleton<IBaseMutationPostCommitDispatcher, DefaultBaseMutationPostCommitDispatcher>();
+        services.TryAddSingleton(new BaseSubjectContractRegistry([]));
         services.TryAddSingleton<IBaseMutationCoordinator, DefaultBaseMutationCoordinator>();
         services.TryAddSingleton<IBaseSelectionMutationRuntime, DefaultBaseSelectionMutationRuntime>();
         services.TryAddSingleton<IBaseRecordRuntime, DefaultBaseRecordRuntime>();

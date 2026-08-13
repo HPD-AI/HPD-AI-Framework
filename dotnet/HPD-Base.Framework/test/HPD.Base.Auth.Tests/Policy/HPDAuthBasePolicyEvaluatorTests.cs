@@ -225,6 +225,69 @@ public sealed class HPDBaseAuthPolicyEvaluatorTests
     }
 
     [Fact]
+    public async Task SubjectContractGrantRequiresEveryExactAuthorityDimension()
+    {
+        var subject = new AccessSubject { Kind = AccessSubjectKind.ServicePrincipal, Id = "svc-1", TenantId = "tenant-1" };
+        AccessGrant exact = Grant("subject.validate", GrantEffect.Allow, subject, BaseGrantActions.SubjectValidate) with
+        {
+            ApplicationId = "app.one",
+            ModuleId = "module.one",
+            Audience = HPDBaseEndpointAudience.Application,
+            Scope = new ResourceScope
+            {
+                Kind = ResourceScopeKind.SubjectContract,
+                SubjectContractId = "example.user",
+                SubjectContractVersion = 1,
+                TenantId = "tenant-1",
+            },
+        };
+        async Task<PolicyDecision> Evaluate(AccessGrant grant)
+        {
+            using ServiceProvider provider = Services(options => options.StaticGrants = [grant]).BuildServiceProvider();
+            return await provider.GetRequiredService<IPolicyEvaluator>().EvaluateAsync(new PolicyEvaluationRequest
+            {
+                Principal = new PrincipalContext
+                {
+                    AuthenticationState = PrincipalAuthenticationState.Service,
+                    SubjectKind = AccessSubjectKind.ServicePrincipal,
+                    SubjectId = "svc-1",
+                    CurrentTenantId = "tenant-1",
+                    Subjects = [subject],
+                },
+                Operation = new OperationContext
+                {
+                    ApplicationId = "app.one",
+                    Audience = HPDBaseEndpointAudience.Application,
+                    Operation = BaseOperationKind.SubjectValidate,
+                    CollectionId = "example.user",
+                    TenantId = "tenant-1",
+                    Now = DateTimeOffset.UnixEpoch,
+                },
+                Collection = Collection() with
+                {
+                    Id = "example.user",
+                    System = true,
+                    SystemOwnerModuleId = "module.one",
+                },
+                Resource = new PolicyResource
+                {
+                    Kind = PolicyResourceKind.SubjectContract,
+                    SubjectContractId = "example.user",
+                    SubjectContractVersion = 1,
+                },
+            });
+        }
+
+        (await Evaluate(exact)).Effect.Should().Be(PolicyEffect.Allow);
+        (await Evaluate(exact with { ApplicationId = "app.two" })).Effect.Should().Be(PolicyEffect.Deny);
+        (await Evaluate(exact with { ModuleId = "module.two" })).Effect.Should().Be(PolicyEffect.Deny);
+        (await Evaluate(exact with { Audience = HPDBaseEndpointAudience.ControlPlane })).Effect.Should().Be(PolicyEffect.Deny);
+        (await Evaluate(exact with { Scope = exact.Scope with { SubjectContractId = "example.other" } })).Effect.Should().Be(PolicyEffect.Deny);
+        (await Evaluate(exact with { Scope = exact.Scope with { SubjectContractVersion = 2 } })).Effect.Should().Be(PolicyEffect.Deny);
+        (await Evaluate(exact with { Scope = exact.Scope with { TenantId = "tenant-2" } })).Effect.Should().Be(PolicyEffect.Deny);
+    }
+
+    [Fact]
     public async Task GrantProviderCanAllowReadWithRecordFilter()
     {
         var services = Services();

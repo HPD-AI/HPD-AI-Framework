@@ -70,6 +70,66 @@ test("realtime v2 joins after welcome and resumes from the last delivered durabl
   const resumed = JSON.parse(second.sent.at(-1)); assert.equal(resumed.channel.kind, "resume"); assert.equal(resumed.channel.cursor, "cursor-1"); manager.close();
 });
 
+test("subject-authority controls invalidate live state and advance durable cursors only after processing", async () => {
+  const subjectGraph = Object.freeze({ ...basicGraph, subject: { kind: "subjectReference", contractId: "hpd.auth.user-subject", contractVersion: 1, subjectIdKind: "guid", maximumSubjectIdUtf8Bytes: 36, authorityEpochBytes: 16, incarnationBytes: 16 } });
+  const subjectCollections = { documents: collection({ ...schema.collections.documents, fields: { ...schema.collections.documents.fields, owner: field("owner", "owner", ["equal"], "subject") } }) };
+  const sockets = [];
+  const manager = new BaseRealtimeManager("https://example.test/base", () => { const socket = new FakeSocket(); sockets.push(socket); return socket; }, undefined, undefined, subjectGraph, subjectCollections);
+  manager.subscribeFeed("documents", { kind: "durable", filter: {} }, () => undefined, value => value);
+  await waitUntil(() => sockets.length === 1 && sockets[0].onmessage !== null); const first = sockets[0];
+  first.receive(JSON.stringify({ protocol: 2, kind: "welcome", connectionId: "c1", connectionEpoch: "e1", heartbeatIntervalMs: 1000, maxInboundBytes: 2048, maxChannels: 8 }));
+  const join = JSON.parse(first.sent[0]);
+  first.receive(JSON.stringify({ protocol: 2, kind: "joined", connectionId: "c1", connectionEpoch: "e1", ref: join.ref, channelEpoch: "ch1", delivery: "durable-at-least-once" }));
+  first.receive(JSON.stringify({ protocol: 2, kind: "durableSubjectAuthorityChanged", connectionId: "c1", connectionEpoch: "e1", ref: join.ref, channelEpoch: "ch1", contractId: "hpd.auth.user-subject", contractVersion: 1, stateGeneration: "2", cursor: "control-2" }));
+  await new Promise(resolve => setTimeout(resolve, 0)); first.close();
+  await waitUntil(() => sockets.length === 2 && sockets[1].onmessage !== null, 1000); const second = sockets[1];
+  second.receive(JSON.stringify({ protocol: 2, kind: "welcome", connectionId: "c2", connectionEpoch: "e2", heartbeatIntervalMs: 1000, maxInboundBytes: 2048, maxChannels: 8 }));
+  const resumed = JSON.parse(second.sent.at(-1)); assert.equal(resumed.channel.kind, "resume"); assert.equal(resumed.channel.cursor, "control-2");
+  second.receive(JSON.stringify({ protocol: 2, kind: "joined", connectionId: "c2", connectionEpoch: "e2", ref: join.ref, channelEpoch: "ch2", delivery: "durable-at-least-once" }));
+  second.receive(JSON.stringify({ protocol: 2, kind: "durableSubjectAuthorityChanged", connectionId: "c2", connectionEpoch: "e2", ref: join.ref, channelEpoch: "ch2", contractId: "unknown", contractVersion: 1, stateGeneration: "3", cursor: "control-3" }));
+  await waitUntil(() => second.closedCode === 1008); manager.close();
+});
+
+test("durable subject controls reject conflicting cursor replay and generation regression", async () => {
+  const subjectGraph = Object.freeze({ ...basicGraph, subject: { kind: "subjectReference", contractId: "hpd.auth.user-subject", contractVersion: 1, subjectIdKind: "guid", maximumSubjectIdUtf8Bytes: 36, authorityEpochBytes: 16, incarnationBytes: 16 } });
+  const subjectCollections = { documents: collection({ ...schema.collections.documents, fields: { ...schema.collections.documents.fields, owner: field("owner", "owner", ["equal"], "subject") } }) };
+  const open = async () => {
+    const socket = new FakeSocket();
+    const manager = new BaseRealtimeManager("https://example.test/base", () => socket, undefined, undefined, subjectGraph, subjectCollections);
+    manager.subscribeFeed("documents", { kind: "durable", filter: {} }, () => undefined, value => value);
+    await waitUntil(() => socket.onmessage !== null);
+    socket.receive(JSON.stringify({ protocol: 2, kind: "welcome", connectionId: "c", connectionEpoch: "e", heartbeatIntervalMs: 1000, maxInboundBytes: 2048, maxChannels: 8 }));
+    const join = JSON.parse(socket.sent[0]);
+    socket.receive(JSON.stringify({ protocol: 2, kind: "joined", connectionId: "c", connectionEpoch: "e", ref: join.ref, channelEpoch: "ch", delivery: "durable-at-least-once" }));
+    return { manager, socket, ref: join.ref };
+  };
+  const conflict = await open();
+  conflict.socket.receive(JSON.stringify({ protocol: 2, kind: "durableSubjectAuthorityChanged", connectionId: "c", connectionEpoch: "e", ref: conflict.ref, channelEpoch: "ch", contractId: "hpd.auth.user-subject", contractVersion: 1, stateGeneration: "2", cursor: "cursor-2" }));
+  await new Promise(resolve => setTimeout(resolve, 0));
+  conflict.socket.receive(JSON.stringify({ protocol: 2, kind: "durableSubjectAuthorityChanged", connectionId: "c", connectionEpoch: "e", ref: conflict.ref, channelEpoch: "ch", contractId: "hpd.auth.user-subject", contractVersion: 1, stateGeneration: "3", cursor: "cursor-2" }));
+  await waitUntil(() => conflict.socket.closedCode === 1008); conflict.manager.close();
+
+  const regression = await open();
+  regression.socket.receive(JSON.stringify({ protocol: 2, kind: "durableSubjectAuthorityChanged", connectionId: "c", connectionEpoch: "e", ref: regression.ref, channelEpoch: "ch", contractId: "hpd.auth.user-subject", contractVersion: 1, stateGeneration: "3", cursor: "cursor-3" }));
+  await new Promise(resolve => setTimeout(resolve, 0));
+  regression.socket.receive(JSON.stringify({ protocol: 2, kind: "durableSubjectAuthorityChanged", connectionId: "c", connectionEpoch: "e", ref: regression.ref, channelEpoch: "ch", contractId: "hpd.auth.user-subject", contractVersion: 1, stateGeneration: "2", cursor: "cursor-4" }));
+  await waitUntil(() => regression.socket.closedCode === 1008); regression.manager.close();
+});
+
+test("configured control client validates and canonically sends subject epoch rotation", async () => {
+  let route; let wire;
+  const controlSchema = Object.freeze({ ...schema, audience: "controlPlane", features: { ...schema.features, controlOperations: ["base.admin.subject.epoch.rotate"] } });
+  const base = createBaseClient({ schema: controlSchema, url: "https://base.test/base/", fetch: async (url, init) => {
+    route = url; wire = new TextDecoder().decode(init.body);
+    return Response.json({ contractId: "hpd.auth.user-subject", contractVersion: 1, previousStateGeneration: "1", publishedStateGeneration: "2", publicationPosition: "9", examinedRecords: "4", rewrittenReferences: "3" }, { headers: { "X-Correlation-ID": "c" } });
+  } });
+  const control = base.controlClient(["base.admin.subject.epoch.rotate"]);
+  const result = await control.rotateSubjectEpoch({ storeId: "primary", contractId: "hpd.auth.user-subject", contractVersion: 1, expectedStateGeneration: "1", destructiveIntent: "rotate-subject-authority-epoch" });
+  assert.equal(result.ok, true); assert.match(String(route), /administration\/subjects:rotate-epoch$/u);
+  assert.equal(wire, '{"storeId":"primary","contractId":"hpd.auth.user-subject","contractVersion":1,"expectedStateGeneration":"1","destructiveIntent":"rotate-subject-authority-epoch"}');
+  await assert.rejects(() => control.rotateSubjectEpoch({ storeId: "primary", contractId: "hpd.auth.user-subject", contractVersion: 1, expectedStateGeneration: "01", destructiveIntent: "rotate-subject-authority-epoch" }), /requestInvalid/u);
+});
+
 test("realtime rejects duplicate JSON properties before dispatch", async () => {
   const socket = new FakeSocket(); const manager = new BaseRealtimeManager("https://example.test/base", () => socket);
   manager.subscribeFeed("documents", { kind: "live", filter: {} }, () => undefined, value => value); await waitUntil(() => socket.onmessage !== null);

@@ -43,6 +43,8 @@ internal static class BaseApplicationGraphValidator
                     throw Invalid($"Field '{field.Id}' cannot influence an index.");
                 if (!globalFieldIds.Add(field.Id))
                     throw Invalid($"Stable field identifier '{field.Id}' is duplicated across the application graph.");
+                if (field.Relation is not null && field.SubjectReference is not null)
+                    throw Invalid($"Field '{field.Id}' cannot be both a relation and an exported-subject reference.");
                 if (field.Relation is { } relation)
                     ValidateRelation(collection, field, relation, collectionById, globalRelationIds);
             }
@@ -150,8 +152,25 @@ internal static class BaseApplicationGraphValidator
                 operand.Kind is BaseRelationalOperandKind.SourceField or BaseRelationalOperandKind.RecordId &&
                 !groupKeys.Contains(operand)))
             throw Invalid($"Read '{registration.Id}' has a having operand that is not a group key or aggregate.");
-        foreach (BaseRelationalReadProjection projection in plan.Projection) ValidateOperand(projection.Operand, sources, collections, parameters, aggregates, allowAggregate: true);
+        foreach (BaseRelationalReadProjection projection in plan.Projection)
+        {
+            if (projection.Operand.Kind == BaseRelationalOperandKind.SubjectReference)
+                ValidateSubjectReferenceProjection(projection.Operand, sources);
+            else
+                ValidateOperand(projection.Operand, sources, collections, parameters, aggregates, allowAggregate: true);
+        }
         foreach (BaseRelationalReadSort sort in plan.Sort) ValidateOperand(sort.Operand, sources, collections, parameters, aggregates, allowAggregate: true);
+    }
+
+    private static void ValidateSubjectReferenceProjection(
+        BaseRelationalOperand operand,
+        IReadOnlyDictionary<string, BaseRelationalReadSource> sources)
+    {
+        if (operand.SourceId is not { } sourceId || !sources.ContainsKey(sourceId)
+            || operand.SubjectContractId is not { } contractId || operand.SubjectContractVersion is not > 0
+            || operand.FieldId is not null || operand.ParameterId is not null || operand.AggregateId is not null || operand.Literal is not null)
+            throw Invalid("A registered subject-acquisition projection is invalid.");
+        BaseApplicationId.Validate(contractId, nameof(operand.SubjectContractId));
     }
 
     private static void ValidateReadConfidentiality(

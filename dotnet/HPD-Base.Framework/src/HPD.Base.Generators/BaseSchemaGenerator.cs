@@ -15,6 +15,7 @@ public sealed class BaseSchemaGenerator : IIncrementalGenerator
 {
     private const string CollectionAttribute = "HPD.Base.BaseCollectionAttribute";
     private const string ReadAttribute = "HPD.Base.BaseReadAttribute";
+    private const string ExportedSubjectAttribute = "HPD.Base.BaseExportedSubjectAttribute";
     private const string JsonOptionsAttribute = "System.Text.Json.Serialization.JsonSourceGenerationOptionsAttribute";
     private const string JsonIgnoreAttribute = "System.Text.Json.Serialization.JsonIgnoreAttribute";
     private const string JsonConverterAttribute = "System.Text.Json.Serialization.JsonConverterAttribute";
@@ -64,10 +65,15 @@ public sealed class BaseSchemaGenerator : IIncrementalGenerator
                 ReadAttribute,
                 static (node, _) => node is TypeDeclarationSyntax,
                 static (attributeContext, _) => (INamedTypeSymbol)attributeContext.TargetSymbol);
+        IncrementalValuesProvider<INamedTypeSymbol> subjects =
+            context.SyntaxProvider.ForAttributeWithMetadataName(
+                ExportedSubjectAttribute,
+                static (node, _) => node is TypeDeclarationSyntax,
+                static (attributeContext, _) => (INamedTypeSymbol)attributeContext.TargetSymbol);
 
-        context.RegisterSourceOutput(collections.Collect().Combine(reads.Collect()).Combine(context.CompilationProvider),
+        context.RegisterSourceOutput(collections.Collect().Combine(reads.Collect()).Combine(subjects.Collect()).Combine(context.CompilationProvider),
             static (productionContext, input) => Generate(
-                productionContext, input.Left.Left, input.Left.Right, input.Right));
+                productionContext, input.Left.Left.Left, input.Left.Left.Right, input.Left.Right, input.Right));
         BaseCollectionGenerator.RegisterForbiddenReferences(context);
     }
 
@@ -75,6 +81,7 @@ public sealed class BaseSchemaGenerator : IIncrementalGenerator
         SourceProductionContext context,
         ImmutableArray<INamedTypeSymbol> collections,
         ImmutableArray<INamedTypeSymbol> reads,
+        ImmutableArray<INamedTypeSymbol> subjects,
         Compilation compilation)
     {
         var rootsByContext = new Dictionary<INamedTypeSymbol, HashSet<INamedTypeSymbol>>(SymbolEqualityComparer.Default);
@@ -140,6 +147,7 @@ public sealed class BaseSchemaGenerator : IIncrementalGenerator
         ImmutableDictionary<INamedTypeSymbol, ContextValidationResult> contextResults = results.ToImmutable();
         BaseCollectionGenerator.GenerateCombined(context, collections, contextResults);
         BaseReadGenerator.GenerateCombined(context, reads, contextResults);
+        BaseSubjectGenerator.Generate(context, subjects);
     }
 
     private static void ValidateContextAuthority(
@@ -569,7 +577,8 @@ public sealed class BaseSchemaGenerator : IIncrementalGenerator
         SpecialType.System_Int64 or SpecialType.System_UInt64 or SpecialType.System_Single or SpecialType.System_Double or
         SpecialType.System_Decimal || type.ToDisplayString() is "System.Guid" or "System.DateTime" or "System.DateTimeOffset" or
         "HPD.Base.BaseBinary" or "HPD.Base.BaseVector" or "HPD.Base.RecordId" ||
-        type is INamedTypeSymbol named && named.IsGenericType && named.ConstructedFrom.ToDisplayString() == "HPD.Base.BaseRecordId<TRecord>";
+        type is INamedTypeSymbol named && named.IsGenericType && named.ConstructedFrom.ToDisplayString() is
+            "HPD.Base.BaseRecordId<TRecord>" or "HPD.Base.BaseSubjectReference<TSubject>";
 
     private static IEnumerable<IPropertySymbol> SerializableProperties(INamedTypeSymbol type)
     {

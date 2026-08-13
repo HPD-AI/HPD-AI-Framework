@@ -36,6 +36,7 @@ public static class HPDBaseRealtimeServiceCollectionExtensions
                 provider.GetRequiredService<IBaseRealtimePolicy>(),
                 provider.GetRequiredService<IBaseRecordRedactor>(),
                 provider.GetService<IBaseDependencyInvalidationMapper>()));
+        services.TryAddSingleton<BaseSubjectLiveControlHub>();
         services.TryAddSingleton<IBaseRealtimeFeedSource, DefaultBaseRealtimeFeedSource>();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseDescriptorContributor, BaseRealtimeDescriptorContributor>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseHealthContributor, BaseRealtimeHealthContributor>());

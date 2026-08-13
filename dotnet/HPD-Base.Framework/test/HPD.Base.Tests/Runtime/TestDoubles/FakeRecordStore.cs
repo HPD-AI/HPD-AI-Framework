@@ -1,3 +1,7 @@
+using System.Collections.Immutable;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 using HPD.Base;
 
 namespace HPD.Base.Tests;
@@ -88,6 +92,22 @@ internal class FakeRecordStore : IAtomicRecordStore
         Records[record.Id.Value] = record.Metadata.Revision is null
             ? record with { Metadata = record.Metadata with { Revision = new RevisionToken("1") } }
             : record;
+    }
+
+    public ValueTask<OperationResult<BaseAuthoritySnapshotRequirement>> CaptureSelectionAuthorityAsync(
+        string applicationId,
+        CollectionDefinition collection,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return ValueTask.FromResult(OperationResults.Ok(new BaseAuthoritySnapshotRequirement
+        {
+            ApplicationId = applicationId,
+            StoreInstanceId = Capabilities.StoreId,
+            RestoreEpoch = 0,
+            SchemaGeneration = 1,
+            CollectionGeneration = 1,
+        }));
     }
 
     public ValueTask<OperationResult<RecordPage>> ListAsync(
@@ -249,8 +269,173 @@ internal class FakeRecordStore : IAtomicRecordStore
     {
         private bool _active = true;
         private long _purgeGeneration;
+        private BaseCapturedAtomicMutationAuthority? _captured;
+        private BaseAtomicMutationPlan? _plan;
+        private BasePreparedAtomicMutation? _prepared;
 
         public void Close() => _active = false;
+
+        public ValueTask<OperationResult<BaseCapturedAtomicMutationAuthority>> CaptureAtomicMutationAuthorityAsync(
+            BaseAtomicMutationIntent intent,
+            CancellationToken cancellationToken = default)
+        {
+            EnsureActive();
+            cancellationToken.ThrowIfCancellationRequested();
+            owner.GetCalls = checked(owner.GetCalls + intent.Items.Count(static item =>
+                item.RequestedKind is BaseRecordMutationKind.Patch or BaseRecordMutationKind.Replace or
+                    BaseRecordMutationKind.Delete or BaseRecordMutationKind.Upsert));
+            var items = intent.Items.Select(item => new BaseCapturedMutationItem
+            {
+                Ordinal = item.Ordinal,
+                CollectionId = item.Collection.Id,
+                RecordId = item.RecordId,
+                Disposition = item.RequestedKind switch
+                {
+                    BaseRecordMutationKind.Create when !records.ContainsKey(item.RecordId.Value) => BaseCapturedMutationDisposition.Create,
+                    BaseRecordMutationKind.Create => BaseCapturedMutationDisposition.Update,
+                    BaseRecordMutationKind.Delete => BaseCapturedMutationDisposition.Delete,
+                    BaseRecordMutationKind.Upsert when !records.ContainsKey(item.RecordId.Value) => BaseCapturedMutationDisposition.Create,
+                    _ => BaseCapturedMutationDisposition.Update,
+                },
+                Current = records.TryGetValue(item.RecordId.Value, out RecordEnvelope? current)
+                    ? JsonSerializer.Deserialize(
+                        JsonSerializer.SerializeToUtf8Bytes(current, HPDBaseJsonSerializerContext.Default.RecordEnvelope),
+                        HPDBaseJsonSerializerContext.Default.RecordEnvelope)
+                    : null,
+                RelationTargets = item.RelationTargets.Select(relation => new BaseCapturedRelationTarget
+                {
+                    SourceFieldId = relation.SourceFieldId,
+                    TargetCollectionId = relation.TargetCollection.Id,
+                    TargetRecordId = relation.TargetRecordId,
+                    Current = records.TryGetValue(relation.TargetRecordId.Value, out RecordEnvelope? target)
+                        ? RecordCloneHelpers.CloneEnvelope(target)
+                        : null,
+                }).ToImmutableArray(),
+            }).ToImmutableArray();
+            ImmutableArray<BaseAtomicReadIntervalEvidence> intervals = items.Select(item =>
+            {
+                ImmutableArray<byte> key = Encoding.UTF8.GetBytes(item.RecordId.Value).ToImmutableArray();
+                return new BaseAtomicReadIntervalEvidence
+                {
+                    LogicalAccessPathId = $"collection:{item.CollectionId}:record",
+                    CanonicalLowerBound = key,
+                    LowerInclusive = true,
+                    CanonicalUpperBound = key,
+                    UpperInclusive = true,
+                };
+            }).ToImmutableArray();
+            long selected = items.Where(static item => item.Current is not null).Sum(static item =>
+                (long)JsonSerializer.SerializeToUtf8Bytes(item.Current!, HPDBaseJsonSerializerContext.Default.RecordEnvelope).Length);
+            long evidence = intervals.Sum(static interval => (long)interval.CanonicalLowerBound.Length + interval.CanonicalUpperBound.Length);
+            _captured = new BaseCapturedAtomicMutationAuthority
+            {
+                IntentDigest = intent.IntentDigest,
+                CaptureDigest = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(intent.IntentDigest))),
+                Authority = new BaseAuthoritySnapshotEvidence
+                {
+                    ApplicationId = intent.Authority.ApplicationId,
+                    StoreInstanceId = owner.Capabilities.StoreId,
+                    RestoreEpoch = 0,
+                    SchemaGeneration = 1,
+                    CollectionGeneration = 1,
+                    Isolation = BaseAtomicSelectionIsolationClass.WriteOwningSerializable,
+                    TransactionEvidenceToken = [1],
+                },
+                Items = items,
+                ReadIntervals = intervals,
+                Accounting = new BaseCaptureAccounting
+                {
+                    Records = items.Length,
+                    SelectedBytes = selected,
+                    ReadIntervals = intervals.Length,
+                    EvidenceBytes = evidence,
+                    TransientBytes = selected + evidence,
+                },
+            };
+            return ValueTask.FromResult(OperationResults.Ok(_captured));
+        }
+
+        public ValueTask<OperationResult<BasePreparedAtomicMutation>> PrepareAtomicMutationAsync(
+            BaseCapturedAtomicMutationAuthority captured,
+            BaseAtomicMutationPlan plan,
+            CancellationToken cancellationToken = default)
+        {
+            EnsureActive();
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!ReferenceEquals(captured, _captured) || _prepared is not null)
+                return ValueTask.FromResult(OperationResults.StoreError<BasePreparedAtomicMutation>(new BaseError { Code = BaseSubjectErrorCodes.ProviderContractInvalid, Message = "Invalid preparation.", Category = ErrorCategory.Store }));
+            _plan = plan;
+            _prepared = new BasePreparedAtomicMutation
+            {
+                PlanDigest = plan.PlanDigest,
+                Authority = captured.Authority,
+                SubjectAuthorities = [],
+                Dispositions = captured.Items.Select(static item => item.Disposition).ToImmutableArray(),
+                SubjectOverlay = [],
+                SubjectValidations = [],
+                ReadIntervals = captured.ReadIntervals,
+                Accounting = new BasePreparedAtomicMutationAccounting
+                {
+                    AuthorityReads = captured.Items.Length,
+                    ReadIntervals = captured.ReadIntervals.Length,
+                    SelectedBytes = captured.Accounting.SelectedBytes,
+                    EvidenceBytes = captured.Accounting.EvidenceBytes,
+                    TransientBytes = captured.Accounting.TransientBytes,
+                },
+            };
+            return ValueTask.FromResult(OperationResults.Ok(_prepared));
+        }
+
+        public async ValueTask<OperationResult<BaseAppliedAtomicMutation>> ApplyPreparedAtomicMutationAsync(
+            BasePreparedAtomicMutation prepared,
+            CancellationToken cancellationToken = default)
+        {
+            EnsureActive();
+            if (!ReferenceEquals(prepared, _prepared) || _plan is null)
+                return OperationResults.StoreError<BaseAppliedAtomicMutation>(new BaseError { Code = BaseSubjectErrorCodes.ProviderContractInvalid, Message = "Invalid apply.", Category = ErrorCategory.Store });
+            _prepared = null;
+            var facts = ImmutableArray.CreateBuilder<BaseOwnedMutationFact>(_plan.Items.Length);
+            foreach (BaseAtomicMutationPlanItem item in _plan.Items)
+            {
+                RecordMutationSessionContext context = new()
+                {
+                    ItemId = item.ItemId,
+                    RequestedOperation = item.RequestedKind,
+                    EventId = item.EventId,
+                    Operation = item.Operation,
+                    ChangedFields = item.ChangedFields.ToArray(),
+                };
+                OperationResult<RecordMutationSessionResult> result = item.Kind switch
+                {
+                    BaseCommittedRecordMutationKind.Create => await CreateAsync(item.Collection, new RecordCreateRequest { RequestedId = item.RecordId, Payload = item.ProposedPayload! }, context, cancellationToken),
+                    BaseCommittedRecordMutationKind.Patch => await PatchAsync(item.Collection, item.RecordId, new RecordPatchRequest { Patch = PatchDelta(item), ExpectedRevision = item.Current?.Metadata.Revision }, context, cancellationToken),
+                    BaseCommittedRecordMutationKind.Replace => await ReplaceAsync(item.Collection, item.RecordId, new RecordReplaceRequest { Payload = item.ProposedPayload!, ExpectedRevision = item.Current?.Metadata.Revision }, context, cancellationToken),
+                    BaseCommittedRecordMutationKind.Delete => await DeleteAsync(item.Collection, item.RecordId, item.Delete!, context, cancellationToken),
+                    _ => throw new InvalidOperationException(),
+                };
+                if (!result.IsSuccess() || result.Value is null)
+                    return new OperationResult<BaseAppliedAtomicMutation> { Status = result.Status, Error = result.Error };
+                facts.Add(BaseOwnedMutationFact.Freeze(result.Value.Mutation, 1));
+            }
+            BaseRecordMutationFact[] materialized = facts.Select(static fact => fact.MaterializeOwned()).ToArray();
+            await ApplyMutationProjectionsAsync(BaseAtomicMutationProjectionFactory.Create(materialized), cancellationToken);
+            long bytes = facts.Sum(static fact => (long)fact.EncodedLength);
+            return OperationResults.Ok(new BaseAppliedAtomicMutation
+            {
+                PlanDigest = _plan.PlanDigest,
+                Authority = prepared.Authority,
+                Facts = facts.MoveToImmutable(),
+                Accounting = new BaseAtomicCommitAccounting { WrittenBytes = bytes, FactBytes = bytes, JournalBytes = bytes, ReceiptBytes = 0, TransientBytes = bytes * 3 },
+            });
+        }
+
+        private static RecordPayload PatchDelta(BaseAtomicMutationPlanItem item)
+        {
+            var fields = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+            foreach (string name in item.ChangedFields)
+                if (item.ProposedPayload?.Fields?.TryGetValue(name, out JsonElement value) == true) fields[name] = value.Clone();
+            return new RecordPayload { Kind = RecordPayloadKind.FieldMap, Fields = fields };
+        }
 
         public ValueTask<OperationResult<RecordEnvelope>> GetAsync(
             CollectionDefinition collection,

@@ -37,7 +37,8 @@ internal static class AspNetCoreRouteDescriptorFactory
         Route("base.admin.purge", HttpMethodKind.Post, "/base/administration/purge", "base.admin.purge.result", VisibilityLevel.Admin, RouteAuthRequirement.Admin, AspNetCoreDtoContractDescriptorFactory.PurgeRequest),
         Route("base.admin.backup.create", HttpMethodKind.Post, "/base/administration/backups:create", "base.admin.backup.manifest", VisibilityLevel.Admin, RouteAuthRequirement.Admin, AspNetCoreDtoContractDescriptorFactory.BackupCreateRequest),
         Route("base.admin.backup.validate", HttpMethodKind.Post, "/base/administration/backups:validate", "base.admin.backup.manifest", VisibilityLevel.Admin, RouteAuthRequirement.Admin, AspNetCoreDtoContractDescriptorFactory.BackupValidationRequest),
-        Route("base.admin.backup.restore", HttpMethodKind.Post, "/base/administration/backups:restore", "base.admin.backup.restore.result", VisibilityLevel.Admin, RouteAuthRequirement.Admin, AspNetCoreDtoContractDescriptorFactory.RestoreRequest)
+        Route("base.admin.backup.restore", HttpMethodKind.Post, "/base/administration/backups:restore", "base.admin.backup.restore.result", VisibilityLevel.Admin, RouteAuthRequirement.Admin, AspNetCoreDtoContractDescriptorFactory.RestoreRequest),
+        Route("base.admin.subject.epoch.rotate", HttpMethodKind.Post, "/base/administration/subjects:rotate-epoch", "base.admin.subject.epoch.rotate.result", VisibilityLevel.Admin, RouteAuthRequirement.Admin, AspNetCoreDtoContractDescriptorFactory.SubjectEpochRotationRequest)
     ];
 
     private static RouteDescriptor Route(

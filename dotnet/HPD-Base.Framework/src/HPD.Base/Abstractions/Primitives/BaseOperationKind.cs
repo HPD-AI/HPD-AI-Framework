@@ -46,5 +46,11 @@ RealtimeSubscribe,
     /// <summary>Identifies policy-safe vector ranking.</summary>
     VectorQuery,
     /// <summary>Identifies vector-index rebuild administration.</summary>
-    VectorRebuild
+    VectorRebuild,
+    /// <summary>Identifies authorized acquisition of an exported logical-subject reference.</summary>
+    SubjectAcquire,
+    /// <summary>Identifies mutation-bound validation of an exported logical-subject reference.</summary>
+    SubjectValidate,
+    /// <summary>Identifies destructive exported-subject authority-epoch rotation.</summary>
+    SubjectEpochRotate
 }

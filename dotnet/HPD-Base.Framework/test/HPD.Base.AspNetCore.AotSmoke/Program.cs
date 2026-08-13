@@ -11,10 +11,7 @@ var builder = WebApplication.CreateSlimBuilder(
 
 builder.Services.AddSingleton<IPolicyEvaluator, SmokePolicyEvaluator>();
 builder.Services.AddAuthorizationBuilder().AddPolicy("application", policy => policy.RequireAssertion(_ => true));
-var items = BaseCollection.Define(
-    "items",
-    SmokeJsonContext.Default.SmokeRecord,
-    static schema => schema.String("item.title", "Title", BaseJsonProperty<SmokeRecord, string>.Bind(SmokeJsonContext.Default.SmokeRecord, "title")));
+var items = SmokeRecord.Collection;
 builder.Services.AddHPDBase(hpd =>
 {
     hpd.AddRealtime()
@@ -273,7 +270,12 @@ internal sealed class SmokePolicyEvaluator : IPolicyEvaluator
     }
 }
 
-internal sealed record SmokeRecord(string Title);
+[BaseCollection("items", typeof(SmokeJsonContext))]
+internal sealed partial record SmokeRecord
+{
+    [BaseField("item.title")]
+    public required string Title { get; init; }
+}
 
 [System.Text.Json.Serialization.JsonSerializable(typeof(SmokeRecord))]
 [System.Text.Json.Serialization.JsonSourceGenerationOptions(PropertyNamingPolicy = System.Text.Json.Serialization.JsonKnownNamingPolicy.CamelCase)]

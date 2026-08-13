@@ -57,6 +57,13 @@ internal class BaseTestAtomicRecordStore(
         CancellationToken cancellationToken = default) =>
         inner.GetAsync(collection, id, context, cancellationToken);
 
+    /// <summary>Captures the authoritative transaction generation used by the unified mutation boundary.</summary>
+    public ValueTask<OperationResult<BaseAuthoritySnapshotRequirement>> CaptureSelectionAuthorityAsync(
+        string applicationId,
+        CollectionDefinition collection,
+        CancellationToken cancellationToken = default) =>
+        inner.CaptureSelectionAuthorityAsync(applicationId, collection, cancellationToken);
+
     /// <summary>Executes the execute single async operation.</summary>
     public ValueTask<RecordMutationExecutionResult> ExecuteSingleAsync(
         IAtomicMutationProcessor processor,

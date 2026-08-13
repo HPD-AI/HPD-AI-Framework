@@ -99,4 +99,5 @@ public sealed class HPDBaseSqliteOptions
     public string DiagnosticRefId { get; set; } = HPDBaseSqliteDefaults.DefaultDiagnosticRefId;
     /// <summary>Gets or sets the complete closed collection schemas installed in this store.</summary>
     public CollectionDefinition[] Collections { get; set; } = [];
+    internal BaseExportedSubjectDefinition[] ExportedSubjects { get; set; } = [];
 }

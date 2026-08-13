@@ -99,6 +99,20 @@ public sealed class BaseSession
         _liveQueries,
         this);
 
+    /// <summary>Resolves one generated exported-subject contract from this installed application graph.</summary>
+    [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+    public BaseExportedSubjectContract<TSubject> GetExportedSubjectContract<TSubject>(BaseGeneratedSubjectRegistration registration)
+    {
+        ArgumentNullException.ThrowIfNull(registration);
+        BaseGeneratedSubjectRegistration? installed = _services.GetService(typeof(BaseSubjectContractRegistry)) is BaseSubjectContractRegistry registry
+            ? registry.Find(typeof(TSubject)) : null;
+        if (installed is null || !ReferenceEquals(installed, registration) ||
+            !string.Equals(installed.Checksum, registration.Checksum, StringComparison.Ordinal) ||
+            !installed.Definition.Audiences.Contains(_options.Audience))
+            throw new InvalidOperationException(BaseSubjectErrorCodes.ContractInvalid);
+        return new BaseExportedSubjectContract<TSubject>(installed);
+    }
+
     internal IBaseRecordRuntime Runtime => _runtime;
     internal int MaxQueryPageSize { get; }
 

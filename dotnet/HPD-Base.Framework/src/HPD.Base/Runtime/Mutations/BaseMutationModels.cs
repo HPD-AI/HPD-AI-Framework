@@ -23,6 +23,8 @@ internal sealed record BaseMutationCommand
     public RecordCreateRequest? Create { get; init; }
     /// <summary>Gets or sets the record ID.</summary>
     public RecordId? RecordId { get; init; }
+    /// <summary>Gets whether BASE Runtime assigned the create identifier before provider capture.</summary>
+    public bool RuntimeAssignedRecordId { get; init; }
     /// <summary>Gets or sets the patch.</summary>
     public RecordPatchRequest? Patch { get; init; }
     /// <summary>Gets or sets the replace.</summary>

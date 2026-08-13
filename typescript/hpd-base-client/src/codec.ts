@@ -11,6 +11,7 @@ export type BaseTypeNode =
   | { readonly kind: "floating"; readonly precision: "binary32" | "binary64"; readonly finiteOnly: true }
   | { readonly kind: "bytes"; readonly wire: "base64"; readonly maxBytes: number }
   | { readonly kind: "redacted" }
+  | { readonly kind: "subjectReference"; readonly contractId: string; readonly contractVersion: number; readonly subjectIdKind: "ordinalString" | "guid" | "uint64"; readonly maximumSubjectIdUtf8Bytes: number; readonly authorityEpochBytes: 16; readonly incarnationBytes: 16 }
   | { readonly kind: "literal"; readonly value: string | boolean | null }
   | { readonly kind: "enum"; readonly values: readonly string[] }
   | { readonly kind: "array"; readonly elementTypeId: string; readonly minItems: number; readonly maxItems: number }
@@ -24,6 +25,14 @@ export type BaseTypeGraph = Readonly<Record<string, BaseTypeNode>>;
 export interface BaseRedacted { readonly $base: "redacted"; }
 /** The frozen canonical redaction marker. */
 export const baseRedacted: BaseRedacted = Object.freeze({ $base: "redacted" });
+declare const subjectReferenceBrand: unique symbol;
+/** An opaque exported-subject lifetime reference bound to one installed contract. */
+export type BaseSubjectReference<TContractId extends string = string> = Readonly<{
+  readonly subjectId: string;
+  readonly authorityEpoch: string;
+  readonly incarnation: string;
+  readonly [subjectReferenceBrand]: TContractId;
+}>;
 /** Returns whether a value is the exact canonical redaction marker shape. */
 export function isBaseRedacted(value: unknown): value is BaseRedacted {
   return object(value) && Object.keys(value).length === 1 && value.$base === "redacted";
@@ -80,6 +89,7 @@ function decodeNode(value: unknown, typeId: string, graph: BaseTypeGraph, shape:
     case "floating": return floating(value, node.precision);
     case "bytes": return decodeBytes(value, node.maxBytes, shape);
     case "redacted": if (!isBaseRedacted(value)) invalid(); return baseRedacted;
+    case "subjectReference": return subjectReference(value, node);
     case "literal": if (value !== node.value) invalid(); return value;
     case "enum": if (typeof value !== "string" || !node.values.includes(value)) invalid(); return value;
     case "array": if (!Array.isArray(value) || value.length < node.minItems || value.length > node.maxItems) invalid(); return Object.freeze(value.map(item => decodeNode(item, node.elementTypeId, graph, shape)));
@@ -105,6 +115,7 @@ function encodeNode(value: unknown, typeId: string, graph: BaseTypeGraph, path: 
       case "boolean": case "string": case "decimal": case "literal": case "enum": return JSON.stringify(decodeNode(value, typeId, graph, "application"));
       case "bytes": return JSON.stringify(encodeBytes(value, node.maxBytes));
       case "redacted": invalid();
+      case "subjectReference": { const reference = subjectReference(value, node); return `{"subjectId":${JSON.stringify(reference.subjectId)},"authorityEpoch":${JSON.stringify(reference.authorityEpoch)},"incarnation":${JSON.stringify(reference.incarnation)}}`; }
       case "integer": { const decoded = integer(value, node); return node.wire === "number" ? String(decoded) : JSON.stringify(decoded); }
       case "floating": return canonicalFloat(floating(value, node.precision), node.precision);
       case "array": { if (!Array.isArray(value) || value.length < node.minItems || value.length > node.maxItems) invalid(); return `[${value.map(item => encodeNode(item, node.elementTypeId, graph, path)).join(",")}]`; }
@@ -113,6 +124,43 @@ function encodeNode(value: unknown, typeId: string, graph: BaseTypeGraph, path: 
     }
   } finally { if (object(value) || Array.isArray(value)) path.delete(value as object); }
   return invalid();
+}
+
+function subjectReference(value: unknown, node: Extract<BaseTypeNode, { kind: "subjectReference" }>): BaseSubjectReference {
+  if (!object(value)) invalid(); exact(value, ["subjectId", "authorityEpoch", "incarnation"]);
+  if (typeof value.subjectId !== "string" || new TextEncoder().encode(value.subjectId).length < 1
+    || new TextEncoder().encode(value.subjectId).length > node.maximumSubjectIdUtf8Bytes
+    || typeof value.authorityEpoch !== "string" || typeof value.incarnation !== "string"
+    || !/^[A-Za-z0-9_-]{22}$/u.test(value.authorityEpoch) || !/^[A-Za-z0-9_-]{22}$/u.test(value.incarnation)
+    || !canonicalBase64Url16(value.authorityEpoch) || !canonicalBase64Url16(value.incarnation)
+    || node.authorityEpochBytes !== 16 || node.incarnationBytes !== 16 || !Number.isSafeInteger(node.contractVersion) || node.contractVersion < 1)
+    invalid();
+  const subject = value.subjectId;
+  if (node.subjectIdKind === "ordinalString") {
+    if (!unicodeScalarText(subject) || subject.normalize("NFC") !== subject || /[\p{Cc}]/u.test(subject)) invalid();
+  } else if (node.subjectIdKind === "guid") {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u.test(subject)) invalid();
+  } else if (!/^(?:0|[1-9][0-9]*)$/u.test(subject) || BigInt(subject) > 18446744073709551615n) invalid();
+  return Object.freeze({ subjectId: subject, authorityEpoch: value.authorityEpoch, incarnation: value.incarnation }) as BaseSubjectReference;
+}
+function unicodeScalarText(value: string): boolean {
+  for (let index = 0; index < value.length; index++) {
+    const code = value.charCodeAt(index);
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const low = value.charCodeAt(++index);
+      if (!(low >= 0xdc00 && low <= 0xdfff)) return false;
+    } else if (code >= 0xdc00 && code <= 0xdfff) return false;
+  }
+  return true;
+}
+function canonicalBase64Url16(value: string): boolean {
+  try {
+    const base64 = value.replaceAll("-", "+").replaceAll("_", "/") + "==";
+    const bytes = Uint8Array.from(atob(base64), character => character.charCodeAt(0));
+    if (bytes.length !== 16) return false;
+    const encoded = btoa(String.fromCharCode(...bytes)).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/u, "");
+    return encoded === value;
+  } catch { return false; }
 }
 
 function selectionQuery(value: unknown, limits: Extract<BaseTypeNode, { kind: "selection-query" }>): unknown {

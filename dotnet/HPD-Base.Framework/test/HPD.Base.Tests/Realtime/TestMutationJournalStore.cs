@@ -69,7 +69,7 @@ internal sealed class TestMutationJournalStore : ITransactionalMutationJournalSt
         lock (_entries)
         {
             return ValueTask.FromResult(_entries.FirstOrDefault(entry =>
-                string.Equals(entry.EventId, eventId, StringComparison.Ordinal)));
+                string.Equals(entry.RecordMutation?.EventId, eventId, StringComparison.Ordinal)));
         }
     }
 

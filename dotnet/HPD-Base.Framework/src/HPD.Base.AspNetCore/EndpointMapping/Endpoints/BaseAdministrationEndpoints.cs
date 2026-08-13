@@ -28,6 +28,9 @@ internal static class BaseAdministrationEndpoints
         group.MapPost("/administration/backups:restore", (RequestDelegate)RestoreAsync)
             .WithHPDBaseEndpoint("base.admin.backup.restore", HPDBaseEndpointAudience.ControlPlane, HPDBaseEndpointOperation.BackupRestore, HPDBaseCapabilities.AdministrationBackupRestore, convention)
             .WithName("base.admin.backup.restore");
+        group.MapPost("/administration/subjects:rotate-epoch", (RequestDelegate)RotateSubjectEpochAsync)
+            .WithHPDBaseEndpoint("base.admin.subject.epoch.rotate", HPDBaseEndpointAudience.ControlPlane, HPDBaseEndpointOperation.SubjectEpochRotate, HPDBaseCapabilities.AdministrationSubjectEpochRotate, convention)
+            .WithName("base.admin.subject.epoch.rotate");
     }
 
     private static async Task PurgeAsync(HttpContext context)
@@ -118,6 +121,27 @@ internal static class BaseAdministrationEndpoints
         await WriteResultAsync(context, result).ConfigureAwait(false);
     }
 
+    private static async Task RotateSubjectEpochAsync(HttpContext context)
+    {
+        BaseSubjectEpochRotationHttpRequest? request;
+        try { request = await ReadJsonBoundedAsync(context, BaseAdministrationHttpJsonContext.Default.BaseSubjectEpochRotationHttpRequest).ConfigureAwait(false); }
+        catch (InvalidDataException) { await ProblemAsync(context, 400, "base.admin.requestInvalid").ConfigureAwait(false); return; }
+        if (request is null) { await ProblemAsync(context, 400, "base.admin.requestInvalid").ConfigureAwait(false); return; }
+        if (!long.TryParse(request.ExpectedStateGeneration, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out long expectedStateGeneration)
+            || expectedStateGeneration <= 0 || !string.Equals(request.ExpectedStateGeneration, expectedStateGeneration.ToString(System.Globalization.CultureInfo.InvariantCulture), StringComparison.Ordinal))
+        { await ProblemAsync(context, 400, "base.admin.requestInvalid").ConfigureAwait(false); return; }
+        PrincipalContext principal = await PrincipalAsync(context).ConfigureAwait(false);
+        BaseResult<BaseSubjectEpochRotationResult> result = await context.RequestServices.GetRequiredService<IHPDBaseAdministration>()
+            .RotateSubjectEpochAsync(request.StoreId, principal, new BaseSubjectEpochRotationRequest
+            {
+                ContractId = request.ContractId,
+                ContractVersion = request.ContractVersion,
+                ExpectedStateGeneration = expectedStateGeneration,
+                DestructiveIntent = request.DestructiveIntent,
+            }, context.RequestAborted).ConfigureAwait(false);
+        await WriteResultAsync(context, result).ConfigureAwait(false);
+    }
+
     private static async Task<(T Request, BaseAdministrationStagingLease Lease)?> ParseMultipartAsync<T>(HttpContext context)
     {
         if (!MediaTypeHeaderValue.TryParse(context.Request.ContentType, out MediaTypeHeaderValue? contentType) || !contentType.MediaType.Equals("multipart/form-data", StringComparison.OrdinalIgnoreCase)) return null;
@@ -185,6 +209,16 @@ internal static class BaseAdministrationEndpoints
             BasePurgeResult purge => Results.Json(purge, BaseAdministrationHttpJsonContext.Default.BasePurgeResult),
             BaseBackupManifest manifest => Results.Json(manifest, BaseAdministrationHttpJsonContext.Default.BaseBackupManifest),
             BaseRestoreResult restore => Results.Json(restore, BaseAdministrationHttpJsonContext.Default.BaseRestoreResult),
+            BaseSubjectEpochRotationResult rotation => Results.Json(new BaseSubjectEpochRotationHttpResult
+            {
+                ContractId = rotation.ContractId,
+                ContractVersion = rotation.ContractVersion,
+                PreviousStateGeneration = rotation.PreviousStateGeneration.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                PublishedStateGeneration = rotation.PublishedStateGeneration.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                PublicationPosition = rotation.PublicationPosition.Value.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                ExaminedRecords = rotation.ExaminedRecords.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                RewrittenReferences = rotation.RewrittenReferences.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            }, BaseAdministrationHttpJsonContext.Default.BaseSubjectEpochRotationHttpResult),
             _ => Problem(500, "base.admin.responseInvalid")
         };
         await response.ExecuteAsync(context).ConfigureAwait(false);
@@ -199,15 +233,19 @@ internal sealed record BaseBackupCreateHttpRequest { public required string Stor
 internal sealed record BaseBackupValidationHttpRequest { public required string StoreId { get; init; } public string? ExpectedArtifactStoreIdentityDigest { get; init; } }
 internal sealed record BaseRestoreHttpRequest { public required string StoreId { get; init; } public required string ExpectedCurrentStoreIdentityDigest { get; init; } public required string ExpectedArtifactStoreIdentityDigest { get; init; } public required BaseRestoreIdentityMode IdentityMode { get; init; } public required BaseRecoveryImageRetention RecoveryImageRetention { get; init; } public required bool ConfirmDestructiveReplacement { get; init; } }
 internal sealed record BasePurgeHttpRequest { public required string CollectionId { get; init; } public required string[] RecordIds { get; init; } public required string ReasonCode { get; init; } public required string AuditReference { get; init; } public required DateTimeOffset EvaluatedAt { get; init; } public long? ExpectedPurgeGeneration { get; init; } }
+internal sealed record BaseSubjectEpochRotationHttpRequest { public required string StoreId { get; init; } public required string ContractId { get; init; } public required int ContractVersion { get; init; } public required string ExpectedStateGeneration { get; init; } public required string DestructiveIntent { get; init; } }
+internal sealed record BaseSubjectEpochRotationHttpResult { public required string ContractId { get; init; } public required int ContractVersion { get; init; } public required string PreviousStateGeneration { get; init; } public required string PublishedStateGeneration { get; init; } public required string PublicationPosition { get; init; } public required string ExaminedRecords { get; init; } public required string RewrittenReferences { get; init; } }
 
 [System.Text.Json.Serialization.JsonSourceGenerationOptions(PropertyNamingPolicy = System.Text.Json.Serialization.JsonKnownNamingPolicy.CamelCase, UnmappedMemberHandling = System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
 [System.Text.Json.Serialization.JsonSerializable(typeof(BaseBackupCreateHttpRequest))]
 [System.Text.Json.Serialization.JsonSerializable(typeof(BaseBackupValidationHttpRequest))]
 [System.Text.Json.Serialization.JsonSerializable(typeof(BaseRestoreHttpRequest))]
 [System.Text.Json.Serialization.JsonSerializable(typeof(BasePurgeHttpRequest))]
+[System.Text.Json.Serialization.JsonSerializable(typeof(BaseSubjectEpochRotationHttpRequest))]
 [System.Text.Json.Serialization.JsonSerializable(typeof(BaseBackupManifest))]
 [System.Text.Json.Serialization.JsonSerializable(typeof(BasePurgeResult))]
 [System.Text.Json.Serialization.JsonSerializable(typeof(BaseRestoreResult))]
+[System.Text.Json.Serialization.JsonSerializable(typeof(BaseSubjectEpochRotationHttpResult))]
 internal partial class BaseAdministrationHttpJsonContext : System.Text.Json.Serialization.JsonSerializerContext;
 
 internal sealed class BaseAdministrationStagingCoordinator : IBaseHealthContributor, IBaseDiagnosticContributor

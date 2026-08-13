@@ -11,7 +11,8 @@ internal static class BaseLogicalSchemaFactory
         HPDBaseSchemaOptions options,
         IEnumerable<CollectionDefinition> collectionValues,
         IEnumerable<IBaseReadRegistration> readValues,
-        BaseStorageProtectionGraph storageProtection)
+        BaseStorageProtectionGraph storageProtection,
+        BaseSubjectContractRegistry subjectContracts)
     {
         CollectionDefinition[] sourceCollections = collectionValues.OrderBy(static value => value.Id, StringComparer.Ordinal).ToArray();
         IBaseReadRegistration[] sourceReads = readValues.OrderBy(static value => value.Id, StringComparer.Ordinal).ToArray();
@@ -35,6 +36,7 @@ internal static class BaseLogicalSchemaFactory
             Confidentiality = field.Confidentiality,
             Disclosure = BaseConfidentialityPolicy.Clone(field.Disclosure ?? BaseConfidentialityPolicy.Default(field.Confidentiality)),
             MaximumBytes = field.MaximumBytes,
+            SubjectReference = field.SubjectReference is null ? null : field.SubjectReference with { },
         })).OrderBy(static value => value.Id, StringComparer.Ordinal).ToArray();
         RelationDefinition[] relations = sourceCollections.SelectMany(static collection => collection.Fields ?? [])
             .Select(static field => field.Relation).Where(static relation => relation is not null).Cast<RelationDefinition>()
@@ -68,8 +70,16 @@ internal static class BaseLogicalSchemaFactory
             ParameterSerializerContractChecksum = read.ParameterSerializerContractChecksum,
             RowSerializerContractChecksum = read.RowSerializerContractChecksum,
         }).ToArray();
+        BaseLogicalExportedSubject[] subjects = subjectContracts.All.OrderBy(static value => value.Definition.Id, StringComparer.Ordinal)
+            .ThenBy(static value => value.Definition.Version).Select(static value => new BaseLogicalExportedSubject
+            {
+                Id = value.Definition.Id, Version = value.Definition.Version, OwningModuleId = value.Definition.OwningModuleId,
+                Checksum = value.Checksum, SubjectIdKind = value.Definition.SubjectIdKind,
+                MaximumSubjectIdUtf8Bytes = value.Definition.MaximumSubjectIdUtf8Bytes, Scope = value.Definition.Scope,
+                Audiences = value.Definition.Audiences.ToArray(),
+            }).ToArray();
 
-        string checksum = Checksum(options.ApplicationId, options.ContractVersion, collections, fields, relations, indexes, vectorIndexes, reads, storageProtection.Requirements);
+        string checksum = Checksum(options.ApplicationId, options.ContractVersion, collections, fields, relations, indexes, vectorIndexes, reads, subjects, storageProtection.Requirements);
         return new BaseLogicalSchema
         {
             ApplicationId = options.ApplicationId,
@@ -80,6 +90,7 @@ internal static class BaseLogicalSchemaFactory
             Indexes = indexes,
             VectorIndexes = vectorIndexes,
             ReadDefinitions = reads,
+            ExportedSubjects = subjects,
             CanonicalChecksum = checksum,
         };
     }
@@ -89,6 +100,7 @@ internal static class BaseLogicalSchemaFactory
         BaseLogicalField[] fields, RelationDefinition[] relations, BaseLogicalIndex[] indexes,
         BaseLogicalVectorIndex[] vectorIndexes,
         BaseLogicalRead[] reads,
+        BaseLogicalExportedSubject[] subjects,
         BaseStorageProtectionRequirement[] storageRequirements)
     {
         var writer = new ArrayBufferWriter<byte>();
@@ -101,6 +113,13 @@ internal static class BaseLogicalSchemaFactory
             Write(writer, (int)value.Disclosure.Event); Write(writer, (int)value.Disclosure.Realtime); Write(writer, (int)value.Disclosure.Diagnostic);
             Write(writer, (int)value.Disclosure.AuthoritativeBackup); Write(writer, (int)value.Disclosure.AdministrativeDataExport);
             Write(writer, (int)value.Disclosure.OrdinaryDataExport); Write(writer, (int)value.Disclosure.Indexing); Write(writer, value.MaximumBytes ?? -1);
+            if (value.SubjectReference is null) Write(writer, 0);
+            else
+            {
+                Write(writer, 1); Write(writer, value.SubjectReference.ContractId); Write(writer, value.SubjectReference.ContractVersion);
+                Write(writer, value.SubjectReference.ContractChecksum); Write(writer, (int)value.SubjectReference.Requirement);
+                Write(writer, (int)value.SubjectReference.Guarantee);
+            }
         }
         foreach (RelationDefinition value in relations)
         {
@@ -117,6 +136,12 @@ internal static class BaseLogicalSchemaFactory
             Write(writer, (int)value.Function); foreach (string field in value.FilterFieldIds) Write(writer, field);
         }
         foreach (BaseLogicalRead value in reads) { Write(writer, "read"); Write(writer, value.Id); Write(writer, value.ParameterSerializerContractChecksum); Write(writer, value.RowSerializerContractChecksum); foreach (string source in value.SourceIds) Write(writer, source); foreach (string field in value.ProjectionFieldIds) Write(writer, field); }
+        foreach (BaseLogicalExportedSubject value in subjects)
+        {
+            Write(writer, "exported-subject"); Write(writer, value.Id); Write(writer, value.Version); Write(writer, value.OwningModuleId);
+            Write(writer, value.Checksum); Write(writer, (int)value.SubjectIdKind); Write(writer, value.MaximumSubjectIdUtf8Bytes);
+            Write(writer, (int)value.Scope); foreach (HPDBaseEndpointAudience audience in value.Audiences) Write(writer, (int)audience);
+        }
         foreach (BaseStorageProtectionRequirement value in storageRequirements.OrderBy(static item => item.OwningModuleId, StringComparer.Ordinal))
         {
             Write(writer, "storage-protection"); Write(writer, value.OwningModuleId);

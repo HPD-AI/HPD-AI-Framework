@@ -141,23 +141,27 @@ internal static class TestServices
         string title,
         string? tenantId = null) => new()
         {
+            Kind = BaseMutationJournalEntryKind.RecordMutation,
             Position = new BaseMutationJournalPosition(position),
-            EventId = $"event-{position}",
-            Type = BaseEventTypes.RecordCreated,
-            SchemaVersion = BaseEventSchemaVersions.V1,
-            OccurredAt = DateTimeOffset.UnixEpoch.AddSeconds(position),
-            TenantId = tenantId,
-            Operation = BaseOperationKind.Create,
-            Visibility = VisibilityLevel.Public,
-            CollectionId = "items",
-            RecordId = new RecordId(recordId),
-            After = new RecordSnapshot
+            RecordMutation = new BaseRecordMutationJournalEntry
             {
+                EventId = $"event-{position}",
+                Type = BaseEventTypes.RecordCreated,
+                SchemaVersion = BaseEventSchemaVersions.V1,
+                OccurredAt = DateTimeOffset.UnixEpoch.AddSeconds(position),
+                TenantId = tenantId,
+                Operation = BaseOperationKind.Create,
+                Visibility = VisibilityLevel.Public,
                 CollectionId = "items",
-                Id = new RecordId(recordId),
-                Payload = Payload(("title", title), ("secret", "hidden")),
-                Metadata = new RecordMetadata()
-            }
+                RecordId = new RecordId(recordId),
+                After = new RecordSnapshot
+                {
+                    CollectionId = "items",
+                    Id = new RecordId(recordId),
+                    Payload = Payload(("title", title), ("secret", "hidden")),
+                    Metadata = new RecordMetadata()
+                }
+            },
         };
 
     public static RecordPayload Payload(params (string Name, string Value)[] fields)

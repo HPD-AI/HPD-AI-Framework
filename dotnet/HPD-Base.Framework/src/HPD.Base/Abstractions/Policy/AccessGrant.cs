@@ -52,6 +52,12 @@ public sealed record ResourceScope
     public string? FieldPath { get; init; }
     /// <summary>Gets the optional stable vector-index identifier.</summary>
     public string? VectorIndexId { get; init; }
+    /// <summary>Gets the exact exported logical-subject contract identifier.</summary>
+    public string? SubjectContractId { get; init; }
+    /// <summary>Gets the exact exported logical-subject contract version.</summary>
+    public int? SubjectContractVersion { get; init; }
     /// <summary>Gets or sets the tenant ID.</summary>
     public string? TenantId { get; init; }
+    /// <summary>Gets the exact project identity for a project-bound grant.</summary>
+    public string? ProjectId { get; init; }
 }

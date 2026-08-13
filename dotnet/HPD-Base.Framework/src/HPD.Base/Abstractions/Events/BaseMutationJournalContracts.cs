@@ -10,12 +10,18 @@ public readonly record struct BaseMutationJournalBounds(
     BaseMutationJournalPosition HighWatermark,
     long RestoreEpoch);
 
-/// <summary>Contains immutable facts for one transactionally committed record mutation.</summary>
-public sealed record BaseMutationJournalEntry
+/// <summary>Identifies one closed entry in the shared store-ordered mutation and control journal.</summary>
+public enum BaseMutationJournalEntryKind
 {
-    /// <summary>Gets the provider-local journal position.</summary>
-    public required BaseMutationJournalPosition Position { get; init; }
+    /// <summary>The entry carries one committed record mutation.</summary>
+    RecordMutation = 0,
+    /// <summary>The entry carries one exported-subject authority publication.</summary>
+    SubjectAuthorityPublication = 1,
+}
 
+/// <summary>Contains immutable facts for one transactionally committed record mutation.</summary>
+public sealed record BaseRecordMutationJournalEntry
+{
     /// <summary>Gets the stable event identity shared with live publication.</summary>
     public required string EventId { get; init; }
 
@@ -48,6 +54,49 @@ public sealed record BaseMutationJournalEntry
 
     /// <summary>Gets the record state after the mutation when available.</summary>
     public RecordSnapshot? After { get; init; }
+}
+
+/// <summary>Identifies one exported-subject authority publication kind.</summary>
+public enum BaseSubjectAuthorityPublicationKind
+{
+    /// <summary>The contract authority was installed for the first time.</summary>
+    InitialInstallation = 0,
+    /// <summary>The contract authority epoch was explicitly rotated.</summary>
+    EpochRotation = 1,
+    /// <summary>The contract authority was transformed during restore.</summary>
+    RestoreTransformation = 2,
+}
+
+/// <summary>Contains one sanitized exported-subject authority publication.</summary>
+public sealed record BaseSubjectAuthorityPublicationFact
+{
+    /// <summary>Gets the publication's exact shared journal position.</summary>
+    public required BaseMutationJournalPosition Position { get; init; }
+    /// <summary>Gets the installed exported-subject contract ID.</summary>
+    public required string ContractId { get; init; }
+    /// <summary>Gets the installed contract version.</summary>
+    public required int ContractVersion { get; init; }
+    /// <summary>Gets the preceding state generation.</summary>
+    public required long PreviousStateGeneration { get; init; }
+    /// <summary>Gets the newly published state generation.</summary>
+    public required long PublishedStateGeneration { get; init; }
+    /// <summary>Gets the current store restore epoch.</summary>
+    public required long RestoreEpoch { get; init; }
+    /// <summary>Gets the closed publication kind.</summary>
+    public required BaseSubjectAuthorityPublicationKind Kind { get; init; }
+}
+
+/// <summary>Contains one closed entry in the shared store-ordered journal.</summary>
+public sealed record BaseMutationJournalEntry
+{
+    /// <summary>Gets the closed entry discriminant.</summary>
+    public required BaseMutationJournalEntryKind Kind { get; init; }
+    /// <summary>Gets the provider-local journal position.</summary>
+    public required BaseMutationJournalPosition Position { get; init; }
+    /// <summary>Gets the record mutation payload only for <see cref="BaseMutationJournalEntryKind.RecordMutation"/>.</summary>
+    public BaseRecordMutationJournalEntry? RecordMutation { get; init; }
+    /// <summary>Gets the subject-authority payload only for <see cref="BaseMutationJournalEntryKind.SubjectAuthorityPublication"/>.</summary>
+    public BaseSubjectAuthorityPublicationFact? SubjectAuthorityPublication { get; init; }
 }
 
 /// <summary>Defines a bounded provider-journal read.</summary>

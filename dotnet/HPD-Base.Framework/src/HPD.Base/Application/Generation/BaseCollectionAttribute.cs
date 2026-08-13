@@ -35,4 +35,11 @@ public sealed class BaseCollectionAttribute(
 
     /// <summary>Gets or sets the authoritative collection mutation mode.</summary>
     public BaseCollectionMutationMode MutationMode { get; set; } = BaseCollectionMutationMode.Mutable;
+
+    /// <summary>
+    /// Gets or sets the installed module identifier that owns this private system
+    /// collection. A non-null value makes the generated collection non-exposed and
+    /// subject to the exact L42 system-collection grant boundary.
+    /// </summary>
+    public string? SystemOwnerModuleId { get; set; }
 }

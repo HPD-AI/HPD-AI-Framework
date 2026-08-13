@@ -62,6 +62,7 @@ internal sealed class HPDBaseEndpointInventoryValidator(
         ["base.admin.backup.create"] = Control("POST", "/administration/backups:create", HPDBaseEndpointOperation.BackupCreate, HPDBaseCapabilities.AdministrationBackupCreate),
         ["base.admin.backup.validate"] = Control("POST", "/administration/backups:validate", HPDBaseEndpointOperation.BackupValidate, HPDBaseCapabilities.AdministrationBackupValidate),
         ["base.admin.backup.restore"] = Control("POST", "/administration/backups:restore", HPDBaseEndpointOperation.BackupRestore, HPDBaseCapabilities.AdministrationBackupRestore),
+        ["base.admin.subject.epoch.rotate"] = Control("POST", "/administration/subjects:rotate-epoch", HPDBaseEndpointOperation.SubjectEpochRotate, HPDBaseCapabilities.AdministrationSubjectEpochRotate),
         ["hpd.base.vector.query"] = Protected("POST", "/base/vector/{collectionId}/{vectorIndexId}/query", HPDBaseEndpointOperation.VectorQuery, HPDBaseCapabilities.VectorQuery),
         ["hpd.base.vector.metadata.list"] = Control("GET", "/base/vector/indexes", HPDBaseEndpointOperation.VectorMetadataRead, HPDBaseCapabilities.VectorMetadataRead),
         ["hpd.base.vector.diagnostics.read"] = Control("GET", "/base/vector/indexes/{collectionId}/{vectorIndexId}/diagnostics", HPDBaseEndpointOperation.DiagnosticsRead, HPDBaseCapabilities.VectorDiagnosticsRead),

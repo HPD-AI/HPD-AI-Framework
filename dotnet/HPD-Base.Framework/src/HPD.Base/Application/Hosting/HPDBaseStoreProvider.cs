@@ -44,6 +44,8 @@ public sealed class BaseStoreProviderDescriptor
     public BaseStorageProtectionCapability[] StorageProtectionCapabilities { get; init; } = [];
     /// <summary>Gets or initializes the maximum decoded binary field size supported by the provider.</summary>
     public int MaximumBinaryFieldBytes { get; init; } = 1_048_576;
+    /// <summary>Gets the provider's certified exported-subject validation envelope.</summary>
+    public required BaseSubjectReferenceCapability SubjectReferences { get; init; }
 }
 
 /// <summary>Represents one validated immutable authoritative store selection.</summary>
@@ -59,6 +61,7 @@ public sealed class HPDBaseStoreProvider
         _registrationIds = descriptor.RegistrationIds.ToArray();
         _storageProtectionCapabilities = descriptor.StorageProtectionCapabilities.Select(BaseStorageProtectionContract.Clone).ToArray();
         MaximumBinaryFieldBytes = descriptor.MaximumBinaryFieldBytes;
+        SubjectReferences = descriptor.SubjectReferences with { };
         Installer = installer;
     }
 
@@ -72,6 +75,8 @@ public sealed class HPDBaseStoreProvider
     internal IReadOnlyList<BaseStorageProtectionCapability> StorageProtectionCapabilities => _storageProtectionCapabilities;
     /// <summary>Gets the provider's certified maximum decoded binary-field size.</summary>
     public int MaximumBinaryFieldBytes { get; }
+    /// <summary>Gets the provider's certified exported-subject validation envelope.</summary>
+    public BaseSubjectReferenceCapability SubjectReferences { get; }
     internal IHPDBaseStoreInstaller Installer { get; }
 }
 
@@ -86,7 +91,8 @@ public static class HPDBaseStoreProviderFactory
     {
         ArgumentNullException.ThrowIfNull(descriptor);
         ArgumentNullException.ThrowIfNull(installer);
-        if (descriptor.ProtocolVersion != ProtocolVersion || !ValidIdentifier(descriptor.Kind) || descriptor.MaximumBinaryFieldBytes is < 1 or > 1_048_576)
+        if (descriptor.ProtocolVersion != ProtocolVersion || !ValidIdentifier(descriptor.Kind) || descriptor.MaximumBinaryFieldBytes is < 1 or > 1_048_576 ||
+            !ValidSubjectCapability(descriptor.SubjectReferences))
             throw new InvalidOperationException("base.store.providerInvalid");
         const BaseStoreProviderCapabilities known = BaseStoreProviderCapabilities.Records | BaseStoreProviderCapabilities.AtomicMutations |
             BaseStoreProviderCapabilities.RequiredIndexes | BaseStoreProviderCapabilities.RelationalExecution |
@@ -109,8 +115,16 @@ public static class HPDBaseStoreProviderFactory
             Kind = new string(descriptor.Kind.AsSpan()), ProtocolVersion = descriptor.ProtocolVersion,
             Capabilities = descriptor.Capabilities, RegistrationIds = ids, StorageProtectionCapabilities = protection,
             MaximumBinaryFieldBytes = descriptor.MaximumBinaryFieldBytes,
+            SubjectReferences = descriptor.SubjectReferences with { },
         }, installer);
     }
+
+    private static bool ValidSubjectCapability(BaseSubjectReferenceCapability? value) => value is not null &&
+        value.MaximumReferencesPerRecord is >= 1 and <= 32 && value.MaximumReferencesPerMutation is >= 1 and <= 1_024 &&
+        value.MaximumSubjectIdUtf8Bytes is >= 1 and <= 256 && value.MaximumValidationPlansPerMutation is >= 1 and <= 64 &&
+        value.MaximumAuthorityReads is >= 1 and <= 1_024 && value.MaximumReadIntervals is >= 1 and <= 1_024 &&
+        value.MaximumSelectedBytes is >= 1_024 and <= 8_388_608 && value.MaximumEvidenceBytes is >= 1_024 and <= 8_388_608 &&
+        value.MaximumTransientBytes is >= 65_536 and <= 67_108_864 && value.MaximumExecutionTime >= TimeSpan.FromMilliseconds(100) && value.MaximumExecutionTime <= TimeSpan.FromMinutes(2);
 
     internal static bool ValidIdentifier(string? value) => value is { Length: >= 1 and <= 128 } && value.All(static character => character is >= '!' and <= '~');
 }
@@ -132,13 +146,19 @@ public sealed class HPDBaseStoreInstallationContext
     private readonly IServiceCollection _services;
     private readonly HPDBaseStoreProvider _provider;
     private readonly CollectionDefinition[] _collections;
+    private readonly BaseExportedSubjectDefinition[] _subjects;
     private readonly string _schemaDigest;
-    internal HPDBaseStoreInstallationContext(IServiceCollection services, HPDBaseStoreProvider provider, CollectionDefinition[] collections)
+    internal HPDBaseStoreInstallationContext(
+        IServiceCollection services,
+        HPDBaseStoreProvider provider,
+        CollectionDefinition[] collections,
+        BaseExportedSubjectDefinition[]? subjects = null)
     {
         _services = services;
         _provider = provider;
         _collections = collections.Select(CloneCollection).ToArray();
-        _schemaDigest = ComputeSchemaDigest(_collections);
+        _subjects = (subjects ?? []).Select(CloneSubject).ToArray();
+        _schemaDigest = ComputeSchemaDigest(_collections, _subjects);
     }
     /// <summary>Gets the host service collection during the installation call.</summary>
     public IServiceCollection Services { get { ThrowIfCompleted(); return _services; } }
@@ -146,6 +166,8 @@ public sealed class HPDBaseStoreInstallationContext
     public HPDBaseStoreProvider Provider { get { ThrowIfCompleted(); return _provider; } }
     /// <summary>Gets an owned view of the accepted collections.</summary>
     public IReadOnlyList<CollectionDefinition> Collections { get { ThrowIfCompleted(); return Array.AsReadOnly(_collections.Select(CloneCollection).ToArray()); } }
+    /// <summary>Gets an owned view of the accepted exported logical subject definitions.</summary>
+    public IReadOnlyList<BaseExportedSubjectDefinition> ExportedSubjects { get { ThrowIfCompleted(); return Array.AsReadOnly(_subjects.Select(CloneSubject).ToArray()); } }
     /// <summary>Creates the single frozen receipt for this installation.</summary>
     public HPDBaseStoreRegistrationReceipt CreateReceipt(string recordStoreRegistrationId)
     {
@@ -185,7 +207,9 @@ public sealed class HPDBaseStoreInstallationContext
         return roles.ToArray();
     }
 
-    internal static string ComputeSchemaDigest(IEnumerable<CollectionDefinition> collections)
+    internal static string ComputeSchemaDigest(
+        IEnumerable<CollectionDefinition> collections,
+        IEnumerable<BaseExportedSubjectDefinition>? subjects = null)
     {
         var canonical = new StringBuilder();
         foreach (CollectionDefinition collection in collections.OrderBy(static value => value.Id, StringComparer.Ordinal))
@@ -198,8 +222,22 @@ public sealed class HPDBaseStoreInstallationContext
             foreach (VectorIndexDefinition index in (collection.VectorIndexes ?? []).OrderBy(static value => value.Id, StringComparer.Ordinal))
                 canonical.Append("v:").Append(index.Id).Append(':').Append(index.Dimensions).Append(':').Append((int)index.Function).Append('\n');
         }
+        foreach (BaseExportedSubjectDefinition subject in (subjects ?? []).OrderBy(static value => value.Id, StringComparer.Ordinal).ThenBy(static value => value.Version))
+            canonical.Append("s:").Append(subject.Id).Append(':').Append(subject.Version).Append(':')
+                .Append(BaseSubjectContractGraph.Checksum(subject)).Append('\n');
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(canonical.ToString())));
     }
+
+    private static BaseExportedSubjectDefinition CloneSubject(BaseExportedSubjectDefinition value) => value with
+    {
+        Audiences = value.Audiences.ToArray(),
+        ValidationPlan = value.ValidationPlan with
+        {
+            Active = value.ValidationPlan.Active with { },
+            Scope = value.ValidationPlan.Scope with { },
+            Limits = value.ValidationPlan.Limits with { },
+        },
+    };
 
     private static CollectionDefinition CloneCollection(CollectionDefinition value) => value with
     {

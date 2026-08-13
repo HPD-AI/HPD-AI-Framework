@@ -17,6 +17,12 @@ internal sealed class InMemoryStoreState
     public Dictionary<string, InMemoryMutationReceipt> Receipts { get; } = new(StringComparer.Ordinal);
     /// <summary>Gets BASE-owned immutable vector projection slots by canonical collection/index key.</summary>
     public Dictionary<string, InMemoryVectorProjectionState> VectorProjections { get; } = new(StringComparer.Ordinal);
+    /// <summary>Gets current exported-subject contract authority by canonical contract key.</summary>
+    public Dictionary<string, InMemorySubjectContractState> SubjectContracts { get; } = new(StringComparer.Ordinal);
+    /// <summary>Gets current exported-subject lifetimes by canonical subject key.</summary>
+    public Dictionary<string, InMemorySubjectLifetimeState> SubjectLifetimes { get; } = new(StringComparer.Ordinal);
+    /// <summary>Gets the shared record/control mutation journal by append position.</summary>
+    public SortedDictionary<long, BaseMutationJournalEntry> MutationJournal { get; } = [];
 
     /// <summary>Executes the clone operation.</summary>
     public InMemoryStoreState Clone()
@@ -34,10 +40,54 @@ internal sealed class InMemoryStoreState
             clone.Receipts.Add(id, receipt.DeepClone());
         foreach (var (id, projection) in VectorProjections)
             clone.VectorProjections.Add(id, projection);
+        foreach (var (id, subject) in SubjectContracts)
+            clone.SubjectContracts.Add(id, subject with { });
+        foreach (var (id, lifetime) in SubjectLifetimes)
+            clone.SubjectLifetimes.Add(id, lifetime with { });
+        foreach ((long position, BaseMutationJournalEntry entry) in MutationJournal)
+            clone.MutationJournal.Add(position, CloneJournalEntry(entry));
 
         return clone;
     }
+
+    private static BaseMutationJournalEntry CloneJournalEntry(BaseMutationJournalEntry entry) => new()
+    {
+        Kind = entry.Kind,
+        Position = entry.Position,
+        RecordMutation = entry.RecordMutation is null ? null : entry.RecordMutation with
+        {
+            Before = CloneSnapshot(entry.RecordMutation.Before),
+            After = CloneSnapshot(entry.RecordMutation.After),
+        },
+        SubjectAuthorityPublication = entry.SubjectAuthorityPublication is null
+            ? null
+            : entry.SubjectAuthorityPublication with { },
+    };
+
+    private static RecordSnapshot? CloneSnapshot(RecordSnapshot? snapshot) => snapshot is null ? null : snapshot with
+    {
+        Payload = snapshot.Payload is null ? null : RecordCloneHelpers.ClonePayload(snapshot.Payload),
+        Metadata = snapshot.Metadata is null ? null : RecordCloneHelpers.CloneMetadata(snapshot.Metadata),
+    };
 }
+
+internal sealed record InMemorySubjectContractState(
+    string ContractId,
+    int ContractVersion,
+    string ContractChecksum,
+    BaseSubjectAuthorityEpoch AuthorityEpoch,
+    long RestoreEpoch,
+    long StateGeneration,
+    BaseSubjectCurrentPublicationReceipt CurrentPublicationReceipt);
+
+internal sealed record InMemorySubjectLifetimeState(
+    string ContractId,
+    int ContractVersion,
+    BaseSubjectId SubjectId,
+    BaseSubjectIncarnation Incarnation,
+    string PrivateCollectionId,
+    RecordId PrivateRecordId,
+    long CreatedJournalPosition);
 
 internal sealed class InMemoryVectorProjectionState
 {

@@ -17,6 +17,7 @@ internal static class TestStoreProvider
                 (requiredIndexes || schema ? BaseStoreProviderCapabilities.RequiredIndexes : 0) |
                 (relational ? BaseStoreProviderCapabilities.RelationalExecution : 0),
             RegistrationIds = [store.Capabilities.StoreId + ".records"],
+            SubjectReferences = BaseSubjectProviderCapabilities.BuiltIn,
         }, new Installer(store, schema));
 
     private sealed class Installer(FakeRecordStore store, bool schema) : IHPDBaseStoreInstaller

@@ -118,7 +118,7 @@ public sealed class SqliteAtomicMutationTests
 
         var journal = await store.ReadMutationJournalAsync(
             new HPD.Base.BaseMutationJournalReadRequest { Limit = 10 });
-        journal.Entries.Select(entry => entry.EventId)
+        journal.Entries.Select(entry => entry.RecordMutation!.EventId)
             .Should().Equal("evt-create", "evt-patch", "evt-other");
     }
 

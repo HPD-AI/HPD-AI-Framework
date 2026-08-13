@@ -48,6 +48,9 @@ public sealed record BaseRealtimeHeartbeatMessage : BaseRealtimeClientMessage
 [JsonDerivedType(typeof(BaseRealtimeLiveRecordEventMessage), "liveRecordEvent")]
 [JsonDerivedType(typeof(BaseRealtimeDurableRecordEventMessage), "durableRecordEvent")]
 [JsonDerivedType(typeof(BaseRealtimeLiveQuerySnapshotMessage), "liveQuerySnapshot")]
+[JsonDerivedType(typeof(BaseRealtimeDurableSubjectAuthorityChanged), "durableSubjectAuthorityChanged")]
+[JsonDerivedType(typeof(BaseRealtimeLiveSubjectAuthorityChanged), "liveSubjectAuthorityChanged")]
+[JsonDerivedType(typeof(BaseRealtimeLiveQuerySubjectAuthorityChanged), "liveQuerySubjectAuthorityChanged")]
 [JsonDerivedType(typeof(BaseRealtimeHeartbeatAckMessage), "heartbeatAck")]
 [JsonDerivedType(typeof(BaseRealtimeErrorMessage), "error")]
 [JsonDerivedType(typeof(BaseRealtimeClosedMessage), "closed")]
@@ -120,6 +123,53 @@ public sealed record BaseRealtimeLiveQuerySnapshotMessage : BaseRealtimeServerMe
     public required string Source { get; init; }
     /// <summary>Gets the typed operation value in its declared JSON contract.</summary>
     public required JsonElement Value { get; init; }
+}
+
+/// <summary>Delivers one durable cursor-bound exported-subject authority invalidation.</summary>
+public sealed record BaseRealtimeDurableSubjectAuthorityChanged : BaseRealtimeServerMessage
+{
+    /// <summary>Gets the join reference.</summary>
+    public required string Ref { get; init; }
+    /// <summary>Gets the active channel epoch.</summary>
+    public required string ChannelEpoch { get; init; }
+    /// <summary>Gets the exported contract ID.</summary>
+    public required string ContractId { get; init; }
+    /// <summary>Gets the contract version.</summary>
+    public required int ContractVersion { get; init; }
+    /// <summary>Gets the canonical positive state generation.</summary>
+    public required string StateGeneration { get; init; }
+    /// <summary>Gets the protected durable cursor.</summary>
+    public required string Cursor { get; init; }
+}
+
+/// <summary>Delivers one live record-channel exported-subject authority invalidation.</summary>
+public sealed record BaseRealtimeLiveSubjectAuthorityChanged : BaseRealtimeServerMessage
+{
+    /// <summary>Gets the join reference.</summary>
+    public required string Ref { get; init; }
+    /// <summary>Gets the active channel epoch.</summary>
+    public required string ChannelEpoch { get; init; }
+    /// <summary>Gets the exported contract ID.</summary>
+    public required string ContractId { get; init; }
+    /// <summary>Gets the contract version.</summary>
+    public required int ContractVersion { get; init; }
+    /// <summary>Gets the canonical positive state generation.</summary>
+    public required string StateGeneration { get; init; }
+}
+
+/// <summary>Delivers one live-query exported-subject authority invalidation before replacement.</summary>
+public sealed record BaseRealtimeLiveQuerySubjectAuthorityChanged : BaseRealtimeServerMessage
+{
+    /// <summary>Gets the join reference.</summary>
+    public required string Ref { get; init; }
+    /// <summary>Gets the active channel epoch.</summary>
+    public required string ChannelEpoch { get; init; }
+    /// <summary>Gets the exported contract ID.</summary>
+    public required string ContractId { get; init; }
+    /// <summary>Gets the contract version.</summary>
+    public required int ContractVersion { get; init; }
+    /// <summary>Gets the canonical positive state generation.</summary>
+    public required string StateGeneration { get; init; }
 }
 
 /// <summary>Acknowledges one heartbeat.</summary>

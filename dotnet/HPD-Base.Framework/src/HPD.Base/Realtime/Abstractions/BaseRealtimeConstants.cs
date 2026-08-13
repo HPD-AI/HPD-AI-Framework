@@ -114,6 +114,8 @@ public static class BaseRealtimeErrorCodes
     public const string JoinRateLimited = "base.realtime.join.rateLimited";
     /// <summary>Identifies a channel terminated because its consumer could not keep pace.</summary>
     public const string ConsumerSlow = "base.realtime.consumer.slow";
+    /// <summary>Identifies a channel that must reconnect for complete authoritative replacement.</summary>
+    public const string ReplacementRequired = "base.realtime.replacementRequired";
     /// <summary>Provides the too many channels value.</summary>
     public const string TooManyChannels = "base.realtime.tooManyChannels";
     /// <summary>Provides the too many connections value.</summary>

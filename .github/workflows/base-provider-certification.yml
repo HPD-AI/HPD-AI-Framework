@@ -53,6 +53,15 @@ jobs:
           - { os: windows-latest, runtime: win-x64, provider: sqlitevec, project: HPD.Base.Sqlite.Vector.AotSmoke, executable: HPD.Base.Sqlite.Vector.AotSmoke.exe }
           - { os: macos-15-intel, runtime: osx-x64, provider: sqlitevec, project: HPD.Base.Sqlite.Vector.AotSmoke, executable: HPD.Base.Sqlite.Vector.AotSmoke }
           - { os: macos-14, runtime: osx-arm64, provider: sqlitevec, project: HPD.Base.Sqlite.Vector.AotSmoke, executable: HPD.Base.Sqlite.Vector.AotSmoke }
+          - { os: ubuntu-latest, runtime: linux-x64, provider: subjects-inmemory, project: HPD.Base.AotSmoke, executable: HPD.Base.AotSmoke }
+          - { os: ubuntu-24.04-arm, runtime: linux-arm64, provider: subjects-inmemory, project: HPD.Base.AotSmoke, executable: HPD.Base.AotSmoke }
+          - { os: windows-latest, runtime: win-x64, provider: subjects-inmemory, project: HPD.Base.AotSmoke, executable: HPD.Base.AotSmoke.exe }
+          - { os: macos-14, runtime: osx-arm64, provider: subjects-inmemory, project: HPD.Base.AotSmoke, executable: HPD.Base.AotSmoke }
+          - { os: ubuntu-latest, runtime: linux-x64, provider: subjects-sqlite, project: HPD.Base.Sqlite.AotSmoke, executable: HPD.Base.Sqlite.AotSmoke }
+          - { os: ubuntu-24.04-arm, runtime: linux-arm64, provider: subjects-sqlite, project: HPD.Base.Sqlite.AotSmoke, executable: HPD.Base.Sqlite.AotSmoke }
+          - { os: windows-latest, runtime: win-x64, provider: subjects-sqlite, project: HPD.Base.Sqlite.AotSmoke, executable: HPD.Base.Sqlite.AotSmoke.exe }
+          - { os: macos-15-intel, runtime: osx-x64, provider: subjects-sqlite, project: HPD.Base.Sqlite.AotSmoke, executable: HPD.Base.Sqlite.AotSmoke }
+          - { os: macos-14, runtime: osx-arm64, provider: subjects-sqlite, project: HPD.Base.Sqlite.AotSmoke, executable: HPD.Base.Sqlite.AotSmoke }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:

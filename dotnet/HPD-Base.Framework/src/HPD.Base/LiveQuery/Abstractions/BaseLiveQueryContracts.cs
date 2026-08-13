@@ -7,7 +7,9 @@ public enum BaseLiveQueryTransitionKind
     /// <summary>Identifies snapshot.</summary>
 Snapshot,
     /// <summary>Identifies failed.</summary>
-Failed
+    Failed,
+    /// <summary>Identifies an exported-subject authority change that makes the current snapshot stale.</summary>
+    SubjectAuthorityChanged
 }
 
 /// <summary>
@@ -58,6 +60,12 @@ public sealed record BaseLiveQueryTransition<T>
     public T? Value { get; init; }
     /// <summary>Gets or sets the failure.</summary>
     public BaseLiveQueryFailure? Failure { get; init; }
+    /// <summary>Gets the exported-subject contract identity for an authority-control transition.</summary>
+    public string? SubjectContractId { get; init; }
+    /// <summary>Gets the exported-subject contract version for an authority-control transition.</summary>
+    public int? SubjectContractVersion { get; init; }
+    /// <summary>Gets the positive publication generation for an authority-control transition.</summary>
+    public long? SubjectStateGeneration { get; init; }
 }
 
 /// <summary>Represents one active in-process query subscription.</summary>
@@ -84,6 +92,12 @@ public interface IBaseLiveQueryCoordinator
 
     /// <summary>Executes the invalidate async operation.</summary>
     ValueTask InvalidateAsync(
+        BaseDependencyInvalidation invalidation,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Marks matching subscriptions stale and publishes one ordered subject-authority control before rerun snapshots.</summary>
+    ValueTask InvalidateSubjectAuthorityAsync(
+        BaseSubjectAuthorityPublicationFact publication,
         BaseDependencyInvalidation invalidation,
         CancellationToken cancellationToken = default);
 }

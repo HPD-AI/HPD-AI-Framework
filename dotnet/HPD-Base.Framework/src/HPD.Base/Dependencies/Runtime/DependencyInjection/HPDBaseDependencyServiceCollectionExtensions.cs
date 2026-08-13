@@ -31,6 +31,14 @@ public static class HPDBaseDependencyServiceCollectionExtensions
         });
         services.AddSingleton(new BaseDependencyTemplate
         {
+            Id = BaseDependencyIds.SubjectContract,
+            Kind = BaseDependencyKind.Named,
+            ParameterNames = ["contract", "version", "generation"],
+            Visibility = BaseDependencyVisibility.Internal,
+            Description = "An installed exported-subject authority generation."
+        });
+        services.AddSingleton(new BaseDependencyTemplate
+        {
             Id = BaseDependencyIds.Record,
             Kind = BaseDependencyKind.Record,
             ParameterNames = ["tenant", "collection", "record"],
@@ -67,6 +75,10 @@ public static class HPDBaseDependencyServiceCollectionExtensions
         {
             Id = BaseDependencyIds.Record,
             Kind = BaseDependencyKind.Record
+        }).Append(new BaseDependencyTemplate
+        {
+            Id = BaseDependencyIds.SubjectContract,
+            Kind = BaseDependencyKind.Named
         }).ToArray();
         if (all.Any(template => template is null
             || !IsIdentifier(template.Id, 128)))

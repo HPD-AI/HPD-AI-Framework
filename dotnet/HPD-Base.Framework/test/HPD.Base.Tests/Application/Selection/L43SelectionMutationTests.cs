@@ -227,6 +227,7 @@ public sealed class L43SelectionMutationTests
         byte[] reportedBoundary = defect == "invalid-boundary" ? [0x7f] : boundary;
         BaseAtomicSelectionResult baseline = new()
         {
+            MutationCapture = null!,
             Authority = new BaseAuthoritySnapshotEvidence { ApplicationId = profile.ApplicationId, StoreInstanceId = "authority", RestoreEpoch = 0, SchemaGeneration = 1, CollectionGeneration = 0, Isolation = BaseAtomicSelectionIsolationClass.WriteOwningSerializable, TransactionEvidenceToken = [1] },
             Records = [first, second], ReadIntervals = intervals, CanonicalOrderBoundary = reportedBoundary.ToImmutableArray(),
             Accounting = new BaseAtomicSelectionAccounting { SelectedRecords = 2, SelectedBytes = first.CanonicalBytes + second.CanonicalBytes, ReadIntervals = intervals.Length, EvidenceBytes = intervals.Sum(interval => (long)interval.CanonicalLowerBound.Length + interval.CanonicalUpperBound.Length) },

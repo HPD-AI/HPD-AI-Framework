@@ -291,7 +291,7 @@ public sealed class RealtimeFeedSourceTests
         var replayed = await ReadOneAsync(resumed.Value!.Items);
         var mutation = TestServices.Event(recordId: "record-secret", tenantId: "tenant-secret") with
         {
-            EventId = replayEntry.EventId
+            EventId = replayEntry.RecordMutation!.EventId
         };
         var expected = await provider.GetRequiredService<IBaseDependencyInvalidationMapper>().MapAsync(mutation);
 
@@ -810,6 +810,12 @@ public sealed class RealtimeFeedSourceTests
             Durable = true
         };
         await using var noJournalProvider = await TestServices.CreateAsync();
+        noJournalProvider.GetRequiredService<IRecordStoreRegistry>().Add(new RecordStoreRegistration
+        {
+            StoreId = "primary",
+            Store = new FakeRecordStore("primary"),
+            CollectionIds = ["items", "other"],
+        });
         var noJournal = await noJournalProvider.GetRequiredService<IBaseRealtimeFeedSource>()
             .OpenAsync(Request(join));
         noJournal.Error!.Code.Should().Be(BaseRealtimeErrorCodes.CapabilityUnavailable);
@@ -841,15 +847,16 @@ public sealed class RealtimeFeedSourceTests
             .GetRequiredService<HPD.Base.IRecordStoreRegistry>()
             .GetStoreForCollection("items")!;
         journal.Add(TestServices.JournalEntry(2, "hidden", "other-tenant", "tenant-b"));
-        journal.Add(TestServices.JournalEntry(3, "visible", "after-safe", "tenant-a") with
+        BaseMutationJournalEntry visible = TestServices.JournalEntry(3, "visible", "after-safe", "tenant-a");
+        journal.Add(visible with
         {
-            After = new RecordSnapshot
+            RecordMutation = visible.RecordMutation! with { After = new RecordSnapshot
             {
                 CollectionId = "items",
                 Id = new RecordId("visible"),
                 Payload = TestServices.Payload(("title", "after-safe"), ("writeOnly", "after-forbidden")),
                 Metadata = new RecordMetadata()
-            }
+            } }
         });
 
         var resumed = await feed.OpenAsync(Request(
@@ -890,27 +897,25 @@ public sealed class RealtimeFeedSourceTests
         var journal = (TestMutationJournalStore)provider
             .GetRequiredService<HPD.Base.IRecordStoreRegistry>()
             .GetStoreForCollection("items")!;
-        journal.Add(TestServices.JournalEntry(2, "updated", "after-safe") with
+        BaseMutationJournalEntry updated = TestServices.JournalEntry(2, "updated", "after-safe");
+        journal.Add(updated with
         {
-            Operation = BaseOperationKind.Patch,
-            Type = BaseEventTypes.RecordPatched,
-            Before = new RecordSnapshot
+            RecordMutation = updated.RecordMutation! with
             {
-                CollectionId = "items",
-                Id = new RecordId("updated"),
-                Payload = TestServices.Payload(
-                    ("title", "before-safe"),
-                    ("writeOnly", "before-forbidden")),
-                Metadata = new RecordMetadata()
-            },
-            After = new RecordSnapshot
-            {
-                CollectionId = "items",
-                Id = new RecordId("updated"),
-                Payload = TestServices.Payload(
-                    ("title", "after-safe"),
-                    ("writeOnly", "after-forbidden")),
-                Metadata = new RecordMetadata()
+                Operation = BaseOperationKind.Patch,
+                Type = BaseEventTypes.RecordPatched,
+                Before = new RecordSnapshot
+                {
+                    CollectionId = "items", Id = new RecordId("updated"),
+                    Payload = TestServices.Payload(("title", "before-safe"), ("writeOnly", "before-forbidden")),
+                    Metadata = new RecordMetadata()
+                },
+                After = new RecordSnapshot
+                {
+                    CollectionId = "items", Id = new RecordId("updated"),
+                    Payload = TestServices.Payload(("title", "after-safe"), ("writeOnly", "after-forbidden")),
+                    Metadata = new RecordMetadata()
+                }
             }
         });
 

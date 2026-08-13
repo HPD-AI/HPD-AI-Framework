@@ -33,6 +33,13 @@ public interface IHPDBaseAdministration
     ValueTask<BaseResult<BaseVectorRebuildResult>> RebuildVectorIndexAsync(
         BaseVectorRebuildRequest request,
         CancellationToken cancellationToken = default);
+
+    /// <summary>Rotates one exported-subject authority epoch through the selected ControlPlane store.</summary>
+    ValueTask<BaseResult<BaseSubjectEpochRotationResult>> RotateSubjectEpochAsync(
+        string storeId,
+        PrincipalContext principal,
+        BaseSubjectEpochRotationRequest request,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>Describes provider administration guarantees.</summary>

@@ -65,7 +65,7 @@ public sealed partial class SqliteRecordStore
                             Category = ErrorCategory.Capability,
                         },
                     };
-                var compiler = new SqliteRelationalReadCompiler(_physical, request);
+                var compiler = new SqliteRelationalReadCompiler(_physical, _names, _options.ExportedSubjects, request);
                 SqliteRelationalReadCompiler.CompiledRead compiled = compiler.Compile();
                 using var execution = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 execution.CancelAfter(request.ExecutionTimeout);
@@ -106,6 +106,8 @@ public sealed partial class SqliteRecordStore
                 int bytes = rows.Sum(SqliteRelationalReadCompiler.EstimateBytes);
                 if (bytes > request.MaxResultBytes)
                     return RelationalFailure("base.relational.read.limitExceeded", "SQLite relational result limits were exceeded.");
+                BaseReadDependencyEvidence[] dependencies = await ReadRelationalDependenciesAsync(
+                    connection, transaction, request, execution.Token).ConfigureAwait(false);
                 await transaction.CommitAsync(execution.Token).ConfigureAwait(false);
                 return OperationResults.Ok(new BaseRelationalReadExecutionResult
                 {
@@ -116,10 +118,7 @@ public sealed partial class SqliteRecordStore
                         Count = count,
                         SchemaGeneration = request.Plan.SchemaGeneration,
                     },
-                    DependencyEvidence = request.Plan.Sources
-                        .Select(static source => new BaseReadDependencyEvidence { CollectionId = source.CollectionId })
-                        .DistinctBy(static evidence => evidence.CollectionId, StringComparer.Ordinal)
-                        .ToArray(),
+                    DependencyEvidence = dependencies,
                 });
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
@@ -132,6 +131,41 @@ public sealed partial class SqliteRecordStore
                 return RelationalFailure("base.relational.read.resultInvalid", "SQLite relational execution failed.");
             }
         }
+    }
+
+    private async ValueTask<BaseReadDependencyEvidence[]> ReadRelationalDependenciesAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        BaseRelationalReadExecutionRequest request,
+        CancellationToken cancellationToken)
+    {
+        BaseRelationalOperand? subject = request.Plan.Projection.Select(static value => value.Operand)
+            .SingleOrDefault(static value => value.Kind == BaseRelationalOperandKind.SubjectReference);
+        long? stateGeneration = null;
+        if (subject is not null)
+        {
+            await using SqliteCommand command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandTimeout = RelationalTimeoutSeconds(request.ExecutionTimeout);
+            command.CommandText = $"SELECT state_generation FROM {_names.SubjectContracts} WHERE contract_id=$contract AND contract_version=$version";
+            command.Parameters.AddWithValue("$contract", subject.SubjectContractId!);
+            command.Parameters.AddWithValue("$version", subject.SubjectContractVersion!.Value);
+            object? value = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+            if (value is null || value is DBNull) throw new InvalidOperationException();
+            stateGeneration = Convert.ToInt64(value, CultureInfo.InvariantCulture);
+            if (stateGeneration <= 0) throw new InvalidOperationException();
+        }
+        return request.Plan.Sources.Select(source => subject is not null && string.Equals(subject.SourceId, source.Id, StringComparison.Ordinal)
+            ? new BaseReadDependencyEvidence
+            {
+                CollectionId = source.CollectionId,
+                SubjectContractId = subject.SubjectContractId,
+                SubjectContractVersion = subject.SubjectContractVersion,
+                SubjectStateGeneration = stateGeneration,
+            }
+            : new BaseReadDependencyEvidence { CollectionId = source.CollectionId })
+            .DistinctBy(static evidence => evidence.CollectionId, StringComparer.Ordinal)
+            .ToArray();
     }
 
     private static int RelationalTimeoutSeconds(TimeSpan timeout) =>

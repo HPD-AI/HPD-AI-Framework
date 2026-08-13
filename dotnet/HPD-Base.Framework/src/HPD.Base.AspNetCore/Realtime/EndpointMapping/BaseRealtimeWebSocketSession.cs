@@ -263,6 +263,17 @@ internal sealed class BaseRealtimeWebSocketSession
     {
         if (transition.Kind == BaseLiveQueryTransitionKind.Failed)
             return SendErrorAsync(reference, epoch, transition.Failure?.Code ?? BaseLiveQueryErrorCodes.ExecutionFailed, true, cancellationToken);
+        if (transition.Kind == BaseLiveQueryTransitionKind.SubjectAuthorityChanged)
+            return SendAsync(new BaseRealtimeLiveQuerySubjectAuthorityChanged
+            {
+                ConnectionId = _connectionId,
+                ConnectionEpoch = _connectionEpoch,
+                Ref = reference,
+                ChannelEpoch = epoch,
+                ContractId = transition.SubjectContractId ?? throw new InvalidOperationException(BaseRealtimeErrorCodes.ProtocolInvalid),
+                ContractVersion = transition.SubjectContractVersion ?? throw new InvalidOperationException(BaseRealtimeErrorCodes.ProtocolInvalid),
+                StateGeneration = (transition.SubjectStateGeneration ?? throw new InvalidOperationException(BaseRealtimeErrorCodes.ProtocolInvalid)).ToString(System.Globalization.CultureInfo.InvariantCulture),
+            }, cancellationToken);
         return SendAsync(new BaseRealtimeLiveQuerySnapshotMessage
         {
             ConnectionId = _connectionId,
@@ -311,8 +322,36 @@ internal sealed class BaseRealtimeWebSocketSession
     {
         if (!_channels.TryGetValue(reference, out ActiveChannel? active))
             return;
-        BaseRealtimeServerMessage message = active.Durable
-            ? new BaseRealtimeDurableRecordEventMessage
+        BaseRealtimeServerMessage message;
+        if (evt.SubjectAuthorityPublication is { } publication)
+        {
+            message = active.Durable
+                ? new BaseRealtimeDurableSubjectAuthorityChanged
+                {
+                    ConnectionId = _connectionId,
+                    ConnectionEpoch = _connectionEpoch,
+                    Ref = reference,
+                    ChannelEpoch = active.Epoch,
+                    ContractId = publication.ContractId,
+                    ContractVersion = publication.ContractVersion,
+                    StateGeneration = publication.PublishedStateGeneration.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    Cursor = evt.Cursor ?? throw new BaseRealtimeFeedException(BaseRealtimeErrorCodes.ProtocolInvalid, "A durable subject control did not contain a cursor."),
+                }
+                : new BaseRealtimeLiveSubjectAuthorityChanged
+                {
+                    ConnectionId = _connectionId,
+                    ConnectionEpoch = _connectionEpoch,
+                    Ref = reference,
+                    ChannelEpoch = active.Epoch,
+                    ContractId = publication.ContractId,
+                    ContractVersion = publication.ContractVersion,
+                    StateGeneration = publication.PublishedStateGeneration.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                };
+        }
+        else
+        {
+            message = active.Durable
+                ? new BaseRealtimeDurableRecordEventMessage
             {
                 ConnectionId = _connectionId,
                 ConnectionEpoch = _connectionEpoch,
@@ -329,6 +368,7 @@ internal sealed class BaseRealtimeWebSocketSession
                 ChannelEpoch = active.Epoch,
                 Event = evt with { Cursor = null }
             };
+        }
         if (SerializedLength(message) > _options.Limits.MaxPayloadBytes)
             throw new BaseRealtimeFeedException(BaseRealtimeErrorCodes.PayloadTooLarge, "The realtime event exceeded the configured payload limit.");
         await SendAsync(message, cancellationToken).ConfigureAwait(false);

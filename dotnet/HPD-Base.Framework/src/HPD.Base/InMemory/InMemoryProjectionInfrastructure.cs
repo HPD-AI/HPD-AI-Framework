@@ -17,10 +17,11 @@ internal sealed class BaseInMemoryProjectionInitializationContext
 
 internal sealed class BaseInMemoryProjectionMutationContext
 {
-    internal BaseInMemoryProjectionMutationContext(InMemoryStoreState working, HPDBaseInMemoryStoreOptions options, BaseAtomicMutationProjectionRequest request)
-    { _working = working; Options = options; Request = BaseAtomicMutationProjectionFactory.Clone(request); }
+    internal BaseInMemoryProjectionMutationContext(InMemoryStoreState working, HPDBaseInMemoryStoreOptions options, BaseAtomicMutationProjectionRequest request, long? currentPosition = null)
+    { _working = working; _currentPosition = currentPosition ?? working.GlobalMutationPosition; Options = options; Request = BaseAtomicMutationProjectionFactory.Clone(request); }
     private readonly InMemoryStoreState _working;
-    internal long CurrentPosition => _working.GlobalMutationPosition;
+    private readonly long _currentPosition;
+    internal long CurrentPosition => _currentPosition;
     internal HPDBaseInMemoryStoreOptions Options { get; }
     internal BaseAtomicMutationProjectionRequest Request { get; }
 

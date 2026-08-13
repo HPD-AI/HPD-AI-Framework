@@ -360,7 +360,7 @@ public sealed class L30MutationCoordinatorTests
             RuntimeTestData.Operation(BaseOperationKind.Create));
 
         Assert.Equal(OperationStatus.StoreError, result.Status);
-        Assert.Equal("base.runtime.store.malformedMutationFact", result.Error?.Code);
+        Assert.Equal(BaseSubjectErrorCodes.ProviderContractInvalid, result.Error?.Code);
         Assert.Empty(observer.RecordIds);
     }
 

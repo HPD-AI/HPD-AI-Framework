@@ -520,7 +520,12 @@ internal sealed class HPDBaseAuthPolicyEvaluator : IPolicyEvaluator
         AccessSubject[] subjects,
         string action)
     {
-        if (request.Collection.System && (!ExactSystemDimensions(grant, request)))
+        if (request.Resource.Kind == PolicyResourceKind.SubjectContract)
+        {
+            if (!ExactSubjectDimensions(grant, request))
+                return false;
+        }
+        else if (request.Collection.System && (!ExactSystemDimensions(grant, request)))
             return false;
         if (!string.Equals(grant.Action, action, StringComparison.Ordinal))
             return false;
@@ -539,9 +544,31 @@ internal sealed class HPDBaseAuthPolicyEvaluator : IPolicyEvaluator
                     || string.Equals(grant.Scope.RecordId, request.Resource.RecordId, StringComparison.Ordinal)
                     || string.Equals(grant.Scope.RecordId, request.Operation.RecordId, StringComparison.Ordinal)),
             ResourceScopeKind.Admin => request.Resource.Kind == PolicyResourceKind.AdminMetadata,
+            ResourceScopeKind.SubjectContract => request.Resource.Kind == PolicyResourceKind.SubjectContract
+                && string.Equals(grant.Scope.SubjectContractId, request.Resource.SubjectContractId, StringComparison.Ordinal)
+                && grant.Scope.SubjectContractVersion == request.Resource.SubjectContractVersion,
             _ => false
         };
     }
+
+    private static bool ExactSubjectDimensions(AccessGrant grant, PolicyEvaluationRequest request) =>
+        !string.IsNullOrWhiteSpace(request.Operation.ApplicationId)
+        && string.Equals(grant.ApplicationId, request.Operation.ApplicationId, StringComparison.Ordinal)
+        && !string.IsNullOrWhiteSpace(request.Collection.SystemOwnerModuleId)
+        && string.Equals(grant.ModuleId, request.Collection.SystemOwnerModuleId, StringComparison.Ordinal)
+        && grant.Audience == request.Operation.Audience
+        && grant.Scope.Kind == ResourceScopeKind.SubjectContract
+        && !string.IsNullOrWhiteSpace(request.Resource.SubjectContractId)
+        && string.Equals(grant.Scope.SubjectContractId, request.Resource.SubjectContractId, StringComparison.Ordinal)
+        && request.Resource.SubjectContractVersion is > 0
+        && grant.Scope.SubjectContractVersion == request.Resource.SubjectContractVersion
+        && ScopeEquals(grant.Scope.TenantId, request.Operation.TenantId)
+        && ScopeEquals(grant.Scope.ProjectId, request.Operation.ProjectId);
+
+    private static bool ScopeEquals(string? grant, string? operation) =>
+        string.IsNullOrWhiteSpace(operation)
+            ? string.IsNullOrWhiteSpace(grant)
+            : string.Equals(grant, operation, StringComparison.Ordinal);
 
     private static bool ExactSystemDimensions(AccessGrant grant, PolicyEvaluationRequest request) =>
         !string.IsNullOrWhiteSpace(request.Operation.ApplicationId)
@@ -619,6 +646,9 @@ internal sealed class HPDBaseAuthPolicyEvaluator : IPolicyEvaluator
         BaseOperationKind.Patch or BaseOperationKind.Replace => HPDBaseAuthPolicyActions.Update,
         BaseOperationKind.Delete => HPDBaseAuthPolicyActions.Delete,
         BaseOperationKind.AdminInspect => HPDBaseAuthPolicyActions.AdminMetadataRead,
+        BaseOperationKind.SubjectAcquire => BaseGrantActions.SubjectAcquire,
+        BaseOperationKind.SubjectValidate => BaseGrantActions.SubjectValidate,
+        BaseOperationKind.SubjectEpochRotate => BaseGrantActions.SubjectEpochRotate,
         _ => operation.ToString()
     };
 

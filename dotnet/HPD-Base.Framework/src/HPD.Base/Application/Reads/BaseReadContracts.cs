@@ -471,4 +471,22 @@ public static class BaseReadGeneratedContract
             ?? throw new InvalidOperationException("The provider omitted a required registered-read projection field.");
         return value.Kind == QueryValueKind.Null;
     }
+
+    /// <summary>Decodes one validated output-only exported-subject reference projection.</summary>
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public static BaseSubjectReference<TSubject> ReadSubjectReference<TSubject>(BaseRelationalRow row, string fieldId)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+        QueryValue value = row.Fields.SingleOrDefault(field => string.Equals(field.FieldId, fieldId, StringComparison.Ordinal))?.Value
+            ?? throw new InvalidOperationException("The provider omitted a required registered-read projection field.");
+        if (value.Kind != QueryValueKind.SubjectReference || value.SubjectId is null || value.SubjectAuthorityEpoch is null || value.SubjectIncarnation is null)
+            throw new InvalidOperationException("The provider returned an invalid exported-subject reference projection.");
+        return new BaseSubjectReference<TSubject>(
+            BaseSubjectId.Create(
+                value.SubjectId,
+                value.SubjectIdKind ?? throw new InvalidOperationException("The provider omitted the subject-ID grammar."),
+                value.SubjectIdMaximumUtf8Bytes ?? throw new InvalidOperationException("The provider omitted the subject-ID bound.")),
+            BaseSubjectAuthorityEpoch.Parse(value.SubjectAuthorityEpoch),
+            BaseSubjectIncarnation.Parse(value.SubjectIncarnation));
+    }
 }

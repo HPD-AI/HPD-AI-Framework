@@ -19,6 +19,7 @@ internal sealed class DefaultBaseRealtimeFeedSource : IBaseRealtimeFeedSource
     private readonly IRecordStoreResolver _stores;
     private readonly BaseRealtimeCursorProtector _cursors;
     private readonly TimeProvider _timeProvider;
+    private readonly BaseSubjectLiveControlHub _subjectControls;
 
     /// <summary>Initializes a new instance.</summary>
     public DefaultBaseRealtimeFeedSource(
@@ -30,6 +31,7 @@ internal sealed class DefaultBaseRealtimeFeedSource : IBaseRealtimeFeedSource
         IRecordStoreResolver stores,
         BaseRealtimeCursorProtector cursors,
         TimeProvider timeProvider,
+        BaseSubjectLiveControlHub subjectControls,
         ILogger<DefaultBaseRealtimeFeedSource> logger)
     {
         _events = events;
@@ -40,6 +42,7 @@ internal sealed class DefaultBaseRealtimeFeedSource : IBaseRealtimeFeedSource
         _stores = stores;
         _cursors = cursors;
         _timeProvider = timeProvider;
+        _subjectControls = subjectControls;
         _logger = logger;
     }
 
@@ -122,10 +125,28 @@ internal sealed class DefaultBaseRealtimeFeedSource : IBaseRealtimeFeedSource
                 });
         }
 
+        HashSet<(string ContractId, int ContractVersion)> applicableSubjects = [];
+        if (!string.IsNullOrWhiteSpace(request.Join.CollectionId))
+        {
+            OperationResult<CollectionDefinition> collection = await _schema.GetCollectionAsync(
+                request.Join.CollectionId,
+                request.Principal,
+                request.Operation,
+                VisibilityLevel.Internal,
+                cancellationToken).ConfigureAwait(false);
+            if (collection.Value is null)
+                return Failure(AsyncStreamOpenStatus.NotFound, BaseRealtimeErrorCodes.ChannelUnauthorized,
+                    "The realtime collection is unavailable.", AsyncStreamErrorCategory.NotFound);
+            applicableSubjects = (collection.Value.Fields ?? [])
+                .Where(static field => field.SubjectReference is not null)
+                .Select(static field => (field.SubjectReference!.ContractId, field.SubjectReference.ContractVersion))
+                .ToHashSet();
+        }
+
         return AsyncStreamOpenResult<AsyncStream<BaseRealtimeEvent>>.Opened(new AsyncStream<BaseRealtimeEvent>
         {
             Descriptor = opened.Value.Descriptor,
-            Items = ProjectAsync(request, opened.Value.Items, cancellationToken)
+            Items = ProjectAsync(request, opened.Value.Items, applicableSubjects, cancellationToken)
         });
     }
 
@@ -229,6 +250,9 @@ internal sealed class DefaultBaseRealtimeFeedSource : IBaseRealtimeFeedSource
                 Items = ProjectDurableAsync(
                     request,
                     journal,
+                    (collection.Value.Fields ?? []).Where(static field => field.SubjectReference is not null)
+                        .Select(static field => (field.SubjectReference!.ContractId, field.SubjectReference.ContractVersion))
+                        .ToHashSet(),
                     resolved.Value.Capabilities.StoreId,
                     cursorScope,
                     position,
@@ -240,6 +264,7 @@ internal sealed class DefaultBaseRealtimeFeedSource : IBaseRealtimeFeedSource
     private async IAsyncEnumerable<BaseRealtimeEvent> ProjectDurableAsync(
         BaseRealtimeFeedRequest request,
         ITransactionalMutationJournalStore journal,
+        HashSet<(string ContractId, int ContractVersion)> applicableSubjects,
         string storeId,
         BaseRealtimeChannelJoinRequest cursorScope,
         BaseMutationJournalPosition startingPosition,
@@ -272,7 +297,21 @@ internal sealed class DefaultBaseRealtimeFeedSource : IBaseRealtimeFeedSource
                 foreach (var entry in page.Entries)
                 {
                     position = entry.Position;
-                    var evt = JournalEvent(entry);
+                    if (entry.Kind == BaseMutationJournalEntryKind.SubjectAuthorityPublication)
+                    {
+                        BaseSubjectAuthorityPublicationFact publication = entry.SubjectAuthorityPublication
+                            ?? throw new BaseRealtimeFeedException(BaseRealtimeErrorCodes.ProtocolInvalid, "The durable journal control entry was malformed.");
+                        if (publication.Kind == BaseSubjectAuthorityPublicationKind.InitialInstallation
+                            || !applicableSubjects.Contains((publication.ContractId, publication.ContractVersion)))
+                            continue;
+                        yield return AuthorityEvent(publication) with
+                        {
+                            Cursor = _cursors.Protect(position, restoreEpoch, storeId, cursorScope),
+                        };
+                        continue;
+                    }
+                    var evt = JournalEvent(entry.RecordMutation
+                        ?? throw new BaseRealtimeFeedException(BaseRealtimeErrorCodes.ProtocolInvalid, "The durable record journal entry was malformed."));
                     if (!Matches(request.Join, evt))
                         continue;
 
@@ -341,7 +380,7 @@ internal sealed class DefaultBaseRealtimeFeedSource : IBaseRealtimeFeedSource
         }
     }
 
-    private static BaseRecordMutationEvent JournalEvent(BaseMutationJournalEntry entry) => new()
+    private static BaseRecordMutationEvent JournalEvent(BaseRecordMutationJournalEntry entry) => new()
     {
         EventId = entry.EventId,
         Type = entry.Type,
@@ -358,6 +397,17 @@ internal sealed class DefaultBaseRealtimeFeedSource : IBaseRealtimeFeedSource
         },
         Before = entry.Before,
         After = entry.After
+    };
+
+    private static BaseRealtimeEvent AuthorityEvent(BaseSubjectAuthorityPublicationFact publication) => new()
+    {
+        EventId = $"subject-authority:{publication.Position.Value}",
+        Type = "base.subjectAuthority.changed",
+        SchemaVersion = "1",
+        OccurredAt = DateTimeOffset.UnixEpoch,
+        Resource = new BaseRealtimeRecordResource { CollectionId = string.Empty, RecordId = new RecordId("subject-authority") },
+        Operation = BaseOperationKind.Query,
+        SubjectAuthorityPublication = publication with { },
     };
 
     private AsyncStreamOpenResult<AsyncStream<BaseRealtimeEvent>> CursorFailure(
@@ -411,13 +461,29 @@ internal sealed class DefaultBaseRealtimeFeedSource : IBaseRealtimeFeedSource
     private async IAsyncEnumerable<BaseRealtimeEvent> ProjectAsync(
         BaseRealtimeFeedRequest request,
         IAsyncEnumerable<BaseRecordMutationEvent> events,
+        HashSet<(string ContractId, int ContractVersion)> applicableSubjects,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         _stats.RecordChannelOpened();
+        using BaseSubjectLiveControlHub.Lease controls = _subjectControls.Subscribe(applicableSubjects);
+        using var iteration = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        await using IAsyncEnumerator<BaseRecordMutationEvent> records = events.GetAsyncEnumerator(iteration.Token);
+        Task<bool> recordMove = records.MoveNextAsync().AsTask();
         try
         {
-            await foreach (var evt in events.WithCancellation(cancellationToken).ConfigureAwait(false))
+            while (!cancellationToken.IsCancellationRequested)
             {
+                Task<bool> controlReady = controls.Reader.WaitToReadAsync(cancellationToken).AsTask();
+                Task completed = await Task.WhenAny(recordMove, controlReady).ConfigureAwait(false);
+                if (completed == controlReady && await controlReady.ConfigureAwait(false))
+                {
+                    while (controls.Reader.TryRead(out BaseSubjectAuthorityPublicationFact? publication))
+                        yield return AuthorityEvent(publication);
+                    continue;
+                }
+                if (!await recordMove.ConfigureAwait(false)) yield break;
+                BaseRecordMutationEvent evt = records.Current;
+                recordMove = records.MoveNextAsync().AsTask();
                 if (!Matches(request.Join, evt))
                     continue;
 
@@ -469,6 +535,9 @@ internal sealed class DefaultBaseRealtimeFeedSource : IBaseRealtimeFeedSource
         }
         finally
         {
+            iteration.Cancel();
+            try { await recordMove.ConfigureAwait(false); }
+            catch (OperationCanceledException) { }
             _stats.RecordChannelClosed();
         }
     }

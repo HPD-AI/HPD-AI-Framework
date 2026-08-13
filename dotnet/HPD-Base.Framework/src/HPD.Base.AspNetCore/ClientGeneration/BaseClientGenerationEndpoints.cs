@@ -102,7 +102,7 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
             .Where(template => template.Visibility == BaseDependencyVisibility.Public || current.Audience == HPDBaseEndpointAudience.ControlPlane && template.Visibility == BaseDependencyVisibility.Admin)
             .OrderBy(template => template.Id, StringComparer.Ordinal).ToArray();
         BaseSelectionOperationProfile[] graphSelections = (selectionProfiles?.All ?? []).Where(static profile => profile.HttpProjection?.GenerateL41Client == true).ToArray();
-        BaseClientNamedTypeDescriptor[] types = BuildTypes(collections.Collections.Values, installedReads, templates.Length != 0, graphSelections);
+        BaseClientNamedTypeDescriptor[] types = BuildTypes(collections.Collections.Values, installedReads, templates.Length != 0, graphSelections, logicalSchema.ExportedSubjects);
         if (types.Length > 512)
             return ValueTask.FromResult(Failure("base.clientGeneration.snapshotTooLarge"));
 
@@ -294,10 +294,10 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
         };
     }
 
-    private static BaseClientNamedTypeDescriptor[] BuildTypes(IEnumerable<CollectionDefinition> definitions, IEnumerable<IBaseReadRegistration> reads, bool includeDependencyParameter, IEnumerable<BaseSelectionOperationProfile> selections) => definitions
+    private static BaseClientNamedTypeDescriptor[] BuildTypes(IEnumerable<CollectionDefinition> definitions, IEnumerable<IBaseReadRegistration> reads, bool includeDependencyParameter, IEnumerable<BaseSelectionOperationProfile> selections, BaseLogicalExportedSubject[] subjects) => definitions
         .Where(collection => collection.Enabled && collection.Exposed)
-        .SelectMany(CollectionTypes)
-        .Concat(reads.SelectMany(ReadTypes))
+        .SelectMany(collection => CollectionTypes(collection, subjects))
+        .Concat(reads.SelectMany(read => ReadTypes(read, subjects)))
         .Concat([new BaseClientNamedTypeDescriptor
         {
             Id = "base.redacted",
@@ -338,21 +338,30 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
         static BaseClientPropertyDescriptor Property(string name, string type, bool required) => new() { Name = name, WireName = name, TypeId = type, Required = required, Nullable = false, DisclosureShape = "none" };
     }
 
-    private static IEnumerable<BaseClientNamedTypeDescriptor> ReadTypes(IBaseReadRegistration read)
+    private static IEnumerable<BaseClientNamedTypeDescriptor> ReadTypes(IBaseReadRegistration read, BaseLogicalExportedSubject[] subjects)
     {
         BaseReadClientContract contract = read.ClientContract;
-        foreach (BaseClientNamedTypeDescriptor type in MemberTypes(contract.Parameters, contract.ParameterTypeId)) yield return type;
-        foreach (BaseClientNamedTypeDescriptor type in MemberTypes(contract.Row, contract.RowTypeId)) yield return type;
+        foreach (BaseClientNamedTypeDescriptor type in MemberTypes(contract.Parameters, contract.ParameterTypeId, false)) yield return type;
+        foreach (BaseClientNamedTypeDescriptor type in MemberTypes(contract.Row, contract.RowTypeId, true)) yield return type;
         yield return ReadObject(contract.ParameterTypeId, contract.Parameters, contract.ParameterTypeId);
         yield return ReadObject(contract.RowTypeId, contract.Row, contract.RowTypeId);
 
-        static IEnumerable<BaseClientNamedTypeDescriptor> MemberTypes(IReadOnlyList<BaseReadClientProperty> properties, string owner)
+        IEnumerable<BaseClientNamedTypeDescriptor> MemberTypes(IReadOnlyList<BaseReadClientProperty> properties, string owner, bool output)
         {
             foreach (BaseReadClientProperty property in properties)
             {
                 string valueId = owner + "." + property.Id;
                 string scalarId = property.Array ? valueId + ".item" : valueId;
-                yield return new BaseClientNamedTypeDescriptor { Id = scalarId, Node = ReadScalar(property.Kind) };
+                BaseRelationalOperand? operand = output ? read.Plan.Projection.Single(projection => projection.FieldId == property.Id).Operand : null;
+                BaseClientTypeNode node = operand?.Kind == BaseRelationalOperandKind.SubjectReference
+                    ? SubjectNode(new BaseSubjectReferenceDefinition
+                    {
+                        ContractId = operand.SubjectContractId!, ContractVersion = operand.SubjectContractVersion!.Value,
+                        ContractChecksum = string.Empty, Requirement = BaseSubjectReferenceRequirement.Exists,
+                        Guarantee = BaseSubjectValidationGuarantee.TransactionSnapshot,
+                    }, subjects)
+                    : ReadScalar(property.Kind);
+                yield return new BaseClientNamedTypeDescriptor { Id = scalarId, Node = node };
                 if (property.Array) yield return new BaseClientNamedTypeDescriptor { Id = valueId, Node = new BaseClientTypeNode { Kind = "array", ElementTypeId = scalarId, MinItems = 0, MaxItems = 256 } };
             }
         }
@@ -383,7 +392,7 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
         _ => new() { Kind = "string", Format = "plain", MinLength = 0, MaxLength = 4096 }
     };
 
-    private static IEnumerable<BaseClientNamedTypeDescriptor> CollectionTypes(CollectionDefinition collection)
+    private static IEnumerable<BaseClientNamedTypeDescriptor> CollectionTypes(CollectionDefinition collection, BaseLogicalExportedSubject[] subjects)
     {
         FieldDefinition[] fields = (collection.Fields ?? []).Where(field => !field.Hidden).OrderBy(field => field.Id, StringComparer.Ordinal).ToArray();
         foreach (FieldDefinition field in fields)
@@ -394,7 +403,7 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
                 yield return new BaseClientNamedTypeDescriptor { Id = $"field.{collection.Id}.{field.Id}.item", Node = new BaseClientTypeNode { Kind = "floating", Precision = "binary32", FiniteOnly = true } };
                 yield return new BaseClientNamedTypeDescriptor { Id = $"field.{collection.Id}.{field.Id}", Node = new BaseClientTypeNode { Kind = "array", ElementTypeId = $"field.{collection.Id}.{field.Id}.item", MinItems = dimensions, MaxItems = dimensions } };
             }
-            else yield return new BaseClientNamedTypeDescriptor { Id = $"field.{collection.Id}.{field.Id}", Node = FieldNode(field) };
+            else yield return new BaseClientNamedTypeDescriptor { Id = $"field.{collection.Id}.{field.Id}", Node = FieldNode(field, subjects) };
         }
         yield return ObjectType($"collection.{collection.Id}.record", fields, static field =>
             (field.Disclosure?.RecordRead ?? BaseFieldDisclosurePolicies.For(field.Confidentiality).RecordRead) != BaseRecordDisclosure.Omit,
@@ -424,8 +433,9 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
         };
     }
 
-    private static BaseClientTypeNode FieldNode(FieldDefinition field) => field.Type switch
+    private static BaseClientTypeNode FieldNode(FieldDefinition field, BaseLogicalExportedSubject[] subjects) => field.Type switch
     {
+        _ when field.SubjectReference is { } reference => SubjectNode(reference, subjects),
         "bool" or "boolean" => new() { Kind = "boolean" },
         "int" or "integer" => new() { Kind = "integer", Minimum = "-2147483648", Maximum = "2147483647", Wire = "number" },
         "long" => new() { Kind = "integer", Minimum = "-9223372036854775808", Maximum = "9223372036854775807", Wire = "decimal-string" },
@@ -435,6 +445,21 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
         _ when string.Equals(field.Format, "base64", StringComparison.Ordinal) => new() { Kind = "bytes", Wire = "base64", MaxBytes = field.MaximumBytes },
         _ => new() { Kind = "string", Format = "plain", MinLength = 0, MaxLength = 65536 }
     };
+
+    private static BaseClientTypeNode SubjectNode(BaseSubjectReferenceDefinition reference, BaseLogicalExportedSubject[] subjects)
+    {
+        BaseLogicalExportedSubject contract = subjects.Single(value => value.Id == reference.ContractId && value.Version == reference.ContractVersion);
+        return new BaseClientTypeNode
+        {
+            Kind = "subjectReference",
+            ContractId = contract.Id,
+            ContractVersion = contract.Version,
+            SubjectIdKind = contract.SubjectIdKind switch { BaseSubjectIdKind.OrdinalString => "ordinalString", BaseSubjectIdKind.Guid => "guid", _ => "uint64" },
+            MaximumSubjectIdUtf8Bytes = contract.MaximumSubjectIdUtf8Bytes,
+            AuthorityEpochBytes = 16,
+            IncarnationBytes = 16,
+        };
+    }
 
     private static string DisclosureShape(BaseRecordDisclosure disclosure, bool policyMayOmit) => disclosure switch
     {

@@ -19,6 +19,9 @@ public sealed partial class SqliteRecordStore :
     IConsistentRecordIncludeStore,
     IBaseSchemaStore,
     IRecordStoreAdministration,
+    IBaseSubjectAdministration,
+    IBaseSubjectPublicationStore,
+    IBaseSubjectValidationPlanReceiptStore,
     IAsyncDisposable
 {
     /// <inheritdoc />
@@ -30,7 +33,7 @@ public sealed partial class SqliteRecordStore :
         ArgumentNullException.ThrowIfNull(collection);
         await using SqliteConnection connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using SqliteCommand command = connection.CreateCommand();
-        command.CommandText = $"SELECT i.store_instance_id, COALESCE((SELECT CAST(value AS INTEGER) FROM {_names.ProviderState} WHERE key='restore_epoch'),0), COALESCE((SELECT MAX(generation) FROM {_names.SchemaBaseline}),0), c.purge_generation FROM {_names.SchemaIdentity} i JOIN {_names.Collections} c ON c.collection_id=$collection LIMIT 1;";
+        command.CommandText = $"SELECT COALESCE((SELECT CAST(value AS INTEGER) FROM {_names.ProviderState} WHERE key='restore_epoch'),0), COALESCE((SELECT purge_generation FROM {_names.Collections} WHERE collection_id=$collection),0);";
         command.Parameters.AddWithValue("$collection", collection.Id);
         await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
@@ -38,10 +41,10 @@ public sealed partial class SqliteRecordStore :
         return OperationResults.Ok(new BaseAuthoritySnapshotRequirement
         {
             ApplicationId = new string(applicationId.AsSpan()),
-            StoreInstanceId = reader.GetString(0),
-            RestoreEpoch = reader.GetInt64(1),
-            SchemaGeneration = reader.GetInt64(2),
-            CollectionGeneration = reader.GetInt64(3),
+            StoreInstanceId = new string(_options.StoreId.AsSpan()),
+            RestoreEpoch = reader.GetInt64(0),
+            SchemaGeneration = Volatile.Read(ref _schemaGeneration),
+            CollectionGeneration = reader.GetInt64(1),
         });
     }
 
@@ -266,12 +269,14 @@ public sealed partial class SqliteRecordStore :
         var highWatermark = request.Through ?? bounds.HighWatermark;
         await using var command = connection.CreateCommand();
         command.CommandText = $"""
-SELECT position, event_id, event_type, schema_version, occurred_at, tenant_id,
-       operation, visibility, collection_id, record_id, before_json, after_json
+SELECT position, entry_kind, event_id, event_type, schema_version, occurred_at, tenant_id,
+       operation, visibility, collection_id, record_id, before_json, after_json,
+       subject_contract_id, subject_contract_version, subject_previous_generation,
+       subject_published_generation, subject_restore_epoch, subject_publication_kind
 FROM {_names.MutationJournal}
 WHERE position > $after
   AND position <= $through
-  AND julianday(occurred_at) >= julianday($cutoff)
+  AND (entry_kind = 1 OR julianday(occurred_at) >= julianday($cutoff))
 ORDER BY position
 LIMIT $limit;
 """;
@@ -309,10 +314,12 @@ LIMIT $limit;
         await using var connection = await OpenInitializedAsync(cancellationToken).ConfigureAwait(false);
         await using var command = connection.CreateCommand();
         command.CommandText = $"""
-SELECT position, event_id, event_type, schema_version, occurred_at, tenant_id,
-       operation, visibility, collection_id, record_id, before_json, after_json
+SELECT position, entry_kind, event_id, event_type, schema_version, occurred_at, tenant_id,
+       operation, visibility, collection_id, record_id, before_json, after_json,
+       subject_contract_id, subject_contract_version, subject_previous_generation,
+       subject_published_generation, subject_restore_epoch, subject_publication_kind
 FROM {_names.MutationJournal}
-WHERE event_id = $eventId
+WHERE entry_kind = 0 AND event_id = $eventId
   AND julianday(occurred_at) >= julianday($cutoff);
 """;
         command.CommandTimeout = TimeoutSeconds();
@@ -732,21 +739,49 @@ WHERE position <= (
         return JsonSerializer.Serialize(snapshot, HPDBaseJsonSerializerContext.Default.RecordSnapshot);
     }
 
-    private static BaseMutationJournalEntry ReadJournalEntry(SqliteDataReader reader) => new()
+    private static BaseMutationJournalEntry ReadJournalEntry(SqliteDataReader reader)
     {
-        Position = new BaseMutationJournalPosition(reader.GetInt64(0)),
-        EventId = reader.GetString(1),
-        Type = reader.GetString(2),
-        SchemaVersion = reader.GetString(3),
-        OccurredAt = DateTimeOffset.Parse(reader.GetString(4), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
-        TenantId = reader.IsDBNull(5) ? null : reader.GetString(5),
-        Operation = (BaseOperationKind)reader.GetInt32(6),
-        Visibility = (VisibilityLevel)reader.GetInt32(7),
-        CollectionId = reader.GetString(8),
-        RecordId = new RecordId(reader.GetString(9)),
-        Before = DeserializeSnapshot(reader, 10),
-        After = DeserializeSnapshot(reader, 11)
-    };
+        var position = new BaseMutationJournalPosition(reader.GetInt64(0));
+        var kind = (BaseMutationJournalEntryKind)reader.GetInt32(1);
+        return kind switch
+        {
+            BaseMutationJournalEntryKind.RecordMutation => new BaseMutationJournalEntry
+            {
+                Kind = kind,
+                Position = position,
+                RecordMutation = new BaseRecordMutationJournalEntry
+                {
+                    EventId = reader.GetString(2),
+                    Type = reader.GetString(3),
+                    SchemaVersion = reader.GetString(4),
+                    OccurredAt = DateTimeOffset.Parse(reader.GetString(5), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
+                    TenantId = reader.IsDBNull(6) ? null : reader.GetString(6),
+                    Operation = (BaseOperationKind)reader.GetInt32(7),
+                    Visibility = (VisibilityLevel)reader.GetInt32(8),
+                    CollectionId = reader.GetString(9),
+                    RecordId = new RecordId(reader.GetString(10)),
+                    Before = DeserializeSnapshot(reader, 11),
+                    After = DeserializeSnapshot(reader, 12),
+                },
+            },
+            BaseMutationJournalEntryKind.SubjectAuthorityPublication => new BaseMutationJournalEntry
+            {
+                Kind = kind,
+                Position = position,
+                SubjectAuthorityPublication = new BaseSubjectAuthorityPublicationFact
+                {
+                    Position = position,
+                    ContractId = reader.GetString(13),
+                    ContractVersion = reader.GetInt32(14),
+                    PreviousStateGeneration = reader.GetInt64(15),
+                    PublishedStateGeneration = reader.GetInt64(16),
+                    RestoreEpoch = reader.GetInt64(17),
+                    Kind = (BaseSubjectAuthorityPublicationKind)reader.GetInt32(18),
+                },
+            },
+            _ => throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid),
+        };
+    }
 
     private static RecordSnapshot? DeserializeSnapshot(SqliteDataReader reader, int ordinal) =>
         reader.IsDBNull(ordinal)
@@ -764,7 +799,7 @@ WHERE position <= (
         command.CommandText = $"""
 SELECT
   MIN(CASE
-    WHEN julianday(occurred_at) >= julianday($cutoff)
+    WHEN entry_kind = 1 OR julianday(occurred_at) >= julianday($cutoff)
     THEN position
     ELSE NULL
   END),
