@@ -250,7 +250,7 @@ public sealed class BaseReadGenerator : IIncrementalGenerator
             .AppendLine("> Handle => Definition.Handle;\n");
         source.Append("    private static global::HPD.Base.BaseReadDefinition<").Append(model.FullTypeName).Append(", ").Append(model.RowFullTypeName)
             .AppendLine("> CreateHPDBaseReadDefinition()\n    {");
-        source.AppendLine("        var jsonRegistration = global::HPD.Base.BaseSerializerGeneratedContract.RegisterContext(__CreateHPDBaseReadJsonContext);");
+        source.AppendLine("        var jsonRegistration = global::HPD.Base.BaseSerializerGeneratedContract.RegisterContext(__HPDBaseSerializerFactory.Create);");
         foreach (MemberModel member in model.Parameters) AppendOpaqueWireBinding(source, member, model.JsonNamingPolicy, "parameter");
         foreach (MemberModel member in model.Fields) AppendOpaqueWireBinding(source, member, model.JsonNamingPolicy, "row");
         source.Append("        return global::HPD.Base.BaseReadGeneratedContract.CreateGenerated(").Append(Literal(model.Id)).AppendLine(", jsonRegistration,");
@@ -291,10 +291,13 @@ public sealed class BaseReadGenerator : IIncrementalGenerator
         foreach (MemberModel member in model.Fields) AppendClientProperty(source, member, "row", "                    ");
         source.AppendLine("                },");
         source.AppendLine("            }, Configure);\n    }");
-        source.AppendLine("    [global::System.CodeDom.Compiler.GeneratedCode(\"HPD.Base.Generators\", \"44\")]");
-        source.Append("    private static ").Append(model.JsonContext).Append(" __CreateHPDBaseReadJsonContext() => new(")
+        source.AppendLine("    private static class __HPDBaseSerializerFactory");
+        source.AppendLine("    {");
+        source.AppendLine("        [global::System.CodeDom.Compiler.GeneratedCode(\"HPD.Base.Generators\", \"44\")]");
+        source.Append("        internal static ").Append(model.JsonContext).Append(" Create() => new(")
             .Append("global::HPD.Base.BaseSerializerGeneratedContract.CreateOptions(")
             .Append(model.JsonNamingPolicy == null ? "null" : "global::System.Text.Json.JsonNamingPolicy." + model.JsonNamingPolicy).AppendLine("));");
+        source.AppendLine("    }");
         source.AppendLine("}");
         return source.ToString();
     }

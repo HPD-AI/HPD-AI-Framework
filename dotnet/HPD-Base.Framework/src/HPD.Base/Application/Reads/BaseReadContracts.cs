@@ -379,6 +379,7 @@ public static class BaseReadGeneratedContract
         Action<BaseReadDefinitionBuilder<TParameters, TRow>> configure)
     {
         ArgumentNullException.ThrowIfNull(registration);
+        registration.AssertOwner(typeof(TParameters));
         ArgumentNullException.ThrowIfNull(configure);
         ArgumentNullException.ThrowIfNull(clientContract);
         var builder = new BaseReadDefinitionBuilder<TParameters, TRow>(id, parameters);

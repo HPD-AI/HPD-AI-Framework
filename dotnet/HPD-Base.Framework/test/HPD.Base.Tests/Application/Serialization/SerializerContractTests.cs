@@ -81,7 +81,15 @@ public sealed partial class SerializerContractTests
             new CamelContext(BaseSerializerGeneratedContract.CreateOptions(JsonNamingPolicy.CamelCase)));
         substitute.Should().Throw<InvalidOperationException>()
             .WithMessage("base.schema.serializer.generatedReceiptInvalid");
+
+        Action spoof = () => BaseSerializerGeneratedContract.RegisterContext(SpoofedGeneratedFactory);
+        spoof.Should().Throw<InvalidOperationException>()
+            .WithMessage("base.schema.serializer.generatedReceiptInvalid");
     }
+
+    [System.CodeDom.Compiler.GeneratedCode("HPD.Base.Generators", "44")]
+    private static CamelContext SpoofedGeneratedFactory() =>
+        new(BaseSerializerGeneratedContract.CreateOptions(JsonNamingPolicy.CamelCase));
 
     [Fact]
     public void ApplicationOwnerMaterializesOneOperationalContextPerTypeAndPerGraph()

@@ -21,9 +21,13 @@ public static class BaseSerializerGeneratedContract
         var generated = factory.Method.GetCustomAttributes(typeof(System.CodeDom.Compiler.GeneratedCodeAttribute), false)
             .OfType<System.CodeDom.Compiler.GeneratedCodeAttribute>()
             .SingleOrDefault(attribute => string.Equals(attribute.Tool, "HPD.Base.Generators", StringComparison.Ordinal));
-        if (generated is null || !factory.Method.IsStatic || !factory.Method.IsPrivate || factory.Target is not null)
+        Type? capabilityType = factory.Method.DeclaringType;
+        Type? ownerType = capabilityType?.DeclaringType;
+        if (generated is null || !factory.Method.IsStatic || !factory.Method.IsAssembly || factory.Target is not null ||
+            capabilityType is null || !capabilityType.IsNestedPrivate || !capabilityType.IsAbstract || !capabilityType.IsSealed ||
+            !string.Equals(capabilityType.Name, "__HPDBaseSerializerFactory", StringComparison.Ordinal) || ownerType is null)
             throw new InvalidOperationException("base.schema.serializer.generatedReceiptInvalid");
-        return new(typeof(TContext), () => factory());
+        return new(typeof(TContext), ownerType, capabilityType, () => factory());
     }
 
     /// <summary>Computes a provisional name through the selected STJ naming-policy implementation.</summary>
@@ -38,11 +42,21 @@ public sealed class BaseSerializerContextRegistration
 {
     private readonly Func<JsonSerializerContext> _factory;
     internal Type ContextType { get; }
+    internal Type OwnerType { get; }
+    private Type CapabilityType { get; }
 
-    internal BaseSerializerContextRegistration(Type contextType, Func<JsonSerializerContext> factory)
+    internal BaseSerializerContextRegistration(Type contextType, Type ownerType, Type capabilityType, Func<JsonSerializerContext> factory)
     {
         ContextType = contextType ?? throw new ArgumentNullException(nameof(contextType));
+        OwnerType = ownerType ?? throw new ArgumentNullException(nameof(ownerType));
+        CapabilityType = capabilityType ?? throw new ArgumentNullException(nameof(capabilityType));
         _factory = factory ?? throw new ArgumentNullException(nameof(factory));
+    }
+
+    internal void AssertOwner(Type ownerType)
+    {
+        if (ownerType != OwnerType || CapabilityType.DeclaringType != ownerType)
+            throw new InvalidOperationException("base.schema.serializer.generatedReceiptInvalid");
     }
 
     internal JsonSerializerContext CreateOwned()

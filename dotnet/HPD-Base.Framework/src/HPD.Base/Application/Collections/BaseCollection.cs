@@ -100,6 +100,7 @@ public sealed class BaseCollection<T> : IBaseSerializerMetadataSource
         IReadOnlyList<BaseSerializerPropertyDeclaration> serializerDeclarations)
     {
         ArgumentNullException.ThrowIfNull(registration);
+        registration.AssertOwner(typeof(T));
         var fields = new BaseCollectionFields<T>();
         configure(fields);
         fields.Seal();
