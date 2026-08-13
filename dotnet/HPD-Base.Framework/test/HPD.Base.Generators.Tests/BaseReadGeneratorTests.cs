@@ -78,7 +78,7 @@ public sealed class BaseReadGeneratorTests
         var result = Run(source);
 
         result.Diagnostics.Should().ContainSingle(diagnostic => diagnostic.Id == "HPDBASE020");
-        result.Source.Should().BeEmpty();
+        result.Source.Should().Contain("Definition => null!").And.NotContain("CreateGenerated");
     }
 
     [Fact]
@@ -106,7 +106,7 @@ public sealed class BaseReadGeneratorTests
         var result = Run(source);
 
         result.Diagnostics.Should().ContainSingle(diagnostic => diagnostic.Id == "HPDBASE021");
-        result.Source.Should().BeEmpty();
+        result.Source.Should().Contain("Definition => null!").And.NotContain("CreateGenerated");
     }
 
     [Fact]
@@ -135,7 +135,7 @@ public sealed class BaseReadGeneratorTests
         Result result = Run(source);
 
         result.Diagnostics.Should().ContainSingle(diagnostic => diagnostic.Id == "HPDBASE023");
-        result.Source.Should().BeEmpty();
+        result.Source.Should().Contain("Definition => null!").And.NotContain("CreateGenerated");
     }
 
     [Fact]
@@ -204,7 +204,7 @@ public sealed class BaseReadGeneratorTests
     {
         var parse = new CSharpParseOptions(LanguageVersion.CSharp14);
         var compilation = CSharpCompilation.Create("ReadGeneratorTests", [CSharpSyntaxTree.ParseText(source, parse)], References(), new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
-        GeneratorDriver driver = CSharpGeneratorDriver.Create([new BaseReadGenerator().AsSourceGenerator()], parseOptions: parse);
+        GeneratorDriver driver = CSharpGeneratorDriver.Create([new BaseSchemaGenerator().AsSourceGenerator()], parseOptions: parse);
         driver = driver.RunGenerators(compilation);
         GeneratorDriverRunResult result = driver.GetRunResult();
         return new Result(result.Diagnostics, string.Join("\n", result.Results.SelectMany(item => item.GeneratedSources).Select(item => item.SourceText.ToString())));

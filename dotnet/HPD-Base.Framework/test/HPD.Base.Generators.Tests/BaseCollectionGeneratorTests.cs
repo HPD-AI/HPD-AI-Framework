@@ -133,7 +133,7 @@ public sealed class BaseCollectionGeneratorTests
 
         result.Diagnostics.Should().ContainSingle(diagnostic =>
             diagnostic.Id == "HPDBASE007");
-        result.GeneratedSource.Should().BeEmpty();
+        result.GeneratedSource.Should().Contain("Collection => null!").And.NotContain("CreateGenerated");
     }
 
     [Fact]
@@ -153,7 +153,7 @@ public sealed class BaseCollectionGeneratorTests
         GeneratorResult result = Run(source);
 
         result.Diagnostics.Should().ContainSingle(item => item.Id == "HPDBASE013");
-        result.GeneratedSource.Should().BeEmpty();
+        result.GeneratedSource.Should().Contain("Collection => null!").And.NotContain("CreateGenerated");
     }
 
     [Fact]
@@ -210,7 +210,7 @@ public sealed class BaseCollectionGeneratorTests
             .ContainSingle(item => item.Id == "HPDBASE008")
             .Subject;
         diagnostic.Location.GetLineSpan().StartLinePosition.Line.Should().Be(8);
-        result.GeneratedSource.Should().BeEmpty();
+        result.GeneratedSource.Should().Contain("Collection => null!").And.NotContain("CreateGenerated");
     }
 
     [Fact]
@@ -242,7 +242,7 @@ public sealed class BaseCollectionGeneratorTests
             .ContainSingle(item => item.Id == "HPDBASE004")
             .Subject;
         diagnostic.Location.GetLineSpan().StartLinePosition.Line.Should().Be(12);
-        result.GeneratedSource.Should().BeEmpty();
+        result.GeneratedSource.Should().Contain("Collection => null!").And.NotContain("CreateGenerated");
     }
 
     [Theory]
@@ -276,7 +276,7 @@ public sealed class BaseCollectionGeneratorTests
             .ContainSingle(item => item.Id == "HPDBASE009")
             .Subject;
         diagnostic.Location.IsInSource.Should().BeTrue();
-        result.GeneratedSource.Should().BeEmpty();
+        result.GeneratedSource.Should().Contain("Collection => null!").And.NotContain("CreateGenerated");
     }
 
     [Fact]
@@ -299,7 +299,7 @@ public sealed class BaseCollectionGeneratorTests
         var result = Run(source);
 
         result.Diagnostics.Should().ContainSingle(item => item.Id == "HPDBASE010");
-        result.GeneratedSource.Should().BeEmpty();
+        result.GeneratedSource.Should().Contain("Collection => null!").And.NotContain("CreateGenerated");
     }
 
     [Fact]
@@ -320,7 +320,7 @@ public sealed class BaseCollectionGeneratorTests
         GeneratorResult result = Run(source);
 
         result.Diagnostics.Should().ContainSingle(item => item.Id == "HPDBASE011");
-        result.GeneratedSource.Should().BeEmpty();
+        result.GeneratedSource.Should().Contain("Collection => null!").And.NotContain("CreateGenerated");
     }
 
     [Fact]
@@ -340,7 +340,7 @@ public sealed class BaseCollectionGeneratorTests
         GeneratorResult result = Run(source);
 
         result.Diagnostics.Should().ContainSingle(item => item.Id == "HPDBASE008");
-        result.GeneratedSource.Should().BeEmpty();
+        result.GeneratedSource.Should().Contain("Collection => null!").And.NotContain("CreateGenerated");
     }
 
     [Fact]
@@ -506,7 +506,7 @@ public sealed class BaseCollectionGeneratorTests
         GeneratorResult result = Run(source);
 
         result.Diagnostics.Should().ContainSingle(item => item.Id == "HPDBASE0447");
-        result.GeneratedSource.Should().BeEmpty();
+        result.GeneratedSource.Should().Contain("Collection => null!").And.NotContain("CreateGenerated");
     }
 
     [Fact]
@@ -668,6 +668,144 @@ public sealed class BaseCollectionGeneratorTests
         Run(source).Diagnostics.Should().Contain(item => item.Id == "HPDBASE0449");
     }
 
+    [Fact]
+    public void SharedInvalidContextReportsOnceAndRecoveryPreventsCompilerCascades()
+    {
+        const string source = """
+            using HPD.Base;
+            using System.Text.Json.Serialization;
+            [BaseCollection("first", typeof(InvalidContext))]
+            public sealed partial record First
+            {
+                [BaseField("first.value")] public required string Value { get; init; }
+            }
+            [BaseCollection("second", typeof(InvalidContext))]
+            public sealed partial record Second
+            {
+                [BaseField("second.count")] public required int Count { get; init; }
+            }
+            [BaseRead("read", typeof(InvalidContext), RequiredGrantId = "read.execute")]
+            public sealed partial record Read
+            {
+                public sealed partial record Row;
+            }
+            [JsonSourceGenerationOptions(UseStringEnumConverter = true)]
+            [JsonSerializable(typeof(First))]
+            [JsonSerializable(typeof(Second))]
+            [JsonSerializable(typeof(Read))]
+            [JsonSerializable(typeof(Read.Row))]
+            public sealed partial class InvalidContext : JsonSerializerContext;
+            public static class Consumer
+            {
+                public static object[] Values() =>
+                    [First.Collection, First.Fields.Value, Second.Collection, Second.Fields.Count,
+                     Read.Definition, Read.Handle];
+            }
+            """;
+
+        GeneratorResult result = Run(source);
+
+        Diagnostic diagnostic = result.Diagnostics.Should().ContainSingle(item => item.Id == "HPDBASE0450").Subject;
+        diagnostic.GetMessage().Should().Contain("InvalidContext").And.Contain("3 dependent roots");
+        source.Substring(diagnostic.Location.SourceSpan.Start, diagnostic.Location.SourceSpan.Length).Should().Be("true");
+        result.CompilationDiagnostics.Where(static item => item.Id is "CS0117" or "CS1061" or "CS1503" or "CS0411")
+            .Should().BeEmpty();
+        result.GeneratedSource.Should().NotContain("RegisterContext").And.NotContain("CreateGenerated");
+    }
+
+    [Fact]
+    public void DistinctInvalidContextOptionsProduceTheirExactDiagnostics()
+    {
+        const string source = """
+            using HPD.Base;
+            using System.Text.Json.Serialization;
+            [BaseCollection("record", typeof(InvalidContext))]
+            public sealed partial record Record
+            {
+                [BaseField("record.value")] public required string Value { get; init; }
+            }
+            [JsonSourceGenerationOptions(UseStringEnumConverter = true, WriteIndented = true)]
+            [JsonSerializable(typeof(Record))]
+            public sealed partial class InvalidContext : JsonSerializerContext;
+            """;
+
+        GeneratorResult result = Run(source);
+
+        result.Diagnostics.Count(item => item.Id == "HPDBASE0450").Should().Be(1);
+        result.Diagnostics.Count(item => item.Id == "HPDBASE0451").Should().Be(1);
+    }
+
+    [Fact]
+    public void OnlyTheCombinedSchemaGeneratorIsAttributed()
+    {
+        Type[] attributed = typeof(BaseSchemaGenerator).Assembly.GetTypes()
+            .Where(type => type.GetCustomAttributes(typeof(GeneratorAttribute), inherit: false).Length != 0)
+            .ToArray();
+
+        attributed.Should().Equal(typeof(BaseSchemaGenerator));
+    }
+
+    [Fact]
+    public void InvalidFieldContractKeepsTypedRecoveryMembersWithoutCascades()
+    {
+        const string source = """
+            using HPD.Base;
+            using System.Text.Json.Serialization;
+            [BaseCollection("documents", typeof(AppJsonContext))]
+            [BaseVectorIndex("document.semantic", nameof(Embedding), VectorSpace = "text.embedding.v1", Dimensions = 3)]
+            public sealed partial record Document
+            {
+                [BaseField("duplicate")] public required string Tenant { get; init; }
+                [BaseField("duplicate")] public required BaseVector Embedding { get; init; }
+            }
+            [JsonSerializable(typeof(Document))]
+            public sealed partial class AppJsonContext : JsonSerializerContext;
+            public static class Consumer
+            {
+                public static object[] Values() =>
+                    [Document.Collection, Document.Fields.Tenant, Document.Fields.Embedding,
+                     Document.VectorIndexes.Semantic];
+            }
+            """;
+
+        GeneratorResult result = Run(source);
+
+        result.Diagnostics.Should().ContainSingle(item => item.Id == "HPDBASE011");
+        result.GeneratedSource.Should().Contain("VectorIndexes").And.NotContain("RegisterContext");
+        result.CompilationDiagnostics.Where(static item => item.Id is "CS0117" or "CS1061" or "CS1503" or "CS0411")
+            .Should().BeEmpty();
+    }
+
+    [Fact]
+    public void GatewayScaleSharedContextStillProducesOneContextDiagnostic()
+    {
+        var source = new System.Text.StringBuilder("""
+            using HPD.Base;
+            using System.Text.Json.Serialization;
+            """);
+        for (int index = 0; index < 18; index++)
+        {
+            source.AppendLine($$"""
+                [BaseCollection("gateway.collection.{{index}}", typeof(GatewayContext))]
+                public sealed partial record GatewayRecord{{index}}
+                {
+                    [BaseField("gateway.field.{{index}}")] public required string Value { get; init; }
+                }
+                """);
+        }
+        source.AppendLine("[JsonSourceGenerationOptions(UseStringEnumConverter = true)]");
+        for (int index = 0; index < 18; index++)
+            source.AppendLine($"[JsonSerializable(typeof(GatewayRecord{index}))]");
+        source.AppendLine("public sealed partial class GatewayContext : JsonSerializerContext;");
+
+        GeneratorResult result = Run(source.ToString());
+
+        Diagnostic diagnostic = result.Diagnostics.Should().ContainSingle(item => item.Id == "HPDBASE0450").Subject;
+        diagnostic.GetMessage().Should().Contain("18 dependent roots");
+        result.CompilationDiagnostics.Where(static item => item.Id is "CS0117" or "CS1061" or "CS1503" or "CS0411")
+            .Should().BeEmpty();
+    }
+
     private static GeneratorResult Run(string source)
     {
         var parseOptions = new CSharpParseOptions(LanguageVersion.CSharp14);
@@ -678,10 +816,10 @@ public sealed class BaseCollectionGeneratorTests
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
 
         GeneratorDriver driver = CSharpGeneratorDriver.Create(
-            [new BaseCollectionGenerator().AsSourceGenerator()],
+            [new BaseSchemaGenerator().AsSourceGenerator()],
             parseOptions: parseOptions);
 
-        driver = driver.RunGenerators(compilation);
+        driver = driver.RunGeneratorsAndUpdateCompilation(compilation, out Compilation output, out _);
         GeneratorDriverRunResult result = driver.GetRunResult();
 
         return new GeneratorResult(
@@ -689,7 +827,8 @@ public sealed class BaseCollectionGeneratorTests
             string.Join(
                 "\n",
                 result.Results.SelectMany(item => item.GeneratedSources)
-                    .Select(item => item.SourceText.ToString())));
+                    .Select(item => item.SourceText.ToString())),
+            output.GetDiagnostics());
     }
 
     private static ImmutableArray<MetadataReference> References()
@@ -710,5 +849,6 @@ public sealed class BaseCollectionGeneratorTests
 
     private sealed record GeneratorResult(
         ImmutableArray<Diagnostic> Diagnostics,
-        string GeneratedSource);
+        string GeneratedSource,
+        ImmutableArray<Diagnostic> CompilationDiagnostics);
 }
