@@ -59,7 +59,7 @@ public sealed class BaseSessionTests
         runtime.CreateRequest!.RequestedId.Should().Be(new RecordId("record_1"));
         JsonSerializer.Deserialize(
             runtime.CreateRequest.Payload.Json,
-            GeneratedProject.Collection.JsonTypeInfo)!.Name.Should().Be("created");
+            GeneratedApplicationJsonContext.Default.GeneratedProject)!.Name.Should().Be("created");
     }
 
     [Fact]
@@ -542,10 +542,7 @@ public sealed class BaseSessionTests
         };
 
     private static BaseCollection<GeneratedProject> Collection(BaseCollectionMutationMode mode) =>
-        BaseCollection<GeneratedProject>.Create(
-            GeneratedProject.Collection.Definition with { MutationMode = mode },
-            GeneratedProject.Collection.JsonTypeInfo,
-            static _ => { });
+        GeneratedProject.Collection.WithDefinition(GeneratedProject.Collection.Definition with { MutationMode = mode });
 
     private static OperationResult<RecordEnvelope> Success(RecordEnvelope envelope) =>
         new()
@@ -564,7 +561,7 @@ public sealed class BaseSessionTests
                 Kind = RecordPayloadKind.Json,
                 Json = JsonSerializer.SerializeToElement(
                     value,
-                    GeneratedProject.Collection.JsonTypeInfo),
+                    GeneratedApplicationJsonContext.Default.GeneratedProject),
             },
             Metadata = new RecordMetadata
             {

@@ -976,10 +976,7 @@ public sealed class BaseRecordIdTests
                     ? field with { Visibility = new FieldVisibilityAnnotation { Visibility = VisibilityLevel.Admin } }
                     : field).ToArray(),
             };
-            BaseCollection<TypedIdOwner> hiddenOwner = BaseCollection<TypedIdOwner>.Create(
-                hiddenDefinition,
-                TypedIdOwner.Collection.JsonTypeInfo,
-                static _ => { });
+            BaseCollection<TypedIdOwner> hiddenOwner = TypedIdOwner.Collection.WithDefinition(hiddenDefinition);
             var services = new ServiceCollection().AddLogging();
             services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
             services.AddHPDBase(builder =>
@@ -1059,10 +1056,7 @@ public sealed class BaseRecordIdTests
                 ? field with { Visibility = new FieldVisibilityAnnotation { Visibility = VisibilityLevel.Admin } }
                 : field).ToArray(),
         };
-        BaseCollection<TypedIdDocument> hiddenDocument = BaseCollection<TypedIdDocument>.Create(
-            hiddenDocumentDefinition,
-            TypedIdDocument.Collection.JsonTypeInfo,
-            static _ => { });
+        BaseCollection<TypedIdDocument> hiddenDocument = TypedIdDocument.Collection.WithDefinition(hiddenDocumentDefinition);
         var services = new ServiceCollection().AddLogging();
         services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
         services.AddHPDBase(builder => builder

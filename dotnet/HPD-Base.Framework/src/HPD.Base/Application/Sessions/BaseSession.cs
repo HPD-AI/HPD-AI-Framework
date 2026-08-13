@@ -104,6 +104,10 @@ public sealed class BaseSession
 
     internal PrincipalContext Principal => _principal;
     internal IServiceProvider Services => _services;
+    internal System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> Serializer<T>(BaseCollection<T> collection) =>
+        _services.GetService(typeof(BaseSerializerMetadataOwner)) is BaseSerializerMetadataOwner owner
+            ? owner.Resolve(collection)
+            : collection.JsonTypeInfo;
     internal string ApplicationId => _applicationId;
 
     internal FileOperationContext FileContext() => new()

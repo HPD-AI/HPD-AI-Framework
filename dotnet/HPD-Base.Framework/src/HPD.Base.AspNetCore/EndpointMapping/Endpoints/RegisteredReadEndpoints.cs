@@ -61,8 +61,11 @@ internal static class RegisteredReadEndpoints
         object? parameters;
         long maximumBody = context.RequestServices.GetRequiredService<HPDBaseAspNetCoreSnapshot>().Limits.MaxRequestBodyLength;
         if (context.Request.ContentLength is { } length && length > maximumBody) { await BodyTooLarge(context); return; }
+        BaseSerializerMetadataOwner? metadata = context.RequestServices.GetService<BaseSerializerMetadataOwner>();
+        var parameterMetadata = metadata?.Resolve(registration, registration.ParameterJsonTypeInfo.Type) ?? registration.ParameterJsonTypeInfo;
+        var rowMetadata = metadata?.Resolve(registration, registration.RowJsonTypeInfo.Type) ?? registration.RowJsonTypeInfo;
         await using var body = new LimitedRequestBodyStream(context.Request.Body, maximumBody);
-        try { parameters = await JsonSerializer.DeserializeAsync(body, registration.ParameterJsonTypeInfo, context.RequestAborted).ConfigureAwait(false); }
+        try { parameters = await JsonSerializer.DeserializeAsync(body, parameterMetadata, context.RequestAborted).ConfigureAwait(false); }
         catch (RequestBodyTooLargeException) { await BodyTooLarge(context); return; }
         catch (JsonException) { await InvalidBody(context); return; }
         if (parameters is null) { await Problem(context, OperationStatus.ValidationFailed, new BaseError { Code = "base.http.body.required", Message = "Registered read parameters are required.", Category = ErrorCategory.Validation }); return; }
@@ -82,7 +85,7 @@ internal static class RegisteredReadEndpoints
         context.Response.ContentType = "application/json";
         await using var writer = new Utf8JsonWriter(context.Response.BodyWriter);
         writer.WriteStartObject(); writer.WritePropertyName("items"); writer.WriteStartArray();
-        foreach (object item in result.Items) JsonSerializer.Serialize(writer, item, registration.RowJsonTypeInfo);
+        foreach (object item in result.Items) JsonSerializer.Serialize(writer, item, rowMetadata);
         writer.WriteEndArray(); writer.WritePropertyName("page"); JsonSerializer.Serialize(writer, result.Page, HPDBaseJsonSerializerContext.Default.PageInfo);
         if (result.Count is not null) { writer.WritePropertyName("count"); JsonSerializer.Serialize(writer, result.Count, HPDBaseJsonSerializerContext.Default.CountInfo); }
         writer.WriteEndObject(); await writer.FlushAsync(context.RequestAborted).ConfigureAwait(false);

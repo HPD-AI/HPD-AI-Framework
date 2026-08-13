@@ -92,7 +92,7 @@ public sealed class BaseVectorQuery<T>
         }, cancellationToken).ConfigureAwait(false);
         return BaseResultMapper.Map(result, value => new BaseVectorResult<T>
         {
-            Matches = value.Matches.Select(match => new BaseVectorMatch<T> { Record = BaseRecordCodec.Decode(_session.Contract, match.Record), Rank = match.Rank, Measure = match.Measure }).ToArray(),
+            Matches = value.Matches.Select(match => new BaseVectorMatch<T> { Record = BaseRecordCodec.Decode(_session.Session.Serializer(_session.Contract), match.Record), Rank = match.Rank, Measure = match.Measure }).ToArray(),
             VectorIndexId = value.VectorIndexId,
             VectorIndexGeneration = value.VectorIndexGeneration,
             ProviderId = value.ProviderId,

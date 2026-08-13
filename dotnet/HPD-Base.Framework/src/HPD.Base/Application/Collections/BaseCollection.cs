@@ -11,13 +11,16 @@ public sealed class BaseCollection<T> : IBaseSerializerMetadataSource
     /// <summary>Provides _fields.</summary>
     private readonly ReadOnlyDictionary<string, object> _fields;
     /// <summary>Provides _definition.</summary>
-    private readonly CollectionDefinition _definition;
-    private BaseCollection(CollectionDefinition definition, JsonTypeInfo<T> jsonTypeInfo, IReadOnlyDictionary<string, object> fields, BaseSerializerContextRegistration? registration)
+    private CollectionDefinition _definition;
+    private readonly JsonTypeInfo<T>? _jsonTypeInfo;
+    private readonly IReadOnlyList<BaseSerializerPropertyDeclaration>? _serializerDeclarations;
+    private BaseCollection(CollectionDefinition definition, JsonTypeInfo<T>? jsonTypeInfo, IReadOnlyDictionary<string, object> fields, BaseSerializerContextRegistration? registration, IReadOnlyList<BaseSerializerPropertyDeclaration>? serializerDeclarations = null)
     {
         _definition = Snapshot(definition);
-        JsonTypeInfo = jsonTypeInfo;
+        _jsonTypeInfo = jsonTypeInfo;
         _fields = new ReadOnlyDictionary<string, object>(new Dictionary<string, object>(fields, StringComparer.Ordinal));
         Registration = registration;
+        _serializerDeclarations = serializerDeclarations;
     }
 
     /// <summary>
@@ -27,7 +30,7 @@ public sealed class BaseCollection<T> : IBaseSerializerMetadataSource
     /// <summary>
     /// Gets the source-generated JSON contract for the persisted type.
     /// </summary>
-    internal JsonTypeInfo<T> JsonTypeInfo { get; }
+    internal JsonTypeInfo<T> JsonTypeInfo => _jsonTypeInfo ?? throw new InvalidOperationException("base.schema.serializer.ownerRequired");
     /// <summary>
     /// Gets the canonical immutable collection definition.
     /// </summary>
@@ -36,11 +39,18 @@ public sealed class BaseCollection<T> : IBaseSerializerMetadataSource
     /// Gets the immutable generated or manually declared field set used by infrastructure.
     /// </summary>
     internal IReadOnlyDictionary<string, object> Fields => _fields;
-    IReadOnlyList<JsonTypeInfo> IBaseSerializerMetadataSource.Roots => [JsonTypeInfo];
+    IReadOnlyList<JsonTypeInfo> IBaseSerializerMetadataSource.Roots => _jsonTypeInfo is null ? [] : [_jsonTypeInfo];
     bool IBaseSerializerMetadataSource.Generated => Registration is not null;
     BaseSerializerContextRegistration? IBaseSerializerMetadataSource.Registration => Registration;
     IReadOnlyList<Type> IBaseSerializerMetadataSource.RootTypes => [typeof(T)];
     private BaseSerializerContextRegistration? Registration { get; }
+    void IBaseSerializerMetadataSource.Bind(BaseSerializerMetadataOwner owner)
+    {
+        if (Registration is null) return;
+        JsonTypeInfo<T> metadata = owner.Resolve(this);
+        _definition = _definition with { SerializerContractChecksum = SerializerChecksum(_definition, metadata, _fields, _serializerDeclarations) };
+    }
+    CollectionDefinition? IBaseSerializerMetadataSource.CollectionDefinition => Definition;
 
     /// <summary>
     /// Creates a validated manual collection contract.
@@ -90,19 +100,11 @@ public sealed class BaseCollection<T> : IBaseSerializerMetadataSource
         IReadOnlyList<BaseSerializerPropertyDeclaration> serializerDeclarations)
     {
         ArgumentNullException.ThrowIfNull(registration);
-        using BaseSerializerContextLease lease = registration.Open();
-        JsonTypeInfo<T> metadata = lease.Context.GetTypeInfo(typeof(T)) as JsonTypeInfo<T>
-            ?? throw new InvalidOperationException("base.schema.serializer.metadataInvalid");
         var fields = new BaseCollectionFields<T>();
         configure(fields);
         fields.Seal();
-        metadata.Options.MakeReadOnly();
-        metadata.MakeReadOnly();
-        CollectionDefinition installed = Snapshot(definition) with
-        {
-            SerializerContractChecksum = SerializerChecksum(definition, metadata, fields.Items, serializerDeclarations)
-        };
-        return new BaseCollection<T>(installed, metadata, fields.Items, registration);
+        CollectionDefinition installed = Snapshot(definition) with { SerializerContractChecksum = string.Empty };
+        return new BaseCollection<T>(installed, null, fields.Items, registration, serializerDeclarations);
     }
 
     private static string SerializerChecksum(CollectionDefinition definition, JsonTypeInfo<T> metadata, IReadOnlyDictionary<string, object> fields, IReadOnlyList<BaseSerializerPropertyDeclaration>? declarations)
@@ -112,6 +114,9 @@ public sealed class BaseCollection<T> : IBaseSerializerMetadataSource
             bindings = fields.Values.Cast<IBaseFieldContract>().Select(static field => (field.Id, field.ApplicationName, field.WireName)).ToArray();
         return BaseSerializerContract.Checksum(metadata, bindings, declarations);
     }
+
+    internal BaseCollection<T> WithDefinition(CollectionDefinition definition) =>
+        new(definition, _jsonTypeInfo, _fields, Registration, _serializerDeclarations);
 
     /// <summary>Performs snapshot.</summary>
     private static CollectionDefinition Snapshot(CollectionDefinition definition) => definition with

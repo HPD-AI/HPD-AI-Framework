@@ -26,15 +26,15 @@ public sealed class BaseReadDefinition<TParameters, TRow> : IBaseReadRegistratio
 {
     internal BaseReadDefinition(
         BaseRelationalReadPlan plan,
-        JsonTypeInfo<TParameters> parameterJsonTypeInfo,
-        JsonTypeInfo<TRow> rowJsonTypeInfo,
+        JsonTypeInfo<TParameters>? parameterJsonTypeInfo,
+        JsonTypeInfo<TRow>? rowJsonTypeInfo,
         IBaseReadParameterCodec<TParameters> parameterCodec,
         IBaseReadRowCodec<TRow> rowCodec,
         BaseReadClientContract clientContract)
     {
         Plan = plan;
-        ParameterJsonTypeInfo = parameterJsonTypeInfo;
-        RowJsonTypeInfo = rowJsonTypeInfo;
+        _parameterJsonTypeInfo = parameterJsonTypeInfo;
+        _rowJsonTypeInfo = rowJsonTypeInfo;
         ParameterCodec = parameterCodec;
         RowCodec = rowCodec;
         ClientContract = clientContract;
@@ -74,10 +74,12 @@ public sealed class BaseReadDefinition<TParameters, TRow> : IBaseReadRegistratio
     internal BaseRelationalReadPlan Plan { get; }
 
     /// <summary>Gets source-generated request metadata.</summary>
-    internal JsonTypeInfo<TParameters> ParameterJsonTypeInfo { get; }
+    private JsonTypeInfo<TParameters>? _parameterJsonTypeInfo;
+    internal JsonTypeInfo<TParameters> ParameterJsonTypeInfo => _parameterJsonTypeInfo ?? throw new InvalidOperationException("base.schema.serializer.ownerRequired");
 
     /// <summary>Gets source-generated row metadata.</summary>
-    internal JsonTypeInfo<TRow> RowJsonTypeInfo { get; }
+    private JsonTypeInfo<TRow>? _rowJsonTypeInfo;
+    internal JsonTypeInfo<TRow> RowJsonTypeInfo => _rowJsonTypeInfo ?? throw new InvalidOperationException("base.schema.serializer.ownerRequired");
 
     /// <summary>Gets the sole typed invocation handle.</summary>
     public BaseReadHandle<TParameters, TRow> Handle { get; }
@@ -110,6 +112,20 @@ public sealed class BaseReadDefinition<TParameters, TRow> : IBaseReadRegistratio
     string IBaseReadRegistration.RowSerializerContractChecksum => RowSerializerContractChecksum;
     BaseSerializerContextRegistration? IBaseSerializerMetadataSource.Registration => SerializerRegistration;
     IReadOnlyList<Type> IBaseSerializerMetadataSource.RootTypes => [typeof(TParameters), typeof(TRow)];
+    IReadOnlyList<JsonTypeInfo> IBaseSerializerMetadataSource.Roots => _parameterJsonTypeInfo is null || _rowJsonTypeInfo is null ? [] : [_parameterJsonTypeInfo, _rowJsonTypeInfo];
+    CollectionDefinition? IBaseSerializerMetadataSource.CollectionDefinition => null;
+    void IBaseSerializerMetadataSource.Bind(BaseSerializerMetadataOwner owner)
+    {
+        if (SerializerRegistration is null) return;
+        _parameterJsonTypeInfo = (JsonTypeInfo<TParameters>)owner.Resolve(this, typeof(TParameters));
+        _rowJsonTypeInfo = (JsonTypeInfo<TRow>)owner.Resolve(this, typeof(TRow));
+        ParameterSerializerContractChecksum = BaseSerializerContract.Checksum(_parameterJsonTypeInfo,
+            ClientContract.Parameters.Select(static value => (value.Id, value.GeneratedName, value.WireName)), ParameterDeclarations);
+        RowSerializerContractChecksum = BaseSerializerContract.Checksum(_rowJsonTypeInfo,
+            ClientContract.Row.Select(static value => (value.Id, value.GeneratedName, value.WireName)), RowDeclarations);
+    }
+    internal IReadOnlyList<BaseSerializerPropertyDeclaration>? ParameterDeclarations { get; set; }
+    internal IReadOnlyList<BaseSerializerPropertyDeclaration>? RowDeclarations { get; set; }
 
     async ValueTask<BaseUntypedRegisteredReadResult> IBaseReadRegistration.ExecuteAsync(
         IBaseRegisteredReadRuntime runtime,
@@ -156,6 +172,8 @@ internal interface IBaseReadRegistration : IBaseSerializerMetadataSource
     bool IBaseSerializerMetadataSource.Generated => true;
     BaseSerializerContextRegistration? IBaseSerializerMetadataSource.Registration => null;
     IReadOnlyList<Type> IBaseSerializerMetadataSource.RootTypes => [ParameterJsonTypeInfo.Type, RowJsonTypeInfo.Type];
+    void IBaseSerializerMetadataSource.Bind(BaseSerializerMetadataOwner owner) { }
+    CollectionDefinition? IBaseSerializerMetadataSource.CollectionDefinition => null;
     /// <summary>Gets the response type.</summary>
     Type ResponseType { get; }
     /// <summary>Gets the explicit HTTP exposure.</summary>
@@ -361,19 +379,34 @@ public static class BaseReadGeneratedContract
         Action<BaseReadDefinitionBuilder<TParameters, TRow>> configure)
     {
         ArgumentNullException.ThrowIfNull(registration);
-        using BaseSerializerContextLease lease = registration.Open();
-        JsonTypeInfo<TParameters> parameterJson = lease.Context.GetTypeInfo(typeof(TParameters)) as JsonTypeInfo<TParameters>
-            ?? throw new InvalidOperationException("base.schema.serializer.metadataInvalid");
-        JsonTypeInfo<TRow> rowJson = lease.Context.GetTypeInfo(typeof(TRow)) as JsonTypeInfo<TRow>
-            ?? throw new InvalidOperationException("base.schema.serializer.metadataInvalid");
-        BaseReadDefinition<TParameters, TRow> definition = Create(id, parameterJson, rowJson, parameters, parameterCodec, rowCodec,
-            exposure, authorization, disclosure, sourceAuthority, audience, requiredGrantId, confidentialOutputFieldIds,
-            secretOutputFieldIds, systemSourceIds, clientContract, configure);
+        ArgumentNullException.ThrowIfNull(configure);
+        ArgumentNullException.ThrowIfNull(clientContract);
+        var builder = new BaseReadDefinitionBuilder<TParameters, TRow>(id, parameters);
+        configure(builder);
+        if (!Enum.IsDefined(exposure) || !Enum.IsDefined(authorization) || !Enum.IsDefined(disclosure) ||
+            !Enum.IsDefined(sourceAuthority) || !Enum.IsDefined(audience)) throw new ArgumentOutOfRangeException(nameof(exposure));
+        if (exposure == BaseReadExposure.Admin && authorization == BaseReadAuthorization.Authenticated)
+            throw new InvalidOperationException("An admin-exposed registered read must require admin or system authorization.");
+        string[] confidential = NormalizeIds(confidentialOutputFieldIds, nameof(confidentialOutputFieldIds));
+        string[] secret = NormalizeIds(secretOutputFieldIds, nameof(secretOutputFieldIds));
+        string[] systemSources = NormalizeIds(systemSourceIds, nameof(systemSourceIds));
+        if (string.IsNullOrWhiteSpace(requiredGrantId)) throw new InvalidOperationException("A registered read must declare one exact operation grant.");
+        BaseApplicationId.Validate(requiredGrantId, nameof(requiredGrantId));
+        if (disclosure == BaseRegisteredReadDisclosure.Ordinary && (confidential.Length != 0 || secret.Length != 0) ||
+            disclosure == BaseRegisteredReadDisclosure.ConfidentialProjection && secret.Length != 0 ||
+            sourceAuthority == BaseRegisteredReadSourceAuthority.Ordinary && systemSources.Length != 0 ||
+            sourceAuthority == BaseRegisteredReadSourceAuthority.System && systemSources.Length == 0)
+            throw new InvalidOperationException("The registered read confidentiality declaration is inconsistent.");
+        var definition = new BaseReadDefinition<TParameters, TRow>(builder.Build(), null, null, parameterCodec, rowCodec, clientContract)
+        {
+            Exposure = exposure, Authorization = authorization, Disclosure = disclosure, SourceAuthority = sourceAuthority,
+            Audience = audience, RequiredGrantId = new string(requiredGrantId.AsSpan()),
+            ConfidentialOutputFieldIds = Array.AsReadOnly(confidential), SecretOutputFieldIds = Array.AsReadOnly(secret),
+            SystemSourceIds = Array.AsReadOnly(systemSources),
+        };
         definition.SerializerRegistration = registration;
-        definition.ParameterSerializerContractChecksum = BaseSerializerContract.Checksum(parameterJson,
-            clientContract.Parameters.Select(static value => (value.Id, value.GeneratedName, value.WireName)), parameterDeclarations);
-        definition.RowSerializerContractChecksum = BaseSerializerContract.Checksum(rowJson,
-            clientContract.Row.Select(static value => (value.Id, value.GeneratedName, value.WireName)), rowDeclarations);
+        definition.ParameterDeclarations = parameterDeclarations.ToArray();
+        definition.RowDeclarations = rowDeclarations.ToArray();
         return definition;
     }
 

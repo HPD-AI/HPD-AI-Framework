@@ -2,6 +2,7 @@ using FluentAssertions;
 using HPD.Base;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace HPD.Base.Tests.Application.Generation;
@@ -13,8 +14,8 @@ public sealed class GeneratedCollectionTests
     [Fact]
     public void GeneratorProducesTypedCollectionFieldsSchemaAndJsonMetadata()
     {
+        FinalizeGenerated();
         GeneratedProject.Collection.Id.Should().Be("projects");
-        GeneratedProject.Collection.JsonTypeInfo.Type.Should().Be(typeof(GeneratedProject));
 
         GeneratedProject.Fields.OrganizationId.Id.Should().Be("organization-id");
         GeneratedProject.Fields.OrganizationId.WireName.Should().Be("organizationId");
@@ -76,6 +77,7 @@ public sealed class GeneratedCollectionTests
     [Fact]
     public void GeneratedAndManualContractsLowerToEquivalentCanonicalSchemas()
     {
+        FinalizeGenerated();
         var metadata = Metadata().GeneratedProject;
         BaseCollection<GeneratedProject> manual =
             HPD.Base.BaseCollection.Define(
@@ -90,6 +92,12 @@ public sealed class GeneratedCollectionTests
                 });
 
         manual.Definition.Should().BeEquivalentTo(GeneratedProject.Collection.Definition);
+    }
+
+    private static void FinalizeGenerated()
+    {
+        var services = new ServiceCollection();
+        services.AddHPDBase(builder => builder.AddCollection(GeneratedProject.Collection));
     }
 }
 

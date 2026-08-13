@@ -69,7 +69,7 @@ public sealed class BaseCollectionSession<T>
 
         return BaseResultMapper.Map(
             result,
-            envelope => BaseRecordCodec.Decode(_collection, envelope));
+            envelope => BaseRecordCodec.Decode(_session.Serializer(_collection), envelope));
     }
 
     /// <summary>Creates one typed record.</summary>
@@ -84,7 +84,7 @@ public sealed class BaseCollectionSession<T>
         var request = new RecordCreateRequest
         {
             RequestedId = id,
-            Payload = BaseRecordCodec.Encode(_collection, value),
+            Payload = BaseRecordCodec.Encode(value, _session.Serializer(_collection)),
         };
         var result = await _session.Runtime.CreateAsync(
             _collection.Id,
@@ -95,7 +95,7 @@ public sealed class BaseCollectionSession<T>
 
         return BaseResultMapper.Map(
             result,
-            envelope => BaseRecordCodec.Decode(_collection, envelope));
+            envelope => BaseRecordCodec.Decode(_session.Serializer(_collection), envelope));
     }
 
     /// <summary>Fully replaces one typed record.</summary>
@@ -111,7 +111,7 @@ public sealed class BaseCollectionSession<T>
         var request = new RecordReplaceRequest
         {
             ExpectedRevision = expectedRevision,
-            Payload = BaseRecordCodec.Encode(_collection, value),
+            Payload = BaseRecordCodec.Encode(value, _session.Serializer(_collection)),
         };
         var result = await _session.Runtime.ReplaceAsync(
             _collection.Id,
@@ -123,7 +123,7 @@ public sealed class BaseCollectionSession<T>
 
         return BaseResultMapper.Map(
             result,
-            envelope => BaseRecordCodec.Decode(_collection, envelope));
+            envelope => BaseRecordCodec.Decode(_session.Serializer(_collection), envelope));
     }
 
     /// <summary>Applies a typed merge patch using explicit source-generated JSON metadata.</summary>
@@ -152,7 +152,7 @@ public sealed class BaseCollectionSession<T>
 
         return BaseResultMapper.Map(
             result,
-            envelope => BaseRecordCodec.Decode(_collection, envelope));
+            envelope => BaseRecordCodec.Decode(_session.Serializer(_collection), envelope));
     }
 
     /// <summary>Deletes one record under an optional revision precondition.</summary>
@@ -198,8 +198,8 @@ public sealed class BaseCollectionSession<T>
         var request = new RecordUpsertRequest
         {
             Id = id,
-            CreatePayload = BaseRecordCodec.Encode(_collection, createValue),
-            UpdatePayload = BaseRecordCodec.Encode(_collection, updateValue),
+            CreatePayload = BaseRecordCodec.Encode(createValue, _session.Serializer(_collection)),
+            UpdatePayload = BaseRecordCodec.Encode(updateValue, _session.Serializer(_collection)),
             UpdateMode = RecordUpsertUpdateMode.Replace,
             Condition = condition,
             ExpectedRevision = expectedRevision,
@@ -216,7 +216,7 @@ public sealed class BaseCollectionSession<T>
             upsert => new BaseUpsertResult<T>
             {
                 Outcome = upsert.Outcome,
-                Record = BaseRecordCodec.Decode(_collection, upsert.Record),
+                Record = BaseRecordCodec.Decode(_session.Serializer(_collection), upsert.Record),
             });
     }
 
@@ -236,7 +236,7 @@ public sealed class BaseCollectionSession<T>
         var request = new RecordUpsertRequest
         {
             Id = id,
-            CreatePayload = BaseRecordCodec.Encode(_collection, createValue),
+            CreatePayload = BaseRecordCodec.Encode(createValue, _session.Serializer(_collection)),
             UpdatePayload = BaseRecordCodec.Encode(patch, patchJsonTypeInfo),
             UpdateMode = RecordUpsertUpdateMode.Patch,
             Condition = condition,
@@ -254,7 +254,7 @@ public sealed class BaseCollectionSession<T>
             upsert => new BaseUpsertResult<T>
             {
                 Outcome = upsert.Outcome,
-                Record = BaseRecordCodec.Decode(_collection, upsert.Record),
+                Record = BaseRecordCodec.Decode(_session.Serializer(_collection), upsert.Record),
             });
     }
 

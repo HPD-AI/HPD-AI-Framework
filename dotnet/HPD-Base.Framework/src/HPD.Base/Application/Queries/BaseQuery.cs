@@ -465,7 +465,7 @@ public sealed class BaseQuery<T>
         new()
         {
             Items = page.Items
-                .Select(envelope => BaseRecordCodec.Decode(_collection, envelope))
+                .Select(envelope => BaseRecordCodec.Decode(_session.Serializer(_collection), envelope))
                 .ToArray(),
             Page = page.Page,
             Count = page.Count,

@@ -76,7 +76,10 @@ internal sealed class BaseRealtimeLiveQueryTransport(IServiceProvider services)
             || !string.Equals(request.ResultTypeId, $"read.{operationRequest.ReadId}.rowPage", StringComparison.Ordinal))
             throw new BaseLiveQueryException(BaseLiveQueryErrorCodes.RequestInvalid, "The registered live-query contract is invalid.");
         object? parameters;
-        try { parameters = operationRequest.Parameters.Deserialize(registration.ParameterJsonTypeInfo); }
+        BaseSerializerMetadataOwner? metadata = services.GetService<BaseSerializerMetadataOwner>();
+        var parameterMetadata = metadata?.Resolve(registration, registration.ParameterJsonTypeInfo.Type) ?? registration.ParameterJsonTypeInfo;
+        var rowMetadata = metadata?.Resolve(registration, registration.RowJsonTypeInfo.Type) ?? registration.RowJsonTypeInfo;
+        try { parameters = operationRequest.Parameters.Deserialize(parameterMetadata); }
         catch (JsonException) { throw new BaseLiveQueryException(BaseLiveQueryErrorCodes.RequestInvalid, "The registered live-query input is invalid."); }
         if (parameters is null) throw new BaseLiveQueryException(BaseLiveQueryErrorCodes.RequestInvalid, "The registered live-query input is invalid.");
         IBaseRegisteredReadRuntime runtime = services.GetRequiredService<IBaseRegisteredReadRuntime>();
@@ -90,18 +93,18 @@ internal sealed class BaseRealtimeLiveQueryTransport(IServiceProvider services)
                 BaseUntypedRegisteredReadResult result = await registration.ExecuteAsync(runtime, parameters, BaseReadPageRequest.Create(1, maximum), principal, context, token).ConfigureAwait(false);
                 if (!result.Status.IsSuccess() || result.Items is null || result.Page is null || result.Dependencies is null)
                     throw new BaseLiveQueryException(result.Error?.Code ?? BaseLiveQueryErrorCodes.ExecutionFailed, "The registered live query could not be evaluated.");
-                return new BaseLiveQueryEvaluation<JsonElement> { Value = SerializeReadPage(result, registration), Dependencies = result.Dependencies };
+                return new BaseLiveQueryEvaluation<JsonElement> { Value = SerializeReadPage(result, rowMetadata), Dependencies = result.Dependencies };
             }
         }, cancellationToken).ConfigureAwait(false);
     }
 
-    private static JsonElement SerializeReadPage(BaseUntypedRegisteredReadResult result, IBaseReadRegistration registration)
+    private static JsonElement SerializeReadPage(BaseUntypedRegisteredReadResult result, System.Text.Json.Serialization.Metadata.JsonTypeInfo rowMetadata)
     {
         var buffer = new ArrayBufferWriter<byte>();
         using (var writer = new Utf8JsonWriter(buffer))
         {
             writer.WriteStartObject(); writer.WritePropertyName("items"); writer.WriteStartArray();
-            foreach (object item in result.Items!) JsonSerializer.Serialize(writer, item, registration.RowJsonTypeInfo);
+            foreach (object item in result.Items!) JsonSerializer.Serialize(writer, item, rowMetadata);
             writer.WriteEndArray(); writer.WritePropertyName("page"); JsonSerializer.Serialize(writer, result.Page, HPDBaseJsonSerializerContext.Default.PageInfo);
             if (result.Count is not null) { writer.WritePropertyName("count"); JsonSerializer.Serialize(writer, result.Count, HPDBaseJsonSerializerContext.Default.CountInfo); }
             writer.WriteEndObject(); writer.Flush();

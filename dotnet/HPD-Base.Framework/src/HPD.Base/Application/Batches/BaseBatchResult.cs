@@ -8,13 +8,16 @@ public sealed class BaseBatchResult
 {
     private readonly object _owner;
     private readonly BaseRecordBatchResult _result;
+    private readonly BaseSession _session;
 
     internal BaseBatchResult(
         object owner,
-        BaseRecordBatchResult result)
+        BaseRecordBatchResult result,
+        BaseSession session)
     {
         _owner = owner;
         _result = result;
+        _session = session;
     }
 
     /// <summary>Gets the aggregate commit outcome.</summary>
@@ -39,7 +42,7 @@ public sealed class BaseBatchResult
             throw new BaseBatchOutcomeException(_result.Outcome, _result.Error);
         }
 
-        return new BaseCommittedBatch(_owner, _result);
+        return new BaseCommittedBatch(_owner, _result, _session);
     }
 }
 
@@ -50,13 +53,16 @@ public sealed class BaseCommittedBatch
 {
     private readonly object _owner;
     private readonly BaseRecordBatchResult _result;
+    private readonly BaseSession _session;
 
     internal BaseCommittedBatch(
         object owner,
-        BaseRecordBatchResult result)
+        BaseRecordBatchResult result,
+        BaseSession session)
     {
         _owner = owner;
         _result = result;
+        _session = session;
     }
 
     /// <summary>Gets the committed typed record for an item handle.</summary>
@@ -71,7 +77,7 @@ public sealed class BaseCommittedBatch
                 ?? throw Malformed(item.ItemId)
             : result.Record
                 ?? throw Malformed(item.ItemId);
-        return BaseRecordCodec.Decode(item.Collection, envelope);
+        return BaseRecordCodec.Decode(_session.Serializer(item.Collection), envelope);
     }
 
     /// <summary>Gets the committed delete result for an item handle.</summary>

@@ -77,15 +77,36 @@ public sealed partial class SerializerContractTests
         typeof(BaseSerializerContextRegistration).GetProperties(BindingFlags.Public | BindingFlags.Instance)
             .Should().BeEmpty();
 
-        int created = 0;
-        BaseSerializerContextRegistration registration = BaseSerializerGeneratedContract.RegisterContext(() =>
-        {
-            created++;
-            return new CamelContext(BaseSerializerGeneratedContract.CreateOptions(JsonNamingPolicy.CamelCase));
-        });
-        BaseSerializerGeneratedContract.WireName(registration, typeof(TwoFields), "Left", null).Should().Be("left");
-        BaseSerializerGeneratedContract.WireName(registration, typeof(TwoFields), "Right", null).Should().Be("right");
-        created.Should().Be(2, "each opaque lease owns fresh context metadata");
+        Action substitute = () => BaseSerializerGeneratedContract.RegisterContext(() =>
+            new CamelContext(BaseSerializerGeneratedContract.CreateOptions(JsonNamingPolicy.CamelCase)));
+        substitute.Should().Throw<InvalidOperationException>()
+            .WithMessage("base.schema.serializer.generatedReceiptInvalid");
+    }
+
+    [Fact]
+    public void ApplicationOwnerMaterializesOneOperationalContextPerTypeAndPerGraph()
+    {
+        Action beforeFinalization = () => _ = OwnerRecordA.Collection.JsonTypeInfo;
+        beforeFinalization.Should().Throw<InvalidOperationException>()
+            .WithMessage("base.schema.serializer.ownerRequired");
+
+        var firstServices = new ServiceCollection();
+        firstServices.AddHPDBase(builder => builder.AddCollection(OwnerRecordA.Collection).AddCollection(OwnerRecordB.Collection));
+        using ServiceProvider firstProvider = firstServices.BuildServiceProvider();
+        BaseSerializerMetadataOwner firstOwner = firstProvider.GetRequiredService<BaseSerializerMetadataOwner>();
+        firstOwner.ContextCount.Should().Be(1);
+        var firstA = firstOwner.Resolve(OwnerRecordA.Collection);
+        var firstB = firstOwner.Resolve(OwnerRecordB.Collection);
+        firstA.Options.Should().BeSameAs(firstB.Options);
+
+        var secondServices = new ServiceCollection();
+        secondServices.AddHPDBase(builder => builder.AddCollection(OwnerRecordA.Collection).AddCollection(OwnerRecordB.Collection));
+        using ServiceProvider secondProvider = secondServices.BuildServiceProvider();
+        BaseSerializerMetadataOwner secondOwner = secondProvider.GetRequiredService<BaseSerializerMetadataOwner>();
+        var secondA = secondOwner.Resolve(OwnerRecordA.Collection);
+        secondOwner.ContextCount.Should().Be(1);
+        secondA.Should().NotBeSameAs(firstA);
+        firstOwner.Resolve(OwnerRecordA.Collection).Should().BeSameAs(firstA);
     }
 
     private static BaseCollection<TwoFields> TwoFieldCollection(
@@ -153,3 +174,20 @@ public sealed partial class SerializerContractTests
     [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
     internal sealed partial class DomContext : JsonSerializerContext;
 }
+
+[BaseCollection("serializer-owner-a", typeof(OwnerJsonContext))]
+internal sealed partial record OwnerRecordA
+{
+    [BaseField("owner-a.value")] public required string Value { get; init; }
+}
+
+[BaseCollection("serializer-owner-b", typeof(OwnerJsonContext))]
+internal sealed partial record OwnerRecordB
+{
+    [BaseField("owner-b.value")] public required string Value { get; init; }
+}
+
+[JsonSerializable(typeof(OwnerRecordA))]
+[JsonSerializable(typeof(OwnerRecordB))]
+[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+internal sealed partial class OwnerJsonContext : JsonSerializerContext;

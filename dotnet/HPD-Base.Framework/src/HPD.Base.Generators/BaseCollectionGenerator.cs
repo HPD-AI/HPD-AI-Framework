@@ -827,14 +827,14 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         source.Append("    private static global::HPD.Base.BaseCollection<")
             .Append(model.FullTypeName).AppendLine("> CreateHPDBaseCollection()");
         source.AppendLine("    {");
-        source.Append("        var jsonRegistration = global::HPD.Base.BaseSerializerGeneratedContract.RegisterContext(() => new ").Append(model.ContextTypeName)
-            .Append("(global::HPD.Base.BaseSerializerGeneratedContract.CreateOptions(")
-            .Append(model.JsonNamingPolicy == null ? "null" : "global::System.Text.Json.JsonNamingPolicy." + model.JsonNamingPolicy).AppendLine(")));");
+        source.AppendLine("        var jsonRegistration = global::HPD.Base.BaseSerializerGeneratedContract.RegisterContext(__CreateHPDBaseJsonContext);");
         foreach (FieldModel field in model.Fields)
         {
             source.Append("        string __wire_").Append(EscapeIdentifier(field.PropertyName)).Append(" = ");
-            source.Append("global::HPD.Base.BaseSerializerGeneratedContract.WireName(jsonRegistration, typeof(").Append(model.FullTypeName).Append("), ")
-                .Append(Literal(field.ApplicationName)).Append(", ").Append(field.ExplicitWireName ? Literal(field.WireName) : "null").Append(')');
+            source.Append("global::HPD.Base.BaseSerializerGeneratedContract.ProvisionalWireName(")
+                .Append(model.JsonNamingPolicy == null ? "null" : "global::System.Text.Json.JsonNamingPolicy." + model.JsonNamingPolicy)
+                .Append(", ").Append(Literal(field.ApplicationName)).Append(", ")
+                .Append(field.ExplicitWireName ? Literal(field.WireName) : "null").Append(')');
             source.AppendLine(";");
         }
         source.AppendLine();
@@ -900,6 +900,10 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         }
         source.AppendLine("            });");
         source.AppendLine("    }");
+        source.AppendLine("    [global::System.CodeDom.Compiler.GeneratedCode(\"HPD.Base.Generators\", \"44\")]");
+        source.Append("    private static ").Append(model.ContextTypeName).Append(" __CreateHPDBaseJsonContext() => new(")
+            .Append("global::HPD.Base.BaseSerializerGeneratedContract.CreateOptions(")
+            .Append(model.JsonNamingPolicy == null ? "null" : "global::System.Text.Json.JsonNamingPolicy." + model.JsonNamingPolicy).AppendLine("));");
         source.AppendLine("}");
         return source.ToString();
     }

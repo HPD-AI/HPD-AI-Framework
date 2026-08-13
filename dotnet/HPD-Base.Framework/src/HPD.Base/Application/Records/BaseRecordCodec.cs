@@ -31,6 +31,11 @@ internal static class BaseRecordCodec
     public static BaseRecord<T> Decode<T>(
         BaseCollection<T> collection,
         RecordEnvelope envelope)
+        => Decode(collection.JsonTypeInfo, envelope);
+
+    internal static BaseRecord<T> Decode<T>(
+        JsonTypeInfo<T> jsonTypeInfo,
+        RecordEnvelope envelope)
     {
         JsonElement payload = envelope.Payload.Kind switch
         {
@@ -40,7 +45,7 @@ internal static class BaseRecordCodec
                 "BASE returned an unsupported record payload kind."),
         };
 
-        T value = JsonSerializer.Deserialize(payload, collection.JsonTypeInfo)
+        T value = JsonSerializer.Deserialize(payload, jsonTypeInfo)
             ?? throw new InvalidOperationException(
                 "BASE returned a null typed record payload.");
 

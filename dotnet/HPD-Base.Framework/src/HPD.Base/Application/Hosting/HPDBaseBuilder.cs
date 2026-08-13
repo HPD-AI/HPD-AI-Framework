@@ -310,6 +310,9 @@ public sealed class HPDBaseBuilder
         if (_selectionProfiles.Count != 0 && _selectionOptions is null)
             throw new InvalidOperationException(BaseSelectionErrorCodes.ProfileInvalid);
         HPDBaseStoreProvider provider = _storeProvider ?? InMemoryProviderInstaller.Create(_inMemoryStore);
+        BaseSerializerMetadataOwner serializerMetadataOwner = BaseSerializerMetadataOwner.Create(_serializerMetadata.Concat(_reads.Values));
+        foreach (IBaseSerializerMetadataSource source in _serializerMetadata)
+            if (source.CollectionDefinition is { } bound) _collections[bound.Id] = bound;
         CollectionDefinition[] collections = _collections.Values.ToArray();
         var relationalOptions = new HPDBaseRelationalOptions();
         _relational?.Invoke(relationalOptions);
@@ -318,7 +321,6 @@ public sealed class HPDBaseBuilder
         _schema?.Invoke(schemaOptions);
         schemaOptions.Validate();
         BaseApplicationGraphValidator.Validate(collections, _reads.Values, relationalOptions, schemaOptions);
-        BaseSerializerMetadataOwner serializerMetadataOwner = BaseSerializerMetadataOwner.Create(_serializerMetadata.Concat(_reads.Values));
         BaseStorageProtectionGraph storageProtection = BaseStorageProtectionContract.FinalizeGraph(
             _applicationStorageRequirements.Values,
             collections,
