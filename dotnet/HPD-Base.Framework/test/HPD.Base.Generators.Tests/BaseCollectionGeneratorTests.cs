@@ -486,6 +486,84 @@ public sealed class BaseCollectionGeneratorTests
         Run(source).Diagnostics.Should().ContainSingle(item => item.Id == "HPDBASE009");
     }
 
+    [Fact]
+    public void NestedJsonDomReportsTheClosedSerializerDiagnostic()
+    {
+        const string source = """
+            using HPD.Base;
+            using System.Text.Json;
+            using System.Text.Json.Serialization;
+            [BaseCollection("dom", typeof(AppJsonContext))]
+            public sealed partial record DomRecord
+            {
+                [BaseField("dom.value")]
+                public required JsonElement Value { get; init; }
+            }
+            [JsonSerializable(typeof(DomRecord))]
+            public sealed partial class AppJsonContext : JsonSerializerContext;
+            """;
+
+        GeneratorResult result = Run(source);
+
+        result.Diagnostics.Should().ContainSingle(item => item.Id == "HPDBASE0447");
+        result.GeneratedSource.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void GeneratedGraphCarriesNestedApplicationAndWireIdentities()
+    {
+        const string source = """
+            using HPD.Base;
+            using System.Text.Json.Serialization;
+            [BaseCollection("nested", typeof(AppJsonContext))]
+            public sealed partial record NestedRecord
+            {
+                [BaseField("nested.details")]
+                public required Details Details { get; init; }
+            }
+            public sealed record Details
+            {
+                [JsonPropertyName("url_value")]
+                public required string URLValue { get; init; }
+            }
+            [JsonSerializable(typeof(NestedRecord))]
+            public sealed partial class AppJsonContext : JsonSerializerContext;
+            """;
+
+        GeneratorResult result = Run(source);
+
+        result.Diagnostics.Should().BeEmpty();
+        result.GeneratedSource.Should().Contain("typeof(global::Details), \"URLValue\", typeof(string), \"url_value\"");
+    }
+
+    [Fact]
+    public void StatefulExplicitConverterIsRejectedAtGeneration()
+    {
+        const string source = """
+            using HPD.Base;
+            using System.Text.Json;
+            using System.Text.Json.Serialization;
+            [BaseCollection("converted", typeof(AppJsonContext))]
+            public sealed partial record ConvertedRecord
+            {
+                [BaseField("converted.value")]
+                [JsonConverter(typeof(StatefulConverter))]
+                public required string Value { get; init; }
+            }
+            [BaseSerializerConverter("vendor.converted", 1)]
+            public sealed class StatefulConverter : JsonConverter<string>
+            {
+                private int state;
+                public override string Read(ref Utf8JsonReader reader, System.Type type, JsonSerializerOptions options) => reader.GetString()!;
+                public override void Write(Utf8JsonWriter writer, string value, JsonSerializerOptions options) => writer.WriteStringValue(value);
+            }
+            [JsonSerializable(typeof(ConvertedRecord))]
+            public sealed partial class AppJsonContext : JsonSerializerContext;
+            """;
+
+        Run(source).Diagnostics.Should().ContainSingle(item => item.Id == "HPDBASE0447");
+    }
+
     private static GeneratorResult Run(string source)
     {
         var parseOptions = new CSharpParseOptions(LanguageVersion.CSharp14);

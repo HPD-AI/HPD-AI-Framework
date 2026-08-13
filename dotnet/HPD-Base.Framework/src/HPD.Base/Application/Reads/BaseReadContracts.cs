@@ -74,10 +74,10 @@ public sealed class BaseReadDefinition<TParameters, TRow> : IBaseReadRegistratio
     internal BaseRelationalReadPlan Plan { get; }
 
     /// <summary>Gets source-generated request metadata.</summary>
-    public JsonTypeInfo<TParameters> ParameterJsonTypeInfo { get; }
+    internal JsonTypeInfo<TParameters> ParameterJsonTypeInfo { get; }
 
     /// <summary>Gets source-generated row metadata.</summary>
-    public JsonTypeInfo<TRow> RowJsonTypeInfo { get; }
+    internal JsonTypeInfo<TRow> RowJsonTypeInfo { get; }
 
     /// <summary>Gets the sole typed invocation handle.</summary>
     public BaseReadHandle<TParameters, TRow> Handle { get; }
@@ -139,7 +139,7 @@ public interface IBaseReadRowCodec<out TRow>
     TRow Decode(BaseRelationalRow row);
 }
 
-internal interface IBaseReadRegistration
+internal interface IBaseReadRegistration : IBaseSerializerMetadataSource
 {
     /// <summary>Gets the ID.</summary>
     string Id { get; }
@@ -149,6 +149,8 @@ internal interface IBaseReadRegistration
     JsonTypeInfo ParameterJsonTypeInfo { get; }
     /// <summary>Gets the row JSON type info.</summary>
     JsonTypeInfo RowJsonTypeInfo { get; }
+    IReadOnlyList<JsonTypeInfo> IBaseSerializerMetadataSource.Roots => [ParameterJsonTypeInfo, RowJsonTypeInfo];
+    bool IBaseSerializerMetadataSource.Generated => true;
     /// <summary>Gets the response type.</summary>
     Type ResponseType { get; }
     /// <summary>Gets the explicit HTTP exposure.</summary>

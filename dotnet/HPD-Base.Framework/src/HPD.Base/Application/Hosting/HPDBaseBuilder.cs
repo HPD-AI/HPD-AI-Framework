@@ -28,6 +28,7 @@ public sealed class HPDBaseBuilder
     private readonly IServiceCollection _services;
     /// <summary>Provides _collections.</summary>
     private readonly Dictionary<string, CollectionDefinition> _collections = new(StringComparer.Ordinal);
+    private readonly List<IBaseSerializerMetadataSource> _serializerMetadata = [];
     /// <summary>Provides _reads.</summary>
     private readonly Dictionary<string, IBaseReadRegistration> _reads = new(StringComparer.Ordinal);
     /// <summary>Provides _dependency Templates.</summary>
@@ -183,6 +184,7 @@ public sealed class HPDBaseBuilder
         ArgumentNullException.ThrowIfNull(collection);
         if (!_collections.TryAdd(collection.Id, collection.Definition))
             throw new InvalidOperationException($"Collection '{collection.Id}' is already registered.");
+        _serializerMetadata.Add(collection);
         return this;
     }
 
@@ -316,6 +318,7 @@ public sealed class HPDBaseBuilder
         _schema?.Invoke(schemaOptions);
         schemaOptions.Validate();
         BaseApplicationGraphValidator.Validate(collections, _reads.Values, relationalOptions, schemaOptions);
+        BaseSerializerMetadataOwner.Validate(_serializerMetadata.Concat(_reads.Values));
         BaseStorageProtectionGraph storageProtection = BaseStorageProtectionContract.FinalizeGraph(
             _applicationStorageRequirements.Values,
             collections,

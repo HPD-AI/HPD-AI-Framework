@@ -25,6 +25,11 @@ public sealed class GeneratedReadTests
         plan.Predicate!.Left!.FieldId.Should().Be("read-project.name");
         plan.Predicate.Right!.ParameterId.Should().Be("project-name.name");
         plan.Projection.Should().ContainSingle().Which.FieldId.Should().Be("project-name.row.name");
+        ProjectSummaryRead.Definition.ClientContract.Parameters.Single().Should().BeEquivalentTo(new
+        {
+            GeneratedName = "OwnerId",
+            WireName = "ownerId",
+        });
     }
 
     [Fact]

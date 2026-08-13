@@ -35,12 +35,15 @@ public sealed class BaseJsonProperty<TRecord, TValue>
         if (metadata.Type != typeof(TRecord) || metadata.Kind != JsonTypeInfoKind.Object)
             throw new InvalidOperationException("base.schema.serializer.metadataInvalid");
 
+        BaseSerializerOptionsContract.Validate(metadata.Options);
         metadata.Options.MakeReadOnly();
         metadata.MakeReadOnly();
         JsonPropertyInfo[] matches = metadata.Properties
             .Where(property => string.Equals(property.Name, wireName, StringComparison.Ordinal))
             .ToArray();
-        if (matches.Length != 1 || matches[0].PropertyType != typeof(TValue) || matches[0].Get is null)
+        if (matches.Length != 1 || matches[0].PropertyType != typeof(TValue) || matches[0].Get is null ||
+            matches[0].Set is null || matches[0].IsExtensionData || matches[0].ShouldSerialize is not null ||
+            matches[0].Order != 0 || matches[0].CustomConverter is not null)
             throw new InvalidOperationException("base.schema.serializer.metadataInvalid");
 
         return new BaseJsonProperty<TRecord, TValue>(metadata, matches[0]);

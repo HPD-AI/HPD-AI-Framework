@@ -12,19 +12,20 @@ public sealed partial class BaseCollectionTests
     {
         BaseField<ProjectDocument, string>? organization = null;
         BaseField<ProjectDocument, string>? name = null;
+        var metadata = new TestJsonContext(BaseSerializerGeneratedContract.CreateOptions(System.Text.Json.JsonNamingPolicy.CamelCase)).ProjectDocument;
         var collection = BaseCollection<ProjectDocument>.Create(
             Definition(),
-            TestJsonContext.Default.ProjectDocument,
+            metadata,
             fields =>
             {
                 organization = fields.Add<string>(
                     "organization-id",
-                    "organizationId",
+                    "OrganizationId",
                     "organizationId",
                     operators: BaseFieldOperator.Equal);
                 name = fields.Add<string>(
                     "name",
-                    "name",
+                    "Name",
                     "name",
                     operators: BaseFieldOperator.Equal | BaseFieldOperator.Order);
             });

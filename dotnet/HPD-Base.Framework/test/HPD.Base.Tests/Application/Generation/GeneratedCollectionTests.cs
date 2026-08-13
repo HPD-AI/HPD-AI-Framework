@@ -1,5 +1,6 @@
 using FluentAssertions;
 using HPD.Base;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using Xunit;
 
@@ -7,6 +8,8 @@ namespace HPD.Base.Tests.Application.Generation;
 
 public sealed class GeneratedCollectionTests
 {
+    private static GeneratedApplicationJsonContext Metadata() =>
+        new(BaseSerializerGeneratedContract.CreateOptions(JsonNamingPolicy.CamelCase));
     [Fact]
     public void GeneratorProducesTypedCollectionFieldsSchemaAndJsonMetadata()
     {
@@ -33,15 +36,16 @@ public sealed class GeneratedCollectionTests
     [Fact]
     public void ManualBuilderProducesValidatedImmutableCanonicalContract()
     {
+        var metadata = Metadata().GeneratedProject;
         BaseCollection<GeneratedProject> collection =
             HPD.Base.BaseCollection.Define(
                 "manual.projects",
-                GeneratedApplicationJsonContext.Default.GeneratedProject,
+                metadata,
                 schema =>
                 {
-                    schema.String("organization-id", "OrganizationId", BaseJsonProperty<GeneratedProject, string>.Bind(GeneratedApplicationJsonContext.Default.GeneratedProject, "organizationId")).Required();
-                    schema.String("name", "Name", BaseJsonProperty<GeneratedProject, string>.Bind(GeneratedApplicationJsonContext.Default.GeneratedProject, "name")).Required();
-                    schema.String("optional-note", "OptionalNote", BaseJsonProperty<GeneratedProject, string>.Bind(GeneratedApplicationJsonContext.Default.GeneratedProject, "optionalNote")).Optional();
+                    schema.String("organization-id", "OrganizationId", BaseJsonProperty<GeneratedProject, string>.Bind(metadata, "organizationId")).Required();
+                    schema.String("name", "Name", BaseJsonProperty<GeneratedProject, string>.Bind(metadata, "name")).Required();
+                    schema.String("optional-note", "OptionalNote", BaseJsonProperty<GeneratedProject, string>.Bind(metadata, "optionalNote")).Optional();
                     schema.Index("organization-name", "organization-id", "name")
                         .Required()
                         .Unique();
@@ -72,15 +76,16 @@ public sealed class GeneratedCollectionTests
     [Fact]
     public void GeneratedAndManualContractsLowerToEquivalentCanonicalSchemas()
     {
+        var metadata = Metadata().GeneratedProject;
         BaseCollection<GeneratedProject> manual =
             HPD.Base.BaseCollection.Define(
                 "projects",
-                GeneratedApplicationJsonContext.Default.GeneratedProject,
+                metadata,
                 schema =>
                 {
-                    schema.String("organization-id", "OrganizationId", BaseJsonProperty<GeneratedProject, string>.Bind(GeneratedApplicationJsonContext.Default.GeneratedProject, "organizationId")).Required();
-                    schema.String("name", "Name", BaseJsonProperty<GeneratedProject, string>.Bind(GeneratedApplicationJsonContext.Default.GeneratedProject, "name")).Required();
-                    schema.String("optional-note", "OptionalNote", BaseJsonProperty<GeneratedProject, string>.Bind(GeneratedApplicationJsonContext.Default.GeneratedProject, "optionalNote")).Optional();
+                    schema.String("organization-id", "OrganizationId", BaseJsonProperty<GeneratedProject, string>.Bind(metadata, "organizationId")).Required();
+                    schema.String("name", "Name", BaseJsonProperty<GeneratedProject, string>.Bind(metadata, "name")).Required();
+                    schema.String("optional-note", "OptionalNote", BaseJsonProperty<GeneratedProject, string>.Bind(metadata, "optionalNote")).Optional();
                     schema.Index("organization", "organization-id").Advisory();
                 });
 

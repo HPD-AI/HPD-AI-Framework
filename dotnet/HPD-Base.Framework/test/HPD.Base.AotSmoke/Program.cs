@@ -11,12 +11,7 @@ var value = new AotProject
     Name = "AOT",
 };
 
-string json = JsonSerializer.Serialize(value, collection.JsonTypeInfo);
-var roundTrip = JsonSerializer.Deserialize(json, collection.JsonTypeInfo);
-
-if (roundTrip is null ||
-    roundTrip.OrganizationId != "org_aot" ||
-    AotProject.Fields.OrganizationId.Id != "organization-id" ||
+if (AotProject.Fields.OrganizationId.Id != "organization-id" ||
     AotProject.Fields.OrganizationId.WireName != "organizationId" ||
     !AotProject.Fields.Name.Operators.HasFlag(BaseFieldOperator.Order))
 {

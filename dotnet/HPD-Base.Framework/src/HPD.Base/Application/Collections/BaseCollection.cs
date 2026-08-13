@@ -6,17 +6,18 @@ namespace HPD.Base;
 /// Represents an immutable, typed application contract for one BASE collection.
 /// </summary>
 /// <typeparam name = "T">The persisted record type.</typeparam>
-public sealed class BaseCollection<T>
+public sealed class BaseCollection<T> : IBaseSerializerMetadataSource
 {
     /// <summary>Provides _fields.</summary>
     private readonly ReadOnlyDictionary<string, object> _fields;
     /// <summary>Provides _definition.</summary>
     private readonly CollectionDefinition _definition;
-    private BaseCollection(CollectionDefinition definition, JsonTypeInfo<T> jsonTypeInfo, IReadOnlyDictionary<string, object> fields)
+    private BaseCollection(CollectionDefinition definition, JsonTypeInfo<T> jsonTypeInfo, IReadOnlyDictionary<string, object> fields, bool generatedMetadata)
     {
         _definition = Snapshot(definition);
         JsonTypeInfo = jsonTypeInfo;
         _fields = new ReadOnlyDictionary<string, object>(new Dictionary<string, object>(fields, StringComparer.Ordinal));
+        GeneratedMetadata = generatedMetadata;
     }
 
     /// <summary>
@@ -26,7 +27,7 @@ public sealed class BaseCollection<T>
     /// <summary>
     /// Gets the source-generated JSON contract for the persisted type.
     /// </summary>
-    public JsonTypeInfo<T> JsonTypeInfo { get; }
+    internal JsonTypeInfo<T> JsonTypeInfo { get; }
     /// <summary>
     /// Gets the canonical immutable collection definition.
     /// </summary>
@@ -35,6 +36,9 @@ public sealed class BaseCollection<T>
     /// Gets the immutable generated or manually declared field set used by infrastructure.
     /// </summary>
     internal IReadOnlyDictionary<string, object> Fields => _fields;
+    IReadOnlyList<JsonTypeInfo> IBaseSerializerMetadataSource.Roots => [JsonTypeInfo];
+    bool IBaseSerializerMetadataSource.Generated => GeneratedMetadata;
+    private bool GeneratedMetadata { get; }
 
     /// <summary>
     /// Creates a validated manual collection contract.
@@ -43,7 +47,16 @@ public sealed class BaseCollection<T>
     /// <param name = "jsonTypeInfo">Source-generated JSON metadata for <typeparamref name = "T"/>.</param>
     /// <param name = "configure">The typed field declaration callback.</param>
     /// <returns>An immutable typed collection contract.</returns>
-    public static BaseCollection<T> Create(CollectionDefinition definition, JsonTypeInfo<T> jsonTypeInfo, Action<BaseCollectionFields<T>> configure)
+    public static BaseCollection<T> Create(CollectionDefinition definition, JsonTypeInfo<T> jsonTypeInfo, Action<BaseCollectionFields<T>> configure) =>
+        Create(definition, jsonTypeInfo, configure, null);
+
+    /// <summary>Creates a generated collection from its closed serializer declaration.</summary>
+    [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+    public static BaseCollection<T> Create(
+        CollectionDefinition definition,
+        JsonTypeInfo<T> jsonTypeInfo,
+        Action<BaseCollectionFields<T>> configure,
+        IReadOnlyList<BaseSerializerPropertyDeclaration>? serializerDeclarations)
     {
         ArgumentNullException.ThrowIfNull(definition);
         ArgumentNullException.ThrowIfNull(jsonTypeInfo);
@@ -61,15 +74,17 @@ public sealed class BaseCollection<T>
         jsonTypeInfo.MakeReadOnly();
         CollectionDefinition installed = definition with
         {
-            SerializerContractChecksum = SerializerChecksum(definition, jsonTypeInfo)
+            SerializerContractChecksum = SerializerChecksum(definition, jsonTypeInfo, fields.Items, serializerDeclarations)
         };
-        return new BaseCollection<T>(installed, jsonTypeInfo, fields.Items);
+        return new BaseCollection<T>(installed, jsonTypeInfo, fields.Items, serializerDeclarations is not null);
     }
 
-    private static string SerializerChecksum(CollectionDefinition definition, JsonTypeInfo<T> metadata)
+    private static string SerializerChecksum(CollectionDefinition definition, JsonTypeInfo<T> metadata, IReadOnlyDictionary<string, object> fields, IReadOnlyList<BaseSerializerPropertyDeclaration>? declarations)
     {
-        return BaseSerializerContract.Checksum(metadata,
-            (definition.Fields ?? []).Select(static field => (field.Id, field.ApplicationName, field.WireName)));
+        var bindings = (definition.Fields ?? []).Select(static field => (field.Id, field.ApplicationName, field.WireName)).ToArray();
+        if (bindings.Length == 0)
+            bindings = fields.Values.Cast<IBaseFieldContract>().Select(static field => (field.Id, field.ApplicationName, field.WireName)).ToArray();
+        return BaseSerializerContract.Checksum(metadata, bindings, declarations);
     }
 
     /// <summary>Performs snapshot.</summary>

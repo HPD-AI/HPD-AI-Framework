@@ -42,14 +42,16 @@ public sealed class BaseRecordIdTests
     [Fact]
     public void ManualRelationLowersToTheSameCanonicalShape()
     {
+        var metadata = new TypedIdJsonContext(
+            BaseSerializerGeneratedContract.CreateOptions(System.Text.Json.JsonNamingPolicy.CamelCase)).TypedIdDocument;
         var manual = HPD.Base.BaseCollection.Define(
             "manual-typed-id-documents",
-            TypedIdJsonContext.Default.TypedIdDocument,
+            metadata,
             schema => schema.Relation(
                     "typed-id-document.owner",
                     "typed-id-document.owner",
                     "OwnerId",
-                    BaseJsonProperty<TypedIdDocument, BaseRecordId<TypedIdOwner>>.Bind(TypedIdJsonContext.Default.TypedIdDocument, "ownerId"),
+                    BaseJsonProperty<TypedIdDocument, BaseRecordId<TypedIdOwner>>.Bind(metadata, "ownerId"),
                     TypedIdOwner.Collection)
                 .ExactlyOne()
                 .Inverse("typed-id-owner.documents")

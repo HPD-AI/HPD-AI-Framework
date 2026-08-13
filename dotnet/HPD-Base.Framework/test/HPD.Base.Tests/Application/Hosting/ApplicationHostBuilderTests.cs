@@ -4,14 +4,18 @@ using HPD.Base.Tests.Application.Generation;
 using HPD.Base.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using System.Text.Json;
 using Xunit;
 
 namespace HPD.Base.Tests.Application.Hosting;
 
 public sealed class ApplicationHostBuilderTests
 {
+    private static readonly GeneratedApplicationJsonContext MetadataOwner =
+        new(BaseSerializerGeneratedContract.CreateOptions(JsonNamingPolicy.CamelCase));
+    private static GeneratedApplicationJsonContext Metadata() => MetadataOwner;
     private static BaseJsonProperty<GeneratedProject, string> ProjectProperty(string wireName) =>
-        BaseJsonProperty<GeneratedProject, string>.Bind(GeneratedApplicationJsonContext.Default.GeneratedProject, wireName);
+        BaseJsonProperty<GeneratedProject, string>.Bind(Metadata().GeneratedProject, wireName);
     [Fact]
     public async Task FreshSqlitePlansAreBoundToDistinctPersistentPhysicalStoreIdentities()
     {
@@ -221,7 +225,7 @@ public sealed class ApplicationHostBuilderTests
         byte[] key = Enumerable.Repeat((byte)0x31, 32).ToArray();
         byte[] attestationKey = Enumerable.Repeat((byte)0x42, 32).ToArray();
         BaseCollection<GeneratedProject> Version(string storedName, bool extra, bool requiredNew = false) => HPD.Base.BaseCollection.Define(
-            "schema-evolution-projects", GeneratedApplicationJsonContext.Default.GeneratedProject, schema =>
+            "schema-evolution-projects", Metadata().GeneratedProject, schema =>
             {
                 schema.String("schema-evolution.name", storedName, ProjectProperty("name"));
                 if (extra)
@@ -382,10 +386,10 @@ public sealed class ApplicationHostBuilderTests
         string database = Path.Combine(Path.GetTempPath(), "hpd-base-schema-relation-rebuild-" + Guid.NewGuid().ToString("N") + ".db");
         byte[] key = Enumerable.Repeat((byte)0x73, 32).ToArray();
         BaseCollection<GeneratedProject> target = HPD.Base.BaseCollection.Define(
-            "schema-rebuild-targets", GeneratedApplicationJsonContext.Default.GeneratedProject,
+            "schema-rebuild-targets", Metadata().GeneratedProject,
             schema => schema.String("schema-rebuild.target.name", "Name", ProjectProperty("name")));
         BaseCollection<GeneratedProject> Source(bool removable) => HPD.Base.BaseCollection.Define(
-            "schema-rebuild-sources", GeneratedApplicationJsonContext.Default.GeneratedProject,
+            "schema-rebuild-sources", Metadata().GeneratedProject,
             schema =>
             {
                 schema.String("schema-rebuild.source.name", "Name", ProjectProperty("name"));
@@ -452,10 +456,10 @@ public sealed class ApplicationHostBuilderTests
     public void LogicalSchemaChecksumIsStableAcrossRegistrationOrderAndSensitiveToStoredShape()
     {
         BaseCollection<GeneratedProject> first = HPD.Base.BaseCollection.Define(
-            "logical.first", GeneratedApplicationJsonContext.Default.GeneratedProject,
+            "logical.first", Metadata().GeneratedProject,
             schema => schema.String("logical.first.name", "Name", ProjectProperty("name")));
         BaseCollection<GeneratedProject> second = HPD.Base.BaseCollection.Define(
-            "logical.second", GeneratedApplicationJsonContext.Default.GeneratedProject,
+            "logical.second", Metadata().GeneratedProject,
             schema => schema.String("logical.second.name", "Name", ProjectProperty("name")));
 
         static BaseLogicalSchema Build(params BaseCollection<GeneratedProject>[] collections)
@@ -473,7 +477,7 @@ public sealed class ApplicationHostBuilderTests
         BaseLogicalSchema ordered = Build(first, second);
         BaseLogicalSchema reversed = Build(second, first);
         BaseCollection<GeneratedProject> renamed = HPD.Base.BaseCollection.Define(
-            "logical.first", GeneratedApplicationJsonContext.Default.GeneratedProject,
+            "logical.first", Metadata().GeneratedProject,
             schema => schema.String("logical.first.name", "RenamedName", ProjectProperty("name")));
 
         reversed.CanonicalChecksum.Should().Be(ordered.CanonicalChecksum);
@@ -745,7 +749,7 @@ public sealed class ApplicationHostBuilderTests
     {
         var required = HPD.Base.BaseCollection.Define(
             "required.projects",
-            GeneratedApplicationJsonContext.Default.GeneratedProject,
+            Metadata().GeneratedProject,
             schema =>
             {
                 schema.String("organization-id", "OrganizationId", ProjectProperty("organizationId")).Required();

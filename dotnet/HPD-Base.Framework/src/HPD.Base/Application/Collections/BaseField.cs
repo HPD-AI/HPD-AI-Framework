@@ -5,7 +5,7 @@ namespace HPD.Base;
 /// </summary>
 /// <typeparam name="TRecord">The persisted record type.</typeparam>
 /// <typeparam name="TValue">The field value type.</typeparam>
-public sealed class BaseField<TRecord, TValue>
+public sealed class BaseField<TRecord, TValue> : IBaseFieldContract
 {
     internal BaseField(
         string id,
@@ -47,6 +47,15 @@ public sealed class BaseField<TRecord, TValue>
     /// Gets the query operations valid for this field.
     /// </summary>
     public BaseFieldOperator Operators { get; }
+    Type IBaseFieldContract.ValueType => typeof(TValue);
+}
+
+internal interface IBaseFieldContract
+{
+    string Id { get; }
+    string ApplicationName { get; }
+    string WireName { get; }
+    Type ValueType { get; }
 }
 
 /// <summary>
