@@ -11,8 +11,8 @@ using Microsoft.CodeAnalysis.Text;
 
 namespace HPD.Base.Generators;
 
-/// <summary>Represents a base collection generator.</summary>
-public sealed class BaseCollectionGenerator : IIncrementalGenerator
+/// <summary>Renders collection roots beneath the combined schema generator.</summary>
+internal static class BaseCollectionGenerator
 {
     private const string CollectionAttribute =
         "HPD.Base.BaseCollectionAttribute";
@@ -32,8 +32,6 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
     private const string JsonOptionsAttribute =
         "System.Text.Json.Serialization.JsonSourceGenerationOptionsAttribute";
     private const string JsonIgnoreAttribute = "System.Text.Json.Serialization.JsonIgnoreAttribute";
-    private const string JsonConverterAttribute = "System.Text.Json.Serialization.JsonConverterAttribute";
-    private const string BaseSerializerConverterAttribute = "HPD.Base.BaseSerializerConverterAttribute";
 
     private static readonly DiagnosticDescriptor TypeMustBePartial = new DiagnosticDescriptor(
         "HPDBASE001",
@@ -139,9 +137,9 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         DiagnosticSeverity.Error,
         true);
 
-    private static readonly DiagnosticDescriptor UnsupportedSerializerContract = new DiagnosticDescriptor(
+    internal static readonly DiagnosticDescriptor UnsupportedSerializerContract = new DiagnosticDescriptor(
         "HPDBASE0447", "Unsupported serializer contract",
-        "Collection '{0}' serializer contract is unsupported: {1}", "HPD.Base.Generation",
+        "Serializer contract '{0}' is unsupported: {1}", "HPD.Base.Generation",
         DiagnosticSeverity.Error, true);
 
     internal static readonly DiagnosticDescriptor SerializerGraphLimit = new DiagnosticDescriptor(
@@ -153,25 +151,6 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         "HPDBASE0449", "Generated serializer infrastructure is not an application API",
         "'{0}' may only be emitted by HPD Base generated source; the compiled application/build pipeline is trusted",
         "HPD.Base.Generation", DiagnosticSeverity.Error, true);
-
-    /// <summary>Executes the initialize operation.</summary>
-    public void Initialize(IncrementalGeneratorInitializationContext context)
-    {
-        IncrementalValuesProvider<INamedTypeSymbol> candidates =
-            context.SyntaxProvider.ForAttributeWithMetadataName(
-                CollectionAttribute,
-                static (node, _) => node is TypeDeclarationSyntax,
-                static (attributeContext, _) =>
-                    (INamedTypeSymbol)attributeContext.TargetSymbol);
-
-        context.RegisterSourceOutput(
-            candidates.Collect(),
-            static (productionContext, symbols) =>
-                GenerateCombined(productionContext, symbols,
-                    ImmutableDictionary.Create<INamedTypeSymbol, ContextValidationResult>(SymbolEqualityComparer.Default)));
-
-        RegisterForbiddenReferences(context);
-    }
 
     internal static void RegisterForbiddenReferences(IncrementalGeneratorInitializationContext context)
     {
@@ -272,7 +251,8 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
                 continue;
             }
 
-            CollectionModel model = CreateModel(context, symbol, collection, collectionId);
+            contextResults.TryGetValue(declaredContext, out ContextValidationResult sharedContextResult);
+            CollectionModel model = CreateModel(context, symbol, collection, collectionId, sharedContextResult);
             if (model == null)
             {
                 context.AddSource(
@@ -333,7 +313,8 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         SourceProductionContext context,
         INamedTypeSymbol symbol,
         AttributeData collection,
-        string collectionId)
+        string collectionId,
+        ContextValidationResult sharedContextResult)
     {
         string mutationMode;
         int mutationModeValue;
@@ -364,11 +345,6 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         var propertyFields = new Dictionary<string, FieldModel>(StringComparer.Ordinal);
         var relationIds = new HashSet<string>(StringComparer.Ordinal);
         string jsonNamingPolicy = GetJsonNamingPolicy(jsonContext);
-        if (!ValidJsonOptions(jsonContext))
-        {
-            context.ReportDiagnostic(Diagnostic.Create(UnsupportedSerializerContract, GetLocation(symbol), collectionId, "the JsonSourceGenerationOptions declaration conflicts with the closed BASE option receipt"));
-            return null;
-        }
 
         foreach (IPropertySymbol property in SerializableProperties(symbol)
             .Where(property =>
@@ -797,8 +773,19 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
             }
             storageRequirements.Add(declaringType!.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) + "." + EscapeIdentifier(property.Name));
         }
-        List<SerializerPropertyModel> serializerProperties = CollectSerializerProperties(context, symbol, collectionId);
-        if (serializerProperties is null) return null;
+        if (sharedContextResult is null) return null;
+        List<SerializerPropertyModel> serializerProperties =
+            sharedContextResult.UnionGraph.PropertiesForRoot(symbol).Select(static property => new SerializerPropertyModel
+            {
+                DeclaringType = property.DeclaringType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+                ApplicationName = property.ApplicationName,
+                PropertyType = property.PropertyType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+                ExplicitWireName = property.ExplicitWireName,
+                Required = property.Required,
+                Nullable = property.Nullable,
+                ConverterIdentity = property.ConverterIdentity,
+                ConverterType = property.ConverterType,
+            }).ToList();
 
         return new CollectionModel
         {
@@ -1150,116 +1137,11 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         symbol.ContainingType == null &&
         symbol.TypeParameters.Length == 0;
 
-    private static List<SerializerPropertyModel> CollectSerializerProperties(
-        SourceProductionContext context, INamedTypeSymbol root, string collectionId)
-    {
-        var result = new List<SerializerPropertyModel>();
-        var visited = new HashSet<ITypeSymbol>(SymbolEqualityComparer.Default);
-        var converterTypes = new Dictionary<string, INamedTypeSymbol>(StringComparer.Ordinal);
-        bool unsupported = false;
-        bool limitExceeded = false;
-        bool Visit(ITypeSymbol input, int depth, int wrappers)
-        {
-            ITypeSymbol type = input;
-            if (type is INamedTypeSymbol nullable && nullable.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T)
-            {
-                if (wrappers >= 16) { limitExceeded = true; return false; }
-                return Visit(nullable.TypeArguments[0], depth, wrappers + 1);
-            }
-            if (type is IArrayTypeSymbol array)
-            {
-                if (array.Rank != 1) { unsupported = true; return false; }
-                if (wrappers >= 16) { limitExceeded = true; return false; }
-                return Visit(array.ElementType, depth, wrappers + 1);
-            }
-            if (type is INamedTypeSymbol sequence && sequence.IsGenericType &&
-                sequence.ConstructedFrom.ToDisplayString() is "System.Collections.Generic.IReadOnlyList<T>" or "System.Collections.Immutable.ImmutableArray<T>")
-            {
-                if (wrappers >= 16) { limitExceeded = true; return false; }
-                return Visit(sequence.TypeArguments[0], depth, wrappers + 1);
-            }
-            if (SerializerScalar(type)) return true;
-            if (depth > 32) { limitExceeded = true; return false; }
-            if (type is not INamedTypeSymbol named || named.TypeParameters.Length != 0 ||
-                !named.Locations.Any(static location => location.IsInSource))
-            {
-                unsupported = true;
-                return false;
-            }
-            if (!visited.Add(named)) return true;
-            if (visited.Count > 256) { limitExceeded = true; return false; }
-            foreach (IPropertySymbol property in SerializableProperties(named)
-                         .Where(static property => !property.IsStatic && !property.IsIndexer && property.DeclaredAccessibility == Accessibility.Public && property.GetMethod is not null)
-                         .OrderBy(static property => property.Name, StringComparer.Ordinal))
-            {
-                AttributeData ignore = FindAttribute(property, JsonIgnoreAttribute);
-                if (ignore is not null && (ignore.NamedArguments.Length == 0 || GetNamedInt64(ignore, "Condition", 1) == 1)) continue;
-                AttributeData converterAttribute = FindAttribute(property, JsonConverterAttribute);
-                if (property.SetMethod is null ||
-                    FindAttribute(property, "System.Text.Json.Serialization.JsonExtensionDataAttribute") is not null ||
-                    FindAttribute(property, "System.Text.Json.Serialization.JsonIncludeAttribute") is not null)
-                { unsupported = true; return false; }
-                string converterIdentity = "stj-built-in";
-                string converterType = null;
-                if (converterAttribute is not null)
-                {
-                    INamedTypeSymbol converter = GetConstructorType(converterAttribute, 0);
-                    AttributeData contract = converter is null ? null : FindAttribute(converter, BaseSerializerConverterAttribute);
-                    string contractId = contract is null ? null : GetConstructorString(contract, 0);
-                    int version = contract?.ConstructorArguments.Length > 1 && contract.ConstructorArguments[1].Value is int value ? value : 0;
-                    if (!ValidConverter(converter, contractId, version)) { unsupported = true; return false; }
-                    converterIdentity = "explicit:" + contractId + ":" + version.ToString(CultureInfo.InvariantCulture);
-                    if (converterTypes.TryGetValue(converterIdentity, out INamedTypeSymbol existing) &&
-                        !SymbolEqualityComparer.Default.Equals(existing, converter)) { unsupported = true; return false; }
-                    converterTypes[converterIdentity] = converter;
-                    converterType = converter.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                }
-                result.Add(new SerializerPropertyModel
-                {
-                    DeclaringType = named.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
-                    ApplicationName = property.Name,
-                    PropertyType = property.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
-                    ExplicitWireName = GetJsonPropertyName(property),
-                    Required = property.IsRequired,
-                    Nullable = IsNullable(property),
-                    ConverterIdentity = converterIdentity,
-                    ConverterType = converterType,
-                });
-                if (result.Count > 4096) { limitExceeded = true; return false; }
-                if (!Visit(property.Type, depth + 1, 0)) return false;
-            }
-            return true;
-        }
-        if (Visit(root, 0, 0)) return result;
-        context.ReportDiagnostic(limitExceeded
-            ? Diagnostic.Create(SerializerGraphLimit, GetLocation(root), collectionId)
-            : Diagnostic.Create(UnsupportedSerializerContract, GetLocation(root), collectionId,
-                unsupported ? "the reachable serializer graph is not a closed supported graph" : "the serializer graph declaration is invalid"));
-        return null;
-    }
-
     private static bool IsAlwaysIgnored(IPropertySymbol property)
     {
         AttributeData ignore = FindAttribute(property, JsonIgnoreAttribute);
         return ignore is not null && (ignore.NamedArguments.Length == 0 || GetNamedInt64(ignore, "Condition", 1) == 1);
     }
-
-    private static bool ValidJsonOptions(INamedTypeSymbol context)
-    {
-        AttributeData options = FindAttribute(context, JsonOptionsAttribute);
-        if (options is null) return true;
-        foreach (KeyValuePair<string, TypedConstant> pair in options.NamedArguments)
-            if (!BaseSchemaGenerator.IsAcceptedOption(pair.Key, pair.Value)) return false;
-        return true;
-    }
-
-    private static bool SerializerScalar(ITypeSymbol type) => type.TypeKind == TypeKind.Enum || type.SpecialType is
-        SpecialType.System_String or SpecialType.System_Boolean or SpecialType.System_Byte or SpecialType.System_SByte or
-        SpecialType.System_Int16 or SpecialType.System_UInt16 or SpecialType.System_Int32 or SpecialType.System_UInt32 or
-        SpecialType.System_Int64 or SpecialType.System_UInt64 or SpecialType.System_Single or SpecialType.System_Double or
-        SpecialType.System_Decimal || type.ToDisplayString() is "System.Guid" or "System.DateTime" or "System.DateTimeOffset" or
-        "HPD.Base.BaseBinary" or "HPD.Base.BaseVector" or "HPD.Base.RecordId" ||
-        type is INamedTypeSymbol named && named.IsGenericType && named.ConstructedFrom.ToDisplayString() == "HPD.Base.BaseRecordId<TRecord>";
 
     private static IEnumerable<IPropertySymbol> SerializableProperties(INamedTypeSymbol type)
     {
@@ -1274,30 +1156,6 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         }
         return properties.Values;
     }
-
-    private static bool ValidConverter(INamedTypeSymbol converter, string contractId, int version)
-    {
-        if (converter is null || !converter.IsSealed || converter.IsGenericType || !converter.Locations.Any(static location => location.IsInSource) ||
-            !IsValidId(contractId) || version < 1 || converter.AllInterfaces.Any(static item => item.TypeKind == TypeKind.Error)) return false;
-        string baseType = converter.BaseType?.OriginalDefinition.ToDisplayString() ?? string.Empty;
-        if (!string.Equals(baseType, "System.Text.Json.Serialization.JsonConverter<T>", StringComparison.Ordinal)) return false;
-        IMethodSymbol[] constructors = converter.InstanceConstructors.ToArray();
-        if (constructors.Length != 1 || constructors[0].DeclaredAccessibility != Accessibility.Public || constructors[0].Parameters.Length != 0) return false;
-        foreach (ISymbol member in converter.GetMembers())
-        {
-            if (member is IFieldSymbol field && (!field.IsConst || !ConverterConstant(field.Type))) return false;
-            if (member is IPropertySymbol property && property.IsStatic) return false;
-            if (member is IEventSymbol) return false;
-            if (member is IFieldSymbol delegateField && delegateField.Type.TypeKind == TypeKind.Delegate) return false;
-        }
-        return true;
-    }
-
-    private static bool ConverterConstant(ITypeSymbol type) => type.TypeKind == TypeKind.Enum || type.SpecialType is
-        SpecialType.System_Boolean or SpecialType.System_Byte or SpecialType.System_SByte or
-        SpecialType.System_Int16 or SpecialType.System_UInt16 or SpecialType.System_Int32 or SpecialType.System_UInt32 or
-        SpecialType.System_Int64 or SpecialType.System_UInt64 or SpecialType.System_Char or SpecialType.System_String or
-        SpecialType.System_Single or SpecialType.System_Double or SpecialType.System_Decimal;
 
     private static bool IsSupportedFieldType(ITypeSymbol type)
     {

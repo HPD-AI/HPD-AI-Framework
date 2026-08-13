@@ -207,10 +207,74 @@ public sealed class BaseCollectionGeneratorTests
         var result = Run(source);
 
         Diagnostic diagnostic = result.Diagnostics.Should()
-            .ContainSingle(item => item.Id == "HPDBASE008")
+            .ContainSingle(item => item.Id == "HPDBASE0447")
             .Subject;
         diagnostic.Location.GetLineSpan().StartLinePosition.Line.Should().Be(8);
         result.GeneratedSource.Should().Contain("Collection => null!").And.NotContain("CreateGenerated");
+    }
+
+    [Fact]
+    public void SharedNestedGraphDefectIsReportedOnceAcrossCollectionsAndRead()
+    {
+        const string source = """
+            using HPD.Base;
+            using System;
+            using System.Text.Json.Serialization;
+
+            public sealed record SharedPayload
+            {
+                public required Action Callback { get; init; }
+            }
+
+            [BaseCollection("first", typeof(AppJsonContext))]
+            public sealed partial record First
+            {
+                [BaseField("first.payload")] public required SharedPayload Payload { get; init; }
+            }
+
+            [BaseCollection("second", typeof(AppJsonContext))]
+            public sealed partial record Second
+            {
+                [BaseField("second.payload")] public required SharedPayload Payload { get; init; }
+            }
+
+            [BaseRead("shared-read", typeof(AppJsonContext), RequiredGrantId = "shared-read.execute")]
+            public sealed partial record SharedRead
+            {
+                [BaseReadParameter("shared-read.payload")] public required SharedPayload Payload { get; init; }
+                public sealed partial record Row
+                {
+                    [BaseReadField("shared-read.row.value")] public required string Value { get; init; }
+                }
+                public static void Configure(BaseReadDefinitionBuilder<SharedRead, Row> read) { }
+            }
+
+            [JsonSerializable(typeof(First))]
+            [JsonSerializable(typeof(Second))]
+            [JsonSerializable(typeof(SharedRead))]
+            [JsonSerializable(typeof(SharedRead.Row))]
+            public sealed partial class AppJsonContext : JsonSerializerContext;
+            """;
+
+        GeneratorResult result = Run(source);
+
+        result.Diagnostics.Should().ContainSingle(item => item.Id == "HPDBASE0447");
+        result.GeneratedSource.Should().Contain("BaseCollection<global::First> Collection => null!");
+        result.GeneratedSource.Should().Contain("BaseCollection<global::Second> Collection => null!");
+        result.GeneratedSource.Should().Contain("BaseReadDefinition<global::SharedRead, global::SharedRead.Row> Definition => null!");
+        result.GeneratedSource.Should().NotContain("CreateGenerated").And.NotContain("RegisterContext");
+        result.CompilationDiagnostics.Where(static item => item.Id is "CS0117" or "CS1061" or "CS1503" or "CS0411")
+            .Should().BeEmpty();
+    }
+
+    [Fact]
+    public void CombinedSchemaGeneratorIsTheOnlyPublicExecutablePipeline()
+    {
+        Type[] generators = typeof(BaseSchemaGenerator).Assembly.ExportedTypes
+            .Where(type => typeof(IIncrementalGenerator).IsAssignableFrom(type))
+            .ToArray();
+
+        generators.Should().Equal(typeof(BaseSchemaGenerator));
     }
 
     [Fact]

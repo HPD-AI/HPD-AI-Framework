@@ -134,7 +134,7 @@ public sealed class BaseReadGeneratorTests
 
         Result result = Run(source);
 
-        result.Diagnostics.Should().ContainSingle(diagnostic => diagnostic.Id == "HPDBASE023");
+        result.Diagnostics.Should().ContainSingle(diagnostic => diagnostic.Id == "HPDBASE0447");
         result.Source.Should().Contain("Definition => null!").And.NotContain("CreateGenerated");
     }
 

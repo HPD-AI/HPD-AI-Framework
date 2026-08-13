@@ -10,8 +10,8 @@ using Microsoft.CodeAnalysis.Text;
 
 namespace HPD.Base.Generators;
 
-/// <summary>Represents a base read generator.</summary>
-public sealed class BaseReadGenerator : IIncrementalGenerator
+/// <summary>Renders registered-read roots beneath the combined schema generator.</summary>
+internal static class BaseReadGenerator
 {
     private const string ReadAttribute = "HPD.Base.BaseReadAttribute";
     private const string ParameterAttribute = "HPD.Base.BaseReadParameterAttribute";
@@ -36,18 +36,6 @@ public sealed class BaseReadGenerator : IIncrementalGenerator
         "Registered read '{0}' member '{1}' uses unsupported type '{2}'",
         "HPD.Base.Generation", DiagnosticSeverity.Error, true);
 
-    /// <summary>Executes the initialize operation.</summary>
-    public void Initialize(IncrementalGeneratorInitializationContext context)
-    {
-        var candidates = context.SyntaxProvider.ForAttributeWithMetadataName(
-            ReadAttribute,
-            static (node, _) => node is TypeDeclarationSyntax,
-            static (attributeContext, _) => (INamedTypeSymbol)attributeContext.TargetSymbol);
-        context.RegisterSourceOutput(candidates.Collect(), static (productionContext, symbols) =>
-            GenerateCombined(productionContext, symbols,
-                ImmutableDictionary.Create<INamedTypeSymbol, ContextValidationResult>(SymbolEqualityComparer.Default)));
-    }
-
     internal static void GenerateCombined(
         SourceProductionContext context,
         ImmutableArray<INamedTypeSymbol> candidates,
@@ -61,7 +49,8 @@ public sealed class BaseReadGenerator : IIncrementalGenerator
             AttributeData attribute = Find(symbol, ReadAttribute)!;
             string id = ConstructorString(attribute, 0);
             INamedTypeSymbol jsonContext = ConstructorType(attribute, 1);
-            if (jsonContext is not null && contextResults.TryGetValue(jsonContext, out ContextValidationResult contextResult) && !contextResult.IsValid && IsTopLevelPartialRecord(symbol))
+            contextResults.TryGetValue(jsonContext, out ContextValidationResult contextResult);
+            if (contextResult is not null && !contextResult.IsValid && IsTopLevelPartialRecord(symbol))
             {
                 context.AddSource(Sanitize(symbol.ToDisplayString()) + ".HPDBaseReadRecovery.g.cs",
                     SourceText.From(RenderRecovery(symbol), Encoding.UTF8));
@@ -133,6 +122,10 @@ public sealed class BaseReadGenerator : IIncrementalGenerator
                 SystemSourceIds = systemSourceIds,
                 Parameters = parameters,
                 Fields = fields,
+                ParameterSerializerProperties = contextResult?.UnionGraph.PropertiesForRoot(symbol)
+                    ?? ImmutableArray<ContextGraphProperty>.Empty,
+                RowSerializerProperties = contextResult?.UnionGraph.PropertiesForRoot(row)
+                    ?? ImmutableArray<ContextGraphProperty>.Empty,
             };
             context.AddSource(Sanitize(model.FullTypeName) + ".HPDBaseRead.g.cs", SourceText.From(Render(model), Encoding.UTF8));
         }
@@ -292,8 +285,8 @@ public sealed class BaseReadGenerator : IIncrementalGenerator
         foreach (MemberModel member in model.Parameters) AppendOpaqueWireBinding(source, member, model.JsonNamingPolicy, "parameter");
         foreach (MemberModel member in model.Fields) AppendOpaqueWireBinding(source, member, model.JsonNamingPolicy, "row");
         source.Append("        return global::HPD.Base.BaseReadGeneratedContract.CreateGenerated(").Append(Literal(model.Id)).AppendLine(", jsonRegistration,");
-        AppendReadDeclarations(source, model.Parameters, model.FullTypeName);
-        AppendReadDeclarations(source, model.Fields, model.RowFullTypeName);
+        AppendReadDeclarations(source, model.ParameterSerializerProperties);
+        AppendReadDeclarations(source, model.RowSerializerProperties);
         source.AppendLine("            new global::HPD.Base.BaseRelationalReadParameter[]");
         source.AppendLine("            {");
         foreach (MemberModel member in model.Parameters)
@@ -425,17 +418,23 @@ public sealed class BaseReadGenerator : IIncrementalGenerator
             .Append(", ").Append(Literal(member.Name)).Append(", ").Append(member.ExplicitWireName ? Literal(member.WireName) : "null").AppendLine(");");
     }
 
-    private static void AppendReadDeclarations(StringBuilder source, IEnumerable<MemberModel> members, string declaringType)
+    private static void AppendReadDeclarations(
+        StringBuilder source,
+        ImmutableArray<ContextGraphProperty> properties)
     {
         source.AppendLine("            new global::HPD.Base.BaseSerializerPropertyDeclaration[]");
         source.AppendLine("            {");
-        foreach (MemberModel member in members)
+        foreach (ContextGraphProperty property in properties)
         {
-            source.Append("                global::HPD.Base.BaseSerializerPropertyDeclaration.Create(typeof(").Append(declaringType)
-                .Append("), ").Append(Literal(member.Name)).Append(", typeof(").Append(member.Type).Append("), ")
-                .Append(member.ExplicitWireName ? Literal(member.WireName) : "null")
-                .Append(", ").Append(member.Required ? "true" : "false").Append(", ").Append(member.ContainerNullable ? "true" : "false")
-                .AppendLine(", \"stj-built-in\", null),");
+            source.Append("                global::HPD.Base.BaseSerializerPropertyDeclaration.Create(typeof(")
+                .Append(property.DeclaringType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat))
+                .Append("), ").Append(Literal(property.ApplicationName)).Append(", typeof(")
+                .Append(property.PropertyType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)).Append("), ")
+                .Append(property.ExplicitWireName is not null ? Literal(property.ExplicitWireName) : "null")
+                .Append(", ").Append(property.Required ? "true" : "false").Append(", ").Append(property.Nullable ? "true" : "false")
+                .Append(", ").Append(Literal(property.ConverterIdentity)).Append(", ")
+                .Append(property.ConverterType is null ? "null" : "typeof(" + property.ConverterType + ")")
+                .AppendLine("),");
         }
         source.AppendLine("            },");
     }
@@ -521,7 +520,9 @@ public sealed class BaseReadGenerator : IIncrementalGenerator
         public string[] SecretOutputFieldIds;
         public string[] SystemSourceIds;
         public List<MemberModel> Parameters; /// <summary>Provides the fields value.</summary>
-        public List<MemberModel> Fields; }
+        public List<MemberModel> Fields;
+        public ImmutableArray<ContextGraphProperty> ParameterSerializerProperties;
+        public ImmutableArray<ContextGraphProperty> RowSerializerProperties; }
     private sealed class MemberModel { /// <summary>Provides the name value.</summary>
         public string Name;
         public string WireName; /// <summary>Provides the ID value.</summary>
