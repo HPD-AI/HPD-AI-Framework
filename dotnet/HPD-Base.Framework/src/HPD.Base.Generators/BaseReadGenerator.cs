@@ -18,6 +18,7 @@ public sealed class BaseReadGenerator : IIncrementalGenerator
     private const string ParameterAttribute = "HPD.Base.BaseReadParameterAttribute";
     private const string FieldAttribute = "HPD.Base.BaseReadFieldAttribute";
     private const string JsonSerializableAttribute = "System.Text.Json.Serialization.JsonSerializableAttribute";
+    private const string JsonPropertyNameAttribute = "System.Text.Json.Serialization.JsonPropertyNameAttribute";
 
     private static readonly DiagnosticDescriptor InvalidRead = new(
         "HPDBASE020", "Invalid BASE registered read", "Registered read '{0}' is invalid: {1}",
@@ -168,6 +169,7 @@ public sealed class BaseReadGenerator : IIncrementalGenerator
             result.Add(new MemberModel
             {
                 Name = property.Name,
+                WireName = ConstructorString(Find(property, JsonPropertyNameAttribute), 0) ?? property.Name,
                 Id = id,
                 Type = property.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                 TypedRecordIdTarget = TypedRecordIdTarget(unwrapped),
@@ -244,9 +246,11 @@ public sealed class BaseReadGenerator : IIncrementalGenerator
             .AppendLine("> Handle => Definition.Handle;\n");
         source.Append("    private static global::HPD.Base.BaseReadDefinition<").Append(model.FullTypeName).Append(", ").Append(model.RowFullTypeName)
             .AppendLine("> CreateHPDBaseReadDefinition()\n    {");
-        source.Append("        var parameterJson = ").Append(model.JsonContext).Append(".Default.GetTypeInfo(typeof(").Append(model.FullTypeName)
+        source.AppendLine("        var jsonOptions = new global::System.Text.Json.JsonSerializerOptions();");
+        source.Append("        var jsonContext = new ").Append(model.JsonContext).AppendLine("(jsonOptions);");
+        source.Append("        var parameterJson = jsonContext.GetTypeInfo(typeof(").Append(model.FullTypeName)
             .Append(")) as global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<").Append(model.FullTypeName).AppendLine("> ?? throw new global::System.InvalidOperationException(\"Missing generated read parameter JSON metadata.\");");
-        source.Append("        var rowJson = ").Append(model.JsonContext).Append(".Default.GetTypeInfo(typeof(").Append(model.RowFullTypeName)
+        source.Append("        var rowJson = jsonContext.GetTypeInfo(typeof(").Append(model.RowFullTypeName)
             .Append(")) as global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<").Append(model.RowFullTypeName).AppendLine("> ?? throw new global::System.InvalidOperationException(\"Missing generated read row JSON metadata.\");");
         source.Append("        return global::HPD.Base.BaseReadGeneratedContract.Create(").Append(Literal(model.Id)).AppendLine(", parameterJson, rowJson,");
         source.AppendLine("            new global::HPD.Base.BaseRelationalReadParameter[]");
@@ -342,6 +346,7 @@ public sealed class BaseReadGenerator : IIncrementalGenerator
     private static void AppendClientProperty(StringBuilder source, MemberModel member, string indent) => source
         .Append(indent).Append("new global::HPD.Base.BaseReadClientProperty { Id = ").Append(Literal(member.Id))
         .Append(", GeneratedName = ").Append(Literal(member.Name))
+        .Append(", WireName = ").Append(Literal(member.WireName))
         .Append(", Kind = global::HPD.Base.QueryValueKind.").Append(member.Kind)
         .Append(", Array = ").Append(member.IsArray ? "true" : "false")
         .Append(", Nullable = ").Append(member.ContainerNullable ? "true" : "false").AppendLine(" },");
@@ -420,7 +425,8 @@ public sealed class BaseReadGenerator : IIncrementalGenerator
         public List<MemberModel> Parameters; /// <summary>Provides the fields value.</summary>
         public List<MemberModel> Fields; }
     private sealed class MemberModel { /// <summary>Provides the name value.</summary>
-        public string Name; /// <summary>Provides the ID value.</summary>
+        public string Name;
+        public string WireName; /// <summary>Provides the ID value.</summary>
         public string Id; /// <summary>Provides the type value.</summary>
         public string Type; /// <summary>Provides the typed record ID target value.</summary>
         public string TypedRecordIdTarget; /// <summary>Provides the is array value.</summary>

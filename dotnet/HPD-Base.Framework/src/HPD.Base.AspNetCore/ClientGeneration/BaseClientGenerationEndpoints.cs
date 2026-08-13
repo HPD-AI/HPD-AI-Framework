@@ -365,7 +365,7 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
                 Kind = "object", AdditionalProperties = false,
                 Properties = properties.Select(property => new BaseClientPropertyDescriptor
                 {
-                    Name = property.GeneratedName, WireName = property.Id, TypeId = owner + "." + property.Id,
+                    Name = property.GeneratedName, WireName = property.WireName, TypeId = owner + "." + property.Id,
                     Required = !property.Nullable, Nullable = property.Nullable, DisclosureShape = "none"
                 }).ToArray()
             }

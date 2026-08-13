@@ -173,11 +173,13 @@ public sealed class RegisteredReadEndpointTests
         public JsonTypeInfo ParameterJsonTypeInfo => TestReadJsonContext.Default.TestReadParameters;
         public JsonTypeInfo RowJsonTypeInfo => TestReadJsonContext.Default.TestReadRow;
         public Type ResponseType => typeof(BasePage<TestReadRow>);
+        public string ParameterSerializerContractChecksum => new('a', 64);
+        public string RowSerializerContractChecksum => new('b', 64);
         public BaseReadClientContract ClientContract { get; } = new()
         {
             ParameterTypeId = "read.test-read.parameters", RowTypeId = "read.test-read.row",
-            Parameters = [new BaseReadClientProperty { Id = "search", GeneratedName = "search", Kind = QueryValueKind.String, Array = false, Nullable = false }],
-            Row = [new BaseReadClientProperty { Id = "value", GeneratedName = "value", Kind = QueryValueKind.String, Array = false, Nullable = false }]
+            Parameters = [new BaseReadClientProperty { Id = "search", GeneratedName = "search", WireName = "search", Kind = QueryValueKind.String, Array = false, Nullable = false }],
+            Row = [new BaseReadClientProperty { Id = "value", GeneratedName = "value", WireName = "value", Kind = QueryValueKind.String, Array = false, Nullable = false }]
         };
         public BaseReadPageRequest? RequestedPage { get; private set; }
 

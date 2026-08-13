@@ -25,8 +25,8 @@ public sealed class GeneratedCollectionTests
         GeneratedProject.Collection.Definition.Indexes![0].Parts.Should().ContainSingle();
         GeneratedProject.Collection.Definition.Indexes[0].Parts![0].FieldId
             .Should().Be("organization-id");
-        GeneratedProject.Collection.Definition.Fields![0].ApplicationName.Should().Be("OrganizationId");
-        GeneratedProject.Collection.Definition.Fields[0].WireName.Should().Be("organizationId");
+        GeneratedProject.Collection.Definition.Fields!.Single(field => field.Id == "organization-id").ApplicationName.Should().Be("OrganizationId");
+        GeneratedProject.Collection.Definition.Fields.Single(field => field.Id == "organization-id").WireName.Should().Be("organizationId");
         GeneratedProject.Collection.Definition.SerializerContractChecksum.Should().MatchRegex("^[0-9a-f]{64}$");
     }
 

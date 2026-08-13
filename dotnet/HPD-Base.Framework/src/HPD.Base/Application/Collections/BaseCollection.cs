@@ -1,7 +1,5 @@
 using System.Collections.ObjectModel;
 using System.Text.Json.Serialization.Metadata;
-using System.Security.Cryptography;
-using System.Text;
 
 namespace HPD.Base;
 /// <summary>
@@ -70,21 +68,8 @@ public sealed class BaseCollection<T>
 
     private static string SerializerChecksum(CollectionDefinition definition, JsonTypeInfo<T> metadata)
     {
-        var text = new StringBuilder("hpd.base.serializer.v1\n")
-            .Append(typeof(T).FullName).Append('\n');
-        JsonPropertyInfo[] properties = metadata.Properties.OrderBy(static property => property.Name, StringComparer.Ordinal).ToArray();
-        foreach (FieldDefinition field in (definition.Fields ?? []).OrderBy(static field => field.Id, StringComparer.Ordinal))
-        {
-            int ordinal = Array.FindIndex(properties, property => string.Equals(property.Name, field.WireName, StringComparison.Ordinal));
-            if (ordinal < 0 && typeof(T) != typeof(System.Text.Json.JsonElement))
-                throw new InvalidOperationException("base.schema.serializer.metadataInvalid");
-            JsonPropertyInfo? property = ordinal < 0 ? null : properties[ordinal];
-            text.Append(field.Id).Append('\n').Append(ordinal).Append('\n')
-                .Append(field.ApplicationName).Append('\n').Append(field.WireName).Append('\n')
-                .Append(property?.PropertyType.FullName ?? field.Type).Append('\n').Append(property?.Get is not null ? '1' : '0')
-                .Append(property?.Set is not null ? '1' : '0').Append('\n');
-        }
-        return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text.ToString())));
+        return BaseSerializerContract.Checksum(metadata,
+            (definition.Fields ?? []).Select(static field => (field.Id, field.ApplicationName, field.WireName)));
     }
 
     /// <summary>Performs snapshot.</summary>

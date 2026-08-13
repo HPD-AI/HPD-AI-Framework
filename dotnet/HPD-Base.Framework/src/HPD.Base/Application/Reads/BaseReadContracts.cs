@@ -86,6 +86,10 @@ public sealed class BaseReadDefinition<TParameters, TRow> : IBaseReadRegistratio
     internal IBaseReadRowCodec<TRow> RowCodec { get; }
     /// <summary>Gets the exact language-neutral client-generation contract.</summary>
     public BaseReadClientContract ClientContract { get; }
+    /// <summary>Gets the serializer checksum for parameters.</summary>
+    public string ParameterSerializerContractChecksum { get; internal set; } = string.Empty;
+    /// <summary>Gets the serializer checksum for result rows.</summary>
+    public string RowSerializerContractChecksum { get; internal set; } = string.Empty;
 
     JsonTypeInfo IBaseReadRegistration.ParameterJsonTypeInfo => ParameterJsonTypeInfo;
     JsonTypeInfo IBaseReadRegistration.RowJsonTypeInfo => RowJsonTypeInfo;
@@ -101,6 +105,8 @@ public sealed class BaseReadDefinition<TParameters, TRow> : IBaseReadRegistratio
     IReadOnlyList<string> IBaseReadRegistration.SecretOutputFieldIds => SecretOutputFieldIds;
     IReadOnlyList<string> IBaseReadRegistration.SystemSourceIds => SystemSourceIds;
     BaseReadClientContract IBaseReadRegistration.ClientContract => ClientContract;
+    string IBaseReadRegistration.ParameterSerializerContractChecksum => ParameterSerializerContractChecksum;
+    string IBaseReadRegistration.RowSerializerContractChecksum => RowSerializerContractChecksum;
 
     async ValueTask<BaseUntypedRegisteredReadResult> IBaseReadRegistration.ExecuteAsync(
         IBaseRegisteredReadRuntime runtime,
@@ -165,6 +171,8 @@ internal interface IBaseReadRegistration
     IReadOnlyList<string> SystemSourceIds { get; }
     /// <summary>Gets the exact language-neutral client contract.</summary>
     BaseReadClientContract ClientContract { get; }
+    string ParameterSerializerContractChecksum { get; }
+    string RowSerializerContractChecksum { get; }
     /// <summary>Executes the execute async operation.</summary>
     ValueTask<BaseUntypedRegisteredReadResult> ExecuteAsync(IBaseRegisteredReadRuntime runtime, object parameters, BaseReadPageRequest page, PrincipalContext principal, OperationContext operation, CancellationToken cancellationToken);
 }
@@ -191,6 +199,8 @@ public sealed record BaseReadClientProperty
     public required string Id { get; init; }
     /// <summary>Gets the deterministic generated property name.</summary>
     public required string GeneratedName { get; init; }
+    /// <summary>Gets the exact serializer-owned wire name.</summary>
+    public required string WireName { get; init; }
     /// <summary>Gets the closed query-value kind.</summary>
     public required QueryValueKind Kind { get; init; }
     /// <summary>Gets whether the value is a bounded array.</summary>
@@ -294,7 +304,9 @@ public static class BaseReadGeneratedContract
             sourceAuthority == BaseRegisteredReadSourceAuthority.Ordinary && systemSources.Length != 0 ||
             sourceAuthority == BaseRegisteredReadSourceAuthority.System && systemSources.Length == 0)
             throw new InvalidOperationException("The registered read confidentiality declaration is inconsistent.");
-        return new BaseReadDefinition<TParameters, TRow>(
+        parameterJson.Options.MakeReadOnly(); parameterJson.MakeReadOnly();
+        rowJson.Options.MakeReadOnly(); rowJson.MakeReadOnly();
+        var definition = new BaseReadDefinition<TParameters, TRow>(
             builder.Build(),
             parameterJson,
             rowJson,
@@ -312,6 +324,11 @@ public static class BaseReadGeneratedContract
             SecretOutputFieldIds = Array.AsReadOnly(secret),
             SystemSourceIds = Array.AsReadOnly(systemSources),
         };
+        definition.ParameterSerializerContractChecksum = BaseSerializerContract.Checksum(parameterJson,
+            clientContract.Parameters.Select(static value => (value.Id, value.GeneratedName, value.WireName)));
+        definition.RowSerializerContractChecksum = BaseSerializerContract.Checksum(rowJson,
+            clientContract.Row.Select(static value => (value.Id, value.GeneratedName, value.WireName)));
+        return definition;
     }
 
     private static string[] NormalizeIds(string[]? ids, string parameter)

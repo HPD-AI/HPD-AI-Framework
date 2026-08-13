@@ -235,6 +235,10 @@ public sealed record BaseLogicalRead
     public required string[] SourceIds { get; init; }
     /// <summary>Gets or sets projection Field Ids.</summary>
     public required string[] ProjectionFieldIds { get; init; }
+    /// <summary>Gets the parameter serializer checksum.</summary>
+    public required string ParameterSerializerContractChecksum { get; init; }
+    /// <summary>Gets the row serializer checksum.</summary>
+    public required string RowSerializerContractChecksum { get; init; }
 }
 
 /// <summary>Represents base Logical Schema.</summary>

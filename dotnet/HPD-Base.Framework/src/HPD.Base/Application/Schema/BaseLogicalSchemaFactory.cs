@@ -65,6 +65,8 @@ internal static class BaseLogicalSchemaFactory
             Id = read.Id,
             SourceIds = read.Plan.Sources.Select(static source => source.CollectionId).ToArray(),
             ProjectionFieldIds = read.Plan.Projection.Select(static projection => projection.FieldId).ToArray(),
+            ParameterSerializerContractChecksum = read.ParameterSerializerContractChecksum,
+            RowSerializerContractChecksum = read.RowSerializerContractChecksum,
         }).ToArray();
 
         string checksum = Checksum(options.ApplicationId, options.ContractVersion, collections, fields, relations, indexes, vectorIndexes, reads, storageProtection.Requirements);
@@ -114,7 +116,7 @@ internal static class BaseLogicalSchemaFactory
             Write(writer, value.VectorFieldId); Write(writer, value.VectorSpaceId); Write(writer, value.Dimensions);
             Write(writer, (int)value.Function); foreach (string field in value.FilterFieldIds) Write(writer, field);
         }
-        foreach (BaseLogicalRead value in reads) { Write(writer, "read"); Write(writer, value.Id); foreach (string source in value.SourceIds) Write(writer, source); foreach (string field in value.ProjectionFieldIds) Write(writer, field); }
+        foreach (BaseLogicalRead value in reads) { Write(writer, "read"); Write(writer, value.Id); Write(writer, value.ParameterSerializerContractChecksum); Write(writer, value.RowSerializerContractChecksum); foreach (string source in value.SourceIds) Write(writer, source); foreach (string field in value.ProjectionFieldIds) Write(writer, field); }
         foreach (BaseStorageProtectionRequirement value in storageRequirements.OrderBy(static item => item.OwningModuleId, StringComparer.Ordinal))
         {
             Write(writer, "storage-protection"); Write(writer, value.OwningModuleId);
