@@ -411,9 +411,17 @@ public sealed class BaseSchemaGenerator : IIncrementalGenerator
             foreach (IPropertySymbol property in properties)
             {
                 AttributeData ignore = Find(property, JsonIgnoreAttribute);
-                if (ignore is not null && (ignore.NamedArguments.Length == 0 || NamedInt64(ignore, "Condition", 1) == 1))
+                long ignoreCondition = NamedInt64(ignore, "Condition", 1);
+                if (ignore is not null && ignoreCondition == 1)
+                {
+                    totalProperties++;
+                    if (totalProperties > 4096) return Limit(property);
+                    node.Properties.Add(new ContextGraphProperty(
+                        named, property.Name, property.Type, JsonPropertyName(property), property.IsRequired,
+                        IsNullable(property), "stj-built-in", null, ignored: true, explicitNever: false));
                     continue;
-                if (ignore is not null)
+                }
+                if (ignore is not null && ignoreCondition != 0)
                 {
                     Unsupported(property, "conditional serializer omission is forbidden for authoritative members");
                     continue;
@@ -425,9 +433,10 @@ public sealed class BaseSchemaGenerator : IIncrementalGenerator
                         Unsupported(property, "non-public serializer members are forbidden");
                     continue;
                 }
-                if (Find(property, JsonPropertyOrderAttribute) is not null)
+                AttributeData propertyOrder = Find(property, JsonPropertyOrderAttribute);
+                if (propertyOrder is not null && ConstructorInt64(propertyOrder, 0, 0) != 0)
                 {
-                    Unsupported(property, "JsonPropertyOrder is forbidden");
+                    Unsupported(property, "nonzero JsonPropertyOrder is forbidden");
                     continue;
                 }
                 if (Find(property, JsonNumberHandlingAttribute) is not null)
@@ -480,7 +489,8 @@ public sealed class BaseSchemaGenerator : IIncrementalGenerator
                 if (totalProperties > 4096) return Limit(property);
                 node.Properties.Add(new ContextGraphProperty(
                     named, property.Name, property.Type, JsonPropertyName(property), property.IsRequired,
-                    IsNullable(property), converterIdentity, converterType));
+                    IsNullable(property), converterIdentity, converterType, ignored: false,
+                    explicitNever: ignore is not null && ignoreCondition == 0));
                 Visit(property.Type, depth + 1, 0, property);
             }
             return true;
@@ -533,7 +543,8 @@ public sealed class BaseSchemaGenerator : IIncrementalGenerator
             ITypeSymbol type = Unwrap(input);
             if (type is not INamedTypeSymbol named || !nodes.TryGetValue(named, out ContextGraphNode node) || !closure.Add(named)) return;
             properties.AddRange(node.Properties);
-            foreach (ContextGraphProperty property in node.Properties) Collect(property.PropertyType, closure, properties);
+            foreach (ContextGraphProperty property in node.Properties)
+                if (!property.Ignored) Collect(property.PropertyType, closure, properties);
         }
     }
 
@@ -594,6 +605,9 @@ public sealed class BaseSchemaGenerator : IIncrementalGenerator
         attribute?.ConstructorArguments.Length > index ? attribute.ConstructorArguments[index].Value as INamedTypeSymbol : null;
     private static string ConstructorString(AttributeData attribute, int index) =>
         attribute?.ConstructorArguments.Length > index ? attribute.ConstructorArguments[index].Value as string : null;
+    private static long ConstructorInt64(AttributeData attribute, int index, long fallback) =>
+        attribute?.ConstructorArguments.Length > index && attribute.ConstructorArguments[index].Value is object value
+            ? Convert.ToInt64(value, CultureInfo.InvariantCulture) : fallback;
     private static long NamedInt64(AttributeData attribute, string name, long fallback) =>
         attribute?.NamedArguments.FirstOrDefault(pair => pair.Key == name).Value.Value is object value
             ? Convert.ToInt64(value, CultureInfo.InvariantCulture) : fallback;
@@ -689,7 +703,9 @@ internal sealed class ContextGraphProperty
         bool required,
         bool nullable,
         string converterIdentity,
-        string converterType)
+        string converterType,
+        bool ignored,
+        bool explicitNever)
     {
         DeclaringType = declaringType;
         ApplicationName = applicationName;
@@ -699,6 +715,8 @@ internal sealed class ContextGraphProperty
         Nullable = nullable;
         ConverterIdentity = converterIdentity;
         ConverterType = converterType;
+        Ignored = ignored;
+        ExplicitNever = explicitNever;
     }
 
     internal INamedTypeSymbol DeclaringType { get; }
@@ -709,6 +727,8 @@ internal sealed class ContextGraphProperty
     internal bool Nullable { get; }
     internal string ConverterIdentity { get; }
     internal string ConverterType { get; }
+    internal bool Ignored { get; }
+    internal bool ExplicitNever { get; }
     internal string CanonicalKey => DeclaringType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) + "\0" +
         ApplicationName + "\0" + PropertyType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
 }

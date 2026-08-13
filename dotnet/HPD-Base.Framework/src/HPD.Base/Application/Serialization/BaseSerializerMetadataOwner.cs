@@ -9,6 +9,7 @@ internal interface IBaseSerializerMetadataSource
     bool Generated { get; }
     BaseSerializerContextRegistration? Registration { get; }
     IReadOnlyList<Type> RootTypes { get; }
+    IReadOnlyList<BaseSerializerPropertyDeclaration>? SerializerDeclarations { get; }
     void Bind(BaseSerializerMetadataOwner owner);
     CollectionDefinition? CollectionDefinition { get; }
 }
@@ -25,27 +26,29 @@ internal sealed class BaseSerializerMetadataOwner
         Dictionary<Type, JsonSerializerContext> contexts = sources.Where(static source => source.Registration is not null)
             .Select(static source => source.Registration!).GroupBy(static registration => registration.ContextType)
             .ToDictionary(static group => group.Key, static group => group.First().CreateOwned());
-        var roots = new List<JsonTypeInfo>();
+        var roots = new List<(JsonTypeInfo Info, IReadOnlyList<BaseSerializerPropertyDeclaration>? Declarations)>();
         foreach (IBaseSerializerMetadataSource source in sources)
         {
-            if (source.Registration is null) roots.AddRange(source.Roots);
+            if (source.Registration is null)
+                roots.AddRange(source.Roots.Select(info => (info, source.SerializerDeclarations)));
             else
             {
                 JsonSerializerContext context = contexts[source.Registration.ContextType];
-                roots.AddRange(source.RootTypes.Select(type => context.GetTypeInfo(type)
-                    ?? throw new InvalidOperationException("base.schema.serializer.metadataInvalid")));
+                roots.AddRange(source.RootTypes.Select(type => (
+                    context.GetTypeInfo(type) ?? throw new InvalidOperationException("base.schema.serializer.metadataInvalid"),
+                    source.SerializerDeclarations)));
             }
         }
         var owner = new BaseSerializerMetadataOwner(contexts);
         var contracts = new Dictionary<Type, string>();
-        foreach (JsonTypeInfo root in roots
-                     .OrderBy(static info => info.Type.FullName, StringComparer.Ordinal))
+        foreach ((JsonTypeInfo root, IReadOnlyList<BaseSerializerPropertyDeclaration>? declarations) in roots
+                     .OrderBy(static item => item.Info.Type.FullName, StringComparer.Ordinal))
         {
             foreach (JsonTypeInfo reachable in BaseSerializerContract.Reachable(root))
             {
                 if (reachable.Kind != JsonTypeInfoKind.Object || reachable.Type == typeof(System.Text.Json.JsonElement))
                     continue;
-                string fingerprint = BaseSerializerContract.GraphFingerprint(reachable);
+                string fingerprint = BaseSerializerContract.GraphFingerprint(reachable, declarations);
                 if (contracts.TryGetValue(reachable.Type, out string? existing) &&
                     !string.Equals(existing, fingerprint, StringComparison.Ordinal))
                     throw new InvalidOperationException("base.schema.serializer.contextContractAmbiguous");

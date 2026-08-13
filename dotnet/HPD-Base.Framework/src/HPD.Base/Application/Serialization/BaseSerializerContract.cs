@@ -37,6 +37,8 @@ internal static class BaseSerializerContract
                     ExplicitWireName = property.Name,
                     Required = property.IsRequired,
                     Nullable = property.IsGetNullable,
+                    Ignored = property.Get is null && property.Set is null,
+                    ExplicitNever = false,
                 };
             }).ToArray();
         }
@@ -49,7 +51,8 @@ internal static class BaseSerializerContract
             ? bindingArray.Select(binding => root.Properties.Single(property =>
                 string.Equals(property.Name, binding.WireName, StringComparison.Ordinal))).ToArray()
             : [];
-        if (generatedDeclarations && root.Type != typeof(JsonElement) && rootProperties.Length != root.Properties.Count)
+        if (generatedDeclarations && root.Type != typeof(JsonElement) &&
+            rootProperties.Length != declarations!.Count(item => item.DeclaringType == root.Type && !item.Ignored))
             throw Invalid();
         foreach ((string id, string applicationName, string wireName) in bindingInput.OrderBy(static binding => binding.Id, StringComparer.Ordinal))
         {
@@ -73,7 +76,9 @@ internal static class BaseSerializerContract
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text.ToString())));
     }
 
-    internal static string GraphFingerprint(JsonTypeInfo root)
+    internal static string GraphFingerprint(
+        JsonTypeInfo root,
+        IReadOnlyList<BaseSerializerPropertyDeclaration>? declarations = null)
     {
         BaseSerializerOptionsContract.Validate(root.Options);
         root.Options.MakeReadOnly();
@@ -81,7 +86,7 @@ internal static class BaseSerializerContract
         text.Append(BaseSerializerOptionsContract.Receipt(root.Options)).Append('\n');
         var nodes = new Dictionary<Type, int>();
         int propertyCount = 0;
-        Append(root, root.Type, 0, 0, nodes, ref propertyCount, text, null);
+        Append(root, root.Type, 0, 0, nodes, ref propertyCount, text, declarations);
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text.ToString())));
     }
 
@@ -150,8 +155,18 @@ internal static class BaseSerializerContract
             });
         foreach ((JsonPropertyInfo property, BaseSerializerPropertyDeclaration? declaration) in properties)
         {
-            if (++propertyCount > MaximumProperties || property.IsExtensionData || property.Get is null || property.Order != 0 || property.ShouldSerialize is not null)
+            if (++propertyCount > MaximumProperties || property.IsExtensionData || property.Order != 0)
                 throw Invalid();
+            if (declaration?.Ignored == true)
+            {
+                if (property.PropertyType != declaration.PropertyType ||
+                    property.Get is not null && property.ShouldSerialize is null)
+                    throw Invalid();
+                text.Append("ignored:").Append(declaration.ApplicationName).Append(':').Append(property.Name).Append(':')
+                    .Append(CanonicalType(property.PropertyType)).Append('\n');
+                continue;
+            }
+            if (property.Get is null || property.ShouldSerialize is not null && declaration?.ExplicitNever != true) throw Invalid();
             if (declaration is not null && (property.PropertyType != declaration.PropertyType || property.IsRequired != declaration.Required)) throw Invalid();
             if (declaration is null && property.CustomConverter is not null || declaration is not null &&
                 ((declaration.ConverterType is null) != (property.CustomConverter is null) ||

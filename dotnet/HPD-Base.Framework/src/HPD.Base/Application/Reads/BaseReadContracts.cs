@@ -112,6 +112,8 @@ public sealed class BaseReadDefinition<TParameters, TRow> : IBaseReadRegistratio
     string IBaseReadRegistration.RowSerializerContractChecksum => RowSerializerContractChecksum;
     BaseSerializerContextRegistration? IBaseSerializerMetadataSource.Registration => SerializerRegistration;
     IReadOnlyList<Type> IBaseSerializerMetadataSource.RootTypes => [typeof(TParameters), typeof(TRow)];
+    IReadOnlyList<BaseSerializerPropertyDeclaration>? IBaseSerializerMetadataSource.SerializerDeclarations =>
+        ParameterDeclarations is null || RowDeclarations is null ? null : [.. ParameterDeclarations, .. RowDeclarations];
     IReadOnlyList<JsonTypeInfo> IBaseSerializerMetadataSource.Roots => _parameterJsonTypeInfo is null || _rowJsonTypeInfo is null ? [] : [_parameterJsonTypeInfo, _rowJsonTypeInfo];
     CollectionDefinition? IBaseSerializerMetadataSource.CollectionDefinition => null;
     void IBaseSerializerMetadataSource.Bind(BaseSerializerMetadataOwner owner)
@@ -172,6 +174,7 @@ internal interface IBaseReadRegistration : IBaseSerializerMetadataSource
     bool IBaseSerializerMetadataSource.Generated => true;
     BaseSerializerContextRegistration? IBaseSerializerMetadataSource.Registration => null;
     IReadOnlyList<Type> IBaseSerializerMetadataSource.RootTypes => [ParameterJsonTypeInfo.Type, RowJsonTypeInfo.Type];
+    IReadOnlyList<BaseSerializerPropertyDeclaration>? IBaseSerializerMetadataSource.SerializerDeclarations => null;
     void IBaseSerializerMetadataSource.Bind(BaseSerializerMetadataOwner owner) { }
     CollectionDefinition? IBaseSerializerMetadataSource.CollectionDefinition => null;
     /// <summary>Gets the response type.</summary>

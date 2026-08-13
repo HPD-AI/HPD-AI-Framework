@@ -200,6 +200,58 @@ public sealed class BaseReadGeneratorTests
         result.Source.Should().Contain("BaseReadGeneratedContract.Read<global::System.DateTimeOffset>");
     }
 
+    [Fact]
+    public void IgnoreNeverIsActiveAndAlwaysRequiresNoReadIdentity()
+    {
+        const string accepted = """
+            using HPD.Base;
+            using System.Text.Json.Serialization;
+            [BaseRead("read", typeof(AppJsonContext), RequiredGrantId = "read.execute")]
+            public partial record Read
+            {
+                [BaseReadParameter("read.value")]
+                [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+                public required string Value { get; init; }
+                [JsonIgnore(Condition = JsonIgnoreCondition.Always)]
+                public string LocalOnly { get; init; } = string.Empty;
+                public sealed partial record Row
+                {
+                    [BaseReadField("read.row.value")]
+                    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+                    public required string Value { get; init; }
+                }
+                public static void Configure(BaseReadDefinitionBuilder<Read, Row> read) { }
+            }
+            [JsonSerializable(typeof(Read))]
+            [JsonSerializable(typeof(Read.Row))]
+            public partial class AppJsonContext : JsonSerializerContext;
+            """;
+        const string rejected = """
+            using HPD.Base;
+            using System.Text.Json.Serialization;
+            [BaseRead("read", typeof(AppJsonContext), RequiredGrantId = "read.execute")]
+            public partial record Read
+            {
+                [BaseReadParameter("read.value")]
+                [JsonIgnore(Condition = JsonIgnoreCondition.Always)]
+                public required string Value { get; init; }
+                public sealed partial record Row
+                {
+                    [BaseReadField("read.row.value")] public required string Value { get; init; }
+                }
+                public static void Configure(BaseReadDefinitionBuilder<Read, Row> read) { }
+            }
+            [JsonSerializable(typeof(Read))]
+            [JsonSerializable(typeof(Read.Row))]
+            public partial class AppJsonContext : JsonSerializerContext;
+            """;
+
+        Result valid = Run(accepted);
+        valid.Diagnostics.Should().BeEmpty();
+        valid.Source.Should().Contain("CreateGenerated").And.Contain("LocalOnly");
+        Run(rejected).Diagnostics.Should().ContainSingle(item => item.Id == "HPDBASE020");
+    }
+
     private static Result Run(string source)
     {
         var parse = new CSharpParseOptions(LanguageVersion.CSharp14);

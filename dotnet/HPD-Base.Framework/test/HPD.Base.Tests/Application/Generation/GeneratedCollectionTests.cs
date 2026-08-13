@@ -94,6 +94,17 @@ public sealed class GeneratedCollectionTests
         manual.Definition.Should().BeEquivalentTo(GeneratedProject.Collection.Definition);
     }
 
+    [Fact]
+    public void ExplicitNeverZeroOrderAndInactiveAlwaysFinalizeThroughRealMetadata()
+    {
+        var services = new ServiceCollection();
+        Action finalize = () => services.AddHPDBase(builder => builder.AddCollection(GeneratedIgnoreContract.Collection));
+
+        finalize.Should().NotThrow();
+        GeneratedIgnoreContract.Collection.Definition.Fields.Should().ContainSingle()
+            .Which.ApplicationName.Should().Be(nameof(GeneratedIgnoreContract.Active));
+    }
+
     private static void FinalizeGenerated()
     {
         var services = new ServiceCollection();
@@ -115,6 +126,19 @@ internal sealed partial record GeneratedProject
     public string? OptionalNote { get; init; }
 }
 
+[BaseCollection("ignore-contract", typeof(GeneratedApplicationJsonContext))]
+internal sealed partial record GeneratedIgnoreContract
+{
+    [BaseField("ignore.active")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    [JsonPropertyOrder(0)]
+    public required string Active { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.Always)]
+    public string LocalOnly { get; init; } = string.Empty;
+}
+
 [JsonSerializable(typeof(GeneratedProject))]
+[JsonSerializable(typeof(GeneratedIgnoreContract))]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 internal sealed partial class GeneratedApplicationJsonContext : JsonSerializerContext;

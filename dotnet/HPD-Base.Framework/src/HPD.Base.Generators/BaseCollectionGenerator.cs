@@ -388,7 +388,7 @@ internal static class BaseCollectionGenerator
                 }
                 continue;
             }
-            if (serializerIgnored || FindAttribute(property, JsonIgnoreAttribute) is not null || property.SetMethod is null)
+            if (serializerIgnored || property.SetMethod is null)
             {
                 context.ReportDiagnostic(Diagnostic.Create(InvalidField, GetLocation(property), collectionId, property.Name, "active BASE fields require unconditional readable and writable serializer membership"));
                 return null;
@@ -783,6 +783,8 @@ internal static class BaseCollectionGenerator
                 ExplicitWireName = property.ExplicitWireName,
                 Required = property.Required,
                 Nullable = property.Nullable,
+                Ignored = property.Ignored,
+                ExplicitNever = property.ExplicitNever,
                 ConverterIdentity = property.ConverterIdentity,
                 ConverterType = property.ConverterType,
             }).ToList();
@@ -975,6 +977,8 @@ internal static class BaseCollectionGenerator
                 .Append(property.ExplicitWireName is null ? "null" : Literal(property.ExplicitWireName))
                 .Append(", ").Append(property.Required ? "true" : "false")
                 .Append(", ").Append(property.Nullable ? "true" : "false")
+                .Append(", ").Append(property.Ignored ? "true" : "false")
+                .Append(", ").Append(property.ExplicitNever ? "true" : "false")
                 .Append(", ").Append(Literal(property.ConverterIdentity))
                 .Append(", ").Append(property.ConverterType is null ? "null" : "typeof(" + property.ConverterType + ")")
                 .AppendLine("),");
@@ -1628,6 +1632,8 @@ internal static class BaseCollectionGenerator
         public string ExplicitWireName;
         public bool Required;
         public bool Nullable;
+        public bool Ignored;
+        public bool ExplicitNever;
         public string ConverterIdentity;
         public string ConverterType;
     }

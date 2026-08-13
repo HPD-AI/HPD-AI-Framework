@@ -358,6 +358,7 @@ public sealed class BaseCollectionGeneratorTests
     [InlineData("[JsonPropertyOrder(1)] public required string Value { get; init; }")]
     [InlineData("[JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)] public required int Value { get; init; }")]
     [InlineData("[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Value { get; init; }")]
+    [InlineData("[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] public string? Value { get; init; }")]
     [InlineData("[JsonInclude] public string Value { get; private set; } = string.Empty;")]
     [InlineData("public string Value { get; private set; } = string.Empty;")]
     [InlineData("public string Value { private get; init; } = string.Empty;")]
@@ -446,6 +447,92 @@ public sealed class BaseCollectionGeneratorTests
                 [JsonConstructor] public Payload(string value) => Value = value;
                 public string Value { get; init; }
             }
+            [JsonSerializable(typeof(First))]
+            [JsonSerializable(typeof(Second))]
+            public sealed partial class AppJsonContext : JsonSerializerContext;
+            """;
+
+        GeneratorResult result = Run(source);
+
+        result.Diagnostics.Should().ContainSingle(item => item.Id == "HPDBASE0447");
+        result.GeneratedSource.Should().NotContain("CreateGenerated").And.NotContain("RegisterContext");
+    }
+
+    [Fact]
+    public void JsonIgnoreNeverAndZeroOrderRemainActiveAcrossSharedRoots()
+    {
+        const string source = """
+            using HPD.Base;
+            using System.Text.Json.Serialization;
+            [BaseCollection("first", typeof(AppJsonContext))]
+            public sealed partial record First { [BaseField("first.payload")] public required Payload Payload { get; init; } }
+            [BaseCollection("second", typeof(AppJsonContext))]
+            public sealed partial record Second { [BaseField("second.payload")] public required Payload Payload { get; init; } }
+            public sealed record Payload
+            {
+                [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+                [JsonPropertyOrder(0)]
+                public required string Value { get; init; }
+            }
+            [JsonSerializable(typeof(First))]
+            [JsonSerializable(typeof(Second))]
+            public sealed partial class AppJsonContext : JsonSerializerContext;
+            """;
+
+        GeneratorResult result = Run(source);
+
+        result.Diagnostics.Should().BeEmpty();
+        result.GeneratedSource.Should().Contain("CreateGenerated").And.Contain("RegisterContext");
+    }
+
+    [Fact]
+    public void JsonIgnoreAlwaysOnBaseFieldFailsWhileInactiveNonBasePropertySucceeds()
+    {
+        const string invalid = """
+            using HPD.Base;
+            using System.Text.Json.Serialization;
+            [BaseCollection("invalid", typeof(AppJsonContext))]
+            public sealed partial record Invalid
+            {
+                [BaseField("invalid.value")]
+                [JsonIgnore(Condition = JsonIgnoreCondition.Always)]
+                public string Value { get; init; } = string.Empty;
+            }
+            [JsonSerializable(typeof(Invalid))]
+            public sealed partial class AppJsonContext : JsonSerializerContext;
+            """;
+        const string valid = """
+            using HPD.Base;
+            using System.Text.Json.Serialization;
+            [BaseCollection("valid", typeof(AppJsonContext))]
+            public sealed partial record Valid
+            {
+                [BaseField("valid.value")] public string Value { get; init; } = string.Empty;
+                [JsonIgnore(Condition = JsonIgnoreCondition.Always)] public string LocalOnly { get; init; } = string.Empty;
+            }
+            [JsonSerializable(typeof(Valid))]
+            public sealed partial class AppJsonContext : JsonSerializerContext;
+            """;
+
+        Run(invalid).Diagnostics.Should().ContainSingle(item => item.Id == "HPDBASE008");
+        GeneratorResult accepted = Run(valid);
+        accepted.Diagnostics.Should().BeEmpty();
+        accepted.GeneratedSource.Should().Contain("LocalOnly").And.Contain(", true, false, \"stj-built-in\"");
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(-1)]
+    public void NonzeroPropertyOrderFailsOnceForSharedNestedDto(int order)
+    {
+        string source = $$"""
+            using HPD.Base;
+            using System.Text.Json.Serialization;
+            [BaseCollection("first", typeof(AppJsonContext))]
+            public sealed partial record First { [BaseField("first.payload")] public required Payload Payload { get; init; } }
+            [BaseCollection("second", typeof(AppJsonContext))]
+            public sealed partial record Second { [BaseField("second.payload")] public required Payload Payload { get; init; } }
+            public sealed record Payload { [JsonPropertyOrder({{order}})] public required string Value { get; init; } }
             [JsonSerializable(typeof(First))]
             [JsonSerializable(typeof(Second))]
             public sealed partial class AppJsonContext : JsonSerializerContext;

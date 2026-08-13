@@ -43,6 +43,7 @@ public sealed class BaseCollection<T> : IBaseSerializerMetadataSource
     bool IBaseSerializerMetadataSource.Generated => Registration is not null;
     BaseSerializerContextRegistration? IBaseSerializerMetadataSource.Registration => Registration;
     IReadOnlyList<Type> IBaseSerializerMetadataSource.RootTypes => [typeof(T)];
+    IReadOnlyList<BaseSerializerPropertyDeclaration>? IBaseSerializerMetadataSource.SerializerDeclarations => _serializerDeclarations;
     private BaseSerializerContextRegistration? Registration { get; }
     void IBaseSerializerMetadataSource.Bind(BaseSerializerMetadataOwner owner)
     {

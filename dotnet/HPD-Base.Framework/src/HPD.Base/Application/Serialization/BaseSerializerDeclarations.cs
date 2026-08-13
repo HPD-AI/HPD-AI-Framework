@@ -18,6 +18,10 @@ public sealed record BaseSerializerPropertyDeclaration
     public bool Required { get; init; }
     /// <summary>Gets whether the getter may return null.</summary>
     public bool Nullable { get; init; }
+    /// <summary>Gets whether this declaration proves an inactive JsonIgnore(Always) member.</summary>
+    public bool Ignored { get; init; }
+    /// <summary>Gets whether JsonIgnore(Never) explicitly declares active membership.</summary>
+    public bool ExplicitNever { get; init; }
     /// <summary>Gets the closed stable converter contract identity.</summary>
     public string ConverterIdentity { get; init; } = "stj-built-in";
     /// <summary>Gets the exact explicit converter type, or null for a framework built-in.</summary>
@@ -27,7 +31,7 @@ public sealed record BaseSerializerPropertyDeclaration
     [EditorBrowsable(EditorBrowsableState.Never)]
     public static BaseSerializerPropertyDeclaration Create(
         Type declaringType, string applicationName, Type propertyType, string? explicitWireName,
-        bool required, bool nullable, string converterIdentity, Type? converterType) => new()
+        bool required, bool nullable, bool ignored, bool explicitNever, string converterIdentity, Type? converterType) => new()
     {
         DeclaringType = declaringType,
         ApplicationName = applicationName,
@@ -35,6 +39,8 @@ public sealed record BaseSerializerPropertyDeclaration
         ExplicitWireName = explicitWireName,
         Required = required,
         Nullable = nullable,
+        Ignored = ignored,
+        ExplicitNever = explicitNever,
         ConverterIdentity = converterIdentity,
         ConverterType = converterType,
     };

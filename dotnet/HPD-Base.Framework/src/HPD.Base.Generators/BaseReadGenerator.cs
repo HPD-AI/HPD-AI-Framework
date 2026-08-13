@@ -18,6 +18,7 @@ internal static class BaseReadGenerator
     private const string FieldAttribute = "HPD.Base.BaseReadFieldAttribute";
     private const string JsonSerializableAttribute = "System.Text.Json.Serialization.JsonSerializableAttribute";
     private const string JsonPropertyNameAttribute = "System.Text.Json.Serialization.JsonPropertyNameAttribute";
+    private const string JsonIgnoreAttribute = "System.Text.Json.Serialization.JsonIgnoreAttribute";
     private const string JsonOptionsAttribute = "System.Text.Json.Serialization.JsonSourceGenerationOptionsAttribute";
 
     private static readonly DiagnosticDescriptor InvalidRead = new(
@@ -171,6 +172,19 @@ internal static class BaseReadGenerator
             .OrderBy(static property => property.Locations.FirstOrDefault()?.SourceSpan.Start ?? int.MaxValue))
         {
             AttributeData attribute = Find(property, attributeName);
+            AttributeData ignore = Find(property, JsonIgnoreAttribute);
+            long ignoreCondition = NamedInt64(ignore, "Condition", 1);
+            if (ignore is not null && ignoreCondition == 1)
+            {
+                if (attribute is not null)
+                {
+                    context.ReportDiagnostic(Diagnostic.Create(
+                        InvalidRead, Location(property), readId,
+                        "JsonIgnore(Always) cannot suppress a declared BASE read member"));
+                    failed = true;
+                }
+                continue;
+            }
             if (attribute == null)
             {
                 context.ReportDiagnostic(Diagnostic.Create(MissingReadIdentity, Location(property), readId, property.Name, requiredAttribute));
@@ -346,6 +360,9 @@ internal static class BaseReadGenerator
         SymbolEqualityComparer.Default.Equals(ConstructorType(attribute, 0), target));
     private static AttributeData Find(ISymbol symbol, string name) => symbol.GetAttributes().FirstOrDefault(attribute => attribute.AttributeClass?.ToDisplayString() == name);
     private static string ConstructorString(AttributeData attribute, int index) => attribute?.ConstructorArguments.Length > index ? attribute.ConstructorArguments[index].Value as string : null;
+    private static long NamedInt64(AttributeData attribute, string name, long fallback) =>
+        attribute?.NamedArguments.FirstOrDefault(pair => pair.Key == name).Value.Value is object value
+            ? Convert.ToInt64(value, System.Globalization.CultureInfo.InvariantCulture) : fallback;
     private static int NamedEnum(AttributeData attribute, string name, int fallback) =>
         attribute.NamedArguments.FirstOrDefault(pair => pair.Key == name).Value.Value is int value ? value : fallback;
     private static string NamedString(AttributeData attribute, string name) =>
@@ -432,6 +449,8 @@ internal static class BaseReadGenerator
                 .Append(property.PropertyType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)).Append("), ")
                 .Append(property.ExplicitWireName is not null ? Literal(property.ExplicitWireName) : "null")
                 .Append(", ").Append(property.Required ? "true" : "false").Append(", ").Append(property.Nullable ? "true" : "false")
+                .Append(", ").Append(property.Ignored ? "true" : "false")
+                .Append(", ").Append(property.ExplicitNever ? "true" : "false")
                 .Append(", ").Append(Literal(property.ConverterIdentity)).Append(", ")
                 .Append(property.ConverterType is null ? "null" : "typeof(" + property.ConverterType + ")")
                 .AppendLine("),");
