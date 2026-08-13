@@ -13,8 +13,8 @@ builder.Services.AddSingleton<IPolicyEvaluator, SmokePolicyEvaluator>();
 builder.Services.AddAuthorizationBuilder().AddPolicy("application", policy => policy.RequireAssertion(_ => true));
 var items = BaseCollection.Define(
     "items",
-    HPDBaseJsonSerializerContext.Default.JsonElement,
-    static schema => schema.String("item.title", "title", BaseJsonProperty<JsonElement, string>.Bind(HPDBaseJsonSerializerContext.Default.JsonElement, "title")));
+    SmokeJsonContext.Default.SmokeRecord,
+    static schema => schema.String("item.title", "Title", BaseJsonProperty<SmokeRecord, string>.Bind(SmokeJsonContext.Default.SmokeRecord, "title")));
 builder.Services.AddHPDBase(hpd =>
 {
     hpd.AddRealtime()
@@ -272,3 +272,9 @@ internal sealed class SmokePolicyEvaluator : IPolicyEvaluator
         });
     }
 }
+
+internal sealed record SmokeRecord(string Title);
+
+[System.Text.Json.Serialization.JsonSerializable(typeof(SmokeRecord))]
+[System.Text.Json.Serialization.JsonSourceGenerationOptions(PropertyNamingPolicy = System.Text.Json.Serialization.JsonKnownNamingPolicy.CamelCase)]
+internal sealed partial class SmokeJsonContext : System.Text.Json.Serialization.JsonSerializerContext;
