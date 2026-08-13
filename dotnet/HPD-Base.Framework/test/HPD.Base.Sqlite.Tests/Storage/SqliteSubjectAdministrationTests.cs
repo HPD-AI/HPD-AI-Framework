@@ -51,6 +51,122 @@ public sealed class SqliteSubjectAdministrationTests
         }
     }
 
+    [Theory]
+    [InlineData("UPDATE hpd_base_subject_maintenance SET checksum=lower(hex(randomblob(32))) WHERE singleton=1;")]
+    [InlineData("UPDATE hpd_base_subject_rewrite_stage SET payload_json=x'7B7D' WHERE record_id='consumer-0000';")]
+    public async Task Rotation_rejects_corrupt_checkpoint_or_staged_payload_and_remains_closed(string corruption)
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"hpd-base-subject-corrupt-{Guid.NewGuid():N}.db");
+        const string checksum = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        CollectionDefinition collection = ConsumerCollection(checksum);
+        var options = new HPDBaseSqliteOptions
+        {
+            StoreId = $"subject-corrupt-{Guid.NewGuid():N}", DataSource = path, EnableWal = false,
+            AdministrationEnabled = true, Collections = [collection], ExportedSubjects = [SubjectDefinition(checksum)],
+        };
+        try
+        {
+            await using SqliteRecordStore store = SqliteTestFactory.Create(
+                options, administrationOperations: new OneShotSubjectRewriteInterruption());
+            byte[] epoch = await ReadEpochAsync(path);
+            for (int index = 0; index < 300; index++)
+                (await store.CreateAsync(collection, Create($"consumer-{index:D4}", Reference(epoch, 7)),
+                    Operation(BaseOperationKind.Create, collection.Id))).IsSuccess().Should().BeTrue();
+            (await store.RotateEpochAsync(Rotation(1))).IsSuccess().Should().BeFalse();
+
+            await using (var connection = new SqliteConnection($"Data Source={path};Pooling=False"))
+            {
+                await connection.OpenAsync();
+                await using SqliteCommand command = connection.CreateCommand();
+                command.CommandText = corruption;
+                await command.ExecuteNonQueryAsync();
+            }
+
+            OperationResult<BaseSubjectEpochRotationResult> resumed = await store.RotateEpochAsync(Rotation(1));
+            resumed.IsSuccess().Should().BeFalse();
+            resumed.Error!.Code.Should().Be(BaseSubjectErrorCodes.ProviderContractInvalid);
+            (await store.GetAsync(collection, new RecordId("consumer-0000"), Operation(BaseOperationKind.Get, collection.Id)))
+                .IsSuccess().Should().BeFalse();
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            foreach (string candidate in new[] { path, path + "-wal", path + "-shm" })
+                if (File.Exists(candidate)) File.Delete(candidate);
+        }
+    }
+
+    [Fact]
+    public async Task Rotation_projection_receives_true_previous_payload_and_changed_fields()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"hpd-base-subject-projection-{Guid.NewGuid():N}.db");
+        const string checksum = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        CollectionDefinition collection = ConsumerCollection(checksum);
+        var observer = new SubjectProjectionObserver();
+        try
+        {
+            await using SqliteRecordStore store = SqliteTestFactory.Create(new HPDBaseSqliteOptions
+            {
+                StoreId = $"subject-projection-{Guid.NewGuid():N}", DataSource = path, EnableWal = false,
+                AdministrationEnabled = true, Collections = [collection], ExportedSubjects = [SubjectDefinition(checksum)],
+            }, mutationProjectionContributors: [observer]);
+            byte[] epoch = await ReadEpochAsync(path);
+            (await store.CreateAsync(collection, Create("consumer-one", Reference(epoch, 7)),
+                Operation(BaseOperationKind.Create, collection.Id))).IsSuccess().Should().BeTrue();
+            observer.Facts.Clear();
+
+            (await store.RotateEpochAsync(Rotation(1))).IsSuccess().Should().BeTrue();
+
+            BaseAtomicMutationProjectionFact fact = observer.Facts.Should().ContainSingle().Subject;
+            fact.Before.Should().NotBeNull();
+            fact.After.Should().NotBeNull();
+            fact.Before!.Fields.Single(field => field.StableFieldId == "consumer.owner").Value.CanonicalJsonUtf8
+                .Should().NotEqual(fact.After!.Fields.Single(field => field.StableFieldId == "consumer.owner").Value.CanonicalJsonUtf8);
+            fact.ChangedFieldIds.Should().Equal("consumer.owner");
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            foreach (string candidate in new[] { path, path + "-wal", path + "-shm" })
+                if (File.Exists(candidate)) File.Delete(candidate);
+        }
+    }
+
+    [Fact]
+    public async Task Interrupted_final_publication_rolls_back_and_resumes_from_verified_stage()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"hpd-base-subject-finalize-{Guid.NewGuid():N}.db");
+        const string checksum = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        CollectionDefinition collection = ConsumerCollection(checksum);
+        var options = new HPDBaseSqliteOptions
+        {
+            StoreId = $"subject-finalize-{Guid.NewGuid():N}", DataSource = path, EnableWal = false,
+            AdministrationEnabled = true, Collections = [collection], ExportedSubjects = [SubjectDefinition(checksum)],
+        };
+        try
+        {
+            await using SqliteRecordStore store = SqliteTestFactory.Create(
+                options, administrationOperations: new OneShotPhaseInterruption("subjectRewriteBeforePublicationCommit"));
+            byte[] epoch = await ReadEpochAsync(path);
+            (await store.CreateAsync(collection, Create("consumer-one", Reference(epoch, 7)),
+                Operation(BaseOperationKind.Create, collection.Id))).IsSuccess().Should().BeTrue();
+
+            (await store.RotateEpochAsync(Rotation(1))).IsSuccess().Should().BeFalse();
+            (await store.GetAsync(collection, new RecordId("consumer-one"), Operation(BaseOperationKind.Get, collection.Id)))
+                .IsSuccess().Should().BeFalse();
+
+            OperationResult<BaseSubjectEpochRotationResult> resumed = await store.RotateEpochAsync(Rotation(1));
+            resumed.IsSuccess().Should().BeTrue(resumed.Error?.Code);
+            resumed.Value!.PublishedStateGeneration.Should().Be(2);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            foreach (string candidate in new[] { path, path + "-wal", path + "-shm" })
+                if (File.Exists(candidate)) File.Delete(candidate);
+        }
+    }
+
     [Fact]
     public async Task LoweringReceiptUsesExactInstalledPlanStoreAndSchemaAuthority()
     {
@@ -290,6 +406,34 @@ public sealed class SqliteSubjectAdministrationTests
         }
 
         public void DeleteFile(string path) => File.Delete(path);
+    }
+
+    private sealed class OneShotPhaseInterruption(string target) : ISqliteAdministrationOperationController
+    {
+        private int _remaining = 1;
+        public ValueTask BeforePhaseAsync(string phase, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (phase == target && Interlocked.Exchange(ref _remaining, 0) == 1)
+                throw new IOException("Injected interruption before subject publication commit.");
+            return ValueTask.CompletedTask;
+        }
+        public void DeleteFile(string path) => File.Delete(path);
+    }
+
+    private sealed class SubjectProjectionObserver : ISqliteAtomicMutationProjection, ISqliteAtomicMutationProjectionCatalog
+    {
+        public string Id => "subject-projection-observer";
+        public IReadOnlyList<SqliteProjectionStatement> Statements => [];
+        public IReadOnlyList<string> SchemaStatements => [];
+        public IReadOnlyList<string> RequiredSchemaTables => [];
+        public IReadOnlyList<SqliteProjectionTableShape> RequiredSchemaShapes => [];
+        public List<BaseAtomicMutationProjectionFact> Facts { get; } = [];
+        public ValueTask<OperationResult> ApplyAsync(ISqliteAtomicProjectionContext context, BaseAtomicMutationProjectionRequest request, CancellationToken cancellationToken = default)
+        {
+            Facts.AddRange(request.Mutations);
+            return ValueTask.FromResult(OperationResults.NoContent());
+        }
     }
 
     private static void InitializeAuthorityMetadata(string path)

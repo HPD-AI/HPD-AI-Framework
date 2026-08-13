@@ -923,7 +923,7 @@ public sealed partial class SqliteRecordStore
             var subjectAuthorities = new Dictionary<string, BaseSubjectTransactionAuthorityEvidence>(StringComparer.Ordinal);
             var intervals = captured.ReadIntervals.ToBuilder();
             int authorityReads = captured.Accounting.Records;
-            long retainedBytes = checked(captured.Accounting.TransientBytes + EstimatePlanBytes(plan));
+            long retainedBytes = checked(captured.Accounting.TransientBytes + CanonicalPlanRetainedBytes(plan));
             foreach (BaseAtomicMutationPlanItem item in plan.Items)
             {
                 if (item.SubjectLifecycle is not { } lifecycle) continue;
@@ -941,7 +941,7 @@ public sealed partial class SqliteRecordStore
                     lifetime = await ReadSubjectLifetimeAsync(lifecycle.ContractId, lifecycle.ContractVersion, lifecycle.SubjectId, token).ConfigureAwait(false);
                     authorityReads = checked(authorityReads + 1);
                     lifetimes[key] = lifetime;
-                    if (lifetime is not null) retainedBytes = checked(retainedBytes + EstimateLifetimeBytes(lifetime));
+                    if (lifetime is not null) retainedBytes = checked(retainedBytes + CanonicalLifetimeRetainedBytes(lifetime));
                 }
                 switch (lifecycle.Kind)
                 {
@@ -1004,7 +1004,7 @@ public sealed partial class SqliteRecordStore
                         lifetime = await ReadSubjectLifetimeAsync(definition.Id, definition.Version, validation.Reference.SubjectId, token).ConfigureAwait(false);
                         authorityReads = checked(authorityReads + 1);
                         lifetimes[key] = lifetime;
-                        if (lifetime is not null) retainedBytes = checked(retainedBytes + EstimateLifetimeBytes(lifetime));
+                        if (lifetime is not null) retainedBytes = checked(retainedBytes + CanonicalLifetimeRetainedBytes(lifetime));
                     }
                     if (contract is not null)
                         subjectAuthorities[$"{definition.Id}\n{definition.Version}"] = SubjectAuthority(definition.Id, definition.Version, contract);
@@ -1066,8 +1066,8 @@ public sealed partial class SqliteRecordStore
             BasePreparedSubjectValidationEvidence[] ownedValidations = validationEvidence.ToArray();
             long addedEvidenceBytes = checked(evidenceBytes - captured.Accounting.EvidenceBytes);
             long transient = checked(retainedBytes + addedEvidenceBytes
-                + ownedOverlays.Sum(EstimateOverlayBytes)
-                + ownedAuthorities.Sum(EstimateAuthorityBytes)
+                + ownedOverlays.Sum(CanonicalOverlayRetainedBytes)
+                + ownedAuthorities.Sum(CanonicalAuthorityRetainedBytes)
                 + ownedValidations.Sum(static value => sizeof(int) * 3L + CanonicalStringBytes(value.SourceFieldId)));
             int intervalCount = intervals.Count;
             if (authorityReads > plan.Limits.MaximumAuthorityReads || intervalCount > plan.Limits.MaximumReadIntervals
@@ -1097,8 +1097,8 @@ public sealed partial class SqliteRecordStore
         private static long CanonicalStringBytes(string? value) =>
             value is null ? sizeof(int) : checked(sizeof(int) + System.Text.Encoding.UTF8.GetByteCount(value));
 
-        private static long EstimateLifetimeBytes(SqlitePreparedSubjectLifetime value) => checked(
-            CanonicalStringBytes(value.ContractId)
+        private static long CanonicalLifetimeRetainedBytes(SqlitePreparedSubjectLifetime value) => checked(
+            8L + CanonicalStringBytes(value.ContractId)
             + sizeof(int)
             + CanonicalStringBytes(value.SubjectId.Value)
             + 16
@@ -1106,26 +1106,27 @@ public sealed partial class SqliteRecordStore
             + CanonicalStringBytes(value.RecordId.Value)
             + sizeof(long));
 
-        private static long EstimateOverlayBytes(BasePreparedSubjectOverlayEvidence value) => checked(
-            CanonicalStringBytes(value.ContractId)
+        private static long CanonicalOverlayRetainedBytes(BasePreparedSubjectOverlayEvidence value) => checked(
+            8L + CanonicalStringBytes(value.ContractId)
             + sizeof(int)
             + CanonicalStringBytes(value.SubjectId.Value)
             + sizeof(byte) * 3L
             + (value.Incarnation is null ? 0 : 16)
             + CanonicalStringBytes(value.Scope));
 
-        private static long EstimateAuthorityBytes(BaseSubjectTransactionAuthorityEvidence value) => checked(
-            CanonicalStringBytes(value.ContractId)
+        private static long CanonicalAuthorityRetainedBytes(BaseSubjectTransactionAuthorityEvidence value) => checked(
+            8L + CanonicalStringBytes(value.ContractId)
             + sizeof(int)
             + CanonicalStringBytes(value.ContractChecksum)
             + CanonicalStringBytes(value.StoreInstanceId)
             + sizeof(long) * 3L
             + 16);
 
-        private static long EstimatePlanBytes(BaseAtomicMutationPlan plan)
+        private static long CanonicalPlanRetainedBytes(BaseAtomicMutationPlan plan)
         {
-            long bytes = CanonicalStringBytes(plan.PlanDigest) + CanonicalStringBytes(plan.IntentDigest)
+            long bytes = 8L + CanonicalStringBytes(plan.PlanDigest) + CanonicalStringBytes(plan.IntentDigest)
                 + CanonicalStringBytes(plan.CaptureDigest) + sizeof(long) * 8L;
+            bytes = checked(bytes + 8L + plan.Items.Length * 8L);
             foreach (BaseAtomicMutationPlanItem item in plan.Items)
             {
                 bytes = checked(bytes + sizeof(int) * 3L + CanonicalStringBytes(item.Collection.Id)
@@ -1134,6 +1135,7 @@ public sealed partial class SqliteRecordStore
                     bytes = checked(bytes + JsonSerializer.SerializeToUtf8Bytes(
                         item.ProposedPayload, HPDBaseJsonSerializerContext.Default.RecordPayload).LongLength);
             }
+            bytes = checked(bytes + 8L + plan.SubjectValidations.Length * 8L);
             foreach (BaseSubjectReferenceValidationPlanItem validation in plan.SubjectValidations)
                 bytes = checked(bytes + sizeof(int) * 4L + CanonicalStringBytes(validation.SourceFieldId)
                     + CanonicalStringBytes(validation.ValidationPlanId)

@@ -126,7 +126,7 @@ CREATE TABLE IF NOT EXISTS {_names.SubjectMaintenance} (
 );
 CREATE TABLE IF NOT EXISTS {_names.SubjectRewriteStage} (
   collection_id TEXT NOT NULL, record_id TEXT NOT NULL, previous_revision INTEGER NOT NULL,
-  replacement_revision INTEGER NOT NULL, payload_json BLOB NOT NULL,
+  replacement_revision INTEGER NOT NULL, previous_payload_json BLOB NOT NULL, payload_json BLOB NOT NULL,
   PRIMARY KEY(collection_id,record_id)
 ) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS {_names.MutationJournal} (
@@ -296,7 +296,7 @@ CREATE TABLE IF NOT EXISTS {_names.SubjectMaintenance} (
 );
 CREATE TABLE IF NOT EXISTS {_names.SubjectRewriteStage} (
   collection_id TEXT NOT NULL, record_id TEXT NOT NULL, previous_revision INTEGER NOT NULL,
-  replacement_revision INTEGER NOT NULL, payload_json BLOB NOT NULL,
+  replacement_revision INTEGER NOT NULL, previous_payload_json BLOB NOT NULL, payload_json BLOB NOT NULL,
   PRIMARY KEY(collection_id,record_id)
 ) WITHOUT ROWID;
 """, cancellationToken).ConfigureAwait(false);

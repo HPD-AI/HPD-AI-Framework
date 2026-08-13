@@ -113,7 +113,7 @@ public sealed record BaseSubjectValidationLimits
     public required long MaximumSelectedBytes { get; init; }
     /// <summary>Gets the maximum provider evidence bytes.</summary>
     public required long MaximumEvidenceBytes { get; init; }
-    /// <summary>Gets the maximum retained transient bytes.</summary>
+    /// <summary>Gets the maximum canonical retained-work bytes under the L45 encoding.</summary>
     public required long MaximumTransientBytes { get; init; }
     /// <summary>Gets the provider-session acquisition timeout.</summary>
     public required TimeSpan AcquisitionTimeout { get; init; }
@@ -313,7 +313,7 @@ public sealed record BaseSubjectReferenceCapability
     public required long MaximumSelectedBytes { get; init; }
     /// <summary>Gets the maximum provider evidence bytes.</summary>
     public required long MaximumEvidenceBytes { get; init; }
-    /// <summary>Gets the maximum retained transient bytes.</summary>
+    /// <summary>Gets the maximum canonical retained-work bytes under the L45 encoding.</summary>
     public required long MaximumTransientBytes { get; init; }
     /// <summary>Gets the maximum complete operation time.</summary>
     public required TimeSpan MaximumExecutionTime { get; init; }

@@ -42,12 +42,16 @@ internal sealed class DefaultBaseRegisteredReadRuntime(
             return Failure<TRow>(OperationStatus.ValidationFailed, "base.relational.read.invalid", "The registered read page is invalid.");
 
         BaseSubjectAcquisitionDefinition? acquisition = SubjectAcquisition(definition.Plan, definition.Id, definition.Audience, subjects);
+        TimeSpan acquisitionTimeout = _options.SnapshotAcquisitionTimeout;
         if (definition.Plan.Projection.Any(static projection => projection.Operand.Kind == BaseRelationalOperandKind.SubjectReference))
         {
             if (acquisition is null || page?.PerPage > acquisition.MaximumResults)
                 return Failure<TRow>(OperationStatus.NotFound, "base.systemCollection.accessForbidden", "The registered read was not found.");
             page ??= BaseReadPageRequest.Create(1, acquisition.MaximumResults);
             BaseGeneratedSubjectRegistration target = subjects.Find(acquisition.ContractId, acquisition.ContractVersion)!;
+            acquisitionTimeout = target.Definition.ValidationPlan.Limits.AcquisitionTimeout < acquisitionTimeout
+                ? target.Definition.ValidationPlan.Limits.AcquisitionTimeout
+                : acquisitionTimeout;
             OperationResult<BasePolicyEvaluation> acquisitionGrant = await policy.EvaluateReadAsync(new BasePolicyRequest
             {
                 Principal = principal,
@@ -160,7 +164,7 @@ internal sealed class DefaultBaseRegisteredReadRuntime(
             ParameterValues = encoded,
             SourcePolicies = sourcePolicies.ToArray(),
             Operation = operation,
-            AcquisitionTimeout = _options.SnapshotAcquisitionTimeout,
+            AcquisitionTimeout = acquisitionTimeout,
             ExecutionTimeout = _options.MaxExecutionDuration,
             MaxResultRows = Math.Min(_options.MaxResultRows, relational.RelationalReads.MaxResultRows),
             MaxResultBytes = Math.Min(_options.MaxResultBytes, relational.RelationalReads.MaxResultBytes),

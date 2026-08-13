@@ -2638,7 +2638,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             var subjectAuthorities = new Dictionary<string, BaseSubjectTransactionAuthorityEvidence>(StringComparer.Ordinal);
             var intervals = captured.ReadIntervals.ToBuilder();
             int authorityReads = captured.Accounting.Records;
-            long retainedBytes = checked(captured.Accounting.TransientBytes + EstimatePlanBytes(plan));
+            long retainedBytes = checked(captured.Accounting.TransientBytes + CanonicalPlanRetainedBytes(plan));
             foreach (BaseAtomicMutationPlanItem item in plan.Items)
             {
                 if (item.SubjectLifecycle is not { } lifecycle) continue;
@@ -2658,7 +2658,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     lifetimes[subjectKey] = existingLifetime;
                     authorityReads = checked(authorityReads + 1);
                     if (existingLifetime is not null)
-                        retainedBytes = checked(retainedBytes + EstimateLifetimeBytes(existingLifetime));
+                        retainedBytes = checked(retainedBytes + CanonicalLifetimeRetainedBytes(existingLifetime));
                 }
                 switch (lifecycle.Kind)
                 {
@@ -2753,7 +2753,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                         lifetimes[subjectKey] = lifetime;
                         authorityReads = checked(authorityReads + 1);
                         if (lifetime is not null)
-                            retainedBytes = checked(retainedBytes + EstimateLifetimeBytes(lifetime));
+                            retainedBytes = checked(retainedBytes + CanonicalLifetimeRetainedBytes(lifetime));
                     }
                     bool lifetimePresent = lifetime is not null;
                     if (contract is not null)
@@ -2826,8 +2826,8 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             BasePreparedSubjectValidationEvidence[] ownedValidations = validationEvidence.ToArray();
             long addedEvidenceBytes = checked(evidenceBytes - captured.Accounting.EvidenceBytes);
             retainedBytes = checked(retainedBytes + addedEvidenceBytes
-                + ownedOverlays.Sum(EstimateOverlayBytes)
-                + ownedAuthorities.Sum(EstimateAuthorityBytes)
+                + ownedOverlays.Sum(CanonicalOverlayRetainedBytes)
+                + ownedAuthorities.Sum(CanonicalAuthorityRetainedBytes)
                 + ownedValidations.Sum(static value => sizeof(int) * 3L + CanonicalStringBytes(value.SourceFieldId)));
             long transient = retainedBytes;
             int intervalCount = intervals.Count;
@@ -2858,8 +2858,8 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         private static long CanonicalStringBytes(string? value) =>
             value is null ? sizeof(int) : checked(sizeof(int) + System.Text.Encoding.UTF8.GetByteCount(value));
 
-        private static long EstimateLifetimeBytes(InMemorySubjectLifetimeState value) => checked(
-            CanonicalStringBytes(value.ContractId)
+        private static long CanonicalLifetimeRetainedBytes(InMemorySubjectLifetimeState value) => checked(
+            8L + CanonicalStringBytes(value.ContractId)
             + sizeof(int)
             + CanonicalStringBytes(value.SubjectId.Value)
             + 16
@@ -2867,26 +2867,27 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             + CanonicalStringBytes(value.PrivateRecordId.Value)
             + sizeof(long));
 
-        private static long EstimateOverlayBytes(BasePreparedSubjectOverlayEvidence value) => checked(
-            CanonicalStringBytes(value.ContractId)
+        private static long CanonicalOverlayRetainedBytes(BasePreparedSubjectOverlayEvidence value) => checked(
+            8L + CanonicalStringBytes(value.ContractId)
             + sizeof(int)
             + CanonicalStringBytes(value.SubjectId.Value)
             + sizeof(byte) * 3L
             + (value.Incarnation is null ? 0 : 16)
             + CanonicalStringBytes(value.Scope));
 
-        private static long EstimateAuthorityBytes(BaseSubjectTransactionAuthorityEvidence value) => checked(
-            CanonicalStringBytes(value.ContractId)
+        private static long CanonicalAuthorityRetainedBytes(BaseSubjectTransactionAuthorityEvidence value) => checked(
+            8L + CanonicalStringBytes(value.ContractId)
             + sizeof(int)
             + CanonicalStringBytes(value.ContractChecksum)
             + CanonicalStringBytes(value.StoreInstanceId)
             + sizeof(long) * 3L
             + 16);
 
-        private static long EstimatePlanBytes(BaseAtomicMutationPlan plan)
+        private static long CanonicalPlanRetainedBytes(BaseAtomicMutationPlan plan)
         {
-            long bytes = CanonicalStringBytes(plan.PlanDigest) + CanonicalStringBytes(plan.IntentDigest)
+            long bytes = 8L + CanonicalStringBytes(plan.PlanDigest) + CanonicalStringBytes(plan.IntentDigest)
                 + CanonicalStringBytes(plan.CaptureDigest) + sizeof(long) * 8L;
+            bytes = checked(bytes + 8L + plan.Items.Length * 8L);
             foreach (BaseAtomicMutationPlanItem item in plan.Items)
             {
                 bytes = checked(bytes + sizeof(int) * 3L + CanonicalStringBytes(item.Collection.Id)
@@ -2895,6 +2896,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     bytes = checked(bytes + JsonSerializer.SerializeToUtf8Bytes(
                         item.ProposedPayload, HPDBaseJsonSerializerContext.Default.RecordPayload).LongLength);
             }
+            bytes = checked(bytes + 8L + plan.SubjectValidations.Length * 8L);
             foreach (BaseSubjectReferenceValidationPlanItem validation in plan.SubjectValidations)
                 bytes = checked(bytes + sizeof(int) * 4L + CanonicalStringBytes(validation.SourceFieldId)
                     + CanonicalStringBytes(validation.ValidationPlanId)
