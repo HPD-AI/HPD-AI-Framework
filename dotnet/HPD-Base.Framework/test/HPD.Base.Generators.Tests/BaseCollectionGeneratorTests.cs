@@ -564,6 +564,37 @@ public sealed class BaseCollectionGeneratorTests
         Run(source).Diagnostics.Should().ContainSingle(item => item.Id == "HPDBASE0447");
     }
 
+    [Theory]
+    [InlineData("private static readonly Settings State = new();")]
+    [InlineData("private static Settings State => Settings.Current;")]
+    public void ConverterCannotRetainMutableReferencedStaticState(string stateMember)
+    {
+        string source = $$"""
+            using HPD.Base;
+            using System.Text.Json;
+            using System.Text.Json.Serialization;
+            [BaseCollection("converted", typeof(AppJsonContext))]
+            public sealed partial record ConvertedRecord
+            {
+                [BaseField("converted.value")]
+                [JsonConverter(typeof(StatefulConverter))]
+                public required string Value { get; init; }
+            }
+            public sealed class Settings { public static Settings Current { get; } = new(); }
+            [BaseSerializerConverter("vendor.converted", 1)]
+            public sealed class StatefulConverter : JsonConverter<string>
+            {
+                {{stateMember}}
+                public override string Read(ref Utf8JsonReader reader, System.Type type, JsonSerializerOptions options) => reader.GetString()!;
+                public override void Write(Utf8JsonWriter writer, string value, JsonSerializerOptions options) => writer.WriteStringValue(value);
+            }
+            [JsonSerializable(typeof(ConvertedRecord))]
+            public sealed partial class AppJsonContext : JsonSerializerContext;
+            """;
+
+        Run(source).Diagnostics.Should().ContainSingle(item => item.Id == "HPDBASE0447");
+    }
+
     private static GeneratorResult Run(string source)
     {
         var parseOptions = new CSharpParseOptions(LanguageVersion.CSharp14);

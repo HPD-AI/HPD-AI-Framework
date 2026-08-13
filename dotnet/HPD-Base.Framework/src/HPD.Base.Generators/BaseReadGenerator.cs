@@ -173,6 +173,7 @@ public sealed class BaseReadGenerator : IIncrementalGenerator
                 Name = property.Name,
                 WireName = ConstructorString(Find(property, JsonPropertyNameAttribute), 0) ?? property.Name,
                 ExplicitWireName = Find(property, JsonPropertyNameAttribute) is not null,
+                Required = property.IsRequired,
                 Id = id,
                 Type = property.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                 TypedRecordIdTarget = TypedRecordIdTarget(unwrapped),
@@ -249,16 +250,14 @@ public sealed class BaseReadGenerator : IIncrementalGenerator
             .AppendLine("> Handle => Definition.Handle;\n");
         source.Append("    private static global::HPD.Base.BaseReadDefinition<").Append(model.FullTypeName).Append(", ").Append(model.RowFullTypeName)
             .AppendLine("> CreateHPDBaseReadDefinition()\n    {");
-        source.Append("        var jsonOptions = global::HPD.Base.BaseSerializerGeneratedContract.CreateOptions(");
-        source.Append(model.JsonNamingPolicy == null ? "null" : "global::System.Text.Json.JsonNamingPolicy." + model.JsonNamingPolicy).AppendLine(");");
-        source.Append("        var jsonContext = global::HPD.Base.BaseSerializerGeneratedContract.GetContext(() => new ").Append(model.JsonContext).AppendLine("(jsonOptions));");
-        source.Append("        var parameterJson = jsonContext.GetTypeInfo(typeof(").Append(model.FullTypeName)
-            .Append(")) as global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<").Append(model.FullTypeName).AppendLine("> ?? throw new global::System.InvalidOperationException(\"Missing generated read parameter JSON metadata.\");");
-        source.Append("        var rowJson = jsonContext.GetTypeInfo(typeof(").Append(model.RowFullTypeName)
-            .Append(")) as global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<").Append(model.RowFullTypeName).AppendLine("> ?? throw new global::System.InvalidOperationException(\"Missing generated read row JSON metadata.\");");
-        foreach (MemberModel member in model.Parameters) AppendWireBinding(source, member, "parameterJson", "parameter");
-        foreach (MemberModel member in model.Fields) AppendWireBinding(source, member, "rowJson", "row");
-        source.Append("        return global::HPD.Base.BaseReadGeneratedContract.Create(").Append(Literal(model.Id)).AppendLine(", parameterJson, rowJson,");
+        source.Append("        var jsonRegistration = global::HPD.Base.BaseSerializerGeneratedContract.RegisterContext(() => new ").Append(model.JsonContext)
+            .Append("(global::HPD.Base.BaseSerializerGeneratedContract.CreateOptions(")
+            .Append(model.JsonNamingPolicy == null ? "null" : "global::System.Text.Json.JsonNamingPolicy." + model.JsonNamingPolicy).AppendLine(")));");
+        foreach (MemberModel member in model.Parameters) AppendOpaqueWireBinding(source, member, model.FullTypeName, "parameter");
+        foreach (MemberModel member in model.Fields) AppendOpaqueWireBinding(source, member, model.RowFullTypeName, "row");
+        source.Append("        return global::HPD.Base.BaseReadGeneratedContract.CreateGenerated(").Append(Literal(model.Id)).AppendLine(", jsonRegistration,");
+        AppendReadDeclarations(source, model.Parameters, model.FullTypeName);
+        AppendReadDeclarations(source, model.Fields, model.RowFullTypeName);
         source.AppendLine("            new global::HPD.Base.BaseRelationalReadParameter[]");
         source.AppendLine("            {");
         foreach (MemberModel member in model.Parameters)
@@ -375,6 +374,29 @@ public sealed class BaseReadGenerator : IIncrementalGenerator
             .AppendLine(".Name.AsSpan());");
     }
 
+    private static void AppendOpaqueWireBinding(StringBuilder source, MemberModel member, string declaringType, string prefix)
+    {
+        source.Append("        string __wire_").Append(prefix).Append('_').Append(member.Name)
+            .Append(" = global::HPD.Base.BaseSerializerGeneratedContract.WireName(jsonRegistration, typeof(").Append(declaringType)
+            .Append("), ").Append(Literal(member.Name)).Append(", ")
+            .Append(member.ExplicitWireName ? Literal(member.WireName) : "null").AppendLine(");");
+    }
+
+    private static void AppendReadDeclarations(StringBuilder source, IEnumerable<MemberModel> members, string declaringType)
+    {
+        source.AppendLine("            new global::HPD.Base.BaseSerializerPropertyDeclaration[]");
+        source.AppendLine("            {");
+        foreach (MemberModel member in members)
+        {
+            source.Append("                global::HPD.Base.BaseSerializerPropertyDeclaration.Create(typeof(").Append(declaringType)
+                .Append("), ").Append(Literal(member.Name)).Append(", typeof(").Append(member.Type).Append("), ")
+                .Append(member.ExplicitWireName ? Literal(member.WireName) : "null")
+                .Append(", ").Append(member.Required ? "true" : "false").Append(", ").Append(member.ContainerNullable ? "true" : "false")
+                .AppendLine(", \"stj-built-in\", null),");
+        }
+        source.AppendLine("            },");
+    }
+
     private static void AppendClientProperty(StringBuilder source, MemberModel member, string prefix, string indent) => source
         .Append(indent).Append("new global::HPD.Base.BaseReadClientProperty { Id = ").Append(Literal(member.Id))
         .Append(", GeneratedName = ").Append(Literal(member.Name))
@@ -461,6 +483,7 @@ public sealed class BaseReadGenerator : IIncrementalGenerator
         public string Name;
         public string WireName; /// <summary>Provides the ID value.</summary>
         public bool ExplicitWireName;
+        public bool Required;
         public string Id; /// <summary>Provides the type value.</summary>
         public string Type; /// <summary>Provides the typed record ID target value.</summary>
         public string TypedRecordIdTarget; /// <summary>Provides the is array value.</summary>

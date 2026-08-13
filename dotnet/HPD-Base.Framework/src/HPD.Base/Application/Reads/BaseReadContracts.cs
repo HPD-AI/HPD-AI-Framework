@@ -86,6 +86,7 @@ public sealed class BaseReadDefinition<TParameters, TRow> : IBaseReadRegistratio
     internal IBaseReadRowCodec<TRow> RowCodec { get; }
     /// <summary>Gets the exact language-neutral client-generation contract.</summary>
     public BaseReadClientContract ClientContract { get; }
+    internal BaseSerializerContextRegistration? SerializerRegistration { get; set; }
     /// <summary>Gets the serializer checksum for parameters.</summary>
     public string ParameterSerializerContractChecksum { get; internal set; } = string.Empty;
     /// <summary>Gets the serializer checksum for result rows.</summary>
@@ -107,6 +108,8 @@ public sealed class BaseReadDefinition<TParameters, TRow> : IBaseReadRegistratio
     BaseReadClientContract IBaseReadRegistration.ClientContract => ClientContract;
     string IBaseReadRegistration.ParameterSerializerContractChecksum => ParameterSerializerContractChecksum;
     string IBaseReadRegistration.RowSerializerContractChecksum => RowSerializerContractChecksum;
+    BaseSerializerContextRegistration? IBaseSerializerMetadataSource.Registration => SerializerRegistration;
+    IReadOnlyList<Type> IBaseSerializerMetadataSource.RootTypes => [typeof(TParameters), typeof(TRow)];
 
     async ValueTask<BaseUntypedRegisteredReadResult> IBaseReadRegistration.ExecuteAsync(
         IBaseRegisteredReadRuntime runtime,
@@ -151,6 +154,8 @@ internal interface IBaseReadRegistration : IBaseSerializerMetadataSource
     JsonTypeInfo RowJsonTypeInfo { get; }
     IReadOnlyList<JsonTypeInfo> IBaseSerializerMetadataSource.Roots => [ParameterJsonTypeInfo, RowJsonTypeInfo];
     bool IBaseSerializerMetadataSource.Generated => true;
+    BaseSerializerContextRegistration? IBaseSerializerMetadataSource.Registration => null;
+    IReadOnlyList<Type> IBaseSerializerMetadataSource.RootTypes => [ParameterJsonTypeInfo.Type, RowJsonTypeInfo.Type];
     /// <summary>Gets the response type.</summary>
     Type ResponseType { get; }
     /// <summary>Gets the explicit HTTP exposure.</summary>
@@ -330,6 +335,45 @@ public static class BaseReadGeneratedContract
             clientContract.Parameters.Select(static value => (value.Id, value.GeneratedName, value.WireName)));
         definition.RowSerializerContractChecksum = BaseSerializerContract.Checksum(rowJson,
             clientContract.Row.Select(static value => (value.Id, value.GeneratedName, value.WireName)));
+        return definition;
+    }
+
+    /// <summary>Creates a generated read from an opaque serializer registration and closed declarations.</summary>
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public static BaseReadDefinition<TParameters, TRow> CreateGenerated<TParameters, TRow>(
+        string id,
+        BaseSerializerContextRegistration registration,
+        IReadOnlyList<BaseSerializerPropertyDeclaration> parameterDeclarations,
+        IReadOnlyList<BaseSerializerPropertyDeclaration> rowDeclarations,
+        BaseRelationalReadParameter[] parameters,
+        IBaseReadParameterCodec<TParameters> parameterCodec,
+        IBaseReadRowCodec<TRow> rowCodec,
+        BaseReadExposure exposure,
+        BaseReadAuthorization authorization,
+        BaseRegisteredReadDisclosure disclosure,
+        BaseRegisteredReadSourceAuthority sourceAuthority,
+        HPDBaseEndpointAudience audience,
+        string requiredGrantId,
+        string[] confidentialOutputFieldIds,
+        string[] secretOutputFieldIds,
+        string[] systemSourceIds,
+        BaseReadClientContract clientContract,
+        Action<BaseReadDefinitionBuilder<TParameters, TRow>> configure)
+    {
+        ArgumentNullException.ThrowIfNull(registration);
+        using BaseSerializerContextLease lease = registration.Open();
+        JsonTypeInfo<TParameters> parameterJson = lease.Context.GetTypeInfo(typeof(TParameters)) as JsonTypeInfo<TParameters>
+            ?? throw new InvalidOperationException("base.schema.serializer.metadataInvalid");
+        JsonTypeInfo<TRow> rowJson = lease.Context.GetTypeInfo(typeof(TRow)) as JsonTypeInfo<TRow>
+            ?? throw new InvalidOperationException("base.schema.serializer.metadataInvalid");
+        BaseReadDefinition<TParameters, TRow> definition = Create(id, parameterJson, rowJson, parameters, parameterCodec, rowCodec,
+            exposure, authorization, disclosure, sourceAuthority, audience, requiredGrantId, confidentialOutputFieldIds,
+            secretOutputFieldIds, systemSourceIds, clientContract, configure);
+        definition.SerializerRegistration = registration;
+        definition.ParameterSerializerContractChecksum = BaseSerializerContract.Checksum(parameterJson,
+            clientContract.Parameters.Select(static value => (value.Id, value.GeneratedName, value.WireName)), parameterDeclarations);
+        definition.RowSerializerContractChecksum = BaseSerializerContract.Checksum(rowJson,
+            clientContract.Row.Select(static value => (value.Id, value.GeneratedName, value.WireName)), rowDeclarations);
         return definition;
     }
 

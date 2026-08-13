@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 
 namespace HPD.Base;
 
@@ -11,29 +12,50 @@ public static class BaseSerializerGeneratedContract
     [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
     public static JsonSerializerOptions CreateOptions(JsonNamingPolicy? namingPolicy) => BaseSerializerOptionsContract.Create(namingPolicy);
 
-    /// <summary>Gets the one privately owned generated context for its exact context type.</summary>
+    /// <summary>Creates an opaque factory registration for one generated context.</summary>
     [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
-    public static TContext GetContext<TContext>(Func<TContext> factory)
-        where TContext : JsonSerializerContext => BaseGeneratedContextOwner<TContext>.Get(factory);
+    public static BaseSerializerContextRegistration RegisterContext<TContext>(Func<TContext> factory)
+        where TContext : JsonSerializerContext => new(() => factory());
+
+    /// <summary>Returns one verified wire name without exposing serializer metadata.</summary>
+    [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+    public static string WireName(BaseSerializerContextRegistration registration, Type declaringType, string applicationName, string? explicitWireName) =>
+        registration.WireName(declaringType, applicationName, explicitWireName);
 }
 
-internal static class BaseGeneratedContextOwner<TContext> where TContext : JsonSerializerContext
+/// <summary>An opaque generated serializer-context registration.</summary>
+[System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+public sealed class BaseSerializerContextRegistration
 {
-    private static readonly object Gate = new();
-    private static TContext? _context;
+    private readonly Func<JsonSerializerContext> _factory;
 
-    internal static TContext Get(Func<TContext> factory)
+    internal BaseSerializerContextRegistration(Func<JsonSerializerContext> factory) =>
+        _factory = factory ?? throw new ArgumentNullException(nameof(factory));
+
+    internal JsonSerializerContext CreateOwned()
     {
-        ArgumentNullException.ThrowIfNull(factory);
-        lock (Gate)
-        {
-            if (_context is not null) return _context;
-            TContext context = factory();
-            BaseSerializerOptionsContract.Validate(context.Options);
-            _context = context;
-            return context;
-        }
+        JsonSerializerContext context = _factory();
+        BaseSerializerOptionsContract.Validate(context.Options);
+        return context;
     }
+
+    internal string WireName(Type declaringType, string applicationName, string? explicitWireName)
+    {
+        using BaseSerializerContextLease lease = Open();
+        JsonTypeInfo info = lease.Context.GetTypeInfo(declaringType) ?? throw new InvalidOperationException("base.schema.serializer.metadataInvalid");
+        string expected = explicitWireName ?? info.Options.PropertyNamingPolicy?.ConvertName(applicationName) ?? applicationName;
+        JsonPropertyInfo property = info.Properties.SingleOrDefault(candidate => string.Equals(candidate.Name, expected, StringComparison.Ordinal))
+            ?? throw new InvalidOperationException("base.schema.serializer.metadataInvalid");
+        return new string(property.Name.AsSpan());
+    }
+
+    internal BaseSerializerContextLease Open() => new(CreateOwned());
+}
+
+internal sealed class BaseSerializerContextLease(JsonSerializerContext context) : IDisposable
+{
+    internal JsonSerializerContext Context { get; } = context;
+    public void Dispose() { }
 }
 
 internal static class BaseSerializerOptionsContract

@@ -45,6 +45,10 @@ public sealed class BaseReadGeneratorTests
         first.Source.Should().Contain("BaseReadParameter<global::ProjectName, string>");
         first.Source.Should().Contain("BaseReadField<global::ProjectName.Row, string>");
         first.Source.Should().Contain("BaseReadExposure.Admin, global::HPD.Base.BaseReadAuthorization.Admin");
+        first.Source.Should().Contain("CreateGenerated(");
+        first.Source.Should().Contain("BaseSerializerPropertyDeclaration.Create(typeof(global::ProjectName), \"Id\", typeof(string)");
+        first.Source.Should().Contain("BaseSerializerPropertyDeclaration.Create(typeof(global::ProjectName.Row), \"Name\", typeof(string)");
+        first.Source.Should().NotContain("GetContext(");
         first.Source.Should().NotContain("System.Type");
     }
 

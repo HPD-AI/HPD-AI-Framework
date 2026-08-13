@@ -318,7 +318,7 @@ public sealed class HPDBaseBuilder
         _schema?.Invoke(schemaOptions);
         schemaOptions.Validate();
         BaseApplicationGraphValidator.Validate(collections, _reads.Values, relationalOptions, schemaOptions);
-        BaseSerializerMetadataOwner.Validate(_serializerMetadata.Concat(_reads.Values));
+        BaseSerializerMetadataOwner serializerMetadataOwner = BaseSerializerMetadataOwner.Create(_serializerMetadata.Concat(_reads.Values));
         BaseStorageProtectionGraph storageProtection = BaseStorageProtectionContract.FinalizeGraph(
             _applicationStorageRequirements.Values,
             collections,
@@ -335,6 +335,7 @@ public sealed class HPDBaseBuilder
         _services.AddSingleton(new BaseCollectionRegistry(collections.ToDictionary(static collection => collection.Id, StringComparer.Ordinal)));
         _services.AddSingleton(logicalSchema);
         _services.AddSingleton(storageProtection);
+        _services.AddSingleton(serializerMetadataOwner);
         foreach (BaseSelectionOperationProfile profile in _selectionProfiles)
         {
             if (_selectionOptions is null || !Fits(profile, _selectionOptions))

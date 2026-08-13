@@ -827,32 +827,19 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         source.Append("    private static global::HPD.Base.BaseCollection<")
             .Append(model.FullTypeName).AppendLine("> CreateHPDBaseCollection()");
         source.AppendLine("    {");
-        source.Append("        var jsonOptions = global::HPD.Base.BaseSerializerGeneratedContract.CreateOptions(");
-        source.Append(model.JsonNamingPolicy == null ? "null" : "global::System.Text.Json.JsonNamingPolicy." + model.JsonNamingPolicy).AppendLine(");");
-        source.Append("        var jsonContext = global::HPD.Base.BaseSerializerGeneratedContract.GetContext(() => new ").Append(model.ContextTypeName).AppendLine("(jsonOptions));");
-        source.Append("        var jsonTypeInfo = jsonContext.GetTypeInfo(typeof(").Append(model.FullTypeName)
-            .Append(")) as global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<")
-            .Append(model.FullTypeName).AppendLine(">");
-        source.Append("            ?? throw new global::System.InvalidOperationException(")
-            .Append(Literal("The configured JSON context does not expose the generated record type."))
-            .AppendLine(");");
-        source.AppendLine("        jsonContext.Options.MakeReadOnly();");
-        source.AppendLine("        jsonTypeInfo.MakeReadOnly();");
+        source.Append("        var jsonRegistration = global::HPD.Base.BaseSerializerGeneratedContract.RegisterContext(() => new ").Append(model.ContextTypeName)
+            .Append("(global::HPD.Base.BaseSerializerGeneratedContract.CreateOptions(")
+            .Append(model.JsonNamingPolicy == null ? "null" : "global::System.Text.Json.JsonNamingPolicy." + model.JsonNamingPolicy).AppendLine(")));");
         foreach (FieldModel field in model.Fields)
         {
             source.Append("        string __wire_").Append(EscapeIdentifier(field.PropertyName)).Append(" = ");
-            if (field.ExplicitWireName)
-                source.Append(Literal(field.WireName));
-            else
-                source.Append("jsonTypeInfo.Options.PropertyNamingPolicy?.ConvertName(").Append(Literal(field.ApplicationName)).Append(") ?? ").Append(Literal(field.ApplicationName));
+            source.Append("global::HPD.Base.BaseSerializerGeneratedContract.WireName(jsonRegistration, typeof(").Append(model.FullTypeName).Append("), ")
+                .Append(Literal(field.ApplicationName)).Append(", ").Append(field.ExplicitWireName ? Literal(field.WireName) : "null").Append(')');
             source.AppendLine(";");
-            source.Append("        if (jsonTypeInfo.Properties.Count(property => global::System.String.Equals(property.Name, __wire_")
-                .Append(EscapeIdentifier(field.PropertyName)).AppendLine(", global::System.StringComparison.Ordinal)) != 1)");
-            source.Append("            throw new global::System.InvalidOperationException(").Append(Literal("The frozen serializer metadata does not contain exactly one declared BASE property.")).AppendLine(");");
         }
         source.AppendLine();
         source.Append("        return global::HPD.Base.BaseCollection<")
-            .Append(model.FullTypeName).AppendLine(">.Create(");
+            .Append(model.FullTypeName).AppendLine(">.CreateGenerated(");
         source.AppendLine("            new global::HPD.Base.CollectionDefinition");
         source.AppendLine("            {");
         source.Append("                Id = ").Append(Literal(model.CollectionId)).AppendLine(",");
@@ -878,7 +865,7 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
                 .Append(string.Join(", ", model.StorageRequirements)).AppendLine(" },");
         }
         source.AppendLine("            },");
-        source.AppendLine("            jsonTypeInfo,");
+        source.AppendLine("            jsonRegistration,");
         source.AppendLine("            fields =>");
         source.AppendLine("            {");
 
@@ -1205,13 +1192,19 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         if (constructors.Length != 1 || constructors[0].DeclaredAccessibility != Accessibility.Public || constructors[0].Parameters.Length != 0) return false;
         foreach (ISymbol member in converter.GetMembers())
         {
-            if (member is IFieldSymbol field && (!field.IsStatic || !field.IsReadOnly && !field.IsConst)) return false;
-            if (member is IPropertySymbol property && property.IsStatic && property.SetMethod is not null) return false;
-            if (member is IEventSymbol || member is IMethodSymbol method && method.MethodKind == MethodKind.EventAdd) return false;
+            if (member is IFieldSymbol field && (!field.IsConst || !ConverterConstant(field.Type))) return false;
+            if (member is IPropertySymbol property && property.IsStatic) return false;
+            if (member is IEventSymbol) return false;
             if (member is IFieldSymbol delegateField && delegateField.Type.TypeKind == TypeKind.Delegate) return false;
         }
         return true;
     }
+
+    private static bool ConverterConstant(ITypeSymbol type) => type.TypeKind == TypeKind.Enum || type.SpecialType is
+        SpecialType.System_Boolean or SpecialType.System_Byte or SpecialType.System_SByte or
+        SpecialType.System_Int16 or SpecialType.System_UInt16 or SpecialType.System_Int32 or SpecialType.System_UInt32 or
+        SpecialType.System_Int64 or SpecialType.System_UInt64 or SpecialType.System_Char or SpecialType.System_String or
+        SpecialType.System_Single or SpecialType.System_Double or SpecialType.System_Decimal;
 
     private static bool IsSupportedFieldType(ITypeSymbol type)
     {

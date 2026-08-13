@@ -69,6 +69,25 @@ public sealed partial class SerializerContractTests
             .Should().BeNull();
     }
 
+    [Fact]
+    public void GeneratedInfrastructureNeverReturnsOrCachesAContextPublicly()
+    {
+        typeof(BaseSerializerGeneratedContract).GetMethod("GetContext", BindingFlags.Public | BindingFlags.Static)
+            .Should().BeNull();
+        typeof(BaseSerializerContextRegistration).GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Should().BeEmpty();
+
+        int created = 0;
+        BaseSerializerContextRegistration registration = BaseSerializerGeneratedContract.RegisterContext(() =>
+        {
+            created++;
+            return new CamelContext(BaseSerializerGeneratedContract.CreateOptions(JsonNamingPolicy.CamelCase));
+        });
+        BaseSerializerGeneratedContract.WireName(registration, typeof(TwoFields), "Left", null).Should().Be("left");
+        BaseSerializerGeneratedContract.WireName(registration, typeof(TwoFields), "Right", null).Should().Be("right");
+        created.Should().Be(2, "each opaque lease owns fresh context metadata");
+    }
+
     private static BaseCollection<TwoFields> TwoFieldCollection(
         System.Text.Json.Serialization.Metadata.JsonTypeInfo<TwoFields> metadata,
         string leftId,

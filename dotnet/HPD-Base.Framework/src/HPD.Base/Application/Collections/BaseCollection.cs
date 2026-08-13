@@ -12,12 +12,12 @@ public sealed class BaseCollection<T> : IBaseSerializerMetadataSource
     private readonly ReadOnlyDictionary<string, object> _fields;
     /// <summary>Provides _definition.</summary>
     private readonly CollectionDefinition _definition;
-    private BaseCollection(CollectionDefinition definition, JsonTypeInfo<T> jsonTypeInfo, IReadOnlyDictionary<string, object> fields, bool generatedMetadata)
+    private BaseCollection(CollectionDefinition definition, JsonTypeInfo<T> jsonTypeInfo, IReadOnlyDictionary<string, object> fields, BaseSerializerContextRegistration? registration)
     {
         _definition = Snapshot(definition);
         JsonTypeInfo = jsonTypeInfo;
         _fields = new ReadOnlyDictionary<string, object>(new Dictionary<string, object>(fields, StringComparer.Ordinal));
-        GeneratedMetadata = generatedMetadata;
+        Registration = registration;
     }
 
     /// <summary>
@@ -37,8 +37,10 @@ public sealed class BaseCollection<T> : IBaseSerializerMetadataSource
     /// </summary>
     internal IReadOnlyDictionary<string, object> Fields => _fields;
     IReadOnlyList<JsonTypeInfo> IBaseSerializerMetadataSource.Roots => [JsonTypeInfo];
-    bool IBaseSerializerMetadataSource.Generated => GeneratedMetadata;
-    private bool GeneratedMetadata { get; }
+    bool IBaseSerializerMetadataSource.Generated => Registration is not null;
+    BaseSerializerContextRegistration? IBaseSerializerMetadataSource.Registration => Registration;
+    IReadOnlyList<Type> IBaseSerializerMetadataSource.RootTypes => [typeof(T)];
+    private BaseSerializerContextRegistration? Registration { get; }
 
     /// <summary>
     /// Creates a validated manual collection contract.
@@ -76,7 +78,31 @@ public sealed class BaseCollection<T> : IBaseSerializerMetadataSource
         {
             SerializerContractChecksum = SerializerChecksum(definition, jsonTypeInfo, fields.Items, serializerDeclarations)
         };
-        return new BaseCollection<T>(installed, jsonTypeInfo, fields.Items, serializerDeclarations is not null);
+        return new BaseCollection<T>(installed, jsonTypeInfo, fields.Items, null);
+    }
+
+    /// <summary>Creates a generated collection from an opaque serializer registration.</summary>
+    [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+    public static BaseCollection<T> CreateGenerated(
+        CollectionDefinition definition,
+        BaseSerializerContextRegistration registration,
+        Action<BaseCollectionFields<T>> configure,
+        IReadOnlyList<BaseSerializerPropertyDeclaration> serializerDeclarations)
+    {
+        ArgumentNullException.ThrowIfNull(registration);
+        using BaseSerializerContextLease lease = registration.Open();
+        JsonTypeInfo<T> metadata = lease.Context.GetTypeInfo(typeof(T)) as JsonTypeInfo<T>
+            ?? throw new InvalidOperationException("base.schema.serializer.metadataInvalid");
+        var fields = new BaseCollectionFields<T>();
+        configure(fields);
+        fields.Seal();
+        metadata.Options.MakeReadOnly();
+        metadata.MakeReadOnly();
+        CollectionDefinition installed = Snapshot(definition) with
+        {
+            SerializerContractChecksum = SerializerChecksum(definition, metadata, fields.Items, serializerDeclarations)
+        };
+        return new BaseCollection<T>(installed, metadata, fields.Items, registration);
     }
 
     private static string SerializerChecksum(CollectionDefinition definition, JsonTypeInfo<T> metadata, IReadOnlyDictionary<string, object> fields, IReadOnlyList<BaseSerializerPropertyDeclaration>? declarations)
