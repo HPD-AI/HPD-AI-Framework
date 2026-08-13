@@ -13,7 +13,7 @@ namespace HPD.Agent.SourceGenerator.SourceGeneration;
 [Generator]
 public sealed class AuthoritySchemaLedgerSourceGenerator : IIncrementalGenerator
 {
-    private const string ExpectedCanonicalSha256 = "aec2b67d1b258903dbe95d9d55c3b0fe1f923d6ee0863a23d79a772df2caa96e";
+    private const string ExpectedCanonicalSha256 = "3f1b89d3165c8edf516bc8509efbe25d33dd87c4a9c1fb884bea70ae159b1ac6";
     private static readonly DiagnosticDescriptor InvalidLedger = new(
         "HPDA002", "Invalid authority schema ledger", "Authority schema ledger is invalid: {0}",
         "HPD.Authority", DiagnosticSeverity.Error, true);

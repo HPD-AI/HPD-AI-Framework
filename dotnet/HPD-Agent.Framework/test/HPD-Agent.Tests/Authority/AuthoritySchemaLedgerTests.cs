@@ -65,14 +65,14 @@ public sealed class AuthoritySchemaLedgerTests
         Assert.Contains("hpd.authority-owner-payload.v1|38|GraphParticipantReservationCommand|hpd.authority-payload-graph-participant-reservation-command.v1|GraphParticipantReservationCommandV1|S1", AuthoritySchemaLedgerV1.AuthorityPayloadDiscriminators);
         Assert.Contains("hpd.authority-owner-payload.v1|41|GraphParticipantBindingFact|hpd.authority-payload-graph-participant-binding-fact.v1|GraphParticipantBindingFactV1|S1", AuthoritySchemaLedgerV1.AuthorityPayloadDiscriminators);
         Assert.Contains("hpd.authority-owner-payload.v1|42|GlobalParticipantClaimRecord|hpd.authority-payload-global-participant-claim-record.v1|GlobalParticipantClaimRecordV1|S1", AuthoritySchemaLedgerV1.AuthorityPayloadDiscriminators);
-        Assert.Contains("gpa|GlobalParticipantAllocatorJournalId|owner=S1|allocator=S1|authority", AuthoritySchemaLedgerV1.IdFamilies);
+        Assert.Contains("gpa|GlobalParticipantAllocatorJournalId|owner=S1|allocator=S1|authority|visibility=internal", AuthoritySchemaLedgerV1.IdFamilies);
     }
 
     [Fact]
     public void SchemaLedger_IdFamiliesExactlyMatchTheWrapperRegistry()
     {
         var wrappers = AuthorityIdFamilyRegistryV1.All.Select(
-            row => $"{row.Token}|{row.Type}|owner={row.Owner}|allocator={row.AllocatorOwner}|{row.Kind}");
+            row => $"{row.Token}|{row.Type}|owner={row.Owner}|allocator={row.AllocatorOwner}|{row.Kind}|visibility={row.Visibility}");
 
         Assert.Equal(wrappers, AuthoritySchemaLedgerV1.IdFamilies);
     }
@@ -82,8 +82,8 @@ public sealed class AuthoritySchemaLedgerTests
     {
         var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../"));
         var lines = File.ReadAllLines(Path.Combine(root, "src/HPD-Agent/Authority/Generated/authority-schema-ledger-v1.txt"));
-        Assert.Equal("# source-contract-sha256=39f826606dac7c545931161ba62104135e4690eac32ac0d18b1b0e9fe8f230c0", lines[0]);
-        Assert.Equal("# source-registry-sha256=870cf919058f07dd60693a47b0d10d7ca6cbe77a72fbddeccaac5dc7f1cba786", lines[1]);
+        Assert.Equal("# source-contract-sha256=18572cd5b12fe091ae41d174029ac9a9a42d5415352f52a1b5a46d9798485072", lines[0]);
+        Assert.Equal("# source-registry-sha256=c0dd400ecb11110a2d4858438dca91854de888ebfda0476ed9846819f201a099", lines[1]);
         var expected = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         List<string>? current = null;
         foreach (var line in lines)
