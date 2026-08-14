@@ -58,12 +58,126 @@ public sealed record BaseAtomicMutationIntent
 {
     /// <summary>Gets the canonical SHA-256 intent digest.</summary>
     public required string IntentDigest { get; init; }
-    /// <summary>Gets the required authority snapshot.</summary>
-    public required BaseAuthoritySnapshotRequirement Authority { get; init; }
+    /// <summary>Gets the coherent multi-collection authority requirement.</summary>
+    public required BaseAtomicMutationAuthorityRequirement Authority { get; init; }
     /// <summary>Gets dense canonical intent items.</summary>
     public required ImmutableArray<BaseAtomicMutationIntentItem> Items { get; init; }
-    /// <summary>Gets the complete immutable execution limits.</summary>
+}
+
+/// <summary>Classifies the one closed atomic execution shape.</summary>
+public enum BaseAtomicMutationExecutionKind
+{
+    /// <summary>Executes ordinary L30 record mutations.</summary>
+    RecordMutations = 0,
+    /// <summary>Executes one L43 selection mutation.</summary>
+    SelectionMutation = 1,
+    /// <summary>Executes one L50 registered module mutation.</summary>
+    ModuleMutation = 2,
+}
+
+/// <summary>Requests one transaction-bound capture under one safety authority.</summary>
+public sealed record BaseAtomicMutationCaptureRequest
+{
+    /// <summary>Gets the closed execution shape.</summary>
+    public required BaseAtomicMutationExecutionKind Kind { get; init; }
+    /// <summary>Gets the caller-semantic intent.</summary>
+    public required BaseAtomicMutationIntent Intent { get; init; }
+    /// <summary>Gets the optional L43 capture extension.</summary>
+    public BaseSelectionMutationCaptureExtension? Selection { get; init; }
+    /// <summary>Gets the optional L50 capture extension.</summary>
+    public BaseModuleMutationCaptureExtension? Module { get; init; }
+    /// <summary>Gets the sole complete safety envelope.</summary>
     public required BaseAtomicMutationExecutionLimits Limits { get; init; }
+}
+
+/// <summary>Extends capture with one L43 selection.</summary>
+public sealed record BaseSelectionMutationCaptureExtension
+{
+    /// <summary>Gets the installed operation profile ID.</summary>
+    public required string OperationProfileId { get; init; }
+    /// <summary>Gets the installed operation profile version.</summary>
+    public required int OperationProfileVersion { get; init; }
+    /// <summary>Gets the installed operation profile checksum.</summary>
+    public required string OperationProfileChecksum { get; init; }
+    /// <summary>Gets the selection request without independent limits or authority.</summary>
+    public required BaseAtomicSelectionRequest Selection { get; init; }
+}
+
+/// <summary>Extends capture with one registered module mutation.</summary>
+public sealed record BaseModuleMutationCaptureExtension
+{
+    /// <summary>Gets the installed operation ID.</summary>
+    public required string OperationId { get; init; }
+    /// <summary>Gets the installed operation version.</summary>
+    public required int OperationVersion { get; init; }
+    /// <summary>Gets the installed operation checksum.</summary>
+    public required string OperationChecksum { get; init; }
+    /// <summary>Gets the canonical request digest.</summary>
+    public required string RequestDigest { get; init; }
+    /// <summary>Gets dense record captures.</summary>
+    public required ImmutableArray<BaseModuleRecordCaptureRequest> Records { get; init; }
+    /// <summary>Gets dense possible relation-target captures.</summary>
+    public required ImmutableArray<BaseModuleRelationTargetCaptureRequest> RelationTargets { get; init; }
+    /// <summary>Gets dense generation-cell captures.</summary>
+    public required ImmutableArray<BaseModuleGenerationCaptureRequest> Generations { get; init; }
+}
+
+/// <summary>Requests one module-owned record capture.</summary>
+public sealed record BaseModuleRecordCaptureRequest
+{
+    /// <summary>Gets the dense capture ordinal.</summary>
+    public required int Ordinal { get; init; }
+    /// <summary>Gets the stable capture ID.</summary>
+    public required string CaptureId { get; init; }
+    /// <summary>Gets the collection authority.</summary>
+    public required CollectionDefinition Collection { get; init; }
+    /// <summary>Gets the exact record ID.</summary>
+    public required RecordId RecordId { get; init; }
+    /// <summary>Gets the required presence state.</summary>
+    public required BaseModuleCapturePresence Presence { get; init; }
+}
+
+/// <summary>Requests one possible relation-target capture.</summary>
+public sealed record BaseModuleRelationTargetCaptureRequest
+{
+    /// <summary>Gets the dense capture ordinal.</summary>
+    public required int Ordinal { get; init; }
+    /// <summary>Gets the source statement ID.</summary>
+    public required string SourceStatementId { get; init; }
+    /// <summary>Gets the stable source field ID.</summary>
+    public required string SourceFieldId { get; init; }
+    /// <summary>Gets the target collection authority.</summary>
+    public required CollectionDefinition TargetCollection { get; init; }
+    /// <summary>Gets the exact target record ID.</summary>
+    public required RecordId TargetRecordId { get; init; }
+}
+
+/// <summary>Requests one read-only generation-cell capture.</summary>
+public sealed record BaseModuleGenerationCaptureRequest
+{
+    /// <summary>Gets the dense capture ordinal.</summary>
+    public required int Ordinal { get; init; }
+    /// <summary>Gets the stable capture ID.</summary>
+    public required string CaptureId { get; init; }
+    /// <summary>Gets the installed cell definition.</summary>
+    public required BaseModuleGenerationCellDefinition Cell { get; init; }
+    /// <summary>Gets the exact scope authority.</summary>
+    public required BaseModuleGenerationScopeAuthority Scope { get; init; }
+    /// <summary>Gets the canonical keyed-scope bytes.</summary>
+    public ImmutableArray<byte> KeyUtf8 { get; init; }
+    /// <summary>Gets the read-only absence requirement.</summary>
+    public required BaseModuleGenerationAbsenceBehavior Absence { get; init; }
+}
+
+/// <summary>Contains exact scope authority for one generation cell.</summary>
+public sealed record BaseModuleGenerationScopeAuthority
+{
+    /// <summary>Gets the scope kind.</summary>
+    public required BaseModuleGenerationScope Kind { get; init; }
+    /// <summary>Gets the tenant value only for tenant scope.</summary>
+    public string? Tenant { get; init; }
+    /// <summary>Gets the project value only for project scope.</summary>
+    public string? Project { get; init; }
 }
 
 /// <summary>Contains one provider-captured current-state item bound to an open atomic session.</summary>
@@ -99,12 +213,20 @@ public sealed record BaseCapturedRelationTarget
 }
 
 /// <summary>Contains exact provider accounting for authority capture.</summary>
-public sealed record BaseCaptureAccounting
+public sealed record BaseAtomicCaptureAccounting
 {
     /// <summary>Gets the captured record count.</summary>
     public required int Records { get; init; }
+    /// <summary>Gets the relation-target read count.</summary>
+    public required int RelationTargetReads { get; init; }
+    /// <summary>Gets the generation-cell read count.</summary>
+    public required int GenerationReads { get; init; }
     /// <summary>Gets canonical captured record bytes.</summary>
     public required long SelectedBytes { get; init; }
+    /// <summary>Gets canonical relation-target bytes.</summary>
+    public required long RelationTargetBytes { get; init; }
+    /// <summary>Gets canonical generation evidence bytes.</summary>
+    public required long GenerationBytes { get; init; }
     /// <summary>Gets normalized read-interval count.</summary>
     public required int ReadIntervals { get; init; }
     /// <summary>Gets retained evidence bytes.</summary>
@@ -116,18 +238,79 @@ public sealed record BaseCaptureAccounting
 /// <summary>Contains immutable authority captured from one open provider transaction.</summary>
 public sealed record BaseCapturedAtomicMutationAuthority
 {
+    /// <summary>Gets the closed execution shape.</summary>
+    public required BaseAtomicMutationExecutionKind Kind { get; init; }
     /// <summary>Gets the matching intent digest.</summary>
     public required string IntentDigest { get; init; }
     /// <summary>Gets the provider-authored capture digest.</summary>
     public required string CaptureDigest { get; init; }
     /// <summary>Gets the authoritative snapshot evidence.</summary>
-    public required BaseAuthoritySnapshotEvidence Authority { get; init; }
+    public required BaseAtomicMutationAuthorityEvidence Authority { get; init; }
     /// <summary>Gets dense captured items.</summary>
     public required ImmutableArray<BaseCapturedMutationItem> Items { get; init; }
+    /// <summary>Gets dense module record captures.</summary>
+    public required ImmutableArray<BaseCapturedModuleRecord> ModuleRecords { get; init; }
+    /// <summary>Gets dense module relation-target captures.</summary>
+    public required ImmutableArray<BaseCapturedModuleRelationTarget> ModuleRelationTargets { get; init; }
+    /// <summary>Gets dense module generation captures.</summary>
+    public required ImmutableArray<BaseCapturedModuleGeneration> Generations { get; init; }
     /// <summary>Gets normalized transaction read intervals.</summary>
     public required ImmutableArray<BaseAtomicReadIntervalEvidence> ReadIntervals { get; init; }
     /// <summary>Gets exact capture accounting.</summary>
-    public required BaseCaptureAccounting Accounting { get; init; }
+    public required BaseAtomicCaptureAccounting Accounting { get; init; }
+}
+
+/// <summary>Contains one captured L50 record.</summary>
+public sealed record BaseCapturedModuleRecord
+{
+    /// <summary>Gets the dense ordinal.</summary>
+    public required int Ordinal { get; init; }
+    /// <summary>Gets the stable capture ID.</summary>
+    public required string CaptureId { get; init; }
+    /// <summary>Gets the collection ID.</summary>
+    public required string CollectionId { get; init; }
+    /// <summary>Gets the record ID.</summary>
+    public required RecordId RecordId { get; init; }
+    /// <summary>Gets whether the record exists.</summary>
+    public required bool Exists { get; init; }
+    /// <summary>Gets the exact captured record when present.</summary>
+    public RecordEnvelope? Current { get; init; }
+}
+
+/// <summary>Contains one captured possible L50 relation target.</summary>
+public sealed record BaseCapturedModuleRelationTarget
+{
+    /// <summary>Gets the dense ordinal.</summary>
+    public required int Ordinal { get; init; }
+    /// <summary>Gets the source statement ID.</summary>
+    public required string SourceStatementId { get; init; }
+    /// <summary>Gets the stable source field ID.</summary>
+    public required string SourceFieldId { get; init; }
+    /// <summary>Gets the target collection ID.</summary>
+    public required string TargetCollectionId { get; init; }
+    /// <summary>Gets the target record ID.</summary>
+    public required RecordId TargetRecordId { get; init; }
+    /// <summary>Gets the exact captured target when present.</summary>
+    public RecordEnvelope? Current { get; init; }
+}
+
+/// <summary>Contains one captured L50 generation cell.</summary>
+public sealed record BaseCapturedModuleGeneration
+{
+    /// <summary>Gets the dense ordinal.</summary>
+    public required int Ordinal { get; init; }
+    /// <summary>Gets the stable capture ID.</summary>
+    public required string CaptureId { get; init; }
+    /// <summary>Gets the cell ID.</summary>
+    public required string CellId { get; init; }
+    /// <summary>Gets the cell version.</summary>
+    public required int CellVersion { get; init; }
+    /// <summary>Gets the canonical key digest.</summary>
+    public required string CanonicalKeyDigest { get; init; }
+    /// <summary>Gets whether the cell exists.</summary>
+    public required bool Exists { get; init; }
+    /// <summary>Gets the captured generation when present.</summary>
+    public BaseModuleGeneration? Generation { get; init; }
 }
 
 /// <summary>Contains one final canonical mutation item after transaction-bound policy evaluation.</summary>
@@ -241,7 +424,7 @@ public sealed record BaseAtomicMutationPlan
     /// <summary>Gets the bound provider capture digest.</summary>
     public required string CaptureDigest { get; init; }
     /// <summary>Gets the required authority snapshot.</summary>
-    public required BaseAuthoritySnapshotRequirement Authority { get; init; }
+    public required BaseAtomicMutationAuthorityRequirement Authority { get; init; }
     /// <summary>Gets dense canonical mutation items.</summary>
     public required ImmutableArray<BaseAtomicMutationPlanItem> Items { get; init; }
     /// <summary>Gets ordered exported-subject validation items.</summary>
@@ -255,6 +438,40 @@ public sealed record BaseAtomicMutationExecutionLimits
 {
     /// <summary>Gets the maximum mutation item count.</summary>
     public required int MaximumItems { get; init; }
+    /// <summary>Gets the maximum canonical query-node count.</summary>
+    public required int MaximumQueryNodes { get; init; }
+    /// <summary>Gets the maximum canonical query depth.</summary>
+    public required int MaximumQueryDepth { get; init; }
+    /// <summary>Gets the maximum literal-value count.</summary>
+    public required int MaximumLiteralValues { get; init; }
+    /// <summary>Gets the maximum selected-record count.</summary>
+    public required int MaximumSelectedRecords { get; init; }
+    /// <summary>Gets the maximum produced-mutation count.</summary>
+    public required int MaximumProducedMutations { get; init; }
+    /// <summary>Gets the maximum query execution count.</summary>
+    public required int MaximumQueryExecutions { get; init; }
+    /// <summary>Gets the maximum previous-state requirement count.</summary>
+    public required int MaximumPreviousStateRequirements { get; init; }
+    /// <summary>Gets the maximum module record-capture count.</summary>
+    public required int MaximumRecordCaptures { get; init; }
+    /// <summary>Gets the maximum module relation-target capture count.</summary>
+    public required int MaximumRelationTargetCaptures { get; init; }
+    /// <summary>Gets the maximum generation-cell read count.</summary>
+    public required int MaximumGenerationReads { get; init; }
+    /// <summary>Gets the maximum generation comparison count.</summary>
+    public required int MaximumGenerationComparisons { get; init; }
+    /// <summary>Gets the maximum generation increment count.</summary>
+    public required int MaximumGenerationIncrements { get; init; }
+    /// <summary>Gets the maximum guard-node count.</summary>
+    public required int MaximumGuardNodes { get; init; }
+    /// <summary>Gets the maximum guard depth.</summary>
+    public required int MaximumGuardDepth { get; init; }
+    /// <summary>Gets the maximum statement count.</summary>
+    public required int MaximumStatements { get; init; }
+    /// <summary>Gets the maximum branch count.</summary>
+    public required int MaximumBranches { get; init; }
+    /// <summary>Gets the maximum expression-node count.</summary>
+    public required int MaximumExpressionNodes { get; init; }
     /// <summary>Gets the maximum canonical selected bytes.</summary>
     public required long MaximumSelectedBytes { get; init; }
     /// <summary>Gets the maximum evidence bytes.</summary>
@@ -267,8 +484,26 @@ public sealed record BaseAtomicMutationExecutionLimits
     public required int MaximumSubjectValidations { get; init; }
     /// <summary>Gets the maximum authority reads.</summary>
     public required int MaximumAuthorityReads { get; init; }
-    /// <summary>Gets the complete transaction timeout.</summary>
-    public required TimeSpan ExecutionTimeout { get; init; }
+    /// <summary>Gets the maximum relation-check count.</summary>
+    public required int MaximumRelationChecks { get; init; }
+    /// <summary>Gets the maximum unique-constraint-check count.</summary>
+    public required int MaximumUniqueConstraintChecks { get; init; }
+    /// <summary>Gets the maximum canonical request bytes.</summary>
+    public required long MaximumRequestBytes { get; init; }
+    /// <summary>Gets the maximum retained generation bytes.</summary>
+    public required long MaximumGenerationBytes { get; init; }
+    /// <summary>Gets the maximum provisional written bytes.</summary>
+    public required long MaximumWrittenBytes { get; init; }
+    /// <summary>Gets the maximum mutation-fact bytes.</summary>
+    public required long MaximumFactBytes { get; init; }
+    /// <summary>Gets the maximum journal bytes.</summary>
+    public required long MaximumJournalBytes { get; init; }
+    /// <summary>Gets the maximum receipt bytes.</summary>
+    public required long MaximumReceiptBytes { get; init; }
+    /// <summary>Gets the maximum public result bytes.</summary>
+    public required long MaximumResultBytes { get; init; }
+    /// <summary>Gets the four independently owned execution deadlines.</summary>
+    public required BaseAtomicMutationDeadlines Deadlines { get; init; }
 }
 
 /// <summary>Contains one final subject-state overlay entry prepared without persistent writes.</summary>
@@ -354,7 +589,7 @@ public sealed record BasePreparedAtomicMutation
     /// <summary>Gets the finalized plan digest.</summary>
     public required string PlanDigest { get; init; }
     /// <summary>Gets authoritative provider snapshot evidence.</summary>
-    public required BaseAuthoritySnapshotEvidence Authority { get; init; }
+    public required BaseAtomicMutationAuthorityEvidence Authority { get; init; }
     /// <summary>Gets one ordered dynamic authority entry per referenced or lifecycle-mutated subject contract.</summary>
     public required ImmutableArray<BaseSubjectTransactionAuthorityEvidence> SubjectAuthorities { get; init; }
     /// <summary>Gets final resolved dispositions.</summary>
@@ -390,7 +625,7 @@ public sealed record BaseAppliedAtomicMutation
     /// <summary>Gets the applied plan digest.</summary>
     public required string PlanDigest { get; init; }
     /// <summary>Gets authoritative provider snapshot evidence.</summary>
-    public required BaseAuthoritySnapshotEvidence Authority { get; init; }
+    public required BaseAtomicMutationAuthorityEvidence Authority { get; init; }
     /// <summary>Gets deeply owned mutation facts.</summary>
     public required ImmutableArray<BaseOwnedMutationFact> Facts { get; init; }
     /// <summary>Gets the closed receipt result when identified.</summary>

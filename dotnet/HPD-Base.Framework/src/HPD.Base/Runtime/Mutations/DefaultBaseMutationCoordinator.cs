@@ -469,10 +469,24 @@ internal sealed class DefaultBaseMutationCoordinator(
                 ErrorCategory.Unsupported));
         }
 
-        OperationResult<BaseAuthoritySnapshotRequirement> authority = await store.AtomicStore
-            .CaptureSelectionAuthorityAsync(
+        BaseAtomicMutationExecutionLimits executionLimits = DefaultBaseMutationProcessor.CreateExecutionLimits(
+            commands,
+            _limits.MaxTransactionDuration,
+            subjects);
+        IReadOnlyDictionary<string, CollectionDefinition> installedCollections =
+            (descriptors.Current.Schema.Collections ?? []).ToDictionary(static collection => collection.Id, StringComparer.Ordinal);
+        CollectionDefinition[] authorityCollections = commands
+            .Select(static command => command.Collection)
+            .Concat(commands.SelectMany(command => DefaultBaseMutationProcessor.RelationTargetIntents(command, installedCollections)
+                .Select(static target => target.TargetCollection)))
+            .DistinctBy(static collection => collection.Id, StringComparer.Ordinal)
+            .OrderBy(static collection => collection.Id, StringComparer.Ordinal)
+            .ToArray();
+        OperationResult<BaseAtomicMutationAuthorityRequirement> authority = await store.AtomicStore
+            .CaptureAtomicMutationAuthorityRequirementAsync(
                 commands[0].Context.ApplicationId ?? string.Empty,
-                commands[0].Collection,
+                [.. authorityCollections],
+                executionLimits,
                 cancellationToken)
             .ConfigureAwait(false);
         if (!authority.IsSuccess() || authority.Value is null)
@@ -493,7 +507,7 @@ internal sealed class DefaultBaseMutationCoordinator(
             policy,
             normalizer,
             descriptors.Current.Schema.Collections ?? [],
-            _limits.MaxTransactionDuration,
+            executionLimits,
             authority.Value,
             subjects);
         var request = new RecordMutationExecutionRequest

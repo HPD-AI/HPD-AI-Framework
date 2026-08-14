@@ -555,19 +555,62 @@ internal sealed class BaseSelectionMutationProcessor(
         var limits = new BaseAtomicMutationExecutionLimits
         {
             MaximumItems = profile.Limits.MaximumProducedMutations,
+            MaximumQueryNodes = profile.Limits.MaximumQueryNodes,
+            MaximumQueryDepth = profile.Limits.MaximumQueryDepth,
+            MaximumLiteralValues = profile.Limits.MaximumLiteralValues,
+            MaximumSelectedRecords = profile.Limits.MaximumSelectedRecords,
+            MaximumProducedMutations = profile.Limits.MaximumProducedMutations,
+            MaximumQueryExecutions = profile.Limits.MaximumQueryExecutions,
+            MaximumPreviousStateRequirements = profile.Limits.MaximumPreviousStateRequirements,
+            MaximumRecordCaptures = 1,
+            MaximumRelationTargetCaptures = profile.Limits.MaximumProducedMutations,
+            MaximumGenerationReads = 1,
+            MaximumGenerationComparisons = 1,
+            MaximumGenerationIncrements = 1,
+            MaximumGuardNodes = 1,
+            MaximumGuardDepth = 1,
+            MaximumStatements = profile.Limits.MaximumProducedMutations,
+            MaximumBranches = 1,
+            MaximumExpressionNodes = 1,
             MaximumSelectedBytes = selectedByteLimit,
             MaximumEvidenceBytes = evidenceByteLimit,
             MaximumTransientBytes = transientByteLimit,
             MaximumReadIntervals = intervalLimit,
             MaximumSubjectValidations = subjectValidationLimit,
             MaximumAuthorityReads = authorityReadLimit,
-            ExecutionTimeout = executionTimeout,
+            MaximumRelationChecks = profile.Limits.MaximumProducedMutations,
+            MaximumUniqueConstraintChecks = profile.Limits.MaximumUniqueConstraintChecks,
+            MaximumRequestBytes = profile.Limits.MaximumTransientBytes,
+            MaximumGenerationBytes = 1,
+            MaximumWrittenBytes = profile.Limits.MaximumTransientBytes,
+            MaximumFactBytes = profile.Limits.MaximumTransientBytes,
+            MaximumJournalBytes = profile.Limits.MaximumTransientBytes,
+            MaximumReceiptBytes = profile.Limits.MaximumTransientBytes,
+            MaximumResultBytes = profile.Limits.MaximumTransientBytes,
+            Deadlines = new BaseAtomicMutationDeadlines
+            {
+                AcquisitionTimeout = executionTimeout,
+                TransactionTimeout = executionTimeout,
+                CommitObservationTimeout = executionTimeout,
+                ReceiptResolutionTimeout = executionTimeout,
+            },
         };
         var mutationPlan = new BaseAtomicMutationPlan
         {
             IntentDigest = captured.IntentDigest,
             CaptureDigest = captured.CaptureDigest,
-            Authority = authority with { },
+            Authority = new BaseAtomicMutationAuthorityRequirement
+            {
+                ApplicationId = authority.ApplicationId,
+                StoreInstanceId = authority.StoreInstanceId,
+                RestoreEpoch = authority.RestoreEpoch,
+                SchemaGeneration = authority.SchemaGeneration,
+                Collections = [new BaseCollectionGenerationRequirement
+                {
+                    CollectionId = collection.Id,
+                    CollectionGeneration = authority.CollectionGeneration,
+                }],
+            },
             Items = finalized,
             SubjectValidations = subjectPlan.Value.Validations,
             Limits = limits,
@@ -651,7 +694,8 @@ internal sealed class BaseSelectionMutationProcessor(
             || !string.Equals(captured.Authority.StoreInstanceId, selection.Authority.StoreInstanceId, StringComparison.Ordinal)
             || captured.Authority.RestoreEpoch != selection.Authority.RestoreEpoch
             || captured.Authority.SchemaGeneration != selection.Authority.SchemaGeneration
-            || captured.Authority.CollectionGeneration != selection.Authority.CollectionGeneration)
+            || captured.Authority.Collections.Length != 1
+            || captured.Authority.Collections[0].CollectionGeneration != selection.Authority.CollectionGeneration)
             return false;
         for (int index = 0; index < selection.Records.Length; index++)
         {
@@ -844,7 +888,7 @@ internal sealed class BaseSelectionMutationProcessor(
         && prepared.Authority.StoreInstanceId == captured.Authority.StoreInstanceId
         && prepared.Authority.RestoreEpoch == captured.Authority.RestoreEpoch
         && prepared.Authority.SchemaGeneration == captured.Authority.SchemaGeneration
-        && prepared.Authority.CollectionGeneration == captured.Authority.CollectionGeneration
+        && prepared.Authority.Collections.SequenceEqual(captured.Authority.Collections)
         && (!HasSubjectWork(plan) || prepared.Authority.Isolation == captured.Authority.Isolation
             && prepared.Authority.TransactionEvidenceToken.AsSpan().SequenceEqual(captured.Authority.TransactionEvidenceToken.AsSpan())
             && captured.ReadIntervals.All(expected => prepared.ReadIntervals.Any(actual => IntervalEquals(expected, actual))))

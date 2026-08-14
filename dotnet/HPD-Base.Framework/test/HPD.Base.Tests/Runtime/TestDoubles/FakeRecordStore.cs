@@ -276,11 +276,12 @@ internal class FakeRecordStore : IAtomicRecordStore
         public void Close() => _active = false;
 
         public ValueTask<OperationResult<BaseCapturedAtomicMutationAuthority>> CaptureAtomicMutationAuthorityAsync(
-            BaseAtomicMutationIntent intent,
+            BaseAtomicMutationCaptureRequest request,
             CancellationToken cancellationToken = default)
         {
             EnsureActive();
             cancellationToken.ThrowIfCancellationRequested();
+            BaseAtomicMutationIntent intent = request.Intent;
             owner.GetCalls = checked(owner.GetCalls + intent.Items.Count(static item =>
                 item.RequestedKind is BaseRecordMutationKind.Patch or BaseRecordMutationKind.Replace or
                     BaseRecordMutationKind.Delete or BaseRecordMutationKind.Upsert));
@@ -329,24 +330,28 @@ internal class FakeRecordStore : IAtomicRecordStore
             long evidence = BaseSubjectCanonicalRetainedWork.MeasureIntervals(intervals);
             _captured = new BaseCapturedAtomicMutationAuthority
             {
+                Kind = request.Kind,
                 IntentDigest = intent.IntentDigest,
                 CaptureDigest = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(intent.IntentDigest))),
-                Authority = new BaseAuthoritySnapshotEvidence
+                Authority = new BaseAtomicMutationAuthorityEvidence
                 {
                     ApplicationId = intent.Authority.ApplicationId,
                     StoreInstanceId = owner.Capabilities.StoreId,
-                    RestoreEpoch = 0,
+                    RestoreEpoch = intent.Authority.RestoreEpoch,
                     SchemaGeneration = 1,
-                    CollectionGeneration = 1,
+                    Collections = intent.Authority.Collections,
                     Isolation = BaseAtomicSelectionIsolationClass.WriteOwningSerializable,
                     TransactionEvidenceToken = [1],
                 },
                 Items = items,
+                ModuleRecords = [], ModuleRelationTargets = [], Generations = [],
                 ReadIntervals = intervals,
-                Accounting = new BaseCaptureAccounting
+                Accounting = new BaseAtomicCaptureAccounting
                 {
                     Records = items.Length,
+                    RelationTargetReads = 0, GenerationReads = 0,
                     SelectedBytes = selected,
+                    RelationTargetBytes = 0, GenerationBytes = 0,
                     ReadIntervals = intervals.Length,
                     EvidenceBytes = evidence,
                     TransientBytes = selected + evidence,

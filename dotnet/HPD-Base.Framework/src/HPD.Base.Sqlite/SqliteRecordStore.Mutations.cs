@@ -789,15 +789,29 @@ public sealed partial class SqliteRecordStore
         }
 
         public ValueTask<OperationResult<BaseCapturedAtomicMutationAuthority>> CaptureAtomicMutationAuthorityAsync(
-            BaseAtomicMutationIntent intent,
+            BaseAtomicMutationCaptureRequest request,
             CancellationToken cancellationToken = default) => ExecuteAsync(BaseOperationKind.Query, cancellationToken, async token =>
         {
-            ArgumentNullException.ThrowIfNull(intent);
-            if (_capturedMutation is not null || intent.Items.IsDefaultOrEmpty || intent.Items.Length > intent.Limits.MaximumItems)
+            ArgumentNullException.ThrowIfNull(request);
+            BaseAtomicMutationIntent intent = request.Intent;
+            BaseAtomicMutationExecutionLimits limits = request.Limits;
+            if (_capturedMutation is not null || request.Kind != BaseAtomicMutationExecutionKind.RecordMutations
+                || request.Selection is not null || request.Module is not null
+                || intent.Items.IsDefaultOrEmpty || intent.Items.Length > limits.MaximumItems)
                 return SubjectFailure<BaseCapturedAtomicMutationAuthority>(BaseSubjectErrorCodes.ProviderContractInvalid);
             (string storeId, long restoreEpoch, long schemaGeneration) = await ReadAuthorityAsync(token).ConfigureAwait(false);
             if (!string.Equals(storeId, intent.Authority.StoreInstanceId, StringComparison.Ordinal) || restoreEpoch != intent.Authority.RestoreEpoch || schemaGeneration != intent.Authority.SchemaGeneration)
                 return SubjectFailure<BaseCapturedAtomicMutationAuthority>(BaseSubjectErrorCodes.SchemaGenerationChanged, OperationStatus.Conflict, ErrorCategory.Conflict);
+            foreach (BaseCollectionGenerationRequirement requirement in intent.Authority.Collections)
+            {
+                await using SqliteCommand generation = _connection.CreateCommand();
+                generation.Transaction = _transaction;
+                generation.CommandText = $"SELECT purge_generation FROM {_owner._names.Collections} WHERE collection_id=$collection;";
+                generation.Parameters.AddWithValue("$collection", requirement.CollectionId);
+                object? actual = await generation.ExecuteScalarAsync(token).ConfigureAwait(false);
+                if (actual is null or DBNull || Convert.ToInt64(actual, CultureInfo.InvariantCulture) != requirement.CollectionGeneration)
+                    return SubjectFailure<BaseCapturedAtomicMutationAuthority>(BaseSubjectErrorCodes.SchemaGenerationChanged, OperationStatus.Conflict, ErrorCategory.Conflict);
+            }
             var items = ImmutableArray.CreateBuilder<BaseCapturedMutationItem>(intent.Items.Length);
             var intervals = ImmutableArray.CreateBuilder<BaseAtomicReadIntervalEvidence>(intent.Items.Length);
             using var digest = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
@@ -878,23 +892,27 @@ public sealed partial class SqliteRecordStore
             ImmutableArray<BaseCapturedMutationItem> ownedItems = items.ToImmutable();
             ImmutableArray<BaseAtomicReadIntervalEvidence> ownedIntervals = intervals.ToImmutable();
             long transient = BaseSubjectCanonicalRetainedWork.MeasureCapture(intent, ownedItems, ownedIntervals);
-            if (selectedBytes > intent.Limits.MaximumSelectedBytes || evidenceBytes > intent.Limits.MaximumEvidenceBytes || transient > intent.Limits.MaximumTransientBytes || intervals.Count > intent.Limits.MaximumReadIntervals)
+            if (selectedBytes > limits.MaximumSelectedBytes || evidenceBytes > limits.MaximumEvidenceBytes || transient > limits.MaximumTransientBytes || intervals.Count > limits.MaximumReadIntervals)
                 return SubjectFailure<BaseCapturedAtomicMutationAuthority>(BaseSubjectErrorCodes.BudgetExceeded, OperationStatus.ValidationFailed, ErrorCategory.Validation);
             _capturedMutation = new BaseCapturedAtomicMutationAuthority
             {
+                Kind = request.Kind,
                 IntentDigest = new string(intent.IntentDigest.AsSpan()), CaptureDigest = Convert.ToHexStringLower(digest.GetHashAndReset()),
-                Authority = new BaseAuthoritySnapshotEvidence
+                Authority = new BaseAtomicMutationAuthorityEvidence
                 {
                     ApplicationId = intent.Authority.ApplicationId, StoreInstanceId = storeId, RestoreEpoch = restoreEpoch,
-                    SchemaGeneration = schemaGeneration, CollectionGeneration = intent.Authority.CollectionGeneration,
+                    SchemaGeneration = schemaGeneration,
+                    Collections = intent.Authority.Collections.Select(static value => value with { }).ToImmutableArray(),
                     Isolation = BaseAtomicSelectionIsolationClass.WriteOwningSerializable,
                     TransactionEvidenceToken = BitConverter.GetBytes(_transactionStarted).ToImmutableArray(),
                 },
-                Items = ownedItems, ReadIntervals = ownedIntervals,
-                Accounting = new BaseCaptureAccounting
+                Items = ownedItems, ModuleRecords = [], ModuleRelationTargets = [], Generations = [], ReadIntervals = ownedIntervals,
+                Accounting = new BaseAtomicCaptureAccounting
                 {
                     Records = checked(intent.Items.Length + intent.Items.Sum(static item => item.RelationTargets.Length)),
+                    RelationTargetReads = intent.Items.Sum(static item => item.RelationTargets.Length), GenerationReads = 0,
                     SelectedBytes = selectedBytes, ReadIntervals = intervals.Count,
+                    RelationTargetBytes = 0, GenerationBytes = 0,
                     EvidenceBytes = evidenceBytes, TransientBytes = transient,
                 },
             };
@@ -1638,9 +1656,23 @@ public sealed partial class SqliteRecordStore
                 selectedRecords.SelectMany(static record => record.CopyCanonicalBytes()).Concat(boundary).ToArray()));
             _capturedMutation = new BaseCapturedAtomicMutationAuthority
             {
+                Kind = BaseAtomicMutationExecutionKind.SelectionMutation,
                 IntentDigest = selectionIntentDigest,
                 CaptureDigest = selectionCaptureDigest,
-                Authority = selectionAuthority,
+                Authority = new BaseAtomicMutationAuthorityEvidence
+                {
+                    ApplicationId = selectionAuthority.ApplicationId,
+                    StoreInstanceId = selectionAuthority.StoreInstanceId,
+                    RestoreEpoch = selectionAuthority.RestoreEpoch,
+                    SchemaGeneration = selectionAuthority.SchemaGeneration,
+                    Collections = [new BaseCollectionGenerationRequirement
+                    {
+                        CollectionId = request.Collection.Id,
+                        CollectionGeneration = selectionAuthority.CollectionGeneration,
+                    }],
+                    Isolation = selectionAuthority.Isolation,
+                    TransactionEvidenceToken = selectionAuthority.TransactionEvidenceToken,
+                },
                 Items = selectedRecords.Select((record, index) => new BaseCapturedMutationItem
                 {
                     Ordinal = index,
@@ -1650,11 +1682,14 @@ public sealed partial class SqliteRecordStore
                     Current = record.MaterializeOwned(),
                     RelationTargets = [],
                 }).ToImmutableArray(),
+                ModuleRecords = [], ModuleRelationTargets = [], Generations = [],
                 ReadIntervals = [interval],
-                Accounting = new BaseCaptureAccounting
+                Accounting = new BaseAtomicCaptureAccounting
                 {
                     Records = selectedCount,
+                    RelationTargetReads = 0, GenerationReads = 0,
                     SelectedBytes = bytes,
+                    RelationTargetBytes = 0, GenerationBytes = 0,
                     ReadIntervals = 1,
                     EvidenceBytes = boundary.LongLength,
                     TransientBytes = _selectionRetainedBytes,

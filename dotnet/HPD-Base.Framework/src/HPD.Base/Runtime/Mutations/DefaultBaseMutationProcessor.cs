@@ -12,8 +12,8 @@ internal sealed class DefaultBaseMutationProcessor(
     IBasePolicyOrchestrator policy,
     IBaseResultNormalizer normalizer,
     CollectionDefinition[] collections,
-    TimeSpan transactionTimeout,
-    BaseAuthoritySnapshotRequirement authority,
+    BaseAtomicMutationExecutionLimits executionLimits,
+    BaseAtomicMutationAuthorityRequirement authority,
     BaseSubjectContractRegistry subjects) : IAtomicMutationProcessor
 {
     private readonly List<BaseMutationAttempt> _attempts = [];
@@ -196,11 +196,16 @@ internal sealed class DefaultBaseMutationProcessor(
         ArgumentNullException.ThrowIfNull(session);
         if (_attempts.Count != 0)
             return Failed(Error("base.runtime.batch.invalid", "A mutation processor can only be invoked once.", ErrorCategory.Unexpected));
-        BaseAtomicMutationExecutionLimits executionLimits = CreateExecutionLimits(commands, transactionTimeout);
-        _deadline = Stopwatch.GetTimestamp() + (long)(executionLimits.ExecutionTimeout.TotalSeconds * Stopwatch.Frequency);
+        _deadline = Stopwatch.GetTimestamp() + (long)(executionLimits.Deadlines.TransactionTimeout.TotalSeconds * Stopwatch.Frequency);
 
-        BaseAtomicMutationIntent intent = CreateIntent(commands, authority, executionLimits);
-        OperationResult<BaseCapturedAtomicMutationAuthority> capture = await session.CaptureAtomicMutationAuthorityAsync(intent, cancellationToken).ConfigureAwait(false);
+        BaseAtomicMutationIntent intent = CreateIntent(commands, authority, _collections);
+        var captureRequest = new BaseAtomicMutationCaptureRequest
+        {
+            Kind = BaseAtomicMutationExecutionKind.RecordMutations,
+            Intent = intent,
+            Limits = executionLimits,
+        };
+        OperationResult<BaseCapturedAtomicMutationAuthority> capture = await session.CaptureAtomicMutationAuthorityAsync(captureRequest, cancellationToken).ConfigureAwait(false);
         if (!capture.IsSuccess() || capture.Value is null)
             return HasPotentialSubjectWork()
                 ? FailedProvider(capture.Status, capture.Error)
@@ -211,10 +216,7 @@ internal sealed class DefaultBaseMutationProcessor(
         {
             return Failed(Error(BaseSubjectErrorCodes.ProviderContractInvalid, "The provider authority capture was invalid.", ErrorCategory.Store));
         }
-        bool capturedValid = HasPotentialSubjectWork()
-            ? ValidateCaptured(intent, capturedEvidence)
-            : capturedEvidence.Items.Length == commands.Length && !capturedEvidence.Items.Where((item, index) => item.Ordinal != index ||
-                !string.Equals(item.CollectionId, commands[index].CollectionId, StringComparison.Ordinal) || item.RecordId != TargetId(commands[index])).Any();
+        bool capturedValid = ValidateCaptured(intent, capturedEvidence, executionLimits);
         if (!capturedValid)
             return Failed(Error(BaseSubjectErrorCodes.ProviderContractInvalid, "The provider authority capture was invalid.", ErrorCategory.Store));
         _captured = capturedEvidence.Items.ToDictionary(static item => item.Ordinal);
@@ -282,7 +284,7 @@ internal sealed class DefaultBaseMutationProcessor(
             Authority = authority with { },
             Items = finalizedItems,
             SubjectValidations = subjectPlan.Value.Validations,
-            Limits = intent.Limits with { },
+            Limits = executionLimits with { },
             PlanDigest = ComputePlanDigest(intent.IntentDigest, capturedEvidence.CaptureDigest, finalizedItems, subjectPlan.Value.Validations),
         };
         BaseAtomicMutationPlan retainedPlan = BaseAtomicMutationOwnership.FreezePlan(plan);
@@ -342,12 +344,17 @@ internal sealed class DefaultBaseMutationProcessor(
     private static BaseCapturedAtomicMutationAuthority FreezeCapturedAuthority(
         BaseCapturedAtomicMutationAuthority value) => new()
     {
+        Kind = value.Kind,
         IntentDigest = new string(value.IntentDigest.AsSpan()),
         CaptureDigest = new string(value.CaptureDigest.AsSpan()),
         Authority = value.Authority with
         {
             ApplicationId = new string(value.Authority.ApplicationId.AsSpan()),
             StoreInstanceId = new string(value.Authority.StoreInstanceId.AsSpan()),
+            Collections = value.Authority.Collections.Select(static collection => collection with
+            {
+                CollectionId = new string(collection.CollectionId.AsSpan()),
+            }).ToImmutableArray(),
             TransactionEvidenceToken = value.Authority.TransactionEvidenceToken.ToArray().ToImmutableArray(),
         },
         Items = value.Items.Select(static item => item with
@@ -360,6 +367,25 @@ internal sealed class DefaultBaseMutationProcessor(
                 TargetCollectionId = new string(relation.TargetCollectionId.AsSpan()),
                 Current = relation.Current is null ? null : RecordCloneHelpers.CloneEnvelope(relation.Current),
             }).ToImmutableArray(),
+        }).ToImmutableArray(),
+        ModuleRecords = value.ModuleRecords.Select(static record => record with
+        {
+            CaptureId = new string(record.CaptureId.AsSpan()),
+            CollectionId = new string(record.CollectionId.AsSpan()),
+            Current = record.Current is null ? null : RecordCloneHelpers.CloneEnvelope(record.Current),
+        }).ToImmutableArray(),
+        ModuleRelationTargets = value.ModuleRelationTargets.Select(static target => target with
+        {
+            SourceStatementId = new string(target.SourceStatementId.AsSpan()),
+            SourceFieldId = new string(target.SourceFieldId.AsSpan()),
+            TargetCollectionId = new string(target.TargetCollectionId.AsSpan()),
+            Current = target.Current is null ? null : RecordCloneHelpers.CloneEnvelope(target.Current),
+        }).ToImmutableArray(),
+        Generations = value.Generations.Select(static generation => generation with
+        {
+            CaptureId = new string(generation.CaptureId.AsSpan()),
+            CellId = new string(generation.CellId.AsSpan()),
+            CanonicalKeyDigest = new string(generation.CanonicalKeyDigest.AsSpan()),
         }).ToImmutableArray(),
         ReadIntervals = value.ReadIntervals.Select(static interval => interval with
         {
@@ -744,7 +770,10 @@ internal sealed class DefaultBaseMutationProcessor(
         return Convert.ToHexStringLower(hash.GetHashAndReset());
     }
 
-    private static bool ValidateCaptured(BaseAtomicMutationIntent intent, BaseCapturedAtomicMutationAuthority captured)
+    private static bool ValidateCaptured(
+        BaseAtomicMutationIntent intent,
+        BaseCapturedAtomicMutationAuthority captured,
+        BaseAtomicMutationExecutionLimits limits)
     {
         if (!string.Equals(captured.IntentDigest, intent.IntentDigest, StringComparison.Ordinal)
             || captured.CaptureDigest is not { Length: 64 }
@@ -753,7 +782,7 @@ internal sealed class DefaultBaseMutationProcessor(
             || captured.Authority.StoreInstanceId != intent.Authority.StoreInstanceId
             || captured.Authority.RestoreEpoch != intent.Authority.RestoreEpoch
             || captured.Authority.SchemaGeneration != intent.Authority.SchemaGeneration
-            || captured.Authority.CollectionGeneration != intent.Authority.CollectionGeneration
+            || !captured.Authority.Collections.SequenceEqual(intent.Authority.Collections)
             || !Enum.IsDefined(captured.Authority.Isolation)
             || captured.Authority.TransactionEvidenceToken.IsDefaultOrEmpty)
             return false;
@@ -825,10 +854,10 @@ internal sealed class DefaultBaseMutationProcessor(
         long evidenceBytes = BaseSubjectCanonicalRetainedWork.MeasureIntervals(captured.ReadIntervals);
         return captured.Accounting.EvidenceBytes == evidenceBytes
             && captured.Accounting.TransientBytes >= selectedBytes + evidenceBytes
-            && captured.Accounting.SelectedBytes <= intent.Limits.MaximumSelectedBytes
-            && captured.Accounting.EvidenceBytes <= intent.Limits.MaximumEvidenceBytes
-            && captured.Accounting.TransientBytes <= intent.Limits.MaximumTransientBytes
-            && captured.Accounting.ReadIntervals <= intent.Limits.MaximumReadIntervals;
+            && captured.Accounting.SelectedBytes <= limits.MaximumSelectedBytes
+            && captured.Accounting.EvidenceBytes <= limits.MaximumEvidenceBytes
+            && captured.Accounting.TransientBytes <= limits.MaximumTransientBytes
+            && captured.Accounting.ReadIntervals <= limits.MaximumReadIntervals;
 
         static bool AppendRecord(RecordEnvelope? record, IncrementalHash digest, ref long selectedBytes)
         {
@@ -919,7 +948,7 @@ internal sealed class DefaultBaseMutationProcessor(
         && string.Equals(prepared.Authority.StoreInstanceId, captured.Authority.StoreInstanceId, StringComparison.Ordinal)
         && prepared.Authority.RestoreEpoch == captured.Authority.RestoreEpoch
         && prepared.Authority.SchemaGeneration == captured.Authority.SchemaGeneration
-        && prepared.Authority.CollectionGeneration == captured.Authority.CollectionGeneration
+        && prepared.Authority.Collections.SequenceEqual(captured.Authority.Collections)
         && (!HasSubjectWork(plan) || prepared.Authority.Isolation == captured.Authority.Isolation
             && prepared.Authority.TransactionEvidenceToken.AsSpan().SequenceEqual(captured.Authority.TransactionEvidenceToken.AsSpan()));
 
@@ -1702,10 +1731,10 @@ internal sealed class DefaultBaseMutationProcessor(
         ChangedFields = changedFields
     };
 
-    private BaseAtomicMutationIntent CreateIntent(
+    private static BaseAtomicMutationIntent CreateIntent(
         BaseMutationCommand[] source,
-        BaseAuthoritySnapshotRequirement authority,
-        BaseAtomicMutationExecutionLimits limits)
+        BaseAtomicMutationAuthorityRequirement authority,
+        IReadOnlyDictionary<string, CollectionDefinition> collections)
     {
         var items = ImmutableArray.CreateBuilder<BaseAtomicMutationIntentItem>(source.Length);
         using var digest = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
@@ -1729,7 +1758,7 @@ internal sealed class DefaultBaseMutationProcessor(
                 RequestedKind = command.Kind, RecordId = id, RuntimeAssignedRecordId = command.RuntimeAssignedRecordId,
                 Create = create, Patch = patch, Replace = replace,
                 Upsert = upsert, Delete = command.Delete is null ? null : command.Delete with { },
-                RelationTargets = RelationTargetIntents(command), Operation = command.Context with { },
+                RelationTargets = RelationTargetIntents(command, collections), Operation = command.Context with { },
             });
             digest.AppendData(Encoding.UTF8.GetBytes($"{index}\0{command.CollectionId}\0{(int)command.Kind}\0{id.Value}\0{command.ItemId}\0"));
             RecordPayload? payload = command.CreatePayload?.Payload ?? command.UpdatePayload?.Payload;
@@ -1738,13 +1767,13 @@ internal sealed class DefaultBaseMutationProcessor(
         return new BaseAtomicMutationIntent
         {
             IntentDigest = Convert.ToHexStringLower(digest.GetHashAndReset()), Authority = authority with { }, Items = items.MoveToImmutable(),
-            Limits = limits with { },
         };
     }
 
-    private BaseAtomicMutationExecutionLimits CreateExecutionLimits(
+    internal static BaseAtomicMutationExecutionLimits CreateExecutionLimits(
         BaseMutationCommand[] source,
-        TimeSpan requestedTimeout)
+        TimeSpan requestedTimeout,
+        BaseSubjectContractRegistry subjects)
     {
         BaseSubjectValidationLimits[] participating = source
             .SelectMany(command => (command.Collection.Fields ?? [])
@@ -1768,13 +1797,45 @@ internal sealed class DefaultBaseMutationProcessor(
         return new BaseAtomicMutationExecutionLimits
         {
             MaximumItems = 1_024,
+            MaximumQueryNodes = 1,
+            MaximumQueryDepth = 1,
+            MaximumLiteralValues = 1,
+            MaximumSelectedRecords = 1_024,
+            MaximumProducedMutations = 1_024,
+            MaximumQueryExecutions = 1,
+            MaximumPreviousStateRequirements = 1_024,
+            MaximumRecordCaptures = 1_024,
+            MaximumRelationTargetCaptures = 1_024,
+            MaximumGenerationReads = 1,
+            MaximumGenerationComparisons = 1,
+            MaximumGenerationIncrements = 1,
+            MaximumGuardNodes = 1,
+            MaximumGuardDepth = 1,
+            MaximumStatements = 1_024,
+            MaximumBranches = 1,
+            MaximumExpressionNodes = 1,
             MaximumSelectedBytes = MinLong(static value => value.MaximumSelectedBytes, 8_388_608),
             MaximumEvidenceBytes = MinLong(static value => value.MaximumEvidenceBytes, 8_388_608),
             MaximumTransientBytes = MinLong(static value => value.MaximumTransientBytes, 67_108_864),
             MaximumReadIntervals = MinInt(static value => value.MaximumReadIntervals, 1_024),
             MaximumSubjectValidations = MinInt(static value => value.MaximumReferencesPerMutation, 1_024),
             MaximumAuthorityReads = MinInt(static value => value.MaximumAuthorityReads, 1_024),
-            ExecutionTimeout = timeout,
+            MaximumRelationChecks = 1_024,
+            MaximumUniqueConstraintChecks = 1_024,
+            MaximumRequestBytes = 8_388_608,
+            MaximumGenerationBytes = 1,
+            MaximumWrittenBytes = 67_108_864,
+            MaximumFactBytes = 67_108_864,
+            MaximumJournalBytes = 67_108_864,
+            MaximumReceiptBytes = 8_388_608,
+            MaximumResultBytes = 8_388_608,
+            Deadlines = new BaseAtomicMutationDeadlines
+            {
+                AcquisitionTimeout = timeout,
+                TransactionTimeout = timeout,
+                CommitObservationTimeout = timeout,
+                ReceiptResolutionTimeout = timeout,
+            },
         };
     }
 
@@ -1812,7 +1873,9 @@ internal sealed class DefaultBaseMutationProcessor(
         return validations.Length <= participating.Min(static registration => registration.Definition.ValidationPlan.Limits.MaximumReferencesPerMutation);
     }
 
-    private ImmutableArray<BaseAtomicRelationTargetIntent> RelationTargetIntents(BaseMutationCommand command)
+    internal static ImmutableArray<BaseAtomicRelationTargetIntent> RelationTargetIntents(
+        BaseMutationCommand command,
+        IReadOnlyDictionary<string, CollectionDefinition> collections)
     {
         var result = new Dictionary<(string Field, string Collection, string Record), BaseAtomicRelationTargetIntent>();
         IEnumerable<RecordPayload> payloads = command.Kind switch
@@ -1825,7 +1888,7 @@ internal sealed class DefaultBaseMutationProcessor(
         foreach (FieldDefinition field in command.Collection.Fields ?? [])
         {
             if (field.Relation is not { OwningSide: BaseRelationOwningSide.Source } relation ||
-                !_collections.TryGetValue(relation.TargetCollectionId, out CollectionDefinition? targetCollection))
+                !collections.TryGetValue(relation.TargetCollectionId, out CollectionDefinition? targetCollection))
                 continue;
             foreach (RecordPayload payload in payloads)
             {

@@ -306,7 +306,7 @@ public interface IAtomicRecordSession
 {
     /// <summary>Captures immutable current-state authority for one canonical caller-semantic intent.</summary>
     ValueTask<OperationResult<BaseCapturedAtomicMutationAuthority>> CaptureAtomicMutationAuthorityAsync(
-        BaseAtomicMutationIntent intent,
+        BaseAtomicMutationCaptureRequest request,
         CancellationToken cancellationToken = default);
 
     /// <summary>Prepares final dispositions, constraints, lifecycle overlay, and subject validation without applying writes.</summary>

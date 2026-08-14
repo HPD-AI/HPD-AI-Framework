@@ -2521,13 +2521,18 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         }
 
         public ValueTask<OperationResult<BaseCapturedAtomicMutationAuthority>> CaptureAtomicMutationAuthorityAsync(
-            BaseAtomicMutationIntent intent,
+            BaseAtomicMutationCaptureRequest request,
             CancellationToken cancellationToken = default) => ExecuteAsync(cancellationToken, token =>
         {
-            ArgumentNullException.ThrowIfNull(intent);
-            if (_capturedMutation is not null || intent.Items.IsDefaultOrEmpty || intent.Items.Length > intent.Limits.MaximumItems ||
+            ArgumentNullException.ThrowIfNull(request);
+            BaseAtomicMutationIntent intent = request.Intent;
+            BaseAtomicMutationExecutionLimits limits = request.Limits;
+            if (_capturedMutation is not null || request.Kind != BaseAtomicMutationExecutionKind.RecordMutations
+                || request.Selection is not null || request.Module is not null
+                || intent.Items.IsDefaultOrEmpty || intent.Items.Length > limits.MaximumItems ||
                 !string.Equals(intent.Authority.StoreInstanceId, _owner._options.StoreId, StringComparison.Ordinal) ||
-                intent.Authority.RestoreEpoch != 0 || intent.Authority.SchemaGeneration != 1 || intent.Authority.CollectionGeneration != _owner._generation)
+                intent.Authority.RestoreEpoch != 1 || intent.Authority.SchemaGeneration != 1
+                || !AuthorityCollectionsMatch(intent.Authority.Collections, intent.Items, _owner._generation))
                 return ValueTask.FromResult(SubjectFailure<BaseCapturedAtomicMutationAuthority>(BaseSubjectErrorCodes.ProviderContractInvalid));
             var items = ImmutableArray.CreateBuilder<BaseCapturedMutationItem>(intent.Items.Length);
             var intervals = ImmutableArray.CreateBuilder<BaseAtomicReadIntervalEvidence>(intent.Items.Length);
@@ -2617,25 +2622,29 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             ImmutableArray<BaseAtomicReadIntervalEvidence> ownedIntervals = intervals.ToImmutable();
             retainedBytes = BaseSubjectCanonicalRetainedWork.MeasureCapture(intent, ownedItems, ownedIntervals);
             long transient = retainedBytes;
-            if (selectedBytes > intent.Limits.MaximumSelectedBytes || evidenceBytes > intent.Limits.MaximumEvidenceBytes ||
-                transient > intent.Limits.MaximumTransientBytes || intervals.Count > intent.Limits.MaximumReadIntervals)
+            if (selectedBytes > limits.MaximumSelectedBytes || evidenceBytes > limits.MaximumEvidenceBytes ||
+                transient > limits.MaximumTransientBytes || intervals.Count > limits.MaximumReadIntervals)
                 return ValueTask.FromResult(SubjectFailure<BaseCapturedAtomicMutationAuthority>(BaseSubjectErrorCodes.BudgetExceeded));
             _capturedMutation = new BaseCapturedAtomicMutationAuthority
             {
+                Kind = request.Kind,
                 IntentDigest = new string(intent.IntentDigest.AsSpan()),
                 CaptureDigest = Convert.ToHexStringLower(digest.GetHashAndReset()),
-                Authority = new BaseAuthoritySnapshotEvidence
+                Authority = new BaseAtomicMutationAuthorityEvidence
                 {
                     ApplicationId = intent.Authority.ApplicationId, StoreInstanceId = _owner._options.StoreId,
-                    RestoreEpoch = 0, SchemaGeneration = 1, CollectionGeneration = _owner._generation,
+                    RestoreEpoch = 1, SchemaGeneration = 1,
+                    Collections = intent.Authority.Collections.Select(static value => value with { }).ToImmutableArray(),
                     Isolation = BaseAtomicSelectionIsolationClass.OptimisticRangeValidatedSerializable,
                     TransactionEvidenceToken = BitConverter.GetBytes(_working.GlobalMutationPosition).ToImmutableArray(),
                 },
-                Items = ownedItems, ReadIntervals = ownedIntervals,
-                Accounting = new BaseCaptureAccounting
+                Items = ownedItems, ModuleRecords = [], ModuleRelationTargets = [], Generations = [], ReadIntervals = ownedIntervals,
+                Accounting = new BaseAtomicCaptureAccounting
                 {
                     Records = checked(intent.Items.Length + intent.Items.Sum(static item => item.RelationTargets.Length)),
+                    RelationTargetReads = intent.Items.Sum(static item => item.RelationTargets.Length), GenerationReads = 0,
                     SelectedBytes = selectedBytes, ReadIntervals = intervals.Count,
+                    RelationTargetBytes = 0, GenerationBytes = 0,
                     EvidenceBytes = evidenceBytes, TransientBytes = transient,
                 },
             };
@@ -2916,6 +2925,22 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
 
         private static string CaptureRecordKey(string collectionId, RecordId recordId) =>
             collectionId + "\n" + recordId.Value;
+
+        private static bool AuthorityCollectionsMatch(
+            ImmutableArray<BaseCollectionGenerationRequirement> requirements,
+            ImmutableArray<BaseAtomicMutationIntentItem> items,
+            long generation)
+        {
+            string[] expected = items
+                .Select(static item => item.Collection.Id)
+                .Concat(items.SelectMany(static item => item.RelationTargets.Select(static target => target.TargetCollection.Id)))
+                .Distinct(StringComparer.Ordinal)
+                .Order(StringComparer.Ordinal)
+                .ToArray();
+            return requirements.Length == expected.Length
+                && requirements.Select(static value => value.CollectionId).SequenceEqual(expected, StringComparer.Ordinal)
+                && requirements.All(value => value.CollectionGeneration == generation);
+        }
 
         private static RecordEnvelope? SimulateIntentRecord(
             BaseAtomicMutationIntentItem item,
@@ -3278,9 +3303,23 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 selectedRecords.SelectMany(static record => record.CopyCanonicalBytes()).Concat(boundary).ToArray()));
             _capturedMutation = new BaseCapturedAtomicMutationAuthority
             {
+                Kind = BaseAtomicMutationExecutionKind.SelectionMutation,
                 IntentDigest = selectionIntentDigest,
                 CaptureDigest = selectionCaptureDigest,
-                Authority = selectionAuthority,
+                Authority = new BaseAtomicMutationAuthorityEvidence
+                {
+                    ApplicationId = selectionAuthority.ApplicationId,
+                    StoreInstanceId = selectionAuthority.StoreInstanceId,
+                    RestoreEpoch = selectionAuthority.RestoreEpoch,
+                    SchemaGeneration = selectionAuthority.SchemaGeneration,
+                    Collections = [new BaseCollectionGenerationRequirement
+                    {
+                        CollectionId = request.Collection.Id,
+                        CollectionGeneration = selectionAuthority.CollectionGeneration,
+                    }],
+                    Isolation = selectionAuthority.Isolation,
+                    TransactionEvidenceToken = selectionAuthority.TransactionEvidenceToken,
+                },
                 Items = selectedRecords.Select((record, index) => new BaseCapturedMutationItem
                 {
                     Ordinal = index,
@@ -3290,11 +3329,14 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                     Current = record.MaterializeOwned(),
                     RelationTargets = [],
                 }).ToImmutableArray(),
+                ModuleRecords = [], ModuleRelationTargets = [], Generations = [],
                 ReadIntervals = [interval],
-                Accounting = new BaseCaptureAccounting
+                Accounting = new BaseAtomicCaptureAccounting
                 {
                     Records = selectedCount,
+                    RelationTargetReads = 0, GenerationReads = 0,
                     SelectedBytes = selectedBytes,
+                    RelationTargetBytes = 0, GenerationBytes = 0,
                     ReadIntervals = 1,
                     EvidenceBytes = boundary.LongLength,
                     TransientBytes = _selectionRetainedBytes,
