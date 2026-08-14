@@ -160,6 +160,19 @@ public sealed class GraphMediaWorkV1Tests
     }
 
     [Fact]
+    public void Rejected_execution_returns_running_work_to_registered_for_a_later_operation()
+    {
+        var fixture = Registered();
+        var running = fixture.Work.StartWork(fixture.Request.WorkId, fixture.Request.RequestHash);
+        var rejected = running.Ledger.RejectWork(fixture.Request.WorkId, fixture.Request.RequestHash);
+        Assert.Equal(GraphMediaWorkResultV1.Rejected, rejected.Result);
+        Assert.Equal(GraphMediaWorkStateV1.Registered, rejected.Ledger.Work[fixture.Request.WorkId].State);
+        Assert.Null(rejected.Ledger.Work[fixture.Request.WorkId].OutcomeHash);
+        Assert.Equal(GraphMediaWorkResultV1.Running,
+            rejected.Ledger.StartWork(fixture.Request.WorkId, fixture.Request.RequestHash).Result);
+    }
+
+    [Fact]
     public void Bounds_fail_before_mutation()
     {
         var fixture = CreateFixture(); var ledger = fixture.Work;

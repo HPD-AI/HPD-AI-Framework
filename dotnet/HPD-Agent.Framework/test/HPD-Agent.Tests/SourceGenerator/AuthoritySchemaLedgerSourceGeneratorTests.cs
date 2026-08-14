@@ -55,7 +55,9 @@ public sealed class AuthoritySchemaLedgerSourceGeneratorTests
         Assert.Contains("hpd.authority-owner-payload.v1|44|GraphParticipantReservationFactV2|hpd.authority-payload-graph-participant-reservation-fact.v2|GraphParticipantReservationFactV2|S1",ledger,StringComparison.Ordinal);
         Assert.Contains("hpd.authority-owner-payload.v1|45|GraphMediaPhysicalReleaseCommand|hpd.authority-payload-graph-media-physical-release-command.v1|GraphMediaPhysicalReleaseOuterV1|S1",ledger,StringComparison.Ordinal);
         Assert.Contains("hpd.authority-owner-payload.v1|46|GraphMediaPhysicalReleaseFact|hpd.authority-payload-graph-media-physical-release-fact.v1|GraphMediaPhysicalReleaseOuterV1|S1",ledger,StringComparison.Ordinal);
-        Assert.Equal("c1c4c31b8d72f7ed28c6793c9ce776d0c38d465e26aa2a5dc897463c758e4972",Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(ledger))).ToLowerInvariant());
+        Assert.Contains("hpd.authority-owner-payload.v1|47|GraphMediaWorkExecutionCommand|hpd.authority-payload-graph-media-work-execution-command.v1|GraphMediaWorkExecutionOuterV1|S1",ledger,StringComparison.Ordinal);
+        Assert.Contains("hpd.authority-owner-payload.v1|48|GraphMediaWorkExecutionFact|hpd.authority-payload-graph-media-work-execution-fact.v1|GraphMediaWorkExecutionOuterV1|S1",ledger,StringComparison.Ordinal);
+        Assert.Equal("9ef191500c2beb85c7d9b3ee41df9cc6bf76fdf5d3572d2e2122e06d96057010",Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(ledger))).ToLowerInvariant());
         Assert.Empty(result.Diagnostics);
         Assert.Single(result.GeneratedTrees);
     }

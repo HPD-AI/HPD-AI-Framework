@@ -36,14 +36,14 @@ public sealed class AuthoritySchemaLedgerTests
         Assert.Equal(39, AuthoritySchemaLedgerV1.LinearizationPoints.Length);
         Assert.Equal(34, AuthoritySchemaLedgerV1.WireTypes.Length);
         Assert.Equal(134, AuthoritySchemaLedgerV1.WireTypeMembers.Length);
-        Assert.Equal(157, AuthoritySchemaLedgerV1.Schemas.Length);
-        Assert.Equal(695, AuthoritySchemaLedgerV1.SchemaFields.Length);
+        Assert.Equal(162, AuthoritySchemaLedgerV1.Schemas.Length);
+        Assert.Equal(727, AuthoritySchemaLedgerV1.SchemaFields.Length);
         Assert.Equal(11, AuthoritySchemaLedgerV1.AxisValueBindings.Length);
         Assert.Equal(11, AuthoritySchemaLedgerV1.CapacitySubjectBindings.Length);
         Assert.Equal(9, AuthoritySchemaLedgerV1.UnionDiscriminators.Length);
-        Assert.Equal(157, AuthoritySchemaLedgerV1.JsonProjectionContexts.Length);
-        Assert.Equal(157, AuthoritySchemaLedgerV1.CborCodecHashInventory.Length);
-        Assert.Equal(46, AuthoritySchemaLedgerV1.AuthorityPayloadDiscriminators.Length);
+        Assert.Equal(162, AuthoritySchemaLedgerV1.JsonProjectionContexts.Length);
+        Assert.Equal(162, AuthoritySchemaLedgerV1.CborCodecHashInventory.Length);
+        Assert.Equal(48, AuthoritySchemaLedgerV1.AuthorityPayloadDiscriminators.Length);
         Assert.Equal(11, AuthoritySchemaLedgerV1.GenerationTransitionSchemas.Length);
         Assert.Equal(10, AuthoritySchemaLedgerV1.GenerationInitializationSchemas.Length);
         Assert.Empty(AuthoritySchemaLedgerV1.NativeSchemaInventory);
@@ -111,12 +111,14 @@ public sealed class AuthoritySchemaLedgerTests
     {
         var schemas=AuthoritySchemaLedgerV1.Schemas.Select(row=>row.Split('|')[0]).ToHashSet(StringComparer.Ordinal);
         var payloadDiscriminators=AuthoritySchemaLedgerV1.AuthorityPayloadDiscriminators.ToList();
-        Assert.Equal(157,schemas.Count);
+        Assert.Equal(162,schemas.Count);
         Assert.Equal(46,payloadDiscriminators.Count);
         Assert.Contains("hpd.authority-owner-payload.v1|43|GraphParticipantReservationCommandV2|hpd.authority-payload-graph-participant-reservation-command.v2|GraphParticipantReservationCommandV2|S1",payloadDiscriminators);
         Assert.Contains("hpd.authority-owner-payload.v1|44|GraphParticipantReservationFactV2|hpd.authority-payload-graph-participant-reservation-fact.v2|GraphParticipantReservationFactV2|S1",payloadDiscriminators);
         Assert.Contains("hpd.authority-owner-payload.v1|45|GraphMediaPhysicalReleaseCommand|hpd.authority-payload-graph-media-physical-release-command.v1|GraphMediaPhysicalReleaseOuterV1|S1",payloadDiscriminators);
         Assert.Contains("hpd.authority-owner-payload.v1|46|GraphMediaPhysicalReleaseFact|hpd.authority-payload-graph-media-physical-release-fact.v1|GraphMediaPhysicalReleaseOuterV1|S1",payloadDiscriminators);
+        Assert.Contains("hpd.authority-owner-payload.v1|47|GraphMediaWorkExecutionCommand|hpd.authority-payload-graph-media-work-execution-command.v1|GraphMediaWorkExecutionOuterV1|S1",payloadDiscriminators);
+        Assert.Contains("hpd.authority-owner-payload.v1|48|GraphMediaWorkExecutionFact|hpd.authority-payload-graph-media-work-execution-fact.v1|GraphMediaWorkExecutionOuterV1|S1",payloadDiscriminators);
     }
 
     [Fact]

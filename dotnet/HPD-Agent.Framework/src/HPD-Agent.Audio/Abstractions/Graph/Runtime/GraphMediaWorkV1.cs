@@ -15,7 +15,7 @@ internal enum GraphMediaWorkResultV1 : byte
     ReconciledRunning, ReconciledSucceeded, InvalidRequest, StaleGeneration,
     ResidenceNotFound, ResidenceNotVisible, OwnerMismatch, WorkNotFound,
     CleanupNotFound, WrongState, ContradictoryDuplicate, WorkLimitReached,
-    CleanupLimitReached, CleanupOrderConflict, ReconciledTerminal
+    CleanupLimitReached, CleanupOrderConflict, ReconciledTerminal, Rejected
 }
 
 internal sealed record GraphMediaCleanupRegistrationV1(StableId128 CleanupId, Hash256 RequestHash);
@@ -149,8 +149,12 @@ internal sealed class GraphMediaWorkLedgerV1
             return Fail(row.OutcomeHash == outcomeHash ? GraphMediaWorkResultV1.Terminal : GraphMediaWorkResultV1.ContradictoryDuplicate);
         if (row.State == GraphMediaWorkStateV1.Unknown) return Fail(GraphMediaWorkResultV1.WrongState);
         return new(GraphMediaWorkResultV1.Terminal,
-            WithWork(row with { State = GraphMediaWorkStateV1.Terminal, OutcomeHash = outcomeHash,
-                ReconciliationHash = null }));
+            WithWork(row with
+            {
+                State = GraphMediaWorkStateV1.Terminal,
+                OutcomeHash = outcomeHash,
+                ReconciliationHash = null
+            }));
     }
 
     internal GraphMediaWorkTransitionV1 LoseWorkOutcome(StableId128 workId, Hash256 requestHash)
@@ -161,6 +165,19 @@ internal sealed class GraphMediaWorkLedgerV1
         if (row.State != GraphMediaWorkStateV1.Running) return Fail(GraphMediaWorkResultV1.WrongState);
         return new(GraphMediaWorkResultV1.OutcomeUnknown,
             WithWork(row with { State = GraphMediaWorkStateV1.Unknown, ReconciliationHash = null }));
+    }
+
+    internal GraphMediaWorkTransitionV1 RejectWork(StableId128 workId, Hash256 requestHash)
+    {
+        if (!_work.TryGetValue(workId, out var row)) return Fail(GraphMediaWorkResultV1.WorkNotFound);
+        if (row.RequestHash != requestHash) return Fail(GraphMediaWorkResultV1.ContradictoryDuplicate);
+        if (row.State != GraphMediaWorkStateV1.Running) return Fail(GraphMediaWorkResultV1.WrongState);
+        return new(GraphMediaWorkResultV1.Rejected, WithWork(row with
+        {
+            State = GraphMediaWorkStateV1.Registered,
+            OutcomeHash = null,
+            ReconciliationHash = null
+        }));
     }
 
     internal GraphMediaWorkTransitionV1 ReconcileWork(StableId128 workId, Hash256 requestHash,
@@ -178,9 +195,9 @@ internal sealed class GraphMediaWorkLedgerV1
         if (row.State != GraphMediaWorkStateV1.Unknown) return Fail(GraphMediaWorkResultV1.WrongState);
         return terminal
             ? new(GraphMediaWorkResultV1.ReconciledTerminal, WithWork(row with
-                { State = GraphMediaWorkStateV1.Terminal, OutcomeHash = evidenceHash, ReconciliationHash = null }))
+            { State = GraphMediaWorkStateV1.Terminal, OutcomeHash = evidenceHash, ReconciliationHash = null }))
             : new(GraphMediaWorkResultV1.ReconciledRunning, WithWork(row with
-                { State = GraphMediaWorkStateV1.Running, ReconciliationHash = evidenceHash }));
+            { State = GraphMediaWorkStateV1.Running, ReconciliationHash = evidenceHash }));
     }
 
     internal GraphMediaWorkTransitionV1 ClaimCleanup(StableId128 workId, StableId128 cleanupId,
@@ -323,9 +340,13 @@ internal sealed class GraphMediaWorkLedgerV1
             var bytes = new byte[16];
             var valid = value switch
             {
-                LiveSessionId x => x.TryWriteBytes(bytes), RuntimeGenerationId x => x.TryWriteBytes(bytes),
-                GraphGenerationId x => x.TryWriteBytes(bytes), ParticipantId x => x.TryWriteBytes(bytes),
-                CapacityGrantId x => x.TryWriteBytes(bytes), CapacityPurposeId x => x.TryWriteBytes(bytes), _ => false
+                LiveSessionId x => x.TryWriteBytes(bytes),
+                RuntimeGenerationId x => x.TryWriteBytes(bytes),
+                GraphGenerationId x => x.TryWriteBytes(bytes),
+                ParticipantId x => x.TryWriteBytes(bytes),
+                CapacityGrantId x => x.TryWriteBytes(bytes),
+                CapacityPurposeId x => x.TryWriteBytes(bytes),
+                _ => false
             };
             return valid ? bytes : throw new ArgumentException("Unsupported canonical value.");
         }
