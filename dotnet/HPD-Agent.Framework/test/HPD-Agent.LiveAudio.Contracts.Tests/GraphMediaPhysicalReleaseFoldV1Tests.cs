@@ -46,17 +46,27 @@ public sealed class GraphMediaPhysicalReleaseFoldV1Tests
     [Fact]
     public void Every_command_fact_join_fails_closed()
     {
-        var f = Fixture();
-        var fold = GraphMediaPhysicalReleaseFoldV1.Create(f.Session, f.Residence.ResidenceId, f.Registry);
-        var command = Command(f, 1, f.Operation, null); fold.Apply(command);
-        var wrong = Fact(f, command, 2, GraphMediaPhysicalReleaseOutcomeV1.Released,
-            requestHash: Hash(99));
-        var invalid = Assert.IsType<GraphMediaPhysicalReleaseFoldApplyResultV1.InvalidHistory>(fold.Apply(wrong));
-        Assert.Equal("command-fact-join-invalid", invalid.SafeCode.ToString());
+        AssertJoinInvalid((f, command) => Fact(f, command, 2, GraphMediaPhysicalReleaseOutcomeV1.Released, requestHash: Hash(99)));
+        AssertJoinInvalid((f, command) => Fact(f, command, 2, GraphMediaPhysicalReleaseOutcomeV1.Released, residenceId: Id(98)));
+        AssertJoinInvalid((f, command) => Fact(f, command, 2, GraphMediaPhysicalReleaseOutcomeV1.Released,
+            grantId: CapacityGrantId.FromValue(Id(97))));
+        AssertJoinInvalid((f, command) => Fact(f, command, 2, GraphMediaPhysicalReleaseOutcomeV1.Released,
+            currentFact: new JournalPositionV1(f.Session, 97)));
+        AssertJoinInvalid((f, command) => Fact(f, command, 2, GraphMediaPhysicalReleaseOutcomeV1.Released,
+            assignment: new GraphMediaCapacityAssignmentV1(new CapacityChargeV1(new(3), f.Residence.Assignment.Charge.Scope,
+                2, f.Residence.Assignment.Charge.Purpose, f.Residence.Assignment.Charge.Window), GraphMediaRepresentationArmV1.ResidentBytes)));
+        AssertJoinInvalid((f, command) => Fact(f, command, 2, GraphMediaPhysicalReleaseOutcomeV1.Released,
+            authority: ExpectedAuthorityVectorV1.Create(f.Session, [new AuthorityAxisValueV1.Graph(GraphGenerationId.FromValue(Id(96)))])));
+        AssertJoinInvalid((f, command) => Fact(f, command, 2, GraphMediaPhysicalReleaseOutcomeV1.Released,
+            correlation: new CorrelationEnvelopeV1(TenantId.FromValue(Id(95)), operationId: f.Operation)));
+        AssertJoinInvalid((f, command) => Fact(f, command, 2, GraphMediaPhysicalReleaseOutcomeV1.Released,
+            envelopeObserved: new UtcInstant(1)));
+        AssertJoinInvalid((f, command) => Fact(f, command, 2, GraphMediaPhysicalReleaseOutcomeV1.Released,
+            bodyObserved: new MonotonicStampV1(f.Stamp.ClockDomainId, f.Stamp.BootId, 2)));
 
-        f = Fixture(); fold = GraphMediaPhysicalReleaseFoldV1.Create(f.Session, f.Residence.ResidenceId, f.Registry);
+        var f = Fixture(); var fold = GraphMediaPhysicalReleaseFoldV1.Create(f.Session, f.Residence.ResidenceId, f.Registry);
         var orphan = Fact(f, Command(f, 3, f.Operation, null), 1, GraphMediaPhysicalReleaseOutcomeV1.Unknown);
-        invalid = Assert.IsType<GraphMediaPhysicalReleaseFoldApplyResultV1.InvalidHistory>(fold.Apply(orphan));
+        var invalid = Assert.IsType<GraphMediaPhysicalReleaseFoldApplyResultV1.InvalidHistory>(fold.Apply(orphan));
         Assert.Equal("fact-without-command", invalid.SafeCode.ToString());
     }
 
@@ -93,16 +103,20 @@ public sealed class GraphMediaPhysicalReleaseFoldV1Tests
     }
 
     private static AuthorityFactEnvelopeV1 Fact(F f, AuthorityFactEnvelopeV1 command, long sequence,
-        GraphMediaPhysicalReleaseOutcomeV1 outcome, Hash256? requestHash = null)
+        GraphMediaPhysicalReleaseOutcomeV1 outcome, Hash256? requestHash = null, StableId128? residenceId = null,
+        CapacityGrantId? grantId = null, JournalPositionV1? currentFact = null,
+        GraphMediaCapacityAssignmentV1? assignment = null, ExpectedAuthorityVectorV1? authority = null,
+        CorrelationEnvelopeV1? correlation = null, UtcInstant? envelopeObserved = null,
+        MonotonicStampV1? bodyObserved = null)
     {
-        var body = new GraphMediaPhysicalReleaseFactBodyV1(command.Position, f.Residence.ResidenceId,
-            requestHash ?? f.Residence.RequestHash, f.Residence.GrantId, f.Residence.CurrentFact,
-            f.Residence.Assignment, outcome, outcome == GraphMediaPhysicalReleaseOutcomeV1.Released ? Hash(50) : null,
-            outcome == GraphMediaPhysicalReleaseOutcomeV1.Rejected ? new("work-encumbered") : null, f.Stamp);
-        var payload = GraphMediaPhysicalReleaseCodecsV1.EncodeOuter(new(f.Session, f.Authority,
+        var body = new GraphMediaPhysicalReleaseFactBodyV1(command.Position, residenceId ?? f.Residence.ResidenceId,
+            requestHash ?? f.Residence.RequestHash, grantId ?? f.Residence.GrantId, currentFact ?? f.Residence.CurrentFact,
+            assignment ?? f.Residence.Assignment, outcome, outcome == GraphMediaPhysicalReleaseOutcomeV1.Released ? Hash(50) : null,
+            outcome == GraphMediaPhysicalReleaseOutcomeV1.Rejected ? new("work-encumbered") : null, bodyObserved ?? f.Stamp);
+        var payload = GraphMediaPhysicalReleaseCodecsV1.EncodeOuter(new(f.Session, authority ?? f.Authority,
             GraphMediaPhysicalReleaseCodecsV1.EncodeFactBody(body)));
         return Envelope(f, sequence, GraphMediaPhysicalReleaseFactIdsV1.Fact(command.Position),
-            GraphMediaPhysicalReleasePayloadRegistrationsV1.Fact, payload, f.Operation);
+            GraphMediaPhysicalReleasePayloadRegistrationsV1.Fact, payload, f.Operation, correlation, envelopeObserved);
     }
 
     private static AuthorityFactEnvelopeV1 Initialization(F f, long sequence)
@@ -117,11 +131,20 @@ public sealed class GraphMediaPhysicalReleaseFoldV1Tests
     }
 
     private static AuthorityFactEnvelopeV1 Envelope(F f, long sequence, JournalFactId factId,
-        AuthorityPayloadRegistrationV1 registration, byte[] payload, OperationId operation) => new(factId,
+        AuthorityPayloadRegistrationV1 registration, byte[] payload, OperationId operation,
+        CorrelationEnvelopeV1? correlation = null, UtcInstant? observedAt = null) => new(factId,
         new(f.Session, sequence), null, registration.Owner, registration.Schema, payload,
         AuthorityPayloadHashV1.Compute(registration.SchemaToken, registration.Schema, payload),
-        new CorrelationEnvelopeV1(TenantId.FromValue(Id(22)), operationId: operation), default, default,
+        correlation ?? new CorrelationEnvelopeV1(TenantId.FromValue(Id(22)), operationId: operation), observedAt ?? default, default,
         new IntegrityEnvelopeV1(1, 1, Hash(61), []));
+
+    private static void AssertJoinInvalid(Func<F, AuthorityFactEnvelopeV1, AuthorityFactEnvelopeV1> mutation)
+    {
+        var f = Fixture(); var fold = GraphMediaPhysicalReleaseFoldV1.Create(f.Session, f.Residence.ResidenceId, f.Registry);
+        var command = Command(f, 1, f.Operation, null); fold.Apply(command);
+        var invalid = Assert.IsType<GraphMediaPhysicalReleaseFoldApplyResultV1.InvalidHistory>(fold.Apply(mutation(f, command)));
+        Assert.Equal("command-fact-join-invalid", invalid.SafeCode.ToString());
+    }
 
     private static F Fixture()
     {
