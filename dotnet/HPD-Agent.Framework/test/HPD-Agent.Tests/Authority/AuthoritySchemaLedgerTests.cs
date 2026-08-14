@@ -30,20 +30,20 @@ public sealed class AuthoritySchemaLedgerTests
     public void GeneratedLedger_HasTheAcceptedExactCardinalities()
     {
         Assert.Equal(48, AuthoritySchemaLedgerV1.IdFamilies.Length);
-        Assert.Equal(121, AuthoritySchemaLedgerV1.IdFamilyCborUsages.Length);
+        Assert.Equal(127, AuthoritySchemaLedgerV1.IdFamilyCborUsages.Length);
         Assert.Equal(11, AuthoritySchemaLedgerV1.Axes.Length);
         Assert.Equal(14, AuthoritySchemaLedgerV1.Dimensions.Length);
         Assert.Equal(39, AuthoritySchemaLedgerV1.LinearizationPoints.Length);
         Assert.Equal(34, AuthoritySchemaLedgerV1.WireTypes.Length);
         Assert.Equal(134, AuthoritySchemaLedgerV1.WireTypeMembers.Length);
-        Assert.Equal(145, AuthoritySchemaLedgerV1.Schemas.Length);
-        Assert.Equal(611, AuthoritySchemaLedgerV1.SchemaFields.Length);
+        Assert.Equal(149, AuthoritySchemaLedgerV1.Schemas.Length);
+        Assert.Equal(637, AuthoritySchemaLedgerV1.SchemaFields.Length);
         Assert.Equal(11, AuthoritySchemaLedgerV1.AxisValueBindings.Length);
         Assert.Equal(11, AuthoritySchemaLedgerV1.CapacitySubjectBindings.Length);
         Assert.Equal(9, AuthoritySchemaLedgerV1.UnionDiscriminators.Length);
-        Assert.Equal(145, AuthoritySchemaLedgerV1.JsonProjectionContexts.Length);
-        Assert.Equal(145, AuthoritySchemaLedgerV1.CborCodecHashInventory.Length);
-        Assert.Equal(42, AuthoritySchemaLedgerV1.AuthorityPayloadDiscriminators.Length);
+        Assert.Equal(149, AuthoritySchemaLedgerV1.JsonProjectionContexts.Length);
+        Assert.Equal(149, AuthoritySchemaLedgerV1.CborCodecHashInventory.Length);
+        Assert.Equal(44, AuthoritySchemaLedgerV1.AuthorityPayloadDiscriminators.Length);
         Assert.Equal(11, AuthoritySchemaLedgerV1.GenerationTransitionSchemas.Length);
         Assert.Equal(10, AuthoritySchemaLedgerV1.GenerationInitializationSchemas.Length);
         Assert.Empty(AuthoritySchemaLedgerV1.NativeSchemaInventory);
@@ -82,8 +82,8 @@ public sealed class AuthoritySchemaLedgerTests
     {
         var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../"));
         var lines = File.ReadAllLines(Path.Combine(root, "src/HPD-Agent/Authority/Generated/authority-schema-ledger-v1.txt"));
-        Assert.Equal("# source-contract-sha256=b45a5c7ed3ebe03e697504c4f705dd17039488c5702b670fb05c5be865d0982e", lines[0]);
-        Assert.Equal("# source-registry-sha256=99253850cebd565afe809aa557380001d46eeb9208f1c5dab64421ce85bed677", lines[1]);
+        Assert.Equal("# source-contract-sha256=15f8621a24f86fe01e3dbddf66e2bed089ebd815eb1256ed813895af76a4f07b", lines[0]);
+        Assert.Equal("# source-registry-sha256=61630b3b2f890add5146b6c80611316cdf0dba012547fd76dbce02ab155a58da", lines[1]);
         Assert.Contains("hpd.global-participant-page.v1|7|isFinal|UInt16|required=true|range:0..1|union=None", lines);
         var expected = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         List<string>? current = null;
@@ -107,6 +107,17 @@ public sealed class AuthoritySchemaLedgerTests
     }
 
     [Fact]
+    public void ReservationV2LedgerRows_AreExact()
+    {
+        var schemas=AuthoritySchemaLedgerV1.Schemas.Select(row=>row.Split('|')[0]).ToHashSet(StringComparer.Ordinal);
+        var payloadDiscriminators=AuthoritySchemaLedgerV1.AuthorityPayloadDiscriminators.ToList();
+        Assert.Equal(149,schemas.Count);
+        Assert.Equal(44,payloadDiscriminators.Count);
+        Assert.Contains("hpd.authority-owner-payload.v1|43|GraphParticipantReservationCommandV2|hpd.authority-payload-graph-participant-reservation-command.v2|GraphParticipantReservationCommandV2|S1",payloadDiscriminators);
+        Assert.Contains("hpd.authority-owner-payload.v1|44|GraphParticipantReservationFactV2|hpd.authority-payload-graph-participant-reservation-fact.v2|GraphParticipantReservationFactV2|S1",payloadDiscriminators);
+    }
+
+    [Fact]
     public void SessionStampSchema_JoinsItsTagsCodecAndProjectionInventory()
     {
         Assert.Contains("hpd.session-authority-stamp.v1|1.0|S1|HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|DeterministicCborV1:hpd.session-authority-stamp.v1|hpd-authority-sha256-v1", AuthoritySchemaLedgerV1.Schemas);
@@ -125,6 +136,6 @@ public sealed class AuthoritySchemaLedgerTests
 
         Assert.Equal(schemas, codecs);
         Assert.Subset(schemas, fields);
-        Assert.Equal(127, AuthoritySchemaLedgerV1.JsonProjectionContexts.Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(140, AuthoritySchemaLedgerV1.JsonProjectionContexts.Distinct(StringComparer.Ordinal).Count());
     }
 }
