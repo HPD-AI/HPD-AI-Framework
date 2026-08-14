@@ -11,6 +11,16 @@ namespace HPD.Base.Sqlite.Tests.Storage;
 public sealed class SqliteSubjectAdministrationTests
 {
     [Fact]
+    public void Restore_revision_derivation_is_positive_deterministic_and_context_bound()
+    {
+        long expected = SqliteRecordStore.RestoreDerivedRevision(7, 19);
+        expected.Should().BePositive();
+        SqliteRecordStore.RestoreDerivedRevision(7, 19).Should().Be(expected);
+        SqliteRecordStore.RestoreDerivedRevision(8, 19).Should().NotBe(expected);
+        SqliteRecordStore.RestoreDerivedRevision(7, 20).Should().NotBe(expected);
+    }
+
+    [Fact]
     public async Task Rotation_resumes_from_a_durable_page_checkpoint_and_remains_closed_between_attempts()
     {
         string path = Path.Combine(Path.GetTempPath(), $"hpd-base-subject-resume-{Guid.NewGuid():N}.db");
@@ -54,6 +64,8 @@ public sealed class SqliteSubjectAdministrationTests
     [Theory]
     [InlineData("UPDATE hpd_base_subject_maintenance SET checksum=lower(hex(randomblob(32))) WHERE singleton=1;")]
     [InlineData("UPDATE hpd_base_subject_rewrite_stage SET payload_json=x'7B7D' WHERE record_id='consumer-0000';")]
+    [InlineData("UPDATE hpd_base_subject_rewrite_stage SET previous_revision=previous_revision+7 WHERE record_id='consumer-0000';")]
+    [InlineData("UPDATE hpd_base_subject_rewrite_stage SET replacement_revision=replacement_revision+7 WHERE record_id='consumer-0000';")]
     public async Task Rotation_rejects_corrupt_checkpoint_or_staged_payload_and_remains_closed(string corruption)
     {
         string path = Path.Combine(Path.GetTempPath(), $"hpd-base-subject-corrupt-{Guid.NewGuid():N}.db");
@@ -158,6 +170,47 @@ public sealed class SqliteSubjectAdministrationTests
             OperationResult<BaseSubjectEpochRotationResult> resumed = await store.RotateEpochAsync(Rotation(1));
             resumed.IsSuccess().Should().BeTrue(resumed.Error?.Code);
             resumed.Value!.PublishedStateGeneration.Should().Be(2);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            foreach (string candidate in new[] { path, path + "-wal", path + "-shm" })
+                if (File.Exists(candidate)) File.Delete(candidate);
+        }
+    }
+
+    [Fact]
+    public async Task Rotation_revision_overflow_fails_closed_without_publication()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"hpd-base-subject-overflow-{Guid.NewGuid():N}.db");
+        const string checksum = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        CollectionDefinition collection = ConsumerCollection(checksum);
+        try
+        {
+            await using SqliteRecordStore store = SqliteTestFactory.Create(new HPDBaseSqliteOptions
+            {
+                StoreId = $"subject-overflow-{Guid.NewGuid():N}", DataSource = path, EnableWal = false,
+                AdministrationEnabled = true, Collections = [collection], ExportedSubjects = [SubjectDefinition(checksum)],
+            });
+            byte[] epoch = await ReadEpochAsync(path);
+            (await store.CreateAsync(collection, Create("consumer-one", Reference(epoch, 7)),
+                Operation(BaseOperationKind.Create, collection.Id))).IsSuccess().Should().BeTrue();
+            await using (var connection = new SqliteConnection($"Data Source={path};Pooling=False"))
+            {
+                await connection.OpenAsync();
+                await using SqliteCommand command = connection.CreateCommand();
+                command.CommandText = "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'b_c_%';";
+                string table = (string)(await command.ExecuteScalarAsync())!;
+                command.Parameters.Clear();
+                command.CommandText = $"UPDATE {table} SET revision=$revision WHERE record_id='consumer-one';";
+                command.Parameters.AddWithValue("$revision", long.MaxValue);
+                await command.ExecuteNonQueryAsync();
+            }
+
+            OperationResult<BaseSubjectEpochRotationResult> result = await store.RotateEpochAsync(Rotation(1));
+            result.IsSuccess().Should().BeFalse();
+            result.Error!.Code.Should().Be(BaseSubjectErrorCodes.ProviderContractInvalid);
+            (await ReadPublicationStateAsync(path)).Generation.Should().Be(1);
         }
         finally
         {

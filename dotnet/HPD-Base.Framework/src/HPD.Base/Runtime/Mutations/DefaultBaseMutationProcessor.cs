@@ -813,7 +813,6 @@ internal sealed class DefaultBaseMutationProcessor(
             || captured.Accounting.ReadIntervals != captured.ReadIntervals.Length
             || captured.Accounting.SelectedBytes != selectedBytes)
             return false;
-        long evidenceBytes = 0;
         for (int index = 0; index < expectedIntervals.Count; index++)
         {
             BaseAtomicReadIntervalEvidence interval = captured.ReadIntervals[index];
@@ -822,8 +821,8 @@ internal sealed class DefaultBaseMutationProcessor(
                 || !interval.CanonicalLowerBound.AsSpan().SequenceEqual(key)
                 || !interval.CanonicalUpperBound.AsSpan().SequenceEqual(key))
                 return false;
-            evidenceBytes = checked(evidenceBytes + interval.CanonicalLowerBound.Length + interval.CanonicalUpperBound.Length);
         }
+        long evidenceBytes = BaseSubjectCanonicalRetainedWork.MeasureIntervals(captured.ReadIntervals);
         return captured.Accounting.EvidenceBytes == evidenceBytes
             && captured.Accounting.TransientBytes >= selectedBytes + evidenceBytes
             && captured.Accounting.SelectedBytes <= intent.Limits.MaximumSelectedBytes
@@ -904,7 +903,7 @@ internal sealed class DefaultBaseMutationProcessor(
         && prepared.Accounting.AuthorityReads >= 0
         && prepared.Accounting.ReadIntervals == prepared.ReadIntervals.Length
         && prepared.Accounting.SelectedBytes >= captured.Accounting.SelectedBytes
-        && prepared.Accounting.EvidenceBytes >= captured.Accounting.EvidenceBytes
+        && prepared.Accounting.EvidenceBytes == BaseSubjectCanonicalRetainedWork.MeasureIntervals(prepared.ReadIntervals)
         && prepared.Accounting.TransientBytes >= prepared.Accounting.SelectedBytes + prepared.Accounting.EvidenceBytes
         && prepared.Accounting.AuthorityReads <= plan.Limits.MaximumAuthorityReads
         && prepared.Accounting.ReadIntervals <= plan.Limits.MaximumReadIntervals

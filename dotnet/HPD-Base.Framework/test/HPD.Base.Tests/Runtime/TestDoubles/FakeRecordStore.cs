@@ -326,7 +326,7 @@ internal class FakeRecordStore : IAtomicRecordStore
             }).ToImmutableArray();
             long selected = items.Where(static item => item.Current is not null).Sum(static item =>
                 (long)JsonSerializer.SerializeToUtf8Bytes(item.Current!, HPDBaseJsonSerializerContext.Default.RecordEnvelope).Length);
-            long evidence = intervals.Sum(static interval => (long)interval.CanonicalLowerBound.Length + interval.CanonicalUpperBound.Length);
+            long evidence = BaseSubjectCanonicalRetainedWork.MeasureIntervals(intervals);
             _captured = new BaseCapturedAtomicMutationAuthority
             {
                 IntentDigest = intent.IntentDigest,

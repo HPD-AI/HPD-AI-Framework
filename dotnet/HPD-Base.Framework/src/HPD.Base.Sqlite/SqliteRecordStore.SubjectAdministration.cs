@@ -212,10 +212,7 @@ WHERE contract_id=$contract AND contract_version=$version AND state_generation=$
         }
         catch (OverflowException)
         {
-            return SubjectAdministrationFailure<BaseSubjectEpochRotationResult>(
-                BaseSubjectErrorCodes.ContractInvalid,
-                OperationStatus.ValidationFailed,
-                ErrorCategory.Validation);
+            return SubjectAdministrationFailure<BaseSubjectEpochRotationResult>(BaseSubjectErrorCodes.ProviderContractInvalid);
         }
         catch (SqliteException exception) when (exception.SqliteErrorCode is 5 or 6)
         {
@@ -369,7 +366,7 @@ WHERE contract_id=$contract AND contract_version=$version AND state_generation=$
                 || checkpoint.ExpectedGeneration != contract.StateGeneration
                 || !checkpoint.OldEpoch.Equals(contract.AuthorityEpoch))
                 throw new InvalidDataException(BaseSubjectErrorCodes.ProviderContractInvalid);
-            await ValidateSubjectRewriteEvidenceAsync(connection, checkpoint, complete: false, cancellationToken).ConfigureAwait(false);
+            await ValidateSubjectRewriteEvidenceAsync(connection, checkpoint, complete: false, revisionFactory, cancellationToken).ConfigureAwait(false);
         }
 
         for (int collectionOrdinal = checkpoint.CollectionOrdinal; collectionOrdinal < _physical.Collections.Length; collectionOrdinal++)
@@ -423,7 +420,9 @@ WHERE contract_id=$contract AND contract_version=$version AND state_generation=$
                     checkpoint = checkpoint with
                     {
                         CanonicalBytes = checked(checkpoint.CanonicalBytes + payloadBytes.LongLength),
-                        Checksum = ExtendSubjectRewriteChecksum(checkpoint.Checksum, collection.Definition.Id, before.Id.Value, payloadBytes),
+                        Checksum = ExtendSubjectRewriteChecksum(
+                            checkpoint.Checksum, collection.Definition.Id, before.Id.Value,
+                            previousRevision, replacementRevision, payloadBytes),
                     };
                     await using SqliteCommand stage = connection.CreateCommand();
                     stage.Transaction = transaction;
@@ -457,7 +456,7 @@ WHERE contract_id=$contract AND contract_version=$version AND state_generation=$
             await WriteSubjectRewriteCheckpointAsync(connection, progress, checkpoint, cancellationToken).ConfigureAwait(false);
             await progress.CommitAsync(cancellationToken).ConfigureAwait(false);
         }
-        await ValidateSubjectRewriteEvidenceAsync(connection, checkpoint, complete: true, cancellationToken).ConfigureAwait(false);
+        await ValidateSubjectRewriteEvidenceAsync(connection, checkpoint, complete: true, revisionFactory, cancellationToken).ConfigureAwait(false);
         return checkpoint;
     }
 
@@ -561,6 +560,7 @@ WHERE contract_id=$contract AND contract_version=$version AND state_generation=$
         SqliteConnection connection,
         SubjectRewriteCheckpoint checkpoint,
         bool complete,
+        Func<long, long>? revisionFactory,
         CancellationToken cancellationToken)
     {
         long examined = 0;
@@ -605,6 +605,19 @@ WHERE contract_id=$contract AND contract_version=$version AND state_generation=$
                 byte[] replacementBytes = (byte[])reader.GetValue(4);
                 if (previousRevision <= 0 || replacementRevision <= 0)
                     throw new InvalidDataException(BaseSubjectErrorCodes.ProviderContractInvalid);
+                long expectedReplacement;
+                try
+                {
+                    expectedReplacement = revisionFactory is null
+                        ? checked(previousRevision + 1)
+                        : revisionFactory(previousRevision);
+                }
+                catch (OverflowException exception)
+                {
+                    throw new InvalidDataException(BaseSubjectErrorCodes.ProviderContractInvalid, exception);
+                }
+                if (replacementRevision != expectedReplacement)
+                    throw new InvalidDataException(BaseSubjectErrorCodes.ProviderContractInvalid);
                 RecordPayload before = SqliteRecordSerializer.Deserialize(System.Text.Encoding.UTF8.GetString(previousBytes));
                 RecordPayload replacement = SqliteRecordSerializer.Deserialize(System.Text.Encoding.UTF8.GetString(replacementBytes));
                 if (!previousBytes.AsSpan().SequenceEqual(System.Text.Encoding.UTF8.GetBytes(SqliteRecordSerializer.Serialize(before)))
@@ -630,7 +643,9 @@ WHERE contract_id=$contract AND contract_version=$version AND state_generation=$
                     throw new InvalidDataException(BaseSubjectErrorCodes.ProviderContractInvalid);
                 rewritten = checked(rewritten + rowRewrites);
                 canonicalBytes = checked(canonicalBytes + replacementBytes.LongLength);
-                checksum = ExtendSubjectRewriteChecksum(checksum, orderedCollection.Definition.Id, recordId, replacementBytes);
+                checksum = ExtendSubjectRewriteChecksum(
+                    checksum, orderedCollection.Definition.Id, recordId,
+                    previousRevision, replacementRevision, replacementBytes);
             }
         }
         if (examined != checkpoint.Examined || rewritten != checkpoint.Rewritten
@@ -677,12 +692,20 @@ WHERE contract_id=$contract AND contract_version=$version AND state_generation=$
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    private static string ExtendSubjectRewriteChecksum(string prior, string collection, string record, byte[] payload)
+    private static string ExtendSubjectRewriteChecksum(
+        string prior,
+        string collection,
+        string record,
+        long previousRevision,
+        long replacementRevision,
+        byte[] payload)
     {
         byte[] prefix = System.Text.Encoding.UTF8.GetBytes(prior + "\n" + collection + "\n" + record + "\n");
-        byte[] input = new byte[prefix.Length + payload.Length];
+        byte[] input = new byte[prefix.Length + 16 + payload.Length];
         prefix.CopyTo(input, 0);
-        payload.CopyTo(input, prefix.Length);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt64BigEndian(input.AsSpan(prefix.Length, 8), previousRevision);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt64BigEndian(input.AsSpan(prefix.Length + 8, 8), replacementRevision);
+        payload.CopyTo(input, prefix.Length + 16);
         return Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(input));
     }
 
@@ -722,7 +745,7 @@ WHERE contract_id=$contract AND contract_version=$version AND state_generation=$
         return true;
     }
 
-    private static long RestoreDerivedRevision(long restoreEpoch, long artifactRevision)
+    internal static long RestoreDerivedRevision(long restoreEpoch, long artifactRevision)
     {
         Span<byte> source = stackalloc byte[24];
         "hpd-rv1"u8.CopyTo(source);

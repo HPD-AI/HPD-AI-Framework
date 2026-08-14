@@ -803,18 +803,12 @@ public sealed partial class SqliteRecordStore
             using var digest = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
             digest.AppendData(System.Text.Encoding.UTF8.GetBytes(intent.IntentDigest));
             long selectedBytes = 0;
-            long retainedBytes = CanonicalStringBytes(intent.IntentDigest)
-                + CanonicalStringBytes(intent.Authority.ApplicationId)
-                + CanonicalStringBytes(intent.Authority.StoreInstanceId)
-                + sizeof(long) * 4L;
             var transactionRecords = new Dictionary<string, RecordEnvelope?>(StringComparer.Ordinal);
             for (int index = 0; index < intent.Items.Length; index++)
             {
                 BaseAtomicMutationIntentItem item = intent.Items[index];
                 if (item.Ordinal != index) return SubjectFailure<BaseCapturedAtomicMutationAuthority>(BaseSubjectErrorCodes.ProviderContractInvalid);
                 string itemKey = CaptureRecordKey(item.Collection.Id, item.RecordId);
-                retainedBytes = checked(retainedBytes + CanonicalStringBytes(item.Collection.Id)
-                    + CanonicalStringBytes(item.RecordId.Value) + sizeof(int) * 3L);
                 if (!transactionRecords.TryGetValue(itemKey, out RecordEnvelope? current))
                 {
                     current = await _owner.ReadAsync(_connection, item.Collection.Id, item.RecordId.Value, token, _transaction, CommandTimeoutSeconds()).ConfigureAwait(false);
@@ -843,9 +837,6 @@ public sealed partial class SqliteRecordStore
                         digest.AppendData(targetBytes);
                     }
                     byte[] relationKey = System.Text.Encoding.UTF8.GetBytes(relation.TargetRecordId.Value);
-                    retainedBytes = checked(retainedBytes + CanonicalStringBytes(relation.SourceFieldId)
-                        + CanonicalStringBytes(relation.TargetCollection.Id)
-                        + CanonicalStringBytes(relation.TargetRecordId.Value));
                     intervals.Add(new BaseAtomicReadIntervalEvidence
                     {
                         LogicalAccessPathId = $"collection:{relation.TargetCollection.Id}:record",
@@ -883,8 +874,10 @@ public sealed partial class SqliteRecordStore
                 });
                 transactionRecords[itemKey] = SimulateIntentRecord(item, current);
             }
-            long evidenceBytes = intervals.Sum(static interval => (long)interval.CanonicalLowerBound.Length + interval.CanonicalUpperBound.Length);
-            long transient = checked(retainedBytes + selectedBytes + evidenceBytes);
+            long evidenceBytes = BaseSubjectCanonicalRetainedWork.MeasureIntervals(intervals.ToImmutable());
+            ImmutableArray<BaseCapturedMutationItem> ownedItems = items.ToImmutable();
+            ImmutableArray<BaseAtomicReadIntervalEvidence> ownedIntervals = intervals.ToImmutable();
+            long transient = BaseSubjectCanonicalRetainedWork.MeasureCapture(intent, ownedItems, ownedIntervals);
             if (selectedBytes > intent.Limits.MaximumSelectedBytes || evidenceBytes > intent.Limits.MaximumEvidenceBytes || transient > intent.Limits.MaximumTransientBytes || intervals.Count > intent.Limits.MaximumReadIntervals)
                 return SubjectFailure<BaseCapturedAtomicMutationAuthority>(BaseSubjectErrorCodes.BudgetExceeded, OperationStatus.ValidationFailed, ErrorCategory.Validation);
             _capturedMutation = new BaseCapturedAtomicMutationAuthority
@@ -897,7 +890,7 @@ public sealed partial class SqliteRecordStore
                     Isolation = BaseAtomicSelectionIsolationClass.WriteOwningSerializable,
                     TransactionEvidenceToken = BitConverter.GetBytes(_transactionStarted).ToImmutableArray(),
                 },
-                Items = items.MoveToImmutable(), ReadIntervals = intervals.ToImmutable(),
+                Items = ownedItems, ReadIntervals = ownedIntervals,
                 Accounting = new BaseCaptureAccounting
                 {
                     Records = checked(intent.Items.Length + intent.Items.Sum(static item => item.RelationTargets.Length)),
@@ -941,7 +934,6 @@ public sealed partial class SqliteRecordStore
                     lifetime = await ReadSubjectLifetimeAsync(lifecycle.ContractId, lifecycle.ContractVersion, lifecycle.SubjectId, token).ConfigureAwait(false);
                     authorityReads = checked(authorityReads + 1);
                     lifetimes[key] = lifetime;
-                    if (lifetime is not null) retainedBytes = checked(retainedBytes + CanonicalLifetimeRetainedBytes(lifetime));
                 }
                 switch (lifecycle.Kind)
                 {
@@ -954,7 +946,6 @@ public sealed partial class SqliteRecordStore
                             item.Ordinal + 1L);
                         lifetimes[key] = lifetime;
                         lifecycleIncarnations[item.Ordinal] = lifetime.Incarnation;
-                        retainedBytes = checked(retainedBytes + sizeof(int) + 16);
                         break;
                     case BaseSubjectLifecycleMutationKind.Preserve:
                         if (lifetime is null) return SubjectFailure<BasePreparedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid);
@@ -1004,7 +995,6 @@ public sealed partial class SqliteRecordStore
                         lifetime = await ReadSubjectLifetimeAsync(definition.Id, definition.Version, validation.Reference.SubjectId, token).ConfigureAwait(false);
                         authorityReads = checked(authorityReads + 1);
                         lifetimes[key] = lifetime;
-                        if (lifetime is not null) retainedBytes = checked(retainedBytes + CanonicalLifetimeRetainedBytes(lifetime));
                     }
                     if (contract is not null)
                         subjectAuthorities[$"{definition.Id}\n{definition.Version}"] = SubjectAuthority(definition.Id, definition.Version, contract);
@@ -1060,15 +1050,20 @@ public sealed partial class SqliteRecordStore
                     };
                 }
             }
-            long evidenceBytes = intervals.Sum(static interval => (long)interval.CanonicalLowerBound.Length + interval.CanonicalUpperBound.Length);
+            long evidenceBytes = BaseSubjectCanonicalRetainedWork.MeasureIntervals(intervals.ToImmutable());
             BasePreparedSubjectOverlayEvidence[] ownedOverlays = overlays.Values.ToArray();
             BaseSubjectTransactionAuthorityEvidence[] ownedAuthorities = subjectAuthorities.Values.ToArray();
             BasePreparedSubjectValidationEvidence[] ownedValidations = validationEvidence.ToArray();
-            long addedEvidenceBytes = checked(evidenceBytes - captured.Accounting.EvidenceBytes);
-            long transient = checked(retainedBytes + addedEvidenceBytes
-                + ownedOverlays.Sum(CanonicalOverlayRetainedBytes)
-                + ownedAuthorities.Sum(CanonicalAuthorityRetainedBytes)
-                + ownedValidations.Sum(static value => sizeof(int) * 3L + CanonicalStringBytes(value.SourceFieldId)));
+            long addedIntervalBytes = checked(
+                BaseSubjectCanonicalRetainedWork.MeasureIntervals(intervals.ToImmutable())
+                - BaseSubjectCanonicalRetainedWork.MeasureIntervals(captured.ReadIntervals));
+            long transient = checked(retainedBytes + addedIntervalBytes
+                + BaseSubjectCanonicalRetainedWork.MeasurePreparedEvidence(ownedOverlays, ownedAuthorities, ownedValidations)
+                + BaseSubjectCanonicalRetainedWork.MeasureStringDictionary(lifetimes,
+                    value => value is null ? 1L : checked(1L + CanonicalLifetimeRetainedBytes(value)))
+                + BaseSubjectCanonicalRetainedWork.MeasureStringDictionary(overlays)
+                + BaseSubjectCanonicalRetainedWork.MeasureStringDictionary(subjectAuthorities)
+                + BaseSubjectCanonicalRetainedWork.MeasureIntegerDictionary(lifecycleIncarnations, static _ => 16L));
             int intervalCount = intervals.Count;
             if (authorityReads > plan.Limits.MaximumAuthorityReads || intervalCount > plan.Limits.MaximumReadIntervals
                 || evidenceBytes > plan.Limits.MaximumEvidenceBytes || transient > plan.Limits.MaximumTransientBytes)
@@ -1094,55 +1089,23 @@ public sealed partial class SqliteRecordStore
             return OperationResults.Ok(_preparedMutation);
         });
 
-        private static long CanonicalStringBytes(string? value) =>
-            value is null ? sizeof(int) : checked(sizeof(int) + System.Text.Encoding.UTF8.GetByteCount(value));
-
-        private static long CanonicalLifetimeRetainedBytes(SqlitePreparedSubjectLifetime value) => checked(
-            8L + CanonicalStringBytes(value.ContractId)
-            + sizeof(int)
-            + CanonicalStringBytes(value.SubjectId.Value)
-            + 16
-            + CanonicalStringBytes(value.CollectionId)
-            + CanonicalStringBytes(value.RecordId.Value)
-            + sizeof(long));
-
-        private static long CanonicalOverlayRetainedBytes(BasePreparedSubjectOverlayEvidence value) => checked(
-            8L + CanonicalStringBytes(value.ContractId)
-            + sizeof(int)
-            + CanonicalStringBytes(value.SubjectId.Value)
-            + sizeof(byte) * 3L
-            + (value.Incarnation is null ? 0 : 16)
-            + CanonicalStringBytes(value.Scope));
-
-        private static long CanonicalAuthorityRetainedBytes(BaseSubjectTransactionAuthorityEvidence value) => checked(
-            8L + CanonicalStringBytes(value.ContractId)
-            + sizeof(int)
-            + CanonicalStringBytes(value.ContractChecksum)
-            + CanonicalStringBytes(value.StoreInstanceId)
-            + sizeof(long) * 3L
-            + 16);
-
-        private static long CanonicalPlanRetainedBytes(BaseAtomicMutationPlan plan)
+        private static long CanonicalLifetimeRetainedBytes(SqlitePreparedSubjectLifetime value)
         {
-            long bytes = 8L + CanonicalStringBytes(plan.PlanDigest) + CanonicalStringBytes(plan.IntentDigest)
-                + CanonicalStringBytes(plan.CaptureDigest) + sizeof(long) * 8L;
-            bytes = checked(bytes + 8L + plan.Items.Length * 8L);
-            foreach (BaseAtomicMutationPlanItem item in plan.Items)
-            {
-                bytes = checked(bytes + sizeof(int) * 3L + CanonicalStringBytes(item.Collection.Id)
-                    + CanonicalStringBytes(item.RecordId.Value) + CanonicalStringBytes(item.EventId));
-                if (item.ProposedPayload is not null)
-                    bytes = checked(bytes + JsonSerializer.SerializeToUtf8Bytes(
-                        item.ProposedPayload, HPDBaseJsonSerializerContext.Default.RecordPayload).LongLength);
-            }
-            bytes = checked(bytes + 8L + plan.SubjectValidations.Length * 8L);
-            foreach (BaseSubjectReferenceValidationPlanItem validation in plan.SubjectValidations)
-                bytes = checked(bytes + sizeof(int) * 4L + CanonicalStringBytes(validation.SourceFieldId)
-                    + CanonicalStringBytes(validation.ValidationPlanId)
-                    + CanonicalStringBytes(validation.Reference.SubjectId.Value)
-                    + CanonicalStringBytes(validation.Scope.Value) + 32);
-            return bytes;
+            var counter = new BaseSubjectCanonicalRetainedWork();
+            counter.AddContainer(); counter.AddString(value.ContractId); counter.AddInteger();
+            counter.AddString(value.SubjectId.Value); counter.AddFixed16();
+            counter.AddString(value.CollectionId); counter.AddString(value.RecordId.Value); counter.AddInteger();
+            return counter.Bytes;
         }
+
+        private static long CanonicalOverlayRetainedBytes(BasePreparedSubjectOverlayEvidence value) =>
+            BaseSubjectCanonicalRetainedWork.MeasureOverlay(value);
+
+        private static long CanonicalAuthorityRetainedBytes(BaseSubjectTransactionAuthorityEvidence value) =>
+            BaseSubjectCanonicalRetainedWork.MeasureAuthority(value);
+
+        private static long CanonicalPlanRetainedBytes(BaseAtomicMutationPlan plan) =>
+            BaseSubjectCanonicalRetainedWork.MeasurePlan(plan);
 
         private BaseSubjectTransactionAuthorityEvidence SubjectAuthority(
             string contractId,
