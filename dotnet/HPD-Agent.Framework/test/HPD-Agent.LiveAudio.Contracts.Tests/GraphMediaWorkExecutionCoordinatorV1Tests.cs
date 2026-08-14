@@ -7,6 +7,37 @@ namespace HPD.Agent.LiveAudio.Contracts.Tests;
 public sealed class GraphMediaWorkExecutionCoordinatorV1Tests
 {
     [Fact]
+    public async Task Distinct_work_operations_share_one_bounded_residence_history_and_retry_independently()
+    {
+        var f = Fixture();
+        var effects = new ScriptedEffects { ExecuteResult = new GraphMediaWorkEffectResultV1.Completed(Hash(89)) };
+        var coordinator = new GraphMediaWorkExecutionCoordinatorV1(f.Journal, effects, f.Registry);
+        var first = Assert.IsType<GraphMediaWorkExecutionResultV1.Completed>(
+            await coordinator.ExecuteAsync(f.Request, default));
+
+        var residence = f.Request.Residences.Residences[f.Registration.ResidenceId];
+        var cleanups = new[] { new GraphMediaCleanupRegistrationV1(Id(101), Hash(102)) };
+        var draft = new GraphMediaWorkRegistrationV1(Id(99), Hash(1), f.Registration.ResidenceId, cleanups);
+        var registration = draft with { RequestHash = GraphMediaWorkLedgerV1.RegistrationHash(draft, residence) };
+        var operation = Operation(103);
+        var request = new GraphMediaWorkExecutionRequestV1(operation, registration, f.Request.Residences,
+            f.Request.Ownership, first.Ledger, f.Request.ExpectedAuthority,
+            new CorrelationEnvelopeV1(f.Request.Correlation.TenantId, operationId: operation),
+            Stamp(104), f.Request.ObservedAt);
+        effects.ExecuteResult = new GraphMediaWorkEffectResultV1.Completed(Hash(105));
+        var second = Assert.IsType<GraphMediaWorkExecutionResultV1.Completed>(
+            await coordinator.ExecuteAsync(request, default));
+
+        Assert.Equal(4, second.Fact.Position.Sequence);
+        Assert.Equal(GraphMediaWorkStateV1.Terminal, second.Ledger.Work[registration.WorkId].State);
+        Assert.Equal(2, effects.ExecuteCalls);
+        var retryFirst = Assert.IsType<GraphMediaWorkExecutionResultV1.Completed>(
+            await coordinator.ExecuteAsync(f.Request, default));
+        Assert.Equal(first.Fact.FactId, retryFirst.Fact.FactId);
+        Assert.Equal(2, effects.ExecuteCalls);
+    }
+
+    [Fact]
     public async Task Durable_command_precedes_effect_and_exact_retry_does_not_execute_twice()
     {
         var f = Fixture(); var effects = new ScriptedEffects { ExecuteResult = new GraphMediaWorkEffectResultV1.Completed(Hash(90)) };

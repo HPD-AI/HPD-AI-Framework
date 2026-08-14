@@ -51,7 +51,7 @@ public sealed class GraphMediaWorkExecutionFoldV1Tests
     }
 
     [Fact]
-    public void Duplicate_predecessor_rejection_and_terminal_laws_are_closed()
+    public void Duplicate_predecessor_rejection_and_multi_work_laws_are_closed()
     {
         var f = Fixture(); var fold = GraphMediaWorkExecutionFoldV1.Create(f.Session, f.Work.ResidenceId, f.Registry);
         var command = CommandEnvelope(f, 1, f.Operation, null); fold.Apply(command);
@@ -66,9 +66,15 @@ public sealed class GraphMediaWorkExecutionFoldV1Tests
 
         f = Fixture(); fold = GraphMediaWorkExecutionFoldV1.Create(f.Session, f.Work.ResidenceId, f.Registry);
         command = CommandEnvelope(f, 1, f.Operation, null); fold.Apply(command);
-        fold.Apply(FactEnvelope(f, command, 2, GraphMediaWorkExecutionOutcomeV1.Completed));
-        Assert.Equal("post-terminal-record", Assert.IsType<GraphMediaWorkExecutionFoldApplyResultV1.InvalidHistory>(
-            fold.Apply(CommandEnvelope(f, 3, Operation(42), new(f.Session, 2)))).SafeCode.ToString());
+        var completed = FactEnvelope(f, command, 2, GraphMediaWorkExecutionOutcomeV1.Completed); fold.Apply(completed);
+        var secondWork = Work(f, 42);
+        var secondCommand = CommandEnvelope(f, 3, Operation(42), completed.Position, secondWork);
+        Assert.IsType<GraphMediaWorkExecutionFoldApplyResultV1.Applied>(fold.Apply(secondCommand));
+        var secondFact = FactEnvelope(f, secondCommand, 4, GraphMediaWorkExecutionOutcomeV1.Completed,
+            workId: secondWork.WorkId, requestHash: secondWork.RequestHash);
+        Assert.IsType<GraphMediaWorkExecutionFoldApplyResultV1.Applied>(fold.Apply(secondFact));
+        Assert.IsType<GraphMediaWorkExecutionFoldResultV1.Completed>(fold.Query(f.Operation));
+        Assert.IsType<GraphMediaWorkExecutionFoldResultV1.Completed>(fold.Query(Operation(42)));
     }
 
     [Fact]
@@ -104,9 +110,10 @@ public sealed class GraphMediaWorkExecutionFoldV1Tests
         Assert.Equal("command-fact-join-invalid", invalid.SafeCode.ToString());
     }
 
-    private static AuthorityFactEnvelopeV1 CommandEnvelope(F f, long sequence, OperationId operation, JournalPositionV1? predecessor)
+    private static AuthorityFactEnvelopeV1 CommandEnvelope(F f, long sequence, OperationId operation,
+        JournalPositionV1? predecessor, GraphMediaWorkAuthorityV1? work = null)
     {
-        var body = new GraphMediaWorkExecutionCommandBodyV1(operation, f.Work, f.Cleanups, predecessor, f.Stamp);
+        var body = new GraphMediaWorkExecutionCommandBodyV1(operation, work ?? f.Work, f.Cleanups, predecessor, f.Stamp);
         var payload = GraphMediaWorkExecutionCodecsV1.EncodeOuter(new(f.Session, f.Authority,
             GraphMediaWorkExecutionCodecsV1.EncodeCommandBody(body)));
         return Envelope(f, sequence, GraphMediaWorkExecutionFactIdsV1.Command(f.Session, operation),
@@ -126,7 +133,8 @@ public sealed class GraphMediaWorkExecutionFoldV1Tests
         var payload = GraphMediaWorkExecutionCodecsV1.EncodeOuter(new(f.Session, authority ?? f.Authority,
             GraphMediaWorkExecutionCodecsV1.EncodeFactBody(body)));
         return Envelope(f, sequence, GraphMediaWorkExecutionFactIdsV1.Fact(command.Position),
-            GraphMediaWorkExecutionPayloadRegistrationsV1.Fact, payload, f.Operation, correlation);
+            GraphMediaWorkExecutionPayloadRegistrationsV1.Fact, payload,
+            command.Correlation.OperationId!.Value, correlation ?? command.Correlation);
     }
 
     private static AuthorityFactEnvelopeV1 Envelope(F f, long sequence, JournalFactId factId,
@@ -170,6 +178,11 @@ public sealed class GraphMediaWorkExecutionFoldV1Tests
             new AuthorityGenerationInitializationPayloadRegistrationV1(AuthorityAxisId.Graph)]);
         return new(session, operation, authority, work, cleanups, Stamp(30), registry);
     }
+
+    private static GraphMediaWorkAuthorityV1 Work(F f, byte seed) => new(Id(seed), Hash((byte)(seed + 1)),
+        f.Work.ResidenceId, f.Work.ResidenceOperationId, f.Work.ResidenceRequestHash, f.Work.OwnerId,
+        f.Work.OwnerKey, f.Work.Media, f.Work.ParticipantId, f.Work.BindingFactPosition, f.Work.GrantId,
+        f.Work.CurrentFact, f.Work.CoverageHashV2, f.Work.Assignment);
 
     private sealed record F(SessionAuthorityStampV1 Session, OperationId Operation,
         ExpectedAuthorityVectorV1 Authority, GraphMediaWorkAuthorityV1 Work,

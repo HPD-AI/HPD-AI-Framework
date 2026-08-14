@@ -101,15 +101,7 @@ internal sealed class GraphMediaWorkExecutionCoordinatorV1
             var session = request.Residences.Session;
             var history = await ReadAsync(session, request, cancellationToken).ConfigureAwait(false);
             if (history.Error is not null) return history.Error;
-            if (history.Result is GraphMediaWorkExecutionFoldResultV1.Rejected prior)
-            {
-                if (prior.CommandBody.OperationId == request.OperationId) return Project(prior, projection);
-                body = WithPredecessor(body, prior.Fact.Position);
-            }
-            else
-            {
-                var priorResult = ToResult(history.Result!, projection); if (priorResult is not null) return priorResult;
-            }
+            var priorResult = ToResult(history.Result!, projection); if (priorResult is not null) return priorResult;
             if (history.Result is GraphMediaWorkExecutionFoldResultV1.CommandOnly pending)
             {
                 if (pending.Body.OperationId != request.OperationId || !SameCommand(pending.Body, body) ||
@@ -120,6 +112,10 @@ internal sealed class GraphMediaWorkExecutionCoordinatorV1
                 if (projection is null) return Quarantine("work-authority-stale");
                 return await ResolveCommandOnlyAsync(pending.Command, pending.Body, projection, request, cancellationToken).ConfigureAwait(false);
             }
+            if (history.Latest is GraphMediaWorkExecutionFoldResultV1.CommandOnly)
+                return new GraphMediaWorkExecutionResultV1.RetryRequired(new("work-predecessor-conflict"));
+            if (TerminalFact(history.Latest!) is { } predecessor)
+                body = WithPredecessor(body, predecessor.Position);
             if (!projection.Work.TryGetValue(body.Work.WorkId, out var projectedWork) ||
                 projectedWork.State is not (GraphMediaWorkStateV1.Registered or GraphMediaWorkStateV1.Running))
                 return Quarantine("work-authority-stale");
@@ -249,7 +245,8 @@ internal sealed class GraphMediaWorkExecutionCoordinatorV1
         return final.Error ?? ToResult(final.Result!, projection) ?? Quarantine("work-history-invalid");
     }
 
-    private async ValueTask<(GraphMediaWorkExecutionFoldResultV1? Result, long Through,
+    private async ValueTask<(GraphMediaWorkExecutionFoldResultV1? Result,
+        GraphMediaWorkExecutionFoldResultV1? Latest, long Through,
         GraphMediaWorkExecutionResultV1? Error)> ReadAsync(SessionAuthorityStampV1 session,
         GraphMediaWorkExecutionRequestV1 request, CancellationToken cancellationToken)
     {
@@ -260,24 +257,25 @@ internal sealed class GraphMediaWorkExecutionCoordinatorV1
             ReadAuthorityRangeResultV1 read;
             try { read = await _journal.ReadAsync(new(session, cursor, through, 256, 1_048_576), cancellationToken).ConfigureAwait(false); }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
-            catch { return (null, cursor, new GraphMediaWorkExecutionResultV1.StoreUnavailable(new("work-journal-unavailable"))); }
+            catch { return (null, null, cursor, new GraphMediaWorkExecutionResultV1.StoreUnavailable(new("work-journal-unavailable"))); }
             if (read is not ReadAuthorityRangeResultV1.Batch batch || batch.AfterExclusive != cursor ||
                 through != long.MaxValue && batch.SnapshotThrough != through)
-                return (null, cursor, new GraphMediaWorkExecutionResultV1.StoreUnavailable(new("work-journal-unavailable")));
+                return (null, null, cursor, new GraphMediaWorkExecutionResultV1.StoreUnavailable(new("work-journal-unavailable")));
             through = batch.SnapshotThrough;
-            if (batch.Facts.Count == 0) { if (batch.HasMore) return (null, cursor, Quarantine("work-history-invalid")); break; }
+            if (batch.Facts.Count == 0) { if (batch.HasMore) return (null, null, cursor, Quarantine("work-history-invalid")); break; }
             foreach (var envelope in batch.Facts)
             {
                 records++; bytes += (ulong)AuthorityCanonicalCborV1.GetEnvelopeEncodedLength(envelope);
                 if (records > request.MaximumSessionRecords || bytes > request.MaximumSessionCanonicalBytes)
-                    return (null, cursor, Quarantine("work-history-invalid"));
+                    return (null, null, cursor, Quarantine("work-history-invalid"));
                 if (fold.Apply(envelope) is GraphMediaWorkExecutionFoldApplyResultV1.InvalidHistory invalid)
-                    return (null, cursor, Quarantine(invalid.SafeCode.ToString()));
+                    return (null, null, cursor, Quarantine(invalid.SafeCode.ToString()));
                 cursor = envelope.Position.Sequence;
             }
             if (!batch.HasMore) break;
         }
-        return (fold.Complete(), cursor, null);
+        var latest = fold.Complete();
+        return (fold.Query(request.OperationId), latest, cursor, null);
     }
 
     private async ValueTask<(AuthorityFactEnvelopeV1? Envelope, GraphMediaWorkExecutionResultV1? Error)> AppendAsync(
@@ -346,6 +344,14 @@ internal sealed class GraphMediaWorkExecutionCoordinatorV1
             GraphMediaWorkExecutionFoldResultV1.InvalidHistory x => Quarantine(x.SafeCode.ToString()),
             _ => null
         };
+
+    private static AuthorityFactEnvelopeV1? TerminalFact(GraphMediaWorkExecutionFoldResultV1 result) => result switch
+    {
+        GraphMediaWorkExecutionFoldResultV1.Completed x => x.Fact,
+        GraphMediaWorkExecutionFoldResultV1.Unknown x => x.Fact,
+        GraphMediaWorkExecutionFoldResultV1.Rejected x => x.Fact,
+        _ => null
+    };
 
     private static GraphMediaWorkExecutionResultV1 CompletedResult(
         GraphMediaWorkExecutionFoldResultV1.Completed result, GraphMediaWorkLedgerV1 ledger)

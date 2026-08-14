@@ -12,7 +12,6 @@ internal sealed class GraphMediaWorkExecutionFoldV1
     private readonly Dictionary<OperationId, Entry> _operations = [];
     private GraphMediaWorkExecutionFoldApplyResultV1.InvalidHistory? _invalid;
     private JournalPositionV1? _predecessor;
-    private bool _terminal;
     private bool _completed;
     private long _through;
     private ulong _records;
@@ -63,8 +62,8 @@ internal sealed class GraphMediaWorkExecutionFoldV1
         if (_registry.Validate(_session, proposal, out _) != AuthorityPayloadAdmissionV1.Exact)
             return Fail("record-wire-invalid");
         if (!IsTarget(envelope)) return new GraphMediaWorkExecutionFoldApplyResultV1.Ignored(false);
-        if (_terminal) return Fail("post-terminal-record");
-        if (++_targetRecords > 16 || envelope.Owner != OwnerSliceId.S1 || envelope.ThreadScope is not null)
+        if (++_targetRecords > GraphMediaWorkLedgerV1.MaximumWorkPerRuntime * 2 ||
+            envelope.Owner != OwnerSliceId.S1 || envelope.ThreadScope is not null)
             return Fail("record-wire-invalid");
         return envelope.PayloadSchema == GraphMediaWorkExecutionPayloadRegistrationsV1.Command.Schema
             ? ApplyCommand(envelope)
@@ -77,6 +76,29 @@ internal sealed class GraphMediaWorkExecutionFoldV1
         if (_invalid is not null) return new GraphMediaWorkExecutionFoldResultV1.InvalidHistory(_invalid.SafeCode);
         if (_operations.Count == 0) return new GraphMediaWorkExecutionFoldResultV1.NotFound(_records, _bytes);
         var entry = _operations.Values.OrderBy(x => x.Command.Position.Sequence).Last();
+        return Result(entry);
+    }
+
+    internal GraphMediaWorkExecutionFoldResultV1 Query(OperationId operationId)
+    {
+        if (!operationId.IsValid) throw new ArgumentException("A valid operation is required.", nameof(operationId));
+        _completed = true;
+        if (_invalid is not null) return new GraphMediaWorkExecutionFoldResultV1.InvalidHistory(_invalid.SafeCode);
+        return _operations.TryGetValue(operationId, out var entry)
+            ? Result(entry)
+            : new GraphMediaWorkExecutionFoldResultV1.NotFound(_records, _bytes);
+    }
+
+    internal GraphMediaWorkExecutionFoldSnapshotV1 Snapshot()
+    {
+        _completed = true;
+        if (_invalid is not null) return new GraphMediaWorkExecutionFoldSnapshotV1.InvalidHistory(_invalid.SafeCode);
+        var entries = _operations.Values.OrderBy(x => x.Command.Position.Sequence).Select(Result).ToArray();
+        return new GraphMediaWorkExecutionFoldSnapshotV1.Current(entries, _records, _bytes);
+    }
+
+    private GraphMediaWorkExecutionFoldResultV1 Result(Entry entry)
+    {
         if (entry.Fact is null)
             return new GraphMediaWorkExecutionFoldResultV1.CommandOnly(entry.Command, entry.CommandBody, _records, _bytes);
         return entry.FactBody!.Outcome switch
@@ -102,7 +124,11 @@ internal sealed class GraphMediaWorkExecutionFoldV1
         if (GraphMediaWorkExecutionFactIdsV1.Command(_session, body.OperationId) != envelope.FactId)
             return Fail("fact-id-mismatch");
         if (_operations.ContainsKey(body.OperationId)) return Fail("operation-conflict");
-        if (_operations.Count >= 8) return Fail("record-wire-invalid");
+        if (_operations.Count >= GraphMediaWorkLedgerV1.MaximumWorkPerRuntime)
+            return Fail("record-wire-invalid");
+        if (_operations.Values.Any(x => x.CommandBody.Work.WorkId.Equals(body.Work.WorkId) &&
+            x.FactBody?.Outcome is GraphMediaWorkExecutionOutcomeV1.Completed or GraphMediaWorkExecutionOutcomeV1.Unknown))
+            return Fail("operation-conflict");
         if (_operations.Values.Any(x => x.Fact is null) || body.ExpectedWorkFact != _predecessor)
             return Fail("predecessor-conflict");
         _operations.Add(body.OperationId, new Entry(envelope, body, null, null));
@@ -128,8 +154,6 @@ internal sealed class GraphMediaWorkExecutionFoldV1
             return Fail("command-fact-join-invalid");
         _operations[operation.Key] = entry with { Fact = envelope, FactBody = body };
         _predecessor = envelope.Position;
-        if (body.Outcome is GraphMediaWorkExecutionOutcomeV1.Completed or GraphMediaWorkExecutionOutcomeV1.Unknown)
-            _terminal = true;
         return new GraphMediaWorkExecutionFoldApplyResultV1.Applied(false);
     }
 
@@ -176,4 +200,26 @@ internal abstract record GraphMediaWorkExecutionFoldResultV1
         GraphMediaWorkExecutionCommandBodyV1 CommandBody, GraphMediaWorkExecutionFactBodyV1 FactBody,
         BoundedAscii SafeCode, ulong RecordCount, ulong TotalCanonicalRecordBytes) : GraphMediaWorkExecutionFoldResultV1;
     internal sealed record InvalidHistory(BoundedAscii SafeCode) : GraphMediaWorkExecutionFoldResultV1;
+}
+
+internal abstract record GraphMediaWorkExecutionFoldSnapshotV1
+{
+    private GraphMediaWorkExecutionFoldSnapshotV1() { }
+    internal sealed record Current : GraphMediaWorkExecutionFoldSnapshotV1
+    {
+        private readonly GraphMediaWorkExecutionFoldResultV1[] _operations;
+        internal Current(IReadOnlyList<GraphMediaWorkExecutionFoldResultV1> operations,
+            ulong recordCount, ulong totalCanonicalRecordBytes)
+        {
+            ArgumentNullException.ThrowIfNull(operations);
+            _operations = operations.ToArray();
+            Operations = Array.AsReadOnly(_operations);
+            RecordCount = recordCount;
+            TotalCanonicalRecordBytes = totalCanonicalRecordBytes;
+        }
+        internal IReadOnlyList<GraphMediaWorkExecutionFoldResultV1> Operations { get; }
+        internal ulong RecordCount { get; }
+        internal ulong TotalCanonicalRecordBytes { get; }
+    }
+    internal sealed record InvalidHistory(BoundedAscii SafeCode) : GraphMediaWorkExecutionFoldSnapshotV1;
 }

@@ -7,14 +7,33 @@ namespace HPD.Agent.LiveAudio.Contracts.Tests;
 public sealed class GraphMediaPhysicalReleaseCoordinatorV1Tests
 {
     [Fact]
+    public async Task Fold_authenticated_D25F_terminal_proof_is_required_before_release_effect()
+    {
+        var fixture = CreateFixture(); var registry = Registry();
+        var journal = new InMemoryAuthorityJournalV1(registry, () => new UtcInstant(100),
+            new AuthorityJournalCapacityV1(1, 64, 8_000_000));
+        var port = new InspectingReleasePort(journal, fixture.Session, Hash(90));
+        var missing = Assert.IsType<GraphMediaPhysicalReleaseResultV1.Quarantined>(await
+            new GraphMediaPhysicalReleaseCoordinatorV1(journal, port, registry)
+                .ReleaseAsync(fixture.Request, CancellationToken.None));
+        Assert.Equal("work-encumbered", missing.SafeCode.ToString());
+        Assert.Equal(0, port.ReleaseCalls);
+
+        await SeedWorkProof(journal, fixture);
+        Assert.IsType<GraphMediaPhysicalReleaseResultV1.Released>(await
+            new GraphMediaPhysicalReleaseCoordinatorV1(journal, port, registry)
+                .ReleaseAsync(fixture.Request, CancellationToken.None));
+        Assert.Equal(1, port.ReleaseCalls);
+    }
+
+    [Fact]
     public async Task Command_is_durable_before_effect_and_retry_does_not_repeat_release()
     {
         var fixture = CreateFixture();
-        var registry = new AuthorityPayloadAdmissionRegistryV1([
-            GraphMediaPhysicalReleasePayloadRegistrationsV1.Command,
-            GraphMediaPhysicalReleasePayloadRegistrationsV1.Fact]);
+        var registry = Registry();
         var journal = new InMemoryAuthorityJournalV1(registry, () => new UtcInstant(100),
             new AuthorityJournalCapacityV1(1, 64, 8_000_000));
+        await SeedWorkProof(journal, fixture);
         var port = new InspectingReleasePort(journal, fixture.Session, Hash(90));
         var coordinator = new GraphMediaPhysicalReleaseCoordinatorV1(journal, port, registry);
 
@@ -35,16 +54,14 @@ public sealed class GraphMediaPhysicalReleaseCoordinatorV1Tests
 
         var history = Assert.IsType<ReadAuthorityRangeResultV1.Batch>(await journal.ReadAsync(
             new(fixture.Session, 0, long.MaxValue, 256, 1_048_576)));
-        Assert.Equal(2, history.Facts.Count);
+        Assert.Equal(4, history.Facts.Count);
     }
 
     [Fact]
     public async Task Encumbered_work_fails_before_journal_or_effect()
     {
         var fixture = CreateFixture(false);
-        var registry = new AuthorityPayloadAdmissionRegistryV1([
-            GraphMediaPhysicalReleasePayloadRegistrationsV1.Command,
-            GraphMediaPhysicalReleasePayloadRegistrationsV1.Fact]);
+        var registry = Registry();
         var journal = new InMemoryAuthorityJournalV1(registry, () => new UtcInstant(100),
             new AuthorityJournalCapacityV1(1, 64, 8_000_000));
         var port = new InspectingReleasePort(journal, fixture.Session, Hash(90));
@@ -67,6 +84,7 @@ public sealed class GraphMediaPhysicalReleaseCoordinatorV1Tests
         var registry = Registry();
         var journal = new InMemoryAuthorityJournalV1(registry, () => new UtcInstant(100),
             new AuthorityJournalCapacityV1(1, 64, 8_000_000));
+        await SeedWorkProof(journal, fixture);
         var port = new InspectingReleasePort(journal, fixture.Session, Hash(90)) { ThrowAfterInvocation = true };
         var result = Assert.IsType<GraphMediaPhysicalReleaseResultV1.Released>(await
             new GraphMediaPhysicalReleaseCoordinatorV1(journal, port, registry)
@@ -83,6 +101,7 @@ public sealed class GraphMediaPhysicalReleaseCoordinatorV1Tests
         var fixture = CreateFixture(); var registry = Registry();
         var journal = new InMemoryAuthorityJournalV1(registry, () => new UtcInstant(100),
             new AuthorityJournalCapacityV1(1, 64, 8_000_000));
+        await SeedWorkProof(journal, fixture);
         using var cancellation = new CancellationTokenSource();
         var port = new InspectingReleasePort(journal, fixture.Session, Hash(90))
             { CancelSourceAfterRelease = cancellation };
@@ -93,7 +112,7 @@ public sealed class GraphMediaPhysicalReleaseCoordinatorV1Tests
         Assert.Equal(1, port.ReleaseCalls);
         var history = Assert.IsType<ReadAuthorityRangeResultV1.Batch>(await journal.ReadAsync(
             new(fixture.Session, 0, long.MaxValue, 256, 1_048_576)));
-        Assert.Equal(2, history.Facts.Count);
+        Assert.Equal(4, history.Facts.Count);
     }
 
     [Fact]
@@ -103,6 +122,7 @@ public sealed class GraphMediaPhysicalReleaseCoordinatorV1Tests
         var registry = Registry();
         var journal = new InMemoryAuthorityJournalV1(registry, () => new UtcInstant(100),
             new AuthorityJournalCapacityV1(1, 64, 8_000_000));
+        await SeedWorkProof(journal, fixture);
         var port = new InspectingReleasePort(journal, fixture.Session, Hash(90)) { ReturnUnknown = true };
         var coordinator = new GraphMediaPhysicalReleaseCoordinatorV1(journal, port, registry);
         Assert.IsType<GraphMediaPhysicalReleaseResultV1.Unknown>(
@@ -119,6 +139,7 @@ public sealed class GraphMediaPhysicalReleaseCoordinatorV1Tests
         var fixture = CreateFixture(); var registry = Registry();
         var inner = new InMemoryAuthorityJournalV1(registry, () => new UtcInstant(100),
             new AuthorityJournalCapacityV1(1, 64, 8_000_000));
+        await SeedWorkProof(inner, fixture);
         using var cancellation = new CancellationTokenSource();
         var journal = new ScriptedJournal(inner) { CancelSource = cancellation, CancelAfterCommittedAppend = 1 };
         var firstPort = new InspectingReleasePort(journal, fixture.Session, Hash(90));
@@ -146,6 +167,7 @@ public sealed class GraphMediaPhysicalReleaseCoordinatorV1Tests
         var fixture = CreateFixture(); var registry = Registry();
         var inner = new InMemoryAuthorityJournalV1(registry, () => new UtcInstant(100),
             new AuthorityJournalCapacityV1(1, 64, 8_000_000));
+        await SeedWorkProof(inner, fixture);
         var journal = new ScriptedJournal(inner) { OutcomeUnknownAfterCommittedAppend = appendCall };
         var port = new InspectingReleasePort(journal, fixture.Session, Hash(90));
         Assert.IsType<GraphMediaPhysicalReleaseResultV1.Released>(await
@@ -155,7 +177,7 @@ public sealed class GraphMediaPhysicalReleaseCoordinatorV1Tests
         Assert.InRange(journal.AppendCalls, 2, 3);
         var history = Assert.IsType<ReadAuthorityRangeResultV1.Batch>(await inner.ReadAsync(
             new(fixture.Session, 0, long.MaxValue, 256, 1_048_576)));
-        Assert.Equal(2, history.Facts.Count);
+        Assert.Equal(4, history.Facts.Count);
     }
 
     [Fact]
@@ -164,6 +186,7 @@ public sealed class GraphMediaPhysicalReleaseCoordinatorV1Tests
         var fixture = CreateFixture(); var registry = Registry();
         var journal = new InMemoryAuthorityJournalV1(registry, () => new UtcInstant(100),
             new AuthorityJournalCapacityV1(1, 64, 8_000_000));
+        await SeedWorkProof(journal, fixture);
         var rejectedPort = new InspectingReleasePort(journal, fixture.Session, Hash(90)) { Reject = true };
         var rejected = Assert.IsType<GraphMediaPhysicalReleaseResultV1.Rejected>(await
             new GraphMediaPhysicalReleaseCoordinatorV1(journal, rejectedPort, registry)
@@ -208,6 +231,7 @@ public sealed class GraphMediaPhysicalReleaseCoordinatorV1Tests
         var registry = Registry();
         var journal = new InMemoryAuthorityJournalV1(registry, () => new UtcInstant(100),
             new AuthorityJournalCapacityV1(1, 64, 8_000_000));
+        await SeedWorkProof(journal, fixture);
         var port = new InspectingReleasePort(journal, fixture.Session, Hash(90));
         Assert.IsType<GraphMediaPhysicalReleaseResultV1.Quarantined>(await
             new GraphMediaPhysicalReleaseCoordinatorV1(journal, port, registry)
@@ -215,7 +239,7 @@ public sealed class GraphMediaPhysicalReleaseCoordinatorV1Tests
         Assert.Equal(0, port.ReleaseCalls);
         var history = Assert.IsType<ReadAuthorityRangeResultV1.Batch>(await journal.ReadAsync(
             new(fixture.Session, 0, long.MaxValue, 256, 1_048_576)));
-        Assert.Empty(history.Facts);
+        Assert.Equal(2, history.Facts.Count);
     }
 
     [Fact]
@@ -224,6 +248,7 @@ public sealed class GraphMediaPhysicalReleaseCoordinatorV1Tests
         var fixture = CreateFixture(); var registry = Registry();
         var inner = new InMemoryAuthorityJournalV1(registry, () => new UtcInstant(100),
             new AuthorityJournalCapacityV1(1, 64, 8_000_000));
+        await SeedWorkProof(inner, fixture);
         var journal = new ScriptedJournal(inner) { BarrierOnFirstTwoAppends = new CountdownEvent(2) };
         var secondOperation = Operation(95);
         var secondRequest = new GraphMediaPhysicalReleaseRequestV1(secondOperation, fixture.Request.ResidenceId,
@@ -242,7 +267,7 @@ public sealed class GraphMediaPhysicalReleaseCoordinatorV1Tests
         Assert.Equal(1, firstPort.ReleaseCalls + secondPort.ReleaseCalls);
         var history = Assert.IsType<ReadAuthorityRangeResultV1.Batch>(await inner.ReadAsync(
             new(fixture.Session, 0, long.MaxValue, 256, 1_048_576)));
-        Assert.Equal(2, history.Facts.Count);
+        Assert.Equal(4, history.Facts.Count);
     }
 
     [Fact]
@@ -251,6 +276,7 @@ public sealed class GraphMediaPhysicalReleaseCoordinatorV1Tests
         var fixture = CreateFixture(); var registry = Registry();
         var inner = new InMemoryAuthorityJournalV1(registry, () => new UtcInstant(100),
             new AuthorityJournalCapacityV1(1, 64, 8_000_000));
+        await SeedWorkProof(inner, fixture);
         using var cancellation = new CancellationTokenSource();
         var journal = new ScriptedJournal(inner) { CancelSource = cancellation, CancelAfterCommittedAppend = 1 };
         await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await
@@ -364,8 +390,8 @@ public sealed class GraphMediaPhysicalReleaseCoordinatorV1Tests
             ReleaseCalls++;
             var history = Assert.IsType<ReadAuthorityRangeResultV1.Batch>(await _journal.ReadAsync(
                 new(_session, 0, long.MaxValue, 256, 1_048_576), cancellationToken));
-            Assert.Single(history.Facts);
-            Assert.Equal(GraphMediaPhysicalReleasePayloadRegistrationsV1.Command.Schema, history.Facts[0].PayloadSchema);
+            Assert.Single(history.Facts, x =>
+                x.PayloadSchema == GraphMediaPhysicalReleasePayloadRegistrationsV1.Command.Schema);
             if (ThrowAfterInvocation) throw new OperationCanceledException(cancellationToken);
             if (ReturnUnknown) return new GraphMediaPhysicalReleaseEffectResultV1.Unknown();
             if (Reject) return new GraphMediaPhysicalReleaseEffectResultV1.Rejected(new("release-authority-stale"));
@@ -411,7 +437,43 @@ public sealed class GraphMediaPhysicalReleaseCoordinatorV1Tests
     private sealed record ReleaseFixture(SessionAuthorityStampV1 Session, GraphMediaPhysicalReleaseRequestV1 Request);
     private static AuthorityPayloadAdmissionRegistryV1 Registry() => new([
         GraphMediaPhysicalReleasePayloadRegistrationsV1.Command,
-        GraphMediaPhysicalReleasePayloadRegistrationsV1.Fact]);
+        GraphMediaPhysicalReleasePayloadRegistrationsV1.Fact,
+        GraphMediaWorkExecutionPayloadRegistrationsV1.Command,
+        GraphMediaWorkExecutionPayloadRegistrationsV1.Fact]);
+
+    private static async Task SeedWorkProof(IAuthorityJournalV1 journal, ReleaseFixture fixture)
+    {
+        var row = Assert.Single(fixture.Request.Work.Work.Values);
+        var cleanups = fixture.Request.Work.Cleanup.Values.Where(x => x.WorkId.Equals(row.WorkId))
+            .OrderBy(x => x.RegistrationOrdinal)
+            .Select(x => new GraphMediaCleanupRegistrationV1(x.CleanupId, x.RequestHash)).ToArray();
+        var operation = Operation(110);
+        var correlation = new CorrelationEnvelopeV1(fixture.Request.Correlation.TenantId, operationId: operation);
+        var body = new GraphMediaWorkExecutionCommandBodyV1(operation,
+            GraphMediaWorkAuthorityV1.FromRecord(row), cleanups, null, Stamp(111));
+        var commandBytes = GraphMediaWorkExecutionCodecsV1.EncodeOuter(new(fixture.Session,
+            fixture.Request.ExpectedAuthority, GraphMediaWorkExecutionCodecsV1.EncodeCommandBody(body)));
+        var commandProposal = new ProposedAuthorityFactV1(
+            GraphMediaWorkExecutionFactIdsV1.Command(fixture.Session, operation), null, OwnerSliceId.S1,
+            GraphMediaWorkExecutionPayloadRegistrationsV1.Command.Schema, commandBytes,
+            AuthorityPayloadHashV1.Compute(GraphMediaWorkExecutionPayloadRegistrationsV1.Command.SchemaToken,
+                GraphMediaWorkExecutionPayloadRegistrationsV1.Command.Schema, commandBytes),
+            correlation, fixture.Request.ObservedAt);
+        var commandResult = Assert.IsType<AppendAuthorityResultV1.Committed>(await journal.AppendAsync(
+            new(fixture.Session, 0, [], [commandProposal], 1_048_576)));
+        var command = Assert.Single(commandResult.Envelopes);
+        var factBody = new GraphMediaWorkExecutionFactBodyV1(command.Position, row.WorkId, row.RequestHash,
+            GraphMediaWorkExecutionOutcomeV1.Completed, row.OutcomeHash, null, body.ObservedAt);
+        var factBytes = GraphMediaWorkExecutionCodecsV1.EncodeOuter(new(fixture.Session,
+            fixture.Request.ExpectedAuthority, GraphMediaWorkExecutionCodecsV1.EncodeFactBody(factBody)));
+        var factProposal = new ProposedAuthorityFactV1(GraphMediaWorkExecutionFactIdsV1.Fact(command.Position),
+            null, OwnerSliceId.S1, GraphMediaWorkExecutionPayloadRegistrationsV1.Fact.Schema, factBytes,
+            AuthorityPayloadHashV1.Compute(GraphMediaWorkExecutionPayloadRegistrationsV1.Fact.SchemaToken,
+                GraphMediaWorkExecutionPayloadRegistrationsV1.Fact.Schema, factBytes), correlation,
+            fixture.Request.ObservedAt);
+        Assert.IsType<AppendAuthorityResultV1.Committed>(await journal.AppendAsync(
+            new(fixture.Session, command.Position.Sequence, [], [factProposal], 1_048_576)));
+    }
     private static SessionAuthorityStampV1 Session() => new(RuntimeGenerationId.FromValue(Id(1)), LiveSessionId.FromValue(Id(2)));
     private static GraphGenerationId Graph() => GraphGenerationId.FromValue(Id(3));
     private static JournalPositionV1 Position(long sequence) => new(Session(), sequence);

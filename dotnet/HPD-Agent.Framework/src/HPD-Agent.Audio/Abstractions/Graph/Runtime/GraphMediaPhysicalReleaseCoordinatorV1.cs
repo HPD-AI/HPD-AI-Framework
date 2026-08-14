@@ -108,6 +108,8 @@ internal sealed class GraphMediaPhysicalReleaseCoordinatorV1
                 return ToResult(history.Result)!;
             if (history.Result is GraphMediaPhysicalReleaseFoldResultV1.InvalidHistory)
                 return ToResult(history.Result)!;
+            if (!AuthenticateWorkHistory(request, commandBody, history.WorkSnapshot!))
+                return Quarantine("work-encumbered");
             if (history.Result is GraphMediaPhysicalReleaseFoldResultV1.Rejected prior)
             {
                 if (prior.CommandBody.OperationId == request.OperationId) return ToResult(prior)!;
@@ -206,6 +208,41 @@ internal sealed class GraphMediaPhysicalReleaseCoordinatorV1
             workProof, fanout, predecessor, request.EffectObservedAt), null);
     }
 
+    private static bool AuthenticateWorkHistory(GraphMediaPhysicalReleaseRequestV1 request,
+        GraphMediaPhysicalReleaseCommandBodyV1 command,
+        GraphMediaWorkExecutionFoldSnapshotV1 snapshot)
+    {
+        if (snapshot is not GraphMediaWorkExecutionFoldSnapshotV1.Current current ||
+            command.WorkProof.LedgerFingerprint != request.Work.Fingerprint ||
+            command.WorkProof.Eligibility != GraphMediaReleaseEligibilityV1.Eligible)
+            return false;
+        var rows = request.Work.Work.Values.Where(x => x.ResidenceId.Equals(request.ResidenceId))
+            .OrderBy(x => StableBytes(x.WorkId), Comparer<byte[]>.Create(static (left, right) => left.AsSpan().SequenceCompareTo(right)))
+            .ToArray();
+        if (rows.Length != command.WorkProof.WorkCount ||
+            current.Operations.Any(x => x is GraphMediaWorkExecutionFoldResultV1.CommandOnly or
+                GraphMediaWorkExecutionFoldResultV1.Unknown or GraphMediaWorkExecutionFoldResultV1.InvalidHistory))
+            return false;
+        var completed = current.Operations.OfType<GraphMediaWorkExecutionFoldResultV1.Completed>().ToArray();
+        if (completed.Length != rows.Length) return false;
+        foreach (var row in rows)
+        {
+            if (row.State != GraphMediaWorkStateV1.Terminal || row.OutcomeHash is not { } outcome) return false;
+            var matches = completed.Where(x => x.CommandBody.Work.WorkId.Equals(row.WorkId)).ToArray();
+            if (matches.Length != 1) return false;
+            var match = matches[0];
+            var expectedWork = GraphMediaWorkAuthorityV1.FromRecord(row);
+            var expectedCleanups = request.Work.Cleanup.Values.Where(x => x.WorkId.Equals(row.WorkId))
+                .OrderBy(x => x.RegistrationOrdinal)
+                .Select(x => new GraphMediaCleanupRegistrationV1(x.CleanupId, x.RequestHash)).ToArray();
+            if (match.CommandBody.Work != expectedWork || !match.CommandBody.Cleanups.SequenceEqual(expectedCleanups) ||
+                !match.FactBody.WorkId.Equals(row.WorkId) || match.FactBody.WorkRequestHash != row.RequestHash ||
+                match.EvidenceHash != outcome)
+                return false;
+        }
+        return true;
+    }
+
     private async ValueTask<GraphMediaPhysicalReleaseResultV1> ResolveCommandOnlyAsync(
         AuthorityFactEnvelopeV1 command, GraphMediaPhysicalReleaseCommandBodyV1 body,
         GraphMediaPhysicalReleaseRequestV1 request, CancellationToken cancellationToken)
@@ -271,34 +308,38 @@ internal sealed class GraphMediaPhysicalReleaseCoordinatorV1
         return final.Error ?? ToResult(final.Result!) ?? Quarantine("release-history-invalid");
     }
 
-    private async ValueTask<(GraphMediaPhysicalReleaseFoldResultV1? Result, long Through,
+    private async ValueTask<(GraphMediaPhysicalReleaseFoldResultV1? Result,
+        GraphMediaWorkExecutionFoldSnapshotV1? WorkSnapshot, long Through,
         GraphMediaPhysicalReleaseResultV1? Error)> ReadAsync(SessionAuthorityStampV1 session,
         GraphMediaPhysicalReleaseRequestV1 request, CancellationToken cancellationToken)
     {
         var fold = GraphMediaPhysicalReleaseFoldV1.Create(session, request.ResidenceId, _registry);
+        var workFold = GraphMediaWorkExecutionFoldV1.Create(session, request.ResidenceId, _registry);
         long cursor = 0, through = long.MaxValue; ulong records = 0, bytes = 0;
         while (cursor < through)
         {
             ReadAuthorityRangeResultV1 read;
             try { read = await _journal.ReadAsync(new(session, cursor, through, 256, 1_048_576), cancellationToken).ConfigureAwait(false); }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
-            catch { return (null, cursor, new GraphMediaPhysicalReleaseResultV1.StoreUnavailable(new("release-journal-unavailable"))); }
+            catch { return (null, null, cursor, new GraphMediaPhysicalReleaseResultV1.StoreUnavailable(new("release-journal-unavailable"))); }
             if (read is not ReadAuthorityRangeResultV1.Batch batch)
-                return (null, cursor, new GraphMediaPhysicalReleaseResultV1.StoreUnavailable(new("release-journal-unavailable")));
+                return (null, null, cursor, new GraphMediaPhysicalReleaseResultV1.StoreUnavailable(new("release-journal-unavailable")));
             through = batch.SnapshotThrough;
             if (batch.Facts.Count == 0) break;
             foreach (var envelope in batch.Facts)
             {
                 records++; bytes += (ulong)AuthorityCanonicalCborV1.GetEnvelopeEncodedLength(envelope);
                 if (records > request.MaximumSessionRecords || bytes > request.MaximumSessionCanonicalBytes)
-                    return (null, cursor, Quarantine("release-history-invalid"));
+                    return (null, null, cursor, Quarantine("release-history-invalid"));
                 if (fold.Apply(envelope) is GraphMediaPhysicalReleaseFoldApplyResultV1.InvalidHistory invalid)
-                    return (null, cursor, Quarantine(invalid.SafeCode.ToString()));
+                    return (null, null, cursor, Quarantine(invalid.SafeCode.ToString()));
+                if (workFold.Apply(envelope) is GraphMediaWorkExecutionFoldApplyResultV1.InvalidHistory workInvalid)
+                    return (null, null, cursor, Quarantine(workInvalid.SafeCode.ToString()));
                 cursor = envelope.Position.Sequence;
             }
             if (!batch.HasMore) break;
         }
-        return (fold.Complete(), cursor, null);
+        return (fold.Complete(), workFold.Snapshot(), cursor, null);
     }
 
     private async ValueTask<(AuthorityFactEnvelopeV1? Envelope, GraphMediaPhysicalReleaseResultV1? Error)> AppendAsync(
