@@ -24,6 +24,8 @@ internal enum GraphMediaBorrowResultV1 : byte
 }
 internal enum GraphMediaCompactionResultV1 : byte
 { Compacted, IdempotentCompacted, InvalidRequest, StaleGeneration, NotEligible, FingerprintConflict, ContradictoryDuplicate }
+internal enum GraphMediaOwnershipBatchCopyResultV1 : byte
+{ Copied, InvalidRequest, StaleGeneration, SourceNotFound, NotOwner, AlreadyDisposed, BorrowOutstanding, DestinationCollision, OwnerLimitReached }
 
 internal readonly record struct GraphMediaOwnerKeyV1(
     SessionAuthorityStampV1 Session, GraphGenerationId GraphGeneration, StableId128 MediaId)
@@ -87,6 +89,8 @@ internal sealed record GraphMediaOwnerTransitionV1(GraphMediaOwnerTransitionResu
 internal sealed record GraphMediaBorrowTransitionV1(GraphMediaBorrowResultV1 Result, GraphMediaOwnershipLedgerV1 Ledger);
 internal sealed record GraphMediaCompactionTransitionV1(GraphMediaCompactionResultV1 Result,
     GraphMediaOwnershipLedgerV1 Ledger, ushort RemovedBorrowCount, ushort RemovedReceiptCount, Hash256 PostFingerprint);
+internal sealed record GraphMediaOwnershipBatchCopyTransitionV1(GraphMediaOwnershipBatchCopyResultV1 Result,
+    GraphMediaOwnershipLedgerV1 Ledger);
 
 internal static class GraphMediaOwnershipCodecV1
 {
@@ -292,6 +296,34 @@ internal sealed class GraphMediaOwnershipLedgerV1
         tombstones[operation] = placeholder with { PostFingerprint = post };
         return new(GraphMediaCompactionResultV1.Compacted, Next(new(_owners), [], [], tombstones), removedBorrows, removedReceipts, post);
     }
+    internal GraphMediaOwnershipBatchCopyTransitionV1 CopyOwners(SessionAuthorityStampV1 session,
+        GraphGenerationId graph, StableId128 sourceId, IReadOnlyList<StableId128> destinationIds)
+    {
+        if (!session.IsValid || !graph.IsValid || sourceId.Equals(default) || destinationIds is null ||
+            destinationIds.Count is < 1 or > 16 || !Strict(destinationIds, Write))
+            return CopyFail(GraphMediaOwnershipBatchCopyResultV1.InvalidRequest);
+        if (session != Session || graph != GraphGeneration)
+            return CopyFail(GraphMediaOwnershipBatchCopyResultV1.StaleGeneration);
+        if (!_owners.TryGetValue(sourceId, out var source))
+            return CopyFail(GraphMediaOwnershipBatchCopyResultV1.SourceNotFound);
+        if (source.Key.Session != session || source.Key.GraphGeneration != graph)
+            return CopyFail(GraphMediaOwnershipBatchCopyResultV1.StaleGeneration);
+        if (source.State == GraphMediaOwnerStateV1.Transferred)
+            return CopyFail(GraphMediaOwnershipBatchCopyResultV1.NotOwner);
+        if (source.State == GraphMediaOwnerStateV1.Disposed)
+            return CopyFail(GraphMediaOwnershipBatchCopyResultV1.AlreadyDisposed);
+        if (_borrows.Values.Any(x => x.OwnerId.Equals(sourceId) && x.State == GraphMediaBorrowStateV1.Active))
+            return CopyFail(GraphMediaOwnershipBatchCopyResultV1.BorrowOutstanding);
+        if (destinationIds.Any(_owners.ContainsKey))
+            return CopyFail(GraphMediaOwnershipBatchCopyResultV1.DestinationCollision);
+        if (_owners.Count > MaximumOwners - destinationIds.Count)
+            return CopyFail(GraphMediaOwnershipBatchCopyResultV1.OwnerLimitReached);
+        var owners = new Dictionary<StableId128, GraphMediaOwnerRecordV1>(_owners);
+        foreach (var destinationId in destinationIds)
+            owners.Add(destinationId, new(destinationId, source.Key, source.Media, GraphMediaOwnerStateV1.Owned, 1));
+        return new(GraphMediaOwnershipBatchCopyResultV1.Copied,
+            Next(owners, new(_borrows), new(_receipts), new(_tombstones)));
+    }
     private static bool Strict<T>(IReadOnlyList<T> values, Func<T, byte[]> bytes)
     { for (var i = 0; i < values.Count; i++) { var current = bytes(values[i]); if (current.Length != 16 || (i > 0 && ByteArrayComparer.Instance.Compare(bytes(values[i - 1]), current) >= 0)) return false; } return true; }
     private static byte[] Write(StableId128 x) { var b = new byte[16]; return x.TryWriteBytes(b) ? b : []; }
@@ -303,6 +335,7 @@ internal sealed class GraphMediaOwnershipLedgerV1
     private GraphMediaOwnerTransitionV1 Fail(GraphMediaOwnerTransitionResultV1 x) => new(x, this);
     private GraphMediaBorrowTransitionV1 BorrowFail(GraphMediaBorrowResultV1 x) => new(x, this);
     private GraphMediaCompactionTransitionV1 CompactFail(GraphMediaCompactionResultV1 x) => new(x, this, 0, 0, default);
+    private GraphMediaOwnershipBatchCopyTransitionV1 CopyFail(GraphMediaOwnershipBatchCopyResultV1 x) => new(x, this);
     private GraphMediaOwnershipLedgerV1 Next(Dictionary<StableId128, GraphMediaOwnerRecordV1> owners,
         Dictionary<(StableId128, StableId128), GraphMediaBorrowRecordV1> borrows,
         Dictionary<OperationId, GraphMediaOwnerReceiptV1> receipts,

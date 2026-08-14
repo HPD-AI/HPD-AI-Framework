@@ -147,6 +147,29 @@ public sealed class GraphMediaOwnershipV1Tests
     }
 
     [Fact]
+    public void Batch_copy_is_atomic_ordered_and_preserves_exact_owner_identity()
+    {
+        var ledger = Ledger(out var source); var before = ledger.Fingerprint;
+        var destinations = new[] { Id(70), Id(71), Id(72) };
+        var copied = ledger.CopyOwners(Session(), Graph(), source, destinations);
+        Assert.Equal(GraphMediaOwnershipBatchCopyResultV1.Copied, copied.Result);
+        Assert.NotSame(ledger, copied.Ledger); Assert.NotEqual(before, copied.Ledger.Fingerprint);
+        var original = ledger.Owners[source];
+        Assert.Equal(4, copied.Ledger.Owners.Count);
+        foreach (var destination in destinations)
+        {
+            var owner = copied.Ledger.Owners[destination];
+            Assert.Equal(destination, owner.OwnerId); Assert.Equal(original.Key, owner.Key);
+            Assert.Same(original.Media, owner.Media); Assert.Equal(GraphMediaOwnerStateV1.Owned, owner.State); Assert.Equal(1UL, owner.Version);
+        }
+        Assert.Equal(GraphMediaOwnershipBatchCopyResultV1.InvalidRequest,
+            ledger.CopyOwners(Session(), Graph(), source, [destinations[1], destinations[0]]).Result);
+        Assert.Equal(GraphMediaOwnershipBatchCopyResultV1.DestinationCollision,
+            ledger.CopyOwners(Session(), Graph(), source, [source]).Result);
+        Assert.Equal(before, ledger.Fingerprint); Assert.Single(ledger.Owners);
+    }
+
+    [Fact]
     public void Compaction_is_exhaustive_one_shot_and_tombstoned()
     {
         var ledger = Ledger(out var source); var token = Id(50);
