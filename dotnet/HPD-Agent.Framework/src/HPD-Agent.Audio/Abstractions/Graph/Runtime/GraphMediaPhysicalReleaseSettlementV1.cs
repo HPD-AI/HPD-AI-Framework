@@ -33,7 +33,9 @@ internal sealed class GraphMediaPhysicalReleaseSettlementCoordinatorV1
         ArgumentNullException.ThrowIfNull(claimed);
         cancellationToken.ThrowIfCancellationRequested();
 
-        var authenticated = await AuthenticateReleaseAsync(claimed, cancellationToken).ConfigureAwait(false);
+        var authentication = await AuthenticateReleaseAsync(claimed, cancellationToken).ConfigureAwait(false);
+        if (authentication.Unavailable) return Store("release-history-unavailable");
+        var authenticated = authentication.Released;
         if (authenticated is null) return Quarantine("release-history-invalid");
 
         CapacityGrantSnapshotAtResultV1 pinned;
@@ -86,12 +88,12 @@ internal sealed class GraphMediaPhysicalReleaseSettlementCoordinatorV1
         };
     }
 
-    private async ValueTask<GraphMediaPhysicalReleaseFoldResultV1.Released?> AuthenticateReleaseAsync(
+    private async ValueTask<(GraphMediaPhysicalReleaseFoldResultV1.Released? Released, bool Unavailable)> AuthenticateReleaseAsync(
         GraphMediaPhysicalReleaseFoldResultV1.Released claimed, CancellationToken cancellationToken)
     {
         var session = claimed.Command.Position.Session;
         if (!session.IsValid || claimed.Fact.Position.Session != session ||
-            claimed.CommandBody.Residence.ResidenceId.Equals(default(StableId128))) return null;
+            claimed.CommandBody.Residence.ResidenceId.Equals(default(StableId128))) return (null, false);
         var fold = GraphMediaPhysicalReleaseFoldV1.Create(session, claimed.CommandBody.Residence.ResidenceId, _releaseRegistry);
         long cursor = 0;
         var through = claimed.Fact.Position.Sequence;
@@ -104,19 +106,19 @@ internal sealed class GraphMediaPhysicalReleaseSettlementCoordinatorV1
                     MaximumReadItems, MaximumReadBytes), cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
-            catch (Exception) { return null; }
+            catch (Exception) { return (null, true); }
             if (read is not ReadAuthorityRangeResultV1.Batch batch || batch.AfterExclusive != cursor ||
-                batch.SnapshotThrough != through || batch.Facts.Count == 0) return null;
+                batch.SnapshotThrough != through || batch.Facts.Count == 0) return (null, false);
             foreach (var envelope in batch.Facts)
-                if (fold.Apply(envelope) is GraphMediaPhysicalReleaseFoldApplyResultV1.InvalidHistory) return null;
+                if (fold.Apply(envelope) is GraphMediaPhysicalReleaseFoldApplyResultV1.InvalidHistory) return (null, false);
             cursor = batch.Facts[^1].Position.Sequence;
-            if (!batch.HasMore && cursor != through) return null;
+            if (!batch.HasMore && cursor != through) return (null, false);
         }
         if (fold.Complete() is not GraphMediaPhysicalReleaseFoldResultV1.Released actual ||
             !SameEnvelope(actual.Command, claimed.Command) || !SameEnvelope(actual.Fact, claimed.Fact) ||
             actual.EvidenceHash != claimed.EvidenceHash || actual.CommandBody != claimed.CommandBody ||
-            actual.FactBody != claimed.FactBody) return null;
-        return actual;
+            actual.FactBody != claimed.FactBody) return (null, false);
+        return (actual, false);
     }
 
     private static bool IsClosed(CapacityAdmissionResultV1.Settled settled, CapacityChargeV1 charge)

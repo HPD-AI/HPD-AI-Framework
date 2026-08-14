@@ -87,6 +87,17 @@ public sealed class GraphMediaPhysicalReleaseSettlementV1Tests
         AssertClosed(result.Grant, fixture.Charge, result.Envelope.Position);
     }
 
+    [Fact]
+    public async Task Release_journal_failure_is_retryable_and_never_mutates_S2()
+    {
+        var fixture = await CreateFixtureAsync();
+        var result = Assert.IsType<GraphMediaPhysicalReleaseSettlementResultV1.StoreUnavailable>(await
+            new GraphMediaPhysicalReleaseSettlementCoordinatorV1(new ThrowReadJournal(), fixture.S2,
+                fixture.ReleaseRegistry).SettleAsync(fixture.Released));
+        Assert.Equal("release-history-unavailable", result.SafeCode.ToString());
+        Assert.Equal(fixture.Grant.CurrentFact, (await ReadGrantAsync(fixture)).CurrentFact);
+    }
+
     private static async Task<Fixture> CreateFixtureAsync(long? releaseAmount = null)
     {
         var session = new SessionAuthorityStampV1(RuntimeGenerationId.FromValue(Id(1)), LiveSessionId.FromValue(Id(2)));
@@ -211,5 +222,13 @@ public sealed class GraphMediaPhysicalReleaseSettlementV1Tests
             cancellation.Cancel();
             return result;
         }
+    }
+
+    private sealed class ThrowReadJournal : IAuthorityJournalV1
+    {
+        public ValueTask<ReadAuthorityRangeResultV1> ReadAsync(ReadAuthorityRangeV1 request,
+            CancellationToken cancellationToken = default) => throw new InvalidOperationException("unavailable");
+        public ValueTask<AppendAuthorityResultV1> AppendAsync(AppendAuthorityBatchV1 request,
+            CancellationToken cancellationToken = default) => throw new InvalidOperationException("must not append");
     }
 }
