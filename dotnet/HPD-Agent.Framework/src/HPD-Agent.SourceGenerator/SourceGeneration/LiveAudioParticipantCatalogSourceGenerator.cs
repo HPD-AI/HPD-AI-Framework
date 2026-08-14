@@ -51,6 +51,16 @@ public sealed class LiveAudioParticipantCatalogSourceGenerator : IIncrementalGen
         var attribute = context.Attributes[0];
         if (attribute.ConstructorArguments.Length != 7) return null;
         var dependencies = attribute.NamedArguments.FirstOrDefault(static value => value.Key == "Dependencies").Value;
+        var opaqueProviderKey = attribute.NamedArguments.FirstOrDefault(static value => value.Key == "OpaqueProviderKey").Value.Value as string ?? string.Empty;
+        var opaqueOperationsValue = attribute.NamedArguments.FirstOrDefault(static value => value.Key == "OpaqueMaximumOutstandingOperations").Value.Value;
+        var opaqueBytesValue = attribute.NamedArguments.FirstOrDefault(static value => value.Key == "OpaqueMaximumSubmittedBytes").Value.Value;
+        var opaqueAgeValue = attribute.NamedArguments.FirstOrDefault(static value => value.Key == "OpaqueMaximumAgeNanoseconds").Value.Value;
+        var opaqueControlValue = attribute.NamedArguments.FirstOrDefault(static value => value.Key == "OpaqueControl").Value.Value;
+        var opaqueOperations = opaqueOperationsValue is null ? (ushort)0 : Convert.ToUInt16(opaqueOperationsValue, CultureInfo.InvariantCulture);
+        var opaqueBytes = opaqueBytesValue is null ? 0UL : Convert.ToUInt64(opaqueBytesValue, CultureInfo.InvariantCulture);
+        var opaqueAge = opaqueAgeValue is null ? 0L : Convert.ToInt64(opaqueAgeValue, CultureInfo.InvariantCulture);
+        var opaqueControl = opaqueControlValue is null ? (byte)0 : Convert.ToByte(opaqueControlValue, CultureInfo.InvariantCulture);
+        var opaqueProviderId = opaqueProviderKey.Length == 0 ? ImmutableArray<byte>.Empty : DeriveProviderId(opaqueProviderKey);
         var allocation = type.GetAttributes().Where(static value => value.AttributeClass?.ToDisplayString() == AllocationAttribute).ToArray();
         var allocationResult = TryBuildGraphParticipantAllocationCarrier(type, allocation, out var allocationBytes, out var allocationFingerprint);
         return new Entry(type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), Identity(type),
@@ -62,7 +72,8 @@ public sealed class LiveAudioParticipantCatalogSourceGenerator : IIncrementalGen
                 ? dependencies.Values.Select(static value => value.Value as string ?? string.Empty).ToImmutableArray()
                 : ImmutableArray<string>.Empty,
             type.AllInterfaces.Any(value => value.ToDisplayString() == FactoryInterface), IsApplicationVisible(type),
-            IsConcreteClosed(type), type.Locations.FirstOrDefault(), allocationBytes, allocationFingerprint, allocationResult);
+            IsConcreteClosed(type), type.Locations.FirstOrDefault(), allocationBytes, allocationFingerprint, allocationResult,
+            opaqueProviderKey, opaqueProviderId, opaqueOperations, opaqueBytes, opaqueAge, opaqueControl);
     }
 
     private static INamedTypeSymbol? ManualCatalog(GeneratorSyntaxContext context)
@@ -96,20 +107,30 @@ public sealed class LiveAudioParticipantCatalogSourceGenerator : IIncrementalGen
         foreach (var reference in compilation.SourceModule.ReferencedAssemblySymbols)
         foreach (var attribute in reference.GetAttributes())
         {
-            if (attribute.AttributeClass?.ToDisplayString() != ManifestAttribute || attribute.ConstructorArguments.Length is not (9 or 11) ||
+            if (attribute.AttributeClass?.ToDisplayString() != ManifestAttribute || attribute.ConstructorArguments.Length is not (9 or 11 or 16) ||
                 attribute.ConstructorArguments[0].Value is not INamedTypeSymbol type) continue;
             var allocationBytes = ImmutableArray<byte>.Empty; var allocationFingerprint = ImmutableArray<byte>.Empty;
-            if (attribute.ConstructorArguments.Length == 11)
+            if (attribute.ConstructorArguments.Length >= 11)
             {
                 allocationBytes = attribute.ConstructorArguments[9].Values.Select(static value => Convert.ToByte(value.Value, CultureInfo.InvariantCulture)).ToImmutableArray();
                 allocationFingerprint = attribute.ConstructorArguments[10].Values.Select(static value => Convert.ToByte(value.Value, CultureInfo.InvariantCulture)).ToImmutableArray();
+            }
+            var opaqueProviderId = ImmutableArray<byte>.Empty; ushort opaqueOperations = 0; ulong opaqueBytes = 0; long opaqueAge = 0; byte opaqueControl = 0;
+            if (attribute.ConstructorArguments.Length == 16)
+            {
+                opaqueProviderId = attribute.ConstructorArguments[11].Values.Select(static value => Convert.ToByte(value.Value, CultureInfo.InvariantCulture)).ToImmutableArray();
+                opaqueOperations = U16(attribute.ConstructorArguments[12]);
+                opaqueBytes = Convert.ToUInt64(attribute.ConstructorArguments[13].Value, CultureInfo.InvariantCulture);
+                opaqueAge = I64(attribute.ConstructorArguments[14]);
+                opaqueControl = Convert.ToByte(attribute.ConstructorArguments[15].Value, CultureInfo.InvariantCulture);
             }
             all.Add(new Entry(type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), Identity(type),
                 attribute.ConstructorArguments[1].Value as string ?? string.Empty, U16(attribute.ConstructorArguments[2]),
                 U16(attribute.ConstructorArguments[3]), I64(attribute.ConstructorArguments[4]), I64(attribute.ConstructorArguments[5]),
                 I64(attribute.ConstructorArguments[6]), attribute.ConstructorArguments[7].Values.Select(U16).ToImmutableArray(),
                 attribute.ConstructorArguments[8].Values.Select(static value => value.Value as string ?? string.Empty).ToImmutableArray(), true,
-                IsApplicationVisible(type), IsConcreteClosed(type), null, allocationBytes, allocationFingerprint, null));
+                IsApplicationVisible(type), IsConcreteClosed(type), null, allocationBytes, allocationFingerprint, null,
+                string.Empty, opaqueProviderId, opaqueOperations, opaqueBytes, opaqueAge, opaqueControl));
         }
         if (all.Count == 0) return;
         if (local.Any(static value => !TryBuildGraphParticipantAllocationCarrier(value)))
@@ -161,6 +182,12 @@ public sealed class LiveAudioParticipantCatalogSourceGenerator : IIncrementalGen
             if (!value.AllocationBytes.IsEmpty && (value.Owner != 2 || value.Axis != 2 ||
                 !TryValidateCarrier(value.AllocationBytes, value.AllocationFingerprint, value.Key, value.Capacities)))
                 return (value.Location, $"allocation carrier does not authenticate '{value.Key}'", true);
+            var noOpaque = value.OpaqueProviderId.IsEmpty && value.OpaqueOperations == 0 && value.OpaqueBytes == 0 && value.OpaqueAge == 0 && value.OpaqueControl == 0;
+            if (!noOpaque && (value.OpaqueProviderId.Length != 16 || value.OpaqueProviderId.All(static item => item == 0) ||
+                value.OpaqueOperations is 0 or > 64 || value.OpaqueBytes is 0 or > 4_194_304 ||
+                value.OpaqueAge is <= 0 or > 10_000_000_000 || value.OpaqueControl is < 1 or > 2 ||
+                value.OpaqueProviderKey.Length != 0 && !Ascii(value.OpaqueProviderKey)))
+                return (value.Location, $"opaque residence qualification is partial or invalid for '{value.Key}'", false);
         }
         if (values.Count(static value => !value.AllocationBytes.IsEmpty) > 1) return (null, "more than one nonempty aggregate allocation", true);
         var unknown = values.SelectMany(static value => value.Dependencies).FirstOrDefault(value => !keys.Contains(value));
@@ -177,7 +204,11 @@ public sealed class LiveAudioParticipantCatalogSourceGenerator : IIncrementalGen
         return null;
     }
 
-    private static string ManifestSource(Entry value) => value.AllocationBytes.IsEmpty ? $$"""
+    private static string ManifestSource(Entry value) => !value.OpaqueProviderId.IsEmpty ? $$"""
+        // <auto-generated/>
+        #nullable enable
+        [assembly: global::HPD.Agent.Audio.HpdLiveAudioParticipantManifestAttribute(typeof({{value.TypeName}}), {{Literal(value.Key)}}, {{value.Owner}}, {{value.Axis}}, {{value.Prepare}}L, {{value.Drain}}L, {{value.Terminate}}L, new ushort[] { {{Join(value.Capacities, static item => item.ToString(CultureInfo.InvariantCulture))}} }, new string[] { {{Join(value.Dependencies, Literal)}} }, new byte[] { {{Join(value.AllocationBytes, static item => item.ToString(CultureInfo.InvariantCulture))}} }, new byte[] { {{Join(value.AllocationFingerprint, static item => item.ToString(CultureInfo.InvariantCulture))}} }, new byte[] { {{Join(value.OpaqueProviderId, static item => item.ToString(CultureInfo.InvariantCulture))}} }, {{value.OpaqueOperations}}, {{value.OpaqueBytes}}UL, {{value.OpaqueAge}}L, {{value.OpaqueControl}})]
+        """ : value.AllocationBytes.IsEmpty ? $$"""
         // <auto-generated/>
         #nullable enable
         [assembly: global::HPD.Agent.Audio.HpdLiveAudioParticipantManifestAttribute(typeof({{value.TypeName}}), {{Literal(value.Key)}}, {{value.Owner}}, {{value.Axis}}, {{value.Prepare}}L, {{value.Drain}}L, {{value.Terminate}}L, new ushort[] { {{Join(value.Capacities, static item => item.ToString(CultureInfo.InvariantCulture))}} }, new string[] { {{Join(value.Dependencies, Literal)}} })]
@@ -205,6 +236,14 @@ public sealed class LiveAudioParticipantCatalogSourceGenerator : IIncrementalGen
             if (!value.AllocationBytes.IsEmpty)
                 builder.Append(", new byte[] { ").Append(Join(value.AllocationBytes, static item => item.ToString(CultureInfo.InvariantCulture)))
                     .Append(" }, global::HPD.Agent.Authority.Hash256.FromBytes(new byte[] { ").Append(Join(value.AllocationFingerprint, static item => item.ToString(CultureInfo.InvariantCulture))).Append(" })");
+            if (!value.OpaqueProviderId.IsEmpty)
+            {
+                if (value.AllocationBytes.IsEmpty) builder.Append(", global::System.ReadOnlyMemory<byte>.Empty, null");
+                builder.Append(", new global::HPD.Agent.Audio.LiveAudioOpaqueResidenceQualificationV1(global::HPD.Agent.Authority.ProviderId.FromValue(global::HPD.Agent.Authority.StableId128.FromBytes(new byte[] { ")
+                    .Append(Join(value.OpaqueProviderId, static item => item.ToString(CultureInfo.InvariantCulture))).Append(" })), ")
+                    .Append(value.OpaqueOperations).Append(", ").Append(value.OpaqueBytes).Append("UL, new global::HPD.Agent.Authority.DurationNs(")
+                    .Append(value.OpaqueAge).Append("L), (global::HPD.Agent.Audio.LiveAudioOpaqueResidenceControlV1)").Append(value.OpaqueControl).Append(")");
+            }
             builder.AppendLine("),");
         }
         builder.AppendLine("    ];");
@@ -218,6 +257,18 @@ public sealed class LiveAudioParticipantCatalogSourceGenerator : IIncrementalGen
 
     private static ushort U16(TypedConstant value) => Convert.ToUInt16(value.Value, CultureInfo.InvariantCulture);
     private static long I64(TypedConstant value) => Convert.ToInt64(value.Value, CultureInfo.InvariantCulture);
+    private static ImmutableArray<byte> DeriveProviderId(string providerKey)
+    {
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        AppendHashPart(hash, "hpd.provider-id.v1"); AppendHashPart(hash, providerKey);
+        var digest = hash.GetHashAndReset(); if (digest.Take(16).All(static value => value == 0)) digest[15] = 1;
+        return digest.Take(16).ToImmutableArray();
+    }
+    private static void AppendHashPart(IncrementalHash hash, string value)
+    {
+        var bytes = Encoding.UTF8.GetBytes(value); Span<byte> length = stackalloc byte[4];
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(length, bytes.Length); hash.AppendData(length.ToArray()); hash.AppendData(bytes);
+    }
     private static bool Ascii(string value) => value.Length is > 0 and <= 64 && value.All(static c => c is >= 'a' and <= 'z' or >= '0' and <= '9' or '-' or '.');
     private static string Safe(string value)
     {
@@ -294,5 +345,7 @@ public sealed class LiveAudioParticipantCatalogSourceGenerator : IIncrementalGen
     private sealed record Entry(string TypeName, string FactoryIdentity, string Key, ushort Owner, ushort Axis, long Prepare,
         long Drain, long Terminate, ImmutableArray<ushort> Capacities, ImmutableArray<string> Dependencies,
         bool ImplementsFactory, bool ApplicationVisible, bool ConcreteClosed, Location? Location,
-        ImmutableArray<byte> AllocationBytes, ImmutableArray<byte> AllocationFingerprint, string? AllocationError);
+        ImmutableArray<byte> AllocationBytes, ImmutableArray<byte> AllocationFingerprint, string? AllocationError,
+        string OpaqueProviderKey, ImmutableArray<byte> OpaqueProviderId, ushort OpaqueOperations,
+        ulong OpaqueBytes, long OpaqueAge, byte OpaqueControl);
 }

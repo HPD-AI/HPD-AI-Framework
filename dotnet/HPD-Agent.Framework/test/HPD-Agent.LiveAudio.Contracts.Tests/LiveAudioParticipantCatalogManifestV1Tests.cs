@@ -16,12 +16,12 @@ public sealed class LiveAudioParticipantCatalogManifestV1Tests
             attribute.GetProperties(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly).Select(static p => p.Name).Order().ToArray());
 
         var manifestAttribute = typeof(HpdLiveAudioParticipantManifestAttribute);
-        Assert.Equal([9, 11], manifestAttribute.GetConstructors().Select(static c => c.GetParameters().Length).Order().ToArray());
-        Assert.Equal(["CapacityDimensions", "Dependencies", "FactoryKey", "FactoryType", "GenerationFence", "GraphParticipantAllocationDeclarationBytes", "GraphParticipantAllocationDeclarationFingerprintBytes", "MaximumDrainNanoseconds", "MaximumPrepareNanoseconds", "MaximumTerminateNanoseconds", "Owner"],
+        Assert.Equal([9, 11, 16], manifestAttribute.GetConstructors().Select(static c => c.GetParameters().Length).Order().ToArray());
+        Assert.Equal(["CapacityDimensions", "Dependencies", "FactoryKey", "FactoryType", "GenerationFence", "GraphParticipantAllocationDeclarationBytes", "GraphParticipantAllocationDeclarationFingerprintBytes", "MaximumDrainNanoseconds", "MaximumPrepareNanoseconds", "MaximumTerminateNanoseconds", "OpaqueControl", "OpaqueMaximumAgeNanoseconds", "OpaqueMaximumOutstandingOperations", "OpaqueMaximumSubmittedBytes", "OpaqueProviderIdBytes", "Owner"],
             manifestAttribute.GetProperties(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly).Select(static p => p.Name).Order().ToArray());
         var registration = typeof(LiveAudioParticipantFactoryRegistrationV1);
-        Assert.Equal([3, 5], registration.GetConstructors().Select(static c => c.GetParameters().Length).Order().ToArray());
-        Assert.Equal(["Descriptor", "FactoryIdentity", "FactoryType", "GraphParticipantAllocationDeclarationBytes", "GraphParticipantAllocationDeclarationFingerprint"],
+        Assert.Equal([3, 5, 6], registration.GetConstructors().Select(static c => c.GetParameters().Length).Order().ToArray());
+        Assert.Equal(["Descriptor", "FactoryIdentity", "FactoryType", "GraphParticipantAllocationDeclarationBytes", "GraphParticipantAllocationDeclarationFingerprint", "OpaqueResidenceQualification"],
             registration.GetProperties(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly).Select(static p => p.Name).Order().ToArray());
         Assert.Equal(typeof(ReadOnlyMemory<byte>), registration.GetProperty("GraphParticipantAllocationDeclarationBytes")!.PropertyType);
         Assert.Equal(typeof(Hash256?), registration.GetProperty("GraphParticipantAllocationDeclarationFingerprint")!.PropertyType);
@@ -32,6 +32,28 @@ public sealed class LiveAudioParticipantCatalogManifestV1Tests
         Assert.Contains("HpdGraphParticipantAllocationAttribute", xml, StringComparison.Ordinal);
         Assert.Contains("GraphParticipantAllocationDeclarationBytes", xml, StringComparison.Ordinal);
         Assert.Contains("GraphParticipantAllocationDeclarationFingerprint", xml, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Opaque_qualification_is_complete_bounded_and_committed_by_catalog_fingerprint()
+    {
+        var provider = ProviderId.FromValue(StableId128.FromBytes(Enumerable.Repeat((byte)7,16).ToArray()));
+        var qualification = new LiveAudioOpaqueResidenceQualificationV1(provider, 8, 4096, new DurationNs(1_000_000),
+            LiveAudioOpaqueResidenceControlV1.ObservationOnly);
+        var descriptor = Descriptor("provider", OwnerSliceId.S5);
+        var plain = new LiveAudioParticipantFactoryRegistrationV1(typeof(ProviderFactory), "tests:provider", descriptor);
+        var qualified = new LiveAudioParticipantFactoryRegistrationV1(typeof(ProviderFactory), "tests:provider", descriptor,
+            ReadOnlyMemory<byte>.Empty, null, qualification);
+        var plainManifest = LiveAudioParticipantCatalogManifestV1.Create([plain]);
+        var qualifiedManifest = LiveAudioParticipantCatalogManifestV1.Create([qualified]);
+        Assert.NotEqual(plainManifest.Fingerprint, qualifiedManifest.Fingerprint);
+        Assert.True(qualifiedManifest.TryGet(new BoundedAscii("provider"), out var selected));
+        Assert.Equal(qualification, selected.OpaqueResidenceQualification);
+        Assert.Throws<ArgumentOutOfRangeException>(() => new LiveAudioOpaqueResidenceQualificationV1(provider, 65, 1, new(1), LiveAudioOpaqueResidenceControlV1.ObservationOnly));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new LiveAudioOpaqueResidenceQualificationV1(provider, 1, 4_194_305, new(1), LiveAudioOpaqueResidenceControlV1.ObservationOnly));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new LiveAudioOpaqueResidenceQualificationV1(provider, 1, 1, new(10_000_000_001), LiveAudioOpaqueResidenceControlV1.ObservationOnly));
+        Assert.Throws<ArgumentException>(() => new HpdLiveAudioParticipantManifestAttribute(typeof(ProviderFactory), "provider", 5, 5, 1, 1, 1,
+            [2], [], [], [], Enumerable.Repeat((byte)7,16).ToArray(), 1, 0, 1, 1));
     }
 
     [Fact]

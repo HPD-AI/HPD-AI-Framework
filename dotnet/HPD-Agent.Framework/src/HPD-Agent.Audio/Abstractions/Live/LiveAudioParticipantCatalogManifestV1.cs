@@ -4,6 +4,46 @@ using HPD.Agent.Authority;
 
 namespace HPD.Agent.Audio;
 
+/// <summary>Declares the truthful control evidence available for one qualified opaque external residence.</summary>
+public enum LiveAudioOpaqueResidenceControlV1 : byte
+{
+    /// <summary>The adapter can observe bounded external work but cannot prove cancellation.</summary>
+    ObservationOnly = 1,
+    /// <summary>The adapter can produce an explicit acknowledgement for a cancellation request.</summary>
+    AdapterAcknowledgedCancellation = 2,
+}
+
+/// <summary>Retains one generated, finite qualification for opaque external media residence.</summary>
+public sealed record LiveAudioOpaqueResidenceQualificationV1
+{
+    /// <summary>Initializes a complete generated opaque-residence qualification.</summary>
+    public LiveAudioOpaqueResidenceQualificationV1(ProviderId providerId, ushort maximumOutstandingOperations,
+        ulong maximumSubmittedBytes, DurationNs maximumAge, LiveAudioOpaqueResidenceControlV1 control)
+    {
+        if (!providerId.IsValid) throw new ArgumentException("A provider identity is required.", nameof(providerId));
+        if (maximumOutstandingOperations is 0 or > 64)
+            throw new ArgumentOutOfRangeException(nameof(maximumOutstandingOperations));
+        if (maximumSubmittedBytes is 0 or > 4_194_304)
+            throw new ArgumentOutOfRangeException(nameof(maximumSubmittedBytes));
+        if (maximumAge.Nanoseconds is <= 0 or > 10_000_000_000)
+            throw new ArgumentOutOfRangeException(nameof(maximumAge));
+        if (!Enum.IsDefined(control)) throw new ArgumentException("The control declaration is invalid.", nameof(control));
+        ProviderId = providerId; MaximumOutstandingOperations = maximumOutstandingOperations;
+        MaximumSubmittedBytes = maximumSubmittedBytes; MaximumAge = maximumAge; Control = control;
+    }
+
+    /// <summary>Gets the generated provider identity.</summary>
+    public ProviderId ProviderId { get; }
+    /// <summary>Gets the maximum submitted external operations retained by the boundary.</summary>
+    public ushort MaximumOutstandingOperations { get; }
+    /// <summary>Gets the maximum submitted bytes retained by the boundary.</summary>
+    public ulong MaximumSubmittedBytes { get; }
+    /// <summary>Gets the maximum finite residence age.</summary>
+    public DurationNs MaximumAge { get; }
+    /// <summary>Gets the declared external-control evidence.</summary>
+    public LiveAudioOpaqueResidenceControlV1 Control { get; }
+}
+
 /// <summary>Declares the generated allocation policy for one aggregate graph participant.</summary>
 [AttributeUsage(AttributeTargets.Class, AllowMultiple = false, Inherited = false)]
 public sealed class HpdGraphParticipantAllocationAttribute : Attribute
@@ -80,6 +120,16 @@ public sealed class HpdLiveAudioParticipantFactoryAttribute : Attribute
     public ushort[] CapacityDimensions { get; }
     /// <summary>Gets or sets the direct participant factory-key dependencies.</summary>
     public string[] Dependencies { get; set; } = [];
+    /// <summary>Gets or sets the canonical AgentCore provider key for optional Opaque residence qualification.</summary>
+    public string OpaqueProviderKey { get; set; } = string.Empty;
+    /// <summary>Gets or sets the finite maximum submitted external operations.</summary>
+    public ushort OpaqueMaximumOutstandingOperations { get; set; }
+    /// <summary>Gets or sets the finite maximum submitted external bytes.</summary>
+    public ulong OpaqueMaximumSubmittedBytes { get; set; }
+    /// <summary>Gets or sets the finite maximum Opaque residence age in nanoseconds.</summary>
+    public long OpaqueMaximumAgeNanoseconds { get; set; }
+    /// <summary>Gets or sets the closed external-control declaration.</summary>
+    public LiveAudioOpaqueResidenceControlV1 OpaqueControl { get; set; }
 }
 
 /// <summary>Carries one generated participant declaration across an assembly boundary.</summary>
@@ -88,6 +138,7 @@ public sealed class HpdLiveAudioParticipantManifestAttribute : Attribute
 {
     private readonly byte[] _graphParticipantAllocationDeclarationBytes;
     private readonly byte[] _graphParticipantAllocationDeclarationFingerprintBytes;
+    private readonly byte[] _opaqueProviderIdBytes;
     /// <summary>Initializes one generated assembly manifest entry.</summary>
     /// <param name="factoryType">The exact declared factory type.</param>
     /// <param name="factoryKey">The application-unique factory key.</param>
@@ -102,7 +153,7 @@ public sealed class HpdLiveAudioParticipantManifestAttribute : Attribute
         ushort generationFence, long maximumPrepareNanoseconds, long maximumDrainNanoseconds,
         long maximumTerminateNanoseconds, ushort[] capacityDimensions, string[] dependencies)
         : this(factoryType, factoryKey, owner, generationFence, maximumPrepareNanoseconds,
-            maximumDrainNanoseconds, maximumTerminateNanoseconds, capacityDimensions, dependencies, [], [])
+            maximumDrainNanoseconds, maximumTerminateNanoseconds, capacityDimensions, dependencies, [], [], [], 0, 0, 0, 0)
     { }
 
     /// <summary>Initializes one generated assembly manifest entry with an authenticated allocation carrier.</summary>
@@ -122,6 +173,20 @@ public sealed class HpdLiveAudioParticipantManifestAttribute : Attribute
         long maximumTerminateNanoseconds, ushort[] capacityDimensions, string[] dependencies,
         byte[] graphParticipantAllocationDeclarationBytes,
         byte[] graphParticipantAllocationDeclarationFingerprintBytes)
+        : this(factoryType, factoryKey, owner, generationFence, maximumPrepareNanoseconds,
+            maximumDrainNanoseconds, maximumTerminateNanoseconds, capacityDimensions, dependencies,
+            graphParticipantAllocationDeclarationBytes, graphParticipantAllocationDeclarationFingerprintBytes,
+            [], 0, 0, 0, 0)
+    { }
+
+    /// <summary>Initializes one generated assembly manifest entry with allocation and optional Opaque qualification.</summary>
+    public HpdLiveAudioParticipantManifestAttribute(Type factoryType, string factoryKey, ushort owner,
+        ushort generationFence, long maximumPrepareNanoseconds, long maximumDrainNanoseconds,
+        long maximumTerminateNanoseconds, ushort[] capacityDimensions, string[] dependencies,
+        byte[] graphParticipantAllocationDeclarationBytes,
+        byte[] graphParticipantAllocationDeclarationFingerprintBytes, byte[] opaqueProviderIdBytes,
+        ushort opaqueMaximumOutstandingOperations, ulong opaqueMaximumSubmittedBytes,
+        long opaqueMaximumAgeNanoseconds, byte opaqueControl)
     {
         FactoryType = factoryType; FactoryKey = factoryKey; Owner = owner; GenerationFence = generationFence;
         MaximumPrepareNanoseconds = maximumPrepareNanoseconds; MaximumDrainNanoseconds = maximumDrainNanoseconds;
@@ -129,8 +194,14 @@ public sealed class HpdLiveAudioParticipantManifestAttribute : Attribute
         Dependencies = dependencies;
         _graphParticipantAllocationDeclarationBytes = (graphParticipantAllocationDeclarationBytes ?? throw new ArgumentNullException(nameof(graphParticipantAllocationDeclarationBytes))).ToArray();
         _graphParticipantAllocationDeclarationFingerprintBytes = (graphParticipantAllocationDeclarationFingerprintBytes ?? throw new ArgumentNullException(nameof(graphParticipantAllocationDeclarationFingerprintBytes))).ToArray();
+        _opaqueProviderIdBytes = (opaqueProviderIdBytes ?? throw new ArgumentNullException(nameof(opaqueProviderIdBytes))).ToArray();
         ValidateCarrier(factoryKey, capacityDimensions, _graphParticipantAllocationDeclarationBytes,
             _graphParticipantAllocationDeclarationFingerprintBytes);
+        ValidateOpaque(_opaqueProviderIdBytes, opaqueMaximumOutstandingOperations, opaqueMaximumSubmittedBytes,
+            opaqueMaximumAgeNanoseconds, opaqueControl);
+        OpaqueMaximumOutstandingOperations = opaqueMaximumOutstandingOperations;
+        OpaqueMaximumSubmittedBytes = opaqueMaximumSubmittedBytes; OpaqueMaximumAgeNanoseconds = opaqueMaximumAgeNanoseconds;
+        OpaqueControl = opaqueControl;
     }
 
     /// <summary>Gets the declared factory type.</summary>
@@ -155,6 +226,24 @@ public sealed class HpdLiveAudioParticipantManifestAttribute : Attribute
     public byte[] GraphParticipantAllocationDeclarationBytes => _graphParticipantAllocationDeclarationBytes.ToArray();
     /// <summary>Gets a fresh copy of the separate graph-participant allocation fingerprint bytes.</summary>
     public byte[] GraphParticipantAllocationDeclarationFingerprintBytes => _graphParticipantAllocationDeclarationFingerprintBytes.ToArray();
+    /// <summary>Gets a fresh copy of the optional generated provider identity.</summary>
+    public byte[] OpaqueProviderIdBytes => _opaqueProviderIdBytes.ToArray();
+    /// <summary>Gets the optional finite submitted-operation credit.</summary>
+    public ushort OpaqueMaximumOutstandingOperations { get; }
+    /// <summary>Gets the optional finite submitted-byte credit.</summary>
+    public ulong OpaqueMaximumSubmittedBytes { get; }
+    /// <summary>Gets the optional finite residence-age bound.</summary>
+    public long OpaqueMaximumAgeNanoseconds { get; }
+    /// <summary>Gets the optional closed control declaration.</summary>
+    public byte OpaqueControl { get; }
+
+    private static void ValidateOpaque(byte[] providerId, ushort operations, ulong bytes, long age, byte control)
+    {
+        if (providerId.Length == 0 && operations == 0 && bytes == 0 && age == 0 && control == 0) return;
+        if (providerId.Length != 16 || operations is 0 or > 64 || bytes is 0 or > 4_194_304 ||
+            age is <= 0 or > 10_000_000_000 || control is < 1 or > 2 || providerId.All(static value => value == 0))
+            throw new ArgumentException("Opaque residence qualification must be completely present and bounded.");
+    }
 
     private static void ValidateCarrier(string factoryKey, ushort[] capacityDimensions, byte[] bytes, byte[] fingerprintBytes)
     {
@@ -182,7 +271,7 @@ public sealed record LiveAudioParticipantFactoryRegistrationV1
     /// <exception cref="ArgumentException">The canonical identity is empty, non-ASCII, or longer than 512 bytes.</exception>
     public LiveAudioParticipantFactoryRegistrationV1(Type factoryType, string factoryIdentity,
         LiveAudioParticipantDescriptorV1 descriptor)
-        : this(factoryType, factoryIdentity, descriptor, ReadOnlyMemory<byte>.Empty, null)
+        : this(factoryType, factoryIdentity, descriptor, ReadOnlyMemory<byte>.Empty, null, null)
     { }
 
     /// <summary>Initializes one generated factory registration with an authenticated allocation carrier.</summary>
@@ -195,6 +284,16 @@ public sealed record LiveAudioParticipantFactoryRegistrationV1
         LiveAudioParticipantDescriptorV1 descriptor,
         ReadOnlyMemory<byte> graphParticipantAllocationDeclarationBytes,
         Hash256? graphParticipantAllocationDeclarationFingerprint)
+        : this(factoryType, factoryIdentity, descriptor, graphParticipantAllocationDeclarationBytes,
+            graphParticipantAllocationDeclarationFingerprint, null)
+    { }
+
+    /// <summary>Initializes one generated factory registration with allocation and optional Opaque qualification.</summary>
+    public LiveAudioParticipantFactoryRegistrationV1(Type factoryType, string factoryIdentity,
+        LiveAudioParticipantDescriptorV1 descriptor,
+        ReadOnlyMemory<byte> graphParticipantAllocationDeclarationBytes,
+        Hash256? graphParticipantAllocationDeclarationFingerprint,
+        LiveAudioOpaqueResidenceQualificationV1? opaqueResidenceQualification)
     {
         FactoryType = factoryType ?? throw new ArgumentNullException(nameof(factoryType));
         ArgumentNullException.ThrowIfNull(factoryIdentity);
@@ -216,6 +315,7 @@ public sealed record LiveAudioParticipantFactoryRegistrationV1
                 throw new ArgumentException("Allocation carrier is invalid.", nameof(graphParticipantAllocationDeclarationBytes));
         }
         GraphParticipantAllocationDeclarationFingerprint = graphParticipantAllocationDeclarationFingerprint;
+        OpaqueResidenceQualification = opaqueResidenceQualification;
     }
 
     /// <summary>Gets the exact factory implementation type.</summary>
@@ -228,6 +328,8 @@ public sealed record LiveAudioParticipantFactoryRegistrationV1
     public ReadOnlyMemory<byte> GraphParticipantAllocationDeclarationBytes => new(_graphParticipantAllocationDeclarationBytes.ToArray());
     /// <summary>Gets the separate allocation fingerprint, or null when no allocation is declared.</summary>
     public Hash256? GraphParticipantAllocationDeclarationFingerprint { get; }
+    /// <summary>Gets the generated Opaque-residence qualification, or null when this factory is not qualified.</summary>
+    public LiveAudioOpaqueResidenceQualificationV1? OpaqueResidenceQualification { get; }
 }
 
 /// <summary>Contains the generated, canonical participant descriptor exact set and fingerprint.</summary>
@@ -358,7 +460,7 @@ public sealed class LiveAudioParticipantCatalogManifestV1
         foreach (var registration in registrations)
         {
             var value = registration.Descriptor;
-            writer.WriteStartMap(9); writer.WriteUInt64(1); writer.WriteTextString(value.FactoryKey.ToString());
+            writer.WriteStartMap(registration.OpaqueResidenceQualification is null ? 9 : 10); writer.WriteUInt64(1); writer.WriteTextString(value.FactoryKey.ToString());
             writer.WriteUInt64(2); writer.WriteUInt64((ushort)value.Owner); writer.WriteUInt64(3); writer.WriteUInt64((ushort)value.GenerationFence);
             writer.WriteUInt64(4); writer.WriteStartArray(value.Dependencies.Count); foreach (var item in value.Dependencies) writer.WriteTextString(item.ToString()); writer.WriteEndArray();
             writer.WriteUInt64(5); writer.WriteStartArray(value.CapacityDimensions.Count); foreach (var item in value.CapacityDimensions) writer.WriteUInt64(item.Value); writer.WriteEndArray();
@@ -366,6 +468,13 @@ public sealed class LiveAudioParticipantCatalogManifestV1
             writer.WriteUInt64(7); writer.WriteInt64(value.MaximumDrainDuration.Nanoseconds);
             writer.WriteUInt64(8); writer.WriteInt64(value.MaximumTerminateDuration.Nanoseconds);
             writer.WriteUInt64(9); writer.WriteTextString(registration.FactoryIdentity);
+            if (registration.OpaqueResidenceQualification is { } opaque)
+            {
+                var provider = new byte[16]; if (!opaque.ProviderId.TryWriteBytes(provider)) throw new InvalidOperationException();
+                writer.WriteUInt64(10); writer.WriteStartArray(5); writer.WriteByteString(provider);
+                writer.WriteUInt64(opaque.MaximumOutstandingOperations); writer.WriteUInt64(opaque.MaximumSubmittedBytes);
+                writer.WriteInt64(opaque.MaximumAge.Nanoseconds); writer.WriteUInt64((byte)opaque.Control); writer.WriteEndArray();
+            }
             writer.WriteEndMap();
         }
         writer.WriteEndArray(); using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);

@@ -1,3 +1,4 @@
+using HPD.Agent.Audio;
 using HPD.Agent.Audio.Graph;
 using HPD.Agent.Audio.Graph.Runtime;
 using HPD.Agent.Authority;
@@ -77,6 +78,65 @@ public sealed class GraphMediaResidenceV1Tests
         Assert.Equal(GraphMediaResidenceResultV1.ResidenceLimitReached, overflow.Result);
         Assert.Same(ledger, overflow.Ledger);
         Assert.Equal(before, overflow.Ledger.Fingerprint);
+    }
+
+    [Fact]
+    public void Qualified_opaque_ingress_retains_finite_credits_without_claiming_physical_size()
+    {
+        var fixture = CreateOpaqueFixture(); var before = fixture.Ledger.Fingerprint;
+        var accepted = fixture.Ledger.AdmitOpaque(fixture.Request, fixture.Ownership);
+        Assert.Equal(GraphMediaResidenceResultV1.OpaqueAdmitted, accepted.Result);
+        Assert.NotEqual(before, accepted.Ledger.Fingerprint);
+        var row = Assert.Single(accepted.Ledger.Opaques).Value;
+        Assert.Equal(GraphMediaResidenceClassV1.Opaque, row.Class);
+        Assert.Equal((ushort)2, row.SubmittedOperations); Assert.Equal(400UL, row.SubmittedBytes);
+        Assert.Equal(1_000L, row.MaximumAge.Nanoseconds);
+        Assert.Equal(fixture.Provider.ProviderId, row.ProviderId);
+        Assert.Null(typeof(GraphMediaOpaqueResidenceV1).GetProperty("ByteLength"));
+        Assert.Equal(GraphMediaResidenceResultV1.IdempotentOpaqueAdmitted,
+            accepted.Ledger.AdmitOpaque(fixture.Request, fixture.Ownership).Result);
+        Assert.Equal(GraphMediaResidenceResultV1.WrongState,
+            accepted.Ledger.MakeVisible(fixture.Request.OperationId, fixture.Request.RequestHash, fixture.Ownership).Result);
+    }
+
+    [Fact]
+    public void Opaque_provider_catalog_qualification_credit_and_capacity_mismatches_fail_without_mutation()
+    {
+        var fixture = CreateOpaqueFixture();
+        var wrongProvider = ProviderContribution(ProviderId.FromValue(Id(161)));
+        var cases = new[]
+        {
+            fixture.Request with { SelectedProvider = wrongProvider },
+            fixture.Request with { SubmittedOperations = 9, RequestHash = Hash(162) },
+            fixture.Request with { SubmittedBytes = 4_194_305, RequestHash = Hash(163) },
+            fixture.Request with { MaximumAge = new DurationNs(10_000_000_001), RequestHash = Hash(164) },
+            fixture.Request with { Grant = CloneGrant(fixture.Request.Grant, state: CapacityGrantStateV1.Unknown), RequestHash = Hash(165) },
+        };
+        foreach (var request in cases)
+        {
+            var before = fixture.Ledger.Fingerprint; var result = fixture.Ledger.AdmitOpaque(request, fixture.Ownership);
+            Assert.Contains(result.Result, new[] { GraphMediaResidenceResultV1.AuthorityMismatch, GraphMediaResidenceResultV1.CapacityMismatch });
+            Assert.Same(fixture.Ledger, result.Ledger); Assert.Equal(before, result.Ledger.Fingerprint);
+        }
+        var accepted = fixture.Ledger.AdmitOpaque(fixture.Request, fixture.Ownership);
+        Assert.Equal(GraphMediaResidenceResultV1.ContradictoryDuplicate,
+            accepted.Ledger.AdmitOpaque(fixture.Request with { RequestHash = Hash(166) }, fixture.Ownership).Result);
+    }
+
+    [Fact]
+    public void Opaque_has_an_exact_sixteen_item_ceiling()
+    {
+        var fixture = CreateOpaqueFixture(); var ledger = fixture.Ledger;
+        for (byte index = 0; index < GraphMediaResidenceLedgerV1.MaximumOpaque; index++)
+        {
+            var request = OpaqueRequest(fixture, (byte)(170 + index));
+            var accepted = ledger.AdmitOpaque(request, fixture.Ownership);
+            Assert.Equal(GraphMediaResidenceResultV1.OpaqueAdmitted, accepted.Result); ledger = accepted.Ledger;
+        }
+        Assert.Equal(GraphMediaResidenceLedgerV1.MaximumOpaque, ledger.Opaques.Count);
+        var overflow = ledger.AdmitOpaque(OpaqueRequest(fixture, 190), fixture.Ownership);
+        Assert.Equal(GraphMediaResidenceResultV1.ResidenceLimitReached, overflow.Result);
+        Assert.Same(ledger, overflow.Ledger);
     }
 
     [Fact]
@@ -272,6 +332,78 @@ public sealed class GraphMediaResidenceV1Tests
         var request = placeholder with { RequestHash = GraphMediaResidenceLedgerV1.QuarantineHash(placeholder, source, charge, proof) };
         return (request, copied.Ledger, unknown.Ledger, source);
     }
+
+    private static (GraphMediaOpaqueIngressRequestV1 Request, GraphMediaOwnershipLedgerV1 Ownership,
+        GraphMediaResidenceLedgerV1 Ledger, GraphMediaOwnerRecordV1 Source, ProviderContributionV1 Provider) CreateOpaqueFixture()
+    {
+        var controlled = CreateControlledFixture();
+        var copied = controlled.Ownership.CopyOwners(Session(), Graph(), controlled.Request.SourceOwnerId,
+            [controlled.Request.DestinationOwnerId]);
+        Assert.Equal(GraphMediaOwnershipBatchCopyResultV1.Copied, copied.Result);
+        var prepared = controlled.Ledger.PrepareControlled(controlled.Request, copied.Ledger);
+        Assert.Equal(GraphMediaResidenceResultV1.Prepared, prepared.Result);
+        var visible = prepared.Ledger.MakeVisible(controlled.Request.OperationId, controlled.Request.RequestHash, copied.Ledger);
+        Assert.Equal(GraphMediaResidenceResultV1.Visible, visible.Result);
+        var providerId = ProviderId.FromValue(Id(150)); var provider = ProviderContribution(providerId);
+        var qualification = new LiveAudioOpaqueResidenceQualificationV1(providerId, 8, 4_194_304,
+            new DurationNs(10_000_000_000), LiveAudioOpaqueResidenceControlV1.ObservationOnly);
+        var descriptor = new LiveAudioParticipantDescriptorV1(new("factory"), OwnerSliceId.S2,
+            AuthorityAxisId.Graph, [], [new CapacityDimensionId(1)], new(1), new(1), new(1));
+        var registration = new LiveAudioParticipantFactoryRegistrationV1(typeof(GraphMediaResidenceV1Tests),
+            "tests:opaque", descriptor, ReadOnlyMemory<byte>.Empty, null, qualification);
+        var participantCatalog = LiveAudioParticipantCatalogManifestV1.Create([registration]);
+        var providerCatalog = new ProviderCatalogV1([provider]); var operation = Operation(151);
+        var admittedAt = Stamp(100); var maximumAge = new DurationNs(1_000);
+        var expiry = new MonotonicStampV1(admittedAt.ClockDomainId, admittedAt.BootId, admittedAt.Nanoseconds + 1_000);
+        var tenant = TenantId.FromValue(Id(152)); var sessionId = SessionId.FromValue(Id(153));
+        var providerCharge = new CapacityChargeV1(new(6), new(tenant, sessionId, new CapacitySubjectV1.Provider(providerId)),
+            2, CapacityPurposeId.FromValue(Id(154)), new CapacityChargeWindowV1.NoWindow());
+        var bytesCharge = new CapacityChargeV1(new(2), new(tenant, sessionId, new CapacitySubjectV1.Operation(operation)),
+            400, CapacityPurposeId.FromValue(Id(155)), new CapacityChargeWindowV1.NoWindow());
+        var grant = new CapacityGrantSnapshotV1(CapacityGrantId.FromValue(Id(156)), Operation(157),
+            ExpectedAuthorityVectorV1.Create(Session(), [new AuthorityAxisValueV1.Graph(Graph())]), Position(50), Position(51),
+            new CapacityGrantExpiryV1.At(expiry), CapacityGrantStateV1.Reserved,
+            [Balance(providerCharge), Balance(bytesCharge)]);
+        var source = copied.Ledger.Owners[controlled.Request.DestinationOwnerId];
+        var placeholder = new GraphMediaOpaqueIngressRequestV1(operation, Hash(1), Id(158),
+            controlled.Request.ResidenceId, controlled.Request.DestinationOwnerId, Hash(159), 2, 400, maximumAge,
+            admittedAt, controlled.Request, participantCatalog, registration, providerCatalog, provider, grant);
+        var proof = GraphMediaResidenceLedgerV1.OpaqueCapacityProofHash(grant);
+        var contribution = ProviderContributionV1Codec.ComputeIntegrityHash(provider);
+        var request = placeholder with { RequestHash = GraphMediaResidenceLedgerV1.OpaqueHash(placeholder, source, qualification, contribution, proof) };
+        return (request, copied.Ledger, visible.Ledger, source, provider);
+    }
+
+    private static GraphMediaOpaqueIngressRequestV1 OpaqueRequest(
+        (GraphMediaOpaqueIngressRequestV1 Request, GraphMediaOwnershipLedgerV1 Ownership,
+            GraphMediaResidenceLedgerV1 Ledger, GraphMediaOwnerRecordV1 Source, ProviderContributionV1 Provider) fixture, byte seed)
+    {
+        var operation = Operation(seed); var admitted = fixture.Request.AdmittedAt; var age = fixture.Request.MaximumAge;
+        var expiry = new MonotonicStampV1(admitted.ClockDomainId, admitted.BootId, admitted.Nanoseconds + (ulong)age.Nanoseconds);
+        var charges = fixture.Request.Grant.Balances.Select(balance => balance.Charge.DimensionId.Value == 6
+            ? balance.Charge
+            : new CapacityChargeV1(balance.Charge.DimensionId,
+                new(balance.Charge.Scope.TenantId, balance.Charge.Scope.SessionId, new CapacitySubjectV1.Operation(operation)),
+                balance.Charge.Amount, balance.Charge.Purpose, new CapacityChargeWindowV1.NoWindow())).ToArray();
+        var grant = CloneGrant(fixture.Request.Grant, balances: Array.AsReadOnly(charges.Select(Balance).ToArray()));
+        var request = fixture.Request with { OperationId = operation, ResidenceId = Id(seed), ExternalReferenceFingerprint = Hash(seed), Grant = grant };
+        var qualification = request.SelectedRegistration.OpaqueResidenceQualification!;
+        return request with { RequestHash = GraphMediaResidenceLedgerV1.OpaqueHash(request, fixture.Source, qualification,
+            ProviderContributionV1Codec.ComputeIntegrityHash(request.SelectedProvider), GraphMediaResidenceLedgerV1.OpaqueCapacityProofHash(grant)) };
+    }
+
+    private static CapacityChargeBalanceV1 Balance(CapacityChargeV1 charge) =>
+        new(charge, charge.Amount, 0, charge.Amount, 0, 0, 0, 0, 0, 0, charge.Amount, 0);
+
+    private static CapacityGrantSnapshotV1 CloneGrant(CapacityGrantSnapshotV1 grant,
+        CapacityGrantStateV1? state = null, IReadOnlyList<CapacityChargeBalanceV1>? balances = null) =>
+        new(grant.GrantId, grant.OperationId, grant.Authority, grant.GrantedAt, grant.CurrentFact,
+            grant.ExpiresAt, state ?? grant.State, balances ?? grant.Balances);
+
+    private static ProviderContributionV1 ProviderContribution(ProviderId providerId) => new(providerId,
+        ProviderFamilyId.FromValue(Id(160)), new("tests"), [ProviderRoleV1.Realtime],
+        new ProviderCapabilitySetV1(1, 0, Hash(160)), [], ProviderFactoryId.FromValue(Id(161)),
+        ProviderLifetimeV1.SessionScoped, [], Hash(162));
 
     private static CapacityGrantSnapshotV1 Grant(
         (GraphMediaQuarantineIngressRequestV1 Request, GraphMediaOwnershipLedgerV1 Ownership,

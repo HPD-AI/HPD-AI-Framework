@@ -12,7 +12,7 @@ internal enum GraphMediaResidenceClassV1 : byte { Controlled, Opaque, Quarantine
 internal enum GraphMediaResidenceStateV1 : byte { Prepared, Visible, Releasing, Released, Unknown, Quarantined }
 internal enum GraphMediaRepresentationArmV1 : byte { ResidentBytes, ResidentSamples, ResidentTimedBuffer }
 internal enum GraphMediaResidenceResultV1 : byte
-{ Prepared, IdempotentPrepared, Visible, Reconciled, Quarantined, IdempotentQuarantined, InvalidRequest, StaleGeneration, AuthorityMismatch, ContradictoryDuplicate, SourceNotFound, NotOwner, AlreadyDisposed, CapacityMismatch, CapacityAssignmentConflict, ResidenceLimitReached, OperationReceiptLimitReached, WrongState, OutcomeUnknown }
+{ Prepared, IdempotentPrepared, Visible, Reconciled, Quarantined, IdempotentQuarantined, OpaqueAdmitted, IdempotentOpaqueAdmitted, InvalidRequest, StaleGeneration, AuthorityMismatch, ContradictoryDuplicate, SourceNotFound, NotOwner, AlreadyDisposed, CapacityMismatch, CapacityAssignmentConflict, ResidenceLimitReached, OperationReceiptLimitReached, WrongState, OutcomeUnknown }
 internal enum GraphMediaFanoutResultV1 : byte
 { Prepared, IdempotentPrepared, Committed, Converged, Reconciled, Unwinding, InvalidRequest, StaleGeneration, ContradictoryDuplicate, SourceNotFound, NotOwner, AlreadyDisposed, DestinationOrderInvalid, DestinationCollision, ResidenceMismatch, CapacityMismatch, OwnerLimitReached, ResidenceLimitReached, OperationReceiptLimitReached, WrongState, OutcomeUnknown }
 
@@ -36,6 +36,25 @@ internal sealed record GraphMediaQuarantineResidenceV1(OperationId OperationId, 
 internal sealed record GraphMediaQuarantineIngressRequestV1(OperationId OperationId, Hash256 RequestHash,
     StableId128 ResidenceId, StableId128 SourceResidenceId, StableId128 OwnerId,
     SchemaId SchemaId, CapacityGrantSnapshotV1 Grant);
+internal sealed record GraphMediaOpaqueResidenceV1(OperationId OperationId, Hash256 RequestHash,
+    StableId128 ResidenceId, StableId128 SourceResidenceId, StableId128 OwnerId,
+    GraphMediaOwnerKeyV1 OwnerKey, GraphMediaBindingV1 Media, ParticipantId ParticipantId,
+    BoundedAscii FactoryKey, ProviderId ProviderId, Hash256 ParticipantCatalogFingerprint,
+    Hash256 ProviderCatalogFingerprint, Hash256 ProviderContributionFingerprint,
+    Hash256 ExternalReferenceFingerprint, ushort SubmittedOperations, ulong SubmittedBytes,
+    DurationNs MaximumAge, MonotonicStampV1 AdmittedAt, LiveAudioOpaqueResidenceControlV1 Control,
+    CapacityGrantId GrantId, JournalPositionV1 GrantedAt, JournalPositionV1 CurrentFact,
+    Hash256 CapacityProofHash, IReadOnlyList<CapacityChargeV1> Charges,
+    GraphMediaResidenceClassV1 Class, GraphMediaResidenceStateV1 State);
+internal sealed record GraphMediaOpaqueIngressRequestV1(OperationId OperationId, Hash256 RequestHash,
+    StableId128 ResidenceId, StableId128 SourceResidenceId, StableId128 OwnerId,
+    Hash256 ExternalReferenceFingerprint, ushort SubmittedOperations, ulong SubmittedBytes,
+    DurationNs MaximumAge, MonotonicStampV1 AdmittedAt,
+    GraphMediaControlledResidenceRequestV1 AuthorityEvidence,
+    LiveAudioParticipantCatalogManifestV1 ParticipantCatalog,
+    LiveAudioParticipantFactoryRegistrationV1 SelectedRegistration,
+    ProviderCatalogV1 ProviderCatalog, ProviderContributionV1 SelectedProvider,
+    CapacityGrantSnapshotV1 Grant);
 internal sealed record GraphMediaFanoutDestinationV1(StableId128 DestinationOwnerId,
     BoundedAscii DestinationNodeKey, GraphMediaControlledResidenceRequestV1 Residence);
 internal sealed record GraphMediaFanoutRecordV1(OperationId OperationId, Hash256 RequestHash,
@@ -61,21 +80,25 @@ internal sealed class GraphMediaResidenceLedgerV1
         MaximumQuarantine = 16, MaximumFanoutOperations = 64, MaximumDestinations = 16;
     private readonly Dictionary<StableId128, GraphMediaControlledResidenceV1> _residences;
     private readonly Dictionary<StableId128, GraphMediaQuarantineResidenceV1> _quarantines;
+    private readonly Dictionary<StableId128, GraphMediaOpaqueResidenceV1> _opaques;
     private readonly Dictionary<OperationId, GraphMediaResidenceReceiptV1> _receipts;
     private readonly Dictionary<OperationId, GraphMediaFanoutRecordV1> _fanouts;
 
     private GraphMediaResidenceLedgerV1(SessionAuthorityStampV1 session, GraphGenerationId graph,
         Dictionary<StableId128, GraphMediaControlledResidenceV1> residences,
         Dictionary<StableId128, GraphMediaQuarantineResidenceV1> quarantines,
+        Dictionary<StableId128, GraphMediaOpaqueResidenceV1> opaques,
         Dictionary<OperationId, GraphMediaResidenceReceiptV1> receipts,
         Dictionary<OperationId, GraphMediaFanoutRecordV1> fanouts)
-    { Session = session; GraphGeneration = graph; _residences = residences; _quarantines = quarantines; _receipts = receipts; _fanouts = fanouts; }
+    { Session = session; GraphGeneration = graph; _residences = residences; _quarantines = quarantines; _opaques = opaques; _receipts = receipts; _fanouts = fanouts; }
 
     internal SessionAuthorityStampV1 Session { get; }
     internal GraphGenerationId GraphGeneration { get; }
     internal IReadOnlyDictionary<StableId128, GraphMediaControlledResidenceV1> Residences => new ReadOnlyDictionary<StableId128, GraphMediaControlledResidenceV1>(_residences);
     internal IReadOnlyDictionary<StableId128, GraphMediaQuarantineResidenceV1> Quarantines =>
         new ReadOnlyDictionary<StableId128, GraphMediaQuarantineResidenceV1>(_quarantines);
+    internal IReadOnlyDictionary<StableId128, GraphMediaOpaqueResidenceV1> Opaques =>
+        new ReadOnlyDictionary<StableId128, GraphMediaOpaqueResidenceV1>(_opaques);
     internal IReadOnlyCollection<GraphMediaResidenceReceiptV1> Receipts => Array.AsReadOnly(_receipts.Values.ToArray());
     internal IReadOnlyDictionary<OperationId, GraphMediaFanoutRecordV1> Fanouts => new ReadOnlyDictionary<OperationId, GraphMediaFanoutRecordV1>(_fanouts);
     internal Hash256 Fingerprint
@@ -98,7 +121,10 @@ internal sealed class GraphMediaResidenceLedgerV1
                 if (value is GraphMediaOwnerKeyV1 key) { var writer = new CborWriter(CborConformanceMode.Ctap2Canonical); writer.WriteStartArray(4); writer.WriteByteString(Canonical(key.Session.LiveSessionId)); writer.WriteByteString(Canonical(key.GraphGeneration)); writer.WriteByteString(Canonical(key.Session.RuntimeGenerationId)); writer.WriteByteString(Id(key.MediaId)); writer.WriteEndArray(); return writer.Encode(); }
                 if (value is GraphMediaBindingV1 media) { var writer = new CborWriter(CborConformanceMode.Ctap2Canonical); writer.WriteStartArray(13); writer.WriteInt64(media.Start); writer.WriteInt64(media.EndExclusive); writer.WriteByteString(Id(media.FormatId)); writer.WriteUInt64(media.FormatRevision); writer.WriteUInt64(media.SampleRateHz); writer.WriteUInt64(media.ChannelCount); writer.WriteUInt64(media.BytesPerSample); writer.WriteByteString(Id(media.ClockId)); writer.WriteUInt64(media.ClockRevision); writer.WriteUInt64(media.Sequence); writer.WriteUInt64((byte)media.Discontinuity); writer.WriteInt64(media.ByteLength); writer.WriteInt64(media.FrameCount); writer.WriteEndArray(); return writer.Encode(); }
                 if (value is CapacityChargeV1 charge) { var writer = new CborWriter(CborConformanceMode.Ctap2Canonical); writer.WriteStartArray(5); writer.WriteUInt64(charge.DimensionId.Value); writer.WriteByteString(CapacityScopeCanonicalCodecV1.Encode(charge.Scope)); writer.WriteInt64(charge.Amount); writer.WriteByteString(Canonical(charge.Purpose)); writer.WriteStartArray(charge.Window is CapacityChargeWindowV1.EndsAt ? 2 : 1); writer.WriteUInt64((ushort)charge.Window.Kind); if (charge.Window is CapacityChargeWindowV1.EndsAt endsAt) writer.WriteByteString(MonotonicStampV1Codec.Encode(endsAt.Value)); writer.WriteEndArray(); writer.WriteEndArray(); return writer.Encode(); }
-                var bytes16 = new byte[16]; var valid = value switch { SessionId x => x.TryWriteBytes(bytes16), LiveSessionId x => x.TryWriteBytes(bytes16), RuntimeGenerationId x => x.TryWriteBytes(bytes16), GraphGenerationId x => x.TryWriteBytes(bytes16), ParticipantId x => x.TryWriteBytes(bytes16), CapacityGrantId x => x.TryWriteBytes(bytes16), CapacityPurposeId x => x.TryWriteBytes(bytes16), SchemaId x => x.TryWriteBytes(bytes16), _ => false }; return valid ? bytes16 : throw new ArgumentException("Unsupported canonical value.");
+                if (value is ushort u16) { var bytes = new byte[2]; BinaryPrimitives.WriteUInt16BigEndian(bytes,u16); return bytes; }
+                if (value is ulong u64) { var bytes = new byte[8]; BinaryPrimitives.WriteUInt64BigEndian(bytes,u64); return bytes; }
+                if (value is long i64) { var bytes = new byte[8]; BinaryPrimitives.WriteInt64BigEndian(bytes,i64); return bytes; }
+                var bytes16 = new byte[16]; var valid = value switch { SessionId x => x.TryWriteBytes(bytes16), LiveSessionId x => x.TryWriteBytes(bytes16), RuntimeGenerationId x => x.TryWriteBytes(bytes16), GraphGenerationId x => x.TryWriteBytes(bytes16), ParticipantId x => x.TryWriteBytes(bytes16), ProviderId x => x.TryWriteBytes(bytes16), CapacityGrantId x => x.TryWriteBytes(bytes16), CapacityPurposeId x => x.TryWriteBytes(bytes16), SchemaId x => x.TryWriteBytes(bytes16), _ => false }; return valid ? bytes16 : throw new ArgumentException("Unsupported canonical value.");
             }
             foreach (var row in _residences.OrderBy(x => Convert.ToHexString(Id(x.Key)), StringComparer.Ordinal))
             {
@@ -117,6 +143,23 @@ internal sealed class GraphMediaResidenceLedgerV1
                 Field(hash,"quarantineCurrentFact"u8,Canonical(value.CurrentFact)); Field(hash,"quarantineCapacityProof"u8,Hash(value.CapacityProofHash));
                 Field(hash,"quarantineCharge"u8,Canonical(value.Charge)); Field(hash,"quarantineClass"u8,Canonical(value.Class));
                 Field(hash,"quarantineState"u8,Canonical(value.State));
+            }
+            foreach (var row in _opaques.OrderBy(x => Convert.ToHexString(Id(x.Key)), StringComparer.Ordinal))
+            {
+                var value = row.Value;
+                Field(hash,"opaqueOperation"u8,Op(value.OperationId)); Field(hash,"opaqueRequest"u8,Hash(value.RequestHash));
+                Field(hash,"opaqueResidence"u8,Id(value.ResidenceId)); Field(hash,"opaqueSource"u8,Id(value.SourceResidenceId));
+                Field(hash,"opaqueOwner"u8,Id(value.OwnerId)); Field(hash,"opaqueOwnerKey"u8,Canonical(value.OwnerKey));
+                Field(hash,"opaqueMedia"u8,Canonical(value.Media)); Field(hash,"opaqueParticipant"u8,Canonical(value.ParticipantId));
+                Field(hash,"opaqueFactory"u8,Canonical(value.FactoryKey)); Field(hash,"opaqueProvider"u8,Canonical(value.ProviderId));
+                Field(hash,"opaqueParticipantCatalog"u8,Hash(value.ParticipantCatalogFingerprint)); Field(hash,"opaqueProviderCatalog"u8,Hash(value.ProviderCatalogFingerprint));
+                Field(hash,"opaqueProviderContribution"u8,Hash(value.ProviderContributionFingerprint)); Field(hash,"opaqueExternalReference"u8,Hash(value.ExternalReferenceFingerprint));
+                Field(hash,"opaqueSubmittedOperations"u8,Canonical(value.SubmittedOperations)); Field(hash,"opaqueSubmittedBytes"u8,Canonical(value.SubmittedBytes));
+                Field(hash,"opaqueMaximumAge"u8,Canonical(value.MaximumAge.Nanoseconds)); Field(hash,"opaqueAdmittedAt"u8,MonotonicStampV1Codec.Encode(value.AdmittedAt));
+                Field(hash,"opaqueControl"u8,Canonical(value.Control)); Field(hash,"opaqueGrant"u8,Canonical(value.GrantId));
+                Field(hash,"opaqueGrantedAt"u8,Canonical(value.GrantedAt)); Field(hash,"opaqueCurrentFact"u8,Canonical(value.CurrentFact));
+                Field(hash,"opaqueCapacityProof"u8,Hash(value.CapacityProofHash)); foreach (var charge in value.Charges) Field(hash,"opaqueCharge"u8,Canonical(charge));
+                Field(hash,"opaqueClass"u8,Canonical(value.Class)); Field(hash,"opaqueState"u8,Canonical(value.State));
             }
             foreach (var receipt in _receipts.OrderBy(x => Convert.ToHexString(Op(x.Key)), StringComparer.Ordinal))
             { Field(hash, "receiptOperation"u8, Op(receipt.Key)); Field(hash, "receiptRequest"u8, Hash(receipt.Value.RequestHash)); Field(hash, "receiptResult"u8, [(byte)receipt.Value.Result]); }
@@ -137,7 +180,7 @@ internal sealed class GraphMediaResidenceLedgerV1
     internal static GraphMediaResidenceLedgerV1 Create(SessionAuthorityStampV1 session, GraphGenerationId graph)
     {
         if (!session.IsValid || !graph.IsValid) throw new ArgumentException("Valid authority is required.");
-        return new(session, graph, [], [], [], []);
+        return new(session, graph, [], [], [], [], []);
     }
 
     internal GraphMediaResidenceTransitionV1 PrepareControlled(GraphMediaControlledResidenceRequestV1 request,
@@ -169,7 +212,8 @@ internal sealed class GraphMediaResidenceLedgerV1
             return ResidenceFail(GraphMediaResidenceResultV1.InvalidRequest);
         if (_residences.Values.Any(x => x.State != GraphMediaResidenceStateV1.Released && x.Assignment == assignment))
             return ResidenceFail(GraphMediaResidenceResultV1.CapacityAssignmentConflict);
-        if (_residences.Count >= MaximumResidences || _residences.Values.Count(x => x.Class == GraphMediaResidenceClassV1.Controlled) >= MaximumControlled)
+        if (_residences.Count + _quarantines.Count + _opaques.Count >= MaximumResidences ||
+            _residences.Values.Count(x => x.Class == GraphMediaResidenceClassV1.Controlled) >= MaximumControlled)
             return ResidenceFail(GraphMediaResidenceResultV1.ResidenceLimitReached);
         if (_receipts.Count >= GraphMediaOwnershipLedgerV1.MaximumReceipts)
             return ResidenceFail(GraphMediaResidenceResultV1.OperationReceiptLimitReached);
@@ -233,7 +277,7 @@ internal sealed class GraphMediaResidenceLedgerV1
         var proofHash = QuarantineCapacityProofHash(request.Grant);
         if (QuarantineHash(request, owner, charge, proofHash) != request.RequestHash)
             return ResidenceFail(GraphMediaResidenceResultV1.InvalidRequest);
-        if (_residences.Count + _quarantines.Count >= MaximumResidences || _quarantines.Count >= MaximumQuarantine)
+        if (_residences.Count + _quarantines.Count + _opaques.Count >= MaximumResidences || _quarantines.Count >= MaximumQuarantine)
             return ResidenceFail(GraphMediaResidenceResultV1.ResidenceLimitReached);
         if (_receipts.Count >= GraphMediaOwnershipLedgerV1.MaximumReceipts)
             return ResidenceFail(GraphMediaResidenceResultV1.OperationReceiptLimitReached);
@@ -248,6 +292,99 @@ internal sealed class GraphMediaResidenceLedgerV1
         { [request.OperationId] = new(request.OperationId, request.RequestHash, GraphMediaResidenceResultV1.Quarantined) };
         return new(GraphMediaResidenceResultV1.Quarantined,
             Next(new(_residences), quarantines, receipts, new(_fanouts)));
+    }
+
+    internal GraphMediaResidenceTransitionV1 AdmitOpaque(GraphMediaOpaqueIngressRequestV1 request,
+        GraphMediaOwnershipLedgerV1 ownership)
+    {
+        if (request is null || ownership is null || !request.OperationId.IsValid || request.RequestHash == default ||
+            request.ResidenceId.Equals(default) || request.SourceResidenceId.Equals(default) ||
+            request.ResidenceId.Equals(request.SourceResidenceId) || request.OwnerId.Equals(default) ||
+            request.ExternalReferenceFingerprint == default || request.SubmittedOperations == 0 ||
+            request.SubmittedBytes == 0 || request.MaximumAge.Nanoseconds <= 0 || !request.AdmittedAt.IsValid ||
+            request.AuthorityEvidence is null || request.ParticipantCatalog is null || request.SelectedRegistration is null ||
+            request.ProviderCatalog is null || request.SelectedProvider is null || request.Grant is null)
+            return ResidenceFail(GraphMediaResidenceResultV1.InvalidRequest);
+        if (ownership.Session != Session || ownership.GraphGeneration != GraphGeneration ||
+            request.Grant.Authority.Session != Session || request.Grant.GrantedAt.Session != Session ||
+            request.Grant.CurrentFact.Session != Session)
+            return ResidenceFail(GraphMediaResidenceResultV1.StaleGeneration);
+        var graphs = request.Grant.Authority.Axes.Where(x => x.AxisId == AuthorityAxisId.Graph &&
+            x.Value is AuthorityAxisValueV1.Graph).Select(x => ((AuthorityAxisValueV1.Graph)x.Value).Value).ToArray();
+        if (graphs.Length != 1 || graphs[0] != GraphGeneration)
+            return ResidenceFail(GraphMediaResidenceResultV1.StaleGeneration);
+        if (_receipts.TryGetValue(request.OperationId, out var retry))
+            return ResidenceFail(retry.RequestHash == request.RequestHash && retry.Result == GraphMediaResidenceResultV1.OpaqueAdmitted
+                ? GraphMediaResidenceResultV1.IdempotentOpaqueAdmitted : GraphMediaResidenceResultV1.ContradictoryDuplicate);
+        if (_residences.ContainsKey(request.ResidenceId) || _quarantines.ContainsKey(request.ResidenceId) || _opaques.ContainsKey(request.ResidenceId))
+            return ResidenceFail(GraphMediaResidenceResultV1.InvalidRequest);
+        if (!_residences.TryGetValue(request.SourceResidenceId, out var source) ||
+            source.State != GraphMediaResidenceStateV1.Visible || !source.OwnerId.Equals(request.OwnerId))
+            return ResidenceFail(GraphMediaResidenceResultV1.WrongState);
+        if (!ownership.Owners.TryGetValue(request.OwnerId, out var owner))
+            return ResidenceFail(GraphMediaResidenceResultV1.SourceNotFound);
+        if (owner.State != GraphMediaOwnerStateV1.Owned || owner.Key != source.OwnerKey || owner.Media != source.Media)
+            return ResidenceFail(GraphMediaResidenceResultV1.NotOwner);
+        var evidence = request.AuthorityEvidence;
+        if (!evidence.DestinationOwnerId.Equals(request.OwnerId) || !evidence.ResidenceId.Equals(request.SourceResidenceId) ||
+            evidence.BindingResult.CommandPosition != source.BindingCommandPosition ||
+            evidence.BindingResult.FactPosition != source.BindingFactPosition ||
+            evidence.Evidence.PreGrantPlan.ReservationCommandPosition != source.ReservationCommandPosition ||
+            evidence.Evidence.PreGrantPlan.ReservationFactPosition != source.ReservationFactPosition ||
+            evidence.BindingResult.Binding.ParticipantId != source.ParticipantId ||
+            evidence.DestinationNodeKey != source.DestinationNodeKey || AuthenticateControlled(evidence, owner) != GraphMediaResidenceResultV1.Prepared)
+            return ResidenceFail(GraphMediaResidenceResultV1.AuthorityMismatch);
+        if (!request.ParticipantCatalog.TryGet(request.SelectedRegistration.Descriptor.FactoryKey, out var registered) ||
+            !RegistrationEquals(registered, request.SelectedRegistration) ||
+            request.SelectedRegistration.Descriptor.FactoryKey != evidence.BindingResult.Binding.ParticipantFactoryKey ||
+            request.SelectedRegistration.OpaqueResidenceQualification is not { } qualification ||
+            qualification.ProviderId != request.SelectedProvider.ProviderId ||
+            !request.ProviderCatalog.Contributions.Any(value => value == request.SelectedProvider))
+            return ResidenceFail(GraphMediaResidenceResultV1.AuthorityMismatch);
+        if (request.SubmittedOperations > qualification.MaximumOutstandingOperations ||
+            request.SubmittedBytes > qualification.MaximumSubmittedBytes ||
+            request.MaximumAge.Nanoseconds > qualification.MaximumAge.Nanoseconds)
+            return ResidenceFail(GraphMediaResidenceResultV1.CapacityMismatch);
+        ulong expiryNanoseconds;
+        try { expiryNanoseconds = checked(request.AdmittedAt.Nanoseconds + (ulong)request.MaximumAge.Nanoseconds); }
+        catch (OverflowException) { return ResidenceFail(GraphMediaResidenceResultV1.CapacityMismatch); }
+        var expectedExpiry = new MonotonicStampV1(request.AdmittedAt.ClockDomainId, request.AdmittedAt.BootId, expiryNanoseconds);
+        if (request.Grant.State is not (CapacityGrantStateV1.Reserved or CapacityGrantStateV1.Active) ||
+            request.Grant.ExpiresAt is not CapacityGrantExpiryV1.At grantExpiry || grantExpiry.Value != expectedExpiry ||
+            request.Grant.Balances.Count != 2)
+            return ResidenceFail(GraphMediaResidenceResultV1.CapacityMismatch);
+        var providerBalances = request.Grant.Balances.Where(x => x.Charge.DimensionId.Value == 6 &&
+            x.Charge.Scope.Subject is CapacitySubjectV1.Provider provider && provider.Value == qualification.ProviderId).ToArray();
+        var byteBalances = request.Grant.Balances.Where(x => x.Charge.DimensionId.Value == 2 &&
+            x.Charge.Scope.Subject is CapacitySubjectV1.Operation operation && operation.Value == request.OperationId).ToArray();
+        if (providerBalances.Length != 1 || byteBalances.Length != 1 ||
+            !OpaqueBalance(providerBalances[0], request.SubmittedOperations) ||
+            !OpaqueBalance(byteBalances[0], checked((long)request.SubmittedBytes)))
+            return ResidenceFail(GraphMediaResidenceResultV1.CapacityMismatch);
+        var proofHash = OpaqueCapacityProofHash(request.Grant);
+        var contributionHash = ProviderContributionV1Codec.ComputeIntegrityHash(request.SelectedProvider);
+        if (OpaqueHash(request, owner, qualification, contributionHash, proofHash) != request.RequestHash)
+            return ResidenceFail(GraphMediaResidenceResultV1.InvalidRequest);
+        if (_residences.Count + _quarantines.Count + _opaques.Count >= MaximumResidences || _opaques.Count >= MaximumOpaque)
+            return ResidenceFail(GraphMediaResidenceResultV1.ResidenceLimitReached);
+        if (_receipts.Count >= GraphMediaOwnershipLedgerV1.MaximumReceipts)
+            return ResidenceFail(GraphMediaResidenceResultV1.OperationReceiptLimitReached);
+        var charges = Array.AsReadOnly(request.Grant.Balances.Select(static value => value.Charge).OrderBy(static value => value.DimensionId.Value).ToArray());
+        var opaques = new Dictionary<StableId128, GraphMediaOpaqueResidenceV1>(_opaques)
+        {
+            [request.ResidenceId] = new(request.OperationId, request.RequestHash, request.ResidenceId,
+                request.SourceResidenceId, request.OwnerId, owner.Key, owner.Media, source.ParticipantId,
+                request.SelectedRegistration.Descriptor.FactoryKey, qualification.ProviderId,
+                request.ParticipantCatalog.Fingerprint, request.ProviderCatalog.Fingerprint, contributionHash,
+                request.ExternalReferenceFingerprint, request.SubmittedOperations, request.SubmittedBytes,
+                request.MaximumAge, request.AdmittedAt, qualification.Control, request.Grant.GrantId,
+                request.Grant.GrantedAt, request.Grant.CurrentFact, proofHash, charges,
+                GraphMediaResidenceClassV1.Opaque, GraphMediaResidenceStateV1.Prepared)
+        };
+        var receipts = new Dictionary<OperationId, GraphMediaResidenceReceiptV1>(_receipts)
+        { [request.OperationId] = new(request.OperationId, request.RequestHash, GraphMediaResidenceResultV1.OpaqueAdmitted) };
+        return new(GraphMediaResidenceResultV1.OpaqueAdmitted,
+            Next(new(_residences), new(_quarantines), opaques, receipts, new(_fanouts)));
     }
 
     internal GraphMediaResidenceTransitionV1 MakeVisible(OperationId operation, Hash256 requestHash,
@@ -506,11 +643,36 @@ internal sealed class GraphMediaResidenceLedgerV1
         assignment = new(charge, request.Arm); return GraphMediaResidenceResultV1.Prepared;
     }
 
-    internal static Hash256 QuarantineCapacityProofHash(CapacityGrantSnapshotV1 grant)
+    private static bool RegistrationEquals(LiveAudioParticipantFactoryRegistrationV1 left,
+        LiveAudioParticipantFactoryRegistrationV1 right) =>
+        left.FactoryType == right.FactoryType && StringComparer.Ordinal.Equals(left.FactoryIdentity, right.FactoryIdentity) &&
+        left.Descriptor == right.Descriptor &&
+        left.GraphParticipantAllocationDeclarationBytes.Span.SequenceEqual(right.GraphParticipantAllocationDeclarationBytes.Span) &&
+        left.GraphParticipantAllocationDeclarationFingerprint == right.GraphParticipantAllocationDeclarationFingerprint &&
+        left.OpaqueResidenceQualification == right.OpaqueResidenceQualification;
+
+    private static bool OpaqueBalance(CapacityChargeBalanceV1 balance, long amount)
+    {
+        long available; long encumbered;
+        try { available = checked(balance.Unactivated + balance.Active); encumbered = checked(balance.EncumberedNormal + balance.EncumberedReserve); }
+        catch (OverflowException) { return false; }
+        return balance.Charge.Amount == amount && available == amount &&
+            balance.Charge.Window is CapacityChargeWindowV1.NoWindow &&
+            balance.Released == 0 && balance.Consumed == 0 && balance.AgedOut == 0 && balance.Revoked == 0 &&
+            balance.ExplicitlyUnknown == 0 && encumbered == amount;
+    }
+
+    internal static Hash256 QuarantineCapacityProofHash(CapacityGrantSnapshotV1 grant) =>
+        CapacityProofHash(grant, "hpd-s2-graph-media-quarantine-capacity-proof-v1\0"u8);
+
+    internal static Hash256 OpaqueCapacityProofHash(CapacityGrantSnapshotV1 grant) =>
+        CapacityProofHash(grant, "hpd-s2-graph-media-opaque-capacity-proof-v1\0"u8);
+
+    private static Hash256 CapacityProofHash(CapacityGrantSnapshotV1 grant, ReadOnlySpan<byte> domain)
     {
         ArgumentNullException.ThrowIfNull(grant);
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        hash.AppendData("hpd-s2-graph-media-quarantine-capacity-proof-v1\0"u8);
+        hash.AppendData(domain);
         static byte[] Fixed(object value)
         {
             var bytes = new byte[16];
@@ -551,6 +713,53 @@ internal sealed class GraphMediaResidenceLedgerV1
                 balance.ExplicitlyUnknown, balance.EncumberedNormal, balance.EncumberedReserve })
                 Field(hash,"balanceValue"u8,I64(value));
         }
+        return Hash256.FromBytes(hash.GetHashAndReset());
+    }
+
+    internal static Hash256 OpaqueHash(GraphMediaOpaqueIngressRequestV1 request, GraphMediaOwnerRecordV1 owner,
+        LiveAudioOpaqueResidenceQualificationV1 qualification, Hash256 contributionHash, Hash256 capacityProofHash)
+    {
+        ArgumentNullException.ThrowIfNull(request); ArgumentNullException.ThrowIfNull(owner); ArgumentNullException.ThrowIfNull(qualification);
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        hash.AppendData("hpd-s2-graph-media-opaque-ingress-v1\0"u8);
+        static byte[] Fixed(object value)
+        {
+            var bytes = value is Hash256 ? new byte[32] : new byte[16];
+            var valid = value switch
+            {
+                OperationId x => x.TryWriteBytes(bytes), StableId128 x => x.TryWriteBytes(bytes),
+                ParticipantId x => x.TryWriteBytes(bytes), ProviderId x => x.TryWriteBytes(bytes),
+                LiveSessionId x => x.TryWriteBytes(bytes), RuntimeGenerationId x => x.TryWriteBytes(bytes),
+                GraphGenerationId x => x.TryWriteBytes(bytes), CapacityGrantId x => x.TryWriteBytes(bytes),
+                Hash256 x => x.TryWriteBytes(bytes), _ => false
+            };
+            return valid ? bytes : throw new ArgumentException("A valid canonical identity is required.");
+        }
+        static byte[] U64(ulong value) { var bytes = new byte[8]; BinaryPrimitives.WriteUInt64BigEndian(bytes,value); return bytes; }
+        static byte[] I64(long value) { var bytes = new byte[8]; BinaryPrimitives.WriteInt64BigEndian(bytes,value); return bytes; }
+        static byte[] U16(ushort value) { var bytes = new byte[2]; BinaryPrimitives.WriteUInt16BigEndian(bytes,value); return bytes; }
+        static byte[] OwnerKey(GraphMediaOwnerKeyV1 key)
+        {
+            var writer=new CborWriter(CborConformanceMode.Ctap2Canonical); writer.WriteStartArray(4);
+            writer.WriteByteString(Fixed(key.Session.LiveSessionId)); writer.WriteByteString(Fixed(key.GraphGeneration));
+            writer.WriteByteString(Fixed(key.Session.RuntimeGenerationId)); writer.WriteByteString(Fixed(key.MediaId)); writer.WriteEndArray(); return writer.Encode();
+        }
+        Field(hash,"operationId"u8,Fixed(request.OperationId)); Field(hash,"residenceId"u8,Fixed(request.ResidenceId));
+        Field(hash,"sourceResidenceId"u8,Fixed(request.SourceResidenceId)); Field(hash,"ownerId"u8,Fixed(request.OwnerId));
+        Field(hash,"ownerKey"u8,OwnerKey(owner.Key)); Field(hash,"authorityRequest"u8,Fixed(request.AuthorityEvidence.RequestHash));
+        Field(hash,"bindingCommand"u8,AuthorityPositionCodecsV1.Encode(request.AuthorityEvidence.BindingResult.CommandPosition));
+        Field(hash,"bindingFact"u8,AuthorityPositionCodecsV1.Encode(request.AuthorityEvidence.BindingResult.FactPosition));
+        Field(hash,"reservationCommand"u8,AuthorityPositionCodecsV1.Encode(request.AuthorityEvidence.Evidence.PreGrantPlan.ReservationCommandPosition));
+        Field(hash,"reservationFact"u8,AuthorityPositionCodecsV1.Encode(request.AuthorityEvidence.Evidence.PreGrantPlan.ReservationFactPosition));
+        Field(hash,"participantId"u8,Fixed(request.AuthorityEvidence.BindingResult.Binding.ParticipantId));
+        Field(hash,"factoryKey"u8,Encoding.ASCII.GetBytes(request.SelectedRegistration.Descriptor.FactoryKey.ToString()));
+        Field(hash,"participantCatalog"u8,Fixed(request.ParticipantCatalog.Fingerprint)); Field(hash,"providerCatalog"u8,Fixed(request.ProviderCatalog.Fingerprint));
+        Field(hash,"providerContribution"u8,Fixed(contributionHash)); Field(hash,"providerId"u8,Fixed(qualification.ProviderId));
+        Field(hash,"externalReference"u8,Fixed(request.ExternalReferenceFingerprint)); Field(hash,"submittedOperations"u8,U16(request.SubmittedOperations));
+        Field(hash,"submittedBytes"u8,U64(request.SubmittedBytes)); Field(hash,"maximumAge"u8,I64(request.MaximumAge.Nanoseconds));
+        Field(hash,"admittedAt"u8,MonotonicStampV1Codec.Encode(request.AdmittedAt)); Field(hash,"control"u8,[(byte)qualification.Control]);
+        Field(hash,"grantId"u8,Fixed(request.Grant.GrantId)); Field(hash,"grantedAt"u8,AuthorityPositionCodecsV1.Encode(request.Grant.GrantedAt));
+        Field(hash,"currentFact"u8,AuthorityPositionCodecsV1.Encode(request.Grant.CurrentFact)); Field(hash,"capacityProof"u8,Fixed(capacityProofHash));
         return Hash256.FromBytes(hash.GetHashAndReset());
     }
 
@@ -671,10 +880,16 @@ internal sealed class GraphMediaResidenceLedgerV1
     private GraphMediaResidenceLedgerV1 Next(Dictionary<StableId128, GraphMediaControlledResidenceV1> residences,
         Dictionary<OperationId, GraphMediaResidenceReceiptV1> receipts,
         Dictionary<OperationId, GraphMediaFanoutRecordV1> fanouts) =>
-        new(Session, GraphGeneration, residences, new(_quarantines), receipts, fanouts);
+        new(Session, GraphGeneration, residences, new(_quarantines), new(_opaques), receipts, fanouts);
     private GraphMediaResidenceLedgerV1 Next(Dictionary<StableId128, GraphMediaControlledResidenceV1> residences,
         Dictionary<StableId128, GraphMediaQuarantineResidenceV1> quarantines,
         Dictionary<OperationId, GraphMediaResidenceReceiptV1> receipts,
         Dictionary<OperationId, GraphMediaFanoutRecordV1> fanouts) =>
-        new(Session, GraphGeneration, residences, quarantines, receipts, fanouts);
+        new(Session, GraphGeneration, residences, quarantines, new(_opaques), receipts, fanouts);
+    private GraphMediaResidenceLedgerV1 Next(Dictionary<StableId128, GraphMediaControlledResidenceV1> residences,
+        Dictionary<StableId128, GraphMediaQuarantineResidenceV1> quarantines,
+        Dictionary<StableId128, GraphMediaOpaqueResidenceV1> opaques,
+        Dictionary<OperationId, GraphMediaResidenceReceiptV1> receipts,
+        Dictionary<OperationId, GraphMediaFanoutRecordV1> fanouts) =>
+        new(Session, GraphGeneration, residences, quarantines, opaques, receipts, fanouts);
 }

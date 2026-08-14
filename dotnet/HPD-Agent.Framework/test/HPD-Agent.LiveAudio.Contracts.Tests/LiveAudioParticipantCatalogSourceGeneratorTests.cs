@@ -7,6 +7,52 @@ namespace HPD.Agent.Tests.SourceGenerator;
 public sealed class LiveAudioParticipantCatalogSourceGeneratorTests
 {
     [Fact]
+    public void Opaque_qualification_is_derived_emitted_and_compiles_as_one_complete_value()
+    {
+        var source = Preamble + """
+            [HpdLiveAudioParticipantFactory("provider", OwnerSliceId.S5, AuthorityAxisId.Provider, 10, 20, 30, 2,
+                OpaqueProviderKey = "openai", OpaqueMaximumOutstandingOperations = 8,
+                OpaqueMaximumSubmittedBytes = 4096, OpaqueMaximumAgeNanoseconds = 1000000,
+                OpaqueControl = LiveAudioOpaqueResidenceControlV1.ObservationOnly)]
+            public sealed class Provider : ILiveAudioParticipantFactoryV1 { }
+            """;
+        var (result, compilation) = Run(source);
+        Assert.DoesNotContain(result.Diagnostics, static value => value.Severity == DiagnosticSeverity.Error);
+        var catalog = CatalogText(result); var manifest = Assert.Single(result.GeneratedTrees,
+            static value => value.FilePath.Contains("LiveAudioParticipantManifest.g.cs", StringComparison.Ordinal)).GetText().ToString();
+        Assert.Contains("LiveAudioOpaqueResidenceQualificationV1", catalog, StringComparison.Ordinal);
+        Assert.Contains("4096UL", catalog, StringComparison.Ordinal);
+        Assert.Contains("1000000L", catalog, StringComparison.Ordinal);
+        Assert.Contains("new byte[]", manifest, StringComparison.Ordinal);
+        Assert.DoesNotContain(compilation.GetDiagnostics(), static value => value.Severity == DiagnosticSeverity.Error);
+    }
+
+    [Fact]
+    public void Referenced_opaque_qualification_is_retained_in_the_application_exact_set()
+    {
+        var leaf = CompileLeafSource(Preamble + """
+            [HpdLiveAudioParticipantFactory("provider", OwnerSliceId.S5, AuthorityAxisId.Provider, 10,20,30,2,
+                OpaqueProviderKey="openai", OpaqueMaximumOutstandingOperations=8,
+                OpaqueMaximumSubmittedBytes=4096, OpaqueMaximumAgeNanoseconds=1000000,
+                OpaqueControl=LiveAudioOpaqueResidenceControlV1.ObservationOnly)]
+            public sealed class Provider : ILiveAudioParticipantFactoryV1 { }
+            """);
+        var (result, compilation) = Run(Preamble, [leaf]);
+        Assert.DoesNotContain(result.Diagnostics, static value => value.Severity == DiagnosticSeverity.Error);
+        Assert.Contains("LiveAudioOpaqueResidenceQualificationV1", CatalogText(result), StringComparison.Ordinal);
+        Assert.DoesNotContain(compilation.GetDiagnostics(), static value => value.Severity == DiagnosticSeverity.Error);
+    }
+
+    [Theory]
+    [InlineData("OpaqueProviderKey = \"openai\"")]
+    [InlineData("OpaqueMaximumOutstandingOperations = 1")]
+    [InlineData("OpaqueProviderKey = \"openai\", OpaqueMaximumOutstandingOperations = 65, OpaqueMaximumSubmittedBytes = 1, OpaqueMaximumAgeNanoseconds = 1, OpaqueControl = LiveAudioOpaqueResidenceControlV1.ObservationOnly")]
+    public void Partial_or_unbounded_opaque_qualification_is_HPDA005(string values)
+    {
+        AssertInvalid(Preamble + $"[HpdLiveAudioParticipantFactory(\"provider\", OwnerSliceId.S5, AuthorityAxisId.Provider, 10,20,30,2, {values})] public sealed class Provider : ILiveAudioParticipantFactoryV1 {{ }}");
+    }
+
+    [Fact]
     public void Aggregate_allocation_emits_authenticated_carrier_and_sorted_dimensions()
     {
         var source = Preamble + """
@@ -296,18 +342,22 @@ public sealed class LiveAudioParticipantCatalogSourceGeneratorTests
             public readonly record struct CapacityDimensionId(ushort Value);
             public readonly record struct DurationNs(long Nanoseconds);
             public readonly record struct Hash256 { public static Hash256 FromBytes(byte[] bytes) => new(); }
+            public readonly record struct StableId128 { public static StableId128 FromBytes(byte[] bytes) => new(); }
+            public readonly record struct ProviderId { public static ProviderId FromValue(StableId128 value) => new(); }
         }
         namespace HPD.Agent.Audio
         {
             using HPD.Agent.Authority;
             [AttributeUsage(AttributeTargets.Class)]
             public sealed class HpdLiveAudioParticipantFactoryAttribute(string key, OwnerSliceId owner, AuthorityAxisId axis, long prepare, long drain, long terminate, params ushort[] capacities) : Attribute
-            { public string[] Dependencies { get; set; } = []; }
+            { public string[] Dependencies { get; set; } = []; public string OpaqueProviderKey { get; set; } = string.Empty; public ushort OpaqueMaximumOutstandingOperations { get; set; } public ulong OpaqueMaximumSubmittedBytes { get; set; } public long OpaqueMaximumAgeNanoseconds { get; set; } public LiveAudioOpaqueResidenceControlV1 OpaqueControl { get; set; } }
             [AttributeUsage(AttributeTargets.Assembly, AllowMultiple=true)]
-            public sealed class HpdLiveAudioParticipantManifestAttribute : Attribute { public HpdLiveAudioParticipantManifestAttribute(Type type, string key, ushort owner, ushort axis, long prepare, long drain, long terminate, ushort[] capacities, string[] dependencies) { } public HpdLiveAudioParticipantManifestAttribute(Type type, string key, ushort owner, ushort axis, long prepare, long drain, long terminate, ushort[] capacities, string[] dependencies, byte[] bytes, byte[] fingerprint) { } }
+            public sealed class HpdLiveAudioParticipantManifestAttribute : Attribute { public HpdLiveAudioParticipantManifestAttribute(Type type, string key, ushort owner, ushort axis, long prepare, long drain, long terminate, ushort[] capacities, string[] dependencies) { } public HpdLiveAudioParticipantManifestAttribute(Type type, string key, ushort owner, ushort axis, long prepare, long drain, long terminate, ushort[] capacities, string[] dependencies, byte[] bytes, byte[] fingerprint) { } public HpdLiveAudioParticipantManifestAttribute(Type type, string key, ushort owner, ushort axis, long prepare, long drain, long terminate, ushort[] capacities, string[] dependencies, byte[] bytes, byte[] fingerprint, byte[] providerId, ushort operations, ulong submittedBytes, long age, byte control) { } }
+            public enum LiveAudioOpaqueResidenceControlV1 : byte { ObservationOnly=1, AdapterAcknowledgedCancellation=2 }
+            public sealed class LiveAudioOpaqueResidenceQualificationV1 { public LiveAudioOpaqueResidenceQualificationV1(ProviderId providerId, ushort operations, ulong bytes, DurationNs age, LiveAudioOpaqueResidenceControlV1 control) { } }
             public interface ILiveAudioParticipantFactoryV1 { }
             public sealed class LiveAudioParticipantDescriptorV1 { public LiveAudioParticipantDescriptorV1(BoundedAscii key, OwnerSliceId owner, AuthorityAxisId axis, BoundedAscii[] dependencies, CapacityDimensionId[] capacities, DurationNs prepare, DurationNs drain, DurationNs terminate) { } }
-            public sealed class LiveAudioParticipantFactoryRegistrationV1 { public LiveAudioParticipantFactoryRegistrationV1(Type type, string identity, LiveAudioParticipantDescriptorV1 descriptor) { } public LiveAudioParticipantFactoryRegistrationV1(Type type, string identity, LiveAudioParticipantDescriptorV1 descriptor, ReadOnlyMemory<byte> bytes, Hash256? fingerprint) { } }
+            public sealed class LiveAudioParticipantFactoryRegistrationV1 { public LiveAudioParticipantFactoryRegistrationV1(Type type, string identity, LiveAudioParticipantDescriptorV1 descriptor) { } public LiveAudioParticipantFactoryRegistrationV1(Type type, string identity, LiveAudioParticipantDescriptorV1 descriptor, ReadOnlyMemory<byte> bytes, Hash256? fingerprint) { } public LiveAudioParticipantFactoryRegistrationV1(Type type, string identity, LiveAudioParticipantDescriptorV1 descriptor, ReadOnlyMemory<byte> bytes, Hash256? fingerprint, LiveAudioOpaqueResidenceQualificationV1 qualification) { } }
             public abstract class LiveAudioParticipantFactoryCatalogV1 { protected LiveAudioParticipantFactoryCatalogV1(LiveAudioParticipantFactoryRegistrationV1[] registrations, System.Collections.Generic.IEnumerable<ILiveAudioParticipantFactoryV1> factories) { } }
         }
         """;
