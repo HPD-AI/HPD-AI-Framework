@@ -128,6 +128,38 @@ public sealed class GraphMediaWorkV1Tests
     }
 
     [Fact]
+    public void Work_unknown_reconciliation_is_closed_and_retains_release_encumbrance()
+    {
+        var fixture = Registered();
+        var running = fixture.Work.StartWork(fixture.Request.WorkId, fixture.Request.RequestHash);
+        var unknown = running.Ledger.LoseWorkOutcome(fixture.Request.WorkId, fixture.Request.RequestHash);
+        Assert.Equal(GraphMediaWorkResultV1.OutcomeUnknown, unknown.Result);
+        Assert.Equal(GraphMediaWorkStateV1.Unknown, unknown.Ledger.Work[fixture.Request.WorkId].State);
+        Assert.Equal(GraphMediaReleaseEligibilityV1.Encumbered,
+            unknown.Ledger.QueryReleaseEligibility(fixture.Request.ResidenceId));
+        AssertUnchanged(GraphMediaWorkResultV1.WrongState, unknown.Ledger,
+            unknown.Ledger.FinishWork(fixture.Request.WorkId, fixture.Request.RequestHash, Hash(108)));
+
+        var stillRunning = unknown.Ledger.ReconcileWork(fixture.Request.WorkId,
+            fixture.Request.RequestHash, false, Hash(109));
+        Assert.Equal(GraphMediaWorkResultV1.ReconciledRunning, stillRunning.Result);
+        Assert.Same(stillRunning.Ledger, stillRunning.Ledger.ReconcileWork(fixture.Request.WorkId,
+            fixture.Request.RequestHash, false, Hash(109)).Ledger);
+        AssertUnchanged(GraphMediaWorkResultV1.ContradictoryDuplicate, stillRunning.Ledger,
+            stillRunning.Ledger.ReconcileWork(fixture.Request.WorkId,
+                fixture.Request.RequestHash, false, Hash(110)));
+
+        unknown = running.Ledger.LoseWorkOutcome(fixture.Request.WorkId, fixture.Request.RequestHash);
+        var terminal = unknown.Ledger.ReconcileWork(fixture.Request.WorkId,
+            fixture.Request.RequestHash, true, Hash(111));
+        Assert.Equal(GraphMediaWorkResultV1.ReconciledTerminal, terminal.Result);
+        Assert.Equal(GraphMediaWorkStateV1.Terminal, terminal.Ledger.Work[fixture.Request.WorkId].State);
+        Assert.Equal(Hash(111), terminal.Ledger.Work[fixture.Request.WorkId].OutcomeHash);
+        Assert.Same(terminal.Ledger, terminal.Ledger.ReconcileWork(fixture.Request.WorkId,
+            fixture.Request.RequestHash, true, Hash(111)).Ledger);
+    }
+
+    [Fact]
     public void Bounds_fail_before_mutation()
     {
         var fixture = CreateFixture(); var ledger = fixture.Work;

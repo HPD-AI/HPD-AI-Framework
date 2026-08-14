@@ -6,7 +6,7 @@ using HPD.Agent.Authority;
 
 namespace HPD.Agent.Audio.Graph;
 
-internal enum GraphMediaWorkStateV1 : byte { Registered, Running, Terminal }
+internal enum GraphMediaWorkStateV1 : byte { Registered, Running, Terminal, Unknown }
 internal enum GraphMediaCleanupStateV1 : byte { Registered, Running, Succeeded, Unknown }
 internal enum GraphMediaReleaseEligibilityV1 : byte { Eligible, Encumbered, NotFound }
 internal enum GraphMediaWorkResultV1 : byte
@@ -15,7 +15,7 @@ internal enum GraphMediaWorkResultV1 : byte
     ReconciledRunning, ReconciledSucceeded, InvalidRequest, StaleGeneration,
     ResidenceNotFound, ResidenceNotVisible, OwnerMismatch, WorkNotFound,
     CleanupNotFound, WrongState, ContradictoryDuplicate, WorkLimitReached,
-    CleanupLimitReached, CleanupOrderConflict
+    CleanupLimitReached, CleanupOrderConflict, ReconciledTerminal
 }
 
 internal sealed record GraphMediaCleanupRegistrationV1(StableId128 CleanupId, Hash256 RequestHash);
@@ -26,7 +26,7 @@ internal sealed record GraphMediaWorkRecordV1(StableId128 WorkId, Hash256 Reques
     StableId128 OwnerId, GraphMediaOwnerKeyV1 OwnerKey, GraphMediaBindingV1 Media,
     ParticipantId ParticipantId, JournalPositionV1 BindingFactPosition, CapacityGrantId GrantId,
     JournalPositionV1 CurrentFact, Hash256 CoverageHashV2, GraphMediaCapacityAssignmentV1 Assignment,
-    GraphMediaWorkStateV1 State, Hash256? OutcomeHash);
+    GraphMediaWorkStateV1 State, Hash256? OutcomeHash, Hash256? ReconciliationHash);
 internal sealed record GraphMediaCleanupRecordV1(StableId128 CleanupId, StableId128 WorkId,
     Hash256 RequestHash, byte RegistrationOrdinal, GraphMediaCleanupStateV1 State,
     Hash256? EvidenceHash);
@@ -118,7 +118,7 @@ internal sealed class GraphMediaWorkLedgerV1
                 residence.OperationId, residence.RequestHash, residence.OwnerId, residence.OwnerKey,
                 residence.Media, residence.ParticipantId, residence.BindingFactPosition,
                 residence.GrantId, residence.CurrentFact, residence.CoverageHashV2,
-                residence.Assignment, GraphMediaWorkStateV1.Registered, null)
+                residence.Assignment, GraphMediaWorkStateV1.Registered, null, null)
         };
         var cleanup = new Dictionary<StableId128, GraphMediaCleanupRecordV1>(_cleanup);
         for (var i = 0; i < request.Cleanups.Count; i++)
@@ -147,8 +147,40 @@ internal sealed class GraphMediaWorkLedgerV1
         if (row.RequestHash != requestHash) return Fail(GraphMediaWorkResultV1.ContradictoryDuplicate);
         if (row.State == GraphMediaWorkStateV1.Terminal)
             return Fail(row.OutcomeHash == outcomeHash ? GraphMediaWorkResultV1.Terminal : GraphMediaWorkResultV1.ContradictoryDuplicate);
+        if (row.State == GraphMediaWorkStateV1.Unknown) return Fail(GraphMediaWorkResultV1.WrongState);
         return new(GraphMediaWorkResultV1.Terminal,
-            WithWork(row with { State = GraphMediaWorkStateV1.Terminal, OutcomeHash = outcomeHash }));
+            WithWork(row with { State = GraphMediaWorkStateV1.Terminal, OutcomeHash = outcomeHash,
+                ReconciliationHash = null }));
+    }
+
+    internal GraphMediaWorkTransitionV1 LoseWorkOutcome(StableId128 workId, Hash256 requestHash)
+    {
+        if (!_work.TryGetValue(workId, out var row)) return Fail(GraphMediaWorkResultV1.WorkNotFound);
+        if (row.RequestHash != requestHash) return Fail(GraphMediaWorkResultV1.ContradictoryDuplicate);
+        if (row.State == GraphMediaWorkStateV1.Unknown) return Fail(GraphMediaWorkResultV1.OutcomeUnknown);
+        if (row.State != GraphMediaWorkStateV1.Running) return Fail(GraphMediaWorkResultV1.WrongState);
+        return new(GraphMediaWorkResultV1.OutcomeUnknown,
+            WithWork(row with { State = GraphMediaWorkStateV1.Unknown, ReconciliationHash = null }));
+    }
+
+    internal GraphMediaWorkTransitionV1 ReconcileWork(StableId128 workId, Hash256 requestHash,
+        bool terminal, Hash256 evidenceHash)
+    {
+        if (evidenceHash == default) return Fail(GraphMediaWorkResultV1.InvalidRequest);
+        if (!_work.TryGetValue(workId, out var row)) return Fail(GraphMediaWorkResultV1.WorkNotFound);
+        if (row.RequestHash != requestHash) return Fail(GraphMediaWorkResultV1.ContradictoryDuplicate);
+        if (row.State == GraphMediaWorkStateV1.Terminal)
+            return Fail(terminal && row.OutcomeHash == evidenceHash
+                ? GraphMediaWorkResultV1.ReconciledTerminal : GraphMediaWorkResultV1.ContradictoryDuplicate);
+        if (row.State == GraphMediaWorkStateV1.Running && row.ReconciliationHash is { } prior)
+            return Fail(!terminal && prior == evidenceHash
+                ? GraphMediaWorkResultV1.ReconciledRunning : GraphMediaWorkResultV1.ContradictoryDuplicate);
+        if (row.State != GraphMediaWorkStateV1.Unknown) return Fail(GraphMediaWorkResultV1.WrongState);
+        return terminal
+            ? new(GraphMediaWorkResultV1.ReconciledTerminal, WithWork(row with
+                { State = GraphMediaWorkStateV1.Terminal, OutcomeHash = evidenceHash, ReconciliationHash = null }))
+            : new(GraphMediaWorkResultV1.ReconciledRunning, WithWork(row with
+                { State = GraphMediaWorkStateV1.Running, ReconciliationHash = evidenceHash }));
     }
 
     internal GraphMediaWorkTransitionV1 ClaimCleanup(StableId128 workId, StableId128 cleanupId,
@@ -314,6 +346,7 @@ internal sealed class GraphMediaWorkLedgerV1
             Field(hash, "coverage"u8, Digest(row.CoverageHashV2)); Field(hash, "assignmentCharge"u8, Canonical(row.Assignment.Charge));
             Field(hash, "assignmentArm"u8, [(byte)row.Assignment.Arm]);
             Field(hash, "state"u8, [(byte)row.State]); Field(hash, "outcome"u8, row.OutcomeHash is { } outcome ? Digest(outcome) : []);
+            Field(hash, "reconciliation"u8, row.ReconciliationHash is { } reconciliation ? Digest(reconciliation) : []);
         }
         foreach (var row in cleanupRows.OrderBy(x => Convert.ToHexString(Stable(x.CleanupId)), StringComparer.Ordinal))
         {
