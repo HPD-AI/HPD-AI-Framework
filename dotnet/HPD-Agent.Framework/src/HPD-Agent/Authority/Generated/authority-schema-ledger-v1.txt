@@ -1,4 +1,4 @@
-# source-contract-sha256=15f8621a24f86fe01e3dbddf66e2bed089ebd815eb1256ed813895af76a4f07b
+# source-contract-sha256=985cc5d3f6f5101d8dd43c8de94beda050e26e8be43e9c680cc2f8b0ee4565b7
 # source-registry-sha256=61630b3b2f890add5146b6c80611316cdf0dba012547fd76dbce02ab155a58da
 # generated input; section rows are canonical and ordered
 @IdFamilies
@@ -1462,7 +1462,7 @@ HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|Projection
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|ProviderEffectCommandV1
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|ProviderEffectReceiptV1
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|ProviderGenerationChangedV1
-HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|ProviderGenerationChangedV1
+HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|ProviderGenerationChangedOuterV1
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|ProviderGenerationInitializedV1
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|ReplayEvidenceFactV1
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|ReplayRunCommandV1
@@ -1470,7 +1470,7 @@ HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|RouteAutho
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|RouteAxisAppliedV1
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|RouteCutoverAuthorizedV1
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|RouteGenerationChangedV1
-HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|RouteGenerationChangedV1
+HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|RouteGenerationChangedOuterV1
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|RouteGenerationInitializedV1
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|RoutePreparationOwnerClaimedV1
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|RouteRegistrationClosedV1
@@ -1504,10 +1504,10 @@ HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|ToolResult
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|TransportAdapterCommandV1
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|TransportAdapterReceiptV1
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|TransportGenerationChangedV1
-HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|TransportGenerationChangedV1
+HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|TransportGenerationChangedOuterV1
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|TransportGenerationInitializedV1
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|TurnDecisionFinalizedV1
-HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|TurnDecisionFinalizedV1
+HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|TurnDecisionFinalizedOuterV1
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|TurnGenerationChangedV1
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|TurnGenerationInitializedV1
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|VadObservationV1
@@ -1684,12 +1684,12 @@ hpd.authority-owner-payload.v1|6|CapacitySettlementFact|hpd.authority-payload-ca
 hpd.authority-owner-payload.v1|7|VadObservation|hpd.authority-payload-vad-observation.v1|VadObservationV1|S3
 hpd.authority-owner-payload.v1|8|ActivityBoundaryFact|hpd.authority-payload-activity-boundary-fact.v1|ActivityBoundaryFactV1|S3
 hpd.authority-owner-payload.v1|9|SemanticCandidate|hpd.authority-payload-semantic-candidate.v1|SemanticCandidateV1|S4
-hpd.authority-owner-payload.v1|10|TurnDecisionFinalized|hpd.authority-payload-turn-decision-finalized.v1|TurnDecisionFinalizedV1|S4
+hpd.authority-owner-payload.v1|10|TurnDecisionFinalized|hpd.authority-payload-turn-decision-finalized.v1|TurnDecisionFinalizedOuterV1|S4
 hpd.authority-owner-payload.v1|11|SemanticInputAcceptanceCommand|hpd.authority-payload-semantic-input-acceptance-command.v1|SemanticInputAcceptanceCommandV1|S1
 hpd.authority-owner-payload.v1|12|SemanticInputAccepted|hpd.authority-payload-semantic-input-accepted.v1|SemanticInputAcceptedV1|S1
 hpd.authority-owner-payload.v1|13|ProviderEffectCommand|hpd.authority-payload-provider-effect-command.v1|ProviderEffectCommandV1|S5
 hpd.authority-owner-payload.v1|14|ProviderEffectReceipt|hpd.authority-payload-provider-effect-receipt.v1|ProviderEffectReceiptV1|S5
-hpd.authority-owner-payload.v1|15|ProviderGenerationChanged|hpd.authority-payload-provider-generation-changed.v1|ProviderGenerationChangedV1|S5
+hpd.authority-owner-payload.v1|15|ProviderGenerationChanged|hpd.authority-payload-provider-generation-changed.v1|ProviderGenerationChangedOuterV1|S5
 hpd.authority-owner-payload.v1|16|OutputSinkCommand|hpd.authority-payload-output-sink-command.v1|OutputSinkCommandV1|S6
 hpd.authority-owner-payload.v1|17|OutputSinkReceipt|hpd.authority-payload-output-sink-receipt.v1|OutputSinkReceiptV1|S6
 hpd.authority-owner-payload.v1|18|HeardRangeFact|hpd.authority-payload-heard-range-fact.v1|HeardRangeFactV1|S6
@@ -1698,7 +1698,7 @@ hpd.authority-owner-payload.v1|20|InterruptionSettled|hpd.authority-payload-inte
 hpd.authority-owner-payload.v1|21|ToolContinuation|hpd.authority-payload-tool-continuation.v1|ToolContinuationV1|S7
 hpd.authority-owner-payload.v1|22|ToolEffectReceipt|hpd.authority-payload-tool-effect-receipt.v1|ToolEffectReceiptV1|S7
 hpd.authority-owner-payload.v1|23|RouteSelectionCommand|hpd.authority-payload-route-selection-command.v1|RouteSelectionCommandV1|S8
-hpd.authority-owner-payload.v1|24|RouteGenerationChanged|hpd.authority-payload-route-generation-changed.v1|RouteGenerationChangedV1|S8
+hpd.authority-owner-payload.v1|24|RouteGenerationChanged|hpd.authority-payload-route-generation-changed.v1|RouteGenerationChangedOuterV1|S8
 hpd.authority-owner-payload.v1|25|CaptureAuthorizationCommand|hpd.authority-payload-capture-authorization-command.v1|CaptureAuthorizationCommandV1|S9
 hpd.authority-owner-payload.v1|26|CopyReservationCommand|hpd.authority-payload-copy-reservation-command.v1|CopyReservationCommandV1|S9
 hpd.authority-owner-payload.v1|27|PrivacyDeleteEffect|hpd.authority-payload-privacy-delete-effect.v1|PrivacyDeleteEffectV1|S9
@@ -1707,7 +1707,7 @@ hpd.authority-owner-payload.v1|29|ReplayRunCommand|hpd.authority-payload-replay-
 hpd.authority-owner-payload.v1|30|ReplayEvidenceFact|hpd.authority-payload-replay-evidence-fact.v1|ReplayEvidenceFactV1|S10
 hpd.authority-owner-payload.v1|31|TransportAdapterCommand|hpd.authority-payload-transport-adapter-command.v1|TransportAdapterCommandV1|S11
 hpd.authority-owner-payload.v1|32|TransportAdapterReceipt|hpd.authority-payload-transport-adapter-receipt.v1|TransportAdapterReceiptV1|S11
-hpd.authority-owner-payload.v1|33|TransportGenerationChanged|hpd.authority-payload-transport-generation-changed.v1|TransportGenerationChangedV1|S11
+hpd.authority-owner-payload.v1|33|TransportGenerationChanged|hpd.authority-payload-transport-generation-changed.v1|TransportGenerationChangedOuterV1|S11
 hpd.authority-owner-payload.v1|34|GraphTopologyInstalledFact|hpd.authority-payload-graph-topology-installed-fact.v1|GraphTopologyInstalledFactV1|S2
 hpd.authority-owner-payload.v1|35|GraphReplacementFact|hpd.authority-payload-graph-replacement-fact.v1|GraphReplacementFactV1|S2
 hpd.authority-owner-payload.v1|36|GraphRuntimeCommand|hpd.authority-payload-graph-runtime-command.v1|GraphRuntimeCommandV1|S2
