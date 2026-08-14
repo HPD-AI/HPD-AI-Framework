@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>HPD.Payments.Persistence</AssemblyName>
+    <RootNamespace>HPD.Payments.Persistence</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../HPD.Payments.Primitives/HPD.Payments.Primitives.csproj" />
+    <ProjectReference Include="../HPD.Payments.Contracts/HPD.Payments.Contracts.csproj" />
+    <ProjectReference Include="../HPD.Payments.Supporting/HPD.Payments.Supporting.csproj" />
+  </ItemGroup>
+</Project>

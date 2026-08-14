@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "HPD.Payments central change disposition",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "requestId",
+    "disposition",
+    "precedingCentralTreeDigest",
+    "appliedCentralTreeDigest",
+    "validationCommandIds",
+    "validationReceipts",
+    "reason"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "hpd.payments.central-change-disposition.v1"
+    },
+    "requestId": {
+      "type": "string"
+    },
+    "disposition": {
+      "enum": [
+        "Accepted",
+        "Rejected",
+        "Deferred"
+      ]
+    },
+    "precedingCentralTreeDigest": {
+      "type": "string"
+    },
+    "appliedCentralTreeDigest": {
+      "type": "string"
+    },
+    "validationCommandIds": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "validationReceipts": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "reason": {
+      "type": "string"
+    }
+  }
+}

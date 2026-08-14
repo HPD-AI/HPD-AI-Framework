@@ -1,0 +1,854 @@
+{
+  "schemaVersion": "hpd.payments.commands.v1",
+  "revision": 10,
+  "productRoot": "/Users/ewoof/Desktop/Yes/HPD-OS/vendor/HPD-AI-Framework/dotnet/HPD-Payments.Framework",
+  "commands": [
+    {
+      "id": "restore",
+      "enabled": true,
+      "cwd": ".",
+      "argv": [
+        "/usr/local/share/dotnet/dotnet",
+        "restore",
+        "HPD-Payments.slnx",
+        "--use-lock-file",
+        "--force-evaluate"
+      ],
+      "prerequisites": [],
+      "timeoutSeconds": 900,
+      "outputs": [
+        "**/packages.lock.json"
+      ],
+      "cleanup": [],
+      "acceptedExitCodes": [
+        0
+      ],
+      "proofClass": "restore"
+    },
+    {
+      "id": "restore-locked",
+      "enabled": true,
+      "cwd": ".",
+      "argv": [
+        "/usr/local/share/dotnet/dotnet",
+        "restore",
+        "HPD-Payments.slnx",
+        "--locked-mode"
+      ],
+      "prerequisites": [
+        "restore"
+      ],
+      "timeoutSeconds": 900,
+      "outputs": [],
+      "cleanup": [],
+      "acceptedExitCodes": [
+        0
+      ],
+      "proofClass": "restore"
+    },
+    {
+      "id": "build",
+      "enabled": true,
+      "cwd": ".",
+      "argv": [
+        "/usr/local/share/dotnet/dotnet",
+        "build",
+        "HPD-Payments.slnx",
+        "--no-restore",
+        "-warnaserror",
+        "-p:ContinuousIntegrationBuild=true"
+      ],
+      "prerequisites": [
+        "restore"
+      ],
+      "timeoutSeconds": 900,
+      "outputs": [
+        "**/bin/**"
+      ],
+      "cleanup": [
+        "**/bin/**",
+        "**/obj/**"
+      ],
+      "acceptedExitCodes": [
+        0
+      ],
+      "proofClass": "compiled"
+    },
+    {
+      "id": "test-unit",
+      "enabled": true,
+      "cwd": ".",
+      "argv": [
+        "/usr/local/share/dotnet/dotnet",
+        "test",
+        "HPD-Payments.slnx",
+        "--no-build",
+        "--no-restore"
+      ],
+      "prerequisites": [
+        "build"
+      ],
+      "timeoutSeconds": 900,
+      "outputs": [
+        "**/TestResults/**"
+      ],
+      "cleanup": [],
+      "acceptedExitCodes": [
+        0
+      ],
+      "proofClass": "executed-test"
+    },
+    {
+      "id": "test-architecture",
+      "enabled": true,
+      "cwd": ".",
+      "argv": [
+        "/usr/local/share/dotnet/dotnet",
+        "run",
+        "--project",
+        "test/HPD.Payments.Architecture.Tests/HPD.Payments.Architecture.Tests.csproj",
+        "--no-build",
+        "--no-restore"
+      ],
+      "prerequisites": [
+        "build"
+      ],
+      "timeoutSeconds": 900,
+      "outputs": [],
+      "cleanup": [],
+      "acceptedExitCodes": [
+        0
+      ],
+      "proofClass": "executed-test"
+    },
+    {
+      "id": "validate-registry",
+      "enabled": true,
+      "cwd": ".",
+      "argv": [
+        "/usr/bin/python3",
+        "eng/registry/validate_registry.py",
+        "eng/registry/canonical-capabilities.json",
+        "eng/registry/claim-matrix.json"
+      ],
+      "prerequisites": [],
+      "timeoutSeconds": 900,
+      "outputs": [],
+      "cleanup": [],
+      "acceptedExitCodes": [
+        0
+      ],
+      "proofClass": "registry-validation"
+    },
+    {
+      "id": "validate-commands",
+      "enabled": true,
+      "cwd": ".",
+      "argv": [
+        "/usr/bin/python3",
+        "eng/build/validate_commands.py",
+        "eng/commands/commands.json"
+      ],
+      "prerequisites": [],
+      "timeoutSeconds": 900,
+      "outputs": [],
+      "cleanup": [],
+      "acceptedExitCodes": [
+        0
+      ],
+      "proofClass": "manifest-validation"
+    },
+    {
+      "id": "msbuild-properties",
+      "enabled": true,
+      "cwd": ".",
+      "argv": [
+        "/usr/local/share/dotnet/dotnet",
+        "msbuild",
+        "HPD-Payments.slnx",
+        "-getProperty:TargetFramework",
+        "-getProperty:TargetFrameworks",
+        "-getProperty:LangVersion",
+        "-getProperty:Version",
+        "-getProperty:Product",
+        "-getProperty:RepositoryUrl",
+        "-getProperty:RepoRoot",
+        "-getProperty:RestorePackagesWithLockFile",
+        "-getProperty:PublishAot",
+        "-getProperty:PublishTrimmed",
+        "-getProperty:InvariantGlobalization",
+        "-getProperty:RunAnalyzersDuringBuild",
+        "-getProperty:TreatWarningsAsErrors"
+      ],
+      "prerequisites": [],
+      "timeoutSeconds": 900,
+      "outputs": [],
+      "cleanup": [],
+      "acceptedExitCodes": [
+        0
+      ],
+      "proofClass": "evaluated-properties"
+    },
+    {
+      "id": "test-conformance-bootstrap-simulator",
+      "enabled": true,
+      "cwd": ".",
+      "argv": [
+        "/usr/local/share/dotnet/dotnet",
+        "run",
+        "--project",
+        "test/HPD.Payments.Connectors.Simulator.Tests/HPD.Payments.Connectors.Simulator.Tests.csproj",
+        "--no-build",
+        "--no-restore"
+      ],
+      "prerequisites": [
+        "build"
+      ],
+      "timeoutSeconds": 900,
+      "outputs": [],
+      "cleanup": [],
+      "acceptedExitCodes": [
+        0
+      ],
+      "proofClass": "bootstrap-fixture"
+    },
+    {
+      "id": "test-conformance-bootstrap-inmemory",
+      "enabled": false,
+      "cwd": ".",
+      "argv": [
+        "/usr/local/share/dotnet/dotnet",
+        "run",
+        "--project",
+        "src/HPD.Payments.Tools.Conformance/HPD.Payments.Tools.Conformance.csproj",
+        "--",
+        "bootstrap",
+        "inmemory"
+      ],
+      "prerequisites": [
+        "L5-07I gate"
+      ],
+      "timeoutSeconds": 900,
+      "outputs": [],
+      "cleanup": [],
+      "acceptedExitCodes": [
+        0
+      ],
+      "proofClass": "bootstrap-fixture"
+    },
+    {
+      "id": "test-conformance-bootstrap-sqlite",
+      "enabled": false,
+      "cwd": ".",
+      "argv": [
+        "/usr/local/share/dotnet/dotnet",
+        "run",
+        "--project",
+        "src/HPD.Payments.Tools.Conformance/HPD.Payments.Tools.Conformance.csproj",
+        "--",
+        "bootstrap",
+        "sqlite"
+      ],
+      "prerequisites": [
+        "L5-07S gate"
+      ],
+      "timeoutSeconds": 900,
+      "outputs": [],
+      "cleanup": [],
+      "acceptedExitCodes": [
+        0
+      ],
+      "proofClass": "bootstrap-fixture"
+    },
+    {
+      "id": "test-conformance-bootstrap-postgres",
+      "enabled": false,
+      "cwd": ".",
+      "argv": [
+        "/usr/local/share/dotnet/dotnet",
+        "run",
+        "--project",
+        "src/HPD.Payments.Tools.Conformance/HPD.Payments.Tools.Conformance.csproj",
+        "--",
+        "bootstrap",
+        "postgres"
+      ],
+      "prerequisites": [
+        "L5-08 gate"
+      ],
+      "timeoutSeconds": 900,
+      "outputs": [],
+      "cleanup": [],
+      "acceptedExitCodes": [
+        0
+      ],
+      "proofClass": "bootstrap-fixture"
+    },
+    {
+      "id": "publish-aot-host-api",
+      "enabled": false,
+      "cwd": ".",
+      "argv": [
+        "/usr/local/share/dotnet/dotnet",
+        "publish",
+        "src/HPD.Payments.Host.Api/HPD.Payments.Host.Api.csproj",
+        "-c",
+        "Release",
+        "-r",
+        "osx-arm64",
+        "-p:PublishAot=true",
+        "-p:PublishTrimmed=true"
+      ],
+      "prerequisites": [
+        "owning implementation gate"
+      ],
+      "timeoutSeconds": 900,
+      "outputs": [
+        "artifacts/aot/**"
+      ],
+      "cleanup": [],
+      "acceptedExitCodes": [
+        0
+      ],
+      "proofClass": "linked"
+    },
+    {
+      "id": "publish-aot-worker",
+      "enabled": false,
+      "cwd": ".",
+      "argv": [
+        "/usr/local/share/dotnet/dotnet",
+        "publish",
+        "src/HPD.Payments.Worker/HPD.Payments.Worker.csproj",
+        "-c",
+        "Release",
+        "-r",
+        "osx-arm64",
+        "-p:PublishAot=true",
+        "-p:PublishTrimmed=true"
+      ],
+      "prerequisites": [
+        "owning implementation gate"
+      ],
+      "timeoutSeconds": 900,
+      "outputs": [
+        "artifacts/aot/**"
+      ],
+      "cleanup": [],
+      "acceptedExitCodes": [
+        0
+      ],
+      "proofClass": "linked"
+    },
+    {
+      "id": "publish-aot-outofprocess-client",
+      "enabled": false,
+      "cwd": ".",
+      "argv": [
+        "/usr/local/share/dotnet/dotnet",
+        "publish",
+        "src/HPD.Payments.Extensions.OutOfProcess/HPD.Payments.Extensions.OutOfProcess.csproj",
+        "-c",
+        "Release",
+        "-r",
+        "osx-arm64",
+        "-p:PublishAot=true",
+        "-p:PublishTrimmed=true"
+      ],
+      "prerequisites": [
+        "owning implementation gate"
+      ],
+      "timeoutSeconds": 900,
+      "outputs": [
+        "artifacts/aot/**"
+      ],
+      "cleanup": [],
+      "acceptedExitCodes": [
+        0
+      ],
+      "proofClass": "linked"
+    },
+    {
+      "id": "run-aot-host-api",
+      "enabled": false,
+      "cwd": ".",
+      "argv": [
+        "/usr/bin/python3",
+        "eng/build/not_admitted.py",
+        "run-aot-host-api"
+      ],
+      "prerequisites": [
+        "owning implementation gate"
+      ],
+      "timeoutSeconds": 900,
+      "outputs": [],
+      "cleanup": [],
+      "acceptedExitCodes": [
+        0
+      ],
+      "proofClass": "predeclared-fail-closed"
+    },
+    {
+      "id": "run-aot-worker",
+      "enabled": false,
+      "cwd": ".",
+      "argv": [
+        "/usr/bin/python3",
+        "eng/build/not_admitted.py",
+        "run-aot-worker"
+      ],
+      "prerequisites": [
+        "owning implementation gate"
+      ],
+      "timeoutSeconds": 900,
+      "outputs": [],
+      "cleanup": [],
+      "acceptedExitCodes": [
+        0
+      ],
+      "proofClass": "predeclared-fail-closed"
+    },
+    {
+      "id": "run-aot-outofprocess-client",
+      "enabled": false,
+      "cwd": ".",
+      "argv": [
+        "/usr/bin/python3",
+        "eng/build/not_admitted.py",
+        "run-aot-outofprocess-client"
+      ],
+      "prerequisites": [
+        "owning implementation gate"
+      ],
+      "timeoutSeconds": 900,
+      "outputs": [],
+      "cleanup": [],
+      "acceptedExitCodes": [
+        0
+      ],
+      "proofClass": "predeclared-fail-closed"
+    },
+    {
+      "id": "test-browser",
+      "enabled": false,
+      "cwd": ".",
+      "argv": [
+        "/usr/bin/python3",
+        "eng/build/not_admitted.py",
+        "test-browser"
+      ],
+      "prerequisites": [
+        "owning implementation gate"
+      ],
+      "timeoutSeconds": 900,
+      "outputs": [],
+      "cleanup": [],
+      "acceptedExitCodes": [
+        0
+      ],
+      "proofClass": "predeclared-fail-closed"
+    },
+    {
+      "id": "test-generated",
+      "enabled": false,
+      "cwd": ".",
+      "argv": [
+        "/usr/bin/python3",
+        "eng/build/not_admitted.py",
+        "test-generated"
+      ],
+      "prerequisites": [
+        "owning implementation gate"
+      ],
+      "timeoutSeconds": 900,
+      "outputs": [],
+      "cleanup": [],
+      "acceptedExitCodes": [
+        0
+      ],
+      "proofClass": "predeclared-fail-closed"
+    },
+    {
+      "id": "perf-static",
+      "enabled": false,
+      "cwd": ".",
+      "argv": [
+        "/usr/bin/python3",
+        "eng/build/not_admitted.py",
+        "perf-static"
+      ],
+      "prerequisites": [
+        "owning implementation gate"
+      ],
+      "timeoutSeconds": 900,
+      "outputs": [],
+      "cleanup": [],
+      "acceptedExitCodes": [
+        0
+      ],
+      "proofClass": "predeclared-fail-closed"
+    },
+    {
+      "id": "perf-dynamic",
+      "enabled": false,
+      "cwd": ".",
+      "argv": [
+        "/usr/bin/python3",
+        "eng/build/not_admitted.py",
+        "perf-dynamic"
+      ],
+      "prerequisites": [
+        "owning implementation gate"
+      ],
+      "timeoutSeconds": 900,
+      "outputs": [],
+      "cleanup": [],
+      "acceptedExitCodes": [
+        0
+      ],
+      "proofClass": "predeclared-fail-closed"
+    },
+    {
+      "id": "perf-conformance",
+      "enabled": false,
+      "cwd": ".",
+      "argv": [
+        "/usr/bin/python3",
+        "eng/build/not_admitted.py",
+        "perf-conformance"
+      ],
+      "prerequisites": [
+        "owning implementation gate"
+      ],
+      "timeoutSeconds": 900,
+      "outputs": [],
+      "cleanup": [],
+      "acceptedExitCodes": [
+        0
+      ],
+      "proofClass": "predeclared-fail-closed"
+    },
+    {
+      "id": "validate-proof",
+      "enabled": false,
+      "cwd": ".",
+      "argv": [
+        "/usr/bin/python3",
+        "eng/build/not_admitted.py",
+        "validate-proof"
+      ],
+      "prerequisites": [
+        "owning implementation gate"
+      ],
+      "timeoutSeconds": 900,
+      "outputs": [],
+      "cleanup": [],
+      "acceptedExitCodes": [
+        0
+      ],
+      "proofClass": "predeclared-fail-closed"
+    },
+    {
+      "id": "test-supporting",
+      "enabled": true,
+      "cwd": ".",
+      "argv": [
+        "/usr/local/share/dotnet/dotnet",
+        "run",
+        "--project",
+        "test/HPD.Payments.Supporting.Tests/HPD.Payments.Supporting.Tests.csproj",
+        "--no-build",
+        "--no-restore"
+      ],
+      "prerequisites": [
+        "build"
+      ],
+      "timeoutSeconds": 900,
+      "outputs": [],
+      "cleanup": [],
+      "acceptedExitCodes": [
+        0
+      ],
+      "proofClass": "executed-test"
+    },
+    {
+      "id": "test-contracts",
+      "enabled": true,
+      "cwd": ".",
+      "argv": [
+        "/usr/local/share/dotnet/dotnet",
+        "run",
+        "--project",
+        "test/HPD.Payments.Contracts.Tests/HPD.Payments.Contracts.Tests.csproj",
+        "--no-build",
+        "--no-restore"
+      ],
+      "prerequisites": [
+        "build"
+      ],
+      "timeoutSeconds": 900,
+      "outputs": [],
+      "cleanup": [],
+      "acceptedExitCodes": [
+        0
+      ],
+      "proofClass": "executed-test"
+    },
+    {
+      "id": "test-persistence-ports",
+      "enabled": true,
+      "cwd": ".",
+      "argv": [
+        "/usr/local/share/dotnet/dotnet",
+        "run",
+        "--project",
+        "test/HPD.Payments.Persistence.Tests/HPD.Payments.Persistence.Tests.csproj",
+        "--no-build",
+        "--no-restore"
+      ],
+      "prerequisites": [
+        "build"
+      ],
+      "timeoutSeconds": 900,
+      "outputs": [],
+      "cleanup": [],
+      "acceptedExitCodes": [
+        0
+      ],
+      "proofClass": "executed-test"
+    },
+    {
+      "id": "test-serialization",
+      "enabled": true,
+      "cwd": ".",
+      "argv": [
+        "/usr/local/share/dotnet/dotnet",
+        "run",
+        "--project",
+        "test/HPD.Payments.Serialization.Tests/HPD.Payments.Serialization.Tests.csproj",
+        "--no-build",
+        "--no-restore"
+      ],
+      "prerequisites": [
+        "build"
+      ],
+      "timeoutSeconds": 900,
+      "outputs": [],
+      "cleanup": [],
+      "acceptedExitCodes": [
+        0
+      ],
+      "proofClass": "executed-test"
+    },
+    {
+      "id": "test-generators",
+      "enabled": true,
+      "cwd": ".",
+      "argv": [
+        "/usr/local/share/dotnet/dotnet",
+        "run",
+        "--project",
+        "test/HPD.Payments.Generators.Tests/HPD.Payments.Generators.Tests.csproj",
+        "--no-build",
+        "--no-restore"
+      ],
+      "prerequisites": [
+        "build"
+      ],
+      "timeoutSeconds": 900,
+      "outputs": [],
+      "cleanup": [],
+      "acceptedExitCodes": [
+        0
+      ],
+      "proofClass": "executed-test"
+    },
+    {
+      "id": "test-analyzers",
+      "enabled": true,
+      "cwd": ".",
+      "argv": [
+        "/usr/local/share/dotnet/dotnet",
+        "run",
+        "--project",
+        "test/HPD.Payments.Analyzers.Tests/HPD.Payments.Analyzers.Tests.csproj",
+        "--no-build",
+        "--no-restore"
+      ],
+      "prerequisites": [
+        "build"
+      ],
+      "timeoutSeconds": 900,
+      "outputs": [],
+      "cleanup": [],
+      "acceptedExitCodes": [
+        0
+      ],
+      "proofClass": "executed-test"
+    },
+    {
+      "id": "test-runtime-baseline",
+      "enabled": true,
+      "cwd": ".",
+      "argv": [
+        "/usr/local/share/dotnet/dotnet",
+        "run",
+        "--project",
+        "test/HPD.Payments.Runtime.Tests/HPD.Payments.Runtime.Tests.csproj",
+        "--no-build",
+        "--no-restore"
+      ],
+      "prerequisites": [
+        "build"
+      ],
+      "timeoutSeconds": 900,
+      "outputs": [],
+      "cleanup": [],
+      "acceptedExitCodes": [
+        0
+      ],
+      "proofClass": "executed-test"
+    },
+    {
+      "id": "publish-aot-serialization",
+      "enabled": true,
+      "cwd": ".",
+      "argv": [
+        "/usr/local/share/dotnet/dotnet",
+        "publish",
+        "test/HPD.Payments.Serialization.AotSmoke/HPD.Payments.Serialization.AotSmoke.csproj",
+        "-c",
+        "Release",
+        "-r",
+        "osx-arm64",
+        "--self-contained",
+        "true",
+        "-p:PublishAot=true",
+        "-p:PublishTrimmed=true",
+        "-p:InvariantGlobalization=true"
+      ],
+      "prerequisites": [
+        "restore-locked"
+      ],
+      "timeoutSeconds": 900,
+      "outputs": [
+        "test/HPD.Payments.Serialization.AotSmoke/bin/Release/net10.0/osx-arm64/publish/**"
+      ],
+      "cleanup": [
+        "test/HPD.Payments.Serialization.AotSmoke/bin/Release/net10.0/osx-arm64/publish/**"
+      ],
+      "acceptedExitCodes": [
+        0
+      ],
+      "proofClass": "linked"
+    },
+    {
+      "id": "run-aot-serialization",
+      "enabled": true,
+      "cwd": ".",
+      "argv": [
+        "test/HPD.Payments.Serialization.AotSmoke/bin/Release/net10.0/osx-arm64/publish/HPD.Payments.Serialization.AotSmoke"
+      ],
+      "prerequisites": [
+        "publish-aot-serialization"
+      ],
+      "timeoutSeconds": 900,
+      "outputs": [],
+      "cleanup": [],
+      "acceptedExitCodes": [
+        0
+      ],
+      "proofClass": "executed-test"
+    },
+    {
+      "id": "test-primitives",
+      "enabled": true,
+      "cwd": ".",
+      "argv": [
+        "/usr/local/share/dotnet/dotnet",
+        "run",
+        "--project",
+        "test/HPD.Payments.Primitives.Tests/HPD.Payments.Primitives.Tests.csproj",
+        "--no-build",
+        "--no-restore"
+      ],
+      "prerequisites": [
+        "build"
+      ],
+      "timeoutSeconds": 900,
+      "outputs": [],
+      "cleanup": [],
+      "acceptedExitCodes": [
+        0
+      ],
+      "proofClass": "executed-test"
+    },
+    {
+      "id": "firewall-before",
+      "enabled": true,
+      "cwd": ".",
+      "argv": [
+        "/usr/bin/python3",
+        "eng/build/firewall.py",
+        "before"
+      ],
+      "prerequisites": [
+        "authorized product subtree"
+      ],
+      "timeoutSeconds": 900,
+      "outputs": [],
+      "cleanup": [],
+      "acceptedExitCodes": [
+        0
+      ],
+      "proofClass": "write-firewall"
+    },
+    {
+      "id": "firewall-after",
+      "enabled": true,
+      "cwd": ".",
+      "argv": [
+        "/usr/bin/python3",
+        "eng/build/firewall.py",
+        "after"
+      ],
+      "prerequisites": [
+        "firewall-before"
+      ],
+      "timeoutSeconds": 900,
+      "outputs": [],
+      "cleanup": [],
+      "acceptedExitCodes": [
+        0
+      ],
+      "proofClass": "write-firewall"
+    },
+    {
+      "id": "test-conformance-proof",
+      "enabled": false,
+      "cwd": ".",
+      "argv": [
+        "/usr/local/share/dotnet/dotnet",
+        "run",
+        "--project",
+        "src/HPD.Payments.Tools.Conformance/HPD.Payments.Tools.Conformance.csproj",
+        "--",
+        "proof"
+      ],
+      "prerequisites": [
+        "L5-13 target digest verified",
+        "L5-13 self-tests passed",
+        "L5-01 activation disposition accepted"
+      ],
+      "timeoutSeconds": 900,
+      "outputs": [
+        "eng/proof/receipts/**"
+      ],
+      "cleanup": [],
+      "acceptedExitCodes": [
+        0
+      ],
+      "proofClass": "executed-conformance"
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>HPD.Payments.Tools.Conformance</AssemblyName>
+    <RootNamespace>HPD.Payments.Tools_Conformance</RootNamespace>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../HPD.Payments.Primitives/HPD.Payments.Primitives.csproj" />
+    <ProjectReference Include="../HPD.Payments.Contracts/HPD.Payments.Contracts.csproj" />
+    <ProjectReference Include="../HPD.Payments.Supporting/HPD.Payments.Supporting.csproj" />
+    <ProjectReference Include="../HPD.Payments.Serialization/HPD.Payments.Serialization.csproj" />
+    <ProjectReference Include="../HPD.Payments.Persistence/HPD.Payments.Persistence.csproj" />
+    <ProjectReference Include="../HPD.Payments.Runtime/HPD.Payments.Runtime.csproj" />
+    <ProjectReference Include="../HPD.Payments.Generators/HPD.Payments.Generators.csproj" />
+    <ProjectReference Include="../HPD.Payments.Analyzers/HPD.Payments.Analyzers.csproj" />
+    <ProjectReference Include="../HPD.Payments.Adapters.InMemory/HPD.Payments.Adapters.InMemory.csproj" />
+    <ProjectReference Include="../HPD.Payments.Adapters.Sqlite/HPD.Payments.Adapters.Sqlite.csproj" />
+    <ProjectReference Include="../HPD.Payments.Adapters.Postgres/HPD.Payments.Adapters.Postgres.csproj" />
+    <ProjectReference Include="../HPD.Payments.Connectors.Simulator/HPD.Payments.Connectors.Simulator.csproj" />
+    <ProjectReference Include="../HPD.Payments.Connectors.Stripe/HPD.Payments.Connectors.Stripe.csproj" />
+    <ProjectReference Include="../HPD.Payments.Extensions.Dynamic/HPD.Payments.Extensions.Dynamic.csproj" />
+    <ProjectReference Include="../HPD.Payments.Extensions.OutOfProcess/HPD.Payments.Extensions.OutOfProcess.csproj" />
+    <ProjectReference Include="../HPD.Payments.Profiles.Embedded/HPD.Payments.Profiles.Embedded.csproj" />
+    <ProjectReference Include="../HPD.Payments.Profiles.Distributed/HPD.Payments.Profiles.Distributed.csproj" />
+  </ItemGroup>
+</Project>

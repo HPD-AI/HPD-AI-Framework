@@ -1,0 +1,6 @@
+{
+  "name": "@hpd/payments-browser",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Reserved generated transport-only browser SDK boundary; no authority logic."
+}

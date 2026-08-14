@@ -1,0 +1,10 @@
+# Explicitly reviewed declarations. Values are test-only and are not capability evidence.
+serializer|AuthorityJsonContext|HPD.Payments.Contracts.Agreement.AgreementCommand
+table|AuthorityTable|Agreement
+visitor|ResultVisitor|Accepted
+factory|PersistenceFactory|Agreement
+dependency|AgreementDependency|ScopedIdentity
+compatibility|WireRevision|rev-1
+oracle|AgreementOracle|AGR-001
+connector|SimulatorConnector|authorize
+testvector|AgreementReplay|duplicate-request

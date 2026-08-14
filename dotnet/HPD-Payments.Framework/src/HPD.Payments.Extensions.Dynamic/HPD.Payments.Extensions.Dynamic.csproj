@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>HPD.Payments.Extensions.Dynamic</AssemblyName>
+    <RootNamespace>HPD.Payments.Extensions_Dynamic</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../HPD.Payments.Primitives/HPD.Payments.Primitives.csproj" />
+    <ProjectReference Include="../HPD.Payments.Contracts/HPD.Payments.Contracts.csproj" />
+    <ProjectReference Include="../HPD.Payments.Supporting/HPD.Payments.Supporting.csproj" />
+    <ProjectReference Include="../HPD.Payments.Runtime/HPD.Payments.Runtime.csproj" />
+  </ItemGroup>
+</Project>

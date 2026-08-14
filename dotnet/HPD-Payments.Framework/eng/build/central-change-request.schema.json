@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "HPD.Payments central change request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "requestId",
+    "assignmentId",
+    "predecessorGateDigest",
+    "requestedOwnedCentralPaths",
+    "reason",
+    "semanticChange",
+    "patchDescription",
+    "generatedCommandIds",
+    "requiredValidationCommandIds",
+    "affectedRegistryCells",
+    "affectedProjects",
+    "downstreamInvalidation",
+    "requesterReportDigest"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "hpd.payments.central-change-request.v1"
+    },
+    "requestId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "assignmentId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "predecessorGateDigest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "requestedOwnedCentralPaths": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1
+    },
+    "semanticChange": {
+      "const": false
+    },
+    "patchDescription": {
+      "type": "string",
+      "minLength": 1
+    },
+    "generatedCommandIds": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "requiredValidationCommandIds": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "affectedRegistryCells": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "affectedProjects": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "downstreamInvalidation": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "requesterReportDigest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  }
+}

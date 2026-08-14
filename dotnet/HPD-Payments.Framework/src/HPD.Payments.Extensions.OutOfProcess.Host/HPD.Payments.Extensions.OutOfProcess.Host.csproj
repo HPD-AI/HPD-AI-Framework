@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>HPD.Payments.Extensions.OutOfProcess.Host</AssemblyName>
+    <RootNamespace>HPD.Payments.Extensions_OutOfProcess_Host</RootNamespace>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../HPD.Payments.Extensions.OutOfProcess/HPD.Payments.Extensions.OutOfProcess.csproj" />
+    <ProjectReference Include="../HPD.Payments.Extensions.Dynamic/HPD.Payments.Extensions.Dynamic.csproj" />
+    <ProjectReference Include="../HPD.Payments.Serialization/HPD.Payments.Serialization.csproj" />
+    <ProjectReference Include="../HPD.Payments.Runtime/HPD.Payments.Runtime.csproj" />
+  </ItemGroup>
+</Project>

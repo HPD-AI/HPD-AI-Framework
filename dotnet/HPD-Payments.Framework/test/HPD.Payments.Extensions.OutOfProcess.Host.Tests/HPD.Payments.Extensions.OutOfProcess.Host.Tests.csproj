@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><IsTestProject>false</IsTestProject></PropertyGroup>
+  <ItemGroup><ProjectReference Include="../../src/HPD.Payments.Extensions.OutOfProcess.Host/HPD.Payments.Extensions.OutOfProcess.Host.csproj" /></ItemGroup>
+</Project>

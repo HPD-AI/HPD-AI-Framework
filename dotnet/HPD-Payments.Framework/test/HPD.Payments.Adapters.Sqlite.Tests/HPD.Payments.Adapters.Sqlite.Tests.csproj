@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsTestProject>false</IsTestProject><OutputType>Exe</OutputType>
+    <!-- Console conformance fixtures intentionally use context-neutral top-level awaits; production code remains CA2007-clean. -->
+    <NoWarn>$(NoWarn);CA2007</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/HPD.Payments.Adapters.Sqlite/HPD.Payments.Adapters.Sqlite.csproj" />
+    <ProjectReference Include="../../src/HPD.Payments.Primitives/HPD.Payments.Primitives.csproj" />
+    <ProjectReference Include="../../src/HPD.Payments.Supporting/HPD.Payments.Supporting.csproj" />
+    <ProjectReference Include="../../src/HPD.Payments.Persistence/HPD.Payments.Persistence.csproj" />
+  </ItemGroup>
+</Project>

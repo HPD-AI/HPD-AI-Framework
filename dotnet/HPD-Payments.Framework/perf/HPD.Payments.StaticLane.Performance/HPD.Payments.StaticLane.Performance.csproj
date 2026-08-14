@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType></PropertyGroup>
+  <ItemGroup><ProjectReference Include="../../src/HPD.Payments.Profiles.Embedded/HPD.Payments.Profiles.Embedded.csproj" /></ItemGroup>
+</Project>

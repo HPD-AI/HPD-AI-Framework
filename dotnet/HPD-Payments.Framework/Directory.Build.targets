@@ -1,0 +1,7 @@
+<Project>
+  <Target Name="RejectUnexpectedPaymentsBuildPolicy" BeforeTargets="PrepareForBuild">
+    <Error Condition="'$(TargetFramework)' != 'net10.0'" Text="HPD.Payments requires net10.0." />
+    <Error Condition="'$(LangVersion)' != '14.0'" Text="HPD.Payments requires C# 14.0." />
+    <Error Condition="'$(RestorePackagesWithLockFile)' != 'true'" Text="Lock files are mandatory." />
+  </Target>
+</Project>
