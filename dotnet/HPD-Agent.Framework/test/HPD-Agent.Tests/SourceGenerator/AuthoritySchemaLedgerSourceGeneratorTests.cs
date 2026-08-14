@@ -53,7 +53,9 @@ public sealed class AuthoritySchemaLedgerSourceGeneratorTests
         var result=Run(ledger);
         Assert.Contains("hpd.authority-owner-payload.v1|43|GraphParticipantReservationCommandV2|hpd.authority-payload-graph-participant-reservation-command.v2|GraphParticipantReservationCommandV2|S1",ledger,StringComparison.Ordinal);
         Assert.Contains("hpd.authority-owner-payload.v1|44|GraphParticipantReservationFactV2|hpd.authority-payload-graph-participant-reservation-fact.v2|GraphParticipantReservationFactV2|S1",ledger,StringComparison.Ordinal);
-        Assert.Equal("442f54995578d6320765e71e1c08b66c6700055c02e2ef571b3284aa79c64a45",Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(ledger))).ToLowerInvariant());
+        Assert.Contains("hpd.authority-owner-payload.v1|45|GraphMediaPhysicalReleaseCommand|hpd.authority-payload-graph-media-physical-release-command.v1|GraphMediaPhysicalReleaseOuterV1|S1",ledger,StringComparison.Ordinal);
+        Assert.Contains("hpd.authority-owner-payload.v1|46|GraphMediaPhysicalReleaseFact|hpd.authority-payload-graph-media-physical-release-fact.v1|GraphMediaPhysicalReleaseOuterV1|S1",ledger,StringComparison.Ordinal);
+        Assert.Equal("c1c4c31b8d72f7ed28c6793c9ce776d0c38d465e26aa2a5dc897463c758e4972",Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(ledger))).ToLowerInvariant());
         Assert.Empty(result.Diagnostics);
         Assert.Single(result.GeneratedTrees);
     }
@@ -61,6 +63,8 @@ public sealed class AuthoritySchemaLedgerSourceGeneratorTests
     [Theory]
     [InlineData("hpd.authority-owner-payload.v1|43|GraphParticipantReservationCommandV2|hpd.authority-payload-graph-participant-reservation-command.v2|GraphParticipantReservationCommandV2|S1","hpd.authority-owner-payload.v1|42|GraphParticipantReservationCommandV2|hpd.authority-payload-graph-participant-reservation-command.v2|GraphParticipantReservationCommandV2|S1")]
     [InlineData("hpd.authority-owner-payload.v1|44|GraphParticipantReservationFactV2|hpd.authority-payload-graph-participant-reservation-fact.v2|GraphParticipantReservationFactV2|S1","hpd.authority-owner-payload.v1|43|GraphParticipantReservationFactV2|hpd.authority-payload-graph-participant-reservation-fact.v2|GraphParticipantReservationFactV2|S1")]
+    [InlineData("hpd.authority-owner-payload.v1|45|GraphMediaPhysicalReleaseCommand|hpd.authority-payload-graph-media-physical-release-command.v1|GraphMediaPhysicalReleaseOuterV1|S1","hpd.authority-owner-payload.v1|44|GraphMediaPhysicalReleaseCommand|hpd.authority-payload-graph-media-physical-release-command.v1|GraphMediaPhysicalReleaseOuterV1|S1")]
+    [InlineData("hpd.authority-owner-payload.v1|46|GraphMediaPhysicalReleaseFact|hpd.authority-payload-graph-media-physical-release-fact.v1|GraphMediaPhysicalReleaseOuterV1|S1","hpd.authority-owner-payload.v1|45|GraphMediaPhysicalReleaseFact|hpd.authority-payload-graph-media-physical-release-fact.v1|GraphMediaPhysicalReleaseOuterV1|S1")]
     public void ReservationV2LedgerMutation_FailsBeforeEmission(string original,string mutated)
     {
         var ledger=LoadLedger();
