@@ -40,6 +40,8 @@ public sealed class HPDBaseBuilder
     private readonly Dictionary<string, BaseStorageProtectionCapability> _extensionStorageCapabilities = new(StringComparer.Ordinal);
     private readonly List<BaseSelectionOperationProfile> _selectionProfiles = [];
     private readonly List<BaseGeneratedSubjectRegistration> _subjectContracts = [];
+    private readonly Dictionary<string, BaseModuleGenerationCellDefinition> _moduleGenerationCells = new(StringComparer.Ordinal);
+    private readonly Dictionary<(string Id, int Version), BaseRegisteredModuleMutationDefinition> _moduleMutations = [];
     private readonly List<BaseSubjectAcquisitionDefinition> _subjectAcquisitions = [];
     private HPDBaseSelectionMutationOptions? _selectionOptions;
     private HPDBaseStoreProvider? _storeProvider;
@@ -266,6 +268,29 @@ public sealed class HPDBaseBuilder
         return this;
     }
 
+    /// <summary>Registers one immutable module generation-cell definition.</summary>
+    public HPDBaseBuilder AddModuleGenerationCell(BaseModuleGenerationCellDefinition definition)
+    {
+        EnsureMutable();
+        ArgumentNullException.ThrowIfNull(definition);
+        BaseModuleMutationContractValidator.ValidateCell(definition);
+        if (!_moduleGenerationCells.TryAdd(definition.Id, definition with
+        {
+            Id = new string(definition.Id.AsSpan()), OwningModuleId = new string(definition.OwningModuleId.AsSpan()),
+        })) throw new InvalidOperationException("base.moduleMutation.invalid");
+        return this;
+    }
+
+    /// <summary>Registers one trusted-host-authored module mutation definition.</summary>
+    public HPDBaseBuilder AddModuleMutation(BaseRegisteredModuleMutationDefinition definition)
+    {
+        EnsureMutable();
+        ArgumentNullException.ThrowIfNull(definition);
+        if (!_moduleMutations.TryAdd((definition.Id, definition.Version), definition))
+            throw new InvalidOperationException("base.moduleMutation.invalid");
+        return this;
+    }
+
     /// <summary>Configures the single immutable host safety envelope for selection mutations.</summary>
     public HPDBaseBuilder ConfigureSelectionMutations(HPDBaseSelectionMutationOptions options)
     {
@@ -368,6 +393,9 @@ public sealed class HPDBaseBuilder
         foreach (IBaseSerializerMetadataSource source in _serializerMetadata)
             if (source.CollectionDefinition is { } bound) _collections[bound.Id] = bound;
         CollectionDefinition[] collections = _collections.Values.ToArray();
+        foreach (BaseRegisteredModuleMutationDefinition definition in _moduleMutations.Values)
+            BaseModuleMutationContractValidator.ValidateDefinition(definition, _collections, _moduleGenerationCells);
+        var moduleMutationRegistry = new BaseModuleMutationRegistry(_moduleMutations.Values, _moduleGenerationCells.Values);
         BaseSubjectContractRegistry subjectRegistry = FinalizeSubjectGraph(collections);
         foreach (BaseGeneratedSubjectRegistration subject in subjectRegistry.All)
             if (!Fits(subject.Definition, provider.SubjectReferences))
@@ -398,6 +426,7 @@ public sealed class HPDBaseBuilder
         _services.AddSingleton(storageProtection);
         _services.AddSingleton(serializerMetadataOwner);
         _services.AddSingleton(policyAuthorityOwner);
+        _services.AddSingleton(moduleMutationRegistry);
         foreach (BaseSelectionOperationProfile profile in _selectionProfiles)
         {
             if (_selectionOptions is null || !Fits(profile, _selectionOptions))
