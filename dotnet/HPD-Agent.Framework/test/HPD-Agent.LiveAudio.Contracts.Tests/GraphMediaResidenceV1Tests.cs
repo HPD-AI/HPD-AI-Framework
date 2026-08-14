@@ -7,6 +7,79 @@ namespace HPD.Agent.LiveAudio.Contracts.Tests;
 public sealed class GraphMediaResidenceV1Tests
 {
     [Fact]
+    public void Explicit_unknown_ingress_requires_exact_schema_capacity_and_is_never_publishable()
+    {
+        var fixture = CreateQuarantineFixture(); var before = fixture.Ledger.Fingerprint;
+        var transition = fixture.Ledger.Quarantine(fixture.Request, fixture.Ownership);
+        Assert.Equal(GraphMediaResidenceResultV1.Quarantined, transition.Result);
+        Assert.NotEqual(before, transition.Ledger.Fingerprint);
+        var row = Assert.Single(transition.Ledger.Quarantines).Value;
+        Assert.Equal(GraphMediaResidenceClassV1.Quarantine, row.Class);
+        Assert.Equal(GraphMediaResidenceStateV1.Quarantined, row.State);
+        Assert.Equal((ushort)12, row.Charge.DimensionId.Value);
+        Assert.Equal(CapacityScopeKindV1.Schema, row.Charge.Scope.Kind);
+        Assert.Equal(fixture.Source.Media.ByteLength, row.Charge.Amount);
+        Assert.Equal(GraphMediaResidenceResultV1.IdempotentQuarantined,
+            transition.Ledger.Quarantine(fixture.Request, fixture.Ownership).Result);
+        Assert.Equal(GraphMediaResidenceResultV1.WrongState,
+            transition.Ledger.MakeVisible(fixture.Request.OperationId, fixture.Request.RequestHash, fixture.Ownership).Result);
+    }
+
+    [Fact]
+    public void Quarantine_wrong_source_scope_amount_authority_and_duplicate_fail_before_mutation()
+    {
+        var fixture = CreateQuarantineFixture();
+        var cases = new List<(GraphMediaQuarantineIngressRequestV1 Request, GraphMediaOwnershipLedgerV1 Ownership,
+            GraphMediaResidenceLedgerV1 Ledger, GraphMediaResidenceResultV1 Expected)>();
+        cases.Add((fixture.Request with { SourceResidenceId = Id(199) }, fixture.Ownership, fixture.Ledger,
+            GraphMediaResidenceResultV1.WrongState));
+        var wrongSchemaCharge = new CapacityChargeV1(new(12), new(TenantId.FromValue(Id(17)),
+            SessionId.FromValue(Id(18)), new CapacitySubjectV1.Schema(SchemaId.FromValue(Id(16)))),
+            fixture.Source.Media.ByteLength, CapacityPurposeId.FromValue(Id(19)), new CapacityChargeWindowV1.NoWindow());
+        cases.Add((WithGrant(fixture.Request, Grant(fixture, wrongSchemaCharge)), fixture.Ownership, fixture.Ledger,
+            GraphMediaResidenceResultV1.CapacityMismatch));
+        var schemaCharge = fixture.Request.Grant.Balances[0].Charge;
+        var wrongAmount = new CapacityChargeV1(schemaCharge.DimensionId, schemaCharge.Scope, schemaCharge.Amount + 1,
+            schemaCharge.Purpose, schemaCharge.Window);
+        cases.Add((WithGrant(fixture.Request, Grant(fixture, wrongAmount)), fixture.Ownership, fixture.Ledger,
+            GraphMediaResidenceResultV1.CapacityMismatch));
+        var staleAuthority = ExpectedAuthorityVectorV1.Create(new(RuntimeGenerationId.FromValue(Id(201)),
+            fixture.Ownership.Session.LiveSessionId), [new AuthorityAxisValueV1.Graph(Graph())]);
+        cases.Add((WithGrant(fixture.Request, Grant(fixture, schemaCharge, staleAuthority)), fixture.Ownership,
+            fixture.Ledger, GraphMediaResidenceResultV1.StaleGeneration));
+        foreach (var item in cases)
+        {
+            var before = item.Ledger.Fingerprint; var result = item.Ledger.Quarantine(item.Request, item.Ownership);
+            Assert.Equal(item.Expected, result.Result); Assert.Same(item.Ledger, result.Ledger);
+            Assert.Equal(before, result.Ledger.Fingerprint);
+        }
+        var accepted = fixture.Ledger.Quarantine(fixture.Request, fixture.Ownership);
+        var changed = fixture.Request with { RequestHash = Hash(202) };
+        Assert.Equal(GraphMediaResidenceResultV1.ContradictoryDuplicate,
+            accepted.Ledger.Quarantine(changed, fixture.Ownership).Result);
+    }
+
+    [Fact]
+    public void Quarantine_has_an_exact_sixteen_item_ceiling()
+    {
+        var fixture = CreateQuarantineFixture();
+        var ledger = fixture.Ledger;
+        for (byte index = 0; index < GraphMediaResidenceLedgerV1.MaximumQuarantine; index++)
+        {
+            var request = QuarantineRequest(fixture, (byte)(110 + index));
+            var transition = ledger.Quarantine(request, fixture.Ownership);
+            Assert.Equal(GraphMediaResidenceResultV1.Quarantined, transition.Result);
+            ledger = transition.Ledger;
+        }
+        Assert.Equal(GraphMediaResidenceLedgerV1.MaximumQuarantine, ledger.Quarantines.Count);
+        var before = ledger.Fingerprint;
+        var overflow = ledger.Quarantine(QuarantineRequest(fixture, 140), fixture.Ownership);
+        Assert.Equal(GraphMediaResidenceResultV1.ResidenceLimitReached, overflow.Result);
+        Assert.Same(ledger, overflow.Ledger);
+        Assert.Equal(before, overflow.Ledger.Fingerprint);
+    }
+
+    [Fact]
     public void Controlled_all_three_representation_arms_are_exact()
     {
         AssertControlledCase("bytes", "MutateNone", "Prepared", "PrepareControlled");
@@ -171,6 +244,55 @@ public sealed class GraphMediaResidenceV1Tests
         var request = new GraphMediaFanoutRequestV1(Operation(50), Hash(51), controlled.Request.SourceOwnerId, 1, GraphMediaFanoutModeV1.Copy, [destination]);
         request = request with { RequestHash = GraphMediaResidenceLedgerV1.FanoutHash(request, controlled.Source) };
         return (request, controlled.Ownership, controlled.Ledger);
+    }
+
+    private static (GraphMediaQuarantineIngressRequestV1 Request, GraphMediaOwnershipLedgerV1 Ownership,
+        GraphMediaResidenceLedgerV1 Ledger, GraphMediaOwnerRecordV1 Source) CreateQuarantineFixture()
+    {
+        var controlled = CreateControlledFixture();
+        var copied = controlled.Ownership.CopyOwners(Session(), Graph(), controlled.Request.SourceOwnerId,
+            [controlled.Request.DestinationOwnerId]);
+        Assert.Equal(GraphMediaOwnershipBatchCopyResultV1.Copied, copied.Result);
+        var prepared = controlled.Ledger.PrepareControlled(controlled.Request, copied.Ledger);
+        Assert.Equal(GraphMediaResidenceResultV1.Prepared, prepared.Result);
+        var unknown = prepared.Ledger.LoseOutcome(controlled.Request.OperationId, controlled.Request.RequestHash);
+        Assert.Equal(GraphMediaResidenceResultV1.OutcomeUnknown, unknown.Result);
+        var source = copied.Ledger.Owners[controlled.Request.DestinationOwnerId];
+        var schema = SchemaId.FromValue(Id(90));
+        var charge = new CapacityChargeV1(new(12), new(TenantId.FromValue(Id(17)), SessionId.FromValue(Id(18)),
+            new CapacitySubjectV1.Schema(schema)), source.Media.ByteLength, CapacityPurposeId.FromValue(Id(91)),
+            new CapacityChargeWindowV1.NoWindow());
+        var placeholder = new GraphMediaQuarantineIngressRequestV1(Operation(92), Hash(1), Id(93),
+            controlled.Request.ResidenceId, source.OwnerId, schema,
+            new CapacityGrantSnapshotV1(CapacityGrantId.FromValue(Id(94)), Operation(95),
+                ExpectedAuthorityVectorV1.Create(Session(), [new AuthorityAxisValueV1.Graph(Graph())]),
+                Position(40), Position(41), new CapacityGrantExpiryV1.NoExpiry(), CapacityGrantStateV1.Reserved,
+                [new CapacityChargeBalanceV1(charge, charge.Amount, 0, charge.Amount, 0, 0, 0, 0, 0, 0, charge.Amount, 0)]));
+        var proof = GraphMediaResidenceLedgerV1.QuarantineCapacityProofHash(placeholder.Grant);
+        var request = placeholder with { RequestHash = GraphMediaResidenceLedgerV1.QuarantineHash(placeholder, source, charge, proof) };
+        return (request, copied.Ledger, unknown.Ledger, source);
+    }
+
+    private static CapacityGrantSnapshotV1 Grant(
+        (GraphMediaQuarantineIngressRequestV1 Request, GraphMediaOwnershipLedgerV1 Ownership,
+            GraphMediaResidenceLedgerV1 Ledger, GraphMediaOwnerRecordV1 Source) fixture,
+        CapacityChargeV1 charge, ExpectedAuthorityVectorV1? authority = null) =>
+        new(fixture.Request.Grant.GrantId, fixture.Request.Grant.OperationId,
+            authority ?? fixture.Request.Grant.Authority, fixture.Request.Grant.GrantedAt,
+            fixture.Request.Grant.CurrentFact, fixture.Request.Grant.ExpiresAt, CapacityGrantStateV1.Reserved,
+            [new CapacityChargeBalanceV1(charge, charge.Amount, 0, charge.Amount, 0, 0, 0, 0, 0, 0, charge.Amount, 0)]);
+
+    private static GraphMediaQuarantineIngressRequestV1 WithGrant(GraphMediaQuarantineIngressRequestV1 request,
+        CapacityGrantSnapshotV1 grant) => request with { Grant = grant, RequestHash = Hash(203) };
+
+    private static GraphMediaQuarantineIngressRequestV1 QuarantineRequest(
+        (GraphMediaQuarantineIngressRequestV1 Request, GraphMediaOwnershipLedgerV1 Ownership,
+            GraphMediaResidenceLedgerV1 Ledger, GraphMediaOwnerRecordV1 Source) fixture, byte identity)
+    {
+        var request = fixture.Request with { OperationId = Operation(identity), ResidenceId = Id(identity) };
+        var charge = request.Grant.Balances[0].Charge;
+        var proof = GraphMediaResidenceLedgerV1.QuarantineCapacityProofHash(request.Grant);
+        return request with { RequestHash = GraphMediaResidenceLedgerV1.QuarantineHash(request, fixture.Source, charge, proof) };
     }
 
     private static (GraphMediaControlledResidenceRequestV1 Request, GraphMediaOwnershipLedgerV1 Ownership, GraphMediaResidenceLedgerV1 Ledger, GraphMediaCapacityAssignmentV1 Assignment, GraphMediaOwnerRecordV1 Source) MutateNone((GraphMediaControlledResidenceRequestV1 Request, GraphMediaOwnershipLedgerV1 Ownership, GraphMediaResidenceLedgerV1 Ledger, GraphMediaCapacityAssignmentV1 Assignment, GraphMediaOwnerRecordV1 Source) x) => x;

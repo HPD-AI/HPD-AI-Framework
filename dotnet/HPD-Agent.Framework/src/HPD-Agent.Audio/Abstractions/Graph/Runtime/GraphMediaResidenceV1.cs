@@ -9,10 +9,10 @@ namespace HPD.Agent.Audio.Graph;
 
 internal enum GraphMediaFanoutModeV1 : byte { Copy, TransferSingleDestination }
 internal enum GraphMediaResidenceClassV1 : byte { Controlled, Opaque, Quarantine }
-internal enum GraphMediaResidenceStateV1 : byte { Prepared, Visible, Releasing, Released, Unknown }
+internal enum GraphMediaResidenceStateV1 : byte { Prepared, Visible, Releasing, Released, Unknown, Quarantined }
 internal enum GraphMediaRepresentationArmV1 : byte { ResidentBytes, ResidentSamples, ResidentTimedBuffer }
 internal enum GraphMediaResidenceResultV1 : byte
-{ Prepared, IdempotentPrepared, Visible, Reconciled, InvalidRequest, StaleGeneration, AuthorityMismatch, ContradictoryDuplicate, SourceNotFound, NotOwner, AlreadyDisposed, CapacityMismatch, CapacityAssignmentConflict, ResidenceLimitReached, OperationReceiptLimitReached, WrongState, OutcomeUnknown }
+{ Prepared, IdempotentPrepared, Visible, Reconciled, Quarantined, IdempotentQuarantined, InvalidRequest, StaleGeneration, AuthorityMismatch, ContradictoryDuplicate, SourceNotFound, NotOwner, AlreadyDisposed, CapacityMismatch, CapacityAssignmentConflict, ResidenceLimitReached, OperationReceiptLimitReached, WrongState, OutcomeUnknown }
 internal enum GraphMediaFanoutResultV1 : byte
 { Prepared, IdempotentPrepared, Committed, Converged, Reconciled, Unwinding, InvalidRequest, StaleGeneration, ContradictoryDuplicate, SourceNotFound, NotOwner, AlreadyDisposed, DestinationOrderInvalid, DestinationCollision, ResidenceMismatch, CapacityMismatch, OwnerLimitReached, ResidenceLimitReached, OperationReceiptLimitReached, WrongState, OutcomeUnknown }
 
@@ -27,6 +27,15 @@ internal sealed record GraphMediaControlledResidenceV1(OperationId OperationId, 
     GraphMediaResidenceClassV1 Class, GraphMediaResidenceStateV1 State);
 internal sealed record GraphMediaResidenceReceiptV1(OperationId OperationId, Hash256 RequestHash,
     GraphMediaResidenceResultV1 Result);
+internal sealed record GraphMediaQuarantineResidenceV1(OperationId OperationId, Hash256 RequestHash,
+    StableId128 ResidenceId, StableId128 SourceResidenceId, StableId128 OwnerId,
+    GraphMediaOwnerKeyV1 OwnerKey, GraphMediaBindingV1 Media, SchemaId SchemaId,
+    CapacityGrantId GrantId, JournalPositionV1 GrantedAt, JournalPositionV1 CurrentFact,
+    Hash256 CapacityProofHash, CapacityChargeV1 Charge, GraphMediaResidenceClassV1 Class,
+    GraphMediaResidenceStateV1 State);
+internal sealed record GraphMediaQuarantineIngressRequestV1(OperationId OperationId, Hash256 RequestHash,
+    StableId128 ResidenceId, StableId128 SourceResidenceId, StableId128 OwnerId,
+    SchemaId SchemaId, CapacityGrantSnapshotV1 Grant);
 internal sealed record GraphMediaFanoutDestinationV1(StableId128 DestinationOwnerId,
     BoundedAscii DestinationNodeKey, GraphMediaControlledResidenceRequestV1 Residence);
 internal sealed record GraphMediaFanoutRecordV1(OperationId OperationId, Hash256 RequestHash,
@@ -51,18 +60,22 @@ internal sealed class GraphMediaResidenceLedgerV1
     internal const int MaximumResidences = 96, MaximumControlled = 64, MaximumOpaque = 16,
         MaximumQuarantine = 16, MaximumFanoutOperations = 64, MaximumDestinations = 16;
     private readonly Dictionary<StableId128, GraphMediaControlledResidenceV1> _residences;
+    private readonly Dictionary<StableId128, GraphMediaQuarantineResidenceV1> _quarantines;
     private readonly Dictionary<OperationId, GraphMediaResidenceReceiptV1> _receipts;
     private readonly Dictionary<OperationId, GraphMediaFanoutRecordV1> _fanouts;
 
     private GraphMediaResidenceLedgerV1(SessionAuthorityStampV1 session, GraphGenerationId graph,
         Dictionary<StableId128, GraphMediaControlledResidenceV1> residences,
+        Dictionary<StableId128, GraphMediaQuarantineResidenceV1> quarantines,
         Dictionary<OperationId, GraphMediaResidenceReceiptV1> receipts,
         Dictionary<OperationId, GraphMediaFanoutRecordV1> fanouts)
-    { Session = session; GraphGeneration = graph; _residences = residences; _receipts = receipts; _fanouts = fanouts; }
+    { Session = session; GraphGeneration = graph; _residences = residences; _quarantines = quarantines; _receipts = receipts; _fanouts = fanouts; }
 
     internal SessionAuthorityStampV1 Session { get; }
     internal GraphGenerationId GraphGeneration { get; }
     internal IReadOnlyDictionary<StableId128, GraphMediaControlledResidenceV1> Residences => new ReadOnlyDictionary<StableId128, GraphMediaControlledResidenceV1>(_residences);
+    internal IReadOnlyDictionary<StableId128, GraphMediaQuarantineResidenceV1> Quarantines =>
+        new ReadOnlyDictionary<StableId128, GraphMediaQuarantineResidenceV1>(_quarantines);
     internal IReadOnlyCollection<GraphMediaResidenceReceiptV1> Receipts => Array.AsReadOnly(_receipts.Values.ToArray());
     internal IReadOnlyDictionary<OperationId, GraphMediaFanoutRecordV1> Fanouts => new ReadOnlyDictionary<OperationId, GraphMediaFanoutRecordV1>(_fanouts);
     internal Hash256 Fingerprint
@@ -85,13 +98,25 @@ internal sealed class GraphMediaResidenceLedgerV1
                 if (value is GraphMediaOwnerKeyV1 key) { var writer = new CborWriter(CborConformanceMode.Ctap2Canonical); writer.WriteStartArray(4); writer.WriteByteString(Canonical(key.Session.LiveSessionId)); writer.WriteByteString(Canonical(key.GraphGeneration)); writer.WriteByteString(Canonical(key.Session.RuntimeGenerationId)); writer.WriteByteString(Id(key.MediaId)); writer.WriteEndArray(); return writer.Encode(); }
                 if (value is GraphMediaBindingV1 media) { var writer = new CborWriter(CborConformanceMode.Ctap2Canonical); writer.WriteStartArray(13); writer.WriteInt64(media.Start); writer.WriteInt64(media.EndExclusive); writer.WriteByteString(Id(media.FormatId)); writer.WriteUInt64(media.FormatRevision); writer.WriteUInt64(media.SampleRateHz); writer.WriteUInt64(media.ChannelCount); writer.WriteUInt64(media.BytesPerSample); writer.WriteByteString(Id(media.ClockId)); writer.WriteUInt64(media.ClockRevision); writer.WriteUInt64(media.Sequence); writer.WriteUInt64((byte)media.Discontinuity); writer.WriteInt64(media.ByteLength); writer.WriteInt64(media.FrameCount); writer.WriteEndArray(); return writer.Encode(); }
                 if (value is CapacityChargeV1 charge) { var writer = new CborWriter(CborConformanceMode.Ctap2Canonical); writer.WriteStartArray(5); writer.WriteUInt64(charge.DimensionId.Value); writer.WriteByteString(CapacityScopeCanonicalCodecV1.Encode(charge.Scope)); writer.WriteInt64(charge.Amount); writer.WriteByteString(Canonical(charge.Purpose)); writer.WriteStartArray(charge.Window is CapacityChargeWindowV1.EndsAt ? 2 : 1); writer.WriteUInt64((ushort)charge.Window.Kind); if (charge.Window is CapacityChargeWindowV1.EndsAt endsAt) writer.WriteByteString(MonotonicStampV1Codec.Encode(endsAt.Value)); writer.WriteEndArray(); writer.WriteEndArray(); return writer.Encode(); }
-                var bytes16 = new byte[16]; var valid = value switch { SessionId x => x.TryWriteBytes(bytes16), LiveSessionId x => x.TryWriteBytes(bytes16), RuntimeGenerationId x => x.TryWriteBytes(bytes16), GraphGenerationId x => x.TryWriteBytes(bytes16), ParticipantId x => x.TryWriteBytes(bytes16), CapacityGrantId x => x.TryWriteBytes(bytes16), CapacityPurposeId x => x.TryWriteBytes(bytes16), _ => false }; return valid ? bytes16 : throw new ArgumentException("Unsupported canonical value.");
+                var bytes16 = new byte[16]; var valid = value switch { SessionId x => x.TryWriteBytes(bytes16), LiveSessionId x => x.TryWriteBytes(bytes16), RuntimeGenerationId x => x.TryWriteBytes(bytes16), GraphGenerationId x => x.TryWriteBytes(bytes16), ParticipantId x => x.TryWriteBytes(bytes16), CapacityGrantId x => x.TryWriteBytes(bytes16), CapacityPurposeId x => x.TryWriteBytes(bytes16), SchemaId x => x.TryWriteBytes(bytes16), _ => false }; return valid ? bytes16 : throw new ArgumentException("Unsupported canonical value.");
             }
             foreach (var row in _residences.OrderBy(x => Convert.ToHexString(Id(x.Key)), StringComparer.Ordinal))
             {
                 var value = row.Value;
                 Field(hash,"residenceOperation"u8,Op(value.OperationId)); Field(hash,"residenceRequest"u8,Hash(value.RequestHash)); Field(hash,"residenceId"u8,Id(value.ResidenceId)); Field(hash,"residenceOwner"u8,Id(value.OwnerId)); Field(hash,"residenceOwnerKey"u8,Canonical(value.OwnerKey)); Field(hash,"residenceMedia"u8,Canonical(value.Media)); Field(hash,"residenceNode"u8,Canonical(value.DestinationNodeKey)); Field(hash,"residenceParticipant"u8,Canonical(value.ParticipantId));
                 Field(hash,"bindingCommand"u8,Canonical(value.BindingCommandPosition)); Field(hash,"bindingFact"u8,Canonical(value.BindingFactPosition)); Field(hash,"reservationCommand"u8,Canonical(value.ReservationCommandPosition)); Field(hash,"reservationFact"u8,Canonical(value.ReservationFactPosition)); Field(hash,"grantId"u8,Canonical(value.GrantId)); Field(hash,"grantedAt"u8,Canonical(value.GrantedAt)); Field(hash,"currentFact"u8,Canonical(value.CurrentFact)); Field(hash,"coverage"u8,Hash(value.CoverageHashV2)); Field(hash,"topology"u8,Hash(value.TopologyFingerprint)); Field(hash,"executable"u8,Hash(value.ExecutableFingerprint)); Field(hash,"assignmentCharge"u8,Canonical(value.Assignment.Charge)); Field(hash,"assignmentArm"u8,Canonical(value.Assignment.Arm)); Field(hash,"residenceClass"u8,Canonical(value.Class)); Field(hash,"residenceState"u8,Canonical(value.State));
+            }
+            foreach (var row in _quarantines.OrderBy(x => Convert.ToHexString(Id(x.Key)), StringComparer.Ordinal))
+            {
+                var value = row.Value;
+                Field(hash,"quarantineOperation"u8,Op(value.OperationId)); Field(hash,"quarantineRequest"u8,Hash(value.RequestHash));
+                Field(hash,"quarantineResidence"u8,Id(value.ResidenceId)); Field(hash,"quarantineSource"u8,Id(value.SourceResidenceId));
+                Field(hash,"quarantineOwner"u8,Id(value.OwnerId)); Field(hash,"quarantineOwnerKey"u8,Canonical(value.OwnerKey));
+                Field(hash,"quarantineMedia"u8,Canonical(value.Media)); Field(hash,"quarantineSchema"u8,Canonical(value.SchemaId));
+                Field(hash,"quarantineGrant"u8,Canonical(value.GrantId)); Field(hash,"quarantineGrantedAt"u8,Canonical(value.GrantedAt));
+                Field(hash,"quarantineCurrentFact"u8,Canonical(value.CurrentFact)); Field(hash,"quarantineCapacityProof"u8,Hash(value.CapacityProofHash));
+                Field(hash,"quarantineCharge"u8,Canonical(value.Charge)); Field(hash,"quarantineClass"u8,Canonical(value.Class));
+                Field(hash,"quarantineState"u8,Canonical(value.State));
             }
             foreach (var receipt in _receipts.OrderBy(x => Convert.ToHexString(Op(x.Key)), StringComparer.Ordinal))
             { Field(hash, "receiptOperation"u8, Op(receipt.Key)); Field(hash, "receiptRequest"u8, Hash(receipt.Value.RequestHash)); Field(hash, "receiptResult"u8, [(byte)receipt.Value.Result]); }
@@ -112,7 +137,7 @@ internal sealed class GraphMediaResidenceLedgerV1
     internal static GraphMediaResidenceLedgerV1 Create(SessionAuthorityStampV1 session, GraphGenerationId graph)
     {
         if (!session.IsValid || !graph.IsValid) throw new ArgumentException("Valid authority is required.");
-        return new(session, graph, [], [], []);
+        return new(session, graph, [], [], [], []);
     }
 
     internal GraphMediaResidenceTransitionV1 PrepareControlled(GraphMediaControlledResidenceRequestV1 request,
@@ -160,6 +185,69 @@ internal sealed class GraphMediaResidenceLedgerV1
         var receipts = new Dictionary<OperationId, GraphMediaResidenceReceiptV1>(_receipts)
         { [request.OperationId] = new(request.OperationId, request.RequestHash, GraphMediaResidenceResultV1.Prepared) };
         return new(GraphMediaResidenceResultV1.Prepared, Next(residences, receipts, new(_fanouts)));
+    }
+
+    internal GraphMediaResidenceTransitionV1 Quarantine(GraphMediaQuarantineIngressRequestV1 request,
+        GraphMediaOwnershipLedgerV1 ownership)
+    {
+        if (request is null || ownership is null || !request.OperationId.IsValid || request.RequestHash == default ||
+            request.ResidenceId.Equals(default) || request.SourceResidenceId.Equals(default) ||
+            request.ResidenceId.Equals(request.SourceResidenceId) || request.OwnerId.Equals(default) ||
+            !request.SchemaId.IsValid || request.Grant is null)
+            return ResidenceFail(GraphMediaResidenceResultV1.InvalidRequest);
+        if (ownership.Session != Session || ownership.GraphGeneration != GraphGeneration ||
+            request.Grant.Authority.Session != Session || request.Grant.GrantedAt.Session != Session ||
+            request.Grant.CurrentFact.Session != Session)
+            return ResidenceFail(GraphMediaResidenceResultV1.StaleGeneration);
+        var graphs = request.Grant.Authority.Axes.Where(x => x.AxisId == AuthorityAxisId.Graph &&
+            x.Value is AuthorityAxisValueV1.Graph).Select(x => ((AuthorityAxisValueV1.Graph)x.Value).Value).ToArray();
+        if (graphs.Length != 1 || graphs[0] != GraphGeneration)
+            return ResidenceFail(GraphMediaResidenceResultV1.StaleGeneration);
+        if (_receipts.TryGetValue(request.OperationId, out var retry))
+            return ResidenceFail(retry.RequestHash == request.RequestHash && retry.Result == GraphMediaResidenceResultV1.Quarantined
+                ? GraphMediaResidenceResultV1.IdempotentQuarantined : GraphMediaResidenceResultV1.ContradictoryDuplicate);
+        if (_residences.ContainsKey(request.ResidenceId) || _quarantines.ContainsKey(request.ResidenceId))
+            return ResidenceFail(GraphMediaResidenceResultV1.InvalidRequest);
+        if (!_residences.TryGetValue(request.SourceResidenceId, out var source) ||
+            source.State != GraphMediaResidenceStateV1.Unknown || !source.OwnerId.Equals(request.OwnerId))
+            return ResidenceFail(GraphMediaResidenceResultV1.WrongState);
+        if (!ownership.Owners.TryGetValue(request.OwnerId, out var owner))
+            return ResidenceFail(GraphMediaResidenceResultV1.SourceNotFound);
+        if (owner.State != GraphMediaOwnerStateV1.Owned || owner.Key != source.OwnerKey || owner.Media != source.Media)
+            return ResidenceFail(GraphMediaResidenceResultV1.NotOwner);
+        if (source.Media.ByteLength is <= 0 or > 1_048_576 ||
+            request.Grant.State is not (CapacityGrantStateV1.Reserved or CapacityGrantStateV1.Active))
+            return ResidenceFail(GraphMediaResidenceResultV1.CapacityMismatch);
+        var candidates = request.Grant.Balances.Where(x => x.Charge.DimensionId.Value == 12 &&
+            x.Charge.Scope.Kind == CapacityScopeKindV1.Schema &&
+            x.Charge.Scope.Subject is CapacitySubjectV1.Schema schema && schema.Value == request.SchemaId).ToArray();
+        if (candidates.Length != 1) return ResidenceFail(GraphMediaResidenceResultV1.CapacityMismatch);
+        var balance = candidates[0]; var charge = balance.Charge;
+        long available;
+        try { available = checked(balance.Unactivated + balance.Active); }
+        catch (OverflowException) { return ResidenceFail(GraphMediaResidenceResultV1.CapacityMismatch); }
+        if (charge.Amount != source.Media.ByteLength || available != charge.Amount ||
+            balance.Released != 0 || balance.Consumed != 0 || balance.AgedOut != 0 || balance.Revoked != 0 ||
+            balance.ExplicitlyUnknown != 0 || charge.Window is not CapacityChargeWindowV1.NoWindow)
+            return ResidenceFail(GraphMediaResidenceResultV1.CapacityMismatch);
+        var proofHash = QuarantineCapacityProofHash(request.Grant);
+        if (QuarantineHash(request, owner, charge, proofHash) != request.RequestHash)
+            return ResidenceFail(GraphMediaResidenceResultV1.InvalidRequest);
+        if (_residences.Count + _quarantines.Count >= MaximumResidences || _quarantines.Count >= MaximumQuarantine)
+            return ResidenceFail(GraphMediaResidenceResultV1.ResidenceLimitReached);
+        if (_receipts.Count >= GraphMediaOwnershipLedgerV1.MaximumReceipts)
+            return ResidenceFail(GraphMediaResidenceResultV1.OperationReceiptLimitReached);
+        var quarantines = new Dictionary<StableId128, GraphMediaQuarantineResidenceV1>(_quarantines)
+        {
+            [request.ResidenceId] = new(request.OperationId, request.RequestHash, request.ResidenceId,
+                request.SourceResidenceId, request.OwnerId, owner.Key, owner.Media, request.SchemaId,
+                request.Grant.GrantId, request.Grant.GrantedAt, request.Grant.CurrentFact, proofHash, charge,
+                GraphMediaResidenceClassV1.Quarantine, GraphMediaResidenceStateV1.Quarantined)
+        };
+        var receipts = new Dictionary<OperationId, GraphMediaResidenceReceiptV1>(_receipts)
+        { [request.OperationId] = new(request.OperationId, request.RequestHash, GraphMediaResidenceResultV1.Quarantined) };
+        return new(GraphMediaResidenceResultV1.Quarantined,
+            Next(new(_residences), quarantines, receipts, new(_fanouts)));
     }
 
     internal GraphMediaResidenceTransitionV1 MakeVisible(OperationId operation, Hash256 requestHash,
@@ -418,6 +506,77 @@ internal sealed class GraphMediaResidenceLedgerV1
         assignment = new(charge, request.Arm); return GraphMediaResidenceResultV1.Prepared;
     }
 
+    internal static Hash256 QuarantineCapacityProofHash(CapacityGrantSnapshotV1 grant)
+    {
+        ArgumentNullException.ThrowIfNull(grant);
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        hash.AppendData("hpd-s2-graph-media-quarantine-capacity-proof-v1\0"u8);
+        static byte[] Fixed(object value)
+        {
+            var bytes = new byte[16];
+            var valid = value switch
+            {
+                OperationId x => x.TryWriteBytes(bytes),
+                CapacityGrantId x => x.TryWriteBytes(bytes),
+                CapacityPurposeId x => x.TryWriteBytes(bytes),
+                _ => false
+            };
+            return valid ? bytes : throw new ArgumentException("A valid canonical identity is required.");
+        }
+        static byte[] I64(long value) { var bytes = new byte[8]; BinaryPrimitives.WriteInt64BigEndian(bytes, value); return bytes; }
+        static byte[] Charge(CapacityChargeV1 charge)
+        {
+            var writer = new CborWriter(CborConformanceMode.Ctap2Canonical);
+            writer.WriteStartArray(5); writer.WriteUInt64(charge.DimensionId.Value);
+            writer.WriteByteString(CapacityScopeCanonicalCodecV1.Encode(charge.Scope)); writer.WriteInt64(charge.Amount);
+            writer.WriteByteString(Fixed(charge.Purpose));
+            writer.WriteStartArray(charge.Window is CapacityChargeWindowV1.EndsAt ? 2 : 1);
+            writer.WriteUInt64((ushort)charge.Window.Kind);
+            if (charge.Window is CapacityChargeWindowV1.EndsAt ends) writer.WriteByteString(MonotonicStampV1Codec.Encode(ends.Value));
+            writer.WriteEndArray(); writer.WriteEndArray(); return writer.Encode();
+        }
+        var authority = new CborWriter(CborConformanceMode.Ctap2Canonical); AuthorityVectorCodecsV1.WriteVector(authority, grant.Authority);
+        Field(hash,"grantId"u8,Fixed(grant.GrantId));
+        Field(hash,"operationId"u8,Fixed(grant.OperationId));
+        Field(hash,"authority"u8,authority.Encode()); Field(hash,"grantedAt"u8,AuthorityPositionCodecsV1.Encode(grant.GrantedAt));
+        Field(hash,"currentFact"u8,AuthorityPositionCodecsV1.Encode(grant.CurrentFact)); Field(hash,"state"u8,I64((long)grant.State));
+        Field(hash,"expiryKind"u8,I64((long)grant.ExpiresAt.Kind));
+        if (grant.ExpiresAt is CapacityGrantExpiryV1.At at) Field(hash,"expiryAt"u8,MonotonicStampV1Codec.Encode(at.Value));
+        Field(hash,"balanceCount"u8,I64(grant.Balances.Count));
+        for (var i = 0; i < grant.Balances.Count; i++)
+        {
+            var balance = grant.Balances[i]; Field(hash,"balanceIndex"u8,I64(i)); Field(hash,"charge"u8,Charge(balance.Charge));
+            foreach (var value in new[] { balance.NormalAllocation, balance.ReserveAllocation, balance.Unactivated,
+                balance.Active, balance.Released, balance.Consumed, balance.AgedOut, balance.Revoked,
+                balance.ExplicitlyUnknown, balance.EncumberedNormal, balance.EncumberedReserve })
+                Field(hash,"balanceValue"u8,I64(value));
+        }
+        return Hash256.FromBytes(hash.GetHashAndReset());
+    }
+
+    internal static Hash256 QuarantineHash(GraphMediaQuarantineIngressRequestV1 request,
+        GraphMediaOwnerRecordV1 owner, CapacityChargeV1 charge, Hash256 capacityProofHash)
+    {
+        ArgumentNullException.ThrowIfNull(request); ArgumentNullException.ThrowIfNull(owner);
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        hash.AppendData("hpd-s2-graph-media-quarantine-ingress-v1\0"u8);
+        byte[] Bytes(object value)
+        {
+            if (value is GraphMediaOwnerKeyV1 key) { var writer = new CborWriter(CborConformanceMode.Ctap2Canonical); writer.WriteStartArray(4); writer.WriteByteString(Bytes(key.Session.LiveSessionId)); writer.WriteByteString(Bytes(key.GraphGeneration)); writer.WriteByteString(Bytes(key.Session.RuntimeGenerationId)); writer.WriteByteString(Bytes(key.MediaId)); writer.WriteEndArray(); return writer.Encode(); }
+            if (value is GraphMediaBindingV1 media) { var writer = new CborWriter(CborConformanceMode.Ctap2Canonical); writer.WriteStartArray(13); writer.WriteInt64(media.Start); writer.WriteInt64(media.EndExclusive); writer.WriteByteString(Bytes(media.FormatId)); writer.WriteUInt64(media.FormatRevision); writer.WriteUInt64(media.SampleRateHz); writer.WriteUInt64(media.ChannelCount); writer.WriteUInt64(media.BytesPerSample); writer.WriteByteString(Bytes(media.ClockId)); writer.WriteUInt64(media.ClockRevision); writer.WriteUInt64(media.Sequence); writer.WriteUInt64((byte)media.Discontinuity); writer.WriteInt64(media.ByteLength); writer.WriteInt64(media.FrameCount); writer.WriteEndArray(); return writer.Encode(); }
+            if (value is CapacityChargeV1 capacity) { var writer = new CborWriter(CborConformanceMode.Ctap2Canonical); writer.WriteStartArray(5); writer.WriteUInt64(capacity.DimensionId.Value); writer.WriteByteString(CapacityScopeCanonicalCodecV1.Encode(capacity.Scope)); writer.WriteInt64(capacity.Amount); writer.WriteByteString(Bytes(capacity.Purpose)); writer.WriteStartArray(capacity.Window is CapacityChargeWindowV1.EndsAt ? 2 : 1); writer.WriteUInt64((ushort)capacity.Window.Kind); if (capacity.Window is CapacityChargeWindowV1.EndsAt ends) writer.WriteByteString(MonotonicStampV1Codec.Encode(ends.Value)); writer.WriteEndArray(); writer.WriteEndArray(); return writer.Encode(); }
+            var result = value switch { OperationId => new byte[16], StableId128 => new byte[16], LiveSessionId => new byte[16], RuntimeGenerationId => new byte[16], GraphGenerationId => new byte[16], SchemaId => new byte[16], CapacityGrantId => new byte[16], CapacityPurposeId => new byte[16], Hash256 => new byte[32], _ => throw new ArgumentException("Unsupported canonical value.") };
+            var written = value switch { OperationId x => x.TryWriteBytes(result), StableId128 x => x.TryWriteBytes(result), LiveSessionId x => x.TryWriteBytes(result), RuntimeGenerationId x => x.TryWriteBytes(result), GraphGenerationId x => x.TryWriteBytes(result), SchemaId x => x.TryWriteBytes(result), CapacityGrantId x => x.TryWriteBytes(result), CapacityPurposeId x => x.TryWriteBytes(result), Hash256 x => x.TryWriteBytes(result), _ => false };
+            return written ? result : throw new ArgumentException("Invalid canonical value.");
+        }
+        Field(hash,"operationId"u8,Bytes(request.OperationId)); Field(hash,"residenceId"u8,Bytes(request.ResidenceId));
+        Field(hash,"sourceResidenceId"u8,Bytes(request.SourceResidenceId)); Field(hash,"ownerId"u8,Bytes(request.OwnerId));
+        Field(hash,"ownerKey"u8,Bytes(owner.Key)); Field(hash,"mediaBinding"u8,Bytes(owner.Media)); Field(hash,"schemaId"u8,Bytes(request.SchemaId));
+        Field(hash,"grantId"u8,Bytes(request.Grant.GrantId)); Field(hash,"grantedAt"u8,AuthorityPositionCodecsV1.Encode(request.Grant.GrantedAt));
+        Field(hash,"currentFact"u8,AuthorityPositionCodecsV1.Encode(request.Grant.CurrentFact)); Field(hash,"capacityProofHash"u8,Bytes(capacityProofHash));
+        Field(hash,"capacityCharge"u8,Bytes(charge)); return Hash256.FromBytes(hash.GetHashAndReset());
+    }
+
     internal static Hash256 ResidenceHash(GraphMediaControlledResidenceRequestV1 request,
         GraphMediaOwnerRecordV1 owner, GraphMediaCapacityAssignmentV1 assignment)
     {
@@ -510,5 +669,12 @@ internal sealed class GraphMediaResidenceLedgerV1
     private GraphMediaResidenceTransitionV1 ResidenceFail(GraphMediaResidenceResultV1 result) => new(result, this);
     private GraphMediaFanoutTransitionV1 FanoutFail(GraphMediaFanoutResultV1 result, GraphMediaOwnershipLedgerV1 ownership) => new(result, this, ownership, []);
     private GraphMediaResidenceLedgerV1 Next(Dictionary<StableId128, GraphMediaControlledResidenceV1> residences,
-        Dictionary<OperationId, GraphMediaResidenceReceiptV1> receipts, Dictionary<OperationId, GraphMediaFanoutRecordV1> fanouts) => new(Session, GraphGeneration, residences, receipts, fanouts);
+        Dictionary<OperationId, GraphMediaResidenceReceiptV1> receipts,
+        Dictionary<OperationId, GraphMediaFanoutRecordV1> fanouts) =>
+        new(Session, GraphGeneration, residences, new(_quarantines), receipts, fanouts);
+    private GraphMediaResidenceLedgerV1 Next(Dictionary<StableId128, GraphMediaControlledResidenceV1> residences,
+        Dictionary<StableId128, GraphMediaQuarantineResidenceV1> quarantines,
+        Dictionary<OperationId, GraphMediaResidenceReceiptV1> receipts,
+        Dictionary<OperationId, GraphMediaFanoutRecordV1> fanouts) =>
+        new(Session, GraphGeneration, residences, quarantines, receipts, fanouts);
 }
