@@ -345,6 +345,34 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
         }));
     }
 
+    /// <inheritdoc />
+    public ValueTask<OperationResult<BaseAtomicMutationAuthorityRequirement>> CaptureAtomicMutationAuthorityRequirementAsync(
+        string applicationId,
+        ImmutableArray<CollectionDefinition> collections,
+        BaseAtomicMutationExecutionLimits limits,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ArgumentNullException.ThrowIfNull(limits);
+        BaseCollectionGenerationRequirement[] generations = collections
+            .OrderBy(static value => value.Id, StringComparer.Ordinal)
+            .Select(value => new BaseCollectionGenerationRequirement
+            {
+                CollectionId = new string(value.Id.AsSpan()),
+                CollectionGeneration = Volatile.Read(ref _generation),
+            }).ToArray();
+        if (generations.Select(static value => value.CollectionId).Distinct(StringComparer.Ordinal).Count() != generations.Length)
+            throw new ArgumentException("Collection authority requests must be unique.", nameof(collections));
+        return ValueTask.FromResult(OperationResults.Ok(new BaseAtomicMutationAuthorityRequirement
+        {
+            ApplicationId = new string(applicationId.AsSpan()),
+            StoreInstanceId = new string(_options.StoreId.AsSpan()),
+            RestoreEpoch = 1,
+            SchemaGeneration = 1,
+            Collections = [.. generations],
+        }));
+    }
+
     public async ValueTask<OperationResult<IInMemoryProjectionReadSession>> CaptureAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();

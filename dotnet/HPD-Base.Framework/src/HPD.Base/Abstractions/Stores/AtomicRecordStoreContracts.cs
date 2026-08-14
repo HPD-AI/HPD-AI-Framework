@@ -262,6 +262,19 @@ public interface IRecordMutationStore : IRecordStore
 /// <summary>Provides a real grouped atomic mutation guarantee over one store instance.</summary>
 public interface IAtomicRecordStore : IRecordMutationStore
 {
+    /// <summary>Captures one coherent authority requirement for the exact collection set.</summary>
+    ValueTask<OperationResult<BaseAtomicMutationAuthorityRequirement>> CaptureAtomicMutationAuthorityRequirementAsync(
+        string applicationId,
+        System.Collections.Immutable.ImmutableArray<CollectionDefinition> collections,
+        BaseAtomicMutationExecutionLimits limits,
+        CancellationToken cancellationToken = default) =>
+        ValueTask.FromResult(OperationResults.Unsupported<BaseAtomicMutationAuthorityRequirement>(new BaseError
+        {
+            Code = "base.atomic.authorityUnavailable",
+            Message = "Atomic mutation authority is unavailable.",
+            Category = ErrorCategory.Unsupported,
+        }));
+
     /// <summary>Captures the provider's current authoritative generation requirement before execution.</summary>
     ValueTask<OperationResult<BaseAuthoritySnapshotRequirement>> CaptureSelectionAuthorityAsync(
         string applicationId,

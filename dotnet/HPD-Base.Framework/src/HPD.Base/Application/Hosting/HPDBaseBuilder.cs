@@ -61,9 +61,15 @@ public sealed class HPDBaseBuilder
     private Action<HPDBaseSchemaOptions>? _schema;
     private Action<HPDBaseTokenProtectionOptions>? _tokenProtection;
     private Action<HPDBaseVectorOptions>? _vector;
+    /// <summary>Gets the graph-owned policy and grant authority builder.</summary>
+    public BasePolicyAuthorityBuilder PolicyAuthority { get; }
     /// <summary>Provides _built.</summary>
     private bool _built;
-    internal HPDBaseBuilder(IServiceCollection services) => _services = services;
+    internal HPDBaseBuilder(IServiceCollection services)
+    {
+        _services = services;
+        PolicyAuthority = new BasePolicyAuthorityBuilder();
+    }
     /// <summary>Performs configure Runtime.</summary>
     public HPDBaseBuilder ConfigureRuntime(Action<HPDBaseRuntimeOptions> configure)
     {
@@ -384,12 +390,14 @@ public sealed class HPDBaseBuilder
         if (requiredBinaryMaximum > provider.MaximumBinaryFieldBytes)
             throw new InvalidOperationException(BaseConfidentialityErrorCodes.ProviderCapabilityMissing);
         BaseLogicalSchema logicalSchema = BaseLogicalSchemaFactory.Create(schemaOptions, collections, _reads.Values, storageProtection, subjectRegistry);
+        BasePolicyAuthorityOwner policyAuthorityOwner = PolicyAuthority.Freeze(logicalSchema.ApplicationId);
         ValidateIndexCapabilities(collections, provider);
         _services.AddSingleton(new BaseReadRegistry(new Dictionary<string, IBaseReadRegistration>(_reads, StringComparer.Ordinal)));
         _services.AddSingleton(new BaseCollectionRegistry(collections.ToDictionary(static collection => collection.Id, StringComparer.Ordinal)));
         _services.AddSingleton(logicalSchema);
         _services.AddSingleton(storageProtection);
         _services.AddSingleton(serializerMetadataOwner);
+        _services.AddSingleton(policyAuthorityOwner);
         foreach (BaseSelectionOperationProfile profile in _selectionProfiles)
         {
             if (_selectionOptions is null || !Fits(profile, _selectionOptions))

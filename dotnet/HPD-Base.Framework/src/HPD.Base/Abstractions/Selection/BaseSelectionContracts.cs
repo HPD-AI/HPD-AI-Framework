@@ -265,6 +265,49 @@ public sealed record BaseAuthoritySnapshotRequirement
     public required long CollectionGeneration { get; init; }
 }
 
+/// <summary>Binds one collection to its exact authoritative generation.</summary>
+public sealed record BaseCollectionGenerationRequirement
+{
+    /// <summary>Gets the stable collection identity.</summary>
+    public required string CollectionId { get; init; }
+    /// <summary>Gets the positive collection generation.</summary>
+    public required long CollectionGeneration { get; init; }
+}
+
+/// <summary>Binds an atomic mutation to one coherent multi-collection authority observation.</summary>
+public sealed record BaseAtomicMutationAuthorityRequirement
+{
+    /// <summary>Gets the application identity.</summary>
+    public required string ApplicationId { get; init; }
+    /// <summary>Gets the persistent store-instance identity.</summary>
+    public required string StoreInstanceId { get; init; }
+    /// <summary>Gets the positive restore epoch.</summary>
+    public required long RestoreEpoch { get; init; }
+    /// <summary>Gets the positive schema generation.</summary>
+    public required long SchemaGeneration { get; init; }
+    /// <summary>Gets exact collection generations in ordinal collection-ID order.</summary>
+    public required ImmutableArray<BaseCollectionGenerationRequirement> Collections { get; init; }
+}
+
+/// <summary>Returns transaction-local evidence for one coherent multi-collection authority.</summary>
+public sealed record BaseAtomicMutationAuthorityEvidence
+{
+    /// <summary>Gets the application identity.</summary>
+    public required string ApplicationId { get; init; }
+    /// <summary>Gets the persistent store-instance identity.</summary>
+    public required string StoreInstanceId { get; init; }
+    /// <summary>Gets the positive restore epoch.</summary>
+    public required long RestoreEpoch { get; init; }
+    /// <summary>Gets the positive schema generation.</summary>
+    public required long SchemaGeneration { get; init; }
+    /// <summary>Gets exact collection generations in ordinal collection-ID order.</summary>
+    public required ImmutableArray<BaseCollectionGenerationRequirement> Collections { get; init; }
+    /// <summary>Gets the certified transaction isolation.</summary>
+    public required BaseAtomicSelectionIsolationClass Isolation { get; init; }
+    /// <summary>Gets opaque transaction-local evidence bytes.</summary>
+    public required ImmutableArray<byte> TransactionEvidenceToken { get; init; }
+}
+
 /// <summary>Requests one bounded transaction-local selection.</summary>
 public sealed record BaseAtomicSelectionRequest
 {

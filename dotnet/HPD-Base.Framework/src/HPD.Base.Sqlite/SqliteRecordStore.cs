@@ -25,6 +25,52 @@ public sealed partial class SqliteRecordStore :
     IAsyncDisposable
 {
     /// <inheritdoc />
+    public async ValueTask<OperationResult<BaseAtomicMutationAuthorityRequirement>> CaptureAtomicMutationAuthorityRequirementAsync(
+        string applicationId,
+        ImmutableArray<CollectionDefinition> collections,
+        BaseAtomicMutationExecutionLimits limits,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(limits);
+        CollectionDefinition[] ordered = [.. collections.OrderBy(static value => value.Id, StringComparer.Ordinal)];
+        if (ordered.Select(static value => value.Id).Distinct(StringComparer.Ordinal).Count() != ordered.Length)
+            throw new ArgumentException("Collection authority requests must be unique.", nameof(collections));
+        await using SqliteConnection connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
+        long restoreEpoch;
+        await using (SqliteCommand epoch = connection.CreateCommand())
+        {
+            epoch.CommandText = $"SELECT COALESCE((SELECT CAST(value AS INTEGER) FROM {_names.ProviderState} WHERE key='restore_epoch'),0);";
+            restoreEpoch = Convert.ToInt64(await epoch.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture);
+        }
+        var generations = ImmutableArray.CreateBuilder<BaseCollectionGenerationRequirement>(ordered.Length);
+        foreach (CollectionDefinition collection in ordered)
+        {
+            await using SqliteCommand command = connection.CreateCommand();
+            command.CommandText = $"SELECT purge_generation FROM {_names.Collections} WHERE collection_id=$collection;";
+            command.Parameters.AddWithValue("$collection", collection.Id);
+            object? value = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+            if (value is null or DBNull)
+                return OperationResults.NotFound<BaseAtomicMutationAuthorityRequirement>(new BaseError
+                {
+                    Code = "base.runtime.collection.notFound", Message = "Collection was not found.", Category = ErrorCategory.NotFound,
+                });
+            generations.Add(new BaseCollectionGenerationRequirement
+            {
+                CollectionId = new string(collection.Id.AsSpan()),
+                CollectionGeneration = Convert.ToInt64(value, CultureInfo.InvariantCulture),
+            });
+        }
+        return OperationResults.Ok(new BaseAtomicMutationAuthorityRequirement
+        {
+            ApplicationId = new string(applicationId.AsSpan()),
+            StoreInstanceId = new string(_options.StoreId.AsSpan()),
+            RestoreEpoch = restoreEpoch,
+            SchemaGeneration = Volatile.Read(ref _schemaGeneration),
+            Collections = generations.MoveToImmutable(),
+        });
+    }
+
+    /// <inheritdoc />
     public async ValueTask<OperationResult<BaseAuthoritySnapshotRequirement>> CaptureSelectionAuthorityAsync(
         string applicationId,
         CollectionDefinition collection,
