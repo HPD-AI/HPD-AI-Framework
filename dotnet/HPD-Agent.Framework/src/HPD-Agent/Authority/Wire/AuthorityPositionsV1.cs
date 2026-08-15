@@ -68,6 +68,8 @@ public readonly record struct ThreadPositionV1
 
 internal static class AuthorityPositionCodecsV1
 {
+    internal const string JournalSchemaId = "hpd.journal-position.v1";
+    internal const string ThreadSchemaId = "hpd.thread-position.v1";
     internal static byte[] Encode(JournalPositionV1 value)
     {
         var writer = new CborWriter(CborConformanceMode.Ctap2Canonical);
@@ -134,6 +136,9 @@ internal static class AuthorityPositionCodecsV1
         writer.WriteEndMap();
         return writer.Encode();
     }
+
+    internal static Hash256 ComputeHash(JournalPositionV1 value) => AuthorityIntegrityHashV1.Compute(JournalSchemaId, 1, 0, Encode(value));
+    internal static Hash256 ComputeHash(ThreadPositionV1 value) => AuthorityIntegrityHashV1.Compute(ThreadSchemaId, 1, 0, Encode(value));
 
     internal static bool TryDecodeThread(ReadOnlyMemory<byte> encoded, out ThreadPositionV1 value)
     {

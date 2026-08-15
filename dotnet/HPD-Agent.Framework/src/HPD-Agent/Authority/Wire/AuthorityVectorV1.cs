@@ -87,6 +87,8 @@ public sealed class ExpectedAuthorityVectorV1 : IEquatable<ExpectedAuthorityVect
 
 internal static class AuthorityVectorCodecsV1
 {
+    internal const string AxisEntrySchemaId = "hpd.axis-entry.v1";
+    internal const string ExpectedVectorSchemaId = "hpd.expected-authority-vector.v1";
     internal static byte[] Encode(AxisEntryV1 value)
     {
         var writer = new CborWriter(CborConformanceMode.Ctap2Canonical);
@@ -144,6 +146,9 @@ internal static class AuthorityVectorCodecsV1
         WriteVector(writer, value);
         return writer.Encode();
     }
+
+    internal static Hash256 ComputeHash(AxisEntryV1 value) => AuthorityIntegrityHashV1.Compute(AxisEntrySchemaId, 1, 0, Encode(value));
+    internal static Hash256 ComputeHash(ExpectedAuthorityVectorV1 value) => AuthorityIntegrityHashV1.Compute(ExpectedVectorSchemaId, 1, 0, Encode(value));
 
     internal static void WriteVector(CborWriter writer, ExpectedAuthorityVectorV1 value)
     {
