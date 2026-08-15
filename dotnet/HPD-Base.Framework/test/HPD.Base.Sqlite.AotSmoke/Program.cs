@@ -1,5 +1,6 @@
 using HPD.Base;
 using HPD.Base.Sqlite;
+using HPD.Base.Sqlite.AotSmoke;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
@@ -65,6 +66,10 @@ try
             Id = "hpd.base.sqlite.aot.allow", Version = 1, OwningModuleId = "hpd.base.sqlite.aot",
             EvaluatorContractId = "hpd.base.sqlite.aot.policy", EvaluatorContractVersion = 1, CompositionOrder = 0,
         });
+        foreach (string grantId in new[] { "hpd.base.sqlite.aot.subject.private", "hpd.base.sqlite.aot.subject.acquire", "hpd.base.sqlite.aot.subject.validate", "hpd.base.sqlite.aot.subject.rotate" })
+            builder.AddStaticGrantAuthority(GrantDefinition(grantId, "hpd.base.sqlite.aot"), Grant(grantId, "sqlite-aot-service"));
+        builder.AddModuleGenerationCell(ModuleMutationSmoke.Cell);
+        builder.AddModuleMutation(ModuleMutationSmoke.Definition, ModuleMutationSmoke.Identity);
     });
 
     await using var provider = services.BuildServiceProvider();
@@ -100,6 +105,18 @@ try
     Require(list.Status == OperationStatus.Ok && list.Value!.Count!.Total == 1, "List/count failed.");
 
     BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(principal);
+    BaseMutationRequestIdentity moduleIdentity = BaseMutationRequestIdentity.Create(
+        "aot", "module-increment", "module-request-1",
+        BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("sqlite-aot-module-request"u8)));
+    BaseInstalledModuleMutationHandle<ModuleMutationSmokeRequest, ModuleMutationSmokeResult> module =
+        session.ModuleMutations.Get(ModuleMutationSmoke.Identity);
+    BaseModuleMutationExecutionResult<ModuleMutationSmokeResult> moduleCommitted =
+        (await module.ExecuteAsync(new ModuleMutationSmokeRequest { Marker = "aot" }, moduleIdentity)).RequireValue();
+    BaseModuleMutationExecutionResult<ModuleMutationSmokeResult> moduleDuplicate =
+        (await module.ExecuteAsync(new ModuleMutationSmokeRequest { Marker = "aot" }, moduleIdentity)).RequireValue();
+    Require(moduleCommitted.Result.Generation == "1" && moduleCommitted.Disposition == BaseMutationRequestDisposition.Committed
+        && moduleDuplicate.Result.Generation == "1" && moduleDuplicate.Disposition == BaseMutationRequestDisposition.Duplicate,
+        "SQLite L50 generation commit or receipt replay failed.");
     BaseMutationRequestIdentity identity = BaseMutationRequestIdentity.Create(
         "aot", "create-item", "request-1",
         BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("aot-request"u8)));
@@ -312,6 +329,16 @@ finally
 }
 
 static OperationContext Operation(BaseOperationKind kind, string collectionId = "items") => new() { Operation = kind, CollectionId = collectionId, Now = DateTimeOffset.UtcNow };
+static BaseGrantAuthorityDefinition GrantDefinition(string id, string owner) => new()
+{
+    Id = id, Version = 1, OwningModuleId = owner,
+    SourceContractId = owner + ".static-grant", SourceContractVersion = 1,
+};
+static AccessGrant Grant(string id, string subjectId) => new()
+{
+    Id = id, Subject = new AccessSubject { Kind = AccessSubjectKind.ServicePrincipal, Id = subjectId },
+    Action = "*", Scope = new ResourceScope { Kind = ResourceScopeKind.Runtime },
+};
 
 static BaseCollection<JsonElement> AuthorityCollection(string id, BaseCollectionMutationMode mode) =>
     BaseCollection<JsonElement>.Create(
@@ -415,6 +442,8 @@ internal sealed class SmokePolicyEvaluator : IPolicyEvaluator
     {
         cancellationToken.ThrowIfCancellationRequested();
         bool mayRotate = !string.Equals(request.Principal.SubjectId, "sqlite-aot-no-rotate", StringComparison.Ordinal);
+        if (!mayRotate)
+            return ValueTask.FromResult(new PolicyDecision { Effect = PolicyEffect.Deny, Outcome = PolicyOutcome.Denied });
         return ValueTask.FromResult(new PolicyDecision
         {
             Effect = PolicyEffect.Allow,

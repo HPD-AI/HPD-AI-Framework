@@ -21,9 +21,17 @@ if (AotProject.Fields.OrganizationId.Id != "organization-id" ||
 
 var services = new ServiceCollection();
 services.AddLogging();
-services.AddSingleton<IPolicyEvaluator, AotAllowPolicyEvaluator>();
 services.AddHPDBase(hpd =>
 {
+    hpd.AddPolicyAuthority(new BasePolicyAuthorityDefinition
+    {
+        Id = "hpd.base.aot.allow", Version = 1, OwningModuleId = "hpd.base.aot",
+        EvaluatorContractId = "hpd.base.aot.policy", EvaluatorContractVersion = 1, CompositionOrder = 0,
+    }, new AotAllowPolicyEvaluator());
+    foreach (string grantId in new[] { "hpd.base.aot.subject.private", "hpd.base.aot.subject.acquire", "hpd.base.aot.subject.validate", "hpd.base.aot.subject.rotate" })
+        hpd.AddStaticGrantAuthority(GrantDefinition(grantId, "hpd.base.aot"), Grant(grantId, "aot"));
+    hpd.AddModuleGenerationCell(ModuleMutationSmoke.Cell);
+    hpd.AddModuleMutation(ModuleMutationSmoke.Definition, ModuleMutationSmoke.Identity);
     hpd.AddCollection(collection);
     hpd.AddCollection(AotPrivateSubjectRecord.Collection);
     hpd.AddCollection(AotSubjectConsumerRecord.Collection);
@@ -53,6 +61,18 @@ var session = provider.GetRequiredService<IBaseSessionFactory>().For(new Princip
     CurrentTenantId = "tenant-a",
 });
 BaseCollectionSession<AotProject> projects = session.Collection(collection);
+BaseMutationRequestIdentity moduleIdentity = BaseMutationRequestIdentity.Create(
+    "aot", "module-increment", "module-request-1",
+    BaseMutationRequestFingerprint.Create(System.Security.Cryptography.SHA256.HashData("aot-module-request"u8)));
+BaseInstalledModuleMutationHandle<ModuleMutationSmokeRequest, ModuleMutationSmokeResult> module =
+    session.ModuleMutations.Get(ModuleMutationSmoke.Identity);
+BaseModuleMutationExecutionResult<ModuleMutationSmokeResult> moduleCommitted =
+    (await module.ExecuteAsync(new ModuleMutationSmokeRequest { Marker = "aot" }, moduleIdentity)).RequireValue();
+BaseModuleMutationExecutionResult<ModuleMutationSmokeResult> moduleDuplicate =
+    (await module.ExecuteAsync(new ModuleMutationSmokeRequest { Marker = "aot" }, moduleIdentity)).RequireValue();
+if (moduleCommitted.Result.Generation != "1" || moduleCommitted.Disposition != BaseMutationRequestDisposition.Committed
+    || moduleDuplicate.Result.Generation != "1" || moduleDuplicate.Disposition != BaseMutationRequestDisposition.Duplicate)
+    throw new InvalidOperationException("InMemory L50 generation commit or receipt replay failed.");
 if (provider.GetRequiredService<HPDBaseInstalledFeatures>().Provider != "inmemory"
     || provider.GetRequiredService<IRecordStore>().Capabilities.StoreKind != BaseStoreKinds.InMemory)
 {
@@ -161,6 +181,18 @@ static OperationContext Operation(BaseOperationKind kind, string collectionId) =
     Operation = kind,
     CollectionId = collectionId,
     Now = DateTimeOffset.UtcNow,
+};
+
+static BaseGrantAuthorityDefinition GrantDefinition(string id, string owner) => new()
+{
+    Id = id, Version = 1, OwningModuleId = owner,
+    SourceContractId = owner + ".static-grant", SourceContractVersion = 1,
+};
+
+static AccessGrant Grant(string id, string subjectId) => new()
+{
+    Id = id, Subject = new AccessSubject { Kind = AccessSubjectKind.ServicePrincipal, Id = subjectId },
+    Action = "*", Scope = new ResourceScope { Kind = ResourceScopeKind.Runtime },
 };
 
 static RecordPayload JsonPayload(string json)
