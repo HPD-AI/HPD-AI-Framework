@@ -210,6 +210,10 @@ internal static class VoiceActivityPlanCompilerV1
             : [authoritative[0].Request.SourceKey];
         if (mode == VoiceActivityPromotionModeV1.Fused && authorityKeys.Length < 2)
             return Reject("fusion-source-count-invalid");
+        if (mode == VoiceActivityPromotionModeV1.Fused && !FusionCompatible(effective
+                .Where(item => authorityKeys.Contains(item.Request.SourceKey, StringComparer.Ordinal))
+                .Select(static item => item.Capabilities.Measurement).ToArray()))
+            return Reject("fusion-measurement-incompatible");
 
         var health = degraded ? VoiceActivityHealthStateV1.Degraded : VoiceActivityHealthStateV1.Ready;
         return new VoiceActivityPlanCompilationResultV1.Compiled(new VoiceActivityEffectivePlanV1(
@@ -240,6 +244,21 @@ internal static class VoiceActivityPlanCompilerV1
 
     private static bool ProviderIsObservable(ProviderActivityVisibilityV1 visibility) => visibility is
         ProviderActivityVisibilityV1.Acknowledged or ProviderActivityVisibilityV1.ObservedConsistent;
+
+    private static bool FusionCompatible(IReadOnlyList<VoiceActivityMeasurementDescriptorV1> descriptors)
+    {
+        if (descriptors.Count < 2) return false;
+        var first = descriptors[0];
+        if (descriptors.All(static descriptor => descriptor.Kind is
+                VoiceActivityMeasurementKindV1.BinaryDecision or
+                VoiceActivityMeasurementKindV1.PostProcessedState or
+                VoiceActivityMeasurementKindV1.ProviderOpaqueCategory))
+            return true;
+        return first.Kind == VoiceActivityMeasurementKindV1.CalibratedLikelihood &&
+            descriptors.All(descriptor => descriptor.Kind == first.Kind && descriptor.Units == first.Units &&
+                descriptor.Minimum == first.Minimum && descriptor.Maximum == first.Maximum &&
+                descriptor.CalibrationIdentity == first.CalibrationIdentity);
+    }
 
     private static TimeSpan Min(TimeSpan left, TimeSpan right) => left <= right ? left : right;
     private static VoiceActivityPlanCompilationResultV1.Rejected Reject(string code) => new(code);

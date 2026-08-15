@@ -33,7 +33,8 @@ public sealed class VoiceActivityPlanCompilerV1Tests
 
         var plan = Assert.IsType<VoiceActivityPlanCompilationResultV1.Compiled>(
             VoiceActivityPlanCompilerV1.Compile(8, 9, request,
-                [Candidate("local", ActivitySourceKindV1.LocalDetector), Candidate("provider", ActivitySourceKindV1.ProviderNative)])).Plan;
+                [Candidate("local", ActivitySourceKindV1.LocalDetector, measurement: VoiceActivityMeasurementKindV1.CalibratedLikelihood),
+                 Candidate("provider", ActivitySourceKindV1.ProviderNative, measurement: VoiceActivityMeasurementKindV1.CalibratedLikelihood)])).Plan;
 
         Assert.Equal(VoiceActivityPromotionModeV1.Fused, plan.PromotionAuthority.Mode);
         Assert.Equal(["local", "provider"], plan.PromotionAuthority.SourceKeys);
@@ -202,7 +203,10 @@ public sealed class VoiceActivityPlanCompilerV1Tests
                 : new VoiceActivityInputFormatV1(VoiceActivitySampleEncodingV1.SignedPcm16, 16_000, 1)],
             new VoiceActivityWindowCapabilityV1(minimumWindow ?? TimeSpan.FromMilliseconds(10), TimeSpan.FromSeconds(1),
                 TimeSpan.FromMilliseconds(10), 1),
-            new VoiceActivityMeasurementDescriptorV1(measurementKind, new BoundedAscii("measurement"), -1, 1, null),
+            new VoiceActivityMeasurementDescriptorV1(measurementKind, new BoundedAscii("measurement"), -1, 1,
+                measurementKind == VoiceActivityMeasurementKindV1.CalibratedLikelihood
+                    ? Hash256.Compute(System.Text.Encoding.ASCII.GetBytes("measurement"))
+                    : null),
             opaque ? VoiceActivitySourceStateModelV1.ProviderOpaque : VoiceActivitySourceStateModelV1.Stateless,
             opaque ? VoiceActivitySourceConcurrencyV1.ProviderManaged : VoiceActivitySourceConcurrencyV1.Serial,
             VoiceActivitySourceControlV1.Unsupported, VoiceActivitySourceControlV1.Unsupported,
