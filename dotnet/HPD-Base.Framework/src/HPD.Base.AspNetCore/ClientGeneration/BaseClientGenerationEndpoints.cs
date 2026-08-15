@@ -234,18 +234,29 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
             if (metadata.Kind != System.Text.Json.Serialization.Metadata.JsonTypeInfoKind.Object)
                 throw new InvalidOperationException("base.clientGeneration.typeMissing");
             var properties = new List<BaseClientPropertyDescriptor>();
-            foreach (System.Text.Json.Serialization.Metadata.JsonPropertyInfo property in metadata.Properties)
+            BaseSerializerPropertyDeclaration[] declarations = registration.SerializerDeclarations
+                .Where(declaration => declaration.IsDeclaredOn(type) && !declaration.Ignored)
+                .OrderBy(static declaration => declaration.ApplicationName, StringComparer.Ordinal).ToArray();
+            foreach (BaseSerializerPropertyDeclaration declaration in declarations)
             {
-                if (property.Get is null && property.Set is null) continue;
-                string childId = id + "." + property.Name;
+                string expectedWireName = declaration.ExplicitWireName
+                    ?? metadata.Options.PropertyNamingPolicy?.ConvertName(declaration.ApplicationName)
+                    ?? declaration.ApplicationName;
+                System.Text.Json.Serialization.Metadata.JsonPropertyInfo property = metadata.Properties.SingleOrDefault(candidate =>
+                    string.Equals(candidate.Name, expectedWireName, StringComparison.Ordinal))
+                    ?? throw new InvalidOperationException("base.clientGeneration.typeMissing");
+                if (!declaration.HasPropertyType(property.PropertyType) || property.Get is null && property.Set is null)
+                    throw new InvalidOperationException("base.clientGeneration.typeMissing");
+                string childId = id + "." + declaration.ApplicationName;
                 foreach (BaseClientNamedTypeDescriptor child in Walk(metadata.Options.GetTypeInfo(property.PropertyType), childId)) yield return child;
-                bool nullableProperty = Nullable.GetUnderlyingType(property.PropertyType) is not null || !property.PropertyType.IsValueType;
                 properties.Add(new BaseClientPropertyDescriptor
                 {
-                    Name = property.Name, WireName = property.Name, TypeId = childId,
-                    Required = property.IsRequired, Nullable = nullableProperty, DisclosureShape = "none",
+                    Name = declaration.ApplicationName, WireName = property.Name, TypeId = childId,
+                    Required = declaration.Required, Nullable = declaration.Nullable, DisclosureShape = "none",
                 });
             }
+            if (metadata.Properties.Count(property => property.Get is not null || property.Set is not null) != declarations.Length)
+                throw new InvalidOperationException("base.clientGeneration.typeMissing");
             yield return new() { Id = id, Node = new() { Kind = "object", AdditionalProperties = false, Properties = properties.ToArray() } };
         }
 
@@ -257,11 +268,21 @@ internal sealed class BaseClientGenerationSnapshotBuilder(
             if (type == typeof(decimal)) return new() { Kind = "decimal", Wire = "decimal-string" };
             if (type == typeof(DateTimeOffset) || type == typeof(DateTime)) return new() { Kind = "string", Format = "utc-instant", MinLength = 20, MaxLength = 35 };
             if (type.IsEnum) return new() { Kind = "enum", Values = Enum.GetNames(type) };
-            if (type == typeof(byte) || type == typeof(sbyte) || type == typeof(short) || type == typeof(ushort)
-                || type == typeof(int) || type == typeof(uint) || type == typeof(long))
-                return new() { Kind = "integer", Minimum = type == typeof(long) ? long.MinValue.ToString(System.Globalization.CultureInfo.InvariantCulture) : int.MinValue.ToString(System.Globalization.CultureInfo.InvariantCulture), Maximum = type == typeof(long) ? long.MaxValue.ToString(System.Globalization.CultureInfo.InvariantCulture) : uint.MaxValue.ToString(System.Globalization.CultureInfo.InvariantCulture), Wire = "decimal-string" };
+            if (type == typeof(byte)) return Integer(byte.MinValue, byte.MaxValue);
+            if (type == typeof(sbyte)) return Integer(sbyte.MinValue, sbyte.MaxValue);
+            if (type == typeof(short)) return Integer(short.MinValue, short.MaxValue);
+            if (type == typeof(ushort)) return Integer(ushort.MinValue, ushort.MaxValue);
+            if (type == typeof(int)) return Integer(int.MinValue, int.MaxValue);
+            if (type == typeof(uint)) return Integer(uint.MinValue, uint.MaxValue);
+            if (type == typeof(long)) return Integer(long.MinValue, long.MaxValue);
             if (type == typeof(BaseModuleGeneration)) return new() { Kind = "module-generation" };
             return null;
+
+            static BaseClientTypeNode Integer<T>(T minimum, T maximum) where T : struct, System.IFormattable => new()
+            {
+                Kind = "integer", Minimum = minimum.ToString(null, System.Globalization.CultureInfo.InvariantCulture),
+                Maximum = maximum.ToString(null, System.Globalization.CultureInfo.InvariantCulture), Wire = "decimal-string",
+            };
         }
     }
 

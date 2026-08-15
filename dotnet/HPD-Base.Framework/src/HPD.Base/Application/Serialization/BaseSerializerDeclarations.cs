@@ -27,6 +27,14 @@ public sealed record BaseSerializerPropertyDeclaration
     /// <summary>Gets the exact explicit converter type, or null for a framework built-in.</summary>
     internal Type? ConverterType { get; init; }
 
+    /// <summary>Tests the generated declaring-type binding without exposing serializer metadata.</summary>
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public bool IsDeclaredOn(Type type) => DeclaringType == type;
+
+    /// <summary>Tests the generated property-type binding without exposing serializer metadata.</summary>
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public bool HasPropertyType(Type type) => PropertyType == type;
+
     /// <summary>Creates one generated serializer declaration.</summary>
     [EditorBrowsable(EditorBrowsableState.Never)]
     public static BaseSerializerPropertyDeclaration Create(

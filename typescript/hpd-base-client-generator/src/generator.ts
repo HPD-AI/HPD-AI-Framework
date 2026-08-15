@@ -173,20 +173,25 @@ function render(snapshot: GenerationSnapshot): Record<string, string> {
   const moduleTypes = snapshot.moduleMutations.map(item => `export type ${pascal(item.generatedName)}Request = GeneratedTypes.${typeNames.get(item.requestTypeId)!};\nexport type ${pascal(item.generatedName)}Result = GeneratedTypes.${typeNames.get(item.resultTypeId)!};`).join("\n");
   const moduleValues = snapshot.moduleMutations.map(item => `  ${safe(item.generatedName)}: moduleMutation<${pascal(item.generatedName)}Request, ${pascal(item.generatedName)}Result>({ ...${JSON.stringify({ route: item.route, maximumRequestBytes: item.maximumRequestBytes, audience: item.audience, requestTypeId: item.requestTypeId, resultTypeId: item.resultTypeId })}, typeGraph })`).join(",\n");
   const features = { files: snapshot.endpoints.some(endpoint => endpoint.operation.startsWith("File")), realtime: snapshot.endpoints.some(endpoint => endpoint.operation === "RealtimeSubscribe"), batch: snapshot.schema.collections.some(collection => collection.operations.includes("batch")), controlOperations: snapshot.application.audience === "controlPlane" ? snapshot.endpoints.map(endpoint => endpoint.id).filter(id => id.startsWith("base.admin.") || id.startsWith("hpd.base.vector.")).sort() : [] };
-  return {
+  const files: Record<string, string> = {
     "collections.ts": `import { collection, field } from "@hpd/base-client";\nimport type { BaseFieldDefinition } from "@hpd/base-client";\nimport type * as GeneratedTypes from "./types.js";\n${records}\nexport const collections = {\n${collectionValues}\n} as const;\n`,
     "protocol.ts": `export const protocol = ${JSON.stringify({ protocolMajor: 2, schemaGeneration: snapshot.schema.generation, digest: snapshot.digest, audience: snapshot.application.audience, features })} as const;\n`,
     "fields.ts": `export { collections } from "./collections.js";\n`,
     "reads.ts": `import { read } from "@hpd/base-client";\nimport type * as GeneratedTypes from "./types.js";\n${readTypes}\nexport const reads = {\n${reads}\n} as const;\n`,
     "selection-mutations.ts": `import { selectionMutation } from "@hpd/base-client";\nimport type { BaseSelectionHttpQuery, BaseSelectionPreviousState, BaseSelectionRequestIdentity } from "@hpd/base-client";\nimport { typeGraph } from "./types.js";\nimport type * as GeneratedTypes from "./types.js";\n${selectionTypes}\nexport const selectionMutations = {\n${selections}\n} as const;\n`,
-    "module-mutations.ts": `import { moduleMutation } from "@hpd/base-client";\nimport { typeGraph } from "./types.js";\nimport type * as GeneratedTypes from "./types.js";\n${moduleTypes}\nexport const moduleMutations = {\n${moduleValues}\n} as const;\n`,
     "types.ts": `${snapshot.schema.types.map((type, index) => `export type Type${index} = ${renderType(type.node, typeNames)};`).join("\n")}\nexport const typeGraph = ${JSON.stringify(Object.fromEntries(snapshot.schema.types.map(type => [type.id, type.node])))} as const;\n`,
     "vectors.ts": `${vectors}\nexport const vectorIndexes = ${JSON.stringify(snapshot.vectorIndexes)} as const;\n`,
     "dependencies.ts": `export const dependencyTemplates = ${JSON.stringify(snapshot.dependencyTemplates)} as const;\n`,
     "errors.ts": `export const errors = ${JSON.stringify(snapshot.errors)} as const;\n`,
-    "schema.ts": `import { collections } from "./collections.js";\nimport { reads } from "./reads.js";\nimport { selectionMutations } from "./selection-mutations.js";\nimport { moduleMutations } from "./module-mutations.js";\nimport { protocol } from "./protocol.js";\nimport { typeGraph } from "./types.js";\nexport const schema = Object.freeze({ ...protocol, collections, reads, selectionMutations, moduleMutations, typeGraph });\n`,
-    "index.ts": `export { schema } from "./schema.js";\nexport { collections } from "./collections.js";\nexport * from "./protocol.js";\nexport * from "./reads.js";\nexport * from "./selection-mutations.js";\nexport * from "./module-mutations.js";\nexport * from "./vectors.js";\nexport * from "./dependencies.js";\nexport * from "./errors.js";\nexport type * from "./types.js";\n`
+    "schema.ts": `import { collections } from "./collections.js";\nimport { reads } from "./reads.js";\nimport { selectionMutations } from "./selection-mutations.js";\nimport { protocol } from "./protocol.js";\nimport { typeGraph } from "./types.js";\nexport const schema = Object.freeze({ ...protocol, collections, reads, selectionMutations, typeGraph });\n`,
+    "index.ts": `export { schema } from "./schema.js";\nexport { collections } from "./collections.js";\nexport * from "./protocol.js";\nexport * from "./reads.js";\nexport * from "./selection-mutations.js";\nexport * from "./vectors.js";\nexport * from "./dependencies.js";\nexport * from "./errors.js";\nexport type * from "./types.js";\n`
   };
+  if (snapshot.application.audience === "controlPlane") {
+    files["module-mutations.ts"] = `import { moduleMutation } from "@hpd/base-client";\nimport { typeGraph } from "./types.js";\nimport type * as GeneratedTypes from "./types.js";\n${moduleTypes}\nexport const moduleMutations = {\n${moduleValues}\n} as const;\n`;
+    files["schema.ts"] = `import { collections } from "./collections.js";\nimport { reads } from "./reads.js";\nimport { selectionMutations } from "./selection-mutations.js";\nimport { moduleMutations } from "./module-mutations.js";\nimport { protocol } from "./protocol.js";\nimport { typeGraph } from "./types.js";\nexport const schema = Object.freeze({ ...protocol, collections, reads, selectionMutations, moduleMutations, typeGraph });\n`;
+    files["index.ts"] = files["index.ts"]!.replace('export * from "./selection-mutations.js";\n', 'export * from "./selection-mutations.js";\nexport * from "./module-mutations.js";\n');
+  }
+  return files;
 }
 
 function renderCollectionTypes(collection: CollectionDescriptor, typeNames: ReadonlyMap<string, string>): string {
