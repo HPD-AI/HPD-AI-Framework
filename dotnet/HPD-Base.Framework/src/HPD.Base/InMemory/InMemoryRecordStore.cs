@@ -2842,6 +2842,7 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
             if (plan.Kind == BaseAtomicMutationExecutionKind.ModuleMutation)
             {
                 if (_capturedModuleGenerationKeys is null
+                    || !ModuleBindingsValid(plan, captured)
                     || plan.Module!.Comparisons.Select(static value => value.CaptureOrdinal).Distinct().Count() != plan.Module.Comparisons.Length
                     || plan.Module.Increments.Select(static value => value.CaptureOrdinal).Distinct().Count() != plan.Module.Increments.Length)
                     return ValueTask.FromResult(SubjectFailure<BasePreparedAtomicMutation>(BaseSubjectErrorCodes.ProviderContractInvalid));
@@ -3188,6 +3189,36 @@ internal sealed partial class InMemoryRecordStore : IAtomicRecordStore, IStreami
                 _ => false,
             };
         }
+
+        private static bool ModuleBindingsValid(BaseAtomicMutationPlan plan, BaseCapturedAtomicMutationAuthority captured)
+        {
+            if (plan.Module is null || plan.Module.ItemBindings.Length != plan.Items.Length) return false;
+            var overlay = new Dictionary<(string CollectionId, RecordId RecordId), RecordEnvelope?>();
+            for (int ordinal = 0; ordinal < plan.Items.Length; ordinal++)
+            {
+                BaseModuleMutationItemCaptureBinding binding = plan.Module.ItemBindings[ordinal];
+                if (binding.MutationOrdinal != ordinal || binding.RecordCaptureOrdinal < 0
+                    || binding.RecordCaptureOrdinal >= captured.ModuleRecords.Length) return false;
+                BaseAtomicMutationPlanItem item = plan.Items[ordinal];
+                BaseCapturedModuleRecord capture = captured.ModuleRecords[binding.RecordCaptureOrdinal];
+                if (!string.Equals(item.Collection.Id, capture.CollectionId, StringComparison.Ordinal) || item.RecordId != capture.RecordId) return false;
+                var key = (item.Collection.Id, item.RecordId);
+                RecordEnvelope? expected = overlay.TryGetValue(key, out RecordEnvelope? prior) ? prior : capture.Current;
+                if (!SameEnvelope(item.Current, expected)) return false;
+                overlay[key] = item.Kind == BaseCommittedRecordMutationKind.Delete ? null : new RecordEnvelope
+                {
+                    CollectionId = item.Collection.Id, Id = item.RecordId,
+                    Payload = RecordCloneHelpers.ClonePayload(item.ProposedPayload!),
+                    Metadata = item.Current?.Metadata ?? new RecordMetadata(),
+                };
+            }
+            return true;
+        }
+
+        private static bool SameEnvelope(RecordEnvelope? left, RecordEnvelope? right) => left is null && right is null
+            || left is not null && right is not null
+            && JsonSerializer.SerializeToUtf8Bytes(left, HPDBaseJsonSerializerContext.Default.RecordEnvelope).AsSpan()
+                .SequenceEqual(JsonSerializer.SerializeToUtf8Bytes(right, HPDBaseJsonSerializerContext.Default.RecordEnvelope));
 
         private static string ModuleGenerationStorageKey(BaseModuleGenerationCaptureRequest capture) => string.Join('\n',
             capture.Cell.Id,

@@ -9,6 +9,10 @@ internal sealed class DefaultBaseModuleMutationRuntime(
     IRecordStoreRegistry stores,
     BaseCollectionRegistry collections,
     BaseModuleMutationRegistry registry,
+    IBaseSchemaValidator schemaValidator,
+    IBasePolicyOrchestrator policy,
+    IBaseResultNormalizer normalizer,
+    BaseSubjectContractRegistry subjects,
     TimeProvider timeProvider) : IBaseModuleMutationRuntime
 {
     public async ValueTask<BaseResult<BaseModuleMutationExecutionResult<TResult>>> ExecuteAsync<TRequest, TResult>(
@@ -62,7 +66,9 @@ internal sealed class DefaultBaseModuleMutationRuntime(
             Items = [],
         };
         var processor = new BaseModuleMutationProcessor<TRequest, TResult>(
-            definition, generatedIdentity, request, intent, extension, limits, installed);
+            definition, generatedIdentity, request, intent, extension, limits, installed,
+            session.Principal, session.Operation(BaseOperationKind.ModuleMutation, definition.Id),
+            schemaValidator, policy, normalizer, subjects);
         var executionRequest = new RecordMutationExecutionRequest
         {
             AcquisitionTimeout = definition.Limits.Deadlines.AcquisitionTimeout,
@@ -149,6 +155,7 @@ internal sealed class DefaultBaseModuleMutationRuntime(
     {
         var records = ImmutableArray.CreateBuilder<BaseModuleRecordCaptureRequest>();
         var generations = ImmutableArray.CreateBuilder<BaseModuleGenerationCaptureRequest>();
+        var relations = ImmutableArray.CreateBuilder<BaseModuleRelationTargetCaptureRequest>();
         foreach (BaseModuleCapture capture in definition.Template.Captures.OrderBy(static value => value.Id, StringComparer.Ordinal))
         {
             if (capture is BaseModuleRecordCapture record)
@@ -179,13 +186,66 @@ internal sealed class DefaultBaseModuleMutationRuntime(
                 });
             }
         }
+        foreach (BaseModuleStatement statement in EnumerateStatements(definition.Template.Body))
+        {
+            string? collectionId = statement switch
+            {
+                BaseModuleCreateStatement value => value.CollectionId,
+                BaseModulePatchStatement value => value.CollectionId,
+                BaseModuleReplaceStatement value => value.CollectionId,
+                BaseModuleUpsertStatement value => value.CollectionId,
+                _ => null,
+            };
+            if (collectionId is null || !collections.TryGetValue(collectionId, out CollectionDefinition? collection)) continue;
+            IEnumerable<BaseModuleObjectExpression> payloads = statement switch
+            {
+                BaseModuleCreateStatement value => [value.Payload],
+                BaseModulePatchStatement value => [value.Patch],
+                BaseModuleReplaceStatement value => [value.Payload],
+                BaseModuleUpsertStatement value => [value.Create, value.Update],
+                _ => [],
+            };
+            foreach (BaseModuleObjectExpression payload in payloads)
+            foreach (BaseModuleObjectPropertyExpression property in payload.Properties)
+            {
+                FieldDefinition? field = collection.Fields?.SingleOrDefault(value => string.Equals(value.Id, property.StablePropertyId, StringComparison.Ordinal));
+                if (field?.Relation is not { OwningSide: BaseRelationOwningSide.Source } relation) continue;
+                BaseModuleProgramValue target = evaluator.Evaluate(property.Value);
+                IEnumerable<string> ids = target.Value.ValueKind == JsonValueKind.Array
+                    ? target.Value.EnumerateArray().Select(static value => value.GetString() ?? throw new InvalidOperationException()).ToArray()
+                    : [target.Value.GetString() ?? throw new InvalidOperationException()];
+                foreach (string id in ids)
+                {
+                    if (relations.Any(value => string.Equals(value.SourceStatementId, statement.Id, StringComparison.Ordinal)
+                        && string.Equals(value.SourceFieldId, field.Id, StringComparison.Ordinal)
+                        && string.Equals(value.TargetCollection.Id, relation.TargetCollectionId, StringComparison.Ordinal)
+                        && value.TargetRecordId == new RecordId(id))) continue;
+                    relations.Add(new BaseModuleRelationTargetCaptureRequest
+                    {
+                        Ordinal = relations.Count, SourceStatementId = statement.Id, SourceFieldId = field.Id,
+                        TargetCollection = collections[relation.TargetCollectionId], TargetRecordId = new RecordId(id),
+                    });
+                }
+            }
+        }
         return new BaseModuleMutationCaptureExtension
         {
             OperationId = definition.Id, OperationVersion = definition.Version,
             OperationChecksum = Convert.ToHexString(definition.Checksum.ToArray()).ToLowerInvariant(),
             RequestDigest = Convert.ToHexString(SHA256.HashData(requestBytes)).ToLowerInvariant(),
-            Records = records.ToImmutable(), RelationTargets = [], Generations = generations.ToImmutable(),
+            Records = records.ToImmutable(), RelationTargets = relations.ToImmutable(), Generations = generations.ToImmutable(),
         };
+    }
+
+    private static IEnumerable<BaseModuleStatement> EnumerateStatements(BaseModuleMutationBlock block)
+    {
+        foreach (BaseModuleStatement statement in block.Statements)
+        {
+            yield return statement;
+            if (statement is not BaseModuleIfStatement branch) continue;
+            foreach (BaseModuleStatement nested in EnumerateStatements(branch.WhenTrue)) yield return nested;
+            foreach (BaseModuleStatement nested in EnumerateStatements(branch.WhenFalse)) yield return nested;
+        }
     }
 
     private static BaseAtomicMutationExecutionLimits Limits(BaseModuleMutationLimits value) => new()

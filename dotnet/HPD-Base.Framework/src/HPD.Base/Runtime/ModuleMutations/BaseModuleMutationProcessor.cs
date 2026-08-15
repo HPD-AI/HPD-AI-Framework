@@ -12,7 +12,13 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
     BaseAtomicMutationIntent intent,
     BaseModuleMutationCaptureExtension extension,
     BaseAtomicMutationExecutionLimits limits,
-    IReadOnlyDictionary<string, CollectionDefinition> collections) : IAtomicMutationProcessor
+    IReadOnlyDictionary<string, CollectionDefinition> collections,
+    PrincipalContext principal,
+    OperationContext operation,
+    IBaseSchemaValidator schemaValidator,
+    IBasePolicyOrchestrator policy,
+    IBaseResultNormalizer normalizer,
+    BaseSubjectContractRegistry subjects) : IAtomicMutationProcessor
 {
     internal BaseModuleMutationExecutionResult<TResult>? Result { get; private set; }
 
@@ -37,6 +43,7 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
 
         var evaluator = new BaseModuleProgramEvaluator<TRequest, TResult>(definition, identity, request, evidence, collections);
         var increments = ImmutableArray.CreateBuilder<BaseModuleGenerationIncrement>();
+        var selectedStatements = ImmutableArray.CreateBuilder<BaseModuleStatement>();
         var comparisons = ImmutableArray.CreateBuilder<BaseModuleGenerationComparison>();
         foreach (BaseModuleGenerationCaptureRequest generation in extension.Generations)
         {
@@ -47,13 +54,27 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
         }
         try
         {
-            if (!EvaluateBlock(definition.Template.Body, evaluator, increments, out BaseError? programError))
+            if (!EvaluateBlock(definition.Template.Body, evaluator, increments, selectedStatements, out BaseError? programError))
                 return Failed(programError!);
         }
         catch (OverflowException) { return Failed(Error(BaseModuleMutationErrorCodes.LimitExceeded, ErrorCategory.Validation)); }
         catch { return Failed(Error("base.moduleMutation.programInvalid", ErrorCategory.Validation)); }
 
-        string planDigest = Digest(extension.RequestDigest, evidence.CaptureDigest,
+        OperationResult<(BaseMutationCommand[] Commands, ImmutableArray<BaseModuleMutationItemCaptureBinding> Bindings)> commandResult =
+            await BuildCommandsAsync(selectedStatements.ToImmutable(), evaluator, evidence, cancellationToken).ConfigureAwait(false);
+        if (!commandResult.IsSuccess() || commandResult.Value == default)
+            return Failed(commandResult.Error ?? Error(BaseModuleMutationErrorCodes.Invalid, ErrorCategory.Validation));
+        var recordPlanner = new DefaultBaseMutationProcessor(
+            commandResult.Value.Commands, principal, policy, normalizer, collections.Values.ToArray(), limits, intent.Authority, subjects);
+        IReadOnlyDictionary<int, BaseCapturedMutationItem> capturedItems = BuildCapturedItems(commandResult.Value.Commands, evidence);
+        OperationResult<BaseFinalizedRecordMutationPlan> recordPlan = await recordPlanner
+            .FinalizeCapturedCommandsAsync(capturedItems, cancellationToken).ConfigureAwait(false);
+        if (!recordPlan.IsSuccess() || recordPlan.Value is null)
+            return Failed(recordPlan.Error ?? Error(BaseModuleMutationErrorCodes.Invalid, ErrorCategory.Validation));
+
+        string recordPlanDigest = DefaultBaseMutationProcessor.ComputePlanDigest(
+            intent.IntentDigest, evidence.CaptureDigest, recordPlan.Value.Items, recordPlan.Value.SubjectValidations);
+        string planDigest = Digest(recordPlanDigest, extension.RequestDigest, evidence.CaptureDigest,
             string.Join(';', evaluator.Decisions.Select(static value => $"{value.EvaluationOrdinal}:{value.Kind}:{value.DecisionId}:{value.SelectedTrue}")),
             string.Join(';', increments.Select(static value => $"{value.CaptureOrdinal}:{value.CreateIfAbsent}")));
         var plan = new BaseAtomicMutationPlan
@@ -62,13 +83,13 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
             IntentDigest = intent.IntentDigest,
             CaptureDigest = evidence.CaptureDigest,
             Authority = intent.Authority,
-            Items = [],
-            SubjectValidations = [],
+            Items = recordPlan.Value.Items,
+            SubjectValidations = recordPlan.Value.SubjectValidations,
             Module = new BaseFinalizedModuleMutationExtension
             {
                 OperationId = definition.Id, OperationVersion = definition.Version,
                 OperationChecksum = extension.OperationChecksum, Decisions = evaluator.Decisions,
-                ItemBindings = [], Comparisons = comparisons.ToImmutable(), Increments = increments.ToImmutable(),
+                ItemBindings = commandResult.Value.Bindings, Comparisons = comparisons.ToImmutable(), Increments = increments.ToImmutable(),
                 ResultProjectionDigest = Digest(definition.Id, "result", Convert.ToHexString(definition.Checksum.ToArray())),
             },
             Limits = limits,
@@ -85,9 +106,12 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
 
         IReadOnlyDictionary<string, BaseModuleCommittedGeneration> committedGenerations = applied.Value.Generations
             .ToDictionary(static value => value.CaptureId, StringComparer.Ordinal);
+        IReadOnlyDictionary<string, BaseRecordMutationFact> committedStatements = applied.Value.Facts
+            .Select((fact, index) => (commandResult.Value.Commands[index].ItemId, Fact: fact.MaterializeOwned()))
+            .ToDictionary(static value => value.ItemId, static value => value.Fact, StringComparer.Ordinal);
         TResult typed;
         ImmutableArray<byte> resultBytes;
-        try { typed = evaluator.ProjectResult(definition.Template.Result, new Dictionary<string, BaseRecordMutationFact>(), committedGenerations, out resultBytes); }
+        try { typed = evaluator.ProjectResult(definition.Template.Result, committedStatements, committedGenerations, out resultBytes); }
         catch { return Failed(Error("base.moduleMutation.resultInvalid", ErrorCategory.Validation)); }
         var moduleReceipt = new BaseModuleMutationReceiptResult
         {
@@ -158,6 +182,7 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
         BaseModuleMutationBlock block,
         BaseModuleProgramEvaluator<TRequest, TResult> evaluator,
         ImmutableArray<BaseModuleGenerationIncrement>.Builder increments,
+        ImmutableArray<BaseModuleStatement>.Builder selectedStatements,
         out BaseError? error)
     {
         foreach (BaseModuleStatement statement in block.Statements)
@@ -172,11 +197,16 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
                         .Single(value => string.Equals(value.Id, increment.CaptureId, StringComparison.Ordinal));
                     int ordinal = extension.Generations.Single(value => string.Equals(value.CaptureId, capture.Id, StringComparison.Ordinal)).Ordinal;
                     increments.Add(new BaseModuleGenerationIncrement { CaptureOrdinal = ordinal, CreateIfAbsent = increment.CreateIfAbsent });
+                    selectedStatements.Add(increment);
                     break;
                 case BaseModuleIfStatement branch:
                     bool selected = evaluator.Guard(branch.GuardId);
                     evaluator.RecordIfDecision(branch.Id, selected);
-                    if (!EvaluateBlock(selected ? branch.WhenTrue : branch.WhenFalse, evaluator, increments, out error)) return false;
+                    if (!EvaluateBlock(selected ? branch.WhenTrue : branch.WhenFalse, evaluator, increments, selectedStatements, out error)) return false;
+                    break;
+                case BaseModuleCreateStatement or BaseModulePatchStatement or BaseModuleReplaceStatement
+                    or BaseModuleDeleteStatement or BaseModuleUpsertStatement:
+                    selectedStatements.Add(statement);
                     break;
                 default:
                     error = Error(BaseModuleMutationErrorCodes.Invalid, ErrorCategory.Validation); return false;
@@ -184,6 +214,180 @@ internal sealed class BaseModuleMutationProcessor<TRequest, TResult>(
         }
         error = null; return true;
     }
+
+    private async ValueTask<OperationResult<(BaseMutationCommand[] Commands, ImmutableArray<BaseModuleMutationItemCaptureBinding> Bindings)>> BuildCommandsAsync(
+        ImmutableArray<BaseModuleStatement> statements,
+        BaseModuleProgramEvaluator<TRequest, TResult> evaluator,
+        BaseCapturedAtomicMutationAuthority evidence,
+        CancellationToken cancellationToken)
+    {
+        BaseModuleStatement[] writes = statements.Where(static statement => statement is not BaseModuleIncrementGenerationStatement).ToArray();
+        var commands = new BaseMutationCommand[writes.Length];
+        var bindings = ImmutableArray.CreateBuilder<BaseModuleMutationItemCaptureBinding>(writes.Length);
+        for (int index = 0; index < writes.Length; index++)
+        {
+            BaseModuleStatement statement = writes[index];
+            string collectionId = statement switch
+            {
+                BaseModuleCreateStatement value => value.CollectionId,
+                BaseModulePatchStatement value => value.CollectionId,
+                BaseModuleReplaceStatement value => value.CollectionId,
+                BaseModuleDeleteStatement value => value.CollectionId,
+                BaseModuleUpsertStatement value => value.CollectionId,
+                _ => throw new InvalidOperationException(),
+            };
+            if (!collections.TryGetValue(collectionId, out CollectionDefinition? collection))
+                return InvalidCommands();
+            BaseModuleValueExpression idExpression = statement switch
+            {
+                BaseModuleCreateStatement value => value.RecordId,
+                BaseModulePatchStatement value => value.RecordId,
+                BaseModuleReplaceStatement value => value.RecordId,
+                BaseModuleDeleteStatement value => value.RecordId,
+                BaseModuleUpsertStatement value => value.RecordId,
+                _ => throw new InvalidOperationException(),
+            };
+            string? idText = evaluator.Evaluate(idExpression).Value.GetString();
+            if (string.IsNullOrEmpty(idText)) return InvalidCommands();
+            var recordId = new RecordId(idText);
+            BaseCapturedModuleRecord capture = evidence.ModuleRecords.SingleOrDefault(value =>
+                string.Equals(value.CollectionId, collectionId, StringComparison.Ordinal) && value.RecordId == recordId)
+                ?? throw new InvalidOperationException("Every selected record write must bind one declared capture.");
+            bindings.Add(new BaseModuleMutationItemCaptureBinding { MutationOrdinal = index, RecordCaptureOrdinal = capture.Ordinal });
+
+            RecordPayload? createPayload = null;
+            RecordPayload? updatePayload = null;
+            RevisionToken? expected = null;
+            BaseRecordMutationKind kind;
+            RecordUpsertUpdateMode upsertMode = RecordUpsertUpdateMode.Patch;
+            switch (statement)
+            {
+                case BaseModuleCreateStatement create:
+                    kind = BaseRecordMutationKind.Create;
+                    createPayload = Payload(evaluator.Object(create.Payload, collection));
+                    break;
+                case BaseModulePatchStatement patch:
+                    kind = BaseRecordMutationKind.Patch;
+                    updatePayload = Payload(evaluator.Object(patch.Patch, collection));
+                    expected = Revision(patch.ExpectedRevision, evaluator);
+                    break;
+                case BaseModuleReplaceStatement replace:
+                    kind = BaseRecordMutationKind.Replace;
+                    updatePayload = Payload(evaluator.Object(replace.Payload, collection));
+                    expected = Revision(replace.ExpectedRevision, evaluator);
+                    break;
+                case BaseModuleDeleteStatement delete:
+                    kind = BaseRecordMutationKind.Delete;
+                    expected = Revision(delete.ExpectedRevision, evaluator);
+                    break;
+                case BaseModuleUpsertStatement upsert:
+                    kind = BaseRecordMutationKind.Upsert;
+                    createPayload = Payload(evaluator.Object(upsert.Create, collection));
+                    updatePayload = Payload(evaluator.Object(upsert.Update, collection));
+                    upsertMode = upsert.UpdateMode;
+                    expected = Revision(upsert.ExpectedRevision, evaluator);
+                    break;
+                default: return InvalidCommands();
+            }
+
+            BaseValidatedPayload? validatedCreate = null;
+            BaseValidatedPayload? validatedUpdate = null;
+            if (createPayload is not null)
+            {
+                OperationResult<BaseValidatedPayload> validation = await schemaValidator.ValidateCreateAsync(new BasePayloadValidationRequest
+                {
+                    Collection = collection, Principal = principal, Operation = operation, Payload = createPayload,
+                }, cancellationToken).ConfigureAwait(false);
+                if (!validation.IsSuccess() || validation.Value is null) return CommandFailure(validation);
+                validatedCreate = validation.Value;
+            }
+            if (updatePayload is not null)
+            {
+                OperationResult<BaseValidatedPayload> validation = kind == BaseRecordMutationKind.Patch
+                    || kind == BaseRecordMutationKind.Upsert && upsertMode == RecordUpsertUpdateMode.Patch
+                    ? await schemaValidator.ValidatePatchAsync(new BasePayloadValidationRequest
+                    {
+                        Collection = collection, Principal = principal, Operation = operation, Patch = updatePayload,
+                    }, cancellationToken).ConfigureAwait(false)
+                    : await schemaValidator.ValidateReplaceAsync(new BasePayloadValidationRequest
+                    {
+                        Collection = collection, Principal = principal, Operation = operation, Payload = updatePayload,
+                    }, cancellationToken).ConfigureAwait(false);
+                if (!validation.IsSuccess() || validation.Value is null) return CommandFailure(validation);
+                validatedUpdate = validation.Value;
+            }
+            commands[index] = new BaseMutationCommand
+            {
+                Index = index, ItemId = statement.Id, CollectionId = collectionId, Kind = kind,
+                Collection = collection, Context = operation, EventId = Guid.NewGuid().ToString("N"), Store = null!,
+                Create = createPayload is null ? null : new RecordCreateRequest { Payload = createPayload, RequestedId = recordId },
+                RecordId = recordId,
+                Patch = kind == BaseRecordMutationKind.Patch ? new RecordPatchRequest { Patch = updatePayload!, ExpectedRevision = expected } : null,
+                Replace = kind == BaseRecordMutationKind.Replace ? new RecordReplaceRequest { Payload = updatePayload!, ExpectedRevision = expected } : null,
+                Delete = kind == BaseRecordMutationKind.Delete ? new RecordDeleteRequest { ExpectedRevision = expected, ReturnPrevious = false } : null,
+                Upsert = kind == BaseRecordMutationKind.Upsert ? new RecordUpsertRequest
+                {
+                    Id = recordId, CreatePayload = createPayload!, UpdatePayload = updatePayload!, UpdateMode = upsertMode,
+                    Condition = RecordUpsertExistenceCondition.Any, ExpectedRevision = expected,
+                } : null,
+                CreatePayload = validatedCreate, UpdatePayload = validatedUpdate,
+            };
+        }
+        return OperationResults.Ok((commands, bindings.MoveToImmutable()));
+    }
+
+    private IReadOnlyDictionary<int, BaseCapturedMutationItem> BuildCapturedItems(
+        BaseMutationCommand[] commands,
+        BaseCapturedAtomicMutationAuthority evidence)
+    {
+        var result = new Dictionary<int, BaseCapturedMutationItem>();
+        for (int ordinal = 0; ordinal < commands.Length; ordinal++)
+        {
+            BaseMutationCommand command = commands[ordinal];
+            BaseCapturedModuleRecord capture = evidence.ModuleRecords.Single(value =>
+                string.Equals(value.CollectionId, command.CollectionId, StringComparison.Ordinal)
+                && value.RecordId == command.RecordId);
+            result.Add(ordinal, new BaseCapturedMutationItem
+            {
+                Ordinal = ordinal, CollectionId = command.CollectionId, RecordId = command.RecordId!.Value,
+                Current = capture.Current is null ? null : RecordCloneHelpers.CloneEnvelope(capture.Current),
+                Disposition = command.Kind switch
+                {
+                    BaseRecordMutationKind.Create => BaseCapturedMutationDisposition.Create,
+                    BaseRecordMutationKind.Delete => BaseCapturedMutationDisposition.Delete,
+                    BaseRecordMutationKind.Upsert when capture.Current is null => BaseCapturedMutationDisposition.Create,
+                    _ => BaseCapturedMutationDisposition.Update,
+                },
+                RelationTargets = evidence.ModuleRelationTargets.Where(value => string.Equals(value.SourceStatementId, command.ItemId, StringComparison.Ordinal))
+                    .Select(static value => new BaseCapturedRelationTarget
+                    {
+                        SourceFieldId = value.SourceFieldId, TargetCollectionId = value.TargetCollectionId,
+                        TargetRecordId = value.TargetRecordId, Current = value.Current,
+                    }).ToImmutableArray(),
+            });
+        }
+        return result;
+    }
+
+    private static RecordPayload Payload(BaseModuleProgramValue value)
+    {
+        if (!value.Present || value.Value.ValueKind != JsonValueKind.Object) throw new InvalidOperationException();
+        return new RecordPayload
+        {
+            Kind = RecordPayloadKind.FieldMap,
+            Fields = value.Value.EnumerateObject().ToDictionary(static property => property.Name, static property => property.Value.Clone(), StringComparer.Ordinal),
+        };
+    }
+
+    private static RevisionToken? Revision(BaseModuleValueExpression? expression, BaseModuleProgramEvaluator<TRequest, TResult> evaluator) =>
+        expression is null ? null : new RevisionToken(evaluator.Evaluate(expression).Value.GetString() ?? throw new InvalidOperationException());
+
+    private static OperationResult<(BaseMutationCommand[], ImmutableArray<BaseModuleMutationItemCaptureBinding>)> InvalidCommands() =>
+        OperationResults.ValidationFailed<(BaseMutationCommand[], ImmutableArray<BaseModuleMutationItemCaptureBinding>)>(
+            Error(BaseModuleMutationErrorCodes.Invalid, ErrorCategory.Validation));
+
+    private static OperationResult<(BaseMutationCommand[], ImmutableArray<BaseModuleMutationItemCaptureBinding>)> CommandFailure(
+        OperationResult<BaseValidatedPayload> value) => new() { Status = value.Status, Error = value.Error };
 
     private bool CapturedMatches(BaseCapturedAtomicMutationAuthority value) =>
         value.Kind == BaseAtomicMutationExecutionKind.ModuleMutation

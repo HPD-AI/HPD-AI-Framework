@@ -125,6 +125,28 @@ internal class FakeRecordStore : IAtomicRecordStore
         }));
     }
 
+    public ValueTask<OperationResult<BaseAtomicMutationAuthorityRequirement>> CaptureAtomicMutationAuthorityRequirementAsync(
+        string applicationId,
+        ImmutableArray<CollectionDefinition> collections,
+        BaseAtomicMutationExecutionLimits limits,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return ValueTask.FromResult(OperationResults.Ok(new BaseAtomicMutationAuthorityRequirement
+        {
+            ApplicationId = applicationId,
+            StoreInstanceId = Capabilities.StoreId,
+            RestoreEpoch = 0,
+            SchemaGeneration = 1,
+            Collections = collections.OrderBy(static value => value.Id, StringComparer.Ordinal)
+                .Select(static value => new BaseCollectionGenerationRequirement
+                {
+                    CollectionId = value.Id,
+                    CollectionGeneration = 1,
+                }).ToImmutableArray(),
+        }));
+    }
+
     public ValueTask<OperationResult<RecordPage>> ListAsync(
         CollectionDefinition collection,
         RecordQuery query,
@@ -300,54 +322,83 @@ internal class FakeRecordStore : IAtomicRecordStore
             owner.GetCalls = checked(owner.GetCalls + intent.Items.Count(static item =>
                 item.RequestedKind is BaseRecordMutationKind.Patch or BaseRecordMutationKind.Replace or
                     BaseRecordMutationKind.Delete or BaseRecordMutationKind.Upsert));
-            var items = intent.Items.Select(item => new BaseCapturedMutationItem
+            var overlay = records.ToDictionary(
+                static pair => pair.Key,
+                static pair => (RecordEnvelope?)RecordCloneHelpers.CloneEnvelope(pair.Value),
+                StringComparer.Ordinal);
+            var itemBuilder = ImmutableArray.CreateBuilder<BaseCapturedMutationItem>(intent.Items.Length);
+            foreach (BaseAtomicMutationIntentItem item in intent.Items)
             {
-                Ordinal = item.Ordinal,
-                CollectionId = item.Collection.Id,
-                RecordId = item.RecordId,
-                Disposition = item.RequestedKind switch
+                overlay.TryGetValue(item.RecordId.Value, out RecordEnvelope? current);
+                itemBuilder.Add(new BaseCapturedMutationItem
                 {
-                    BaseRecordMutationKind.Create when !records.ContainsKey(item.RecordId.Value) => BaseCapturedMutationDisposition.Create,
-                    BaseRecordMutationKind.Create => BaseCapturedMutationDisposition.Update,
-                    BaseRecordMutationKind.Delete => BaseCapturedMutationDisposition.Delete,
-                    BaseRecordMutationKind.Upsert when !records.ContainsKey(item.RecordId.Value) => BaseCapturedMutationDisposition.Create,
-                    _ => BaseCapturedMutationDisposition.Update,
-                },
-                Current = records.TryGetValue(item.RecordId.Value, out RecordEnvelope? current)
-                    ? JsonSerializer.Deserialize(
-                        JsonSerializer.SerializeToUtf8Bytes(current, HPDBaseJsonSerializerContext.Default.RecordEnvelope),
-                        HPDBaseJsonSerializerContext.Default.RecordEnvelope)
-                    : null,
-                RelationTargets = item.RelationTargets.Select(relation => new BaseCapturedRelationTarget
+                    Ordinal = item.Ordinal, CollectionId = item.Collection.Id, RecordId = item.RecordId,
+                    RuntimeAssignedRecordId = item.RuntimeAssignedRecordId,
+                    Disposition = item.RequestedKind switch
+                    {
+                        BaseRecordMutationKind.Create when current is null => BaseCapturedMutationDisposition.Create,
+                        BaseRecordMutationKind.Create => BaseCapturedMutationDisposition.Update,
+                        BaseRecordMutationKind.Delete => BaseCapturedMutationDisposition.Delete,
+                        BaseRecordMutationKind.Upsert when current is null => BaseCapturedMutationDisposition.Create,
+                        _ => BaseCapturedMutationDisposition.Update,
+                    },
+                    Current = current is null ? null : RecordCloneHelpers.CloneEnvelope(current),
+                    RelationTargets = item.RelationTargets.Select(relation => new BaseCapturedRelationTarget
+                    {
+                        SourceFieldId = relation.SourceFieldId, TargetCollectionId = relation.TargetCollection.Id,
+                        TargetRecordId = relation.TargetRecordId,
+                        Current = overlay.TryGetValue(relation.TargetRecordId.Value, out RecordEnvelope? target) && target is not null
+                            ? RecordCloneHelpers.CloneEnvelope(target) : null,
+                    }).ToImmutableArray(),
+                });
+                RecordPayload? next = item.RequestedKind switch
                 {
-                    SourceFieldId = relation.SourceFieldId,
-                    TargetCollectionId = relation.TargetCollection.Id,
-                    TargetRecordId = relation.TargetRecordId,
-                    Current = records.TryGetValue(relation.TargetRecordId.Value, out RecordEnvelope? target)
-                        ? RecordCloneHelpers.CloneEnvelope(target)
-                        : null,
-                }).ToImmutableArray(),
-            }).ToImmutableArray();
-            ImmutableArray<BaseAtomicReadIntervalEvidence> intervals = items.Select(item =>
-            {
-                ImmutableArray<byte> key = Encoding.UTF8.GetBytes(item.RecordId.Value).ToImmutableArray();
-                return new BaseAtomicReadIntervalEvidence
-                {
-                    LogicalAccessPathId = $"collection:{item.CollectionId}:record",
-                    CanonicalLowerBound = key,
-                    LowerInclusive = true,
-                    CanonicalUpperBound = key,
-                    UpperInclusive = true,
+                    BaseRecordMutationKind.Create => item.Create!.Payload,
+                    BaseRecordMutationKind.Patch when current is not null => BasePolicyRuntimeSimulation.MergePatchPayload(current.Payload, item.Patch!.Patch),
+                    BaseRecordMutationKind.Replace => item.Replace!.Payload,
+                    BaseRecordMutationKind.Upsert when current is null => item.Upsert!.CreatePayload,
+                    BaseRecordMutationKind.Upsert when item.Upsert!.UpdateMode == RecordUpsertUpdateMode.Patch => BasePolicyRuntimeSimulation.MergePatchPayload(current!.Payload, item.Upsert.UpdatePayload),
+                    BaseRecordMutationKind.Upsert => item.Upsert!.UpdatePayload,
+                    _ => null,
                 };
-            }).ToImmutableArray();
-            long selected = items.Where(static item => item.Current is not null).Sum(static item =>
-                (long)JsonSerializer.SerializeToUtf8Bytes(item.Current!, HPDBaseJsonSerializerContext.Default.RecordEnvelope).Length);
+                overlay[item.RecordId.Value] = item.RequestedKind == BaseRecordMutationKind.Delete ? null : new RecordEnvelope
+                {
+                    CollectionId = item.Collection.Id, Id = item.RecordId,
+                    Payload = RecordCloneHelpers.ClonePayload(next!), Metadata = current?.Metadata ?? new RecordMetadata(),
+                };
+            }
+            ImmutableArray<BaseCapturedMutationItem> items = itemBuilder.MoveToImmutable();
+            var intervalBuilder = ImmutableArray.CreateBuilder<BaseAtomicReadIntervalEvidence>();
+            using var digest = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+            digest.AppendData(Encoding.UTF8.GetBytes(intent.IntentDigest));
+            long selected = 0;
+            foreach (BaseCapturedMutationItem item in items)
+            {
+                if (item.Current is not null)
+                {
+                    byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(item.Current, HPDBaseJsonSerializerContext.Default.RecordEnvelope);
+                    digest.AppendData(bytes); selected += bytes.LongLength;
+                }
+                byte[] recordKey = Encoding.UTF8.GetBytes(item.RecordId.Value);
+                digest.AppendData(recordKey);
+                foreach (BaseCapturedRelationTarget relation in item.RelationTargets)
+                {
+                    if (relation.Current is not null)
+                    {
+                        byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(relation.Current, HPDBaseJsonSerializerContext.Default.RecordEnvelope);
+                        digest.AppendData(bytes); selected += bytes.LongLength;
+                    }
+                    intervalBuilder.Add(Interval($"collection:{relation.TargetCollectionId}:record", relation.TargetRecordId));
+                }
+                intervalBuilder.Add(Interval($"collection:{item.CollectionId}:record", item.RecordId));
+            }
+            ImmutableArray<BaseAtomicReadIntervalEvidence> intervals = intervalBuilder.ToImmutable();
             long evidence = BaseSubjectCanonicalRetainedWork.MeasureIntervals(intervals);
             _captured = new BaseCapturedAtomicMutationAuthority
             {
                 Kind = request.Kind,
                 IntentDigest = intent.IntentDigest,
-                CaptureDigest = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(intent.IntentDigest))),
+                CaptureDigest = Convert.ToHexStringLower(digest.GetHashAndReset()),
                 Authority = new BaseAtomicMutationAuthorityEvidence
                 {
                     ApplicationId = intent.Authority.ApplicationId,
@@ -363,8 +414,8 @@ internal class FakeRecordStore : IAtomicRecordStore
                 ReadIntervals = intervals,
                 Accounting = new BaseAtomicCaptureAccounting
                 {
-                    Records = items.Length,
-                    RelationTargetReads = 0, GenerationReads = 0,
+                    Records = checked(items.Length + items.Sum(static item => item.RelationTargets.Length)),
+                    RelationTargetReads = items.Sum(static item => item.RelationTargets.Length), GenerationReads = 0,
                     SelectedBytes = selected,
                     RelationTargetBytes = 0, GenerationBytes = 0,
                     ReadIntervals = intervals.Length,
@@ -373,6 +424,16 @@ internal class FakeRecordStore : IAtomicRecordStore
                 },
             };
             return ValueTask.FromResult(OperationResults.Ok(_captured));
+
+            static BaseAtomicReadIntervalEvidence Interval(string path, RecordId id)
+            {
+                ImmutableArray<byte> key = Encoding.UTF8.GetBytes(id.Value).ToImmutableArray();
+                return new BaseAtomicReadIntervalEvidence
+                {
+                    LogicalAccessPathId = path, CanonicalLowerBound = key, LowerInclusive = true,
+                    CanonicalUpperBound = key, UpperInclusive = true,
+                };
+            }
         }
 
         public ValueTask<OperationResult<BasePreparedAtomicMutation>> PrepareAtomicMutationAsync(

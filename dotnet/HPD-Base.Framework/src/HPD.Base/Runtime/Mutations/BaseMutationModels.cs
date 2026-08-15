@@ -1,6 +1,10 @@
 
 namespace HPD.Base;
 
+internal sealed record BaseFinalizedRecordMutationPlan(
+    System.Collections.Immutable.ImmutableArray<BaseAtomicMutationPlanItem> Items,
+    System.Collections.Immutable.ImmutableArray<BaseSubjectReferenceValidationPlanItem> SubjectValidations);
+
 internal sealed record BaseMutationCommand
 {
     /// <summary>Gets or sets the index.</summary>

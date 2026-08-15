@@ -219,64 +219,11 @@ internal sealed class DefaultBaseMutationProcessor(
         bool capturedValid = ValidateCaptured(intent, capturedEvidence, executionLimits);
         if (!capturedValid)
             return Failed(Error(BaseSubjectErrorCodes.ProviderContractInvalid, "The provider authority capture was invalid.", ErrorCategory.Store));
-        _captured = capturedEvidence.Items.ToDictionary(static item => item.Ordinal);
-
-        var planItems = ImmutableArray.CreateBuilder<BaseAtomicMutationPlanItem>(commands.Length);
-        var finalRecords = new Dictionary<(string Collection, string Record), RecordEnvelope?>();
-        for (int ordinal = 0; ordinal < commands.Length; ordinal++)
-        {
-            BaseMutationCommand command = commands[ordinal];
-            cancellationToken.ThrowIfCancellationRequested();
-            BaseCapturedMutationItem capturedItem = _captured[ordinal];
-            var key = (command.CollectionId, TargetId(command).Value);
-            RecordEnvelope? current = finalRecords.TryGetValue(key, out RecordEnvelope? overlayCurrent)
-                ? overlayCurrent
-                : capturedItem.Current;
-            OperationResult<BaseAtomicMutationPlanItem> finalized = await FinalizeCommandAsync(
-                command,
-                ordinal,
-                current,
-                planItems.ToImmutable(),
-                cancellationToken).ConfigureAwait(false);
-            if (!finalized.IsSuccess() || finalized.Value is null)
-            {
-                _attempts.Add(Failure(
-                    command,
-                    finalized.Status,
-                    finalized.Error ?? Error("base.runtime.batch.itemInvalid", "A batch item failed.", ErrorCategory.Unexpected)));
-                return Failed(finalized.Error ?? Error("base.runtime.batch.itemInvalid", "A batch item failed.", ErrorCategory.Unexpected));
-            }
-            planItems.Add(finalized.Value);
-            _attempts.Add(new BaseMutationAttempt
-            {
-                Command = command,
-                Status = finalized.Value.Kind switch
-                {
-                    BaseCommittedRecordMutationKind.Create => OperationStatus.Created,
-                    BaseCommittedRecordMutationKind.Delete => OperationStatus.Deleted,
-                    _ => OperationStatus.Updated,
-                },
-                Policy = _finalizedPolicies[ordinal],
-            });
-            finalRecords[key] = finalized.Value.Kind == BaseCommittedRecordMutationKind.Delete
-                ? null
-                : new RecordEnvelope
-                {
-                    CollectionId = command.CollectionId,
-                    Id = finalized.Value.RecordId,
-                    Payload = RecordCloneHelpers.ClonePayload(finalized.Value.ProposedPayload!),
-                    Metadata = current?.Metadata ?? new RecordMetadata(),
-                };
-        }
-
-        ImmutableArray<BaseAtomicMutationPlanItem> finalizedItems = planItems.MoveToImmutable();
-        OperationResult<(ImmutableArray<BaseAtomicMutationPlanItem> Items, ImmutableArray<BaseSubjectReferenceValidationPlanItem> Validations)> subjectPlan =
-            BuildSubjectPlan(finalizedItems);
-        if (!subjectPlan.IsSuccess() || subjectPlan.Value == default)
-            return Failed(subjectPlan.Error ?? Error(BaseSubjectErrorCodes.ContractInvalid, "The subject contract is invalid.", ErrorCategory.Validation));
-        if (!ValidateSubjectContractLimits(subjectPlan.Value.Items, subjectPlan.Value.Validations))
-            return Failed(Error(BaseSubjectErrorCodes.BudgetExceeded, "The subject validation budget was exceeded.", ErrorCategory.Validation));
-        finalizedItems = subjectPlan.Value.Items;
+        OperationResult<BaseFinalizedRecordMutationPlan> finalizedPlan = await FinalizeCapturedCommandsAsync(
+            capturedEvidence.Items.ToDictionary(static item => item.Ordinal), cancellationToken).ConfigureAwait(false);
+        if (!finalizedPlan.IsSuccess() || finalizedPlan.Value is null)
+            return Failed(finalizedPlan.Error ?? Error("base.runtime.batch.itemInvalid", "A batch item failed.", ErrorCategory.Unexpected));
+        ImmutableArray<BaseAtomicMutationPlanItem> finalizedItems = finalizedPlan.Value.Items;
         var plan = new BaseAtomicMutationPlan
         {
             Kind = BaseAtomicMutationExecutionKind.RecordMutations,
@@ -284,9 +231,9 @@ internal sealed class DefaultBaseMutationProcessor(
             CaptureDigest = capturedEvidence.CaptureDigest,
             Authority = authority with { },
             Items = finalizedItems,
-            SubjectValidations = subjectPlan.Value.Validations,
+            SubjectValidations = finalizedPlan.Value.SubjectValidations,
             Limits = executionLimits with { },
-            PlanDigest = ComputePlanDigest(intent.IntentDigest, capturedEvidence.CaptureDigest, finalizedItems, subjectPlan.Value.Validations),
+            PlanDigest = ComputePlanDigest(intent.IntentDigest, capturedEvidence.CaptureDigest, finalizedItems, finalizedPlan.Value.SubjectValidations),
         };
         BaseAtomicMutationPlan retainedPlan = BaseAtomicMutationOwnership.FreezePlan(plan);
         BaseAtomicMutationPlan providerPlan = BaseAtomicMutationOwnership.FreezePlan(retainedPlan);
@@ -396,6 +343,67 @@ internal sealed class DefaultBaseMutationProcessor(
         }).ToImmutableArray(),
         Accounting = value.Accounting with { },
     };
+
+    internal async ValueTask<OperationResult<BaseFinalizedRecordMutationPlan>> FinalizeCapturedCommandsAsync(
+        IReadOnlyDictionary<int, BaseCapturedMutationItem> capturedItems,
+        CancellationToken cancellationToken)
+    {
+        _deadline = Stopwatch.GetTimestamp() + (long)(executionLimits.Deadlines.TransactionTimeout.TotalSeconds * Stopwatch.Frequency);
+        _captured = capturedItems;
+        var planItems = ImmutableArray.CreateBuilder<BaseAtomicMutationPlanItem>(commands.Length);
+        var finalRecords = new Dictionary<(string Collection, string Record), RecordEnvelope?>();
+        for (int ordinal = 0; ordinal < commands.Length; ordinal++)
+        {
+            BaseMutationCommand command = commands[ordinal];
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!_captured.TryGetValue(ordinal, out BaseCapturedMutationItem? capturedItem))
+                return OperationResults.ValidationFailed<BaseFinalizedRecordMutationPlan>(
+                    Error(BaseSubjectErrorCodes.ProviderContractInvalid, "The provider authority capture was invalid.", ErrorCategory.Store));
+            var key = (command.CollectionId, TargetId(command).Value);
+            RecordEnvelope? current = finalRecords.TryGetValue(key, out RecordEnvelope? overlayCurrent)
+                ? overlayCurrent
+                : capturedItem.Current;
+            OperationResult<BaseAtomicMutationPlanItem> finalized = await FinalizeCommandAsync(
+                command, ordinal, current, planItems.ToImmutable(), cancellationToken).ConfigureAwait(false);
+            if (!finalized.IsSuccess() || finalized.Value is null)
+            {
+                _attempts.Add(Failure(command, finalized.Status,
+                    finalized.Error ?? Error("base.runtime.batch.itemInvalid", "A batch item failed.", ErrorCategory.Unexpected)));
+                return new OperationResult<BaseFinalizedRecordMutationPlan> { Status = finalized.Status, Error = finalized.Error };
+            }
+            planItems.Add(finalized.Value);
+            _attempts.Add(new BaseMutationAttempt
+            {
+                Command = command,
+                Status = finalized.Value.Kind switch
+                {
+                    BaseCommittedRecordMutationKind.Create => OperationStatus.Created,
+                    BaseCommittedRecordMutationKind.Delete => OperationStatus.Deleted,
+                    _ => OperationStatus.Updated,
+                },
+                Policy = _finalizedPolicies[ordinal],
+            });
+            finalRecords[key] = finalized.Value.Kind == BaseCommittedRecordMutationKind.Delete
+                ? null
+                : new RecordEnvelope
+                {
+                    CollectionId = command.CollectionId,
+                    Id = finalized.Value.RecordId,
+                    Payload = RecordCloneHelpers.ClonePayload(finalized.Value.ProposedPayload!),
+                    Metadata = current?.Metadata ?? new RecordMetadata(),
+                };
+        }
+        ImmutableArray<BaseAtomicMutationPlanItem> items = planItems.MoveToImmutable();
+        OperationResult<(ImmutableArray<BaseAtomicMutationPlanItem> Items, ImmutableArray<BaseSubjectReferenceValidationPlanItem> Validations)> subjectsResult = BuildSubjectPlan(items);
+        if (!subjectsResult.IsSuccess() || subjectsResult.Value == default)
+            return new OperationResult<BaseFinalizedRecordMutationPlan> { Status = subjectsResult.Status, Error = subjectsResult.Error };
+        if (!ValidateSubjectContractLimits(subjectsResult.Value.Items, subjectsResult.Value.Validations))
+            return OperationResults.ValidationFailed<BaseFinalizedRecordMutationPlan>(
+                Error(BaseSubjectErrorCodes.BudgetExceeded, "The subject validation budget was exceeded.", ErrorCategory.Validation));
+        return OperationResults.Ok(new BaseFinalizedRecordMutationPlan(
+            subjectsResult.Value.Items,
+            subjectsResult.Value.Validations));
+    }
 
     private async ValueTask<OperationResult<BaseAtomicMutationPlanItem>> FinalizeCommandAsync(
         BaseMutationCommand command,
@@ -750,7 +758,7 @@ internal sealed class DefaultBaseMutationProcessor(
         catch { return false; }
     }
 
-    private static string ComputePlanDigest(
+    internal static string ComputePlanDigest(
         string intentDigest,
         string captureDigest,
         ImmutableArray<BaseAtomicMutationPlanItem> items,
