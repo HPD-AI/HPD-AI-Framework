@@ -1,4 +1,4 @@
-# source-contract-sha256=985cc5d3f6f5101d8dd43c8de94beda050e26e8be43e9c680cc2f8b0ee4565b7
+# source-contract-sha256=751de62504018a277eec7ecd25fb24a972121f24760579f908070e438e954885
 # source-registry-sha256=61630b3b2f890add5146b6c80611316cdf0dba012547fd76dbce02ab155a58da
 # generated input; section rows are canonical and ordered
 @IdFamilies
@@ -1392,7 +1392,7 @@ HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|RuntimeGenerationChangedV1
 HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|SemanticAcceptanceBoundV1
 HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|SemanticInputAcceptanceCommandV1
 HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|SemanticInputAcceptedV1
-HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|SemanticInputAcceptedV1
+HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|SemanticInputAcceptedOuterV1
 HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|SemanticReservationCreatedV1
 HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|SessionAuthorityStampV1
 HPD-Agent|HPD.Agent.Generated.AuthorityJsonContextV1|SessionLifecycleCommandV1
@@ -1426,17 +1426,17 @@ HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|CustodianR
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|DeliveryOrExportAdmittedV1
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|GlobalParticipantPageV1
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|GraphGenerationChangedV1
-HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|GraphGenerationChangedV1
+HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|GraphGenerationChangedOuterV1
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|GraphGenerationInitializedV1
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|GraphMutationCommandV1
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|GraphReplacementCommandV1
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|GraphReplacementFactV1
-HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|GraphReplacementFactV1
+HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|GraphReplacementOwnerPayloadV1
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|GraphReplacementSnapshotV1
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|GraphRuntimeCommandV1
-HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|GraphRuntimeCommandV1
+HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|GraphRuntimeOwnerPayloadV1
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|GraphRuntimeFactV1
-HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|GraphRuntimeFactV1
+HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|GraphRuntimeOwnerPayloadV1
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|GraphRuntimeSnapshotV1
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|GraphTopologyInstalledFactV1
 HPD-Agent.Audio|HPD.Agent.Audio.Generated.AudioAuthorityJsonContextV1|GraphTopologyInstalledV1
@@ -1678,7 +1678,7 @@ hpd.graph-media-work-authority.v1|1.0|DeterministicCborV1:hpd.graph-media-work-a
 hpd.authority-owner-payload.v1|1|SessionLifecycleCommand|hpd.authority-payload-session-lifecycle-command.v1|SessionLifecycleCommandV1|S1
 hpd.authority-owner-payload.v1|2|SessionLifecycleFact|hpd.authority-payload-session-lifecycle-fact.v1|SessionLifecycleFactV1|S1
 hpd.authority-owner-payload.v1|3|GraphMutationCommand|hpd.authority-payload-graph-mutation-command.v1|GraphMutationCommandV1|S2
-hpd.authority-owner-payload.v1|4|GraphGenerationChanged|hpd.authority-payload-graph-generation-changed.v1|GraphGenerationChangedV1|S2
+hpd.authority-owner-payload.v1|4|GraphGenerationChanged|hpd.authority-payload-graph-generation-changed.v1|GraphGenerationChangedOuterV1|S2
 hpd.authority-owner-payload.v1|5|CapacityReservationCommand|hpd.authority-payload-capacity-reservation-command.v1|CapacityReservationCommandV1|S2
 hpd.authority-owner-payload.v1|6|CapacitySettlementFact|hpd.authority-payload-capacity-settlement-fact.v1|CapacitySettlementFactV1|S2
 hpd.authority-owner-payload.v1|7|VadObservation|hpd.authority-payload-vad-observation.v1|VadObservationV1|S3
@@ -1686,7 +1686,7 @@ hpd.authority-owner-payload.v1|8|ActivityBoundaryFact|hpd.authority-payload-acti
 hpd.authority-owner-payload.v1|9|SemanticCandidate|hpd.authority-payload-semantic-candidate.v1|SemanticCandidateV1|S4
 hpd.authority-owner-payload.v1|10|TurnDecisionFinalized|hpd.authority-payload-turn-decision-finalized.v1|TurnDecisionFinalizedOuterV1|S4
 hpd.authority-owner-payload.v1|11|SemanticInputAcceptanceCommand|hpd.authority-payload-semantic-input-acceptance-command.v1|SemanticInputAcceptanceCommandV1|S1
-hpd.authority-owner-payload.v1|12|SemanticInputAccepted|hpd.authority-payload-semantic-input-accepted.v1|SemanticInputAcceptedV1|S1
+hpd.authority-owner-payload.v1|12|SemanticInputAccepted|hpd.authority-payload-semantic-input-accepted.v1|SemanticInputAcceptedOuterV1|S1
 hpd.authority-owner-payload.v1|13|ProviderEffectCommand|hpd.authority-payload-provider-effect-command.v1|ProviderEffectCommandV1|S5
 hpd.authority-owner-payload.v1|14|ProviderEffectReceipt|hpd.authority-payload-provider-effect-receipt.v1|ProviderEffectReceiptV1|S5
 hpd.authority-owner-payload.v1|15|ProviderGenerationChanged|hpd.authority-payload-provider-generation-changed.v1|ProviderGenerationChangedOuterV1|S5
@@ -1709,9 +1709,9 @@ hpd.authority-owner-payload.v1|31|TransportAdapterCommand|hpd.authority-payload-
 hpd.authority-owner-payload.v1|32|TransportAdapterReceipt|hpd.authority-payload-transport-adapter-receipt.v1|TransportAdapterReceiptV1|S11
 hpd.authority-owner-payload.v1|33|TransportGenerationChanged|hpd.authority-payload-transport-generation-changed.v1|TransportGenerationChangedOuterV1|S11
 hpd.authority-owner-payload.v1|34|GraphTopologyInstalledFact|hpd.authority-payload-graph-topology-installed-fact.v1|GraphTopologyInstalledFactV1|S2
-hpd.authority-owner-payload.v1|35|GraphReplacementFact|hpd.authority-payload-graph-replacement-fact.v1|GraphReplacementFactV1|S2
-hpd.authority-owner-payload.v1|36|GraphRuntimeCommand|hpd.authority-payload-graph-runtime-command.v1|GraphRuntimeCommandV1|S2
-hpd.authority-owner-payload.v1|37|GraphRuntimeFact|hpd.authority-payload-graph-runtime-fact.v1|GraphRuntimeFactV1|S2
+hpd.authority-owner-payload.v1|35|GraphReplacementFact|hpd.authority-payload-graph-replacement-fact.v1|GraphReplacementOwnerPayloadV1|S2
+hpd.authority-owner-payload.v1|36|GraphRuntimeCommand|hpd.authority-payload-graph-runtime-command.v1|GraphRuntimeOwnerPayloadV1|S2
+hpd.authority-owner-payload.v1|37|GraphRuntimeFact|hpd.authority-payload-graph-runtime-fact.v1|GraphRuntimeOwnerPayloadV1|S2
 hpd.authority-owner-payload.v1|38|GraphParticipantReservationCommand|hpd.authority-payload-graph-participant-reservation-command.v1|GraphParticipantReservationCommandV1|S1
 hpd.authority-owner-payload.v1|39|GraphParticipantReservationFact|hpd.authority-payload-graph-participant-reservation-fact.v1|GraphParticipantReservationFactV1|S1
 hpd.authority-owner-payload.v1|40|GraphParticipantBindingCommand|hpd.authority-payload-graph-participant-binding-command.v1|GraphParticipantBindingCommandV1|S1

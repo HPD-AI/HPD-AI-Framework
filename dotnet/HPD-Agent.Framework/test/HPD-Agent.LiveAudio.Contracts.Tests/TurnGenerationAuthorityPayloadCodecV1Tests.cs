@@ -45,27 +45,32 @@ public sealed class TurnGenerationAuthorityPayloadCodecV1Tests
         var (session, authority) = Authority();
         byte[] source = [1, 2, 3, 4];
         var turn = new TurnDecisionFinalizedOuterV1(session, authority, source);
+        var graph = new GraphGenerationChangedOuterV1(session, authority, source);
         var provider = new ProviderGenerationChangedOuterV1(session, authority, source);
         var route = new RouteGenerationChangedOuterV1(session, authority, source);
         var transport = new TransportGenerationChangedOuterV1(session, authority, source);
         source[0] = 99;
 
         var turnBytes = TurnGenerationAuthorityOuterCodecV1.Encode(turn);
+        var graphBytes = TurnGenerationAuthorityOuterCodecV1.Encode(graph);
         var providerBytes = TurnGenerationAuthorityOuterCodecV1.Encode(provider);
         var routeBytes = TurnGenerationAuthorityOuterCodecV1.Encode(route);
         var transportBytes = TurnGenerationAuthorityOuterCodecV1.Encode(transport);
         Assert.True(TurnGenerationAuthorityOuterCodecV1.TryDecodeTurn(turnBytes, out var decodedTurn));
+        Assert.True(TurnGenerationAuthorityOuterCodecV1.TryDecodeGraph(graphBytes, out var decodedGraph));
         Assert.True(TurnGenerationAuthorityOuterCodecV1.TryDecodeProvider(providerBytes, out var decodedProvider));
         Assert.True(TurnGenerationAuthorityOuterCodecV1.TryDecodeRoute(routeBytes, out var decodedRoute));
         Assert.True(TurnGenerationAuthorityOuterCodecV1.TryDecodeTransport(transportBytes, out var decodedTransport));
         Assert.Equal(new byte[] { 1, 2, 3, 4 }, decodedTurn!.Body);
         Assert.Equal(turnBytes, TurnGenerationAuthorityOuterCodecV1.Encode(decodedTurn));
+        Assert.Equal(graphBytes, TurnGenerationAuthorityOuterCodecV1.Encode(decodedGraph!));
         Assert.Equal(providerBytes, TurnGenerationAuthorityOuterCodecV1.Encode(decodedProvider!));
         Assert.Equal(routeBytes, TurnGenerationAuthorityOuterCodecV1.Encode(decodedRoute!));
         Assert.Equal(transportBytes, TurnGenerationAuthorityOuterCodecV1.Encode(decodedTransport!));
-        Assert.Equal(4, new[]
+        Assert.Equal(5, new[]
         {
             TurnGenerationAuthorityOuterCodecV1.ComputeHash(turn),
+            TurnGenerationAuthorityOuterCodecV1.ComputeHash(graph),
             TurnGenerationAuthorityOuterCodecV1.ComputeHash(provider),
             TurnGenerationAuthorityOuterCodecV1.ComputeHash(route),
             TurnGenerationAuthorityOuterCodecV1.ComputeHash(transport)
@@ -101,11 +106,13 @@ public sealed class TurnGenerationAuthorityPayloadCodecV1Tests
         var other = new SessionAuthorityStampV1(RuntimeGenerationId.FromValue(Id(10)), LiveSessionId.FromValue(Id(11)));
         var values = new (ushort Discriminator, AuthorityPayloadRegistrationV1 Registration, byte[] Payload, OwnerSliceId Owner)[]
         {
+            (4, TurnGenerationAuthorityPayloadRegistrationsV1.GraphGenerationChanged, TurnGenerationAuthorityOuterCodecV1.Encode(new GraphGenerationChangedOuterV1(session, authority, [])), OwnerSliceId.S2),
             (10, TurnGenerationAuthorityPayloadRegistrationsV1.TurnDecisionFinalized, TurnGenerationAuthorityOuterCodecV1.Encode(new TurnDecisionFinalizedOuterV1(session, authority, [])), OwnerSliceId.S4),
             (15, TurnGenerationAuthorityPayloadRegistrationsV1.ProviderGenerationChanged, TurnGenerationAuthorityOuterCodecV1.Encode(new ProviderGenerationChangedOuterV1(session, authority, [])), OwnerSliceId.S5),
             (24, TurnGenerationAuthorityPayloadRegistrationsV1.RouteGenerationChanged, TurnGenerationAuthorityOuterCodecV1.Encode(new RouteGenerationChangedOuterV1(session, authority, [])), OwnerSliceId.S8),
             (33, TurnGenerationAuthorityPayloadRegistrationsV1.TransportGenerationChanged, TurnGenerationAuthorityOuterCodecV1.Encode(new TransportGenerationChangedOuterV1(session, authority, [])), OwnerSliceId.S11)
         };
+        Assert.Equal((ushort)4, TurnGenerationAuthorityPayloadRegistrationsV1.GraphGenerationChangedDiscriminator);
         Assert.Equal((ushort)10, TurnGenerationAuthorityPayloadRegistrationsV1.TurnDecisionFinalizedDiscriminator);
         Assert.Equal((ushort)15, TurnGenerationAuthorityPayloadRegistrationsV1.ProviderGenerationChangedDiscriminator);
         Assert.Equal((ushort)24, TurnGenerationAuthorityPayloadRegistrationsV1.RouteGenerationChangedDiscriminator);

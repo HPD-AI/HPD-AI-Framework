@@ -76,6 +76,8 @@ internal abstract class TurnGenerationAuthorityOuterV1
 
 internal sealed class TurnDecisionFinalizedOuterV1(SessionAuthorityStampV1 session, ExpectedAuthorityVectorV1 expectedAuthority, ReadOnlySpan<byte> body)
     : TurnGenerationAuthorityOuterV1(session, expectedAuthority, body);
+internal sealed class GraphGenerationChangedOuterV1(SessionAuthorityStampV1 session, ExpectedAuthorityVectorV1 expectedAuthority, ReadOnlySpan<byte> body)
+    : TurnGenerationAuthorityOuterV1(session, expectedAuthority, body);
 internal sealed class ProviderGenerationChangedOuterV1(SessionAuthorityStampV1 session, ExpectedAuthorityVectorV1 expectedAuthority, ReadOnlySpan<byte> body)
     : TurnGenerationAuthorityOuterV1(session, expectedAuthority, body);
 internal sealed class RouteGenerationChangedOuterV1(SessionAuthorityStampV1 session, ExpectedAuthorityVectorV1 expectedAuthority, ReadOnlySpan<byte> body)
@@ -85,10 +87,13 @@ internal sealed class TransportGenerationChangedOuterV1(SessionAuthorityStampV1 
 
 internal static class TurnGenerationAuthorityPayloadRegistrationsV1
 {
+    internal const ushort GraphGenerationChangedDiscriminator = 4;
     internal const ushort TurnDecisionFinalizedDiscriminator = 10;
     internal const ushort ProviderGenerationChangedDiscriminator = 15;
     internal const ushort RouteGenerationChangedDiscriminator = 24;
     internal const ushort TransportGenerationChangedDiscriminator = 33;
+    internal static readonly AuthorityPayloadRegistrationV1 GraphGenerationChanged = Register(TurnGenerationAuthorityOuterCodecV1.GraphOuterSchemaId, OwnerSliceId.S2,
+        static (p, s) => TurnGenerationAuthorityOuterCodecV1.TryDecodeGraph(p, out var v) && v!.Session == s);
     internal static readonly AuthorityPayloadRegistrationV1 TurnDecisionFinalized = Register(TurnGenerationAuthorityOuterCodecV1.TurnOuterSchemaId, OwnerSliceId.S4,
         static (p, s) => TurnGenerationAuthorityOuterCodecV1.TryDecodeTurn(p, out var v) && v!.Session == s);
     internal static readonly AuthorityPayloadRegistrationV1 ProviderGenerationChanged = Register(TurnGenerationAuthorityOuterCodecV1.ProviderOuterSchemaId, OwnerSliceId.S5,
@@ -105,19 +110,23 @@ internal static class TurnGenerationAuthorityOuterCodecV1
 {
     private delegate T Factory<out T>(SessionAuthorityStampV1 session, ExpectedAuthorityVectorV1 authority, ReadOnlySpan<byte> body) where T : TurnGenerationAuthorityOuterV1;
     internal const string TurnOuterSchemaId = "hpd.authority-payload-turn-decision-finalized.v1";
+    internal const string GraphOuterSchemaId = "hpd.authority-payload-graph-generation-changed.v1";
     internal const string ProviderOuterSchemaId = "hpd.authority-payload-provider-generation-changed.v1";
     internal const string RouteOuterSchemaId = "hpd.authority-payload-route-generation-changed.v1";
     internal const string TransportOuterSchemaId = "hpd.authority-payload-transport-generation-changed.v1";
     internal const int MaximumBodyBytes = 65_536, MaximumEncodedBytes = 66_560;
     internal static byte[] Encode(TurnDecisionFinalizedOuterV1 value) => EncodeValue(value);
+    internal static byte[] Encode(GraphGenerationChangedOuterV1 value) => EncodeValue(value);
     internal static byte[] Encode(ProviderGenerationChangedOuterV1 value) => EncodeValue(value);
     internal static byte[] Encode(RouteGenerationChangedOuterV1 value) => EncodeValue(value);
     internal static byte[] Encode(TransportGenerationChangedOuterV1 value) => EncodeValue(value);
     internal static bool TryDecodeTurn(ReadOnlyMemory<byte> e, out TurnDecisionFinalizedOuterV1? v) => TryDecode(e, static (s, a, b) => new(s, a, b), out v);
+    internal static bool TryDecodeGraph(ReadOnlyMemory<byte> e, out GraphGenerationChangedOuterV1? v) => TryDecode(e, static (s, a, b) => new(s, a, b), out v);
     internal static bool TryDecodeProvider(ReadOnlyMemory<byte> e, out ProviderGenerationChangedOuterV1? v) => TryDecode(e, static (s, a, b) => new(s, a, b), out v);
     internal static bool TryDecodeRoute(ReadOnlyMemory<byte> e, out RouteGenerationChangedOuterV1? v) => TryDecode(e, static (s, a, b) => new(s, a, b), out v);
     internal static bool TryDecodeTransport(ReadOnlyMemory<byte> e, out TransportGenerationChangedOuterV1? v) => TryDecode(e, static (s, a, b) => new(s, a, b), out v);
     internal static Hash256 ComputeHash(TurnDecisionFinalizedOuterV1 v) => Hash(TurnOuterSchemaId, v);
+    internal static Hash256 ComputeHash(GraphGenerationChangedOuterV1 v) => Hash(GraphOuterSchemaId, v);
     internal static Hash256 ComputeHash(ProviderGenerationChangedOuterV1 v) => Hash(ProviderOuterSchemaId, v);
     internal static Hash256 ComputeHash(RouteGenerationChangedOuterV1 v) => Hash(RouteOuterSchemaId, v);
     internal static Hash256 ComputeHash(TransportGenerationChangedOuterV1 v) => Hash(TransportOuterSchemaId, v);
