@@ -142,8 +142,10 @@ internal static class LiveAudioSessionFailureConvergenceV1
             SessionLifecycleAdmissionResultV1.AlreadyCommitted existing => (existing.Result, true),
             _ => default,
         };
-        if (pair.Item1 is null || !TryValidateResult(pair.Item1, body, stage, out var safeCode))
-            return StageResult.Stop(Reject(stage, safeCode, pair.Item1?.Position.Sequence ?? predecessor.Sequence));
+        if (pair.Item1 is null)
+            return StageResult.Stop(Reject(stage, new BoundedAscii("lifecycle-result-invalid"), predecessor.Sequence));
+        if (!TryValidateResult(pair.Item1, body, stage, out var safeCode))
+            return StageResult.Stop(Reject(stage, safeCode, pair.Item1.Position.Sequence));
         return new StageResult(pair.Item1.Position, pair.Item2, null);
     }
 

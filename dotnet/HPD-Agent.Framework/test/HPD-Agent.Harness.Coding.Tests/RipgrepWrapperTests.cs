@@ -1183,7 +1183,7 @@ public sealed class RipgrepWrapperTests
         => new()
         {
             Pattern = "TODO",
-            WorkingDirectory = Directory.GetCurrentDirectory()
+            WorkingDirectory = AppContext.BaseDirectory
         };
 
     private static async Task<IReadOnlyList<RipgrepEvent>> CollectAsync(IAsyncEnumerable<RipgrepEvent> events)

@@ -19,9 +19,13 @@ public class TestWebApplicationFactory : IDisposable
     private HttpClient? _client;
     private readonly FakeChatClient _fakeChatClient = new();
 
-    public TestWebApplicationFactory(
-        Action<IServiceCollection>? configureServices = null)
+    public TestWebApplicationFactory()
     {
+    }
+
+    internal TestWebApplicationFactory(Action<IServiceCollection> configureServices)
+    {
+        ArgumentNullException.ThrowIfNull(configureServices);
         _configureServices = configureServices;
     }
 
