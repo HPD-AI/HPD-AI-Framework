@@ -42,6 +42,7 @@ public sealed class HPDBaseBuilder
     private readonly List<BaseGeneratedSubjectRegistration> _subjectContracts = [];
     private readonly Dictionary<string, BaseModuleGenerationCellDefinition> _moduleGenerationCells = new(StringComparer.Ordinal);
     private readonly Dictionary<(string Id, int Version), BaseRegisteredModuleMutationDefinition> _moduleMutations = [];
+    private readonly Dictionary<(string Id, int Version), IBaseModuleMutationRegistration> _moduleMutationRegistrations = [];
     private readonly List<BaseSubjectAcquisitionDefinition> _subjectAcquisitions = [];
     private HPDBaseSelectionMutationOptions? _selectionOptions;
     private HPDBaseStoreProvider? _storeProvider;
@@ -302,6 +303,8 @@ public sealed class HPDBaseBuilder
             || !definition.Checksum.ToArray().AsSpan().SequenceEqual(identity.Checksum))
             throw new InvalidOperationException("base.moduleMutation.invalid");
         AddModuleMutation(definition);
+        if (!_moduleMutationRegistrations.TryAdd((definition.Id, definition.Version), new BaseModuleMutationRegistration<TRequest, TResult>(definition, identity)))
+            throw new InvalidOperationException("base.moduleMutation.invalid");
         _serializerMetadata.Add(identity);
         return this;
     }
@@ -438,7 +441,7 @@ public sealed class HPDBaseBuilder
         CollectionDefinition[] collections = _collections.Values.ToArray();
         foreach (BaseRegisteredModuleMutationDefinition definition in _moduleMutations.Values)
             BaseModuleMutationContractValidator.ValidateDefinition(definition, _collections, _moduleGenerationCells);
-        var moduleMutationRegistry = new BaseModuleMutationRegistry(_moduleMutations.Values, _moduleGenerationCells.Values);
+        var moduleMutationRegistry = new BaseModuleMutationRegistry(_moduleMutations.Values, _moduleGenerationCells.Values, _moduleMutationRegistrations.Values);
         BaseSubjectContractRegistry subjectRegistry = FinalizeSubjectGraph(collections);
         foreach (BaseGeneratedSubjectRegistration subject in subjectRegistry.All)
             if (!Fits(subject.Definition, provider.SubjectReferences))

@@ -6,19 +6,79 @@ internal sealed class BaseModuleMutationRegistry
 {
     private readonly Dictionary<(string Id, int Version), BaseRegisteredModuleMutationDefinition> _operations;
     private readonly Dictionary<string, BaseModuleGenerationCellDefinition> _cells;
+    private readonly Dictionary<(string Id, int Version), IBaseModuleMutationRegistration> _registrations;
 
     internal BaseModuleMutationRegistry(
         IEnumerable<BaseRegisteredModuleMutationDefinition> operations,
-        IEnumerable<BaseModuleGenerationCellDefinition> cells)
+        IEnumerable<BaseModuleGenerationCellDefinition> cells,
+        IEnumerable<IBaseModuleMutationRegistration>? registrations = null)
     {
         _operations = operations.ToDictionary(static value => (value.Id, value.Version));
         _cells = cells.ToDictionary(static value => value.Id, StringComparer.Ordinal);
+        _registrations = (registrations ?? []).ToDictionary(static value => (value.Id, value.Version));
     }
 
     internal BaseRegisteredModuleMutationDefinition? Find(string id, int version) => _operations.GetValueOrDefault((id, version));
     internal BaseModuleGenerationCellDefinition? FindCell(string id) => _cells.GetValueOrDefault(id);
     internal IReadOnlyCollection<BaseRegisteredModuleMutationDefinition> Operations => _operations.Values;
     internal IReadOnlyCollection<BaseModuleGenerationCellDefinition> Cells => _cells.Values;
+    internal IBaseModuleMutationRegistration? FindRegistration(string id, int version) => _registrations.GetValueOrDefault((id, version));
+    internal IReadOnlyCollection<IBaseModuleMutationRegistration> Registrations => _registrations.Values;
+}
+
+internal interface IBaseModuleMutationRegistration
+{
+    string Id { get; }
+    int Version { get; }
+    BaseModuleMutationAudience Audience { get; }
+    string RequestTypeId { get; }
+    string ResultTypeId { get; }
+    ValueTask<BaseResult<BaseUntypedModuleMutationExecutionResult>> ExecuteAsync(
+        BaseSession session, ReadOnlyMemory<byte> requestJson, BaseMutationRequestIdentity identity,
+        BaseModuleMutationExecutionOptions? options, CancellationToken cancellationToken);
+}
+
+internal sealed record BaseUntypedModuleMutationExecutionResult
+{
+    internal required BaseMutationRequestDisposition Disposition { get; init; }
+    internal required BaseModuleMutationOutcome Outcome { get; init; }
+    internal required byte[] CanonicalResultJson { get; init; }
+}
+
+internal sealed class BaseModuleMutationRegistration<TRequest, TResult>(
+    BaseRegisteredModuleMutationDefinition definition,
+    BaseGeneratedModuleMutationIdentity<TRequest, TResult> identity) : IBaseModuleMutationRegistration
+{
+    public string Id => definition.Id;
+    public int Version => definition.Version;
+    public BaseModuleMutationAudience Audience => definition.Audience;
+    public string RequestTypeId => definition.RequestTypeId;
+    public string ResultTypeId => definition.ResultTypeId;
+
+    public async ValueTask<BaseResult<BaseUntypedModuleMutationExecutionResult>> ExecuteAsync(
+        BaseSession session, ReadOnlyMemory<byte> requestJson, BaseMutationRequestIdentity requestIdentity,
+        BaseModuleMutationExecutionOptions? options, CancellationToken cancellationToken)
+    {
+        TRequest? request;
+        try { request = System.Text.Json.JsonSerializer.Deserialize(requestJson.Span, identity.RequestTypeInfo); }
+        catch { return Failure(OperationStatus.ValidationFailed, BaseModuleMutationErrorCodes.Invalid, ErrorCategory.Validation); }
+        if (request is null) return Failure(OperationStatus.ValidationFailed, BaseModuleMutationErrorCodes.Invalid, ErrorCategory.Validation);
+        BaseResult<BaseModuleMutationExecutionResult<TResult>> result = await session.ModuleMutations.Get(identity)
+            .ExecuteAsync(request, requestIdentity, options, cancellationToken).ConfigureAwait(false);
+        if (result is BaseFailure<BaseModuleMutationExecutionResult<TResult>> failure)
+            return new BaseFailure<BaseUntypedModuleMutationExecutionResult>(failure.Status, failure.Error, failure.Warnings, failure.Diagnostics);
+        var success = (BaseSuccess<BaseModuleMutationExecutionResult<TResult>>)result;
+        byte[] json = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(success.Value.Result, identity.ResultTypeInfo);
+        return new BaseSuccess<BaseUntypedModuleMutationExecutionResult>(new BaseUntypedModuleMutationExecutionResult
+        {
+            Disposition = success.Value.Disposition,
+            Outcome = success.Value.Outcome,
+            CanonicalResultJson = json,
+        }, success.Status, success.Warnings, success.Revision, success.Events, success.Diagnostics);
+    }
+
+    private static BaseFailure<BaseUntypedModuleMutationExecutionResult> Failure(OperationStatus status, string code, ErrorCategory category) =>
+        new(status, new BaseError { Code = code, Message = "The module mutation request is invalid.", Category = category }, null, null);
 }
 
 /// <summary>Opaque generated identity for one typed registered module mutation.</summary>
