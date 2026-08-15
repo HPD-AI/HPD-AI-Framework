@@ -139,6 +139,79 @@ public sealed class VoiceActivityCompositionHostV1Tests
         Assert.Contains($"source:provider:ProviderNative:True:{visibility}", rejected.Support.Diagnostics);
     }
 
+    [Fact]
+    public void Provider_reconnect_advances_source_generation_without_late_callback_cross_talk()
+    {
+        var identity = Identity("provider-tenant");
+        var request = Request(VoiceActivityProfileV1.ProviderManaged,
+            Source("provider", ActivitySourceKindV1.ProviderNative, ActivitySourceRoleV1.Authoritative));
+        var candidate = Candidate("provider", ActivitySourceKindV1.ProviderNative, 0);
+        var first = Assert.IsType<VoiceActivityCompositionPreparationV1.Prepared>(
+            VoiceActivityCompositionHostV1.Start(1, 1, identity, GraphDirectionV1.IngressForward,
+                request, [candidate], new Dictionary<string, ulong> { ["provider"] = 1 })).Host;
+        Assert.IsType<VoiceActivityPromotionResultV1.Applied>(first.Apply("provider", 1,
+            VoiceActivityPromotionEdgeV1.Observation,
+            new VoiceActivitySourceOutcomeV1.NoObservation(VoiceActivityNoObservationReasonV1.ProviderNotObservable)));
+        Assert.Equal(VoiceActivityPromotionFactKindV1.Unobservable, Assert.Single(first.Facts).Kind);
+
+        var replacement = Assert.IsType<VoiceActivityCompositionPreparationV1.Prepared>(
+            VoiceActivityCompositionHostV1.Start(2, 2, identity, GraphDirectionV1.IngressForward,
+                request, [candidate], new Dictionary<string, ulong> { ["provider"] = 2 })).Host;
+        Assert.IsType<VoiceActivityPromotionResultV1.Applied>(replacement.Apply("provider", 1,
+            VoiceActivityPromotionEdgeV1.Observation, ProviderObserved(true, 1)));
+        Assert.Equal(VoiceActivityPromotionStateV1.Open, replacement.State);
+
+        Assert.IsType<VoiceActivityPromotionResultV1.Applied>(first.Apply("provider", 2,
+            VoiceActivityPromotionEdgeV1.Observation, ProviderObserved(true, 2)));
+        Assert.Single(replacement.Facts);
+        Assert.Equal(2UL, replacement.Snapshot.PlanGeneration);
+        Assert.Equal(2UL, replacement.Facts[0].PlanGeneration);
+    }
+
+    [Fact]
+    public void Explicit_transport_discontinuity_is_factual_and_recovery_does_not_synthesize_close()
+    {
+        var host = Start(Request(VoiceActivityProfileV1.HpdManaged,
+                Source("webrtc", ActivitySourceKindV1.LocalDetector, ActivitySourceRoleV1.Authoritative)),
+            [Candidate("webrtc", ActivitySourceKindV1.LocalDetector, 48_000)],
+            new Dictionary<string, ulong> { ["webrtc"] = 1 });
+        Assert.IsType<VoiceActivityPromotionResultV1.Applied>(host.Apply("webrtc", 1,
+            VoiceActivityPromotionEdgeV1.Observation, Observed(true, 1)));
+        Assert.IsType<VoiceActivityPromotionResultV1.Applied>(host.Apply("webrtc", 2,
+            VoiceActivityPromotionEdgeV1.Discontinuity, null));
+        Assert.Equal(VoiceActivityPromotionFactKindV1.Discontinuous, host.Facts[1].Kind);
+        Assert.DoesNotContain(host.Facts, static fact => fact.Kind == VoiceActivityPromotionFactKindV1.Closed);
+
+        Assert.IsType<VoiceActivityPromotionResultV1.Applied>(host.Apply("webrtc", 3,
+            VoiceActivityPromotionEdgeV1.Observation, Observed(true, 3)));
+        Assert.Equal(VoiceActivityPromotionFactKindV1.Opened, host.Facts[^1].Kind);
+    }
+
+    [Fact]
+    public void Repeated_finite_inspection_is_inert_while_live_activity_remains_open()
+    {
+        var identity = Identity("coexistence-tenant");
+        var request = Request(VoiceActivityProfileV1.HpdManaged,
+            Source("microphone", ActivitySourceKindV1.LocalDetector, ActivitySourceRoleV1.Authoritative));
+        var candidates = new[] { Candidate("microphone", ActivitySourceKindV1.LocalDetector, 16_000) };
+        var live = Assert.IsType<VoiceActivityCompositionPreparationV1.Prepared>(
+            VoiceActivityCompositionHostV1.Start(1, 1, identity, GraphDirectionV1.IngressForward,
+                request, candidates, new Dictionary<string, ulong> { ["microphone"] = 1 })).Host;
+        Assert.IsType<VoiceActivityPromotionResultV1.Applied>(live.Apply("microphone", 1,
+            VoiceActivityPromotionEdgeV1.Observation, Observed(true, 1)));
+
+        for (var index = 0; index < 100; index++)
+        {
+            var finite = VoiceActivityCompositionHostV1.InspectFinite(1, 1, identity, request, candidates);
+            Assert.Equal(VoiceActivityHealthStateV1.Ready, finite.Effective?.Health);
+            Assert.Null(finite.SafeCode);
+        }
+
+        Assert.Equal(VoiceActivityPromotionStateV1.Open, live.State);
+        Assert.Single(live.Facts);
+        Assert.Equal(VoiceActivityPromotionFactKindV1.Opened, live.Facts[0].Kind);
+    }
+
     private static VoiceActivityCompositionHostV1 Start(VoiceActivityRequestV1 request,
         IReadOnlyList<VoiceActivitySourceCandidateV1> candidates, IReadOnlyDictionary<string, ulong> generations,
         string tenant = "tenant") => Assert.IsType<VoiceActivityCompositionPreparationV1.Prepared>(
@@ -195,6 +268,17 @@ public sealed class VoiceActivityCompositionHostV1Tests
         return new VoiceActivitySourceOutcomeV1.Observed(
             calibration.HasValue ? new VoiceActivityMeasurementV1.Numeric(active ? 1 : -1) :
                 new VoiceActivityMeasurementV1.Binary(active), descriptor,
+            new VoiceActivityMediaExtentV1(Graph, (long)sequence * 1_000, ((long)sequence + 1) * 1_000, true),
+            sequence, new MonotonicStampV1(Clock, Boot, sequence),
+            new MonotonicStampV1(Clock, Boot, sequence));
+    }
+
+    private static VoiceActivitySourceOutcomeV1.Observed ProviderObserved(bool active, ulong sequence)
+    {
+        var descriptor = new VoiceActivityMeasurementDescriptorV1(
+            VoiceActivityMeasurementKindV1.ProviderOpaqueCategory, new BoundedAscii("provider-state"), -1, 1, null);
+        return new VoiceActivitySourceOutcomeV1.Observed(
+            new VoiceActivityMeasurementV1.Category(new BoundedAscii(active ? "active" : "inactive")), descriptor,
             new VoiceActivityMediaExtentV1(Graph, (long)sequence * 1_000, ((long)sequence + 1) * 1_000, true),
             sequence, new MonotonicStampV1(Clock, Boot, sequence),
             new MonotonicStampV1(Clock, Boot, sequence));
