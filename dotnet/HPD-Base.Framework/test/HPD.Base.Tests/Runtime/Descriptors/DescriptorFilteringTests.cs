@@ -22,8 +22,8 @@ public sealed class DescriptorFilteringTests
 
         var collection = Assert.Single(result.Value!.Collections!);
         Assert.Null(collection.Store);
-        Assert.DoesNotContain(collection.Fields!, field => field.Name == "secret");
-        Assert.DoesNotContain(collection.Fields!, field => field.Name == "systemId");
+        Assert.DoesNotContain(collection.Fields!, field => field.WireName == "secret");
+        Assert.DoesNotContain(collection.Fields!, field => field.WireName == "systemId");
         Assert.Null(Assert.Single(collection.Fields!).Store);
     }
 
@@ -43,8 +43,8 @@ public sealed class DescriptorFilteringTests
 
         var collection = Assert.Single(result.Value!.Collections!);
         Assert.NotNull(collection.Store);
-        Assert.Contains(collection.Fields!, field => field.Name == "secret");
-        Assert.Contains(collection.Fields!, field => field.Name == "systemId");
+        Assert.Contains(collection.Fields!, field => field.WireName == "secret");
+        Assert.Contains(collection.Fields!, field => field.WireName == "systemId");
     }
 
     [Fact]
@@ -122,14 +122,14 @@ public sealed class DescriptorFilteringTests
                     new FieldDefinition
                     {
                         Id = "title",
-                        Name = "title",
+                        ApplicationName = "title", WireName = "title",
                         Type = BaseFieldTypes.String,
                         Store = new StoreAnnotation { NativeName = "native_title" }
                     },
                     new FieldDefinition
                     {
                         Id = "secret",
-                        Name = "secret",
+                        ApplicationName = "secret", WireName = "secret",
                         Type = BaseFieldTypes.String,
                         Hidden = true,
                         Visibility = new FieldVisibilityAnnotation { Visibility = VisibilityLevel.Admin }
@@ -137,7 +137,7 @@ public sealed class DescriptorFilteringTests
                     new FieldDefinition
                     {
                         Id = "systemId",
-                        Name = "systemId",
+                        ApplicationName = "systemId", WireName = "systemId",
                         Type = BaseFieldTypes.String,
                         System = true
                     }

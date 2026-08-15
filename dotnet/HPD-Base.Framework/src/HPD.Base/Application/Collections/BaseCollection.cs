@@ -6,17 +6,21 @@ namespace HPD.Base;
 /// Represents an immutable, typed application contract for one BASE collection.
 /// </summary>
 /// <typeparam name = "T">The persisted record type.</typeparam>
-public sealed class BaseCollection<T>
+public sealed class BaseCollection<T> : IBaseSerializerMetadataSource
 {
     /// <summary>Provides _fields.</summary>
     private readonly ReadOnlyDictionary<string, object> _fields;
     /// <summary>Provides _definition.</summary>
-    private readonly CollectionDefinition _definition;
-    private BaseCollection(CollectionDefinition definition, JsonTypeInfo<T> jsonTypeInfo, IReadOnlyDictionary<string, object> fields)
+    private CollectionDefinition _definition;
+    private readonly JsonTypeInfo<T>? _jsonTypeInfo;
+    private readonly IReadOnlyList<BaseSerializerPropertyDeclaration>? _serializerDeclarations;
+    private BaseCollection(CollectionDefinition definition, JsonTypeInfo<T>? jsonTypeInfo, IReadOnlyDictionary<string, object> fields, BaseSerializerContextRegistration? registration, IReadOnlyList<BaseSerializerPropertyDeclaration>? serializerDeclarations = null)
     {
         _definition = Snapshot(definition);
-        JsonTypeInfo = jsonTypeInfo;
+        _jsonTypeInfo = jsonTypeInfo;
         _fields = new ReadOnlyDictionary<string, object>(new Dictionary<string, object>(fields, StringComparer.Ordinal));
+        Registration = registration;
+        _serializerDeclarations = serializerDeclarations;
     }
 
     /// <summary>
@@ -26,7 +30,7 @@ public sealed class BaseCollection<T>
     /// <summary>
     /// Gets the source-generated JSON contract for the persisted type.
     /// </summary>
-    public JsonTypeInfo<T> JsonTypeInfo { get; }
+    internal JsonTypeInfo<T> JsonTypeInfo => _jsonTypeInfo ?? throw new InvalidOperationException("base.schema.serializer.ownerRequired");
     /// <summary>
     /// Gets the canonical immutable collection definition.
     /// </summary>
@@ -35,6 +39,19 @@ public sealed class BaseCollection<T>
     /// Gets the immutable generated or manually declared field set used by infrastructure.
     /// </summary>
     internal IReadOnlyDictionary<string, object> Fields => _fields;
+    IReadOnlyList<JsonTypeInfo> IBaseSerializerMetadataSource.Roots => _jsonTypeInfo is null ? [] : [_jsonTypeInfo];
+    bool IBaseSerializerMetadataSource.Generated => Registration is not null;
+    BaseSerializerContextRegistration? IBaseSerializerMetadataSource.Registration => Registration;
+    IReadOnlyList<Type> IBaseSerializerMetadataSource.RootTypes => [typeof(T)];
+    IReadOnlyList<BaseSerializerPropertyDeclaration>? IBaseSerializerMetadataSource.SerializerDeclarations => _serializerDeclarations;
+    private BaseSerializerContextRegistration? Registration { get; }
+    void IBaseSerializerMetadataSource.Bind(BaseSerializerMetadataOwner owner)
+    {
+        if (Registration is null) return;
+        JsonTypeInfo<T> metadata = owner.Resolve(this);
+        _definition = _definition with { SerializerContractChecksum = SerializerChecksum(_definition, metadata, _fields, _serializerDeclarations) };
+    }
+    CollectionDefinition? IBaseSerializerMetadataSource.CollectionDefinition => Definition;
 
     /// <summary>
     /// Creates a validated manual collection contract.
@@ -43,7 +60,16 @@ public sealed class BaseCollection<T>
     /// <param name = "jsonTypeInfo">Source-generated JSON metadata for <typeparamref name = "T"/>.</param>
     /// <param name = "configure">The typed field declaration callback.</param>
     /// <returns>An immutable typed collection contract.</returns>
-    public static BaseCollection<T> Create(CollectionDefinition definition, JsonTypeInfo<T> jsonTypeInfo, Action<BaseCollectionFields<T>> configure)
+    public static BaseCollection<T> Create(CollectionDefinition definition, JsonTypeInfo<T> jsonTypeInfo, Action<BaseCollectionFields<T>> configure) =>
+        Create(definition, jsonTypeInfo, configure, null);
+
+    /// <summary>Creates a generated collection from its closed serializer declaration.</summary>
+    [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+    public static BaseCollection<T> Create(
+        CollectionDefinition definition,
+        JsonTypeInfo<T> jsonTypeInfo,
+        Action<BaseCollectionFields<T>> configure,
+        IReadOnlyList<BaseSerializerPropertyDeclaration>? serializerDeclarations)
     {
         ArgumentNullException.ThrowIfNull(definition);
         ArgumentNullException.ThrowIfNull(jsonTypeInfo);
@@ -57,17 +83,53 @@ public sealed class BaseCollection<T>
         var fields = new BaseCollectionFields<T>();
         configure(fields);
         fields.Seal();
-        return new BaseCollection<T>(definition, jsonTypeInfo, fields.Items);
+        jsonTypeInfo.Options.MakeReadOnly();
+        jsonTypeInfo.MakeReadOnly();
+        CollectionDefinition installed = definition with
+        {
+            SerializerContractChecksum = SerializerChecksum(definition, jsonTypeInfo, fields.Items, serializerDeclarations)
+        };
+        return new BaseCollection<T>(installed, jsonTypeInfo, fields.Items, null);
     }
+
+    /// <summary>Creates a generated collection from an opaque serializer registration.</summary>
+    [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+    public static BaseCollection<T> CreateGenerated(
+        CollectionDefinition definition,
+        BaseSerializerContextRegistration registration,
+        Action<BaseCollectionFields<T>> configure,
+        IReadOnlyList<BaseSerializerPropertyDeclaration> serializerDeclarations)
+    {
+        ArgumentNullException.ThrowIfNull(registration);
+        registration.AssertOwner(typeof(T));
+        var fields = new BaseCollectionFields<T>();
+        configure(fields);
+        fields.Seal();
+        CollectionDefinition installed = Snapshot(definition) with { SerializerContractChecksum = string.Empty };
+        return new BaseCollection<T>(installed, null, fields.Items, registration, serializerDeclarations);
+    }
+
+    private static string SerializerChecksum(CollectionDefinition definition, JsonTypeInfo<T> metadata, IReadOnlyDictionary<string, object> fields, IReadOnlyList<BaseSerializerPropertyDeclaration>? declarations)
+    {
+        var bindings = (definition.Fields ?? []).Select(static field => (field.Id, field.ApplicationName, field.WireName)).ToArray();
+        if (bindings.Length == 0)
+            bindings = fields.Values.Cast<IBaseFieldContract>().Select(static field => (field.Id, field.ApplicationName, field.WireName)).ToArray();
+        return BaseSerializerContract.Checksum(metadata, bindings, declarations);
+    }
+
+    internal BaseCollection<T> WithDefinition(CollectionDefinition definition) =>
+        new(definition, _jsonTypeInfo, _fields, Registration, _serializerDeclarations);
 
     /// <summary>Performs snapshot.</summary>
     private static CollectionDefinition Snapshot(CollectionDefinition definition) => definition with
     {
-        Fields = definition.Fields?.Select(static field => field with { RequiredCapabilities = field.RequiredCapabilities?.ToArray(), Extensions = field.Extensions is null ? null : new Dictionary<string, System.Text.Json.JsonElement>(field.Extensions, StringComparer.Ordinal), }).ToArray(),
+        Fields = definition.Fields?.Select(static field => field with { Disclosure = field.Disclosure is null ? null : BaseConfidentialityPolicy.Clone(field.Disclosure), RequiredCapabilities = field.RequiredCapabilities?.ToArray(), Extensions = field.Extensions is null ? null : new Dictionary<string, System.Text.Json.JsonElement>(field.Extensions, StringComparer.Ordinal), }).ToArray(),
         Indexes = definition.Indexes?.Select(static index => index with { Parts = index.Parts?.Select(static part => part with { Extensions = part.Extensions is null ? null : new Dictionary<string, System.Text.Json.JsonElement>(part.Extensions, StringComparer.Ordinal), }).ToArray(), Extensions = index.Extensions is null ? null : new Dictionary<string, System.Text.Json.JsonElement>(index.Extensions, StringComparer.Ordinal), }).ToArray(),
+        VectorIndexes = definition.VectorIndexes?.Select(static index => index with { FilterFieldIds = index.FilterFieldIds.ToArray() }).ToArray(),
         PolicyRefs = definition.PolicyRefs?.ToArray(),
         RequiredCapabilities = definition.RequiredCapabilities?.ToArray(),
         Diagnostics = definition.Diagnostics?.ToArray(),
         Extensions = definition.Extensions is null ? null : new Dictionary<string, System.Text.Json.JsonElement>(definition.Extensions, StringComparer.Ordinal),
+        StorageProtectionRequirements = definition.StorageProtectionRequirements?.Select(BaseStorageProtectionContract.Clone).ToArray(),
     };
 }

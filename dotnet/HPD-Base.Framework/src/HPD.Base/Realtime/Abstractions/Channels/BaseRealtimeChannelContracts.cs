@@ -1,5 +1,96 @@
 
+using System.Text.Json;
+
 namespace HPD.Base;
+
+/// <summary>Defines one closed realtime version 2 channel request.</summary>
+[System.Text.Json.Serialization.JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(BaseRealtimeLiveFeedRequest), "live")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(BaseRealtimeDurableFeedRequest), "durable")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(BaseRealtimeResumeFeedRequest), "resume")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(BaseRealtimeLiveQueryJoinRequest), "liveQuery")]
+public abstract record BaseRealtimeChannelRequest;
+
+/// <summary>Defines the bounded filter shared by record-feed requests.</summary>
+public sealed record BaseRealtimeRecordFeedFilter
+{
+    /// <summary>Gets an optional record identity.</summary>
+    public string? RecordId { get; init; }
+    /// <summary>Gets optional mutation-operation filters.</summary>
+    public BaseOperationKind[]? Operations { get; init; }
+    /// <summary>Gets optional event-type filters.</summary>
+    public string[]? EventTypes { get; init; }
+    /// <summary>Gets an optional authorized tenant filter.</summary>
+    public string? TenantId { get; init; }
+    /// <summary>Gets whether a resulting snapshot is requested.</summary>
+    public bool IncludeSnapshots { get; init; }
+    /// <summary>Gets whether an authorized prior snapshot is requested.</summary>
+    public bool IncludeBefore { get; init; }
+}
+
+/// <summary>Requests live at-most-once record delivery.</summary>
+public sealed record BaseRealtimeLiveFeedRequest : BaseRealtimeChannelRequest
+{
+    /// <summary>Gets the collection identifier.</summary>
+    public required string Collection { get; init; }
+    /// <summary>Gets the bounded feed filter.</summary>
+    public required BaseRealtimeRecordFeedFilter Filter { get; init; }
+}
+
+/// <summary>Requests durable at-least-once record delivery from the current head.</summary>
+public sealed record BaseRealtimeDurableFeedRequest : BaseRealtimeChannelRequest
+{
+    /// <summary>Gets the collection identifier.</summary>
+    public required string Collection { get; init; }
+    /// <summary>Gets the bounded feed filter.</summary>
+    public required BaseRealtimeRecordFeedFilter Filter { get; init; }
+}
+
+/// <summary>Resumes durable record delivery from an opaque cursor.</summary>
+public sealed record BaseRealtimeResumeFeedRequest : BaseRealtimeChannelRequest
+{
+    /// <summary>Gets the collection identifier.</summary>
+    public required string Collection { get; init; }
+    /// <summary>Gets the opaque resume cursor.</summary>
+    public required string Cursor { get; init; }
+    /// <summary>Gets the bounded feed filter.</summary>
+    public required BaseRealtimeRecordFeedFilter Filter { get; init; }
+}
+
+/// <summary>Requests one generated dependency-driven live query.</summary>
+public sealed record BaseRealtimeLiveQueryJoinRequest : BaseRealtimeChannelRequest
+{
+    /// <summary>Gets the generated closed operation.</summary>
+    public required BaseRealtimeLiveQueryOperation Operation { get; init; }
+    /// <summary>Gets the server-declared result DTO identifier.</summary>
+    public required string ResultTypeId { get; init; }
+}
+
+/// <summary>Defines one closed live-query operation.</summary>
+[System.Text.Json.Serialization.JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(BaseRealtimeCollectionQueryOperation), "collectionQuery")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(BaseRealtimeRegisteredReadOperation), "registeredRead")]
+public abstract record BaseRealtimeLiveQueryOperation;
+
+/// <summary>Executes one bounded collection query as a live replacement.</summary>
+public sealed record BaseRealtimeCollectionQueryOperation : BaseRealtimeLiveQueryOperation
+{
+    /// <summary>Gets the stable collection ID.</summary>
+    public required string CollectionId { get; init; }
+    /// <summary>Gets the closed query.</summary>
+    public required RecordQuery Query { get; init; }
+    /// <summary>Gets the required complete replacement bound.</summary>
+    public required int Take { get; init; }
+}
+
+/// <summary>Executes one generated registered read as a live replacement.</summary>
+public sealed record BaseRealtimeRegisteredReadOperation : BaseRealtimeLiveQueryOperation
+{
+    /// <summary>Gets the stable registered-read ID.</summary>
+    public required string ReadId { get; init; }
+    /// <summary>Gets the source-generated parameter payload.</summary>
+    public required JsonElement Parameters { get; init; }
+}
 
 /// <summary>Defines a request to join the live record-mutation channel.</summary>
 public sealed record BaseRealtimeChannelJoinRequest
@@ -73,16 +164,16 @@ public sealed record BaseRealtimeLimits
     public int MaxConnections { get; init; } = 1024;
 
     /// <summary>Gets the maximum number of joined channels on one connection.</summary>
-    public int MaxChannelsPerConnection { get; init; } = 16;
+    public int MaxChannelsPerConnection { get; init; } = 128;
 
     /// <summary>Gets the capacity of each channel's HPD.Events inbox.</summary>
     public int StreamCapacity { get; init; } = 1024;
 
     /// <summary>Gets the capacity of each channel's outbound event queue.</summary>
-    public int OutboundCapacity { get; init; } = 256;
+    public int OutboundCapacity { get; init; } = 32;
 
     /// <summary>Gets the maximum complete inbound protocol message size in bytes.</summary>
-    public int MaxMessageBytes { get; init; } = 64 * 1024;
+    public int MaxMessageBytes { get; init; } = 1024 * 1024;
 
     /// <summary>Gets the maximum serialized outbound protocol payload size in bytes.</summary>
     public int MaxPayloadBytes { get; init; } = 256 * 1024;

@@ -1,6 +1,7 @@
 using FluentAssertions;
 using HPD.Base.Tests.Application.Generation;
 using HPD.Base;
+using HPD.Base.Sqlite;
 using HPD.Base.Testing;
 using Xunit;
 
@@ -104,7 +105,7 @@ public sealed class BaseTestHostTests
         {
             await using BaseTestHost host = await BaseTestHost.CreateAsync(
                 builder => builder
-                    .UseSqlite(options => options.DataSource = database)
+                    .UseStore(SqliteStore.Configure(options => options.DataSource = database))
                     .AddCollection(GeneratedProject.Collection));
             var session = host.Session(BaseTestPrincipal.System("application-test"));
 

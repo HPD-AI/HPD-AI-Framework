@@ -23,4 +23,14 @@ public sealed record QueryValue
     public string? Id { get; init; }
     /// <summary>Gets or sets the array.</summary>
     public QueryValue[]? Array { get; init; }
+    /// <summary>Gets the canonical exported-subject identifier for a subject-reference value.</summary>
+    public string? SubjectId { get; init; }
+    /// <summary>Gets the canonical subject-identifier grammar for a subject-reference value.</summary>
+    public BaseSubjectIdKind? SubjectIdKind { get; init; }
+    /// <summary>Gets the installed maximum canonical subject-identifier byte count.</summary>
+    public int? SubjectIdMaximumUtf8Bytes { get; init; }
+    /// <summary>Gets the canonical unpadded base64url authority epoch for a subject-reference value.</summary>
+    public string? SubjectAuthorityEpoch { get; init; }
+    /// <summary>Gets the canonical unpadded base64url incarnation for a subject-reference value.</summary>
+    public string? SubjectIncarnation { get; init; }
 }

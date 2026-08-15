@@ -107,6 +107,12 @@ public static class BaseGrantActions
     public const string FileRead = "file.read";
     /// <summary>Provides the file write value.</summary>
     public const string FileWrite = "file.write";
+    /// <summary>Provides the exported-subject reference acquisition action.</summary>
+    public const string SubjectAcquire = "subject.acquire";
+    /// <summary>Provides the mutation-bound exported-subject validation action.</summary>
+    public const string SubjectValidate = "subject.validate";
+    /// <summary>Provides the exported-subject authority-epoch rotation action.</summary>
+    public const string SubjectEpochRotate = "subject.epoch.rotate";
 }
 
 /// <summary>Represents a base obligation kinds.</summary>

@@ -78,6 +78,9 @@ public sealed class L30MutationPipelineTests
         Assert.Equal(["first", "second"], result.Value.Items.Select(static item => item.ItemId));
         Assert.Equal(1, store.AtomicExecutionCalls);
         Assert.Equal(0, store.SingleExecutionCalls);
+        BaseAtomicMutationProjectionRequest projection = Assert.IsType<BaseAtomicMutationProjectionRequest>(store.LastProjectionRequest);
+        Assert.Equal(2, projection.Mutations.Length);
+        Assert.Equal(["first", "second"], projection.Mutations.Select(static mutation => mutation.ItemId));
     }
 
     [Fact]
@@ -325,8 +328,8 @@ public sealed class L30MutationPipelineTests
             }),
             fields:
             [
-                new FieldDefinition { Id = "title", Name = "title", Type = BaseFieldTypes.String },
-                new FieldDefinition { Id = "secret", Name = "secret", Type = BaseFieldTypes.String }
+                new FieldDefinition { Id = "title", ApplicationName = "title", WireName = "title", Type = BaseFieldTypes.String },
+                new FieldDefinition { Id = "secret", ApplicationName = "secret", WireName = "secret", Type = BaseFieldTypes.String }
             ],
             configureServices: services =>
             {
@@ -545,8 +548,7 @@ public sealed class L30MutationPipelineTests
         services.AddLogging();
         services.AddSingleton<IBaseDescriptorContributor>(
             new MultiCollectionContributor("first-items", "second-items"));
-        services.AddSingleton<IPolicyEvaluator>(new AllowPolicyEvaluator());
-        services.AddHPDBaseRuntime();
+        services.AddHPDBaseRuntime().UseTestPolicyAuthority(new AllowPolicyEvaluator());
         var provider = services.BuildServiceProvider();
         provider.GetRequiredService<IBaseDescriptorRegistry>()
             .RebuildAsync().AsTask().GetAwaiter().GetResult();

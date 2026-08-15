@@ -233,6 +233,7 @@ public sealed partial class SqliteRecordStore
         bool replacementInstalled = false;
         bool retainRecovery = false;
         bool administrationSlot = false;
+        IReadOnlyDictionary<string, long> preRestoreSubjectGenerations = new Dictionary<string, long>(StringComparer.Ordinal);
         RestoreFilePolicy? filePolicy = null;
         try
         {
@@ -304,6 +305,7 @@ public sealed partial class SqliteRecordStore
             Volatile.Write(ref _restoreInstallationActive, 1);
             pathGuard.RevalidateActive();
             (string ActiveIdentity, long PreRestoreEpoch) = await ReadActiveIdentityAsync(acquisition.Token).ConfigureAwait(false);
+            preRestoreSubjectGenerations = await ReadSubjectStateGenerationsAsync(acquisition.Token).ConfigureAwait(false);
             if (!FixedHexEquals(request.ExpectedCurrentStoreIdentityDigest, ActiveIdentity)
                 || request.IdentityMode == BaseRestoreIdentityMode.RequireCurrentStoreIdentity
                     && !FixedHexEquals(ActiveIdentity, manifest.StoreIdentityDigest))
@@ -352,14 +354,13 @@ public sealed partial class SqliteRecordStore
             await ValidateDatabaseFileAsync(activePath, manifest, cancellationToken).ConfigureAwait(false);
 
             long epoch = checked(Math.Max(PreRestoreEpoch, manifest.RestoreEpoch) + 1);
-            var installedBuilder = new SqliteConnectionStringBuilder { DataSource = activePath, Mode = SqliteOpenMode.ReadWrite, Pooling = false };
-            await using (var installed = new SqliteConnection(installedBuilder.ToString()))
+            await using (SqliteConnection installed = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false))
             {
-                await installed.OpenAsync(cancellationToken).ConfigureAwait(false);
-                await using var update = installed.CreateCommand();
-                update.CommandText = $"INSERT INTO {_names.ProviderState}(key,value) VALUES ('restore_epoch',$epoch) ON CONFLICT(key) DO UPDATE SET value=excluded.value;";
-                update.Parameters.AddWithValue("$epoch", epoch.ToString(System.Globalization.CultureInfo.InvariantCulture));
-                await update.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+                await TransformRestoredSubjectAuthoritiesAsync(
+                    installed,
+                    epoch,
+                    preRestoreSubjectGenerations,
+                    cancellationToken).ConfigureAwait(false);
             }
             Volatile.Write(ref _schemaGeneration, manifest.SchemaGeneration);
             WriteRestoreMarker("ReplacementValidated", stagingPath, recovery, ActiveIdentity, manifest.StoreIdentityDigest);

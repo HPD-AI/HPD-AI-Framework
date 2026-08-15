@@ -311,9 +311,9 @@ public sealed class EventDispatcherTests
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddSingleton<IBaseDescriptorContributor>(new CollectionContributor());
-        services.AddSingleton<IPolicyEvaluator>(new AllowPolicyEvaluator());
         configureServices?.Invoke(services);
-        services.AddHPDBaseRuntime(configureRuntime);
+        services.AddHPDBaseRuntime(configureRuntime)
+            .UseTestPolicyAuthority(new AllowPolicyEvaluator());
         var provider = services.BuildServiceProvider();
         provider.GetRequiredService<IBaseDescriptorRegistry>().RebuildAsync().AsTask().GetAwaiter().GetResult();
         provider.GetRequiredService<IRecordStoreRegistry>().Add(new RecordStoreRegistration

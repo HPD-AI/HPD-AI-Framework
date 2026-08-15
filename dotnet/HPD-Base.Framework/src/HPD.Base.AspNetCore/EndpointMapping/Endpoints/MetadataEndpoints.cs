@@ -15,19 +15,19 @@ internal static class MetadataEndpoints
         if (mode == HPDBasePublicMetadataMode.Disabled)
             return;
 
-        endpoints.MapGet("/manifest", (RequestDelegate)ManifestPublic).WithHPDBaseOpenApi(BaseRouteIds.Manifest).WithName(BaseRouteIds.Manifest);
-        endpoints.MapGet("/capabilities", (RequestDelegate)CapabilitiesPublic).WithHPDBaseOpenApi(BaseRouteIds.Capabilities).WithName(BaseRouteIds.Capabilities);
+        endpoints.MapGet("/manifest", (RequestDelegate)ManifestPublic).WithHPDBaseEndpoint(BaseRouteIds.Manifest, HPDBaseEndpointAudience.Public, HPDBaseEndpointOperation.MetadataRead).WithHPDBaseOpenApi(BaseRouteIds.Manifest).WithName(BaseRouteIds.Manifest);
+        endpoints.MapGet("/capabilities", (RequestDelegate)CapabilitiesPublic).WithHPDBaseEndpoint(BaseRouteIds.Capabilities, HPDBaseEndpointAudience.Public, HPDBaseEndpointOperation.MetadataRead).WithHPDBaseOpenApi(BaseRouteIds.Capabilities).WithName(BaseRouteIds.Capabilities);
 
         if (mode == HPDBasePublicMetadataMode.Full)
-            endpoints.MapGet("/schema", (RequestDelegate)SchemaPublic).WithHPDBaseOpenApi(BaseRouteIds.Schema).WithName(BaseRouteIds.Schema);
+            endpoints.MapGet("/schema", (RequestDelegate)SchemaPublic).WithHPDBaseEndpoint(BaseRouteIds.Schema, HPDBaseEndpointAudience.Public, HPDBaseEndpointOperation.MetadataRead).WithHPDBaseOpenApi(BaseRouteIds.Schema).WithName(BaseRouteIds.Schema);
     }
 
     /// <summary>Executes the map admin operation.</summary>
-    public static void MapAdmin(IEndpointRouteBuilder endpoints)
+    public static void MapAdmin(IEndpointRouteBuilder endpoints, Action<IEndpointConventionBuilder, HPDBaseEndpointDescriptor>? convention = null)
     {
-        endpoints.MapGet("/manifest", (RequestDelegate)ManifestAdmin).WithHPDBaseOpenApi(BaseHttpRouteNames.AdminManifest).WithName(BaseHttpRouteNames.AdminManifest);
-        endpoints.MapGet("/capabilities", (RequestDelegate)CapabilitiesAdmin).WithHPDBaseOpenApi(BaseHttpRouteNames.AdminCapabilities).WithName(BaseHttpRouteNames.AdminCapabilities);
-        endpoints.MapGet("/schema", (RequestDelegate)SchemaAdmin).WithHPDBaseOpenApi(BaseHttpRouteNames.AdminSchema).WithName(BaseHttpRouteNames.AdminSchema);
+        endpoints.MapGet("/manifest", (RequestDelegate)ManifestAdmin).WithHPDBaseEndpoint(BaseHttpRouteNames.AdminManifest, HPDBaseEndpointAudience.ControlPlane, HPDBaseEndpointOperation.MetadataRead, HPDBaseCapabilities.AdministrationMetadataRead, convention).WithHPDBaseOpenApi(BaseHttpRouteNames.AdminManifest).WithName(BaseHttpRouteNames.AdminManifest);
+        endpoints.MapGet("/capabilities", (RequestDelegate)CapabilitiesAdmin).WithHPDBaseEndpoint(BaseHttpRouteNames.AdminCapabilities, HPDBaseEndpointAudience.ControlPlane, HPDBaseEndpointOperation.MetadataRead, HPDBaseCapabilities.AdministrationMetadataRead, convention).WithHPDBaseOpenApi(BaseHttpRouteNames.AdminCapabilities).WithName(BaseHttpRouteNames.AdminCapabilities);
+        endpoints.MapGet("/schema", (RequestDelegate)SchemaAdmin).WithHPDBaseEndpoint(BaseHttpRouteNames.AdminSchema, HPDBaseEndpointAudience.ControlPlane, HPDBaseEndpointOperation.MetadataRead, HPDBaseCapabilities.AdministrationMetadataRead, convention).WithHPDBaseOpenApi(BaseHttpRouteNames.AdminSchema).WithName(BaseHttpRouteNames.AdminSchema);
     }
 
     private static Task ManifestPublic(HttpContext httpContext) => Execute(httpContext,
@@ -48,7 +48,7 @@ internal static class MetadataEndpoints
         bool isAdmin,
         CancellationToken cancellationToken)
     {
-        var principal = await principalFactory.CreateAsync(httpContext, isAdmin ? HPDBaseEndpointKind.AdminMetadata : HPDBaseEndpointKind.PublicMetadata, cancellationToken);
+        var principal = await principalFactory.CreateAsync(httpContext, cancellationToken);
         var operation = operationFactory.Create(httpContext, principal, BaseOperationKind.SchemaRead, "base", mode: mode);
         var expand = queryBinder.BindManifestExpand(httpContext);
         if (expand.Status != OperationStatus.Ok)
@@ -92,7 +92,7 @@ internal static class MetadataEndpoints
         bool isAdmin,
         CancellationToken cancellationToken)
     {
-        var principal = await principalFactory.CreateAsync(httpContext, isAdmin ? HPDBaseEndpointKind.AdminMetadata : HPDBaseEndpointKind.PublicMetadata, cancellationToken);
+        var principal = await principalFactory.CreateAsync(httpContext, cancellationToken);
         var operation = operationFactory.Create(httpContext, principal, BaseOperationKind.SchemaRead, "base", mode: mode);
         var result = await runtime.Capabilities.GetCapabilitiesAsync(principal, operation, view, cancellationToken);
         return resultMapper.ToHttpResult(result, httpContext, Mapping(operation, isAdmin));
@@ -115,7 +115,7 @@ internal static class MetadataEndpoints
         bool isAdmin,
         CancellationToken cancellationToken)
     {
-        var principal = await principalFactory.CreateAsync(httpContext, isAdmin ? HPDBaseEndpointKind.AdminMetadata : HPDBaseEndpointKind.PublicMetadata, cancellationToken);
+        var principal = await principalFactory.CreateAsync(httpContext, cancellationToken);
         var operation = operationFactory.Create(httpContext, principal, BaseOperationKind.SchemaRead, "base", mode: mode);
         var result = await runtime.Schema.GetSchemaAsync(principal, operation, view, cancellationToken);
         return resultMapper.ToHttpResult(result, httpContext, Mapping(operation, isAdmin));

@@ -1,0 +1,132 @@
+{
+  "fixtureVersion": "hpd-gateway-consumer-fixtures/v1",
+  "targetFramework": "net10.0",
+  "fixtures": [
+    {
+      "id": "embedded-minimal",
+      "expect": "success",
+      "packages": ["HPD.Gateway"],
+      "source": "Positive/EmbeddedMinimal.cs"
+    },
+    {
+      "id": "embedded-core-declarations",
+      "expect": "success",
+      "packages": ["HPD.Gateway"],
+      "source": "Positive/EmbeddedCoreDeclarations.cs"
+    },
+    {
+      "id": "control-plane-process-local",
+      "expect": "success",
+      "packages": ["HPD.Gateway", "HPD.Gateway.ControlPlane"],
+      "source": "Positive/ControlPlaneProcessLocal.cs"
+    },
+    {
+      "id": "control-plane-studio",
+      "expect": "success",
+      "packages": ["HPD.Gateway", "HPD.Gateway.ControlPlane"],
+      "source": "Positive/ControlPlaneStudio.cs"
+    },
+    {
+      "id": "control-plane-sqlite",
+      "expect": "success",
+      "packages": ["HPD.Gateway", "HPD.Gateway.ControlPlane", "HPD.Gateway.ControlPlane.Sqlite"],
+      "source": "Positive/ControlPlaneSqlite.cs"
+    },
+    {
+      "id": "control-plane-sqlite-restart-runtime",
+      "expect": "success",
+      "execute": true,
+      "packages": ["HPD.Gateway", "HPD.Gateway.ControlPlane", "HPD.Gateway.ControlPlane.Sqlite"],
+      "source": "Positive/ControlPlaneSqliteRestartRuntime.cs"
+    },
+    {
+      "id": "plain-aspnet-security",
+      "expect": "success",
+      "packages": ["HPD.Gateway", "HPD.Gateway.ControlPlane"],
+      "source": "Positive/PlainAspNetSecurity.cs"
+    },
+    {
+      "id": "hpd-auth-security",
+      "expect": "success",
+      "packages": ["HPD.Gateway", "HPD.Gateway.ControlPlane", "HPD.Gateway.ControlPlane.HPDAuth"],
+      "source": "Positive/HpdAuthSecurity.cs"
+    },
+    {
+      "id": "microsoft-configuration-discovery",
+      "expect": "success",
+      "packages": ["HPD.Gateway", "HPD.Gateway.Discovery.Microsoft"],
+      "source": "Positive/MicrosoftConfigurationDiscovery.cs"
+    },
+    {
+      "id": "microsoft-dns-discovery",
+      "expect": "success",
+      "packages": ["HPD.Gateway", "HPD.Gateway.Discovery.Microsoft"],
+      "source": "Positive/MicrosoftDnsDiscovery.cs"
+    },
+    {
+      "id": "redis-admission",
+      "expect": "success",
+      "packages": ["HPD.Gateway", "HPD.Gateway.Admission.Redis"],
+      "source": "Positive/RedisAdmission.cs"
+    },
+    {
+      "id": "redis-admission-host-owned",
+      "expect": "success",
+      "packages": ["HPD.Gateway", "HPD.Gateway.Admission.Redis"],
+      "source": "Positive/RedisAdmissionHostOwned.cs"
+    },
+    {
+      "id": "redis-provider-from-root-only",
+      "expect": "failure",
+      "diagnostic": "CS0234",
+      "packages": ["HPD.Gateway"],
+      "source": "Negative/RedisProviderFromRootOnly.cs"
+    },
+    {
+      "id": "full-cloud-equivalent",
+      "expect": "success",
+      "packages": [
+        "HPD.Gateway",
+        "HPD.Gateway.ControlPlane",
+        "HPD.Gateway.ControlPlane.HPDAuth",
+        "HPD.Gateway.Discovery.Microsoft"
+      ],
+      "source": "Positive/FullCloudEquivalent.cs"
+    },
+    {
+      "id": "obsolete-hpd-auth-namespace",
+      "expect": "failure",
+      "diagnostic": "CS0234",
+      "packages": ["HPD.Gateway", "HPD.Gateway.ControlPlane", "HPD.Gateway.ControlPlane.HPDAuth"],
+      "source": "Negative/ObsoleteHpdAuthNamespace.cs"
+    },
+    {
+      "id": "obsolete-microsoft-discovery-method",
+      "expect": "failure",
+      "diagnostic": "CS1061",
+      "packages": ["HPD.Gateway", "HPD.Gateway.Discovery.Microsoft"],
+      "source": "Negative/ObsoleteMicrosoftDiscoveryMethod.cs"
+    },
+    {
+      "id": "standalone-native-aot",
+      "expect": "success",
+      "kind": "native-aot-distribution",
+      "packages": [],
+      "project": "src/HPD.Gateway.Standalone/HPD.Gateway.Standalone.csproj"
+    },
+    {
+      "id": "obsolete-namespace",
+      "expect": "failure",
+      "diagnostic": "CS0234",
+      "packages": ["HPD.Gateway"],
+      "source": "Negative/ObsoleteNamespace.cs"
+    },
+    {
+      "id": "reverse-control-plane-dependency",
+      "expect": "failure",
+      "diagnostic": "CS0234",
+      "packages": ["HPD.Gateway"],
+      "source": "Negative/ReverseControlPlaneDependency.cs"
+    }
+  ]
+}

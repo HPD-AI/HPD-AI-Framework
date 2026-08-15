@@ -161,6 +161,12 @@ public sealed record BaseLogicalCollection
     public required string Id { get; init; }
     /// <summary>Gets or sets name.</summary>
     public required string Name { get; init; }
+    /// <summary>Gets whether the collection is an internal system collection.</summary>
+    public bool System { get; init; }
+    /// <summary>Gets the installed module identity owning a system collection.</summary>
+    public string? SystemOwnerModuleId { get; init; }
+    /// <summary>Gets the serializer contract checksum for this collection.</summary>
+    public string? SerializerContractChecksum { get; init; }
 }
 
 /// <summary>Represents base Logical Field.</summary>
@@ -170,6 +176,8 @@ public sealed record BaseLogicalField
     public required string CollectionId { get; init; }
     /// <summary>Gets or sets id.</summary>
     public required string Id { get; init; }
+    /// <summary>Gets the exact application-facing name.</summary>
+    public required string ApplicationName { get; init; }
     /// <summary>Gets or sets stored Name.</summary>
     public required string StoredName { get; init; }
     /// <summary>Gets or sets type.</summary>
@@ -178,6 +186,14 @@ public sealed record BaseLogicalField
     public bool Required { get; init; }
     /// <summary>Gets or sets nullable.</summary>
     public bool Nullable { get; init; }
+    /// <summary>Gets the normalized confidentiality class.</summary>
+    public BaseFieldConfidentiality Confidentiality { get; init; }
+    /// <summary>Gets the normalized complete disclosure policy.</summary>
+    public required BaseFieldDisclosurePolicy Disclosure { get; init; }
+    /// <summary>Gets the decoded binary limit when this is a binary field.</summary>
+    public int? MaximumBytes { get; init; }
+    /// <summary>Gets the exported-subject reference contract when this is a reference field.</summary>
+    public BaseSubjectReferenceDefinition? SubjectReference { get; init; }
 }
 
 /// <summary>Represents base Logical Index.</summary>
@@ -193,6 +209,25 @@ public sealed record BaseLogicalIndex
     public bool Unique { get; init; }
 }
 
+/// <summary>Contains one canonical logical vector-index asset.</summary>
+public sealed record BaseLogicalVectorIndex
+{
+    /// <summary>Gets the stable collection identifier.</summary>
+    public required string CollectionId { get; init; }
+    /// <summary>Gets the stable vector-index identifier.</summary>
+    public required string Id { get; init; }
+    /// <summary>Gets the stable vector-field identifier.</summary>
+    public required string VectorFieldId { get; init; }
+    /// <summary>Gets the stable semantic vector-space identifier.</summary>
+    public required string VectorSpaceId { get; init; }
+    /// <summary>Gets the exact dimensions.</summary>
+    public required int Dimensions { get; init; }
+    /// <summary>Gets the portable comparison function.</summary>
+    public required BaseVectorFunction Function { get; init; }
+    /// <summary>Gets the stable pre-ranking filter-field identifiers.</summary>
+    public required string[] FilterFieldIds { get; init; }
+}
+
 /// <summary>Represents base Logical Read.</summary>
 public sealed record BaseLogicalRead
 {
@@ -202,6 +237,31 @@ public sealed record BaseLogicalRead
     public required string[] SourceIds { get; init; }
     /// <summary>Gets or sets projection Field Ids.</summary>
     public required string[] ProjectionFieldIds { get; init; }
+    /// <summary>Gets the parameter serializer checksum.</summary>
+    public required string ParameterSerializerContractChecksum { get; init; }
+    /// <summary>Gets the row serializer checksum.</summary>
+    public required string RowSerializerContractChecksum { get; init; }
+}
+
+/// <summary>Contains the public schema identity of one exported logical-subject contract.</summary>
+public sealed record BaseLogicalExportedSubject
+{
+    /// <summary>Gets the stable contract identifier.</summary>
+    public required string Id { get; init; }
+    /// <summary>Gets the contract version.</summary>
+    public required int Version { get; init; }
+    /// <summary>Gets the owning installed module identifier.</summary>
+    public required string OwningModuleId { get; init; }
+    /// <summary>Gets the normalized contract checksum.</summary>
+    public required string Checksum { get; init; }
+    /// <summary>Gets the subject-ID grammar.</summary>
+    public required BaseSubjectIdKind SubjectIdKind { get; init; }
+    /// <summary>Gets the maximum canonical subject-ID byte length.</summary>
+    public required int MaximumSubjectIdUtf8Bytes { get; init; }
+    /// <summary>Gets the logical scope kind.</summary>
+    public required BaseSubjectScopeKind Scope { get; init; }
+    /// <summary>Gets the permitted endpoint audiences.</summary>
+    public required HPDBaseEndpointAudience[] Audiences { get; init; }
 }
 
 /// <summary>Represents base Logical Schema.</summary>
@@ -219,8 +279,12 @@ public sealed record BaseLogicalSchema
     public required RelationDefinition[] Relations { get; init; }
     /// <summary>Gets or sets indexes.</summary>
     public required BaseLogicalIndex[] Indexes { get; init; }
+    /// <summary>Gets the canonical vector-index assets.</summary>
+    public required BaseLogicalVectorIndex[] VectorIndexes { get; init; }
     /// <summary>Gets or sets read Definitions.</summary>
     public required BaseLogicalRead[] ReadDefinitions { get; init; }
+    /// <summary>Gets the installed exported logical-subject identities.</summary>
+    public required BaseLogicalExportedSubject[] ExportedSubjects { get; init; }
     /// <summary>Gets or sets canonical Checksum.</summary>
     public required string CanonicalChecksum { get; init; }
 }

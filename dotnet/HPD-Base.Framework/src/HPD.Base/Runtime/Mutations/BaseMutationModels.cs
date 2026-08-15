@@ -1,6 +1,19 @@
 
 namespace HPD.Base;
 
+internal sealed record BaseFinalizedRecordMutationPlan(
+    System.Collections.Immutable.ImmutableArray<BaseAtomicMutationPlanItem> Items,
+    System.Collections.Immutable.ImmutableArray<BaseSubjectReferenceValidationPlanItem> SubjectValidations,
+    System.Collections.Immutable.ImmutableArray<BasePolicyEvaluation> PolicyEvaluations,
+    System.Collections.Immutable.ImmutableArray<BaseFinalizedRelationPolicy> RelationPolicies);
+
+internal sealed record BaseFinalizedRelationPolicy(
+    string SourceStatementId,
+    string SourceFieldId,
+    string TargetCollectionId,
+    RecordId TargetRecordId,
+    BasePolicyEvaluation Evaluation);
+
 internal sealed record BaseMutationCommand
 {
     /// <summary>Gets or sets the index.</summary>
@@ -23,6 +36,8 @@ internal sealed record BaseMutationCommand
     public RecordCreateRequest? Create { get; init; }
     /// <summary>Gets or sets the record ID.</summary>
     public RecordId? RecordId { get; init; }
+    /// <summary>Gets whether BASE Runtime assigned the create identifier before provider capture.</summary>
+    public bool RuntimeAssignedRecordId { get; init; }
     /// <summary>Gets or sets the patch.</summary>
     public RecordPatchRequest? Patch { get; init; }
     /// <summary>Gets or sets the replace.</summary>

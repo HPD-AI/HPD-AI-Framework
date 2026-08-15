@@ -11,22 +11,31 @@ using Microsoft.CodeAnalysis.Text;
 
 namespace HPD.Base.Generators;
 
-/// <summary>Represents a base collection generator.</summary>
-[Generator(LanguageNames.CSharp)]
-public sealed class BaseCollectionGenerator : IIncrementalGenerator
+/// <summary>Renders collection roots beneath the combined schema generator.</summary>
+internal static class BaseCollectionGenerator
 {
     private const string CollectionAttribute =
         "HPD.Base.BaseCollectionAttribute";
     private const string FieldAttribute =
         "HPD.Base.BaseFieldAttribute";
+    private const string ConfidentialityAttribute = "HPD.Base.BaseFieldConfidentialityAttribute";
+    private const string DisclosureAttribute = "HPD.Base.BaseFieldDisclosureAttribute";
+    private const string StorageProtectionAttribute = "HPD.Base.BaseCollectionStorageProtectionAttribute";
     private const string IndexAttribute =
         "HPD.Base.BaseIndexAttribute";
     private const string RelationAttribute =
         "HPD.Base.BaseRelationAttribute";
+    private const string SubjectReferenceAttribute =
+        "HPD.Base.BaseSubjectReferenceAttribute";
+    private const string ExportedSubjectAttribute =
+        "HPD.Base.BaseExportedSubjectAttribute";
+    private const string VectorIndexAttribute =
+        "HPD.Base.BaseVectorIndexAttribute";
     private const string JsonPropertyNameAttribute =
         "System.Text.Json.Serialization.JsonPropertyNameAttribute";
     private const string JsonOptionsAttribute =
         "System.Text.Json.Serialization.JsonSourceGenerationOptionsAttribute";
+    private const string JsonIgnoreAttribute = "System.Text.Json.Serialization.JsonIgnoreAttribute";
 
     private static readonly DiagnosticDescriptor TypeMustBePartial = new DiagnosticDescriptor(
         "HPDBASE001",
@@ -132,25 +141,66 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         DiagnosticSeverity.Error,
         true);
 
-    /// <summary>Executes the initialize operation.</summary>
-    public void Initialize(IncrementalGeneratorInitializationContext context)
-    {
-        IncrementalValuesProvider<INamedTypeSymbol> candidates =
-            context.SyntaxProvider.ForAttributeWithMetadataName(
-                CollectionAttribute,
-                static (node, _) => node is TypeDeclarationSyntax,
-                static (attributeContext, _) =>
-                    (INamedTypeSymbol)attributeContext.TargetSymbol);
+    internal static readonly DiagnosticDescriptor UnsupportedSerializerContract = new DiagnosticDescriptor(
+        "HPDBASE0447", "Unsupported serializer contract",
+        "Serializer contract '{0}' is unsupported: {1}", "HPD.Base.Generation",
+        DiagnosticSeverity.Error, true);
 
-        context.RegisterSourceOutput(
-            candidates.Collect(),
-            static (productionContext, symbols) =>
-                Generate(productionContext, symbols));
+    internal static readonly DiagnosticDescriptor SerializerGraphLimit = new DiagnosticDescriptor(
+        "HPDBASE0448", "Serializer graph limit exceeded",
+        "Serializer contract '{0}' graph exceeds a closed L44 bound", "HPD.Base.Generation",
+        DiagnosticSeverity.Error, true);
+
+    private static readonly DiagnosticDescriptor GeneratedInfrastructureInvocation = new DiagnosticDescriptor(
+        "HPDBASE0449", "Generated serializer infrastructure is not an application API",
+        "'{0}' may only be emitted by HPD Base generated source; the compiled application/build pipeline is trusted",
+        "HPD.Base.Generation", DiagnosticSeverity.Error, true);
+
+    private static readonly DiagnosticDescriptor GeneratedSubjectInfrastructureInvocation = new DiagnosticDescriptor(
+        "HPDBASE0461", "Generated subject infrastructure is not an application API",
+        "'{0}' may only be emitted by HPD Base generated source; the compiled application/build pipeline is trusted",
+        "HPD.Base.Generation", DiagnosticSeverity.Error, true);
+
+    internal static void RegisterForbiddenReferences(IncrementalGeneratorInitializationContext context)
+    {
+        IncrementalValuesProvider<(Location Location, string Method, bool Subject)?> forbiddenReferences =
+            context.SyntaxProvider.CreateSyntaxProvider(
+                static (node, _) => node is SimpleNameSyntax,
+                static (syntaxContext, _) => ForbiddenGeneratedReference(syntaxContext));
+        context.RegisterSourceOutput(forbiddenReferences.Where(static item => item.HasValue),
+            static (productionContext, item) => productionContext.ReportDiagnostic(Diagnostic.Create(
+                item!.Value.Subject ? GeneratedSubjectInfrastructureInvocation : GeneratedInfrastructureInvocation,
+                item.Value.Location, item.Value.Method)));
     }
 
-    private static void Generate(
+    private static (Location Location, string Method, bool Subject)? ForbiddenGeneratedReference(GeneratorSyntaxContext context)
+    {
+        var name = (SimpleNameSyntax)context.Node;
+        SymbolInfo symbolInfo = context.SemanticModel.GetSymbolInfo(name);
+        IMethodSymbol method = symbolInfo.Symbol as IMethodSymbol;
+        if (method is null || !IsGeneratedInfrastructure(method))
+            method = symbolInfo.CandidateSymbols.OfType<IMethodSymbol>()
+                .FirstOrDefault(IsGeneratedInfrastructure);
+        if (method is null) return null;
+        string owner = method.ContainingType.OriginalDefinition.ToDisplayString();
+        return (name.GetLocation(), owner + "." + method.Name,
+            owner is "HPD.Base.BaseGeneratedSubjects" or "HPD.Base.BaseSubjectReferenceJsonConverterFactory");
+    }
+
+    private static bool IsGeneratedInfrastructure(IMethodSymbol method)
+    {
+        string owner = method.ContainingType.OriginalDefinition.ToDisplayString();
+        return owner == "HPD.Base.BaseSerializerGeneratedContract" && method.Name == "RegisterContext" ||
+            owner == "HPD.Base.BaseCollection<T>" && method.Name == "CreateGenerated" ||
+            owner == "HPD.Base.BaseReadGeneratedContract" && method.Name == "CreateGenerated" ||
+            owner == "HPD.Base.BaseGeneratedSubjects" && method.Name == "Register" ||
+            owner == "HPD.Base.BaseSubjectReferenceJsonConverterFactory" && method.Name == "Register";
+    }
+
+    internal static void GenerateCombined(
         SourceProductionContext context,
-        ImmutableArray<INamedTypeSymbol> symbols)
+        ImmutableArray<INamedTypeSymbol> symbols,
+        ImmutableDictionary<INamedTypeSymbol, ContextValidationResult> contextResults)
     {
         INamedTypeSymbol[] ordered = symbols
             .OrderBy(
@@ -205,9 +255,22 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
                 continue;
             }
 
-            CollectionModel model = CreateModel(context, symbol, collection, collectionId);
+            INamedTypeSymbol declaredContext = GetConstructorType(collection, 1);
+            if (declaredContext is not null && contextResults.TryGetValue(declaredContext, out ContextValidationResult contextResult) && !contextResult.IsValid)
+            {
+                context.AddSource(
+                    "HPDBaseCollectionRecovery_" + Sanitize(symbol.ToDisplayString()) + ".g.cs",
+                    SourceText.From(RenderRecovery(symbol), Encoding.UTF8));
+                continue;
+            }
+
+            contextResults.TryGetValue(declaredContext, out ContextValidationResult sharedContextResult);
+            CollectionModel model = CreateModel(context, symbol, collection, collectionId, sharedContextResult);
             if (model == null)
             {
+                context.AddSource(
+                    "HPDBaseCollectionRecovery_" + Sanitize(symbol.ToDisplayString()) + ".g.cs",
+                    SourceText.From(RenderRecovery(symbol), Encoding.UTF8));
                 continue;
             }
 
@@ -217,11 +280,54 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         }
     }
 
+    private static string RenderRecovery(INamedTypeSymbol symbol)
+    {
+        var source = new StringBuilder("// <auto-generated />\n#nullable enable\n\n");
+        if (!symbol.ContainingNamespace.IsGlobalNamespace)
+            source.Append("namespace ").Append(symbol.ContainingNamespace.ToDisplayString()).AppendLine(";\n");
+        source.Append("partial ").Append(symbol.IsRecord ? "record class " : "class ")
+            .Append(symbol.Name).AppendLine("\n{");
+        string record = symbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        source.Append("    public static global::HPD.Base.BaseCollection<").Append(record)
+            .AppendLine("> Collection => null!;\n");
+        source.AppendLine("    public static class Fields\n    {");
+        foreach (IPropertySymbol property in symbol.GetMembers().OfType<IPropertySymbol>()
+            .Where(static property => !property.IsStatic && !property.IsIndexer &&
+                FindAttribute(property, FieldAttribute) is not null)
+            .OrderBy(static property => property.Name, StringComparer.Ordinal))
+        {
+            source.Append("        public static global::HPD.Base.BaseField<").Append(record).Append(", ")
+                .Append(property.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)).Append("> ")
+                .Append(EscapeIdentifier(property.Name)).AppendLine(" => null!;");
+        }
+        source.AppendLine("    }\n}");
+        string[] vectorHandles = symbol.GetAttributes()
+            .Where(attribute => attribute.AttributeClass?.ToDisplayString() == VectorIndexAttribute)
+            .Select(attribute => GetConstructorString(attribute, 0))
+            .Where(IsValidId)
+            .Select(VectorHandleName)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(static value => value, StringComparer.Ordinal)
+            .ToArray();
+        if (vectorHandles.Length != 0)
+        {
+            int closing = source.ToString().LastIndexOf("}\n", StringComparison.Ordinal);
+            source.Remove(closing, source.Length - closing);
+            source.AppendLine("    public static class VectorIndexes\n    {");
+            foreach (string handle in vectorHandles)
+                source.Append("        public static global::HPD.Base.BaseVectorIndex<").Append(record).Append("> ")
+                    .Append(handle).AppendLine(" => null!;");
+            source.AppendLine("    }\n}");
+        }
+        return source.ToString();
+    }
+
     private static CollectionModel CreateModel(
         SourceProductionContext context,
         INamedTypeSymbol symbol,
         AttributeData collection,
-        string collectionId)
+        string collectionId,
+        ContextValidationResult sharedContextResult)
     {
         string mutationMode;
         int mutationModeValue;
@@ -232,6 +338,18 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
                 GetLocation(collection, symbol),
                 collectionId,
                 mutationModeValue));
+            return null;
+        }
+
+        string systemOwnerModuleId = GetNamedString(collection, "SystemOwnerModuleId");
+        if (systemOwnerModuleId != null && !IsValidId(systemOwnerModuleId))
+        {
+            context.ReportDiagnostic(Diagnostic.Create(
+                InvalidField,
+                GetLocation(collection, symbol),
+                collectionId,
+                "<collection>",
+                "the system owner module identifier must use the stable BASE identifier grammar"));
             return null;
         }
 
@@ -248,13 +366,12 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
 
         var fields = new List<FieldModel>();
         var fieldIds = new HashSet<string>(StringComparer.Ordinal);
-        var storedNames = new HashSet<string>(StringComparer.Ordinal);
+        var wireNames = new HashSet<string>(StringComparer.Ordinal);
         var propertyFields = new Dictionary<string, FieldModel>(StringComparer.Ordinal);
         var relationIds = new HashSet<string>(StringComparer.Ordinal);
-        bool camelCaseJson = UsesCamelCase(jsonContext);
+        string jsonNamingPolicy = GetJsonNamingPolicy(jsonContext);
 
-        foreach (IPropertySymbol property in symbol.GetMembers()
-            .OfType<IPropertySymbol>()
+        foreach (IPropertySymbol property in SerializableProperties(symbol)
             .Where(property =>
                 !property.IsStatic &&
                 !property.IsIndexer &&
@@ -263,8 +380,10 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
             .OrderBy(property => property.Locations.FirstOrDefault()?.SourceSpan.Start ?? int.MaxValue))
         {
             AttributeData fieldAttribute = FindAttribute(property, FieldAttribute);
+            bool serializerIgnored = IsAlwaysIgnored(property);
             if (fieldAttribute == null)
             {
+                if (serializerIgnored) continue;
                 context.ReportDiagnostic(Diagnostic.Create(
                     MissingFieldIdentity,
                     GetLocation(property),
@@ -287,7 +406,17 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
 
             if (GetNamedBoolean(fieldAttribute, "Ignore", false))
             {
+                if (!serializerIgnored)
+                {
+                    context.ReportDiagnostic(Diagnostic.Create(InvalidField, GetLocation(property), collectionId, property.Name, "ignored BASE fields must be absent from serializer metadata"));
+                    return null;
+                }
                 continue;
+            }
+            if (serializerIgnored || property.SetMethod is null)
+            {
+                context.ReportDiagnostic(Diagnostic.Create(InvalidField, GetLocation(property), collectionId, property.Name, "active BASE fields require unconditional readable and writable serializer membership"));
+                return null;
             }
 
             if (!fieldIds.Add(fieldId))
@@ -299,11 +428,13 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
                     fieldId));
                 return null;
             }
-            string storedName =
-                GetNamedString(fieldAttribute, "Name") ??
-                GetJsonPropertyName(property) ??
-                (camelCaseJson ? ToCamelCase(property.Name) : property.Name);
-            if (string.IsNullOrWhiteSpace(storedName))
+            if (!ValidApplicationName(property.Name))
+            {
+                context.ReportDiagnostic(Diagnostic.Create(InvalidField, GetLocation(property), collectionId, property.Name, "the application name must use the closed cross-language identifier grammar"));
+                return null;
+            }
+            string wireName = GetJsonPropertyName(property) ?? property.Name;
+            if (string.IsNullOrWhiteSpace(wireName))
             {
                 context.ReportDiagnostic(Diagnostic.Create(
                     InvalidField,
@@ -337,13 +468,13 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
                 return null;
             }
 
-            if (!storedNames.Add(storedName))
+            if (!wireNames.Add(wireName))
             {
                 context.ReportDiagnostic(Diagnostic.Create(
                     DuplicateField,
                     GetLocation(property),
                     collectionId,
-                    storedName));
+                    wireName));
                 return null;
             }
 
@@ -351,7 +482,9 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
             {
                 Id = fieldId,
                 PropertyName = property.Name,
-                StoredName = storedName,
+                ApplicationName = property.Name,
+                WireName = wireName,
+                ExplicitWireName = GetJsonPropertyName(property) is not null,
                 TypeName = property.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                 TypedRecordIdTarget = TypedRecordIdTarget(property.Type),
                 SchemaType = GetSchemaType(property.Type),
@@ -360,8 +493,73 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
                 Required = property.IsRequired || !IsNullable(property),
                 Operators = operators,
             };
+            AttributeData subjectReferenceAttribute = FindAttribute(property, SubjectReferenceAttribute);
+            if (subjectReferenceAttribute is not null)
+            {
+                INamedTypeSymbol marker = SubjectReferenceMarker(property.Type);
+                INamedTypeSymbol declaredMarker = GetConstructorType(subjectReferenceAttribute, 0);
+                AttributeData exported = marker is null ? null : FindAttribute(marker, ExportedSubjectAttribute);
+                string contractId = exported is null ? null : GetConstructorString(exported, 0);
+                int contractVersion = exported is null ? 0 : (int)GetNamedInt64(exported, "Version", 1);
+                int idKind = exported is null ? -1 : (int)GetNamedInt64(exported, "SubjectIdKind", 0);
+                int maximumIdBytes = exported is null ? 0 : (int)GetNamedInt64(exported, "MaximumSubjectIdUtf8Bytes", 256);
+                int requirement = (int)GetNamedInt64(subjectReferenceAttribute, "Requirement", 0);
+                int guarantee = (int)GetNamedInt64(subjectReferenceAttribute, "Guarantee", 0);
+                if (marker is null || declaredMarker is null || !SymbolEqualityComparer.Default.Equals(marker, declaredMarker) ||
+                    exported is null || !IsValidId(contractId) || contractVersion < 1 || idKind is < 0 or > 2 ||
+                    maximumIdBytes is < 1 or > 256 || requirement is < 0 or > 1 || guarantee != 0 ||
+                    property.Type.NullableAnnotation == NullableAnnotation.Annotated && property.IsRequired)
+                {
+                    context.ReportDiagnostic(Diagnostic.Create(InvalidField, GetLocation(property), collectionId, property.Name,
+                        "subject references require an exact exported marker, closed contract, and scalar BaseSubjectReference<TSubject> shape"));
+                    return null;
+                }
+                field.SchemaType = "subject-reference";
+                field.SchemaFormat = null;
+                field.SubjectReference = new SubjectReferenceModel
+                {
+                    MarkerType = marker.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+                    ContractId = contractId,
+                    ContractVersion = contractVersion,
+                    SubjectIdKind = idKind,
+                    MaximumSubjectIdBytes = maximumIdBytes,
+                    Requirement = requirement,
+                    Guarantee = guarantee,
+                };
+            }
+            AttributeData confidentialityAttribute = FindAttribute(property, ConfidentialityAttribute);
+            field.Confidentiality = confidentialityAttribute is null ? 0 : (int)(confidentialityAttribute.ConstructorArguments[0].Value ?? -1);
+            if (field.Confidentiality is < 0 or > 3)
+            {
+                context.ReportDiagnostic(Diagnostic.Create(InvalidField, GetLocation(property), collectionId, property.Name, "the confidentiality class is invalid"));
+                return null;
+            }
+            AttributeData disclosureAttribute = FindAttribute(property, DisclosureAttribute);
+            if (disclosureAttribute is not null)
+            {
+                string[] requiredDisclosureNames = new[] { "RecordRead", "Event", "Realtime", "Diagnostic", "AdministrativeDataExport", "OrdinaryDataExport", "Indexing" };
+                if (requiredDisclosureNames.Any(name => disclosureAttribute.NamedArguments.All(pair => pair.Key != name)))
+                {
+                    context.ReportDiagnostic(Diagnostic.Create(InvalidField, GetLocation(property), collectionId, property.Name, "all disclosure channels must be assigned"));
+                    return null;
+                }
+                field.Disclosure = requiredDisclosureNames.Select(name => (int)disclosureAttribute.NamedArguments.Single(pair => pair.Key == name).Value.Value!).ToArray();
+            }
+            field.MaximumBytes = (int)GetNamedInt64(fieldAttribute, "MaximumBytes", 0);
+            bool binary = property.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) == "global::HPD.Base.BaseBinary";
+            if (binary != (field.MaximumBytes > 0) || binary && field.MaximumBytes > 1_048_576)
+            {
+                context.ReportDiagnostic(Diagnostic.Create(InvalidField, GetLocation(property), collectionId, property.Name, "binary fields require MaximumBytes from 1 through 1048576 and other fields forbid it"));
+                return null;
+            }
 
             AttributeData relationAttribute = FindAttribute(property, RelationAttribute);
+            if (relationAttribute is not null && field.SubjectReference is not null)
+            {
+                context.ReportDiagnostic(Diagnostic.Create(InvalidField, GetLocation(property), collectionId, property.Name,
+                    "a subject-reference field cannot also be a relation"));
+                return null;
+            }
             if (relationAttribute != null)
             {
                 string relationId = GetConstructorString(relationAttribute, 0);
@@ -444,7 +642,9 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         }
 
         var indexes = new List<IndexModel>();
+        var vectorIndexes = new List<VectorIndexModel>();
         var indexIds = new HashSet<string>(StringComparer.Ordinal);
+        var vectorHandleNames = new HashSet<string>(StringComparer.Ordinal);
         foreach (AttributeData indexAttribute in symbol.GetAttributes()
             .Where(attribute =>
                 attribute.AttributeClass != null &&
@@ -518,6 +718,17 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
                     return null;
                 }
 
+                if (field.TypeName == "global::HPD.Base.BaseVector")
+                {
+                    context.ReportDiagnostic(Diagnostic.Create(
+                        InvalidIndex,
+                        indexLocation,
+                        collectionId,
+                        indexId,
+                        "vector fields may only participate in a BaseVectorIndex"));
+                    return null;
+                }
+
                 indexFields.Add(field);
             }
 
@@ -530,6 +741,77 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
             });
         }
 
+        foreach (AttributeData vectorAttribute in symbol.GetAttributes()
+            .Where(attribute => attribute.AttributeClass?.ToDisplayString() == VectorIndexAttribute))
+        {
+            string vectorIndexId = GetConstructorString(vectorAttribute, 0);
+            string vectorPropertyName = GetConstructorString(vectorAttribute, 1);
+            Location location = GetLocation(vectorAttribute, symbol);
+            string vectorSpace = GetNamedString(vectorAttribute, "VectorSpace");
+            int dimensions = (int)GetNamedInt64(vectorAttribute, "Dimensions", 0);
+            int function = (int)GetNamedInt64(vectorAttribute, "Function", 0);
+            if (!IsValidId(vectorIndexId) || !indexIds.Add(vectorIndexId))
+            {
+                context.ReportDiagnostic(Diagnostic.Create(InvalidIndex, location, collectionId, vectorIndexId ?? string.Empty, "the stable vector-index identifier is invalid or duplicated"));
+                return null;
+            }
+            if (!IsValidId(vectorSpace) || dimensions is < 1 or > 32768 || function is < 0 or > 2)
+            {
+                context.ReportDiagnostic(Diagnostic.Create(InvalidIndex, location, collectionId, vectorIndexId, "the vector space, dimensions, or function is invalid"));
+                return null;
+            }
+            if (!propertyFields.TryGetValue(vectorPropertyName, out FieldModel vectorField)
+                || vectorField.TypeName is not ("global::HPD.Base.BaseVector" or "global::HPD.Base.BaseVector?")
+                || vectorField.Operators != 0)
+            {
+                context.ReportDiagnostic(Diagnostic.Create(InvalidIndex, location, collectionId, vectorIndexId, "the vector property must be a stored BaseVector or nullable BaseVector field with BaseFieldOperator.None"));
+                return null;
+            }
+
+            var filterFields = new List<FieldModel>();
+            var filterProperties = new HashSet<string>(StringComparer.Ordinal);
+            foreach (TypedConstant constant in GetNamedArray(vectorAttribute, "FilterFields"))
+            {
+                string propertyName = constant.Value as string;
+                if (propertyName == null
+                    || !propertyFields.TryGetValue(propertyName, out FieldModel filterField)
+                    || filterField == vectorField
+                    || (filterField.Operators & 1) == 0
+                    || !filterProperties.Add(propertyName))
+                {
+                    context.ReportDiagnostic(Diagnostic.Create(InvalidIndex, location, collectionId, vectorIndexId, "filter fields must be unique stored equality-capable non-vector properties"));
+                    return null;
+                }
+                filterFields.Add(filterField);
+            }
+            if (filterFields.Count > 16)
+            {
+                context.ReportDiagnostic(Diagnostic.Create(InvalidIndex, location, collectionId, vectorIndexId, "at most 16 filter fields are permitted"));
+                return null;
+            }
+            string handleName = VectorHandleName(vectorIndexId);
+            if (!vectorHandleNames.Add(handleName))
+            {
+                context.ReportDiagnostic(Diagnostic.Create(
+                    InvalidIndex,
+                    location,
+                    collectionId,
+                    vectorIndexId,
+                    "the generated vector-index member name collides with another vector index"));
+                return null;
+            }
+            vectorIndexes.Add(new VectorIndexModel
+            {
+                Id = vectorIndexId,
+                PropertyName = handleName,
+                VectorField = vectorField,
+                VectorSpaceId = vectorSpace,
+                Dimensions = dimensions,
+                Function = function,
+                FilterFields = filterFields,
+            });
+        }
+
         string fullTypeName =
             symbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
         string metadataName = symbol.ToDisplayString(
@@ -539,6 +821,38 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
 
         fields.Sort(static (left, right) => StringComparer.Ordinal.Compare(left.Id, right.Id));
         indexes.Sort(static (left, right) => StringComparer.Ordinal.Compare(left.Id, right.Id));
+        vectorIndexes.Sort(static (left, right) => StringComparer.Ordinal.Compare(left.Id, right.Id));
+
+        var storageRequirements = new List<string>();
+        foreach (AttributeData requirementAttribute in symbol.GetAttributes().Where(static attribute => attribute.AttributeClass?.ToDisplayString() == StorageProtectionAttribute))
+        {
+            INamedTypeSymbol declaringType = requirementAttribute.ConstructorArguments[0].Value as INamedTypeSymbol;
+            string propertyName = requirementAttribute.ConstructorArguments[1].Value as string;
+            IPropertySymbol property = declaringType?.GetMembers(propertyName ?? string.Empty).OfType<IPropertySymbol>().SingleOrDefault();
+            if (property is null || !property.IsStatic || property.DeclaredAccessibility != Accessibility.Public ||
+                property.Type.ToDisplayString() != "HPD.Base.BaseStorageProtectionRequirement")
+            {
+                context.ReportDiagnostic(Diagnostic.Create(InvalidField, GetLocation(symbol), collectionId, "<collection>",
+                    "storage-protection declarations must name a public static BaseStorageProtectionRequirement property"));
+                return null;
+            }
+            storageRequirements.Add(declaringType!.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) + "." + EscapeIdentifier(property.Name));
+        }
+        if (sharedContextResult is null) return null;
+        List<SerializerPropertyModel> serializerProperties =
+            sharedContextResult.UnionGraph.PropertiesForRoot(symbol).Select(static property => new SerializerPropertyModel
+            {
+                DeclaringType = property.DeclaringType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+                ApplicationName = property.ApplicationName,
+                PropertyType = property.PropertyType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+                ExplicitWireName = property.ExplicitWireName,
+                Required = property.Required,
+                Nullable = property.Nullable,
+                Ignored = property.Ignored,
+                ExplicitNever = property.ExplicitNever,
+                ConverterIdentity = property.ConverterIdentity,
+                ConverterType = property.ConverterType,
+            }).ToList();
 
         return new CollectionModel
         {
@@ -553,8 +867,13 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
             CollectionKind = GetNamedString(collection, "Kind") ?? "record",
             Strict = GetNamedBoolean(collection, "Strict", true),
             MutationMode = mutationMode,
+            SystemOwnerModuleId = systemOwnerModuleId,
             Fields = fields,
             Indexes = indexes,
+            VectorIndexes = vectorIndexes,
+            StorageRequirements = storageRequirements,
+            JsonNamingPolicy = jsonNamingPolicy,
+            SerializerProperties = serializerProperties,
             ContextTypeName =
                 jsonContext.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
             HintName = "HPDBaseCollection_" + Sanitize(metadataName),
@@ -588,6 +907,16 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
             source.Append("    internal static void RegisterHPDBaseRecordIdJsonConverter_")
                 .Append(Sanitize(target!)).Append("() => global::HPD.Base.BaseRecordIdJsonConverterFactory.Register<")
                 .Append(target).AppendLine(">();");
+            source.AppendLine();
+        }
+        foreach (SubjectReferenceModel reference in model.Fields.Select(static field => field.SubjectReference)
+            .Where(static value => value is not null).Distinct(SubjectReferenceModelComparer.Instance))
+        {
+            source.AppendLine("    [global::System.Runtime.CompilerServices.ModuleInitializer]");
+            source.Append("    internal static void RegisterHPDBaseSubjectReferenceJsonConverter_")
+                .Append(Sanitize(reference.MarkerType)).Append("() => global::HPD.Base.BaseSubjectReferenceJsonConverterFactory.Register<")
+                .Append(reference.MarkerType).Append(">((global::HPD.Base.BaseSubjectIdKind)").Append(reference.SubjectIdKind)
+                .Append(", ").Append(reference.MaximumSubjectIdBytes).AppendLine(");");
             source.AppendLine();
         }
         source.AppendLine("    /// <summary>Gets the generated collection contract with stable logical identities and source-generated serialization metadata.</summary>");
@@ -629,20 +958,47 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
 
         source.AppendLine("    }");
         source.AppendLine();
+        if (model.VectorIndexes.Count != 0)
+        {
+            source.AppendLine("    /// <summary>Provides typed handles for the collection's declared vector indexes.</summary>");
+            source.AppendLine("    public static class VectorIndexes");
+            source.AppendLine("    {");
+            foreach (VectorIndexModel index in model.VectorIndexes)
+            {
+                source.Append("        /// <summary>Gets vector index <c>").Append(index.Id).AppendLine("</c>.</summary>");
+                source.Append("        public static global::HPD.Base.BaseVectorIndex<").Append(model.FullTypeName).Append("> ")
+                    .Append(index.PropertyName).AppendLine(" { get; } = new()");
+                source.AppendLine("        {");
+                source.Append("            CollectionId = ").Append(Literal(model.CollectionId)).AppendLine(",");
+                source.Append("            Id = ").Append(Literal(index.Id)).AppendLine(",");
+                source.Append("            VectorFieldId = ").Append(Literal(index.VectorField.Id)).AppendLine(",");
+                source.Append("            VectorSpaceId = ").Append(Literal(index.VectorSpaceId)).AppendLine(",");
+                source.Append("            Dimensions = ").Append(index.Dimensions).AppendLine(",");
+                source.Append("            Function = (global::HPD.Base.BaseVectorFunction)").Append(index.Function).AppendLine(",");
+                source.Append("            FilterFieldIds = global::System.Collections.Immutable.ImmutableArray.Create<string>(");
+                source.Append(string.Join(", ", index.FilterFields.Select(static field => Literal(field.Id))));
+                source.AppendLine("),");
+                source.AppendLine("        };");
+            }
+            source.AppendLine("    }");
+            source.AppendLine();
+        }
         source.Append("    private static global::HPD.Base.BaseCollection<")
             .Append(model.FullTypeName).AppendLine("> CreateHPDBaseCollection()");
         source.AppendLine("    {");
-        source.Append("        var jsonTypeInfo = ")
-            .Append(model.ContextTypeName)
-            .Append(".Default.GetTypeInfo(typeof(").Append(model.FullTypeName)
-            .Append(")) as global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<")
-            .Append(model.FullTypeName).AppendLine(">");
-        source.Append("            ?? throw new global::System.InvalidOperationException(")
-            .Append(Literal("The configured JSON context does not expose the generated record type."))
-            .AppendLine(");");
+        source.AppendLine("        var jsonRegistration = global::HPD.Base.BaseSerializerGeneratedContract.RegisterContext(__HPDBaseSerializerFactory.Create);");
+        foreach (FieldModel field in model.Fields)
+        {
+            source.Append("        string __wire_").Append(EscapeIdentifier(field.PropertyName)).Append(" = ");
+            source.Append("global::HPD.Base.BaseSerializerGeneratedContract.ProvisionalWireName(")
+                .Append(model.JsonNamingPolicy == null ? "null" : "global::System.Text.Json.JsonNamingPolicy." + model.JsonNamingPolicy)
+                .Append(", ").Append(Literal(field.ApplicationName)).Append(", ")
+                .Append(field.ExplicitWireName ? Literal(field.WireName) : "null").Append(')');
+            source.AppendLine(";");
+        }
         source.AppendLine();
         source.Append("        return global::HPD.Base.BaseCollection<")
-            .Append(model.FullTypeName).AppendLine(">.Create(");
+            .Append(model.FullTypeName).AppendLine(">.CreateGenerated(");
         source.AppendLine("            new global::HPD.Base.CollectionDefinition");
         source.AppendLine("            {");
         source.Append("                Id = ").Append(Literal(model.CollectionId)).AppendLine(",");
@@ -654,6 +1010,12 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
             .Append(model.Strict ? "Reject" : "Preserve").AppendLine(",");
         source.Append("                MutationMode = global::HPD.Base.BaseCollectionMutationMode.")
             .Append(model.MutationMode).AppendLine(",");
+        if (model.SystemOwnerModuleId != null)
+        {
+            source.AppendLine("                System = true,");
+            source.AppendLine("                Exposed = false,");
+            source.Append("                SystemOwnerModuleId = ").Append(Literal(model.SystemOwnerModuleId)).AppendLine(",");
+        }
         source.AppendLine("                Source = new global::HPD.Base.SchemaSourceDescriptor");
         source.AppendLine("                {");
         source.AppendLine("                    Id = \"hpd.base.application.generated\",");
@@ -661,8 +1023,14 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         source.AppendLine("                },");
         RenderFieldDefinitions(source, model);
         RenderIndexes(source, model);
+        RenderVectorIndexes(source, model);
+        if (model.StorageRequirements.Count != 0)
+        {
+            source.Append("                StorageProtectionRequirements = new global::HPD.Base.BaseStorageProtectionRequirement[] { ")
+                .Append(string.Join(", ", model.StorageRequirements)).AppendLine(" },");
+        }
         source.AppendLine("            },");
-        source.AppendLine("            jsonTypeInfo,");
+        source.AppendLine("            jsonRegistration,");
         source.AppendLine("            fields =>");
         source.AppendLine("            {");
 
@@ -672,14 +1040,39 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
                 .Append(EscapeIdentifier(field.PropertyName)).Append("(fields.Add<")
                 .Append(field.TypeName).Append(">(")
                 .Append(Literal(field.Id)).Append(", ")
-                .Append(Literal(field.StoredName)).Append(", nullable: ")
+                .Append(Literal(field.ApplicationName)).Append(", ")
+                .Append("__wire_").Append(EscapeIdentifier(field.PropertyName)).Append(", nullable: ")
                 .Append(field.Nullable ? "true" : "false")
                 .Append(", operators: (global::HPD.Base.BaseFieldOperator)")
                 .Append(field.Operators.ToString(CultureInfo.InvariantCulture))
                 .AppendLine("));");
         }
 
+        source.AppendLine("            },");
+        source.AppendLine("            new global::HPD.Base.BaseSerializerPropertyDeclaration[]");
+        source.AppendLine("            {");
+        foreach (SerializerPropertyModel property in model.SerializerProperties)
+        {
+            source.Append("                global::HPD.Base.BaseSerializerPropertyDeclaration.Create(typeof(").Append(property.DeclaringType)
+                .Append("), ").Append(Literal(property.ApplicationName))
+                .Append(", typeof(").Append(property.PropertyType).Append("), ")
+                .Append(property.ExplicitWireName is null ? "null" : Literal(property.ExplicitWireName))
+                .Append(", ").Append(property.Required ? "true" : "false")
+                .Append(", ").Append(property.Nullable ? "true" : "false")
+                .Append(", ").Append(property.Ignored ? "true" : "false")
+                .Append(", ").Append(property.ExplicitNever ? "true" : "false")
+                .Append(", ").Append(Literal(property.ConverterIdentity))
+                .Append(", ").Append(property.ConverterType is null ? "null" : "typeof(" + property.ConverterType + ")")
+                .AppendLine("),");
+        }
         source.AppendLine("            });");
+        source.AppendLine("    }");
+        source.AppendLine("    private static class __HPDBaseSerializerFactory");
+        source.AppendLine("    {");
+        source.AppendLine("        [global::System.CodeDom.Compiler.GeneratedCode(\"HPD.Base.Generators\", \"44\")]");
+        source.Append("        internal static ").Append(model.ContextTypeName).Append(" Create() => new(")
+            .Append("global::HPD.Base.BaseSerializerGeneratedContract.CreateOptions(")
+            .Append(model.JsonNamingPolicy == null ? "null" : "global::System.Text.Json.JsonNamingPolicy." + model.JsonNamingPolicy).AppendLine("));");
         source.AppendLine("    }");
         source.AppendLine("}");
         return source.ToString();
@@ -697,7 +1090,8 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
             source.AppendLine("                    new global::HPD.Base.FieldDefinition");
             source.AppendLine("                    {");
             source.Append("                        Id = ").Append(Literal(field.Id)).AppendLine(",");
-            source.Append("                        Name = ").Append(Literal(field.StoredName)).AppendLine(",");
+            source.Append("                        ApplicationName = ").Append(Literal(field.ApplicationName)).AppendLine(",");
+            source.Append("                        WireName = __wire_").Append(EscapeIdentifier(field.PropertyName)).AppendLine(",");
             source.Append("                        Type = ").Append(Literal(field.SchemaType)).AppendLine(",");
             if (field.SchemaFormat != null)
             {
@@ -708,6 +1102,25 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
                 .Append(field.Required ? "true" : "false").AppendLine(",");
             source.Append("                        Nullable = ")
                 .Append(field.Nullable ? "true" : "false").AppendLine(",");
+            source.Append("                        Confidentiality = (global::HPD.Base.BaseFieldConfidentiality)").Append(field.Confidentiality).AppendLine(",");
+            if (field.Disclosure is not null)
+            {
+                source.AppendLine("                        Disclosure = new global::HPD.Base.BaseFieldDisclosurePolicy");
+                source.AppendLine("                        {");
+                source.Append("                            RecordRead = (global::HPD.Base.BaseRecordDisclosure)").Append(field.Disclosure[0]).AppendLine(",");
+                source.AppendLine("                            AuthoritativeHistory = global::HPD.Base.BaseHistoryProtection.AuthoritativeRequired,");
+                source.Append("                            Event = (global::HPD.Base.BaseProjectionDisclosure)").Append(field.Disclosure[1]).AppendLine(",");
+                source.Append("                            Realtime = (global::HPD.Base.BaseProjectionDisclosure)").Append(field.Disclosure[2]).AppendLine(",");
+                source.Append("                            Diagnostic = (global::HPD.Base.BaseProjectionDisclosure)").Append(field.Disclosure[3]).AppendLine(",");
+                source.AppendLine("                            AuthoritativeBackup = global::HPD.Base.BaseAuthoritativeBackupProtection.PreserveAuthoritativeValue,");
+                source.Append("                            AdministrativeDataExport = (global::HPD.Base.BaseProjectionDisclosure)").Append(field.Disclosure[4]).AppendLine(",");
+                source.Append("                            OrdinaryDataExport = (global::HPD.Base.BaseProjectionDisclosure)").Append(field.Disclosure[5]).AppendLine(",");
+                source.Append("                            Indexing = (global::HPD.Base.BaseIndexDisclosure)").Append(field.Disclosure[6]).AppendLine(",");
+                source.AppendLine("                        },");
+            }
+            else
+                source.Append("                        Disclosure = global::HPD.Base.BaseFieldDisclosurePolicies.For((global::HPD.Base.BaseFieldConfidentiality)").Append(field.Confidentiality).AppendLine("),");
+            if (field.MaximumBytes > 0) source.Append("                        MaximumBytes = ").Append(field.MaximumBytes).AppendLine(",");
             if (field.Relation != null)
             {
                 source.AppendLine("                        Relation = new global::HPD.Base.RelationDefinition");
@@ -733,6 +1146,17 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
                 if (field.Relation.IncludeMaximumDepth is int includeMaximumDepth)
                     source.Append(", MaxDepth = ").Append(includeMaximumDepth);
                 source.AppendLine(" },");
+                source.AppendLine("                        },");
+            }
+            if (field.SubjectReference is not null)
+            {
+                source.AppendLine("                        SubjectReference = new global::HPD.Base.BaseSubjectReferenceDefinition");
+                source.AppendLine("                        {");
+                source.Append("                            ContractId = ").Append(Literal(field.SubjectReference.ContractId)).AppendLine(",");
+                source.Append("                            ContractVersion = ").Append(field.SubjectReference.ContractVersion).AppendLine(",");
+                source.AppendLine("                            ContractChecksum = \"\",");
+                source.Append("                            Requirement = (global::HPD.Base.BaseSubjectReferenceRequirement)").Append(field.SubjectReference.Requirement).AppendLine(",");
+                source.Append("                            Guarantee = (global::HPD.Base.BaseSubjectValidationGuarantee)").Append(field.SubjectReference.Guarantee).AppendLine(",");
                 source.AppendLine("                        },");
             }
             source.AppendLine("                    },");
@@ -780,10 +1204,55 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         source.AppendLine("                ],");
     }
 
+    private static void RenderVectorIndexes(StringBuilder source, CollectionModel model)
+    {
+        if (model.VectorIndexes.Count == 0)
+        {
+            source.AppendLine("                VectorIndexes = null,");
+            return;
+        }
+        source.AppendLine("                VectorIndexes =");
+        source.AppendLine("                [");
+        foreach (VectorIndexModel index in model.VectorIndexes)
+        {
+            source.AppendLine("                    new global::HPD.Base.VectorIndexDefinition");
+            source.AppendLine("                    {");
+            source.Append("                        Id = ").Append(Literal(index.Id)).AppendLine(",");
+            source.Append("                        CollectionId = ").Append(Literal(model.CollectionId)).AppendLine(",");
+            source.Append("                        VectorFieldId = ").Append(Literal(index.VectorField.Id)).AppendLine(",");
+            source.Append("                        VectorSpaceId = ").Append(Literal(index.VectorSpaceId)).AppendLine(",");
+            source.Append("                        Dimensions = ").Append(index.Dimensions).AppendLine(",");
+            source.Append("                        Function = (global::HPD.Base.BaseVectorFunction)").Append(index.Function).AppendLine(",");
+            source.Append("                        FilterFieldIds = [").Append(string.Join(", ", index.FilterFields.Select(static field => Literal(field.Id)))).AppendLine("],");
+            source.AppendLine("                    },");
+        }
+        source.AppendLine("                ],");
+    }
+
     private static bool IsSupported(INamedTypeSymbol symbol) =>
         symbol.TypeKind == TypeKind.Class &&
         symbol.ContainingType == null &&
         symbol.TypeParameters.Length == 0;
+
+    private static bool IsAlwaysIgnored(IPropertySymbol property)
+    {
+        AttributeData ignore = FindAttribute(property, JsonIgnoreAttribute);
+        return ignore is not null && (ignore.NamedArguments.Length == 0 || GetNamedInt64(ignore, "Condition", 1) == 1);
+    }
+
+    private static IEnumerable<IPropertySymbol> SerializableProperties(INamedTypeSymbol type)
+    {
+        var chain = new Stack<INamedTypeSymbol>();
+        for (INamedTypeSymbol current = type; current is not null && current.SpecialType != SpecialType.System_Object; current = current.BaseType)
+            chain.Push(current);
+        var properties = new Dictionary<string, IPropertySymbol>(StringComparer.Ordinal);
+        while (chain.Count != 0)
+        {
+            foreach (IPropertySymbol property in chain.Pop().GetMembers().OfType<IPropertySymbol>())
+                properties[property.Name] = property;
+        }
+        return properties.Values;
+    }
 
     private static bool IsSupportedFieldType(ITypeSymbol type)
     {
@@ -874,6 +1343,19 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         return null;
     }
 
+    private static ImmutableArray<TypedConstant> GetNamedArray(AttributeData attribute, string name)
+    {
+        if (attribute != null)
+        {
+            foreach (KeyValuePair<string, TypedConstant> argument in attribute.NamedArguments)
+            {
+                if (argument.Key == name && argument.Value.Kind == TypedConstantKind.Array)
+                    return argument.Value.Values;
+            }
+        }
+        return ImmutableArray<TypedConstant>.Empty;
+    }
+
     private static bool GetNamedBoolean(
         AttributeData attribute,
         string name,
@@ -952,12 +1434,12 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         return GetConstructorString(attribute, 0);
     }
 
-    private static bool UsesCamelCase(INamedTypeSymbol jsonContext)
+    private static string GetJsonNamingPolicy(INamedTypeSymbol jsonContext)
     {
         AttributeData options = FindAttribute(jsonContext, JsonOptionsAttribute);
         if (options == null)
         {
-            return false;
+            return null;
         }
 
         foreach (KeyValuePair<string, TypedConstant> argument in options.NamedArguments)
@@ -979,10 +1461,18 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
                     Convert.ToInt64(
                         field.ConstantValue,
                         CultureInfo.InvariantCulture) == selected);
-            return member != null && member.Name == "CamelCase";
+            return member?.Name switch
+            {
+                "CamelCase" => "CamelCase",
+                "SnakeCaseLower" => "SnakeCaseLower",
+                "SnakeCaseUpper" => "SnakeCaseUpper",
+                "KebabCaseLower" => "KebabCaseLower",
+                "KebabCaseUpper" => "KebabCaseUpper",
+                _ => null,
+            };
         }
 
-        return false;
+        return null;
     }
 
     private static bool IsNullable(IPropertySymbol property)
@@ -1016,6 +1506,16 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         return null;
     }
 
+    private static INamedTypeSymbol SubjectReferenceMarker(ITypeSymbol type)
+    {
+        if (type is INamedTypeSymbol nullable && nullable.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T)
+            type = nullable.TypeArguments[0];
+        return type is INamedTypeSymbol named && named.IsGenericType &&
+            named.ConstructedFrom.ToDisplayString() == "HPD.Base.BaseSubjectReference<TSubject>"
+            ? named.TypeArguments[0] as INamedTypeSymbol
+            : null;
+    }
+
     private static bool IsManyRecordIdShape(ITypeSymbol type) =>
         type is IArrayTypeSymbol { Rank: 1 } ||
         type is INamedTypeSymbol named && IsApprovedRecordIdCollection(named);
@@ -1030,6 +1530,12 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
 
     private static string GetSchemaType(ITypeSymbol type)
     {
+        if (type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) == "global::HPD.Base.BaseBinary") return "string";
+        if (IsBaseVector(type))
+        {
+            return "vector";
+        }
+
         IArrayTypeSymbol array = type as IArrayTypeSymbol;
         if (array != null)
         {
@@ -1084,6 +1590,11 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
     private static string GetSchemaFormat(ITypeSymbol type)
     {
         string name = type.ToDisplayString();
+        if (type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) == "global::HPD.Base.BaseBinary") return "base64";
+        if (IsBaseVector(type))
+        {
+            return "float32";
+        }
         if (name == "System.DateTime" || name == "System.DateTimeOffset")
         {
             return "date-time";
@@ -1105,19 +1616,10 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
                name == "System.Guid";
     }
 
-    private static string ToCamelCase(string value)
+    private static bool IsBaseVector(ITypeSymbol type)
     {
-        if (string.IsNullOrEmpty(value) || char.IsLower(value[0]))
-        {
-            return value;
-        }
-
-        if (value.Length == 1)
-        {
-            return value.ToLowerInvariant();
-        }
-
-        return char.ToLowerInvariant(value[0]) + value.Substring(1);
+        string name = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        return name is "global::HPD.Base.BaseVector" or "BaseVector";
     }
 
     private static string EscapeIdentifier(string value) =>
@@ -1147,6 +1649,10 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
     private static bool IsAsciiLetterOrDigit(char value) =>
         value is >= 'a' and <= 'z' or >= 'A' and <= 'Z' or >= '0' and <= '9';
 
+    private static bool ValidApplicationName(string value) => value.Length is >= 1 and <= 128 &&
+        (value[0] is >= 'a' and <= 'z' or >= 'A' and <= 'Z' || value[0] == '_') &&
+        value.All(static character => character is >= 'a' and <= 'z' or >= 'A' and <= 'Z' or >= '0' and <= '9' || character == '_');
+
     private static string Sanitize(string value)
     {
         var result = new StringBuilder(value.Length);
@@ -1158,6 +1664,20 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         }
 
         return result.ToString();
+    }
+
+    private static string VectorHandleName(string id)
+    {
+        string tail = id.Split('.').Last();
+        var result = new StringBuilder(tail.Length);
+        bool upper = true;
+        foreach (char character in tail)
+        {
+            if (!char.IsLetterOrDigit(character)) { upper = true; continue; }
+            result.Append(upper ? char.ToUpperInvariant(character) : character);
+            upper = false;
+        }
+        return result.Length == 0 ? "Index" : EscapeIdentifier(result.ToString());
     }
 
     private static string Literal(string value) =>
@@ -1190,14 +1710,37 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         public bool Strict;
         /// <summary>Provides the collection mutation mode value.</summary>
         public string MutationMode;
+        /// <summary>Provides the owning installed module for a generated system collection.</summary>
+        public string SystemOwnerModuleId;
         /// <summary>Provides the fields value.</summary>
         public List<FieldModel> Fields;
         /// <summary>Provides the indexes value.</summary>
         public List<IndexModel> Indexes;
+        /// <summary>Provides the vector indexes value.</summary>
+        public List<VectorIndexModel> VectorIndexes;
+        /// <summary>Provides the closed generated storage requirement references.</summary>
+        public List<string> StorageRequirements;
         /// <summary>Provides the context type name value.</summary>
         public string ContextTypeName;
+        /// <summary>Gets the serializer-owned built-in naming-policy property.</summary>
+        public string JsonNamingPolicy;
+        public List<SerializerPropertyModel> SerializerProperties;
         /// <summary>Provides the hint name value.</summary>
         public string HintName;
+    }
+
+    private sealed class SerializerPropertyModel
+    {
+        public string DeclaringType;
+        public string ApplicationName;
+        public string PropertyType;
+        public string ExplicitWireName;
+        public bool Required;
+        public bool Nullable;
+        public bool Ignored;
+        public bool ExplicitNever;
+        public string ConverterIdentity;
+        public string ConverterType;
     }
 
     private sealed class FieldModel
@@ -1207,7 +1750,9 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         /// <summary>Provides the property name value.</summary>
         public string PropertyName;
         /// <summary>Provides the stored name value.</summary>
-        public string StoredName;
+        public string ApplicationName;
+        public string WireName;
+        public bool ExplicitWireName;
         /// <summary>Provides the type name value.</summary>
         public string TypeName;
         /// <summary>Provides the typed record ID target value.</summary>
@@ -1222,8 +1767,36 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         public bool Required;
         /// <summary>Provides the operators value.</summary>
         public long Operators;
+        /// <summary>Provides confidentiality.</summary>
+        public int Confidentiality;
+        /// <summary>Provides the seven optional disclosure values.</summary>
+        public int[] Disclosure;
+        /// <summary>Provides the binary maximum.</summary>
+        public int MaximumBytes;
         /// <summary>Provides the relation value.</summary>
         public RelationModel Relation;
+        public SubjectReferenceModel SubjectReference;
+    }
+
+    private sealed class SubjectReferenceModel
+    {
+        public string MarkerType;
+        public string ContractId;
+        public int ContractVersion;
+        public int SubjectIdKind;
+        public int MaximumSubjectIdBytes;
+        public int Requirement;
+        public int Guarantee;
+    }
+
+    private sealed class SubjectReferenceModelComparer : IEqualityComparer<SubjectReferenceModel>
+    {
+        internal static SubjectReferenceModelComparer Instance { get; } = new();
+        public bool Equals(SubjectReferenceModel x, SubjectReferenceModel y) =>
+            x is not null && y is not null && string.Equals(x.MarkerType, y.MarkerType, StringComparison.Ordinal) &&
+            x.SubjectIdKind == y.SubjectIdKind && x.MaximumSubjectIdBytes == y.MaximumSubjectIdBytes;
+        public int GetHashCode(SubjectReferenceModel value) =>
+            StringComparer.Ordinal.GetHashCode(value.MarkerType) ^ value.SubjectIdKind ^ value.MaximumSubjectIdBytes;
     }
 
     private sealed class RelationModel
@@ -1266,5 +1839,16 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         public bool Required;
         /// <summary>Provides the fields value.</summary>
         public List<FieldModel> Fields;
+    }
+
+    private sealed class VectorIndexModel
+    {
+        public string Id;
+        public string PropertyName;
+        public FieldModel VectorField;
+        public string VectorSpaceId;
+        public int Dimensions;
+        public int Function;
+        public List<FieldModel> FilterFields;
     }
 }

@@ -1,520 +1,444 @@
-import { createCapabilityIndex } from "./capabilities.js";
-import { BaseCollectionClient } from "./collection.js";
-import { HpdBaseError } from "./errors.js";
-import { createSchemaMetadataIndex } from "./hydration.js";
-import { unwrapResult } from "./result.js";
-import { encodePathSegment, HttpTransport } from "./transport/http.js";
-import type { HttpHeaderOptions } from "./transport/http.js";
-import type { BaseManifest, CapabilityDescriptor, CapabilityFeatureDescriptor, CollectionSummaryDescriptor, ExpandedBaseManifest, HydratedBaseMetadata, RouteDescriptor } from "./types/descriptors.js";
-import type { JsonObject } from "./types/records.js";
-import type { BaseResult } from "./types/results.js";
-import type { CollectionDefinition, SchemaMetadata } from "./types/schema.js";
-import type { DiagnosticDescriptor, HealthDescriptor } from "./types/health.js";
-import type { RecordQueryInput } from "./types/query.js";
-import type { CreateInput, DeleteResult, PatchInput, RecordEnvelope, RecordPage, ReplaceInput } from "./types/records.js";
+import { BaseQueryOperation, createFieldHandle, toWireQuery, type BaseQueryExecutor, type BaseQueryInput, type BaseQuerySnapshot, type BaseRecord, type BaseRecordPage, type BaseSubscription, type FieldHandles } from "./query.js";
+import type { BaseResult } from "./result.js";
+import type { BaseCollectionDefinition, BaseGeneratedSchema, BaseReadDefinition } from "./schema.js";
+import { BaseHttpTransport, type BaseTransportOptions } from "./transport.js";
+import { BaseRealtimeManager, type BaseConnectivityState, type BaseRecordFeedDelivery, type BaseRecordFeedFilter, type BaseWebSocketFactory } from "./realtime.js";
+import { BaseFilesClient } from "./files.js";
+import { BaseVectorIndexQuery } from "./vector.js";
+import { createControlPlaneClient, type BaseControlPlaneClient } from "./control.js";
+import { decodeBaseValue, decodeBaseWireValue, encodeBaseJson, materializeBaseJsonValue } from "./codec.js";
+import { executeSelectionMutation, type BaseSelectionMutationDefinition, type BaseSelectionMutationOptions, type BaseSelectionMutationResult } from "./selection.js";
+import { executeModuleMutation, type BaseModuleMutationDefinition, type BaseModuleMutationOptions, type BaseModuleMutationResult } from "./module-mutations.js";
 
-export type MetadataView = "public" | "admin";
-export type ManifestExpandToken = "schema" | "capabilities" | "health" | "diagnostics" | "collections";
-export type CollectionOperation = "list" | "query" | "get" | "create" | "patch" | "replace" | "delete";
+type RecordOf<T> = T extends BaseCollectionDefinition<infer TRecord, unknown, unknown, unknown> ? TRecord : never;
+type CreateOf<T> = T extends BaseCollectionDefinition<unknown, infer TCreate, unknown, unknown> ? TCreate : never;
+type ReplaceOf<T> = T extends BaseCollectionDefinition<unknown, unknown, infer TReplace, unknown> ? TReplace : never;
+type PatchOf<T> = T extends BaseCollectionDefinition<unknown, unknown, unknown, infer TPatch> ? TPatch : never;
+type CollectionRecordOf<T> = BaseRecord<RecordOf<T>>;
 
-export interface BaseClientConfig {
-  /** Mapped BASE HTTP prefix, for example `/base` or `https://host.example/base`. */
-  baseUrl: string;
-  /** Custom fetch implementation for older runtimes, tests, or instrumented transports. */
-  fetch?: typeof globalThis.fetch;
-  /** Static or async headers applied to every request. */
-  headers?: HeadersInit | (() => HeadersInit | Promise<HeadersInit>);
-  /** Fetch credentials mode passed through to every request. */
-  credentials?: RequestCredentials;
-  /** Optional client name sent as `X-HPD-Client`. */
-  clientName?: string;
-  /** Optional client version sent as `X-HPD-Client-Version`. */
-  clientVersion?: string;
-  /** Client-side compatibility metadata; not sent as a BASE-required header. */
-  contractVersion?: string;
-  /** Default abort signal used when a call does not provide its own signal. */
-  defaultSignal?: AbortSignal;
-  /** Optional bootstrap defaults for metadata hydration. */
-  bootstrap?: BaseBootstrapOptions;
-  /** Optional preloaded manifest or expanded manifest. */
-  bootstrapManifest?: BaseManifest | ExpandedBaseManifest;
-  /** In-memory metadata cache options. */
-  cache?: MetadataCacheOptions;
-}
+declare const mutationBrand: unique symbol;
+export type MutationId = string & { readonly [mutationBrand]: true };
 
-export interface BaseBootstrapOptions {
-  expand?: ManifestExpandToken[];
-  view?: MetadataView;
-  diagnostics?: boolean;
-}
+interface BaseMutationOptions { readonly mutationId?: MutationId; readonly recordId?: string; readonly expectedRevision?: string; readonly optimistic?: boolean; readonly retry?: "never" | "safe"; readonly signal?: AbortSignal; }
+export type BaseCreateOptions = Omit<BaseMutationOptions, "expectedRevision">;
+export type BaseExistingMutationOptions = Omit<BaseMutationOptions, "recordId">;
+export interface BaseUpsertRequest<TCreate, TUpdate> { readonly create: TCreate; readonly update: TUpdate; readonly updateMode: "patch" | "replace"; readonly condition?: "any" | "createOnly" | "updateOnly"; }
+export interface BaseUpsertResult<T> { readonly outcome: "created" | "updated"; readonly record: T; }
 
-export interface MetadataCacheOptions {
-  mode?: "memory" | "none";
-  ttlMs?: number;
-  forceRefresh?: boolean;
-}
-
-export interface RequestOptions {
-  /** Per-call abort signal. */
-  signal?: AbortSignal;
-  /** Per-call headers merged after configured headers. */
-  headers?: HeadersInit;
-  /** Correlation id sent as `X-Correlation-ID`. */
-  correlationId?: string;
-}
-
-export interface ManifestOptions extends RequestOptions {
-  expand?: ManifestExpandToken[];
-}
-
-export interface BootstrapRequestOptions extends ManifestOptions {
-  view?: MetadataView;
-  diagnostics?: boolean;
-  cache?: MetadataCacheOptions;
-}
-
-export interface MetadataRequestOptions extends RequestOptions {
-  forceRefresh?: boolean;
-  view?: MetadataView;
-}
-
-export interface SupportsOptions {
-  collectionId?: string;
-  view?: MetadataView;
-  allowDegraded?: boolean;
-}
-
-export interface BaseExtensionHeaderOptions {
-  headers?: HeadersInit;
-  hasBody?: boolean;
-  contentType?: string | false;
-  accept?: string | false;
-  correlationId?: string;
-}
-
-export interface BaseClientExtensionContext {
-  readonly baseUrl: string;
-  readonly fetch: typeof globalThis.fetch;
-  readonly credentials?: RequestCredentials;
-  readonly defaultSignal?: AbortSignal;
-  url(path: string, query?: URLSearchParams): string;
-  headers(options?: BaseExtensionHeaderOptions): Promise<Headers>;
-  metadata(options?: MetadataRequestOptions): Promise<HydratedBaseMetadata>;
-  metadataResult(options?: MetadataRequestOptions): Promise<BaseResult<HydratedBaseMetadata>>;
-  supports(featureId: string, options?: SupportsOptions): boolean | undefined;
-  feature(featureId: string, options?: SupportsOptions): CapabilityFeatureDescriptor | undefined;
-  requireFeature(featureId: string, options?: SupportsOptions): CapabilityFeatureDescriptor;
-}
-
-export interface ListRequestOptions extends RequestOptions {
-  method?: "auto" | "get" | "post";
-  maxUrlLength?: number;
-  validate?: import("./types/query.js").QueryValidationMode;
-}
-
-export interface CreateOptions extends RequestOptions {
-  requestedId?: string;
-  idempotencyKey?: string;
-}
-
-export interface MutationOptions extends RequestOptions {
-  expectedRevision?: string;
-}
-
-export interface DeleteOptions extends MutationOptions {
-  returnPrevious?: boolean;
-}
-
-export interface HpdBaseClient {
-  readonly admin: BaseAdminClient;
-  /** Fetches `/manifest`; `expand` requests an expanded manifest. */
-  manifest(options?: ManifestOptions): Promise<BaseManifest | ExpandedBaseManifest>;
-  manifestResult(options?: ManifestOptions): Promise<BaseResult<BaseManifest | ExpandedBaseManifest>>;
-  /** Hydrates manifest/schema/capability/collection descriptor indexes. */
-  bootstrap(options?: BootstrapRequestOptions): Promise<HydratedBaseMetadata>;
-  bootstrapResult(options?: BootstrapRequestOptions): Promise<BaseResult<HydratedBaseMetadata>>;
-  /** Alias for `bootstrap`, with cache refresh controls. */
-  metadata(options?: MetadataRequestOptions): Promise<HydratedBaseMetadata>;
-  metadataResult(options?: MetadataRequestOptions): Promise<BaseResult<HydratedBaseMetadata>>;
-  capabilities(options?: RequestOptions): Promise<CapabilityDescriptor>;
-  capabilitiesResult(options?: RequestOptions): Promise<BaseResult<CapabilityDescriptor>>;
-  schema(options?: RequestOptions): Promise<SchemaMetadata>;
-  schemaResult(options?: RequestOptions): Promise<BaseResult<SchemaMetadata>>;
-  collections(options?: RequestOptions): Promise<CollectionDefinition[]>;
-  collectionsResult(options?: RequestOptions): Promise<BaseResult<CollectionDefinition[]>>;
-  collectionDefinition(id: string, options?: RequestOptions): Promise<CollectionDefinition>;
-  collectionDefinitionResult(id: string, options?: RequestOptions): Promise<BaseResult<CollectionDefinition>>;
-  health(options?: RequestOptions): Promise<HealthDescriptor[]>;
-  healthResult(options?: RequestOptions): Promise<BaseResult<HealthDescriptor[]>>;
-  diagnostics(options?: RequestOptions): Promise<DiagnosticDescriptor[]>;
-  diagnosticsResult(options?: RequestOptions): Promise<BaseResult<DiagnosticDescriptor[]>>;
-  /** Creates a generic collection handle over the implemented record routes. */
-  collection<TRecord extends JsonObject = JsonObject>(id: string): CollectionClient<TRecord>;
-  /** Descriptor-only feature support lookup; does not probe endpoints. */
-  supports(featureId: string, options?: SupportsOptions): boolean | undefined;
-  feature(featureId: string, options?: SupportsOptions): CapabilityFeatureDescriptor | undefined;
-  requireFeature(featureId: string, options?: SupportsOptions): CapabilityFeatureDescriptor;
-  /** Narrow module-client hook for URL, headers, fetch, metadata, and capability reuse. */
-  extension(): BaseClientExtensionContext;
-}
-
-export interface BaseAdminClient {
-  manifest(options?: ManifestOptions): Promise<BaseManifest | ExpandedBaseManifest>;
-  manifestResult(options?: ManifestOptions): Promise<BaseResult<BaseManifest | ExpandedBaseManifest>>;
-  bootstrap(options?: BootstrapRequestOptions): Promise<HydratedBaseMetadata>;
-  bootstrapResult(options?: BootstrapRequestOptions): Promise<BaseResult<HydratedBaseMetadata>>;
-  metadata(options?: MetadataRequestOptions): Promise<HydratedBaseMetadata>;
-  metadataResult(options?: MetadataRequestOptions): Promise<BaseResult<HydratedBaseMetadata>>;
-  capabilities(options?: RequestOptions): Promise<CapabilityDescriptor>;
-  capabilitiesResult(options?: RequestOptions): Promise<BaseResult<CapabilityDescriptor>>;
-  schema(options?: RequestOptions): Promise<SchemaMetadata>;
-  schemaResult(options?: RequestOptions): Promise<BaseResult<SchemaMetadata>>;
-  collections(options?: RequestOptions): Promise<CollectionDefinition[]>;
-  collectionsResult(options?: RequestOptions): Promise<BaseResult<CollectionDefinition[]>>;
-  collectionDefinition(id: string, options?: RequestOptions): Promise<CollectionDefinition>;
-  collectionDefinitionResult(id: string, options?: RequestOptions): Promise<BaseResult<CollectionDefinition>>;
-  health(options?: RequestOptions): Promise<HealthDescriptor[]>;
-  healthResult(options?: RequestOptions): Promise<BaseResult<HealthDescriptor[]>>;
-  diagnostics(options?: RequestOptions): Promise<DiagnosticDescriptor[]>;
-  diagnosticsResult(options?: RequestOptions): Promise<BaseResult<DiagnosticDescriptor[]>>;
-  supports(featureId: string, options?: SupportsOptions): boolean | undefined;
-  feature(featureId: string, options?: SupportsOptions): CapabilityFeatureDescriptor | undefined;
-  requireFeature(featureId: string, options?: SupportsOptions): CapabilityFeatureDescriptor;
-}
-
-export interface CollectionClient<TRecord extends JsonObject = JsonObject> {
+interface BaseCollectionClientSurface<T extends BaseCollectionDefinition> {
   readonly id: string;
-  /** Lists records using GET for safe query shapes and POST fallback for complex DTOs. */
-  list(query?: RecordQueryInput<TRecord>, options?: ListRequestOptions): Promise<RecordPage<TRecord>>;
-  listResult(query?: RecordQueryInput<TRecord>, options?: ListRequestOptions): Promise<BaseResult<RecordPage<TRecord>>>;
-  /** Posts a `RecordQuery` DTO to `/collections/{collectionId}/query`. */
-  query(query?: RecordQueryInput<TRecord>, options?: RequestOptions): Promise<RecordPage<TRecord>>;
-  queryResult(query?: RecordQueryInput<TRecord>, options?: RequestOptions): Promise<BaseResult<RecordPage<TRecord>>>;
-  /** Reads one record by id. */
-  get(id: string, options?: RequestOptions): Promise<RecordEnvelope<TRecord>>;
-  getResult(id: string, options?: RequestOptions): Promise<BaseResult<RecordEnvelope<TRecord>>>;
-  /** Creates a record from a plain payload or exact `RecordCreateRequest`. */
-  create(input: CreateInput<TRecord>, options?: CreateOptions): Promise<RecordEnvelope<TRecord>>;
-  createResult(input: CreateInput<TRecord>, options?: CreateOptions): Promise<BaseResult<RecordEnvelope<TRecord>>>;
-  /** Patches top-level fields using BASE field-map patch semantics. */
-  patch(id: string, input: PatchInput<TRecord>, options?: MutationOptions): Promise<RecordEnvelope<TRecord>>;
-  patchResult(id: string, input: PatchInput<TRecord>, options?: MutationOptions): Promise<BaseResult<RecordEnvelope<TRecord>>>;
-  /** Replaces a record payload. */
-  replace(id: string, input: ReplaceInput<TRecord>, options?: MutationOptions): Promise<RecordEnvelope<TRecord>>;
-  replaceResult(id: string, input: ReplaceInput<TRecord>, options?: MutationOptions): Promise<BaseResult<RecordEnvelope<TRecord>>>;
-  /** Deletes a record; sends a body only when revision or previous-record options require it. */
-  delete(id: string, options?: DeleteOptions): Promise<DeleteResult<TRecord>>;
-  deleteResult(id: string, options?: DeleteOptions): Promise<BaseResult<DeleteResult<TRecord>>>;
-  definition(options?: RequestOptions): Promise<CollectionDefinition>;
-  definitionResult(options?: RequestOptions): Promise<BaseResult<CollectionDefinition>>;
-  supports(operation: CollectionOperation, options?: SupportsOptions): boolean | undefined;
+  readonly fields: FieldHandles<T>;
+  readonly mutations: BaseCollectionMutations<T>;
+  get(id: string, signal?: AbortSignal): Promise<BaseResult<CollectionRecordOf<T>>>;
+  create(value: CreateOf<T>, options?: BaseCreateOptions): Promise<BaseResult<CollectionRecordOf<T>>>;
+  patch(id: string, value: PatchOf<T>, options?: BaseExistingMutationOptions): Promise<BaseResult<CollectionRecordOf<T>>>;
+  replace(id: string, value: ReplaceOf<T>, options?: BaseExistingMutationOptions): Promise<BaseResult<CollectionRecordOf<T>>>;
+  upsert(id: string, request: BaseUpsertRequest<CreateOf<T>, PatchOf<T> | ReplaceOf<T>>, options?: BaseExistingMutationOptions): Promise<BaseResult<BaseUpsertResult<CollectionRecordOf<T>>>>;
+  delete(id: string, options?: BaseExistingMutationOptions): Promise<BaseResult<{ readonly deleted: true; readonly id: string }>>;
+  query(input: BaseQueryInput): BaseQueryOperation<CollectionRecordOf<T>>;
+  buildQuery(): BaseQueryBuilder<CollectionRecordOf<T>>;
+  watch(input: BaseQueryInput, observer: (snapshot: BaseQuerySnapshot<CollectionRecordOf<T>>) => void): BaseSubscription;
+  readonly events: BaseRecordFeedClient;
+  readonly vectorIndexes: T["vectorIndexes"];
+  vector(index: import("./schema.js").BaseVectorIndexDefinition): BaseVectorIndexQuery<CollectionRecordOf<T>>;
 }
 
-interface CacheEntry {
-  metadata: HydratedBaseMetadata;
-  createdAt: number;
+interface BaseCollectionMutationSurface<T extends BaseCollectionDefinition> {
+  create(value: CreateOf<T>, options?: BaseCreateOptions): Promise<BaseResult<CollectionRecordOf<T>>>;
+  patch(id: string, value: PatchOf<T>, options?: BaseExistingMutationOptions): Promise<BaseResult<CollectionRecordOf<T>>>;
+  replace(id: string, value: ReplaceOf<T>, options?: BaseExistingMutationOptions): Promise<BaseResult<CollectionRecordOf<T>>>;
+  upsert(id: string, request: BaseUpsertRequest<CreateOf<T>, PatchOf<T> | ReplaceOf<T>>, options?: BaseExistingMutationOptions): Promise<BaseResult<BaseUpsertResult<CollectionRecordOf<T>>>>;
+  delete(id: string, options?: BaseExistingMutationOptions): Promise<BaseResult<{ readonly deleted: true; readonly id: string }>>;
 }
 
-type MetadataClientCore = Omit<HpdBaseClient, "admin" | "collection" | "extension"> & { latestMetadata?: HydratedBaseMetadata };
+type OperationsOf<T> = T extends BaseCollectionDefinition<unknown, unknown, unknown, unknown, Readonly<Record<string, import("./schema.js").BaseFieldDefinition>>, infer TOperations> ? TOperations[number] : never;
+export type BaseCollectionMutations<T extends BaseCollectionDefinition> = Pick<BaseCollectionMutationSurface<T>, Extract<OperationsOf<T>, keyof BaseCollectionMutationSurface<T>>>;
+type OperationMethodMap = {
+  readonly get: "get";
+  readonly create: "create";
+  readonly patch: "patch";
+  readonly replace: "replace";
+  readonly upsert: "upsert";
+  readonly delete: "delete";
+  readonly query: "query" | "buildQuery";
+  readonly watch: "watch";
+  readonly realtime: "events";
+  readonly vector: "vector";
+};
 
-/** Creates a zero-dependency fetch client for the implemented HPD.BASE ASP.NET projection. */
-export function createBaseClient(config: BaseClientConfig | string): HpdBaseClient {
-  const resolved = typeof config === "string" ? { baseUrl: config } : config;
-  if (!(resolved.fetch ?? globalThis.fetch)) {
-    throw new HpdBaseError({
-      status: "transportError",
-      code: "base.client.noFetch",
-      message: "HPD.BASE client requires global fetch or config.fetch."
+export interface BaseRecordFeedClient {
+  live(filter: BaseRecordFeedFilter, observer: (delivery: BaseRecordFeedDelivery) => void | Promise<void>): BaseSubscription;
+  durable(filter: BaseRecordFeedFilter, observer: (delivery: BaseRecordFeedDelivery) => void | Promise<void>): BaseSubscription;
+  resume(cursor: string, filter: BaseRecordFeedFilter, observer: (delivery: BaseRecordFeedDelivery) => void | Promise<void>): BaseSubscription;
+}
+type EnabledMethod<T extends BaseCollectionDefinition> = {
+  [K in keyof OperationMethodMap]: K extends OperationsOf<T> ? OperationMethodMap[K] : never
+}[keyof OperationMethodMap];
+export type BaseCollectionClient<T extends BaseCollectionDefinition> =
+  Pick<BaseCollectionClientSurface<T>, "id" | "fields" | "mutations" | "vectorIndexes" | EnabledMethod<T>>;
+
+export interface BaseDynamicClient {
+  collection<T extends BaseCollectionDefinition>(definition: T): BaseCollectionClient<T>;
+}
+
+export interface BaseClientCommon {
+  readonly connectivity: { readonly getSnapshot: () => BaseConnectivityState; readonly subscribe: (observer: () => void) => () => void };
+  readonly $dynamic: BaseDynamicClient;
+  resolveMutation(mutationId: MutationId, signal?: AbortSignal): Promise<BaseResult<unknown>>;
+  close(): void;
+}
+
+export type BaseClient<TSchema extends BaseGeneratedSchema> = BaseClientCommon & {
+  readonly [K in keyof TSchema["collections"]]: BaseCollectionClient<TSchema["collections"][K]>
+} & { readonly reads: { readonly [K in keyof TSchema["reads"]]: BaseReadClient<TSchema["reads"][K]> } }
+  & { readonly selectionMutations: { readonly [K in keyof NonNullable<TSchema["selectionMutations"]>]: NonNullable<TSchema["selectionMutations"]>[K] extends BaseSelectionMutationDefinition<infer TRequest> ? (request: TRequest, options?: BaseSelectionMutationOptions) => Promise<BaseResult<BaseSelectionMutationResult>> : never } }
+  & (TSchema["audience"] extends "controlPlane" ? { readonly moduleMutations: { readonly [K in keyof NonNullable<TSchema["moduleMutations"]>]: NonNullable<TSchema["moduleMutations"]>[K] extends BaseModuleMutationDefinition<infer TRequest, infer TResult> ? (request: TRequest, options: BaseModuleMutationOptions) => Promise<BaseResult<BaseModuleMutationResult<TResult>>> : never } } : {})
+  & (TSchema["features"]["files"] extends true ? { readonly files: BaseFilesClient } : {})
+  & (TSchema["features"]["batch"] extends true ? { readonly batch: BaseBatchClient<TSchema> } : {})
+  & (TSchema["audience"] extends "controlPlane" ? { readonly $control: BaseControlPlaneClient<TSchema["features"]["controlOperations"]> } : {});
+
+type CollectionName<TSchema extends BaseGeneratedSchema> = Extract<keyof TSchema["collections"], string>;
+export type BaseBatchOperation<TSchema extends BaseGeneratedSchema> = { [K in CollectionName<TSchema>]:
+  | ("create" extends OperationsOf<TSchema["collections"][K]> ? { readonly itemId: string; readonly collection: K; readonly kind: "create"; readonly value: CreateOf<TSchema["collections"][K]>; readonly recordId?: string } : never)
+  | ("patch" extends OperationsOf<TSchema["collections"][K]> ? { readonly itemId: string; readonly collection: K; readonly kind: "patch"; readonly id: string; readonly value: PatchOf<TSchema["collections"][K]>; readonly expectedRevision?: string } : never)
+  | ("replace" extends OperationsOf<TSchema["collections"][K]> ? { readonly itemId: string; readonly collection: K; readonly kind: "replace"; readonly id: string; readonly value: ReplaceOf<TSchema["collections"][K]>; readonly expectedRevision?: string } : never)
+  | ("upsert" extends OperationsOf<TSchema["collections"][K]> ? { readonly itemId: string; readonly collection: K; readonly kind: "upsert"; readonly id: string; readonly value: BaseUpsertRequest<CreateOf<TSchema["collections"][K]>, PatchOf<TSchema["collections"][K]> | ReplaceOf<TSchema["collections"][K]>>; readonly expectedRevision?: string } : never)
+  | ("delete" extends OperationsOf<TSchema["collections"][K]> ? { readonly itemId: string; readonly collection: K; readonly kind: "delete"; readonly id: string; readonly expectedRevision?: string } : never)
+}[CollectionName<TSchema>];
+export interface BaseBatchResult { readonly outcome: string; readonly items: readonly unknown[]; }
+export interface BaseBatchClient<TSchema extends BaseGeneratedSchema> { execute(mode: "orderedIndependent" | "orderedStopOnFailure" | "atomic", operations: readonly BaseBatchOperation<TSchema>[], options?: { readonly mutationId?: MutationId; readonly signal?: AbortSignal }): Promise<BaseResult<BaseBatchResult>>; }
+
+type ReadParameters<T> = T extends BaseReadDefinition<infer TParameters, unknown, boolean> ? TParameters : never;
+type ReadRow<T> = T extends BaseReadDefinition<unknown, infer TRow, boolean> ? TRow : never;
+interface BaseReadClientSurface<T extends BaseReadDefinition> {
+  readonly id: string;
+  execute(parameters: ReadParameters<T>, page?: { readonly page?: number; readonly perPage?: number; readonly signal?: AbortSignal }): Promise<BaseResult<BaseRecordPage<ReadRow<T>>>>;
+  watch(parameters: ReadParameters<T>, observer: (snapshot: BaseQuerySnapshot<ReadRow<T>>) => void): BaseSubscription;
+}
+export type BaseReadClient<T extends BaseReadDefinition> = T extends BaseReadDefinition<unknown, unknown, true> ? BaseReadClientSurface<T> : Pick<BaseReadClientSurface<T>, "id" | "execute">;
+
+export interface BaseClientOptions<TSchema extends BaseGeneratedSchema> extends BaseTransportOptions {
+  readonly schema: TSchema;
+  readonly webSocketFactory?: BaseWebSocketFactory;
+}
+
+export class BaseQueryBuilder<T> {
+  readonly #executor: BaseQueryExecutor<T>;
+  readonly #collectionId: string;
+  readonly #input: Partial<BaseQueryInput>;
+  public constructor(executor: BaseQueryExecutor<T>, collectionId: string, input: Partial<BaseQueryInput> = {}) { this.#executor = executor; this.#collectionId = collectionId; this.#input = input; }
+  public where(where: NonNullable<BaseQueryInput["where"]>): BaseQueryBuilder<T> { const previous = this.#input.where; return new BaseQueryBuilder(this.#executor, this.#collectionId, { ...this.#input, where: previous === undefined ? where : { kind: "and", children: [previous, where] } }); }
+  public orderBy(orderBy: NonNullable<BaseQueryInput["orderBy"]>): BaseQueryBuilder<T> { return new BaseQueryBuilder(this.#executor, this.#collectionId, { ...this.#input, orderBy }); }
+  public thenByRecordId(): BaseQueryBuilder<T> { const previous = this.#input.orderBy; const orderBy = previous === undefined ? [{ field: "id", direction: "asc" as const }] : [...(Array.isArray(previous) ? previous : [previous]), { field: "id", direction: "asc" as const }]; return new BaseQueryBuilder(this.#executor, this.#collectionId, { ...this.#input, orderBy }); }
+  public select(...fieldIds: readonly string[]): BaseQueryBuilder<T> { if (fieldIds.length === 0) throw new TypeError("base.query.invalid"); return new BaseQueryBuilder(this.#executor, this.#collectionId, { ...this.#input, select: fieldIds }); }
+  public include(...navigationIds: readonly string[]): BaseQueryBuilder<T> { if (navigationIds.length === 0) throw new TypeError("base.query.invalid"); return new BaseQueryBuilder(this.#executor, this.#collectionId, { ...this.#input, include: navigationIds }); }
+  public count(mode: NonNullable<BaseQueryInput["count"]>): BaseQueryBuilder<T> { return new BaseQueryBuilder(this.#executor, this.#collectionId, { ...this.#input, count: mode }); }
+  public take(take: number): BaseQueryOperation<T> { return new BaseQueryOperation(this.#executor, this.#collectionId, { ...this.#input, take }); }
+}
+
+class BaseClientRuntime implements BaseQueryExecutor<unknown> {
+  readonly #transport: BaseHttpTransport;
+  readonly #schema: BaseGeneratedSchema;
+  readonly #collections = new Map<string, BaseCollectionClient<BaseCollectionDefinition>>();
+  readonly #realtime: BaseRealtimeManager | undefined;
+  readonly #files: BaseFilesClient;
+  public readonly reads: Readonly<Record<string, BaseReadClient<BaseReadDefinition>>>;
+  public readonly connectivity: { readonly getSnapshot: () => BaseConnectivityState; readonly subscribe: (observer: () => void) => () => void };
+  #closed = false;
+  readonly #indeterminate = new Map<MutationId, { readonly bytes: Uint8Array; readonly correlationId: string; readonly kind: "create" | "patch" | "replace" | "delete" | "upsert"; readonly collectionId: string; readonly optimisticId?: string }>();
+
+  public constructor(options: BaseClientOptions<BaseGeneratedSchema>) {
+    if (options.schema.protocolMajor !== 2) throw new TypeError("base.client.protocolMismatch");
+    this.#schema = options.schema;
+    this.#transport = new BaseHttpTransport(options);
+    this.#files = new BaseFilesClient(this.#transport);
+    const webSocketFactory = options.webSocketFactory ?? (options.accessToken === undefined && typeof globalThis.WebSocket === "function" ? ((url: URL) => new globalThis.WebSocket(url)) : undefined);
+    this.#realtime = webSocketFactory === undefined ? undefined : new BaseRealtimeManager(options.url, webSocketFactory, options.accessToken, () => this.#indeterminate.clear(), options.schema.typeGraph, options.schema.collections);
+    this.connectivity = this.#realtime?.connectivity ?? { getSnapshot: () => ({ kind: "offline" }), subscribe: () => () => undefined };
+    this.reads = Object.freeze(Object.fromEntries(Object.entries(options.schema.reads).map(([name, definition]) => [name, new ReadClient(this, definition)])));
+  }
+
+  public collection<T extends BaseCollectionDefinition>(definition: T): BaseCollectionClient<T> {
+    this.ensureOpen();
+    const existing = this.#collections.get(definition.id);
+    if (existing !== undefined) return existing as BaseCollectionClient<T>;
+    const created = new CollectionClient(this, definition);
+    this.#collections.set(definition.id, created);
+    return created as BaseCollectionClient<T>;
+  }
+
+  public close(): void { this.#closed = true; this.#realtime?.close(); this.#collections.clear(); this.#indeterminate.clear(); }
+  public selectionTransport(): BaseHttpTransport { this.ensureOpen(); return this.#transport; }
+  public controlClient<const TOperations extends readonly string[]>(operations: TOperations): BaseControlPlaneClient<TOperations> { this.ensureOpen(); return createControlPlaneClient(this.#transport, operations); }
+  public async resolveMutation(mutationId: MutationId, signal?: AbortSignal): Promise<BaseResult<unknown>> { this.ensureOpen(); const pending = this.#indeterminate.get(mutationId); if (pending === undefined) throw new TypeError("base.client.mutationNotIndeterminate"); const result = normalizeIdentifiedFailure(await this.#transport.jsonDocument("POST", "records/batch", pending.bytes, signal, mutationId, pending.correlationId)); const projected = projectMutation<unknown>(result, pending.kind); if (projected.ok) { this.#indeterminate.delete(mutationId); const authoritative = pending.kind === "delete" ? undefined : pending.kind === "upsert" && isObject(projected.value) && "record" in projected.value ? this.fromWireRecord(pending.collectionId, projected.value.record) : this.fromWireRecord(pending.collectionId, projected.value); const value = pending.kind === "upsert" && isObject(projected.value) ? { ...projected.value, record: authoritative } : authoritative; if (pending.optimisticId !== undefined) this.#realtime?.reconcile(mutationId, pending.collectionId, authoritative); return { ...projected, value }; } if (projected.error.code !== "base.runtime.batch.indeterminate") { this.#indeterminate.delete(mutationId); if (pending.optimisticId !== undefined) this.#realtime?.reject(mutationId, pending.collectionId); } return projected; }
+  public filesClient(): BaseFilesClient { this.ensureOpen(); return this.#files; }
+  public async executeBatch(mode: "orderedIndependent" | "orderedStopOnFailure" | "atomic", operations: readonly BaseBatchOperation<BaseGeneratedSchema>[], options: { readonly mutationId?: MutationId; readonly signal?: AbortSignal } = {}): Promise<BaseResult<BaseBatchResult>> {
+    this.ensureOpen(); if (operations.length === 0) throw new TypeError("base.client.batchInvalid");
+    const wire = operations.map(operation => toBatchItem(this.#schema, operation));
+    const bytes = encodeSchemaJson({ mode, operations: wire }, this.#schema); const identity = mode === "atomic" ? options.mutationId ?? crypto.randomUUID() as MutationId : undefined; const correlation = crypto.randomUUID();
+    let result = await this.#transport.jsonDocument("POST", "records/batch", bytes, options.signal, identity, correlation);
+    if (mode === "atomic" && !result.ok && identifiedRetry(result.error.code)) result = await this.#transport.jsonDocument("POST", "records/batch", bytes, options.signal, identity, correlation);
+    const normalized = mode === "atomic" ? normalizeIdentifiedFailure(result) : result;
+    if (!normalized.ok) return normalized;
+    return isBatchResult(normalized.value) ? { ...normalized, value: normalized.value } : invalid(normalized.correlationId);
+  }
+
+  public async executeQuery<T>(collectionId: string, query: BaseQueryInput, signal?: AbortSignal): Promise<BaseResult<BaseRecordPage<T>>> {
+    this.ensureOpen();
+    const result = await this.#transport.jsonDocument("POST", `collections/${encodeURIComponent(collectionId)}/records:query`, encodeJson(toWireQuery(query)), signal);
+    if (!result.ok) return result;
+    const page = materializePageEnvelope(result.value);
+    if (!isRecordPage(page)) return invalid(result.correlationId);
+    try { return { ...result, value: { ...page, items: page.items.map(item => this.fromWireRecord(collectionId, item)) as T[] } }; } catch { return invalid(result.correlationId); }
+  }
+
+  public watchQuery<T>(collectionId: string, query: BaseQueryInput, observer: (snapshot: BaseQuerySnapshot<T>) => void): BaseSubscription {
+    this.ensureOpen();
+    if (this.#realtime === undefined) throw new Error("base.client.capabilityUnavailable");
+    return this.#realtime.subscribe(collectionId, query, observer, value => this.fromWireRecord(collectionId, value) as T);
+  }
+
+  public async get<T>(collectionId: string, id: string, signal?: AbortSignal): Promise<BaseResult<T>> {
+    const result = await this.#transport.jsonDocument("GET", `collections/${encodeURIComponent(collectionId)}/records/${encodeURIComponent(id)}`, undefined, signal);
+    if (!result.ok) return result; try { return isRecord(result.value) ? { ...result, value: this.fromWireRecord(collectionId, result.value) as T } : invalid(result.correlationId); } catch { return invalid(result.correlationId); }
+  }
+
+  public vectorQuery<T>(collectionId: string, index: import("./schema.js").BaseVectorIndexDefinition): BaseVectorIndexQuery<T> {
+    this.ensureOpen();
+    return new BaseVectorIndexQuery<T>(this.#transport, collectionId, index, value => this.fromWireRecord(collectionId, value) as T);
+  }
+
+  public async executeRead<T>(id: string, parameters: unknown, parameterTypeId: string | undefined, rowTypeId: string | undefined, page: { readonly page?: number; readonly perPage?: number; readonly signal?: AbortSignal } = {}): Promise<BaseResult<BaseRecordPage<T>>> {
+    if (parameterTypeId === undefined || rowTypeId === undefined || this.#schema.typeGraph === undefined) throw new TypeError("base.client.configurationInvalid");
+    const query = new URLSearchParams(); if (page.page !== undefined) query.set("page", String(page.page)); if (page.perPage !== undefined) query.set("perPage", String(page.perPage));
+    let body: Uint8Array; try { body = new TextEncoder().encode(encodeBaseJson(parameters, parameterTypeId, this.#schema.typeGraph)); } catch { throw new TypeError("base.client.requestInvalid"); }
+    const result = await this.#transport.jsonDocument("POST", `reads/${encodeURIComponent(id)}${query.size === 0 ? "" : `?${query}`}`, body, page.signal);
+    if (!result.ok) return result; const decodedPage = materializePageEnvelope(result.value);
+    if (!isRecordPage(decodedPage, false)) return invalid(result.correlationId);
+    try { return { ...result, value: { ...decodedPage, items: decodedPage.items.map(item => decodeBaseWireValue<T>(item, rowTypeId, this.#schema.typeGraph!)) } }; } catch { return invalid(result.correlationId); }
+  }
+  public watchRead<T>(id: string, parameters: unknown, parameterTypeId: string | undefined, rowTypeId: string | undefined, observer: (snapshot: BaseQuerySnapshot<T>) => void): BaseSubscription { if (this.#realtime === undefined) throw new Error("base.client.capabilityUnavailable"); if (parameterTypeId === undefined || rowTypeId === undefined || this.#schema.typeGraph === undefined) throw new TypeError("base.client.configurationInvalid"); const encoded = encodeBaseJson(parameters, parameterTypeId, this.#schema.typeGraph); return this.#realtime.subscribeRead(id, parameters, observer, value => decodeBaseWireValue<T>(value, rowTypeId, this.#schema.typeGraph!), encoded); }
+  public watchEvents(collectionId: string, request: import("./realtime.js").BaseRecordFeedRequest, observer: (delivery: BaseRecordFeedDelivery) => void | Promise<void>): BaseSubscription { if (this.#realtime === undefined) throw new Error("base.client.capabilityUnavailable"); return this.#realtime.subscribeFeed(collectionId, request, observer, value => this.fromWireRecord(collectionId, value)); }
+
+  public async mutate<T>(collectionId: string, kind: "create" | "patch" | "replace" | "delete" | "upsert", id: string | undefined, value: unknown, options: BaseMutationOptions = {}): Promise<BaseResult<T>> {
+    const mutationId = options.mutationId ?? crypto.randomUUID() as MutationId;
+    const payload = (input: unknown): object => ({ kind: "json", json: input });
+    if (kind === "create" && options.optimistic === true && options.recordId === undefined) throw new TypeError("base.client.optimisticIdRequired");
+    const validatedValue = this.validateMutationInput(collectionId, kind, value);
+    const wireValue = this.toWirePayload(collectionId, validatedValue);
+    const request = kind === "create" ? { payload: payload(wireValue), ...(options.recordId === undefined ? {} : { requestedId: options.recordId }) }
+      : kind === "patch" ? { patch: payload(wireValue), ...(options.expectedRevision === undefined ? {} : { expectedRevision: options.expectedRevision }) }
+      : kind === "replace" ? { payload: payload(wireValue), ...(options.expectedRevision === undefined ? {} : { expectedRevision: options.expectedRevision }) }
+      : kind === "delete" ? { ...(options.expectedRevision === undefined ? {} : { expectedRevision: options.expectedRevision }), returnPrevious: false }
+      : upsertRequest(id!, this.toWireUpsert(collectionId, validatedValue as BaseUpsertRequest<unknown, unknown>), options.expectedRevision);
+    const operation = {
+      itemId: "mutation",
+      collectionId,
+      kind,
+      ...(id === undefined ? {} : { recordId: id }),
+      [kind]: request
+    };
+    const bytes = encodeSchemaJson({ mode: "atomic", operations: [operation] }, this.#schema);
+    const correlationId = crypto.randomUUID();
+    const optimisticId = id ?? options.recordId;
+    if (options.optimistic === true && optimisticId !== undefined && this.#realtime !== undefined)
+      this.#realtime.applyOptimistic(mutationId, collectionId, optimisticId, kind, this.safeOptimistic(collectionId, validatedValue), options.expectedRevision, bytes);
+    let result = await this.#transport.jsonDocument("POST", "records/batch", bytes, options.signal, mutationId, correlationId);
+    if (!result.ok && identifiedRetry(result.error.code) && options.retry !== "never")
+      result = await this.#transport.jsonDocument("POST", "records/batch", bytes, options.signal, mutationId, correlationId);
+    let projected = projectMutation<T>(normalizeIdentifiedFailure(result), kind);
+    if (projected.ok && kind !== "delete") projected = { ...projected, value: (kind === "upsert" && isObject(projected.value) && "record" in projected.value ? { ...projected.value, record: this.fromWireRecord(collectionId, projected.value.record) } : this.fromWireRecord(collectionId, projected.value)) as T };
+    if (!projected.ok && projected.retry === "identifiedMutationOnly") this.#indeterminate.set(mutationId, { bytes: bytes.slice(), correlationId, kind, collectionId, ...(options.optimistic === true && optimisticId !== undefined ? { optimisticId } : {}) });
+    if (options.optimistic === true && optimisticId !== undefined && this.#realtime !== undefined) {
+      if (projected.ok) {
+        const authoritative = kind === "delete" ? undefined : kind === "upsert" && typeof projected.value === "object" && projected.value !== null && "record" in projected.value ? projected.value.record : projected.value;
+        this.#realtime.reconcile(mutationId, collectionId, authoritative);
+      } else if (projected.retry === "identifiedMutationOnly") this.#realtime.markIndeterminate(mutationId); else this.#realtime.reject(mutationId, collectionId);
+    }
+    return projected;
+  }
+
+  private ensureOpen(): void { if (this.#closed) throw new Error("base.client.closed"); }
+  private validateMutationInput(collectionId: string, kind: "create" | "patch" | "replace" | "delete" | "upsert", value: unknown): unknown {
+    if (kind === "delete") return value;
+    const definition = Object.values(this.#schema.collections).find(item => item.id === collectionId); const graph = this.#schema.typeGraph;
+    if (definition === undefined || graph === undefined) throw new TypeError("base.client.configurationInvalid");
+    return validateMutationDto(definition, graph, kind, value);
+  }
+  private toWirePayload(collectionId: string, value: unknown): unknown { const definition = Object.values(this.#schema.collections).find(item => item.id === collectionId); if (definition === undefined || !isObject(value)) return value; return Object.fromEntries(Object.entries(value).map(([name, item]) => [definition.fields[name]?.wireName ?? name, item])); }
+  private toWireUpsert(collectionId: string, value: BaseUpsertRequest<unknown, unknown>): BaseUpsertRequest<unknown, unknown> { return { ...value, create: this.toWirePayload(collectionId, value.create), update: this.toWirePayload(collectionId, value.update) }; }
+  private safeOptimistic(collectionId: string, value: unknown): unknown { const definition = Object.values(this.#schema.collections).find(item => item.id === collectionId); if (definition === undefined || !isObject(value)) return value; const allowed = new Set(Object.entries(definition.fields).filter(([, field]) => field.disclosureShape === "none").map(([name]) => name)); if ("create" in value && "update" in value) return { ...value, create: isObject(value.create) ? Object.fromEntries(Object.entries(value.create).filter(([key]) => allowed.has(key))) : value.create, update: isObject(value.update) ? Object.fromEntries(Object.entries(value.update).filter(([key]) => allowed.has(key))) : value.update }; return Object.fromEntries(Object.entries(value).filter(([key]) => allowed.has(key))); }
+  private fromWireRecord(collectionId: string, value: unknown): unknown {
+    if (!isRecord(value) || value.collectionId !== collectionId || value.id.length === 0) throw new TypeError("base.client.responseInvalid");
+    const definition = Object.values(this.#schema.collections).find(item => item.id === collectionId); if (definition === undefined) throw new TypeError("base.client.responseInvalid");
+    const source = value.payload.kind === "json" ? value.payload.json : value.payload.fields; if (!isObject(source) || definition.recordTypeId === undefined || this.#schema.typeGraph === undefined) throw new TypeError("base.client.responseInvalid");
+    const decoded = decodeBaseWireValue<Record<string, unknown>>(source, definition.recordTypeId, this.#schema.typeGraph);
+    const accepted = new Set(Object.keys(definition.fields)); if (Object.keys(decoded).some(name => !accepted.has(name))) throw new TypeError("base.client.responseInvalid"); const mapped = decoded;
+    return { ...value, payload: value.payload.kind === "json" ? { ...value.payload, json: Object.freeze(mapped) } : { ...value.payload, fields: Object.freeze(mapped) } };
+  }
+}
+
+class ReadClient<T extends BaseReadDefinition> implements BaseReadClientSurface<T> {
+  public readonly id: string;
+  private readonly maximum: number;
+  private readonly rowTypeId: string | undefined;
+  private readonly parameterTypeId: string | undefined;
+  public constructor(private readonly owner: BaseClientRuntime, definition: T) { this.id = definition.id; this.maximum = definition.maxPageSize; this.rowTypeId = definition.rowTypeId; this.parameterTypeId = definition.parameterTypeId; }
+  public execute(parameters: ReadParameters<T>, page?: { readonly page?: number; readonly perPage?: number; readonly signal?: AbortSignal }): Promise<BaseResult<BaseRecordPage<ReadRow<T>>>> { if (page?.perPage !== undefined && (!Number.isInteger(page.perPage) || page.perPage < 1 || page.perPage > this.maximum)) throw new RangeError("base.query.limitInvalid"); return this.owner.executeRead(this.id, parameters, this.parameterTypeId, this.rowTypeId, page); }
+  public watch(parameters: ReadParameters<T>, observer: (snapshot: BaseQuerySnapshot<ReadRow<T>>) => void): BaseSubscription { return this.owner.watchRead(this.id, parameters, this.parameterTypeId, this.rowTypeId, observer); }
+}
+
+class CollectionClient<T extends BaseCollectionDefinition> implements BaseCollectionClientSurface<T> {
+  public readonly id: string;
+  public readonly fields: FieldHandles<T>;
+  public readonly mutations: BaseCollectionMutations<T>;
+  public readonly vectorIndexes: T["vectorIndexes"];
+  public readonly events: BaseRecordFeedClient;
+  public constructor(private readonly owner: BaseClientRuntime, private readonly definition: T) {
+    this.id = definition.id;
+    const handles: Record<string, import("./query.js").BaseFieldHandle<unknown>> = {};
+    for (const [name, field] of Object.entries(definition.fields)) handles[name] = createFieldHandle(field);
+    this.fields = Object.freeze(handles) as FieldHandles<T>;
+    const mutationMethods: Record<string, unknown> = {};
+    if (definition.operations.includes("create")) mutationMethods["create"] = this.create.bind(this);
+    if (definition.operations.includes("patch")) mutationMethods["patch"] = this.patch.bind(this);
+    if (definition.operations.includes("replace")) mutationMethods["replace"] = this.replace.bind(this);
+    if (definition.operations.includes("upsert")) mutationMethods["upsert"] = this.upsert.bind(this);
+    if (definition.operations.includes("delete")) mutationMethods["delete"] = this.delete.bind(this);
+    this.mutations = Object.freeze(mutationMethods) as BaseCollectionMutations<T>;
+    this.vectorIndexes = definition.vectorIndexes;
+    this.events = Object.freeze({
+      live: (filter: BaseRecordFeedFilter, observer: (delivery: BaseRecordFeedDelivery) => void | Promise<void>) => this.owner.watchEvents(this.id, { kind: "live", filter }, observer),
+      durable: (filter: BaseRecordFeedFilter, observer: (delivery: BaseRecordFeedDelivery) => void | Promise<void>) => this.owner.watchEvents(this.id, { kind: "durable", filter }, observer),
+      resume: (cursor: string, filter: BaseRecordFeedFilter, observer: (delivery: BaseRecordFeedDelivery) => void | Promise<void>) => this.owner.watchEvents(this.id, { kind: "resume", cursor, filter }, observer)
     });
   }
-  const transport = new HttpTransport(resolved);
-  const cache = new Map<string, CacheEntry>();
-  let publicClient!: MetadataClientCore;
-  let admin!: MetadataClientCore;
-  const resolveView = (requestedView: MetadataView) => requestedView === "admin" ? admin : publicClient;
-  publicClient = createMetadataClient("public", transport, cache, resolved, resolveView);
-  admin = createMetadataClient("admin", transport, cache, resolved, resolveView);
-  const extension = createExtensionContext(transport, publicClient);
-  return {
-    ...publicClient,
-    get latestMetadata() {
-      return publicClient.latestMetadata;
-    },
-    admin,
-    collection<TRecord extends JsonObject = JsonObject>(id: string): CollectionClient<TRecord> {
-      return new BaseCollectionClient<TRecord>(
-        id,
-        transport,
-        (collectionId, options) => publicClient.collectionDefinition(collectionId, options),
-        (collectionId, options) => publicClient.collectionDefinitionResult(collectionId, options),
-        (collectionId, operation, options) => collectionSupports(publicClient.latestMetadata, collectionId, operation as CollectionOperation, options)
-      );
-    },
-    extension: () => extension
-  };
+  public get(id: string, signal?: AbortSignal): Promise<BaseResult<CollectionRecordOf<T>>> { return this.owner.get(this.id, id, signal); }
+  public create(value: CreateOf<T>, options?: BaseCreateOptions): Promise<BaseResult<CollectionRecordOf<T>>> { return this.owner.mutate(this.id, "create", undefined, value, options); }
+  public patch(id: string, value: PatchOf<T>, options?: BaseExistingMutationOptions): Promise<BaseResult<CollectionRecordOf<T>>> { return this.owner.mutate(this.id, "patch", id, value, options); }
+  public replace(id: string, value: ReplaceOf<T>, options?: BaseExistingMutationOptions): Promise<BaseResult<CollectionRecordOf<T>>> { return this.owner.mutate(this.id, "replace", id, value, options); }
+  public upsert(id: string, request: BaseUpsertRequest<CreateOf<T>, PatchOf<T> | ReplaceOf<T>>, options?: BaseExistingMutationOptions): Promise<BaseResult<BaseUpsertResult<CollectionRecordOf<T>>>> { return this.owner.mutate(this.id, "upsert", id, request, options); }
+  public delete(id: string, options?: BaseExistingMutationOptions): Promise<BaseResult<{ readonly deleted: true; readonly id: string }>> { return this.owner.mutate(this.id, "delete", id, undefined, options); }
+  public query(input: BaseQueryInput): BaseQueryOperation<CollectionRecordOf<T>> { if (input.take > this.definition.maxPageSize) throw new RangeError("base.query.limitInvalid"); return new BaseQueryOperation<CollectionRecordOf<T>>(this.owner, this.id, input); }
+  public buildQuery(): BaseQueryBuilder<CollectionRecordOf<T>> { return new BaseQueryBuilder<CollectionRecordOf<T>>(this.owner, this.id); }
+  public watch(input: BaseQueryInput, observer: (snapshot: BaseQuerySnapshot<CollectionRecordOf<T>>) => void): BaseSubscription { return this.query(input).watch(observer); }
+  public vector(index: import("./schema.js").BaseVectorIndexDefinition): BaseVectorIndexQuery<CollectionRecordOf<T>> { return this.owner.vectorQuery(this.id, index); }
 }
 
-function createExtensionContext(transport: HttpTransport, client: MetadataClientCore): BaseClientExtensionContext {
-  return {
-    baseUrl: transport.baseUrl,
-    fetch: transport.fetch,
-    credentials: transport.credentials,
-    defaultSignal: transport.defaultSignal,
-    url(path: string, query?: URLSearchParams) {
-      return transport.url(path, query);
-    },
-    headers(options?: BaseExtensionHeaderOptions) {
-      return transport.headers(options as HttpHeaderOptions | undefined);
-    },
-    metadata(options?: MetadataRequestOptions) {
-      return client.metadata(options);
-    },
-    metadataResult(options?: MetadataRequestOptions) {
-      return client.metadataResult(options);
-    },
-    supports(featureId: string, options?: SupportsOptions) {
-      return client.supports(featureId, options);
-    },
-    feature(featureId: string, options?: SupportsOptions) {
-      return client.feature(featureId, options);
-    },
-    requireFeature(featureId: string, options?: SupportsOptions) {
-      return client.requireFeature(featureId, options);
-    }
-  };
-}
-
-function createMetadataClient(
-  view: MetadataView,
-  transport: HttpTransport,
-  cache: Map<string, CacheEntry>,
-  config: BaseClientConfig,
-  resolveView: (view: MetadataView) => MetadataClientCore
-): MetadataClientCore {
-  let latestMetadata: HydratedBaseMetadata | undefined;
-  const prefix = view === "admin" ? "/admin" : "";
-
-  const api = {
-    get latestMetadata() {
-      return latestMetadata;
-    },
-    async manifest(options?: ManifestOptions) {
-      return unwrapResult(await api.manifestResult(options));
-    },
-    manifestResult(options?: ManifestOptions) {
-      const query = expandQuery(options?.expand);
-      return transport.request<BaseManifest | ExpandedBaseManifest>({ path: `${prefix}/manifest`, query, headers: options?.headers, signal: options?.signal, correlationId: options?.correlationId });
-    },
-    async bootstrap(options?: BootstrapRequestOptions) {
-      return unwrapResult(await api.bootstrapResult(options));
-    },
-    async bootstrapResult(options?: BootstrapRequestOptions): Promise<BaseResult<HydratedBaseMetadata>> {
-      const mergedOptions = mergeBootstrapOptions(config.bootstrap, options);
-      if (mergedOptions.view && mergedOptions.view !== view) {
-        return resolveView(mergedOptions.view).bootstrapResult(mergedOptions);
-      }
-      const cacheMode = mergedOptions.cache?.mode ?? config.cache?.mode ?? "memory";
-      const expand = mergedOptions.expand ?? defaultExpand(mergedOptions);
-      const cacheKey = `${view}:${expand.join(",")}`;
-      const ttl = options?.cache?.ttlMs ?? config.cache?.ttlMs;
-      const forceRefresh = mergedOptions.cache?.forceRefresh ?? config.cache?.forceRefresh ?? false;
-      const cached = cacheMode === "memory" && !forceRefresh ? cache.get(cacheKey) : undefined;
-      if (cached && (ttl === undefined || Date.now() - cached.createdAt <= ttl)) {
-        latestMetadata = cached.metadata;
-        return { ok: true, status: "ok", value: cached.metadata, httpStatus: 200, headers: {} };
-      }
-      if (config.bootstrapManifest && cacheMode === "memory" && !forceRefresh && bootstrapManifestMatchesView(config.bootstrapManifest, view)) {
-        const hydrated = await hydrateFromManifest(view, config.bootstrapManifest, api, expand.includes("diagnostics"));
-        const compatibility = contractCompatibility(hydrated.manifest, config.contractVersion);
-        if (compatibility) return compatibility;
-        latestMetadata = hydrated;
-        cache.set(cacheKey, { metadata: hydrated, createdAt: Date.now() });
-        return { ok: true, status: "ok", value: hydrated, httpStatus: 200, headers: {} };
-      }
-      const manifest = await api.manifestResult({ ...mergedOptions, expand });
-      if (!manifest.ok) return manifest;
-      const hydrated = await hydrateFromManifest(view, manifest.value, api, expand.includes("diagnostics"));
-      const compatibility = contractCompatibility(hydrated.manifest, config.contractVersion);
-      if (compatibility) return compatibility;
-      latestMetadata = hydrated;
-      if (cacheMode === "memory") cache.set(cacheKey, { metadata: hydrated, createdAt: Date.now() });
-      return { ok: true, status: "ok", value: hydrated, httpStatus: manifest.httpStatus, headers: manifest.headers };
-    },
-    async metadata(options?: MetadataRequestOptions) {
-      return unwrapResult(await api.metadataResult(options));
-    },
-    metadataResult(options?: MetadataRequestOptions) {
-      return api.bootstrapResult({ ...options, view: options?.view ?? view, cache: { ...config.cache, forceRefresh: options?.forceRefresh } });
-    },
-    async capabilities(options?: RequestOptions) {
-      return unwrapResult(await api.capabilitiesResult(options));
-    },
-    capabilitiesResult(options?: RequestOptions) {
-      return transport.request<CapabilityDescriptor>({ path: `${prefix}/capabilities`, headers: options?.headers, signal: options?.signal, correlationId: options?.correlationId });
-    },
-    async schema(options?: RequestOptions) {
-      return unwrapResult(await api.schemaResult(options));
-    },
-    schemaResult(options?: RequestOptions) {
-      return transport.request<SchemaMetadata>({ path: `${prefix}/schema`, headers: options?.headers, signal: options?.signal, correlationId: options?.correlationId });
-    },
-    async collections(options?: RequestOptions) {
-      return unwrapResult(await api.collectionsResult(options));
-    },
-    collectionsResult(options?: RequestOptions) {
-      return transport.request<CollectionDefinition[]>({ path: `${prefix}/collections`, headers: options?.headers, signal: options?.signal, correlationId: options?.correlationId });
-    },
-    async collectionDefinition(id: string, options?: RequestOptions) {
-      return unwrapResult(await api.collectionDefinitionResult(id, options));
-    },
-    collectionDefinitionResult(id: string, options?: RequestOptions) {
-      return transport.request<CollectionDefinition>({ path: `${prefix}/collections/${encodePathSegment(id)}`, headers: options?.headers, signal: options?.signal, correlationId: options?.correlationId });
-    },
-    async health(options?: RequestOptions) {
-      return unwrapResult(await api.healthResult(options));
-    },
-    healthResult(options?: RequestOptions) {
-      return transport.request<HealthDescriptor[]>({ path: `${prefix}/health`, headers: options?.headers, signal: options?.signal, correlationId: options?.correlationId });
-    },
-    async diagnostics(options?: RequestOptions) {
-      return unwrapResult(await api.diagnosticsResult(options));
-    },
-    diagnosticsResult(options?: RequestOptions) {
-      return transport.request<DiagnosticDescriptor[]>({ path: `${prefix}/diagnostics`, headers: options?.headers, signal: options?.signal, correlationId: options?.correlationId });
-    },
-    supports(featureId: string, options?: SupportsOptions) {
-      return createCapabilityIndex(latestMetadata?.capabilities).supports(featureId, { ...options, view: options?.view ?? view });
-    },
-    feature(featureId: string, options?: SupportsOptions) {
-      return createCapabilityIndex(latestMetadata?.capabilities).feature(featureId, { ...options, view: options?.view ?? view });
-    },
-    requireFeature(featureId: string, options?: SupportsOptions) {
-      return createCapabilityIndex(latestMetadata?.capabilities).require(featureId, { ...options, view: options?.view ?? view });
-    }
-  };
-  return api;
-}
-
-async function hydrateFromManifest(
-  view: MetadataView,
-  manifestOrExpanded: BaseManifest | ExpandedBaseManifest,
-  api: Pick<BaseAdminClient, "schemaResult" | "capabilitiesResult" | "collectionsResult" | "healthResult" | "diagnosticsResult">,
-  includeDiagnostics: boolean
-): Promise<HydratedBaseMetadata> {
-  const expanded = isExpandedManifest(manifestOrExpanded) ? manifestOrExpanded : undefined;
-  const manifest = expanded?.manifest ?? manifestOrExpanded as BaseManifest;
-  const schema = expanded?.schema ?? optionalValue(await api.schemaResult());
-  const capabilities = expanded?.capabilities ?? optionalValue(await api.capabilitiesResult());
-  const collections = expanded?.collections ?? schema?.collections ?? optionalValue(await api.collectionsResult()) ?? summariesToCollections(manifest.collections);
-  const health = expanded?.health ?? optionalValue(await api.healthResult());
-  const diagnostics = expanded?.diagnostics ?? (includeDiagnostics ? optionalValue(await api.diagnosticsResult()) : undefined);
-  const capabilityIndex = createCapabilityIndex(capabilities);
-  const schemaIndex = createSchemaMetadataIndex(schema ? { ...schema, collections } : undefined);
-  const routesByOperationId = routeIndex(manifest);
-  const etagBySection = new Map<string, string>();
-  if (manifest.eTag) etagBySection.set("manifest", manifest.eTag);
-  if (expanded?.eTag) etagBySection.set("expandedManifest", expanded.eTag);
-  if (schema?.eTag) etagBySection.set("schema", schema.eTag);
-  return {
-    view,
-    manifest,
-    schema,
-    capabilities,
-    health,
-    diagnostics,
-    collectionsById: new Map(collections.map(collection => [collection.id, collection])),
-    featuresById: capabilityIndex.featuresById,
-    familiesById: capabilityIndex.familiesById,
-    routesByOperationId,
-    fieldsByCollectionAndName: schemaIndex.fieldsByCollectionAndName,
-    etagBySection
-  };
-}
-
-function mergeBootstrapOptions(defaults: BaseBootstrapOptions | undefined, options: BootstrapRequestOptions | undefined): BootstrapRequestOptions {
-  return {
-    ...options,
-    expand: options?.expand ?? defaults?.expand,
-    view: options?.view ?? defaults?.view,
-    diagnostics: options?.diagnostics ?? defaults?.diagnostics,
-    cache: options?.cache
-  };
-}
-
-function defaultExpand(options: BootstrapRequestOptions | undefined): ManifestExpandToken[] {
-  const expand: ManifestExpandToken[] = ["schema", "capabilities", "health", "collections"];
-  if (options?.diagnostics) expand.push("diagnostics");
-  return expand;
-}
-
-function expandQuery(expand: ManifestExpandToken[] | undefined): URLSearchParams | undefined {
-  if (!expand?.length) return undefined;
-  const query = new URLSearchParams();
-  query.set("expand", expand.join(","));
-  return query;
-}
-
-function isExpandedManifest(value: BaseManifest | ExpandedBaseManifest): value is ExpandedBaseManifest {
-  return "manifest" in value;
-}
-
-function bootstrapManifestMatchesView(value: BaseManifest | ExpandedBaseManifest, view: MetadataView): boolean {
-  const manifest = isExpandedManifest(value) ? value.manifest : value;
-  return manifest.visibility === view;
-}
-
-function optionalValue<T>(result: BaseResult<T>): T | undefined {
-  return result.ok ? result.value : undefined;
-}
-
-function summariesToCollections(summaries: CollectionSummaryDescriptor[] | undefined): CollectionDefinition[] {
-  return (summaries ?? []).map(summary => ({
-    id: summary.id,
-    name: summary.name,
-    displayName: summary.displayName,
-    kind: summary.kind,
-    enabled: summary.enabled,
-    exposed: summary.exposed,
-    schemaMode: "loose",
-    unknownFields: "preserve",
-    requiredCapabilities: summary.requiredFeatureIds
-  }));
-}
-
-function routeIndex(manifest: BaseManifest): ReadonlyMap<string, RouteDescriptor> {
-  const routes = new Map<string, RouteDescriptor>();
-  for (const projection of manifest.projections ?? []) {
-    for (const route of projection.routes ?? []) routes.set(route.operationId, route);
+export function createBaseClient<TSchema extends BaseGeneratedSchema>(options: BaseClientOptions<TSchema>): BaseClient<TSchema> {
+  const schema = deepFrozenClone(options.schema);
+  const runtime = new BaseClientRuntime({ ...options, schema });
+  const target = runtime as unknown as BaseClient<TSchema>;
+  Object.defineProperty(target, "$dynamic", { value: Object.freeze({ collection: runtime.collection.bind(runtime) }), enumerable: true, configurable: false, writable: false });
+  Object.defineProperty(target, "resolveMutation", { value: runtime.resolveMutation.bind(runtime), enumerable: true, configurable: false, writable: false });
+  for (const [name, definition] of Object.entries(schema.collections)) {
+    if (name in runtime) throw new TypeError("base.client.configurationInvalid");
+    Object.defineProperty(target, name, { value: runtime.collection(definition), enumerable: true, configurable: false, writable: false });
   }
-  return routes;
+  if (schema.features.files) Object.defineProperty(target, "files", { value: runtime.filesClient(), enumerable: true, configurable: false, writable: false });
+  if (schema.features.batch) Object.defineProperty(target, "batch", { value: Object.freeze({ execute: runtime.executeBatch.bind(runtime) }), enumerable: true, configurable: false, writable: false });
+  const selections = Object.fromEntries(Object.entries(schema.selectionMutations ?? {}).map(([name, definition]) => [name, (request: unknown, selectionOptions?: BaseSelectionMutationOptions) => executeSelectionMutation(runtime.selectionTransport(), definition, request, selectionOptions)]));
+  Object.defineProperty(target, "selectionMutations", { value: Object.freeze(selections), enumerable: true, configurable: false, writable: false });
+  if (schema.audience === "controlPlane") {
+    const modules = Object.fromEntries(Object.entries(schema.moduleMutations ?? {}).map(([name, definition]) => [name, (request: unknown, moduleOptions: BaseModuleMutationOptions) => executeModuleMutation(runtime.selectionTransport(), definition, request, moduleOptions)]));
+    Object.defineProperty(target, "moduleMutations", { value: Object.freeze(modules), enumerable: true, configurable: false, writable: false });
+  }
+  if (schema.audience === "controlPlane") Object.defineProperty(target, "$control", { value: runtime.controlClient(schema.features.controlOperations), enumerable: true, configurable: false, writable: false });
+  return target;
 }
 
-function collectionSupports(metadata: HydratedBaseMetadata | undefined, collectionId: string, operation: CollectionOperation, _options?: SupportsOptions): boolean | undefined {
-  const collection = metadata?.collectionsById.get(collectionId);
-  if (!collection) return undefined;
-  if (collection.enabled === false || collection.exposed === false) return false;
-  if (collection.readOnly && (operation === "create" || operation === "patch" || operation === "replace" || operation === "delete")) return false;
-  const matrix = collection.operations;
-  if (!matrix) return undefined;
-  return operation === "query" ? matrix.list : matrix[operation];
+function deepFrozenClone<T>(value: T): T {
+  const clone = structuredClone(value);
+  const freeze = (item: unknown): void => { if (typeof item !== "object" || item === null || Object.isFrozen(item)) return; for (const child of Object.values(item)) freeze(child); Object.freeze(item); };
+  freeze(clone); return clone;
 }
 
-function contractCompatibility(manifest: BaseManifest, expectedContractVersion: string | undefined): BaseResult<HydratedBaseMetadata> | undefined {
-  if (!expectedContractVersion) return undefined;
-  const compatibleVersions = manifest.compatibility.compatibleContractVersions;
-  const compatible = compatibleVersions?.length
-    ? compatibleVersions.includes(expectedContractVersion)
-    : manifest.contractVersion === expectedContractVersion;
-  return compatible
-    ? undefined
-    : {
-        ok: false,
-        status: "validationFailed",
-        error: {
-          status: "validationFailed",
-          code: "base.client.contractVersionMismatch",
-          message: `BASE contract '${manifest.contractVersion}' is not compatible with client contract '${expectedContractVersion}'.`,
-          category: "validation"
-        }
-      };
+function encodeJson(value: unknown): Uint8Array { return new TextEncoder().encode(JSON.stringify(value)); }
+function encodeSchemaJson(value: unknown, schema: BaseGeneratedSchema): Uint8Array {
+  const encode = (item: unknown, collectionId?: string, payload = false): string => {
+    if (item === null || typeof item === "boolean" || typeof item === "string") return JSON.stringify(item);
+    if (typeof item === "number") { if (!Number.isFinite(item)) throw new TypeError("base.client.requestInvalid"); return Object.is(item, -0) ? "0" : item.toString(); }
+    if (Array.isArray(item)) return `[${item.map(child => encode(child, collectionId)).join(",")}]`;
+    if (!isObject(item)) throw new TypeError("base.client.requestInvalid");
+    const nextCollection = typeof item.collectionId === "string" ? item.collectionId : collectionId; const definition = nextCollection === undefined ? undefined : Object.values(schema.collections).find(candidate => candidate.id === nextCollection); const byWire = definition === undefined ? undefined : new Map(Object.values(definition.fields).map(field => [field.wireName, field]));
+    return `{${Object.entries(item).map(([key, child]) => {
+      if (payload && byWire !== undefined) { const field = byWire.get(key); if (field === undefined) throw new TypeError("base.client.requestInvalid"); if (child === null) return `${JSON.stringify(key)}:null`; if (field.valueTypeId !== undefined && schema.typeGraph !== undefined) return `${JSON.stringify(key)}:${encodeBaseJson(child, field.valueTypeId, schema.typeGraph)}`; }
+      return `${JSON.stringify(key)}:${encode(child, nextCollection, key === "json" || key === "fields")}`;
+    }).join(",")}}`;
+  };
+  return new TextEncoder().encode(encode(value));
 }
+
+function upsertRequest(id: string, request: BaseUpsertRequest<unknown, unknown>, expectedRevision: string | undefined): object {
+  return {
+    id,
+    createPayload: { kind: "json", json: request.create },
+    updatePayload: { kind: "json", json: request.update },
+    updateMode: request.updateMode,
+    condition: request.condition ?? "any",
+    ...(expectedRevision === undefined ? {} : { expectedRevision })
+  };
+}
+
+function projectMutation<T>(result: BaseResult<unknown>, kind: string): BaseResult<T> {
+  if (!result.ok) return result;
+  if (typeof result.value !== "object" || result.value === null) return invalid<T>(result.correlationId);
+  const aggregate = result.value as { outcome?: unknown; items?: unknown };
+  if (aggregate.outcome !== "committed" || !Array.isArray(aggregate.items) || aggregate.items.length !== 1) return invalid<T>(result.correlationId);
+  const item = aggregate.items[0] as { itemId?: unknown; index?: unknown; kind?: unknown; disposition?: unknown; record?: unknown; delete?: unknown; upsert?: unknown };
+  if (item.itemId !== "mutation" || materializeBaseJsonValue(item.index) !== 0 || item.kind !== kind || item.disposition !== "committed") return invalid<T>(result.correlationId);
+  const value = kind === "delete" ? item.delete : kind === "upsert" ? item.upsert : item.record;
+  if (value === undefined) return invalid<T>(result.correlationId);
+  return { ...result, value: value as T };
+}
+
+function invalid<T>(correlationId: string): BaseResult<T> {
+  return { ok: false, error: { code: "base.client.responseInvalid", category: "unexpected", message: "The BASE mutation response was invalid." }, correlationId, retry: "identifiedMutationOnly" };
+}
+function toBatchItem(schema: BaseGeneratedSchema, operation: BaseBatchOperation<BaseGeneratedSchema>): object {
+  const collectionId = schema.collections[operation.collection]?.id ?? operation.collection;
+  const definition = schema.collections[operation.collection]; if (definition === undefined || schema.typeGraph === undefined) throw new TypeError("base.client.configurationInvalid");
+  const map = (value: unknown): unknown => !isObject(value) ? value : Object.fromEntries(Object.entries(value).map(([name, item]) => [definition.fields[name]?.wireName ?? name, item]));
+  if (operation.kind === "create") { const value = validateMutationDto(definition, schema.typeGraph, "create", operation.value); return { itemId: operation.itemId, collectionId, kind: operation.kind, create: { payload: { kind: "json", json: map(value) }, ...(operation.recordId === undefined ? {} : { requestedId: operation.recordId }) } }; }
+  if (operation.kind === "patch") { const value = validateMutationDto(definition, schema.typeGraph, "patch", operation.value); return { itemId: operation.itemId, collectionId, kind: operation.kind, recordId: operation.id, patch: { patch: { kind: "json", json: map(value) }, ...(operation.expectedRevision === undefined ? {} : { expectedRevision: operation.expectedRevision }) } }; }
+  if (operation.kind === "replace") { const value = validateMutationDto(definition, schema.typeGraph, "replace", operation.value); return { itemId: operation.itemId, collectionId, kind: operation.kind, recordId: operation.id, replace: { payload: { kind: "json", json: map(value) }, ...(operation.expectedRevision === undefined ? {} : { expectedRevision: operation.expectedRevision }) } }; }
+  if (operation.kind === "upsert") { const value = validateMutationDto(definition, schema.typeGraph, "upsert", operation.value) as BaseUpsertRequest<unknown, unknown>; return { itemId: operation.itemId, collectionId, kind: operation.kind, recordId: operation.id, upsert: upsertRequest(operation.id, { ...value, create: map(value.create), update: map(value.update) }, operation.expectedRevision) }; }
+  return { itemId: operation.itemId, collectionId, kind: operation.kind, recordId: operation.id, delete: { ...(operation.expectedRevision === undefined ? {} : { expectedRevision: operation.expectedRevision }), returnPrevious: false } };
+}
+
+function validateMutationDto(definition: BaseCollectionDefinition, graph: import("./codec.js").BaseTypeGraph, kind: "create" | "patch" | "replace" | "upsert", value: unknown): unknown {
+  try {
+    if (kind === "upsert") {
+      if (!isObject(value) || !hasOnly(value, ["create", "update", "updateMode", "condition"]) || (value.updateMode !== "patch" && value.updateMode !== "replace") || (value.condition !== undefined && !["any", "createOnly", "updateOnly"].includes(value.condition as string))) throw new TypeError();
+      const updateTypeId = value.updateMode === "patch" ? definition.patchTypeId : definition.replaceTypeId;
+      if (definition.createTypeId === undefined || updateTypeId === undefined) throw new TypeError("base.client.configurationInvalid");
+      return Object.freeze({ ...value, create: decodeBaseValue(value.create, definition.createTypeId, graph), update: decodeBaseValue(value.update, updateTypeId, graph) });
+    }
+    const typeId = kind === "create" ? definition.createTypeId : kind === "patch" ? definition.patchTypeId : definition.replaceTypeId;
+    if (typeId === undefined) throw new TypeError("base.client.configurationInvalid");
+    return decodeBaseValue(value, typeId, graph);
+  } catch (error: unknown) { if (error instanceof TypeError && error.message === "base.client.configurationInvalid") throw error; throw new TypeError("base.client.requestInvalid"); }
+}
+
+function materializePageEnvelope(value: unknown): unknown {
+  if (!isObject(value)) return value;
+  return { ...value, ...(isObject(value.page) ? { page: materializeBaseJsonValue(value.page) } : {}), ...(value.count === undefined ? {} : { count: materializeBaseJsonValue(value.count) }) };
+}
+function identifiedRetry(code: string): boolean { return code === "base.client.transportFailed" || code === "base.runtime.batch.indeterminate" || code === "base.runtime.request.outcomeUnknown"; }
+function normalizeIdentifiedFailure<T>(result: BaseResult<T>): BaseResult<T> { return !result.ok && identifiedRetry(result.error.code) ? { ...result, retry: "identifiedMutationOnly" } : result; }
+function isObject(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
+function hasOnly(value: Record<string, unknown>, keys: readonly string[]): boolean { return Object.keys(value).every(key => keys.includes(key)); }
+function isRecord(value: unknown): value is BaseRecord<unknown> {
+  if (!isObject(value) || !hasOnly(value, ["collectionId", "id", "payload", "metadata", "policy"]) || typeof value.collectionId !== "string" || typeof value.id !== "string" || !isObject(value.payload) || !isObject(value.metadata)) return false;
+  if (value.payload.kind === "json") { if (!hasOnly(value.payload, ["kind", "json"]) || !isObject(value.payload.json)) return false; }
+  else if (value.payload.kind === "fieldMap") { if (!hasOnly(value.payload, ["kind", "fields"]) || !isObject(value.payload.fields)) return false; }
+  else return false;
+  if (!hasOnly(value.metadata, ["createdAt", "updatedAt", "revision", "eTag", "storeId"])) return false; for (const item of Object.values(value.metadata)) if (typeof item !== "string") return false;
+  return value.policy === undefined || isObject(value.policy) && hasOnly(value.policy, ["redacted", "omittedFields", "readOnlyFields"]) && (value.policy.redacted === undefined || typeof value.policy.redacted === "boolean") && (value.policy.omittedFields === undefined || Array.isArray(value.policy.omittedFields) && value.policy.omittedFields.every(item => typeof item === "string")) && (value.policy.readOnlyFields === undefined || Array.isArray(value.policy.readOnlyFields) && value.policy.readOnlyFields.every(item => typeof item === "string"));
+}
+function isRecordPage(value: unknown, records = true): value is BaseRecordPage<unknown> {
+  if (!isObject(value) || !hasOnly(value, ["items", "page", "count"]) || !Array.isArray(value.items) || !isObject(value.page) || !hasOnly(value.page, ["page", "perPage", "offset", "limit", "cursor", "nextCursor", "hasMore"]) || typeof value.page.hasMore !== "boolean") return false;
+  if (records && !value.items.every(isRecord)) return false;
+  return value.count === undefined || (isObject(value.count) && typeof value.count.mode === "string" && typeof value.count.isExact === "boolean" && (value.count.total === undefined || Number.isSafeInteger(value.count.total)));
+}
+function isBatchResult(value: unknown): value is BaseBatchResult { return isObject(value) && hasOnly(value, ["outcome", "items", "failureIndex", "receipt", "committedAt"]) && typeof value.outcome === "string" && Array.isArray(value.items); }

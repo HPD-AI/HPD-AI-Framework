@@ -12,9 +12,13 @@ public sealed class HPDAIPlatformEndpointOptions
 
     public string Mode { get; set; } = "development";
 
+    public string AssetContractVersion { get; internal set; } = "1";
+
     public IList<string> Capabilities { get; } = [];
 
     public IList<HPDAIPlatformModuleOptions> Modules { get; } = [];
+
+    public ISet<string> SpaRoutes { get; } = new HashSet<string>(StringComparer.Ordinal);
 
     public Action<RouteGroupBuilder>? ConfigureRoutes { get; set; }
 }

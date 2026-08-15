@@ -15,6 +15,7 @@ internal static class TestRealtimeApp
         });
 
         builder.WebHost.UseTestServer();
+        builder.Services.AddAuthorizationBuilder().AddPolicy("realtime", policy => policy.RequireAssertion(_ => true));
         if (logs is not null)
         {
             builder.Logging.ClearProviders();
@@ -49,7 +50,13 @@ internal static class TestRealtimeApp
         var app = builder.Build();
         app.Services.GetRequiredService<IRecordStoreRegistry>().AddHPDBaseInMemoryStore(app.Services);
         await app.Services.GetRequiredService<IBaseDescriptorRegistry>().RebuildAsync();
-        app.MapHPDBaseRealtime();
+        app.MapHPDBaseApplicationApi(new HPDBaseApplicationEndpointOptions
+        {
+            AuthorizationPolicy = "realtime",
+            MapRecords = false,
+            MapRegisteredReads = false,
+            MapRealtime = true
+        });
         await app.StartAsync();
         return app;
     }

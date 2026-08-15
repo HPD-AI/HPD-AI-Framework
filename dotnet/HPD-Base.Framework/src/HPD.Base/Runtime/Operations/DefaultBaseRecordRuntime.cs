@@ -328,7 +328,7 @@ internal sealed class DefaultBaseRecordRuntime(
         };
         if (include.SelectFieldIds is { } selected)
             fields = fields.Where(field => selected.Contains(field.Id));
-        return fields.Select(static field => field.Name).ToHashSet(StringComparer.Ordinal);
+        return fields.Select(static field => field.WireName).ToHashSet(StringComparer.Ordinal);
     }
 
     private static bool ValidIncludeEvidence(BaseReadDependencyEvidence[]? evidence, IEnumerable<string> requiredCollections, int maxRecords)
@@ -745,7 +745,7 @@ internal sealed class DefaultBaseRecordRuntime(
             cancellationToken).ConfigureAwait(false);
         if (!result.IsSuccess() || result.Value is null)
             return result;
-        if (!result.Value.Enabled || !result.Value.Exposed)
+        if (!result.Value.Enabled || !result.Value.Exposed && !result.Value.System)
         {
             return OperationResults.Unsupported<CollectionDefinition>(new BaseError
             {

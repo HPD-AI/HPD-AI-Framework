@@ -132,7 +132,7 @@ internal sealed class DefaultBaseSchemaValidator : IBaseSchemaValidator
         SchemaValidationOperation operation,
         HashSet<string> runtimeWrittenFields)
     {
-        var fields = (collection.Fields ?? []).ToDictionary(field => field.Name, StringComparer.Ordinal);
+        var fields = (collection.Fields ?? []).ToDictionary(field => field.WireName, StringComparer.Ordinal);
 
         if (collection.UnknownFields == UnknownFieldPolicy.Reject)
         {
@@ -147,15 +147,17 @@ internal sealed class DefaultBaseSchemaValidator : IBaseSchemaValidator
         {
             foreach (var field in fields.Values)
             {
-                if (field.Required && !fieldValues.ContainsKey(field.Name))
+                if (field.Required && !fieldValues.ContainsKey(field.WireName))
                 {
-                    return ValidationError("base.runtime.payload.requiredField", $"Required field '{field.Name}' is missing.", field.Name);
+                    return ValidationError("base.runtime.payload.requiredField", $"Required field '{field.WireName}' is missing.", field.WireName);
                 }
             }
         }
 
         foreach (var (name, value) in fieldValues)
         {
+            if (ContainsRedactedMarker(value))
+                return ValidationError(BaseConfidentialityErrorCodes.RedactedMarkerForbidden, "Redacted output markers cannot be submitted as record data.", name);
             if (!fields.TryGetValue(name, out var field))
             {
                 continue;
@@ -164,6 +166,32 @@ internal sealed class DefaultBaseSchemaValidator : IBaseSchemaValidator
             if (!field.Nullable && value.ValueKind == JsonValueKind.Null)
             {
                 return ValidationError("base.runtime.payload.nonNullable", $"Field '{name}' cannot be null.", name);
+            }
+
+            if (field.Type == "vector" && value.ValueKind != JsonValueKind.Null)
+            {
+                VectorIndexDefinition[] vectorIndexes = (collection.VectorIndexes ?? []).Where(index => string.Equals(index.VectorFieldId, field.Id, StringComparison.Ordinal)).ToArray();
+                BaseError? vectorError = ValidateVector(value, vectorIndexes, name);
+                if (vectorError is not null) return vectorError;
+            }
+            if (string.Equals(field.Format, "base64", StringComparison.Ordinal) && value.ValueKind != JsonValueKind.Null)
+            {
+                if (value.ValueKind != JsonValueKind.String || field.MaximumBytes is not { } maximum)
+                    return ValidationError(BaseBinaryErrorCodes.EncodingInvalid, "The binary value is invalid.", name);
+                try
+                {
+                    BaseBinary binary = BaseBinary.FromBase64(value.GetString()!);
+                    if (binary.Length > maximum)
+                        return ValidationError(BaseBinaryErrorCodes.ValueTooLarge, "The binary value exceeds its declared bound.", name);
+                }
+                catch (ArgumentOutOfRangeException)
+                {
+                    return ValidationError(BaseBinaryErrorCodes.ValueTooLarge, "The binary value exceeds its declared bound.", name);
+                }
+                catch (FormatException)
+                {
+                    return ValidationError(BaseBinaryErrorCodes.EncodingInvalid, "The binary value is invalid.", name);
+                }
             }
 
             var updateOperation = operation is SchemaValidationOperation.Patch or SchemaValidationOperation.Replace;
@@ -187,6 +215,39 @@ internal sealed class DefaultBaseSchemaValidator : IBaseSchemaValidator
         return null;
     }
 
+    private static bool ContainsRedactedMarker(JsonElement value)
+    {
+        if (value.ValueKind == JsonValueKind.Object)
+        {
+            JsonProperty[] properties = value.EnumerateObject().ToArray();
+            if (properties.Length == 1 && properties[0].NameEquals("$base") &&
+                properties[0].Value.ValueKind == JsonValueKind.String && properties[0].Value.GetString() == "redacted")
+                return true;
+            return properties.Any(static property => ContainsRedactedMarker(property.Value));
+        }
+        return value.ValueKind == JsonValueKind.Array && value.EnumerateArray().Any(ContainsRedactedMarker);
+    }
+
+    private static BaseError? ValidateVector(JsonElement value, VectorIndexDefinition[] indexes, string fieldName)
+    {
+        if (indexes.Length == 0 || value.ValueKind != JsonValueKind.Array)
+            return ValidationError("base.vector.invalid", "The vector value is invalid.", fieldName);
+        int dimensions = 0;
+        double squaredNorm = 0;
+        foreach (JsonElement element in value.EnumerateArray())
+        {
+            if (element.ValueKind != JsonValueKind.Number || !element.TryGetSingle(out float number) || !float.IsFinite(number))
+                return ValidationError("base.vector.nonFinite", "The vector must contain only finite float32 values.", fieldName);
+            dimensions++;
+            squaredNorm += (double)number * number;
+        }
+        if (indexes.Any(index => dimensions != index.Dimensions))
+            return ValidationError("base.vector.dimensionMismatch", "The vector dimensions do not match the index.", fieldName);
+        if (indexes.Any(static index => index.Function == BaseVectorFunction.CosineSimilarity) && (!(squaredNorm > 0) || !double.IsFinite(squaredNorm)))
+            return ValidationError("base.vector.zeroNorm", "Cosine vectors require a finite non-zero norm.", fieldName);
+        return null;
+    }
+
     private static HashSet<string> ApplyRuntimeDefaultsAndGeneration(
         CollectionDefinition collection,
         Dictionary<string, JsonElement> fieldValues,
@@ -196,12 +257,12 @@ internal sealed class DefaultBaseSchemaValidator : IBaseSchemaValidator
         var runtimeWrittenFields = new HashSet<string>(StringComparer.Ordinal);
         foreach (var field in collection.Fields ?? [])
         {
-            if (!fieldValues.ContainsKey(field.Name)
+            if (!fieldValues.ContainsKey(field.WireName)
                 && operation is SchemaValidationOperation.Create or SchemaValidationOperation.Replace
                 && field.Default is { Owner: EnforcementOwner.Runtime, Kind: DefaultValueKind.Literal } defaultValue)
             {
-                fieldValues[field.Name] = defaultValue.Value.Clone();
-                runtimeWrittenFields.Add(field.Name);
+                fieldValues[field.WireName] = defaultValue.Value.Clone();
+                runtimeWrittenFields.Add(field.WireName);
             }
 
             if (field.Generated is not { Owner: EnforcementOwner.Runtime } generated)
@@ -220,8 +281,8 @@ internal sealed class DefaultBaseSchemaValidator : IBaseSchemaValidator
                 continue;
             }
 
-            fieldValues[field.Name] = generatedValue;
-            runtimeWrittenFields.Add(field.Name);
+            fieldValues[field.WireName] = generatedValue;
+            runtimeWrittenFields.Add(field.WireName);
         }
 
         return runtimeWrittenFields;

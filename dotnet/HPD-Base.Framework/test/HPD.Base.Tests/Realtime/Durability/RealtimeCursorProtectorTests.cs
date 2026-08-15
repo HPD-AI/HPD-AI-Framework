@@ -86,7 +86,7 @@ public sealed class RealtimeCursorProtectorTests
         new(
             new BaseOpaqueTokenProtector(Options.Create(new HPDBaseTokenProtectionOptions
             {
-                ActiveKey = new BaseOpaqueTokenKey { Id = 3, Key = Enumerable.Repeat((byte)0x55, 32).ToArray() },
+                ActiveKey = new BaseOpaqueTokenKey { Id = 3, Key = Enumerable.Repeat((byte)0x55, 32).ToArray(), IssueNotBefore = DateTimeOffset.UnixEpoch },
             })),
             Options.Create(new BaseRealtimeOptions
             {

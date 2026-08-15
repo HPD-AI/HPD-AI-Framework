@@ -20,16 +20,31 @@ internal static class BaseApplicationGraphValidator
         foreach (CollectionDefinition collection in collections)
         {
             BaseApplicationId.Validate(collection.Id, nameof(collection.Id));
+            if (collection.System && string.IsNullOrWhiteSpace(collection.SystemOwnerModuleId)
+                || !collection.System && collection.SystemOwnerModuleId is not null)
+                throw new InvalidOperationException(BaseConfidentialityErrorCodes.ContractInvalid);
+            if (collection.SystemOwnerModuleId is not null)
+                BaseApplicationId.Validate(collection.SystemOwnerModuleId, nameof(collection.SystemOwnerModuleId));
             FieldDefinition[] fields = collection.Fields ?? [];
             if (fields.Length > schema.MaxFieldsPerCollection)
                 throw Invalid($"Collection '{collection.Id}' exceeds the configured field limit.");
             var fieldById = Unique(fields, static field => field.Id, "field");
-            Unique(fields, static field => field.Name, "stored field name");
+            Unique(fields, static field => field.WireName, "stored field name");
             foreach (FieldDefinition field in fields)
             {
                 BaseApplicationId.Validate(field.Id, nameof(field.Id));
+                BaseFieldDisclosurePolicy disclosure;
+                try { disclosure = BaseConfidentialityPolicy.Normalize(field.Confidentiality, field.Disclosure); }
+                catch (InvalidOperationException) { throw Invalid($"Field '{field.Id}' has an invalid confidentiality contract."); }
+                bool binary = string.Equals(field.Format, "base64", StringComparison.Ordinal);
+                if (binary != (field.MaximumBytes is not null) || binary && field.MaximumBytes is < 1 or > 1_048_576)
+                    throw Invalid($"Field '{field.Id}' has an invalid binary contract.");
+                if (disclosure.Indexing == BaseIndexDisclosure.Forbidden && (collection.Indexes ?? []).Any(index => (index.Parts ?? []).Any(part => part.FieldId == field.Id)))
+                    throw Invalid($"Field '{field.Id}' cannot influence an index.");
                 if (!globalFieldIds.Add(field.Id))
                     throw Invalid($"Stable field identifier '{field.Id}' is duplicated across the application graph.");
+                if (field.Relation is not null && field.SubjectReference is not null)
+                    throw Invalid($"Field '{field.Id}' cannot be both a relation and an exported-subject reference.");
                 if (field.Relation is { } relation)
                     ValidateRelation(collection, field, relation, collectionById, globalRelationIds);
             }
@@ -85,6 +100,7 @@ internal static class BaseApplicationGraphValidator
         HPDBaseRelationalOptions options)
     {
         BaseRelationalReadPlan plan = registration.Plan;
+        ValidateReadConfidentiality(registration, collections);
         if (!string.Equals(registration.Id, plan.Id, StringComparison.Ordinal) ||
             plan.Sources.Length == 0 || plan.Sources.Length > options.MaxSources ||
             plan.Joins.Length != plan.Sources.Length - 1 || plan.Joins.Length > options.MaxJoins || plan.Parameters.Length > options.MaxParameters ||
@@ -136,8 +152,59 @@ internal static class BaseApplicationGraphValidator
                 operand.Kind is BaseRelationalOperandKind.SourceField or BaseRelationalOperandKind.RecordId &&
                 !groupKeys.Contains(operand)))
             throw Invalid($"Read '{registration.Id}' has a having operand that is not a group key or aggregate.");
-        foreach (BaseRelationalReadProjection projection in plan.Projection) ValidateOperand(projection.Operand, sources, collections, parameters, aggregates, allowAggregate: true);
+        foreach (BaseRelationalReadProjection projection in plan.Projection)
+        {
+            if (projection.Operand.Kind == BaseRelationalOperandKind.SubjectReference)
+                ValidateSubjectReferenceProjection(projection.Operand, sources);
+            else
+                ValidateOperand(projection.Operand, sources, collections, parameters, aggregates, allowAggregate: true);
+        }
         foreach (BaseRelationalReadSort sort in plan.Sort) ValidateOperand(sort.Operand, sources, collections, parameters, aggregates, allowAggregate: true);
+    }
+
+    private static void ValidateSubjectReferenceProjection(
+        BaseRelationalOperand operand,
+        IReadOnlyDictionary<string, BaseRelationalReadSource> sources)
+    {
+        if (operand.SourceId is not { } sourceId || !sources.ContainsKey(sourceId)
+            || operand.SubjectContractId is not { } contractId || operand.SubjectContractVersion is not > 0
+            || operand.FieldId is not null || operand.ParameterId is not null || operand.AggregateId is not null || operand.Literal is not null)
+            throw Invalid("A registered subject-acquisition projection is invalid.");
+        BaseApplicationId.Validate(contractId, nameof(operand.SubjectContractId));
+    }
+
+    private static void ValidateReadConfidentiality(
+        IBaseReadRegistration registration,
+        IReadOnlyDictionary<string, CollectionDefinition> collections)
+    {
+        BaseRelationalReadPlan plan = registration.Plan;
+        string[] sources = plan.Sources.Select(static source => source.CollectionId).OrderBy(static id => id, StringComparer.Ordinal).ToArray();
+        string[] system = sources.Where(id => collections[id].System).ToArray();
+        string[] declaredSystem = registration.SystemSourceIds.OrderBy(static id => id, StringComparer.Ordinal).ToArray();
+        if (registration.SourceAuthority == BaseRegisteredReadSourceAuthority.Ordinary && system.Length != 0 ||
+            registration.SourceAuthority == BaseRegisteredReadSourceAuthority.System &&
+                (!system.SequenceEqual(declaredSystem, StringComparer.Ordinal) || system.Length != sources.Length))
+            throw Invalid($"Read '{registration.Id}' has invalid system-source authority.");
+
+        HashSet<string> projected = plan.Projection.Select(static item => item.FieldId).ToHashSet(StringComparer.Ordinal);
+        HashSet<string> confidential = registration.ConfidentialOutputFieldIds.ToHashSet(StringComparer.Ordinal);
+        HashSet<string> secret = registration.SecretOutputFieldIds.ToHashSet(StringComparer.Ordinal);
+        if (!confidential.IsSubsetOf(projected) || !secret.IsSubsetOf(projected) || confidential.Overlaps(secret) ||
+            registration.Disclosure == BaseRegisteredReadDisclosure.Ordinary && (confidential.Count != 0 || secret.Count != 0) ||
+            registration.Disclosure == BaseRegisteredReadDisclosure.ConfidentialProjection && secret.Count != 0 ||
+            string.IsNullOrEmpty(registration.RequiredGrantId))
+            throw Invalid($"Read '{registration.Id}' has invalid disclosure authority.");
+
+        Dictionary<string, string> sourceCollections = plan.Sources.ToDictionary(static source => source.Id, static source => source.CollectionId, StringComparer.Ordinal);
+        foreach (BaseRelationalReadProjection output in plan.Projection)
+        {
+            if (output.Operand.Kind != BaseRelationalOperandKind.SourceField || output.Operand.SourceId is null || output.Operand.FieldId is null)
+                continue;
+            FieldDefinition? field = collections[sourceCollections[output.Operand.SourceId]].Fields?.SingleOrDefault(item => item.Id == output.Operand.FieldId);
+            if (field?.Confidentiality == BaseFieldConfidentiality.Confidential && !confidential.Contains(output.FieldId) ||
+                field?.Confidentiality == BaseFieldConfidentiality.Secret && !secret.Contains(output.FieldId))
+                throw Invalid($"Read '{registration.Id}' projects a protected field without exact disclosure authority.");
+        }
     }
 
     private static void ValidatePredicate(

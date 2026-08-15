@@ -5,7 +5,9 @@ public enum PolicyResourceKind
     /// <summary>Identifies collection.</summary>
 Collection,
     /// <summary>Identifies query.</summary>
-Query,
+    Query,
+    /// <summary>Identifies one installed transaction-bound selection operation.</summary>
+    SelectionMutation,
     /// <summary>Identifies record.</summary>
 Record,
     /// <summary>Identifies create Payload.</summary>
@@ -23,7 +25,13 @@ File,
     /// <summary>Identifies schema.</summary>
 Schema,
     /// <summary>Identifies admin Metadata.</summary>
-AdminMetadata
+AdminMetadata,
+    /// <summary>Identifies one vector index and its influence boundary.</summary>
+    VectorIndex,
+    /// <summary>Identifies one installed exported logical-subject contract.</summary>
+    SubjectContract,
+    /// <summary>Identifies one graph-installed registered module mutation.</summary>
+    ModuleMutation
 }
 
 /// <summary>Defines policy Effect.</summary>
@@ -168,5 +176,9 @@ File,
     /// <summary>Identifies schema.</summary>
 Schema,
     /// <summary>Identifies admin.</summary>
-Admin
+Admin,
+    /// <summary>Identifies one vector index or a collection's vector indexes.</summary>
+    VectorIndex,
+    /// <summary>Identifies one exact exported logical-subject contract.</summary>
+    SubjectContract
 }

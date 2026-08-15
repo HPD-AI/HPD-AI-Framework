@@ -17,7 +17,7 @@ public sealed class BaseReadGeneratorTests
             using HPD.Base;
             using System.Text.Json.Serialization;
 
-            [BaseRead("project-name", typeof(AppJsonContext), Exposure = BaseReadExposure.Admin, Authorization = BaseReadAuthorization.Admin)]
+            [BaseRead("project-name", typeof(AppJsonContext), Exposure = BaseReadExposure.Admin, Authorization = BaseReadAuthorization.Admin, RequiredGrantId = "project-name.execute")]
             public partial record ProjectName
             {
                 [BaseReadParameter("project-name.id")]
@@ -45,6 +45,10 @@ public sealed class BaseReadGeneratorTests
         first.Source.Should().Contain("BaseReadParameter<global::ProjectName, string>");
         first.Source.Should().Contain("BaseReadField<global::ProjectName.Row, string>");
         first.Source.Should().Contain("BaseReadExposure.Admin, global::HPD.Base.BaseReadAuthorization.Admin");
+        first.Source.Should().Contain("CreateGenerated(");
+        first.Source.Should().Contain("BaseSerializerPropertyDeclaration.Create(typeof(global::ProjectName), \"Id\", typeof(string)");
+        first.Source.Should().Contain("BaseSerializerPropertyDeclaration.Create(typeof(global::ProjectName.Row), \"Name\", typeof(string)");
+        first.Source.Should().NotContain("GetContext(");
         first.Source.Should().NotContain("System.Type");
     }
 
@@ -54,7 +58,7 @@ public sealed class BaseReadGeneratorTests
         const string source = """
             using HPD.Base;
             using System.Text.Json.Serialization;
-            [BaseRead("read", typeof(AppJsonContext), Exposure = BaseReadExposure.Admin)]
+            [BaseRead("read", typeof(AppJsonContext), Exposure = BaseReadExposure.Admin, RequiredGrantId = "read.execute")]
             public partial record Read
             {
                 [BaseReadParameter("read.value")]
@@ -74,7 +78,7 @@ public sealed class BaseReadGeneratorTests
         var result = Run(source);
 
         result.Diagnostics.Should().ContainSingle(diagnostic => diagnostic.Id == "HPDBASE020");
-        result.Source.Should().BeEmpty();
+        result.Source.Should().Contain("Definition => null!").And.NotContain("CreateGenerated");
     }
 
     [Fact]
@@ -83,7 +87,7 @@ public sealed class BaseReadGeneratorTests
         const string source = """
             using HPD.Base;
             using System.Text.Json.Serialization;
-            [BaseRead("read", typeof(AppJsonContext))]
+            [BaseRead("read", typeof(AppJsonContext), RequiredGrantId = "read.execute")]
             public partial record Read
             {
                 public string Value { get; init; } = "";
@@ -102,7 +106,7 @@ public sealed class BaseReadGeneratorTests
         var result = Run(source);
 
         result.Diagnostics.Should().ContainSingle(diagnostic => diagnostic.Id == "HPDBASE021");
-        result.Source.Should().BeEmpty();
+        result.Source.Should().Contain("Definition => null!").And.NotContain("CreateGenerated");
     }
 
     [Fact]
@@ -111,7 +115,7 @@ public sealed class BaseReadGeneratorTests
         const string source = """
             using HPD.Base;
             using System.Text.Json.Serialization;
-            [BaseRead("read", typeof(AppJsonContext))]
+            [BaseRead("read", typeof(AppJsonContext), RequiredGrantId = "read.execute")]
             public partial record Read
             {
                 [BaseReadParameter("read.value")]
@@ -130,8 +134,8 @@ public sealed class BaseReadGeneratorTests
 
         Result result = Run(source);
 
-        result.Diagnostics.Should().ContainSingle(diagnostic => diagnostic.Id == "HPDBASE023");
-        result.Source.Should().BeEmpty();
+        result.Diagnostics.Should().ContainSingle(diagnostic => diagnostic.Id == "HPDBASE0447");
+        result.Source.Should().Contain("Definition => null!").And.NotContain("CreateGenerated");
     }
 
     [Fact]
@@ -141,7 +145,7 @@ public sealed class BaseReadGeneratorTests
             using HPD.Base;
             using System.Text.Json.Serialization;
             public sealed record Project;
-            [BaseRead("read", typeof(AppJsonContext))]
+            [BaseRead("read", typeof(AppJsonContext), RequiredGrantId = "read.execute")]
             public partial record Read
             {
                 [BaseReadParameter("read.project")]
@@ -172,7 +176,7 @@ public sealed class BaseReadGeneratorTests
             using HPD.Base;
             using System;
             using System.Text.Json.Serialization;
-            [BaseRead("read", typeof(AppJsonContext))]
+            [BaseRead("read", typeof(AppJsonContext), RequiredGrantId = "read.execute")]
             public partial record Read
             {
                 [BaseReadParameter("read.after")]
@@ -196,11 +200,63 @@ public sealed class BaseReadGeneratorTests
         result.Source.Should().Contain("BaseReadGeneratedContract.Read<global::System.DateTimeOffset>");
     }
 
+    [Fact]
+    public void IgnoreNeverIsActiveAndAlwaysRequiresNoReadIdentity()
+    {
+        const string accepted = """
+            using HPD.Base;
+            using System.Text.Json.Serialization;
+            [BaseRead("read", typeof(AppJsonContext), RequiredGrantId = "read.execute")]
+            public partial record Read
+            {
+                [BaseReadParameter("read.value")]
+                [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+                public required string Value { get; init; }
+                [JsonIgnore(Condition = JsonIgnoreCondition.Always)]
+                public string LocalOnly { get; init; } = string.Empty;
+                public sealed partial record Row
+                {
+                    [BaseReadField("read.row.value")]
+                    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+                    public required string Value { get; init; }
+                }
+                public static void Configure(BaseReadDefinitionBuilder<Read, Row> read) { }
+            }
+            [JsonSerializable(typeof(Read))]
+            [JsonSerializable(typeof(Read.Row))]
+            public partial class AppJsonContext : JsonSerializerContext;
+            """;
+        const string rejected = """
+            using HPD.Base;
+            using System.Text.Json.Serialization;
+            [BaseRead("read", typeof(AppJsonContext), RequiredGrantId = "read.execute")]
+            public partial record Read
+            {
+                [BaseReadParameter("read.value")]
+                [JsonIgnore(Condition = JsonIgnoreCondition.Always)]
+                public required string Value { get; init; }
+                public sealed partial record Row
+                {
+                    [BaseReadField("read.row.value")] public required string Value { get; init; }
+                }
+                public static void Configure(BaseReadDefinitionBuilder<Read, Row> read) { }
+            }
+            [JsonSerializable(typeof(Read))]
+            [JsonSerializable(typeof(Read.Row))]
+            public partial class AppJsonContext : JsonSerializerContext;
+            """;
+
+        Result valid = Run(accepted);
+        valid.Diagnostics.Should().BeEmpty();
+        valid.Source.Should().Contain("CreateGenerated").And.Contain("LocalOnly");
+        Run(rejected).Diagnostics.Should().ContainSingle(item => item.Id == "HPDBASE020");
+    }
+
     private static Result Run(string source)
     {
         var parse = new CSharpParseOptions(LanguageVersion.CSharp14);
         var compilation = CSharpCompilation.Create("ReadGeneratorTests", [CSharpSyntaxTree.ParseText(source, parse)], References(), new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
-        GeneratorDriver driver = CSharpGeneratorDriver.Create([new BaseReadGenerator().AsSourceGenerator()], parseOptions: parse);
+        GeneratorDriver driver = CSharpGeneratorDriver.Create([new BaseSchemaGenerator().AsSourceGenerator()], parseOptions: parse);
         driver = driver.RunGenerators(compilation);
         GeneratorDriverRunResult result = driver.GetRunResult();
         return new Result(result.Diagnostics, string.Join("\n", result.Results.SelectMany(item => item.GeneratedSources).Select(item => item.SourceText.ToString())));

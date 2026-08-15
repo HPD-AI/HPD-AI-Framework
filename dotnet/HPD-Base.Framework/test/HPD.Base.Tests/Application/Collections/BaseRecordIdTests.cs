@@ -42,13 +42,16 @@ public sealed class BaseRecordIdTests
     [Fact]
     public void ManualRelationLowersToTheSameCanonicalShape()
     {
+        var metadata = new TypedIdJsonContext(
+            BaseSerializerGeneratedContract.CreateOptions(System.Text.Json.JsonNamingPolicy.CamelCase)).TypedIdDocument;
         var manual = HPD.Base.BaseCollection.Define(
             "manual-typed-id-documents",
-            TypedIdJsonContext.Default.TypedIdDocument,
+            metadata,
             schema => schema.Relation(
                     "typed-id-document.owner",
                     "typed-id-document.owner",
-                    "ownerId",
+                    "OwnerId",
+                    BaseJsonProperty<TypedIdDocument, BaseRecordId<TypedIdOwner>>.Bind(metadata, "ownerId"),
                     TypedIdOwner.Collection)
                 .ExactlyOne()
                 .Inverse("typed-id-owner.documents")
@@ -75,12 +78,11 @@ public sealed class BaseRecordIdTests
         try
         {
             var services = new ServiceCollection().AddLogging();
-            services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
-            services.AddHPDBase(builder => builder
+                        services.AddHPDBase(builder => builder.AddTestPolicyAuthority<AllowPolicyEvaluator>()
                 .ConfigureSchema(options => options.PlanProtectionKey = Enumerable.Repeat((byte)0x71, 32).ToArray())
                 .AddCollection(TypedIdOwner.Collection)
                 .AddCollection(TypedIdDocument.Collection)
-                .UseSqlite(options => options.DataSource = database));
+                .UseStore(SqliteStore.Configure(options => options.DataSource = database)));
             await using ServiceProvider provider = services.BuildServiceProvider();
             IBaseSchemaManager schemas = provider.GetRequiredService<IBaseSchemaManager>();
             BaseSchemaPlan plan = (await schemas.PlanAsync(new BaseSchemaPlanRequest { StoreId = "sqlite" })).Value!;
@@ -121,8 +123,7 @@ public sealed class BaseRecordIdTests
     public async Task InMemoryIncludeReturnsDeclaredTargetFromOnePublishedState()
     {
         var services = new ServiceCollection().AddLogging();
-        services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
-        services.AddHPDBase(builder => builder.AddCollection(TypedIdOwner.Collection).AddCollection(TypedIdDocument.Collection));
+                services.AddHPDBase(builder => builder.AddTestPolicyAuthority<AllowPolicyEvaluator>().AddCollection(TypedIdOwner.Collection).AddCollection(TypedIdDocument.Collection));
         await using ServiceProvider provider = services.BuildServiceProvider();
         (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
         var principal = new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.Authenticated, SubjectId = "include-user" };
@@ -145,8 +146,7 @@ public sealed class BaseRecordIdTests
     public async Task InMemoryBatchesMultipleRootsAndExpandsNestedRelationsBeforeFieldSelection()
     {
         var services = new ServiceCollection().AddLogging();
-        services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
-        services.AddHPDBase(builder => builder.AddCollection(TypedIdOwner.Collection).AddCollection(TypedIdDocument.Collection));
+                services.AddHPDBase(builder => builder.AddTestPolicyAuthority<AllowPolicyEvaluator>().AddCollection(TypedIdOwner.Collection).AddCollection(TypedIdDocument.Collection));
         await using ServiceProvider provider = services.BuildServiceProvider();
         (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
         var principal = new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.Authenticated, SubjectId = "include-user" };
@@ -195,8 +195,7 @@ public sealed class BaseRecordIdTests
     public async Task InMemoryRelationMutationChecksTargetAndRestrictsItsDeletionInTheAtomicSnapshot()
     {
         var services = new ServiceCollection().AddLogging();
-        services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
-        services.AddHPDBase(builder => builder.AddCollection(TypedIdOwner.Collection).AddCollection(TypedIdDocument.Collection));
+                services.AddHPDBase(builder => builder.AddTestPolicyAuthority<AllowPolicyEvaluator>().AddCollection(TypedIdOwner.Collection).AddCollection(TypedIdDocument.Collection));
         await using ServiceProvider provider = services.BuildServiceProvider();
         (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
         BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.Authenticated, SubjectId = "relation-user" });
@@ -216,8 +215,7 @@ public sealed class BaseRecordIdTests
     public async Task AtomicRelationMutationReadsAnEarlierTargetWriteFromTheSameBatch()
     {
         var services = new ServiceCollection().AddLogging();
-        services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
-        services.AddHPDBase(builder => builder.AddCollection(TypedIdOwner.Collection).AddCollection(TypedIdDocument.Collection));
+                services.AddHPDBase(builder => builder.AddTestPolicyAuthority<AllowPolicyEvaluator>().AddCollection(TypedIdOwner.Collection).AddCollection(TypedIdDocument.Collection));
         await using ServiceProvider provider = services.BuildServiceProvider();
         (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
         BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.Authenticated, SubjectId = "batch-user" });
@@ -237,8 +235,7 @@ public sealed class BaseRecordIdTests
         var services = new ServiceCollection().AddLogging();
         var observer = new ReceiptMutationObserver();
         services.AddSingleton<IBaseCommittedMutationObserver>(observer);
-        services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
-        services.AddHPDBase(builder => builder.AddCollection(TypedIdOwner.Collection));
+                services.AddHPDBase(builder => builder.AddTestPolicyAuthority<AllowPolicyEvaluator>().AddCollection(TypedIdOwner.Collection));
         await using ServiceProvider provider = services.BuildServiceProvider();
         (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
         BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(new PrincipalContext
@@ -283,8 +280,7 @@ public sealed class BaseRecordIdTests
         var clock = new ReceiptTimeProvider(new DateTimeOffset(2026, 8, 3, 0, 0, 0, TimeSpan.Zero));
         var services = new ServiceCollection().AddLogging();
         services.AddSingleton<TimeProvider>(clock);
-        services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
-        services.AddHPDBase(builder => builder
+                services.AddHPDBase(builder => builder.AddTestPolicyAuthority<AllowPolicyEvaluator>()
             .ConfigureRuntime(options => options.Mutations.ReceiptLifetime = TimeSpan.FromHours(1))
             .AddCollection(TypedIdOwner.Collection));
         await using ServiceProvider provider = services.BuildServiceProvider();
@@ -305,8 +301,7 @@ public sealed class BaseRecordIdTests
     public async Task ReceiptOverflowRollsBackRecordsAndLeavesNoIdentityReservation()
     {
         var services = new ServiceCollection().AddLogging();
-        services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
-        services.AddHPDBase(builder => builder
+                services.AddHPDBase(builder => builder.AddTestPolicyAuthority<AllowPolicyEvaluator>()
             .ConfigureRuntime(options => options.Mutations.MaxReceiptBytes = 4_096)
             .AddCollection(TypedIdOwner.Collection));
         await using ServiceProvider provider = services.BuildServiceProvider();
@@ -337,7 +332,7 @@ public sealed class BaseRecordIdTests
         var services = new ServiceCollection().AddLogging();
         var policy = new ToggleReceiptPolicyEvaluator();
         services.AddSingleton<IPolicyEvaluator>(policy);
-        services.AddHPDBase(builder => builder.AddCollection(TypedIdOwner.Collection));
+        services.AddHPDBase(builder => builder.AddTestPolicyAuthority(policy).AddCollection(TypedIdOwner.Collection));
         await using ServiceProvider provider = services.BuildServiceProvider();
         provider.GetRequiredService<IPolicyEvaluator>().Should().BeSameAs(policy);
         (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
@@ -491,16 +486,17 @@ public sealed class BaseRecordIdTests
         int? maxReceiptBytes = null)
     {
         var services = new ServiceCollection().AddLogging();
-        if (policy is null) services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
-        else services.AddSingleton(policy);
+        IPolicyEvaluator evaluator = policy ?? new AllowPolicyEvaluator();
+        if (policy is not null) services.AddSingleton(policy);
         services.AddHPDBase(builder => builder
+            .AddTestPolicyAuthority(evaluator)
             .ConfigureRuntime(options =>
             {
                 if (maxReceiptBytes is { } maximum) options.Mutations.MaxReceiptBytes = maximum;
             })
             .ConfigureSchema(options => options.PlanProtectionKey = Enumerable.Repeat((byte)0x41, 32).ToArray())
             .AddCollection(TypedIdOwner.Collection)
-            .UseSqlite(options => options.DataSource = database));
+            .UseStore(SqliteStore.Configure(options => options.DataSource = database)));
         return services.BuildServiceProvider();
     }
 
@@ -527,8 +523,7 @@ public sealed class BaseRecordIdTests
     public async Task RelationPolicyDenialIsIndistinguishableFromAMissingTargetAndRollsBackSource()
     {
         var services = new ServiceCollection().AddLogging();
-        services.AddSingleton<IPolicyEvaluator, DenyRelationTargetPolicyEvaluator>();
-        services.AddHPDBase(builder => builder.AddCollection(TypedIdOwner.Collection).AddCollection(TypedIdDocument.Collection));
+        services.AddHPDBase(builder => builder.AddTestPolicyAuthority<DenyRelationTargetPolicyEvaluator>().AddCollection(TypedIdOwner.Collection).AddCollection(TypedIdDocument.Collection));
         await using ServiceProvider provider = services.BuildServiceProvider();
         (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
         BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.Authenticated, SubjectId = "policy-user" });
@@ -545,8 +540,8 @@ public sealed class BaseRecordIdTests
     public async Task NonCooperativeRelationPolicyIsBoundedAndRollsBackTheSource()
     {
         var services = new ServiceCollection().AddLogging();
-        services.AddSingleton<IPolicyEvaluator, HangingRelationTargetPolicyEvaluator>();
         services.AddHPDBase(builder => builder
+            .AddTestPolicyAuthority<HangingRelationTargetPolicyEvaluator>()
             .ConfigureRuntime(options => options.Mutations.MaxTransactionDuration = TimeSpan.FromMilliseconds(50))
             .AddCollection(TypedIdOwner.Collection)
             .AddCollection(TypedIdDocument.Collection));
@@ -566,8 +561,7 @@ public sealed class BaseRecordIdTests
     public async Task GeneratedManyRelationPreservesOrderAndRejectsDuplicateOrOutOfRangeTargets()
     {
         var services = new ServiceCollection().AddLogging();
-        services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
-        services.AddHPDBase(builder => builder
+                services.AddHPDBase(builder => builder.AddTestPolicyAuthority<AllowPolicyEvaluator>()
             .AddCollection(TypedIdOwner.Collection)
             .AddCollection(TypedIdManyDocument.Collection));
         await using ServiceProvider provider = services.BuildServiceProvider();
@@ -664,12 +658,11 @@ public sealed class BaseRecordIdTests
         try
         {
             var services = new ServiceCollection().AddLogging();
-            services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
-            services.AddHPDBase(builder => builder
+                        services.AddHPDBase(builder => builder.AddTestPolicyAuthority<AllowPolicyEvaluator>()
                 .ConfigureSchema(options => options.PlanProtectionKey = Enumerable.Repeat((byte)0x77, 32).ToArray())
                 .AddCollection(TypedIdOwner.Collection)
                 .AddCollection(TypedIdManyDocument.Collection)
-                .UseSqlite(options => options.DataSource = database));
+                .UseStore(SqliteStore.Configure(options => options.DataSource = database)));
             await using ServiceProvider provider = services.BuildServiceProvider();
             IBaseSchemaManager schemas = provider.GetRequiredService<IBaseSchemaManager>();
             BaseSchemaPlan schema = (await schemas.PlanAsync(new BaseSchemaPlanRequest { StoreId = "sqlite" })).Value!;
@@ -730,12 +723,11 @@ public sealed class BaseRecordIdTests
     {
         var store = new HostileIncludeStore();
         var services = new ServiceCollection().AddLogging();
-        services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
-        services.AddHPDBase(builder => builder
+                services.AddHPDBase(builder => builder.AddTestPolicyAuthority<AllowPolicyEvaluator>()
             .ConfigureRelational(options => options.MaxIncludedRecords = 1)
             .AddCollection(TypedIdOwner.Collection)
             .AddCollection(TypedIdManyDocument.Collection)
-            .Use(new HostileIncludeInstaller(store)));
+            .UseStore(TestStoreProvider.Create(store)));
         await using ServiceProvider provider = services.BuildServiceProvider();
         (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
         IBaseRecordRuntime runtime = provider.GetRequiredService<IBaseRecordRuntime>();
@@ -825,25 +817,12 @@ public sealed class BaseRecordIdTests
         var root = new HostileIncludeStore();
         var target = new FakeRecordStore("include-target");
         var services = new ServiceCollection().AddLogging();
-        services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
-        services.AddHPDBase(builder => builder
+                services.AddHPDBase(builder => builder.AddTestPolicyAuthority<AllowPolicyEvaluator>()
             .AddCollection(TypedIdOwner.Collection)
             .AddCollection(TypedIdManyDocument.Collection)
             .Use(new CrossStoreIncludeInstaller(root, target)));
         await using ServiceProvider provider = services.BuildServiceProvider();
-        (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
-
-        OperationResult<RecordPage> result = await provider.GetRequiredService<IBaseRecordRuntime>().ListAsync(
-            TypedIdManyDocument.Collection.Id,
-            new RecordQuery
-            {
-                Include = [new RecordInclude { NavigationId = "typed-id-many-document.members" }],
-                Page = new QueryPage { Mode = QueryPaginationMode.Offset, Offset = 0, Limit = 10 },
-            },
-            new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.System },
-            new OperationContext { Operation = BaseOperationKind.List, CollectionId = TypedIdManyDocument.Collection.Id });
-
-        result.Error!.Code.Should().Be("base.include.snapshotUnsupported");
+        (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeFalse();
         root.ExecutionCalls.Should().Be(0);
     }
 
@@ -851,8 +830,8 @@ public sealed class BaseRecordIdTests
     public async Task IncludePolicyDenialUsesOneNonDisclosingStableFailure()
     {
         var services = new ServiceCollection().AddLogging();
-        services.AddSingleton<IPolicyEvaluator, DenyOwnerIncludePolicyEvaluator>();
         services.AddHPDBase(builder => builder
+            .AddTestPolicyAuthority<DenyOwnerIncludePolicyEvaluator>()
             .AddCollection(TypedIdOwner.Collection)
             .AddCollection(TypedIdDocument.Collection)
             .AddCollection(TypedIdManyDocument.Collection));
@@ -918,16 +897,16 @@ public sealed class BaseRecordIdTests
         try
         {
             var services = new ServiceCollection().AddLogging();
-            services.AddSingleton<IPolicyEvaluator, DenyOwnerIncludePolicyEvaluator>();
             services.AddHPDBase(builder =>
             {
-                builder.AddCollection(TypedIdOwner.Collection)
+                builder.AddTestPolicyAuthority<DenyOwnerIncludePolicyEvaluator>()
+                    .AddCollection(TypedIdOwner.Collection)
                     .AddCollection(TypedIdDocument.Collection)
                     .AddCollection(TypedIdManyDocument.Collection);
                 if (sqlite)
                 {
                     builder.ConfigureSchema(options => options.PlanProtectionKey = Enumerable.Repeat((byte)0x7A, 32).ToArray());
-                    builder.UseSqlite(options => options.DataSource = database);
+                    builder.UseStore(SqliteStore.Configure(options => options.DataSource = database));
                 }
             });
             await using ServiceProvider provider = services.BuildServiceProvider();
@@ -985,19 +964,16 @@ public sealed class BaseRecordIdTests
                     ? field with { Visibility = new FieldVisibilityAnnotation { Visibility = VisibilityLevel.Admin } }
                     : field).ToArray(),
             };
-            BaseCollection<TypedIdOwner> hiddenOwner = BaseCollection<TypedIdOwner>.Create(
-                hiddenDefinition,
-                TypedIdOwner.Collection.JsonTypeInfo,
-                static _ => { });
+            BaseCollection<TypedIdOwner> hiddenOwner = TypedIdOwner.Collection.WithDefinition(hiddenDefinition);
             var services = new ServiceCollection().AddLogging();
-            services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
             services.AddHPDBase(builder =>
             {
-                builder.AddCollection(hiddenOwner).AddCollection(TypedIdDocument.Collection);
+                builder.AddTestPolicyAuthority<AllowPolicyEvaluator>()
+                    .AddCollection(hiddenOwner).AddCollection(TypedIdDocument.Collection);
                 if (sqlite)
                 {
                     builder.ConfigureSchema(options => options.PlanProtectionKey = Enumerable.Repeat((byte)0x79, 32).ToArray());
-                    builder.UseSqlite(options => options.DataSource = database);
+                    builder.UseStore(SqliteStore.Configure(options => options.DataSource = database));
                 }
             });
             await using ServiceProvider provider = services.BuildServiceProvider();
@@ -1068,13 +1044,9 @@ public sealed class BaseRecordIdTests
                 ? field with { Visibility = new FieldVisibilityAnnotation { Visibility = VisibilityLevel.Admin } }
                 : field).ToArray(),
         };
-        BaseCollection<TypedIdDocument> hiddenDocument = BaseCollection<TypedIdDocument>.Create(
-            hiddenDocumentDefinition,
-            TypedIdDocument.Collection.JsonTypeInfo,
-            static _ => { });
+        BaseCollection<TypedIdDocument> hiddenDocument = TypedIdDocument.Collection.WithDefinition(hiddenDocumentDefinition);
         var services = new ServiceCollection().AddLogging();
-        services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
-        services.AddHPDBase(builder => builder
+                services.AddHPDBase(builder => builder.AddTestPolicyAuthority<AllowPolicyEvaluator>()
             .AddCollection(TypedIdOwner.Collection)
             .AddCollection(hiddenDocument)
             .AddCollection(TypedIdManyDocument.Collection));
@@ -1105,42 +1077,9 @@ public sealed class BaseRecordIdTests
     }
 }
 
-internal sealed class HostileIncludeInstaller(HostileIncludeStore store) : IHPDBaseBuilderExtension
-{
-    public string Id => "hostile-include";
-    public bool IsRecordProvider => true;
-    public bool SupportsRequiredIndexes => true;
-    public void Configure(IServiceCollection services, IReadOnlyList<CollectionDefinition> collections)
-    {
-        services.AddSingleton(store);
-        services.AddSingleton<IBaseDescriptorContributor>(new HostileIncludeDescriptorContributor(collections));
-    }
-    public ValueTask InitializeAsync(IServiceProvider services, CancellationToken cancellationToken = default)
-    {
-        services.GetRequiredService<IRecordStoreRegistry>().Add(new RecordStoreRegistration
-        {
-            StoreId = Id, Store = store,
-            CollectionIds = [TypedIdOwner.Collection.Id, TypedIdManyDocument.Collection.Id],
-        });
-        return ValueTask.CompletedTask;
-    }
-}
-
-internal sealed class HostileIncludeDescriptorContributor(IReadOnlyList<CollectionDefinition> collections) : IBaseDescriptorContributor
-{
-    public string Id => "hostile-include-descriptor";
-    public void Contribute(IBaseDescriptorContributionBuilder builder)
-    {
-        foreach (CollectionDefinition collection in collections)
-            builder.AddCollection(collection with { Store = new StoreAnnotation { StoreId = "hostile-include", Owner = EnforcementOwner.Store } });
-    }
-}
-
 internal sealed class CrossStoreIncludeInstaller(HostileIncludeStore root, FakeRecordStore target) : IHPDBaseBuilderExtension
 {
     public string Id => "cross-store-include";
-    public bool IsRecordProvider => true;
-    public bool SupportsRequiredIndexes => true;
     public void Configure(IServiceCollection services, IReadOnlyList<CollectionDefinition> collections)
     {
         services.AddSingleton(root);

@@ -337,7 +337,8 @@ public sealed class QueryValidatorShapeTests
     private static FieldDefinition Field(string name) => new()
     {
         Id = name,
-        Name = name,
+        ApplicationName = name,
+        WireName = name,
         Type = BaseFieldTypes.String
     };
 }

@@ -1,0 +1,49 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>HPD.Gateway.ControlPlane</RootNamespace>
+    <AssemblyName>HPD.Gateway.ControlPlane</AssemblyName>
+    <PackageId>HPD.Gateway.ControlPlane</PackageId>
+    <IsPackable>true</IsPackable>
+    <Description>Provider-neutral managed authority, secured Admin API, generated contracts, and optional embedded Studio for HPD Gateway.</Description>
+    <PackageTags>hpd;gateway;control-plane;admin;studio;base;aot</PackageTags>
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+    <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+    <InterceptorsNamespaces>$(InterceptorsNamespaces);Microsoft.AspNetCore.OpenApi.Generated</InterceptorsNamespaces>
+    <StudioGatewayModuleRoot>$(MSBuildThisFileDirectory)..\..\..\..\typescript\hpd-ai-studio\modules\hpd-gateway-studio\</StudioGatewayModuleRoot>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../HPD.Gateway/HPD.Gateway.csproj" />
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.10" />
+    <PackageReference Include="Microsoft.OpenApi" Version="2.11.0" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UsePublishedHpdDependencies)' != 'true'">
+    <ProjectReference Include="..\..\..\HPD-AI.Platform\HPD-AI.Platform.csproj" />
+    <ProjectReference Include="../../../HPD-Base.Framework/src/HPD.Base/HPD.Base.csproj" />
+    <ProjectReference Include="../../../HPD-Base.Framework/src/HPD.Base.Generators/HPD.Base.Generators.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false"
+                      GlobalPropertiesToRemove="PublishAot;RuntimeIdentifier;SelfContained" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UsePublishedHpdDependencies)' == 'true'">
+    <PackageReference Include="HPD-AI.Platform" Version="$(HPDPlatformVersion)" />
+    <PackageReference Include="HPD.Base" Version="$(HPDBaseVersion)" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="HPD.Gateway.Tests" />
+    <InternalsVisibleTo Include="HPD.Gateway.AotSmoke" />
+    <InternalsVisibleTo Include="HPD.Gateway.ControlPlane.Sqlite" />
+    <InternalsVisibleTo Include="HPD.Gateway.ControlPlane.HPDAuth" />
+    <InternalsVisibleTo Include="HPD.Gateway.Standalone" />
+    <None Include="$(StudioGatewayModuleRoot)**\*"
+          Exclude="$(StudioGatewayModuleRoot)node_modules\**\*;$(StudioGatewayModuleRoot)dist\**\*;$(StudioGatewayModuleRoot)test\**\*;$(StudioGatewayModuleRoot)**\.DS_Store"
+          Pack="true"
+          PackagePath="clientapp-modules\hpd-gateway-studio\%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>

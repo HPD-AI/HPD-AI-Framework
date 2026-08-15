@@ -10,6 +10,8 @@ internal interface IBaseLiveQueryState
     string SubscriptionId { get; }
     /// <summary>Executes the invalidate operation.</summary>
     void Invalidate(BaseDependencyInvalidation invalidation);
+    /// <summary>Publishes one ordered subject-authority transition and schedules replacement.</summary>
+    void InvalidateSubjectAuthority(BaseSubjectAuthorityPublicationFact publication, BaseDependencyInvalidation invalidation);
     /// <summary>Executes the fail operation.</summary>
     void Fail(string code, string safeMessage);
 }
@@ -17,6 +19,7 @@ internal interface IBaseLiveQueryState
 internal sealed class DefaultBaseLiveQueryCoordinator : IBaseLiveQueryCoordinator
 {
     private readonly BaseLiveQueryOptions _options;
+    private readonly BaseSubjectControlOperationalState? _subjectControlState;
     private readonly object _subscriptionsSync = new();
     private readonly ConcurrentDictionary<string, IBaseLiveQueryState> _subscriptions =
         new(StringComparer.Ordinal);
@@ -24,9 +27,12 @@ internal sealed class DefaultBaseLiveQueryCoordinator : IBaseLiveQueryCoordinato
     private long _invalidationGeneration;
 
     /// <summary>Initializes a new instance.</summary>
-    public DefaultBaseLiveQueryCoordinator(BaseLiveQueryOptions options)
+    public DefaultBaseLiveQueryCoordinator(
+        BaseLiveQueryOptions options,
+        BaseSubjectControlOperationalState? subjectControlState = null)
     {
         _options = options;
+        _subjectControlState = subjectControlState;
     }
 
     /// <summary>Executes the subscribe async operation.</summary>
@@ -38,6 +44,7 @@ internal sealed class DefaultBaseLiveQueryCoordinator : IBaseLiveQueryCoordinato
         ValidateQueryId(request.QueryId);
         ArgumentNullException.ThrowIfNull(request.ExecuteAsync);
         cancellationToken.ThrowIfCancellationRequested();
+        RequireSubjectControlAdmission();
 
         ReserveSubscription();
         var reservationHeld = true;
@@ -49,6 +56,7 @@ internal sealed class DefaultBaseLiveQueryCoordinator : IBaseLiveQueryCoordinato
                 cancellationToken,
                 _options.MaxEvaluationDuration).ConfigureAwait(false);
             ValidateDependencies(initial.Dependencies);
+            RequireSubjectControlAdmission();
 
             var id = Guid.NewGuid().ToString("N");
             var state = new BaseLiveQueryState<T>(
@@ -98,6 +106,23 @@ internal sealed class DefaultBaseLiveQueryCoordinator : IBaseLiveQueryCoordinato
         return ValueTask.CompletedTask;
     }
 
+    /// <inheritdoc />
+    public ValueTask InvalidateSubjectAuthorityAsync(
+        BaseSubjectAuthorityPublicationFact publication,
+        BaseDependencyInvalidation invalidation,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(publication);
+        ArgumentNullException.ThrowIfNull(invalidation);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (publication.PublishedStateGeneration <= 0)
+            throw Failure(BaseLiveQueryErrorCodes.InvalidationFailed, "The subject-authority invalidation is invalid.");
+        Interlocked.Increment(ref _invalidationGeneration);
+        foreach (var state in _subscriptions.Values)
+            state.InvalidateSubjectAuthority(publication, invalidation);
+        return ValueTask.CompletedTask;
+    }
+
     internal void FailAll(string code, string safeMessage)
     {
         foreach (var state in _subscriptions.Values)
@@ -118,6 +143,14 @@ internal sealed class DefaultBaseLiveQueryCoordinator : IBaseLiveQueryCoordinato
                 throw Failure(BaseLiveQueryErrorCodes.CapacityExceeded, "The live-query subscription limit has been reached.");
             _reservedSubscriptions++;
         }
+    }
+
+    private void RequireSubjectControlAdmission()
+    {
+        if (_subjectControlState is not null && !_subjectControlState.AdmitsLiveState)
+            throw Failure(
+                BaseSubjectErrorCodes.ValidationUnavailable,
+                "Exported-subject control publication reconciliation is unavailable.");
     }
 
     private void ReleaseReservation()
@@ -269,6 +302,29 @@ internal sealed class DefaultBaseLiveQueryCoordinator : IBaseLiveQueryCoordinato
                     string.Equals(dependency.TemplateId, invalidated.TemplateId, StringComparison.Ordinal)
                     && string.Equals(dependency.Value, invalidated.Value, StringComparison.Ordinal))))
                 _signals.Writer.TryWrite(true);
+        }
+
+        /// <summary>Publishes an ordered subject-authority control before scheduling a replacement evaluation.</summary>
+        public void InvalidateSubjectAuthority(BaseSubjectAuthorityPublicationFact publication, BaseDependencyInvalidation invalidation)
+        {
+            if (Volatile.Read(ref _stopped) != 0)
+                return;
+            BaseDependencyReference[] dependencies;
+            lock (_sync)
+                dependencies = _dependencies;
+            if (!invalidation.References.Any(invalidated => dependencies.Any(dependency =>
+                    string.Equals(dependency.TemplateId, invalidated.TemplateId, StringComparison.Ordinal)
+                    && string.Equals(dependency.Value, invalidated.Value, StringComparison.Ordinal))))
+                return;
+            _transitions.Writer.TryWrite(new BaseLiveQueryTransition<T>
+            {
+                Kind = BaseLiveQueryTransitionKind.SubjectAuthorityChanged,
+                Version = Volatile.Read(ref _version),
+                SubjectContractId = publication.ContractId,
+                SubjectContractVersion = publication.ContractVersion,
+                SubjectStateGeneration = publication.PublishedStateGeneration,
+            });
+            _signals.Writer.TryWrite(true);
         }
 
         /// <summary>Executes the fail operation.</summary>

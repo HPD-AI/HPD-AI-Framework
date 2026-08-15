@@ -7,6 +7,38 @@ namespace HPD.Base;
 /// <summary>Represents hPDBase Runtime Service Collection Extensions.</summary>
 public static class HPDBaseRuntimeServiceCollectionExtensions
 {
+    /// <summary>Installs one explicit graph-owned policy authority for a low-level runtime host.</summary>
+    public static IHPDBaseRuntimeBuilder UsePolicyAuthority(
+        this IHPDBaseRuntimeBuilder builder,
+        string applicationId,
+        BasePolicyAuthorityDefinition definition,
+        IPolicyEvaluator evaluator)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentException.ThrowIfNullOrWhiteSpace(applicationId);
+        ArgumentNullException.ThrowIfNull(definition);
+        ArgumentNullException.ThrowIfNull(evaluator);
+        var authority = new BasePolicyAuthorityBuilder();
+        authority.AddPolicy(definition, evaluator);
+        builder.Services.AddSingleton(authority.Freeze(applicationId));
+        return builder;
+    }
+
+    /// <summary>Installs one exact service-resolved graph-owned policy authority for a low-level host.</summary>
+    public static IHPDBaseRuntimeBuilder UsePolicyAuthorityFromServices<T>(
+        this IHPDBaseRuntimeBuilder builder,
+        string applicationId,
+        BasePolicyAuthorityDefinition definition)
+        where T : class, IPolicyEvaluator
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentException.ThrowIfNullOrWhiteSpace(applicationId);
+        var authority = new BasePolicyAuthorityBuilder();
+        authority.AddPolicyFactory(definition, typeof(T), static services => services.GetRequiredService<T>());
+        builder.Services.AddSingleton(authority.Freeze(applicationId));
+        return builder;
+    }
+
     /// <summary>
     /// Configures HPD.BASE runtime policy handling to fail closed when no evaluator
     /// exists or when every evaluator abstains.
@@ -72,7 +104,10 @@ public static class HPDBaseRuntimeServiceCollectionExtensions
         services.TryAddSingleton<IBasePolicyExplainService, DefaultBasePolicyExplainService>();
         services.TryAddSingleton<IBaseRecordRedactor, DefaultBaseRecordRedactor>();
         services.TryAddSingleton<IBaseMutationPostCommitDispatcher, DefaultBaseMutationPostCommitDispatcher>();
+        services.TryAddSingleton(new BaseSubjectContractRegistry([]));
         services.TryAddSingleton<IBaseMutationCoordinator, DefaultBaseMutationCoordinator>();
+        services.TryAddSingleton<IBaseSelectionMutationRuntime, DefaultBaseSelectionMutationRuntime>();
+        services.TryAddSingleton<IBaseModuleMutationRuntime, DefaultBaseModuleMutationRuntime>();
         services.TryAddSingleton<IBaseRecordRuntime, DefaultBaseRecordRuntime>();
         services.TryAddSingleton(new BaseReadRegistry(new Dictionary<string, IBaseReadRegistration>(StringComparer.Ordinal)));
         services.TryAddSingleton(new BaseCollectionRegistry(new Dictionary<string, CollectionDefinition>(StringComparer.Ordinal)));

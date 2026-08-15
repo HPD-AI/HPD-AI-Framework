@@ -1,11 +1,5 @@
 # @hpd/base-client-generator
 
-Generates schema-specific TypeScript wrappers over `@hpd/base-client`.
-
-```bash
-hpd-base-client-generator generate \
-  --snapshot ./base-client-snapshot.json \
-  --out ./src/generated/base
-```
-
-Generated runtime code imports only `@hpd/base-client` and delegates all HTTP behavior to an existing `HpdBaseClient`.
+Consumes the authenticated HPD Base generation snapshot v2 and atomically emits immutable
+application or control-plane TypeScript bindings. The generator validates output with its own
+pinned TypeScript 7.0.2 CLI through `process.execPath`; it never imports a compiler API.

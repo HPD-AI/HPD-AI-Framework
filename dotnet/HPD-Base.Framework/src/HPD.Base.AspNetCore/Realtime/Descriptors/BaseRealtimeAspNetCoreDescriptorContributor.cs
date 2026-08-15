@@ -29,7 +29,7 @@ internal sealed class BaseRealtimeAspNetCoreDescriptorContributor : IBaseDescrip
                 }
             ],
             ContributedCapabilities = [BaseRealtimeFeatureIds.WebSocketTransport],
-            ContributedRouteIds = [BaseRealtimeRouteIds.WebSocket],
+            ContributedRouteIds = [BaseRealtimeRouteIds.WebSocketV2],
             Visibility = VisibilityLevel.Public
         });
 
@@ -70,11 +70,11 @@ internal sealed class BaseRealtimeAspNetCoreDescriptorContributor : IBaseDescrip
             [
                 new ProjectionEntrypointDescriptor
                 {
-                    Id = "base.realtime.websocket",
+                    Id = BaseRealtimeRouteIds.WebSocketV2,
                     Name = "Realtime WebSocket",
                     Kind = ProjectionEntrypointKind.Custom,
                     RequiredFeatureIds = [BaseRealtimeFeatureIds.WebSocketTransport],
-                    RouteRefs = [BaseRealtimeRouteIds.WebSocket],
+                    RouteRefs = [BaseRealtimeRouteIds.WebSocketV2],
                     Visibility = VisibilityLevel.Public
                 }
             ]
@@ -83,9 +83,9 @@ internal sealed class BaseRealtimeAspNetCoreDescriptorContributor : IBaseDescrip
 
     internal static RouteDescriptor Route() => new()
     {
-        OperationId = BaseRealtimeRouteIds.WebSocket,
+        OperationId = BaseRealtimeRouteIds.WebSocketV2,
         Method = HttpMethodKind.Get,
-        Path = BaseRealtimeRoutes.WebSocket,
+        Path = BaseRealtimeRoutes.WebSocketV2,
         Visibility = VisibilityLevel.Public,
         AuthRequirement = RouteAuthRequirement.Public,
         RequestDtoId = BaseRealtimeDtoIds.ClientMessage,
@@ -103,7 +103,7 @@ internal sealed class BaseRealtimeAspNetCoreDescriptorContributor : IBaseDescrip
 internal sealed class BaseRealtimeWebSocketOpenApiMetadata : IHPDBaseModuleOpenApiMetadata
 {
     /// <summary>Gets the operation ID.</summary>
-    public string OperationId => BaseRealtimeRouteIds.WebSocket;
+    public string OperationId => BaseRealtimeRouteIds.WebSocketV2;
     /// <summary>Gets the summary.</summary>
     public string Summary => "BASE realtime WebSocket";
     /// <summary>Gets the description.</summary>

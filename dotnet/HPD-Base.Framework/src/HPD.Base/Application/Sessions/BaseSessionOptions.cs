@@ -5,6 +5,8 @@ namespace HPD.Base;
 /// </summary>
 public sealed class BaseSessionOptions
 {
+    /// <summary>Gets or sets the exact endpoint or in-process audience.</summary>
+    public HPDBaseEndpointAudience Audience { get; set; } = HPDBaseEndpointAudience.Application;
     /// <summary>Gets or sets the operation mode.</summary>
     public OperationMode Mode { get; set; } = OperationMode.User;
 

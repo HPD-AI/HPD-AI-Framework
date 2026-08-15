@@ -6,7 +6,7 @@ namespace HPD.Base.Auth;
 /// <summary>
 /// Enriches a BASE principal mapped from an HPD.Auth-backed ASP.NET Core request.
 /// </summary>
-public interface IHPDAuthBaseHttpPrincipalEnricher
+internal interface IHPDBaseAuthPrincipalEnricher
 {
     /// <summary>
     /// Enriches the supplied BASE principal with safe host facts.

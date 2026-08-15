@@ -1,4 +1,73 @@
 @import "tailwindcss";
 
+.studio-auth-dialog {
+  width: min(38rem, calc(100vw - 2rem));
+  border: 1px solid var(--color-studio-line);
+  border-radius: var(--radius-studio);
+  background: var(--color-studio-panel);
+  color: var(--color-studio-ink);
+  padding: 0;
+  box-shadow: 0 24px 80px rgb(2 15 13 / 28%);
+}
+
+.studio-auth-dialog::backdrop {
+  background: rgb(2 15 13 / 62%);
+  backdrop-filter: blur(3px);
+}
+
+.studio-auth-form {
+  display: grid;
+  gap: 1rem;
+  padding: 1.5rem;
+}
+
+.studio-auth-form h2 {
+  font-size: 1.25rem;
+  font-weight: 800;
+}
+
+.studio-auth-form p {
+  color: var(--color-studio-muted);
+  line-height: 1.5;
+}
+
+.studio-auth-form label {
+  font-weight: 700;
+}
+
+.studio-auth-form textarea {
+  width: 100%;
+  resize: vertical;
+  border: 1px solid var(--color-studio-line);
+  border-radius: var(--radius-studio);
+  background: var(--color-studio-panel-raised);
+  padding: 0.75rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: var(--color-studio-ink);
+}
+
+.studio-auth-form textarea:focus-visible {
+  outline: 3px solid var(--color-studio-accent-line);
+  outline-offset: 2px;
+}
+
+.studio-auth-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+}
+
+.studio-auth-actions button {
+  border: 1px solid var(--color-studio-line);
+  border-radius: var(--radius-studio);
+  padding: 0.65rem 1rem;
+  font-weight: 750;
+}
+
+.studio-auth-submit {
+  background: var(--color-studio-accent);
+  color: var(--color-studio-accent-ink);
+}
+
 @import "./studio/styles/sources.css";
 @import "@hpd-research/hpd-studio-design/styles.css";

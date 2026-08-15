@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>HPD.Payments.Runtime</AssemblyName>
+    <RootNamespace>HPD.Payments.Runtime</RootNamespace>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../HPD-Base.Framework/src/HPD.Base/HPD.Base.csproj" />
+    <ProjectReference Include="../../../HPD-Base.Framework/src/HPD.Base.Generators/HPD.Base.Generators.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../HPD.Payments.Primitives/HPD.Payments.Primitives.csproj" />
+    <ProjectReference Include="../HPD.Payments.Contracts/HPD.Payments.Contracts.csproj" />
+    <ProjectReference Include="../HPD.Payments.Supporting/HPD.Payments.Supporting.csproj" />
+    <ProjectReference Include="../HPD.Payments.Persistence/HPD.Payments.Persistence.csproj" />
+  </ItemGroup>
+</Project>

@@ -14,7 +14,7 @@ public sealed class SqliteRelationStorageTests
         var path = Path.Combine(Path.GetTempPath(), "hpd-base-sqlite-relations-" + Guid.NewGuid().ToString("N") + ".db");
         CollectionDefinition target = Collection("users") with
         {
-            Fields = [new FieldDefinition { Id = "user.name", Name = "name", Type = BaseFieldTypes.String, Required = true, Nullable = false }]
+            Fields = [new FieldDefinition { Id = "user.name", ApplicationName = "name", WireName = "name", Type = BaseFieldTypes.String, Required = true, Nullable = false }]
         };
         CollectionDefinition source = Collection("projects") with
         {
@@ -22,7 +22,7 @@ public sealed class SqliteRelationStorageTests
             [
                 new FieldDefinition
                 {
-                    Id = "project.members", Name = "members", Type = BaseFieldTypes.Array,
+                    Id = "project.members", ApplicationName = "members", WireName = "members", Type = BaseFieldTypes.Array,
                     Relation = new RelationDefinition
                     {
                         Id = "project-members", SourceCollectionId = "projects", SourceFieldId = "project.members",
@@ -65,13 +65,13 @@ public sealed class SqliteRelationStorageTests
         string path = Path.Combine(Path.GetTempPath(), "hpd-base-sqlite-relation-rollback-" + Guid.NewGuid().ToString("N") + ".db");
         CollectionDefinition target = Collection("users") with
         {
-            Fields = [new FieldDefinition { Id = "user.name", Name = "name", Type = BaseFieldTypes.String, Required = true, Nullable = false }],
+            Fields = [new FieldDefinition { Id = "user.name", ApplicationName = "name", WireName = "name", Type = BaseFieldTypes.String, Required = true, Nullable = false }],
         };
         CollectionDefinition source = Collection("projects") with
         {
             Fields = [new FieldDefinition
             {
-                Id = "project.members", Name = "members", Type = BaseFieldTypes.Array,
+                Id = "project.members", ApplicationName = "members", WireName = "members", Type = BaseFieldTypes.Array,
                 Relation = new RelationDefinition
                 {
                     Id = "project-members", SourceCollectionId = "projects", SourceFieldId = "project.members",

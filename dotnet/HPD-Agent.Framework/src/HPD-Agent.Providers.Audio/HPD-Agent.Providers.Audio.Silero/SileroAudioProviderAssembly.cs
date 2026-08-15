@@ -3,9 +3,7 @@
 
 namespace HPD.Agent.Providers.Audio.Silero;
 
-/// <summary>
-/// Identifies the rebuilt Silero audio provider assembly.
-/// </summary>
+/// <summary>Identifies the Silero audio provider assembly.</summary>
 public static class SileroAudioProviderAssembly
 {
 }

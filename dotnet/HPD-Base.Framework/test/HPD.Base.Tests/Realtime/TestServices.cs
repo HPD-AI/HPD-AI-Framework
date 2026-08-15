@@ -18,6 +18,7 @@ internal static class TestServices
             {
                 Id = 11,
                 Key = Enumerable.Repeat((byte)0x6B, 32).ToArray(),
+                IssueNotBefore = DateTimeOffset.UnixEpoch,
             },
         }));
         if (enableDependencies)
@@ -26,8 +27,15 @@ internal static class TestServices
                 options.ProtectionKey = Enumerable.Repeat((byte)0x5A, 32).ToArray();
                 configureDependencies?.Invoke(options);
             });
-        services.AddSingleton(evaluator ?? new AllowPolicyEvaluator());
+        IPolicyEvaluator policy = evaluator ?? new AllowPolicyEvaluator();
         services.AddHPDBaseRuntime()
+            .UsePolicyAuthority("realtime-tests", new BasePolicyAuthorityDefinition
+            {
+                Id = "realtime-tests.policy", Version = 1,
+                OwningModuleId = "realtime-tests",
+                EvaluatorContractId = "realtime-tests.policy-evaluator",
+                EvaluatorContractVersion = 1, CompositionOrder = 0,
+            }, policy)
             .AddHPDBaseRealtime(configureRealtime)
             .AddHPDBaseInMemoryStore(options =>
             {
@@ -44,12 +52,12 @@ internal static class TestServices
                         UnknownFields = UnknownFieldPolicy.Preserve,
                         Fields =
                         [
-                            new FieldDefinition { Id = "title", Name = "title", Type = BaseFieldTypes.String },
-                            new FieldDefinition { Id = "secret", Name = "secret", Type = BaseFieldTypes.String, Hidden = true },
+                            new FieldDefinition { Id = "title", ApplicationName = "title", WireName = "title", Type = BaseFieldTypes.String },
+                            new FieldDefinition { Id = "secret", ApplicationName = "secret", WireName = "secret", Type = BaseFieldTypes.String, Hidden = true },
                             new FieldDefinition
                             {
                                 Id = "writeOnly",
-                                Name = "writeOnly",
+                                ApplicationName = "writeOnly", WireName = "writeOnly",
                                 Type = BaseFieldTypes.String,
                                 Visibility = new FieldVisibilityAnnotation { WriteOnly = true }
                             }
@@ -140,23 +148,27 @@ internal static class TestServices
         string title,
         string? tenantId = null) => new()
         {
+            Kind = BaseMutationJournalEntryKind.RecordMutation,
             Position = new BaseMutationJournalPosition(position),
-            EventId = $"event-{position}",
-            Type = BaseEventTypes.RecordCreated,
-            SchemaVersion = BaseEventSchemaVersions.V1,
-            OccurredAt = DateTimeOffset.UnixEpoch.AddSeconds(position),
-            TenantId = tenantId,
-            Operation = BaseOperationKind.Create,
-            Visibility = VisibilityLevel.Public,
-            CollectionId = "items",
-            RecordId = new RecordId(recordId),
-            After = new RecordSnapshot
+            RecordMutation = new BaseRecordMutationJournalEntry
             {
+                EventId = $"event-{position}",
+                Type = BaseEventTypes.RecordCreated,
+                SchemaVersion = BaseEventSchemaVersions.V1,
+                OccurredAt = DateTimeOffset.UnixEpoch.AddSeconds(position),
+                TenantId = tenantId,
+                Operation = BaseOperationKind.Create,
+                Visibility = VisibilityLevel.Public,
                 CollectionId = "items",
-                Id = new RecordId(recordId),
-                Payload = Payload(("title", title), ("secret", "hidden")),
-                Metadata = new RecordMetadata()
-            }
+                RecordId = new RecordId(recordId),
+                After = new RecordSnapshot
+                {
+                    CollectionId = "items",
+                    Id = new RecordId(recordId),
+                    Payload = Payload(("title", title), ("secret", "hidden")),
+                    Metadata = new RecordMetadata()
+                }
+            },
         };
 
     public static RecordPayload Payload(params (string Name, string Value)[] fields)

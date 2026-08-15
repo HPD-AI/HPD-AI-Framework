@@ -115,6 +115,8 @@ public sealed class BaseLiveQuerySubscription<T>(
         await foreach (BaseLiveQueryTransition<T> transition
             in transitions.WithCancellation(cancellationToken).ConfigureAwait(false))
         {
+            if (transition.Kind == BaseLiveQueryTransitionKind.SubjectAuthorityChanged)
+                continue;
             if (transition.Kind == BaseLiveQueryTransitionKind.Snapshot &&
                 transition.Value is not null)
             {

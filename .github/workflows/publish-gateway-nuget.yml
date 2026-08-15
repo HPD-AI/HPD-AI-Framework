@@ -1,0 +1,165 @@
+name: Publish HPD Gateway NuGet Packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (for example, 0.1.0 or 0.1.0-preview.1)'
+        required: true
+        type: string
+      hpd_base_version:
+        description: 'Already-published HPD.Base version.'
+        required: true
+        type: string
+      hpd_auth_version:
+        description: 'Already-published HPD-Auth version.'
+        required: true
+        type: string
+      hpd_platform_version:
+        description: 'Already-published HPD-AI.Platform version.'
+        required: true
+        type: string
+
+jobs:
+  determine-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      version_prefix: ${{ steps.version.outputs.version_prefix }}
+      version_suffix: ${{ steps.version.outputs.version_suffix }}
+    steps:
+      - name: Determine version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ inputs.version }}"
+          VERSION="${VERSION#v}"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Version must be a three-part NuGet version with an optional prerelease suffix."
+            exit 1
+          fi
+          if [[ "$VERSION" == *-* ]]; then
+            echo "version_prefix=${VERSION%%-*}" >> "$GITHUB_OUTPUT"
+            echo "version_suffix=${VERSION#*-}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version_prefix=$VERSION" >> "$GITHUB_OUTPUT"
+            echo "version_suffix=" >> "$GITHUB_OUTPUT"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+  publish:
+    runs-on: ubuntu-latest
+    needs: determine-version
+    timeout-minutes: 50
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Verify HPD Gateway
+        run: |
+          set -euo pipefail
+          dotnet build dotnet/HPD-Gateway.Framework/HPD-Gateway.slnx \
+            --configuration Release --nologo --property:TreatWarningsAsErrors=true
+          dotnet test dotnet/HPD-Gateway.Framework/HPD-Gateway.slnx \
+            --configuration Release --no-build --nologo
+
+      - name: Pack HPD Gateway packages
+        shell: bash
+        env:
+          HPD_BASE_VERSION: ${{ inputs.hpd_base_version }}
+          HPD_AUTH_VERSION: ${{ inputs.hpd_auth_version }}
+          HPD_PLATFORM_VERSION: ${{ inputs.hpd_platform_version }}
+        run: |
+          set -euo pipefail
+          mkdir -p ./nupkg-gateway
+          PROJECTS=(
+            "dotnet/HPD-Gateway.Framework/src/HPD.Gateway/HPD.Gateway.csproj"
+            "dotnet/HPD-Gateway.Framework/src/HPD.Gateway.ControlPlane/HPD.Gateway.ControlPlane.csproj"
+            "dotnet/HPD-Gateway.Framework/src/HPD.Gateway.ControlPlane.Sqlite/HPD.Gateway.ControlPlane.Sqlite.csproj"
+            "dotnet/HPD-Gateway.Framework/src/HPD.Gateway.ControlPlane.HPDAuth/HPD.Gateway.ControlPlane.HPDAuth.csproj"
+            "dotnet/HPD-Gateway.Framework/src/HPD.Gateway.Discovery.Microsoft/HPD.Gateway.Discovery.Microsoft.csproj"
+            "dotnet/HPD-Gateway.Framework/src/HPD.Gateway.Admission.Redis/HPD.Gateway.Admission.Redis.csproj"
+          )
+          dotnet/eng/nuget/validate-package-identities.sh "${PROJECTS[@]}"
+
+          require_nuget_version() {
+            local package_id_lower version_lower
+            package_id_lower="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+            version_lower="$(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')"
+            curl -fsSL -o /dev/null \
+              "https://api.nuget.org/v3-flatcontainer/$package_id_lower/$version_lower/$package_id_lower.$version_lower.nupkg" || {
+              echo "::error::$1 $2 must be published before HPD Gateway."
+              exit 1
+            }
+          }
+          require_nuget_version "HPD.Base" "$HPD_BASE_VERSION"
+          require_nuget_version "HPD.Base.Sqlite" "$HPD_BASE_VERSION"
+          require_nuget_version "HPD-Auth-Core" "$HPD_AUTH_VERSION"
+          require_nuget_version "HPD-Auth-ControlPlane-AspNetCore" "$HPD_AUTH_VERSION"
+          require_nuget_version "HPD-AI.Platform" "$HPD_PLATFORM_VERSION"
+
+          VERSION_ARGS=("-p:VersionPrefix=${{ needs.determine-version.outputs.version_prefix }}")
+          if [ -n "${{ needs.determine-version.outputs.version_suffix }}" ]; then
+            VERSION_ARGS+=("-p:VersionSuffix=${{ needs.determine-version.outputs.version_suffix }}")
+          fi
+          RELEASE_ARGS=(
+            "-p:UsePublishedHpdDependencies=true"
+            "-p:HPDBaseVersion=$HPD_BASE_VERSION"
+            "-p:HPDAuthVersion=$HPD_AUTH_VERSION"
+            "-p:HPDPlatformVersion=$HPD_PLATFORM_VERSION"
+          )
+
+          for PROJECT in "${PROJECTS[@]}"; do
+            dotnet pack "$PROJECT" --configuration Release --output ./nupkg-gateway \
+              --nologo "${RELEASE_ARGS[@]}" "${VERSION_ARGS[@]}"
+          done
+          test "$(find ./nupkg-gateway -maxdepth 1 -name '*.nupkg' | wc -l | tr -d ' ')" = "6"
+          node dotnet/HPD-Gateway.Framework/tools/validate-slice6-release.mjs ./nupkg-gateway \
+            --gateway-version "${{ needs.determine-version.outputs.version }}" \
+            --base-version "$HPD_BASE_VERSION" \
+            --auth-version "$HPD_AUTH_VERSION" \
+            --platform-version "$HPD_PLATFORM_VERSION" \
+            --inventory dotnet/HPD-Gateway.Framework/tools/HPD.Gateway.PublicApiLedger/final-products.json
+
+      - name: Upload HPD Gateway packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: gateway-nuget-packages
+          path: |
+            ./nupkg-gateway/*.nupkg
+            ./nupkg-gateway/*.snupkg
+
+      - name: Push HPD Gateway packages to NuGet
+        env:
+          NUGET_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "$NUGET_KEY" ]; then
+            echo "::error::Set the NUGET_API_KEY repository secret before publishing."
+            exit 1
+          fi
+          dotnet nuget push ./nupkg-gateway/*.nupkg \
+            --source https://api.nuget.org/v3/index.json \
+            --api-key "$NUGET_KEY" --skip-duplicate
+
+      - name: Summary
+        run: |
+          {
+            echo "## Published HPD Gateway packages"
+            echo
+            echo "**Version:** ${{ needs.determine-version.outputs.version }}"
+            echo
+            for PACKAGE in ./nupkg-gateway/*.nupkg; do
+              echo "- $(basename "$PACKAGE")"
+            done
+            echo
+            echo "[View HPD Gateway packages on NuGet](https://www.nuget.org/packages?q=HPD.Gateway)"
+          } >> "$GITHUB_STEP_SUMMARY"

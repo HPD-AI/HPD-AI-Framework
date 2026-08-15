@@ -20,9 +20,40 @@ public sealed class BaseCollectionSession<T>
 
     /// <summary>Gets the typed collection contract.</summary>
     public BaseCollection<T> Contract => _collection;
+    internal BaseSession Session => _session;
 
     /// <summary>Begins a typed bounded query.</summary>
     public BaseQuery<T> Query() => new(_session, _collection);
+
+    /// <summary>Resolves one generated merge-patch profile from this principal-bound collection session.</summary>
+    public BaseMergePatchSelectionProfile<T> GetMergePatchSelectionProfile(
+        BaseGeneratedSelectionProfileIdentity identity) =>
+        new(ResolveSelectionProfile(identity, BaseSelectionMutationKind.MergePatch));
+
+    /// <summary>Resolves one generated delete profile from this principal-bound collection session.</summary>
+    public BaseDeleteSelectionProfile<T> GetDeleteSelectionProfile(
+        BaseGeneratedSelectionProfileIdentity identity) =>
+        new(ResolveSelectionProfile(identity, BaseSelectionMutationKind.Delete));
+
+    private BaseSelectionOperationProfile ResolveSelectionProfile(
+        BaseGeneratedSelectionProfileIdentity identity,
+        BaseSelectionMutationKind kind)
+    {
+        ArgumentNullException.ThrowIfNull(identity);
+        if (identity.Kind != kind
+            || !identity.Module.CollectionIds.Contains(_collection.Id)
+            || !string.Equals(identity.ApplicationId, _session.ApplicationId, StringComparison.Ordinal)
+            || !string.Equals(identity.CollectionId, _collection.Id, StringComparison.Ordinal))
+            throw new InvalidOperationException(BaseSelectionErrorCodes.ProfileNotFound);
+        BaseSelectionOperationProfile? profile = _session.Services
+            .GetService(typeof(BaseSelectionProfileRegistry)) is BaseSelectionProfileRegistry registry
+                ? registry.Find(identity.ApplicationId, identity.CollectionId, identity.ProfileId, identity.Version)
+                : null;
+        if (profile is null || profile.MutationKind != kind
+            || !string.Equals(identity.Checksum, BaseSelectionProfileChecksum.Compute(profile), StringComparison.Ordinal))
+            throw new InvalidOperationException(BaseSelectionErrorCodes.ProfileNotFound);
+        return profile;
+    }
 
     /// <summary>Gets one policy-projected typed record.</summary>
     public async ValueTask<BaseResult<BaseRecord<T>>> GetAsync(
@@ -38,7 +69,7 @@ public sealed class BaseCollectionSession<T>
 
         return BaseResultMapper.Map(
             result,
-            envelope => BaseRecordCodec.Decode(_collection, envelope));
+            envelope => BaseRecordCodec.Decode(_session.Serializer(_collection), envelope));
     }
 
     /// <summary>Creates one typed record.</summary>
@@ -53,7 +84,7 @@ public sealed class BaseCollectionSession<T>
         var request = new RecordCreateRequest
         {
             RequestedId = id,
-            Payload = BaseRecordCodec.Encode(_collection, value),
+            Payload = BaseRecordCodec.Encode(value, _session.Serializer(_collection)),
         };
         var result = await _session.Runtime.CreateAsync(
             _collection.Id,
@@ -64,7 +95,7 @@ public sealed class BaseCollectionSession<T>
 
         return BaseResultMapper.Map(
             result,
-            envelope => BaseRecordCodec.Decode(_collection, envelope));
+            envelope => BaseRecordCodec.Decode(_session.Serializer(_collection), envelope));
     }
 
     /// <summary>Fully replaces one typed record.</summary>
@@ -80,7 +111,7 @@ public sealed class BaseCollectionSession<T>
         var request = new RecordReplaceRequest
         {
             ExpectedRevision = expectedRevision,
-            Payload = BaseRecordCodec.Encode(_collection, value),
+            Payload = BaseRecordCodec.Encode(value, _session.Serializer(_collection)),
         };
         var result = await _session.Runtime.ReplaceAsync(
             _collection.Id,
@@ -92,7 +123,7 @@ public sealed class BaseCollectionSession<T>
 
         return BaseResultMapper.Map(
             result,
-            envelope => BaseRecordCodec.Decode(_collection, envelope));
+            envelope => BaseRecordCodec.Decode(_session.Serializer(_collection), envelope));
     }
 
     /// <summary>Applies a typed merge patch using explicit source-generated JSON metadata.</summary>
@@ -121,7 +152,7 @@ public sealed class BaseCollectionSession<T>
 
         return BaseResultMapper.Map(
             result,
-            envelope => BaseRecordCodec.Decode(_collection, envelope));
+            envelope => BaseRecordCodec.Decode(_session.Serializer(_collection), envelope));
     }
 
     /// <summary>Deletes one record under an optional revision precondition.</summary>
@@ -167,8 +198,8 @@ public sealed class BaseCollectionSession<T>
         var request = new RecordUpsertRequest
         {
             Id = id,
-            CreatePayload = BaseRecordCodec.Encode(_collection, createValue),
-            UpdatePayload = BaseRecordCodec.Encode(_collection, updateValue),
+            CreatePayload = BaseRecordCodec.Encode(createValue, _session.Serializer(_collection)),
+            UpdatePayload = BaseRecordCodec.Encode(updateValue, _session.Serializer(_collection)),
             UpdateMode = RecordUpsertUpdateMode.Replace,
             Condition = condition,
             ExpectedRevision = expectedRevision,
@@ -185,7 +216,7 @@ public sealed class BaseCollectionSession<T>
             upsert => new BaseUpsertResult<T>
             {
                 Outcome = upsert.Outcome,
-                Record = BaseRecordCodec.Decode(_collection, upsert.Record),
+                Record = BaseRecordCodec.Decode(_session.Serializer(_collection), upsert.Record),
             });
     }
 
@@ -205,7 +236,7 @@ public sealed class BaseCollectionSession<T>
         var request = new RecordUpsertRequest
         {
             Id = id,
-            CreatePayload = BaseRecordCodec.Encode(_collection, createValue),
+            CreatePayload = BaseRecordCodec.Encode(createValue, _session.Serializer(_collection)),
             UpdatePayload = BaseRecordCodec.Encode(patch, patchJsonTypeInfo),
             UpdateMode = RecordUpsertUpdateMode.Patch,
             Condition = condition,
@@ -223,7 +254,7 @@ public sealed class BaseCollectionSession<T>
             upsert => new BaseUpsertResult<T>
             {
                 Outcome = upsert.Outcome,
-                Record = BaseRecordCodec.Decode(_collection, upsert.Record),
+                Record = BaseRecordCodec.Decode(_session.Serializer(_collection), upsert.Record),
             });
     }
 

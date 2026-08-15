@@ -104,6 +104,14 @@ public sealed class BaseReadSource<TRecord>
         });
 }
 
+/// <summary>Represents an output-only exported-subject reference projection.</summary>
+/// <typeparam name="TSubject">The public exported-subject marker type.</typeparam>
+public sealed class BaseReadSubjectReferenceProjection<TSubject>
+{
+    internal BaseReadSubjectReferenceProjection(BaseRelationalOperand operand) => Operand = operand;
+    internal BaseRelationalOperand Operand { get; }
+}
+
 /// <summary>Represents one closed predicate while defining a registered read.</summary>
 public sealed class BaseReadPredicate
 {
@@ -302,6 +310,31 @@ public sealed class BaseReadDefinitionBuilder<TParameters, TRow>
         BaseReadOperand<TValue> operand)
     {
         _projection.Add(new BaseRelationalReadProjection { FieldId = field.Id, Operand = operand.Operand });
+        return this;
+    }
+
+    /// <summary>Maps one acquisition-read output to the current reference for an exported subject.</summary>
+    public BaseReadDefinitionBuilder<TParameters, TRow> ProjectSubjectReference<TSubject, TRecord>(
+        BaseReadField<TRow, BaseSubjectReference<TSubject>> field,
+        BaseReadSource<TRecord> source,
+        BaseGeneratedSubjectRegistration registration)
+    {
+        ArgumentNullException.ThrowIfNull(field);
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(registration);
+        if (registration.MarkerType != typeof(TSubject))
+            throw new InvalidOperationException(BaseSubjectErrorCodes.ContractInvalid);
+        _projection.Add(new BaseRelationalReadProjection
+        {
+            FieldId = field.Id,
+            Operand = new BaseRelationalOperand
+            {
+                Kind = BaseRelationalOperandKind.SubjectReference,
+                SourceId = source.Id,
+                SubjectContractId = registration.Definition.Id,
+                SubjectContractVersion = registration.Definition.Version,
+            },
+        });
         return this;
     }
 

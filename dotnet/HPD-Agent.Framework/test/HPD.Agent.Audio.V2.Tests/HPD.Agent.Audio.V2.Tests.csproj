@@ -27,6 +27,7 @@
     <ProjectReference Include="../../src/HPD-Agent.Providers.Audio/HPD-Agent.Providers.Audio.ElevenLabs/HPD-Agent.Providers.Audio.ElevenLabs.csproj" />
     <ProjectReference Include="../../src/HPD-Agent.Providers.Audio/HPD-Agent.Providers.Audio.Meai/HPD-Agent.Providers.Audio.Meai.csproj" />
     <ProjectReference Include="../../src/HPD-Agent.Providers.Audio/HPD-Agent.Providers.Audio.OpenAI/HPD-Agent.Providers.Audio.OpenAI.csproj" />
+    <ProjectReference Include="../../src/HPD-Agent.Providers.Audio/HPD-Agent.Providers.Audio.Silero/HPD-Agent.Providers.Audio.Silero.csproj" />
     <ProjectReference Include="../../../shared/src/HPD-RealtimeMedia/src/HPD-Audio.Primitives/HPD-Audio.Primitives.csproj" />
   </ItemGroup>
 

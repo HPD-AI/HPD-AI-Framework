@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <AssemblyName>HPD.Payments.Host.Api</AssemblyName>
+    <RootNamespace>HPD.Payments.Host_Api</RootNamespace>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../HPD.Payments.Profiles.Embedded/HPD.Payments.Profiles.Embedded.csproj" />
+    <ProjectReference Include="../HPD.Payments.Serialization/HPD.Payments.Serialization.csproj" />
+  </ItemGroup>
+</Project>

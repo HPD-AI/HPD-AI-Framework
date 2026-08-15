@@ -19,5 +19,8 @@
     <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.10" />
     <ProjectReference Include="../../src/HPD.Base/HPD.Base.csproj" />
     <ProjectReference Include="../../src/HPD.Base.Sqlite/HPD.Base.Sqlite.csproj" />
+    <ProjectReference Include="../../src/HPD.Base.Generators/HPD.Base.Generators.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
   </ItemGroup>
 </Project>

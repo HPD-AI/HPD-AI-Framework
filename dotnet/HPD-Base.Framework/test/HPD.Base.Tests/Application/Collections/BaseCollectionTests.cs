@@ -12,17 +12,20 @@ public sealed partial class BaseCollectionTests
     {
         BaseField<ProjectDocument, string>? organization = null;
         BaseField<ProjectDocument, string>? name = null;
+        var metadata = new TestJsonContext(BaseSerializerGeneratedContract.CreateOptions(System.Text.Json.JsonNamingPolicy.CamelCase)).ProjectDocument;
         var collection = BaseCollection<ProjectDocument>.Create(
             Definition(),
-            TestJsonContext.Default.ProjectDocument,
+            metadata,
             fields =>
             {
                 organization = fields.Add<string>(
                     "organization-id",
+                    "OrganizationId",
                     "organizationId",
                     operators: BaseFieldOperator.Equal);
                 name = fields.Add<string>(
                     "name",
+                    "Name",
                     "name",
                     operators: BaseFieldOperator.Equal | BaseFieldOperator.Order);
             });
@@ -30,7 +33,7 @@ public sealed partial class BaseCollectionTests
         collection.Id.Should().Be("projects");
         collection.JsonTypeInfo.Type.Should().Be(typeof(ProjectDocument));
         organization!.Id.Should().Be("organization-id");
-        organization.StoredName.Should().Be("organizationId");
+        organization.WireName.Should().Be("organizationId");
         name!.Operators.Should().HaveFlag(BaseFieldOperator.Order);
     }
 
@@ -42,8 +45,8 @@ public sealed partial class BaseCollectionTests
             TestJsonContext.Default.ProjectDocument,
             fields =>
             {
-                fields.Add<string>("name", "name");
-                fields.Add<string>("name", "otherName");
+                fields.Add<string>("name", "name", "name") ;
+                fields.Add<string>("name", "otherName", "otherName") ;
             });
 
         action.Should()
@@ -57,13 +60,13 @@ public sealed partial class BaseCollectionTests
         var action = () => BaseCollection<ProjectDocument>.Create(
             Definition(), TestJsonContext.Default.ProjectDocument, fields =>
             {
-                fields.Add<string>("first-name", "name");
-                fields.Add<string>("second-name", "name");
+                fields.Add<string>("first-name", "name", "name") ;
+                fields.Add<string>("second-name", "name", "name") ;
             });
 
         action.Should()
             .Throw<InvalidOperationException>()
-            .WithMessage("*stored name 'name' is already declared*");
+            .WithMessage("*application name 'name' is already declared*");
     }
 
     private static CollectionDefinition Definition() =>

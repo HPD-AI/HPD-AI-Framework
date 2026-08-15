@@ -2,6 +2,7 @@ using HPD.Base.AspNetCore;
 using HPD.Base;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using System.Text;
 
 namespace HPD.Base.AspNetCore.Tests.Endpoints;
@@ -25,7 +26,7 @@ public sealed class AdminPolicyExplainEndpointTests
     [Fact]
     public async Task AdminPolicyExplainRoute_ServiceGateDeniesAnonymousWhenRouteAuthorizationIsDisabled()
     {
-        await using var app = await TestBaseApp.CreateAsync(configureEndpoints: options => options.MapAdminPolicyExplain = true);
+        await using var app = await TestBaseApp.CreateAsync(configureEndpoints: options => options.MapPolicyExplain = true);
 
         var response = await app.GetTestClient().PostAsJsonAsync("/base/admin/policy/explain", new BasePolicyExplainRequest
         {
@@ -45,26 +46,25 @@ public sealed class AdminPolicyExplainEndpointTests
     {
         await using var app = await TestBaseApp.CreateAsync(configureEndpoints: options =>
         {
-            options.RequireAuthorizationForAdminRoutes = true;
-            options.MapAdminPolicyExplain = true;
+            options.MapPolicyExplain = true;
         });
 
         var endpoint = app.RouteEndpoints().Single(endpoint => endpoint.RoutePattern.RawText == "/base/admin/policy/explain");
 
         endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>()
             .Should()
-            .Contain(metadata => metadata.Policy == HPDBasePolicies.Admin);
+            .Contain(metadata => metadata.Policy == "test-control-plane");
     }
 
     [Fact]
     public async Task AdminPolicyExplainRoute_InvalidJsonReturnsValidationProblemDetails()
     {
         await using var app = await TestBaseApp.CreateAsync(
-            configureServices: services => services.AddSingleton<IBaseHttpPrincipalMapper>(new FixedPrincipalMapper(new PrincipalContext
+            configureServices: services => services.Replace(ServiceDescriptor.Singleton<IBaseHttpPrincipalMapper>(new FixedPrincipalMapper(new PrincipalContext
             {
                 AuthenticationState = PrincipalAuthenticationState.Admin
-            })),
-            configureEndpoints: options => options.MapAdminPolicyExplain = true);
+            }))),
+            configureEndpoints: options => options.MapPolicyExplain = true);
         var content = new StringContent("{ nope", Encoding.UTF8, "application/json");
 
         var response = await app.GetTestClient().PostAsync("/base/admin/policy/explain", content);
@@ -79,7 +79,7 @@ public sealed class AdminPolicyExplainEndpointTests
     [Fact]
     public async Task AdminPolicyExplainRoute_UsesSourceGeneratedJsonMetadata()
     {
-        await using var app = await TestBaseApp.CreateAsync(configureEndpoints: options => options.MapAdminPolicyExplain = true);
+        await using var app = await TestBaseApp.CreateAsync(configureEndpoints: options => options.MapPolicyExplain = true);
 
         app.HttpJsonOptions().SerializerOptions.GetTypeInfo(typeof(BasePolicyExplainRequest)).Should().NotBeNull();
         app.HttpJsonOptions().SerializerOptions.GetTypeInfo(typeof(BasePolicyExplainResponse)).Should().NotBeNull();
@@ -89,11 +89,11 @@ public sealed class AdminPolicyExplainEndpointTests
     public async Task AdminPolicyExplainRoute_AdminGetsJsonAndNoStoreMutation()
     {
         await using var app = await TestBaseApp.CreateAsync(
-            configureServices: services => services.AddSingleton<IBaseHttpPrincipalMapper>(new FixedPrincipalMapper(new PrincipalContext
+            configureServices: services => services.Replace(ServiceDescriptor.Singleton<IBaseHttpPrincipalMapper>(new FixedPrincipalMapper(new PrincipalContext
             {
                 AuthenticationState = PrincipalAuthenticationState.Admin
-            })),
-            configureEndpoints: options => options.MapAdminPolicyExplain = true);
+            }))),
+            configureEndpoints: options => options.MapPolicyExplain = true);
         var client = app.GetTestClient();
 
         var response = await client.PostAsJsonAsync("/base/admin/policy/explain", new BasePolicyExplainRequest
@@ -122,11 +122,11 @@ public sealed class AdminPolicyExplainEndpointTests
     public async Task AdminManifest_HidesPolicyExplainFromPublicViewAndShowsAdminRoute()
     {
         await using var app = await TestBaseApp.CreateAsync(
-            configureServices: services => services.AddSingleton<IBaseHttpPrincipalMapper>(new FixedPrincipalMapper(new PrincipalContext
+            configureServices: services => services.Replace(ServiceDescriptor.Singleton<IBaseHttpPrincipalMapper>(new FixedPrincipalMapper(new PrincipalContext
             {
                 AuthenticationState = PrincipalAuthenticationState.Admin
-            })),
-            configureEndpoints: options => options.MapAdminPolicyExplain = true);
+            }))),
+            configureEndpoints: options => options.MapPolicyExplain = true);
         var client = app.GetTestClient();
 
         var publicManifest = await client.GetAsync("/base/manifest");
@@ -153,11 +153,12 @@ public sealed class AdminPolicyExplainEndpointTests
             _principal = principal;
         }
 
-        public ValueTask<PrincipalContext?> TryMapAsync(HttpContext httpContext, CancellationToken cancellationToken = default)
+        public ValueTask<PrincipalContext> MapAsync(HttpContext httpContext, HPDBaseEndpointDescriptor endpoint, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
             _ = httpContext;
-            return ValueTask.FromResult<PrincipalContext?>(_principal);
+            _ = endpoint;
+            return ValueTask.FromResult(_principal);
         }
     }
 }

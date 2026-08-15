@@ -1,0 +1,214 @@
+name: Publish HPD Base NuGet Packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (for example, 0.1.0 or 0.1.0-preview.1)'
+        required: true
+        type: string
+      hpd_events_version:
+        description: 'HPD-Events version. Defaults to the latest stable NuGet release.'
+        required: false
+        type: string
+      hpd_auth_version:
+        description: 'Already-published HPD-Auth Core and ControlPlane.AspNetCore version.'
+        required: true
+        type: string
+
+jobs:
+  determine-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      version_prefix: ${{ steps.version.outputs.version_prefix }}
+      version_suffix: ${{ steps.version.outputs.version_suffix }}
+
+    steps:
+      - name: Determine version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ inputs.version }}"
+          VERSION="${VERSION#v}"
+
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Version must be a three-part NuGet version with an optional prerelease suffix."
+            exit 1
+          fi
+
+          if [[ "$VERSION" == *-* ]]; then
+            VERSION_PREFIX="${VERSION%%-*}"
+            VERSION_SUFFIX="${VERSION#*-}"
+          else
+            VERSION_PREFIX="$VERSION"
+            VERSION_SUFFIX=""
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "version_prefix=$VERSION_PREFIX" >> "$GITHUB_OUTPUT"
+          echo "version_suffix=$VERSION_SUFFIX" >> "$GITHUB_OUTPUT"
+
+  publish:
+    runs-on: ubuntu-latest
+    needs: determine-version
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Verify HPD Base
+        run: |
+          set -euo pipefail
+          dotnet build dotnet/HPD-Base.Framework/HPD-Base.slnx \
+            --configuration Release \
+            --nologo \
+            --property:TreatWarningsAsErrors=true
+          dotnet test dotnet/HPD-Base.Framework/HPD-Base.slnx \
+            --configuration Release \
+            --no-build \
+            --nologo
+
+      - name: Pack HPD Base packages
+        shell: bash
+        env:
+          INPUT_HPD_EVENTS_VERSION: ${{ inputs.hpd_events_version }}
+          INPUT_HPD_AUTH_VERSION: ${{ inputs.hpd_auth_version }}
+        run: |
+          set -euo pipefail
+          mkdir -p ./nupkg-base
+
+          PROJECTS=(
+            "dotnet/HPD-Base.Framework/src/HPD.Base.Generators/HPD.Base.Generators.csproj"
+            "dotnet/HPD-Base.Framework/src/HPD.Base/HPD.Base.csproj"
+            "dotnet/HPD-Base.Framework/src/HPD.Base.Sqlite/HPD.Base.Sqlite.csproj"
+            "dotnet/HPD-Base.Framework/src/HPD.Base.AspNetCore/HPD.Base.AspNetCore.csproj"
+            "dotnet/HPD-Base.Framework/src/HPD.Base.Auth/HPD.Base.Auth.csproj"
+            "dotnet/HPD-Base.Framework/src/HPD.Base.Testing/HPD.Base.Testing.csproj"
+          )
+
+          dotnet/eng/nuget/validate-package-identities.sh "${PROJECTS[@]}"
+
+          resolve_nuget_version() {
+            local package_id="$1"
+            local override="$2"
+            if [ -n "$override" ]; then
+              echo "$override"
+              return
+            fi
+            local package_id_lower
+            package_id_lower="$(printf '%s' "$package_id" | tr '[:upper:]' '[:lower:]')"
+            curl -fsSL "https://api.nuget.org/v3-flatcontainer/$package_id_lower/index.json" |
+              python3 -c 'import json,sys; versions=json.load(sys.stdin)["versions"]; stable=[v for v in versions if "-" not in v]; print((stable or versions)[-1])'
+          }
+
+          HPD_EVENTS_VERSION="$(resolve_nuget_version "HPD-Events" "$INPUT_HPD_EVENTS_VERSION")"
+          HPD_AUTH_VERSION="$INPUT_HPD_AUTH_VERSION"
+
+          require_nuget_version() {
+            local package_id="$1"
+            local version="$2"
+            local package_id_lower
+            local version_lower
+            package_id_lower="$(printf '%s' "$package_id" | tr '[:upper:]' '[:lower:]')"
+            version_lower="$(printf '%s' "$version" | tr '[:upper:]' '[:lower:]')"
+            if ! curl -fsSL -o /dev/null \
+              "https://api.nuget.org/v3-flatcontainer/$package_id_lower/$version_lower/$package_id_lower.$version_lower.nupkg"; then
+              echo "::error::$package_id $version must be published before HPD Base."
+              exit 1
+            fi
+          }
+
+          require_nuget_version "HPD-Auth-Core" "$HPD_AUTH_VERSION"
+          require_nuget_version "HPD-Auth-ControlPlane-AspNetCore" "$HPD_AUTH_VERSION"
+
+          PUBLISHED_HPD_PROPS=(
+            "-p:UsePublishedHpdDependencies=true"
+            "-p:HPDEventsVersion=$HPD_EVENTS_VERSION"
+            "-p:HPDAuthVersion=$HPD_AUTH_VERSION"
+          )
+
+          VERSION_PREFIX="${{ needs.determine-version.outputs.version_prefix }}"
+          VERSION_SUFFIX="${{ needs.determine-version.outputs.version_suffix }}"
+          VERSION_ARGS=("-p:VersionPrefix=$VERSION_PREFIX")
+          if [ -n "$VERSION_SUFFIX" ]; then
+            VERSION_ARGS+=("-p:VersionSuffix=$VERSION_SUFFIX")
+          fi
+
+          for PROJECT in "${PROJECTS[@]}"; do
+            dotnet build "$PROJECT" \
+              --configuration Release \
+              --nologo \
+              --property:TreatWarningsAsErrors=true \
+              "${PUBLISHED_HPD_PROPS[@]}" \
+              "${VERSION_ARGS[@]}"
+          done
+
+          for PROJECT in "${PROJECTS[@]}"; do
+            dotnet pack "$PROJECT" \
+              --configuration Release \
+              --no-build \
+              --output ./nupkg-base \
+              --nologo \
+              "${PUBLISHED_HPD_PROPS[@]}" \
+              "${VERSION_ARGS[@]}"
+          done
+
+          test "$(find ./nupkg-base -maxdepth 1 -name '*.nupkg' | wc -l | tr -d ' ')" = "6"
+
+      - name: Validate package contents
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_PACKAGE="./nupkg-base/HPD.Base.${{ needs.determine-version.outputs.version }}.nupkg"
+          GENERATOR_PACKAGE="./nupkg-base/HPD.Base.Generators.${{ needs.determine-version.outputs.version }}.nupkg"
+          test -n "$BASE_PACKAGE"
+          test -n "$GENERATOR_PACKAGE"
+          unzip -l "$BASE_PACKAGE" | grep -q 'analyzers/dotnet/cs/HPD.Base.Generators.dll'
+          unzip -l "$GENERATOR_PACKAGE" | grep -q 'analyzers/dotnet/cs/HPD.Base.Generators.dll'
+
+      - name: Upload HPD Base packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: base-nuget-packages
+          path: |
+            ./nupkg-base/*.nupkg
+            ./nupkg-base/*.snupkg
+
+      - name: Push HPD Base packages to NuGet
+        env:
+          NUGET_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "$NUGET_KEY" ]; then
+            echo "::error::Set the NUGET_API_KEY repository secret before publishing."
+            exit 1
+          fi
+          dotnet nuget push ./nupkg-base/*.nupkg \
+            --source https://api.nuget.org/v3/index.json \
+            --api-key "$NUGET_KEY" \
+            --skip-duplicate
+
+      - name: Summary
+        shell: bash
+        run: |
+          {
+            echo "## Published HPD Base packages"
+            echo
+            echo "**Version:** ${{ needs.determine-version.outputs.version }}"
+            echo
+            for PACKAGE in ./nupkg-base/*.nupkg; do
+              echo "- $(basename "$PACKAGE")"
+            done
+            echo
+            echo "[View HPD Base packages on NuGet](https://www.nuget.org/packages?q=HPD.Base)"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -25,6 +25,8 @@ Delete,
     Purge,
     /// <summary>Identifies batch.</summary>
     Batch,
+    /// <summary>Identifies one bounded transaction-bound selection mutation.</summary>
+    SelectionMutation,
     /// <summary>Identifies schema read.</summary>
 SchemaRead,
     /// <summary>Identifies schema write.</summary>
@@ -40,5 +42,17 @@ RealtimeSubscribe,
     /// <summary>Identifies host backup creation or validation.</summary>
     AdminBackup,
     /// <summary>Identifies destructive host restore.</summary>
-    AdminRestore
+    AdminRestore,
+    /// <summary>Identifies policy-safe vector ranking.</summary>
+    VectorQuery,
+    /// <summary>Identifies vector-index rebuild administration.</summary>
+    VectorRebuild,
+    /// <summary>Identifies authorized acquisition of an exported logical-subject reference.</summary>
+    SubjectAcquire,
+    /// <summary>Identifies mutation-bound validation of an exported logical-subject reference.</summary>
+    SubjectValidate,
+    /// <summary>Identifies destructive exported-subject authority-epoch rotation.</summary>
+    SubjectEpochRotate,
+    /// <summary>Identifies one graph-installed registered module mutation.</summary>
+    ModuleMutation
 }

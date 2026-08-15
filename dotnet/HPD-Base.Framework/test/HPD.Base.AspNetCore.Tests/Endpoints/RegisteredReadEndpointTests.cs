@@ -9,6 +9,20 @@ namespace HPD.Base.AspNetCore.Tests.Endpoints;
 
 public sealed class RegisteredReadEndpointTests
 {
+    [Theory]
+    [InlineData("Uppercase")]
+    [InlineData("under_score")]
+    [InlineData("bad..segment")]
+    [InlineData("-leading")]
+    public async Task HttpExposedReadIdMustUseTheLockedGrammar(string id)
+    {
+        var registration = new TestReadRegistration(id);
+        Func<Task> action = async () => await TestBaseApp.CreateAsync(configureServices: services =>
+            services.AddSingleton(new BaseReadRegistry(new Dictionary<string, IBaseReadRegistration> { [registration.Id] = registration })));
+
+        await action.Should().ThrowAsync<InvalidOperationException>().WithMessage("base.http.endpoint.idInvalid");
+    }
+
     [Fact]
     public async Task ConcreteRegisteredReadRouteBindsGeneratedMetadataAndReturnsTypedPageShape()
     {
@@ -28,7 +42,7 @@ public sealed class RegisteredReadEndpointTests
         json.Should().Contain("\"items\":[{\"value\":\"needle\"}]").And.Contain("\"page\":2").And.Contain("\"perPage\":3");
         registration.RequestedPage.Should().Be(new BaseReadPageRequest(2, 3));
         Endpoint endpoint = app.Services.GetRequiredService<EndpointDataSource>().Endpoints.Single(item =>
-            item.Metadata.GetMetadata<IEndpointNameMetadata>()?.EndpointName == "base.reads.test-read");
+            item.Metadata.GetMetadata<HPDBaseEndpointDescriptor>()?.EndpointId == "base.reads.public.test-read");
         endpoint.Metadata.GetMetadata<IAcceptsMetadata>()!.RequestType.Should().Be(typeof(TestReadParameters));
         endpoint.Metadata.GetOrderedMetadata<IProducesResponseTypeMetadata>().Single(item => item.StatusCode == 200).Type.Should().Be(typeof(BasePage<TestReadRow>));
 
@@ -37,7 +51,7 @@ public sealed class RegisteredReadEndpointTests
         JsonElement operation = document.RootElement.GetProperty("paths").GetProperty("/base/reads/test-read").GetProperty("post");
         operation.GetProperty("requestBody").ValueKind.Should().Be(JsonValueKind.Object);
         operation.GetProperty("responses").EnumerateObject().Select(static response => response.Name)
-            .Should().BeEquivalentTo("200", "400", "403", "413", "424", "500", "503");
+            .Should().BeEquivalentTo("200", "400", "401", "403", "413", "424", "500", "503");
     }
 
     [Theory]
@@ -87,24 +101,23 @@ public sealed class RegisteredReadEndpointTests
             },
             configureEndpoints: options =>
             {
-                options.RequireAuthorizationForAdminRoutes = true;
-                options.AdminPolicyName = "read-admin";
+                options.ControlPlanePolicy = "read-admin";
             },
             mapOpenApi: true);
 
         Endpoint[] endpoints = app.Services.GetRequiredService<EndpointDataSource>().Endpoints.ToArray();
         RouteEndpoint publicEndpoint = endpoints.OfType<RouteEndpoint>().Single(endpoint =>
-            endpoint.Metadata.GetMetadata<IEndpointNameMetadata>()?.EndpointName == "base.reads.public-read");
+            endpoint.Metadata.GetMetadata<HPDBaseEndpointDescriptor>()?.EndpointId == "base.reads.public.public-read");
         RouteEndpoint adminEndpoint = endpoints.OfType<RouteEndpoint>().Single(endpoint =>
-            endpoint.Metadata.GetMetadata<IEndpointNameMetadata>()?.EndpointName == "base.reads.admin-read");
+            endpoint.Metadata.GetMetadata<HPDBaseEndpointDescriptor>()?.EndpointId == "base.reads.admin.admin-read");
         publicEndpoint.RoutePattern.RawText.Should().Be("/base/reads/public-read");
         adminEndpoint.RoutePattern.RawText.Should().Be("/base/admin/reads/admin-read");
         adminEndpoint.Metadata.GetOrderedMetadata<IAuthorizeData>()
-            .Should().ContainSingle(metadata => metadata.Policy == "read-admin");
+            .Should().OnlyContain(metadata => metadata.Policy == "read-admin");
         adminEndpoint.Metadata.GetOrderedMetadata<IProducesResponseTypeMetadata>()
             .Should().Contain(metadata => metadata.StatusCode == StatusCodes.Status401Unauthorized);
-        endpoints.Select(endpoint => endpoint.Metadata.GetMetadata<IEndpointNameMetadata>()?.EndpointName)
-            .Should().NotContain("base.reads.internal-read");
+        endpoints.Select(endpoint => endpoint.Metadata.GetMetadata<HPDBaseEndpointDescriptor>()?.EndpointId)
+            .Should().NotContain("base.reads.public.internal-read");
 
         using JsonDocument publicDocument = JsonDocument.Parse(await (await app.GetTestClient()
             .GetAsync("/base/openapi/base-public.json")).Content.ReadAsStringAsync());
@@ -145,6 +158,13 @@ public sealed class RegisteredReadEndpointTests
         public string Id => id;
         public BaseReadExposure Exposure => exposure;
         public BaseReadAuthorization Authorization => authorization;
+        public BaseRegisteredReadDisclosure Disclosure => BaseRegisteredReadDisclosure.Ordinary;
+        public BaseRegisteredReadSourceAuthority SourceAuthority => BaseRegisteredReadSourceAuthority.Ordinary;
+        public HPDBaseEndpointAudience Audience => HPDBaseEndpointAudience.ControlPlane;
+        public string RequiredGrantId => "test-read.execute";
+        public IReadOnlyList<string> ConfidentialOutputFieldIds => [];
+        public IReadOnlyList<string> SecretOutputFieldIds => [];
+        public IReadOnlyList<string> SystemSourceIds => [];
         public BaseRelationalReadPlan Plan { get; } = new()
         {
             Id = id, Sources = [], Projection = [], Parameters = [],
@@ -153,6 +173,14 @@ public sealed class RegisteredReadEndpointTests
         public JsonTypeInfo ParameterJsonTypeInfo => TestReadJsonContext.Default.TestReadParameters;
         public JsonTypeInfo RowJsonTypeInfo => TestReadJsonContext.Default.TestReadRow;
         public Type ResponseType => typeof(BasePage<TestReadRow>);
+        public string ParameterSerializerContractChecksum => new('a', 64);
+        public string RowSerializerContractChecksum => new('b', 64);
+        public BaseReadClientContract ClientContract { get; } = new()
+        {
+            ParameterTypeId = "read.test-read.parameters", RowTypeId = "read.test-read.row",
+            Parameters = [new BaseReadClientProperty { Id = "search", GeneratedName = "search", WireName = "search", Kind = QueryValueKind.String, Array = false, Nullable = false }],
+            Row = [new BaseReadClientProperty { Id = "value", GeneratedName = "value", WireName = "value", Kind = QueryValueKind.String, Array = false, Nullable = false }]
+        };
         public BaseReadPageRequest? RequestedPage { get; private set; }
 
         public ValueTask<BaseUntypedRegisteredReadResult> ExecuteAsync(IBaseRegisteredReadRuntime runtime, object parameters, BaseReadPageRequest page, PrincipalContext principal, OperationContext operation, CancellationToken cancellationToken)

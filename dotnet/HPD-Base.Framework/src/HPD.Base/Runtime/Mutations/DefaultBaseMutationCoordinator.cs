@@ -15,6 +15,7 @@ internal sealed class DefaultBaseMutationCoordinator(
     IBaseOperationalFailureMapper failureMapper,
     IBaseMutationPostCommitDispatcher postCommit,
     IBaseDescriptorRegistry descriptors,
+    BaseSubjectContractRegistry subjects,
     IOptions<HPDBaseRuntimeOptions> options,
     TimeProvider timeProvider,
     ILogger<DefaultBaseMutationCoordinator> logger) : IBaseMutationCoordinator
@@ -440,7 +441,75 @@ internal sealed class DefaultBaseMutationCoordinator(
         CancellationToken cancellationToken,
         BaseAtomicMutationExecutionRequest? atomicRequest = null)
     {
-        var processor = new DefaultBaseMutationProcessor(commands, principal, policy, normalizer, descriptors.Current.Schema.Collections ?? [], _limits.MaxTransactionDuration);
+        for (var index = 0; index < commands.Length; index++)
+        {
+            BaseMutationCommand command = commands[index];
+            if (command.Kind != BaseRecordMutationKind.Create
+                || command.RecordId is not null
+                || command.Create?.RequestedId is not null)
+            {
+                continue;
+            }
+
+            var runtimeId = new RecordId("base:" + Guid.NewGuid().ToString("N"));
+            RecordCreateRequest create = command.Create!;
+            commands[index] = command with
+            {
+                RecordId = runtimeId,
+                RuntimeAssignedRecordId = true,
+                Create = create with { RequestedId = runtimeId },
+            };
+        }
+
+        if (store.AtomicStore is null)
+        {
+            return OperationResults.Unsupported<BoundaryResult>(Error(
+                BaseSubjectErrorCodes.GuaranteeUnavailable,
+                "The required subject validation guarantee is unavailable.",
+                ErrorCategory.Unsupported));
+        }
+
+        BaseAtomicMutationExecutionLimits executionLimits = DefaultBaseMutationProcessor.CreateExecutionLimits(
+            commands,
+            _limits.MaxTransactionDuration,
+            subjects);
+        IReadOnlyDictionary<string, CollectionDefinition> installedCollections =
+            (descriptors.Current.Schema.Collections ?? []).ToDictionary(static collection => collection.Id, StringComparer.Ordinal);
+        CollectionDefinition[] authorityCollections = commands
+            .Select(static command => command.Collection)
+            .Concat(commands.SelectMany(command => DefaultBaseMutationProcessor.RelationTargetIntents(command, installedCollections)
+                .Select(static target => target.TargetCollection)))
+            .DistinctBy(static collection => collection.Id, StringComparer.Ordinal)
+            .OrderBy(static collection => collection.Id, StringComparer.Ordinal)
+            .ToArray();
+        OperationResult<BaseAtomicMutationAuthorityRequirement> authority = await store.AtomicStore
+            .CaptureAtomicMutationAuthorityRequirementAsync(
+                commands[0].Context.ApplicationId ?? string.Empty,
+                [.. authorityCollections],
+                executionLimits,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (!authority.IsSuccess() || authority.Value is null)
+        {
+            return new OperationResult<BoundaryResult>
+            {
+                Status = authority.Status,
+                Error = authority.Error ?? Error(
+                    BaseSubjectErrorCodes.SchemaGenerationChanged,
+                    "The subject validation authority changed.",
+                    ErrorCategory.Conflict),
+            };
+        }
+
+        var processor = new DefaultBaseMutationProcessor(
+            commands,
+            principal,
+            policy,
+            normalizer,
+            descriptors.Current.Schema.Collections ?? [],
+            executionLimits,
+            authority.Value,
+            subjects);
         var request = new RecordMutationExecutionRequest
         {
             AcquisitionTimeout = _limits.StoreAcquisitionTimeout,
@@ -455,8 +524,8 @@ internal sealed class DefaultBaseMutationCoordinator(
         try
         {
             result = atomicGroup
-                ? await store.AtomicStore!.ExecuteAtomicAsync(processor, request, cancellationToken).ConfigureAwait(false)
-                : await store.Store.ExecuteSingleAsync(processor, request, cancellationToken).ConfigureAwait(false);
+                ? await store.AtomicStore.ExecuteAtomicAsync(processor, request, cancellationToken).ConfigureAwait(false)
+                : await store.AtomicStore.ExecuteSingleAsync(processor, request, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception exception) when (failureMapper.TryMap(
             exception,
@@ -551,6 +620,42 @@ internal sealed class DefaultBaseMutationCoordinator(
         }
     }
 
+    private static bool ReferenceValueMayBeWritten(BaseRecordBatchItem item, string wireName)
+    {
+        static bool NonNull(RecordPayload? payload, string name) =>
+            payload?.Fields is { } fields && fields.TryGetValue(name, out JsonElement value) && value.ValueKind != JsonValueKind.Null;
+
+        return item.Kind switch
+        {
+            BaseRecordMutationKind.Create => NonNull(item.Create?.Payload, wireName),
+            BaseRecordMutationKind.Patch => NonNull(item.Patch?.Patch, wireName),
+            BaseRecordMutationKind.Replace => NonNull(item.Replace?.Payload, wireName),
+            BaseRecordMutationKind.Upsert => NonNull(item.Upsert?.CreatePayload, wireName) || NonNull(item.Upsert?.UpdatePayload, wireName),
+            _ => false,
+        };
+    }
+
+    private static CollectionDefinition SubjectPolicyCollection(BaseGeneratedSubjectRegistration target) => new()
+    {
+        Id = target.Definition.Id,
+        Name = "Exported logical subject contract",
+        Kind = "system",
+        Exposed = false,
+        System = true,
+        SystemOwnerModuleId = target.Definition.OwningModuleId,
+        SchemaMode = SchemaMode.Strict,
+        UnknownFields = UnknownFieldPolicy.Reject,
+    };
+
+    private static OperationResult<bool> SubjectAuthorizationFailure(string code, ErrorCategory category) => new()
+    {
+        Status = category == ErrorCategory.Authorization ? OperationStatus.PolicyDenied : OperationStatus.ValidationFailed,
+        Error = Error(
+            code,
+            code == BaseSubjectErrorCodes.ReferenceInvalid ? "The subject reference is invalid." : "The subject contract is invalid.",
+            category),
+    };
+
     private async ValueTask<OperationResult<BaseMutationCommand[]>> PrepareAsync(
         BaseRecordBatchRequest request,
         PrincipalContext principal,
@@ -586,6 +691,8 @@ internal sealed class DefaultBaseMutationCoordinator(
             : aggregateOperation.CorrelationId;
         var seen = new HashSet<string>(StringComparer.Ordinal);
         var commands = new BaseMutationCommand[request.Operations.Length];
+        var collections = new CollectionDefinition[request.Operations.Length];
+        var contexts = new OperationContext[request.Operations.Length];
         for (var index = 0; index < request.Operations.Length; index++)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -626,7 +733,7 @@ internal sealed class DefaultBaseMutationCoordinator(
                 return Failure<BaseMutationCommand[], CollectionDefinition>(collectionResult);
 
             var collection = collectionResult.Value;
-            if (!collection.Enabled || !collection.Exposed)
+            if (!collection.Enabled || !collection.Exposed && !collection.System)
             {
                 return OperationResults.Unsupported<BaseMutationCommand[]>(Error(
                     "base.runtime.collection.operationDisabled",
@@ -640,6 +747,21 @@ internal sealed class DefaultBaseMutationCoordinator(
                     "The collection mutation mode does not permit the requested operation.",
                     ErrorCategory.Unsupported));
             }
+
+            collections[index] = collection;
+            contexts[index] = context;
+        }
+
+        OperationResult<bool> subjectAuthorization = await AuthorizeSubjectDefinitionsAsync(
+            request.Operations, collections, contexts, principal, cancellationToken).ConfigureAwait(false);
+        if (!subjectAuthorization.IsSuccess())
+            return new OperationResult<BaseMutationCommand[]> { Status = subjectAuthorization.Status, Error = subjectAuthorization.Error };
+
+        for (var index = 0; index < request.Operations.Length; index++)
+        {
+            BaseRecordBatchItem item = request.Operations[index];
+            CollectionDefinition collection = collections[index];
+            OperationContext context = contexts[index];
 
             var storeResult = storeResolver.Resolve(collection, item.Kind, context);
             if (!storeResult.IsSuccess() || storeResult.Value is null)
@@ -709,6 +831,50 @@ internal sealed class DefaultBaseMutationCoordinator(
         }
 
         return OperationResults.Ok(commands);
+    }
+
+    private async ValueTask<OperationResult<bool>> AuthorizeSubjectDefinitionsAsync(
+        BaseRecordBatchItem[] items,
+        CollectionDefinition[] collections,
+        OperationContext[] contexts,
+        PrincipalContext principal,
+        CancellationToken cancellationToken)
+    {
+        var targets = new Dictionary<(string Id, int Version), (BaseGeneratedSubjectRegistration Registration, OperationContext Context)>();
+        for (int index = 0; index < items.Length; index++)
+        {
+            BaseRecordBatchItem item = items[index];
+            foreach (FieldDefinition field in collections[index].Fields ?? [])
+            {
+                if (field.SubjectReference is not { } reference || !ReferenceValueMayBeWritten(item, field.WireName)) continue;
+                BaseGeneratedSubjectRegistration? target = subjects.Find(reference.ContractId, reference.ContractVersion);
+                if (target is null) return SubjectAuthorizationFailure(BaseSubjectErrorCodes.ContractInvalid, ErrorCategory.Validation);
+                targets.TryAdd((reference.ContractId, reference.ContractVersion), (target, contexts[index]));
+            }
+        }
+        foreach ((BaseGeneratedSubjectRegistration target, OperationContext source) in targets.Values
+            .OrderBy(static value => value.Registration.Definition.Id, StringComparer.Ordinal)
+            .ThenBy(static value => value.Registration.Definition.Version))
+        {
+            OperationResult<BasePolicyEvaluation> result = await policy.EvaluateWriteAsync(new BasePolicyRequest
+            {
+                Principal = principal,
+                Operation = source with
+                {
+                    Operation = BaseOperationKind.SubjectValidate,
+                    CollectionId = target.Definition.Id,
+                    RecordId = null,
+                    Mode = OperationMode.System,
+                },
+                Collection = SubjectPolicyCollection(target),
+                ResourceKind = PolicyResourceKind.SubjectContract,
+                SubjectContractId = target.Definition.Id,
+                SubjectContractVersion = target.Definition.Version,
+            }, cancellationToken).ConfigureAwait(false);
+            if (!result.IsSuccess() || !BaseSystemCollectionGate.HasExactGrant(result, target.Definition.ValidationGrantId))
+                return SubjectAuthorizationFailure(BaseSubjectErrorCodes.ReferenceInvalid, ErrorCategory.Authorization);
+        }
+        return OperationResults.Ok(true);
     }
 
     private async ValueTask<OperationResult<BaseMutationCommand>> PrepareCommandAsync(

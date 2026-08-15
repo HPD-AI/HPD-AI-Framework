@@ -15,17 +15,21 @@ internal static class RegisteredReadEndpoints
     internal static bool HasExposure(IServiceProvider services, BaseReadExposure exposure) =>
         services.GetService<BaseReadRegistry>()?.Registrations.Values.Any(read => read.Exposure == exposure) == true;
 
-    internal static void Map(IEndpointRouteBuilder endpoints, BaseReadExposure exposure, bool routeRequiresAuthorization)
+    internal static void Map(IEndpointRouteBuilder endpoints, BaseReadExposure exposure, HPDBaseEndpointAudience audience, Action<IEndpointConventionBuilder, HPDBaseEndpointDescriptor>? convention = null)
     {
         BaseReadRegistry? registry = endpoints.ServiceProvider.GetService<BaseReadRegistry>();
         if (registry is null) return;
         foreach (IBaseReadRegistration registration in registry.Registrations.Values
-            .Where(value => value.Exposure == exposure)
+            .Where(value => value.Exposure == exposure && value.Audience == audience)
             .OrderBy(static value => value.Id, StringComparer.Ordinal))
         {
             IBaseReadRegistration captured = registration;
-            string operationId = "base.reads." + captured.Id;
+            if (!IsValidHttpReadId(captured.Id))
+                throw new InvalidOperationException("base.http.endpoint.idInvalid");
+            string operationId = "base.reads." + (exposure == BaseReadExposure.Admin ? "admin." : "public.") + captured.Id;
+            string capability = captured.RequiredGrantId;
             var route = endpoints.MapPost("/reads/" + captured.Id, (RequestDelegate)(context => Execute(context, captured)))
+                .WithHPDBaseEndpoint(operationId, audience, HPDBaseEndpointOperation.RegisteredRead, capability, convention)
                 .WithHPDBaseRegisteredReadOpenApi(
                     operationId,
                     captured.ParameterJsonTypeInfo.Type,
@@ -36,7 +40,7 @@ internal static class RegisteredReadEndpoints
             {
                 builder.Metadata.Add(new AcceptsMetadata(["application/json"], captured.ParameterJsonTypeInfo.Type, false));
                 builder.Metadata.Add(new ResponseMetadata(captured.ResponseType, StatusCodes.Status200OK, "application/json"));
-                foreach (int status in routeRequiresAuthorization
+                foreach (int status in audience is HPDBaseEndpointAudience.Application or HPDBaseEndpointAudience.ControlPlane
                     ? new[] { 400, 401, 403, 413, 424, 500, 503 }
                     : new[] { 400, 403, 413, 424, 500, 503 })
                     builder.Metadata.Add(new ResponseMetadata(typeof(ProblemDetails), status, "application/problem+json"));
@@ -44,13 +48,24 @@ internal static class RegisteredReadEndpoints
         }
     }
 
+    internal static bool IsValidHttpReadId(string value) => value is { Length: >= 1 and <= 96 }
+        && IsAlphaNumeric(value[0]) && IsAlphaNumeric(value[^1])
+        && value.All(static character => IsAlphaNumeric(character) || character is '.' or '-')
+        && !value.Contains("..", StringComparison.Ordinal);
+
+    private static bool IsAlphaNumeric(char character) =>
+        character is >= 'a' and <= 'z' or >= '0' and <= '9';
+
     private static async Task Execute(HttpContext context, IBaseReadRegistration registration)
     {
         object? parameters;
-        long maximumBody = context.RequestServices.GetRequiredService<IOptions<HPDBaseAspNetCoreOptions>>().Value.Limits.MaxRequestBodyLength;
+        long maximumBody = context.RequestServices.GetRequiredService<HPDBaseAspNetCoreSnapshot>().Limits.MaxRequestBodyLength;
         if (context.Request.ContentLength is { } length && length > maximumBody) { await BodyTooLarge(context); return; }
+        BaseSerializerMetadataOwner? metadata = context.RequestServices.GetService<BaseSerializerMetadataOwner>();
+        var parameterMetadata = metadata?.Resolve(registration, registration.ParameterJsonTypeInfo.Type) ?? registration.ParameterJsonTypeInfo;
+        var rowMetadata = metadata?.Resolve(registration, registration.RowJsonTypeInfo.Type) ?? registration.RowJsonTypeInfo;
         await using var body = new LimitedRequestBodyStream(context.Request.Body, maximumBody);
-        try { parameters = await JsonSerializer.DeserializeAsync(body, registration.ParameterJsonTypeInfo, context.RequestAborted).ConfigureAwait(false); }
+        try { parameters = await JsonSerializer.DeserializeAsync(body, parameterMetadata, context.RequestAborted).ConfigureAwait(false); }
         catch (RequestBodyTooLargeException) { await BodyTooLarge(context); return; }
         catch (JsonException) { await InvalidBody(context); return; }
         if (parameters is null) { await Problem(context, OperationStatus.ValidationFailed, new BaseError { Code = "base.http.body.required", Message = "Registered read parameters are required.", Category = ErrorCategory.Validation }); return; }
@@ -61,7 +76,7 @@ internal static class RegisteredReadEndpoints
         catch (ArgumentOutOfRangeException) { await Problem(context, OperationStatus.ValidationFailed, new BaseError { Code = "base.relational.read.invalid", Message = "The registered read page is invalid.", Category = ErrorCategory.Validation }); return; }
 
         IServiceProvider services = context.RequestServices;
-        PrincipalContext principal = await services.GetRequiredService<IBaseHttpPrincipalContextFactory>().CreateAsync(context, HPDBaseEndpointKind.Records, context.RequestAborted).ConfigureAwait(false);
+        PrincipalContext principal = await services.GetRequiredService<IBaseHttpPrincipalContextFactory>().CreateAsync(context, context.RequestAborted).ConfigureAwait(false);
         OperationContext operation = services.GetRequiredService<IBaseHttpOperationContextFactory>().Create(context, principal, BaseOperationKind.Query, registration.Id);
         BaseUntypedRegisteredReadResult result = await registration.ExecuteAsync(services.GetRequiredService<IBaseRegisteredReadRuntime>(), parameters, request, principal, operation, context.RequestAborted).ConfigureAwait(false);
         if (result.Items is null || result.Page is null) { await Problem(context, result.Status, result.Error); return; }
@@ -70,7 +85,7 @@ internal static class RegisteredReadEndpoints
         context.Response.ContentType = "application/json";
         await using var writer = new Utf8JsonWriter(context.Response.BodyWriter);
         writer.WriteStartObject(); writer.WritePropertyName("items"); writer.WriteStartArray();
-        foreach (object item in result.Items) JsonSerializer.Serialize(writer, item, registration.RowJsonTypeInfo);
+        foreach (object item in result.Items) JsonSerializer.Serialize(writer, item, rowMetadata);
         writer.WriteEndArray(); writer.WritePropertyName("page"); JsonSerializer.Serialize(writer, result.Page, HPDBaseJsonSerializerContext.Default.PageInfo);
         if (result.Count is not null) { writer.WritePropertyName("count"); JsonSerializer.Serialize(writer, result.Count, HPDBaseJsonSerializerContext.Default.CountInfo); }
         writer.WriteEndObject(); await writer.FlushAsync(context.RequestAborted).ConfigureAwait(false);

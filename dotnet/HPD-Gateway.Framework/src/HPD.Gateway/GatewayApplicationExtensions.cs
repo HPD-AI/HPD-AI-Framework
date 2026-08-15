@@ -1,7 +1,6 @@
-using HPD.Gateway.Core;
-using HPD.Gateway.Status;
-using HPD.Gateway.Yarp;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Gateway;
@@ -18,8 +17,10 @@ public static class GatewayApplicationExtensions
             .GetServices<IGatewayApplicationPipelineParticipant>()
             .OrderBy(static participant => participant.Order))
             participant.Configure(application);
+        application.UseHpdGatewayListenerRoles();
         application.MapHpdGatewayHealth();
-        application.MapHpdGatewayReverseProxy();
+        application.MapHpdGatewayReverseProxy()
+            .WithHpdGatewayEndpointRole(GatewayListenerRole.DataPlane, "gateway-data");
         return application;
     }
 }
@@ -33,7 +34,14 @@ internal sealed class GatewayNativePolicyPipeline(GatewayCompositionState state)
     {
         if (!state.CorsPolicies.IsEmpty) application.UseCors();
         if (!state.AuthorizationPolicies.IsEmpty) application.UseAuthorization();
-        if (!state.TrafficAdmissionPolicies.IsEmpty) application.UseRateLimiter();
+        if (!state.TrafficAdmissionProfiles.IsEmpty)
+        {
+            RateLimiterOptions options = GatewayTrafficAdmissionMiddleware.CreateOptions(
+                application.ApplicationServices.GetRequiredService<GatewayTrafficAdmissionRegistry>());
+            application.UseWhen(
+                static context => context.GetEndpoint()?.Metadata.GetMetadata<GatewayTrafficAdmissionMetadata>() is not null,
+                branch => branch.UseRateLimiter(options));
+        }
         if (!state.RequestTimeoutPolicies.IsEmpty) application.UseRequestTimeouts();
     }
 }

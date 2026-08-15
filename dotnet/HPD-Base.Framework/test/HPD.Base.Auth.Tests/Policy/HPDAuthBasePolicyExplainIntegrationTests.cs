@@ -3,7 +3,7 @@ using HPD.Base;
 
 namespace HPD.Base.Auth.Tests.Policy;
 
-public sealed class HPDAuthBasePolicyExplainIntegrationTests
+public sealed class HPDBaseAuthPolicyExplainIntegrationTests
 {
     [Fact]
     public async Task ExplainRedactsHPDAuthTenantFilterAndSummarizesReadMask()
@@ -14,7 +14,7 @@ public sealed class HPDAuthBasePolicyExplainIntegrationTests
             options.AllowAdminBypass = false;
             options.CollectionRules =
             [
-                new HPDAuthBaseCollectionRule
+                new HPDBaseAuthCollectionRule
                 {
                     CollectionId = "items",
                     ReadRoles = ["Reader"],
@@ -54,7 +54,7 @@ public sealed class HPDAuthBasePolicyExplainIntegrationTests
             options.AllowAdminBypass = false;
             options.CollectionRules =
             [
-                new HPDAuthBaseCollectionRule
+                new HPDBaseAuthCollectionRule
                 {
                     CollectionId = "items",
                     WriteRoles = ["Editor"],
@@ -92,7 +92,7 @@ public sealed class HPDAuthBasePolicyExplainIntegrationTests
             options.AllowAdminBypass = false;
             options.CollectionRules =
             [
-                new HPDAuthBaseCollectionRule
+                new HPDBaseAuthCollectionRule
                 {
                     CollectionId = "items",
                     ReadRoles = ["Reader"],
@@ -112,17 +112,23 @@ public sealed class HPDAuthBasePolicyExplainIntegrationTests
         result.Value.Decision!.ReasonCode.Should().Be("hpd.auth.base.missingAuthServices");
     }
 
-    private static ServiceProvider BuildProvider(Action<HPDBaseHPDAuthOptions> configure, bool detectedHost = true)
+    private static ServiceProvider BuildProvider(Action<HPDBaseAuthOptions> configure, bool detectedHost = true)
     {
         var services = new ServiceCollection().AddLogging();
         services.AddSingleton<IBaseDescriptorContributor>(new CollectionContributor());
         if (detectedHost)
         {
-            services.AddSingleton<IHPDAuthBaseHostIntegrationStatus>(new DetectedHostIntegrationStatus());
+            services.AddSingleton<IHPDBaseAuthHostIntegrationStatus>(new DetectedHostIntegrationStatus());
         }
 
-        services.AddHPDBaseHPDAuth(configure);
-        services.AddHPDBaseRuntime();
+        services.AddHPDBaseAuthServices(configure);
+        services.AddHPDBaseRuntime().UsePolicyAuthorityFromServices<HPDBaseAuthPolicyEvaluator>(
+            "hpd.base.auth.tests",
+            new BasePolicyAuthorityDefinition
+            {
+                Id = "hpd.auth.base.policy", Version = 1, OwningModuleId = "hpd.auth",
+                EvaluatorContractId = "hpd.auth.base.policy-evaluator", EvaluatorContractVersion = 1, CompositionOrder = 0,
+            });
         var provider = services.BuildServiceProvider();
         provider.GetRequiredService<IBaseDescriptorRegistry>().RebuildAsync().AsTask().GetAwaiter().GetResult();
         var store = new ExplainStore();
@@ -181,17 +187,17 @@ public sealed class HPDAuthBasePolicyExplainIntegrationTests
                 UnknownFields = UnknownFieldPolicy.Preserve,
                 Fields =
                 [
-                    new FieldDefinition { Id = "tenantId", Name = "tenantId", Type = BaseFieldTypes.String },
-                    new FieldDefinition { Id = "title", Name = "title", Type = BaseFieldTypes.String },
-                    new FieldDefinition { Id = "body", Name = "body", Type = BaseFieldTypes.String },
-                    new FieldDefinition { Id = "secret", Name = "secret", Type = BaseFieldTypes.String },
+                    new FieldDefinition { Id = "tenantId", ApplicationName = "tenantId", WireName = "tenantId", Type = BaseFieldTypes.String },
+                    new FieldDefinition { Id = "title", ApplicationName = "title", WireName = "title", Type = BaseFieldTypes.String },
+                    new FieldDefinition { Id = "body", ApplicationName = "body", WireName = "body", Type = BaseFieldTypes.String },
+                    new FieldDefinition { Id = "secret", ApplicationName = "secret", WireName = "secret", Type = BaseFieldTypes.String },
                 ],
                 MutationMode = BaseCollectionMutationMode.Mutable
             });
         }
     }
 
-    private sealed class DetectedHostIntegrationStatus : IHPDAuthBaseHostIntegrationStatus
+    private sealed class DetectedHostIntegrationStatus : IHPDBaseAuthHostIntegrationStatus
     {
         public bool HPDAuthServicesDetected => true;
         public string? Source => "test";

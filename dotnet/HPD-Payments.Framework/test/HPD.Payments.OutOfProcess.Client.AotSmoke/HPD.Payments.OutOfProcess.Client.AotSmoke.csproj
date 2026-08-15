@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType><PublishAot>true</PublishAot><PublishTrimmed>true</PublishTrimmed></PropertyGroup>
+  <ItemGroup><ProjectReference Include="../../src/HPD.Payments.Extensions.OutOfProcess/HPD.Payments.Extensions.OutOfProcess.csproj" /></ItemGroup>
+</Project>

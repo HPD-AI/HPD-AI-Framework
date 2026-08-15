@@ -14,23 +14,23 @@ public static class BaseRouteIds
     /// <summary>Provides the diagnostics value.</summary>
     public const string Diagnostics = "base.diagnostics";
     /// <summary>Provides the records list value.</summary>
-    public const string RecordsList = "records.list";
+    public const string RecordsList = "base.records.list";
     /// <summary>Provides the records query value.</summary>
-    public const string RecordsQuery = "records.query";
+    public const string RecordsQuery = "base.records.query";
     /// <summary>Provides the records get value.</summary>
-    public const string RecordsGet = "records.get";
+    public const string RecordsGet = "base.records.get";
     /// <summary>Provides the records create value.</summary>
-    public const string RecordsCreate = "records.create";
+    public const string RecordsCreate = "base.records.create";
     /// <summary>Provides the records patch value.</summary>
-    public const string RecordsPatch = "records.patch";
+    public const string RecordsPatch = "base.records.patch";
     /// <summary>Provides the records replace value.</summary>
-    public const string RecordsReplace = "records.replace";
+    public const string RecordsReplace = "base.records.replace";
     /// <summary>Provides the records delete value.</summary>
-    public const string RecordsDelete = "records.delete";
+    public const string RecordsDelete = "base.records.delete";
     /// <summary>Ordered record-batch endpoint.</summary>
-    public const string RecordsBatch = "records.batch";
+    public const string RecordsBatch = "base.records.batch";
     /// <summary>Atomic record-ID upsert endpoint.</summary>
-    public const string RecordsUpsert = "records.upsert";
+    public const string RecordsUpsert = "base.records.upsert";
 }
 
 /// <summary>Represents a base DTO IDs.</summary>

@@ -170,6 +170,7 @@ public sealed class FileRouteTests
     {
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Testing" });
         builder.WebHost.UseTestServer();
+        builder.Services.AddAuthorizationBuilder().AddPolicy("files", policy => policy.RequireAssertion(_ => true));
         builder.Services.AddHPDBaseRuntime();
         builder.Services.AddHPDBaseAspNetCore();
         if (mapOpenApi)
@@ -191,9 +192,17 @@ public sealed class FileRouteTests
         }
 
         var app = builder.Build();
-        app.MapHPDBaseApi();
         if (mapFiles)
-            app.MapHPDBaseFilesApi(filesRoutePrefix);
+            app.MapHPDBaseApplicationApi(new HPDBaseApplicationEndpointOptions
+            {
+                RoutePrefix = filesRoutePrefix.EndsWith("/files", StringComparison.Ordinal)
+                    ? filesRoutePrefix[..^6]
+                    : filesRoutePrefix,
+                AuthorizationPolicy = "files",
+                MapRecords = false,
+                MapRegisteredReads = false,
+                MapFiles = true
+            });
         if (mapOpenApi)
             HPD.Base.AspNetCore.HPDBaseOpenApiEndpointRouteBuilderExtensions.MapHPDBaseOpenApi(app);
 

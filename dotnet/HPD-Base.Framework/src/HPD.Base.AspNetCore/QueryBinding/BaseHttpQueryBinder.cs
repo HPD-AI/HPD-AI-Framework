@@ -2,19 +2,18 @@ using System.Text.Json;
 using HPD.Base;
 using HPD.Base.AspNetCore;
 using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Primitives;
 
 namespace HPD.Base.AspNetCore;
 
 internal sealed class BaseHttpQueryBinder : IBaseHttpQueryBinder
 {
-    private readonly HPDBaseAspNetCoreOptions _options;
+    private readonly HPDBaseAspNetCoreSnapshot _options;
 
     /// <summary>Initializes a new instance.</summary>
-    public BaseHttpQueryBinder(IOptions<HPDBaseAspNetCoreOptions> options)
+    public BaseHttpQueryBinder(HPDBaseAspNetCoreSnapshot options)
     {
-        _options = options.Value;
+        _options = options;
     }
 
     private static readonly HashSet<string> AllowedManifestExpand = new(StringComparer.Ordinal)

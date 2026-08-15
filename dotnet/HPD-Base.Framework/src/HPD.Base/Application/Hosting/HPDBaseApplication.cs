@@ -1,3 +1,5 @@
+using Microsoft.Extensions.DependencyInjection;
+
 namespace HPD.Base;
 /// <summary>Identifies the asynchronous HPD.BASE application lifecycle state.</summary>
 public enum BaseApplicationReadinessState
@@ -95,6 +97,7 @@ internal sealed class DefaultHPDBaseApplication(IBaseProviderBootstrap bootstrap
                 if (compatibility != BaseSchemaCompatibility.Compatible || !assetsReady || !string.Equals(observed.Value.AcceptedChecksum, features.LogicalSchema.CanonicalChecksum, StringComparison.Ordinal))
                     return Fail("base.schema.notReady");
             }
+            await bootstrap.EnsureSubjectReadinessAsync(timeout.Token).ConfigureAwait(false);
 
             var ready = new BaseApplicationReadiness
             {
@@ -110,6 +113,10 @@ internal sealed class DefaultHPDBaseApplication(IBaseProviderBootstrap bootstrap
         catch (OperationCanceledException)
         {
             return Fail("base.application.initializationTimeout");
+        }
+        catch (InvalidOperationException exception) when (string.Equals(exception.Message, "base.store.authorityAmbiguous", StringComparison.Ordinal))
+        {
+            return Fail("base.store.authorityAmbiguous");
         }
         catch
         {
@@ -137,6 +144,8 @@ internal interface IBaseProviderBootstrap
 {
     /// <summary>Executes the ensure initialized async operation.</summary>
     ValueTask EnsureInitializedAsync(CancellationToken cancellationToken = default);
+    /// <summary>Validates subject-plan dynamic authority after the accepted schema exists.</summary>
+    ValueTask EnsureSubjectReadinessAsync(CancellationToken cancellationToken = default);
 }
 
 internal interface IBaseApplicationLifetime
@@ -151,7 +160,12 @@ internal sealed class DefaultBaseApplicationLifetime : IBaseApplicationLifetime
     public CancellationToken Stopping => CancellationToken.None;
 }
 
-internal sealed class DefaultBaseProviderBootstrap(IServiceProvider services, HPDBaseInstalledFeatures features, IBaseApplicationLifetime lifetime) : IBaseProviderBootstrap
+internal sealed class DefaultBaseProviderBootstrap(
+    IServiceProvider services,
+    HPDBaseInstalledFeatures features,
+    IBaseApplicationLifetime lifetime,
+    Microsoft.Extensions.Options.IOptions<HPDBaseTokenProtectionOptions> tokenOptions,
+    TimeProvider timeProvider) : IBaseProviderBootstrap
 {
     private readonly Lock _gate = new();
     private Task? _initialization;
@@ -168,7 +182,189 @@ internal sealed class DefaultBaseProviderBootstrap(IServiceProvider services, HP
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Stopping);
         timeout.CancelAfter(TimeSpan.FromSeconds(30));
+        ValidateTokenLifetimes(tokenOptions.Value, timeProvider.GetUtcNow());
+        var storeContext = new HPDBaseStoreInitializationContext(services, features.StoreProvider, features.StoreReceipt);
+        try
+        {
+            await features.StoreProvider.Installer.InitializeAsync(storeContext, timeout.Token).ConfigureAwait(false);
+        }
+        finally
+        {
+            storeContext.Complete();
+        }
         foreach (IHPDBaseBuilderExtension extension in features.Extensions)
             await extension.InitializeAsync(services, timeout.Token).ConfigureAwait(false);
+        ValidateAuthorityGraph();
+        if (features.LogicalSchema.ExportedSubjects.Length != 0)
+            await ValidateSubjectPlanReceiptsAsync(requireDynamicAuthority: false, timeout.Token).ConfigureAwait(false);
+        if (services.GetService<HPDBaseVectorSnapshot>() is { } snapshot)
+        {
+            if (!string.Equals(features.Provider, "inmemory", StringComparison.Ordinal) &&
+                !services.GetRequiredService<BaseTokenProtectionRegistration>().ExplicitlyConfigured)
+                throw new InvalidOperationException("base.vector.tokenProtectionRequired: vector execution requires explicitly configured token protection.");
+            IBaseVectorProvider[] providers = services.GetServices<IBaseVectorProvider>().ToArray();
+            if (providers.Length != 1 || services.GetServices<IBaseVectorAuthority>().Count() != 1)
+                throw new InvalidOperationException("base.vector.providerUnavailable: vector execution requires exactly one provider and authority.");
+            if (providers[0].Descriptor.Consistency == BaseVectorProviderConsistency.DerivedJournal && snapshot.DerivedProviderDefaultConsistency is null)
+                throw new InvalidOperationException("base.vector.consistencyInvalid: a derived provider requires an explicit consistency default.");
+        }
+    }
+
+    /// <inheritdoc />
+    public async ValueTask EnsureSubjectReadinessAsync(CancellationToken cancellationToken = default)
+    {
+        if (features.LogicalSchema.ExportedSubjects.Length == 0) return;
+        await ValidateSubjectPlanReceiptsAsync(requireDynamicAuthority: true, cancellationToken).ConfigureAwait(false);
+        await services.GetRequiredService<BaseSubjectControlDispatcher>()
+            .InitializeAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private async ValueTask ValidateSubjectPlanReceiptsAsync(
+        bool requireDynamicAuthority,
+        CancellationToken cancellationToken)
+    {
+        RecordStoreRegistration registration = services.GetRequiredService<IRecordStoreRegistry>().GetRegistrations().Single();
+        if (registration.Store is not IBaseSubjectValidationPlanReceiptStore receiptStore)
+            throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid);
+        OperationResult<BaseSubjectValidationPlanReceipt[]> observed =
+            await receiptStore.ReadSubjectValidationPlanReceiptsAsync(cancellationToken).ConfigureAwait(false);
+        if (!observed.IsSuccess() || observed.Value is null)
+            throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid);
+
+        BaseGeneratedSubjectRegistration[] contracts = services.GetRequiredService<BaseSubjectContractRegistry>().All
+            .OrderBy(static value => value.Definition.ValidationPlan.Id, StringComparer.Ordinal)
+            .ThenBy(static value => value.Definition.ValidationPlan.Version)
+            .ToArray();
+        BaseSubjectValidationPlanReceipt[] receipts = observed.Value;
+        if (receipts.Length != contracts.Length)
+            throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid);
+        if (requireDynamicAuthority && registration.Store is not IAtomicRecordStore)
+            throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid);
+        IAtomicRecordStore? atomicStore = registration.Store as IAtomicRecordStore;
+        Dictionary<string, CollectionDefinition> collections = features.CollectionDefinitions
+            .ToDictionary(static value => value.Id, StringComparer.Ordinal);
+        for (int index = 0; index < contracts.Length; index++)
+        {
+            BaseSubjectValidationPlanDefinition plan = contracts[index].Definition.ValidationPlan;
+            BaseSubjectValidationPlanReceipt receipt = receipts[index];
+            if (!collections.TryGetValue(plan.PrivateCollectionId, out CollectionDefinition? privateCollection))
+                throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid);
+            OperationResult<BaseAtomicMutationAuthorityRequirement>? authority = requireDynamicAuthority
+                ? await atomicStore!.CaptureAtomicMutationAuthorityRequirementAsync(
+                    features.LogicalSchema.ApplicationId,
+                    [privateCollection],
+                    AuthorityAcquisitionLimits(),
+                    cancellationToken).ConfigureAwait(false)
+                : null;
+            if (!string.Equals(receipt.PlanId, plan.Id, StringComparison.Ordinal)
+                || receipt.PlanVersion != plan.Version
+                || !string.Equals(receipt.PlanChecksum, contracts[index].PlanChecksum, StringComparison.Ordinal)
+                || !string.Equals(receipt.StoreInstanceId, features.StoreReceipt.RecordStoreRegistrationId, StringComparison.Ordinal)
+                || requireDynamicAuthority && (authority is null || !authority.IsSuccess() || authority.Value is null
+                    || receipt.SchemaGeneration != authority.Value.SchemaGeneration
+                    || !string.Equals(receipt.StoreInstanceId, authority.Value.StoreInstanceId, StringComparison.Ordinal))
+                || receipt.Access != plan.Access
+                || receipt.LoweringFormatVersion != 1)
+                throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid);
+        }
+    }
+
+    private static BaseAtomicMutationExecutionLimits AuthorityAcquisitionLimits() => new()
+    {
+        MaximumItems = 1,
+        MaximumQueryNodes = 1,
+        MaximumQueryDepth = 1,
+        MaximumLiteralValues = 1,
+        MaximumSelectedRecords = 1,
+        MaximumProducedMutations = 1,
+        MaximumQueryExecutions = 1,
+        MaximumPreviousStateRequirements = 1,
+        MaximumRecordCaptures = 1,
+        MaximumRelationTargetCaptures = 1,
+        MaximumGenerationReads = 1,
+        MaximumGenerationComparisons = 1,
+        MaximumGenerationIncrements = 1,
+        MaximumGuardNodes = 1,
+        MaximumGuardDepth = 1,
+        MaximumStatements = 1,
+        MaximumBranches = 1,
+        MaximumExpressionNodes = 1,
+        MaximumSelectedBytes = 1,
+        MaximumEvidenceBytes = 1,
+        MaximumTransientBytes = 1,
+        MaximumReadIntervals = 1,
+        MaximumSubjectValidations = 1,
+        MaximumAuthorityReads = 1,
+        MaximumRelationChecks = 1,
+        MaximumUniqueConstraintChecks = 1,
+        MaximumRequestBytes = 1,
+        MaximumGenerationBytes = 1,
+        MaximumWrittenBytes = 1,
+        MaximumFactBytes = 1,
+        MaximumJournalBytes = 1,
+        MaximumReceiptBytes = 1,
+        MaximumResultBytes = 1,
+        Deadlines = new BaseAtomicMutationDeadlines
+        {
+            AcquisitionTimeout = TimeSpan.FromSeconds(30),
+            TransactionTimeout = TimeSpan.FromSeconds(30),
+            CommitObservationTimeout = TimeSpan.FromSeconds(30),
+            ReceiptResolutionTimeout = TimeSpan.FromSeconds(30),
+        },
+    };
+
+    private void ValidateAuthorityGraph()
+    {
+        HPDBaseStoreInstallationMarker[] markers = services.GetServices<HPDBaseStoreInstallationMarker>().ToArray();
+        if (markers.Length != 1 || markers[0].Identity != features.StoreReceipt.Identity)
+            throw new InvalidOperationException("base.store.authorityAmbiguous");
+        RecordStoreRegistration[] registrations = services.GetRequiredService<IRecordStoreRegistry>().GetRegistrations();
+        if (registrations.Length != 1)
+            throw new InvalidOperationException("base.store.authorityAmbiguous");
+        RecordStoreRegistration registration = registrations[0];
+        IRecordStore[] recordStores = services.GetServices<IRecordStore>().ToArray();
+        if (recordStores.Length != 1 || !ReferenceEquals(recordStores[0], registration.Store) ||
+            !string.Equals(registration.StoreId, features.StoreReceipt.RecordStoreRegistrationId, StringComparison.Ordinal))
+            throw new InvalidOperationException("base.store.authorityAmbiguous");
+
+        object store = registration.Store;
+        IBaseVectorProvider[] vectorProviders = services.GetServices<IBaseVectorProvider>().ToArray();
+        IBaseVectorAuthority[] vectorAuthorities = services.GetServices<IBaseVectorAuthority>().ToArray();
+        foreach (string role in features.StoreReceipt.RequiredRoles)
+        {
+            bool valid = role switch
+            {
+                "records" => store is IRecordStore,
+                "mutation" => store is IRecordMutationStore,
+                "atomic" => store is IAtomicRecordStore,
+                "schema" => store is IBaseSchemaStore,
+                "relational" => store is IRelationalReadStore,
+                "journal" or "history" => store is ITransactionalMutationJournalStore,
+                "administration" => store is IRecordStoreAdministration,
+                "vector.provider" => vectorProviders.Length == 1,
+                "vector.authority" => vectorAuthorities.Length == 1 && vectorProviders.Length == 1 && ReferenceEquals(vectorAuthorities[0], vectorProviders[0]),
+                _ => false,
+            };
+            if (!valid)
+                throw new InvalidOperationException("base.store.authorityAmbiguous");
+        }
+
+        if (services.GetServices<IRecordMutationStore>().Count() != 1 ||
+            services.GetServices<IAtomicRecordStore>().Count() != 1)
+            throw new InvalidOperationException("base.store.authorityAmbiguous");
+        if (features.StoreReceipt.RequiredRoles.Contains("vector.provider", StringComparer.Ordinal) &&
+            (services.GetServices<IBaseVectorAdministrationProvider>().Count() != 1 ||
+             !ReferenceEquals(services.GetServices<IBaseVectorAdministrationProvider>().Single(), vectorProviders[0])))
+            throw new InvalidOperationException("base.store.authorityAmbiguous");
+    }
+
+    private static void ValidateTokenLifetimes(HPDBaseTokenProtectionOptions options, DateTimeOffset now)
+    {
+        BaseOpaqueTokenKey active = options.ActiveKey;
+        if (now < active.IssueNotBefore || active.IssueUntil is { } issueUntil && now >= issueUntil)
+            throw new InvalidOperationException("The active BASE token key is outside its issuance lifetime.");
+        foreach (BaseOpaqueTokenKey key in options.DecryptionKeys ?? [])
+            if (key.DecryptUntil is { } decryptUntil && now >= decryptUntil)
+                throw new InvalidOperationException("A retained BASE token key is outside its decryption lifetime.");
     }
 }

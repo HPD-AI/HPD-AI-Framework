@@ -23,7 +23,7 @@ public sealed class PackageBoundaryTests
     [Fact]
     public void CorePublicSurfaceStaysInsideAdapterNamespace()
     {
-        var outsideNamespace = PublicTypes(typeof(HPDAuthBaseSubjectMapper).Assembly)
+        var outsideNamespace = PublicTypes(typeof(HPDBaseAuthSubjectProjector).Assembly)
             .Where(static type => type.Namespace != "HPD.Base.Auth")
             .ToArray();
 
@@ -55,7 +55,7 @@ public sealed class PackageBoundaryTests
             "Migration"
         };
 
-        var publicNames = PublicTypes(typeof(HPDAuthBaseSubjectMapper).Assembly)
+        var publicNames = PublicTypes(typeof(HPDBaseAuthSubjectProjector).Assembly)
             .Select(type => type.FullName!)
             .ToArray();
 

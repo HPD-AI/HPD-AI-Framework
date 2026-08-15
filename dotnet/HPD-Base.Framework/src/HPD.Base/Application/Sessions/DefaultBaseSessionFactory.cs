@@ -7,7 +7,8 @@ internal sealed class DefaultBaseSessionFactory(
     IBaseRecordRuntime runtime,
     TimeProvider timeProvider,
     IServiceProvider services,
-    IOptions<HPDBaseRuntimeOptions> runtimeOptions) : IBaseSessionFactory
+    IOptions<HPDBaseRuntimeOptions> runtimeOptions,
+    IOptions<HPDBaseSchemaOptions> schemaOptions) : IBaseSessionFactory
 {
     /// <summary>Executes the for operation.</summary>
     public BaseSession For(
@@ -42,7 +43,9 @@ internal sealed class DefaultBaseSessionFactory(
             services.GetService<IBaseRealtimeFeedSource>(),
             services.GetService<IBaseLiveQueryCoordinator>(),
             services.GetService<IBaseRegisteredReadRuntime>(),
-            runtimeOptions.Value.Limits.MaxPageSize);
+            runtimeOptions.Value.Limits.MaxPageSize,
+            services,
+            schemaOptions.Value.ApplicationId);
     }
 
     private static PrincipalContext Snapshot(PrincipalContext principal) =>

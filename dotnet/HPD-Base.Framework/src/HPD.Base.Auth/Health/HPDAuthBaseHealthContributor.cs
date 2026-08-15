@@ -1,17 +1,16 @@
 using HPD.Base.Auth;
 using HPD.Base;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 
 namespace HPD.Base.Auth;
 
 /// <summary>
 /// Reports health for the HPD.Auth BASE adapter registration.
 /// </summary>
-public sealed class HPDAuthBaseHealthContributor : IBaseHealthContributor
+internal sealed class HPDBaseAuthHealthContributor : IBaseHealthContributor
 {
     /// <inheritdoc />
-    public string Id => HPDAuthBaseHealthIds.Registration;
+    public string Id => HPDBaseAuthHealthIds.Registration;
 
     /// <inheritdoc />
     public ValueTask<HealthDescriptor[]> GetHealthAsync(CancellationToken cancellationToken = default)
@@ -21,9 +20,9 @@ public sealed class HPDAuthBaseHealthContributor : IBaseHealthContributor
         [
             new HealthDescriptor
             {
-                Id = HPDAuthBaseHealthIds.Registration,
+                Id = HPDBaseAuthHealthIds.Registration,
                 Scope = HealthScope.Module,
-                TargetRef = HPDAuthBaseIds.Module,
+                TargetRef = HPDBaseAuthIds.Module,
                 Status = HealthStatus.Healthy,
                 CheckedAt = DateTimeOffset.UtcNow,
                 Summary = "HPD.Auth adapter services are registered.",
@@ -37,34 +36,34 @@ public sealed class HPDAuthBaseHealthContributor : IBaseHealthContributor
 /// <summary>
 /// Reports diagnostics for the HPD.Auth BASE adapter registration.
 /// </summary>
-public sealed class HPDAuthBaseDiagnosticContributor : IBaseDiagnosticContributor
+internal sealed class HPDBaseAuthDiagnosticContributor : IBaseDiagnosticContributor
 {
-    private readonly HPDBaseHPDAuthOptions _options;
-    private readonly IEnumerable<IHPDAuthBaseHostIntegrationStatus> _hostStatuses;
-    private readonly IEnumerable<IHPDAuthBaseGrantProvider> _grantProviders;
-    private readonly ILogger<HPDAuthBaseDiagnosticContributor> _logger;
+    private readonly HPDBaseAuthSnapshot _options;
+    private readonly IEnumerable<IHPDBaseAuthHostIntegrationStatus> _hostStatuses;
+    private readonly IEnumerable<IHPDBaseAuthGrantProvider> _grantProviders;
+    private readonly ILogger<HPDBaseAuthDiagnosticContributor> _logger;
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="HPDAuthBaseDiagnosticContributor"/> class.
+    /// Initializes a new instance of the <see cref="HPDBaseAuthDiagnosticContributor"/> class.
     /// </summary>
     /// <param name="options">Adapter options.</param>
     /// <param name="hostStatuses">Host integration status providers.</param>
     /// <param name="grantProviders">Registered grant providers.</param>
     /// <param name="logger">The diagnostic contributor logger.</param>
-    public HPDAuthBaseDiagnosticContributor(
-        IOptions<HPDBaseHPDAuthOptions> options,
-        IEnumerable<IHPDAuthBaseHostIntegrationStatus> hostStatuses,
-        IEnumerable<IHPDAuthBaseGrantProvider> grantProviders,
-        ILogger<HPDAuthBaseDiagnosticContributor> logger)
+    public HPDBaseAuthDiagnosticContributor(
+        HPDBaseAuthSnapshot options,
+        IEnumerable<IHPDBaseAuthHostIntegrationStatus> hostStatuses,
+        IEnumerable<IHPDBaseAuthGrantProvider> grantProviders,
+        ILogger<HPDBaseAuthDiagnosticContributor> logger)
     {
-        _options = options.Value;
+        _options = options;
         _hostStatuses = hostStatuses;
         _grantProviders = grantProviders;
         _logger = logger;
     }
 
     /// <inheritdoc />
-    public string Id => HPDAuthBaseDiagnosticIds.MissingAuthServices;
+    public string Id => HPDBaseAuthDiagnosticIds.MissingAuthServices;
 
     /// <inheritdoc />
     public ValueTask<DiagnosticDescriptor[]> GetDiagnosticsAsync(CancellationToken cancellationToken = default)
@@ -74,7 +73,7 @@ public sealed class HPDAuthBaseDiagnosticContributor : IBaseDiagnosticContributo
         var statuses = _hostStatuses.ToArray();
         if (_options.RequireHPDAuthServices && !statuses.Any(static status => status.HPDAuthServicesDetected))
         {
-            HPDBaseHPDAuthLog.AuthServicesUnavailable(_logger, HPDAuthBaseDiagnosticIds.MissingAuthServices);
+            HPDBaseHPDAuthLog.AuthServicesUnavailable(_logger, HPDBaseAuthDiagnosticIds.MissingAuthServices);
             diagnostics.Add(MissingAuthServices(statuses));
         }
 
@@ -82,18 +81,18 @@ public sealed class HPDAuthBaseDiagnosticContributor : IBaseDiagnosticContributo
             && _options.StaticGrants.Length == 0
             && _options.CollectionRules.Length == 0)
         {
-            HPDBaseHPDAuthLog.GrantConfigurationMissing(_logger, HPDAuthBaseDiagnosticIds.NoGrantProvider);
+            HPDBaseHPDAuthLog.GrantConfigurationMissing(_logger, HPDBaseAuthDiagnosticIds.NoGrantProvider);
             diagnostics.Add(new DiagnosticDescriptor
             {
-                Id = HPDAuthBaseDiagnosticIds.NoGrantProvider,
-                Code = HPDAuthBaseDiagnosticIds.NoGrantProvider,
+                Id = HPDBaseAuthDiagnosticIds.NoGrantProvider,
+                Code = HPDBaseAuthDiagnosticIds.NoGrantProvider,
                 Severity = DiagnosticSeverity.Info,
-                TargetRef = HPDAuthBaseIds.Module,
+                TargetRef = HPDBaseAuthIds.Module,
                 Message = "No HPD.Auth BASE grant provider, static grant, or collection rule is configured.",
                 PublicMessage = "HPD.Auth BASE authorization rules are not configured.",
                 Category = DiagnosticCategory.Policy,
-                Remediation = "Register IHPDAuthBaseGrantProvider or configure CollectionRules/StaticGrants.",
-                RelatedFeatureIds = [HPDAuthBaseFeatureIds.GrantProvider, HPDAuthBaseFeatureIds.PolicyEvaluator],
+                Remediation = "Register IHPDBaseAuthGrantProvider or configure CollectionRules/StaticGrants.",
+                RelatedFeatureIds = [HPDBaseAuthFeatureIds.GrantProvider, HPDBaseAuthFeatureIds.PolicyEvaluator],
                 Visibility = VisibilityLevel.Admin,
                 EmittedAt = DateTimeOffset.UtcNow
             });
@@ -102,7 +101,7 @@ public sealed class HPDAuthBaseDiagnosticContributor : IBaseDiagnosticContributo
         return ValueTask.FromResult(diagnostics.ToArray());
     }
 
-    private static DiagnosticDescriptor MissingAuthServices(IHPDAuthBaseHostIntegrationStatus[] statuses)
+    private static DiagnosticDescriptor MissingAuthServices(IHPDBaseAuthHostIntegrationStatus[] statuses)
     {
         var missing = statuses
             .SelectMany(static status => status.MissingRequiredServiceNames)
@@ -115,15 +114,15 @@ public sealed class HPDAuthBaseDiagnosticContributor : IBaseDiagnosticContributo
 
         return new DiagnosticDescriptor
         {
-            Id = HPDAuthBaseDiagnosticIds.MissingAuthServices,
-            Code = HPDAuthBaseDiagnosticIds.MissingAuthServices,
+            Id = HPDBaseAuthDiagnosticIds.MissingAuthServices,
+            Code = HPDBaseAuthDiagnosticIds.MissingAuthServices,
             Severity = DiagnosticSeverity.Info,
-            TargetRef = HPDAuthBaseIds.Module,
+            TargetRef = HPDBaseAuthIds.Module,
             Message = $"HPD.Auth host services were not fully detected for the BASE HPD.Auth adapter. {missingMessage}",
             PublicMessage = "HPD.Auth integration is not fully detected.",
             Category = DiagnosticCategory.Policy,
-            Remediation = "Call AddHPDAuth() before AddHPDBaseHPDAuthAspNetCore(), or set RequireHPDAuthServices to false for claim-only hosts.",
-            RelatedFeatureIds = [HPDAuthBaseFeatureIds.PrincipalMap, HPDAuthBaseFeatureIds.PolicyEvaluator],
+            Remediation = "Install AddHPDAuth(), or set RequireHPDAuthServices to false for claim-only hosts.",
+            RelatedFeatureIds = [HPDBaseAuthFeatureIds.PrincipalMap, HPDBaseAuthFeatureIds.PolicyEvaluator],
             Visibility = VisibilityLevel.Admin,
             EmittedAt = DateTimeOffset.UtcNow
         };
@@ -133,7 +132,7 @@ public sealed class HPDAuthBaseDiagnosticContributor : IBaseDiagnosticContributo
 /// <summary>
 /// Names HPD.Auth adapter health ids.
 /// </summary>
-public static class HPDAuthBaseHealthIds
+public static class HPDBaseAuthHealthIds
 {
     /// <summary>
     /// Registration health id.
@@ -144,7 +143,7 @@ public static class HPDAuthBaseHealthIds
 /// <summary>
 /// Names HPD.Auth adapter diagnostic ids.
 /// </summary>
-public static class HPDAuthBaseDiagnosticIds
+public static class HPDBaseAuthDiagnosticIds
 {
     /// <summary>
     /// Missing auth services diagnostic id.

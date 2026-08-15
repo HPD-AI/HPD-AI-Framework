@@ -3,7 +3,7 @@ namespace HPD.Base.AspNetCore.Tests.Descriptors;
 public sealed class DescriptorTests
 {
     [Fact]
-    public async Task ProjectionDescriptorContainsExactPhaseOneRouteTable()
+    public async Task ProjectionDescriptorContainsExactRouteTable()
     {
         await using var app = await TestBaseApp.CreateAsync();
         var manifest = await app.ReadBaseJsonAsync<BaseManifest>((await app.GetTestClient().GetAsync("/base/manifest")).Content);
@@ -25,7 +25,9 @@ public sealed class DescriptorTests
             "Put /base/collections/{collectionId}/records/{id}",
             "Delete /base/collections/{collectionId}/records/{id}",
             "Post /base/records/batch",
-            "Put /base/collections/{collectionId}/records/{id}:upsert"
+            "Put /base/collections/{collectionId}/records/{id}:upsert",
+            "Get /base/client-generation",
+            "Get /base/client-generation"
         ]);
     }
 

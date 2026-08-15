@@ -372,8 +372,8 @@ public sealed class PatchReplaceDeleteOperationPipelineTests
             store,
             fields:
             [
-                new FieldDefinition { Id = "title", Name = "title", Type = BaseFieldTypes.String },
-                new FieldDefinition { Id = "secret", Name = "secret", Type = BaseFieldTypes.String, Hidden = true }
+                new FieldDefinition { Id = "title", ApplicationName = "title", WireName = "title", Type = BaseFieldTypes.String },
+                new FieldDefinition { Id = "secret", ApplicationName = "secret", WireName = "secret", Type = BaseFieldTypes.String, Hidden = true }
             ],
             configureServices: services => services.AddSingleton<IBaseEventPublisher>(publisher));
 

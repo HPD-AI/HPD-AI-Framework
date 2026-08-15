@@ -79,6 +79,8 @@ public static class BaseDependencyIds
     public const string Collection = "base.collection";
     /// <summary>Provides the record value.</summary>
     public const string Record = "base.record";
+    /// <summary>Provides the protected exported-subject contract-generation dependency.</summary>
+    public const string SubjectContract = "base.subject.contract";
 }
 
 /// <summary>Stable bounded invalidation reasons.</summary>
@@ -86,4 +88,6 @@ public static class BaseDependencyInvalidationReasons
 {
     /// <summary>Provides the record mutation value.</summary>
     public const string RecordMutation = "recordMutation";
+    /// <summary>Provides the exported-subject authority publication value.</summary>
+    public const string SubjectAuthorityChanged = "subjectAuthorityChanged";
 }

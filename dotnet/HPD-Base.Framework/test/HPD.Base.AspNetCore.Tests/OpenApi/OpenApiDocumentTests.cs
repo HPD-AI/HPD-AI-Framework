@@ -3,7 +3,7 @@ namespace HPD.Base.AspNetCore.Tests.OpenApi;
 public sealed class OpenApiDocumentTests
 {
     [Fact]
-    public async Task MapHPDBaseApiAloneDoesNotExposeOpenApiDocuments()
+    public async Task BaseEndpointMappingAloneDoesNotExposeOpenApiDocuments()
     {
         await using var app = await TestBaseApp.CreateAsync();
         var response = await app.GetTestClient().GetAsync("/base/openapi/base-public.json");
@@ -57,7 +57,7 @@ public sealed class OpenApiDocumentTests
         Paths(defaultAdminDoc).Should().NotContainKey("/base/admin/policy/explain");
 
         await using var withExplain = await TestBaseApp.CreateAsync(
-            configureEndpoints: options => options.MapAdminPolicyExplain = true,
+            configureEndpoints: options => options.MapPolicyExplain = true,
             mapOpenApi: true);
         using var mappedAdminDoc = await GetDocument(withExplain, "base-admin");
         Paths(mappedAdminDoc).Should().ContainKey("/base/admin/policy/explain");
@@ -147,15 +147,14 @@ public sealed class OpenApiDocumentTests
     }
 
     [Fact]
-    public async Task AdminDocumentAddsSecurityOnlyWhenAdminAuthorizationMetadataExists()
+    public async Task AdminDocumentAddsSecurityFromProtectedControlPlaneInventory()
     {
         await using var noAuthApp = await TestBaseApp.CreateAsync(mapOpenApi: true);
         using var noAuthDoc = await GetDocument(noAuthApp, "base-admin");
-        Operation(noAuthDoc, "/base/admin/manifest", "get").TryGetProperty("security", out _).Should().BeFalse();
+        Operation(noAuthDoc, "/base/admin/manifest", "get").TryGetProperty("security", out _).Should().BeTrue();
 
         await using var authApp = await TestBaseApp.CreateAsync(
             configureServices: services => services.AddAuthorization(),
-            configureEndpoints: options => options.RequireAuthorizationForAdminRoutes = true,
             mapOpenApi: true);
         using var authDoc = await GetDocument(authApp, "base-admin");
 
@@ -169,7 +168,6 @@ public sealed class OpenApiDocumentTests
     {
         await using var app = await TestBaseApp.CreateAsync(
             configureServices: services => services.AddAuthorization(),
-            configureEndpoints: options => options.RequireAuthorizationForAdminRoutes = true,
             configureOpenApi: options => options.AddBearerSecurityScheme = false,
             mapOpenApi: true);
         using var adminDoc = await GetDocument(app, "base-admin");
@@ -182,7 +180,7 @@ public sealed class OpenApiDocumentTests
     public async Task AdminPolicyExplainDocumentsNoStoreWithoutETag()
     {
         await using var app = await TestBaseApp.CreateAsync(
-            configureEndpoints: options => options.MapAdminPolicyExplain = true,
+            configureEndpoints: options => options.MapPolicyExplain = true,
             mapOpenApi: true);
         using var adminDoc = await GetDocument(app, "base-admin");
 
@@ -200,7 +198,7 @@ public sealed class OpenApiDocumentTests
     public async Task DeferredRoutesAreAbsent()
     {
         await using var app = await TestBaseApp.CreateAsync(
-            configureEndpoints: options => options.MapAdminPolicyExplain = true,
+            configureEndpoints: options => options.MapPolicyExplain = true,
             mapOpenApi: true);
         using var publicDoc = await GetDocument(app, "base-public");
         using var adminDoc = await GetDocument(app, "base-admin");

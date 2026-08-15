@@ -46,23 +46,23 @@ public sealed class SqliteMutationJournalTests
 
         var page = await store.ReadMutationJournalAsync(new BaseMutationJournalReadRequest { Limit = 10 });
         page.Entries.Select(entry => entry.Position.Value).Should().Equal(1, 2, 3, 4);
-        page.Entries.Select(entry => entry.Operation).Should().Equal(
+        page.Entries.Select(entry => entry.RecordMutation!.Operation).Should().Equal(
             BaseOperationKind.Create,
             BaseOperationKind.Patch,
             BaseOperationKind.Replace,
             BaseOperationKind.Delete);
-        page.Entries.Should().OnlyContain(entry => entry.Visibility == VisibilityLevel.Public);
-        page.Entries.Select(entry => entry.EventId)
+        page.Entries.Should().OnlyContain(entry => entry.RecordMutation!.Visibility == VisibilityLevel.Public);
+        page.Entries.Select(entry => entry.RecordMutation!.EventId)
             .Should().OnlyHaveUniqueItems()
             .And.OnlyContain(eventId => !string.IsNullOrWhiteSpace(eventId));
-        page.Entries[0].Before.Should().BeNull();
-        page.Entries[0].After.Should().NotBeNull();
-        page.Entries[1].Before.Should().NotBeNull();
-        page.Entries[1].After.Should().NotBeNull();
-        page.Entries[2].Before.Should().NotBeNull();
-        page.Entries[2].After.Should().NotBeNull();
-        page.Entries[3].Before.Should().NotBeNull();
-        page.Entries[3].After.Should().BeNull();
+        page.Entries[0].RecordMutation!.Before.Should().BeNull();
+        page.Entries[0].RecordMutation!.After.Should().NotBeNull();
+        page.Entries[1].RecordMutation!.Before.Should().NotBeNull();
+        page.Entries[1].RecordMutation!.After.Should().NotBeNull();
+        page.Entries[2].RecordMutation!.Before.Should().NotBeNull();
+        page.Entries[2].RecordMutation!.After.Should().NotBeNull();
+        page.Entries[3].RecordMutation!.Before.Should().NotBeNull();
+        page.Entries[3].RecordMutation!.After.Should().BeNull();
         page.HighWatermark.Value.Should().Be(4);
         page.HasMore.Should().BeFalse();
     }
@@ -170,7 +170,7 @@ public sealed class SqliteMutationJournalTests
                 Operation(BaseOperationKind.Create, 1));
             var committed = await store.ReadMutationJournalAsync(
                 new BaseMutationJournalReadRequest { Limit = 10 });
-            var eventId = committed.Entries.Should().ContainSingle().Subject.EventId;
+            var eventId = committed.Entries.Should().ContainSingle().Subject.RecordMutation!.EventId;
             time.Advance(TimeSpan.FromSeconds(9));
 
             var page = await store.ReadMutationJournalAsync(
@@ -275,7 +275,7 @@ public sealed class SqliteMutationJournalTests
         results.Should().OnlyContain(result => result.Status == OperationStatus.Created);
         var page = await store.ReadMutationJournalAsync(new BaseMutationJournalReadRequest { Limit = 10 });
         page.Entries.Select(entry => entry.Position.Value).Should().Equal(1, 2, 3, 4, 5, 6, 7, 8);
-        page.Entries.Select(entry => entry.EventId).Should().OnlyHaveUniqueItems();
+        page.Entries.Select(entry => entry.RecordMutation!.EventId).Should().OnlyHaveUniqueItems();
     }
 
     [Fact]
@@ -301,6 +301,7 @@ public sealed class SqliteMutationJournalTests
             },
             fixture.Operation(BaseOperationKind.Create));
 
+
         result.Events.Should().ContainSingle();
         result.Events![0].Guarantee.Should().Be(EventDeliveryGuarantee.Transactional);
         publisher.LastEvent.Should().NotBeNull();
@@ -321,9 +322,13 @@ public sealed class SqliteMutationJournalTests
             };
             var services = new ServiceCollection();
             services.AddLogging();
-            services.AddSingleton<IPolicyEvaluator, ConformanceAllowPolicyEvaluator>();
             services.AddHPDBaseRuntime(options =>
                     options.Events.PublishFailureMode = BaseEventPublishFailureMode.RequireEnqueue)
+                .UsePolicyAuthority("sqlite-journal-tests", new BasePolicyAuthorityDefinition
+                {
+                    Id = "sqlite.journal.policy", Version = 1, OwningModuleId = "tests",
+                    EvaluatorContractId = "sqlite.journal.policy.evaluator", EvaluatorContractVersion = 1, CompositionOrder = 0,
+                }, new ConformanceAllowPolicyEvaluator())
                 .AddHPDBaseSqliteStore(options =>
                 {
                     options.StoreId = "require-enqueue";
@@ -344,6 +349,7 @@ public sealed class SqliteMutationJournalTests
                     SubjectKind = AccessSubjectKind.System
                 },
                 Operation(BaseOperationKind.Create, 1));
+
 
             descriptor.Validation.Succeeded.Should().BeTrue();
             result.Status.Should().Be(OperationStatus.Created);

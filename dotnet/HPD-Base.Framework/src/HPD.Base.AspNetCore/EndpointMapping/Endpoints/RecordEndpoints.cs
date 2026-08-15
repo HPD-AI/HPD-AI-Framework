@@ -13,17 +13,17 @@ namespace HPD.Base.AspNetCore;
 internal static class RecordEndpoints
 {
     /// <summary>Executes the map operation.</summary>
-    public static void Map(IEndpointRouteBuilder endpoints)
+    public static void Map(IEndpointRouteBuilder endpoints, HPDBaseEndpointAudience audience, Action<IEndpointConventionBuilder, HPDBaseEndpointDescriptor>? convention = null)
     {
-        endpoints.MapGet("/collections/{collectionId}/records", (RequestDelegate)ListRequest).WithHPDBaseOpenApi(BaseRouteIds.RecordsList).WithName(BaseRouteIds.RecordsList);
-        endpoints.MapPost("/collections/{collectionId}/records:query", (RequestDelegate)QueryRequest).WithHPDBaseOpenApi(BaseRouteIds.RecordsQuery).WithName(BaseRouteIds.RecordsQuery);
-        endpoints.MapGet("/collections/{collectionId}/records/{id}", (RequestDelegate)GetRequest).WithHPDBaseOpenApi(BaseRouteIds.RecordsGet).WithName(BaseRouteIds.RecordsGet);
-        endpoints.MapPost("/collections/{collectionId}/records", (RequestDelegate)CreateRequest).WithHPDBaseOpenApi(BaseRouteIds.RecordsCreate).WithName(BaseRouteIds.RecordsCreate);
-        endpoints.MapPatch("/collections/{collectionId}/records/{id}", (RequestDelegate)PatchRequest).WithHPDBaseOpenApi(BaseRouteIds.RecordsPatch).WithName(BaseRouteIds.RecordsPatch);
-        endpoints.MapPut("/collections/{collectionId}/records/{id}", (RequestDelegate)ReplaceRequest).WithHPDBaseOpenApi(BaseRouteIds.RecordsReplace).WithName(BaseRouteIds.RecordsReplace);
-        endpoints.MapDelete("/collections/{collectionId}/records/{id}", (RequestDelegate)DeleteRequest).WithHPDBaseOpenApi(BaseRouteIds.RecordsDelete).WithName(BaseRouteIds.RecordsDelete);
-        endpoints.MapPost("/records/batch", (RequestDelegate)BatchRequest).WithHPDBaseOpenApi(BaseRouteIds.RecordsBatch).WithName(BaseRouteIds.RecordsBatch);
-        endpoints.MapPut("/collections/{collectionId}/records/{id}:upsert", (RequestDelegate)UpsertRequest).WithHPDBaseOpenApi(BaseRouteIds.RecordsUpsert).WithName(BaseRouteIds.RecordsUpsert);
+        endpoints.MapGet("/collections/{collectionId}/records", (RequestDelegate)ListRequest).WithHPDBaseEndpoint(BaseRouteIds.RecordsList, audience, HPDBaseEndpointOperation.RecordRead, HPDBaseCapabilities.RecordsRead, convention).WithHPDBaseOpenApi(BaseRouteIds.RecordsList).WithName(BaseRouteIds.RecordsList);
+        endpoints.MapPost("/collections/{collectionId}/records:query", (RequestDelegate)QueryRequest).WithHPDBaseEndpoint(BaseRouteIds.RecordsQuery, audience, HPDBaseEndpointOperation.RecordRead, HPDBaseCapabilities.RecordsRead, convention).WithHPDBaseOpenApi(BaseRouteIds.RecordsQuery).WithName(BaseRouteIds.RecordsQuery);
+        endpoints.MapGet("/collections/{collectionId}/records/{id}", (RequestDelegate)GetRequest).WithHPDBaseEndpoint(BaseRouteIds.RecordsGet, audience, HPDBaseEndpointOperation.RecordRead, HPDBaseCapabilities.RecordsRead, convention).WithHPDBaseOpenApi(BaseRouteIds.RecordsGet).WithName(BaseRouteIds.RecordsGet);
+        endpoints.MapPost("/collections/{collectionId}/records", (RequestDelegate)CreateRequest).WithHPDBaseEndpoint(BaseRouteIds.RecordsCreate, audience, HPDBaseEndpointOperation.RecordWrite, HPDBaseCapabilities.RecordsWrite, convention).WithHPDBaseOpenApi(BaseRouteIds.RecordsCreate).WithName(BaseRouteIds.RecordsCreate);
+        endpoints.MapPatch("/collections/{collectionId}/records/{id}", (RequestDelegate)PatchRequest).WithHPDBaseEndpoint(BaseRouteIds.RecordsPatch, audience, HPDBaseEndpointOperation.RecordWrite, HPDBaseCapabilities.RecordsWrite, convention).WithHPDBaseOpenApi(BaseRouteIds.RecordsPatch).WithName(BaseRouteIds.RecordsPatch);
+        endpoints.MapPut("/collections/{collectionId}/records/{id}", (RequestDelegate)ReplaceRequest).WithHPDBaseEndpoint(BaseRouteIds.RecordsReplace, audience, HPDBaseEndpointOperation.RecordWrite, HPDBaseCapabilities.RecordsWrite, convention).WithHPDBaseOpenApi(BaseRouteIds.RecordsReplace).WithName(BaseRouteIds.RecordsReplace);
+        endpoints.MapDelete("/collections/{collectionId}/records/{id}", (RequestDelegate)DeleteRequest).WithHPDBaseEndpoint(BaseRouteIds.RecordsDelete, audience, HPDBaseEndpointOperation.RecordDelete, HPDBaseCapabilities.RecordsDelete, convention).WithHPDBaseOpenApi(BaseRouteIds.RecordsDelete).WithName(BaseRouteIds.RecordsDelete);
+        endpoints.MapPost("/records/batch", (RequestDelegate)BatchRequest).WithHPDBaseEndpoint(BaseRouteIds.RecordsBatch, audience, HPDBaseEndpointOperation.RecordBatchWrite, HPDBaseCapabilities.RecordsBatchWrite, convention).WithHPDBaseOpenApi(BaseRouteIds.RecordsBatch).WithName(BaseRouteIds.RecordsBatch);
+        endpoints.MapPut("/collections/{collectionId}/records/{id}:upsert", (RequestDelegate)UpsertRequest).WithHPDBaseEndpoint(BaseRouteIds.RecordsUpsert, audience, HPDBaseEndpointOperation.RecordWrite, HPDBaseCapabilities.RecordsWrite, convention).WithHPDBaseOpenApi(BaseRouteIds.RecordsUpsert).WithName(BaseRouteIds.RecordsUpsert);
     }
 
     private static Task ListRequest(HttpContext httpContext) => Execute(httpContext,
@@ -147,7 +147,7 @@ internal static class RecordEndpoints
         IBaseHttpResultMapper resultMapper,
         CancellationToken cancellationToken)
     {
-        var principal = await principalFactory.CreateAsync(httpContext, HPDBaseEndpointKind.Records, cancellationToken);
+        var principal = await principalFactory.CreateAsync(httpContext, cancellationToken);
         var operation = operationFactory.Create(httpContext, principal, BaseOperationKind.List, collectionId);
 
         var query = await queryBinder.BindListQueryAsync(httpContext, cancellationToken);
@@ -171,7 +171,7 @@ internal static class RecordEndpoints
 
     private static async Task<IResult> QueryCore(string collectionId, RecordQuery? query, HttpContext httpContext, IHPDBaseRuntime runtime, IBaseHttpPrincipalContextFactory principalFactory, IBaseHttpOperationContextFactory operationFactory, IBaseHttpResultMapper resultMapper, CancellationToken cancellationToken)
     {
-        var principal = await principalFactory.CreateAsync(httpContext, HPDBaseEndpointKind.Records, cancellationToken);
+        var principal = await principalFactory.CreateAsync(httpContext, cancellationToken);
         var operation = operationFactory.Create(httpContext, principal, BaseOperationKind.Query, collectionId);
         var result = await runtime.Records.ListAsync(collectionId, query, principal, operation, cancellationToken);
         return resultMapper.ToHttpResult(result, httpContext, Mapping(operation));
@@ -187,7 +187,7 @@ internal static class RecordEndpoints
         IBaseHttpResultMapper resultMapper,
         CancellationToken cancellationToken)
     {
-        var principal = await principalFactory.CreateAsync(httpContext, HPDBaseEndpointKind.Records, cancellationToken);
+        var principal = await principalFactory.CreateAsync(httpContext, cancellationToken);
         var operation = operationFactory.Create(httpContext, principal, BaseOperationKind.Get, collectionId, id);
         if (!TryBindRecordId(id, Limits(httpContext), out var recordId, out var validation))
             return resultMapper.ToHttpResult(validation!, httpContext, Mapping(operation));
@@ -206,7 +206,7 @@ internal static class RecordEndpoints
         IBaseHttpResultMapper resultMapper,
         CancellationToken cancellationToken)
     {
-        var principal = await principalFactory.CreateAsync(httpContext, HPDBaseEndpointKind.Records, cancellationToken);
+        var principal = await principalFactory.CreateAsync(httpContext, cancellationToken);
         var operation = operationFactory.Create(httpContext, principal, BaseOperationKind.Create, collectionId);
         var result = await runtime.Records.CreateAsync(collectionId, request, principal, operation, cancellationToken);
         var location = result.Value is null ? null : $"{httpContext.Request.Path}/{Uri.EscapeDataString(result.Value.Id.Value)}";
@@ -224,7 +224,7 @@ internal static class RecordEndpoints
         IBaseHttpResultMapper resultMapper,
         CancellationToken cancellationToken)
     {
-        var principal = await principalFactory.CreateAsync(httpContext, HPDBaseEndpointKind.Records, cancellationToken);
+        var principal = await principalFactory.CreateAsync(httpContext, cancellationToken);
         var operation = operationFactory.Create(httpContext, principal, BaseOperationKind.Patch, collectionId, id);
         if (!TryBindRecordId(id, Limits(httpContext), out var recordId, out var validation))
             return resultMapper.ToHttpResult(validation!, httpContext, Mapping(operation));
@@ -249,7 +249,7 @@ internal static class RecordEndpoints
         IBaseHttpResultMapper resultMapper,
         CancellationToken cancellationToken)
     {
-        var principal = await principalFactory.CreateAsync(httpContext, HPDBaseEndpointKind.Records, cancellationToken);
+        var principal = await principalFactory.CreateAsync(httpContext, cancellationToken);
         var operation = operationFactory.Create(httpContext, principal, BaseOperationKind.Replace, collectionId, id);
         if (!TryBindRecordId(id, Limits(httpContext), out var recordId, out var validation))
             return resultMapper.ToHttpResult(validation!, httpContext, Mapping(operation));
@@ -274,7 +274,7 @@ internal static class RecordEndpoints
         IBaseHttpResultMapper resultMapper,
         CancellationToken cancellationToken)
     {
-        var principal = await principalFactory.CreateAsync(httpContext, HPDBaseEndpointKind.Records, cancellationToken);
+        var principal = await principalFactory.CreateAsync(httpContext, cancellationToken);
         var operation = operationFactory.Create(httpContext, principal, BaseOperationKind.Delete, collectionId, id);
         if (!TryBindRecordId(id, Limits(httpContext), out var recordId, out var validation))
             return resultMapper.ToHttpResult(validation!, httpContext, Mapping(operation));
@@ -299,10 +299,7 @@ internal static class RecordEndpoints
         IRecordStoreRegistry stores,
         CancellationToken cancellationToken)
     {
-        var principal = await principalFactory.CreateAsync(
-            httpContext,
-            HPDBaseEndpointKind.Records,
-            cancellationToken);
+        var principal = await principalFactory.CreateAsync(httpContext, cancellationToken);
         var operation = operationFactory.Create(
             httpContext,
             principal,
@@ -330,10 +327,7 @@ internal static class RecordEndpoints
         IBaseHttpResultMapper resultMapper,
         CancellationToken cancellationToken)
     {
-        var principal = await principalFactory.CreateAsync(
-            httpContext,
-            HPDBaseEndpointKind.Records,
-            cancellationToken);
+        var principal = await principalFactory.CreateAsync(httpContext, cancellationToken);
         var operation = operationFactory.Create(
             httpContext,
             principal,
@@ -425,7 +419,7 @@ internal static class RecordEndpoints
         httpContext.Request.RouteValues[key]?.ToString() ?? string.Empty;
 
     private static HPDBaseHttpLimitOptions Limits(HttpContext httpContext) =>
-        httpContext.RequestServices.GetRequiredService<IOptions<HPDBaseAspNetCoreOptions>>().Value.Limits;
+        httpContext.RequestServices.GetRequiredService<HPDBaseAspNetCoreSnapshot>().Limits;
 
     private static HPDBaseHttpResultMappingContext Mapping(OperationContext operation) =>
         new() { CorrelationId = operation.CorrelationId };

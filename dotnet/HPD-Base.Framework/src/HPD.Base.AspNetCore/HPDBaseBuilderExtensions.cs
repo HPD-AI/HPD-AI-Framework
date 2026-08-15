@@ -18,12 +18,15 @@ public static class HPDBaseBuilderExtensions
     {
         /// <summary>Gets the ID.</summary>
         public string Id => "aspNetCore";
-        /// <summary>Gets the is record provider.</summary>
-        public bool IsRecordProvider => false;
-        /// <summary>Gets the supports required indexes.</summary>
-        public bool SupportsRequiredIndexes => false;
+        /// <summary>Gets storage requirements.</summary>
+        public System.Collections.Immutable.ImmutableArray<BaseStorageProtectionRequirement> StorageProtectionRequirements => [];
+        /// <summary>Gets storage capabilities.</summary>
+        public System.Collections.Immutable.ImmutableArray<BaseStorageProtectionCapability> StorageProtectionCapabilities => [];
         /// <summary>Executes the configure operation.</summary>
-        public void Configure(IServiceCollection services, IReadOnlyList<CollectionDefinition> collections) =>
+        public void Configure(IServiceCollection services, IReadOnlyList<CollectionDefinition> collections)
+        {
             services.AddHPDBaseAspNetCore();
+            services.AddHPDBaseRealtimeAspNetCore();
+        }
     }
 }

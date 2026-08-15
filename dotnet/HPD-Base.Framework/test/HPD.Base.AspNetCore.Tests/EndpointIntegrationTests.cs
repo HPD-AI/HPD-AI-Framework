@@ -1,5 +1,6 @@
 using HPD.Base;
 using Microsoft.AspNetCore.Http;
+using System.Text.Json.Serialization;
 
 namespace HPD.Base.AspNetCore.Tests;
 
@@ -150,9 +151,153 @@ public sealed class EndpointIntegrationTests
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
+    [Fact]
+    public async Task SubjectEpochRotationUsesClosedControlPlaneDtoAndCanonicalInt64Strings()
+    {
+        var administration = new SubjectAdministrationStub();
+        WebApplicationBuilder builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Testing" });
+        builder.WebHost.UseTestServer();
+        builder.Services.AddAuthorizationBuilder().AddPolicy("control", policy => policy.RequireAssertion(_ => true));
+        builder.Services.AddSingleton<IHPDBaseAdministration>(administration);
+        builder.Services.AddSingleton<IBaseHttpPrincipalMapper, TestPrincipalMapper>();
+        builder.Services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
+        builder.Services.AddHPDBase(hpd => hpd
+            .AddCollection(HttpPrivateSubjectRecord.Collection)
+            .AddCollection(HttpSubjectConsumerRecord.Collection)
+            .AddExportedSubject(HttpExportedSubject.HPDBaseSubjectRegistration));
+        builder.Services.AddHPDBaseAspNetCore(options =>
+            options.Administration.StagingRoot = Path.Combine(Path.GetTempPath(), "hpd-base-l45-http-staging"));
+        await using WebApplication app = builder.Build();
+        app.MapHPDBasePublicApi();
+        RouteGroupBuilder control = app.MapGroup("/base").RequireAuthorization("control");
+        control.MapHPDBaseControlPlaneEndpoints(
+            app,
+            new HPDBaseControlPlaneEndpointSelection
+            {
+                MapRecords = false,
+                MapRegisteredReads = false,
+                MapAdministration = true,
+                MapArtifactAdministration = true,
+                MapPolicyExplain = false,
+            },
+            (endpoint, _) => endpoint.RequireAuthorization("control"));
+        await app.StartAsync();
+        HttpClient client = app.GetTestClient();
+
+        HttpResponseMessage response = await client.PostAsync(
+            "/base/administration/subjects:rotate-epoch",
+            new StringContent(
+                """{"storeId":"primary","contractId":"example.user","contractVersion":1,"expectedStateGeneration":"1","destructiveIntent":"rotate-subject-authority-epoch"}""",
+                System.Text.Encoding.UTF8,
+                "application/json"));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        administration.Request.Should().NotBeNull();
+        administration.Request!.ExpectedStateGeneration.Should().Be(1);
+        using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsByteArrayAsync());
+        body.RootElement.GetProperty("previousStateGeneration").GetString().Should().Be("1");
+        body.RootElement.GetProperty("publishedStateGeneration").GetString().Should().Be("2");
+        body.RootElement.GetProperty("publicationPosition").GetString().Should().Be("9");
+
+        HttpResponseMessage noncanonical = await client.PostAsync(
+            "/base/administration/subjects:rotate-epoch",
+            new StringContent(
+                """{"storeId":"primary","contractId":"example.user","contractVersion":1,"expectedStateGeneration":"01","destructiveIntent":"rotate-subject-authority-epoch"}""",
+                System.Text.Encoding.UTF8,
+                "application/json"));
+        HttpResponseMessage extra = await client.PostAsync(
+            "/base/administration/subjects:rotate-epoch",
+            new StringContent(
+                """{"storeId":"primary","contractId":"example.user","contractVersion":1,"expectedStateGeneration":"1","destructiveIntent":"rotate-subject-authority-epoch","unknown":true}""",
+                System.Text.Encoding.UTF8,
+                "application/json"));
+
+        noncanonical.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        extra.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
     private static async Task<T?> ReadJson<T>(WebApplication app, HttpContent content)
     {
         var json = await content.ReadAsStringAsync();
         return JsonSerializer.Deserialize<T>(json, app.Services.GetRequiredService<IHPDBaseRuntime>().Json.Options);
     }
+
+    private sealed class SubjectAdministrationStub : IHPDBaseAdministration
+    {
+        public BaseSubjectEpochRotationRequest? Request { get; private set; }
+        public BaseAdministrationCapability Capability { get; } = new()
+        {
+            Backup = false,
+            Validate = false,
+            Restore = false,
+            AdministrativePurge = false,
+            VectorRebuild = false,
+            OnlineBackup = false,
+            WritersBlockedDuringBackup = false,
+            ReadersBlockedDuringBackup = false,
+            RestoreRequiresExclusiveMaintenance = false,
+            Durable = false,
+            MaxArtifactBytes = 0,
+        };
+
+        public ValueTask<BaseResult<BaseSubjectEpochRotationResult>> RotateSubjectEpochAsync(
+            string storeId,
+            PrincipalContext principal,
+            BaseSubjectEpochRotationRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            storeId.Should().Be("primary");
+            principal.Should().NotBeNull();
+            Request = request;
+            return ValueTask.FromResult<BaseResult<BaseSubjectEpochRotationResult>>(
+                new BaseSuccess<BaseSubjectEpochRotationResult>(new BaseSubjectEpochRotationResult
+                {
+                    ContractId = request.ContractId,
+                    ContractVersion = request.ContractVersion,
+                    PreviousStateGeneration = 1,
+                    PublishedStateGeneration = 2,
+                    PublicationPosition = new BaseMutationJournalPosition(9),
+                    ExaminedRecords = 4,
+                    RewrittenReferences = 3,
+                }, OperationStatus.Ok, null, null, null, null));
+        }
+
+        public ValueTask<BaseResult<BaseBackupManifest>> CreateBackupAsync(Stream destination, BaseBackupRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public ValueTask<BaseResult<BaseBackupManifest>> ValidateBackupAsync(Stream source, BaseBackupValidationRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public ValueTask<BaseResult<BaseRestoreResult>> RestoreAsync(Stream source, BaseRestoreRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public ValueTask<BaseResult<BasePurgeResult>> PurgeAsync(BasePurgeRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public ValueTask<BaseResult<BaseVectorRebuildResult>> RebuildVectorIndexAsync(BaseVectorRebuildRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    }
 }
+
+[BaseCollection("http.subject.private", typeof(HttpSubjectJsonContext), SystemOwnerModuleId = "http.subjects")]
+internal sealed partial record HttpPrivateSubjectRecord
+{
+    [BaseField("http.subject.active")]
+    public required bool Active { get; init; }
+}
+
+[BaseExportedSubject(
+    "http.exported-subject",
+    OwningModuleId = "http.subjects",
+    PrivateRecordType = typeof(HttpPrivateSubjectRecord),
+    AcquisitionGrantId = "http.subject.acquire",
+    ValidationGrantId = "http.subject.validate",
+    AdministrationGrantId = "http.subject.rotate",
+    ValidationPlanId = "http.subject.validate.v1",
+    ActiveFieldId = "http.subject.active")]
+internal sealed partial class HttpExportedSubject;
+
+[BaseCollection("http.subject.consumer", typeof(HttpSubjectJsonContext))]
+internal sealed partial record HttpSubjectConsumerRecord
+{
+    [BaseField("http.subject.reference")]
+    [BaseSubjectReference(typeof(HttpExportedSubject), Requirement = BaseSubjectReferenceRequirement.Active)]
+    public required BaseSubjectReference<HttpExportedSubject> Subject { get; init; }
+}
+
+[JsonSerializable(typeof(HttpPrivateSubjectRecord))]
+[JsonSerializable(typeof(HttpSubjectConsumerRecord))]
+[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+internal sealed partial class HttpSubjectJsonContext : JsonSerializerContext;

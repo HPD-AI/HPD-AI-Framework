@@ -1,4 +1,8 @@
-import type { AgentStudioApiConfig, JsonBody } from '../types';
+export interface AgentStudioApiConfig {
+  apiBasePath: string;
+}
+
+type JsonBody = Record<string, unknown> | null;
 
 export function createAgentApi(config: AgentStudioApiConfig) {
   const api = createHpdApiClient(config);

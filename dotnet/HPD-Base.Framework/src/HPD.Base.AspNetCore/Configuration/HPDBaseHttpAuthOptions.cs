@@ -75,14 +75,7 @@ public sealed class HPDBaseHttpAuthOptions
     public int MaxRoles { get; set; } = 32;
 
     /// <summary>
-    /// Gets claim type fragments that are excluded from copied claim values.
+    /// Gets the explicit claim-type allowlist copied into the BASE principal.
     /// </summary>
-    public string[] SensitiveClaimTypeFragments { get; set; } =
-    [
-        "token",
-        "secret",
-        "password",
-        "credential",
-        "authorization"
-    ];
+    public string[] CopiedClaimTypes { get; set; } = [];
 }

@@ -231,6 +231,8 @@ public sealed partial class SqliteRecordStore
                 return SchemaCapability<BaseSchemaApplyResult>(BaseSchemaErrorCodes.MigrationBusy, "SQLite schema migration ownership is busy.");
             }
             await ApplyCollectionMappingsAsync(connection, artifact.CollectionMappings, cancellationToken).ConfigureAwait(false);
+            await InitializeSubjectContractsForSchemaApplyAsync(connection, cancellationToken).ConfigureAwait(false);
+            await InitializeModuleMutationDefinitionsForSchemaApplyAsync(connection, cancellationToken).ConfigureAwait(false);
             string[] missing = await _schema.GetMissingSchemaPartsAsync(connection, cancellationToken).ConfigureAwait(false);
             if (missing.Length != 0)
                 throw new InvalidOperationException("The authenticated SQLite schema plan did not produce the required physical state.");
@@ -264,6 +266,186 @@ public sealed partial class SqliteRecordStore
                 return SchemaFailure<BaseSchemaApplyResult>(BaseSchemaErrorCodes.MigrationIndeterminate, "SQLite schema migration completion is indeterminate.");
             return SchemaFailure<BaseSchemaApplyResult>(BaseSchemaErrorCodes.MigrationRolledBack, "SQLite schema migration failed and rollback was confirmed.");
         }
+        }
+    }
+
+    private async ValueTask InitializeSubjectContractsForSchemaApplyAsync(
+        SqliteConnection connection,
+        CancellationToken cancellationToken)
+    {
+        var installed = _options.ExportedSubjects
+            .Select(static subject => (subject.Id, subject.Version))
+            .ToHashSet();
+        var stale = new List<(string Id, int Version)>();
+        await using (SqliteCommand existingContracts = connection.CreateCommand())
+        {
+            existingContracts.CommandTimeout = TimeoutSeconds();
+            existingContracts.CommandText = $"SELECT contract_id,contract_version FROM {_names.SubjectContracts} ORDER BY contract_id COLLATE BINARY,contract_version;";
+            await using SqliteDataReader reader = await existingContracts.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                var key = (reader.GetString(0), reader.GetInt32(1));
+                if (!installed.Contains(key)) stale.Add(key);
+            }
+        }
+        foreach ((string id, int version) in stale)
+        {
+            await using SqliteCommand removeLifetimes = connection.CreateCommand();
+            removeLifetimes.CommandTimeout = TimeoutSeconds();
+            removeLifetimes.CommandText = $"DELETE FROM {_names.SubjectLifetimes} WHERE contract_id=$id AND contract_version=$version;";
+            removeLifetimes.Parameters.AddWithValue("$id", id);
+            removeLifetimes.Parameters.AddWithValue("$version", version);
+            await removeLifetimes.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
+            await using SqliteCommand removeContract = connection.CreateCommand();
+            removeContract.CommandTimeout = TimeoutSeconds();
+            removeContract.CommandText = $"DELETE FROM {_names.SubjectContracts} WHERE contract_id=$id AND contract_version=$version;";
+            removeContract.Parameters.AddWithValue("$id", id);
+            removeContract.Parameters.AddWithValue("$version", version);
+            if (await removeContract.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+                throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid);
+        }
+
+        foreach (BaseExportedSubjectDefinition subject in _options.ExportedSubjects
+            .OrderBy(static value => value.Id, StringComparer.Ordinal)
+            .ThenBy(static value => value.Version))
+        {
+            await using SqliteCommand current = connection.CreateCommand();
+            current.CommandTimeout = TimeoutSeconds();
+            current.CommandText = $"SELECT contract_checksum FROM {_names.SubjectContracts} WHERE contract_id=$id AND contract_version=$version;";
+            current.Parameters.AddWithValue("$id", subject.Id);
+            current.Parameters.AddWithValue("$version", subject.Version);
+            object? existing = await current.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+            if (existing is not null)
+            {
+                if (!string.Equals(Convert.ToString(existing, CultureInfo.InvariantCulture),
+                    subject.ValidationPlan.ContractChecksum, StringComparison.Ordinal))
+                    throw new InvalidOperationException(BaseSubjectErrorCodes.RegistrationConflict);
+                continue;
+            }
+
+            long restoreEpoch;
+            await using (SqliteCommand restore = connection.CreateCommand())
+            {
+                restore.CommandTimeout = TimeoutSeconds();
+                restore.CommandText = $"SELECT COALESCE(CAST(value AS INTEGER),0) FROM {_names.ProviderState} WHERE key='restore_epoch';";
+                restoreEpoch = Convert.ToInt64(await restore.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture);
+            }
+
+            BaseSubjectAuthorityEpoch epoch = BaseSubjectAuthorityEpoch.Create();
+            long position;
+            await using (SqliteCommand publication = connection.CreateCommand())
+            {
+                publication.CommandTimeout = TimeoutSeconds();
+                publication.CommandText = $"INSERT INTO {_names.MutationJournal}(entry_kind,subject_contract_id,subject_contract_version,subject_previous_generation,subject_published_generation,subject_restore_epoch,subject_publication_kind) VALUES(1,$id,$version,0,1,$restore,0) RETURNING position;";
+                publication.Parameters.AddWithValue("$id", subject.Id);
+                publication.Parameters.AddWithValue("$version", subject.Version);
+                publication.Parameters.AddWithValue("$restore", restoreEpoch);
+                position = Convert.ToInt64(await publication.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture);
+            }
+
+            string digest = BaseSubjectPublicationIntegrity.Compute(
+                subject.Id, subject.Version, subject.ValidationPlan.ContractChecksum,
+                0, 1, restoreEpoch, BaseSubjectAuthorityPublicationKind.InitialInstallation,
+                new BaseMutationJournalPosition(position), epoch);
+            await using SqliteCommand insert = connection.CreateCommand();
+            insert.CommandTimeout = TimeoutSeconds();
+            insert.CommandText = $"INSERT INTO {_names.SubjectContracts}(contract_id,contract_version,contract_checksum,authority_epoch,restore_epoch,state_generation,publication_previous_generation,publication_kind,publication_position,publication_digest) VALUES($id,$version,$checksum,$epoch,$restore,1,0,0,$position,$digest);";
+            insert.Parameters.AddWithValue("$id", subject.Id);
+            insert.Parameters.AddWithValue("$version", subject.Version);
+            insert.Parameters.AddWithValue("$checksum", subject.ValidationPlan.ContractChecksum);
+            insert.Parameters.Add("$epoch", SqliteType.Blob).Value = epoch.ToArray();
+            insert.Parameters.AddWithValue("$restore", restoreEpoch);
+            insert.Parameters.AddWithValue("$position", position);
+            insert.Parameters.AddWithValue("$digest", digest);
+            await insert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private async ValueTask InitializeModuleMutationDefinitionsForSchemaApplyAsync(
+        SqliteConnection connection,
+        CancellationToken cancellationToken)
+    {
+        var installedOperations = _options.ModuleMutations.Select(static value => (value.Id, value.Version)).ToHashSet();
+        await using (SqliteCommand existing = connection.CreateCommand())
+        {
+            existing.CommandTimeout = TimeoutSeconds();
+            existing.CommandText = $"SELECT operation_id,operation_version FROM {_names.ModuleMutationDefinitions} ORDER BY operation_id COLLATE BINARY,operation_version;";
+            await using SqliteDataReader reader = await existing.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            var retired = new List<(string Id, int Version)>();
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                if (!installedOperations.Contains((reader.GetString(0), reader.GetInt32(1))))
+                    retired.Add((reader.GetString(0), reader.GetInt32(1)));
+            await reader.DisposeAsync().ConfigureAwait(false);
+            foreach ((string id, int version) in retired)
+            {
+                await using var retained = connection.CreateCommand();
+                retained.CommandTimeout = TimeoutSeconds();
+                retained.CommandText = $"SELECT 1 FROM {_names.OperationReceipts} WHERE operation=$operation AND expires_at>$now LIMIT 1;";
+                retained.Parameters.AddWithValue("$operation", id);
+                retained.Parameters.AddWithValue("$now", _timeProvider.GetUtcNow().ToString("O", CultureInfo.InvariantCulture));
+                if (await retained.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is not null)
+                    throw new InvalidOperationException("base.moduleMutation.removalRequired");
+                await using var remove = connection.CreateCommand();
+                remove.CommandTimeout = TimeoutSeconds();
+                remove.CommandText = $"DELETE FROM {_names.ModuleMutationDefinitions} WHERE operation_id=$id AND operation_version=$version;";
+                remove.Parameters.AddWithValue("$id", id); remove.Parameters.AddWithValue("$version", version);
+                if (await remove.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+                    throw new InvalidOperationException("base.moduleMutation.schemaDrift");
+            }
+        }
+        foreach (BaseRegisteredModuleMutationDefinition operation in _options.ModuleMutations
+            .OrderBy(static value => value.Id, StringComparer.Ordinal).ThenBy(static value => value.Version))
+        {
+            string checksum = Convert.ToHexStringLower(operation.Checksum.ToArray());
+            await using SqliteCommand command = connection.CreateCommand();
+            command.CommandTimeout = TimeoutSeconds();
+            command.CommandText = $"INSERT INTO {_names.ModuleMutationDefinitions}(operation_id,operation_version,owning_module_id,operation_checksum) VALUES($id,$version,$owner,$checksum) ON CONFLICT(operation_id,operation_version) DO UPDATE SET owning_module_id=excluded.owning_module_id,operation_checksum=excluded.operation_checksum WHERE owning_module_id=excluded.owning_module_id AND operation_checksum=excluded.operation_checksum;";
+            command.Parameters.AddWithValue("$id", operation.Id); command.Parameters.AddWithValue("$version", operation.Version);
+            command.Parameters.AddWithValue("$owner", operation.OwningModuleId); command.Parameters.AddWithValue("$checksum", checksum);
+            if (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+                throw new InvalidOperationException("base.moduleMutation.schemaDrift");
+        }
+
+        var installedCells = _options.ModuleGenerationCells.Select(static value => (value.Id, value.Version)).ToHashSet();
+        await using (SqliteCommand existing = connection.CreateCommand())
+        {
+            existing.CommandTimeout = TimeoutSeconds();
+            existing.CommandText = $"SELECT cell_id,cell_version FROM {_names.ModuleGenerationDefinitions} ORDER BY cell_id COLLATE BINARY,cell_version;";
+            await using SqliteDataReader reader = await existing.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            var retired = new List<(string Id, int Version)>();
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                if (!installedCells.Contains((reader.GetString(0), reader.GetInt32(1))))
+                    retired.Add((reader.GetString(0), reader.GetInt32(1)));
+            await reader.DisposeAsync().ConfigureAwait(false);
+            foreach ((string id, int version) in retired)
+            {
+                await using var retained = connection.CreateCommand();
+                retained.CommandTimeout = TimeoutSeconds();
+                retained.CommandText = $"SELECT 1 FROM {_names.ModuleGenerations} WHERE cell_id=$id AND cell_version=$version LIMIT 1;";
+                retained.Parameters.AddWithValue("$id", id); retained.Parameters.AddWithValue("$version", version);
+                if (await retained.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is not null)
+                    throw new InvalidOperationException("base.moduleMutation.removalRequired");
+                await using var remove = connection.CreateCommand();
+                remove.CommandTimeout = TimeoutSeconds();
+                remove.CommandText = $"DELETE FROM {_names.ModuleGenerationDefinitions} WHERE cell_id=$id AND cell_version=$version;";
+                remove.Parameters.AddWithValue("$id", id); remove.Parameters.AddWithValue("$version", version);
+                if (await remove.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+                    throw new InvalidOperationException("base.moduleMutation.schemaDrift");
+            }
+        }
+        foreach (BaseModuleGenerationCellDefinition cell in _options.ModuleGenerationCells
+            .OrderBy(static value => value.Id, StringComparer.Ordinal).ThenBy(static value => value.Version))
+        {
+            await using SqliteCommand command = connection.CreateCommand();
+            command.CommandTimeout = TimeoutSeconds();
+            command.CommandText = $"INSERT INTO {_names.ModuleGenerationDefinitions}(cell_id,cell_version,owning_module_id,scope_kind,maximum_key_bytes,maximum_cells,definition_checksum) VALUES($id,$version,$owner,$scope,$keyBytes,$cells,$checksum) ON CONFLICT(cell_id,cell_version) DO UPDATE SET owning_module_id=excluded.owning_module_id,scope_kind=excluded.scope_kind,maximum_key_bytes=excluded.maximum_key_bytes,maximum_cells=excluded.maximum_cells,definition_checksum=excluded.definition_checksum WHERE owning_module_id=excluded.owning_module_id AND scope_kind=excluded.scope_kind AND maximum_key_bytes=excluded.maximum_key_bytes AND maximum_cells=excluded.maximum_cells AND definition_checksum=excluded.definition_checksum;";
+            command.Parameters.AddWithValue("$id", cell.Id); command.Parameters.AddWithValue("$version", cell.Version);
+            command.Parameters.AddWithValue("$owner", cell.OwningModuleId); command.Parameters.AddWithValue("$scope", (int)cell.Scope);
+            command.Parameters.AddWithValue("$keyBytes", cell.MaximumKeyUtf8Bytes); command.Parameters.AddWithValue("$cells", cell.MaximumCellsPerOperation);
+            command.Parameters.AddWithValue("$checksum", BaseModuleMutationContract.ComputeCellChecksum(cell));
+            if (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+                throw new InvalidOperationException("base.moduleMutation.schemaDrift");
         }
     }
 
@@ -437,7 +619,7 @@ public sealed partial class SqliteRecordStore
         foreach (CollectionDefinition collection in _options.Collections)
         {
             assets.Add(new SchemaAssetValue("c:" + collection.Id, collection.Name));
-            foreach (FieldDefinition field in collection.Fields ?? []) assets.Add(new SchemaAssetValue($"f:{collection.Id}:{field.Id}", string.Join('\u001f', field.Name, field.Type, field.Required ? "1" : "0", field.Nullable ? "1" : "0")));
+            foreach (FieldDefinition field in collection.Fields ?? []) assets.Add(new SchemaAssetValue($"f:{collection.Id}:{field.Id}", string.Join('\u001f', field.WireName, field.Type, field.Required ? "1" : "0", field.Nullable ? "1" : "0")));
             foreach (RelationDefinition relation in (collection.Fields ?? []).Select(static field => field.Relation).Where(static relation => relation is not null).Cast<RelationDefinition>())
                 assets.Add(new SchemaAssetValue("r:" + relation.Id, string.Join('\u001f', relation.SourceCollectionId, relation.SourceFieldId, relation.TargetCollectionId, relation.TargetFieldId, relation.OwningSide, relation.LocalMultiplicity, relation.InverseMultiplicity, relation.Required, relation.Ordered, relation.DeleteBehavior)));
             foreach (IndexDefinition index in collection.Indexes ?? []) assets.Add(new SchemaAssetValue($"i:{collection.Id}:{index.Id}", string.Join('\u001f', index.Unique ? "1" : "0", string.Join('\u001e', (index.Parts ?? []).Select(static part => part.FieldId)))));
@@ -608,7 +790,7 @@ public sealed partial class SqliteRecordStore
             .Where(asset => asset.LogicalId.StartsWith("f:" + collectionId + ":", StringComparison.Ordinal))
             .Select(static asset => asset.LogicalId.Split(':')[2])
             .ToHashSet(StringComparer.Ordinal);
-        var columns = new List<string> { "record_id", "revision", "created_at", "updated_at", "append_position" };
+        var columns = new List<string> { "record_id", "revision", "created_at", "updated_at", "append_position", "latest_mutation_position" };
         var values = new List<string>(columns);
         foreach (SqlitePhysicalModel.FieldModel field in collection.Fields)
         {

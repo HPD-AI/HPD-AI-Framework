@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><IsTestProject>false</IsTestProject></PropertyGroup>
+  <ItemGroup><ProjectReference Include="../../src/HPD.Payments.Worker/HPD.Payments.Worker.csproj" /></ItemGroup>
+</Project>

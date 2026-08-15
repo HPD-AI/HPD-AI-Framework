@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>HPD Gateway browser client smoke</title>
+  </head>
+  <body>
+    <main id="result">Running HPD Gateway browser client smoke…</main>
+    <script type="module">
+      import { createGatewayClient } from "../dist/index.js";
+
+      const result = document.querySelector("#result");
+
+      try {
+        let authenticationCalls = 0;
+        let fetchCalls = 0;
+        const client = createGatewayClient({
+          baseUrl: "https://gateway.example",
+          authentication: {
+            getAccessToken: () => {
+              authenticationCalls++;
+              return { value: "browser-smoke-token" };
+            },
+          },
+          fetch: async (input, init) => {
+            fetchCalls++;
+            if (
+              String(input) !==
+              "https://gateway.example/management/gateway/v1/capabilities"
+            ) {
+              throw new Error(`Unexpected URL: ${String(input)}`);
+            }
+
+            const headers = new Headers(init?.headers);
+            if (
+              headers.get("authorization") !==
+              "Bearer browser-smoke-token"
+            ) {
+              throw new Error("Bearer credential was not projected correctly.");
+            }
+
+            const responseHeaders = new Headers({
+              "content-type": "application/json",
+              "x-correlation-id": "browser-smoke-response",
+            });
+            responseHeaders.append("x-folded", "one");
+            responseHeaders.append("x-folded", "two");
+            return new Response(
+              JSON.stringify({ apiVersion: "v1", capabilities: [] }),
+              {
+                status: 200,
+                headers: responseHeaders,
+              },
+            );
+          },
+        });
+
+        const response = await client.capabilities({
+          path: {},
+          headers: { correlationId: "browser-smoke-request" },
+        });
+
+        if (
+          !response.ok ||
+          response.status !== 200 ||
+          response.value.apiVersion !== "v1" ||
+          response.headers["x-folded"] !== "one, two"
+        ) {
+          throw new Error("Generated success result did not match the response.");
+        }
+
+        const controller = new AbortController();
+        controller.abort();
+        const canceled = await client.capabilities(
+          { path: {} },
+          { signal: controller.signal },
+        );
+        if (
+          canceled.kind !== "canceled" ||
+          authenticationCalls !== 1 ||
+          fetchCalls !== 1
+        ) {
+          throw new Error("Browser cancellation or call-count behavior diverged.");
+        }
+
+        const duringRead = new AbortController();
+        const interruptedClient = createGatewayClient({
+          baseUrl: "https://gateway.example",
+          authentication: { getAccessToken: () => ({ value: "token" }) },
+          fetch: async () =>
+            new Response(
+              new ReadableStream({
+                start(stream) {
+                  queueMicrotask(() => {
+                    duringRead.abort();
+                    stream.error(new Error("aborted"));
+                  });
+                },
+              }),
+              { headers: { "content-type": "application/json" } },
+            ),
+        });
+        const interrupted = await interruptedClient.capabilities(
+          { path: {} },
+          { signal: duringRead.signal },
+        );
+        if (interrupted.kind !== "canceled") {
+          throw new Error("Browser mid-response cancellation diverged.");
+        }
+
+        result.textContent = "HPD Gateway browser client PASS";
+        document.documentElement.dataset.result = "pass";
+      } catch (error) {
+        result.textContent = `HPD Gateway browser client FAIL: ${String(error)}`;
+        document.documentElement.dataset.result = "fail";
+        throw error;
+      }
+    </script>
+  </body>
+</html>

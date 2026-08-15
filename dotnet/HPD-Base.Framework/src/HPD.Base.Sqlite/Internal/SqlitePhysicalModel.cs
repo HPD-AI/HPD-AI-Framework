@@ -45,7 +45,7 @@ internal sealed class SqlitePhysicalModel
                 RelationDefinition relation = field.Relation!;
                 string table = Native("b_r_", relation.Id);
                 Claim(nativeNames, table, relation.Id);
-                return new RelationModel(relation, table, field.Name);
+                return new RelationModel(relation, table, field.WireName);
             }).OrderBy(static relation => relation.Definition.Id, StringComparer.Ordinal).ToArray();
     }
 
@@ -94,6 +94,7 @@ internal sealed class CollectionModel
                 "created_at TEXT NOT NULL",
                 "updated_at TEXT NOT NULL",
                 "append_position INTEGER NOT NULL UNIQUE CHECK (append_position > 0)",
+                "latest_mutation_position INTEGER NOT NULL DEFAULT 0 CHECK (latest_mutation_position >= 0)",
             };
             foreach (FieldModel field in Fields)
             {
@@ -107,11 +108,11 @@ internal sealed class CollectionModel
         internal void AddPayloadParameters(SqliteCommand command, RecordPayload payload, bool includeExtensions)
         {
             Dictionary<string, JsonElement> values = SqliteRecordSerializer.NormalizeObjectPayload(payload).Fields ?? [];
-            var known = Fields.Select(static field => field.Definition.Name).ToHashSet(StringComparer.Ordinal);
+            var known = Fields.Select(static field => field.Definition.WireName).ToHashSet(StringComparer.Ordinal);
             for (int index = 0; index < Fields.Length; index++)
             {
                 FieldModel field = Fields[index];
-                bool present = values.TryGetValue(field.Definition.Name, out JsonElement value);
+                bool present = values.TryGetValue(field.Definition.WireName, out JsonElement value);
                 if (field.PresenceColumn is not null) command.Parameters.AddWithValue("$p" + index, present ? 1 : 0);
                 command.Parameters.AddWithValue("$f" + index, present ? field.Encode(value) : DBNull.Value);
             }
@@ -137,7 +138,7 @@ internal sealed class CollectionModel
             foreach (FieldModel field in Fields)
             {
                 bool present = field.PresenceColumn is null || reader.GetInt64(ordinal++) == 1;
-                if (present) payload[field.Definition.Name] = reader.IsDBNull(ordinal) ? Json("null") : field.Decode(reader.GetValue(ordinal));
+                if (present) payload[field.Definition.WireName] = reader.IsDBNull(ordinal) ? Json("null") : field.Decode(reader.GetValue(ordinal));
                 ordinal++;
             }
             if (HasExtensionJson && !reader.IsDBNull(ordinal))
@@ -197,7 +198,7 @@ internal sealed class FieldModel
         internal FieldDefinition Definition { get; }
         internal string Column { get; }
         internal string? PresenceColumn { get; }
-        internal string SqlType => Definition.Type switch
+        internal string SqlType => Definition.Format == "base64" ? "BLOB" : Definition.Type switch
         { "boolean" or "integer" => "INTEGER", "number" => "REAL", _ => "TEXT" };
 
         internal object Encode(JsonElement value)
@@ -205,6 +206,13 @@ internal sealed class FieldModel
             if (value.ValueKind == JsonValueKind.Null) return DBNull.Value;
             if (Definition.Format == "date-time")
                 return value.GetDateTimeOffset().ToUniversalTime().ToString("O", CultureInfo.InvariantCulture);
+            if (Definition.Format == "base64")
+            {
+                BaseBinary binary = BaseBinary.FromBase64(value.GetString()!);
+                if (Definition.MaximumBytes is not int maximum || binary.Length > maximum)
+                    throw new InvalidOperationException(BaseBinaryErrorCodes.ValueTooLarge);
+                return binary.ToArray();
+            }
             return Definition.Type switch
             {
                 "boolean" => value.GetBoolean() ? 1L : 0L,
@@ -219,6 +227,7 @@ internal sealed class FieldModel
         internal JsonElement Decode(object value) => Definition.Type switch
         {
             _ when Definition.Format == "date-time" => Parse("\"" + JsonEncodedText.Encode(Convert.ToString(value, CultureInfo.InvariantCulture)!).ToString() + "\""),
+            _ when Definition.Format == "base64" => Parse("\"" + Convert.ToBase64String((byte[])value) + "\""),
             "boolean" => Parse(Convert.ToInt64(value, CultureInfo.InvariantCulture) == 0 ? "false" : "true"),
             "integer" => Parse(Convert.ToInt64(value, CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture)),
             "number" => Parse(Convert.ToDouble(value, CultureInfo.InvariantCulture).ToString("R", CultureInfo.InvariantCulture)),

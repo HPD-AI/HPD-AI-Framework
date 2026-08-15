@@ -1,4 +1,3 @@
-using HPD.Base.AspNetCore;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -6,140 +5,181 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Base.AspNetCore;
 
-/// <summary>
-/// Extension methods for mapping HPD.BASE ASP.NET Core endpoints.
-/// </summary>
+/// <summary>Maps explicit BASE endpoint audiences.</summary>
 public static class HPDBaseEndpointRouteBuilderExtensions
 {
-    /// <summary>
-    /// Maps HPD.BASE endpoints using default endpoint options.
-    /// </summary>
-    /// <remarks>
-    /// This low-level mapper preserves the configurable endpoint surface. Control-plane
-    /// hosts should prefer <see cref="MapHPDBaseControlPlaneApi(IEndpointRouteBuilder, string, Action{HPDBaseEndpointOptions}?)"/>
-    /// so record and admin routes are protected by default.
-    /// </remarks>
-    /// <param name="endpoints">The endpoint route builder to map onto.</param>
-    /// <returns>The route group containing the mapped HPD.BASE endpoints.</returns>
-    public static RouteGroupBuilder MapHPDBaseApi(this IEndpointRouteBuilder endpoints) =>
-        endpoints.MapHPDBaseApi(null);
-
-    /// <summary>
-    /// Maps HPD.BASE endpoints using caller-provided endpoint options.
-    /// </summary>
-    /// <remarks>
-    /// This low-level mapper is intended for hosts that need complete endpoint control.
-    /// Callers are responsible for selecting route authorization, diagnostics exposure,
-    /// admin metadata exposure, and policy behavior.
-    /// </remarks>
-    /// <param name="endpoints">The endpoint route builder to map onto.</param>
-    /// <param name="configure">Optional endpoint customization applied before routes are mapped.</param>
-    /// <returns>The route group containing the mapped HPD.BASE endpoints.</returns>
-    public static RouteGroupBuilder MapHPDBaseApi(
-        this IEndpointRouteBuilder endpoints,
-        Action<HPDBaseEndpointOptions>? configure)
+    /// <summary>Maps BASE endpoint families into an already secured control-plane group.</summary>
+    /// <remarks>This advanced SPI is intended for owning security integration packages.</remarks>
+    internal static RouteGroupBuilder MapHPDBaseControlPlaneEndpoints(
+        this RouteGroupBuilder group,
+        IEndpointRouteBuilder endpoints,
+        HPDBaseControlPlaneEndpointSelection selection,
+        Action<IEndpointConventionBuilder, HPDBaseEndpointDescriptor> convention)
     {
+        ArgumentNullException.ThrowIfNull(group);
         ArgumentNullException.ThrowIfNull(endpoints);
+        ArgumentNullException.ThrowIfNull(selection);
+        ArgumentNullException.ThrowIfNull(convention);
+        if (!selection.MapRecords && !selection.MapRegisteredReads && !selection.MapAdministration &&
+            !selection.MapArtifactAdministration && !selection.MapPolicyExplain && !selection.MapFiles && !selection.MapRealtime && !selection.MapClientGeneration)
+            throw new ArgumentException("At least one ControlPlane endpoint family must be selected.", nameof(selection));
 
-        var options = new HPDBaseEndpointOptions();
-        configure?.Invoke(options);
-        EndpointRouteBuilderValidation.Validate(options);
-
-        var group = endpoints.MapGroup(options.RoutePrefix);
-        group.AddEndpointFilter(static async (invocation, next) =>
+        AddReadinessFilter(group);
+        if (selection.MapRecords)
+            RecordEndpoints.Map(group, HPDBaseEndpointAudience.ControlPlane, convention);
+        if (selection.MapRegisteredReads)
         {
-            IHPDBaseApplication? application = invocation.HttpContext.RequestServices
-                .GetService<IHPDBaseApplication>();
-            if (application is null ||
-                application.CurrentReadiness.State == BaseApplicationReadinessState.Ready)
-            {
-                return await next(invocation).ConfigureAwait(false);
-            }
-
-            return Results.Problem(
-                statusCode: StatusCodes.Status503ServiceUnavailable,
-                title: "HPD.BASE is not ready.",
-                extensions: new Dictionary<string, object?>
-                {
-                    ["code"] = "base.application.notReady",
-                });
-        });
-
-        if (options.MapMetadata)
-            MetadataEndpoints.MapPublic(group, options.PublicMetadataMode);
-        if (options.MapCollections && options.PublicMetadataMode == HPDBasePublicMetadataMode.Full)
-            CollectionEndpoints.MapPublic(group);
-        if (options.MapHealth)
-            HealthEndpoints.MapPublic(group);
-        if (options.MapDiagnostics)
-            DiagnosticEndpoints.MapPublic(group);
-        if (options.MapRecords)
-        {
-            var records = group.MapGroup(string.Empty);
-            if (options.RequireAuthorizationForRecordRoutes)
-                records.RequireAuthorization(options.RecordPolicyName);
-
-            RecordEndpoints.Map(records);
-            RegisteredReadEndpoints.Map(records, BaseReadExposure.Public, options.RequireAuthorizationForRecordRoutes);
+            endpoints.ServiceProvider.GetRequiredService<HPDBaseEndpointFamilySelectionState>()
+                .SelectRegisteredReads(BaseReadExposure.Public, HPDBaseEndpointAudience.ControlPlane);
+            RegisteredReadEndpoints.Map(group, BaseReadExposure.Public, HPDBaseEndpointAudience.ControlPlane, convention);
         }
-
-        bool mapAdminReads = options.MapRecords && RegisteredReadEndpoints.HasExposure(endpoints.ServiceProvider, BaseReadExposure.Admin);
-        if (options.MapAdminMetadata || options.MapAdminPolicyExplain || mapAdminReads)
+        if (selection.MapAdministration)
         {
             var admin = group.MapGroup("/admin");
-            if (options.RequireAuthorizationForAdminRoutes)
-                admin.RequireAuthorization(options.AdminPolicyName);
-
-            if (options.MapAdminMetadata)
+            MetadataEndpoints.MapAdmin(admin, convention);
+            CollectionEndpoints.MapAdmin(admin, convention);
+            HealthEndpoints.MapAdmin(admin, convention);
+            DiagnosticEndpoints.MapAdmin(admin, convention);
+            if (selection.MapPolicyExplain)
+                PolicyAdminExplainEndpoints.Map(admin, convention);
+            if (selection.MapRegisteredReads)
             {
-                MetadataEndpoints.MapAdmin(admin);
-                CollectionEndpoints.MapAdmin(admin);
-                if (options.MapHealth)
-                    HealthEndpoints.MapAdmin(admin);
-                if (options.MapDiagnostics)
-                    DiagnosticEndpoints.MapAdmin(admin);
+                endpoints.ServiceProvider.GetRequiredService<HPDBaseEndpointFamilySelectionState>()
+                    .SelectRegisteredReads(BaseReadExposure.Admin, HPDBaseEndpointAudience.ControlPlane);
+                RegisteredReadEndpoints.Map(admin, BaseReadExposure.Admin, HPDBaseEndpointAudience.ControlPlane, convention);
             }
-
-            if (options.MapAdminPolicyExplain)
-                PolicyAdminExplainEndpoints.Map(admin);
-            if (mapAdminReads)
-                RegisteredReadEndpoints.Map(admin, BaseReadExposure.Admin, options.RequireAuthorizationForAdminRoutes);
         }
-
-        options.ConfigureRoutes?.Invoke(group);
+        if (selection.MapArtifactAdministration)
+            BaseAdministrationEndpoints.Map(group, endpoints.ServiceProvider, convention);
+        else if (!selection.MapAdministration && selection.MapPolicyExplain)
+        {
+            var admin = group.MapGroup("/admin");
+            PolicyAdminExplainEndpoints.Map(admin, convention);
+        }
+        if (selection.MapFiles)
+        {
+            var files = group.MapGroup("/files");
+            FileObjectEndpoints.Map(files, HPDBaseEndpointAudience.ControlPlane, convention);
+        }
+        if (selection.MapRealtime)
+            HPDBaseRealtimeEndpointRouteBuilderExtensions.MapCore(group, HPDBaseEndpointAudience.ControlPlane, convention);
+        if (selection.MapClientGeneration)
+        {
+            endpoints.ServiceProvider.GetRequiredService<HPDBaseEndpointFamilySelectionState>()
+                .SelectGeneration(HPDBaseEndpointAudience.ControlPlane);
+            BaseClientGenerationEndpoints.Map(group, HPDBaseEndpointAudience.ControlPlane, convention);
+        }
+        SelectionMutationEndpoints.Map(group, HPDBaseEndpointAudience.ControlPlane, convention);
+        ModuleMutationEndpoints.Map(group, convention);
         return group;
     }
 
-    /// <summary>
-    /// Maps HPD.BASE endpoints with secure control-plane defaults.
-    /// </summary>
-    /// <remarks>
-    /// The preset requires authenticated users for record routes, requires the admin
-    /// policy for admin routes, disables public diagnostics, and maps the admin policy
-    /// explain endpoint behind admin authorization.
-    /// </remarks>
-    /// <param name="endpoints">The endpoint route builder to map onto.</param>
-    /// <param name="routePrefix">The route prefix used for all BASE control-plane endpoints.</param>
-    /// <param name="configure">Optional endpoint customization applied after the secure defaults.</param>
-    /// <returns>The route group containing the mapped HPD.BASE endpoints.</returns>
-    public static RouteGroupBuilder MapHPDBaseControlPlaneApi(
+    /// <summary>Maps host-selected Public discovery endpoints.</summary>
+    public static RouteGroupBuilder MapHPDBasePublicApi(
         this IEndpointRouteBuilder endpoints,
-        string routePrefix = "/base",
-        Action<HPDBaseEndpointOptions>? configure = null)
+        Action<HPDBasePublicEndpointOptions>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(endpoints);
-
-        return endpoints.MapHPDBaseApi(options =>
+        var draft = new MutablePublicOptions();
+        if (configure is not null)
         {
-            options.RoutePrefix = routePrefix;
-            options.RequireAuthorizationForRecordRoutes = true;
-            options.RecordPolicyName = HPDBasePolicies.Authenticated;
-            options.RequireAuthorizationForAdminRoutes = true;
-            options.AdminPolicyName = HPDBasePolicies.Admin;
-            options.PublicMetadataMode = HPDBasePublicMetadataMode.Minimal;
-            options.MapDiagnostics = false;
-            options.MapAdminPolicyExplain = true;
-            configure?.Invoke(options);
+            var configured = new HPDBasePublicEndpointOptions();
+            configure(configured);
+            draft = new MutablePublicOptions(configured);
+        }
+
+        string prefix = EndpointRouteBuilderValidation.RoutePrefix(draft.RoutePrefix);
+        var group = endpoints.MapGroup(prefix);
+        AddReadinessFilter(group);
+
+        MetadataEndpoints.MapPublic(group, draft.MetadataMode);
+        if (draft.MetadataMode == HPDBasePublicMetadataMode.Full)
+            CollectionEndpoints.MapPublic(group);
+        if (draft.MapHealth)
+            HealthEndpoints.MapPublic(group);
+        if (draft.MapDiagnostics)
+            DiagnosticEndpoints.MapPublic(group);
+        return group;
+    }
+
+    /// <summary>Maps host-authorized Application endpoints.</summary>
+    public static RouteGroupBuilder MapHPDBaseApplicationApi(
+        this IEndpointRouteBuilder endpoints,
+        HPDBaseApplicationEndpointOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(endpoints);
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentException.ThrowIfNullOrWhiteSpace(options.AuthorizationPolicy);
+        if (!options.MapRecords && !options.MapRegisteredReads && !options.MapFiles && !options.MapRealtime && !options.MapClientGeneration)
+            throw new ArgumentException("At least one Application endpoint family must be selected.", nameof(options));
+
+        string prefix = EndpointRouteBuilderValidation.RoutePrefix(options.RoutePrefix);
+        var group = endpoints.MapGroup(prefix)
+            .WithMetadata(new HPDBaseApplicationPolicyMetadata(new string(options.AuthorizationPolicy.AsSpan())))
+            .RequireAuthorization(options.AuthorizationPolicy);
+        AddReadinessFilter(group);
+
+        if (options.MapRecords)
+            RecordEndpoints.Map(group, HPDBaseEndpointAudience.Application);
+        if (options.MapRegisteredReads)
+        {
+            endpoints.ServiceProvider.GetRequiredService<HPDBaseEndpointFamilySelectionState>()
+                .SelectRegisteredReads(BaseReadExposure.Public, HPDBaseEndpointAudience.Application);
+            RegisteredReadEndpoints.Map(group, BaseReadExposure.Public, HPDBaseEndpointAudience.Application);
+        }
+        if (options.MapFiles)
+        {
+            var files = group.MapGroup("/files");
+            endpoints.ServiceProvider.GetRequiredService<FileAspNetCoreRouteMappingState>().MarkMapped(prefix + "/files");
+            FileObjectEndpoints.Map(files, HPDBaseEndpointAudience.Application);
+        }
+        if (options.MapRealtime)
+            HPDBaseRealtimeEndpointRouteBuilderExtensions.MapCore(group, HPDBaseEndpointAudience.Application);
+        if (options.MapClientGeneration)
+        {
+            endpoints.ServiceProvider.GetRequiredService<HPDBaseEndpointFamilySelectionState>()
+                .SelectGeneration(HPDBaseEndpointAudience.Application);
+            BaseClientGenerationEndpoints.Map(group, HPDBaseEndpointAudience.Application);
+        }
+        SelectionMutationEndpoints.Map(group, HPDBaseEndpointAudience.Application);
+        return group;
+    }
+
+    private static void AddReadinessFilter(RouteGroupBuilder group) =>
+        group.AddEndpointFilter(static async (invocation, next) =>
+        {
+            try
+            {
+                IHPDBaseApplication? application = invocation.HttpContext.RequestServices.GetService<IHPDBaseApplication>();
+                if (application is null || application.CurrentReadiness.State == BaseApplicationReadinessState.Ready)
+                    return await next(invocation).ConfigureAwait(false);
+                return Results.Problem(
+                    statusCode: StatusCodes.Status503ServiceUnavailable,
+                    title: "HPD.BASE is not ready.",
+                    extensions: new Dictionary<string, object?> { ["code"] = "base.application.notReady" });
+            }
+            catch (BaseHttpCorrelationException)
+            {
+                return Results.Problem(
+                    statusCode: StatusCodes.Status400BadRequest,
+                    title: "The request correlation identifier is invalid.",
+                    extensions: new Dictionary<string, object?> { ["code"] = "base.http.correlation.invalid" });
+            }
         });
+
+    private sealed class MutablePublicOptions
+    {
+        internal MutablePublicOptions() { }
+        internal MutablePublicOptions(HPDBasePublicEndpointOptions options)
+        {
+            RoutePrefix = options.RoutePrefix;
+            MetadataMode = options.MetadataMode;
+            MapHealth = options.MapHealth;
+            MapDiagnostics = options.MapDiagnostics;
+        }
+        internal string RoutePrefix { get; init; } = "/base";
+        internal HPDBasePublicMetadataMode MetadataMode { get; init; } = HPDBasePublicMetadataMode.Minimal;
+        internal bool MapHealth { get; init; } = true;
+        internal bool MapDiagnostics { get; init; }
     }
 }

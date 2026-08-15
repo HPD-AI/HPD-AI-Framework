@@ -15,6 +15,7 @@
     "README.md"
   ],
   "peerDependencies": {
+    "@hpd-research/hpd-studio-core": "0.1.0",
     "svelte": "^5.0.0"
   },
   "keywords": [

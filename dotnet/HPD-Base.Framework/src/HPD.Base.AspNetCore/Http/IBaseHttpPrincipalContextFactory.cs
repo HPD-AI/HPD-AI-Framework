@@ -14,6 +14,5 @@ public interface IBaseHttpPrincipalContextFactory
     /// </summary>
     ValueTask<PrincipalContext> CreateAsync(
         HttpContext httpContext,
-        HPDBaseEndpointKind endpointKind,
         CancellationToken cancellationToken = default);
 }

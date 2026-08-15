@@ -28,6 +28,18 @@ public interface IHPDBaseAdministration
     ValueTask<BaseResult<BasePurgeResult>> PurgeAsync(
         BasePurgeRequest request,
         CancellationToken cancellationToken = default);
+
+    /// <summary>Rebuilds and atomically publishes one vector-index generation.</summary>
+    ValueTask<BaseResult<BaseVectorRebuildResult>> RebuildVectorIndexAsync(
+        BaseVectorRebuildRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Rotates one exported-subject authority epoch through the selected ControlPlane store.</summary>
+    ValueTask<BaseResult<BaseSubjectEpochRotationResult>> RotateSubjectEpochAsync(
+        string storeId,
+        PrincipalContext principal,
+        BaseSubjectEpochRotationRequest request,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>Describes provider administration guarantees.</summary>
@@ -41,6 +53,8 @@ public sealed record BaseAdministrationCapability
     public required bool Restore { get; init; }
     /// <summary>Gets whether administrative purge is supported.</summary>
     public required bool AdministrativePurge { get; init; }
+    /// <summary>Gets whether an installed vector provider supports generation-safe rebuild.</summary>
+    public required bool VectorRebuild { get; init; }
     /// <summary>Gets whether backup can run while the store is online.</summary>
     public required bool OnlineBackup { get; init; }
     /// <summary>Gets whether backup blocks writers.</summary>

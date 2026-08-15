@@ -1,15 +1,8 @@
 using System.Collections.Immutable;
-using System.Threading.RateLimiting;
-using HPD.Gateway.Abstractions;
-using HPD.Gateway.Core;
-using HPD.Gateway.Inspection;
-using HPD.Gateway.Yarp;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Cors.Infrastructure;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Timeouts;
-using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Gateway;
@@ -22,18 +15,24 @@ public sealed class GatewayBuilder
     private ImmutableArray<string> _requestInspectors = [];
     private ImmutableArray<UpstreamResilienceCapability> _resilienceProfiles = [];
     private ImmutableArray<OutputCacheCapability> _outputCacheProfiles = [];
+    private ImmutableArray<DiscoveryProfileCapability> _discoveryProfiles = [];
     private ImmutableArray<string> _protectedCredentialHeaders = [];
     private readonly HashSet<string> _authorizationPolicies = new(StringComparer.Ordinal);
     private readonly HashSet<string> _corsPolicies = new(StringComparer.Ordinal);
-    private readonly HashSet<string> _trafficAdmissionPolicies = new(StringComparer.Ordinal);
+    private GatewayTrafficAdmissionRegistry? _trafficAdmission;
     private readonly HashSet<string> _requestTimeoutPolicies = new(StringComparer.Ordinal);
     private bool _allowInspectionFileSpill;
 
-    internal GatewayBuilder(IServiceCollection services) => Services = services;
+    internal GatewayBuilder(IServiceCollection services, IServiceCollection? hostServices = null)
+    {
+        Services = services;
+        HostServices = hostServices ?? services;
+    }
 
     internal IServiceCollection Services { get; }
+    internal IServiceCollection HostServices { get; }
 
-    public GatewayBuilder AddCoreFamilies()
+    public GatewayBuilder EnableCoreDeclarations()
     {
         ThrowIfSealed();
         _installedFamilies |= GatewayDeclarationFamilies.RequestTimeout |
@@ -106,14 +105,21 @@ public sealed class GatewayBuilder
         return this;
     }
 
-    public GatewayBuilder AddTrafficAdmissionPolicy<TPartitionKey>(
-        string name,
-        Func<HttpContext, RateLimitPartition<TPartitionKey>> partitioner)
-        where TPartitionKey : notnull
+    public GatewayBuilder AddTrafficAdmission(Action<GatewayTrafficAdmissionRegistryBuilder> configure)
     {
-        ArgumentNullException.ThrowIfNull(partitioner);
-        AddPolicyName(name, _trafficAdmissionPolicies, GatewayDeclarationFamilies.TrafficAdmission);
-        Services.AddRateLimiter(options => options.AddPolicy(name, partitioner));
+        ThrowIfSealed();
+        ArgumentNullException.ThrowIfNull(configure);
+        if (_trafficAdmission is not null)
+            throw new InvalidOperationException("Traffic admission is already registered.");
+        var builder = new GatewayTrafficAdmissionRegistryBuilder(Services, HostServices);
+        configure(builder);
+        var registry = builder.Build();
+        if (registry.Capabilities.IsEmpty)
+            throw new InvalidOperationException("At least one traffic-admission profile must be registered.");
+        _trafficAdmission = registry;
+        Services.AddSingleton<GatewayTrafficAdmissionRegistry>(_ => registry);
+        Services.AddSingleton<IGatewayAdmissionStatusReader>(_ => registry);
+        _installedFamilies |= GatewayDeclarationFamilies.TrafficAdmission;
         return this;
     }
 
@@ -144,6 +150,14 @@ public sealed class GatewayBuilder
         _installedFamilies |= GatewayDeclarationFamilies.OutputCache;
     }
 
+    internal void AddDiscoveryCapabilities(ImmutableArray<DiscoveryProfileCapability> capabilities)
+    {
+        ThrowIfSealed();
+        if (!_discoveryProfiles.IsEmpty || capabilities.IsDefaultOrEmpty)
+            throw new InvalidOperationException("A nonempty discovery registry may be contributed only once.");
+        _discoveryProfiles = capabilities;
+    }
+
     internal GatewayCompositionState Seal()
     {
         ThrowIfSealed();
@@ -154,10 +168,11 @@ public sealed class GatewayBuilder
             _requestInspectors,
             _resilienceProfiles,
             _outputCacheProfiles,
+            _discoveryProfiles,
             _protectedCredentialHeaders,
             _authorizationPolicies.Order(StringComparer.Ordinal).ToImmutableArray(),
             _corsPolicies.Order(StringComparer.Ordinal).ToImmutableArray(),
-            _trafficAdmissionPolicies.Order(StringComparer.Ordinal).ToImmutableArray(),
+            _trafficAdmission?.Capabilities ?? [],
             _requestTimeoutPolicies.Order(StringComparer.Ordinal).ToImmutableArray(),
             _allowInspectionFileSpill);
     }
@@ -186,10 +201,11 @@ internal sealed record GatewayCompositionState(
     ImmutableArray<string> RequestInspectors,
     ImmutableArray<UpstreamResilienceCapability> ResilienceProfiles,
     ImmutableArray<OutputCacheCapability> OutputCacheProfiles,
+    ImmutableArray<DiscoveryProfileCapability> DiscoveryProfiles,
     ImmutableArray<string> ProtectedCredentialHeaders,
     ImmutableArray<string> AuthorizationPolicies,
     ImmutableArray<string> CorsPolicies,
-    ImmutableArray<string> TrafficAdmissionPolicies,
+    ImmutableArray<TrafficAdmissionCapability> TrafficAdmissionProfiles,
     ImmutableArray<string> RequestTimeoutPolicies,
     bool AllowInspectionFileSpill);
 

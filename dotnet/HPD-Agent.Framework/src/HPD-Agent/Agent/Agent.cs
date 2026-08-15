@@ -5303,7 +5303,6 @@ public sealed class Agent
             ImageGenerator = image,
             EmbeddingGenerator = embeddings,
             HostedFiles = hostedFiles,
-            VoiceActivityDetectorFactory = _clientSet?.VoiceActivityDetectorFactory,
             EndOfTurnDetectorFactory = _clientSet?.EndOfTurnDetectorFactory,
             ResolvedConfigs = resolved
         };

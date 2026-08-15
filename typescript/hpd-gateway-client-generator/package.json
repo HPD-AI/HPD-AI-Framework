@@ -1,0 +1,47 @@
+{
+  "name": "@hpd/gateway-client-generator",
+  "version": "0.1.0",
+  "description": "Deterministic TypeScript contract generator for HPD.Gateway.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "hpd-gateway-client-generator": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "clean": "rm -rf dist fixtures/generated",
+    "build": "npm run clean && tsc",
+    "generate:fixture": "node dist/cli.js generate --snapshot fixtures/gateway-client-snapshot.json --editor-ledger fixtures/gateway-editor-ledger.json --out fixtures/generated/gateway --clean",
+    "test": "vitest run",
+    "test:types": "npm run generate:fixture && tsc -p tsconfig.generated.json --noEmit",
+    "check": "npm run build && npm run test && npm run test:types",
+    "prepublishOnly": "npm run check"
+  },
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^4.1.10"
+  },
+  "keywords": [
+    "hpd",
+    "gateway",
+    "codegen",
+    "typescript"
+  ],
+  "author": "HPD-AI",
+  "license": "FSL-1.1-ALv2"
+}

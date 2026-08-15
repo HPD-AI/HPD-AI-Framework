@@ -19,6 +19,8 @@ public sealed record CollectionDefinition
     public bool Exposed { get; init; } = true;
     /// <summary>Gets or sets the system.</summary>
     public bool System { get; init; }
+    /// <summary>Gets the installed module or service identity owning a system collection.</summary>
+    public string? SystemOwnerModuleId { get; init; }
     /// <summary>Gets or sets the single authoritative collection mutation mode.</summary>
     public BaseCollectionMutationMode MutationMode { get; init; } = BaseCollectionMutationMode.Mutable;
     /// <summary>Gets the operation projection derived from <see cref="MutationMode"/>.</summary>
@@ -35,6 +37,8 @@ public sealed record CollectionDefinition
     public FieldDefinition[]? Fields { get; init; }
     /// <summary>Gets or sets the indexes.</summary>
     public IndexDefinition[]? Indexes { get; init; }
+    /// <summary>Gets the first-class logical vector indexes.</summary>
+    public VectorIndexDefinition[]? VectorIndexes { get; init; }
     /// <summary>Gets or sets the policy refs.</summary>
     public string[]? PolicyRefs { get; init; }
     /// <summary>Gets or sets the store.</summary>
@@ -47,10 +51,14 @@ public sealed record CollectionDefinition
     public DiagnosticDescriptor[]? Diagnostics { get; init; }
     /// <summary>Gets or sets the schema version.</summary>
     public string? SchemaVersion { get; init; }
+    /// <summary>Gets the lowercase SHA-256 serializer contract checksum.</summary>
+    public string? SerializerContractChecksum { get; init; }
     /// <summary>Gets or sets the refreshed at.</summary>
     public DateTimeOffset? RefreshedAt { get; init; }
     /// <summary>Gets or sets the extensions.</summary>
     public Dictionary<string, JsonElement>? Extensions { get; init; }
+    /// <summary>Gets frozen collection-scope storage-protection requirements.</summary>
+    public BaseStorageProtectionRequirement[]? StorageProtectionRequirements { get; init; }
 }
 
 /// <summary>Represents a collection operation matrix.</summary>

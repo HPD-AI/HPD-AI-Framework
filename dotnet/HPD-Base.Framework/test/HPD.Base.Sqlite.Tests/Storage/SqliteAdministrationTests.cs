@@ -34,7 +34,7 @@ public sealed class SqliteAdministrationTests
             using BaseOpaqueTokenProtector rotated = Protector(
                 8,
                 newKey,
-                new BaseOpaqueTokenKey { Id = 7, Key = oldKey });
+                new BaseOpaqueTokenKey { Id = 7, Key = oldKey, IssueNotBefore = DateTimeOffset.UnixEpoch });
             await using SqliteRecordStore validator = Store(path, rotated);
 
             (await validator.ValidateBackupAsync(new MemoryStream(artifact), ValidationRequest()))
@@ -743,7 +743,7 @@ public sealed class SqliteAdministrationTests
         byte[] key,
         params BaseOpaqueTokenKey[] retained) => new(Options.Create(new HPDBaseTokenProtectionOptions
         {
-            ActiveKey = new BaseOpaqueTokenKey { Id = id, Key = key },
+            ActiveKey = new BaseOpaqueTokenKey { Id = id, Key = key, IssueNotBefore = DateTimeOffset.UnixEpoch },
             DecryptionKeys = retained,
         }));
 

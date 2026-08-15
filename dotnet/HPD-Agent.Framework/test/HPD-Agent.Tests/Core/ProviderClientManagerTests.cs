@@ -80,6 +80,26 @@ public sealed class ProviderClientManagerTests
             manager.AcquireAsync(Key, static _ => ValueTask.FromResult(new TestClient())).AsTask());
     }
 
+    [Fact]
+    public async Task CardinalityAndKeyBoundsFailBeforeConstruction()
+    {
+        await using var manager = new ProviderClientManager<TestClient>(1);
+        await using var first = await manager.AcquireAsync(Key, static _ => ValueTask.FromResult(new TestClient()));
+        var constructions = 0;
+        var other = Key with { ProviderKey = "anthropic" };
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => manager.AcquireAsync(other, _ =>
+        {
+            constructions++;
+            return ValueTask.FromResult(new TestClient());
+        }).AsTask());
+        await Assert.ThrowsAsync<ArgumentException>(() => manager.AcquireAsync(
+            Key with { AuthenticationIdentity = new string('x', 257) }, static _ => ValueTask.FromResult(new TestClient())).AsTask());
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => manager.AcquireAsync(
+            Key with { AuthenticationGeneration = -1 }, static _ => ValueTask.FromResult(new TestClient())).AsTask());
+        Assert.Equal(0, constructions);
+    }
+
     private sealed class TestClient : IDisposable
     {
         public bool Disposed { get; private set; }

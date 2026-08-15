@@ -10,7 +10,7 @@ public sealed class RequiredNullableSemanticsTests
         var field = new FieldDefinition
         {
             Id = "slug",
-            Name = "slug",
+            ApplicationName = "slug", WireName = "slug",
             Type = BaseFieldTypes.String,
             Required = false,
             Nullable = false

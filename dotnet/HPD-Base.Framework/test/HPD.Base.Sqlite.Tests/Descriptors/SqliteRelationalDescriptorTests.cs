@@ -27,7 +27,7 @@ public sealed class SqliteRelationalDescriptorTests
                     UnknownFields = HPD.Base.UnknownFieldPolicy.Preserve,
                     Fields =
                     [
-                        new HPD.Base.FieldDefinition { Id = "title", Name = "title", Type = BaseFieldTypes.String }
+                        new HPD.Base.FieldDefinition { Id = "title", ApplicationName = "title", WireName = "title", Type = BaseFieldTypes.String }
                     ]
                 }
             ];

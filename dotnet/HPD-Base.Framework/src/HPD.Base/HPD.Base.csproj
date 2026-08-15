@@ -18,12 +18,19 @@
     <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
   </PropertyGroup>
 
-  <ItemGroup>
+  <ItemGroup Condition="'$(UsePublishedHpdDependencies)' != 'true'">
     <ProjectReference Include="../../../shared/src/HPD-Events/HPD-Events.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="../HPD.Base.Generators/HPD.Base.Generators.csproj"
                       OutputItemType="Analyzer"
                       ReferenceOutputAssembly="false"
                       GlobalPropertiesToRemove="PublishAot;RuntimeIdentifier;SelfContained" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(UsePublishedHpdDependencies)' == 'true'">
+    <PackageReference Include="HPD-Events" Version="$(HPDEventsVersion)" />
   </ItemGroup>
 
   <ItemGroup>

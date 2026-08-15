@@ -7,20 +7,14 @@ using Microsoft.Extensions.DependencyInjection;
 namespace HPD.Base.AspNetCore;
 
 /// <summary>Represents a hpdbase realtime endpoint route builder extensions.</summary>
-public static class HPDBaseRealtimeEndpointRouteBuilderExtensions
+internal static class HPDBaseRealtimeEndpointRouteBuilderExtensions
 {
-    /// <summary>Executes the map hpdbase realtime operation.</summary>
-    public static IEndpointRouteBuilder MapHPDBaseRealtime(this IEndpointRouteBuilder endpoints)
-    {
-        ArgumentNullException.ThrowIfNull(endpoints);
-
-        endpoints.MapGet(BaseRealtimeRoutes.WebSocket, (RequestDelegate)HandleWebSocketAsync)
-            .WithName(BaseRealtimeRouteIds.WebSocket)
+    internal static void MapCore(IEndpointRouteBuilder endpoints, HPDBaseEndpointAudience audience, Action<IEndpointConventionBuilder, HPDBaseEndpointDescriptor>? convention = null) =>
+        endpoints.MapGet("/realtime/v2/socket", (RequestDelegate)HandleWebSocketAsync)
+            .WithHPDBaseEndpoint(BaseRealtimeRouteIds.WebSocketV2, audience, HPDBaseEndpointOperation.RealtimeSubscribe, HPDBaseCapabilities.RealtimeSubscribe, convention)
+            .WithName(BaseRealtimeRouteIds.WebSocketV2)
             .WithDisplayName("HPD.BASE realtime WebSocket")
             .WithMetadata(new BaseRealtimeWebSocketOpenApiMetadata());
-
-        return endpoints;
-    }
 
     private static Task HandleWebSocketAsync(HttpContext context) =>
         context.RequestServices.GetRequiredService<BaseRealtimeWebSocketEndpoint>().HandleAsync(context);

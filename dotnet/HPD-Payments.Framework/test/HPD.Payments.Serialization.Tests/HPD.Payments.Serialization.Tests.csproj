@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><IsTestProject>false</IsTestProject><OutputType>Exe</OutputType></PropertyGroup>
+  <ItemGroup><ProjectReference Include="../../src/HPD.Payments.Serialization/HPD.Payments.Serialization.csproj" /></ItemGroup>
+  <ItemGroup><Content Include="Fixtures/**" CopyToOutputDirectory="PreserveNewest" /></ItemGroup>
+</Project>

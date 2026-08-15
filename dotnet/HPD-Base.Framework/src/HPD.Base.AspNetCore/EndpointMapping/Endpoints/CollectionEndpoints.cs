@@ -12,15 +12,15 @@ internal static class CollectionEndpoints
     /// <summary>Executes the map public operation.</summary>
     public static void MapPublic(IEndpointRouteBuilder endpoints)
     {
-        endpoints.MapGet("/collections", (RequestDelegate)ListPublic).WithHPDBaseOpenApi(BaseHttpRouteNames.CollectionsList).WithName(BaseHttpRouteNames.CollectionsList);
-        endpoints.MapGet("/collections/{collectionId}", (RequestDelegate)GetPublic).WithHPDBaseOpenApi(BaseHttpRouteNames.CollectionsGet).WithName(BaseHttpRouteNames.CollectionsGet);
+        endpoints.MapGet("/collections", (RequestDelegate)ListPublic).WithHPDBaseEndpoint(BaseHttpRouteNames.CollectionsList, HPDBaseEndpointAudience.Public, HPDBaseEndpointOperation.MetadataRead).WithHPDBaseOpenApi(BaseHttpRouteNames.CollectionsList).WithName(BaseHttpRouteNames.CollectionsList);
+        endpoints.MapGet("/collections/{collectionId}", (RequestDelegate)GetPublic).WithHPDBaseEndpoint(BaseHttpRouteNames.CollectionsGet, HPDBaseEndpointAudience.Public, HPDBaseEndpointOperation.MetadataRead).WithHPDBaseOpenApi(BaseHttpRouteNames.CollectionsGet).WithName(BaseHttpRouteNames.CollectionsGet);
     }
 
     /// <summary>Executes the map admin operation.</summary>
-    public static void MapAdmin(IEndpointRouteBuilder endpoints)
+    public static void MapAdmin(IEndpointRouteBuilder endpoints, Action<IEndpointConventionBuilder, HPDBaseEndpointDescriptor>? convention = null)
     {
-        endpoints.MapGet("/collections", (RequestDelegate)ListAdmin).WithHPDBaseOpenApi(BaseHttpRouteNames.AdminCollectionsList).WithName(BaseHttpRouteNames.AdminCollectionsList);
-        endpoints.MapGet("/collections/{collectionId}", (RequestDelegate)GetAdmin).WithHPDBaseOpenApi(BaseHttpRouteNames.AdminCollectionsGet).WithName(BaseHttpRouteNames.AdminCollectionsGet);
+        endpoints.MapGet("/collections", (RequestDelegate)ListAdmin).WithHPDBaseEndpoint(BaseHttpRouteNames.AdminCollectionsList, HPDBaseEndpointAudience.ControlPlane, HPDBaseEndpointOperation.MetadataRead, HPDBaseCapabilities.AdministrationMetadataRead, convention).WithHPDBaseOpenApi(BaseHttpRouteNames.AdminCollectionsList).WithName(BaseHttpRouteNames.AdminCollectionsList);
+        endpoints.MapGet("/collections/{collectionId}", (RequestDelegate)GetAdmin).WithHPDBaseEndpoint(BaseHttpRouteNames.AdminCollectionsGet, HPDBaseEndpointAudience.ControlPlane, HPDBaseEndpointOperation.MetadataRead, HPDBaseCapabilities.AdministrationMetadataRead, convention).WithHPDBaseOpenApi(BaseHttpRouteNames.AdminCollectionsGet).WithName(BaseHttpRouteNames.AdminCollectionsGet);
     }
 
     private static Task ListPublic(HttpContext httpContext) => Execute(httpContext,
@@ -40,7 +40,7 @@ internal static class CollectionEndpoints
         bool isAdmin,
         CancellationToken cancellationToken)
     {
-        var principal = await principalFactory.CreateAsync(httpContext, isAdmin ? HPDBaseEndpointKind.AdminMetadata : HPDBaseEndpointKind.PublicMetadata, cancellationToken);
+        var principal = await principalFactory.CreateAsync(httpContext, cancellationToken);
         var operation = operationFactory.Create(httpContext, principal, BaseOperationKind.SchemaRead, "base", mode: mode);
         var schema = await runtime.Schema.GetSchemaAsync(principal, operation, view, cancellationToken);
         var result = schema.Status == OperationStatus.Ok
@@ -67,7 +67,7 @@ internal static class CollectionEndpoints
         bool isAdmin,
         CancellationToken cancellationToken)
     {
-        var principal = await principalFactory.CreateAsync(httpContext, isAdmin ? HPDBaseEndpointKind.AdminMetadata : HPDBaseEndpointKind.PublicMetadata, cancellationToken);
+        var principal = await principalFactory.CreateAsync(httpContext, cancellationToken);
         var operation = operationFactory.Create(httpContext, principal, BaseOperationKind.SchemaRead, collectionId, mode: mode);
         var result = await runtime.Schema.GetCollectionAsync(collectionId, principal, operation, view, cancellationToken);
         return resultMapper.ToHttpResult(result, httpContext, Mapping(operation, isAdmin));

@@ -4,6 +4,12 @@ namespace HPD.Base;
 /// <summary>Represents a access grant.</summary>
 public sealed record AccessGrant
 {
+    /// <summary>Gets the exact application identity for a system-access grant.</summary>
+    public string? ApplicationId { get; init; }
+    /// <summary>Gets the exact installed module or service identity for a system-access grant.</summary>
+    public string? ModuleId { get; init; }
+    /// <summary>Gets the exact audience for a system-access grant.</summary>
+    public HPDBaseEndpointAudience? Audience { get; init; }
     /// <summary>Gets or sets the ID.</summary>
     public required string Id { get; init; }
     /// <summary>Gets or sets the subject.</summary>
@@ -44,6 +50,14 @@ public sealed record ResourceScope
     public string? RecordId { get; init; }
     /// <summary>Gets or sets the field path.</summary>
     public string? FieldPath { get; init; }
+    /// <summary>Gets the optional stable vector-index identifier.</summary>
+    public string? VectorIndexId { get; init; }
+    /// <summary>Gets the exact exported logical-subject contract identifier.</summary>
+    public string? SubjectContractId { get; init; }
+    /// <summary>Gets the exact exported logical-subject contract version.</summary>
+    public int? SubjectContractVersion { get; init; }
     /// <summary>Gets or sets the tenant ID.</summary>
     public string? TenantId { get; init; }
+    /// <summary>Gets the exact project identity for a project-bound grant.</summary>
+    public string? ProjectId { get; init; }
 }

@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>HPD.Payments.Contracts</AssemblyName>
+    <RootNamespace>HPD.Payments.Contracts</RootNamespace>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../HPD.Payments.Primitives/HPD.Payments.Primitives.csproj" />
+  </ItemGroup>
+</Project>

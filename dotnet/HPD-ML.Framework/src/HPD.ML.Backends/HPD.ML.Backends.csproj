@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <PackageId>HPD-ML-Backends</PackageId>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework>net11.0</TargetFramework>
     <TargetFrameworks></TargetFrameworks>
     <LangVersion>preview</LangVersion>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -22,7 +22,9 @@
     <ProjectReference Include="..\HPD.ML.Backends.Abstractions\HPD.ML.Backends.Abstractions.csproj" />
     <ProjectReference Include="..\HPD.ML.Abstractions\HPD.ML.Abstractions.csproj" />
     <ProjectReference Include="..\HPD.ML.DeepLearning\HPD.ML.DeepLearning.csproj" />
-    <PackageReference Include="Helium.Hardware" Version="0.5.0" />
+    <ProjectReference Include="../../../../../../../../HPD-Math-Framework/Helium/src/Helium.Hardware/Helium.Hardware.csproj" />
+    <ProjectReference Include="../../../../../../../../HPD-Math-Framework/Helium/src/Helium.MLX/Helium.MLX.csproj" />
+    <ProjectReference Include="../../../../../../../../HPD-Math-Framework/Helium/src/Helium.PJRT/Helium.PJRT.csproj" />
   </ItemGroup>
 
 </Project>

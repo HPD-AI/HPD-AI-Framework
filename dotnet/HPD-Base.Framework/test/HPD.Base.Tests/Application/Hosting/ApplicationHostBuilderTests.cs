@@ -4,12 +4,18 @@ using HPD.Base.Tests.Application.Generation;
 using HPD.Base.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using System.Text.Json;
 using Xunit;
 
 namespace HPD.Base.Tests.Application.Hosting;
 
 public sealed class ApplicationHostBuilderTests
 {
+    private static readonly GeneratedApplicationJsonContext MetadataOwner =
+        new(BaseSerializerGeneratedContract.CreateOptions(JsonNamingPolicy.CamelCase));
+    private static GeneratedApplicationJsonContext Metadata() => MetadataOwner;
+    private static BaseJsonProperty<GeneratedProject, string> ProjectProperty(string wireName) =>
+        BaseJsonProperty<GeneratedProject, string>.Bind(Metadata().GeneratedProject, wireName);
     [Fact]
     public async Task FreshSqlitePlansAreBoundToDistinctPersistentPhysicalStoreIdentities()
     {
@@ -22,7 +28,7 @@ public sealed class ApplicationHostBuilderTests
             services.AddHPDBase(builder => builder
                 .ConfigureSchema(options => { options.ApplicationId = "physical-store-app"; options.PlanProtectionKey = key; })
                 .AddCollection(GeneratedProject.Collection)
-                .UseSqlite(options => { options.DataSource = path; options.StoreId = "sqlite"; }));
+                .UseStore(SqliteStore.Configure(options => { options.DataSource = path; options.StoreId = "sqlite"; })));
             return services.BuildServiceProvider();
         }
 
@@ -64,7 +70,7 @@ public sealed class ApplicationHostBuilderTests
             services.AddHPDBase(builder => builder
                 .ConfigureSchema(options => { options.ApplicationId = "fresh-plan-app"; options.PlanProtectionKey = key; })
                 .AddCollection(GeneratedProject.Collection)
-                .UseSqlite(options => { options.DataSource = path; options.StoreId = "sqlite"; }));
+                .UseStore(SqliteStore.Configure(options => { options.DataSource = path; options.StoreId = "sqlite"; })));
             await using ServiceProvider provider = services.BuildServiceProvider();
             return (await provider.GetRequiredService<IBaseSchemaManager>()
                 .PlanAsync(new BaseSchemaPlanRequest { StoreId = "sqlite" })).Value!;
@@ -106,7 +112,7 @@ public sealed class ApplicationHostBuilderTests
                     options.PlanProtectionKey = Enumerable.Repeat((byte)0x55, 32).ToArray();
                 })
                 .AddCollection(GeneratedProject.Collection)
-                .UseSqlite(options => { options.DataSource = path; options.StoreId = "schema-store"; }));
+                .UseStore(SqliteStore.Configure(options => { options.DataSource = path; options.StoreId = "schema-store"; })));
             await using ServiceProvider provider = services.BuildServiceProvider();
 
             IBaseSchemaManager manager = provider.GetRequiredService<IBaseSchemaManager>();
@@ -186,7 +192,7 @@ public sealed class ApplicationHostBuilderTests
                     options.PlanProtectionKey = Enumerable.Repeat((byte)0x59, 32).ToArray();
                 })
                 .AddCollection(GeneratedProject.Collection)
-                .UseSqlite(options => { options.DataSource = path; options.StoreId = "binding-store"; }));
+                .UseStore(SqliteStore.Configure(options => { options.DataSource = path; options.StoreId = "binding-store"; })));
             await using ServiceProvider provider = services.BuildServiceProvider();
             IBaseSchemaManager manager = provider.GetRequiredService<IBaseSchemaManager>();
             IBaseSchemaPlanProtector protector = provider.GetRequiredService<IBaseSchemaPlanProtector>();
@@ -219,20 +225,20 @@ public sealed class ApplicationHostBuilderTests
         byte[] key = Enumerable.Repeat((byte)0x31, 32).ToArray();
         byte[] attestationKey = Enumerable.Repeat((byte)0x42, 32).ToArray();
         BaseCollection<GeneratedProject> Version(string storedName, bool extra, bool requiredNew = false) => HPD.Base.BaseCollection.Define(
-            "schema-evolution-projects", GeneratedApplicationJsonContext.Default.GeneratedProject, schema =>
+            "schema-evolution-projects", Metadata().GeneratedProject, schema =>
             {
-                schema.String("schema-evolution.name", storedName);
+                schema.String("schema-evolution.name", storedName, ProjectProperty("name"));
                 if (extra)
                 {
-                    var field = schema.String("schema-evolution.extra", "organizationId");
+                    var field = schema.String("schema-evolution.extra", "OrganizationId", ProjectProperty("organizationId"));
                     _ = field;
                 }
-                if (requiredNew) schema.String("schema-evolution.required", "requiredValue").Required();
+                if (requiredNew) schema.String("schema-evolution.required", "OptionalNote", ProjectProperty("optionalNote")).Required();
             });
         async ValueTask<(BaseSchemaPlan Plan, BaseSchemaApplyResult? Applied, BaseSchemaHistoryPage? History)> RunAsync(BaseCollection<GeneratedProject> collection, bool apply, BaseExternalMigrationAttestation? attestation = null)
         {
             var services = new ServiceCollection().AddLogging();
-            services.AddHPDBase(builder => builder.ConfigureSchema(options => { options.ApplicationId = "schema-evolution"; options.PlanProtectionKey = key; options.ExternalMigrationAttestationKey = attestationKey; }).AddCollection(collection).UseSqlite(options => { options.DataSource = path; options.StoreId = "sqlite"; }));
+            services.AddHPDBase(builder => builder.ConfigureSchema(options => { options.ApplicationId = "schema-evolution"; options.PlanProtectionKey = key; options.ExternalMigrationAttestationKey = attestationKey; }).AddCollection(collection).UseStore(SqliteStore.Configure(options => { options.DataSource = path; options.StoreId = "sqlite"; })));
             await using ServiceProvider provider = services.BuildServiceProvider();
             IBaseSchemaManager manager = provider.GetRequiredService<IBaseSchemaManager>();
             BaseSchemaPlan plan = (await manager.PlanAsync(new BaseSchemaPlanRequest { StoreId = "sqlite", ExternalMigrationAttestation = attestation })).Value!;
@@ -244,7 +250,7 @@ public sealed class ApplicationHostBuilderTests
         async ValueTask<OperationResult<BaseSchemaApplyResult>> ApplyExistingAsync(BaseCollection<GeneratedProject> collection, BaseSchemaPlan plan)
         {
             var services = new ServiceCollection().AddLogging();
-            services.AddHPDBase(builder => builder.ConfigureSchema(options => { options.ApplicationId = "schema-evolution"; options.PlanProtectionKey = key; options.ExternalMigrationAttestationKey = attestationKey; }).AddCollection(collection).UseSqlite(options => { options.DataSource = path; options.StoreId = "sqlite"; }));
+            services.AddHPDBase(builder => builder.ConfigureSchema(options => { options.ApplicationId = "schema-evolution"; options.PlanProtectionKey = key; options.ExternalMigrationAttestationKey = attestationKey; }).AddCollection(collection).UseStore(SqliteStore.Configure(options => { options.DataSource = path; options.StoreId = "sqlite"; })));
             await using ServiceProvider provider = services.BuildServiceProvider();
             return await provider.GetRequiredService<IBaseSchemaManager>().ApplyAsync(new BaseSchemaApplyRequest { ProtectedArtifact = plan.ProtectedArtifact, AllowDestructive = true });
         }
@@ -257,15 +263,15 @@ public sealed class ApplicationHostBuilderTests
             additive.Operations.Should().ContainSingle(operation => operation.Kind == BaseSchemaOperationKind.AddField);
             additive.Classification.Should().Be(BaseSchemaPlanClassification.SafeStructural); second!.Generation.Should().Be(2);
 
-            (BaseSchemaPlan rename, BaseSchemaApplyResult? third, _) = await RunAsync(Version("displayName", true), true);
-            rename.Operations.Should().ContainSingle().Which.Should().BeEquivalentTo(new { Kind = BaseSchemaOperationKind.RenameField, PreviousName = "name", TargetName = "displayName" });
-            rename.Classification.Should().Be(BaseSchemaPlanClassification.SafeStructural); third!.Generation.Should().Be(3);
+            (BaseSchemaPlan rename, _, _) = await RunAsync(Version("displayName", true), false);
+            rename.Operations.Should().BeEmpty();
+            rename.Classification.Should().Be(BaseSchemaPlanClassification.NoChanges);
 
             var destructiveServices = new ServiceCollection().AddLogging();
             destructiveServices.AddHPDBase(builder => builder
                 .ConfigureSchema(options => { options.ApplicationId = "schema-evolution"; options.PlanProtectionKey = key; })
                 .AddCollection(Version("displayName", false))
-                .UseSqlite(options => { options.DataSource = path; options.StoreId = "sqlite"; }));
+                .UseStore(SqliteStore.Configure(options => { options.DataSource = path; options.StoreId = "sqlite"; })));
             await using (ServiceProvider destructiveProvider = destructiveServices.BuildServiceProvider())
             {
                 IBaseSchemaManager destructiveManager = destructiveProvider.GetRequiredService<IBaseSchemaManager>();
@@ -274,7 +280,7 @@ public sealed class ApplicationHostBuilderTests
                 destructive.Operations.Should().Contain(operation => operation.Kind == BaseSchemaOperationKind.RemoveField);
                 OperationResult<BaseSchemaApplyResult> rejected = await destructiveManager.ApplyAsync(new BaseSchemaApplyRequest { ProtectedArtifact = destructive.ProtectedArtifact });
                 rejected.Error!.Code.Should().Be(BaseSchemaErrorCodes.MigrationRequired);
-                (await destructiveManager.VerifyAsync(new BaseSchemaVerifyRequest { StoreId = "sqlite" })).Value!.Generation.Should().Be(3);
+                (await destructiveManager.VerifyAsync(new BaseSchemaVerifyRequest { StoreId = "sqlite" })).Value!.Generation.Should().Be(2);
             }
 
             (BaseSchemaPlan requiresData, _, _) = await RunAsync(Version("displayName", true, requiredNew: true), false);
@@ -298,8 +304,8 @@ public sealed class ApplicationHostBuilderTests
             BaseExternalMigrationAttestation signed = unsigned with { AuthenticationTag = BaseExternalMigrationAttestationAuthenticator.ComputeAuthenticationTag(unsigned, attestationKey) };
             (BaseSchemaPlan adoption, BaseSchemaApplyResult? adopted, BaseSchemaHistoryPage? history) = await RunAsync(Version("displayName", true, requiredNew: true), true, signed);
             adoption.Operations.Should().ContainSingle().Which.Kind.Should().Be(BaseSchemaOperationKind.AdoptExternalBaseline);
-            adopted!.Generation.Should().Be(4);
-            BaseSchemaHistoryEntry adoptedHistory = history!.Items.Single(item => item.Generation == 4);
+            adopted!.Generation.Should().Be(3);
+            BaseSchemaHistoryEntry adoptedHistory = history!.Items.Single(item => item.Generation == 3);
             adoptedHistory.Outcome.Should().Be(BaseSchemaApplyOutcome.Applied);
             adoptedHistory.StructuralVerification.Should().Be(BaseSchemaStructuralVerification.Verified);
             adoptedHistory.ExternalDataMigration.Should().Be(BaseExternalDataMigrationVerification.HostAttested);
@@ -352,7 +358,7 @@ public sealed class ApplicationHostBuilderTests
             }
             (BaseSchemaPlan removal, BaseSchemaApplyResult? removed, _) = await RunAsync(Version("displayName", false, requiredNew: true), true);
             removal.Classification.Should().Be(BaseSchemaPlanClassification.Destructive);
-            removed!.Generation.Should().Be(5);
+            removed!.Generation.Should().Be(4);
             await using (var verifyPreserved = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=" + path))
             {
                 await verifyPreserved.OpenAsync();
@@ -375,20 +381,20 @@ public sealed class ApplicationHostBuilderTests
     }
 
     [Fact]
-    public async Task SqliteDestructiveRebuildPreservesRelationRowsAndJournalFacts()
+    public async Task SqliteDestructiveRebuildPreservesRecordAndJournalFacts()
     {
         string database = Path.Combine(Path.GetTempPath(), "hpd-base-schema-relation-rebuild-" + Guid.NewGuid().ToString("N") + ".db");
         byte[] key = Enumerable.Repeat((byte)0x73, 32).ToArray();
         BaseCollection<GeneratedProject> target = HPD.Base.BaseCollection.Define(
-            "schema-rebuild-targets", GeneratedApplicationJsonContext.Default.GeneratedProject,
-            schema => schema.String("schema-rebuild.target.name", "name"));
+            "schema-rebuild-targets", Metadata().GeneratedProject,
+            schema => schema.String("schema-rebuild.target.name", "Name", ProjectProperty("name")));
         BaseCollection<GeneratedProject> Source(bool removable) => HPD.Base.BaseCollection.Define(
-            "schema-rebuild-sources", GeneratedApplicationJsonContext.Default.GeneratedProject,
+            "schema-rebuild-sources", Metadata().GeneratedProject,
             schema =>
             {
-                schema.String("schema-rebuild.source.name", "name");
-                if (removable) schema.String("schema-rebuild.source.removable", "removable");
-                schema.ManyRelation("schema-rebuild.members", "schema-rebuild.source.members", "members", target);
+                schema.String("schema-rebuild.source.name", "Name", ProjectProperty("name"));
+                if (removable) schema.String("schema-rebuild.source.removable", "OptionalNote", ProjectProperty("optionalNote"));
+                schema.String("schema-rebuild.source.members", "OrganizationId", ProjectProperty("organizationId"));
             });
         async ValueTask ApplyAsync(BaseCollection<GeneratedProject> source)
         {
@@ -396,7 +402,7 @@ public sealed class ApplicationHostBuilderTests
             services.AddHPDBase(builder => builder
                 .ConfigureSchema(options => { options.ApplicationId = "schema-relation-rebuild"; options.PlanProtectionKey = key; })
                 .AddCollection(source).AddCollection(target)
-                .UseSqlite(options => { options.DataSource = database; options.StoreId = "sqlite"; }));
+                .UseStore(SqliteStore.Configure(options => { options.DataSource = database; options.StoreId = "sqlite"; })));
             await using ServiceProvider provider = services.BuildServiceProvider();
             IBaseSchemaManager manager = provider.GetRequiredService<IBaseSchemaManager>();
             BaseSchemaPlan plan = (await manager.PlanAsync(new BaseSchemaPlanRequest { StoreId = "sqlite" })).Value!;
@@ -417,7 +423,6 @@ public sealed class ApplicationHostBuilderTests
                     INSERT INTO {Native("b_c_", "schema-rebuild-sources")}
                       (record_id,revision,created_at,updated_at,append_position,{Native("p_", "schema-rebuild.source.name")},{Native("f_", "schema-rebuild.source.name")},{Native("p_", "schema-rebuild.source.removable")},{Native("f_", "schema-rebuild.source.removable")},{Native("f_", "schema-rebuild.source.members")})
                     VALUES ('source',9,'2026-08-02T00:00:00.0000000+00:00','2026-08-02T00:00:00.0000000+00:00',1,1,'source',0,NULL,'["target"]');
-                    INSERT INTO {Native("b_r_", "schema-rebuild.members")} (source_record_id,target_record_id,ordinal) VALUES ('source','target',0);
                     INSERT INTO hpd_base_mutation_journal
                       (event_id,event_type,schema_version,occurred_at,tenant_id,operation,visibility,collection_id,record_id,before_json,after_json)
                     VALUES ('schema-rebuild-event','mutation','1','2026-08-02T00:00:00.0000000+00:00',NULL,0,0,'schema-rebuild-sources','source',NULL,NULL);
@@ -433,14 +438,12 @@ public sealed class ApplicationHostBuilderTests
             check.CommandText = $"""
                 SELECT
                   (SELECT revision FROM {Native("b_c_", "schema-rebuild-sources")} WHERE record_id='source'),
-                  (SELECT COUNT(*) FROM {Native("b_r_", "schema-rebuild.members")} WHERE source_record_id='source' AND target_record_id='target' AND ordinal=0),
                   (SELECT COUNT(*) FROM hpd_base_mutation_journal WHERE event_id='schema-rebuild-event');
                 """;
             await using Microsoft.Data.Sqlite.SqliteDataReader reader = await check.ExecuteReaderAsync();
             (await reader.ReadAsync()).Should().BeTrue();
             reader.GetInt64(0).Should().Be(9);
             reader.GetInt64(1).Should().Be(1);
-            reader.GetInt64(2).Should().Be(1);
         }
         finally
         {
@@ -453,11 +456,11 @@ public sealed class ApplicationHostBuilderTests
     public void LogicalSchemaChecksumIsStableAcrossRegistrationOrderAndSensitiveToStoredShape()
     {
         BaseCollection<GeneratedProject> first = HPD.Base.BaseCollection.Define(
-            "logical.first", GeneratedApplicationJsonContext.Default.GeneratedProject,
-            schema => schema.String("logical.first.name", "name"));
+            "logical.first", Metadata().GeneratedProject,
+            schema => schema.String("logical.first.name", "Name", ProjectProperty("name")));
         BaseCollection<GeneratedProject> second = HPD.Base.BaseCollection.Define(
-            "logical.second", GeneratedApplicationJsonContext.Default.GeneratedProject,
-            schema => schema.String("logical.second.name", "name"));
+            "logical.second", Metadata().GeneratedProject,
+            schema => schema.String("logical.second.name", "Name", ProjectProperty("name")));
 
         static BaseLogicalSchema Build(params BaseCollection<GeneratedProject>[] collections)
         {
@@ -474,8 +477,8 @@ public sealed class ApplicationHostBuilderTests
         BaseLogicalSchema ordered = Build(first, second);
         BaseLogicalSchema reversed = Build(second, first);
         BaseCollection<GeneratedProject> renamed = HPD.Base.BaseCollection.Define(
-            "logical.first", GeneratedApplicationJsonContext.Default.GeneratedProject,
-            schema => schema.String("logical.first.name", "renamed_name"));
+            "logical.first", Metadata().GeneratedProject,
+            schema => schema.String("logical.first.name", "RenamedName", ProjectProperty("name")));
 
         reversed.CanonicalChecksum.Should().Be(ordered.CanonicalChecksum);
         Build(renamed, second).CanonicalChecksum.Should().NotBe(ordered.CanonicalChecksum);
@@ -539,10 +542,14 @@ public sealed class ApplicationHostBuilderTests
             var services = new ServiceCollection().AddLogging();
             services.AddHPDBase(builder => builder
                 .ConfigureSchema(options => { options.ApplicationId = "administration-test"; options.PlanProtectionKey = Enumerable.Repeat((byte)0x72, 32).ToArray(); })
-                .ConfigureTokenProtection(options => options.ActiveKey = new BaseOpaqueTokenKey { Id = 7, Key = tokenKey })
-                .ReplacePolicyEvaluator<AdministrationAllowPolicyEvaluator>()
+                .ConfigureTokenProtection(options => options.ActiveKey = new BaseOpaqueTokenKey { Id = 7, Key = tokenKey, IssueNotBefore = DateTimeOffset.UnixEpoch })
+                .AddPolicyAuthority<AdministrationAllowPolicyEvaluator>(new BasePolicyAuthorityDefinition
+                {
+                    Id = "hpd.base.hosting.admin-allow", Version = 1, OwningModuleId = "hpd.base.tests",
+                    EvaluatorContractId = "hpd.base.hosting.admin-policy", EvaluatorContractVersion = 1, CompositionOrder = 0,
+                })
                 .AddCollection(GeneratedProject.Collection)
-                .UseSqlite(options => { options.DataSource = path; options.StoreId = "sqlite"; options.AdministrationEnabled = true; }));
+                .UseStore(SqliteStore.Configure(options => { options.DataSource = path; options.StoreId = "sqlite"; options.AdministrationEnabled = true; })));
             await using ServiceProvider provider = services.BuildServiceProvider();
             IBaseSchemaManager manager = provider.GetRequiredService<IBaseSchemaManager>();
             BaseSchemaPlan plan = (await manager.PlanAsync(new BaseSchemaPlanRequest { StoreId = "sqlite" })).Value!;
@@ -641,14 +648,14 @@ public sealed class ApplicationHostBuilderTests
             builder => builder.AddCollection(GeneratedProject.Collection));
         Action duplicate = () => new ServiceCollection().AddHPDBase(
             builder => builder
-                .Use(new TestProviderExtension("first"))
-                .Use(new TestProviderExtension("second")));
+                .UseStore(InMemoryProviderInstaller.Create(null))
+                .UseStore(InMemoryProviderInstaller.Create(null)));
 
         using var provider = defaultServices.BuildServiceProvider();
         provider.GetRequiredService<HPDBaseInstalledFeatures>().Provider
             .Should().Be("inmemory");
         duplicate.Should().Throw<InvalidOperationException>()
-            .WithMessage("*at most one explicit*");
+            .WithMessage("base.store.selection.duplicate");
     }
 
     [Fact]
@@ -670,7 +677,7 @@ public sealed class ApplicationHostBuilderTests
 
         var explicitServices = new ServiceCollection();
         explicitServices.AddHPDBase(builder => builder
-            .UseSqlite()
+            .UseStore(SqliteStore.Configure())
             .AddCollection(GeneratedProject.Collection));
         using var explicitHost = explicitServices.BuildServiceProvider();
         explicitHost.GetService<InMemoryRecordStore>().Should().BeNull();
@@ -682,7 +689,7 @@ public sealed class ApplicationHostBuilderTests
     {
         Action register = () => new ServiceCollection().AddHPDBase(builder => builder
             .ConfigureInMemoryStore(options => options.MaxPageSize = 50)
-            .UseSqlite()
+            .UseStore(SqliteStore.Configure())
             .AddCollection(GeneratedProject.Collection));
 
         register.Should().Throw<InvalidOperationException>()
@@ -690,11 +697,42 @@ public sealed class ApplicationHostBuilderTests
     }
 
     [Fact]
+    public void PreRegisteredStoreOptionsCannotCompeteWithTheSelectedAuthoritySnapshot()
+    {
+        var inMemory = new ServiceCollection();
+        inMemory.AddSingleton(new HPDBaseInMemoryStoreOptions());
+        Action registerInMemory = () => inMemory.AddHPDBase(builder => builder.AddCollection(GeneratedProject.Collection));
+
+        var sqlite = new ServiceCollection();
+        sqlite.AddSingleton(new HPDBaseSqliteOptions());
+        Action registerSqlite = () => sqlite.AddHPDBase(builder => builder
+            .UseStore(SqliteStore.Configure())
+            .AddCollection(GeneratedProject.Collection));
+
+        registerInMemory.Should().Throw<InvalidOperationException>().WithMessage("base.store.authorityAmbiguous");
+        registerSqlite.Should().Throw<InvalidOperationException>().WithMessage("base.store.authorityAmbiguous");
+    }
+
+    [Fact]
+    public async Task ExtraAuthoritativeServiceRegistrationFailsReadiness()
+    {
+        var services = new ServiceCollection();
+        services.AddHPDBase(builder => builder.AddCollection(GeneratedProject.Collection));
+        services.AddSingleton<IRecordStore>(provider => provider.GetRequiredService<InMemoryRecordStore>());
+        await using ServiceProvider provider = services.BuildServiceProvider();
+
+        OperationResult<BaseApplicationReadiness> readiness = await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync();
+
+        readiness.Status.Should().Be(OperationStatus.StoreError);
+        provider.GetServices<IRecordStore>().Should().HaveCount(2);
+    }
+
+    [Fact]
     public void InMemoryFileDefaultIsIndependentFromTheRecordProvider()
     {
         var services = new ServiceCollection();
         services.AddHPDBase(builder => builder
-            .UseSqlite()
+            .UseStore(SqliteStore.Configure())
             .AddCollection(GeneratedProject.Collection)
             .AddFiles(options => options.Buckets.Add(new FileBucketDescriptor
             {
@@ -715,15 +753,15 @@ public sealed class ApplicationHostBuilderTests
     {
         var required = HPD.Base.BaseCollection.Define(
             "required.projects",
-            GeneratedApplicationJsonContext.Default.GeneratedProject,
+            Metadata().GeneratedProject,
             schema =>
             {
-                schema.String("organization-id", "organizationId").Required();
+                schema.String("organization-id", "OrganizationId", ProjectProperty("organizationId")).Required();
                 schema.Index("organization", "organization-id").Required();
             });
 
         Action register = () => new ServiceCollection().AddHPDBase(
-            builder => builder.UseSqlite().AddCollection(required));
+            builder => builder.UseStore(SqliteStore.Configure()).AddCollection(required));
         register.Should().NotThrow();
 
         Action defaultRegister = () => new ServiceCollection().AddHPDBase(
@@ -825,8 +863,6 @@ public sealed class ApplicationHostBuilderTests
 file sealed class TestProviderExtension(string id) : IHPDBaseBuilderExtension
 {
     public string Id { get; } = id;
-    public bool IsRecordProvider => true;
-    public bool SupportsRequiredIndexes => false;
     public void Configure(IServiceCollection services, IReadOnlyList<CollectionDefinition> collections) { }
 }
 
@@ -834,8 +870,6 @@ file sealed class BlockingProviderExtension : IHPDBaseBuilderExtension
 {
     private int _initializationCount;
     public string Id => "blocking";
-    public bool IsRecordProvider => true;
-    public bool SupportsRequiredIndexes => false;
     public int InitializationCount => System.Threading.Volatile.Read(ref _initializationCount);
     public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);

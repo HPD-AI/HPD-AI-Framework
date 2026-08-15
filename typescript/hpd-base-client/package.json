@@ -1,31 +1,12 @@
 {
   "name": "@hpd/base-client",
-  "version": "0.1.0",
-  "description": "Zero-dependency TypeScript client for HPD.BASE records, metadata, capabilities, health, and diagnostics.",
+  "version": "0.2.0",
+  "description": "Typed reactive client for the HPD Base v2 application protocol.",
   "type": "module",
-  "main": "./dist/index.js",
-  "module": "./dist/index.js",
-  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
-    },
-    "./query": {
-      "types": "./dist/query/index.d.ts",
-      "import": "./dist/query/index.js"
-    },
-    "./transport": {
-      "types": "./dist/transport/index.d.ts",
-      "import": "./dist/transport/index.js"
-    },
-    "./result": {
-      "types": "./dist/result.d.ts",
-      "import": "./dist/result.js"
-    },
-    "./types": {
-      "types": "./dist/types/index.d.ts",
-      "import": "./dist/types/index.js"
     }
   },
   "files": [
@@ -33,33 +14,19 @@
     "README.md"
   ],
   "scripts": {
-    "clean": "rm -rf dist",
-    "build": "npm run clean && tsc",
-    "test": "vitest run",
-    "test:watch": "vitest watch",
-    "test:types": "tsc -p tsconfig.type-tests.json --noEmit",
-    "check": "npm run build && npm run test && npm run test:types",
-    "prepublishOnly": "npm run check"
+    "clean": "node -e \"import('node:fs').then(fs=>fs.rmSync('dist',{recursive:true,force:true}))\"",
+    "build": "npm run clean && tsc -p tsconfig.json",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "test:browser": "npm run build && node --test browser-test/*.test.mjs",
+    "check": "npm run test && npm run test:browser"
   },
   "sideEffects": false,
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=24"
   },
-  "dependencies": {},
   "devDependencies": {
-    "@types/node": "^20.0.0",
-    "typescript": "^5.0.0",
-    "vitest": "^1.0.0"
+    "@playwright/test": "1.61.1",
+    "typescript": "7.0.2"
   },
-  "keywords": [
-    "hpd",
-    "base",
-    "records",
-    "metadata",
-    "sdk",
-    "typescript",
-    "fetch"
-  ],
-  "author": "HPD-AI",
   "license": "FSL-1.1-ALv2"
 }

@@ -10,19 +10,25 @@ namespace HPD.Base.AspNetCore;
 internal static class FileObjectEndpoints
 {
     /// <summary>Executes the map operation.</summary>
-    public static void Map(RouteGroupBuilder group)
+    public static void Map(RouteGroupBuilder group, HPDBaseEndpointAudience audience, Action<IEndpointConventionBuilder, HPDBaseEndpointDescriptor>? convention = null)
     {
         group.MapPost("/{bucketId}/objects", (RequestDelegate)Upload)
+            .WithHPDBaseEndpoint(FileHttpRouteNames.Upload, audience, HPDBaseEndpointOperation.FileWrite, HPDBaseCapabilities.FilesWrite, convention)
             .WithHPDBaseFilesOpenApi(FileHttpRouteNames.Upload);
         group.MapGet("/{bucketId}/objects", (RequestDelegate)List)
+            .WithHPDBaseEndpoint(FileHttpRouteNames.List, audience, HPDBaseEndpointOperation.FileRead, HPDBaseCapabilities.FilesRead, convention)
             .WithHPDBaseFilesOpenApi(FileHttpRouteNames.List);
         group.MapGet("/{bucketId}/objects/{objectId}", (RequestDelegate)Download)
+            .WithHPDBaseEndpoint(FileHttpRouteNames.Download, audience, HPDBaseEndpointOperation.FileRead, HPDBaseCapabilities.FilesRead, convention)
             .WithHPDBaseFilesOpenApi(FileHttpRouteNames.Download);
         group.MapMethods("/{bucketId}/objects/{objectId}", [HttpMethods.Head], (RequestDelegate)Head)
+            .WithHPDBaseEndpoint(FileHttpRouteNames.Head, audience, HPDBaseEndpointOperation.FileRead, HPDBaseCapabilities.FilesRead, convention)
             .WithHPDBaseFilesOpenApi(FileHttpRouteNames.Head);
         group.MapGet("/{bucketId}/objects/{objectId}/metadata", (RequestDelegate)Metadata)
+            .WithHPDBaseEndpoint(FileHttpRouteNames.MetadataGet, audience, HPDBaseEndpointOperation.FileRead, HPDBaseCapabilities.FilesRead, convention)
             .WithHPDBaseFilesOpenApi(FileHttpRouteNames.MetadataGet);
         group.MapDelete("/{bucketId}/objects/{objectId}", (RequestDelegate)Delete)
+            .WithHPDBaseEndpoint(FileHttpRouteNames.Delete, audience, HPDBaseEndpointOperation.FileDelete, HPDBaseCapabilities.FilesDelete, convention)
             .WithHPDBaseFilesOpenApi(FileHttpRouteNames.Delete);
     }
 
@@ -41,7 +47,7 @@ internal static class FileObjectEndpoints
             Content = httpContext.Request.Body
         };
 
-        var result = await service.UploadAsync(request, Context(httpContext), httpContext.RequestAborted);
+        var result = await service.UploadAsync(request, await ContextAsync(httpContext), httpContext.RequestAborted);
         var location = result.Value?.Metadata is { } metadata
             ? $"{httpContext.Request.Path}/{Uri.EscapeDataString(metadata.ObjectId.Value)}"
             : null;
@@ -61,7 +67,7 @@ internal static class FileObjectEndpoints
             Prefix = string.IsNullOrWhiteSpace(prefix) ? null : new FileObjectKey(prefix),
             Limit = limit,
             Cursor = string.IsNullOrWhiteSpace(cursor) ? null : cursor
-        }, Context(httpContext), httpContext.RequestAborted);
+        }, await ContextAsync(httpContext), httpContext.RequestAborted);
 
         await mapper.ToHttpResult(result, httpContext, new HPDBaseHttpResultMappingContext()).ExecuteAsync(httpContext);
     }
@@ -71,7 +77,7 @@ internal static class FileObjectEndpoints
         var service = httpContext.RequestServices.GetRequiredService<IFileObjectService>();
         var mapper = httpContext.RequestServices.GetRequiredService<IBaseHttpResultMapper>();
         var responseWriter = httpContext.RequestServices.GetRequiredService<FileDownloadResponseWriter>();
-        var result = await service.OpenDownloadAsync(DownloadRequest(httpContext), Context(httpContext), httpContext.RequestAborted);
+        var result = await service.OpenDownloadAsync(DownloadRequest(httpContext), await ContextAsync(httpContext), httpContext.RequestAborted);
         if (!result.IsSuccess() || result.Value is null)
         {
             await mapper.ToHttpResult(result, httpContext, new HPDBaseHttpResultMappingContext()).ExecuteAsync(httpContext);
@@ -85,7 +91,7 @@ internal static class FileObjectEndpoints
     {
         var service = httpContext.RequestServices.GetRequiredService<IFileObjectService>();
         var mapper = httpContext.RequestServices.GetRequiredService<IBaseHttpResultMapper>();
-        var result = await service.GetMetadataAsync(MetadataRequest(httpContext), Context(httpContext), httpContext.RequestAborted);
+        var result = await service.GetMetadataAsync(MetadataRequest(httpContext), await ContextAsync(httpContext), httpContext.RequestAborted);
         if (!result.IsSuccess() || result.Value is null)
         {
             await mapper.ToHttpResult(result, httpContext, new HPDBaseHttpResultMappingContext()).ExecuteAsync(httpContext);
@@ -105,7 +111,7 @@ internal static class FileObjectEndpoints
     {
         var service = httpContext.RequestServices.GetRequiredService<IFileObjectService>();
         var mapper = httpContext.RequestServices.GetRequiredService<IBaseHttpResultMapper>();
-        var result = await service.GetMetadataAsync(MetadataRequest(httpContext), Context(httpContext), httpContext.RequestAborted);
+        var result = await service.GetMetadataAsync(MetadataRequest(httpContext), await ContextAsync(httpContext), httpContext.RequestAborted);
         await mapper.ToHttpResult(result, httpContext, new HPDBaseHttpResultMappingContext()).ExecuteAsync(httpContext);
     }
 
@@ -117,7 +123,7 @@ internal static class FileObjectEndpoints
         {
             BucketId = new FileBucketId(RouteValue(httpContext, "bucketId")),
             ObjectId = new FileObjectId(RouteValue(httpContext, "objectId"))
-        }, Context(httpContext), httpContext.RequestAborted);
+        }, await ContextAsync(httpContext), httpContext.RequestAborted);
         await mapper.ToHttpResult(result, httpContext, new HPDBaseHttpResultMappingContext()).ExecuteAsync(httpContext);
     }
 
@@ -133,11 +139,21 @@ internal static class FileObjectEndpoints
         ObjectId = new FileObjectId(RouteValue(httpContext, "objectId"))
     };
 
-    private static FileOperationContext Context(HttpContext httpContext) => new()
+    private static async ValueTask<FileOperationContext> ContextAsync(HttpContext httpContext)
     {
-        SubjectId = httpContext.User.Identity?.Name,
-        CorrelationId = httpContext.TraceIdentifier
-    };
+        PrincipalContext principal = await httpContext.RequestServices
+            .GetRequiredService<IBaseHttpPrincipalContextFactory>()
+            .CreateAsync(httpContext, httpContext.RequestAborted)
+            .ConfigureAwait(false);
+        string correlation = httpContext.RequestServices
+            .GetRequiredService<IBaseHttpCorrelationProvider>()
+            .GetCorrelationId(httpContext);
+        return new FileOperationContext
+        {
+            SubjectId = principal.SubjectId,
+            CorrelationId = correlation
+        };
+    }
 
     private static string RouteValue(HttpContext httpContext, string key) => Convert.ToString(httpContext.Request.RouteValues[key], System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty;
 

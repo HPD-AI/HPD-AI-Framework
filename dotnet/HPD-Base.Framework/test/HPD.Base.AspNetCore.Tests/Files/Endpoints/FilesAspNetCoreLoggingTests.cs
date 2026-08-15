@@ -51,6 +51,7 @@ public sealed class FilesAspNetCoreLoggingTests
             EnvironmentName = "Testing"
         });
         builder.WebHost.UseTestServer();
+        builder.Services.AddAuthorizationBuilder().AddPolicy("files", policy => policy.RequireAssertion(_ => true));
         builder.Logging.ClearProviders();
         builder.Logging.SetMinimumLevel(LogLevel.Trace);
         builder.Logging.AddProvider(logs);
@@ -69,8 +70,13 @@ public sealed class FilesAspNetCoreLoggingTests
         builder.Services.AddSingleton<IFileStorageProvider, ThrowingDownloadProvider>();
 
         var app = builder.Build();
-        app.MapHPDBaseApi();
-        app.MapHPDBaseFilesApi();
+        app.MapHPDBaseApplicationApi(new HPDBaseApplicationEndpointOptions
+        {
+            AuthorizationPolicy = "files",
+            MapRecords = false,
+            MapRegisteredReads = false,
+            MapFiles = true
+        });
         await app.StartAsync();
         return app;
     }

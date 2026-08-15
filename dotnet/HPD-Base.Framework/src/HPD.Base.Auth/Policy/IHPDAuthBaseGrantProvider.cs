@@ -7,7 +7,7 @@ namespace HPD.Base.Auth;
 /// <summary>
 /// Provides BASE grants derived from HPD.Auth-backed host state.
 /// </summary>
-public interface IHPDAuthBaseGrantProvider
+public interface IHPDBaseAuthGrantProvider
 {
     /// <summary>
     /// Gets grants for the supplied BASE policy evaluation request.
@@ -16,14 +16,14 @@ public interface IHPDAuthBaseGrantProvider
     /// <param name="cancellationToken">A cancellation token.</param>
     /// <returns>The grants available for the request.</returns>
     ValueTask<IReadOnlyList<AccessGrant>> GetGrantsAsync(
-        HPDAuthBaseGrantRequest request,
+        HPDBaseAuthGrantRequest request,
         CancellationToken cancellationToken = default);
 }
 
 /// <summary>
 /// Describes the context used to load HPD.Auth-derived BASE grants.
 /// </summary>
-public sealed record HPDAuthBaseGrantRequest
+public sealed record HPDBaseAuthGrantRequest
 {
     /// <summary>
     /// Gets the BASE principal.

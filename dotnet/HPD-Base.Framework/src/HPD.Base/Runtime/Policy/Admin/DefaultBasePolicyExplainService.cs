@@ -563,7 +563,7 @@ internal sealed class DefaultBasePolicyExplainService : IBasePolicyExplainServic
                 request,
                 context,
                 runtime.CloakedNotFoundWouldBeReturnedToPublic ? BasePolicyExplainOutcome.CloakedNotFound : BasePolicyExplainOutcome.Denied,
-                DecisionFromFailure(policy),
+                policy.Value?.Decision ?? DecisionFromFailure(policy),
                 payload,
                 runtime,
                 options));
@@ -575,11 +575,13 @@ internal sealed class DefaultBasePolicyExplainService : IBasePolicyExplainServic
                 request,
                 context,
                 BasePolicyExplainOutcome.Unsupported,
-                DecisionFromFailure(policy),
+                policy.Value?.Decision ?? DecisionFromFailure(policy),
                 payload,
                 runtime,
                 options,
-                ConstraintSummaryFromFailure(policy)));
+                policy.Value is not null
+                    ? _redactor.Constraints(policy.Value.Decision, options?.IncludeConstraintAst == true)
+                    : ConstraintSummaryFromFailure(policy)));
         }
 
         return Failure<BasePolicyEvaluation>(policy);

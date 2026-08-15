@@ -1,0 +1,25 @@
+{
+  "name": "@hpd/gateway-client",
+  "version": "0.1.0",
+  "description": "Generated, bounded TypeScript client for the HPD Gateway Admin API.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "clean": "rm -rf dist",
+    "generate": "node ../hpd-gateway-client-generator/dist/cli.js generate --snapshot ../hpd-gateway-client-generator/fixtures/gateway-client-snapshot.json --editor-ledger ../hpd-gateway-client-generator/fixtures/gateway-editor-ledger.json --out src/generated --clean",
+    "build": "npm run clean && tsc",
+    "test": "vitest run",
+    "check": "npm run build && npm run test",
+    "prepublishOnly": "npm run check"
+  },
+  "sideEffects": false,
+  "engines": { "node": ">=20.0.0" },
+  "dependencies": {},
+  "devDependencies": { "@types/node": "^20.0.0", "typescript": "^5.0.0", "vitest": "^4.1.10" },
+  "keywords": ["hpd", "gateway", "admin", "fetch", "typescript"],
+  "author": "HPD-AI",
+  "license": "FSL-1.1-ALv2"
+}

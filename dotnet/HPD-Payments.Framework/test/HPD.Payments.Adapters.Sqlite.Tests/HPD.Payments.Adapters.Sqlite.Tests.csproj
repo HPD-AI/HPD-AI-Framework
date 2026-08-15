@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><IsTestProject>false</IsTestProject></PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/HPD.Payments.Adapters.Sqlite/HPD.Payments.Adapters.Sqlite.csproj" />
+  </ItemGroup>
+</Project>

@@ -25,6 +25,11 @@ public sealed class GeneratedReadTests
         plan.Predicate!.Left!.FieldId.Should().Be("read-project.name");
         plan.Predicate.Right!.ParameterId.Should().Be("project-name.name");
         plan.Projection.Should().ContainSingle().Which.FieldId.Should().Be("project-name.row.name");
+        ProjectSummaryRead.Definition.ClientContract.Parameters.Single().Should().BeEquivalentTo(new
+        {
+            GeneratedName = "OwnerId",
+            WireName = "ownerId",
+        });
     }
 
     [Fact]
@@ -62,11 +67,10 @@ public sealed class GeneratedReadTests
     {
         var store = new RelationalReadStore();
         var services = new ServiceCollection().AddLogging();
-        services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
-        services.AddHPDBase(builder => builder
+                services.AddHPDBase(builder => builder.AddTestPolicyAuthority<AllowPolicyEvaluator>()
             .AddCollection(ReadProject.Collection)
             .AddRead(ProjectNameRead.Definition)
-            .Use(new RelationalReadInstaller(store)));
+            .UseStore(TestStoreProvider.Create(store, relational: true)));
         await using var provider = services.BuildServiceProvider();
         (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync())
             .IsSuccess().Should().BeTrue();
@@ -104,11 +108,10 @@ public sealed class GeneratedReadTests
     {
         var store = new RelationalReadStore();
         var services = new ServiceCollection().AddLogging();
-        services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
-        services.AddHPDBase(builder => builder
+                services.AddHPDBase(builder => builder.AddTestPolicyAuthority<AllowPolicyEvaluator>()
             .AddCollection(ReadProject.Collection)
             .AddRead(ProjectNameRead.Definition)
-            .Use(new RelationalReadInstaller(store)));
+            .UseStore(TestStoreProvider.Create(store, relational: true)));
         await using ServiceProvider provider = services.BuildServiceProvider();
         (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
         BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(new PrincipalContext
@@ -168,11 +171,12 @@ public sealed class GeneratedReadTests
         var services = new ServiceCollection().AddLogging();
         services.AddSingleton<IPolicyEvaluator>(evaluator);
         services.AddHPDBase(builder => builder
+            .AddTestPolicyAuthority(evaluator)
             .AddCollection(ReadProject.Collection)
             .AddCollection(ReadOwner.Collection)
             .AddCollection(ReadTask.Collection)
             .AddRead(ProjectSummaryRead.Definition)
-            .Use(new RelationalReadInstaller(store)));
+            .UseStore(TestStoreProvider.Create(store, relational: true)));
         await using var provider = services.BuildServiceProvider();
         await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync();
         BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(new PrincipalContext
@@ -196,11 +200,11 @@ public sealed class GeneratedReadTests
     {
         var store = new RelationalReadStore();
         var services = new ServiceCollection().AddLogging();
-        services.AddSingleton<IPolicyEvaluator, DenyReadSourcePolicyEvaluator>();
         services.AddHPDBase(builder => builder
+            .AddTestPolicyAuthority<DenyReadSourcePolicyEvaluator>()
             .AddCollection(ReadProject.Collection)
             .AddRead(ProjectNameRead.Definition)
-            .Use(new RelationalReadInstaller(store)));
+            .UseStore(TestStoreProvider.Create(store, relational: true)));
         await using ServiceProvider provider = services.BuildServiceProvider();
         (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
         BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.System });
@@ -219,11 +223,11 @@ public sealed class GeneratedReadTests
     {
         var weak = new RelationalReadStore(snapshotConsistency: false);
         var weakServices = new ServiceCollection().AddLogging();
-        weakServices.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
         weakServices.AddHPDBase(builder => builder
+            .AddTestPolicyAuthority<AllowPolicyEvaluator>()
             .AddCollection(ReadProject.Collection)
             .AddRead(ProjectNameRead.Definition)
-            .Use(new RelationalReadInstaller(weak)));
+            .UseStore(TestStoreProvider.Create(weak, relational: true)));
         await using (ServiceProvider provider = weakServices.BuildServiceProvider())
         {
             (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
@@ -237,11 +241,11 @@ public sealed class GeneratedReadTests
 
         var unsupported = new RelationalReadStore(comparisonOperators: []);
         var unsupportedServices = new ServiceCollection().AddLogging();
-        unsupportedServices.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
         unsupportedServices.AddHPDBase(builder => builder
+            .AddTestPolicyAuthority<AllowPolicyEvaluator>()
             .AddCollection(ReadProject.Collection)
             .AddRead(ProjectNameRead.Definition)
-            .Use(new RelationalReadInstaller(unsupported)));
+            .UseStore(TestStoreProvider.Create(unsupported, relational: true)));
         await using (ServiceProvider provider = unsupportedServices.BuildServiceProvider())
         {
             (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
@@ -256,8 +260,8 @@ public sealed class GeneratedReadTests
         var first = new RelationalReadStore();
         var second = new RelationalReadStore();
         var mixedServices = new ServiceCollection().AddLogging();
-        mixedServices.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
         mixedServices.AddHPDBase(builder => builder
+            .AddTestPolicyAuthority<AllowPolicyEvaluator>()
             .AddCollection(ReadProject.Collection)
             .AddCollection(ReadOwner.Collection)
             .AddCollection(ReadTask.Collection)
@@ -265,12 +269,7 @@ public sealed class GeneratedReadTests
             .Use(new SplitRelationalReadInstaller(first, second)));
         await using (ServiceProvider provider = mixedServices.BuildServiceProvider())
         {
-            (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
-            BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.System });
-            BaseFailure<ProjectSummaryRead.Row[]> failure = (await session.Reads.ToArrayAsync(
-                ProjectSummaryRead.Handle, new ProjectSummaryRead { OwnerId = new BaseRecordId<ReadOwner>(new RecordId("owner")) }))
-                .Should().BeOfType<BaseFailure<ProjectSummaryRead.Row[]>>().Subject;
-            failure.Error.Code.Should().Be("base.relational.read.multipleStores");
+            (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeFalse();
             first.Request.Should().BeNull();
             second.Request.Should().BeNull();
         }
@@ -284,9 +283,10 @@ public sealed class GeneratedReadTests
         var policy = new CountingReadPolicyEvaluator();
         services.AddSingleton<IPolicyEvaluator>(policy);
         services.AddHPDBase(builder => builder
+            .AddTestPolicyAuthority(policy)
             .AddCollection(ReadProject.Collection)
             .AddRead(ProjectNameRead.Definition)
-            .Use(new RelationalReadInstaller(store)));
+            .UseStore(TestStoreProvider.Create(store, relational: true)));
         await using ServiceProvider provider = services.BuildServiceProvider();
         (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
         BaseSession anonymous = provider.GetRequiredService<IBaseSessionFactory>().For(new PrincipalContext
@@ -309,12 +309,11 @@ public sealed class GeneratedReadTests
     {
         var store = new FakeRecordStore("non-relational");
         var services = new ServiceCollection().AddLogging();
-        services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
-        services.AddHPDBase(builder => builder
+                services.AddHPDBase(builder => builder.AddTestPolicyAuthority<AllowPolicyEvaluator>()
             .AddCollection(ReadProject.Collection)
             .AddCollection(ReadOwner.Collection)
             .AddRead(ProjectNameRead.Definition)
-            .Use(new NonRelationalInstaller(store)));
+            .UseStore(TestStoreProvider.Create(store)));
         await using ServiceProvider provider = services.BuildServiceProvider();
         (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
         BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.System });
@@ -358,13 +357,12 @@ public sealed class GeneratedReadTests
             DependencyEvidence = [new BaseReadDependencyEvidence { CollectionId = ReadProject.Collection.Id }],
         };
         var services = new ServiceCollection().AddLogging();
-        services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
-        services.AddHPDBase(builder => builder
+                services.AddHPDBase(builder => builder.AddTestPolicyAuthority<AllowPolicyEvaluator>()
             .AddCollection(ReadProject.Collection)
             .AddRead(ProjectNameRead.Definition)
             .AddDependencies(options => options.ProtectionKey = Enumerable.Repeat((byte)0x5b, 32).ToArray())
             .AddLiveQueries()
-            .Use(new RelationalReadInstaller(store)));
+            .UseStore(TestStoreProvider.Create(store, relational: true)));
         await using ServiceProvider provider = services.BuildServiceProvider();
         (await provider.GetRequiredService<IHPDBaseApplication>().InitializeAsync()).IsSuccess().Should().BeTrue();
         BaseSession session = provider.GetRequiredService<IBaseSessionFactory>().For(new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.System });
@@ -381,8 +379,7 @@ public sealed class GeneratedReadTests
     public async Task BuiltInInMemoryExecutesJoinGroupAggregateFromOneImmutableSnapshot()
     {
         var services = new ServiceCollection().AddLogging();
-        services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
-        services.AddHPDBase(builder => builder
+                services.AddHPDBase(builder => builder.AddTestPolicyAuthority<AllowPolicyEvaluator>()
             .AddCollection(ReadProject.Collection)
             .AddCollection(ReadOwner.Collection)
             .AddCollection(ReadTask.Collection)
@@ -419,6 +416,7 @@ public sealed class GeneratedReadTests
         var policy = new CountingReadPolicyEvaluator();
         services.AddSingleton<IPolicyEvaluator>(policy);
         services.AddHPDBase(builder => builder
+            .AddTestPolicyAuthority(policy)
             .AddCollection(ReadProject.Collection)
             .AddCollection(ReadOwner.Collection)
             .AddCollection(ReadTask.Collection)
@@ -462,14 +460,13 @@ public sealed class GeneratedReadTests
         try
         {
             var services = new ServiceCollection().AddLogging();
-            services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
-            services.AddHPDBase(builder => builder
+                        services.AddHPDBase(builder => builder.AddTestPolicyAuthority<AllowPolicyEvaluator>()
                 .ConfigureSchema(options => options.PlanProtectionKey = Enumerable.Repeat((byte)0x62, 32).ToArray())
                 .AddCollection(ReadProject.Collection)
                 .AddCollection(ReadOwner.Collection)
                 .AddCollection(ReadTask.Collection)
                 .AddRead(ProjectSummaryRead.Definition)
-                .UseSqlite(options => options.DataSource = database));
+                .UseStore(SqliteStore.Configure(options => options.DataSource = database)));
             await using ServiceProvider provider = services.BuildServiceProvider();
             IBaseSchemaManager schemas = provider.GetRequiredService<IBaseSchemaManager>();
             BaseSchemaPlan plan = (await schemas.PlanAsync(new BaseSchemaPlanRequest { StoreId = "sqlite" })).Value!;
@@ -519,64 +516,15 @@ public sealed class GeneratedReadTests
         }
     }
 
-    private sealed class RelationalReadInstaller(RelationalReadStore store) : IHPDBaseBuilderExtension
-    {
-        public string Id => "relational-test";
-        public bool IsRecordProvider => true;
-        public bool SupportsRequiredIndexes => true;
-        public void Configure(IServiceCollection services, IReadOnlyList<CollectionDefinition> collections) =>
-            services.AddSingleton(store);
-        public ValueTask InitializeAsync(IServiceProvider services, CancellationToken cancellationToken = default)
-        {
-            services.GetRequiredService<IRecordStoreRegistry>().Add(new RecordStoreRegistration
-            {
-                StoreId = Id,
-                Store = services.GetRequiredService<RelationalReadStore>(),
-                CollectionIds = [ReadProject.Collection.Id, ReadOwner.Collection.Id, ReadTask.Collection.Id],
-            });
-            return ValueTask.CompletedTask;
-        }
-    }
-
     private sealed class SplitRelationalReadInstaller(RelationalReadStore first, RelationalReadStore second) : IHPDBaseBuilderExtension
     {
         public string Id => "split-relational-test";
-        public bool IsRecordProvider => true;
-        public bool SupportsRequiredIndexes => true;
         public void Configure(IServiceCollection services, IReadOnlyList<CollectionDefinition> collections) { }
         public ValueTask InitializeAsync(IServiceProvider services, CancellationToken cancellationToken = default)
         {
             IRecordStoreRegistry stores = services.GetRequiredService<IRecordStoreRegistry>();
             stores.Add(new RecordStoreRegistration { StoreId = "split-a", Store = first, CollectionIds = [ReadProject.Collection.Id, ReadOwner.Collection.Id] });
             stores.Add(new RecordStoreRegistration { StoreId = "split-b", Store = second, CollectionIds = [ReadTask.Collection.Id] });
-            return ValueTask.CompletedTask;
-        }
-    }
-
-    private sealed class TestCollectionContributor(IReadOnlyList<CollectionDefinition> collections) : IBaseDescriptorContributor
-    {
-        public string Id => "non-relational-test.collections";
-        public void Contribute(IBaseDescriptorContributionBuilder builder)
-        {
-            foreach (CollectionDefinition collection in collections) builder.AddCollection(collection);
-        }
-    }
-
-    private sealed class NonRelationalInstaller(FakeRecordStore store) : IHPDBaseBuilderExtension
-    {
-        public string Id => "non-relational-test";
-        public bool IsRecordProvider => true;
-        public bool SupportsRequiredIndexes => true;
-        public void Configure(IServiceCollection services, IReadOnlyList<CollectionDefinition> collections) =>
-            services.AddSingleton<IBaseDescriptorContributor>(new TestCollectionContributor(collections));
-        public ValueTask InitializeAsync(IServiceProvider services, CancellationToken cancellationToken = default)
-        {
-            services.GetRequiredService<IRecordStoreRegistry>().Add(new RecordStoreRegistration
-            {
-                StoreId = Id,
-                Store = store,
-                CollectionIds = [ReadProject.Collection.Id, ReadOwner.Collection.Id],
-            });
             return ValueTask.CompletedTask;
         }
     }
@@ -706,7 +654,7 @@ internal sealed partial record ReadUnrelated
     public required string Value { get; init; }
 }
 
-[BaseRead("project-name", typeof(GeneratedReadJsonContext), Exposure = BaseReadExposure.Public)]
+[BaseRead("project-name", typeof(GeneratedReadJsonContext), Exposure = BaseReadExposure.Public, RequiredGrantId = "project-name.execute")]
 internal sealed partial record ProjectNameRead
 {
     [BaseReadParameter("project-name.name")]
@@ -727,7 +675,7 @@ internal sealed partial record ProjectNameRead
     }
 }
 
-[BaseRead("project-summary", typeof(GeneratedReadJsonContext))]
+[BaseRead("project-summary", typeof(GeneratedReadJsonContext), RequiredGrantId = "project-summary.execute")]
 internal sealed partial record ProjectSummaryRead
 {
     [BaseReadParameter("project-summary.owner-id")]

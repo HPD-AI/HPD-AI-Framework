@@ -21,7 +21,6 @@ public sealed class AgentClientSet : IDisposable
     public IImageGenerator? ImageGenerator { get; init; }
     public IEmbeddingGenerator? EmbeddingGenerator { get; init; }
     public IHostedFileClient? HostedFiles { get; init; }
-    public Func<ProviderComponentLifetimeContext, IVoiceActivityDetector>? VoiceActivityDetectorFactory { get; init; }
     public Func<ProviderComponentLifetimeContext, IEotDetector>? EndOfTurnDetectorFactory { get; init; }
 
     public IReadOnlyDictionary<ProviderClientFamily, ProviderClientConfig> ResolvedConfigs { get; init; }

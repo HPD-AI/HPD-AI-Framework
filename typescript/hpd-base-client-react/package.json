@@ -1,0 +1,14 @@
+{
+  "name": "@hpd/base-client-react",
+  "version": "0.2.0",
+  "description": "Thin React 19.2 external-store bindings for @hpd/base-client.",
+  "type": "module",
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "files": ["dist", "README.md"],
+  "scripts": { "clean": "node -e \"import('node:fs').then(fs=>fs.rmSync('dist',{recursive:true,force:true}))\"", "build": "npm run clean && tsc -p tsconfig.json", "test": "npm run build && node --test test/*.test.mjs", "check": "npm test" },
+  "sideEffects": false,
+  "engines": { "node": ">=24" },
+  "peerDependencies": { "@hpd/base-client": "^0.2.0", "react": "^19.2.0" },
+  "devDependencies": { "@hpd/base-client": "file:../hpd-base-client", "@types/react": "^19.2.0", "@types/react-test-renderer": "^19.1.0", "react": "^19.2.0", "react-dom": "^19.2.0", "react-test-renderer": "^19.2.0", "typescript": "7.0.2" },
+  "license": "FSL-1.1-ALv2"
+}

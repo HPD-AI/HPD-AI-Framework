@@ -16,6 +16,8 @@
     <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
     <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- sqlite-vec publishes only the exact prerelease native package certified by L39/L40. -->
+    <NoWarn>$(NoWarn);NU5104</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
@@ -29,5 +31,6 @@
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.10" />
     <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.10" />
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.5" />
+    <PackageReference Include="sqlite-vec" Version="0.1.7-alpha.2.1" ExcludeAssets="contentFiles" />
   </ItemGroup>
 </Project>

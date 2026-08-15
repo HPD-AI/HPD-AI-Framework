@@ -1,26 +1,30 @@
 namespace HPD.Base.Auth.Tests.Principal;
 
-public sealed class HPDAuthBaseSubjectMapperTests
+public sealed class HPDBaseAuthSubjectProjectorTests
 {
     [Fact]
     public void AnonymousPrincipalMapsToAnonymousSubject()
     {
         using var provider = Services().BuildServiceProvider();
-        var mapper = provider.GetRequiredService<HPDAuthBaseSubjectMapper>();
+        var mapper = provider.GetRequiredService<HPDBaseAuthSubjectProjector>();
 
         var mapped = mapper.Map(new ClaimsPrincipal(new ClaimsIdentity()));
 
         mapped.AuthenticationState.Should().Be(PrincipalAuthenticationState.Anonymous);
         mapped.SubjectKind.Should().Be(AccessSubjectKind.Anonymous);
         mapped.Subjects.Should().ContainSingle(subject => subject.Kind == AccessSubjectKind.Anonymous);
-        mapped.AuthSource.Should().Be(HPDAuthBaseSources.Auth);
+        mapped.AuthSource.Should().Be(HPDBaseAuthSources.Auth);
     }
 
     [Fact]
     public void AuthenticatedPrincipalMapsUserTenantRolesAdminAndRedactsSensitiveClaims()
     {
-        using var provider = Services(options => options.AdminRoleNames = ["Admin"]).BuildServiceProvider();
-        var mapper = provider.GetRequiredService<HPDAuthBaseSubjectMapper>();
+        using var provider = Services(options =>
+        {
+            options.AdminRoleNames = ["Admin"];
+            options.CopiedClaimTypes = ["subscription_tier"];
+        }).BuildServiceProvider();
+        var mapper = provider.GetRequiredService<HPDBaseAuthSubjectProjector>();
         var principal = new ClaimsPrincipal(new ClaimsIdentity(
         [
             new Claim("sub", "user-1"),
@@ -53,7 +57,7 @@ public sealed class HPDAuthBaseSubjectMapperTests
     public void ServicePrincipalClaimMapsServiceSubject()
     {
         using var provider = Services().BuildServiceProvider();
-        var mapper = provider.GetRequiredService<HPDAuthBaseSubjectMapper>();
+        var mapper = provider.GetRequiredService<HPDBaseAuthSubjectProjector>();
         var principal = new ClaimsPrincipal(new ClaimsIdentity(
         [
             new Claim("client_id", "svc-1"),
@@ -74,7 +78,7 @@ public sealed class HPDAuthBaseSubjectMapperTests
     public void TenantFallbackIsUsedWhenTenantClaimIsAbsent()
     {
         using var provider = Services().BuildServiceProvider();
-        var mapper = provider.GetRequiredService<HPDAuthBaseSubjectMapper>();
+        var mapper = provider.GetRequiredService<HPDBaseAuthSubjectProjector>();
         var principal = new ClaimsPrincipal(new ClaimsIdentity(
         [
             new Claim("sub", "user-1")
@@ -90,7 +94,7 @@ public sealed class HPDAuthBaseSubjectMapperTests
     public void CredentialIdMapsOnlyFromConfiguredSafeClaim()
     {
         using var provider = Services(options => options.CredentialIdClaimType = "credential_id").BuildServiceProvider();
-        var mapper = provider.GetRequiredService<HPDAuthBaseSubjectMapper>();
+        var mapper = provider.GetRequiredService<HPDBaseAuthSubjectProjector>();
         var principal = new ClaimsPrincipal(new ClaimsIdentity(
         [
             new Claim("sub", "user-1"),
@@ -100,14 +104,94 @@ public sealed class HPDAuthBaseSubjectMapperTests
         var mapped = mapper.Map(principal);
 
         mapped.CredentialId.Should().Be("cred-1");
-        mapped.Claims.Should().NotContain(claim => claim.Type == "credential_id");
+        mapped.Claims.Should().BeNullOrEmpty();
     }
 
-    private static ServiceCollection Services(Action<HPDBaseHPDAuthOptions>? configure = null)
+    [Fact]
+    public void ConflictingSingleValuedFactsFailClosed()
+    {
+        using var provider = Services().BuildServiceProvider();
+        var mapper = provider.GetRequiredService<HPDBaseAuthSubjectProjector>();
+        var principal = new ClaimsPrincipal(new ClaimsIdentity(
+        [
+            new Claim("sub", "user-1"),
+            new Claim("sub", "user-2")
+        ], "HPD"));
+
+        Action action = () => mapper.Map(principal);
+
+        action.Should().Throw<InvalidOperationException>().WithMessage("base.auth.actor.projectionFailed");
+    }
+
+    [Fact]
+    public void RoleAndClaimOverflowFailRatherThanTruncate()
+    {
+        using var provider = Services(options =>
+        {
+            options.MaxRoles = 1;
+            options.MaxClaims = 1;
+            options.CopiedClaimTypes = ["safe"];
+        }).BuildServiceProvider();
+        var mapper = provider.GetRequiredService<HPDBaseAuthSubjectProjector>();
+        var roleOverflow = new ClaimsPrincipal(new ClaimsIdentity(
+            [new Claim("role", "one"), new Claim("role", "two")], "HPD"));
+        var claimOverflow = new ClaimsPrincipal(new ClaimsIdentity(
+            [new Claim("safe", "one"), new Claim("safe", "two")], "HPD"));
+
+        ((Action)(() => mapper.Map(roleOverflow))).Should().Throw<InvalidOperationException>();
+        ((Action)(() => mapper.Map(claimOverflow))).Should().Throw<InvalidOperationException>();
+    }
+
+    [Theory]
+    [InlineData("sub", "bad\nvalue")]
+    [InlineData("name", "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")]
+    [InlineData("role", "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")]
+    public void InvalidBoundedFactsFailRatherThanTruncate(string type, string value)
+    {
+        using var provider = Services().BuildServiceProvider();
+        var mapper = provider.GetRequiredService<HPDBaseAuthSubjectProjector>();
+        var principal = new ClaimsPrincipal(new ClaimsIdentity([new Claim(type, value)], "HPD"));
+
+        ((Action)(() => mapper.Map(principal))).Should().Throw<InvalidOperationException>()
+            .WithMessage("base.auth.actor.projectionFailed");
+    }
+
+    [Fact]
+    public void CallbackOwnedOptionsCannotMutateTheRuntimeSnapshot()
+    {
+        HPDBaseAuthOptions? retained = null;
+        var services = Services(options =>
+        {
+            retained = options;
+            options.CopiedClaimTypes = ["safe"];
+            options.MaxClaims = 1;
+        });
+        retained!.CopiedClaimTypes = ["refresh_token"];
+        retained.MaxClaims = 64;
+        using var provider = services.BuildServiceProvider();
+        HPDBaseAuthSnapshot snapshot = provider.GetRequiredService<HPDBaseAuthSnapshot>();
+
+        snapshot.CopiedClaimTypes.Should().Equal("safe");
+        snapshot.MaxClaims.Should().Be(1);
+    }
+
+    [Fact]
+    public void CompetingClosedOptionsAuthorityFailsRegistration()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<Microsoft.Extensions.Options.IOptions<HPDBaseAuthOptions>>(
+            Microsoft.Extensions.Options.Options.Create(new HPDBaseAuthOptions()));
+
+        Action action = () => services.AddHPDBaseAuthServices();
+
+        action.Should().Throw<InvalidOperationException>().WithMessage("base.auth.options.ambiguous");
+    }
+
+    private static ServiceCollection Services(Action<HPDBaseAuthOptions>? configure = null)
     {
         var services = new ServiceCollection();
         services.AddLogging();
-        services.AddHPDBaseHPDAuth(configure);
+        services.AddHPDBaseAuthServices(configure);
         return services;
     }
 }

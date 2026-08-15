@@ -107,8 +107,8 @@ public sealed class RuntimeIntegrationTests
     {
         var services = new ServiceCollection();
         services.AddLogging();
-        services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
         services.AddHPDBaseRuntime()
+            .UseTestPolicyAuthority(new AllowPolicyEvaluator())
             .AddHPDBaseInMemoryStore(options =>
             {
                 options.StoreId = "primary";

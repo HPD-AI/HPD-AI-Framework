@@ -1,0 +1,86 @@
+name: Certify HPD Base Providers
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'dotnet/HPD-Base.Framework/**'
+      - '.github/workflows/base-provider-certification.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  inmemory-capacity:
+    name: InMemory capacity (${{ matrix.runtime }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, runtime: linux-x64, executable: HPD.Base.InMemory.Vector.AotSmoke }
+          - { os: ubuntu-24.04-arm, runtime: linux-arm64, executable: HPD.Base.InMemory.Vector.AotSmoke }
+          - { os: windows-latest, runtime: win-x64, executable: HPD.Base.InMemory.Vector.AotSmoke.exe }
+          - { os: macos-14, runtime: osx-arm64, executable: HPD.Base.InMemory.Vector.AotSmoke }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+      - name: Publish and execute mandatory sparse-vector capacity gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROJECT="dotnet/HPD-Base.Framework/test/HPD.Base.InMemory.Vector.AotSmoke/HPD.Base.InMemory.Vector.AotSmoke.csproj"
+          OUTPUT="$RUNNER_TEMP/hpd-base-inmemory-capacity-${{ matrix.runtime }}"
+          dotnet publish "$PROJECT" --configuration Release --runtime "${{ matrix.runtime }}" --self-contained true --output "$OUTPUT" --nologo --property:TreatWarningsAsErrors=true
+          "$OUTPUT/${{ matrix.executable }}" --capacity
+
+  native-aot:
+    name: Native AOT (${{ matrix.runtime }}, ${{ matrix.provider }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, runtime: linux-x64, provider: inmemory, project: HPD.Base.InMemory.Vector.AotSmoke, executable: HPD.Base.InMemory.Vector.AotSmoke }
+          - { os: ubuntu-24.04-arm, runtime: linux-arm64, provider: inmemory, project: HPD.Base.InMemory.Vector.AotSmoke, executable: HPD.Base.InMemory.Vector.AotSmoke }
+          - { os: windows-latest, runtime: win-x64, provider: inmemory, project: HPD.Base.InMemory.Vector.AotSmoke, executable: HPD.Base.InMemory.Vector.AotSmoke.exe }
+          - { os: macos-14, runtime: osx-arm64, provider: inmemory, project: HPD.Base.InMemory.Vector.AotSmoke, executable: HPD.Base.InMemory.Vector.AotSmoke }
+          - { os: ubuntu-latest, runtime: linux-x64, provider: sqlitevec, project: HPD.Base.Sqlite.Vector.AotSmoke, executable: HPD.Base.Sqlite.Vector.AotSmoke }
+          - { os: ubuntu-24.04-arm, runtime: linux-arm64, provider: sqlitevec, project: HPD.Base.Sqlite.Vector.AotSmoke, executable: HPD.Base.Sqlite.Vector.AotSmoke }
+          - { os: windows-latest, runtime: win-x64, provider: sqlitevec, project: HPD.Base.Sqlite.Vector.AotSmoke, executable: HPD.Base.Sqlite.Vector.AotSmoke.exe }
+          - { os: macos-15-intel, runtime: osx-x64, provider: sqlitevec, project: HPD.Base.Sqlite.Vector.AotSmoke, executable: HPD.Base.Sqlite.Vector.AotSmoke }
+          - { os: macos-14, runtime: osx-arm64, provider: sqlitevec, project: HPD.Base.Sqlite.Vector.AotSmoke, executable: HPD.Base.Sqlite.Vector.AotSmoke }
+          - { os: ubuntu-latest, runtime: linux-x64, provider: subjects-inmemory, project: HPD.Base.AotSmoke, executable: HPD.Base.AotSmoke }
+          - { os: ubuntu-24.04-arm, runtime: linux-arm64, provider: subjects-inmemory, project: HPD.Base.AotSmoke, executable: HPD.Base.AotSmoke }
+          - { os: windows-latest, runtime: win-x64, provider: subjects-inmemory, project: HPD.Base.AotSmoke, executable: HPD.Base.AotSmoke.exe }
+          - { os: macos-14, runtime: osx-arm64, provider: subjects-inmemory, project: HPD.Base.AotSmoke, executable: HPD.Base.AotSmoke }
+          - { os: ubuntu-latest, runtime: linux-x64, provider: subjects-sqlite, project: HPD.Base.Sqlite.AotSmoke, executable: HPD.Base.Sqlite.AotSmoke }
+          - { os: ubuntu-24.04-arm, runtime: linux-arm64, provider: subjects-sqlite, project: HPD.Base.Sqlite.AotSmoke, executable: HPD.Base.Sqlite.AotSmoke }
+          - { os: windows-latest, runtime: win-x64, provider: subjects-sqlite, project: HPD.Base.Sqlite.AotSmoke, executable: HPD.Base.Sqlite.AotSmoke.exe }
+          - { os: macos-15-intel, runtime: osx-x64, provider: subjects-sqlite, project: HPD.Base.Sqlite.AotSmoke, executable: HPD.Base.Sqlite.AotSmoke }
+          - { os: macos-14, runtime: osx-arm64, provider: subjects-sqlite, project: HPD.Base.Sqlite.AotSmoke, executable: HPD.Base.Sqlite.AotSmoke }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+      - name: Publish and execute certified graph
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROJECT="dotnet/HPD-Base.Framework/test/${{ matrix.project }}/${{ matrix.project }}.csproj"
+          OUTPUT="$RUNNER_TEMP/hpd-base-aot-${{ matrix.provider }}-${{ matrix.runtime }}"
+          dotnet publish "$PROJECT" \
+            --configuration Release \
+            --runtime "${{ matrix.runtime }}" \
+            --self-contained true \
+            --output "$OUTPUT" \
+            --nologo \
+            --property:TreatWarningsAsErrors=true
+          "$OUTPUT/${{ matrix.executable }}"

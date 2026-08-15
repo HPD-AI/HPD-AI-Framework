@@ -2,9 +2,7 @@ using System.Collections.Immutable;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using HPD.Gateway.Abstractions;
-using HPD.Gateway.Abstractions.Serialization;
-using HPD.Gateway.Hosting;
+using HPD.Gateway;
 
 namespace HPD.Gateway.Standalone;
 
@@ -13,11 +11,39 @@ internal sealed record GatewayStandaloneBootstrap
     public required string SchemaVersion { get; init; }
     public required string HostConfigurationPath { get; init; }
     public required string GatewayConfigurationPath { get; init; }
+    public required string NamespaceId { get; init; }
+    public required string TargetNodeId { get; init; }
     public required CandidateId CandidateId { get; init; }
     public required string AuthorityId { get; init; }
     public required string AuthorityEpoch { get; init; }
     public required ulong AuthorityVersion { get; init; }
+    public required GatewayStandaloneManagement Management { get; init; }
+    public GatewayStandaloneRedisAdmission? RedisAdmission { get; init; }
     public ImmutableArray<GatewayStandaloneCertificateSource> Certificates { get; init; } = [];
+}
+
+internal sealed record GatewayStandaloneRedisAdmission
+{
+    public required string AuthorityId { get; init; }
+    public required string ConfigurationEnvironmentVariable { get; init; }
+    public string KeyPrefix { get; init; } = "hpd:gateway:admission";
+    public int Database { get; init; } = -1;
+    public int OperationTimeoutMilliseconds { get; init; } = 75;
+    public int MaximumConcurrentInvocations { get; init; } = 1_024;
+}
+
+internal sealed record GatewayStandaloneManagement
+{
+    public required string DatabasePath { get; init; }
+    public required string ManagementAuthorityId { get; init; }
+    public required string PlanProtectionKeyHex { get; init; }
+    public required string TokenProtectionKeyHex { get; init; }
+    public required DateTimeOffset TokenProtectionIssueNotBeforeUtc { get; init; }
+    public required string DesiredStateTokenKeyHex { get; init; }
+    public required string EpochReservationKeyHex { get; init; }
+    public required string JwtAuthority { get; init; }
+    public required string JwtAudience { get; init; }
+    public required string JwtSigningKeyHex { get; init; }
 }
 
 internal sealed record GatewayStandaloneCertificateSource
@@ -36,12 +62,24 @@ internal sealed record GatewayStandaloneCertificateSource
     UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
     GenerationMode = JsonSourceGenerationMode.Default)]
 [JsonSerializable(typeof(GatewayStandaloneBootstrap))]
+[JsonSerializable(typeof(GatewayStandaloneManagement))]
+[JsonSerializable(typeof(GatewayStandaloneRedisAdmission))]
 internal partial class GatewayStandaloneJsonContext : JsonSerializerContext;
 
 internal sealed record GatewayStandaloneInputs(
     GatewayHostCandidate Host,
     GatewayNodeActivationRequest InitialCandidate,
-    ImmutableArray<(SecretReference Reference, GatewayPfxCertificateSource Source)> Certificates);
+    ImmutableArray<(SecretReference Reference, GatewayPfxCertificateSource Source)> Certificates,
+    GatewayStandaloneManagement Management,
+    GatewayStandaloneRedisAdmissionInputs? RedisAdmission);
+
+internal sealed record GatewayStandaloneRedisAdmissionInputs(
+    string AuthorityId,
+    string Configuration,
+    string KeyPrefix,
+    int Database,
+    TimeSpan OperationTimeout,
+    int MaximumConcurrentInvocations);
 
 internal static class GatewayStandaloneBootstrapReader
 {
@@ -90,15 +128,29 @@ internal static class GatewayStandaloneBootstrapReader
                 new SecretReference(certificate.Provider, certificate.Name, certificate.Version),
                 new GatewayPfxCertificateSource { Path = certificate.PfxPath, Password = password });
         }).ToImmutableArray();
+        GatewayStandaloneRedisAdmissionInputs? redisAdmission = bootstrap.RedisAdmission is null
+            ? null
+            : new(
+                bootstrap.RedisAdmission.AuthorityId,
+                Environment.GetEnvironmentVariable(bootstrap.RedisAdmission.ConfigurationEnvironmentVariable)
+                    ?? throw new InvalidOperationException("The standalone Redis admission configuration environment variable is unavailable."),
+                bootstrap.RedisAdmission.KeyPrefix,
+                bootstrap.RedisAdmission.Database,
+                TimeSpan.FromMilliseconds(bootstrap.RedisAdmission.OperationTimeoutMilliseconds),
+                bootstrap.RedisAdmission.MaximumConcurrentInvocations);
         return new GatewayStandaloneInputs(
             host.Candidate!,
             new GatewayNodeActivationRequest(
+                bootstrap.NamespaceId,
+                bootstrap.TargetNodeId,
                 bootstrap.CandidateId,
                 bootstrap.AuthorityId,
                 bootstrap.AuthorityEpoch,
                 bootstrap.AuthorityVersion,
                 gatewayBytes),
-            certificates);
+            certificates,
+            bootstrap.Management,
+            redisAdmission);
     }
 
     private static ImmutableArray<byte> ReadBounded(string path, int maximumBytes, string kind)
@@ -116,17 +168,21 @@ internal static class GatewayStandaloneBootstrapReader
 
     private static void Validate(GatewayStandaloneBootstrap bootstrap)
     {
-        if (!StringComparer.Ordinal.Equals(bootstrap.SchemaVersion, "hpd.gateway.standalone/v1"))
+        if (!StringComparer.Ordinal.Equals(bootstrap.SchemaVersion, "hpd.gateway.standalone/v2"))
             throw new InvalidOperationException("The standalone bootstrap schema is unsupported.");
         ValidatePath(bootstrap.HostConfigurationPath);
         ValidatePath(bootstrap.GatewayConfigurationPath);
         if (!GatewayIdentifier.IsCanonical(bootstrap.CandidateId.Value) ||
+            !BoundedIdentity(bootstrap.NamespaceId) ||
+            !BoundedIdentity(bootstrap.TargetNodeId) ||
             !BoundedIdentity(bootstrap.AuthorityId) ||
             !BoundedIdentity(bootstrap.AuthorityEpoch) ||
             bootstrap.AuthorityVersion == 0)
             throw new InvalidOperationException("The standalone activation identity is invalid.");
         if (bootstrap.Certificates.IsDefault || bootstrap.Certificates.Length is < 1 or > 1_024)
             throw new InvalidOperationException("The standalone certificate catalog is uninitialized or outside its bound.");
+        ValidateManagement(bootstrap.Management);
+        ValidateRedisAdmission(bootstrap.RedisAdmission);
         var references = new HashSet<SecretReference>();
         foreach (var certificate in bootstrap.Certificates)
         {
@@ -140,6 +196,43 @@ internal static class GatewayStandaloneBootstrapReader
                 !IsEnvironmentVariableName(certificate.PasswordEnvironmentVariable))
                 throw new InvalidOperationException("A certificate password environment-variable name is invalid.");
         }
+    }
+
+    private static void ValidateRedisAdmission(GatewayStandaloneRedisAdmission? admission)
+    {
+        if (admission is null) return;
+        if (!GatewayIdentifier.IsCanonical(admission.AuthorityId) ||
+            !IsEnvironmentVariableName(admission.ConfigurationEnvironmentVariable) ||
+            string.IsNullOrWhiteSpace(admission.KeyPrefix) || admission.KeyPrefix.Length > 128 ||
+            admission.KeyPrefix.Any(static value => value is < '!' or > '~' or '{' or '}') ||
+            admission.Database is < -1 or > 15 ||
+            admission.OperationTimeoutMilliseconds is < 1 or > 30_000 ||
+            admission.MaximumConcurrentInvocations is < 1 or > 4_096)
+            throw new InvalidOperationException("The standalone Redis admission configuration is invalid or outside its bound.");
+    }
+
+    private static void ValidateManagement(GatewayStandaloneManagement? management)
+    {
+        if (management is null)
+            throw new InvalidOperationException("The standalone management configuration is required.");
+        ValidatePath(management.DatabasePath);
+        if (!GatewayIdentifier.IsCanonical(management.ManagementAuthorityId) ||
+            !Uri.TryCreate(management.JwtAuthority, UriKind.Absolute, out Uri? authority) || authority.Scheme != Uri.UriSchemeHttps ||
+            !BoundedIdentity(management.JwtAudience))
+            throw new InvalidOperationException("The standalone management identity is invalid.");
+        ValidateKey(management.PlanProtectionKeyHex);
+        ValidateKey(management.TokenProtectionKeyHex);
+        if (management.TokenProtectionIssueNotBeforeUtc.Offset != TimeSpan.Zero)
+            throw new InvalidOperationException("The standalone token-protection issue time must be UTC.");
+        ValidateKey(management.DesiredStateTokenKeyHex);
+        ValidateKey(management.EpochReservationKeyHex);
+        ValidateKey(management.JwtSigningKeyHex);
+    }
+
+    private static void ValidateKey(string value)
+    {
+        if (value.Length != 64 || !value.All(Uri.IsHexDigit))
+            throw new InvalidOperationException("Standalone management protection keys must be 32-byte hexadecimal values.");
     }
 
     private static void RejectDuplicateProperties(ReadOnlySpan<byte> utf8Json)

@@ -9,9 +9,10 @@ namespace HPD.Base.AspNetCore;
 public interface IBaseHttpPrincipalMapper
 {
     /// <summary>
-    /// Attempts to map the current HTTP request to a BASE principal.
+    /// Maps the current HTTP request to a BASE principal for the exact endpoint.
     /// </summary>
-    ValueTask<PrincipalContext?> TryMapAsync(
+    ValueTask<PrincipalContext> MapAsync(
         HttpContext httpContext,
+        HPDBaseEndpointDescriptor endpoint,
         CancellationToken cancellationToken = default);
 }

@@ -25,6 +25,10 @@ public sealed record StoreCapabilityDescriptor
     public StoreUpsertCapability? Upsert { get; init; }
     /// <summary>Gets identified atomic-request receipt guarantees.</summary>
     public AtomicRequestCapability? AtomicRequest { get; init; }
+    /// <summary>Gets transaction-bound selection-and-mutation guarantees.</summary>
+    public BaseSelectionMutationCapability? SelectionMutation { get; init; }
+    /// <summary>Gets registered module-mutation guarantees and certified maxima.</summary>
+    public BaseModuleMutationCapability? ModuleMutation { get; init; }
     /// <summary>Gets host-only provider administration guarantees.</summary>
     public BaseAdministrationCapability? Administration { get; init; }
     /// <summary>Gets or sets the streaming.</summary>

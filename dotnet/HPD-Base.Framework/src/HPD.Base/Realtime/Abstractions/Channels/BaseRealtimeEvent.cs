@@ -4,6 +4,8 @@ namespace HPD.Base;
 /// <summary>Describes one policy-visible live record mutation.</summary>
 public sealed record BaseRealtimeEvent
 {
+    /// <summary>Gets a sanitized exported-subject authority publication for an applicable channel.</summary>
+    public BaseSubjectAuthorityPublicationFact? SubjectAuthorityPublication { get; init; }
     /// <summary>Gets the event identity assigned by the mutation publisher.</summary>
     public required string EventId { get; init; }
 

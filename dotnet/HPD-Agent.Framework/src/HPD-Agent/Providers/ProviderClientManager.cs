@@ -35,10 +35,23 @@ public interface IProviderClientLease<out TClient> : IAsyncDisposable where TCli
 /// <summary>Coordinates shared construction, leasing, eviction, and shutdown of provider clients.</summary>
 public sealed class ProviderClientManager<TClient> : IAsyncDisposable where TClient : class
 {
+    /// <summary>The default maximum number of distinct cached clients per manager.</summary>
+    public const int DefaultMaximumEntries = 256;
+
     private readonly object _gate = new();
     private readonly Dictionary<ProviderClientCacheKey, Entry> _entries = [];
     private readonly CancellationTokenSource _shutdown = new();
+    private readonly int _maximumEntries;
     private bool _stopping;
+
+    /// <summary>Initializes one agent-scoped provider client manager with a bounded key cardinality.</summary>
+    /// <param name="maximumEntries">The positive maximum number of simultaneously owned cache entries.</param>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="maximumEntries"/> is outside 1..4096.</exception>
+    public ProviderClientManager(int maximumEntries = DefaultMaximumEntries)
+    {
+        if (maximumEntries is < 1 or > 4096) throw new ArgumentOutOfRangeException(nameof(maximumEntries));
+        _maximumEntries = maximumEntries;
+    }
 
     /// <summary>Acquires a shared cached client.</summary>
     public async ValueTask<IProviderClientLease<TClient>> AcquireAsync(
@@ -56,6 +69,8 @@ public sealed class ProviderClientManager<TClient> : IAsyncDisposable where TCli
             ObjectDisposedException.ThrowIf(_stopping, this);
             if (!_entries.TryGetValue(key, out entry!))
             {
+                if (_entries.Count == _maximumEntries)
+                    throw new InvalidOperationException("The bounded provider client cache is full.");
                 entry = new Entry(key, factory, _shutdown.Token);
                 _entries.Add(key, entry);
             }
@@ -148,8 +163,25 @@ public sealed class ProviderClientManager<TClient> : IAsyncDisposable where TCli
 
     private static void ValidateKey(ProviderClientCacheKey key)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(key.ProviderKey);
-        ArgumentException.ThrowIfNullOrWhiteSpace(key.AuthenticationIdentity);
+        ValidateRequired(key.ProviderKey, 128, nameof(key.ProviderKey));
+        ValidateRequired(key.AuthenticationIdentity, 256, nameof(key.AuthenticationIdentity));
+        if (!Enum.IsDefined(key.Family)) throw new ArgumentException("The provider family is outside the closed registry.", nameof(key));
+        if (key.AuthenticationGeneration < 0) throw new ArgumentOutOfRangeException(nameof(key));
+        ValidateOptional(key.Endpoint, 2048, nameof(key.Endpoint));
+        ValidateOptional(key.ProviderConfigFingerprint, 256, nameof(key.ProviderConfigFingerprint));
+        ValidateOptional(key.ClientBoundModel, 512, nameof(key.ClientBoundModel));
+    }
+
+    private static void ValidateRequired(string value, int maximumLength, string name)
+    {
+        if (string.IsNullOrWhiteSpace(value) || value.Length > maximumLength || value.Any(char.IsControl))
+            throw new ArgumentException($"{name} must be nonblank, control-free, and at most {maximumLength} UTF-16 code units.", name);
+    }
+
+    private static void ValidateOptional(string? value, int maximumLength, string name)
+    {
+        if (value is not null && (value.Length == 0 || value.Length > maximumLength || value.Any(char.IsControl)))
+            throw new ArgumentException($"{name} must be absent or control-free and at most {maximumLength} UTF-16 code units.", name);
     }
 
     private sealed class Entry
@@ -158,7 +190,8 @@ public sealed class ProviderClientManager<TClient> : IAsyncDisposable where TCli
         public Entry(ProviderClientCacheKey key, Func<CancellationToken, ValueTask<TClient>> factory, CancellationToken cancellationToken)
         {
             Key = key;
-            Construction = ConstructAsync(factory, cancellationToken);
+            // Never execute provider-controlled construction inline while the manager lock is held.
+            Construction = Task.Run(() => ConstructAsync(factory, cancellationToken), CancellationToken.None);
         }
         public ProviderClientCacheKey Key { get; }
         public Task<TClient> Construction { get; }

@@ -65,16 +65,16 @@ internal sealed partial class InMemoryRecordStore
         Dictionary<string, QueryValueKind> fieldKinds = request.Plan.Sources.SelectMany(source =>
                 (collections[source.CollectionId].Fields ?? []).Select(field => new
                 {
-                    Key = source.Id + "\0" + field.Name,
+                    Key = source.Id + "\0" + field.WireName,
                     Kind = InMemoryFieldKind(field),
                 }))
             .ToDictionary(static item => item.Key, static item => item.Kind, StringComparer.Ordinal);
         BaseRelationalReadPlan plan = LowerPlan(request.Plan, collections);
-        var rows = new List<RelationalContext> { new(fieldKinds) };
+        var rows = new List<RelationalContext> { new(fieldKinds, snapshot, _options.ExportedSubjects) };
 
         BaseRelationalReadSource root = plan.Sources[0];
         rows = SourceRecords(snapshot, root, policies[root.Id], collections[root.CollectionId], cancellationToken)
-            .Select(record => new RelationalContext(fieldKinds) { Records = { [root.Id] = record } }).ToList();
+            .Select(record => new RelationalContext(fieldKinds, snapshot, _options.ExportedSubjects) { Records = { [root.Id] = record } }).ToList();
         for (int index = 0; index < plan.Joins.Length; index++)
         {
             BaseRelationalReadJoin join = plan.Joins[index];
@@ -105,7 +105,7 @@ internal sealed partial class InMemoryRecordStore
         if (plan.GroupKeys.Length != 0 || plan.Aggregates.Length != 0)
         {
             if (plan.GroupKeys.Length == 0 && rows.Count == 0)
-                output = [BuildOutput(plan, new RelationalContext(fieldKinds), [], parameters)];
+                output = [BuildOutput(plan, new RelationalContext(fieldKinds, snapshot, _options.ExportedSubjects), [], parameters)];
             else
                 output = rows.GroupBy(row => Key(plan.GroupKeys.Select(operand => Value(operand, row, parameters))))
                     .Select(group => BuildOutput(plan, group.First(), group.ToArray(), parameters)).ToList();
@@ -137,8 +137,28 @@ internal sealed partial class InMemoryRecordStore
                 Count = total,
                 SchemaGeneration = plan.SchemaGeneration,
             },
-            DependencyEvidence = plan.Sources.Select(static source => new BaseReadDependencyEvidence { CollectionId = source.CollectionId }).ToArray(),
+            DependencyEvidence = DependencyEvidence(plan, snapshot),
         };
+    }
+
+    private static BaseReadDependencyEvidence[] DependencyEvidence(BaseRelationalReadPlan plan, InMemoryStoreState snapshot)
+    {
+        BaseRelationalOperand? subject = plan.Projection.Select(static value => value.Operand)
+            .SingleOrDefault(static value => value.Kind == BaseRelationalOperandKind.SubjectReference);
+        return plan.Sources.Select(source =>
+        {
+            if (subject is null || !string.Equals(subject.SourceId, source.Id, StringComparison.Ordinal))
+                return new BaseReadDependencyEvidence { CollectionId = source.CollectionId };
+            if (!snapshot.SubjectContracts.TryGetValue(SubjectContractKey(subject.SubjectContractId!, subject.SubjectContractVersion!.Value), out InMemorySubjectContractState? state))
+                throw new InvalidOperationException();
+            return new BaseReadDependencyEvidence
+            {
+                CollectionId = source.CollectionId,
+                SubjectContractId = state.ContractId,
+                SubjectContractVersion = state.ContractVersion,
+                SubjectStateGeneration = state.StateGeneration,
+            };
+        }).ToArray();
     }
 
     private static StoredRecord[] SourceRecords(
@@ -157,7 +177,7 @@ internal sealed partial class InMemoryRecordStore
     {
         string? field = filter.Field;
         if (field is not null)
-            field = (collection.Fields ?? []).Single(definition => string.Equals(definition.Id, field, StringComparison.Ordinal)).Name;
+            field = (collection.Fields ?? []).Single(definition => string.Equals(definition.Id, field, StringComparison.Ordinal)).WireName;
         return filter with { Field = field, Children = filter.Children?.Select(child => LowerFilter(child, collection)).ToArray() };
     }
 
@@ -170,7 +190,7 @@ internal sealed partial class InMemoryRecordStore
         {
             if (operand.Kind != BaseRelationalOperandKind.SourceField) return operand;
             string storedName = (sourceCollections[operand.SourceId!].Fields ?? [])
-                .Single(field => string.Equals(field.Id, operand.FieldId, StringComparison.Ordinal)).Name;
+                .Single(field => string.Equals(field.Id, operand.FieldId, StringComparison.Ordinal)).WireName;
             return operand with { FieldId = storedName };
         }
         BaseRelationalPredicate? Predicate(BaseRelationalPredicate? predicate) => predicate is null ? null : predicate with
@@ -308,7 +328,32 @@ internal sealed partial class InMemoryRecordStore
         StoredRecord? record = context.Records.GetValueOrDefault(operand.SourceId!);
         if (record is null) return Null();
         if (operand.Kind == BaseRelationalOperandKind.RecordId) return new QueryValue { Kind = QueryValueKind.Id, Id = record.Id.Value };
+        if (operand.Kind == BaseRelationalOperandKind.SubjectReference)
+            return SubjectReferenceValue(operand, record, context.State, context.Subjects);
         return FieldValue(record, operand.FieldId!, context.FieldKinds[operand.SourceId! + "\0" + operand.FieldId!]);
+    }
+
+    private static QueryValue SubjectReferenceValue(BaseRelationalOperand operand, StoredRecord record, InMemoryStoreState state, IReadOnlyList<BaseExportedSubjectDefinition> subjects)
+    {
+        BaseExportedSubjectDefinition definition = subjects.Single(subject =>
+            string.Equals(subject.Id, operand.SubjectContractId, StringComparison.Ordinal)
+            && subject.Version == operand.SubjectContractVersion);
+        if (!string.Equals(definition.ValidationPlan.PrivateCollectionId, record.CollectionId, StringComparison.Ordinal)
+            || !state.SubjectContracts.TryGetValue(SubjectContractKey(definition.Id, definition.Version), out InMemorySubjectContractState? contract)
+            || !state.SubjectLifetimes.TryGetValue(SubjectKey(definition.Id, definition.Version,
+                BaseSubjectId.Create(record.Id.Value, definition.SubjectIdKind, definition.MaximumSubjectIdUtf8Bytes)), out InMemorySubjectLifetimeState? lifetime)
+            || !string.Equals(lifetime.PrivateCollectionId, record.CollectionId, StringComparison.Ordinal)
+            || lifetime.PrivateRecordId != record.Id)
+            throw new InvalidOperationException();
+        return new QueryValue
+        {
+            Kind = QueryValueKind.SubjectReference,
+            SubjectId = lifetime.SubjectId.Value,
+            SubjectIdKind = definition.SubjectIdKind,
+            SubjectIdMaximumUtf8Bytes = definition.MaximumSubjectIdUtf8Bytes,
+            SubjectAuthorityEpoch = contract.AuthorityEpoch.ToBase64Url(),
+            SubjectIncarnation = lifetime.Incarnation.ToBase64Url(),
+        };
     }
 
     private static QueryValue FieldValue(StoredRecord record, string storedName, QueryValueKind kind)
@@ -399,11 +444,13 @@ internal sealed partial class InMemoryRecordStore
     }
     private static int EstimateBytes(BaseRelationalRow row) => row.Fields.Sum(static field => Encoding.UTF8.GetByteCount(field.FieldId) + Encoding.UTF8.GetByteCount(Key(field.Value)));
 
-    private sealed class RelationalContext(IReadOnlyDictionary<string, QueryValueKind> fieldKinds)
+    private sealed class RelationalContext(IReadOnlyDictionary<string, QueryValueKind> fieldKinds, InMemoryStoreState state, IReadOnlyList<BaseExportedSubjectDefinition> subjects)
     {
         internal IReadOnlyDictionary<string, QueryValueKind> FieldKinds { get; } = fieldKinds;
+        internal InMemoryStoreState State { get; } = state;
+        internal IReadOnlyList<BaseExportedSubjectDefinition> Subjects { get; } = subjects;
         internal Dictionary<string, StoredRecord?> Records { get; } = new(StringComparer.Ordinal);
-        internal RelationalContext Clone() { var clone = new RelationalContext(FieldKinds); foreach (var pair in Records) clone.Records[pair.Key] = pair.Value; return clone; }
+        internal RelationalContext Clone() { var clone = new RelationalContext(FieldKinds, State, Subjects); foreach (var pair in Records) clone.Records[pair.Key] = pair.Value; return clone; }
     }
     private sealed record RelationalOutput(RelationalContext Context, IReadOnlyDictionary<string, QueryValue> Aggregates, BaseRelationalRow Row);
 }

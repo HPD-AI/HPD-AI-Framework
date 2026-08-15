@@ -205,6 +205,26 @@ public sealed class AtomicExecutionTests
     }
 
     [Fact]
+    public async Task PreparedModuleOperationIsSessionBoundAndSingleUse()
+    {
+        var store = new InMemoryRecordStore();
+        BaseAtomicMutationExecutionLimits limits = ModuleLimits();
+        BaseAtomicMutationAuthorityRequirement authority = (await store.CaptureAtomicMutationAuthorityRequirementAsync(
+            "module.application", [], limits, default)).Value!;
+        var prepareOnly = new PreparedModuleProbe(authority, limits, applyTwice: false);
+        await store.ExecuteAtomicAsync(prepareOnly, ExecutionRequest);
+        prepareOnly.Prepared.Should().NotBeNull();
+
+        var foreign = new ForeignPreparedModuleProbe(prepareOnly.Prepared!);
+        await store.ExecuteAtomicAsync(foreign, ExecutionRequest);
+        foreign.RejectedCode.Should().Be(BaseSubjectErrorCodes.ProviderContractInvalid);
+
+        var twice = new PreparedModuleProbe(authority, limits, applyTwice: true);
+        await store.ExecuteAtomicAsync(twice, ExecutionRequest);
+        twice.RejectedCode.Should().Be(BaseSubjectErrorCodes.ProviderContractInvalid);
+    }
+
+    [Fact]
     public void CapabilitiesAdvertiseOnlyProvenL30GuaranteesAndBounds()
     {
         var capabilities = new InMemoryRecordStore().Capabilities;
@@ -222,7 +242,7 @@ public sealed class AtomicExecutionTests
         capabilities.Batch.CrossCollectionAtomic.Should().BeTrue();
         capabilities.Batch.ReadYourWrites.Should().BeTrue();
         capabilities.Batch.Durable.Should().BeFalse();
-        capabilities.Batch.TransactionalJournal.Should().BeFalse();
+        capabilities.Batch.TransactionalJournal.Should().BeTrue();
         capabilities.Batch.Isolation.Should().Be(BaseTransactionIsolation.Serializable);
         capabilities.Batch.NestedTransactions.Should().BeFalse();
         capabilities.Batch.Savepoints.Should().BeFalse();
@@ -281,6 +301,105 @@ public sealed class AtomicExecutionTests
         Message = message,
         Category = ErrorCategory.Unexpected
     };
+
+    private static BaseAtomicMutationExecutionLimits ModuleLimits() =>
+        DefaultBaseModuleMutationRuntime.ResolveExecutionLimits(BaseModuleMutationPlatform.MaximumLimits);
+
+    private static BaseModuleGenerationCellDefinition ModuleCell() => new()
+    {
+        Id = "module.generation", Version = 1, OwningModuleId = "module",
+        Scope = BaseModuleGenerationScope.Application, MaximumKeyUtf8Bytes = 32,
+        MaximumCellsPerOperation = 1,
+    };
+
+    private static AtomicMutationProcessingResult ProbeFailure(BaseError? error) => new(
+        AtomicMutationProcessingOutcome.Failed, [], error ?? new BaseError
+        {
+            Code = BaseSubjectErrorCodes.ProviderContractInvalid,
+            Message = "The prepared-operation probe intentionally rolled back.",
+            Category = ErrorCategory.Store,
+        });
+
+    private sealed class PreparedModuleProbe(
+        BaseAtomicMutationAuthorityRequirement authority,
+        BaseAtomicMutationExecutionLimits limits,
+        bool applyTwice) : IAtomicMutationProcessor
+    {
+        public BasePreparedAtomicMutation? Prepared { get; private set; }
+        public string? RejectedCode { get; private set; }
+
+        public async ValueTask<AtomicMutationProcessingResult> ProcessAsync(
+            IAtomicRecordSession session,
+            CancellationToken cancellationToken = default)
+        {
+            var capture = new BaseAtomicMutationCaptureRequest
+            {
+                Kind = BaseAtomicMutationExecutionKind.ModuleMutation,
+                Intent = new BaseAtomicMutationIntent
+                {
+                    IntentDigest = "in-memory-l50-probe-intent", Authority = authority, Items = [],
+                },
+                Module = new BaseModuleMutationCaptureExtension
+                {
+                    OperationId = "module.increment", OperationVersion = 1,
+                    OperationChecksum = new string('a', 64), RequestDigest = "in-memory-l50-probe-request",
+                    Records = [], RelationTargets = [],
+                    Generations = [new BaseModuleGenerationCaptureRequest
+                    {
+                        Ordinal = 0, CaptureId = "generation", Cell = ModuleCell(),
+                        Scope = new BaseModuleGenerationScopeAuthority { Kind = BaseModuleGenerationScope.Application },
+                        KeyUtf8 = [], Absence = BaseModuleGenerationAbsenceBehavior.AllowEither,
+                    }],
+                },
+                Limits = limits,
+            };
+            OperationResult<BaseCapturedAtomicMutationAuthority> captured =
+                await session.CaptureAtomicMutationAuthorityAsync(capture, cancellationToken);
+            if (!captured.IsSuccess() || captured.Value is null) return ProbeFailure(captured.Error);
+            var plan = new BaseAtomicMutationPlan
+            {
+                Kind = BaseAtomicMutationExecutionKind.ModuleMutation, PlanDigest = "in-memory-l50-probe-plan",
+                IntentDigest = capture.Intent.IntentDigest, CaptureDigest = captured.Value.CaptureDigest,
+                PolicyAuthorityDigest = BaseAtomicPolicyAuthorityDigest.Create(new byte[32]), Authority = authority,
+                Items = [], SubjectValidations = [], Limits = limits,
+                Module = new BaseFinalizedModuleMutationExtension
+                {
+                    OperationId = "module.increment", OperationVersion = 1,
+                    OperationChecksum = new string('a', 64), Decisions = [], ItemBindings = [],
+                    RelationTargets = [], Comparisons = [],
+                    Increments = [new BaseModuleGenerationIncrement { CaptureOrdinal = 0, CreateIfAbsent = true }],
+                    ResultProjectionDigest = "in-memory-l50-probe-result",
+                },
+            };
+            OperationResult<BasePreparedAtomicMutation> prepared =
+                await session.PrepareAtomicMutationAsync(captured.Value, plan, cancellationToken);
+            if (!prepared.IsSuccess() || prepared.Value is null) return ProbeFailure(prepared.Error);
+            Prepared = prepared.Value;
+            if (!applyTwice) return ProbeFailure(null);
+            OperationResult<BaseProvisionalAppliedAtomicMutation> first =
+                await session.ApplyPreparedAtomicMutationAsync(prepared.Value, cancellationToken);
+            if (!first.IsSuccess()) return ProbeFailure(first.Error);
+            OperationResult<BaseProvisionalAppliedAtomicMutation> second =
+                await session.ApplyPreparedAtomicMutationAsync(prepared.Value, cancellationToken);
+            RejectedCode = second.Error?.Code;
+            return ProbeFailure(second.Error);
+        }
+    }
+
+    private sealed class ForeignPreparedModuleProbe(BasePreparedAtomicMutation prepared) : IAtomicMutationProcessor
+    {
+        public string? RejectedCode { get; private set; }
+
+        public async ValueTask<AtomicMutationProcessingResult> ProcessAsync(
+            IAtomicRecordSession session,
+            CancellationToken cancellationToken = default)
+        {
+            OperationResult<BaseProvisionalAppliedAtomicMutation> result =
+                await session.ApplyPreparedAtomicMutationAsync(prepared, cancellationToken);
+            RejectedCode = result.Error?.Code;
+            return ProbeFailure(result.Error);
+        }
+    }
 
     private sealed class CallbackProcessor(
         Func<IAtomicRecordSession, CancellationToken, ValueTask<AtomicMutationProcessingResult>> callback)

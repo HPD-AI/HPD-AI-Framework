@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsTestProject>false</IsTestProject>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+  <ItemGroup><ProjectReference Include="../../src/HPD.Payments.Primitives/HPD.Payments.Primitives.csproj" /></ItemGroup>
+  <Target Name="RunPrimitiveProofs" AfterTargets="Build">
+    <Exec Command="/usr/local/share/dotnet/dotnet &quot;$(TargetPath)&quot;" />
+  </Target>
+</Project>

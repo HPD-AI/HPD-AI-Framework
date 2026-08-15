@@ -202,8 +202,8 @@ public sealed class DescriptorContributionTests
             {
                 Fields =
                 [
-                    new FieldDefinition { Id = "title", Name = "title", Type = BaseFieldTypes.String },
-                    new FieldDefinition { Id = "title2", Name = "title", Type = BaseFieldTypes.String }
+                    new FieldDefinition { Id = "title", ApplicationName = "title", WireName = "title", Type = BaseFieldTypes.String },
+                    new FieldDefinition { Id = "title2", ApplicationName = "title", WireName = "title", Type = BaseFieldTypes.String }
                 ]
             });
         }
@@ -222,7 +222,7 @@ public sealed class DescriptorContributionTests
                     new FieldDefinition
                     {
                         Id = "ownerId",
-                        Name = "ownerId",
+                        ApplicationName = "ownerId", WireName = "ownerId",
                         Type = BaseFieldTypes.String,
                         Relation = new RelationDefinition
                         {
@@ -247,7 +247,7 @@ public sealed class DescriptorContributionTests
             {
                 Fields =
                 [
-                    new FieldDefinition { Id = "title", Name = "title", Type = BaseFieldTypes.String }
+                    new FieldDefinition { Id = "title", ApplicationName = "title", WireName = "title", Type = BaseFieldTypes.String }
                 ],
                 Indexes =
                 [
@@ -268,7 +268,7 @@ public sealed class DescriptorContributionTests
             {
                 Fields =
                 [
-                    new FieldDefinition { Id = "title", Name = "title", Type = BaseFieldTypes.String }
+                    new FieldDefinition { Id = "title", ApplicationName = "title", WireName = "title", Type = BaseFieldTypes.String }
                 ],
                 Indexes =
                 [

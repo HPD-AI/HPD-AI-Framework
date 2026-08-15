@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>HPD.Payments.Profiles.Distributed</AssemblyName>
+    <RootNamespace>HPD.Payments.Profiles_Distributed</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../HPD.Payments.Runtime/HPD.Payments.Runtime.csproj" />
+    <ProjectReference Include="../HPD.Payments.Serialization/HPD.Payments.Serialization.csproj" />
+    <ProjectReference Include="../HPD.Payments.Adapters.Postgres/HPD.Payments.Adapters.Postgres.csproj" />
+    <ProjectReference Include="../HPD.Payments.Connectors.Simulator/HPD.Payments.Connectors.Simulator.csproj" />
+  </ItemGroup>
+</Project>

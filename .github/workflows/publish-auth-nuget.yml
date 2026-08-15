@@ -76,6 +76,7 @@ jobs:
             "dotnet/HPD-Auth.Framework/src/HPD.Auth.TwoFactor/HPD.Auth.TwoFactor.csproj"
             "dotnet/HPD-Auth.Framework/src/HPD.Auth.OAuth/HPD.Auth.OAuth.csproj"
             "dotnet/HPD-Auth.Framework/src/HPD.Auth.Admin/HPD.Auth.Admin.csproj"
+            "dotnet/HPD-Auth.Framework/src/HPD.Auth.ControlPlane.AspNetCore/HPD.Auth.ControlPlane.AspNetCore.csproj"
           )
 
           VERSION_PREFIX="${{ needs.determine-version.outputs.version_prefix }}"

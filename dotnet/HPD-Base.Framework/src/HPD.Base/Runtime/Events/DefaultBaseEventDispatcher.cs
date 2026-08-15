@@ -9,18 +9,21 @@ internal sealed class DefaultBaseEventDispatcher : IBaseEventDispatcher
     private readonly HPDBaseRuntimeEventOptions _options;
     private readonly ILogger<DefaultBaseEventDispatcher> _logger;
     private readonly IBaseCommittedMutationObserver[] _observers;
+    private readonly BaseCollectionRegistry _collections;
 
     /// <summary>Initializes a new instance.</summary>
     public DefaultBaseEventDispatcher(
         IBaseEventPublisher publisher,
         IOptions<HPDBaseRuntimeOptions> options,
         ILogger<DefaultBaseEventDispatcher> logger,
-        IEnumerable<IBaseCommittedMutationObserver> observers)
+        IEnumerable<IBaseCommittedMutationObserver> observers,
+        BaseCollectionRegistry collections)
     {
         _publisher = publisher;
         _options = options.Value.Events;
         _logger = logger;
         _observers = observers.ToArray();
+        _collections = collections;
     }
 
     /// <summary>Executes the dispatch mutation async operation.</summary>
@@ -43,7 +46,7 @@ internal sealed class DefaultBaseEventDispatcher : IBaseEventDispatcher
         OperationResult<EventPublishResult> result;
         try
         {
-            result = await _publisher.PublishAsync(@event, publishLifetime.Token)
+            result = await _publisher.PublishAsync(ProjectForPublication(@event), publishLifetime.Token)
                 .AsTask()
                 .WaitAsync(publishLifetime.Token)
                 .ConfigureAwait(false);
@@ -97,6 +100,34 @@ internal sealed class DefaultBaseEventDispatcher : IBaseEventDispatcher
                 }
             ],
             Warnings = observerWarning is null ? null : [observerWarning]
+        };
+    }
+
+    private BaseEvent ProjectForPublication(BaseEvent value)
+    {
+        if (value is not BaseRecordMutationEvent mutation || mutation.Resource.CollectionId is not { } collectionId ||
+            !_collections.Collections.TryGetValue(collectionId, out CollectionDefinition? collection)) return value;
+        HashSet<string> visibleNames = (collection.Fields ?? []).Where(field =>
+            (field.Disclosure ?? BaseFieldDisclosurePolicies.For(field.Confidentiality)).Event != BaseProjectionDisclosure.Omit)
+            .Select(static field => field.WireName).ToHashSet(StringComparer.Ordinal);
+        return mutation with
+        {
+            Before = Snapshot(mutation.Before, collection),
+            After = Snapshot(mutation.After, collection),
+            ChangedFields = mutation.ChangedFields?.Where(visibleNames.Contains).ToArray(),
+        };
+    }
+
+    private static RecordSnapshot? Snapshot(RecordSnapshot? snapshot, CollectionDefinition collection)
+    {
+        if (snapshot?.Payload is null) return snapshot;
+        RecordPayload payload = BaseConfidentialityProjection.Project(snapshot.Payload, collection, static disclosure => disclosure.Event);
+        return snapshot with
+        {
+            Payload = payload,
+            IncludedFields = snapshot.IncludedFields?.Where(fieldName => (collection.Fields ?? []).Any(field =>
+                field.WireName == fieldName && (field.Disclosure ?? BaseFieldDisclosurePolicies.For(field.Confidentiality)).Event != BaseProjectionDisclosure.Omit)).ToArray(),
+            Redacted = true,
         };
     }
 

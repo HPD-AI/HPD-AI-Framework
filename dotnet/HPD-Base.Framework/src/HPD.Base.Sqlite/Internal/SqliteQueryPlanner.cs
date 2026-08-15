@@ -216,7 +216,8 @@ internal sealed class SqliteQueryPlanner
             parts.Add(expression + (item.Direction == QuerySortDirection.Desc ? " DESC" : " ASC"));
         }
 
-        parts.Add("record_id ASC");
+        if (!string.Equals(sort[^1].Field, "id", StringComparison.Ordinal))
+            parts.Add("record_id ASC");
         return " ORDER BY " + string.Join(", ", parts);
     }
 
@@ -346,7 +347,7 @@ internal sealed class SqliteQueryPlanner
 
     private SqlitePhysicalModel.FieldModel? FieldModel(string? name) => string.IsNullOrWhiteSpace(name)
         ? null
-        : _collection.Fields.SingleOrDefault(field => string.Equals(field.Definition.Name, name, StringComparison.Ordinal));
+        : _collection.Fields.SingleOrDefault(field => string.Equals(field.Definition.WireName, name, StringComparison.Ordinal));
 
     private string AddParameter(object? value)
     {

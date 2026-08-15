@@ -7,6 +7,7 @@ public sealed class PublicNamespaceTests
     {
         var approved = new[]
         {
+            "HPD.Base",
             "HPD.Base.AspNetCore",
             "HPD.Base.AspNetCore.Configuration",
             "HPD.Base.AspNetCore.DependencyInjection",

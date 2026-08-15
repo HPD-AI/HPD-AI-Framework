@@ -2,14 +2,7 @@ using System.Collections.Immutable;
 using System.Reflection;
 using System.Text.Json;
 using FluentAssertions;
-using HPD.Gateway.Abstractions;
-using HPD.Gateway.Abstractions.Serialization;
-using HPD.Gateway.Core;
-using HPD.Gateway.Effective;
-using HPD.Gateway.Effective.Serialization;
-using HPD.Gateway.Inspection;
-using HPD.Gateway.OutputCaching;
-using HPD.Gateway.Yarp;
+using HPD.Gateway;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
@@ -55,7 +48,7 @@ public sealed class EffectiveProvenanceTests
 
         var result = await Materialize(configuration);
 
-        var record = result.EffectiveSnapshot!.Records.Single(item => item.Family == GatewayEffectiveFamilies.Authorization);
+        var record = result.PreparedProjectionSnapshot!.Records.Single(item => item.Family == GatewayEffectiveFamilies.Authorization);
         record.TargetId.Should().Be("route");
         record.Contributions.Select(item => item.SourceKind).Should().Equal(
             GatewayContributionSourceKind.RootDefault,
@@ -67,7 +60,7 @@ public sealed class EffectiveProvenanceTests
             GatewayContributionScope.RootDefault,
             GatewayContributionScope.RouteLocal);
         record.Contributions[1].Definition.Should().Be(new DefinitionId("orders"));
-        result.Bundle!.Routes.Single().AuthorizationPolicy.Should().Be("orders.write");
+        result.PreparedApplication!.Routes.Single().AuthorizationPolicy.Should().Be("orders.write");
     }
 
     [Fact]
@@ -96,8 +89,8 @@ public sealed class EffectiveProvenanceTests
             }}]
         };
 
-        var fromDefinition = (await Materialize(definitionConfiguration)).EffectiveSnapshot!.Records.Single();
-        var fromInline = (await Materialize(inlineConfiguration)).EffectiveSnapshot!.Records.Single();
+        var fromDefinition = (await Materialize(definitionConfiguration)).PreparedProjectionSnapshot!.Records.Single();
+        var fromInline = (await Materialize(inlineConfiguration)).PreparedProjectionSnapshot!.Records.Single();
 
         fromDefinition.EffectiveContentHash.Should().Be(fromInline.EffectiveContentHash);
         fromDefinition.Contributions.Single().SourceKind.Should().Be(GatewayContributionSourceKind.ReusableDefinition);
@@ -123,38 +116,39 @@ public sealed class EffectiveProvenanceTests
         };
 
         var result = await Materialize(configuration);
-        var record = result.EffectiveSnapshot!.Records.Single();
-        var json = JsonSerializer.Serialize(result.EffectiveSnapshot, GatewayEffectiveJsonSerializerContext.Default.GatewayEffectiveSnapshot);
+        var record = result.PreparedProjectionSnapshot!.Records.Single();
 
         record.Family.Should().Be(GatewayEffectiveFamilies.RequestHeaderTransforms);
         record.Composition.Should().Be(GatewayEffectiveComposition.AdditiveOrdered);
-        result.Bundle!.Routes.Single().Transforms!.Count.Should().Be(2);
-        json.Should().NotContain("secret-one").And.NotContain("secret-two");
+        result.PreparedApplication!.Routes.Single().Transforms!.Count.Should().Be(2);
+        record.Contributions.Should().NotContain(item =>
+            item.SourceIdentity.Contains("secret-one", StringComparison.Ordinal) ||
+            item.SourceIdentity.Contains("secret-two", StringComparison.Ordinal));
     }
 
     [Fact]
-    public async Task RejectedNativeCandidateHasNoEffectiveSnapshot()
+    public async Task RejectedNativeCandidateHasNoPreparedProjectionSnapshot()
     {
         var accepted = Read(Configuration());
         var identity = Identity(accepted);
-        var result = await new GatewayNativeMaterializer(new RejectingValidator())
-            .MaterializeAsync(accepted, identity, "rejected-native");
+        var result = await new GatewayRuntimePlanner(new RejectingValidator())
+            .PlanAsync(accepted, identity, "rejected-native");
 
-        result.IsMaterialized.Should().BeFalse();
-        result.EffectiveSnapshot.Should().BeNull();
-        result.Bundle.Should().BeNull();
+        result.IsPlanned.Should().BeFalse();
+        result.PreparedProjectionSnapshot.Should().BeNull();
+        result.PreparedApplication.Should().BeNull();
     }
 
     [Fact]
     public void PublicationHandoffRejectsMissingTruncatedAndStructurallyInvalidSnapshots()
     {
         var identity = new PublicationCandidateIdentity(new CandidateId("candidate"), "authority", "epoch", 1, new ContentHash("sha-256", new string('a', 64)));
-        var valid = new GatewayEffectiveSnapshot(1, identity.CandidateId, identity.ContentHash, [], false);
+        var valid = new GatewayPreparedProjectionSnapshot(1, identity.CandidateId, identity.ContentHash, [], false);
 
-        var missing = () => NativeBundleTestFactory.Create(identity, [], [], "native", null!);
-        var truncated = () => NativeBundleTestFactory.Create(identity, [], [], "native", valid with { IsTruncated = true });
-        var defaultRecords = () => NativeBundleTestFactory.Create(identity, [], [], "native", valid with { Records = default });
-        var wrongSchema = () => NativeBundleTestFactory.Create(identity, [], [], "native", valid with { SchemaVersion = 2 });
+        var missing = () => PreparedApplicationTestFactory.Create(identity, [], [], "native", null!);
+        var truncated = () => PreparedApplicationTestFactory.Create(identity, [], [], "native", valid with { IsTruncated = true });
+        var defaultRecords = () => PreparedApplicationTestFactory.Create(identity, [], [], "native", valid with { Records = default });
+        var wrongSchema = () => PreparedApplicationTestFactory.Create(identity, [], [], "native", valid with { SchemaVersion = 2 });
 
         missing.Should().Throw<ArgumentNullException>();
         truncated.Should().Throw<ArgumentException>();
@@ -182,7 +176,7 @@ public sealed class EffectiveProvenanceTests
             ]
         };
 
-        var records = (await Materialize(configuration)).EffectiveSnapshot!.Records;
+        var records = (await Materialize(configuration)).PreparedProjectionSnapshot!.Records;
 
         records.Select(item => item.TargetId).Should().Equal("a", "b");
         records.Select(item => item.Contributions.Single().Definition).Should().OnlyContain(item => item == new DefinitionId("shared"));
@@ -203,9 +197,9 @@ public sealed class EffectiveProvenanceTests
         var firstResult = await Materialize(first);
         var secondResult = await Materialize(second);
 
-        firstResult.EffectiveSnapshot!.CandidateContentHash.Should().Be(secondResult.EffectiveSnapshot!.CandidateContentHash);
-        JsonSerializer.SerializeToUtf8Bytes(firstResult.EffectiveSnapshot, GatewayEffectiveJsonSerializerContext.Default.GatewayEffectiveSnapshot)
-            .Should().Equal(JsonSerializer.SerializeToUtf8Bytes(secondResult.EffectiveSnapshot, GatewayEffectiveJsonSerializerContext.Default.GatewayEffectiveSnapshot));
+        firstResult.PreparedProjectionSnapshot!.CandidateContentHash.Should().Be(secondResult.PreparedProjectionSnapshot!.CandidateContentHash);
+        firstResult.PreparedProjectionSnapshot.Records.Should().BeEquivalentTo(
+            secondResult.PreparedProjectionSnapshot.Records, options => options.WithStrictOrdering());
     }
 
     [Fact]
@@ -215,7 +209,7 @@ public sealed class EffectiveProvenanceTests
         var contribution = Contribution(0);
         var first = Record("b", [contribution]);
         var second = Record("a", [contribution]);
-        var unsorted = new GatewayEffectiveSnapshot(1, identity.CandidateId, identity.ContentHash, [first, second], false);
+        var unsorted = new GatewayPreparedProjectionSnapshot(1, identity.CandidateId, identity.ContentHash, [first, second], false);
         var duplicate = unsorted with { Records = [first, first] };
         var overBound = unsorted with
         {
@@ -226,10 +220,10 @@ public sealed class EffectiveProvenanceTests
             Records = Enumerable.Repeat(Record("a", [contribution]), GatewayEffectiveBounds.MaximumRecords + 1).ToImmutableArray()
         };
 
-        Action publishUnsorted = () => NativeBundleTestFactory.Create(identity, [], [], "native", unsorted);
-        Action publishDuplicate = () => NativeBundleTestFactory.Create(identity, [], [], "native", duplicate);
-        Action publishOverBound = () => NativeBundleTestFactory.Create(identity, [], [], "native", overBound);
-        Action publishOverRecordBound = () => NativeBundleTestFactory.Create(identity, [], [], "native", overRecordBound);
+        Action publishUnsorted = () => PreparedApplicationTestFactory.Create(identity, [], [], "native", unsorted);
+        Action publishDuplicate = () => PreparedApplicationTestFactory.Create(identity, [], [], "native", duplicate);
+        Action publishOverBound = () => PreparedApplicationTestFactory.Create(identity, [], [], "native", overBound);
+        Action publishOverRecordBound = () => PreparedApplicationTestFactory.Create(identity, [], [], "native", overRecordBound);
         publishUnsorted.Should().Throw<ArgumentException>();
         publishDuplicate.Should().Throw<ArgumentException>();
         publishOverBound.Should().Throw<ArgumentException>();
@@ -247,7 +241,7 @@ public sealed class EffectiveProvenanceTests
             Match = new RouteMatch { Path = "/{**catch-all}" },
             AuthorizationPolicy = "authenticated"
         };
-        var empty = new GatewayEffectiveSnapshot(1, identity.CandidateId, identity.ContentHash, [], false);
+        var empty = new GatewayPreparedProjectionSnapshot(1, identity.CandidateId, identity.ContentHash, [], false);
         var missingTarget = empty with { Records = [Record("ghost", [Contribution(0)])] };
         var wrongComposition = empty with
         {
@@ -261,10 +255,10 @@ public sealed class EffectiveProvenanceTests
         };
         var impossible = empty with { Records = [Record("route", [impossibleContribution])] };
 
-        Action missingRecord = () => NativeBundleTestFactory.Create(identity, [native], [], "native", empty);
-        Action absentTarget = () => NativeBundleTestFactory.Create(identity, [native], [], "native", missingTarget);
-        Action invalidComposition = () => NativeBundleTestFactory.Create(identity, [native], [], "native", wrongComposition);
-        Action invalidContribution = () => NativeBundleTestFactory.Create(identity, [native], [], "native", impossible);
+        Action missingRecord = () => PreparedApplicationTestFactory.Create(identity, [native], [], "native", empty);
+        Action absentTarget = () => PreparedApplicationTestFactory.Create(identity, [native], [], "native", missingTarget);
+        Action invalidComposition = () => PreparedApplicationTestFactory.Create(identity, [native], [], "native", wrongComposition);
+        Action invalidContribution = () => PreparedApplicationTestFactory.Create(identity, [native], [], "native", impossible);
 
         missingRecord.Should().Throw<ArgumentException>();
         absentTarget.Should().Throw<ArgumentException>();
@@ -281,13 +275,26 @@ public sealed class EffectiveProvenanceTests
         typeof(GatewayEffectiveProjectionBuilder)
             .GetField("PreparationKey", BindingFlags.Static | BindingFlags.NonPublic)
             .Should().NotBeNull().And.Match<FieldInfo>(field => field.IsPrivate && field.IsInitOnly);
-        typeof(NativePublicationBundle).GetMethods(BindingFlags.Static | BindingFlags.NonPublic)
-            .Single(method => method.Name == "Create").GetParameters().Last().ParameterType
+        typeof(GatewayRuntimePlan).GetConstructors(BindingFlags.Instance | BindingFlags.NonPublic)
+            .Single().GetParameters().Should().Contain(parameter => parameter.ParameterType ==
+                typeof(GatewayEffectiveProjectionBuilder.PreparedProjection));
+        typeof(GatewayPreparedApplication).GetMethods(BindingFlags.Static | BindingFlags.NonPublic)
+            .Single(method => method.Name == "Create").GetParameters().First().ParameterType
+            .Should().Be(typeof(GatewayRuntimeApplicationPreparer.NativeValidationReceipt));
+        typeof(GatewayRuntimeApplicationPreparer.NativeValidationReceipt)
+            .GetConstructors(BindingFlags.Instance | BindingFlags.NonPublic)
+            .Should().ContainSingle();
+        typeof(GatewayRuntimeApplicationPreparer)
+            .GetField("NativeValidationKey", BindingFlags.Static | BindingFlags.NonPublic)
+            .Should().NotBeNull().And.Match<FieldInfo>(field => field.IsPrivate && field.IsInitOnly);
+        typeof(GatewayRuntimePlan).GetConstructors(BindingFlags.Instance | BindingFlags.NonPublic)
+            .Single().GetParameters().Single(parameter => parameter.ParameterType ==
+                typeof(GatewayEffectiveProjectionBuilder.PreparedProjection)).ParameterType
             .Should().Be(typeof(GatewayEffectiveProjectionBuilder.PreparedProjection));
-        typeof(NativePublicationBundle).GetMethods(BindingFlags.Static | BindingFlags.NonPublic)
+        typeof(GatewayPreparedApplication).GetMethods(BindingFlags.Static | BindingFlags.NonPublic)
             .Where(static method => method.Name == "Create")
             .SelectMany(static method => method.GetParameters())
-            .Should().NotContain(parameter => parameter.ParameterType == typeof(GatewayEffectiveSnapshot));
+            .Should().NotContain(parameter => parameter.ParameterType == typeof(GatewayPreparedProjectionSnapshot));
     }
 
     [Fact]
@@ -307,7 +314,7 @@ public sealed class EffectiveProvenanceTests
             {
                 Authorization = Inline(new NamedAuthorizationPolicy("authenticated")),
                 Cors = Inline(new CorsPolicyBinding("cors-policy")),
-                TrafficAdmission = Inline(new TrafficAdmissionBinding("admission")),
+                TrafficAdmission = Inline(new TrafficAdmissionPlan { Entries = [new FixedWindowAdmissionEntry { Profile = "admission", PermitLimit = 100, Window = TimeSpan.FromMinutes(1) }] }),
                 RequestTimeout = Inline(new RequestTimeoutBinding { Timeout = TimeSpan.FromSeconds(7) }),
                 Inspection = Inline(inspection),
                 CredentialDisposition = Inline(new CredentialDispositionBinding { Kind = CredentialDispositionKind.Strip })
@@ -333,24 +340,25 @@ public sealed class EffectiveProvenanceTests
                 GatewayDeclarationFamilies.RequestTransforms | GatewayDeclarationFamilies.ResponseTransforms,
             AuthorizationPolicies = ["authenticated"],
             CorsPolicies = ["cors-policy"],
-            TrafficAdmissionPolicies = ["admission"],
+            TrafficAdmissionProfiles = [TrafficAdmissionTestData.Capability("admission")],
             RequestInspectors = ["inspector"],
             ProtectedCredentialHeaders = ["x-api-key"]
         });
         var registry = new GatewayInspectionRegistry(
             ImmutableDictionary<string, IGatewayRequestInspector>.Empty.Add("inspector", new AllowingInspector()));
         var accepted = Read(configuration, capabilities);
-        var result = await new GatewayNativeMaterializer(new AcceptingValidator(), registry)
-            .MaterializeAsync(accepted, Identity(accepted), "all-family-native");
+        var result = await new GatewayRuntimePlanner(new AcceptingValidator(), registry)
+            .PlanAsync(accepted, Identity(accepted), "all-family-native");
 
-        var native = result.Bundle!.Routes.Single();
+        var native = result.PreparedApplication!.Routes.Single();
         native.AuthorizationPolicy.Should().Be("authenticated");
         native.CorsPolicy.Should().Be("cors-policy");
-        native.RateLimiterPolicy.Should().Be("admission");
+        native.RateLimiterPolicy.Should().BeNull();
+        native.Metadata.Should().ContainKey(GatewayTrafficAdmissionMetadataCodec.Plan);
         native.Timeout.Should().Be(TimeSpan.FromSeconds(7));
         native.Metadata![GatewayInspectionMetadata.Inspector].Should().Be("inspector");
         native.Transforms.Should().NotBeEmpty();
-        result.EffectiveSnapshot!.Records.Select(item => item.Family).Should().Equal(
+        result.PreparedProjectionSnapshot!.Records.Select(item => item.Family).Should().Equal(
             GatewayEffectiveFamilies.Authorization,
             GatewayEffectiveFamilies.Cors,
             GatewayEffectiveFamilies.CredentialDisposition,
@@ -360,9 +368,9 @@ public sealed class EffectiveProvenanceTests
             GatewayEffectiveFamilies.ResponseHeaderTransforms,
             GatewayEffectiveFamilies.ResponseTrailerTransforms,
             GatewayEffectiveFamilies.TrafficAdmission);
-        result.EffectiveSnapshot.Records.Single(item => item.Family == GatewayEffectiveFamilies.Inspection)
+        result.PreparedProjectionSnapshot.Records.Single(item => item.Family == GatewayEffectiveFamilies.Inspection)
             .Contributions.Last().ContentHash.Should().Be(GatewayEffectiveProjectionBuilder.Hash("hpd.gateway/inspector/v1", "inspector"));
-        result.EffectiveSnapshot.Records.Single(item => item.Family == GatewayEffectiveFamilies.CredentialDisposition)
+        result.PreparedProjectionSnapshot.Records.Single(item => item.Family == GatewayEffectiveFamilies.CredentialDisposition)
             .Contributions.Last().ContentHash.Should().Be(GatewayEffectiveProjectionBuilder.Hash(
                 "hpd.gateway/protected-credential-catalog/v1", "authorization\ncookie\nproxy-authorization\nx-api-key"));
     }
@@ -410,11 +418,11 @@ public sealed class EffectiveProvenanceTests
         services.AddHpdGatewayOutputCaching(builder => builder.Add(profile));
         await using var provider = services.BuildServiceProvider();
 
-        var result = await provider.GetRequiredService<GatewayNativeMaterializer>()
-            .MaterializeAsync(accepted, Identity(accepted), "cache-native");
+        var result = await provider.GetRequiredService<GatewayRuntimePlanner>()
+            .PlanAsync(accepted, Identity(accepted), "cache-native");
 
-        result.Bundle!.Routes.Single().OutputCachePolicy.Should().Be("cache");
-        var record = result.EffectiveSnapshot!.Records.Single(item => item.Family == GatewayEffectiveFamilies.OutputCache);
+        result.PreparedApplication!.Routes.Single().OutputCachePolicy.Should().Be("cache");
+        var record = result.PreparedProjectionSnapshot!.Records.Single(item => item.Family == GatewayEffectiveFamilies.OutputCache);
         record.Contributions.Last().ContentHash.Should().Be(GatewayEffectiveProjectionBuilder.Hash(
             "hpd.gateway/output-cache-profile/v1", "cache", "7", bool.TrueString, "memory",
             OutputCacheStoreScope.ProcessLocal.ToString(), profile.Expiration.Ticks.ToString(), "1048576", "16777216", "tenant", "x-region"));
@@ -450,38 +458,38 @@ public sealed class EffectiveProvenanceTests
         await using var application = builder.Build();
         application.MapReverseProxy();
         await application.StartAsync();
-        var materializer = application.Services.GetRequiredService<GatewayNativeMaterializer>();
-        var publisher = application.Services.GetRequiredService<GatewayYarpPublisher>();
+        var materializer = application.Services.GetRequiredService<GatewayRuntimePlanner>();
+        var publisher = application.Services.GetRequiredService<GatewayRuntimePublisher>();
 
         var first = await Prepare(materializer, added, capabilities, 1);
         publisher.GetCurrent().Active.Should().BeNull("preparation is not activation");
-        (await publisher.PublishAsync(first.Bundle!, TimeSpan.FromSeconds(5))).State.Should().Be(GatewayPublicationState.ActiveAcknowledged);
-        first.EffectiveSnapshot!.Records.Should().ContainSingle(item => item.Family == GatewayEffectiveFamilies.Cors);
+        (await publisher.PublishAsync(first.PreparedApplication!, TimeSpan.FromSeconds(5))).State.Should().Be(GatewayPublicationState.ActiveAcknowledged);
+        first.PreparedProjectionSnapshot!.Records.Should().ContainSingle(item => item.Family == GatewayEffectiveFamilies.Cors);
 
         var second = await Prepare(materializer, changed, capabilities, 2);
-        (await publisher.PublishAsync(second.Bundle!, TimeSpan.FromSeconds(5))).State.Should().Be(GatewayPublicationState.ActiveAcknowledged);
-        second.EffectiveSnapshot!.Records.Should().ContainSingle(item => item.Family == GatewayEffectiveFamilies.Authorization);
+        (await publisher.PublishAsync(second.PreparedApplication!, TimeSpan.FromSeconds(5))).State.Should().Be(GatewayPublicationState.ActiveAcknowledged);
+        second.PreparedProjectionSnapshot!.Records.Should().ContainSingle(item => item.Family == GatewayEffectiveFamilies.Authorization);
 
         var third = await Prepare(materializer, removed, capabilities, 3);
-        third.EffectiveSnapshot!.Records.Should().BeEmpty();
-        (await publisher.PublishAsync(third.Bundle!, TimeSpan.FromSeconds(5))).State.Should().Be(GatewayPublicationState.ActiveAcknowledged);
+        third.PreparedProjectionSnapshot!.Records.Should().BeEmpty();
+        (await publisher.PublishAsync(third.PreparedApplication!, TimeSpan.FromSeconds(5))).State.Should().Be(GatewayPublicationState.ActiveAcknowledged);
 
         var fourth = await Prepare(materializer, added, capabilities, 4);
-        (await publisher.PublishAsync(fourth.Bundle!, TimeSpan.FromSeconds(5))).State.Should().Be(GatewayPublicationState.ActiveAcknowledged);
-        fourth.EffectiveSnapshot!.Records.Should().BeEquivalentTo(first.EffectiveSnapshot.Records);
+        (await publisher.PublishAsync(fourth.PreparedApplication!, TimeSpan.FromSeconds(5))).State.Should().Be(GatewayPublicationState.ActiveAcknowledged);
+        fourth.PreparedProjectionSnapshot!.Records.Should().BeEquivalentTo(first.PreparedProjectionSnapshot.Records);
         publisher.GetCurrent().Active!.Candidate.CandidateId.Should().Be(new CandidateId("candidate-4"));
     }
 
-    private static async Task<GatewayMaterializationResult> Prepare(
-        GatewayNativeMaterializer materializer,
+    private static async Task<GatewayRuntimePlanningResult> Prepare(
+        GatewayRuntimePlanner materializer,
         GatewayConfiguration configuration,
         HostCapabilitySnapshot capabilities,
         ulong version)
     {
         var accepted = Read(configuration, capabilities);
         var identity = new PublicationCandidateIdentity(new CandidateId($"candidate-{version}"), "authority", "epoch", version, accepted.CanonicalDocument!.ContentHash);
-        var result = await materializer.MaterializeAsync(accepted, identity, $"effective-native-{version}");
-        result.IsMaterialized.Should().BeTrue(string.Join(", ", result.Diagnostics.Select(item => item.Code)));
+        var result = await materializer.PlanAsync(accepted, identity, $"effective-native-{version}");
+        result.IsPlanned.Should().BeTrue(string.Join(", ", result.Diagnostics.Select(item => item.Code)));
         return result;
     }
 
@@ -512,17 +520,17 @@ public sealed class EffectiveProvenanceTests
         GatewayEffectiveComposition.ReplaceMoreSpecific,
         contributions,
         new GatewayNativeProjection("ASP.NET Core/YARP", "RouteConfig.AuthorizationPolicy", "Yarp.ReverseProxy/2.3.0"),
-        "HPD.Gateway.Yarp",
+        "HPD.Gateway",
         "1.0.0",
         GatewayMaterializationDisposition.Materialized,
         new ContentHash("sha-256", new string('c', 64)),
         []);
 
-    private static async Task<GatewayMaterializationResult> Materialize(GatewayConfiguration configuration)
+    private static async Task<GatewayRuntimePlanningResult> Materialize(GatewayConfiguration configuration)
     {
         var accepted = Read(configuration);
-        return await new GatewayNativeMaterializer(new AcceptingValidator())
-            .MaterializeAsync(accepted, Identity(accepted), "effective-native");
+        return await new GatewayRuntimePlanner(new AcceptingValidator())
+            .PlanAsync(accepted, Identity(accepted), "effective-native");
     }
 
     private static GatewayCandidateReadResult Read(GatewayConfiguration configuration, HostCapabilitySnapshot? capabilities = null)

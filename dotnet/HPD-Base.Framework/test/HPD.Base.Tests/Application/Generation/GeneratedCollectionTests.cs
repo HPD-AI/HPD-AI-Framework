@@ -1,20 +1,24 @@
 using FluentAssertions;
 using HPD.Base;
+using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace HPD.Base.Tests.Application.Generation;
 
 public sealed class GeneratedCollectionTests
 {
+    private static GeneratedApplicationJsonContext Metadata() =>
+        new(BaseSerializerGeneratedContract.CreateOptions(JsonNamingPolicy.CamelCase));
     [Fact]
     public void GeneratorProducesTypedCollectionFieldsSchemaAndJsonMetadata()
     {
+        FinalizeGenerated();
         GeneratedProject.Collection.Id.Should().Be("projects");
-        GeneratedProject.Collection.JsonTypeInfo.Type.Should().Be(typeof(GeneratedProject));
 
         GeneratedProject.Fields.OrganizationId.Id.Should().Be("organization-id");
-        GeneratedProject.Fields.OrganizationId.StoredName.Should().Be("organizationId");
+        GeneratedProject.Fields.OrganizationId.WireName.Should().Be("organizationId");
         GeneratedProject.Fields.Name.Operators.Should().HaveFlag(BaseFieldOperator.Order);
         GeneratedProject.Fields.OptionalNote.Nullable.Should().BeTrue();
 
@@ -25,20 +29,24 @@ public sealed class GeneratedCollectionTests
         GeneratedProject.Collection.Definition.Indexes![0].Parts.Should().ContainSingle();
         GeneratedProject.Collection.Definition.Indexes[0].Parts![0].FieldId
             .Should().Be("organization-id");
+        GeneratedProject.Collection.Definition.Fields!.Single(field => field.Id == "organization-id").ApplicationName.Should().Be("OrganizationId");
+        GeneratedProject.Collection.Definition.Fields.Single(field => field.Id == "organization-id").WireName.Should().Be("organizationId");
+        GeneratedProject.Collection.Definition.SerializerContractChecksum.Should().MatchRegex("^[0-9a-f]{64}$");
     }
 
     [Fact]
     public void ManualBuilderProducesValidatedImmutableCanonicalContract()
     {
+        var metadata = Metadata().GeneratedProject;
         BaseCollection<GeneratedProject> collection =
             HPD.Base.BaseCollection.Define(
                 "manual.projects",
-                GeneratedApplicationJsonContext.Default.GeneratedProject,
+                metadata,
                 schema =>
                 {
-                    schema.String("organization-id", "organizationId").Required();
-                    schema.String("name", "name").Required();
-                    schema.String("optional-note", "optionalNote").Optional();
+                    schema.String("organization-id", "OrganizationId", BaseJsonProperty<GeneratedProject, string>.Bind(metadata, "organizationId")).Required();
+                    schema.String("name", "Name", BaseJsonProperty<GeneratedProject, string>.Bind(metadata, "name")).Required();
+                    schema.String("optional-note", "OptionalNote", BaseJsonProperty<GeneratedProject, string>.Bind(metadata, "optionalNote")).Optional();
                     schema.Index("organization-name", "organization-id", "name")
                         .Required()
                         .Unique();
@@ -50,8 +58,8 @@ public sealed class GeneratedCollectionTests
         collection.Definition.Indexes[0].Unique.Should().BeTrue();
 
         CollectionDefinition snapshot = collection.Definition;
-        snapshot.Fields![0] = snapshot.Fields[0] with { Name = "mutated" };
-        collection.Definition.Fields![0].Name.Should().Be("organizationId");
+        snapshot.Fields![0] = snapshot.Fields[0] with { ApplicationName = "mutated" };
+        collection.Definition.Fields![0].ApplicationName.Should().Be("OrganizationId");
     }
 
     [Fact]
@@ -69,19 +77,38 @@ public sealed class GeneratedCollectionTests
     [Fact]
     public void GeneratedAndManualContractsLowerToEquivalentCanonicalSchemas()
     {
+        FinalizeGenerated();
+        var metadata = Metadata().GeneratedProject;
         BaseCollection<GeneratedProject> manual =
             HPD.Base.BaseCollection.Define(
                 "projects",
-                GeneratedApplicationJsonContext.Default.GeneratedProject,
+                metadata,
                 schema =>
                 {
-                    schema.String("organization-id", "organizationId").Required();
-                    schema.String("name", "name").Required();
-                    schema.String("optional-note", "optionalNote").Optional();
+                    schema.String("organization-id", "OrganizationId", BaseJsonProperty<GeneratedProject, string>.Bind(metadata, "organizationId")).Required();
+                    schema.String("name", "Name", BaseJsonProperty<GeneratedProject, string>.Bind(metadata, "name")).Required();
+                    schema.String("optional-note", "OptionalNote", BaseJsonProperty<GeneratedProject, string>.Bind(metadata, "optionalNote")).Optional();
                     schema.Index("organization", "organization-id").Advisory();
                 });
 
         manual.Definition.Should().BeEquivalentTo(GeneratedProject.Collection.Definition);
+    }
+
+    [Fact]
+    public void ExplicitNeverZeroOrderAndInactiveAlwaysFinalizeThroughRealMetadata()
+    {
+        var services = new ServiceCollection();
+        Action finalize = () => services.AddHPDBase(builder => builder.AddCollection(GeneratedIgnoreContract.Collection));
+
+        finalize.Should().NotThrow();
+        GeneratedIgnoreContract.Collection.Definition.Fields.Should().ContainSingle()
+            .Which.ApplicationName.Should().Be(nameof(GeneratedIgnoreContract.Active));
+    }
+
+    private static void FinalizeGenerated()
+    {
+        var services = new ServiceCollection();
+        services.AddHPDBase(builder => builder.AddCollection(GeneratedProject.Collection));
     }
 }
 
@@ -99,6 +126,19 @@ internal sealed partial record GeneratedProject
     public string? OptionalNote { get; init; }
 }
 
+[BaseCollection("ignore-contract", typeof(GeneratedApplicationJsonContext))]
+internal sealed partial record GeneratedIgnoreContract
+{
+    [BaseField("ignore.active")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    [JsonPropertyOrder(0)]
+    public required string Active { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.Always)]
+    public string LocalOnly { get; init; } = string.Empty;
+}
+
 [JsonSerializable(typeof(GeneratedProject))]
+[JsonSerializable(typeof(GeneratedIgnoreContract))]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 internal sealed partial class GeneratedApplicationJsonContext : JsonSerializerContext;

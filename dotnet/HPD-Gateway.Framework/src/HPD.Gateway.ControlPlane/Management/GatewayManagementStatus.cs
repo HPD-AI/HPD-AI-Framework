@@ -1,0 +1,128 @@
+using HPD.Base;
+
+namespace HPD.Gateway.ControlPlane;
+
+public sealed record GatewayManagementStatusSnapshot(
+    bool AuthorityReady,
+    GatewayAuthorityDurability? Durability,
+    int PendingDeliveryCount,
+    int IndeterminateDeliveryCount,
+    bool ServingReadinessAffected,
+    string Code,
+    GatewayNodeOutcomeKind? LatestNodeOutcome,
+    string? LatestNodeActivationIntentId,
+    bool NodeAttemptStarted);
+
+public interface IGatewayManagementStatusReader
+{
+    ValueTask<GatewayManagementStatusSnapshot> GetCurrentAsync(
+        string namespaceId,
+        string targetNodeId,
+        string? desiredActivationIntentId,
+        CancellationToken cancellationToken = default);
+}
+
+internal sealed class GatewayManagementStatusReader(
+    IGatewayAuthorityRuntime authority,
+    IBaseSessionFactory sessions,
+    GatewayManagementRuntimeOptions options) : IGatewayManagementStatusReader
+{
+    public async ValueTask<GatewayManagementStatusSnapshot> GetCurrentAsync(
+        string namespaceId,
+        string targetNodeId,
+        string? desiredActivationIntentId,
+        CancellationToken cancellationToken = default)
+    {
+        GatewayAuthorityCapabilitySnapshot capabilities;
+        try { capabilities = await authority.InitializeAsync(cancellationToken).ConfigureAwait(false); }
+        catch (Exception exception) when (exception is not (OutOfMemoryException or StackOverflowException) &&
+            !(exception is OperationCanceledException && cancellationToken.IsCancellationRequested))
+        {
+            return new(false, null, 0, 0, false, "management.authority.unavailable", null, null, false);
+        }
+        BaseSession session = sessions.For(new PrincipalContext
+        {
+            AuthenticationState = PrincipalAuthenticationState.System,
+            SubjectId = "hpd.gateway.management.status",
+            AuthSource = GatewayManagementBasePolicy.TrustedSource,
+        }, value => value.Mode = OperationMode.System);
+        BaseQuery<GatewayDeliveryOutboxItem> query = session
+            .Collection(GatewayDeliveryOutboxItem.Collection).Query()
+            .Where(GatewayDeliveryOutboxItem.Fields.NamespaceId, namespaceId)
+            .Where(GatewayDeliveryOutboxItem.Fields.TargetNodeId, targetNodeId);
+        BaseRecord<GatewayDeliveryOutboxItem>[] items;
+        try { items = await ReadBounded(query, options.MaximumTargets, cancellationToken).ConfigureAwait(false); }
+        catch (Exception exception) when (exception is not (OutOfMemoryException or StackOverflowException))
+        {
+            return new(true, capabilities.Durability, 0, 0, false, "management.outbox.not-observed", null, null, false);
+        }
+        BaseRecord<GatewayDeliveryOutboxItem>[] observedItems = items
+            .Where(item => StringComparer.Ordinal.Equals(item.Value.NamespaceId, namespaceId) &&
+                StringComparer.Ordinal.Equals(item.Value.TargetNodeId, targetNodeId))
+            .ToArray();
+        int indeterminate = observedItems.Count(static item =>
+            item.Value.State == GatewayDeliveryState.OutcomePersistencePending);
+        int pending = observedItems.Count(static item => item.Value.State is
+            GatewayDeliveryState.Immediate or GatewayDeliveryState.Claimed or
+            GatewayDeliveryState.RetryScheduled or GatewayDeliveryState.OutcomePersistencePending);
+        BaseRecord<GatewayNodeActivationOutcome>[] outcomes = [];
+        if (desiredActivationIntentId is not null)
+        {
+            BaseResult<BaseRecord<GatewayNodeActivationOutcome>[]> outcomeResult = await session
+                .Collection(GatewayNodeActivationOutcome.Collection).Query()
+                .Where(GatewayNodeActivationOutcome.Fields.NamespaceId, namespaceId)
+                .Where(GatewayNodeActivationOutcome.Fields.TargetNodeId, targetNodeId)
+                .Where(GatewayNodeActivationOutcome.Fields.ActivationIntentId, desiredActivationIntentId)
+                .OrderByDescending(GatewayNodeActivationOutcome.Fields.AuthorityVersion)
+                .Take(1).ToArrayAsync(1, cancellationToken)
+                .ConfigureAwait(false);
+            if (outcomeResult.TryGetValue(out BaseRecord<GatewayNodeActivationOutcome>[]? values))
+                outcomes = values!;
+        }
+        BaseRecord<GatewayNodeActivationOutcome>? latestOutcomeRecord = outcomes
+            .Where(item => StringComparer.Ordinal.Equals(item.Value.NamespaceId, namespaceId) &&
+                StringComparer.Ordinal.Equals(item.Value.TargetNodeId, targetNodeId) &&
+                StringComparer.Ordinal.Equals(item.Value.ActivationIntentId, desiredActivationIntentId))
+            .FirstOrDefault();
+        GatewayNodeOutcomeKind? latestOutcome = latestOutcomeRecord?.Value.Kind;
+        BaseRecord<GatewayDeliveryOutboxItem>? latestPending = observedItems
+            .Where(item => StringComparer.Ordinal.Equals(
+                item.Value.ActivationIntentId, desiredActivationIntentId))
+            .Where(static item => item.Value.PendingOutcomeKind is not null)
+            .OrderByDescending(static item => item.UpdatedAt ?? item.CreatedAt)
+            .FirstOrDefault();
+        latestOutcome ??= latestPending?.Value.PendingOutcomeKind;
+        return new(
+            true, capabilities.Durability, pending, indeterminate, false,
+            indeterminate > 0 ? "management.delivery.indeterminate" :
+            pending > 0 ? "management.delivery.pending" : "management.ready",
+            latestOutcome,
+            latestOutcomeRecord?.Value.ActivationIntentId ?? latestPending?.Value.ActivationIntentId,
+            observedItems.Any(item => item.Value.AttemptCount > 0 &&
+                StringComparer.Ordinal.Equals(item.Value.ActivationIntentId, desiredActivationIntentId)));
+    }
+
+    private static async ValueTask<BaseRecord<GatewayDeliveryOutboxItem>[]> ReadBounded(
+        BaseQuery<GatewayDeliveryOutboxItem> query,
+        int maximum,
+        CancellationToken cancellationToken)
+    {
+        const int pageSize = 256;
+        var records = new List<BaseRecord<GatewayDeliveryOutboxItem>>(maximum);
+        string? continuation = null;
+        while (records.Count < maximum)
+        {
+            BaseQuery<GatewayDeliveryOutboxItem> pageQuery = query.Take(Math.Min(pageSize, maximum - records.Count));
+            if (continuation is not null)
+                pageQuery = pageQuery.ContinueFrom(continuation);
+            BasePage<BaseRecord<GatewayDeliveryOutboxItem>> page = (await pageQuery
+                .PageAsync(cancellationToken).ConfigureAwait(false)).RequireValue();
+            records.AddRange(page.Items);
+            if (!page.Page.HasMore)
+                break;
+            continuation = page.Page.NextCursor ?? throw new InvalidOperationException(
+                "Gateway status pagination omitted its continuation token.");
+        }
+        return records.ToArray();
+    }
+}

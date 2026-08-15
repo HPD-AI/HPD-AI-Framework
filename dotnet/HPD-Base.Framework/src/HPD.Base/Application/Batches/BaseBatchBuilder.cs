@@ -41,7 +41,7 @@ public sealed class BaseBatchBuilder
             Create = new RecordCreateRequest
             {
                 RequestedId = id,
-                Payload = BaseRecordCodec.Encode(collection, value),
+                Payload = BaseRecordCodec.Encode(value, _session.Serializer(collection)),
             },
         });
         return new BaseBatchItem<T>(
@@ -70,7 +70,7 @@ public sealed class BaseBatchBuilder
             Replace = new RecordReplaceRequest
             {
                 ExpectedRevision = expectedRevision,
-                Payload = BaseRecordCodec.Encode(collection, value),
+                Payload = BaseRecordCodec.Encode(value, _session.Serializer(collection)),
             },
         });
         return new BaseBatchItem<T>(
@@ -100,8 +100,8 @@ public sealed class BaseBatchBuilder
             Upsert = new RecordUpsertRequest
             {
                 Id = id,
-                CreatePayload = BaseRecordCodec.Encode(collection, createValue),
-                UpdatePayload = BaseRecordCodec.Encode(collection, updateValue),
+                CreatePayload = BaseRecordCodec.Encode(createValue, _session.Serializer(collection)),
+                UpdatePayload = BaseRecordCodec.Encode(updateValue, _session.Serializer(collection)),
                 UpdateMode = RecordUpsertUpdateMode.Replace,
                 Condition = condition,
                 ExpectedRevision = expectedRevision,
@@ -165,7 +165,7 @@ public sealed class BaseBatchBuilder
             Upsert = new RecordUpsertRequest
             {
                 Id = id,
-                CreatePayload = BaseRecordCodec.Encode(collection, createValue),
+                CreatePayload = BaseRecordCodec.Encode(createValue, _session.Serializer(collection)),
                 UpdatePayload = BaseRecordCodec.Encode(patch, patchJsonTypeInfo),
                 UpdateMode = RecordUpsertUpdateMode.Patch,
                 Condition = condition,
@@ -230,7 +230,7 @@ public sealed class BaseBatchBuilder
 
         return BaseResultMapper.Map(
             result,
-            batch => new BaseBatchResult(_owner, batch));
+            batch => new BaseBatchResult(_owner, batch, _session));
     }
 
     private string NextItemId() =>

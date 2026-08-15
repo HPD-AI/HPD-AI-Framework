@@ -1,8 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using FluentAssertions;
-using HPD.Gateway.Abstractions;
-using HPD.Gateway.Abstractions.Serialization;
+using HPD.Gateway;
 using Xunit;
 
 namespace HPD.Gateway.Tests;

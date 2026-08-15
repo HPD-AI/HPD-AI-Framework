@@ -6,7 +6,7 @@ internal static class BaseQueryFieldResolver
     public static RecordQuery ToStoredNames(CollectionDefinition collection, RecordQuery query)
     {
         var names = (collection.Fields ?? [])
-            .ToDictionary(static field => field.Id, static field => field.Name, StringComparer.Ordinal);
+            .ToDictionary(static field => field.Id, static field => field.WireName, StringComparer.Ordinal);
 
         return query with
         {

@@ -17,6 +17,13 @@ internal sealed class SqliteNames
         SchemaAssets = Prefix + "schema_assets";
         SchemaHistory = Prefix + "schema_history";
         SchemaLease = Prefix + "schema_lease";
+        SubjectContracts = Prefix + "subject_contracts";
+        SubjectLifetimes = Prefix + "subject_lifetimes";
+        SubjectMaintenance = Prefix + "subject_maintenance";
+        SubjectRewriteStage = Prefix + "subject_rewrite_stage";
+        ModuleGenerations = Prefix + "module_generations";
+        ModuleMutationDefinitions = Prefix + "module_mutation_definitions";
+        ModuleGenerationDefinitions = Prefix + "module_generation_definitions";
         MutationJournalScopeIndex = "ix_" + Prefix + "mutation_journal_scope_position";
     }
 
@@ -40,6 +47,20 @@ internal sealed class SqliteNames
     public string SchemaHistory { get; }
     /// <summary>Gets the schema lease.</summary>
     public string SchemaLease { get; }
+    /// <summary>Gets the provider-owned exported-subject contract-state table.</summary>
+    public string SubjectContracts { get; }
+    /// <summary>Gets the provider-owned current subject-lifetime table.</summary>
+    public string SubjectLifetimes { get; }
+    /// <summary>Gets the provider-owned subject-authority maintenance checkpoint table.</summary>
+    public string SubjectMaintenance { get; }
+    /// <summary>Gets the provider-owned subject-reference rewrite staging table.</summary>
+    public string SubjectRewriteStage { get; }
+    /// <summary>Gets provider-owned registered-module generation cells.</summary>
+    public string ModuleGenerations { get; }
+    /// <summary>Gets persisted registered module-mutation schema authority.</summary>
+    public string ModuleMutationDefinitions { get; }
+    /// <summary>Gets persisted module-generation-cell schema authority.</summary>
+    public string ModuleGenerationDefinitions { get; }
     /// <summary>Gets the mutation journal scope index.</summary>
     public string MutationJournalScopeIndex { get; }
 }

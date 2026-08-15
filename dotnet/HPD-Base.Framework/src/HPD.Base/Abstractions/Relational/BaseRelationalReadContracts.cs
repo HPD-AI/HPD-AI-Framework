@@ -45,7 +45,9 @@ Parameter,
     /// <summary>Identifies aggregate.</summary>
 Aggregate,
     /// <summary>Identifies literal.</summary>
-Literal
+    Literal,
+    /// <summary>Identifies the output-only current reference for one exported logical-subject contract.</summary>
+    SubjectReference
 }
 
 /// <summary>Defines consistency required by a relational read.</summary>
@@ -86,6 +88,10 @@ public sealed record BaseRelationalOperand
     public string? AggregateId { get; init; }
     /// <summary>Gets or sets literal.</summary>
     public QueryValue? Literal { get; init; }
+    /// <summary>Gets the exported logical-subject contract identifier for an output-only subject reference.</summary>
+    public string? SubjectContractId { get; init; }
+    /// <summary>Gets the exported logical-subject contract version for an output-only subject reference.</summary>
+    public int? SubjectContractVersion { get; init; }
 }
 
 /// <summary>Defines an equality join between two registered sources.</summary>
@@ -298,6 +304,12 @@ public sealed record BaseReadDependencyEvidence
     public required string CollectionId { get; init; }
     /// <summary>Gets an optional contributing record identity.</summary>
     public string? RecordId { get; init; }
+    /// <summary>Gets the protected exported-subject contract identity, when this evidence came from an acquisition projection.</summary>
+    public string? SubjectContractId { get; init; }
+    /// <summary>Gets the positive exported-subject contract version.</summary>
+    public int? SubjectContractVersion { get; init; }
+    /// <summary>Gets the positive current exported-subject publication generation.</summary>
+    public long? SubjectStateGeneration { get; init; }
 }
 
 /// <summary>Describes callable relational-read provider support.</summary>

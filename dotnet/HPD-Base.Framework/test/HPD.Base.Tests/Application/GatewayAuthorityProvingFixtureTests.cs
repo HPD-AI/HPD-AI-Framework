@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text.Json;
 using FluentAssertions;
+using HPD.Base.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Base.Tests.Application;
@@ -211,7 +212,6 @@ public sealed class GatewayAuthorityProvingFixtureTests
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddSingleton<IBaseCommittedMutationObserver>(observer);
-        services.AddSingleton<IPolicyEvaluator, ProvingPolicyEvaluator>();
         services.AddHPDBase(builder =>
         {
             builder.ConfigureSchema(options =>
@@ -221,11 +221,20 @@ public sealed class GatewayAuthorityProvingFixtureTests
             });
             foreach (BaseCollection<JsonElement> collection in collections)
                 builder.AddCollection(collection);
-            builder.UseSqlite(options =>
+            builder.AddPolicyAuthority(new BasePolicyAuthorityDefinition
+            {
+                Id = "gateway-authority-proof.policy",
+                Version = 1,
+                OwningModuleId = "gateway-authority-proof",
+                EvaluatorContractId = "gateway-authority-proof.evaluator",
+                EvaluatorContractVersion = 1,
+                CompositionOrder = 0,
+            }, new ProvingPolicyEvaluator());
+            builder.UseStore(SqliteStore.Configure(options =>
             {
                 options.StoreId = "gateway-proof";
                 options.DataSource = database;
-            });
+            }));
         });
         return services;
     }

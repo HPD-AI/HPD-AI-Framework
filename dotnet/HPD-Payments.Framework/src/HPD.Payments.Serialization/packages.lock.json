@@ -1,0 +1,24 @@
+{
+  "version": 2,
+  "dependencies": {
+    "net10.0": {
+      "hpd.payments.contracts": {
+        "type": "Project",
+        "dependencies": {
+          "HPD.Payments.Primitives": "[0.1.0, )"
+        }
+      },
+      "hpd.payments.primitives": {
+        "type": "Project"
+      },
+      "hpd.payments.supporting": {
+        "type": "Project",
+        "dependencies": {
+          "HPD.Payments.Contracts": "[0.1.0, )",
+          "HPD.Payments.Primitives": "[0.1.0, )"
+        }
+      }
+    },
+    "net10.0/osx-arm64": {}
+  }
+}

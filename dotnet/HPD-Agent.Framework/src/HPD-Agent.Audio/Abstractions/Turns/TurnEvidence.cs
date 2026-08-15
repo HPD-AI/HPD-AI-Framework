@@ -82,13 +82,6 @@ public sealed record TimerEvidenceDetail : TurnEvidenceDetail
     public required TimeSpan Elapsed { get; init; }
 }
 
-public sealed record VoiceActivityEvidenceDetail : TurnEvidenceDetail
-{
-    public required bool IsSpeaking { get; init; }
-
-    public float? Score { get; init; }
-}
-
 public sealed record OutputPlaybackEvidenceDetail : TurnEvidenceDetail
 {
     public required OutputFlowId OutputFlowId { get; init; }

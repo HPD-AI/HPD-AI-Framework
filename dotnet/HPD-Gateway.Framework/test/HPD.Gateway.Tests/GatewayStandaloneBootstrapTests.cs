@@ -1,9 +1,7 @@
 using System.Collections.Immutable;
 using System.Text.Json;
 using FluentAssertions;
-using HPD.Gateway.Abstractions;
-using HPD.Gateway.Abstractions.Serialization;
-using HPD.Gateway.Hosting;
+using HPD.Gateway;
 using HPD.Gateway.Standalone;
 using Xunit;
 
@@ -31,8 +29,8 @@ public sealed class GatewayStandaloneBootstrapTests
         using var files = StandaloneFiles.Create();
         File.WriteAllText(files.BootstrapPath,
             File.ReadAllText(files.BootstrapPath).Replace(
-                "\"schemaVersion\":\"hpd.gateway.standalone/v1\"",
-                "\"schemaVersion\":\"hpd.gateway.standalone/v1\",\"schemaVersion\":\"hpd.gateway.standalone/v1\"",
+                "\"schemaVersion\":\"hpd.gateway.standalone/v2\"",
+                "\"schemaVersion\":\"hpd.gateway.standalone/v2\",\"schemaVersion\":\"hpd.gateway.standalone/v2\"",
                 StringComparison.Ordinal));
 
         FluentActions.Invoking(() => GatewayStandaloneBootstrapReader.Read(files.BootstrapPath))
@@ -43,6 +41,42 @@ public sealed class GatewayStandaloneBootstrapTests
         FluentActions.Invoking(() => GatewayStandaloneBootstrapReader.Read(files.BootstrapPath))
             .Should().Throw<InvalidOperationException>()
             .WithMessage("*environment-variable name is invalid*");
+    }
+
+    [Fact]
+    public void BootstrapReaderSnapshotsOptionalRedisAuthorityFromEnvironmentAndRejectsMalformedBounds()
+    {
+        using var files = StandaloneFiles.Create();
+        string variable = $"HPD_GATEWAY_REDIS_{Guid.NewGuid():N}";
+        Environment.SetEnvironmentVariable(variable, "localhost:6379,abortConnect=false");
+        try
+        {
+            files.WriteBootstrap(null, new GatewayStandaloneRedisAdmission
+            {
+                AuthorityId = "fleet",
+                ConfigurationEnvironmentVariable = variable,
+                OperationTimeoutMilliseconds = 125,
+                MaximumConcurrentInvocations = 64
+            });
+            GatewayStandaloneInputs inputs = GatewayStandaloneBootstrapReader.Read(files.BootstrapPath);
+            inputs.RedisAdmission.Should().NotBeNull();
+            inputs.RedisAdmission!.Configuration.Should().Be("localhost:6379,abortConnect=false");
+            inputs.RedisAdmission.OperationTimeout.Should().Be(TimeSpan.FromMilliseconds(125));
+
+            files.WriteBootstrap(null, new GatewayStandaloneRedisAdmission
+            {
+                AuthorityId = "fleet",
+                ConfigurationEnvironmentVariable = variable,
+                MaximumConcurrentInvocations = 4_097
+            });
+            FluentActions.Invoking(() => GatewayStandaloneBootstrapReader.Read(files.BootstrapPath))
+                .Should().Throw<InvalidOperationException>()
+                .WithMessage("*Redis admission configuration is invalid*");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(variable, null);
+        }
     }
 
     private sealed class StandaloneFiles : IDisposable
@@ -110,17 +144,35 @@ public sealed class GatewayStandaloneBootstrapTests
             return files;
         }
 
-        internal void WriteBootstrap(string? passwordEnvironmentVariable)
+        internal void WriteBootstrap(
+            string? passwordEnvironmentVariable,
+            GatewayStandaloneRedisAdmission? redisAdmission = null)
         {
             var bootstrap = new GatewayStandaloneBootstrap
             {
-                SchemaVersion = "hpd.gateway.standalone/v1",
+                SchemaVersion = "hpd.gateway.standalone/v2",
                 HostConfigurationPath = Path.Combine(Directory, "host.json"),
                 GatewayConfigurationPath = Path.Combine(Directory, "gateway.json"),
+                NamespaceId = "namespace",
+                TargetNodeId = "node",
                 CandidateId = new("candidate"),
                 AuthorityId = "authority",
                 AuthorityEpoch = "epoch",
                 AuthorityVersion = 1,
+                Management = new GatewayStandaloneManagement
+                {
+                    DatabasePath = Path.Combine(Directory, "management.db"),
+                    ManagementAuthorityId = "local",
+                    PlanProtectionKeyHex = new string('1', 64),
+                    TokenProtectionKeyHex = new string('2', 64),
+                    TokenProtectionIssueNotBeforeUtc = DateTimeOffset.UnixEpoch,
+                    DesiredStateTokenKeyHex = new string('3', 64),
+                    EpochReservationKeyHex = new string('5', 64),
+                    JwtAuthority = "https://issuer.example",
+                    JwtAudience = "hpd-gateway",
+                    JwtSigningKeyHex = new string('4', 64),
+                },
+                RedisAdmission = redisAdmission,
                 Certificates =
                 [
                     new GatewayStandaloneCertificateSource

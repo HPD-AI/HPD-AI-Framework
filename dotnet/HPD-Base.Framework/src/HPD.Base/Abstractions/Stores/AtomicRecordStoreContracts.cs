@@ -66,15 +66,42 @@ public sealed record AtomicMutationProcessingResult
         AtomicMutationProcessingOutcome outcome,
         BaseRecordMutationFact[] mutations,
         BaseError? error = null)
+        : this(outcome, BaseAtomicReceiptResult.FromFacts(mutations), error)
     {
-        ArgumentNullException.ThrowIfNull(mutations);
+    }
+
+    /// <summary>Initializes a processor decision with one closed deeply owned receipt envelope.</summary>
+    public AtomicMutationProcessingResult(
+        AtomicMutationProcessingOutcome outcome,
+        BaseAtomicReceiptResult receipt,
+        BaseError? error = null)
+        : this(outcome, receipt, null, error)
+    {
+    }
+
+    /// <summary>Initializes a ready decision with Runtime-owned pre-commit finalization authority.</summary>
+    public AtomicMutationProcessingResult(BaseAtomicMutationCommitFinalization finalization)
+        : this(AtomicMutationProcessingOutcome.ReadyToCommit, finalization?.Receipt!, finalization, null)
+    {
+        ArgumentNullException.ThrowIfNull(finalization);
+    }
+
+    private AtomicMutationProcessingResult(
+        AtomicMutationProcessingOutcome outcome,
+        BaseAtomicReceiptResult receipt,
+        BaseAtomicMutationCommitFinalization? finalization,
+        BaseError? error)
+    {
+        ArgumentNullException.ThrowIfNull(receipt);
         if (outcome == AtomicMutationProcessingOutcome.ReadyToCommit && error is not null)
             throw new ArgumentException("A ready-to-commit result cannot carry an error.", nameof(error));
         if (outcome == AtomicMutationProcessingOutcome.Failed && error is null)
             throw new ArgumentException("A failed processing result requires a bounded error.", nameof(error));
 
         Outcome = outcome;
-        Mutations = mutations;
+        Receipt = receipt;
+        Finalization = finalization;
+        Mutations = receipt.MaterializeFacts();
         Error = error;
     }
 
@@ -90,6 +117,12 @@ public sealed record AtomicMutationProcessingResult
     /// controls commit classification and later result/event processing.
     /// </summary>
     public BaseRecordMutationFact[] Mutations { get; }
+
+    /// <summary>Gets the closed deeply owned result persisted for identified requests.</summary>
+    public BaseAtomicReceiptResult Receipt { get; }
+
+    /// <summary>Gets Runtime-owned result, receipt, and aggregate accounting for pre-commit validation.</summary>
+    public BaseAtomicMutationCommitFinalization? Finalization { get; }
 }
 
 /// <summary>
@@ -120,6 +153,9 @@ public sealed record BaseRecordMutationFact
     /// </summary>
     public required EventReference Event { get; init; }
 
+    /// <summary>Gets the provider-local provisional mutation-journal position.</summary>
+    public BaseMutationJournalPosition JournalPosition { get; init; }
+
     /// <summary>Gets the unredacted record state before the mutation, when applicable.</summary>
     public RecordEnvelope? Before { get; init; }
 
@@ -131,6 +167,24 @@ public sealed record BaseRecordMutationFact
 
     /// <summary>Gets the bounded changed-field names, when available.</summary>
     public string[]? ChangedFields { get; init; }
+
+    /// <summary>Gets provider-allocated exported-subject lifecycle evidence when this mutation owns a subject lifetime.</summary>
+    public BaseSubjectLifecycleCommitEvidence? SubjectLifecycle { get; init; }
+}
+
+/// <summary>Contains immutable committed evidence for one exported-subject lifetime transition.</summary>
+public sealed record BaseSubjectLifecycleCommitEvidence
+{
+    /// <summary>Gets the exported contract identity.</summary>
+    public required string ContractId { get; init; }
+    /// <summary>Gets the exported contract version.</summary>
+    public required int ContractVersion { get; init; }
+    /// <summary>Gets the canonical logical subject identity text.</summary>
+    public required string SubjectId { get; init; }
+    /// <summary>Gets the committed lifecycle transition.</summary>
+    public required BaseSubjectLifecycleMutationKind Kind { get; init; }
+    /// <summary>Gets the canonical provider-allocated incarnation text for create/preserve, or null for retirement.</summary>
+    public string? Incarnation { get; init; }
 }
 
 /// <summary>Supplies Runtime-owned identity and context to one physical session mutation.</summary>
@@ -228,6 +282,26 @@ public interface IRecordMutationStore : IRecordStore
 /// <summary>Provides a real grouped atomic mutation guarantee over one store instance.</summary>
 public interface IAtomicRecordStore : IRecordMutationStore
 {
+    /// <summary>Resolves one stored identified receipt without recapturing or re-executing mutation authority.</summary>
+    ValueTask<RecordMutationExecutionResult> ResolveAtomicReceiptAsync(
+        IAtomicMutationProcessor processor,
+        BaseMutationRequestIdentity identity,
+        TimeSpan resolutionTimeout,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Captures one coherent authority requirement for the exact collection set.</summary>
+    ValueTask<OperationResult<BaseAtomicMutationAuthorityRequirement>> CaptureAtomicMutationAuthorityRequirementAsync(
+        string applicationId,
+        System.Collections.Immutable.ImmutableArray<CollectionDefinition> collections,
+        BaseAtomicMutationExecutionLimits limits,
+        CancellationToken cancellationToken = default) =>
+        ValueTask.FromResult(OperationResults.Unsupported<BaseAtomicMutationAuthorityRequirement>(new BaseError
+        {
+            Code = "base.atomic.authorityUnavailable",
+            Message = "Atomic mutation authority is unavailable.",
+            Category = ErrorCategory.Unsupported,
+        }));
+
     /// <summary>Executes the supplied processor in one provider-owned atomic transaction.</summary>
     /// <param name="processor">The fixed framework-owned processor to invoke.</param>
     /// <param name="request">The bounded execution lifetimes.</param>
@@ -245,6 +319,34 @@ public interface IAtomicRecordStore : IRecordMutationStore
 /// </summary>
 public interface IAtomicRecordSession
 {
+    /// <summary>Captures immutable current-state authority for one canonical caller-semantic intent.</summary>
+    ValueTask<OperationResult<BaseCapturedAtomicMutationAuthority>> CaptureAtomicMutationAuthorityAsync(
+        BaseAtomicMutationCaptureRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Prepares final dispositions, constraints, lifecycle overlay, and subject validation without applying writes.</summary>
+    ValueTask<OperationResult<BasePreparedAtomicMutation>> PrepareAtomicMutationAsync(
+        BaseCapturedAtomicMutationAuthority captured,
+        BaseAtomicMutationPlan plan,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Consumes one exact session-bound preparation and applies all canonical artifacts atomically.</summary>
+    ValueTask<OperationResult<BaseProvisionalAppliedAtomicMutation>> ApplyPreparedAtomicMutationAsync(
+        BasePreparedAtomicMutation prepared,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Measures exact canonical and durable artifacts produced by the current transaction.</summary>
+    ValueTask<OperationResult<BaseSelectionMutationCommitAccounting>> MeasureSelectionMutationAsync(
+        BaseAtomicReceiptResult receipt,
+        BaseSelectionMutationResult result,
+        CancellationToken cancellationToken = default) =>
+        ValueTask.FromResult(OperationResults.Unsupported<BaseSelectionMutationCommitAccounting>(new BaseError
+        {
+            Code = "base.provider.selection.accountingUnavailable",
+            Message = "This provider cannot certify selection mutation accounting.",
+            Category = ErrorCategory.Unsupported,
+        }));
+
     /// <summary>Reads one record from the transaction-bound view.</summary>
     ValueTask<OperationResult<RecordEnvelope>> GetAsync(
         CollectionDefinition collection,
@@ -288,6 +390,14 @@ public interface IAtomicRecordSession
         CollectionDefinition collection,
         long? expectedGeneration,
         CancellationToken cancellationToken = default);
+
+    /// <summary>Applies every installed provider-owned projection inside this transaction.</summary>
+    /// <param name="request">The deeply immutable canonical projection facts.</param>
+    /// <param name="cancellationToken">Cancellation requested before confirmed commit.</param>
+    /// <returns>A bounded success or failure result.</returns>
+    ValueTask<OperationResult> ApplyMutationProjectionsAsync(
+        BaseAtomicMutationProjectionRequest request,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>Processes canonical Runtime mutations against a provider-owned restricted session.</summary>
@@ -314,4 +424,10 @@ public interface IAtomicMutationProcessor
                 Message = "The stored mutation receipt cannot be resolved.",
                 Category = ErrorCategory.Authorization,
             }));
+
+    /// <summary>Authorizes and projects one closed stored receipt result.</summary>
+    ValueTask<AtomicMutationProcessingResult> ResolveReceiptAsync(
+        BaseAtomicReceiptResult committedResult,
+        CancellationToken cancellationToken = default) =>
+        ResolveReceiptAsync(committedResult.MaterializeFacts(), cancellationToken);
 }

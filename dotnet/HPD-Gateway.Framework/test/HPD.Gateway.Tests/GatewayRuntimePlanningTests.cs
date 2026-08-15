@@ -1,0 +1,1292 @@
+using System.Collections.Immutable;
+using System.Net;
+using System.Net.Http;
+using System.Text.Json;
+using FluentAssertions;
+using HPD.Gateway;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Hosting.Server;
+using Microsoft.AspNetCore.Hosting.Server.Features;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Timeouts;
+using Microsoft.AspNetCore.OutputCaching;
+using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.DependencyInjection;
+using Xunit;
+using Yarp.ReverseProxy.Configuration;
+using Yarp.ReverseProxy.Forwarder;
+
+namespace HPD.Gateway.Tests;
+
+public sealed class GatewayRuntimePlanningTests
+{
+    [Fact]
+    public async Task PlansCompleteSupportedRouteAndClusterGraph()
+    {
+        var configuration = Configuration() with
+        {
+            RootDefaults = new GatewayRootDeclarations
+            {
+                Authorization = Inline(new NamedAuthorizationPolicy("root-auth")),
+                Cors = Inline(new CorsPolicyBinding("root-cors")),
+                TrafficAdmission = Inline(new TrafficAdmissionPlan { Entries = [new FixedWindowAdmissionEntry { Profile = "root-admission", PermitLimit = 100, Window = TimeSpan.FromMinutes(1) }] }),
+                RequestTimeout = Inline(new RequestTimeoutBinding { PolicyName = "root-timeout" }),
+                OutputCache = Inline(new OutputCacheBinding("root-cache")),
+                CredentialDisposition = Inline(new CredentialDispositionBinding { Kind = CredentialDispositionKind.Strip })
+            },
+            Routes =
+            [
+                Route("disabled") with { Enabled = false },
+                Route("orders") with
+                {
+                    Order = -10,
+                    Match = new HttpRouteMatch
+                    {
+                        Methods = ["GET", "HEAD"],
+                        Hosts = ["API.EXAMPLE.COM"],
+                        Path = "/orders/{id}",
+                        Headers = [new HttpHeaderMatch { Name = "X-Tenant", Kind = TextMatchKind.Prefix, Values = ["b", "a"], CaseSensitive = true }],
+                        Query = [new HttpQueryMatch { Name = "trace", Kind = TextMatchKind.Exists }]
+                    },
+                    Declarations = new RouteDeclarations
+                    {
+                        Authorization = Inline(new NamedAuthorizationPolicy("route-auth")),
+                        RequestTimeout = Inline(new RequestTimeoutBinding { Timeout = TimeSpan.FromSeconds(7) }),
+                        RequestTransforms = new OrderedRequestTransforms
+                        {
+                            Headers =
+                            [
+                                new RequestHeaderTransform { Kind = HeaderTransformKind.Set, Name = "X-One", Value = "1" },
+                                new RequestHeaderTransform { Kind = HeaderTransformKind.Append, Name = "X-Two", Value = "2" },
+                                new RequestHeaderTransform { Kind = HeaderTransformKind.Remove, Name = "X-Remove" }
+                            ]
+                        },
+                        ResponseTransforms = new OrderedResponseTransforms
+                        {
+                            Headers = [new ResponseHeaderTransform { Kind = HeaderTransformKind.Set, Name = "X-Response", Value = "yes" }],
+                            Trailers = [new ResponseHeaderTransform { Kind = HeaderTransformKind.Remove, Name = "X-Trailer" }]
+                        }
+                    }
+                }
+            ],
+            Upstreams =
+            [
+                Upstream() with
+                {
+                    LoadBalancing = new LoadBalancingDeclaration(LoadBalancingKind.RoundRobin),
+                    SessionAffinity = new SessionAffinityDeclaration { Policy = "Cookie", FailurePolicy = "Redistribute", CookieName = "hpd-session" },
+                    HealthChecks = new HealthCheckDeclaration
+                    {
+                        Passive = new PassiveHealthCheckDeclaration { Enabled = true, Policy = "TransportFailureRate", ReactivationPeriod = TimeSpan.FromSeconds(30) },
+                        Active = new ActiveHealthCheckDeclaration { Enabled = true, Policy = "ConsecutiveFailures", Interval = TimeSpan.FromSeconds(10), Timeout = TimeSpan.FromSeconds(2), Path = "/health" }
+                    },
+                    Transport = new UpstreamTransportDeclaration
+                    {
+                        UseProxy = false,
+                        ConnectTimeout = TimeSpan.FromSeconds(3),
+                        MaxConnectionsPerServer = 17,
+                        EnableMultipleHttp2Connections = true,
+                        RequestHeaderEncodingLatin1 = true
+                    },
+                    Request = new UpstreamRequestDeclaration
+                    {
+                        ActivityTimeout = TimeSpan.FromSeconds(20),
+                        Version = UpstreamHttpVersion.Http11,
+                        VersionSelection = HttpVersionSelection.Exact,
+                        AllowResponseBuffering = true
+                    }
+                }
+            ]
+        };
+
+        var result = await Plan(configuration);
+
+        result.IsPlanned.Should().BeTrue();
+        result.PreparedApplication!.Routes.Should().ContainSingle();
+        var route = result.PreparedApplication.Routes[0];
+        route.RouteId.Should().Be("orders");
+        route.ClusterId.Should().Be("backend");
+        route.Order.Should().Be(-10);
+        route.AuthorizationPolicy.Should().Be("route-auth");
+        route.CorsPolicy.Should().Be("root-cors");
+        route.RateLimiterPolicy.Should().BeNull();
+        route.Metadata.Should().ContainKey(GatewayTrafficAdmissionMetadataCodec.Plan);
+        route.OutputCachePolicy.Should().Be("root-cache");
+        route.Timeout.Should().Be(TimeSpan.FromSeconds(7));
+        route.TimeoutPolicy.Should().BeNull();
+        route.Match.Methods.Should().Equal("GET", "HEAD");
+        route.Match.Hosts.Should().Equal("api.example.com");
+        route.Match.Headers.Should().ContainSingle(item => item.Name == "x-tenant" && item.Mode == HeaderMatchMode.HeaderPrefix);
+        route.Match.QueryParameters.Should().ContainSingle(item => item.Name == "trace" && item.Mode == QueryParameterMatchMode.Exists);
+        route.Transforms.Should().HaveCount(8);
+
+        var cluster = result.PreparedApplication.Clusters.Should().ContainSingle().Subject;
+        cluster.ClusterId.Should().Be("backend");
+        cluster.LoadBalancingPolicy.Should().Be("RoundRobin");
+        cluster.Destinations!.Keys.Should().Equal("a", "b");
+        cluster.SessionAffinity!.AffinityKeyName.Should().Be("hpd-session");
+        cluster.HealthCheck!.Passive!.Policy.Should().Be("TransportFailureRate");
+        cluster.HealthCheck.Active!.Path.Should().Be("/health");
+        cluster.HttpClient!.MaxConnectionsPerServer.Should().Be(17);
+        cluster.HttpClient.RequestHeaderEncoding.Should().Be("iso-8859-1");
+        cluster.HttpRequest!.Version.Should().Be(HttpVersion.Version11);
+        cluster.HttpRequest.VersionPolicy.Should().Be(HttpVersionPolicy.RequestVersionExact);
+        cluster.Metadata![HpdForwarderHttpClientFactory.UseProxyMetadata].Should().Be("False");
+        cluster.Metadata[HpdForwarderHttpClientFactory.ConnectTimeoutTicksMetadata].Should().Be(TimeSpan.FromSeconds(3).Ticks.ToString());
+    }
+
+    [Fact]
+    public async Task DefinitionAndInlineProduceEquivalentNativeSelection()
+    {
+        var definition = new DeclarationDefinition<NamedAuthorizationPolicy>
+        {
+            Id = new DefinitionId("auth"),
+            Specification = new NamedAuthorizationPolicy("orders.read")
+        };
+        var fromDefinition = Configuration() with
+        {
+            Definitions = new GatewayDefinitions { Authorization = [definition] },
+            RootDefaults = new GatewayRootDeclarations { Authorization = new DeclarationReference<NamedAuthorizationPolicy> { Definition = definition.Id } }
+        };
+        var inline = Configuration() with
+        {
+            RootDefaults = new GatewayRootDeclarations { Authorization = Inline(new NamedAuthorizationPolicy("orders.read")) }
+        };
+
+        var first = await Plan(fromDefinition);
+        var second = await Plan(inline);
+
+        first.PreparedApplication!.Routes[0].AuthorizationPolicy.Should().Be(second.PreparedApplication!.Routes[0].AuthorizationPolicy);
+    }
+
+    [Fact]
+    public async Task InspectionRootInheritanceAndRouteReplacementProduceClosedMetadata()
+    {
+        var prefix = new RequestInspectionBinding
+        {
+            InspectorName = "inspector",
+            Mode = RequestInspectionMode.BoundedPrefix,
+            MaximumAcceptedBodyBytes = 1024,
+            MaximumInspectedBytes = 64
+        };
+        var complete = new RequestInspectionBinding
+        {
+            InspectorName = "inspector",
+            Mode = RequestInspectionMode.CompleteBody,
+            MaximumAcceptedBodyBytes = 2048,
+            MemoryThresholdBytes = 256,
+            SpillPolicy = RequestInspectionSpillPolicy.Allowed
+        };
+        var configuration = Configuration() with
+        {
+            RootDefaults = new GatewayRootDeclarations { Inspection = Inline(prefix) },
+            Routes =
+            [
+                Route("inherited") with { Match = new HttpRouteMatch { Path = "/inherited" } },
+                Route("replaced") with
+                {
+                    Match = new HttpRouteMatch { Path = "/replaced" },
+                    Declarations = new RouteDeclarations { Inspection = Inline(complete) }
+                }
+            ]
+        };
+        var capabilities = HostCapabilitySnapshot.Create(new HostCapabilityRegistration
+        {
+            InstalledFamilies = GatewayDeclarationFamilies.Inspection,
+            RequestInspectors = ["inspector"],
+            AllowInspectionFileSpill = true
+        });
+        var accepted = Read(configuration, capabilities);
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddReverseProxy();
+        services.AddHpdGatewayYarpMaterialization();
+        services.AddHpdGatewayYarpInspection(registry => registry.Add("inspector", new AllowingInspector()));
+        await using var provider = services.BuildServiceProvider();
+
+        var result = await provider.GetRequiredService<GatewayRuntimePlanner>()
+            .PlanAsync(accepted, Identity(accepted), "native-inspection");
+
+        var inherited = result.PreparedApplication!.Routes.Single(route => route.RouteId == "inherited").Metadata!;
+        var replaced = result.PreparedApplication.Routes.Single(route => route.RouteId == "replaced").Metadata!;
+        inherited[GatewayInspectionMetadata.Mode].Should().Be(nameof(RequestInspectionMode.BoundedPrefix));
+        inherited[GatewayInspectionMetadata.MaximumInspected].Should().Be("64");
+        inherited.Should().NotContainKey(GatewayInspectionMetadata.MemoryThreshold);
+        replaced[GatewayInspectionMetadata.Mode].Should().Be(nameof(RequestInspectionMode.CompleteBody));
+        replaced[GatewayInspectionMetadata.MemoryThreshold].Should().Be("256");
+        replaced[GatewayInspectionMetadata.Spill].Should().Be(nameof(RequestInspectionSpillPolicy.Allowed));
+        replaced.Should().NotContainKey(GatewayInspectionMetadata.MaximumInspected);
+    }
+
+    [Fact]
+    public async Task RealYarpValidatorAcceptsInstalledNamedPolicies()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddAuthorizationBuilder().AddPolicy("root-auth", policy => policy.RequireAssertion(_ => true));
+        services.AddCors(options => options.AddPolicy("root-cors", policy => policy.AllowAnyOrigin()));
+        services.AddRateLimiter(options => options.AddFixedWindowLimiter("root-admission", limiter =>
+        {
+            limiter.PermitLimit = 10;
+            limiter.Window = TimeSpan.FromMinutes(1);
+        }));
+        services.AddRequestTimeouts(options => options.AddPolicy("root-timeout", TimeSpan.FromSeconds(10)));
+        services.AddHpdGatewayOutputCaching(builder => builder.Add(new GatewayOutputCacheProfile
+        {
+            Name = "root-cache",
+            Version = 1,
+            Expiration = TimeSpan.FromMinutes(1)
+        }));
+        services.AddReverseProxy();
+        services.AddHpdGatewayYarpPublication();
+        services.AddHpdGatewayYarpMaterialization();
+        await using var provider = services.BuildServiceProvider();
+        var configuration = Configuration() with
+        {
+            RootDefaults = new GatewayRootDeclarations
+            {
+                Authorization = Inline(new NamedAuthorizationPolicy("root-auth")),
+                Cors = Inline(new CorsPolicyBinding("root-cors")),
+                TrafficAdmission = Inline(new TrafficAdmissionPlan { Entries = [new FixedWindowAdmissionEntry { Profile = "root-admission", PermitLimit = 100, Window = TimeSpan.FromMinutes(1) }] }),
+                RequestTimeout = Inline(new RequestTimeoutBinding { PolicyName = "root-timeout" }),
+                OutputCache = Inline(new OutputCacheBinding("root-cache")),
+                CredentialDisposition = Inline(new CredentialDispositionBinding { Kind = CredentialDispositionKind.Strip })
+            },
+            Routes = [Route("route") with { Match = new HttpRouteMatch { Path = "/{**catch-all}", Methods = ["GET", "HEAD"] } }]
+        };
+        var accepted = Read(configuration, Capabilities());
+
+        var result = await provider.GetRequiredService<GatewayRuntimePlanner>()
+            .PlanAsync(accepted, Identity(accepted), "native-policies");
+
+        result.IsPlanned.Should().BeTrue(string.Join(", ", result.Diagnostics.Select(item => item.Code)));
+    }
+
+    [Fact]
+    public async Task DiscoveryInputProducesASymbolicPlanButCannotBecomePreparedWithoutTheResolver()
+    {
+        var configuration = Configuration() with
+        {
+            Upstreams =
+            [
+                Upstream(),
+                Upstream() with
+                {
+                    Id = new UpstreamId("discovered"),
+                    Endpoints = new ServiceDiscoveryEndpointSource
+                    {
+                        Profile = new DiscoveryProfileId("dns"),
+                        Service = new ServiceDiscoveryName("orders"),
+                        Schemes = [ServiceDiscoveryScheme.Http],
+                        StaleBehavior = DiscoveryStaleBehavior.RejectActivationUntilFresh
+                    }
+                }
+            ]
+        };
+
+        var result = await Plan(configuration, Capabilities(withDiscovery: true));
+
+        result.IsPlanned.Should().BeTrue();
+        result.PreparedApplication.Should().BeNull();
+        result.Diagnostics.Should().BeEmpty();
+        result.Plan!.Dependencies.Should().ContainSingle().Which.UpstreamId.Should().Be("discovered");
+        result.Plan.Dependencies[0].CapabilityIdentity.Should().Be(
+            Capabilities(withDiscovery: true).DiscoveryProfiles[new DiscoveryProfileId("dns")].BehaviorIdentity);
+        IReadOnlyDictionary<string, DestinationConfig> symbolicDestinations = result.Plan.Clusters
+            .Single(cluster => cluster.ClusterId == "discovered").Destinations
+            ?? throw new InvalidOperationException("The symbolic destination catalog is missing.");
+        symbolicDestinations.Should().ContainSingle("__hpd_symbolic__");
+        DestinationConfig symbolic = symbolicDestinations["__hpd_symbolic__"];
+        symbolic.Metadata![GatewayRuntimePlanner.DiscoveryProfileMetadata].Should().Be("dns");
+        symbolic.Metadata[GatewayRuntimePlanner.DiscoveryCapabilityIdentityMetadata].Should().Be(new string('a', 64));
+        symbolic.Metadata[GatewayRuntimePlanner.DiscoveryServiceMetadata].Should().Be("orders");
+        symbolic.Metadata[GatewayRuntimePlanner.DiscoveryEndpointMetadata].Should().BeEmpty();
+        symbolic.Metadata[GatewayRuntimePlanner.DiscoverySchemesMetadata].Should().Be("0");
+        result.Plan.Routes.Should().OnlyContain(route =>
+            route.Metadata![GatewayRuntimePlanner.ApplicationIdMetadata] == result.Plan.ApplicationId &&
+            route.Metadata[GatewayRuntimePlanner.SymbolicPlanIdentityMetadata] == result.Plan.SymbolicPlanIdentity.Value);
+    }
+
+    [Fact]
+    public async Task RuntimePlanIdentityIsDeterministicWhileApplicationIdentityIsFreshAndBounded()
+    {
+        GatewayConfiguration configuration = Configuration();
+
+        GatewayRuntimePlanningResult first = await Plan(configuration);
+        GatewayRuntimePlanningResult second = await Plan(configuration);
+
+        first.Plan!.SymbolicPlanIdentity.Should().Be(second.Plan!.SymbolicPlanIdentity);
+        first.Plan.ApplicationId.Should().MatchRegex("^[0-9a-f]{32}$");
+        second.Plan.ApplicationId.Should().MatchRegex("^[0-9a-f]{32}$");
+        first.Plan.ApplicationId.Should().NotBe(second.Plan.ApplicationId);
+    }
+
+    [Fact]
+    public async Task DiscoveryCapabilityIdentityParticipatesInTheSymbolicPlanIdentity()
+    {
+        GatewayConfiguration configuration = Configuration() with
+        {
+            Upstreams =
+            [
+                Upstream() with
+                {
+                    Endpoints = new ServiceDiscoveryEndpointSource
+                    {
+                        Profile = new DiscoveryProfileId("dns"),
+                        Service = new ServiceDiscoveryName("orders"),
+                        Schemes = [ServiceDiscoveryScheme.Http],
+                        StaleBehavior = DiscoveryStaleBehavior.RejectActivationUntilFresh,
+                    },
+                },
+            ],
+        };
+
+        GatewayRuntimePlanningResult first = await Plan(configuration, Capabilities(withDiscovery: true, discoveryHash: 'a'));
+        GatewayRuntimePlanningResult second = await Plan(configuration, Capabilities(withDiscovery: true, discoveryHash: 'b'));
+
+        first.Plan!.Identity.ContentHash.Should().Be(second.Plan!.Identity.ContentHash);
+        first.Plan.SymbolicPlanIdentity.Should().NotBe(second.Plan.SymbolicPlanIdentity);
+    }
+
+    [Fact]
+    public async Task SymbolicPlanIdentityCoversEveryNativeRouteAndClusterSeam()
+    {
+        GatewayRuntimePlan plan = (await Plan(Configuration())).Plan!;
+        RouteConfig route = plan.Routes[0];
+        ClusterConfig cluster = plan.Clusters[0];
+        ContentHash baseline = plan.SymbolicPlanIdentity;
+        var mutations = new List<(string Name, ImmutableArray<RouteConfig> Routes, ImmutableArray<ClusterConfig> Clusters)>
+        {
+            ("route-id", [route with { RouteId = "changed" }], plan.Clusters),
+            ("route-cluster", [route with { ClusterId = "changed" }], plan.Clusters),
+            ("route-order", [route with { Order = 42 }], plan.Clusters),
+            ("authorization", [route with { AuthorizationPolicy = "changed" }], plan.Clusters),
+            ("admission", [route with { Metadata = route.Metadata!.ToImmutableDictionary(StringComparer.Ordinal).SetItem(GatewayTrafficAdmissionMetadataCodec.PlanIdentity, new string('b', 64)) }], plan.Clusters),
+            ("output-cache", [route with { OutputCachePolicy = "changed" }], plan.Clusters),
+            ("timeout-policy", [route with { TimeoutPolicy = "changed" }], plan.Clusters),
+            ("timeout", [route with { Timeout = TimeSpan.FromTicks(123) }], plan.Clusters),
+            ("cors", [route with { CorsPolicy = "changed" }], plan.Clusters),
+            ("request-body", [route with { MaxRequestBodySize = 123 }], plan.Clusters),
+            ("match-method", [route with { Match = route.Match with { Methods = ["PATCH"] } }], plan.Clusters),
+            ("match-host", [route with { Match = route.Match with { Hosts = ["changed.example"] } }], plan.Clusters),
+            ("match-path", [route with { Match = route.Match with { Path = "/changed" } }], plan.Clusters),
+            ("match-header", [route with { Match = route.Match with { Headers = [new RouteHeader { Name = "x-test", Mode = HeaderMatchMode.Exists }] } }], plan.Clusters),
+            ("match-query", [route with { Match = route.Match with { QueryParameters = [new RouteQueryParameter { Name = "q", Mode = QueryParameterMatchMode.Exists }] } }], plan.Clusters),
+            ("route-metadata", [route with { Metadata = route.Metadata!.Append(new("custom", "changed")).ToImmutableDictionary(StringComparer.Ordinal) }], plan.Clusters),
+            ("transforms", [route with { Transforms = [ImmutableDictionary<string, string>.Empty.Add("RequestHeader", "x-test").Add("Set", "changed")] }], plan.Clusters),
+            ("cluster-id", plan.Routes, [cluster with { ClusterId = "changed" }]),
+            ("balancing", plan.Routes, [cluster with { LoadBalancingPolicy = "Random" }]),
+            ("affinity", plan.Routes, [cluster with { SessionAffinity = new SessionAffinityConfig { Enabled = true, Policy = "Cookie", FailurePolicy = "Redistribute", AffinityKeyName = "key", Cookie = new SessionAffinityCookieConfig { HttpOnly = true } } }]),
+            ("health", plan.Routes, [cluster with { HealthCheck = new HealthCheckConfig { Active = new ActiveHealthCheckConfig { Enabled = true, Path = "/health", Query = "?full=true" } } }]),
+            ("http-client", plan.Routes, [cluster with { HttpClient = cluster.HttpClient! with { MaxConnectionsPerServer = 999, ResponseHeaderEncoding = "utf-8" } }]),
+            ("http-request", plan.Routes, [cluster with { HttpRequest = cluster.HttpRequest! with { ActivityTimeout = TimeSpan.FromTicks(999), AllowResponseBuffering = true } }]),
+            ("destination-address", plan.Routes, [cluster with { Destinations = cluster.Destinations!.ToImmutableDictionary(pair => pair.Key, pair => pair.Value with { Address = "http://changed.example/" }, StringComparer.Ordinal) }]),
+            ("destination-health", plan.Routes, [cluster with { Destinations = cluster.Destinations!.ToImmutableDictionary(pair => pair.Key, pair => pair.Value with { Health = "http://health.example/" }, StringComparer.Ordinal) }]),
+            ("destination-host", plan.Routes, [cluster with { Destinations = cluster.Destinations!.ToImmutableDictionary(pair => pair.Key, pair => pair.Value with { Host = "changed.example" }, StringComparer.Ordinal) }]),
+            ("destination-metadata", plan.Routes, [cluster with { Destinations = cluster.Destinations!.ToImmutableDictionary(pair => pair.Key, pair => pair.Value with { Metadata = ImmutableDictionary<string, string>.Empty.Add("custom", "changed") }, StringComparer.Ordinal) }]),
+            ("cluster-metadata", plan.Routes, [cluster with { Metadata = cluster.Metadata!.Append(new("custom", "changed")).ToImmutableDictionary(StringComparer.Ordinal) }]),
+        };
+
+        foreach ((string name, ImmutableArray<RouteConfig> routes, ImmutableArray<ClusterConfig> clusters) in mutations)
+        {
+            GatewayRuntimePlan.ComputeIdentity(plan.Identity, routes, clusters, plan.Dependencies, plan.Effective.Snapshot)
+                .Should().NotBe(baseline, name);
+        }
+    }
+
+    [Fact]
+    public async Task SymbolicPlanIdentityCoversEveryCorrelatedHostProfileContribution()
+    {
+        var configuration = Configuration() with
+        {
+            Routes =
+            [
+                Route("cache") with
+                {
+                    Match = new HttpRouteMatch { Path = "/cache", Methods = ["GET"] },
+                    Declarations = new RouteDeclarations
+                    {
+                        OutputCache = Inline(new OutputCacheBinding("root-cache")),
+                        CredentialDisposition = Inline(new CredentialDispositionBinding { Kind = CredentialDispositionKind.Strip }),
+                    },
+                },
+                Route("inspection") with
+                {
+                    Match = new HttpRouteMatch { Path = "/inspection" },
+                    Declarations = new RouteDeclarations
+                    {
+                        Inspection = Inline(new RequestInspectionBinding
+                        {
+                            InspectorName = "inspector",
+                            Mode = RequestInspectionMode.BoundedPrefix,
+                            MaximumAcceptedBodyBytes = 1024,
+                            MaximumInspectedBytes = 64,
+                        }),
+                    },
+                },
+                Route("credentials") with
+                {
+                    Match = new HttpRouteMatch { Path = "/credentials" },
+                    Declarations = new RouteDeclarations
+                    {
+                        CredentialDisposition = Inline(new CredentialDispositionBinding { Kind = CredentialDispositionKind.Strip }),
+                    },
+                },
+            ],
+        };
+        HostCapabilitySnapshot capabilities = Capabilities();
+        GatewayCandidateReadResult accepted = Read(configuration, capabilities);
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddReverseProxy();
+        services.AddHpdGatewayYarpMaterialization();
+        services.AddHpdGatewayYarpInspection(registry => registry.Add("inspector", new AllowingInspector()));
+        services.AddHpdGatewayOutputCaching(builder => builder.Add(new GatewayOutputCacheProfile { Name = "root-cache", Version = 1 }));
+        await using ServiceProvider provider = services.BuildServiceProvider();
+        GatewayRuntimePlan plan = (await provider.GetRequiredService<GatewayRuntimePlanner>()
+            .PlanAsync(accepted, Identity(accepted), "native-host-profiles")).Plan!;
+        GatewayPreparedProjectionSnapshot snapshot = plan.Effective.Snapshot;
+        GatewayEffectiveRecord[] hostRecords = snapshot.Records
+            .Where(record => record.Contributions.Any(contribution => contribution.SourceKind == GatewayContributionSourceKind.HostProfile))
+            .ToArray();
+        hostRecords.Select(record => record.Family).Distinct(StringComparer.Ordinal).Should().BeEquivalentTo(
+            GatewayEffectiveFamilies.OutputCache,
+            GatewayEffectiveFamilies.Inspection,
+            GatewayEffectiveFamilies.CredentialDisposition);
+
+        foreach (GatewayEffectiveRecord selected in hostRecords)
+        {
+            ImmutableArray<GatewayEffectiveRecord> records = snapshot.Records.Select(record => record == selected
+                ? record with
+                {
+                    Contributions = record.Contributions.Select(contribution => contribution.SourceKind == GatewayContributionSourceKind.HostProfile
+                        ? contribution with { ContentHash = new ContentHash("sha-256", new string('f', 64)) }
+                        : contribution).ToImmutableArray(),
+                }
+                : record).ToImmutableArray();
+            var changed = snapshot with { Records = records };
+            GatewayRuntimePlan.ComputeIdentity(plan.Identity, plan.Routes, plan.Clusters, plan.Dependencies, changed)
+                .Should().NotBe(plan.SymbolicPlanIdentity, selected.Family);
+        }
+    }
+
+    [Fact]
+    public async Task PreparedApplicationRejectsPartialAndSymbolicClusterGraphs()
+    {
+        GatewayRuntimePlanningResult staticPlan = await Plan(Configuration());
+        var partial = await Prepare(staticPlan.Plan!, [], []);
+
+        GatewayConfiguration discoveredConfiguration = Configuration() with
+        {
+            Upstreams =
+            [
+                Upstream() with
+                {
+                    Endpoints = new ServiceDiscoveryEndpointSource
+                    {
+                        Profile = new DiscoveryProfileId("dns"),
+                        Service = new ServiceDiscoveryName("orders"),
+                        Schemes = [ServiceDiscoveryScheme.Http],
+                        StaleBehavior = DiscoveryStaleBehavior.RejectActivationUntilFresh,
+                    },
+                },
+            ],
+        };
+        GatewayRuntimePlanningResult symbolicPlan = await Plan(
+            discoveredConfiguration, Capabilities(withDiscovery: true));
+        var symbolic = await Prepare(symbolicPlan.Plan!, symbolicPlan.Plan!.Clusters, []);
+
+        partial.Application.Should().BeNull();
+        partial.Diagnostics.Should().ContainSingle(item => item.Code == "preparation.application-invalid");
+        symbolic.Application.Should().BeNull();
+        symbolic.Diagnostics.Should().ContainSingle(item => item.Code == "preparation.application-invalid");
+    }
+
+    [Fact]
+    public async Task DiscoveryPreparationPermitsOnlyExactSymbolicDestinationReplacementWithCorrelatedEvidence()
+    {
+        GatewayConfiguration configuration = Configuration() with
+        {
+            Upstreams =
+            [
+                Upstream(),
+                Upstream() with
+                {
+                    Id = new UpstreamId("discovered"),
+                    Endpoints = new ServiceDiscoveryEndpointSource
+                    {
+                        Profile = new DiscoveryProfileId("dns"),
+                        Service = new ServiceDiscoveryName("orders"),
+                        Schemes = [ServiceDiscoveryScheme.Http],
+                        StaleBehavior = DiscoveryStaleBehavior.PermitLastKnownMembership,
+                    },
+                },
+            ],
+        };
+        GatewayRuntimePlan plan = (await Plan(configuration, Capabilities(withDiscovery: true))).Plan!;
+        GatewayRuntimeDependencyBinding dependency = plan.Dependencies.Single();
+        var destinations = ImmutableDictionary<string, DestinationConfig>.Empty.Add(
+            "resolved", new DestinationConfig { Address = "http://orders.internal:8080/", Host = "orders.internal" });
+        ImmutableArray<ClusterConfig> resolved = plan.Clusters.Select(cluster => cluster.ClusterId == dependency.UpstreamId
+            ? cluster with { Destinations = destinations }
+            : cluster).ToImmutableArray();
+        GatewayPreparedDependencyResolution evidence = GatewayPreparedApplication.DescribeResolution(
+            dependency, destinations, 1, GatewayPreparedMembershipDisposition.Fresh);
+
+        var accepted = await Prepare(plan, resolved, [evidence]);
+        var changedPolicy = await Prepare(
+            plan,
+            resolved.Select(cluster => cluster.ClusterId == dependency.UpstreamId
+                ? cluster with { LoadBalancingPolicy = "Random" }
+                : cluster).ToImmutableArray(),
+            [evidence]);
+        var clonedStatic = await Prepare(
+            plan,
+            resolved.Select(cluster => cluster.ClusterId == dependency.UpstreamId ? cluster : cluster with { }).ToImmutableArray(),
+            [evidence]);
+        var wrongMembership = await Prepare(plan, resolved, [evidence with { DestinationCount = 0 }]);
+
+        accepted.Application!.Resolutions.Should().ContainSingle().Which.Should().Be(evidence);
+        changedPolicy.Application.Should().BeNull();
+        clonedStatic.Application.Should().BeNull();
+        wrongMembership.Application.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task EmptyAndStaleResolutionRequireExplicitPolicyCompatibleEvidence()
+    {
+        GatewayConfiguration configuration = Configuration() with
+        {
+            Upstreams =
+            [
+                Upstream() with
+                {
+                    Endpoints = new ServiceDiscoveryEndpointSource
+                    {
+                        Profile = new DiscoveryProfileId("dns"),
+                        Service = new ServiceDiscoveryName("orders"),
+                        Schemes = [ServiceDiscoveryScheme.Http],
+                        StaleBehavior = DiscoveryStaleBehavior.ServeUnavailableWhenStale,
+                    },
+                },
+            ],
+        };
+        GatewayRuntimePlan plan = (await Plan(configuration, Capabilities(withDiscovery: true))).Plan!;
+        GatewayRuntimeDependencyBinding dependency = plan.Dependencies.Single();
+        ImmutableDictionary<string, DestinationConfig> empty = ImmutableDictionary<string, DestinationConfig>.Empty;
+        ImmutableArray<ClusterConfig> resolved = [plan.Clusters[0] with { Destinations = empty }];
+        GatewayPreparedDependencyResolution unavailable = GatewayPreparedApplication.DescribeResolution(
+            dependency, empty, 1, GatewayPreparedMembershipDisposition.UnavailableWhenStale);
+        GatewayPreparedDependencyResolution disallowedLastKnown = GatewayPreparedApplication.DescribeResolution(
+            dependency, empty, 1, GatewayPreparedMembershipDisposition.LastKnownMembership);
+
+        (await Prepare(plan, resolved, [unavailable])).Application.Should().NotBeNull();
+        (await Prepare(plan, resolved, [])).Application.Should().BeNull();
+        (await Prepare(plan, resolved, [disallowedLastKnown])).Application.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task ResolvedMembershipEnforcesTheExactProfileEndpointBound()
+    {
+        GatewayConfiguration configuration = Configuration() with
+        {
+            Upstreams =
+            [
+                Upstream() with
+                {
+                    Endpoints = new ServiceDiscoveryEndpointSource
+                    {
+                        Profile = new DiscoveryProfileId("dns"),
+                        Service = new ServiceDiscoveryName("orders"),
+                        Schemes = [ServiceDiscoveryScheme.Http],
+                        StaleBehavior = DiscoveryStaleBehavior.RejectActivationUntilFresh,
+                    },
+                },
+            ],
+        };
+        GatewayRuntimePlan plan = (await Plan(configuration, Capabilities(withDiscovery: true))).Plan!;
+        GatewayRuntimeDependencyBinding dependency = plan.Dependencies.Single();
+        ImmutableDictionary<string, DestinationConfig> maximum = Enumerable.Range(0, dependency.MaximumEndpoints)
+            .ToImmutableDictionary(
+                index => $"destination-{index:D3}",
+                index => new DestinationConfig { Address = $"http://127.0.0.1:{10000 + index}/" },
+                StringComparer.Ordinal);
+        ImmutableDictionary<string, DestinationConfig> maximumPlusOne = maximum.Add(
+            $"destination-{dependency.MaximumEndpoints:D3}",
+            new DestinationConfig { Address = "http://127.0.0.1:20000/" });
+        ImmutableArray<ClusterConfig> exactClusters = [plan.Clusters[0] with { Destinations = maximum }];
+        ImmutableArray<ClusterConfig> oversizedClusters = [plan.Clusters[0] with { Destinations = maximumPlusOne }];
+        GatewayPreparedDependencyResolution exact = GatewayPreparedApplication.DescribeResolution(
+            dependency, maximum, 1, GatewayPreparedMembershipDisposition.Fresh);
+        GatewayPreparedDependencyResolution oversized = GatewayPreparedApplication.DescribeResolution(
+            dependency, maximumPlusOne, 1, GatewayPreparedMembershipDisposition.Fresh);
+
+        (await Prepare(plan, exactClusters, [exact])).Application.Should().NotBeNull();
+        (await Prepare(plan, oversizedClusters, [oversized])).Application.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task ExactResolvedGraphMustPassNativeValidationBeforeItCanBecomePublishable()
+    {
+        GatewayConfiguration configuration = Configuration() with
+        {
+            Upstreams =
+            [
+                Upstream() with
+                {
+                    Endpoints = new ServiceDiscoveryEndpointSource
+                    {
+                        Profile = new DiscoveryProfileId("dns"),
+                        Service = new ServiceDiscoveryName("orders"),
+                        Schemes = [ServiceDiscoveryScheme.Http],
+                        StaleBehavior = DiscoveryStaleBehavior.RejectActivationUntilFresh,
+                    },
+                },
+            ],
+        };
+        GatewayRuntimePlan plan = (await Plan(configuration, Capabilities(withDiscovery: true))).Plan!;
+        GatewayRuntimeDependencyBinding dependency = plan.Dependencies.Single();
+        var destinations = ImmutableDictionary<string, DestinationConfig>.Empty.Add(
+            "resolved", new DestinationConfig { Address = "http://orders.internal:8080/" });
+        ImmutableArray<ClusterConfig> clusters = [plan.Clusters[0] with { Destinations = destinations }];
+        GatewayPreparedDependencyResolution evidence = GatewayPreparedApplication.DescribeResolution(
+            dependency, destinations, 1, GatewayPreparedMembershipDisposition.Fresh);
+
+        var rejected = await Prepare(plan, clusters, [evidence], new RejectingConfigValidator());
+        var accepted = await Prepare(plan, clusters, [evidence]);
+
+        rejected.Application.Should().BeNull();
+        rejected.Diagnostics.Should().Contain(item => item.Code == "native.cluster-validation-failed");
+        rejected.Diagnostics.Should().Contain(item => item.Code == "native.route-validation-failed");
+        accepted.Application.Should().NotBeNull();
+        typeof(GatewayRuntimeApplicationPreparer)
+            .GetField("NativeValidationKey", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)
+            .Should().NotBeNull().And.Match<System.Reflection.FieldInfo>(field => field.IsPrivate && field.IsInitOnly);
+    }
+
+    [Fact]
+    public async Task PreparedApplicationExposesNoRecordCloneOrWritableGraphState()
+    {
+        GatewayRuntimePlan plan = (await Plan(Configuration())).Plan!;
+        GatewayPreparedApplication application = (await Prepare(plan, plan.Clusters, [])).Application!;
+        Type type = typeof(GatewayPreparedApplication);
+
+        type.IsSealed.Should().BeTrue();
+        type.GetConstructors(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic)
+            .Should().OnlyContain(constructor => constructor.IsPrivate);
+        type.GetMethods(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic)
+            .Should().NotContain(method => method.DeclaringType == type && method.Name.Contains("Clone", StringComparison.Ordinal));
+        foreach (string propertyName in new[] { "Plan", "NativeRevisionId", "Clusters", "Resolutions" })
+            type.GetProperty(propertyName, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+                .SetMethod.Should().BeNull();
+
+        application.Clusters.Equals(plan.Clusters).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ResolvedDestinationMetadataIsDeeplyFrozenBeforeNativeValidation()
+    {
+        GatewayConfiguration configuration = Configuration() with
+        {
+            Upstreams =
+            [
+                Upstream() with
+                {
+                    Endpoints = new ServiceDiscoveryEndpointSource
+                    {
+                        Profile = new DiscoveryProfileId("dns"),
+                        Service = new ServiceDiscoveryName("orders"),
+                        Schemes = [ServiceDiscoveryScheme.Http],
+                        StaleBehavior = DiscoveryStaleBehavior.RejectActivationUntilFresh,
+                    },
+                },
+            ],
+        };
+        GatewayRuntimePlan plan = (await Plan(configuration, Capabilities(withDiscovery: true))).Plan!;
+        GatewayRuntimeDependencyBinding dependency = plan.Dependencies.Single();
+        var retainedMetadata = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["zone"] = "north",
+        };
+        var destinations = ImmutableDictionary<string, DestinationConfig>.Empty.Add(
+            "resolved",
+            new DestinationConfig
+            {
+                Address = "http://orders.internal:8080/",
+                Metadata = retainedMetadata,
+            });
+        ImmutableArray<ClusterConfig> clusters = [plan.Clusters[0] with { Destinations = destinations }];
+        GatewayPreparedDependencyResolution evidence = GatewayPreparedApplication.DescribeResolution(
+            dependency, destinations, 1, GatewayPreparedMembershipDisposition.Fresh);
+
+        GatewayPreparedApplication application = (await Prepare(plan, clusters, [evidence])).Application!;
+        retainedMetadata["zone"] = "south";
+        retainedMetadata["late"] = "mutation";
+
+        IReadOnlyDictionary<string, string> frozen = application.Clusters[0].Destinations!["resolved"].Metadata!;
+        frozen.Should().BeAssignableTo<IImmutableDictionary<string, string>>();
+        frozen.Should().ContainSingle().Which.Should().Be(new KeyValuePair<string, string>("zone", "north"));
+    }
+
+    [Fact]
+    public async Task ResolvedSchemesAndTlsAuthoritiesMustMatchTheAcceptedDependency()
+    {
+        var capability = new DiscoveryProfileCapability(
+            new DiscoveryProfileId("dns"), 1, DiscoveryRuntimeKind.Microsoft,
+            [DiscoveryProviderKind.Configuration], [ServiceDiscoveryScheme.Https],
+            [DiscoveryStaleBehavior.RejectActivationUntilFresh], 256, true, true, true, true,
+            new ContentHash("sha-256", new string('a', 64)));
+        HostCapabilitySnapshot capabilities = HostCapabilitySnapshot.Create(new HostCapabilityRegistration
+        {
+            DiscoveryProfiles = [capability],
+        });
+        GatewayConfiguration configuration = Configuration() with
+        {
+            Upstreams =
+            [
+                Upstream() with
+                {
+                    Endpoints = new ServiceDiscoveryEndpointSource
+                    {
+                        Profile = capability.Id,
+                        Service = new ServiceDiscoveryName("orders"),
+                        Schemes = [ServiceDiscoveryScheme.Https],
+                        StaleBehavior = DiscoveryStaleBehavior.RejectActivationUntilFresh,
+                    },
+                    Transport = Upstream().Transport with
+                    {
+                        Tls = new UpstreamTlsDeclaration { ServerName = "orders.internal" },
+                    },
+                },
+            ],
+        };
+        GatewayRuntimePlan plan = (await Plan(configuration, capabilities)).Plan!;
+        GatewayRuntimeDependencyBinding dependency = plan.Dependencies.Single();
+
+        async Task<GatewayPreparedApplication?> Try(string address, string? health = null)
+        {
+            var destinations = ImmutableDictionary<string, DestinationConfig>.Empty.Add(
+                "resolved", new DestinationConfig { Address = address, Health = health });
+            ImmutableArray<ClusterConfig> clusters = [plan.Clusters[0] with { Destinations = destinations }];
+            GatewayPreparedDependencyResolution evidence = GatewayPreparedApplication.DescribeResolution(
+                dependency, destinations, 1, GatewayPreparedMembershipDisposition.Fresh);
+            return (await Prepare(plan, clusters, [evidence])).Application;
+        }
+
+        dependency.TlsServerName.Should().Be("orders.internal");
+        (await Try("https://orders.internal:443/", "https://orders.internal:443/health")).Should().NotBeNull();
+        (await Try("http://orders.internal:80/")).Should().BeNull();
+        (await Try("https://other.internal:443/")).Should().BeNull();
+        (await Try("https://127.0.0.1:443/")).Should().BeNull();
+        (await Try("https://orders.internal:443/", "https://other.internal:443/health")).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task RuntimeDependencyLedgerRejectsMaximumPlusOneBeforeConstruction()
+    {
+        GatewayRuntimePlan baseline = (await Plan(Configuration())).Plan!;
+        ImmutableArray<GatewayRuntimeDependencyBinding> dependencies = Enumerable.Range(
+                0, GatewayRuntimePlan.MaximumDependencies + 1)
+            .Select(index => new GatewayRuntimeDependencyBinding(
+                $"upstream-{index:D4}",
+                new DiscoveryProfileId("dns"),
+                new ServiceDiscoveryName("orders"),
+                null,
+                [ServiceDiscoveryScheme.Http],
+                null,
+                DiscoveryStaleBehavior.RejectActivationUntilFresh,
+                new ContentHash("sha-256", new string('a', 64)),
+                256))
+            .ToImmutableArray();
+
+        Action action = () => new GatewayRuntimePlan(
+            baseline.Identity,
+            baseline.Routes,
+            baseline.Clusters,
+            dependencies,
+            baseline.Effective,
+            GatewayRuntimePlan.CreateApplicationId(),
+            GatewayRuntimePlan.ComputeIdentity(
+                baseline.Identity, baseline.Routes, baseline.Clusters, dependencies, baseline.Effective.Snapshot));
+
+        action.Should().Throw<ArgumentException>().WithMessage("*bounded*");
+    }
+
+    [Fact]
+    public void ObsoleteNativeBundleAndMaterializerTypesAreAbsent()
+    {
+        typeof(GatewayRuntimePlan).Assembly.GetType("HPD.Gateway.NativePublicationBundle").Should().BeNull();
+        typeof(GatewayRuntimePlan).Assembly.GetType("HPD.Gateway.GatewayNativeMaterializer").Should().BeNull();
+        typeof(GatewayRuntimePlan).Assembly.GetType("HPD.Gateway.GatewayYarpPublisher").Should().BeNull();
+    }
+
+    [Fact]
+    public async Task AcceptedInspectionStillRequiresMatchingRuntimeRegistry()
+    {
+        var configuration = Configuration() with
+        {
+            RootDefaults = new GatewayRootDeclarations
+            {
+                Inspection = Inline(new RequestInspectionBinding
+                {
+                    InspectorName = "inspector",
+                    Mode = RequestInspectionMode.BoundedPrefix,
+                    MaximumAcceptedBodyBytes = 1024,
+                    MaximumInspectedBytes = 128
+                })
+            }
+        };
+        var accepted = Read(configuration, Capabilities());
+
+        var result = await new GatewayRuntimePlanner(new AcceptingConfigValidator())
+            .PlanAsync(accepted, Identity(accepted), "native-missing-inspector");
+
+        result.PreparedApplication.Should().BeNull();
+        result.Diagnostics.Should().ContainSingle(item => item.Code == "planning.inspector-not-installed" && item.Path == "routes[id=route].declarations.inspection");
+    }
+
+    [Fact]
+    public async Task NativeValidationFailureReturnsNoPartialApplication()
+    {
+        var accepted = Read(Configuration(), Capabilities());
+        var identity = Identity(accepted);
+        var planner = new GatewayRuntimePlanner(new RejectingConfigValidator());
+
+        var result = await planner.PlanAsync(accepted, identity, "native-rejected");
+
+        result.IsPlanned.Should().BeFalse();
+        result.PreparedApplication.Should().BeNull();
+        result.Diagnostics.Should().Contain(item => item.Code == "native.cluster-validation-failed");
+        result.Diagnostics.Should().Contain(item => item.Code == "native.route-validation-failed");
+    }
+
+    [Fact]
+    public async Task NativeValidationDiagnosticsUseStableResourceIdsAfterSorting()
+    {
+        var configuration = Configuration() with
+        {
+            Routes =
+            [
+                Route("z") with { Match = new HttpRouteMatch { Path = "/z" } },
+                Route("a") with { Match = new HttpRouteMatch { Path = "/a" } }
+            ],
+            Upstreams =
+            [
+                Upstream() with { Id = new UpstreamId("z") },
+                Upstream() with { Id = new UpstreamId("a") }
+            ]
+        };
+        configuration = configuration with
+        {
+            Routes =
+            [
+                configuration.Routes[0] with { Upstream = new UpstreamId("z") },
+                configuration.Routes[1] with { Upstream = new UpstreamId("a") }
+            ]
+        };
+        var accepted = Read(configuration, Capabilities());
+
+        var result = await new GatewayRuntimePlanner(new SelectiveRejectingConfigValidator("a"))
+            .PlanAsync(accepted, Identity(accepted), "native-correlated");
+
+        result.Diagnostics.Should().Contain(item => item.Path == "upstreams[id=a]");
+        result.Diagnostics.Should().Contain(item => item.Path == "routes[id=a]");
+        result.Diagnostics.Should().NotContain(item => item.Path.EndsWith("[0]", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("tls")]
+    [InlineData("telemetry")]
+    public async Task EachDeferredRuntimeSelectionFailsClosed(string selection)
+    {
+        var configuration = selection == "tls"
+            ? Configuration("https://127.0.0.1:5001/") with
+            {
+                Upstreams =
+                [
+                    Upstream("https://127.0.0.1:5001/") with
+                    {
+                        Transport = new UpstreamTransportDeclaration
+                        {
+                            UseProxy = false,
+                            Tls = new UpstreamTlsDeclaration { ServerName = "backend.local" }
+                        }
+                    }
+                ]
+            }
+            : Configuration() with
+            {
+                RootDefaults = new GatewayRootDeclarations
+                {
+                    Telemetry = Inline(new TelemetryEnrichment { Attributes = [new MetadataEntry("area", "orders")] })
+                }
+            };
+
+        var result = await Plan(configuration);
+
+        result.PreparedApplication.Should().BeNull();
+        result.Diagnostics.Should().ContainSingle(item => item.Code == $"planning.{selection}-runtime-required" ||
+            item.Code == $"planning.{selection}-resolution-required");
+    }
+
+    [Fact]
+    public async Task NativeValidationExceptionAndCancellationAreBoundedRejections()
+    {
+        var accepted = Read(Configuration(), Capabilities());
+        var identity = Identity(accepted);
+        var thrown = await new GatewayRuntimePlanner(new ThrowingConfigValidator())
+            .PlanAsync(accepted, identity, "native-throws");
+        using var canceled = new CancellationTokenSource();
+        canceled.Cancel();
+        var canceledResult = await new GatewayRuntimePlanner(new AcceptingConfigValidator())
+            .PlanAsync(accepted, identity, "native-canceled", canceled.Token);
+
+        thrown.PreparedApplication.Should().BeNull();
+        thrown.Diagnostics.Should().Contain(item => item.Code == "native.cluster-validation-failed");
+        canceledResult.PreparedApplication.Should().BeNull();
+        canceledResult.Diagnostics.Should().ContainSingle(item => item.Code == "planning.canceled");
+    }
+
+    [Fact]
+    public async Task ReorderedSemanticInputProducesEqualNativeArtifacts()
+    {
+        var first = Configuration() with
+        {
+            Routes =
+            [
+                Route("z") with { Match = new HttpRouteMatch { Path = "/z" } },
+                Route("a") with { Match = new HttpRouteMatch { Path = "/a" } }
+            ],
+            Upstreams = [Upstream()]
+        };
+        var second = first with
+        {
+            Routes =
+            [
+                Route("a") with { Match = new HttpRouteMatch { Path = "/a" } },
+                Route("z") with { Match = new HttpRouteMatch { Path = "/z" } }
+            ],
+            Upstreams =
+            [
+                Upstream() with
+                {
+                    Endpoints = new StaticEndpointSource
+                    {
+                        Destinations =
+                        [
+                            new DestinationDeclaration { Id = new DestinationId("a"), Address = new Uri("http://127.0.0.1:5001/") },
+                            new DestinationDeclaration { Id = new DestinationId("b"), Address = new Uri("http://127.0.0.1:5001/") }
+                        ]
+                    }
+                }
+            ]
+        };
+
+        var firstResult = await Plan(first);
+        var secondResult = await Plan(second);
+
+        firstResult.Plan!.SymbolicPlanIdentity.Should().Be(secondResult.Plan!.SymbolicPlanIdentity);
+        firstResult.Plan.ApplicationId.Should().NotBe(secondResult.Plan.ApplicationId);
+        firstResult.PreparedApplication!.Routes.Select(static route => route.RouteId).Should()
+            .Equal(secondResult.PreparedApplication!.Routes.Select(static route => route.RouteId));
+        firstResult.PreparedApplication.Clusters.Select(static cluster => cluster.ClusterId).Should()
+            .Equal(secondResult.PreparedApplication.Clusters.Select(static cluster => cluster.ClusterId));
+    }
+
+    [Fact]
+    public void ReservedTransportMetadataConfiguresHandler()
+    {
+        var metadata = new Dictionary<string, string>
+        {
+            [HpdForwarderHttpClientFactory.UseProxyMetadata] = "true",
+            [HpdForwarderHttpClientFactory.ConnectTimeoutTicksMetadata] = TimeSpan.FromSeconds(4).Ticks.ToString()
+        };
+        using var handler = new SocketsHttpHandler { UseProxy = false, ConnectTimeout = TimeSpan.FromSeconds(15) };
+
+        HpdForwarderHttpClientFactory.ApplyReservedSettings(metadata, handler);
+
+        handler.UseProxy.Should().BeTrue();
+        handler.ConnectTimeout.Should().Be(TimeSpan.FromSeconds(4));
+    }
+
+    [Fact]
+    public async Task HpdPlandAndDirectYarpForwardAndReloadIdentically()
+    {
+        await using var firstBackend = await StartBackend("first");
+        await using var secondBackend = await StartBackend("second");
+        var added = ForwardingConfiguration(Address(firstBackend), "one");
+        var changed = ForwardingConfiguration(Address(secondBackend), "two");
+        var removed = changed with { Routes = [] };
+        var readded = ForwardingConfiguration(Address(firstBackend), "three");
+
+        var firstNative = await Plan(added);
+        await using var hpd = await StartHpdProxy();
+        await using var direct = await StartDirectProxy(firstNative.PreparedApplication!);
+        using var client = new HttpClient();
+
+        await PublishHpd(hpd, added, 1);
+        await AssertEquivalentForwarding(client, hpd, direct, "first:/items/value:one", "one");
+
+        await ReloadBoth(hpd, direct, changed, 2);
+        await AssertEquivalentForwarding(client, hpd, direct, "second:/items/value:two", "two");
+
+        await ReloadBoth(hpd, direct, removed, 3);
+        await AssertEquivalentStatus(client, hpd, direct, HttpStatusCode.NotFound);
+
+        await ReloadBoth(hpd, direct, readded, 4);
+        await AssertEquivalentForwarding(client, hpd, direct, "first:/items/value:three", "three");
+    }
+
+    private static GatewayConfiguration ForwardingConfiguration(string address, string transformValue) => Configuration(address) with
+    {
+        Routes =
+        [
+            Route("route") with
+            {
+                Match = new HttpRouteMatch
+                {
+                    Path = "/items/{**rest}",
+                    Methods = ["GET"],
+                    Hosts = ["gateway.local"],
+                    Headers = [new HttpHeaderMatch { Name = "X-Tenant", Kind = TextMatchKind.Exact, Values = ["yes"] }],
+                    Query = [new HttpQueryMatch { Name = "ready", Kind = TextMatchKind.Exists }]
+                },
+                Declarations = new RouteDeclarations
+                {
+                    Authorization = Inline(new NamedAuthorizationPolicy("route-auth")),
+                    RequestTransforms = new OrderedRequestTransforms
+                    {
+                        Headers = [new RequestHeaderTransform { Kind = HeaderTransformKind.Set, Name = "X-Gateway", Value = transformValue }]
+                    },
+                    ResponseTransforms = new OrderedResponseTransforms
+                    {
+                        Headers = [new ResponseHeaderTransform { Kind = HeaderTransformKind.Set, Name = "X-Reload", Value = transformValue }]
+                    }
+                }
+            }
+        ]
+    };
+
+    private static async Task ReloadBoth(WebApplication hpd, WebApplication direct, GatewayConfiguration configuration, ulong version)
+    {
+        await PublishHpd(hpd, configuration, version);
+        var native = await Plan(configuration);
+        direct.Services.GetRequiredService<InMemoryConfigProvider>().Update(native.PreparedApplication!.Routes, native.PreparedApplication.Clusters);
+    }
+
+    private static async Task PublishHpd(WebApplication app, GatewayConfiguration configuration, ulong version)
+    {
+        var accepted = Read(configuration, Capabilities());
+        var identity = new PublicationCandidateIdentity(new CandidateId($"candidate-{version}"), "authority", "epoch", version, accepted.CanonicalDocument!.ContentHash);
+        var result = await app.Services.GetRequiredService<GatewayRuntimePlanner>()
+            .PlanAsync(accepted, identity, $"native-forward-{version}");
+        result.IsPlanned.Should().BeTrue(string.Join(", ", result.Diagnostics.Select(item => item.Code)));
+        var outcome = await app.Services.GetRequiredService<GatewayRuntimePublisher>().PublishAsync(result.PreparedApplication!, TimeSpan.FromSeconds(5));
+        outcome.State.Should().Be(GatewayPublicationState.ActiveAcknowledged);
+    }
+
+    private static async Task AssertEquivalentForwarding(HttpClient client, WebApplication hpd, WebApplication direct, string expectedBody, string expectedHeader)
+    {
+        var hpdResponse = await SendMatched(client, hpd);
+        var directResponse = await SendMatched(client, direct);
+        hpdResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        directResponse.StatusCode.Should().Be(hpdResponse.StatusCode);
+        (await hpdResponse.Content.ReadAsStringAsync()).Should().Be(expectedBody);
+        (await directResponse.Content.ReadAsStringAsync()).Should().Be(expectedBody);
+        hpdResponse.Headers.GetValues("X-Reload").Should().Equal(expectedHeader);
+        directResponse.Headers.GetValues("X-Reload").Should().Equal(expectedHeader);
+    }
+
+    private static async Task AssertEquivalentStatus(HttpClient client, WebApplication hpd, WebApplication direct, HttpStatusCode expected)
+    {
+        (await SendMatched(client, hpd)).StatusCode.Should().Be(expected);
+        (await SendMatched(client, direct)).StatusCode.Should().Be(expected);
+    }
+
+    private static Task<HttpResponseMessage> SendMatched(HttpClient client, WebApplication app)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, new Uri(new Uri(Address(app)), "/items/value?ready=1"));
+        request.Headers.Host = "gateway.local";
+        request.Headers.Add("X-Tenant", "yes");
+        return client.SendAsync(request);
+    }
+
+    private static async Task<GatewayRuntimePlanningResult> Plan(GatewayConfiguration configuration, HostCapabilitySnapshot? capabilities = null)
+    {
+        var accepted = Read(configuration, capabilities ?? Capabilities());
+        if (configuration.RootDefaults?.OutputCache is not null || configuration.Routes.Any(static route => route.Declarations?.OutputCache is not null))
+        {
+            var services = new ServiceCollection();
+            services.AddLogging();
+            services.AddReverseProxy();
+            services.AddSingleton<IConfigValidator>(new AcceptingConfigValidator());
+            services.AddHpdGatewayYarpMaterialization();
+            services.AddHpdGatewayOutputCaching(builder => builder.Add(new GatewayOutputCacheProfile { Name = "root-cache", Version = 1 }));
+            await using var provider = services.BuildServiceProvider();
+            return await provider.GetRequiredService<GatewayRuntimePlanner>()
+                .PlanAsync(accepted, Identity(accepted), $"native-{Guid.NewGuid():N}");
+        }
+        return await new GatewayRuntimePlanner(new AcceptingConfigValidator())
+            .PlanAsync(accepted, Identity(accepted), $"native-{Guid.NewGuid():N}");
+    }
+
+    private static ValueTask<(GatewayPreparedApplication? Application, ImmutableArray<GatewayRuntimePlanningDiagnostic> Diagnostics)> Prepare(
+        GatewayRuntimePlan plan,
+        ImmutableArray<ClusterConfig> clusters,
+        ImmutableArray<GatewayPreparedDependencyResolution> resolutions,
+        IConfigValidator? validator = null) =>
+        new GatewayRuntimeApplicationPreparer(validator ?? new AcceptingConfigValidator())
+            .PrepareAsync(plan, clusters, resolutions, $"native-{Guid.NewGuid():N}", CancellationToken.None);
+
+    private static GatewayCandidateReadResult Read(GatewayConfiguration configuration, HostCapabilitySnapshot capabilities)
+    {
+        var json = JsonSerializer.SerializeToUtf8Bytes(configuration, GatewayJsonSerializerContext.Default.GatewayConfiguration);
+        var accepted = GatewayCandidateReader.Read(json, capabilities);
+        accepted.IsAccepted.Should().BeTrue(string.Join(", ", accepted.Errors.Select(error => $"{error.Path}: {error.Message}")));
+        return accepted;
+    }
+
+    private static PublicationCandidateIdentity Identity(GatewayCandidateReadResult accepted) =>
+        new(new CandidateId("candidate"), "authority", "epoch", 1, accepted.CanonicalDocument!.ContentHash);
+
+    private static GatewayConfiguration Configuration(string address = "http://127.0.0.1:5001/") => new()
+    {
+        SchemaVersion = new GatewaySchemaVersion(1, 0),
+        CanonicalizationVersion = 1,
+        Routes = [Route("route")],
+        Upstreams = [Upstream(address)]
+    };
+
+    private static RouteDeclaration Route(string id) => new()
+    {
+        Id = new RouteId(id),
+        Match = new HttpRouteMatch { Path = "/{**catch-all}" },
+        Upstream = new UpstreamId("backend")
+    };
+
+    private static UpstreamDeclaration Upstream(string address = "http://127.0.0.1:5001/") => new()
+    {
+        Id = new UpstreamId("backend"),
+        Endpoints = new StaticEndpointSource
+        {
+            Destinations =
+            [
+                new DestinationDeclaration { Id = new DestinationId("b"), Address = new Uri(address) },
+                new DestinationDeclaration { Id = new DestinationId("a"), Address = new Uri(address) }
+            ]
+        },
+        Transport = new UpstreamTransportDeclaration { UseProxy = false }
+    };
+
+    private static DeclarationReference<T> Inline<T>(T value) where T : class => new() { Inline = value };
+
+    private static HostCapabilitySnapshot Capabilities(bool withDiscovery = false, char discoveryHash = 'a') => HostCapabilitySnapshot.Create(new HostCapabilityRegistration
+    {
+        InstalledFamilies = GatewayDeclarationFamilies.AllBaseline | GatewayDeclarationFamilies.CredentialDisposition,
+        AuthorizationPolicies = ["root-auth", "route-auth", "orders.read"],
+        CorsPolicies = ["root-cors"],
+        TrafficAdmissionProfiles = [TrafficAdmissionTestData.Capability("root-admission")],
+        RequestTimeoutPolicies = ["root-timeout"],
+        OutputCacheProfiles = [CacheCapability("root-cache")],
+        SessionAffinityPolicies = ["Cookie"],
+        SessionAffinityFailurePolicies = ["Redistribute"],
+        PassiveHealthPolicies = ["TransportFailureRate"],
+        ActiveHealthPolicies = ["ConsecutiveFailures"],
+        RequestInspectors = ["inspector"],
+        DiscoveryProfiles = withDiscovery
+            ? [new DiscoveryProfileCapability(new DiscoveryProfileId("dns"), 1, DiscoveryRuntimeKind.Microsoft,
+                [DiscoveryProviderKind.Configuration], [ServiceDiscoveryScheme.Http],
+                [DiscoveryStaleBehavior.RejectActivationUntilFresh, DiscoveryStaleBehavior.PermitLastKnownMembership, DiscoveryStaleBehavior.ServeUnavailableWhenStale], 256, true, true, true, false,
+                new ContentHash("sha-256", new string(discoveryHash, 64)))]
+            : []
+    });
+
+    private static OutputCacheCapability CacheCapability(string name) => new(
+        name,
+        1,
+        true,
+        "memory",
+        OutputCacheStoreScope.ProcessLocal,
+        TimeSpan.FromMinutes(1),
+        1_048_576,
+        16_777_216,
+        [],
+        []);
+
+    private static async Task<WebApplication> StartBackend(string name)
+    {
+        var builder = WebApplication.CreateSlimBuilder();
+        builder.WebHost.UseUrls("http://127.0.0.1:0");
+        var app = builder.Build();
+        app.Map("/{**path}", (HttpContext context) => $"{name}:{context.Request.Path}:{context.Request.Headers["X-Gateway"]}");
+        await app.StartAsync();
+        return app;
+    }
+
+    private static async Task<WebApplication> StartHpdProxy()
+    {
+        var builder = WebApplication.CreateSlimBuilder();
+        builder.WebHost.UseUrls("http://127.0.0.1:0");
+        builder.Services.AddAuthorizationBuilder().AddPolicy("route-auth", policy => policy.RequireAssertion(_ => true));
+        builder.Services.AddReverseProxy();
+        builder.Services.AddHpdGatewayYarpPublication();
+        builder.Services.AddHpdGatewayYarpMaterialization();
+        var app = builder.Build();
+        app.UseAuthorization();
+        app.MapReverseProxy();
+        await app.StartAsync();
+        return app;
+    }
+
+    private static async Task<WebApplication> StartDirectProxy(GatewayPreparedApplication application)
+    {
+        var builder = WebApplication.CreateSlimBuilder();
+        builder.WebHost.UseUrls("http://127.0.0.1:0");
+        builder.Services.AddAuthorizationBuilder().AddPolicy("route-auth", policy => policy.RequireAssertion(_ => true));
+        builder.Services.AddReverseProxy().LoadFromMemory(application.Routes, application.Clusters);
+        var app = builder.Build();
+        app.UseAuthorization();
+        app.MapReverseProxy();
+        await app.StartAsync();
+        return app;
+    }
+
+    private static string Address(WebApplication application) => application.Services
+        .GetRequiredService<IServer>()
+        .Features.Get<IServerAddressesFeature>()!
+        .Addresses.Single();
+
+    private sealed class AcceptingConfigValidator : IConfigValidator
+    {
+        public ValueTask<IList<Exception>> ValidateRouteAsync(RouteConfig route) => ValueTask.FromResult<IList<Exception>>([]);
+        public ValueTask<IList<Exception>> ValidateClusterAsync(ClusterConfig cluster) => ValueTask.FromResult<IList<Exception>>([]);
+    }
+
+    private sealed class RejectingConfigValidator : IConfigValidator
+    {
+        public ValueTask<IList<Exception>> ValidateRouteAsync(RouteConfig route) => ValueTask.FromResult<IList<Exception>>([new InvalidOperationException()]);
+        public ValueTask<IList<Exception>> ValidateClusterAsync(ClusterConfig cluster) => ValueTask.FromResult<IList<Exception>>([new InvalidOperationException()]);
+    }
+
+    private sealed class SelectiveRejectingConfigValidator(string rejectedId) : IConfigValidator
+    {
+        public ValueTask<IList<Exception>> ValidateRouteAsync(RouteConfig route) =>
+            ValueTask.FromResult<IList<Exception>>(route.RouteId == rejectedId ? [new InvalidOperationException()] : []);
+
+        public ValueTask<IList<Exception>> ValidateClusterAsync(ClusterConfig cluster) =>
+            ValueTask.FromResult<IList<Exception>>(cluster.ClusterId == rejectedId ? [new InvalidOperationException()] : []);
+    }
+
+    private sealed class ThrowingConfigValidator : IConfigValidator
+    {
+        public ValueTask<IList<Exception>> ValidateRouteAsync(RouteConfig route) => throw new InvalidOperationException();
+        public ValueTask<IList<Exception>> ValidateClusterAsync(ClusterConfig cluster) => throw new InvalidOperationException();
+    }
+
+    private sealed class AllowingInspector : IGatewayRequestInspector
+    {
+        public ValueTask<GatewayInspectionDecision> InspectAsync(GatewayInspectionContext context, CancellationToken cancellationToken) =>
+            ValueTask.FromResult(GatewayInspectionDecision.Allow());
+    }
+}

@@ -23,6 +23,7 @@ internal sealed class BaseRealtimeWebSocketEndpoint(
         var options = services.GetRequiredService<IOptions<BaseRealtimeOptions>>();
         var stats = services.GetRequiredService<BaseRealtimeStats>();
         var timeProvider = services.GetRequiredService<TimeProvider>();
+        var liveQueries = services.GetService<BaseRealtimeLiveQueryTransport>();
 
         if (!options.Value.Enabled)
         {
@@ -57,9 +58,9 @@ internal sealed class BaseRealtimeWebSocketEndpoint(
         try
         {
             using var socket = await context.WebSockets.AcceptWebSocketAsync().ConfigureAwait(false);
-            var principal = await principals.CreateAsync(context, HPDBaseEndpointKind.Records, context.RequestAborted).ConfigureAwait(false);
+            var principal = await principals.CreateAsync(context, context.RequestAborted).ConfigureAwait(false);
             var session = new BaseRealtimeWebSocketSession(
-                socket, feeds, json.Options, options.Value, stats, principal, sessionLogger, timeProvider);
+                socket, feeds, json.Options, options.Value, stats, principal, sessionLogger, timeProvider, liveQueries);
             HPDBaseRealtimeAspNetCoreTelemetry.Finish(acceptActivity, "ok");
             acceptActivity?.Stop();
             await session.RunAsync(context.RequestAborted).ConfigureAwait(false);

@@ -1,4 +1,4 @@
-using HPD.ML.Backends.Pjrt;
+using Helium.PJRT;
 
 namespace HPD.ML.Backends.Tests;
 

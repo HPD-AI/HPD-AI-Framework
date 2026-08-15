@@ -1,5 +1,6 @@
 using HPD.Auth.Core.Entities;
 using HPD.Auth.Core.Interfaces;
+using HPD.Auth.Core.Audit;
 using HPD.Base.Auth;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.DependencyInjection;
@@ -10,14 +11,14 @@ namespace HPD.Base.Auth;
 /// <summary>
 /// Reports whether the ASP.NET Core HPD.Auth bridge can detect baseline HPD.Auth services.
 /// </summary>
-public sealed class HPDAuthBaseAspNetCoreHostIntegrationStatus : IHPDAuthBaseHostIntegrationStatus
+internal sealed class HPDBaseAuthAspNetCoreHostIntegrationStatus : IHPDBaseAuthHostIntegrationStatus
 {
     private static readonly (Type ServiceType, string Name)[] RequiredServices =
     [
         (typeof(ITenantContext), nameof(ITenantContext)),
         (typeof(UserManager<ApplicationUser>), "UserManager<ApplicationUser>"),
         (typeof(SignInManager<ApplicationUser>), "SignInManager<ApplicationUser>"),
-        (typeof(IAuditLogger), nameof(IAuditLogger)),
+        (typeof(IAuthAuditWriter), nameof(IAuthAuditWriter)),
         (typeof(ISessionManager), nameof(ISessionManager)),
         (typeof(IRefreshTokenStore), nameof(IRefreshTokenStore))
     ];
@@ -25,24 +26,19 @@ public sealed class HPDAuthBaseAspNetCoreHostIntegrationStatus : IHPDAuthBaseHos
     private readonly string[] _missingRequiredServiceNames;
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="HPDAuthBaseAspNetCoreHostIntegrationStatus"/> class.
+    /// Initializes a new instance of the <see cref="HPDBaseAuthAspNetCoreHostIntegrationStatus"/> class.
     /// </summary>
     /// <param name="serviceProviderIsService">The service registration probe.</param>
     /// <param name="logger">The host integration status logger.</param>
-    public HPDAuthBaseAspNetCoreHostIntegrationStatus(
+    public HPDBaseAuthAspNetCoreHostIntegrationStatus(
         IServiceProviderIsService serviceProviderIsService,
-        ILogger<HPDAuthBaseAspNetCoreHostIntegrationStatus> logger)
+        ILogger<HPDBaseAuthAspNetCoreHostIntegrationStatus> logger)
     {
         _missingRequiredServiceNames = RequiredServices
             .Where(service => !serviceProviderIsService.IsService(service.ServiceType))
             .Select(static service => service.Name)
             .ToArray();
-        if (_missingRequiredServiceNames.Length != 0)
-        {
-            HPDBaseHPDAuthAspNetCoreLog.HostIntegrationUnavailable(
-                logger,
-                HPDAuthBaseDiagnosticIds.MissingAuthServices);
-        }
+        _ = logger;
     }
 
     /// <inheritdoc />

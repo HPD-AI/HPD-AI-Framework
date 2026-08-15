@@ -1,6 +1,7 @@
 using System.Text;
 using FluentAssertions;
 using HPD.Base;
+using HPD.Base.Sqlite;
 using HPD.Base.Tests.Application.Generation;
 using HPD.Base.Testing;
 using Xunit;
@@ -149,12 +150,13 @@ public sealed class BaseSessionModuleTests
         {
             await using BaseTestHost host = await BaseTestHost.CreateAsync(
                 builder => builder
-                    .UseSqlite(options => options.DataSource = database)
+                    .UseStore(SqliteStore.Configure(options => options.DataSource = database))
                     .AddCollection(GeneratedProject.Collection)
                     .ConfigureTokenProtection(options => options.ActiveKey = new BaseOpaqueTokenKey
                     {
                         Id = 7,
                         Key = Enumerable.Repeat((byte)0x47, 32).ToArray(),
+                        IssueNotBefore = DateTimeOffset.UnixEpoch,
                     })
                     .AddRealtime());
             var session = host.Session(
@@ -181,7 +183,7 @@ public sealed class BaseSessionModuleTests
     }
 
     [Fact]
-    public async Task DurableBuilderRejectsProviderWithoutJournalCapability()
+    public async Task InMemoryDurableBuilderUsesTheMandatorySharedJournalCapability()
     {
         await using BaseTestHost host = await BaseTestHost.CreateAsync(
             builder => builder
@@ -190,14 +192,11 @@ public sealed class BaseSessionModuleTests
         var session = host.Session(
             BaseTestPrincipal.User("realtime-user", "tenant-a"));
 
-        Func<Task> open = async () => await session.Realtime
+        await using BaseRealtimeFeed opened = await session.Realtime
             .Durable(GeneratedProject.Collection)
             .OpenAsync();
-
-        BaseRealtimeOpenException failure =
-            (await open.Should().ThrowAsync<BaseRealtimeOpenException>())
-            .Which;
-        failure.Code.Should().Be("base.realtime.capabilityUnavailable");
+        opened.Metadata.Replayable.Should().BeTrue();
+        opened.Metadata.Resumable.Should().BeTrue();
     }
 
     private static async ValueTask<T> NextAsync<T>(

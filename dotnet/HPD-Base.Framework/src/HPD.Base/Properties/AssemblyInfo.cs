@@ -8,3 +8,5 @@ using System.Runtime.CompilerServices;
 [assembly: InternalsVisibleTo("HPD.Base.Realtime")]
 [assembly: InternalsVisibleTo("HPD.Base.Sqlite")]
 [assembly: InternalsVisibleTo("HPD.Base.Sqlite.Tests")]
+[assembly: InternalsVisibleTo("HPD.Base.Vector.Tests")]
+[assembly: InternalsVisibleTo("HPD.Base.InMemory.Vector.AotSmoke")]

@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <PackageId>HPD-ML-DeepLearning</PackageId>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework>net11.0</TargetFramework>
     <TargetFrameworks></TargetFrameworks>
     <LangVersion>preview</LangVersion>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -17,6 +17,7 @@
   <ItemGroup>
     <ProjectReference Include="../HPD.ML.Core/HPD.ML.Core.csproj" />
     <ProjectReference Include="../HPD.ML.Backends.Abstractions/HPD.ML.Backends.Abstractions.csproj" />
+    <ProjectReference Include="../../../../../../../../HPD-Math-Framework/Helium/src/Helium.Train/Helium.Train.csproj" />
   </ItemGroup>
 
 </Project>

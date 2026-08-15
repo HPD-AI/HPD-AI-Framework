@@ -26,21 +26,36 @@ public static class HPDBaseAspNetCoreServiceCollectionExtensions
 
         var options = new HPDBaseAspNetCoreOptions();
         configure?.Invoke(options);
+        HPDBaseHttpAuthOptionsValidator.ValidateAndFreeze(options.Auth);
+        HPDBaseAspNetCoreSnapshot snapshot = HPDBaseAspNetCoreSnapshot.Create(options);
+        if (services.Any(descriptor => descriptor.ServiceType == typeof(IOptions<HPDBaseAspNetCoreOptions>) ||
+            descriptor.ServiceType == typeof(HPDBaseAspNetCoreOptions) || descriptor.ServiceType == typeof(HPDBaseAspNetCoreSnapshot)))
+            throw new InvalidOperationException("base.http.options.ambiguous");
 
         services.AddOptions();
-        services.TryAddSingleton(options);
-        services.TryAddSingleton<IOptions<HPDBaseAspNetCoreOptions>>(Options.Create(options));
+        services.AddSingleton(snapshot);
         services.TryAddSingleton(TimeProvider.System);
 
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IConfigureOptions<JsonOptions>, HPDBaseAspNetCoreJsonOptionsSetup>());
-        services.TryAddSingleton<IBaseHttpPrincipalContextFactory, BaseHttpPrincipalContextFactory>();
-        services.TryAddSingleton<IBaseHttpOperationContextFactory, BaseHttpOperationContextFactory>();
+        services.TryAddScoped<IBaseHttpPrincipalContextFactory, BaseHttpPrincipalContextFactory>();
+        services.TryAddSingleton<DefaultBaseHttpPrincipalMapper>();
+        services.TryAddSingleton<IBaseHttpPrincipalMapper>(static provider => provider.GetRequiredService<DefaultBaseHttpPrincipalMapper>());
+        services.TryAddScoped<IBaseHttpOperationContextFactory, BaseHttpOperationContextFactory>();
+        services.TryAddSingleton<IBaseHttpCorrelationProvider, DefaultBaseHttpCorrelationProvider>();
         services.TryAddSingleton<IBaseHttpResultMapper, BaseHttpResultMapper>();
+        services.TryAddSingleton<HPDBaseEndpointFamilySelectionState>();
         services.TryAddSingleton<BaseProblemDetailsFactory>();
         services.TryAddSingleton<IBaseHttpQueryBinder, BaseHttpQueryBinder>();
         services.Replace(ServiceDescriptor.Singleton<IBaseApplicationLifetime, AspNetCoreBaseApplicationLifetime>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseDescriptorContributor, AspNetCoreProjectionDescriptorContributor>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<Microsoft.Extensions.Hosting.IHostedService, HPDBaseApplicationHostedService>());
+        services.TryAddSingleton<HPDBaseEndpointInventoryValidator>();
+        services.TryAddSingleton<BaseClientGenerationSnapshotBuilder>();
+        services.TryAddSingleton<BaseAdministrationStagingCoordinator>();
+        services.AddSingleton<IBaseHealthContributor>(provider => provider.GetRequiredService<BaseAdministrationStagingCoordinator>());
+        services.AddSingleton<IBaseDiagnosticContributor>(provider => provider.GetRequiredService<BaseAdministrationStagingCoordinator>());
+        services.TryAddScoped<BaseRealtimeLiveQueryTransport>();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<Microsoft.AspNetCore.Hosting.IStartupFilter, HPDBaseEndpointInventoryStartupFilter>());
 
         return services;
     }

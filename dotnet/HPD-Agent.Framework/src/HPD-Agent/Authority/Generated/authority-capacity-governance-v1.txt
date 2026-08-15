@@ -1,0 +1,15 @@
+# id|token|scopeKind|scopeIdentityType|normalLimit|emergencyReserve
+1|media-bytes|Participant|ParticipantId|16777216|0
+2|encoded-bytes|Operation|OperationId|4194304|0
+3|queue-items|Operation|OperationId|1024|0
+4|audio-samples|Participant|ParticipantId|480000|0
+5|buffer-nanoseconds|Participant|ParticipantId|10000000000|0
+6|provider-inflight|Provider|ProviderId|64|0
+7|output-inflight|Sink|SinkGenerationId|64|0
+8|subscriber-items|Subscriber|SubscriberId|256|0
+9|subscriber-bytes|Subscriber|SubscriberId|1048576|0
+10|journal-bytes|Session|SessionId|983040|65536
+11|copy-obligations|Custodian|CustodianDescriptorId|4032|64
+12|quarantine-bytes|Schema|SchemaId|983040|65536
+13|diagnostic-cardinality|Exporter|ExportId|1024|0
+14|recovery-work|Owner|OwnerSliceId|992|32

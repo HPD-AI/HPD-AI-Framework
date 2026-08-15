@@ -93,6 +93,14 @@ public sealed class ContractHardeningTests
         var operationFactory = app.Services.GetRequiredService<IBaseHttpOperationContextFactory>();
 
         var httpContext = new DefaultHttpContext();
+        httpContext.SetEndpoint(new Endpoint(static _ => Task.CompletedTask,
+            new EndpointMetadataCollection(new HPDBaseEndpointDescriptor
+            {
+                EndpointId = "base.test",
+                Audience = HPDBaseEndpointAudience.Application,
+                Operation = HPDBaseEndpointOperation.MetadataRead,
+                Capability = HPDBaseCapabilities.RecordsRead
+            }), "base.test"));
         httpContext.TraceIdentifier = "trace";
         httpContext.User = new ClaimsPrincipal(new ClaimsIdentity([
             new Claim("sub", "u1"),
@@ -102,7 +110,7 @@ public sealed class ContractHardeningTests
             new Claim("azp", "svc-1")
         ], "test"));
 
-        var principal = await principalFactory.CreateAsync(httpContext, HPDBaseEndpointKind.AdminMetadata);
+        var principal = await principalFactory.CreateAsync(httpContext);
         var operation = operationFactory.Create(httpContext, principal, BaseOperationKind.SchemaRead, "items");
 
         principal.AuthenticationState.Should().Be(PrincipalAuthenticationState.Admin);

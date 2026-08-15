@@ -6,6 +6,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Collections.Concurrent;
+using System.Collections.Immutable;
 
 namespace HPD.Base.Sqlite;
 
@@ -18,8 +19,65 @@ public sealed partial class SqliteRecordStore :
     IConsistentRecordIncludeStore,
     IBaseSchemaStore,
     IRecordStoreAdministration,
+    IBaseSubjectAdministration,
+    IBaseSubjectPublicationStore,
+    IBaseSubjectValidationPlanReceiptStore,
     IAsyncDisposable
 {
+    /// <inheritdoc />
+    public async ValueTask<OperationResult<BaseAtomicMutationAuthorityRequirement>> CaptureAtomicMutationAuthorityRequirementAsync(
+        string applicationId,
+        ImmutableArray<CollectionDefinition> collections,
+        BaseAtomicMutationExecutionLimits limits,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(limits);
+        CollectionDefinition[] ordered = [.. collections.OrderBy(static value => value.Id, StringComparer.Ordinal)];
+        if (ordered.Select(static value => value.Id).Distinct(StringComparer.Ordinal).Count() != ordered.Length)
+            throw new ArgumentException("Collection authority requests must be unique.", nameof(collections));
+        await using SqliteConnection connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
+        long restoreEpoch;
+        await using (SqliteCommand epoch = connection.CreateCommand())
+        {
+            epoch.CommandText = $"SELECT COALESCE((SELECT CAST(value AS INTEGER) FROM {_names.ProviderState} WHERE key='restore_epoch'),0);";
+            restoreEpoch = Convert.ToInt64(await epoch.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture);
+        }
+        var generations = ImmutableArray.CreateBuilder<BaseCollectionGenerationRequirement>(ordered.Length);
+        foreach (CollectionDefinition collection in ordered)
+        {
+            await using SqliteCommand command = connection.CreateCommand();
+            command.CommandText = $"SELECT purge_generation FROM {_names.Collections} WHERE collection_id=$collection;";
+            command.Parameters.AddWithValue("$collection", collection.Id);
+            object? value = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+            if (value is null or DBNull)
+                return OperationResults.NotFound<BaseAtomicMutationAuthorityRequirement>(new BaseError
+                {
+                    Code = "base.runtime.collection.notFound", Message = "Collection was not found.", Category = ErrorCategory.NotFound,
+                });
+            generations.Add(new BaseCollectionGenerationRequirement
+            {
+                CollectionId = new string(collection.Id.AsSpan()),
+                CollectionGeneration = Convert.ToInt64(value, CultureInfo.InvariantCulture),
+            });
+        }
+        return OperationResults.Ok(new BaseAtomicMutationAuthorityRequirement
+        {
+            ApplicationId = new string(applicationId.AsSpan()),
+            StoreInstanceId = new string(_options.StoreId.AsSpan()),
+            RestoreEpoch = restoreEpoch,
+            SchemaGeneration = Volatile.Read(ref _schemaGeneration),
+            Collections = generations.MoveToImmutable(),
+        });
+    }
+
+    internal SqliteConnectionFactory VectorConnections => _connections;
+    internal SqliteNames VectorNames => _names;
+    internal SqlitePhysicalModel VectorPhysicalModel => _physical;
+    internal string VectorStoreId => _options.StoreId;
+    internal long VectorSchemaGeneration => Volatile.Read(ref _schemaGeneration);
+    internal int VectorCommandTimeoutSeconds => TimeoutSeconds();
+    internal ValueTask<IAsyncDisposable> AcquireVectorGenerationExclusiveAsync(CancellationToken cancellationToken) => _schemaGenerationGate.AcquireExclusiveAsync(cancellationToken);
+    internal ValueTask<IAsyncDisposable> AcquireVectorGenerationSharedAsync(CancellationToken cancellationToken) => _schemaGenerationGate.AcquireSharedAsync(cancellationToken);
     private readonly HPDBaseSqliteOptions _options;
     private readonly SqliteConnectionFactory _connections;
     private readonly SqliteSchemaInitializer _schema;
@@ -34,6 +92,7 @@ public sealed partial class SqliteRecordStore :
     private readonly ISqliteTransactionResourceDisposer _transactionResourceDisposer;
     private readonly ISqliteSchemaCommandController _schemaCommands;
     private readonly ISqliteAdministrationOperationController _administrationOperations;
+    private readonly ISqliteAtomicMutationProjection[] _mutationProjectionContributors;
     private readonly SemaphoreSlim _keepAliveGate = new(1, 1);
     private readonly SemaphoreSlim _mutationExecutionSlots;
     private readonly SemaphoreSlim _administrationExecutionSlots;
@@ -69,7 +128,8 @@ public sealed partial class SqliteRecordStore :
         ISqliteTransactionResourceDisposer? transactionResourceDisposer = null,
         ISqliteSchemaCommandController? schemaCommands = null,
         ISqliteAdministrationOperationController? administrationOperations = null,
-        BaseOpaqueTokenProtector? tokenProtector = null)
+        BaseOpaqueTokenProtector? tokenProtector = null,
+        IEnumerable<ISqliteAtomicMutationProjection>? mutationProjectionContributors = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(loggerFactory);
@@ -78,6 +138,9 @@ public sealed partial class SqliteRecordStore :
         ValidateOptions(_options);
         _logger = loggerFactory.CreateLogger<SqliteRecordStore>();
         _timeProvider = timeProvider;
+        _mutationProjectionContributors = mutationProjectionContributors?.OrderBy(static item => item.Id, StringComparer.Ordinal).ToArray() ?? [];
+        if (_mutationProjectionContributors.Length > 16 || _mutationProjectionContributors.Select(static item => item.Id).Distinct(StringComparer.Ordinal).Count() != _mutationProjectionContributors.Length || _mutationProjectionContributors.Any(static item => item is not ISqliteAtomicMutationProjectionCatalog))
+            throw new ArgumentException("SQLite mutation projections must have unique IDs, bounded count, and private statement catalogs.", nameof(mutationProjectionContributors));
         _transactions = transactions ?? DefaultSqliteTransactionController.Instance;
         _sessionOperations =
             sessionOperations ?? DefaultSqliteSessionOperationController.Instance;
@@ -86,7 +149,11 @@ public sealed partial class SqliteRecordStore :
         _schemaCommands = schemaCommands ?? DefaultSqliteSchemaCommandController.Instance;
         _administrationOperations = administrationOperations ?? DefaultSqliteAdministrationOperationController.Instance;
         _connections = new SqliteConnectionFactory(_options);
-        _schema = new SqliteSchemaInitializer(_options);
+        _schema = new SqliteSchemaInitializer(
+            _options,
+            _mutationProjectionContributors.Cast<ISqliteAtomicMutationProjectionCatalog>().SelectMany(static catalog => catalog.SchemaStatements).ToArray(),
+            _mutationProjectionContributors.Cast<ISqliteAtomicMutationProjectionCatalog>().SelectMany(static catalog => catalog.RequiredSchemaTables).ToArray(),
+            _mutationProjectionContributors.Cast<ISqliteAtomicMutationProjectionCatalog>().SelectMany(static catalog => catalog.RequiredSchemaShapes).ToArray());
         _names = new SqliteNames(_options);
         _physical = new SqlitePhysicalModel(_options);
         RecoverRestoreMarkerIfPresent();
@@ -110,6 +177,7 @@ public sealed partial class SqliteRecordStore :
             Validate = administration,
             Restore = administration,
             AdministrativePurge = true,
+            VectorRebuild = _mutationProjectionContributors.Any(static projection => string.Equals(projection.Id, "hpd.base.vector.sqlitevec", StringComparison.Ordinal)),
             OnlineBackup = administration,
             WritersBlockedDuringBackup = true,
             ReadersBlockedDuringBackup = true,
@@ -223,12 +291,14 @@ public sealed partial class SqliteRecordStore :
         var highWatermark = request.Through ?? bounds.HighWatermark;
         await using var command = connection.CreateCommand();
         command.CommandText = $"""
-SELECT position, event_id, event_type, schema_version, occurred_at, tenant_id,
-       operation, visibility, collection_id, record_id, before_json, after_json
+SELECT position, entry_kind, event_id, event_type, schema_version, occurred_at, tenant_id,
+       operation, visibility, collection_id, record_id, before_json, after_json,
+       subject_contract_id, subject_contract_version, subject_previous_generation,
+       subject_published_generation, subject_restore_epoch, subject_publication_kind
 FROM {_names.MutationJournal}
 WHERE position > $after
   AND position <= $through
-  AND julianday(occurred_at) >= julianday($cutoff)
+  AND (entry_kind = 1 OR julianday(occurred_at) >= julianday($cutoff))
 ORDER BY position
 LIMIT $limit;
 """;
@@ -266,10 +336,12 @@ LIMIT $limit;
         await using var connection = await OpenInitializedAsync(cancellationToken).ConfigureAwait(false);
         await using var command = connection.CreateCommand();
         command.CommandText = $"""
-SELECT position, event_id, event_type, schema_version, occurred_at, tenant_id,
-       operation, visibility, collection_id, record_id, before_json, after_json
+SELECT position, entry_kind, event_id, event_type, schema_version, occurred_at, tenant_id,
+       operation, visibility, collection_id, record_id, before_json, after_json,
+       subject_contract_id, subject_contract_version, subject_previous_generation,
+       subject_published_generation, subject_restore_epoch, subject_publication_kind
 FROM {_names.MutationJournal}
-WHERE event_id = $eventId
+WHERE entry_kind = 0 AND event_id = $eventId
   AND julianday(occurred_at) >= julianday($cutoff);
 """;
         command.CommandTimeout = TimeoutSeconds();
@@ -586,7 +658,7 @@ WHERE event_id = $eventId
         return await reader.ReadAsync(cancellationToken).ConfigureAwait(false) ? collection.ReadEnvelope(reader, _options.StoreId) : null;
     }
 
-    private async ValueTask<EventReference> AppendMutationJournalAsync(
+    private async ValueTask<MutationJournalAppendResult> AppendMutationJournalAsync(
         SqliteConnection connection,
         SqliteTransaction transaction,
         string eventId,
@@ -610,7 +682,8 @@ INSERT INTO {_names.MutationJournal}(
   collection_id, record_id, before_json, after_json)
 VALUES(
   $eventId, $eventType, $schemaVersion, $occurredAt, $tenantId, $operation, $visibility,
-  $collectionId, $recordId, $beforeJson, $afterJson);
+  $collectionId, $recordId, $beforeJson, $afterJson)
+RETURNING position;
 """;
         command.CommandTimeout = commandTimeoutSeconds;
         command.Parameters.AddWithValue("$eventId", eventId);
@@ -624,17 +697,24 @@ VALUES(
         command.Parameters.AddWithValue("$recordId", recordId.Value);
         command.Parameters.AddWithValue("$beforeJson", SerializeSnapshot(before));
         command.Parameters.AddWithValue("$afterJson", SerializeSnapshot(after));
-        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        object? scalar = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+        long position = Convert.ToInt64(scalar, System.Globalization.CultureInfo.InvariantCulture);
 
-        return new EventReference
-        {
-            EventId = eventId,
-            Type = type,
-            Stream = "base.mutations",
-            PublishedAt = occurredAt,
-            Guarantee = EventDeliveryGuarantee.Transactional
-        };
+        return new MutationJournalAppendResult(
+            new EventReference
+            {
+                EventId = eventId,
+                Type = type,
+                Stream = "base.mutations",
+                PublishedAt = occurredAt,
+                Guarantee = EventDeliveryGuarantee.Transactional
+            },
+            new BaseMutationJournalPosition(position));
     }
+
+    private readonly record struct MutationJournalAppendResult(
+        EventReference Event,
+        BaseMutationJournalPosition Position);
 
     private async ValueTask PruneMutationJournalAsync(
         SqliteConnection connection,
@@ -681,21 +761,49 @@ WHERE position <= (
         return JsonSerializer.Serialize(snapshot, HPDBaseJsonSerializerContext.Default.RecordSnapshot);
     }
 
-    private static BaseMutationJournalEntry ReadJournalEntry(SqliteDataReader reader) => new()
+    private static BaseMutationJournalEntry ReadJournalEntry(SqliteDataReader reader)
     {
-        Position = new BaseMutationJournalPosition(reader.GetInt64(0)),
-        EventId = reader.GetString(1),
-        Type = reader.GetString(2),
-        SchemaVersion = reader.GetString(3),
-        OccurredAt = DateTimeOffset.Parse(reader.GetString(4), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
-        TenantId = reader.IsDBNull(5) ? null : reader.GetString(5),
-        Operation = (BaseOperationKind)reader.GetInt32(6),
-        Visibility = (VisibilityLevel)reader.GetInt32(7),
-        CollectionId = reader.GetString(8),
-        RecordId = new RecordId(reader.GetString(9)),
-        Before = DeserializeSnapshot(reader, 10),
-        After = DeserializeSnapshot(reader, 11)
-    };
+        var position = new BaseMutationJournalPosition(reader.GetInt64(0));
+        var kind = (BaseMutationJournalEntryKind)reader.GetInt32(1);
+        return kind switch
+        {
+            BaseMutationJournalEntryKind.RecordMutation => new BaseMutationJournalEntry
+            {
+                Kind = kind,
+                Position = position,
+                RecordMutation = new BaseRecordMutationJournalEntry
+                {
+                    EventId = reader.GetString(2),
+                    Type = reader.GetString(3),
+                    SchemaVersion = reader.GetString(4),
+                    OccurredAt = DateTimeOffset.Parse(reader.GetString(5), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
+                    TenantId = reader.IsDBNull(6) ? null : reader.GetString(6),
+                    Operation = (BaseOperationKind)reader.GetInt32(7),
+                    Visibility = (VisibilityLevel)reader.GetInt32(8),
+                    CollectionId = reader.GetString(9),
+                    RecordId = new RecordId(reader.GetString(10)),
+                    Before = DeserializeSnapshot(reader, 11),
+                    After = DeserializeSnapshot(reader, 12),
+                },
+            },
+            BaseMutationJournalEntryKind.SubjectAuthorityPublication => new BaseMutationJournalEntry
+            {
+                Kind = kind,
+                Position = position,
+                SubjectAuthorityPublication = new BaseSubjectAuthorityPublicationFact
+                {
+                    Position = position,
+                    ContractId = reader.GetString(13),
+                    ContractVersion = reader.GetInt32(14),
+                    PreviousStateGeneration = reader.GetInt64(15),
+                    PublishedStateGeneration = reader.GetInt64(16),
+                    RestoreEpoch = reader.GetInt64(17),
+                    Kind = (BaseSubjectAuthorityPublicationKind)reader.GetInt32(18),
+                },
+            },
+            _ => throw new InvalidOperationException(BaseSubjectErrorCodes.ProviderContractInvalid),
+        };
+    }
 
     private static RecordSnapshot? DeserializeSnapshot(SqliteDataReader reader, int ordinal) =>
         reader.IsDBNull(ordinal)
@@ -713,7 +821,7 @@ WHERE position <= (
         command.CommandText = $"""
 SELECT
   MIN(CASE
-    WHEN julianday(occurred_at) >= julianday($cutoff)
+    WHEN entry_kind = 1 OR julianday(occurred_at) >= julianday($cutoff)
     THEN position
     ELSE NULL
   END),
@@ -769,7 +877,27 @@ FROM {_names.MutationJournal};
         {
             throw new InvalidOperationException("HPD.BASE SQLite schema is missing required parts.");
         }
+        await using SqliteCommand maintenance = connection.CreateCommand();
+        maintenance.CommandTimeout = TimeoutSeconds();
+        maintenance.CommandText = $"SELECT EXISTS(SELECT 1 FROM {_names.SubjectMaintenance} WHERE singleton=1);";
+        if (Convert.ToInt32(await maintenance.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture) != 0)
+        {
+            await connection.DisposeAsync().ConfigureAwait(false);
+            throw new InvalidOperationException("HPD.BASE subject-authority maintenance is incomplete; the store is maintenance-closed.");
+        }
+        return connection;
+    }
 
+    private async ValueTask<SqliteConnection> OpenSubjectMaintenanceAsync(CancellationToken cancellationToken)
+    {
+        await EnsureKeepAliveAsync(cancellationToken).ConfigureAwait(false);
+        SqliteConnection connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
+        RegisterPortableRelationalFunctions(connection);
+        if (!await _schema.HasRequiredSchemaAsync(connection, cancellationToken).ConfigureAwait(false))
+        {
+            await connection.DisposeAsync().ConfigureAwait(false);
+            throw new InvalidOperationException("HPD.BASE SQLite schema is missing required parts.");
+        }
         return connection;
     }
 
@@ -802,6 +930,17 @@ FROM {_names.MutationJournal};
         await EnsureKeepAliveAsync(cancellationToken).ConfigureAwait(false);
         await using SqliteConnection connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
         await _schema.InitializeAsync(connection, cancellationToken).ConfigureAwait(false);
+        await ExecuteSchemaCommandAsync(connection, "BEGIN IMMEDIATE;", TimeSpan.FromSeconds(30), cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await InitializeModuleMutationDefinitionsForSchemaApplyAsync(connection, cancellationToken).ConfigureAwait(false);
+            await ExecuteSchemaCommandAsync(connection, "COMMIT;", TimeSpan.FromSeconds(30), cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            await ExecuteSchemaCommandAsync(connection, "ROLLBACK;", TimeSpan.FromSeconds(30), CancellationToken.None).ConfigureAwait(false);
+            throw;
+        }
     }
 
     private async ValueTask EnsureKeepAliveAsync(CancellationToken cancellationToken)
@@ -1041,8 +1180,43 @@ FROM {_names.MutationJournal};
             MinReceiptLifetime = TimeSpan.FromHours(1),
             MaxReceiptLifetime = TimeSpan.FromDays(90),
         },
+        SelectionMutation = CreateSelectionCapability(options),
+        ModuleMutation = new BaseModuleMutationCapability
+        {
+            Supported = true, SerializableExecution = true, DurableReceipts = true,
+            GenerationCells = true, AtomicRecordAndGenerationCommit = true,
+            MaximumLimits = BaseModuleMutationPlatform.MaximumLimits,
+        },
         Administration = administration,
         Streaming = new StreamingCapability { Supported = false }
+    };
+
+    private static BaseSelectionMutationCapability CreateSelectionCapability(HPDBaseSqliteOptions options) => new()
+    {
+        IsSupported = true,
+        CertifiedMaxima = new BaseSelectionOperationLimits
+        {
+            MaximumQueryNodes = options.MaxFilterNodes, MaximumQueryDepth = options.MaxFilterDepth,
+            MaximumLiteralValues = 1024, MaximumSelectedRecords = options.MaxPageSize,
+            MaximumSelectedBytes = 16_777_216, MaximumProducedMutations = options.MaxPageSize,
+            MaximumQueryExecutions = 1, MaximumReadIntervals = options.MaxFilterNodes,
+            MaximumWrittenBytes = 16_777_216, MaximumFactBytes = 16_777_216,
+            MaximumJournalBytes = 16_777_216, MaximumReceiptBytes = 16_777_216,
+            MaximumRelationChecks = 4096, MaximumUniqueConstraintChecks = 4096,
+            MaximumPreviousStateRequirements = 256, MaximumTransientBytes = 33_554_432,
+            MaximumResultBytes = 1_048_576, AcquisitionTimeout = TimeSpan.FromMinutes(10),
+            ExecutionTimeout = TimeSpan.FromHours(1), CallerCommitObservationTimeout = TimeSpan.FromHours(1),
+        },
+        Isolation = BaseAtomicSelectionIsolationClass.WriteOwningSerializable,
+        ReceiptEnvelopeFormatVersions = [2], CanonicalCodecVersions = [1],
+        SupportedFilterOperators = [FilterOperator.Equal, FilterOperator.NotEqual, FilterOperator.LessThan,
+            FilterOperator.LessThanOrEqual, FilterOperator.GreaterThan, FilterOperator.GreaterThanOrEqual],
+        SupportedFilterNodeKinds = Enum.GetValues<FilterNodeKind>().ToImmutableArray(),
+        SupportedIndexShapes = [BaseIndexAccessShape.CollectionGenerationScan],
+        ConstraintAttribution = BaseConstraintAttributionClass.RecordIdentity | BaseConstraintAttributionClass.UniqueIndex | BaseConstraintAttributionClass.Relation,
+        SupportsReceiptOnlyCommit = true, SuppliesReadIntervalEvidence = true,
+        SupportsRelationParticipation = true, SupportsReadYourWrites = true,
+        SupportsBoundedCancellation = true, SupportsBoundedCommitObservation = true,
     };
 
     private OperationResult<T> MapSqlite<T>(BaseOperationKind operation, SqliteException ex)

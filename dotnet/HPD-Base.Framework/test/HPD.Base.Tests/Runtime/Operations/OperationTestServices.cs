@@ -15,9 +15,20 @@ internal static class OperationTestServices
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddSingleton<IBaseDescriptorContributor>(new CollectionContributor(fields));
-        services.AddSingleton(policy ?? new AllowPolicyEvaluator());
+        IPolicyEvaluator evaluator = policy ?? new AllowPolicyEvaluator();
         configureServices?.Invoke(services);
-        services.AddHPDBaseRuntime(configureRuntime);
+        services.AddHPDBaseRuntime(configureRuntime).UsePolicyAuthority(
+            "operation-tests",
+            new BasePolicyAuthorityDefinition
+            {
+                Id = "operation-tests.policy",
+                Version = 1,
+                OwningModuleId = "operation-tests",
+                EvaluatorContractId = "operation-tests.policy-evaluator",
+                EvaluatorContractVersion = 1,
+                CompositionOrder = 0,
+            },
+            evaluator);
 
         var provider = services.BuildServiceProvider();
         provider.GetRequiredService<IBaseDescriptorRegistry>().RebuildAsync().AsTask().GetAwaiter().GetResult();
@@ -57,8 +68,8 @@ internal static class OperationTestServices
                 UnknownFields = UnknownFieldPolicy.Preserve,
                 Fields = _fields ??
                 [
-                    new FieldDefinition { Id = "title", Name = "title", Type = BaseFieldTypes.String },
-                    new FieldDefinition { Id = "tenantId", Name = "tenantId", Type = BaseFieldTypes.String },
+                    new FieldDefinition { Id = "title", ApplicationName = "title", WireName = "title", Type = BaseFieldTypes.String },
+                    new FieldDefinition { Id = "tenantId", ApplicationName = "tenantId", WireName = "tenantId", Type = BaseFieldTypes.String },
                 ],
                 MutationMode = BaseCollectionMutationMode.Mutable
             });

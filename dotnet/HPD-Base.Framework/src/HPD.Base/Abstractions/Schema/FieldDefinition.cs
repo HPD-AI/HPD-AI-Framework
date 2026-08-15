@@ -6,8 +6,10 @@ public sealed record FieldDefinition
 {
     /// <summary>Gets or sets id.</summary>
     public required string Id { get; init; }
-    /// <summary>Gets or sets name.</summary>
-    public required string Name { get; init; }
+    /// <summary>Gets the exact application-facing property identity.</summary>
+    public required string ApplicationName { get; init; }
+    /// <summary>Gets the exact serializer-owned wire identity.</summary>
+    public required string WireName { get; init; }
     /// <summary>Gets or sets display Name.</summary>
     public string? DisplayName { get; init; }
     /// <summary>Gets or sets type.</summary>
@@ -26,6 +28,12 @@ public sealed record FieldDefinition
     public bool Hidden { get; init; }
     /// <summary>Gets or sets read Only.</summary>
     public bool ReadOnly { get; init; }
+    /// <summary>Gets the maximum disclosure classification.</summary>
+    public BaseFieldConfidentiality Confidentiality { get; init; } = BaseFieldConfidentiality.Public;
+    /// <summary>Gets the normalized complete disclosure policy.</summary>
+    public BaseFieldDisclosurePolicy? Disclosure { get; init; }
+    /// <summary>Gets the decoded byte limit for a binary field.</summary>
+    public int? MaximumBytes { get; init; }
     /// <summary>Gets or sets default.</summary>
     public DefaultValueDescriptor? Default { get; init; }
     /// <summary>Gets or sets generated.</summary>
@@ -36,6 +44,8 @@ public sealed record FieldDefinition
     public ValidationAnnotations? Validation { get; init; }
     /// <summary>Gets or sets relation.</summary>
     public RelationDefinition? Relation { get; init; }
+    /// <summary>Gets the scalar exported-subject reference contract, when declared.</summary>
+    public BaseSubjectReferenceDefinition? SubjectReference { get; init; }
     /// <summary>Gets or sets file.</summary>
     public FileAnnotation? File { get; init; }
     /// <summary>Gets or sets visibility.</summary>

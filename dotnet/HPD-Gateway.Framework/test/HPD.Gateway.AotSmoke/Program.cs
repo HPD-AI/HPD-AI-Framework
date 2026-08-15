@@ -5,22 +5,15 @@ using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
+using System.Threading.RateLimiting;
 using HPD.Base;
-using HPD.Base.Sqlite;
-using HPD.Gateway.Abstractions;
 using HPD.Gateway;
-using HPD.Gateway.Abstractions.Serialization;
-using HPD.Gateway.Core;
-using HPD.Gateway.Effective.Serialization;
-using HPD.Gateway.Inspection;
-using HPD.Gateway.Management;
-using HPD.Gateway.HPDAuth;
+using HPD.Gateway.ControlPlane;
+using HPD.Gateway.ControlPlane.Sqlite;
+using HPD.Gateway.Discovery.Microsoft;
+using HPD.Gateway.Admission.Redis;
+using HPD.Gateway.ControlPlane.HPDAuth;
 using HPD.Auth.ControlPlane;
-using HPD.Gateway.Hosting;
-using HPD.Gateway.OutputCaching;
-using HPD.Gateway.Resilience;
-using HPD.Gateway.Status;
-using HPD.Gateway.Yarp;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Hosting.Server;
@@ -30,11 +23,57 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Configuration;
 using Yarp.ReverseProxy;
 using Yarp.ReverseProxy.Configuration;
 using Yarp.ReverseProxy.Model;
 
 await SmokeManagementRuntimeAsync();
+
+var redisAdmission = new GatewayTrafficAdmissionRegistryBuilder();
+redisAdmission.UseRedis("aot-redis", options =>
+{
+    options.AuthorityId = "aot-deployment";
+    options.Configuration = "127.0.0.1:1,abortConnect=false,connectTimeout=10";
+});
+redisAdmission.AddSharedFixedWindow("aot-redis-rate", "aot-redis");
+using (GatewayTrafficAdmissionRegistry redisRegistry = redisAdmission.Build())
+    if (redisRegistry.Capabilities.Length != 1 || redisRegistry.Capabilities[0].Name != "aot-redis-rate")
+        throw new InvalidOperationException("Redis admission AOT composition failed.");
+if (Environment.GetEnvironmentVariable("HPD_GATEWAY_REDIS_AOT") is { } redisEndpoint)
+    await SmokeRedisAdmissionAsync(redisEndpoint);
+
+var authAdapterServices = new ServiceCollection();
+authAdapterServices.AddLogging();
+authAdapterServices.AddHpdGateway(static gateway => gateway.EnableCoreDeclarations());
+authAdapterServices.AddHPDControlPlane(options =>
+{
+    options.AddProfile("aot-admin", profile =>
+    {
+        profile.AuthenticationScheme = "aot-auth";
+        profile.AuthenticationProfile = "aot-admin";
+        profile.ActorIdentifierClaim = "sub";
+        profile.RateLimitPolicy = "aot-rate";
+        profile.RequestTimeoutPolicy = "aot-timeout";
+        profile.OpenApiSecurityScheme = "Bearer";
+    });
+    foreach (string capability in GatewayAdminCapabilities.All)
+        options.MapCapability(capability, "aot-policy");
+});
+authAdapterServices.AddHpdGatewayControlPlane(controlPlane => controlPlane
+    .UseProcessLocalAuthority()
+    .AddAdminApi(options =>
+    {
+        options.AuthenticationScheme = "aot-auth";
+        options.RateLimitPolicy = "aot-rate";
+        options.RequestTimeoutPolicy = "aot-timeout";
+        options.OpenApiSecurityScheme = "Bearer";
+        options.CapabilityPolicies = GatewayAdminCapabilities.All.ToImmutableDictionary(
+            static capability => capability, static _ => "aot-policy", StringComparer.Ordinal);
+    })
+    .AddHpdAuth("aot-admin"));
+await using (ServiceProvider authAdapterProvider = authAdapterServices.BuildServiceProvider())
+    _ = authAdapterProvider.GetRequiredService<IGatewayAdminActorProjector>();
 
 var projectedActor = new AuthenticatedActorProjection
 {
@@ -96,10 +135,10 @@ var configuration = new GatewayConfiguration
         ],
         TrafficAdmission =
         [
-            new DeclarationDefinition<TrafficAdmissionBinding>
+            new DeclarationDefinition<TrafficAdmissionPlan>
             {
                 Id = new DefinitionId("admission"),
-                Specification = new TrafficAdmissionBinding("GatewayAdmission")
+                Specification = new TrafficAdmissionPlan { Entries = [new FixedWindowAdmissionEntry { Profile = "gateway-admission", PermitLimit = 100, Window = TimeSpan.FromMinutes(1) }] }
             }
         ],
         RequestTimeout =
@@ -155,7 +194,7 @@ var configuration = new GatewayConfiguration
     RootDefaults = new GatewayRootDeclarations
     {
         Cors = new DeclarationReference<CorsPolicyBinding> { Definition = new DefinitionId("cors") },
-        TrafficAdmission = new DeclarationReference<TrafficAdmissionBinding> { Definition = new DefinitionId("admission") },
+        TrafficAdmission = new DeclarationReference<TrafficAdmissionPlan> { Definition = new DefinitionId("admission") },
         RequestTimeout = new DeclarationReference<RequestTimeoutBinding> { Definition = new DefinitionId("timeout") },
         Telemetry = new DeclarationReference<TelemetryEnrichment> { Definition = new DefinitionId("telemetry") },
         CredentialDisposition = new DeclarationReference<CredentialDispositionBinding> { Definition = new DefinitionId("strip-credentials") }
@@ -227,12 +266,16 @@ var configuration = new GatewayConfiguration
         new UpstreamDeclaration
         {
             Id = new UpstreamId("discovered"),
-            Endpoints = new DiscoveredEndpointSource
+            Endpoints = new ServiceDiscoveryEndpointSource
             {
-                Provider = new ProviderId("dns"),
-                Service = new ProviderObjectId("orders"),
-                Parameters = [new ProviderParameter("region", "local")],
+                Profile = new DiscoveryProfileId("dns"),
+                Service = new ServiceDiscoveryName("orders"),
+                Schemes = [ServiceDiscoveryScheme.Https],
                 StaleBehavior = DiscoveryStaleBehavior.RejectActivationUntilFresh
+            },
+            Transport = new UpstreamTransportDeclaration
+            {
+                Tls = new UpstreamTlsDeclaration { ServerName = "orders" }
             }
         }
     ],
@@ -314,13 +357,20 @@ var configuration = new GatewayConfiguration
     ]
 };
 
-var json = JsonSerializer.SerializeToUtf8Bytes(configuration, GatewayJsonSerializerContext.Default.GatewayConfiguration);
+var portableConfiguration = GatewayConfigurationCanonicalizer.TryCanonicalize(configuration);
+if (!portableConfiguration.IsCanonicalized)
+    throw new InvalidOperationException($"Portable AOT candidate was rejected: {string.Join(", ", portableConfiguration.Errors.Select(static item => $"{item.Code}@{item.Path}"))}");
+var json = portableConfiguration.Document!.Utf8Json.ToArray();
 var capabilities = HostCapabilitySnapshot.Create(new HostCapabilityRegistration
 {
     InstalledFamilies = GatewayDeclarationFamilies.All,
     AuthorizationPolicies = ["GatewayUsers"],
     CorsPolicies = ["GatewayCors"],
-    TrafficAdmissionPolicies = ["GatewayAdmission"],
+    TrafficAdmissionProfiles = [new TrafficAdmissionCapability("gateway-admission", 1, TrafficAdmissionScope.ProcessLocal,
+        TrafficAdmissionKind.RequestRate, TrafficAdmissionRateAlgorithm.FixedWindow, TrafficAdmissionPartitionKind.Global,
+        TrafficAdmissionFailureDisposition.Reject,
+        new TrafficAdmissionLimits(1, 100_000_000, TimeSpan.FromSeconds(1), TimeSpan.FromDays(1), 0, 0, 0, 0),
+        "hpd.gateway/process-local", new ContentHash("sha-256", new string('a', 64)), null)],
     OutputCacheProfiles =
     [
         new OutputCacheCapability(
@@ -351,7 +401,11 @@ var capabilities = HostCapabilitySnapshot.Create(new HostCapabilityRegistration
             1)
     ],
     Listeners = [new ListenerCapability(new ListenerId("https"), ListenerRole.DataPlane, ListenerProtocols.Http1 | ListenerProtocols.Http2, ["gateway.local"], true)],
-    DiscoveryProviders = [new DiscoveryProviderCapability(new ProviderId("dns"), ["region"], ["region"], false, true)],
+    DiscoveryProfiles = [new DiscoveryProfileCapability(
+        new DiscoveryProfileId("dns"), 1, DiscoveryRuntimeKind.Microsoft,
+        [DiscoveryProviderKind.Configuration], [ServiceDiscoveryScheme.Https],
+        [DiscoveryStaleBehavior.RejectActivationUntilFresh], 256, true, true, true, true,
+        new ContentHash("sha-256", new string('a', 64)))],
     SecretProviders = [new ProviderId("secrets")]
 });
 var read = GatewayCandidateReader.Read(json, capabilities);
@@ -359,6 +413,31 @@ if (!read.IsAccepted)
 {
     throw new InvalidOperationException($"Strict native candidate reading failed with {read.Errors.Length} error(s).");
 }
+
+var hostCapabilityProjection = GatewayHostCapabilityProjector.Project(capabilities);
+if (hostCapabilityProjection.SnapshotAlgorithm != "sha-256" ||
+    hostCapabilityProjection.SnapshotValue.Length != 64 ||
+    hostCapabilityProjection.Capabilities.Listeners.Length != 1 ||
+    hostCapabilityProjection.Capabilities.UpstreamResilienceProfiles.Length != 1)
+    throw new InvalidOperationException("Native AOT host-capability projection was incomplete.");
+_ = JsonSerializer.SerializeToUtf8Bytes(
+    hostCapabilityProjection,
+    GatewayAdminJsonContext.Default.GatewayHostCapabilitySnapshotResponse);
+
+var adminValidationEvidence = new GatewayValidationResponse(
+    true,
+    [],
+    "1.0",
+    "1",
+    read.CanonicalDocument!.ContentHash.Algorithm,
+    read.CanonicalDocument.ContentHash.Value,
+    hostCapabilityProjection.SnapshotAlgorithm,
+    hostCapabilityProjection.SnapshotValue,
+    "aot-correlation",
+    DateTimeOffset.UtcNow);
+_ = JsonSerializer.SerializeToUtf8Bytes(
+    adminValidationEvidence,
+    GatewayAdminJsonContext.Default.GatewayValidationResponse);
 
 var validation = GatewayCandidateValidator.Validate(read.Configuration, capabilities);
 
@@ -427,11 +506,6 @@ var services = new ServiceCollection();
 services.AddLogging();
 services.AddAuthorizationBuilder().AddPolicy("GatewayUsers", policy => policy.RequireAssertion(_ => true));
 services.AddCors(options => options.AddPolicy("GatewayCors", policy => policy.AllowAnyOrigin()));
-services.AddRateLimiter(options => options.AddFixedWindowLimiter("GatewayAdmission", limiter =>
-{
-    limiter.PermitLimit = 10;
-    limiter.Window = TimeSpan.FromMinutes(1);
-}));
 services.AddHpdGatewayOutputCaching(builder => builder.Add(new GatewayOutputCacheProfile
 {
     Name = "gateway-cache",
@@ -445,8 +519,8 @@ services.AddHpdGatewayYarpMaterialization();
 var smokeInspector = new SmokeInspector();
 services.AddHpdGatewayYarpInspection(registry => registry.Add("smoke-inspector", smokeInspector));
 await using var serviceProvider = services.BuildServiceProvider();
-var materializer = serviceProvider.GetRequiredService<GatewayNativeMaterializer>();
-var materialized = await materializer.MaterializeAsync(
+var planner = serviceProvider.GetRequiredService<GatewayRuntimePlanner>();
+var planned = await planner.PlanAsync(
     materializableRead,
     new PublicationCandidateIdentity(
         new CandidateId("aot-smoke"),
@@ -455,11 +529,11 @@ var materialized = await materializer.MaterializeAsync(
         1,
         materializableRead.CanonicalDocument!.ContentHash),
     "native-aot-smoke");
-if (!materialized.IsMaterialized)
-    throw new InvalidOperationException($"Native AOT materialization failed: {string.Join(", ", materialized.Diagnostics.Select(item => $"{item.Code}@{item.Path}"))}");
-if (materialized.EffectiveSnapshot is null || materialized.EffectiveSnapshot.Records.IsEmpty)
+if (!planned.IsPlanned)
+    throw new InvalidOperationException($"Native AOT planning failed: {string.Join(", ", planned.Diagnostics.Select(item => $"{item.Code}@{item.Path}"))}");
+if (planned.PreparedProjectionSnapshot is null || planned.PreparedProjectionSnapshot.Records.IsEmpty)
     throw new InvalidOperationException("Native AOT effective provenance was not produced.");
-var effectiveFamilies = materialized.EffectiveSnapshot.Records.Select(static item => item.Family).ToHashSet(StringComparer.Ordinal);
+var effectiveFamilies = planned.PreparedProjectionSnapshot.Records.Select(static item => item.Family).ToHashSet(StringComparer.Ordinal);
 foreach (var requiredFamily in new[]
 {
     "hpd.gateway/authorization",
@@ -484,16 +558,10 @@ foreach (var correlatedFamily in new[]
     "hpd.gateway/credential-disposition"
 })
 {
-    if (!materialized.EffectiveSnapshot.Records.Where(item => item.Family == correlatedFamily)
-        .All(static record => record.Contributions.Any(static item => item.SourceKind == HPD.Gateway.Effective.GatewayContributionSourceKind.HostProfile)))
+    if (!planned.PreparedProjectionSnapshot.Records.Where(item => item.Family == correlatedFamily)
+        .All(static record => record.Contributions.Any(static item => item.SourceKind == HPD.Gateway.GatewayContributionSourceKind.HostProfile)))
         throw new InvalidOperationException($"Native AOT effective provenance omitted host correlation for {correlatedFamily}.");
 }
-var effectiveJson = JsonSerializer.SerializeToUtf8Bytes(
-    materialized.EffectiveSnapshot,
-    GatewayEffectiveJsonSerializerContext.Default.GatewayEffectiveSnapshot);
-if (effectiveJson.Length == 0 || effectiveJson.AsSpan().IndexOf("hpd.gateway/"u8) < 0)
-    throw new InvalidOperationException("Native AOT effective provenance serialization failed.");
-
 var inspectionExecutor = serviceProvider.GetRequiredService<GatewayInspectionExecutor>();
 var inspectionContext = new DefaultHttpContext();
 inspectionContext.Request.ContentLength = 4;
@@ -555,16 +623,16 @@ using (var resilientResponse = await resilientInvoker.SendAsync(resilientRequest
         throw new InvalidOperationException("Native AOT selected-response resilience execution failed.");
 }
 
-var publicationBundle = materialized.Bundle!;
+var publicationBundle = planned.PreparedApplication!;
 var proxyProvider = serviceProvider.GetRequiredService<HpdProxyConfigProvider>();
 var changeListener = serviceProvider.GetRequiredService<HpdConfigChangeListener>();
-var publisher = serviceProvider.GetRequiredService<GatewayYarpPublisher>();
+var publisher = serviceProvider.GetRequiredService<GatewayRuntimePublisher>();
 var publication = publisher.PublishAsync(publicationBundle, TimeSpan.FromSeconds(5));
 IProxyConfig? publishedSnapshot = null;
 for (var index = 0; index < 1_000; index++)
 {
     var current = proxyProvider.GetConfig();
-    if (current.RevisionId == publicationBundle.NativeRevisionId)
+    if (current is OwnedProxyConfig owned && owned.NativeRevisionId == publicationBundle.NativeRevisionId)
     {
         publishedSnapshot = current;
         break;
@@ -664,11 +732,11 @@ var liveJson = JsonSerializer.SerializeToUtf8Bytes(liveConfiguration, GatewayJso
 var liveAccepted = GatewayCandidateReader.Read(liveJson, liveCapabilities);
 if (!liveAccepted.IsAccepted) throw new InvalidOperationException("Native AOT live resilience candidate was rejected.");
 var liveIdentity = new PublicationCandidateIdentity(new CandidateId("aot-live"), "aot-live-authority", "epoch-1", 1, liveAccepted.CanonicalDocument!.ContentHash);
-var liveMaterialized = await liveProxy.Services.GetRequiredService<GatewayNativeMaterializer>()
-    .MaterializeAsync(liveAccepted, liveIdentity, "aot-live-native");
-if (!liveMaterialized.IsMaterialized) throw new InvalidOperationException("Native AOT live resilience materialization failed.");
-var livePublication = await liveProxy.Services.GetRequiredService<GatewayYarpPublisher>()
-    .PublishAsync(liveMaterialized.Bundle!, TimeSpan.FromSeconds(5));
+var livePlanned = await liveProxy.Services.GetRequiredService<GatewayRuntimePlanner>()
+    .PlanAsync(liveAccepted, liveIdentity, "aot-live-native");
+if (!livePlanned.IsPlanned) throw new InvalidOperationException("Native AOT live resilience planning failed.");
+var livePublication = await liveProxy.Services.GetRequiredService<GatewayRuntimePublisher>()
+    .PublishAsync(livePlanned.PreparedApplication!, "aot", "live", TimeSpan.FromSeconds(5));
 if (livePublication.State != GatewayPublicationState.ActiveAcknowledged)
     throw new InvalidOperationException("Native AOT live resilience publication was not acknowledged.");
 using var liveClient = new HttpClient { BaseAddress = new Uri(Address(liveProxy)) };
@@ -677,7 +745,7 @@ if (readyResponse.StatusCode != HttpStatusCode.OK)
     throw new InvalidOperationException("Native AOT readiness did not become ready after exact publication.");
 var statusSnapshot = liveProxy.Services.GetRequiredService<IGatewayStatusReader>().GetCurrent();
 _ = JsonSerializer.SerializeToUtf8Bytes(statusSnapshot, GatewayStatusJsonContext.Default.GatewayStatusSnapshot);
-if (statusSnapshot.Readiness.Serving != GatewayReadinessState.Ready || statusSnapshot.Conditions.Length != 7)
+if (statusSnapshot.Readiness.Serving != GatewayReadinessState.Ready || statusSnapshot.Conditions.Length != 8)
     throw new InvalidOperationException("Native AOT status snapshot was not ready or complete.");
 using var liveRequest = new HttpRequestMessage(HttpMethod.Get, "/retry");
 liveRequest.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "native-aot-secret");
@@ -707,23 +775,23 @@ var uncachedConfiguration = liveConfiguration with
 var uncachedJson = JsonSerializer.SerializeToUtf8Bytes(uncachedConfiguration, GatewayJsonSerializerContext.Default.GatewayConfiguration);
 var uncachedAccepted = GatewayCandidateReader.Read(uncachedJson, liveCapabilities);
 if (!uncachedAccepted.IsAccepted) throw new InvalidOperationException("Native AOT uncached replacement was rejected.");
-var uncachedMaterialized = await liveProxy.Services.GetRequiredService<GatewayNativeMaterializer>().MaterializeAsync(
+var uncachedPlanned = await liveProxy.Services.GetRequiredService<GatewayRuntimePlanner>().PlanAsync(
     uncachedAccepted,
     new PublicationCandidateIdentity(new CandidateId("aot-live-2"), "aot-live-authority", "epoch-1", 2, uncachedAccepted.CanonicalDocument!.ContentHash),
     "aot-live-native-2");
-if (!uncachedMaterialized.IsMaterialized ||
-    (await liveProxy.Services.GetRequiredService<GatewayYarpPublisher>().PublishAsync(uncachedMaterialized.Bundle!, TimeSpan.FromSeconds(5))).State != GatewayPublicationState.ActiveAcknowledged)
+if (!uncachedPlanned.IsPlanned ||
+    (await liveProxy.Services.GetRequiredService<GatewayRuntimePublisher>().PublishAsync(uncachedPlanned.PreparedApplication!, "aot", "live", TimeSpan.FromSeconds(5))).State != GatewayPublicationState.ActiveAcknowledged)
     throw new InvalidOperationException("Native AOT Output Cache removal was not acknowledged.");
 using var uncachedResponse = await liveClient.GetAsync("/retry");
 if (uncachedResponse.StatusCode != HttpStatusCode.OK || liveAttempts != 4)
     throw new InvalidOperationException("Native AOT Output Cache removal did not restore forwarding.");
 
-var readdedMaterialized = await liveProxy.Services.GetRequiredService<GatewayNativeMaterializer>().MaterializeAsync(
+var readdedPlanned = await liveProxy.Services.GetRequiredService<GatewayRuntimePlanner>().PlanAsync(
     liveAccepted,
     new PublicationCandidateIdentity(new CandidateId("aot-live-3"), "aot-live-authority", "epoch-1", 3, liveAccepted.CanonicalDocument!.ContentHash),
     "aot-live-native-3");
-if (!readdedMaterialized.IsMaterialized ||
-    (await liveProxy.Services.GetRequiredService<GatewayYarpPublisher>().PublishAsync(readdedMaterialized.Bundle!, TimeSpan.FromSeconds(5))).State != GatewayPublicationState.ActiveAcknowledged)
+if (!readdedPlanned.IsPlanned ||
+    (await liveProxy.Services.GetRequiredService<GatewayRuntimePublisher>().PublishAsync(readdedPlanned.PreparedApplication!, "aot", "live", TimeSpan.FromSeconds(5))).State != GatewayPublicationState.ActiveAcknowledged)
     throw new InvalidOperationException("Native AOT Output Cache re-add was not acknowledged.");
 using var readdedResponse = await liveClient.GetAsync("/retry");
 if (readdedResponse.StatusCode != HttpStatusCode.OK || liveAttempts != 4)
@@ -842,6 +910,8 @@ static async Task SmokeManagementRuntimeAsync()
     _ = GatewayValidationRecord.Collection.Definition;
     _ = GatewayAdministrativeAuditRecord.Collection.Definition;
     _ = GatewayTargetOwnership.Collection.Definition;
+    _ = GatewayTargetEpochReservation.Collection.Definition;
+    _ = GatewayTargetEpochReservationReceipt.Collection.Definition;
     _ = GatewayDesiredState.Collection.Definition;
     _ = GatewayNodeDeliveryAuthorityState.Collection.Definition;
     _ = GatewayActivationIntent.Collection.Definition;
@@ -855,17 +925,21 @@ static async Task SmokeManagementRuntimeAsync()
 
     object[] records =
     [
-        new GatewayAcceptedRevision { NamespaceId = "ns", ContentHashAlgorithm = "sha-256", ContentHashValue = "hash", CanonicalConfigurationUtf8 = [1], SchemaVersion = "1.0", CanonicalizationVersion = "1", ValidationId = "validation", ActorId = "actor", SourceKind = "code", SourceId = "source", CorrelationId = "correlation" },
-        new GatewayValidationRecord { NamespaceId = "ns", Outcome = GatewayValidationOutcome.Valid, ContentHashValue = "hash", DiagnosticsJson = [], CorrelationId = "correlation" },
+        new GatewayAcceptedRevision { NamespaceId = "ns", TargetNodeId = "node", ContentHashAlgorithm = "sha-256", ContentHashValue = "hash", CanonicalConfigurationUtf8 = [1], SchemaVersion = "1.0", CanonicalizationVersion = "1", ValidationId = "validation", ActorId = "actor", SourceKind = "code", SourceId = "source", CorrelationId = "correlation" },
+        new GatewayValidationRecord { NamespaceId = "ns", TargetNodeId = "node", Outcome = GatewayValidationOutcome.Valid, ContentHashValue = "hash", DiagnosticsJson = [], CorrelationId = "correlation" },
         new GatewayAdministrativeAuditRecord { NamespaceId = "ns", ActorId = "actor", AuthenticationScheme = "test", AuthorizationPolicy = "admin", Operation = "submit", ResultCode = "accepted", CorrelationId = "correlation", SubjectId = "revision" },
         new GatewayTargetOwnership { ManagementAuthorityId = "management", TargetNodeId = "node", NamespaceId = "ns" },
+        new GatewayTargetEpochReservation { ManagementAuthorityId = "management", TargetNodeId = "node", AuthorityEpoch = "epoch", ContractVersion = "gateway.management.epoch-reservation.v1" },
+        new GatewayTargetEpochReservationReceipt { ReservationId = "reservation", EpochDigest = new string('a', 64), StableResultCode = "accepted", ContractVersion = "gateway.management.epoch-reservation.v1" },
         new GatewayDesiredState { ManagementAuthorityId = "management", TargetNodeId = "node", NamespaceId = "ns", ActivationIntentId = "intent", RevisionId = "revision", CandidateId = "candidate" },
         new GatewayNodeDeliveryAuthorityState { ManagementAuthorityId = "management", TargetNodeId = "node", NamespaceId = "ns", AuthorityId = "authority", AuthorityEpoch = "epoch", NextAuthorityVersion = 2 },
         new GatewayActivationIntent { NamespaceId = "ns", TargetNodeId = "node", RevisionId = "revision", CandidateId = "candidate", ContentHashValue = "hash", AuthorityId = "authority", AuthorityEpoch = "epoch", AuthorityVersion = 1 },
         new GatewayDeliveryOutboxItem { NamespaceId = "ns", TargetNodeId = "node", ActivationIntentId = "intent", State = GatewayDeliveryState.Immediate, AttemptCount = 0 },
         new GatewayNodeActivationOutcome { NamespaceId = "ns", TargetNodeId = "node", ActivationIntentId = "intent", AuthorityId = "authority", AuthorityEpoch = "epoch", AuthorityVersion = 1, Kind = GatewayNodeOutcomeKind.ActiveAcknowledged, Code = "active" },
-        new GatewayCommandReceipt { NamespaceId = "ns", Operation = "submit", IdempotencyKey = "key", Fingerprint = new byte[32], StableResultCode = "accepted", StableOperationId = "revision" },
+        new GatewayCommandReceipt { NamespaceId = "ns", TargetNodeId = "node", Operation = "submit", IdempotencyKey = "key", Fingerprint = new byte[32], StableResultCode = "accepted", StableOperationId = "revision" },
         new GatewayAdministrativeOperationIntent { NamespaceId = "ns", Operation = GatewayAdministrativeOperationKind.Backup, ActorId = "actor", AuthenticationScheme = "test", AuthorizationPolicy = "admin", SubjectDigest = "digest" },
+        new GatewayAdministrativeExecutionState { IntentId = "admin", Phase = GatewayAdministrativeExecutionPhase.BoundaryCrossed, StateRevision = 2, ClaimId = "claim", BoundaryCrossedAt = DateTimeOffset.UnixEpoch },
+        new GatewayAdministrativeArtifactObservation { IntentId = "admin", SinkName = "archive", PublicReference = "artifact:admin", ObservedAt = DateTimeOffset.UnixEpoch },
         new GatewayAdministrativeOperationObservation { IntentId = "admin", Kind = GatewayAdministrativeObservationKind.Succeeded, ResultCode = "created", ResultJson = [] },
         new GatewayAdministrativeOperationCompletion { IntentId = "admin", ObservationId = "observation", State = GatewayAdministrativeCompletionState.Completed },
         new GatewayPurgeAuthorityState { ManagementAuthorityId = "management", CollectionId = GatewayAuthoritySchema.AdministrativeAudit, ConfirmedGeneration = 0 },
@@ -879,21 +953,94 @@ static async Task SmokeManagementRuntimeAsync()
             throw new InvalidOperationException("Management record serialization failed.");
     }
 
+    object[] adminDtos =
+    [
+        new GatewayRevisionRequest { ConfigurationJson = "{}", SourceKind = "code", SourceId = "source" },
+        new GatewayActivationRequest("description"),
+        new GatewayCompareRequest("left", "right"),
+        new GatewayImportRequest("{}", "artifact"),
+        new GatewayBackupRequest("sink", "artifact"),
+        new GatewayPurgeRequest(GatewayPurgeCategory.AuditHistory, ["audit"]),
+        new GatewayOperationResponse("operation", "accepted", "code"),
+        new GatewayCommandOperationProjection { OperationId = "operation", Operation = "submit", ResultCode = "accepted", DesiredStateToken = "token", AcceptedAt = DateTimeOffset.UnixEpoch },
+        new GatewayAdministrativeOperationProjection { OperationId = "administration", Operation = GatewayAdministrativeOperationKind.Backup, State = GatewayAdministrativeOperationReadState.IndeterminatePending, Code = "pending", ArtifactReference = "artifact:admin", ObservedAt = null },
+        new GatewayExportResponse("v1", "revision", "sha-256", "hash", "{}"),
+        new GatewayAdministrativeResponse("operation", GatewayAdministrativeCompletionState.Completed, "completed"),
+    ];
+    foreach (object dto in adminDtos)
+    {
+        var typeInfo = GatewayAdminJsonContext.Default.GetTypeInfo(dto.GetType())
+            ?? throw new InvalidOperationException("Admin JSON metadata is unavailable.");
+        if (JsonSerializer.SerializeToUtf8Bytes(dto, typeInfo).Length == 0)
+            throw new InvalidOperationException("Admin DTO serialization failed.");
+    }
+
     var services = new ServiceCollection();
     services.AddLogging();
-    services.AddHpdGateway(static gateway => gateway.AddCoreFamilies());
-    services.AddHpdGatewayManagement(options => options.ManagementAuthorityId = "aot-authority");
+    var discoveryConfiguration = new ConfigurationManager();
+    discoveryConfiguration.AddInMemoryCollection(new Dictionary<string, string?>
+    {
+        ["Services:aot-backend:http:0"] = "http://127.0.0.1:5080",
+    });
+    services.AddSingleton<IConfiguration>(discoveryConfiguration);
+    services.AddHpdGateway(static gateway =>
+    {
+        gateway.EnableCoreDeclarations();
+        gateway.AddTrafficAdmission(admission => admission
+            .AddPartitionProjector("aot-subject", new ContentHash("sha-256", new string('b', 64)), new AotAdmissionProjector())
+            .AddLocalFixedWindow("aot-rate", options =>
+            {
+                options.Partition = TrafficAdmissionPartitionKind.AuthenticatedSubject;
+                options.PartitionProjector = "aot-subject";
+            })
+            .AddLocalSlidingWindow("aot-sliding")
+            .AddLocalTokenBucket("aot-token")
+            .AddLocalConcurrency("aot-concurrency")
+            .AddSharedProvider("aot-shared", new AotSharedAdmissionProvider(), options =>
+            {
+                options.AuthorityId = "aot-deployment";
+                options.BehaviorIdentity = new ContentHash("sha-256", new string('c', 64));
+                options.OperationTimeout = TimeSpan.FromSeconds(1);
+                options.MaximumConcurrentInvocations = 4;
+            })
+            .AddSharedFixedWindow("aot-shared-rate", "aot-shared"));
+        gateway.AddMicrosoftDiscovery("aot-discovery", profile =>
+        {
+            profile.Schemes = [ServiceDiscoveryScheme.Http];
+            profile.AddConfiguration();
+        });
+    });
+    services.AddHpdGatewayControlPlane(controlPlane => controlPlane
+        .UseProcessLocalAuthority(options => options.ManagementAuthorityId = "aot-authority"));
     await using ServiceProvider provider = services.BuildServiceProvider();
+    TrafficAdmissionPlan sharedPlan = new()
+    {
+        Entries = [new FixedWindowAdmissionEntry { Profile = "aot-shared-rate", PermitLimit = 10, Window = TimeSpan.FromSeconds(1) }]
+    };
+    var sharedContext = new DefaultHttpContext();
+    sharedContext.SetEndpoint(new Endpoint(null, new EndpointMetadataCollection(GatewayTrafficAdmissionMetadata.Create(
+        new string('a', 32), new ContentHash("sha-256", new string('b', 64)), new RouteId("aot-route"),
+        GatewayRuntimePlanner.HashTrafficAdmission(sharedPlan), sharedPlan)), "aot-shared"));
+    using RateLimitLease sharedLease = await new GatewayTrafficAdmissionLimiter(
+        provider.GetRequiredService<GatewayTrafficAdmissionRegistry>()).AcquireAsync(sharedContext);
+    if (!sharedLease.IsAcquired)
+        throw new InvalidOperationException("AOT shared-admission execution failed.");
+    GatewayDiscoveryResult discovery = await provider.GetRequiredService<IGatewayDiscoveryRuntimeProfile>()
+        .ResolveAsync(new GatewayDiscoveryRequest(
+            new DiscoveryProfileId("aot-discovery"), new ServiceDiscoveryName("aot-backend"), null,
+            [ServiceDiscoveryScheme.Http], null));
+    if (discovery.Endpoints.Single() is not GatewayUriDiscoveryEndpoint { Address.Port: 5080 })
+        throw new InvalidOperationException("AOT Microsoft configuration discovery failed.");
     GatewayAuthorityCapabilitySnapshot capabilities = await provider
         .GetRequiredService<IGatewayAuthorityRuntime>().InitializeAsync();
     if (capabilities.Durability != GatewayAuthorityDurability.ProcessLocal)
         throw new InvalidOperationException("AOT InMemory authority durability is incorrect.");
     GatewayManagementCommandResult provisioned = await provider
         .GetRequiredService<IGatewayManagementCommandCoordinator>()
-        .ProvisionTargetAsync(new GatewayProvisionTargetCommand(
+        .ProvisionLocalTargetAsync(new GatewayLocalProvisionTargetCommand(
             "aot-ns", "aot-node", "aot-key",
             new GatewayManagementActor("aot-actor", "aot", "manage"),
-            "aot-correlation", "aot-epoch"));
+            "aot-correlation"));
     if (!provisioned.IsAccepted)
         throw new InvalidOperationException("AOT authority provisioning failed: " + provisioned.Code);
 
@@ -936,35 +1083,22 @@ static ServiceProvider BuildDurable(string database)
 {
     var services = new ServiceCollection();
     services.AddLogging();
-    services.AddHpdGateway(static gateway => gateway.AddCoreFamilies());
-    services.AddHpdGatewayManagement(options =>
+    services.AddHpdGateway(static gateway => gateway.EnableCoreDeclarations());
+    services.AddHpdGatewayControlPlane(controlPlane => controlPlane.UseSqlite(sqlite =>
     {
-        options.ManagementAuthorityId = "aot-durable-authority";
-        options.RequiredDurability = GatewayAuthorityDurability.RestartDurable;
-        options.DesiredStateTokenKey = Enumerable.Repeat((byte)0x61, 32).ToArray();
-    }, builder =>
-    {
-        builder.ConfigureSchema(schema => schema.PlanProtectionKey = Enumerable.Repeat((byte)0x62, 32).ToArray());
-        builder.ConfigureTokenProtection(tokens => tokens.ActiveKey = new BaseOpaqueTokenKey
-        {
-            Id = 1,
-            Key = Enumerable.Repeat((byte)0x63, 32).ToArray(),
-        });
-        builder.UseSqlite(sqlite =>
-        {
-            sqlite.StoreId = "gateway-aot";
-            sqlite.DataSource = database;
-            sqlite.AllowClientRequestedIds = true;
-            sqlite.AdministrationEnabled = true;
-        });
-    });
+        sqlite.PlanProtectionKey = Enumerable.Repeat((byte)0x60, 32).ToArray();
+        sqlite.TokenProtectionKey = Enumerable.Repeat((byte)0x63, 32).ToArray();
+        sqlite.DesiredStateTokenKey = Enumerable.Repeat((byte)0x61, 32).ToArray();
+        sqlite.EpochReservationKey = Enumerable.Repeat((byte)0x62, 32).ToArray();
+        sqlite.DataSource = database;
+    }));
     return services.BuildServiceProvider();
 }
 
 static async Task PrepareSqlite(ServiceProvider provider)
 {
     IBaseSchemaManager schemas = provider.GetRequiredService<IBaseSchemaManager>();
-    BaseSchemaPlan plan = (await schemas.PlanAsync(new BaseSchemaPlanRequest { StoreId = "gateway-aot" })).Value!;
+    BaseSchemaPlan plan = (await schemas.PlanAsync(new BaseSchemaPlanRequest { StoreId = "gateway-management" })).Value!;
     if (!(await schemas.ApplyAsync(new BaseSchemaApplyRequest { ProtectedArtifact = plan.ProtectedArtifact })).IsSuccess())
         throw new InvalidOperationException("AOT SQLite schema apply failed.");
 }
@@ -990,6 +1124,33 @@ static int AvailableAotPort()
     using var listener = new TcpListener(IPAddress.Loopback, 0);
     listener.Start();
     return ((IPEndPoint)listener.LocalEndpoint).Port;
+}
+
+static async Task SmokeRedisAdmissionAsync(string endpoint)
+{
+    GatewayRedisAdmissionSnapshot snapshot = GatewayRedisAdmissionSnapshot.Create("aot-redis", new GatewayRedisAdmissionOptions
+    {
+        AuthorityId = "aot-deployment",
+        Configuration = endpoint,
+        KeyPrefix = "hpd:aot:admission",
+    });
+    using var provider = new GatewayRedisAdmissionProvider(snapshot, null);
+    foreach (TrafficAdmissionRateAlgorithm algorithm in Enum.GetValues<TrafficAdmissionRateAlgorithm>())
+    {
+        var request = new GatewaySharedAdmissionRequest(1, "aot-redis", "aot-deployment",
+            $"aot-{algorithm.ToString().ToLowerInvariant()}-{Guid.NewGuid():N}",
+            new ContentHash("sha-256", new string('a', 64)), "aot-partition", algorithm,
+            1, algorithm == TrafficAdmissionRateAlgorithm.TokenBucket ? 1 : 0, 1_000,
+            algorithm == TrafficAdmissionRateAlgorithm.SlidingWindow ? 2 : 0, 1, new string('b', 32));
+        GatewaySharedAdmissionDecision acquired = await provider.AcquireAsync(request, default);
+        GatewaySharedAdmissionDecision rejected = await provider.AcquireAsync(
+            request with { AttemptId = new string('c', 32) }, default);
+        GatewaySharedAdmissionRetainedState state = await provider.ObserveStateAsync(request, default);
+        if (acquired.Kind != GatewaySharedAdmissionDecisionKind.Acquired ||
+            rejected.Kind != GatewaySharedAdmissionDecisionKind.Rejected ||
+            !GatewaySharedAdmissionContract.IsValidState(request, state))
+            throw new InvalidOperationException($"Redis admission AOT execution failed for {algorithm}.");
+    }
 }
 
 static async Task<string> SendAotTls(int port, string serverName)
@@ -1036,6 +1197,24 @@ file sealed class SmokeInspector : IGatewayRequestInspector
         }
         return ValueTask.FromResult(GatewayInspectionDecision.Allow());
     }
+}
+
+file sealed class AotAdmissionProjector : IGatewayAdmissionPartitionProjector
+{
+    public ValueTask<GatewayAdmissionPartitionResult> ProjectAsync(
+        GatewayAdmissionPartitionContext context,
+        CancellationToken cancellationToken) =>
+        ValueTask.FromResult(GatewayAdmissionPartitionResult.Success("aot-subject"));
+}
+
+file sealed class AotSharedAdmissionProvider : IGatewaySharedAdmissionProvider
+{
+    public ValueTask<GatewaySharedAdmissionDecision> AcquireAsync(
+        GatewaySharedAdmissionRequest request,
+        CancellationToken cancellationToken) =>
+        ValueTask.FromResult(new GatewaySharedAdmissionDecision(
+            GatewaySharedAdmissionDecisionKind.Acquired, request.PermitLimit - request.PermitCount,
+            null, request.WindowMilliseconds, "aot-observation", null));
 }
 
 file sealed class NonSeekableReadStream(byte[] bytes) : MemoryStream(bytes)

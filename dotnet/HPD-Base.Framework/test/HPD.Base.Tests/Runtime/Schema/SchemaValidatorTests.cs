@@ -40,7 +40,7 @@ public sealed class SchemaValidatorTests
                 new FieldDefinition
                 {
                     Id = "title",
-                    Name = "title",
+                    ApplicationName = "title", WireName = "title",
                     Type = BaseFieldTypes.String,
                     Required = true,
                     Nullable = false,
@@ -51,7 +51,7 @@ public sealed class SchemaValidatorTests
                         Value = Json("untitled")
                     }
                 },
-                new FieldDefinition { Id = "optional", Name = "optional", Type = BaseFieldTypes.String }
+                new FieldDefinition { Id = "optional", ApplicationName = "optional", WireName = "optional", Type = BaseFieldTypes.String }
             ]));
 
         Assert.Equal(OperationStatus.Ok, result.Status);
@@ -67,11 +67,11 @@ public sealed class SchemaValidatorTests
             JsonPayload("""{"title":"ok"}"""),
             fields:
             [
-                new FieldDefinition { Id = "title", Name = "title", Type = BaseFieldTypes.String, Required = true, Nullable = false },
+                new FieldDefinition { Id = "title", ApplicationName = "title", WireName = "title", Type = BaseFieldTypes.String, Required = true, Nullable = false },
                 new FieldDefinition
                 {
                     Id = "createdAt",
-                    Name = "createdAt",
+                    ApplicationName = "createdAt", WireName = "createdAt",
                     Type = BaseFieldTypes.DateTime,
                     System = true,
                     ReadOnly = true,
@@ -136,7 +136,7 @@ public sealed class SchemaValidatorTests
                 new FieldDefinition
                 {
                     Id = "title",
-                    Name = "title",
+                    ApplicationName = "title", WireName = "title",
                     Type = BaseFieldTypes.String,
                     Required = true,
                     Nullable = false
@@ -144,13 +144,13 @@ public sealed class SchemaValidatorTests
                 new FieldDefinition
                 {
                     Id = "optional",
-                    Name = "optional",
+                    ApplicationName = "optional", WireName = "optional",
                     Type = BaseFieldTypes.String
                 },
                 new FieldDefinition
                 {
                     Id = "locked",
-                    Name = "locked",
+                    ApplicationName = "locked", WireName = "locked",
                     Type = BaseFieldTypes.String,
                     ReadOnly = true
                 }

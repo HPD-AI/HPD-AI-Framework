@@ -13,11 +13,7 @@
   </PropertyGroup>
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
-    <ProjectReference Include="../HPD.Gateway.Abstractions/HPD.Gateway.Abstractions.csproj" />
-    <ProjectReference Include="../HPD.Gateway.Core/HPD.Gateway.Core.csproj" />
-    <ProjectReference Include="../HPD.Gateway.Hosting/HPD.Gateway.Hosting.csproj" />
-    <ProjectReference Include="../HPD.Gateway.Inspection/HPD.Gateway.Inspection.csproj" />
-    <ProjectReference Include="../HPD.Gateway.Status/HPD.Gateway.Status.csproj" />
-    <ProjectReference Include="../HPD.Gateway.Yarp/HPD.Gateway.Yarp.csproj" />
+    <PackageReference Include="Microsoft.Extensions.Http.Resilience" Version="10.0.0" />
+    <PackageReference Include="Yarp.ReverseProxy" Version="2.3.0" />
   </ItemGroup>
 </Project>

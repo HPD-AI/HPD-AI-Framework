@@ -9,13 +9,19 @@ internal sealed class SqliteSchemaInitializer
     private readonly HPDBaseSqliteOptions _options;
     private readonly SqliteNames _names;
     private readonly SqlitePhysicalModel _physical;
+    private readonly string[] _projectionSchemaStatements;
+    private readonly string[] _projectionSchemaTables;
+    private readonly SqliteProjectionTableShape[] _projectionSchemaShapes;
 
     /// <summary>Initializes a new instance.</summary>
-    public SqliteSchemaInitializer(HPDBaseSqliteOptions options)
+    public SqliteSchemaInitializer(HPDBaseSqliteOptions options, string[]? projectionSchemaStatements = null, string[]? projectionSchemaTables = null, SqliteProjectionTableShape[]? projectionSchemaShapes = null)
     {
         _options = options;
         _names = new SqliteNames(options);
         _physical = new SqlitePhysicalModel(options);
+        _projectionSchemaStatements = projectionSchemaStatements?.ToArray() ?? [];
+        _projectionSchemaTables = projectionSchemaTables?.Distinct(StringComparer.Ordinal).ToArray() ?? [];
+        _projectionSchemaShapes = projectionSchemaShapes?.ToArray() ?? [];
     }
 
     /// <summary>Executes the initialize async operation.</summary>
@@ -86,19 +92,85 @@ CREATE TABLE IF NOT EXISTS {_names.SchemaLease} (
   owner_token TEXT NULL,
   acquired_at TEXT NULL
 );
+CREATE TABLE IF NOT EXISTS {_names.SubjectContracts} (
+  contract_id TEXT NOT NULL,
+  contract_version INTEGER NOT NULL CHECK(contract_version > 0),
+  contract_checksum TEXT NOT NULL CHECK(length(contract_checksum) = 64),
+  authority_epoch BLOB NOT NULL CHECK(length(authority_epoch) = 16),
+  restore_epoch INTEGER NOT NULL CHECK(restore_epoch >= 0),
+  state_generation INTEGER NOT NULL CHECK(state_generation > 0),
+  publication_previous_generation INTEGER NOT NULL CHECK(publication_previous_generation >= 0),
+  publication_kind INTEGER NOT NULL,
+  publication_position INTEGER NOT NULL CHECK(publication_position > 0),
+  publication_digest TEXT NOT NULL CHECK(length(publication_digest) = 64),
+  PRIMARY KEY(contract_id, contract_version)
+);
+CREATE TABLE IF NOT EXISTS {_names.SubjectLifetimes} (
+  contract_id TEXT NOT NULL,
+  contract_version INTEGER NOT NULL,
+  subject_id TEXT NOT NULL,
+  incarnation BLOB NOT NULL CHECK(length(incarnation) = 16),
+  private_collection_id TEXT NOT NULL,
+  private_record_id TEXT NOT NULL,
+  created_journal_position INTEGER NOT NULL CHECK(created_journal_position >= 0),
+  PRIMARY KEY(contract_id, contract_version, subject_id),
+  FOREIGN KEY(contract_id, contract_version) REFERENCES {_names.SubjectContracts}(contract_id, contract_version) ON DELETE RESTRICT
+);
+CREATE TABLE IF NOT EXISTS {_names.SubjectMaintenance} (
+  singleton INTEGER NOT NULL PRIMARY KEY CHECK(singleton=1), contract_id TEXT NOT NULL,
+  contract_version INTEGER NOT NULL, expected_generation INTEGER NOT NULL,
+  old_epoch BLOB NOT NULL CHECK(length(old_epoch)=16), new_epoch BLOB NOT NULL CHECK(length(new_epoch)=16),
+  collection_ordinal INTEGER NOT NULL, last_record_id TEXT NOT NULL,
+  examined_count INTEGER NOT NULL, rewritten_count INTEGER NOT NULL,
+  canonical_bytes INTEGER NOT NULL, checksum TEXT NOT NULL CHECK(length(checksum)=64)
+);
+CREATE TABLE IF NOT EXISTS {_names.SubjectRewriteStage} (
+  collection_id TEXT NOT NULL, record_id TEXT NOT NULL, previous_revision INTEGER NOT NULL,
+  replacement_revision INTEGER NOT NULL, previous_payload_json BLOB NOT NULL, payload_json BLOB NOT NULL,
+  PRIMARY KEY(collection_id,record_id)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS {_names.ModuleGenerations} (
+  cell_id TEXT NOT NULL,
+  cell_version INTEGER NOT NULL CHECK(cell_version > 0),
+  scope_kind INTEGER NOT NULL,
+  tenant TEXT NOT NULL,
+  project TEXT NOT NULL,
+  key_bytes BLOB NOT NULL,
+  generation INTEGER NOT NULL CHECK(generation > 0),
+  PRIMARY KEY(cell_id,cell_version,scope_kind,tenant,project,key_bytes)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS {_names.ModuleMutationDefinitions} (
+  operation_id TEXT NOT NULL, operation_version INTEGER NOT NULL CHECK(operation_version > 0),
+  owning_module_id TEXT NOT NULL, operation_checksum TEXT NOT NULL CHECK(length(operation_checksum)=64),
+  PRIMARY KEY(operation_id,operation_version)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS {_names.ModuleGenerationDefinitions} (
+  cell_id TEXT NOT NULL, cell_version INTEGER NOT NULL CHECK(cell_version > 0),
+  owning_module_id TEXT NOT NULL, scope_kind INTEGER NOT NULL,
+  maximum_key_bytes INTEGER NOT NULL, maximum_cells INTEGER NOT NULL,
+  definition_checksum TEXT NOT NULL CHECK(length(definition_checksum)=64),
+  PRIMARY KEY(cell_id,cell_version)
+) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS {_names.MutationJournal} (
   position INTEGER PRIMARY KEY AUTOINCREMENT,
-  event_id TEXT NOT NULL UNIQUE,
-  event_type TEXT NOT NULL,
-  schema_version TEXT NOT NULL,
-  occurred_at TEXT NOT NULL,
+  entry_kind INTEGER NOT NULL DEFAULT 0,
+  event_id TEXT NULL UNIQUE,
+  event_type TEXT NULL,
+  schema_version TEXT NULL,
+  occurred_at TEXT NULL,
   tenant_id TEXT NULL,
-  operation INTEGER NOT NULL,
-  visibility INTEGER NOT NULL,
-  collection_id TEXT NOT NULL,
-  record_id TEXT NOT NULL,
+  operation INTEGER NULL,
+  visibility INTEGER NULL,
+  collection_id TEXT NULL,
+  record_id TEXT NULL,
   before_json TEXT NULL,
-  after_json TEXT NULL
+  after_json TEXT NULL,
+  subject_contract_id TEXT NULL,
+  subject_contract_version INTEGER NULL,
+  subject_previous_generation INTEGER NULL,
+  subject_published_generation INTEGER NULL,
+  subject_restore_epoch INTEGER NULL,
+  subject_publication_kind INTEGER NULL
 );
 CREATE TABLE IF NOT EXISTS {_names.OperationReceipts} (
   scope TEXT NOT NULL,
@@ -114,6 +186,7 @@ CREATE TABLE IF NOT EXISTS {_names.OperationReceipts} (
   expires_at TEXT NOT NULL,
   PRIMARY KEY(scope, operation, idempotency_key)
 ) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS "{_names.OperationReceipts}_module_retirement" ON {_names.OperationReceipts}(operation, expires_at);
 """);
         foreach (SqlitePhysicalModel.CollectionModel collection in _physical.Collections)
         {
@@ -126,6 +199,7 @@ CREATE TABLE IF NOT EXISTS {_names.OperationReceipts} (
             statements.Add($"CREATE INDEX IF NOT EXISTS {relation.TargetIndex} ON {relation.Table}(target_record_id, source_record_id);");
         }
         statements.Add($"CREATE INDEX IF NOT EXISTS {_names.MutationJournalScopeIndex} ON {_names.MutationJournal}(tenant_id, collection_id, record_id, position);");
+        statements.AddRange(_projectionSchemaStatements);
         return statements.ToArray();
     }
 
@@ -211,19 +285,88 @@ CREATE TABLE IF NOT EXISTS {_names.SchemaLease} (
 """, cancellationToken).ConfigureAwait(false);
 
         await ExecuteAsync(connection, $"""
+CREATE TABLE IF NOT EXISTS {_names.SubjectContracts} (
+  contract_id TEXT NOT NULL,
+  contract_version INTEGER NOT NULL CHECK(contract_version > 0),
+  contract_checksum TEXT NOT NULL CHECK(length(contract_checksum) = 64),
+  authority_epoch BLOB NOT NULL CHECK(length(authority_epoch) = 16),
+  restore_epoch INTEGER NOT NULL CHECK(restore_epoch >= 0),
+  state_generation INTEGER NOT NULL CHECK(state_generation > 0),
+  publication_previous_generation INTEGER NOT NULL CHECK(publication_previous_generation >= 0),
+  publication_kind INTEGER NOT NULL,
+  publication_position INTEGER NOT NULL CHECK(publication_position > 0),
+  publication_digest TEXT NOT NULL CHECK(length(publication_digest) = 64),
+  PRIMARY KEY(contract_id, contract_version)
+);
+CREATE TABLE IF NOT EXISTS {_names.SubjectLifetimes} (
+  contract_id TEXT NOT NULL,
+  contract_version INTEGER NOT NULL,
+  subject_id TEXT NOT NULL,
+  incarnation BLOB NOT NULL CHECK(length(incarnation) = 16),
+  private_collection_id TEXT NOT NULL,
+  private_record_id TEXT NOT NULL,
+  created_journal_position INTEGER NOT NULL CHECK(created_journal_position >= 0),
+  PRIMARY KEY(contract_id, contract_version, subject_id),
+  FOREIGN KEY(contract_id, contract_version) REFERENCES {_names.SubjectContracts}(contract_id, contract_version) ON DELETE RESTRICT
+);
+CREATE TABLE IF NOT EXISTS {_names.SubjectMaintenance} (
+  singleton INTEGER NOT NULL PRIMARY KEY CHECK(singleton=1), contract_id TEXT NOT NULL,
+  contract_version INTEGER NOT NULL, expected_generation INTEGER NOT NULL,
+  old_epoch BLOB NOT NULL CHECK(length(old_epoch)=16), new_epoch BLOB NOT NULL CHECK(length(new_epoch)=16),
+  collection_ordinal INTEGER NOT NULL, last_record_id TEXT NOT NULL,
+  examined_count INTEGER NOT NULL, rewritten_count INTEGER NOT NULL,
+  canonical_bytes INTEGER NOT NULL, checksum TEXT NOT NULL CHECK(length(checksum)=64)
+);
+CREATE TABLE IF NOT EXISTS {_names.SubjectRewriteStage} (
+  collection_id TEXT NOT NULL, record_id TEXT NOT NULL, previous_revision INTEGER NOT NULL,
+  replacement_revision INTEGER NOT NULL, previous_payload_json BLOB NOT NULL, payload_json BLOB NOT NULL,
+  PRIMARY KEY(collection_id,record_id)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS {_names.ModuleGenerations} (
+  cell_id TEXT NOT NULL,
+  cell_version INTEGER NOT NULL CHECK(cell_version > 0),
+  scope_kind INTEGER NOT NULL,
+  tenant TEXT NOT NULL,
+  project TEXT NOT NULL,
+  key_bytes BLOB NOT NULL,
+  generation INTEGER NOT NULL CHECK(generation > 0),
+  PRIMARY KEY(cell_id,cell_version,scope_kind,tenant,project,key_bytes)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS {_names.ModuleMutationDefinitions} (
+  operation_id TEXT NOT NULL, operation_version INTEGER NOT NULL CHECK(operation_version > 0),
+  owning_module_id TEXT NOT NULL, operation_checksum TEXT NOT NULL CHECK(length(operation_checksum)=64),
+  PRIMARY KEY(operation_id,operation_version)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS {_names.ModuleGenerationDefinitions} (
+  cell_id TEXT NOT NULL, cell_version INTEGER NOT NULL CHECK(cell_version > 0),
+  owning_module_id TEXT NOT NULL, scope_kind INTEGER NOT NULL,
+  maximum_key_bytes INTEGER NOT NULL, maximum_cells INTEGER NOT NULL,
+  definition_checksum TEXT NOT NULL CHECK(length(definition_checksum)=64),
+  PRIMARY KEY(cell_id,cell_version)
+) WITHOUT ROWID;
+""", cancellationToken).ConfigureAwait(false);
+
+        await ExecuteAsync(connection, $"""
 CREATE TABLE IF NOT EXISTS {_names.MutationJournal} (
   position INTEGER PRIMARY KEY AUTOINCREMENT,
-  event_id TEXT NOT NULL UNIQUE,
-  event_type TEXT NOT NULL,
-  schema_version TEXT NOT NULL,
-  occurred_at TEXT NOT NULL,
+  entry_kind INTEGER NOT NULL DEFAULT 0,
+  event_id TEXT NULL UNIQUE,
+  event_type TEXT NULL,
+  schema_version TEXT NULL,
+  occurred_at TEXT NULL,
   tenant_id TEXT NULL,
-  operation INTEGER NOT NULL,
-  visibility INTEGER NOT NULL,
-  collection_id TEXT NOT NULL,
-  record_id TEXT NOT NULL,
+  operation INTEGER NULL,
+  visibility INTEGER NULL,
+  collection_id TEXT NULL,
+  record_id TEXT NULL,
   before_json TEXT NULL,
-  after_json TEXT NULL
+  after_json TEXT NULL,
+  subject_contract_id TEXT NULL,
+  subject_contract_version INTEGER NULL,
+  subject_previous_generation INTEGER NULL,
+  subject_published_generation INTEGER NULL,
+  subject_restore_epoch INTEGER NULL,
+  subject_publication_kind INTEGER NULL
 );
 CREATE TABLE IF NOT EXISTS {_names.OperationReceipts} (
   scope TEXT NOT NULL,
@@ -239,6 +382,7 @@ CREATE TABLE IF NOT EXISTS {_names.OperationReceipts} (
   expires_at TEXT NOT NULL,
   PRIMARY KEY(scope, operation, idempotency_key)
 ) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS "{_names.OperationReceipts}_module_retirement" ON {_names.OperationReceipts}(operation, expires_at);
 """, cancellationToken).ConfigureAwait(false);
 
         var malformedColumns = new List<string>();
@@ -293,6 +437,79 @@ ON CONFLICT(collection_id) DO UPDATE SET native_name = excluded.native_name, mut
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
 
+        foreach (BaseExportedSubjectDefinition subject in _options.ExportedSubjects)
+        {
+            await using SqliteTransaction transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+            await using SqliteCommand current = connection.CreateCommand();
+            current.Transaction = transaction;
+            current.CommandTimeout = TimeoutSeconds();
+            current.CommandText = $"SELECT contract_checksum FROM {_names.SubjectContracts} WHERE contract_id=$id AND contract_version=$version;";
+            current.Parameters.AddWithValue("$id", subject.Id);
+            current.Parameters.AddWithValue("$version", subject.Version);
+            object? existing = await current.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+            if (existing is not null)
+            {
+                if (!string.Equals(Convert.ToString(existing, System.Globalization.CultureInfo.InvariantCulture), subject.ValidationPlan.ContractChecksum, StringComparison.Ordinal))
+                    throw new InvalidOperationException(BaseSubjectErrorCodes.RegistrationConflict);
+                await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+                continue;
+            }
+
+            long restoreEpoch;
+            await using (SqliteCommand restore = connection.CreateCommand())
+            {
+                restore.Transaction = transaction;
+                restore.CommandTimeout = TimeoutSeconds();
+                restore.CommandText = $"SELECT COALESCE(CAST(value AS INTEGER),0) FROM {_names.ProviderState} WHERE key='restore_epoch';";
+                restoreEpoch = Convert.ToInt64(await restore.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), System.Globalization.CultureInfo.InvariantCulture);
+            }
+            BaseSubjectAuthorityEpoch epoch = BaseSubjectAuthorityEpoch.Create();
+            long position;
+            await using (SqliteCommand publication = connection.CreateCommand())
+            {
+                publication.Transaction = transaction;
+                publication.CommandTimeout = TimeoutSeconds();
+                publication.CommandText = $"""
+INSERT INTO {_names.MutationJournal}(
+  entry_kind, subject_contract_id, subject_contract_version, subject_previous_generation,
+  subject_published_generation, subject_restore_epoch, subject_publication_kind)
+VALUES (1,$id,$version,0,1,$restore,0)
+RETURNING position;
+""";
+                publication.Parameters.AddWithValue("$id", subject.Id);
+                publication.Parameters.AddWithValue("$version", subject.Version);
+                publication.Parameters.AddWithValue("$restore", restoreEpoch);
+                position = Convert.ToInt64(await publication.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), System.Globalization.CultureInfo.InvariantCulture);
+            }
+            string digest = BaseSubjectPublicationIntegrity.Compute(
+                subject.Id, subject.Version, subject.ValidationPlan.ContractChecksum,
+                0, 1, restoreEpoch, BaseSubjectAuthorityPublicationKind.InitialInstallation,
+                new BaseMutationJournalPosition(position), epoch);
+            await using (SqliteCommand insert = connection.CreateCommand())
+            {
+                insert.Transaction = transaction;
+                insert.CommandTimeout = TimeoutSeconds();
+                insert.CommandText = $"""
+INSERT INTO {_names.SubjectContracts}(
+  contract_id, contract_version, contract_checksum, authority_epoch, restore_epoch, state_generation,
+  publication_previous_generation, publication_kind, publication_position, publication_digest)
+VALUES ($id,$version,$checksum,$epoch,$restore,1,0,0,$position,$digest);
+""";
+                insert.Parameters.AddWithValue("$id", subject.Id);
+                insert.Parameters.AddWithValue("$version", subject.Version);
+                insert.Parameters.AddWithValue("$checksum", subject.ValidationPlan.ContractChecksum);
+                insert.Parameters.Add("$epoch", Microsoft.Data.Sqlite.SqliteType.Blob).Value = epoch.ToArray();
+                insert.Parameters.AddWithValue("$restore", restoreEpoch);
+                insert.Parameters.AddWithValue("$position", position);
+                insert.Parameters.AddWithValue("$digest", digest);
+                await insert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        foreach (string statement in _projectionSchemaStatements)
+            await ExecuteAsync(connection, statement, cancellationToken).ConfigureAwait(false);
+
         var missing = await GetMissingSchemaPartsAsync(connection, cancellationToken).ConfigureAwait(false);
         if (missing.Length != 0)
         {
@@ -312,9 +529,10 @@ ON CONFLICT(collection_id) DO UPDATE SET native_name = excluded.native_name, mut
     public async ValueTask<string[]> GetMissingSchemaPartsAsync(SqliteConnection connection, CancellationToken cancellationToken)
     {
         var missing = new List<string>();
-        foreach (var table in new[] { _names.Collections, _names.ProviderState, _names.MutationJournal, _names.OperationReceipts, _names.SchemaIdentity, _names.SchemaBaseline, _names.SchemaAssets, _names.SchemaHistory, _names.SchemaLease }
+        foreach (var table in new[] { _names.Collections, _names.ProviderState, _names.MutationJournal, _names.OperationReceipts, _names.SchemaIdentity, _names.SchemaBaseline, _names.SchemaAssets, _names.SchemaHistory, _names.SchemaLease, _names.SubjectContracts, _names.SubjectLifetimes, _names.SubjectMaintenance, _names.SubjectRewriteStage, _names.ModuleGenerations, _names.ModuleMutationDefinitions, _names.ModuleGenerationDefinitions }
             .Concat(_physical.Collections.Select(static collection => collection.Table))
-            .Concat(_physical.Relations.Select(static relation => relation.Table)))
+            .Concat(_physical.Relations.Select(static relation => relation.Table))
+            .Concat(_projectionSchemaTables))
         {
             if (!await ObjectExistsAsync(connection, "table", table, cancellationToken).ConfigureAwait(false))
             {
@@ -334,6 +552,8 @@ ON CONFLICT(collection_id) DO UPDATE SET native_name = excluded.native_name, mut
                 missing.AddRange(await GetMissingRelationColumnsAsync(connection, relation, cancellationToken).ConfigureAwait(false));
                 missing.AddRange(await GetMalformedRelationColumnsAsync(connection, relation, cancellationToken).ConfigureAwait(false));
             }
+            foreach (SqliteProjectionTableShape shape in _projectionSchemaShapes)
+                missing.AddRange(await GetMalformedProjectionColumnsAsync(connection, shape, cancellationToken).ConfigureAwait(false));
             missing.AddRange(await GetMissingMutationJournalColumnsAsync(connection, cancellationToken).ConfigureAwait(false));
             missing.AddRange(await GetMissingReceiptColumnsAsync(connection, cancellationToken).ConfigureAwait(false));
             missing.AddRange(await GetMalformedMutationJournalColumnsAsync(connection, cancellationToken).ConfigureAwait(false));
@@ -455,6 +675,7 @@ ON CONFLICT(collection_id) DO UPDATE SET native_name = excluded.native_name, mut
         Check(shapes, malformed, collection.Table, "created_at", "TEXT", true, false);
         Check(shapes, malformed, collection.Table, "updated_at", "TEXT", true, false);
         Check(shapes, malformed, collection.Table, "append_position", "INTEGER", true, false);
+        Check(shapes, malformed, collection.Table, "latest_mutation_position", "INTEGER", true, false);
         foreach (SqlitePhysicalModel.FieldModel field in collection.Fields)
         {
             if (field.PresenceColumn is not null) Check(shapes, malformed, collection.Table, field.PresenceColumn, "INTEGER", true, false);
@@ -471,6 +692,18 @@ ON CONFLICT(collection_id) DO UPDATE SET native_name = excluded.native_name, mut
         Check(shapes, malformed, relation.Table, "source_record_id", "TEXT", true, true);
         Check(shapes, malformed, relation.Table, "target_record_id", "TEXT", true, false);
         Check(shapes, malformed, relation.Table, "ordinal", "INTEGER", true, true);
+        return malformed.ToArray();
+    }
+
+    private async ValueTask<string[]> GetMalformedProjectionColumnsAsync(SqliteConnection connection, SqliteProjectionTableShape projection, CancellationToken cancellationToken)
+    {
+        Dictionary<string, ColumnShape> shapes = await GetColumnShapesAsync(connection, projection.Table, cancellationToken).ConfigureAwait(false);
+        var malformed = new List<string>();
+        foreach (SqliteProjectionColumnShape expected in projection.Columns)
+        {
+            if (!shapes.ContainsKey(expected.Name)) malformed.Add("column:" + projection.Table + "." + expected.Name);
+            else Check(shapes, malformed, projection.Table, expected.Name, expected.Type, expected.NotNull, expected.PrimaryKey);
+        }
         return malformed.ToArray();
     }
 
@@ -507,6 +740,7 @@ ON CONFLICT(collection_id) DO UPDATE SET native_name = excluded.native_name, mut
         foreach (var column in new[]
         {
             "position",
+            "entry_kind",
             "event_id",
             "event_type",
             "schema_version",
@@ -517,7 +751,13 @@ ON CONFLICT(collection_id) DO UPDATE SET native_name = excluded.native_name, mut
             "collection_id",
             "record_id",
             "before_json",
-            "after_json"
+            "after_json",
+            "subject_contract_id",
+            "subject_contract_version",
+            "subject_previous_generation",
+            "subject_published_generation",
+            "subject_restore_epoch",
+            "subject_publication_kind"
         })
         {
             if (!await ColumnExistsAsync(connection, _names.MutationJournal, column, cancellationToken).ConfigureAwait(false))
@@ -532,13 +772,19 @@ ON CONFLICT(collection_id) DO UPDATE SET native_name = excluded.native_name, mut
         Dictionary<string, ColumnShape> shapes = await GetColumnShapesAsync(connection, _names.MutationJournal, cancellationToken).ConfigureAwait(false);
         var malformed = new List<string>();
         Check(shapes, malformed, _names.MutationJournal, "position", "INTEGER", false, true);
-        foreach (string column in new[] { "event_id", "event_type", "schema_version", "occurred_at", "collection_id", "record_id" })
-            Check(shapes, malformed, _names.MutationJournal, column, "TEXT", true, false);
-        Check(shapes, malformed, _names.MutationJournal, "tenant_id", "TEXT", false, false);
-        Check(shapes, malformed, _names.MutationJournal, "operation", "INTEGER", true, false);
-        Check(shapes, malformed, _names.MutationJournal, "visibility", "INTEGER", true, false);
-        Check(shapes, malformed, _names.MutationJournal, "before_json", "TEXT", false, false);
-        Check(shapes, malformed, _names.MutationJournal, "after_json", "TEXT", false, false);
+        Check(shapes, malformed, _names.MutationJournal, "entry_kind", "INTEGER", true, false);
+        foreach (string column in new[]
+                 {
+                     "event_id", "event_type", "schema_version", "occurred_at", "tenant_id",
+                     "collection_id", "record_id", "before_json", "after_json", "subject_contract_id"
+                 })
+            Check(shapes, malformed, _names.MutationJournal, column, "TEXT", false, false);
+        foreach (string column in new[]
+                 {
+                     "operation", "visibility", "subject_contract_version", "subject_previous_generation",
+                     "subject_published_generation", "subject_restore_epoch", "subject_publication_kind"
+                 })
+            Check(shapes, malformed, _names.MutationJournal, column, "INTEGER", false, false);
         return malformed.ToArray();
     }
 

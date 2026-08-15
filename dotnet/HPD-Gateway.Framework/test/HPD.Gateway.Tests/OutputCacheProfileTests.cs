@@ -5,11 +5,7 @@ using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
 using FluentAssertions;
-using HPD.Gateway.Abstractions;
-using HPD.Gateway.Abstractions.Serialization;
-using HPD.Gateway.Core;
-using HPD.Gateway.OutputCaching;
-using HPD.Gateway.Yarp;
+using HPD.Gateway;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Hosting.Server;
@@ -200,13 +196,13 @@ public sealed class OutputCacheProfileTests
             OutputCacheProfiles = [mismatched],
             ProtectedCredentialHeaders = ["X-Api-Key"]
         }));
-        var result = await provider.GetRequiredService<GatewayNativeMaterializer>().MaterializeAsync(
+        var result = await provider.GetRequiredService<GatewayRuntimePlanner>().PlanAsync(
             accepted,
             new PublicationCandidateIdentity(new CandidateId("mismatch"), "authority", "epoch", 1, accepted.CanonicalDocument!.ContentHash),
             "mismatch-native");
 
-        result.IsMaterialized.Should().BeFalse();
-        result.Diagnostics.Should().ContainSingle(error => error.Code == "materialization.output-cache-capability-mismatch");
+        result.IsPlanned.Should().BeFalse();
+        result.Diagnostics.Should().ContainSingle(error => error.Code == "planning.output-cache-capability-mismatch");
     }
 
     [Fact]
@@ -638,11 +634,11 @@ public sealed class OutputCacheProfileTests
                 "epoch",
                 version,
                 accepted.CanonicalDocument!.ContentHash);
-            var materialized = await _proxy.Services.GetRequiredService<GatewayNativeMaterializer>()
-                .MaterializeAsync(accepted, identity, $"cache-native-{version}");
-            materialized.IsMaterialized.Should().BeTrue(string.Join(", ", materialized.Diagnostics.Select(error => error.Code)));
-            var outcome = await _proxy.Services.GetRequiredService<GatewayYarpPublisher>()
-                .PublishAsync(materialized.Bundle!, TimeSpan.FromSeconds(5));
+            var materialized = await _proxy.Services.GetRequiredService<GatewayRuntimePlanner>()
+                .PlanAsync(accepted, identity, $"cache-native-{version}");
+            materialized.IsPlanned.Should().BeTrue(string.Join(", ", materialized.Diagnostics.Select(error => error.Code)));
+            var outcome = await _proxy.Services.GetRequiredService<GatewayRuntimePublisher>()
+                .PublishAsync(materialized.PreparedApplication!, TimeSpan.FromSeconds(5));
             outcome.State.Should().Be(GatewayPublicationState.ActiveAcknowledged);
         }
 
@@ -674,7 +670,11 @@ public sealed class OutputCacheProfileTests
 
         internal async Task SendPartial(string path)
         {
-            using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+            // The first incomplete fill releases Output Cache's per-key lock
+            // asynchronously. Keep the client bound comfortably above that
+            // cleanup path so suite-level CPU contention cannot turn the
+            // second cache-safety probe into a pre-upstream cancellation.
+            using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(10));
             try
             {
                 using var response = await Client.GetAsync(path, cancellation.Token);

@@ -24,7 +24,7 @@ public static class HPDBaseRealtimeServiceCollectionExtensions
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<IOptions<HPDBaseTokenProtectionOptions>>(_ => Options.Create(new HPDBaseTokenProtectionOptions
         {
-            ActiveKey = new BaseOpaqueTokenKey { Id = 0, Key = System.Security.Cryptography.RandomNumberGenerator.GetBytes(32) },
+            ActiveKey = new BaseOpaqueTokenKey { Id = 0, Key = System.Security.Cryptography.RandomNumberGenerator.GetBytes(32), IssueNotBefore = DateTimeOffset.UnixEpoch },
         }));
         services.TryAddSingleton<BaseOpaqueTokenProtector>();
         services.TryAddSingleton(new BaseTokenProtectionRegistration(false));
@@ -36,6 +36,7 @@ public static class HPDBaseRealtimeServiceCollectionExtensions
                 provider.GetRequiredService<IBaseRealtimePolicy>(),
                 provider.GetRequiredService<IBaseRecordRedactor>(),
                 provider.GetService<IBaseDependencyInvalidationMapper>()));
+        services.TryAddSingleton<BaseSubjectLiveControlHub>();
         services.TryAddSingleton<IBaseRealtimeFeedSource, DefaultBaseRealtimeFeedSource>();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseDescriptorContributor, BaseRealtimeDescriptorContributor>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseHealthContributor, BaseRealtimeHealthContributor>());

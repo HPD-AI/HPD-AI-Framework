@@ -10,14 +10,16 @@ using Microsoft.CodeAnalysis.Text;
 
 namespace HPD.Base.Generators;
 
-/// <summary>Represents a base read generator.</summary>
-[Generator(LanguageNames.CSharp)]
-public sealed class BaseReadGenerator : IIncrementalGenerator
+/// <summary>Renders registered-read roots beneath the combined schema generator.</summary>
+internal static class BaseReadGenerator
 {
     private const string ReadAttribute = "HPD.Base.BaseReadAttribute";
     private const string ParameterAttribute = "HPD.Base.BaseReadParameterAttribute";
     private const string FieldAttribute = "HPD.Base.BaseReadFieldAttribute";
     private const string JsonSerializableAttribute = "System.Text.Json.Serialization.JsonSerializableAttribute";
+    private const string JsonPropertyNameAttribute = "System.Text.Json.Serialization.JsonPropertyNameAttribute";
+    private const string JsonIgnoreAttribute = "System.Text.Json.Serialization.JsonIgnoreAttribute";
+    private const string JsonOptionsAttribute = "System.Text.Json.Serialization.JsonSourceGenerationOptionsAttribute";
 
     private static readonly DiagnosticDescriptor InvalidRead = new(
         "HPDBASE020", "Invalid BASE registered read", "Registered read '{0}' is invalid: {1}",
@@ -35,17 +37,10 @@ public sealed class BaseReadGenerator : IIncrementalGenerator
         "Registered read '{0}' member '{1}' uses unsupported type '{2}'",
         "HPD.Base.Generation", DiagnosticSeverity.Error, true);
 
-    /// <summary>Executes the initialize operation.</summary>
-    public void Initialize(IncrementalGeneratorInitializationContext context)
-    {
-        var candidates = context.SyntaxProvider.ForAttributeWithMetadataName(
-            ReadAttribute,
-            static (node, _) => node is TypeDeclarationSyntax,
-            static (attributeContext, _) => (INamedTypeSymbol)attributeContext.TargetSymbol);
-        context.RegisterSourceOutput(candidates.Collect(), Generate);
-    }
-
-    private static void Generate(SourceProductionContext context, ImmutableArray<INamedTypeSymbol> candidates)
+    internal static void GenerateCombined(
+        SourceProductionContext context,
+        ImmutableArray<INamedTypeSymbol> candidates,
+        ImmutableDictionary<INamedTypeSymbol, ContextValidationResult> contextResults)
     {
         var ids = new HashSet<string>(StringComparer.Ordinal);
         foreach (INamedTypeSymbol symbol in candidates
@@ -55,19 +50,36 @@ public sealed class BaseReadGenerator : IIncrementalGenerator
             AttributeData attribute = Find(symbol, ReadAttribute)!;
             string id = ConstructorString(attribute, 0);
             INamedTypeSymbol jsonContext = ConstructorType(attribute, 1);
+            contextResults.TryGetValue(jsonContext, out ContextValidationResult contextResult);
+            if (contextResult is not null && !contextResult.IsValid && IsTopLevelPartialRecord(symbol))
+            {
+                context.AddSource(Sanitize(symbol.ToDisplayString()) + ".HPDBaseReadRecovery.g.cs",
+                    SourceText.From(RenderRecovery(symbol), Encoding.UTF8));
+                continue;
+            }
             int exposure = NamedEnum(attribute, "Exposure", 0);
             int authorization = NamedEnum(attribute, "Authorization", 0);
+            int disclosure = NamedEnum(attribute, "Disclosure", 0);
+            int sourceAuthority = NamedEnum(attribute, "SourceAuthority", 0);
+            int audience = NamedEnum(attribute, "Audience", 1);
+            string requiredGrantId = NamedString(attribute, "RequiredGrantId");
+            string[] confidentialOutputFieldIds = NamedStrings(attribute, "ConfidentialOutputFieldIds");
+            string[] secretOutputFieldIds = NamedStrings(attribute, "SecretOutputFieldIds");
+            string[] systemSourceIds = NamedStrings(attribute, "SystemSourceIds");
             if (exposure is < 0 or > 2 || authorization is < 0 or > 2 ||
-                exposure == 2 && authorization == 0)
+                disclosure is < 0 or > 2 || sourceAuthority is < 0 or > 1 || audience is < 0 or > 2 ||
+                exposure == 2 && authorization == 0 || !ValidId(requiredGrantId))
             {
                 Report(context, symbol, id ?? symbol.Name,
                     "exposure and authorization metadata must be valid, and admin exposure requires admin or system authorization");
+                EmitRecovery(context, symbol);
                 continue;
             }
             if (!ValidId(id) || !ids.Add(id) || !IsTopLevelPartialRecord(symbol))
             {
                 Report(context, symbol, id ?? symbol.Name,
                     "the id must be unique and valid and the declaration must be a top-level partial record class");
+                EmitRecovery(context, symbol);
                 continue;
             }
 
@@ -77,6 +89,7 @@ public sealed class BaseReadGenerator : IIncrementalGenerator
             {
                 Report(context, symbol, id,
                     "a public nested partial Row record and source-generated JSON registrations for request and Row are required");
+                EmitRecovery(context, symbol);
                 continue;
             }
 
@@ -86,6 +99,7 @@ public sealed class BaseReadGenerator : IIncrementalGenerator
             {
                 if (!parameterError && !fieldError && (fields.Count == 0 || !HasConfigure(symbol, row)))
                     Report(context, symbol, id, "at least one Row field and the exact public static Configure method are required");
+                EmitRecovery(context, symbol);
                 continue;
             }
 
@@ -96,14 +110,50 @@ public sealed class BaseReadGenerator : IIncrementalGenerator
                 FullTypeName = symbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                 RowFullTypeName = row.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                 JsonContext = jsonContext.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+                JsonNamingPolicy = GetJsonNamingPolicy(jsonContext),
                 Id = id,
                 Exposure = exposure,
                 Authorization = authorization,
+                Disclosure = disclosure,
+                SourceAuthority = sourceAuthority,
+                Audience = audience,
+                RequiredGrantId = requiredGrantId,
+                ConfidentialOutputFieldIds = confidentialOutputFieldIds,
+                SecretOutputFieldIds = secretOutputFieldIds,
+                SystemSourceIds = systemSourceIds,
                 Parameters = parameters,
                 Fields = fields,
+                ParameterSerializerProperties = contextResult?.UnionGraph.PropertiesForRoot(symbol)
+                    ?? ImmutableArray<ContextGraphProperty>.Empty,
+                RowSerializerProperties = contextResult?.UnionGraph.PropertiesForRoot(row)
+                    ?? ImmutableArray<ContextGraphProperty>.Empty,
             };
             context.AddSource(Sanitize(model.FullTypeName) + ".HPDBaseRead.g.cs", SourceText.From(Render(model), Encoding.UTF8));
         }
+    }
+
+    private static void EmitRecovery(SourceProductionContext context, INamedTypeSymbol symbol)
+    {
+        if (!IsTopLevelPartialRecord(symbol)) return;
+        context.AddSource(Sanitize(symbol.ToDisplayString()) + ".HPDBaseReadRecovery.g.cs",
+            SourceText.From(RenderRecovery(symbol), Encoding.UTF8));
+    }
+
+    private static string RenderRecovery(INamedTypeSymbol symbol)
+    {
+        INamedTypeSymbol row = symbol.GetTypeMembers("Row").SingleOrDefault();
+        string parameters = symbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        string result = row?.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) ?? "global::System.Object";
+        var source = new StringBuilder("// <auto-generated />\n#nullable enable\n\n");
+        if (!symbol.ContainingNamespace.IsGlobalNamespace)
+            source.Append("namespace ").Append(symbol.ContainingNamespace.ToDisplayString()).AppendLine(";\n");
+        source.Append("partial record class ").Append(symbol.Name).AppendLine("\n{");
+        source.Append("    public static global::HPD.Base.BaseReadDefinition<").Append(parameters).Append(", ")
+            .Append(result).AppendLine("> Definition => null!;");
+        source.Append("    public static global::HPD.Base.BaseReadHandle<").Append(parameters).Append(", ")
+            .Append(result).AppendLine("> Handle => null!;");
+        source.AppendLine("}");
+        return source.ToString();
     }
 
     private static List<MemberModel> Members(
@@ -122,6 +172,19 @@ public sealed class BaseReadGenerator : IIncrementalGenerator
             .OrderBy(static property => property.Locations.FirstOrDefault()?.SourceSpan.Start ?? int.MaxValue))
         {
             AttributeData attribute = Find(property, attributeName);
+            AttributeData ignore = Find(property, JsonIgnoreAttribute);
+            long ignoreCondition = NamedInt64(ignore, "Condition", 1);
+            if (ignore is not null && ignoreCondition == 1)
+            {
+                if (attribute is not null)
+                {
+                    context.ReportDiagnostic(Diagnostic.Create(
+                        InvalidRead, Location(property), readId,
+                        "JsonIgnore(Always) cannot suppress a declared BASE read member"));
+                    failed = true;
+                }
+                continue;
+            }
             if (attribute == null)
             {
                 context.ReportDiagnostic(Diagnostic.Create(MissingReadIdentity, Location(property), readId, property.Name, requiredAttribute));
@@ -138,7 +201,8 @@ public sealed class BaseReadGenerator : IIncrementalGenerator
             }
 
             bool parameterMember = attributeName == ParameterAttribute;
-            if (!SupportedMemberType(property.Type, parameterMember))
+            bool subjectReference = SubjectReferenceTarget(property.Type) is not null;
+            if (parameterMember && subjectReference || !SupportedMemberType(property.Type, parameterMember))
             {
                 context.ReportDiagnostic(Diagnostic.Create(
                     UnsupportedReadType, Location(property), readId, property.Name,
@@ -153,9 +217,13 @@ public sealed class BaseReadGenerator : IIncrementalGenerator
             result.Add(new MemberModel
             {
                 Name = property.Name,
+                WireName = ConstructorString(Find(property, JsonPropertyNameAttribute), 0) ?? property.Name,
+                ExplicitWireName = Find(property, JsonPropertyNameAttribute) is not null,
+                Required = property.IsRequired,
                 Id = id,
                 Type = property.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                 TypedRecordIdTarget = TypedRecordIdTarget(unwrapped),
+                SubjectReferenceTarget = SubjectReferenceTarget(unwrapped),
                 IsArray = property.Type is IArrayTypeSymbol,
                 IsNullable = !SymbolEqualityComparer.Default.Equals(valueType, unwrapped),
                 ValueType = unwrapped.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
@@ -229,11 +297,12 @@ public sealed class BaseReadGenerator : IIncrementalGenerator
             .AppendLine("> Handle => Definition.Handle;\n");
         source.Append("    private static global::HPD.Base.BaseReadDefinition<").Append(model.FullTypeName).Append(", ").Append(model.RowFullTypeName)
             .AppendLine("> CreateHPDBaseReadDefinition()\n    {");
-        source.Append("        var parameterJson = ").Append(model.JsonContext).Append(".Default.GetTypeInfo(typeof(").Append(model.FullTypeName)
-            .Append(")) as global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<").Append(model.FullTypeName).AppendLine("> ?? throw new global::System.InvalidOperationException(\"Missing generated read parameter JSON metadata.\");");
-        source.Append("        var rowJson = ").Append(model.JsonContext).Append(".Default.GetTypeInfo(typeof(").Append(model.RowFullTypeName)
-            .Append(")) as global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<").Append(model.RowFullTypeName).AppendLine("> ?? throw new global::System.InvalidOperationException(\"Missing generated read row JSON metadata.\");");
-        source.Append("        return global::HPD.Base.BaseReadGeneratedContract.Create(").Append(Literal(model.Id)).AppendLine(", parameterJson, rowJson,");
+        source.AppendLine("        var jsonRegistration = global::HPD.Base.BaseSerializerGeneratedContract.RegisterContext(__HPDBaseSerializerFactory.Create);");
+        foreach (MemberModel member in model.Parameters) AppendOpaqueWireBinding(source, member, model.JsonNamingPolicy, "parameter");
+        foreach (MemberModel member in model.Fields) AppendOpaqueWireBinding(source, member, model.JsonNamingPolicy, "row");
+        source.Append("        return global::HPD.Base.BaseReadGeneratedContract.CreateGenerated(").Append(Literal(model.Id)).AppendLine(", jsonRegistration,");
+        AppendReadDeclarations(source, model.ParameterSerializerProperties);
+        AppendReadDeclarations(source, model.RowSerializerProperties);
         source.AppendLine("            new global::HPD.Base.BaseRelationalReadParameter[]");
         source.AppendLine("            {");
         foreach (MemberModel member in model.Parameters)
@@ -248,7 +317,34 @@ public sealed class BaseReadGenerator : IIncrementalGenerator
             .Append(new[] { "None", "Public", "Admin" }[model.Exposure])
             .Append(", global::HPD.Base.BaseReadAuthorization.")
             .Append(new[] { "Authenticated", "Admin", "System" }[model.Authorization])
-            .AppendLine(", Configure);\n    }");
+            .Append(", global::HPD.Base.BaseRegisteredReadDisclosure.").Append(new[] { "Ordinary", "ConfidentialProjection", "SecretProjection" }[model.Disclosure])
+            .Append(", global::HPD.Base.BaseRegisteredReadSourceAuthority.").Append(new[] { "Ordinary", "System" }[model.SourceAuthority])
+            .Append(", global::HPD.Base.HPDBaseEndpointAudience.").Append(new[] { "Public", "Application", "ControlPlane" }[model.Audience])
+            .Append(", ").Append(Literal(model.RequiredGrantId))
+            .Append(", ").Append(StringArray(model.ConfidentialOutputFieldIds))
+            .Append(", ").Append(StringArray(model.SecretOutputFieldIds))
+            .Append(", ").Append(StringArray(model.SystemSourceIds))
+            .AppendLine(",");
+        source.AppendLine("            new global::HPD.Base.BaseReadClientContract");
+        source.AppendLine("            {");
+        source.Append("                ParameterTypeId = ").Append(Literal("read." + model.Id + ".parameters")).AppendLine(",");
+        source.Append("                RowTypeId = ").Append(Literal("read." + model.Id + ".row")).AppendLine(",");
+        source.AppendLine("                Parameters = new global::HPD.Base.BaseReadClientProperty[]");
+        source.AppendLine("                {");
+        foreach (MemberModel member in model.Parameters) AppendClientProperty(source, member, "parameter", "                    ");
+        source.AppendLine("                },");
+        source.AppendLine("                Row = new global::HPD.Base.BaseReadClientProperty[]");
+        source.AppendLine("                {");
+        foreach (MemberModel member in model.Fields) AppendClientProperty(source, member, "row", "                    ");
+        source.AppendLine("                },");
+        source.AppendLine("            }, Configure);\n    }");
+        source.AppendLine("    private static class __HPDBaseSerializerFactory");
+        source.AppendLine("    {");
+        source.AppendLine("        [global::System.CodeDom.Compiler.GeneratedCode(\"HPD.Base.Generators\", \"44\")]");
+        source.Append("        internal static ").Append(model.JsonContext).Append(" Create() => new(")
+            .Append("global::HPD.Base.BaseSerializerGeneratedContract.CreateOptions(")
+            .Append(model.JsonNamingPolicy == null ? "null" : "global::System.Text.Json.JsonNamingPolicy." + model.JsonNamingPolicy).AppendLine("));");
+        source.AppendLine("    }");
         source.AppendLine("}");
         return source.ToString();
     }
@@ -266,9 +362,35 @@ public sealed class BaseReadGenerator : IIncrementalGenerator
         SymbolEqualityComparer.Default.Equals(ConstructorType(attribute, 0), target));
     private static AttributeData Find(ISymbol symbol, string name) => symbol.GetAttributes().FirstOrDefault(attribute => attribute.AttributeClass?.ToDisplayString() == name);
     private static string ConstructorString(AttributeData attribute, int index) => attribute?.ConstructorArguments.Length > index ? attribute.ConstructorArguments[index].Value as string : null;
+    private static long NamedInt64(AttributeData attribute, string name, long fallback) =>
+        attribute?.NamedArguments.FirstOrDefault(pair => pair.Key == name).Value.Value is object value
+            ? Convert.ToInt64(value, System.Globalization.CultureInfo.InvariantCulture) : fallback;
     private static int NamedEnum(AttributeData attribute, string name, int fallback) =>
         attribute.NamedArguments.FirstOrDefault(pair => pair.Key == name).Value.Value is int value ? value : fallback;
+    private static string NamedString(AttributeData attribute, string name) =>
+        attribute.NamedArguments.FirstOrDefault(pair => pair.Key == name).Value.Value as string;
+    private static string[] NamedStrings(AttributeData attribute, string name)
+    {
+        TypedConstant constant = attribute.NamedArguments.FirstOrDefault(pair => pair.Key == name).Value;
+        if (constant.Kind != TypedConstantKind.Array) return Array.Empty<string>();
+        ImmutableArray<TypedConstant> values = constant.Values;
+        return values.IsDefault ? Array.Empty<string>() : values
+            .Select(static value => value.Value as string).Where(static value => value != null).ToArray();
+    }
     private static INamedTypeSymbol ConstructorType(AttributeData attribute, int index) => attribute?.ConstructorArguments.Length > index ? attribute.ConstructorArguments[index].Value as INamedTypeSymbol : null;
+    private static string GetJsonNamingPolicy(INamedTypeSymbol context)
+    {
+        AttributeData options = Find(context, JsonOptionsAttribute);
+        TypedConstant value = options?.NamedArguments.FirstOrDefault(static pair => pair.Key == "PropertyNamingPolicy").Value ?? default;
+        if (value.Type is null || value.Value is null) return null;
+        long selected = Convert.ToInt64(value.Value, System.Globalization.CultureInfo.InvariantCulture);
+        IFieldSymbol member = value.Type.GetMembers().OfType<IFieldSymbol>().FirstOrDefault(field => field.HasConstantValue && Convert.ToInt64(field.ConstantValue, System.Globalization.CultureInfo.InvariantCulture) == selected);
+        return member?.Name switch
+        {
+            "CamelCase" => "CamelCase", "SnakeCaseLower" => "SnakeCaseLower", "SnakeCaseUpper" => "SnakeCaseUpper",
+            "KebabCaseLower" => "KebabCaseLower", "KebabCaseUpper" => "KebabCaseUpper", _ => null,
+        };
+    }
     private static Location Location(ISymbol symbol) => symbol.Locations.FirstOrDefault(static location => location.IsInSource) ?? Microsoft.CodeAnalysis.Location.None;
     private static void Report(SourceProductionContext context, ISymbol symbol, string id, string reason) => context.ReportDiagnostic(Diagnostic.Create(InvalidRead, Location(symbol), id, reason));
     private static bool ValidId(string value) => !string.IsNullOrEmpty(value) && value.Length <= 128 && IsAscii(value[0]) && value.All(static character => IsAscii(character) || character is '.' or '-' or '_');
@@ -294,8 +416,62 @@ public sealed class BaseReadGenerator : IIncrementalGenerator
             : "global::HPD.Base.BaseReadGeneratedContract.Value(" + expression + ".Value)";
     }
 
+    private static void AppendWireBinding(StringBuilder source, MemberModel member, string metadata, string prefix)
+    {
+        string expected = member.ExplicitWireName
+            ? Literal(member.WireName)
+            : metadata + ".Options.PropertyNamingPolicy?.ConvertName(" + Literal(member.Name) + ") ?? " + Literal(member.Name);
+        string variable = "__wire_" + prefix + "_" + member.Name;
+        source.Append("        var __property_").Append(prefix).Append('_').Append(member.Name)
+            .Append(" = global::System.Linq.Enumerable.Single(").Append(metadata).Append(".Properties, property => global::System.String.Equals(property.Name, ")
+            .Append(expected).AppendLine(", global::System.StringComparison.Ordinal));");
+        source.Append("        string ").Append(variable).Append(" = new string(__property_").Append(prefix).Append('_').Append(member.Name)
+            .AppendLine(".Name.AsSpan());");
+    }
+
+    private static void AppendOpaqueWireBinding(StringBuilder source, MemberModel member, string namingPolicy, string prefix)
+    {
+        source.Append("        string __wire_").Append(prefix).Append('_').Append(member.Name)
+            .Append(" = global::HPD.Base.BaseSerializerGeneratedContract.ProvisionalWireName(")
+            .Append(namingPolicy == null ? "null" : "global::System.Text.Json.JsonNamingPolicy." + namingPolicy)
+            .Append(", ").Append(Literal(member.Name)).Append(", ").Append(member.ExplicitWireName ? Literal(member.WireName) : "null").AppendLine(");");
+    }
+
+    private static void AppendReadDeclarations(
+        StringBuilder source,
+        ImmutableArray<ContextGraphProperty> properties)
+    {
+        source.AppendLine("            new global::HPD.Base.BaseSerializerPropertyDeclaration[]");
+        source.AppendLine("            {");
+        foreach (ContextGraphProperty property in properties)
+        {
+            source.Append("                global::HPD.Base.BaseSerializerPropertyDeclaration.Create(typeof(")
+                .Append(property.DeclaringType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat))
+                .Append("), ").Append(Literal(property.ApplicationName)).Append(", typeof(")
+                .Append(property.PropertyType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)).Append("), ")
+                .Append(property.ExplicitWireName is not null ? Literal(property.ExplicitWireName) : "null")
+                .Append(", ").Append(property.Required ? "true" : "false").Append(", ").Append(property.Nullable ? "true" : "false")
+                .Append(", ").Append(property.Ignored ? "true" : "false")
+                .Append(", ").Append(property.ExplicitNever ? "true" : "false")
+                .Append(", ").Append(Literal(property.ConverterIdentity)).Append(", ")
+                .Append(property.ConverterType is null ? "null" : "typeof(" + property.ConverterType + ")")
+                .AppendLine("),");
+        }
+        source.AppendLine("            },");
+    }
+
+    private static void AppendClientProperty(StringBuilder source, MemberModel member, string prefix, string indent) => source
+        .Append(indent).Append("new global::HPD.Base.BaseReadClientProperty { Id = ").Append(Literal(member.Id))
+        .Append(", GeneratedName = ").Append(Literal(member.Name))
+        .Append(", WireName = __wire_").Append(prefix).Append('_').Append(member.Name)
+        .Append(", Kind = global::HPD.Base.QueryValueKind.").Append(member.Kind)
+        .Append(", Array = ").Append(member.IsArray ? "true" : "false")
+        .Append(", Nullable = ").Append(member.ContainerNullable ? "true" : "false").AppendLine(" },");
+
     private static string Decode(MemberModel member)
     {
+        if (member.SubjectReferenceTarget != null)
+            return "global::HPD.Base.BaseReadGeneratedContract.ReadSubjectReference<" + member.SubjectReferenceTarget + ">(row, " + Literal(member.Id) + ")";
         if (member.TypedRecordIdTarget != null)
         {
             string scalar = "new global::HPD.Base.BaseRecordId<" + member.TypedRecordIdTarget + ">(global::HPD.Base.BaseReadGeneratedContract.Read<global::HPD.Base.RecordId>(row, " + Literal(member.Id) + "))";
@@ -329,7 +505,7 @@ public sealed class BaseReadGenerator : IIncrementalGenerator
         string name = type is INamedTypeSymbol named && named.IsGenericType
             ? named.ConstructedFrom.ToDisplayString()
             : type.ToDisplayString();
-        return name is "System.DateTime" or "System.DateTimeOffset" or "System.Guid" or "HPD.Base.RecordId" or "HPD.Base.BaseRecordId<TRecord>";
+        return name is "System.DateTime" or "System.DateTimeOffset" or "System.Guid" or "HPD.Base.RecordId" or "HPD.Base.BaseRecordId<TRecord>" or "HPD.Base.BaseSubjectReference<TSubject>";
     }
     private static string ValueKind(ITypeSymbol type)
     {
@@ -341,11 +517,18 @@ public sealed class BaseReadGenerator : IIncrementalGenerator
         string name = type is INamedTypeSymbol named && named.IsGenericType
             ? named.ConstructedFrom.ToDisplayString()
             : type.ToDisplayString();
-        return name is "System.DateTime" or "System.DateTimeOffset" ? "DateTime" : "Id";
+        return name is "System.DateTime" or "System.DateTimeOffset" ? "DateTime"
+            : name == "HPD.Base.BaseSubjectReference<TSubject>" ? "SubjectReference" : "Id";
     }
+    private static string SubjectReferenceTarget(ITypeSymbol type) =>
+        type is INamedTypeSymbol named && named.IsGenericType && named.ConstructedFrom.ToDisplayString() == "HPD.Base.BaseSubjectReference<TSubject>"
+            ? named.TypeArguments[0].ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)
+            : null;
     private static string Escape(string value) => SyntaxFacts.GetKeywordKind(value) != SyntaxKind.None ? "@" + value : value;
     private static string Sanitize(string value) => new(value.Select(static character => char.IsLetterOrDigit(character) || character == '_' ? character : '_').ToArray());
     private static string Literal(string value) => SymbolDisplay.FormatLiteral(value ?? string.Empty, true);
+    private static string StringArray(IEnumerable<string> values) =>
+        "new string[] { " + string.Join(", ", values.Select(Literal)) + " }";
 
     private sealed class ReadModel { /// <summary>Provides the namespace value.</summary>
         public string Namespace; /// <summary>Provides the type name value.</summary>
@@ -353,16 +536,30 @@ public sealed class BaseReadGenerator : IIncrementalGenerator
         public string FullTypeName; /// <summary>Provides the row full type name value.</summary>
         public string RowFullTypeName; /// <summary>Provides the JSON context value.</summary>
         public string JsonContext; /// <summary>Provides the ID value.</summary>
+        public string JsonNamingPolicy;
         public string Id; /// <summary>Provides the exposure value.</summary>
         public int Exposure; /// <summary>Provides the authorization value.</summary>
         public int Authorization; /// <summary>Provides the parameters value.</summary>
+        public int Disclosure;
+        public int SourceAuthority;
+        public int Audience;
+        public string RequiredGrantId;
+        public string[] ConfidentialOutputFieldIds;
+        public string[] SecretOutputFieldIds;
+        public string[] SystemSourceIds;
         public List<MemberModel> Parameters; /// <summary>Provides the fields value.</summary>
-        public List<MemberModel> Fields; }
+        public List<MemberModel> Fields;
+        public ImmutableArray<ContextGraphProperty> ParameterSerializerProperties;
+        public ImmutableArray<ContextGraphProperty> RowSerializerProperties; }
     private sealed class MemberModel { /// <summary>Provides the name value.</summary>
-        public string Name; /// <summary>Provides the ID value.</summary>
+        public string Name;
+        public string WireName; /// <summary>Provides the ID value.</summary>
+        public bool ExplicitWireName;
+        public bool Required;
         public string Id; /// <summary>Provides the type value.</summary>
         public string Type; /// <summary>Provides the typed record ID target value.</summary>
         public string TypedRecordIdTarget; /// <summary>Provides the is array value.</summary>
+        public string SubjectReferenceTarget;
         public bool IsArray; /// <summary>Provides the is nullable value.</summary>
         public bool IsNullable; /// <summary>Provides the value type value.</summary>
         public string ValueType; /// <summary>Provides the kind value.</summary>

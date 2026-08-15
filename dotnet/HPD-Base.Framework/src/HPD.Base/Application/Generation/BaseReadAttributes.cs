@@ -17,6 +17,47 @@ public sealed class BaseReadAttribute(string id, Type jsonContextType) : Attribu
 
     /// <summary>Gets or sets the minimum principal authorization required to invoke the read.</summary>
     public BaseReadAuthorization Authorization { get; set; } = BaseReadAuthorization.Authenticated;
+
+    /// <summary>Gets or sets the closed disclosure authority of the result.</summary>
+    public BaseRegisteredReadDisclosure Disclosure { get; set; }
+
+    /// <summary>Gets or sets whether the read may reference system collections.</summary>
+    public BaseRegisteredReadSourceAuthority SourceAuthority { get; set; }
+
+    /// <summary>Gets or sets the sole endpoint audience of the read.</summary>
+    public HPDBaseEndpointAudience Audience { get; set; } = HPDBaseEndpointAudience.Application;
+
+    /// <summary>Gets or sets the exact operation grant required to invoke the read.</summary>
+    public string RequiredGrantId { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets result fields permitted to disclose Confidential values.</summary>
+    public string[] ConfidentialOutputFieldIds { get; set; } = [];
+
+    /// <summary>Gets or sets result fields permitted to disclose Secret values.</summary>
+    public string[] SecretOutputFieldIds { get; set; } = [];
+
+    /// <summary>Gets or sets the exact system collection IDs the read may reference.</summary>
+    public string[] SystemSourceIds { get; set; } = [];
+}
+
+/// <summary>Classifies the maximum disclosure authority of one registered read.</summary>
+public enum BaseRegisteredReadDisclosure
+{
+    /// <summary>The result may contain Public fields only.</summary>
+    Ordinary,
+    /// <summary>The result may contain explicitly declared Confidential fields.</summary>
+    ConfidentialProjection,
+    /// <summary>The result may contain explicitly declared Confidential and Secret fields.</summary>
+    SecretProjection,
+}
+
+/// <summary>Classifies the source authority of one registered read.</summary>
+public enum BaseRegisteredReadSourceAuthority
+{
+    /// <summary>The read may reference ordinary collections only.</summary>
+    Ordinary,
+    /// <summary>The read may reference only its exact declared system sources.</summary>
+    System,
 }
 
 /// <summary>Controls whether and where a registered read is exposed over HTTP.</summary>

@@ -40,7 +40,7 @@ internal static class HPDBaseHPDAuthTelemetry
     /// <summary>Executes the trace policy async operation.</summary>
     public static async ValueTask<PolicyDecision> TracePolicyAsync(
         PolicyEvaluationRequest request,
-        HPDAuthBasePolicyCompositionMode compositionMode,
+        HPDBaseAuthPolicyCompositionMode compositionMode,
         Func<ValueTask<PolicyDecision>> invoke)
     {
         using var activity = StartPolicy(request, compositionMode);
@@ -115,7 +115,7 @@ internal static class HPDBaseHPDAuthTelemetry
         return missing;
     }
 
-    private static Activity? StartPolicy(PolicyEvaluationRequest request, HPDAuthBasePolicyCompositionMode compositionMode)
+    private static Activity? StartPolicy(PolicyEvaluationRequest request, HPDBaseAuthPolicyCompositionMode compositionMode)
     {
         var activity = HPDBaseHPDAuthObservability.ActivitySource.StartActivity(HPDBaseTelemetrySpans.AuthPolicyEvaluate, ActivityKind.Internal);
         if (activity is null)
@@ -144,7 +144,7 @@ internal static class HPDBaseHPDAuthTelemetry
     private static void FinishPolicy(
         Activity? activity,
         PolicyEvaluationRequest request,
-        HPDAuthBasePolicyCompositionMode compositionMode,
+        HPDBaseAuthPolicyCompositionMode compositionMode,
         PolicyDecision decision,
         long startedAt)
     {
@@ -258,11 +258,11 @@ internal static class HPDBaseHPDAuthTelemetry
         _ => "unknown"
     };
 
-    private static string CompositionModeValue(HPDAuthBasePolicyCompositionMode value) => value switch
+    private static string CompositionModeValue(HPDBaseAuthPolicyCompositionMode value) => value switch
     {
-        HPDAuthBasePolicyCompositionMode.HPDAuthOnly => "hpdAuthOnly",
-        HPDAuthBasePolicyCompositionMode.HPDAuthThenInner => "hpdAuthThenInner",
-        HPDAuthBasePolicyCompositionMode.InnerThenHPDAuth => "innerThenHpdAuth",
+        HPDBaseAuthPolicyCompositionMode.HPDAuthOnly => "hpdAuthOnly",
+        HPDBaseAuthPolicyCompositionMode.HPDAuthThenInner => "hpdAuthThenInner",
+        HPDBaseAuthPolicyCompositionMode.InnerThenHPDAuth => "innerThenHpdAuth",
         _ => "unknown"
     };
 

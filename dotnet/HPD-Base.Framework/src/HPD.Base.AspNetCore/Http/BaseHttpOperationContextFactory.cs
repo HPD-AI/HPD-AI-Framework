@@ -8,16 +8,22 @@ namespace HPD.Base.AspNetCore;
 
 internal sealed class BaseHttpOperationContextFactory : IBaseHttpOperationContextFactory
 {
-    private readonly HPDBaseAspNetCoreOptions _options;
+    private readonly HPDBaseAspNetCoreSnapshot _options;
     private readonly TimeProvider _timeProvider;
+    private readonly IBaseHttpCorrelationProvider _correlation;
+    private readonly string _applicationId;
 
     /// <summary>Initializes a new instance.</summary>
     public BaseHttpOperationContextFactory(
-        IOptions<HPDBaseAspNetCoreOptions> options,
-        TimeProvider timeProvider)
+        HPDBaseAspNetCoreSnapshot options,
+        TimeProvider timeProvider,
+        IBaseHttpCorrelationProvider correlation,
+        IOptions<HPDBaseSchemaOptions> schemaOptions)
     {
-        _options = options.Value;
+        _options = options;
         _timeProvider = timeProvider;
+        _correlation = correlation;
+        _applicationId = schemaOptions.Value.ApplicationId;
     }
 
     /// <summary>Executes the create operation.</summary>
@@ -33,10 +39,13 @@ internal sealed class BaseHttpOperationContextFactory : IBaseHttpOperationContex
         ArgumentNullException.ThrowIfNull(principal);
 
         var requestOptions = _options.RequestContext;
-        var correlationId = SafeHeader(httpContext, requestOptions.CorrelationIdHeaderName, 128) ?? httpContext.TraceIdentifier;
+        var correlationId = _correlation.GetCorrelationId(httpContext);
 
         return new OperationContext
         {
+            ApplicationId = _applicationId,
+            Audience = httpContext.GetEndpoint()?.Metadata.GetMetadata<HPDBaseEndpointDescriptor>()?.Audience
+                ?? HPDBaseEndpointAudience.Application,
             Operation = operation,
             CollectionId = collectionId,
             RecordId = recordId,

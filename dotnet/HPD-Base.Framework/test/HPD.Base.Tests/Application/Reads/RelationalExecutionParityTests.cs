@@ -143,13 +143,13 @@ public sealed class RelationalExecutionParityTests
     private static async Task<string[]> ExecuteDateTimesAsync(string? sqlitePath)
     {
         var services = new ServiceCollection().AddLogging();
-        services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
         services.AddHPDBase(builder =>
         {
+            builder.AddTestPolicyAuthority<AllowPolicyEvaluator>();
             builder.ConfigureSchema(options => options.PlanProtectionKey = Enumerable.Repeat((byte)0x77, 32).ToArray())
                 .AddCollection(DateTimeParityRecord.Collection)
                 .AddRead(DateTimeParityRead.Definition);
-            if (sqlitePath is not null) builder.UseSqlite(options => options.DataSource = sqlitePath);
+            if (sqlitePath is not null) builder.UseStore(SqliteStore.Configure(options => options.DataSource = sqlitePath));
         });
         await using ServiceProvider provider = services.BuildServiceProvider();
         if (sqlitePath is not null)
@@ -179,12 +179,12 @@ public sealed class RelationalExecutionParityTests
     private static async Task<Dictionary<string, string[]>> ExecuteNullPredicatesAsync(string? sqlitePath)
     {
         var services = new ServiceCollection().AddLogging();
-        services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
         services.AddHPDBase(builder =>
         {
+            builder.AddTestPolicyAuthority<AllowPolicyEvaluator>();
             builder.ConfigureSchema(options => options.PlanProtectionKey = Enumerable.Repeat((byte)0x76, 32).ToArray())
                 .AddCollection(NullableParityRecord.Collection);
-            if (sqlitePath is not null) builder.UseSqlite(options => options.DataSource = sqlitePath);
+            if (sqlitePath is not null) builder.UseStore(SqliteStore.Configure(options => options.DataSource = sqlitePath));
         });
         await using ServiceProvider provider = services.BuildServiceProvider();
         if (sqlitePath is not null)
@@ -243,13 +243,13 @@ public sealed class RelationalExecutionParityTests
     private static async Task<BasePage<GroupedPageRead.Row>> ExecuteGroupedPageAsync(string? sqlitePath)
     {
         var services = new ServiceCollection().AddLogging();
-        services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
         services.AddHPDBase(builder =>
         {
+            builder.AddTestPolicyAuthority<AllowPolicyEvaluator>();
             builder.ConfigureSchema(options => options.PlanProtectionKey = Enumerable.Repeat((byte)0x75, 32).ToArray())
                 .AddCollection(GroupedPageRecord.Collection)
                 .AddRead(GroupedPageRead.Definition);
-            if (sqlitePath is not null) builder.UseSqlite(options => options.DataSource = sqlitePath);
+            if (sqlitePath is not null) builder.UseStore(SqliteStore.Configure(options => options.DataSource = sqlitePath));
         });
         await using ServiceProvider provider = services.BuildServiceProvider();
         if (sqlitePath is not null)
@@ -272,12 +272,12 @@ public sealed class RelationalExecutionParityTests
     private static async Task<BaseRelationalFieldValue[]> ExecuteAsync(string? sqlitePath, bool seed)
     {
         var services = new ServiceCollection().AddLogging();
-        services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
         services.AddHPDBase(builder =>
         {
+            builder.AddTestPolicyAuthority<AllowPolicyEvaluator>();
             builder.ConfigureSchema(options => options.PlanProtectionKey = Enumerable.Repeat((byte)0x73, 32).ToArray());
             builder.AddCollection(AggregateRecord.Collection);
-            if (sqlitePath is not null) builder.UseSqlite(options => options.DataSource = sqlitePath);
+            if (sqlitePath is not null) builder.UseStore(SqliteStore.Configure(options => options.DataSource = sqlitePath));
         });
         await using ServiceProvider provider = services.BuildServiceProvider();
         if (sqlitePath is not null)
@@ -315,12 +315,12 @@ public sealed class RelationalExecutionParityTests
     private static async Task<string[]> ExecuteJoinAsync(string? sqlitePath, BaseJoinKind kind)
     {
         var services = new ServiceCollection().AddLogging();
-        services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
         services.AddHPDBase(builder =>
         {
+            builder.AddTestPolicyAuthority<AllowPolicyEvaluator>();
             builder.ConfigureSchema(options => options.PlanProtectionKey = Enumerable.Repeat((byte)0x74, 32).ToArray());
             builder.AddCollection(JoinLeft.Collection).AddCollection(JoinRight.Collection);
-            if (sqlitePath is not null) builder.UseSqlite(options => options.DataSource = sqlitePath);
+            if (sqlitePath is not null) builder.UseStore(SqliteStore.Configure(options => options.DataSource = sqlitePath));
         });
         await using ServiceProvider provider = services.BuildServiceProvider();
         if (sqlitePath is not null)
@@ -451,7 +451,7 @@ internal sealed partial record GroupedPageRecord
     public required int Amount { get; init; }
 }
 
-[BaseRead("grouped-page", typeof(GroupedPageJsonContext))]
+[BaseRead("grouped-page", typeof(GroupedPageJsonContext), RequiredGrantId = "grouped-page.execute")]
 internal sealed partial record GroupedPageRead
 {
     [BaseReadParameter("grouped-page.amounts")]
@@ -510,7 +510,7 @@ internal sealed partial record DateTimeParityRecord
 [JsonSerializable(typeof(DateTimeParityRead.Row), TypeInfoPropertyName = "DateTimeParityReadRow")]
 internal sealed partial class DateTimeParityJsonContext : JsonSerializerContext;
 
-[BaseRead("datetime-parity", typeof(DateTimeParityJsonContext))]
+[BaseRead("datetime-parity", typeof(DateTimeParityJsonContext), RequiredGrantId = "datetime-parity.execute")]
 internal sealed partial record DateTimeParityRead
 {
     [BaseReadParameter("datetime.after")]

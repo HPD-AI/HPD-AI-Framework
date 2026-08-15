@@ -46,16 +46,25 @@ public sealed class BaseTestHost : IAsyncDisposable
         var time = new BaseTestTimeProvider(
             initialTime ?? new DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero));
         services.AddSingleton<TimeProvider>(time);
+        var policy = new BaseTestPolicy();
+        services.AddSingleton(policy);
         services.AddHPDBase(builder =>
         {
             configure(builder);
+            builder.AddPolicyAuthority(
+                new BasePolicyAuthorityDefinition
+                {
+                    Id = "hpd.base.testing.policy",
+                    Version = 1,
+                    OwningModuleId = "hpd.base.testing",
+                    EvaluatorContractId = "hpd.base.testing.policy-evaluator",
+                    EvaluatorContractVersion = 1,
+                    CompositionOrder = 0,
+                },
+                new BaseTestPolicyEvaluator(policy));
             builder.ConfigureSchema(options =>
                 options.PlanProtectionKey = Enumerable.Repeat((byte)0xA7, 32).ToArray());
         });
-        var policy = new BaseTestPolicy();
-        services.AddSingleton(policy);
-        services.Replace(
-            ServiceDescriptor.Singleton<IPolicyEvaluator, BaseTestPolicyEvaluator>());
         services.Replace(
             ServiceDescriptor.Singleton<
                 IFilePolicyOrchestrator,

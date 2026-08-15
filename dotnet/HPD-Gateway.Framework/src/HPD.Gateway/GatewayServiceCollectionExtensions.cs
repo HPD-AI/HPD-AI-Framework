@@ -1,10 +1,10 @@
 using System.Collections.Immutable;
-using HPD.Gateway.Core;
-using HPD.Gateway.Hosting;
-using HPD.Gateway.Status;
-using HPD.Gateway.Yarp;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace HPD.Gateway;
 
@@ -21,11 +21,12 @@ public static class GatewayServiceCollectionExtensions
 
         var staged = new ServiceCollection();
         staged.AddReverseProxy();
+        staged.AddRateLimiter(static _ => { });
         staged.AddHpdGatewayYarpPublication();
         staged.AddHpdGatewayYarpMaterialization();
         staged.AddHpdGatewayStatus();
 
-        var builder = new GatewayBuilder(staged);
+        var builder = new GatewayBuilder(staged, services);
         configure(builder);
         var state = builder.Seal();
         staged.AddSingleton(state);
@@ -41,6 +42,7 @@ public static class GatewayServiceCollectionExtensions
         staged.AddSingleton<IGatewayNodeActivator>(static provider =>
             provider.GetRequiredService<GatewayNodeActivator>());
         staged.AddSingleton<IHostedService, GatewayInitialActivationService>();
+        staged.TryAddEnumerable(ServiceDescriptor.Singleton<IStartupFilter, GatewayEndpointRoleStartupFilter>());
 
         foreach (var descriptor in staged)
             services.Add(descriptor);
@@ -71,10 +73,11 @@ public static class GatewayServiceCollectionExtensions
             RequestInspectors = state.RequestInspectors,
             UpstreamResilienceProfiles = state.ResilienceProfiles,
             OutputCacheProfiles = state.OutputCacheProfiles,
+            DiscoveryProfiles = state.DiscoveryProfiles,
             ProtectedCredentialHeaders = state.ProtectedCredentialHeaders,
             AuthorizationPolicies = state.AuthorizationPolicies,
             CorsPolicies = state.CorsPolicies,
-            TrafficAdmissionPolicies = state.TrafficAdmissionPolicies,
+            TrafficAdmissionProfiles = state.TrafficAdmissionProfiles,
             RequestTimeoutPolicies = state.RequestTimeoutPolicies,
             AllowInspectionFileSpill = state.AllowInspectionFileSpill
         });

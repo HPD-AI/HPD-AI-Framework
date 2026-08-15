@@ -5,19 +5,22 @@ namespace HPD.Base;
 /// </summary>
 /// <typeparam name="TRecord">The persisted record type.</typeparam>
 /// <typeparam name="TValue">The field value type.</typeparam>
-public sealed class BaseField<TRecord, TValue>
+public sealed class BaseField<TRecord, TValue> : IBaseFieldContract
 {
     internal BaseField(
         string id,
-        string storedName,
+        string applicationName,
+        string wireName,
         bool nullable,
         BaseFieldOperator operators)
     {
         BaseApplicationId.Validate(id, nameof(id));
-        ArgumentException.ThrowIfNullOrWhiteSpace(storedName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(applicationName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(wireName);
 
         Id = id;
-        StoredName = storedName;
+        ApplicationName = applicationName;
+        WireName = wireName;
         Nullable = nullable;
         Operators = operators;
     }
@@ -28,9 +31,12 @@ public sealed class BaseField<TRecord, TValue>
     public string Id { get; }
 
     /// <summary>
-    /// Gets the current canonical stored field name.
+    /// Gets the exact application-facing property identity.
     /// </summary>
-    public string StoredName { get; }
+    public string ApplicationName { get; }
+
+    /// <summary>Gets the exact serializer-owned wire identity.</summary>
+    public string WireName { get; }
 
     /// <summary>
     /// Gets whether the persisted field accepts null.
@@ -41,6 +47,15 @@ public sealed class BaseField<TRecord, TValue>
     /// Gets the query operations valid for this field.
     /// </summary>
     public BaseFieldOperator Operators { get; }
+    Type IBaseFieldContract.ValueType => typeof(TValue);
+}
+
+internal interface IBaseFieldContract
+{
+    string Id { get; }
+    string ApplicationName { get; }
+    string WireName { get; }
+    Type ValueType { get; }
 }
 
 /// <summary>

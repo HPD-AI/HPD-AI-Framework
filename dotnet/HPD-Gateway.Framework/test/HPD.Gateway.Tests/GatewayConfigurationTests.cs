@@ -1,7 +1,6 @@
 using System.Text.Json;
 using FluentAssertions;
-using HPD.Gateway.Abstractions;
-using HPD.Gateway.Abstractions.Serialization;
+using HPD.Gateway;
 using Xunit;
 
 namespace HPD.Gateway.Tests;
@@ -34,6 +33,23 @@ public sealed class GatewayConfigurationTests
 
         roundTripped.Should().BeEquivalentTo(configuration);
         GatewayConfigurationValidator.Validate(roundTripped!).IsValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Public_canonical_document_is_aot_safe_and_fails_closed()
+    {
+        GatewayConfiguration configuration = CreateValidConfiguration();
+
+        GatewayCanonicalDocument first = configuration.ToCanonicalDocument();
+        GatewayCanonicalDocument second = configuration.ToCanonicalDocument();
+
+        first.Utf8Json.Should().Equal(second.Utf8Json);
+        first.ContentHash.Should().Be(second.ContentHash);
+        JsonSerializer.Deserialize(first.Utf8Json.AsSpan(),
+            GatewayJsonSerializerContext.Default.GatewayConfiguration).Should().BeEquivalentTo(configuration);
+
+        Action invalid = () => (configuration with { Upstreams = [] }).ToCanonicalDocument();
+        invalid.Should().Throw<InvalidOperationException>();
     }
 
     [Fact]

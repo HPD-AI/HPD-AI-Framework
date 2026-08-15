@@ -226,6 +226,7 @@ public class ProviderConfigConsolidationTests
         builder.Config.EnsureChatClientConfig().ProviderKey.Should().Be("ollama");
     }
 
+#if NET10_0_OR_GREATER
     [Fact]
     public void WithCohereEmbeddings_ShouldRegisterEmbeddingProviderInBuilderRegistry()
     {
@@ -236,6 +237,7 @@ public class ProviderConfigConsolidationTests
             .Should().NotBeNull();
         builder.Config.Clients.Embeddings.Should().NotBeNull();
     }
+#endif
 
     [Fact]
     public void OllamaProviderConfig_ShouldOwnProviderConstructionOptions()

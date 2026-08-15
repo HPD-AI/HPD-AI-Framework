@@ -1,13 +1,11 @@
 using System.Collections.Immutable;
 using System.Text;
-using HPD.Gateway.Abstractions;
-using HPD.Gateway.Core;
-using HPD.Gateway.Effective;
-using HPD.Gateway.Yarp;
 
 namespace HPD.Gateway;
 
 public sealed record GatewayNodeActivationRequest(
+    string NamespaceId,
+    string TargetNodeId,
     CandidateId CandidateId,
     string AuthorityId,
     string AuthorityEpoch,
@@ -16,7 +14,7 @@ public sealed record GatewayNodeActivationRequest(
 
 public enum GatewayNodeActivationState : byte
 {
-    RejectedBeforeMaterialization = 0,
+    RejectedBeforePlanning = 0,
     RejectedBeforePublish = 1,
     PublicationCompleted = 2
 }
@@ -29,7 +27,8 @@ public sealed record GatewayNodeActivationDiagnostic(
 public sealed record GatewayNodeActivationResult(
     GatewayNodeActivationState State,
     GatewayPublicationOutcome? Publication,
-    GatewayEffectiveSnapshot? EffectiveSnapshot,
+    string? ApplicationId,
+    ContentHash? SymbolicPlanIdentity,
     ImmutableArray<GatewayNodeActivationDiagnostic> Diagnostics)
 {
     public bool IsActiveAcknowledged =>
@@ -45,14 +44,13 @@ public interface IGatewayNodeActivator
 
 internal sealed class GatewayNodeActivator(
     HostCapabilitySnapshot capabilities,
-    GatewayNativeMaterializer materializer,
-    GatewayYarpPublisher publisher) : IGatewayNodeActivator, IDisposable
+    GatewayRuntimePlanner planner,
+    GatewayRuntimePublisher publisher) : IGatewayNodeActivator, IDisposable
 {
     private const int MaximumAuthorityIdentityUtf8Bytes = 256;
     private static readonly TimeSpan AcknowledgementTimeout = TimeSpan.FromSeconds(30);
     private readonly SemaphoreSlim _activationLease = new(1, 1);
     private volatile bool _disposed;
-
     public async ValueTask<GatewayNodeActivationResult> ActivateAsync(
         GatewayNodeActivationRequest request,
         CancellationToken cancellationToken = default)
@@ -72,12 +70,12 @@ internal sealed class GatewayNodeActivator(
                 return Canceled("activation.stopping");
             var identityErrors = ValidateRequest(request);
             if (!identityErrors.IsEmpty)
-                return Rejected(GatewayNodeActivationState.RejectedBeforeMaterialization, identityErrors);
+                return Rejected(GatewayNodeActivationState.RejectedBeforePlanning, identityErrors);
 
             var candidate = GatewayCandidateReader.Read(request.Utf8Configuration.AsSpan(), capabilities);
             if (!candidate.IsAccepted)
                 return Rejected(
-                    GatewayNodeActivationState.RejectedBeforeMaterialization,
+                    GatewayNodeActivationState.RejectedBeforePlanning,
                     candidate.Errors.Select(static error => new GatewayNodeActivationDiagnostic(
                         $"candidate.{error.Code}", error.Path, error.Message)).ToImmutableArray());
 
@@ -87,25 +85,33 @@ internal sealed class GatewayNodeActivator(
                 request.AuthorityEpoch,
                 request.AuthorityVersion,
                 candidate.CanonicalDocument!.ContentHash);
-            var materialized = await materializer.MaterializeAsync(
+            var planned = await planner.PlanAsync(
                 candidate,
                 identity,
                 $"hpd-{Guid.NewGuid():N}",
                 cancellationToken).ConfigureAwait(false);
-            if (!materialized.IsMaterialized)
+            if (!planned.IsPlanned)
                 return Rejected(
                     GatewayNodeActivationState.RejectedBeforePublish,
-                    materialized.Diagnostics.Select(static error => new GatewayNodeActivationDiagnostic(
+                    planned.Diagnostics.Select(static error => new GatewayNodeActivationDiagnostic(
                         error.Code, error.Path, error.SafeMessage)).ToImmutableArray());
+            if (planned.PreparedApplication is null)
+                return Rejected(
+                    GatewayNodeActivationState.RejectedBeforePublish,
+                    [new GatewayNodeActivationDiagnostic(
+                        "planning.dependencies-unresolved", "$", "The symbolic runtime plan requires the governed pre-exchange resolver.")]);
 
             var publication = await publisher.PublishAsync(
-                materialized.Bundle!,
+                planned.PreparedApplication,
+                request.NamespaceId,
+                request.TargetNodeId,
                 AcknowledgementTimeout,
                 cancellationToken).ConfigureAwait(false);
             return new GatewayNodeActivationResult(
                 GatewayNodeActivationState.PublicationCompleted,
                 publication,
-                materialized.EffectiveSnapshot,
+                publication.Active?.ApplicationId ?? planned.PreparedApplication.ApplicationId,
+                publication.Active?.SymbolicPlanIdentity ?? planned.PreparedApplication.SymbolicPlanIdentity,
                 publication.Diagnostics.Select(static error => new GatewayNodeActivationDiagnostic(
                     error.Code, "$", error.SafeMessage)).ToImmutableArray());
         }
@@ -128,6 +134,8 @@ internal sealed class GatewayNodeActivator(
         GatewayNodeActivationRequest request)
     {
         var errors = ImmutableArray.CreateBuilder<GatewayNodeActivationDiagnostic>();
+        ValidateAuthority(request.NamespaceId, "namespaceId", errors);
+        ValidateAuthority(request.TargetNodeId, "targetNodeId", errors);
         if (!GatewayIdentifier.IsCanonical(request.CandidateId.Value))
             errors.Add(new("activation.candidate-id-invalid", "candidateId", "Candidate identity is not canonical."));
         ValidateAuthority(request.AuthorityId, "authorityId", errors);
@@ -153,10 +161,10 @@ internal sealed class GatewayNodeActivator(
     private static GatewayNodeActivationResult Rejected(
         GatewayNodeActivationState state,
         ImmutableArray<GatewayNodeActivationDiagnostic> diagnostics) =>
-        new(state, null, null, diagnostics);
+        new(state, null, null, null, diagnostics);
 
     private static GatewayNodeActivationResult Canceled(string code) =>
         Rejected(
-            GatewayNodeActivationState.RejectedBeforeMaterialization,
+            GatewayNodeActivationState.RejectedBeforePlanning,
             [new(code, "$", "Node activation was canceled before native publication.")]);
 }

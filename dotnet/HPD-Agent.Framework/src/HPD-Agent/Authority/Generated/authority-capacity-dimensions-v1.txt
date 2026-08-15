@@ -1,0 +1,15 @@
+# id|token|unit|conservation|scope-kinds|emergency|maximum-per-charge|schema-version|settlement-evidence
+1|media-bytes|Bytes|Resident|Tenant,Session,Participant|None|16777216|1|MediaLeaseReleased
+2|encoded-bytes|Bytes|Resident|Tenant,Session,Operation|None|4194304|1|EncodedBufferReleased
+3|queue-items|Items|Resident|Tenant,Session,Operation|None|1024|1|QueueItemsRemoved
+4|audio-samples|Samples|Resident|Tenant,Session,Participant|None|480000|1|SampleRangeReleased
+5|buffer-nanoseconds|Nanoseconds|Resident|Tenant,Session,Participant|None|10000000000|1|TimedBufferReleased
+6|provider-inflight|Slots|Exclusive|Tenant,Session,Provider|None|64|1|ProviderSlotSettled
+7|output-inflight|Slots|Exclusive|Tenant,Session,Sink|None|64|1|OutputSlotSettled
+8|subscriber-items|Items|Resident|Tenant,Session,Subscriber|None|256|1|SubscriberRangeReleased
+9|subscriber-bytes|Bytes|Resident|Tenant,Session,Subscriber|None|1048576|1|SubscriberBytesReleased
+10|journal-bytes|Bytes|Resident|Tenant,Session|Authority|1048576|1|JournalRetentionRetired
+11|copy-obligations|Items|Resident|Tenant,Session,Custodian|Privacy|4096|1|CopyObligationTerminalized
+12|quarantine-bytes|Bytes|Resident|Tenant,Session,Schema|Recovery|1048576|1|QuarantinePayloadRetired
+13|diagnostic-cardinality|Items|RateWindow|Tenant,Exporter|None|1024|1|DiagnosticWindowElapsed
+14|recovery-work|Items|Resident|Tenant,Session,Owner|Recovery|1024|1|RecoveryWorkTerminalized

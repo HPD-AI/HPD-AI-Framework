@@ -15,6 +15,8 @@ public sealed class BaseSession
     private readonly IBaseRealtimeFeedSource? _realtime;
     private readonly IBaseLiveQueryCoordinator? _liveQueries;
     private readonly IBaseRegisteredReadRuntime? _reads;
+    private readonly IServiceProvider _services;
+    private readonly string _applicationId;
 
     internal BaseSession(
         IBaseRecordRuntime runtime,
@@ -26,7 +28,9 @@ public sealed class BaseSession
         IBaseRealtimeFeedSource? realtime = null,
         IBaseLiveQueryCoordinator? liveQueries = null,
         IBaseRegisteredReadRuntime? reads = null,
-        int maxQueryPageSize = 500)
+        int maxQueryPageSize = 500,
+        IServiceProvider? services = null,
+        string applicationId = "hpd.base.application")
     {
         _runtime = runtime;
         _timeProvider = timeProvider;
@@ -37,6 +41,8 @@ public sealed class BaseSession
         _realtime = realtime;
         _liveQueries = liveQueries;
         _reads = reads;
+        _services = services ?? EmptyServiceProvider.Instance;
+        _applicationId = new string(applicationId.AsSpan());
         MaxQueryPageSize = maxQueryPageSize;
     }
 
@@ -93,10 +99,33 @@ public sealed class BaseSession
         _liveQueries,
         this);
 
+    /// <summary>Gets registered module mutations bound to this session and installed graph.</summary>
+    public BaseModuleMutationSession ModuleMutations => new(this);
+
+    /// <summary>Resolves one generated exported-subject contract from this installed application graph.</summary>
+    [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+    public BaseExportedSubjectContract<TSubject> GetExportedSubjectContract<TSubject>(BaseGeneratedSubjectRegistration registration)
+    {
+        ArgumentNullException.ThrowIfNull(registration);
+        BaseGeneratedSubjectRegistration? installed = _services.GetService(typeof(BaseSubjectContractRegistry)) is BaseSubjectContractRegistry registry
+            ? registry.Find(typeof(TSubject)) : null;
+        if (installed is null || !ReferenceEquals(installed, registration) ||
+            !string.Equals(installed.Checksum, registration.Checksum, StringComparison.Ordinal) ||
+            !installed.Definition.Audiences.Contains(_options.Audience))
+            throw new InvalidOperationException(BaseSubjectErrorCodes.ContractInvalid);
+        return new BaseExportedSubjectContract<TSubject>(installed);
+    }
+
     internal IBaseRecordRuntime Runtime => _runtime;
     internal int MaxQueryPageSize { get; }
 
     internal PrincipalContext Principal => _principal;
+    internal IServiceProvider Services => _services;
+    internal System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> Serializer<T>(BaseCollection<T> collection) =>
+        _services.GetService(typeof(BaseSerializerMetadataOwner)) is BaseSerializerMetadataOwner owner
+            ? owner.Resolve(collection)
+            : collection.JsonTypeInfo;
+    internal string ApplicationId => _applicationId;
 
     internal FileOperationContext FileContext() => new()
     {
@@ -113,6 +142,8 @@ public sealed class BaseSession
         RecordId? recordId = null) =>
         new()
         {
+            ApplicationId = _applicationId,
+            Audience = _options.Audience,
             Operation = kind,
             CollectionId = collectionId,
             RecordId = recordId?.Value,
@@ -126,4 +157,10 @@ public sealed class BaseSession
     private static TService Missing<TService>(string feature) =>
         throw new InvalidOperationException(
             $"HPD.BASE {feature} support is not installed. Register the feature in AddHPDBase.");
+
+    private sealed class EmptyServiceProvider : IServiceProvider
+    {
+        internal static EmptyServiceProvider Instance { get; } = new();
+        public object? GetService(Type serviceType) => null;
+    }
 }

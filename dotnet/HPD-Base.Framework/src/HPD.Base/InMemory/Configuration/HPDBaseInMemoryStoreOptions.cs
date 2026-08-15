@@ -12,6 +12,9 @@ public sealed class HPDBaseInMemoryStoreOptions
     internal string StoreVersion { get; set; } = HPDBaseInMemoryDefaults.DefaultStoreVersion;
     internal string[] CollectionIds { get; set; } = [];
     internal CollectionDefinition[]? Collections { get; set; }
+    internal BaseExportedSubjectDefinition[] ExportedSubjects { get; set; } = [];
+    internal BaseRegisteredModuleMutationDefinition[] ModuleMutations { get; set; } = [];
+    internal BaseModuleGenerationCellDefinition[] ModuleGenerationCells { get; set; } = [];
     /// <summary>Gets or sets the default page size used when a query omits page size.</summary>
     public int DefaultPageSize { get; set; } = 100;
     /// <summary>Gets or sets the maximum page size advertised and accepted by the store.</summary>
@@ -34,6 +37,12 @@ public sealed class HPDBaseInMemoryStoreOptions
     public bool AllowClientRequestedIds { get; set; } = true;
     /// <summary>Gets or sets whether the store advertises streaming support.</summary>
     public bool EnableStreamingCapability { get; set; } = true;
+    /// <summary>Gets or sets the maximum number of indexed vector carriers.</summary>
+    public int MaxVectorIndexedRecords { get; set; } = 10_000;
+    /// <summary>Gets or sets the maximum owned vector bytes in the currently published root.</summary>
+    public long MaxVectorBytes { get; set; } = 67_108_864;
+    /// <summary>Gets or sets the maximum authoritative records in one vector-bearing collection.</summary>
+    public int MaxVectorSourceRecordsPerCollection { get; set; } = 100_000;
     internal bool ContributeModuleDescriptor { get; set; } = true;
     internal bool ContributeCapabilities { get; set; } = true;
     internal bool ContributeHealth { get; set; } = true;
